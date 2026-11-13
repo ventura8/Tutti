@@ -5,4 +5,4 @@ This project follows the [Contributor Covenant, version 2.1](https://www.contrib
 In short: be respectful and patient, assume good intent, criticise work and not people, and accept that maintainers may
 edit or remove contributions and comments that break these rules.
 
-Reports of unacceptable behaviour go to the maintainers. TODO (owner): add a contact address before publishing.
+Reports of unacceptable behaviour go to the maintainers through a private report on the repository (GitHub private vulnerability reporting, or a direct message to a maintainer on GitHub).

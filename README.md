@@ -7,7 +7,7 @@ Tutti is a small toolkit for AI-assisted work on a software project when you hav
 more than one computer. It grew out of one project's working day and keeps only what proved useful.
 
 > **Status: v0.1.0, unreleased.** Linux only. The npm package `tutti-agents` is marked `private` until the first
-> publish. **Licence:** the `LICENSE` file is an MIT placeholder; the owner chooses the licence before publishing.
+> publish. **Licence:** MIT (see `LICENSE`).
 
 ## The ideas
 

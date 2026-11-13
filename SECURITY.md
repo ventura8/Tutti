@@ -15,4 +15,4 @@ credentials: ssh uses your own keys and agent, and each worker CLI keeps its own
 ## Reporting a vulnerability
 
 Please do not open a public issue for a security problem. Once the repository is public, use GitHub's private
-vulnerability reporting on it. TODO (owner): add a contact address before publishing.
+vulnerability reporting on it: report privately through the repository's **Security → Report a vulnerability** (GitHub private vulnerability reporting). Please do not open a public issue for a security problem.

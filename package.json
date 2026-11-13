@@ -1,7 +1,7 @@
 {
     "name": "tutti-agents",
     "version": "0.1.0",
-    "private": true,
+    "private": false,
     "description": "Tutti: one orchestrator, many AI workers, shared machines. Slot queues, fall-over routing, usage pacing, a yield flag and translation with mandatory QA.",
     "license": "MIT",
     "bin": {
@@ -29,5 +29,13 @@
     ],
     "os": [
         "linux"
-    ]
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ventura8/Tutti.git"
+    },
+    "homepage": "https://github.com/ventura8/Tutti#readme",
+    "bugs": {
+        "url": "https://github.com/ventura8/Tutti/issues"
+    }
 }

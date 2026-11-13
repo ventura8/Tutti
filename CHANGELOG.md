@@ -18,3 +18,5 @@ The first extraction of the toolkit from the project it grew in.
 - `tutti yield`, `tutti machines`, `tutti guard`, `tutti tunnel`, `tutti quiet`, `tutti wait`.
 - `tutti translate`: translation of flat JSON catalogues with mandatory QA and an import gate.
 - Docs: architecture, workers, usage pacing, machines, lessons, roadmap, feedback log, migration.
+
+- One-line installers and uninstallers for Linux/WSL/macOS (`install/install.sh`) and Windows (`install/install.ps1`).

@@ -30,6 +30,22 @@ more than one computer. It grew out of one project's working day and keeps only 
 - **Translation with mandatory QA.** Local models translate; no string is written before it passes mechanical
   validators and a back-translation check by a second model. What fails is held for a human, never shipped.
 
+## Install
+
+Linux, WSL, macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ventura8/Tutti/main/install/install.sh | bash
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/ventura8/Tutti/main/install/install.ps1 | iex
+```
+
+Re-run the same line to update. Uninstall with `install/uninstall.sh` or `install/uninstall.ps1` the same way (config is kept unless `TUTTI_PURGE=1`). Then run `tutti setup` and `tutti doctor`.
+
 ## Quick start
 
 Requirements: Linux, Python 3.10+, `PyYAML`, `git`, `rsync`, `ssh` with key-based login to your machines, and Docker

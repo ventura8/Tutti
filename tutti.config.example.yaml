@@ -1,0 +1,96 @@
+# tutti.config.example.yaml: copy to tutti.config.yaml (in your project, a parent folder, or ~/.config/tutti/config.yaml)
+# and edit. Everything personal lives here: hosts, paths, accounts. Never put a token, password or key in this file.
+
+project:
+  worktrees: ~/Projects/app-wt        # `tutti test <track> ...` runs over <worktrees>/<track>
+  state: ~/.local/state/tutti         # logs, pid files, the usage log
+
+# Machines that run heavy commands. Each has a slot queue: at most `slots` runs at once, and only with enough free memory.
+machines:
+  builder:                            # a quiet Linux box: the first choice
+    host: builder.example             # an ssh alias from ~/.ssh/config; key-based login, no password prompt
+    root: tutti-wt                    # folder under the remote home for the copies
+    slots: 3
+    min_free_gb: 6
+  gpu-box:                            # a shared machine: used only when the builder is full AND this one is fit
+    host: gpu-box.example
+    slots: 2
+    max_load_ratio: 0.5               # fit only while its load is under half its cores
+    yield_file: ~/.tutti/yield        # while this file exists, tutti sends the machine nothing new
+  # win-box:                          # a Windows machine, commands run in its WSL
+  #   host: win-box.example
+  #   transport: wsl
+  #   wsl_helper: /home/me/tutti-wt/wsl-run64.sh   # scripts/wsl-run64.sh, copied into WSL once
+  here:                               # this computer: one heavy job at a time, capped, first to die when memory runs out
+    host: local
+    slots: 1
+    runner: {memory_gb: 8, cpus: 6, args: [--oom-score-adj=900]}
+
+# How a command runs at the tree root. kind: shell (plain bash) or docker (a capped container of `image`).
+runner:
+  kind: docker
+  image: my-quality-image:local
+  memory_gb: 12
+  cpus: 8
+  env: {HOME: /tmp/tutti-home}
+  prelude: mkdir -p $HOME
+
+routing:
+  order: [builder, gpu-box]           # first fit wins; when none is fit the run queues on the first
+
+sync:
+  exclude: ['/.git', '/dist/', '__pycache__', '.env', '.env.*', '*.key', '*.pem']   # never copied to a machine
+  ensure_dirs: []
+
+# Workers the orchestrator can brief. kind: cli (another vendor's agent) or ollama (a local model server).
+workers:
+  cursor: {kind: cli, command: [cursor-agent, -p, '{prompt}', --trust, --output-format, text]}
+  agy: {kind: cli, command: [agy, -p, '{prompt}', --print-timeout, 600s]}        # Google Antigravity
+  claude: {kind: cli, command: [claude, -p, '{prompt}']}
+  big:                                # a large model on the GPU box, reached through a tunnel
+    kind: ollama
+    host: 127.0.0.1:11436
+    model: your-coder-model:27b
+    threads: 8
+    num_ctx: 32768
+    machine: gpu-box                  # honours that machine's yield flag
+    tunnel: {ssh: gpu-box.example, remote: '127.0.0.1:11434'}
+  small: {kind: ollama, host: '127.0.0.1:11434', model: 'your-small-model:9b', threads: 4}
+
+# Rules added to every brief (the standing ones, "do not commit", "no secrets", are always added).
+brief:
+  rules:
+    - Follow AGENTS.md.
+    - No inline lint suppressions.
+
+# Quotas to pace. `resets` is any one known reset time (UTC); `window` repeats it: 5h, 7d, 2w or monthly.
+accounts:
+  claude: {window: 7d, resets: '2026-01-03T02:00Z', lead_hours: 3, share: 1.0, source: the usage page}
+  cursor: {window: monthly, resets: '2026-01-10T00:00Z', lead_hours: 3, source: the dashboard's Usage tab}
+  agy: {source: the account page}     # reset unknown yet: `tutti usage` says where to read it
+
+usage:
+  log: ~/.local/state/tutti/usage.jsonl
+
+guard: {low_gb: 3, high_gb: 6}        # `tutti guard`: pause the runner image's containers under 3 GB, resume over 6 GB
+
+ship:
+  protected: [main, master]           # never committed to by accident
+  format: ''                          # a command; TUTTI_CHANGED holds the uncommitted files
+  add: [.]
+  trailer: ''                         # for example a Co-Authored-By line
+  base: origin/main                   # TUTTI_CHANGED for the checks = files changed since this ref
+  checks:                             # targeted: only what changed
+    - {run: 'true', where: local}
+  full_checks:                        # --full: before a release
+    - {run: 'true', where: route, quiet: true, verdict: 'passed|failed'}
+  push: {remote: origin, branch: main}
+  deploy: ''
+
+translate:
+  translator: big
+  judge: small                        # a different model than the translator
+  source_language: English
+  languages: {fr: French, de: German}
+  keep: []                            # names never translated
+  retries: 2

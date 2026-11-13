@@ -1,0 +1,146 @@
+"""Finds, loads and checks tutti.config.yaml. Everything personal (hosts, paths, accounts) lives in that file, never in code."""
+import copy
+import json
+import os
+
+NAMES = ('tutti.config.yaml', 'tutti.config.yml', 'tutti.config.json')
+TRANSPORTS = ('local', 'ssh', 'wsl')
+DEFAULTS = {
+    'project': {'worktrees': '.', 'state': '~/.local/state/tutti'},
+    'machines': {},
+    'runner': {'kind': 'shell', 'memory_gb': 12, 'cpus': 8, 'env': {}, 'args': [], 'prelude': ''},
+    'routing': {'order': []},
+    'sync': {'exclude': ['/.git', '.env', '.env.*', '*.key', '*.pem'], 'ensure_dirs': []},
+    'workers': {},
+    'brief': {'rules': []},
+    'accounts': {},
+    'ship': {'protected': ['main', 'master'], 'add': ['.'], 'checks': [], 'full_checks': []},
+}
+MACHINE_DEFAULTS = {'transport': 'ssh', 'root': 'tutti-wt', 'slots': 2, 'min_free_gb': 6, 'lock_prefix': '/tmp/tutti-slot-',
+                    'yield_file': '~/.tutti/yield'}
+
+
+class ConfigError(Exception):
+    """The config file is missing or wrong; the message says which key and what to write instead."""
+
+
+def find(start=None, env=None):
+    """$TUTTI_CONFIG, else the nearest tutti.config.* from `start` upwards, else ~/.config/tutti/config.yaml; None when absent."""
+    env = os.environ if env is None else env
+    if env.get('TUTTI_CONFIG'):
+        return env['TUTTI_CONFIG']
+    d = os.path.abspath(start or os.getcwd())
+    while True:
+        for n in NAMES:
+            if os.path.isfile(os.path.join(d, n)):
+                return os.path.join(d, n)
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    home = os.path.join(os.path.expanduser(env.get('XDG_CONFIG_HOME') or '~/.config'), 'tutti', 'config.yaml')
+    return home if os.path.isfile(home) else None
+
+
+def parse(text, path='tutti.config.yaml'):
+    if path.endswith('.json'):
+        return json.loads(text) or {}
+    try:
+        import yaml
+    except ImportError as e:
+        raise ConfigError('PyYAML is needed to read a YAML config: `pip install pyyaml`, or write tutti.config.json') from e
+    return yaml.safe_load(text) or {}
+
+
+def merge(base, over):
+    out = copy.deepcopy(base)
+    for k, v in (over or {}).items():
+        out[k] = merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else copy.deepcopy(v)
+    return out
+
+
+def normalise(raw):
+    """Defaults filled in; every machine gets its name, the machine defaults and its own merged runner."""
+    if not isinstance(raw, dict):
+        raise ConfigError('the config must be a mapping at the top level (machines:, workers:, accounts:, ...)')
+    cfg = merge(DEFAULTS, raw)
+    for name, m in list(cfg['machines'].items()):
+        m = merge(MACHINE_DEFAULTS, m or {})
+        if m.get('host') == 'local':
+            m['transport'] = 'local'
+        if m.get('locks'):
+            m['slots'] = len(m['locks'])
+        m['name'] = name
+        m['runner'] = merge(cfg['runner'], m.get('runner'))
+        cfg['machines'][name] = m
+    if not cfg['routing']['order']:
+        cfg['routing']['order'] = list(cfg['machines'])
+    return cfg
+
+
+def _machine_errors(name, m):
+    errs = []
+    if m['transport'] not in TRANSPORTS:
+        errs.append(f'machines.{name}.transport is "{m["transport"]}": use one of {", ".join(TRANSPORTS)}')
+    if m['transport'] != 'local' and not m.get('host'):
+        errs.append(f'machines.{name}.host is missing: give its ssh alias, or "local" for this computer')
+    if m['transport'] == 'wsl' and not m.get('wsl_helper'):
+        errs.append(f'machines.{name}.wsl_helper is missing: the path, inside WSL, of the base64 runner (docs/MACHINES.md)')
+    if not isinstance(m['slots'], int) or m['slots'] < 1:
+        errs.append(f'machines.{name}.slots is {m["slots"]!r}: use a whole number, 1 or more')
+    if m['runner']['kind'] not in ('docker', 'shell'):
+        errs.append(f'machines.{name}.runner.kind is "{m["runner"]["kind"]}": use docker or shell')
+    if m['runner']['kind'] == 'docker' and not m['runner'].get('image'):
+        errs.append(f'machines.{name}.runner.image is missing: a docker runner needs the image to run')
+    return errs
+
+
+def _worker_errors(name, w):
+    kind = (w or {}).get('kind')
+    if kind == 'cli':
+        return [] if isinstance(w.get('command'), list) and w['command'] else [
+            f'workers.{name}.command is missing: a list such as [cursor-agent, -p, "{{prompt}}"]']
+    if kind == 'ollama':
+        return [f'workers.{name}.{k} is missing' for k in ('host', 'model') if not w.get(k)]
+    return [f'workers.{name}.kind is {kind!r}: use cli or ollama']
+
+
+def validate(cfg):
+    """Every problem at once, each naming its key and the fix; an empty list means the config is usable."""
+    errs = []
+    for name, m in cfg['machines'].items():
+        errs += _machine_errors(name, m)
+    errs += [f'routing.order names "{n}", which is not under machines:' for n in cfg['routing']['order'] if n not in cfg['machines']]
+    for name, w in cfg['workers'].items():
+        errs += _worker_errors(name, w)
+        if (w or {}).get('machine') and w['machine'] not in cfg['machines']:
+            errs.append(f'workers.{name}.machine names "{w["machine"]}", which is not under machines:')
+    for name, a in cfg['accounts'].items():
+        share = (a or {}).get('share', 1)
+        if not isinstance(share, (int, float)) or not 0 < share <= 1:
+            errs.append(f'accounts.{name}.share is {share!r}: use a fraction above 0 and up to 1 (0.5 = half)')
+    return errs
+
+
+def load(path=None, start=None, env=None):
+    path = path or find(start, env)
+    if not path:
+        raise ConfigError('no tutti.config.yaml found here, in a parent folder or in ~/.config/tutti/: copy '
+                          'tutti.config.example.yaml and edit it, or set TUTTI_CONFIG to its path')
+    with open(path, encoding='utf8') as f:
+        cfg = normalise(parse(f.read(), path))
+    errs = validate(cfg)
+    if errs:
+        raise ConfigError(f'{path} has {len(errs)} problem(s):\n  - ' + '\n  - '.join(errs))
+    cfg['_path'] = os.path.abspath(path)
+    return cfg
+
+
+def expand(p):
+    return os.path.abspath(os.path.expanduser(p))
+
+
+def state_dir(cfg):
+    d = expand(cfg['project']['state'])
+    os.makedirs(d, exist_ok=True)
+    return d

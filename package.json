@@ -1,0 +1,33 @@
+{
+    "name": "tutti-agents",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Tutti: one orchestrator, many AI workers, shared machines. Slot queues, fall-over routing, usage pacing, a yield flag and translation with mandatory QA.",
+    "license": "MIT",
+    "bin": {
+        "tutti": "bin/tutti"
+    },
+    "files": [
+        "bin/",
+        "tutti/",
+        "scripts/",
+        "docs/",
+        "tutti.config.example.yaml",
+        "MIGRATION.md",
+        "CHANGELOG.md"
+    ],
+    "scripts": {
+        "test": "bash scripts/check.sh"
+    },
+    "keywords": [
+        "ai-agents",
+        "orchestration",
+        "claude",
+        "cursor",
+        "antigravity",
+        "ollama"
+    ],
+    "os": [
+        "linux"
+    ]
+}

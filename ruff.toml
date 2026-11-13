@@ -1,0 +1,11 @@
+line-length = 140
+target-version = "py310"
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "C90"]
+
+[lint.mccabe]
+max-complexity = 10
+
+[format]
+quote-style = "single"

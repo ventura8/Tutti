@@ -27,4 +27,4 @@ v0.1.0 is the extraction of one project's working toolkit. The backlog is fed by
 - Storing or brokering credentials of any kind.
 
 ## Worker selection by task (owner, 2026-11-14)
-`tutti brief` should classify a task (bounded / multi-file / cross-platform design / security / judgement) and pick the worker: local model or agy/cursor for bounded work, Claude (default model; Fable only on explicit owner opt-in) for design and judgement, splitting design-first tasks into cheap sub-tasks. A UI such as Orca or Emdash only hosts the sessions; it does not decide who works.
+`tutti brief` should classify a task (bounded / multi-file / cross-platform design / security / judgement) and pick the worker: local model or agy/cursor for bounded work, Claude (default model; Fable only on explicit owner opt-in) for design and judgement, splitting design-first tasks into cheap sub-tasks. It also sets the effort: low by default, medium for multi-file work, high for design, security or hard debugging (owner, 2026-11-14). A UI such as Orca or Emdash only hosts the sessions; it does not decide who works.

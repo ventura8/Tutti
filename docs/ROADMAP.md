@@ -38,3 +38,7 @@ Minimum input from the user. `tutti setup` detects and installs what is missing 
 - Peers: discover other sessions (Claude Code cross-session messaging) and the shared-machine yield flag.
 - Re-runnable and idempotent; `tutti doctor` checks the same things and prints one fix line per problem.
 Lessons that drove it: LESSONS.md (Gemini CLI free tier closed → agy; agy headless needs per-command allow rules; Claude Code needs allow rules to start other CLIs).
+
+## An excellent TUI now, a GUI next (owner, 2026-11-14)
+- **TUI (`tutti` with no arguments, or `tutti ui`)**: one live screen — workers (cursor/agy/local/Claude sessions) with their task and state, machines with slots/load/heat/GPU, the test queue, accounts with % used and the pace line to "1 h before reset", peers and yield flags, recent ship/test verdicts; keys to start/stop a task, open its log, review its diff, yield a machine. Keyboard-first, mouse optional, works over SSH, colour + no-colour, narrow terminals. Candidate library: Textual (Python, MIT) — fits the Python CLI.
+- **GUI (after the TUI; planned right after the 2026-11-14 reset)**: the same model served locally (web UI on localhost, phone-friendly), sharing the TUI's data layer; evaluate embedding or integrating Orca/Emdash for the worktree/session view instead of rebuilding it (docs/COMPETITORS.md).

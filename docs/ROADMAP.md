@@ -50,3 +50,18 @@ Lessons that drove it: LESSONS.md (Gemini CLI free tier closed → agy; agy head
 ## Sharing with another agent session, the easy way (owner, 2026-11-14)
 `tutti peers`: find other Claude Code sessions (cross-session messaging / Remote Control), pair once, then share plans, quota splits, machine yields and QA findings as structured messages instead of hand-written ones: `tutti share plan|usage|finding|yield`, an inbox in the TUI, and GitHub issues/PRs as the durable channel. Modern defaults throughout (2026): zero-config discovery, one-line installs, sane defaults, no copy-paste setups, JSON output for every command, shell completions, `--help` with examples.
 - Effort coordination (owner, 2026-11-14): every task Tutti starts gets an effort level chosen by task type (low default; medium multi-file/verification; high design/security/hard debugging; higher only on request), adjusted by pacing (behind the line → higher effort where it improves results; ahead → lower), and shared with peers so both sessions follow the same policy. Logged per task.
+
+## Backlog gathered from the first project's history (before the name "Tutti", 2026-11-12..14)
+- Machine guards: memory guard (pause containers under a free-memory floor), heat guard (NUC hit 104 °C: lower slots when hot), per-machine slot counts changed safely (queued waiters keep the old count), never an uncapped container.
+- Test routing: remote slots with fall-over to the next machine, a priority lane for urgent work (the "third slot" case) that an agent may use without tripping safety checks, idle-machine discovery.
+- Waiting: never `pgrep -f`/`pkill -f` from a shell holding the pattern; wait on PIDs, done-files or log lines, always with a timeout (three agents stalled for hours).
+- Stall detection: flag agents idle while "waiting" on a run that no longer exists; nudge or restart them.
+- Ship: commit/push from the caller's worktree, fast-forward only, never deploy an older commit; conflict-marker guard before any push.
+- Translation: the full ltrans pipeline (two translation streams, laptop + GPU QA, judge2, glossary, CJK sentence rules, owner-approved exceptions, a yield file for another project's GPU use) instead of the lean port.
+- Shared GPU etiquette: the other project's flag pauses our model use and workers; unload models on request.
+- Remote machines run by another agent: ask that agent (peer message) for admin actions instead of the user.
+- Browser agents: check sign-in state themselves, never sign in, open tabs from a signed-in tab, close what they opened.
+- Logins helper: one-liners to give the user for each CLI login and permission rule, verified afterwards.
+- Best local models for coding and translation that fit each GPU, not the cheapest; GPU/NPU for all vendors.
+- Adopt from the competitor review: Claude Code cross-session messaging for peers, `ccusage` as a usage reader, an Orca/Emdash trial for the session UI, Jules as a worker if the plan includes it, Cline/Kilo/Aider + Ollama to replace the hand-written local agent loop.
+- Living plan: keep every request in a plan file and update it continuously; memory notes for standing rules.

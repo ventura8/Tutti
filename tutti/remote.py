@@ -29,6 +29,12 @@ def argv(machine, script, ssh_opts=()):
     """The local argv that runs a bash script on the machine."""
     t = machine['transport']
     if t == 'local':
+        if os.name == 'nt':
+            # Windows rebuilds the command line for bash.exe (WSL or Git Bash) and mangles double quotes inside it:
+            # `cut -d" "` arrived as `cut -d\"`, so the local probe printed garbage and `here` showed "unreachable".
+            # The line travels base64-encoded instead, as it does for a WSL machine behind ssh: no quotes to mangle.
+            packed = base64.b64encode(script.encode()).decode()
+            return ['bash', '-c', f'echo {packed} | base64 -d | bash']
         return ['bash', '-c', script]
     if t == 'ssh':
         return [*SSH, *ssh_opts, machine['host'], script]

@@ -1,8 +1,10 @@
 """Small pure pieces: the brief, the remote command lines, waits, the translation validators and the QA gate."""
+import base64
 import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from tutti import config, local, remote, translate, waiting, workers
 
@@ -37,11 +39,22 @@ class RemoteTest(unittest.TestCase):
 
     def test_transports(self):
         m = self.cfg['machines']
-        self.assertEqual(remote.argv(m['l'], 'true'), ['bash', '-c', 'true'])
+        with mock.patch.object(remote.os, 'name', 'posix'):
+            self.assertEqual(remote.argv(m['l'], 'true'), ['bash', '-c', 'true'])
         self.assertEqual(remote.argv(m['a'], 'true')[-2:], ['a.example', 'true'])
         line = remote.argv(m['w'], "echo 'it works'")[-1]
         self.assertTrue(line.startswith('wsl -e /home/u/run64.sh '))
         self.assertNotIn("'", line)   # nothing left for Windows' shell to mangle
+
+    def test_local_on_windows_sends_the_line_without_quotes(self):
+        # Windows rebuilt `cut -d" "` as `cut -d\"` for bash.exe: the local probe failed and `here` showed unreachable.
+        script = 'echo "a b" | cut -d" " -f1'
+        with mock.patch.object(remote.os, 'name', 'nt'):
+            args = remote.argv(self.cfg['machines']['l'], script)
+        self.assertEqual(args[:2], ['bash', '-c'])
+        self.assertNotIn('"', args[2])
+        packed = args[2].split()[1]
+        self.assertEqual(base64.b64decode(packed).decode(), script)
 
     def test_docker_runner_is_capped_and_quotes_the_command(self):
         line = remote.runner_command(self.cfg['machines']['a'], 'trk', "echo 'hi' && exit 3")

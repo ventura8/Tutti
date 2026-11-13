@@ -75,3 +75,6 @@ the kernel killed the browser and the session.
 **Rule.** Heavy runs go to other machines through `tutti test`. Locally: one at a time, capped, first to die
 (`--oom-score-adj`), with `tutti guard` pausing containers when memory runs low. Briefs tell workers not to run heavy
 commands themselves.
+
+## Antigravity headless refuses shell commands without per-command rules (2026-11-14)
+`agy -p` in print mode soft-denies any tool needing "command" permission unless `permissions.allow` in `~/.gemini/antigravity-cli/settings.json` lists it (`command(grep)` …). Its `cli.log` shows "soft-denying tool confirmation \"Bash\" at step N" without the command, so `tutti doctor` must find it another way (re-run with logging, or start with a broader read-only rule set). Claude Code likewise needs `Bash(agy *)` / `Bash(cursor-agent *)` allow rules before it can start these CLIs; the user must write them (an agent may not edit its own permissions).

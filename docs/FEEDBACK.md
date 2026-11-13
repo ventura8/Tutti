@@ -13,3 +13,5 @@ of your project or secrets: describe the setup in general words.
 | 3 | 2026-11-14 | `tutti test` on a `wsl` machine | Only the probe was exercised (the machine's yield flag was up); the copy and the run are untested there. | A verified full run. | Open (roadmap 0.2). |
 | 4 | 2026-11-14 | `tutti test <track> echo -n x` | An option-like word in an unquoted command is read as an option of `tutti`. | Works either way. | Open: pass the command as one quoted string. |
 | 5 | 2026-11-14 | `tutti ship --full` | The routed checks copy the tree you stand in; the scripts it replaces copied the main checkout with its full `.git`. Gates that read git history see a shallow repository. | Same result as before. | Open: watch the first full run. |
+
+- 2026-11-14 (map project): the installer's `git clone` failed on a laptop whose PATH had a broken git first (another tool's bundled git with a mismatched libcurl). Works with /usr/bin/git. `tutti doctor` should detect a git that cannot do HTTPS and suggest fixing PATH.

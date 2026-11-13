@@ -25,3 +25,6 @@ v0.1.0 is the extraction of one project's working toolkit. The backlog is fed by
 
 - A daemon, a web UI or a hosted service. State stays in files.
 - Storing or brokering credentials of any kind.
+
+## Worker selection by task (owner, 2026-11-14)
+`tutti brief` should classify a task (bounded / multi-file / cross-platform design / security / judgement) and pick the worker: local model or agy/cursor for bounded work, Claude (Opus/Fable) for design and judgement, splitting design-first tasks into cheap sub-tasks. A UI such as Orca or Emdash only hosts the sessions; it does not decide who works.

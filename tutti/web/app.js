@@ -6,6 +6,7 @@ const FILTERS = [['all', 'All'], ['running', 'Running'], ['stalled', 'Stalled'],
 const VERDICT_TONE = { 'on pace': 'ok', ahead: 'warn', behind: 'warn', late: 'bad', spent: 'bad', 'no reading': 'idle', unknown: 'idle' };
 const MACHINE_TONE = { free: 'ok', loaded: 'warn', busy: 'accent', paused: 'warn', offline: 'bad' };
 const JOB_TONE = { running: 'accent', stalled: 'warn', failed: 'bad', done: 'ok', ended: 'idle' };
+const storedOpen = new Set();   // machines whose stored-files list is open: kept across re-renders
 const ui = { filter: 'all', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0, editing: new Map() };
 const TOKEN = document.querySelector('meta[name="tutti-token"]')?.content || '';
 const RESET_FROM = { reading: 'from the latest reading', estimate: 'an estimate from the config: add a reading to set it', config: 'from the config' };
@@ -295,7 +296,29 @@ function machine(m) {
         el('div', { class: 'row__name' }, m.name, el('span', { class: 'row__kind', text: `${m.transport} · ${m.host}` })),
         chip(m.status, MACHINE_TONE[m.status]),
         stats,
-        el('p', { class: 'row__note', text: m.status === 'paused' ? 'Yield flag is up: Tutti sends it nothing new until it is lowered.' : m.reason }));
+        el('p', { class: 'row__note', text: m.status === 'paused' ? 'Yield flag is up: Tutti sends it nothing new until it is lowered.' : m.reason }),
+        storedFiles(m.name, m.stored));
+}
+
+function bytes(n) {
+    const units = [['GB', 1024 ** 3], ['MB', 1024 ** 2], ['KB', 1024]];
+    const [unit, size] = units.find(([, s]) => n >= s) || ['B', 1];
+    return `${size === 1 ? n : (n / size).toFixed(1)} ${unit}`;
+}
+
+// The files `tutti files send` keeps in the machine's cache: what, how big, last used, against the budget.
+function storedFiles(name, st) {
+    if (!st) return null;
+    if (st.problem) return el('p', { class: 'row__note', text: `Stored files: ${st.problem}` });
+    const head = `Stored files: ${bytes(st.bytes)} of ${bytes(st.budget_bytes)} in ${st.cache}`;
+    if (!st.items.length) return el('p', { class: 'row__note', text: `${head}. None yet: tutti files send <path> --to <machine>` });
+    const d = el('details', { class: 'stored', open: storedOpen.has(name) });
+    d.addEventListener('toggle', () => (d.open ? storedOpen.add(name) : storedOpen.delete(name)));
+    d.append(el('summary', { text: `${head} · ${st.items.length} item${st.items.length === 1 ? '' : 's'}` }),
+        el('ul', { class: 'stored__list' }, ...st.items.map((it) => el('li', {},
+            el('span', { class: 'stored__name', text: it.name }),
+            el('span', { text: `${bytes(it.bytes)} · used ${relative(new Date(it.used_at * 1000).toISOString())}` })))));
+    return d;
 }
 
 function renderMachines(s) {
@@ -346,7 +369,8 @@ function progressBar(j) {
     const fill = el('span');
     fill.style.width = `${p.pct}%`;
     bar.append(fill);
-    const label = p.total === 100 || p.source === 'finished' ? `${p.pct} %` : `${p.pct} % · ${p.done}/${p.total}`;
+    let label = p.total === 100 || p.source === 'finished' ? `${p.pct} %` : `${p.pct} % · ${p.done}/${p.total}`;
+    if (p.unit) label = `${p.pct} % · ${p.done}/${p.total} ${p.unit}`;
     return el('span', { class: 'job__progress', title: p.source === 'reported' ? 'reported with tutti progress' : 'read from its log' },
         bar, el('span', { text: label }));
 }
@@ -410,7 +434,7 @@ function renderJobs(s) {
     } else if (items.length) {
         $('jobs').replaceChildren(empty(`No ${ui.filter} jobs`, 'Choose All to see every recent job.'));
     } else {
-        $('jobs').replaceChildren(empty('No jobs yet', codeText('Runs from ', 'tutti quiet', ', ship checks and tutti wait show up here with the end of their log.')));
+        $('jobs').replaceChildren(empty('No jobs yet', codeText('Runs from ', 'tutti quiet', ', ship checks, file transfers and tutti wait show up here with the end of their log.')));
     }
 }
 

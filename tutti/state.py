@@ -71,15 +71,22 @@ def machine_state(m, p, rank):
             'min_free_gb': m['min_free_gb']}
 
 
-def machines_state(cfg, probe_fn):
-    """Every machine probed at once (a slow ssh answer does not hold up the others)."""
+def machines_state(cfg, probe_fn, stored_fn=None):
+    """Every machine probed at once (a slow ssh answer does not hold up the others). `stored_fn(machine)` lists the files
+    `tutti files send` keeps there; it is asked only of reachable machines."""
     order = cfg['routing']['order']
     names = list(cfg['machines'])
     if not names:
         return []
+
+    def one(n):
+        m = cfg['machines'][n]
+        p = probe_fn(m)
+        out = machine_state(m, p, order.index(n) + 1 if n in order else None)
+        out['stored'] = stored_fn(m) if stored_fn and p.reachable else None
+        return out
     with ThreadPoolExecutor(max_workers=min(8, len(names))) as pool:
-        probes = dict(zip(names, pool.map(lambda n: probe_fn(cfg['machines'][n]), names), strict=True))
-    return [machine_state(cfg['machines'][n], probes[n], order.index(n) + 1 if n in order else None) for n in names]
+        return list(pool.map(one, names))
 
 
 # ---- workers
@@ -175,15 +182,20 @@ def progress_of_line(line):
 
 
 def read_progress_file(path):
-    """`tutti progress n/m` (or a job's own script) writes `<n> <m>` to <log>.progress; it beats the log's lines."""
+    """`tutti progress n/m` (or a job's own script) writes `<n> <m>` to <log>.progress; it beats the log's lines. A third
+    word is the unit (a file transfer writes `<done> <total> MB`)."""
     try:
         with open(path, encoding='utf8') as f:
-            done, total = (int(x) for x in f.read().replace('/', ' ').split()[:2])
+            words = f.read().replace('/', ' ').split()
+        done, total = (int(x) for x in words[:2])
     except (OSError, ValueError):
         return None
     if total <= 0 or not 0 <= done <= total:
         return None
-    return {'done': done, 'total': total, 'pct': round(100 * done / total), 'source': 'reported'}
+    out = {'done': done, 'total': total, 'pct': round(100 * done / total), 'source': 'reported'}
+    if len(words) > 2 and words[2].isalpha():
+        out['unit'] = words[2][:8]
+    return out
 
 
 def progress(log_path, lines):
@@ -243,11 +255,11 @@ def log_job(path, kind, now, stall, is_alive):
     # The result first: a ship check's pid is the ship process, which lives on through later checks and the deploy.
     rc = read_rc(path + '.rc')
     running = rc is None and bool(pid) and is_alive(pid)
-    title = read_first_line(path + '.cmd') or {'quiet': 'quiet run', 'ship': 'ship check'}[kind]
+    title = read_first_line(path + '.cmd') or {'quiet': 'quiet run', 'ship': 'ship check', 'files': 'file transfer'}[kind]
     lines = tail(path)
     status = status_of(running, updated, rc, now, stall)
     prog = progress(path, lines)
-    if status == 'done':
+    if status == 'done' and not (prog and prog.get('unit')):
         prog = {'done': 1, 'total': 1, 'pct': 100, 'source': 'finished'}
     return {'id': f'{kind}:{os.path.basename(path)}', 'kind': kind, 'title': title, 'pid': pid, 'log': path, 'started': iso(started),
             'updated': iso(updated), 'idle_seconds': round(now - updated) if updated else None, 'rc': rc,
@@ -311,11 +323,12 @@ ORDER = {'stalled': 0, 'running': 1, 'failed': 2, 'ended': 3, 'done': 4}
 
 
 def jobs_state(cfg, now, is_alive=alive):
-    """Running, stalled and recent jobs from the state folder: quiet runs, ship checks, waits, local-model jobs, tunnels."""
+    """Running, stalled and recent jobs from the state folder: quiet runs, ship checks, file transfers, waits, local-model jobs, tunnels."""
     folder = config.expand(cfg['project']['state'])
     stall = float(cfg['dashboard']['stall_minutes']) * 60
     items = [log_job(p, 'quiet', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'quiet', '*.log'))]
     items += [log_job(p, 'ship', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'ship-*.log'))]
+    items += [log_job(p, 'files', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'files', '*.log'))]
     items += wait_jobs(os.path.join(folder, 'waits'), now, stall, is_alive)
     items += pid_jobs(folder, is_alive)
     items.sort(key=lambda j: (ORDER.get(j['status'], 9), -(datetime.fromisoformat(j['updated']).timestamp() if j['updated'] else 0)))
@@ -352,7 +365,7 @@ def assemble(cfg, probes, now=None, is_alive=alive):
             'summary': summary(usage, machines, workers, jobs, next_worker(cfg, usage['accounts']))}
 
 
-def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time):
-    """The slow part, run off the request path: every machine and every worker."""
-    return {'machines': machines_state(cfg, probe_fn), 'machines_at': clock(),
+def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, stored_fn=None):
+    """The slow part, run off the request path: every machine (and the files it stores) and every worker."""
+    return {'machines': machines_state(cfg, probe_fn, stored_fn), 'machines_at': clock(),
             'workers': workers_state(cfg, available_fn, which), 'workers_at': clock()}

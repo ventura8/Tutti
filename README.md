@@ -6,7 +6,7 @@ rules that keep them from stepping on each other.
 Tutti is a small toolkit for AI-assisted work on a software project when you have more than one model subscription and
 more than one computer. It grew out of one project's working day and keeps only what proved useful.
 
-> **Status: v0.1.6.** Linux only. The npm package `tutti-agents` is marked `private` until the first
+> **Status: v0.1.7.** Linux only. The npm package `tutti-agents` is marked `private` until the first
 > publish. **Licence:** MIT (see `LICENSE`).
 
 ## The ideas
@@ -68,11 +68,12 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 
 | Command | What it does |
 | --- | --- |
-| `tutti test <track> '<cmd>'` | Copies the track's worktree to the first fit machine and runs the command there behind the slot queue, in a memory-capped container or plain bash. `--on <machine>` skips routing; `--dir` names the tree. Returns the command's exit code. |
+| `tutti test <track> '<cmd>'` | Copies the track's worktree to the first fit machine and runs the command there behind the slot queue, in a memory-capped container or plain bash. `--on <machine>` skips routing; `--dir` names the tree; `--input <path>` (repeatable) copies a file or folder the job needs to that machine's cache first and hands its folder to the command as `$TUTTI_INPUTS` (read-only in a container). Returns the command's exit code. |
+| `tutti files send <path>... --to <machine\|all>` | Gives files and folders (a big archive, a dataset, build inputs) to other machines over their own transport: rsync when both ends have it (resumable, skips what is there), else a resumable stream; each item is checked with `sha256sum` there. Lands in the machine's cache (`files.cache`, size budget `files.budget_gb`, least recently used items leave first) or `--dest <folder>`; `--bwlimit <KB/s>`. Refuses secrets (`.env*`, `*token*`, keys, service-account JSON, `.ssh/`). `tutti files list [--on <m>]` shows what each machine stores; `tutti files clean --on <m> [name...] [--all]` trims or empties a cache. See [docs/MACHINES.md](docs/MACHINES.md#files-for-machines). |
 | `tutti ship "<message>"` | In the worktree you stand in: format, commit (with your trailer), run the targeted checks, push, deploy. `--full` runs the full checks; `--dry-run` prints the plan; `--track <t>` refuses any other worktree. Refuses to commit or push mid-rebase or mid-merge, or with conflict markers left in files (it names them). |
 | `tutti usage` | Every account against its pace. `tutti usage log <account> <percent> [--resets <time>]` records a reading; `tutti usage read` runs the automatic readers now (Antigravity `agy /usage`, the Cursor plan, limit messages in job logs). See [docs/USAGE-PACING.md](docs/USAGE-PACING.md). |
 | `tutti workers` | The workers and whether each is ready. |
-| `tutti run <worker> "<task>" [files]` | Briefs a CLI worker in a worktree (`--dir`); `--show` prints the brief. `tutti run auto` picks the worker from the latest readings: never an account in panic or spent, first one whose quota would be lost at the reset (`routing.workers`, `accounts.<name>.worker` and `args`). A limit message in its output logs the account as spent. |
+| `tutti run <worker> "<task>" [files]` | Briefs a CLI worker in a worktree (`--dir`); `--show` prints the brief; `--input <path> --on <machine>` copies inputs to that machine first and tells the worker where they are. `tutti run auto` picks the worker from the latest readings: never an account in panic or spent, first one whose quota would be lost at the reset (`routing.workers`, `accounts.<name>.worker` and `args`). A limit message in its output logs the account as spent. |
 | `tutti ask <worker> "<question>" [files]` | A short answer from a local model about files or stdin. |
 | `tutti code <worker> <file> "<instruction>"` | A local model rewrites one file; you review `git diff`. |
 | `tutti agent <worker> "<task>" "<check>" files...` | A local model edits, runs the check, reads the failure, retries. |

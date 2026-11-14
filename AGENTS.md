@@ -21,7 +21,7 @@ python3 bin/tutti --config tutti.config.example.yaml config
   the design is wrong.
 - **Say what happened, why, and the fix.** Every error message names the key or step, the cause and the next action.
 - **Pure core, thin edge.** Routing, pacing and validation stay pure and unit-tested; I/O stays in `remote.py`,
-  `local.py`, `ship.py` and the scripts.
+  `transfer.py`, `local.py`, `ship.py` and the scripts.
 - **No inline suppressions** (`# noqa`, `# type: ignore`, `# shellcheck disable=`). Fix the finding, or change the
   rule once in `ruff.toml` with a comment saying why.
 - **Tests with behaviour.** A change in behaviour comes with a test for the good case and for a bad one.

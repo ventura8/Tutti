@@ -5,6 +5,8 @@ import math
 import os
 import re
 
+from . import files
+
 PROJECT_NAME = 'tutti.config.yaml'
 NAMES = (PROJECT_NAME, 'tutti.config.yml', 'tutti.config.json')
 # Under XDG: the canonical name first, then the project-style name as a fallback.
@@ -151,7 +153,7 @@ def validate(cfg):
              if n not in cfg['workers']]
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
-    return errs + _dashboard_errors(cfg['dashboard'])
+    return errs + _dashboard_errors(cfg['dashboard']) + files.errors(cfg)
 
 
 def _account_pace_errors(name, a):

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-from . import pacing, readers, remote, state, workers
+from . import pacing, readers, remote, state, transfer, workers
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 BIND = '127.0.0.1'
@@ -34,8 +34,9 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
 class Collector:
     """Holds the latest probes and refreshes them every `probe_seconds` in a daemon thread."""
 
-    def __init__(self, cfg, probe_fn=remote.probe, available_fn=workers.available, clock=time.time, reader=None):
+    def __init__(self, cfg, probe_fn=remote.probe, available_fn=workers.available, clock=time.time, reader=None, stored_fn=None):
         self.cfg, self.probe_fn, self.available_fn, self.clock = cfg, probe_fn, available_fn, clock
+        self.stored_fn = stored_fn or (lambda m: transfer.stored(cfg, m))
         self.reader = reader or readers.Readers(cfg, clock=clock)
         self.probes = {}
         self.lock = threading.Lock()
@@ -59,7 +60,7 @@ class Collector:
         return found
 
     def refresh(self):
-        fresh = state.probe_all(self.cfg, self.probe_fn, self.available_fn, clock=self.clock)
+        fresh = state.probe_all(self.cfg, self.probe_fn, self.available_fn, clock=self.clock, stored_fn=self.stored_fn)
         try:
             fresh['readers'] = self.read_usage()
         except (OSError, ValueError) as e:   # a broken usage log must not hide machines and workers

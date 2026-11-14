@@ -159,12 +159,22 @@ def sync(cfg, machine, track, src):
     return is_git
 
 
-def run(cfg, machine, track, src, command):
+def inputs_env(inputs):
+    """(export line, docker arguments) that hand the folder of a job's input files to its command as $TUTTI_INPUTS, read-only
+    inside a container. `inputs` is the folder as a bash path on the machine (tutti files send put the files there)."""
+    if not inputs:
+        return '', ''
+    return f'export TUTTI_INPUTS={inputs} && ', '-e TUTTI_INPUTS -v "$TUTTI_INPUTS:$TUTTI_INPUTS:ro"'
+
+
+def run(cfg, machine, track, src, command, inputs=None):
     """Runs `command` over the tree on the machine, behind its slot queue. Returns the command's exit code."""
     slot = slot_prefix(machine)
+    export, mount = inputs_env(inputs)
     if machine['transport'] == 'local':
-        script = (f'cd {shlex.quote(bash_path(src))} && {slot} bash {shlex.quote(bash_path(SLOT_SCRIPT))} '
-                  f'{runner_command(machine, track, command, worktree.docker_mount(src))}')
+        mount = ' '.join(x for x in (worktree.docker_mount(src), mount) if x)
+        script = (f'cd {shlex.quote(bash_path(src))} && {export}{slot} bash {shlex.quote(bash_path(SLOT_SCRIPT))} '
+                  f'{runner_command(machine, track, command, mount)}')
         return sh(machine, script).returncode
     is_git = sync(cfg, machine, track, src)
     root = root_path(machine)
@@ -172,7 +182,7 @@ def run(cfg, machine, track, src, command):
            'git update-ref --no-deref HEAD FETCH_HEAD && git reset -q && ') if is_git else ''
     dirs = ' '.join(shlex.quote(d) for d in cfg['sync']['ensure_dirs'])
     mk = f'mkdir -p {dirs} && ' if dirs else ''
-    script = f'cd {root}/{track} && {git}{mk}{slot} bash {root}/tutti-slot.sh {runner_command(machine, track, command)}'
+    script = f'cd {root}/{track} && {git}{mk}{export}{slot} bash {root}/tutti-slot.sh {runner_command(machine, track, command, mount)}'
     return sh(machine, script).returncode
 
 

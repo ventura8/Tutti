@@ -7,7 +7,23 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
-from . import __version__, config, dashboard, local, pacing, readers, remote, routing, ship, state, translate, waiting, workers
+from . import (
+    __version__,
+    config,
+    dashboard,
+    files,
+    local,
+    pacing,
+    readers,
+    remote,
+    routing,
+    ship,
+    state,
+    transfer,
+    translate,
+    waiting,
+    workers,
+)
 
 SCRIPTS = os.path.join(remote.ROOT, 'scripts')
 SUMMARY = 'In at most 5 short lines: which check failed, the file:line and the exact error. No advice.'
@@ -68,7 +84,16 @@ def cmd_test(cfg, a):
     else:
         choice = routing.choose(cfg['routing']['order'], cfg['machines'], lambda n: remote.probe(cfg['machines'][n]))
     say(f'test: {choice.machine}{", queued" if choice.queued else ""} ({choice.reason})')
-    return remote.run(cfg, cfg['machines'][choice.machine], a.track, src, ' '.join(a.command))
+    machine = cfg['machines'][choice.machine]
+    inputs = send_inputs(cfg, machine, a.input) if a.input else None
+    return remote.run(cfg, machine, a.track, src, ' '.join(a.command), inputs=inputs)
+
+
+def send_inputs(cfg, machine, paths):
+    """A job's --input files, copied to the machine's cache first; returns that folder as a bash path for $TUTTI_INPUTS."""
+    base, result = transfer.send(cfg, machine, [os.path.abspath(p) for p in paths])
+    say(f'inputs on {machine["name"]}: ' + ', '.join(f'{n} ({how})' for n, how, _ in result) + f' in {base} ($TUTTI_INPUTS)')
+    return transfer.shell_path(base)
 
 
 def cmd_rsh(cfg, a):
@@ -132,9 +157,17 @@ def cmd_run(cfg, a):
         say(f'run auto: {pick["worker"]} {" ".join(pick["args"])} ({pick["reason"]})'.replace('  ', ' '))
         a.worker, extra = pick['worker'], pick['args']
     worker_of(cfg, a.worker, 'cli')
+    if a.input and not a.on:
+        say('run --input: name the machine the inputs go to with --on <machine> (the worker then finds them there)')
+        return 2
     if a.show:
         print(workers.brief(cfg, a.task, a.files))
         return 0
+    if a.input:
+        machine = machine_of(cfg, a.on)
+        base, _ = transfer.send(cfg, machine, [os.path.abspath(p) for p in a.input])
+        names = ', '.join(os.path.basename(os.path.abspath(p).rstrip(os.sep)) for p in a.input)
+        a.task += f'\n\nInput files ({names}) are on the machine {machine["name"]} in {base}.'
     rc, lines = workers.run(cfg, a.worker, a.task, a.files, cwd=a.dir, extra=extra)
     now = datetime.now(timezone.utc)
     cmd_text = ' '.join(cfg['workers'][a.worker]['command'])
@@ -284,6 +317,68 @@ def cmd_translate(cfg, a):
     return 0
 
 
+def targets(cfg, name):
+    """The machines a files command acts on: one by name, or `all` (every machine that is not this computer)."""
+    if name == 'all':
+        out = [m for m in cfg['machines'].values() if m['transport'] != 'local']
+        if not out:
+            raise config.ConfigError(f'--to all: {cfg["_path"]} has no machine other than this computer')
+        return out
+    return [machine_of(cfg, name)]
+
+
+def cmd_files(cfg, a):
+    action = {'send': files_send, 'list': files_list, 'clean': files_clean}[a.action]
+    try:
+        return action(cfg, a)
+    except OSError as e:
+        say(f'files {a.action}: {e}: check the path and the disk, then run it again')
+        return 1
+
+
+def files_send(cfg, a):
+    if not a.paths or not a.to:
+        say('usage: tutti files send <path>... --to <machine|all> [--dest <folder>] [--bwlimit <KB/s>]')
+        return 2
+    failed = []
+    for m in targets(cfg, a.to):
+        try:
+            base, result = transfer.send(cfg, m, [os.path.abspath(p) for p in a.paths], dest=a.dest, bwlimit=a.bwlimit)
+        except RuntimeError as e:
+            say(f'{m["name"]}: {e}')
+            failed.append(m['name'])
+            continue
+        for name, how, size in result:
+            print(f'{m["name"]}: {name} {how} ({files.human(size)}) in {base}')
+    if failed:
+        say(f'files send: failed on {", ".join(failed)}; what reached the other machines is stored. Fix the cause above and send '
+            'again: finished files are skipped and partial ones resume')
+    return 1 if failed else 0
+
+
+def files_list(cfg, a):
+    for m in targets(cfg, a.on or 'all'):
+        st = transfer.stored(cfg, m)
+        if st['problem']:
+            print(f'{m["name"]}: {st["problem"]}')
+            continue
+        print(f'{m["name"]}: {files.human(st["bytes"])} of {files.human(st["budget_bytes"])} in {st["cache"]}')
+        for it in st['items']:
+            used = datetime.fromtimestamp(it['used_at'], timezone.utc).strftime('%Y-%m-%d %H:%M')
+            print(f'  {it["name"]:40} {files.human(it["bytes"]):>10}  used {used} UTC')
+    return 0
+
+
+def files_clean(cfg, a):
+    if not a.on:
+        say('usage: tutti files clean --on <machine|all> [name...] [--all]: without names it trims the cache to its budget')
+        return 2
+    for m in targets(cfg, a.on):
+        gone = transfer.clean(cfg, m, a.paths, everything=a.all)
+        print(f'{m["name"]}: removed {", ".join(gone) if gone else "nothing (the cache is within its budget)"}')
+    return 0
+
+
 def cmd_dashboard(cfg, a):
     collector = dashboard.Collector(cfg)
     if a.once:
@@ -325,6 +420,8 @@ def parser():
     s = add('test', cmd_test, 'run a command over a track\'s work tree on the first fit machine, behind its slot queue')
     s.add_argument('--dir', help='the work tree (default: <project.worktrees>/<track>)')
     s.add_argument('--on', help='skip routing and use this machine')
+    s.add_argument('--input', action='append', metavar='PATH',
+                   help='a file or folder the job needs: copied to the machine\'s cache first, its folder in $TUTTI_INPUTS (repeat it)')
     s.add_argument('track')
     s.add_argument('command', nargs='+')
     s = add('rsh', cmd_rsh, 'remote-shell shim for git and rsync on a WSL machine (internal)')
@@ -354,6 +451,8 @@ def parser():
     s.add_argument('files', nargs='*')
     s.add_argument('--dir', help='the worktree the worker edits (default: here)')
     s.add_argument('--show', action='store_true', help='print the brief and stop')
+    s.add_argument('--input', action='append', metavar='PATH', help='a file or folder to copy to the --on machine first (repeat it)')
+    s.add_argument('--on', help='the machine --input files go to')
     s = add('ask', cmd_ask, 'a short answer from a local model about files or stdin')
     s.add_argument('worker')
     s.add_argument('instruction')
@@ -398,6 +497,14 @@ def parser():
     s.add_argument('locale', nargs='?')
     s.add_argument('--out', default='i18n-out')
     s.add_argument('--check', action='store_true')
+    s = add('files', cmd_files, 'copy files to machines (`send`), see what each stores (`list`), trim or empty its cache (`clean`)')
+    s.add_argument('action', choices=['send', 'list', 'clean'])
+    s.add_argument('paths', nargs='*', help='send: files and folders on this computer; clean: item names to remove')
+    s.add_argument('--to', help='send: a machine, or all')
+    s.add_argument('--on', help='list, clean: a machine, or all (list: all by default)')
+    s.add_argument('--dest', help='send: a folder on the machine instead of its cache (not counted against the budget)')
+    s.add_argument('--bwlimit', type=int, help='send: at most this many KB/s (default files.bwlimit_kbps; 0 = no limit)')
+    s.add_argument('--all', action='store_true', help='clean: remove every item in the cache')
     s = add('dashboard', cmd_dashboard, 'a local web dashboard (installable app): usage and pacing, machines, workers and jobs')
     s.add_argument('--port', type=int, help='the port on 127.0.0.1 (default: dashboard.port, 4777)')
     s.add_argument('--once', action='store_true', help='print the state as JSON (what /api/state answers) and stop')

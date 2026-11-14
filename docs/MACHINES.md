@@ -41,6 +41,36 @@ Put the dedicated build box first and shared machines after it, each with a `max
   `wsl.exe`, so quoting does not survive; every remote script travels base64-encoded to a small helper inside WSL
   (`scripts/wsl-run64.sh`, named by `wsl_helper`). git and rsync reach WSL through `tutti rsh`.
 
+## Files for machines
+
+`tutti files send <path>... --to <machine|all>` gives a machine what it needs to work on: a big archive, a dataset,
+build inputs. `all` is every machine that is not this computer.
+
+- **Transport.** The machine's own: ssh, WSL (through `tutti rsh`) or a local copy. rsync when this computer and the
+  machine both have it: `--partial` keeps an interrupted file, so sending again resumes it, and files already there are
+  skipped. Without rsync a stream appends the missing bytes to `<file>.tutti-part` and moves it into place.
+- **Checked.** Every item is verified with `sha256sum -c` on the machine before it counts as stored; a mismatch removes
+  the copy and sends it once more, a second one stops with the fix. The manifest and a small record stay in
+  `.tutti-files/` beside the items, so the next send of an unchanged item is skipped without copying a byte. Checksums
+  of big local files are remembered (`<project.state>/files/sha256-cache.json`).
+- **The cache.** Without `--dest` an item lands in `files.cache` (default `~/.cache/tutti/files`). Before a byte moves the
+  cache is kept within `files.budget_gb` (default 50) by removing the least recently used items (a skipped send counts as
+  a use); an item larger than the budget is refused. `--dest <folder>` puts it elsewhere, outside the budget. Either way
+  the machine must keep `files.keep_free_gb` (default 2) of disk free.
+- **Bandwidth.** `--bwlimit <KB/s>` or `files.bwlimit_kbps` (0 = none); `files.compress: true` adds rsync's `-z` (leave it
+  off for archives that are already compressed). One send per machine at a time from this computer.
+- **Never secrets.** A path that is, or a folder that holds, `.env*`, `*token*`, `*secret*`, `*.pem`, `*.key`, ssh keys,
+  `*service-account*.json`, `*credentials*.json`, a small `.json` with a `private_key`, or anything under `.ssh/`,
+  `.gnupg/`, `.aws/` refuses the whole send, naming the file. `files.refuse` adds patterns.
+- **Jobs.** `tutti test --input <path>` copies inputs to the chosen machine's cache before the run and exports
+  `TUTTI_INPUTS` (the cache folder), mounted read-only when the runner is docker. `tutti run <worker> --input <path> --on
+  <machine>` does the same before briefing a worker and names the folder in its brief.
+- **See and clean.** `tutti files list [--on <machine>]`; `tutti files clean --on <machine|all>` trims to the budget,
+  `clean --on <m> <name>...` removes items, `--all` empties the cache. The dashboard shows every transfer in Jobs (with
+  its progress in MB) and each machine's stored files under Machines.
+
+A machine may override any of these with its own `files:` (for example a larger `budget_gb` on the build box).
+
 ## The yield flag
 
 `yield_file` is a path on the machine. While the file exists:

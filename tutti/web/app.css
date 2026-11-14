@@ -367,6 +367,11 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
 .row__name { font-weight: 600; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .row__kind { color: var(--on-surface-2); font: 0.75rem / 1.4 var(--mono); }
 .row__note { grid-column: 1 / -1; color: var(--on-surface-2); font-size: 0.8125rem; overflow-wrap: anywhere; }
+.stored { grid-column: 1 / -1; font-size: 0.8125rem; color: var(--on-surface-2); }
+.stored > summary { cursor: pointer; overflow-wrap: anywhere; }
+.stored__list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.stored__list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.stored__name { font-family: var(--mono); color: var(--on-surface); overflow-wrap: anywhere; }
 .row__stats { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; font-size: 0.8125rem; }
 
 .pips { display: inline-flex; gap: 4px; }

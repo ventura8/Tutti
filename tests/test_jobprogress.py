@@ -114,9 +114,11 @@ class ShapeTest(Base):
         self.assertIsNone(jobprogress.total_of('nothing', None, (), run=lambda c, **k: subprocess.CompletedProcess(c, 1, stdout='')))
 
     def test_shape_config_errors(self):
-        errs = config._shape_errors({'a': {'phases': []}, 'b': {'match': '(', 'phases': [{'name': 'x'}]},
+        errs = config._shape_errors({'a': {'phases': []}, 'only': {'match': 'x', 'machine': 'nuc'},
+                                     'b': {'match': '(', 'phases': [{'name': 'x'}]},
                                      'c': {'kind': 'run', 'count': 'x'}, 'd': {'kind': 'run', 'phases': [{'when': 'x'}]}})
         text = '\n'.join(errs)
+        self.assertNotIn('dashboard.shapes.only', text)
         for want in ('dashboard.shapes.a: give it match', 'dashboard.shapes.b.match', 'dashboard.shapes.c.count: give total',
                      'dashboard.shapes.d.phases[0]'):
             self.assertIn(want, text)

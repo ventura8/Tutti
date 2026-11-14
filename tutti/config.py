@@ -381,7 +381,8 @@ def _dashboard_errors(d):
 
 
 def _shape_errors(shapes):
-    """dashboard.shapes: {name: {match or kind, phases: [{name, when}] or count + total / total_command, machine}}."""
+    """dashboard.shapes: {name: {match or kind, phases: [{name, when}] or count + total / total_command, machine}}; a shape with
+    neither phases nor count only names a kind of job (and its machine) for the estimates from history."""
     if not isinstance(shapes, dict):
         return [f'dashboard.shapes is {shapes!r}: write it as a mapping of names to shapes, or remove the key']
     errs = []
@@ -390,9 +391,7 @@ def _shape_errors(shapes):
         if not isinstance(s, dict) or not (s.get('match') or s.get('kind')):
             errs.append(f'{where}: give it match (a regex on the job title) or kind (quiet, script, run, ...)')
             continue
-        phases = s.get('phases') or []
-        if not phases and not s.get('count'):
-            errs.append(f'{where}: give it phases ([{{name, when}}]) or count (a regex) with total or total_command')
+        phases = s.get('phases') or []   # neither phases nor count: the shape only names the kind (and machine) for the history
         if s.get('count') and not (s.get('total') or s.get('total_command')):
             errs.append(f'{where}.count: give total (a number) or total_command (prints the number)')
         errs += _regex_errors(f'{where}.match', s['match']) if s.get('match') else []

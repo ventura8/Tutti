@@ -275,8 +275,8 @@ def wait_job(pid, info, now, stall):
     limit = info.get('stall') or stall
     target = f'{info.get("kind", "?")} {info.get("target", "")} {info.get("pattern", "")}'.strip()
     job = {'id': f'wait:{pid}', 'kind': 'wait', 'title': f'wait {target}', 'pid': int(pid), 'log': None,
-           'started': iso(info.get('started')), 'updated': None, 'idle_seconds': None, 'rc': None, 'status': status_of(True, updated, None, now, limit), 'tail': [],
-           'progress': None}
+           'started': iso(info.get('started')), 'updated': None, 'idle_seconds': None, 'rc': None,
+           'status': status_of(True, updated, None, now, limit), 'tail': [], 'progress': None}
     if updated:
         job.update(log=watch, updated=iso(updated), idle_seconds=round(now - updated), tail=tail(watch, 12),
                    progress=progress(watch, tail(watch)))

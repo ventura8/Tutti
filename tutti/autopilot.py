@@ -423,6 +423,10 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
         argv += ['--check', check, '--check-where', repo.get('where', 'local')]
     argv += [f'--extra={x}' for x in step['args']]
     argv += ['--account', step['account']] if step['account'] else []
+    from . import bridge
+    jobs = bridge.jobs_machine(cfg)
+    if jobs:   # the repositories and the workers' sign-ins are on another computer (docs/MOVE.md): the run happens there
+        argv = [*argv[:4], 'bridge', 'exec', jobs, '--id', run_id, '--', *argv[4:]]
     with open(p['log'], 'a', encoding='utf8') as log:
         # TUTTI_BACKGROUND: its runs on a household's shared machines are background demand (docs/HOUSEHOLD.md)
         child = spawn(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True,
@@ -492,9 +496,13 @@ def slug(text):
     return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')[:40] or 'task'
 
 
-def publish(cfg, task, report, run=git, gh=subprocess.run):
+def publish(cfg, task, report, run=None, gh=None):
     """A passing attempt becomes the branch autopilot/<id>-<slug> in its worktree, committed by Tutti (never by the worker),
-    and a draft pull request when autopilot.repos.<repo>.pr is `draft`. Never merged. Returns notes for the dashboard."""
+    and a draft pull request when autopilot.repos.<repo>.pr is `draft`. Never merged. Returns notes for the dashboard.
+    With host.jobs (docs/MOVE.md) git and gh run on the computer that holds the worktree."""
+    from . import bridge
+    there = bridge.tools(cfg)
+    run, gh = run or there.get('run') or git, gh or there.get('gh') or subprocess.run
     repo = settings(cfg)['repos'][task['repo']]
     wt = report['worktree']
     branch = f'autopilot/{task["id"]}-{slug(task["title"])}'

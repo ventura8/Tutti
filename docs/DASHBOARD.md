@@ -147,6 +147,15 @@ read-only) keeps them in the state folder as before. `tutti pause|resume|optin` 
 state folder; the Settings tab shows such a value as *in effect* over the file's, and saving the key there moves it into
 the file.
 
+## Where Tutti runs
+
+The host that serves this dashboard (its machine name, host name and uptime), the address members use, where worker
+jobs run, the clients connected through the bridge, the last move, and **Move Tutti to…**: pick a machine and what
+happens to running jobs (wait, or hand them over), **Show the plan** (the dry run: blockers, steps, the OAuth origins,
+what needs you), then **Move**. The move runs detached; this dashboard stops during it and the page reconnects by itself
+to the new host's dashboard, through the client, on the same address. A stopped move offers **Roll back**. On a client
+whose host is down, the card says the page is a read-only copy. See [MOVE.md](MOVE.md).
+
 ## Settings
 
 The **Settings** tab (beside *Dashboard* in the app bar; at the bottom of the screen on a phone; `#settings`, or

@@ -310,6 +310,9 @@ def containers_script(machine):
 
 
 def probe(machine, timeout=20, windows_fn=None):
+    if machine.get('via') and machine.get('_state'):   # only a client of this host reaches it (docs/MOVE.md, *The bridge*)
+        from . import bridge
+        return bridge.probe({'project': {'state': machine['_state']}}, machine['via'], machine.get('as') or machine['name'])
     try:
         r = sh(machine, probe_script(machine), capture=True, timeout=timeout, ssh_opts=QUICK)
     except (OSError, subprocess.SubprocessError):

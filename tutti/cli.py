@@ -13,6 +13,8 @@ from . import (
     __version__,
     autopilot,
     backlog,
+    bridge,
+    clientmode,
     conduct,
     config,
     connect,
@@ -30,6 +32,7 @@ from . import (
     householdcmd,
     local,
     mcpserver,
+    move,
     pacing,
     readers,
     remote,
@@ -399,7 +402,7 @@ def cmd_usage(cfg, a):
         return page_scripts(cfg, a.account)
     if a.action == 'page-reading':
         return page_reading(cfg, path, a.account, now)
-    for problem in readers.record_files(path, cfg['accounts'])[1]:
+    for problem in readers.record_files(path, cfg['accounts'], cfg)[1]:
         say(problem)
     if a.action == 'log':
         if a.account in cfg['disabled_accounts'] and a.percent is not None:
@@ -450,6 +453,8 @@ def cmd_run(cfg, a):
     if a.show:
         print(workers.brief(cfg, a.task, a.files))
         return 0
+    if bridge.jobs_machine(cfg) and not a.input:
+        return run_on_jobs_machine(cfg, a, extra)
     if a.repo:
         return run_delegated(cfg, a, extra)
     with job_inputs(cfg, machine_of(cfg, a.on) if a.input else None, a.input) as base:
@@ -457,6 +462,53 @@ def cmd_run(cfg, a):
             names = ', '.join(os.path.basename(os.path.abspath(p).rstrip(os.sep)) for p in a.input)
             a.task += f'\n\nInput files ({names}) are on the machine {a.on} in {base}.'
         return run_worker(cfg, a, extra)
+
+
+def jobs_args(a, extra, run_id):
+    """`run ...` for the jobs machine: the same run, with the worker, the account and the args chosen here."""
+    tail = ['run', a.worker, a.task, *a.files, '--id', run_id]
+    tail += ['--repo', a.repo] if a.repo else []
+    tail += ['--dir', a.dir] if a.dir else []
+    for flag, value in (('--track', a.track), ('--remote-track', a.remote_track), ('--account', getattr(a, 'account', None))):
+        tail += [flag, value] if value else []
+    tail += [flag for flag, on in (('--no-checks', a.no_checks), ('--discard', a.discard)) if on]
+    for c in a.check or []:
+        tail += ['--check', c]
+    tail += ['--check-where', a.check_where] if a.check else []
+    return tail + [f'--extra={x}' for x in [*extra, *(a.extra or [])]]
+
+
+class Tee:
+    def __init__(self, *outs):
+        self.outs, self.text = outs, []
+
+    def write(self, text):
+        self.text.append(text)
+        for o in self.outs:
+            o.write(text)
+
+    def flush(self):
+        for o in self.outs:
+            o.flush()
+
+
+def run_on_jobs_machine(cfg, a, extra):
+    """host.jobs (docs/MOVE.md): the run happens on the computer with the repositories and the workers' sign-ins, through
+    its bridge; the readings, the record and the report stay here, on the host."""
+    if a.bg:
+        return run_in_background(cfg, a, extra)
+    jobs = bridge.jobs_machine(cfg)
+    run_id = a.id or delegate.new_id(cfg)
+    p = delegate.paths(cfg, run_id)
+    os.makedirs(os.path.dirname(p['log']), exist_ok=True)
+    with open(p['log'], 'a', encoding='utf8') as log:
+        out = Tee(sys.stdout, log)
+        rc = bridge.exec_run(cfg, jobs, run_id, jobs_args(a, extra, run_id), out=out)
+    lines = ''.join(out.text).splitlines()[-workers.KEEP_LINES:]
+    if rc != clientmode.UNREACHABLE:
+        note_limits(cfg, a.worker, lines)
+        delegate.log_run(cfg, a.worker, getattr(a, 'account', None) or state.account_of_worker(cfg, a.worker), rc, run_id, lines)
+    return rc
 
 
 def run_worker(cfg, a, extra):
@@ -471,7 +523,8 @@ def run_in_background(cfg, a, extra):
     """`tutti run ... --bg`: the same run, detached, its output in the run's log; prints the id and the wait line at once."""
     run_id = delegate.new_id(cfg)
     p = delegate.paths(cfg, run_id)
-    argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', a.worker, a.task, *a.files, '--repo', a.repo, '--id', run_id]
+    argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', a.worker, a.task, *a.files, '--id', run_id]
+    argv += ['--repo', a.repo] if a.repo else []
     argv += [f'--extra={x}' for x in extra]
     argv += [flag for flag, on in (('--no-checks', a.no_checks), ('--discard', a.discard)) if on]
     argv += ['--track', a.track] if a.track else []
@@ -830,6 +883,8 @@ def files_clean(cfg, a):
 
 
 def cmd_dashboard(cfg, a):
+    if clientmode.role(cfg) == 'client' and not a.once:
+        return move.client_dashboard(cfg, a, say, lambda c: cmd_dashboard(c, a))
     collector = dashboard.Collector(cfg)
     if a.once:
         if not a.no_probe:
@@ -988,7 +1043,7 @@ def cmd_autopilot(cfg, a):
         fill.set_fill(cfg, a.arg == 'on')
     elif a.action == 'land':
         try:
-            print(fill.land(cfg, a.arg or ''))
+            print(fill.land(cfg, a.arg or '', **bridge.tools(cfg)))
         except backlog.BacklogError as e:
             say(str(e))
             return 2
@@ -1358,12 +1413,55 @@ def parser():
     s.add_argument('--status', action='store_true', help='show each agent\'s state; change nothing')
     s.add_argument('--test', action='store_true', help='with the status: start each connected agent\'s server and list its tools')
     s.add_argument('--json', action='store_true')
+    s = add('move', move.cmd, 'move Tutti (the dashboard, the state, the loops) to another machine: preflight, copy, cut-over, '
+                              'clients and members repointed; --dry-run shows the plan, --rollback brings it back (docs/MOVE.md)')
+    s.add_argument('--to', help='the machine to move to (a name under machines:)')
+    s.add_argument('--dry-run', action='store_true', help='check the target and print the whole plan; change nothing')
+    s.add_argument('--rollback', action='store_true', help='Tutti back to this computer (the last move undone)')
+    s.add_argument('--jobs', choices=['wait', 'handover'], default='wait',
+                   help='running autopilot jobs: wait for them to finish (default), or hand them over (stop now, requeued)')
+    s.add_argument('--wait-minutes', type=float, default=60, help='with --jobs wait: how long to wait for them (60)')
+    s.add_argument('--restart', action='store_true', help='start the move again from the preflight instead of resuming it')
+    s.add_argument('--status', action='store_true', help='where Tutti runs, and the last or current move')
+    s.add_argument('--json', action='store_true')
+    s = add('bridge', move.cmd_bridge, 'the connection a client keeps to the host (docs/MOVE.md, *The bridge*): status, '
+                                       'serve (the host end, started by the client\'s ssh), exec (a run on a client)')
+    s.add_argument('action', choices=['status', 'serve', 'exec'])
+    s.add_argument('machine', nargs='?', help='exec: the client machine')
+    s.add_argument('--machine', dest='client', help='serve: the client machine at the other end')
+    s.add_argument('--id', help='exec: the run id')
+    s.add_argument('rest', nargs=argparse.REMAINDER, help='exec: -- run <worker> <task> ...')
+    s = add('client', move.cmd_client, 'this computer as a client of the host Tutti moved to: keeps the bridge and the dashboard\'s '
+                                       'port up (the tutti-client user service runs it); --once: one connection')
+    s.add_argument('--once', action='store_true')
     s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it')
     s.add_argument('agent', nargs='?')
     return p
 
 
+def on_client(cfg, a, argv):
+    """A client of a Tutti that runs elsewhere (docs/MOVE.md): the command runs on the host; with the host unreachable, a
+    read runs here on the read-only copy, `run` runs here alone, a change is refused. None: run it here as usual."""
+    if not clientmode.should_forward(cfg, a.cmd) or (a.cmd == 'wait' and a.kind != 'run'):
+        return None
+    if a.cmd == 'run' and not a.repo and not a.dir:
+        argv = [*argv, '--dir', os.getcwd()]   # the worker edits this folder, wherever the command runs
+    rc = clientmode.forward(cfg, argv)
+    if rc is not None:
+        return rc
+    if a.cmd == 'run':
+        say(f'{cfg["host"]["machine"]} cannot be reached: this run works here alone; its record stays on this computer')
+        os.environ['TUTTI_LOCAL'] = '1'
+        return a.fn(cfg, a)
+    if clientmode.is_read_only(a.cmd, getattr(a, 'action', None)) and not getattr(a, 'agent', None):
+        say(clientmode.mirror_note(cfg))
+        return a.fn(clientmode.fallback_cfg(cfg), a)
+    say(clientmode.refusal(cfg, a.cmd))
+    return 1
+
+
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
     a = parser().parse_args(argv)
     if a.fn in (cmd_doctor, cmd_setup, cmd_self_update):  # they must work before any config exists
         return a.fn(None, a)
@@ -1371,6 +1469,14 @@ def main(argv=None):
     try:
         cfg = config.load(a.config)
         os.environ['TUTTI_CONFIG'] = cfg['_path']
+        rc = on_client(cfg, a, [x for i, x in enumerate(argv) if x != '--config' and (i == 0 or argv[i - 1] != '--config')
+                                and not x.startswith('--config=')])
+        if rc is not None:
+            return rc
+        frozen = move.frozen_note(cfg, a.cmd, getattr(a, 'action', None))
+        if frozen:
+            say(frozen)
+            return 1
         return a.fn(cfg, a)
     except (config.ConfigError, ship.ShipError, backlog.BacklogError, RuntimeError, ValueError) as e:
         telemetry.record('error', type(e).__name__, command=a.cmd)

@@ -17,7 +17,27 @@ def until(check, timeout, poll=2.0, clock=time.monotonic, sleep=time.sleep):
 
 
 def pid_gone(pid):
-    return lambda: not os.path.exists(f'/proc/{int(pid)}')
+    """True once process `pid` no longer exists. Uses OpenProcess on Windows: os.kill(pid, 0) is not a liveness check there
+    (any non-CTRL signal terminates the process)."""
+    pid = int(pid)
+
+    def check():
+        if os.name == 'nt':
+            import ctypes
+            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            if handle:
+                ctypes.windll.kernel32.CloseHandle(handle)
+                return False
+            return True
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        return False
+
+    return check
 
 
 def file_exists(path):

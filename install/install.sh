@@ -22,4 +22,12 @@ mkdir -p "$bin"
 printf '#!/usr/bin/env bash\nexec "%s/.venv/bin/python" "%s/bin/tutti" "$@"\n' "$home" "$home" > "$bin/tutti"
 chmod +x "$bin/tutti"
 case ":$PATH:" in *":$bin:"*) ;; *) echo "tutti: add $bin to your PATH (e.g. in ~/.bashrc)";; esac
-echo "tutti $(git -C "$home" rev-parse --short HEAD) installed. Next: tutti setup   (then: tutti doctor)"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+config_dir="$config_home/tutti"
+config_path="$config_dir/config.yaml"
+if [ ! -e "$config_path" ]; then
+	mkdir -p "$config_dir"
+	cp "$home/tutti.config.example.yaml" "$config_path"
+	echo "tutti: wrote example config to $config_path"
+fi
+echo "tutti $(git -C "$home" rev-parse --short HEAD) installed. Next: edit $config_path, then run: tutti config; tutti workers"

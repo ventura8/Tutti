@@ -6,5 +6,8 @@ $shim = Join-Path $home_ 'bin'
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 [Environment]::SetEnvironmentVariable('Path', (($userPath -split ';') | Where-Object { $_ -and $_ -ne $shim }) -join ';', 'User')
 if (Test-Path $home_) { Remove-Item -Recurse -Force $home_ }
-if ($env:TUTTI_PURGE -eq '1') { Remove-Item -Recurse -Force (Join-Path $env:APPDATA 'tutti') -ErrorAction SilentlyContinue }
+if ($env:TUTTI_PURGE -eq '1') {
+    $configHome = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME '.config' }
+    Remove-Item -Recurse -Force (Join-Path $configHome 'tutti') -ErrorAction SilentlyContinue
+}
 Write-Host 'tutti removed (config kept unless TUTTI_PURGE=1)'

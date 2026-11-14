@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -73,18 +74,25 @@ class RemoteTest(unittest.TestCase):
         self.assertEqual(remote.home_path('/mnt/c/a b.txt'), "'/mnt/c/a b.txt'")
 
     def test_local_probe_and_run_and_yield(self):
+        # flock needs a POSIX filesystem: a Windows tempfile path (often /mnt/c/...) reports free=0 under WSL/Git Bash.
+        # Locks and the yield flag live under bash's /tmp; the work tree stays in the Windows-visible temp dir.
         with tempfile.TemporaryDirectory() as d:
-            cfg = cfg_of({'machines': {'l': {'host': 'local', 'min_free_gb': 0, 'locks': [f'{d}/s.lock'], 'yield_file': f'{d}/yield'}}})
-            m = cfg['machines']['l']
-            p = remote.probe(m)
-            self.assertEqual((p.reachable, p.free, p.yielding), (True, 1, False))
-            self.assertEqual(remote.run(cfg, m, 't', d, 'echo ran > out.txt; exit 7'), 7)
-            self.assertTrue(os.path.exists(f'{d}/out.txt'))
-            self.assertEqual(remote.set_yield(m, True, 'unload: release build'), 0)
-            self.assertTrue(remote.probe(m).yielding)
-            self.assertEqual(remote.yield_note(m), 'unload: release build')
-            self.assertEqual(remote.set_yield(m, False), 0)
-            self.assertIsNone(remote.yield_note(m))
+            lock_dir = subprocess.check_output(['bash', '-c', 'mktemp -d /tmp/tutti-test.XXXXXX'], text=True).strip()
+            try:
+                cfg = cfg_of({'machines': {'l': {'host': 'local', 'min_free_gb': 0,
+                                                 'locks': [f'{lock_dir}/s.lock'], 'yield_file': f'{lock_dir}/yield'}}})
+                m = cfg['machines']['l']
+                p = remote.probe(m)
+                self.assertEqual((p.reachable, p.free, p.yielding), (True, 1, False))
+                self.assertEqual(remote.run(cfg, m, 't', d, 'echo ran > out.txt; exit 7'), 7)
+                self.assertTrue(os.path.exists(f'{d}/out.txt'))
+                self.assertEqual(remote.set_yield(m, True, 'unload: release build'), 0)
+                self.assertTrue(remote.probe(m).yielding)
+                self.assertEqual(remote.yield_note(m), 'unload: release build')
+                self.assertEqual(remote.set_yield(m, False), 0)
+                self.assertIsNone(remote.yield_note(m))
+            finally:
+                subprocess.run(['bash', '-c', 'rm -rf "$1"', 'bash', lock_dir], check=False)
 
 
 class WaitingTest(unittest.TestCase):
@@ -102,6 +110,7 @@ class WaitingTest(unittest.TestCase):
                 f.write('stage static passed\n')
             self.assertTrue(waiting.file_matches(path, r'stage \w+ passed')())
         self.assertFalse(waiting.pid_gone(os.getpid())())
+        self.assertTrue(waiting.pid_gone(2_000_000_000)())
 
 
 class LocalTest(unittest.TestCase):

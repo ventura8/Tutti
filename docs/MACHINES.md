@@ -12,6 +12,8 @@ polled by PID and nothing needs cleaning up after a crash.
 - A run that waits is normal, not a hang.
 - Every session that shares a machine must use the same lock files: `lock_prefix`, or an explicit `locks:` list to
   share a lock that an older script already uses.
+- `flock` needs a POSIX filesystem. On a Windows `local` machine put locks under bash's `/tmp/...` (WSL or Git Bash),
+  not under a Windows path that appears as `/mnt/c/...`: those report every slot busy.
 
 ## The runner
 

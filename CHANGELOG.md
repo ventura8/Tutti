@@ -6,6 +6,16 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 The first extraction of the toolkit from the project it grew in.
 
+### Fixed
+
+- Windows: `waiting.pid_gone` uses `OpenProcess` (not `/proc` or `os.kill(..., 0)`, which terminates on Win32); local busy
+  markers use the same check.
+- Windows: `tutti ship` puts `TUTTI_*` on the bash command line so WSL bash (which does not inherit the Windows process
+  environment) still sees changed files and the commit for checks and deploy.
+- Installers seed `~/.config/tutti/config.yaml` from the example when missing; final message says to edit that file then
+  run `tutti config; tutti workers` (not the not-yet-existing `setup` / `doctor`).
+- `TUTTI_PURGE=1` removes `$XDG_CONFIG_HOME/tutti` or `~/.config/tutti` on Windows too (not `%APPDATA%\tutti`).
+
 ### Added
 
 - `tutti test`: fall-over routing over machines with slot queues; `ssh`, `wsl` and `local` transports; a capped Docker

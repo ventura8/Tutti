@@ -44,7 +44,7 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/ventura8/Tutti/main/install/install.ps1 | iex
 ```
 
-Re-run the same line to update. Uninstall with `install/uninstall.sh` or `install/uninstall.ps1` the same way (config is kept unless `TUTTI_PURGE=1`). Then run `tutti setup` and `tutti doctor`.
+Re-run the same line to update. Uninstall with `install/uninstall.sh` or `install/uninstall.ps1` the same way (config is kept unless `TUTTI_PURGE=1`). Edit the example config the installer wrote under `~/.config/tutti/config.yaml`, then run `tutti config` and `tutti workers`.
 
 ## Quick start
 

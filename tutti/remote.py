@@ -22,7 +22,10 @@ def bash_path(p):
     if os.name != 'nt':
         return p
     if p not in _BASH_PATHS:
-        r = subprocess.run(['bash', '-c', 'wslpath -a "$1" 2>/dev/null || cygpath -u "$1"', 'bash', p],
+        # The path goes inside the line, which travels base64-encoded (argv): WSL's bash.exe passes no arguments after
+        # the -c line, so a "$1" came empty and every path became the current folder.
+        q = shlex.quote(p)
+        r = subprocess.run(argv({'transport': 'local'}, f'wslpath -a {q} 2>/dev/null || cygpath -u {q}'),
                            capture_output=True, text=True, check=False)
         _BASH_PATHS[p] = r.stdout.strip() or p
     return _BASH_PATHS[p]

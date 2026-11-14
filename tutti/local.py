@@ -10,7 +10,7 @@ import sys
 import time
 import urllib.request
 
-from . import config, remote
+from . import config, remote, waiting
 
 FENCE = re.compile(r'```[a-zA-Z]*\n(.*?)```', re.S)
 FILE_BLOCK = re.compile(r'=== FILE: (\S+) ===\n```[a-zA-Z]*\n(.*?)```', re.S)
@@ -31,7 +31,7 @@ def busy_marker(cfg):
 def others_busy(cfg):
     mine = str(os.getpid())
     pids = [p.rsplit('-', 1)[-1] for p in glob.glob(os.path.join(config.state_dir(cfg), 'llm-busy-*'))]
-    return any(pid != mine and os.path.exists(f'/proc/{pid}') for pid in pids)
+    return any(pid != mine and pid.isdigit() and not waiting.pid_gone(int(pid))() for pid in pids)
 
 
 def post(host, payload, timeout):

@@ -231,7 +231,7 @@ class FailureTest(Base):
         tails = autopilot.check_tails(cfg, '1-1', [{'log': os.path.join(folder, 'ship-1.log')}, {'log': outside}, {'log': None}])
         self.assertIn('the real failure', tails[os.path.join(folder, 'ship-1.log')])
         self.assertEqual(tails[outside], '')
-        self.assertEqual(autopilot.run_log(cfg, '../x'), None)
+        self.assertIsNone(autopilot.run_log(cfg, '../x'))
 
     def test_park_after_the_same_failure_on_the_strongest_step_only(self):
         cfg = self.cfg()

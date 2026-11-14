@@ -5,6 +5,7 @@ import os
 import shlex
 import subprocess
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from . import (
@@ -85,15 +86,24 @@ def cmd_test(cfg, a):
         choice = routing.choose(cfg['routing']['order'], cfg['machines'], lambda n: remote.probe(cfg['machines'][n]))
     say(f'test: {choice.machine}{", queued" if choice.queued else ""} ({choice.reason})')
     machine = cfg['machines'][choice.machine]
-    inputs = send_inputs(cfg, machine, a.input) if a.input else None
-    return remote.run(cfg, machine, a.track, src, ' '.join(a.command), inputs=inputs)
+    with job_inputs(cfg, machine, a.input) as base:
+        return remote.run(cfg, machine, a.track, src, ' '.join(a.command), inputs=base and transfer.shell_path(base))
 
 
-def send_inputs(cfg, machine, paths):
-    """A job's --input files, copied to the machine's cache first; returns that folder as a bash path for $TUTTI_INPUTS."""
-    base, result = transfer.send(cfg, machine, [os.path.abspath(p) for p in paths])
+@contextmanager
+def job_inputs(cfg, machine, paths):
+    """A job's --input files, copied to the machine's cache first and pinned there until the job ends (no eviction, clean or
+    replacing send touches them meanwhile). Yields the cache folder, or None without inputs."""
+    if not paths:
+        yield None
+        return
+    token = f'{os.getpid()}-{int(datetime.now(timezone.utc).timestamp())}'
+    base, result = transfer.send(cfg, machine, [os.path.abspath(p) for p in paths], pin_token=token)
     say(f'inputs on {machine["name"]}: ' + ', '.join(f'{n} ({how})' for n, how, _ in result) + f' in {base} ($TUTTI_INPUTS)')
-    return transfer.shell_path(base)
+    try:
+        yield base
+    finally:
+        transfer.unpin(machine, base, [n for n, _, _ in result], token)
 
 
 def cmd_rsh(cfg, a):
@@ -163,11 +173,14 @@ def cmd_run(cfg, a):
     if a.show:
         print(workers.brief(cfg, a.task, a.files))
         return 0
-    if a.input:
-        machine = machine_of(cfg, a.on)
-        base, _ = transfer.send(cfg, machine, [os.path.abspath(p) for p in a.input])
-        names = ', '.join(os.path.basename(os.path.abspath(p).rstrip(os.sep)) for p in a.input)
-        a.task += f'\n\nInput files ({names}) are on the machine {machine["name"]} in {base}.'
+    with job_inputs(cfg, machine_of(cfg, a.on) if a.input else None, a.input) as base:
+        if base:
+            names = ', '.join(os.path.basename(os.path.abspath(p).rstrip(os.sep)) for p in a.input)
+            a.task += f'\n\nInput files ({names}) are on the machine {a.on} in {base}.'
+        return run_worker(cfg, a, extra)
+
+
+def run_worker(cfg, a, extra):
     rc, lines = workers.run(cfg, a.worker, a.task, a.files, cwd=a.dir, extra=extra)
     now = datetime.now(timezone.utc)
     cmd_text = ' '.join(cfg['workers'][a.worker]['command'])
@@ -328,18 +341,14 @@ def targets(cfg, name):
 
 
 def cmd_files(cfg, a):
-    action = {'send': files_send, 'list': files_list, 'clean': files_clean}[a.action]
     try:
-        return action(cfg, a)
+        return a.files_fn(cfg, a)
     except OSError as e:
         say(f'files {a.action}: {e}: check the path and the disk, then run it again')
         return 1
 
 
 def files_send(cfg, a):
-    if not a.paths or not a.to:
-        say('usage: tutti files send <path>... --to <machine|all> [--dest <folder>] [--bwlimit <KB/s>]')
-        return 2
     failed = []
     for m in targets(cfg, a.to):
         try:
@@ -370,11 +379,8 @@ def files_list(cfg, a):
 
 
 def files_clean(cfg, a):
-    if not a.on:
-        say('usage: tutti files clean --on <machine|all> [name...] [--all]: without names it trims the cache to its budget')
-        return 2
     for m in targets(cfg, a.on):
-        gone = transfer.clean(cfg, m, a.paths, everything=a.all)
+        gone = transfer.clean(cfg, m, a.names, everything=a.all)
         print(f'{m["name"]}: removed {", ".join(gone) if gone else "nothing (the cache is within its budget)"}')
     return 0
 
@@ -498,13 +504,21 @@ def parser():
     s.add_argument('--out', default='i18n-out')
     s.add_argument('--check', action='store_true')
     s = add('files', cmd_files, 'copy files to machines (`send`), see what each stores (`list`), trim or empty its cache (`clean`)')
-    s.add_argument('action', choices=['send', 'list', 'clean'])
-    s.add_argument('paths', nargs='*', help='send: files and folders on this computer; clean: item names to remove')
-    s.add_argument('--to', help='send: a machine, or all')
-    s.add_argument('--on', help='list, clean: a machine, or all (list: all by default)')
-    s.add_argument('--dest', help='send: a folder on the machine instead of its cache (not counted against the budget)')
-    s.add_argument('--bwlimit', type=int, help='send: at most this many KB/s (default files.bwlimit_kbps; 0 = no limit)')
-    s.add_argument('--all', action='store_true', help='clean: remove every item in the cache')
+    fsub = s.add_subparsers(dest='action', required=True)
+    f = fsub.add_parser('send', help='copy files and folders to a machine, or all')
+    f.set_defaults(files_fn=files_send)
+    f.add_argument('paths', nargs='+', help='files and folders on this computer')
+    f.add_argument('--to', required=True, help='a machine, or all')
+    f.add_argument('--dest', help='a folder on the machine instead of its cache (not counted against the budget)')
+    f.add_argument('--bwlimit', type=int, help='at most this many KB/s (default files.bwlimit_kbps; 0 = no limit)')
+    f = fsub.add_parser('list', help='what each machine stores')
+    f.set_defaults(files_fn=files_list)
+    f.add_argument('--on', help='a machine, or all (the default)')
+    f = fsub.add_parser('clean', help='trim a cache to its budget, remove named items, or empty it')
+    f.set_defaults(files_fn=files_clean)
+    f.add_argument('names', nargs='*', help='items to remove (default: trim to the budget)')
+    f.add_argument('--on', required=True, help='a machine, or all')
+    f.add_argument('--all', action='store_true', help='remove every item and partial file in the cache')
     s = add('dashboard', cmd_dashboard, 'a local web dashboard (installable app): usage and pacing, machines, workers and jobs')
     s.add_argument('--port', type=int, help='the port on 127.0.0.1 (default: dashboard.port, 4777)')
     s.add_argument('--once', action='store_true', help='print the state as JSON (what /api/state answers) and stop')

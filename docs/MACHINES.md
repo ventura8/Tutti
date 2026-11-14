@@ -48,25 +48,33 @@ build inputs. `all` is every machine that is not this computer.
 
 - **Transport.** The machine's own: ssh, WSL (through `tutti rsh`) or a local copy. rsync when this computer and the
   machine both have it: `--partial` keeps an interrupted file, so sending again resumes it, and files already there are
-  skipped. Without rsync a stream appends the missing bytes to `<file>.tutti-part` and moves it into place.
+  skipped. Without rsync a stream appends the missing bytes to `<file>.tutti-part` and moves it into place; it also
+  creates empty folders and removes files a folder no longer has, as rsync's `--delete` does.
 - **Checked.** Every item is verified with `sha256sum -c` on the machine before it counts as stored; a mismatch removes
   the copy and sends it once more, a second one stops with the fix. The manifest and a small record stay in
-  `.tutti-files/` beside the items, so the next send of an unchanged item is skipped without copying a byte. Checksums
-  of big local files are remembered (`<project.state>/files/sha256-cache.json`).
+  `.tutti-files/` beside the items, so the next send of an unchanged item is skipped without copying a byte. A changed
+  item's record is dropped before its first byte is overwritten, so an interrupted update never passes for the old
+  version. Checksums of big local files are remembered (`<project.state>/files/sha256-cache.json`).
 - **The cache.** Without `--dest` an item lands in `files.cache` (default `~/.cache/tutti/files`). Before a byte moves the
   cache is kept within `files.budget_gb` (default 50) by removing the least recently used items (a skipped send counts as
-  a use); an item larger than the budget is refused. `--dest <folder>` puts it elsewhere, outside the budget. Either way
+  a use); a replaced item counts once, at its new size; partial files of interrupted transfers count against the budget;
+  an item larger than the budget is refused. `--dest <folder>` puts it elsewhere, outside the budget. Either way
   the machine must keep `files.keep_free_gb` (default 2) of disk free.
 - **Bandwidth.** `--bwlimit <KB/s>` or `files.bwlimit_kbps` (0 = none); `files.compress: true` adds rsync's `-z` (leave it
-  off for archives that are already compressed). One send per machine at a time from this computer.
+  off for archives that are already compressed). One send or clean per destination folder at a time from this computer,
+  whichever project asks (a lock under `$XDG_STATE_HOME/tutti/locks`, keyed by host and folder).
 - **Never secrets.** A path that is, or a folder that holds, `.env*`, `*token*`, `*secret*`, `*.pem`, `*.key`, ssh keys,
   `*service-account*.json`, `*credentials*.json`, a small `.json` with a `private_key`, or anything under `.ssh/`,
-  `.gnupg/`, `.aws/` refuses the whole send, naming the file. `files.refuse` adds patterns.
+  `.gnupg/`, `.aws/` refuses the whole send, naming the file; a symlink is judged by where it leads too.
+  `files.refuse` adds patterns.
 - **Jobs.** `tutti test --input <path>` copies inputs to the chosen machine's cache before the run and exports
-  `TUTTI_INPUTS` (the cache folder), mounted read-only when the runner is docker. `tutti run <worker> --input <path> --on
+  `TUTTI_INPUTS` (the cache folder), mounted read-only when the runner is docker. The inputs are **pinned** until the job
+  ends: no eviction, clean or send of a different version touches them (a pin older than 24 hours, from a job that
+  crashed, no longer counts). `tutti run <worker> --input <path> --on
   <machine>` does the same before briefing a worker and names the folder in its brief.
-- **See and clean.** `tutti files list [--on <machine>]`; `tutti files clean --on <machine|all>` trims to the budget,
-  `clean --on <m> <name>...` removes items, `--all` empties the cache. The dashboard shows every transfer in Jobs (with
+- **See and clean.** `tutti files list [--on <machine>]`; `tutti files clean --on <machine|all>` removes partial files
+  untouched for a day and trims to the budget, `clean --on <m> <name>...` removes items, `--all` empties the cache and
+  every partial file. Pinned items stay. The dashboard shows every transfer in Jobs (with
   its progress in MB) and each machine's stored files under Machines.
 
 A machine may override any of these with its own `files:` (for example a larger `budget_gb` on the build box).

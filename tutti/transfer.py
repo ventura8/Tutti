@@ -3,6 +3,7 @@ ends have it (resumable partials, skips what is already there), else a resumable
 sha256sum on the machine before it counts as stored. Items sent without --dest live in the machine's cache, which keeps
 to a size budget by removing the least recently used items first. Secrets never leave: the send is refused instead."""
 import fcntl
+import hashlib
 import json
 import os
 import shlex
@@ -64,6 +65,7 @@ class Job:
     def progress(self, done):
         with open(self.log_path + '.progress', 'w', encoding='utf8') as f:
             f.write(files.progress_line(self.base + done, self.total))
+        os.utime(self.log_path)   # bytes moving is activity: a long copy is not "stalled" because its log is quiet
 
     def finish(self):
         with open(self.log_path + '.progress', 'w', encoding='utf8') as f:
@@ -75,12 +77,20 @@ class Job:
         self.log.close()
 
 
+def lock_dir(env=None):
+    """Shared by every project on this computer (not the project's state folder): $XDG_STATE_HOME/tutti/locks."""
+    env = os.environ if env is None else env
+    return os.path.join(os.path.expanduser(env.get('XDG_STATE_HOME') or '~/.local/state'), 'tutti', 'locks')
+
+
 @contextmanager
-def machine_lock(cfg, machine):
-    """One send at a time per machine from this computer: two sends of the same archive would fight over its partial file."""
-    folder = os.path.join(config.state_dir(cfg), 'files')
-    os.makedirs(folder, exist_ok=True)
-    with open(os.path.join(folder, f'{machine["name"]}.lock'), 'w', encoding='utf8') as f:
+def machine_lock(machine, base):
+    """One send or clean at a time per destination folder from this computer, whichever project or config asks: two sends
+    of the same archive would fight over its partial file, and a clean must not delete what a send is verifying. Keyed by
+    the host and the folder, so two projects with the same cache share the lock."""
+    os.makedirs(lock_dir(), exist_ok=True)
+    key = hashlib.sha256(f'{machine.get("host") or "local"}|{base}'.encode()).hexdigest()[:16]
+    with open(os.path.join(lock_dir(), f'files-{key}.lock'), 'w', encoding='utf8') as f:
         fcntl.flock(f, fcntl.LOCK_EX)
         yield
 
@@ -93,6 +103,11 @@ def inspect_script(base):
     return (f'mkdir -p {b}/{files.META} && cd {b} || exit 3; '
             'command -v rsync > /dev/null && echo RSYNC=1 || echo RSYNC=0; '
             'echo "FREE=$(df -PB1 . | awk \'NR==2{print $4}\')"; '
+            f'echo "PARTIAL=$(find . \\( -name \'*{files.PART_SUFFIX}\' -o -path \'*/{files.PARTIAL}/*\' \\) -type f -printf \'%s\\n\' '
+            '| awk \'{s+=$1} END {print s+0}\')"; '
+            f'find {files.META} -name \'*.pin-*\' -mmin +{files.PIN_HOURS * 60} -delete; '
+            f'for p in {files.META}/*.pin-*; do [ -e "$p" ] || continue; p=${{p#{files.META}/}}; '
+            'printf "PIN\\t%s\\n" "${p%.pin-*}"; done; '
             f'for f in {files.META}/*.json; do [ -e "$f" ] || continue; n=${{f#{files.META}/}}; n=${{n%.json}}; '
             f'if [ -e "$n" ]; then printf "ITEM\\t%s\\t%s\\t%s\\n" "$n" "$(stat -c %Y "$f")" "$(tr -d "\\n" < "$f")"; '
             f'else rm -f "$f" "{files.META}/$n.sha256"; fi; done')
@@ -112,8 +127,8 @@ def inspect(machine, base, timeout=60):
         raise RuntimeError(f'{machine["name"]}: could not create or open {base} (exit {r.returncode}): check the path and that '
                            f'its disk is writable; the cache is files.cache in the config')
     out = r.stdout
-    free = next((int(x[5:]) for x in out.splitlines() if x.startswith('FREE=') and x[5:].isdigit()), None)
-    return {'rsync': 'RSYNC=1' in out, 'free': free, 'items': files.parse_listing(out)}
+    return {'rsync': 'RSYNC=1' in out, 'free': files.parse_number(out, 'FREE'), 'partial': files.parse_number(out, 'PARTIAL') or 0,
+            'items': files.parse_listing(out), 'pins': files.parse_pins(out)}
 
 
 def stored(cfg, machine, timeout=30):
@@ -126,8 +141,9 @@ def stored(cfg, machine, timeout=30):
         out['problem'] = str(e)
         return out
     items = sorted((e for e, _ in info['items'].values()), key=lambda e: -e.used_at)
-    out['items'] = [{'name': e.name, 'bytes': e.bytes, 'used_at': e.used_at} for e in items]
-    out['bytes'] = sum(e.bytes for e in items)
+    out['items'] = [{'name': e.name, 'bytes': e.bytes, 'used_at': e.used_at, 'pinned': e.name in info['pins']} for e in items]
+    out['partial_bytes'] = info['partial']
+    out['bytes'] = sum(e.bytes for e in items) + info['partial']
     out['free_bytes'] = info['free']
     return out
 
@@ -148,22 +164,48 @@ def remove(machine, base, names):
         raise RuntimeError(f'{machine["name"]}: removing {", ".join(names)} from {base} failed: check its permissions')
 
 
+def remove_partials(machine, base, older_than_minutes=None):
+    """Interrupted transfers' partial files: all of them, or only those untouched for a while (abandoned)."""
+    age = f' -mmin +{int(older_than_minutes)}' if older_than_minutes else ''
+    remote.sh(machine, f'cd {shell_path(base)} && find . -name {shlex.quote("*" + files.PART_SUFFIX)} -type f{age} -delete; '
+                       f'find . -path {shlex.quote("*/" + files.PARTIAL + "/*")} -type f{age} -delete; '
+                       f'find . -depth -type d -name {files.PARTIAL} -empty -delete')
+
+
 def clean(cfg, machine, names=(), everything=False):
-    """Removes the named items, every item (`everything`), or, with neither, the least recently used ones until the cache
-    fits its budget. Returns the names removed."""
+    """Removes the named items, every item (`everything`) with every partial file, or, with neither, abandoned partial files
+    and the least recently used items until the cache fits its budget. Items a running job pinned stay. Returns the names
+    removed."""
     s = files.settings(cfg, machine)
-    info = inspect(machine, s['cache'])
-    entries = [e for e, _ in info['items'].values()]
-    if everything:
-        names = [e.name for e in entries]
-    elif not names:
-        names, _ = files.plan_eviction(entries, s['budget_gb'] * files.GB, 0)
-    missing = [n for n in names if n not in info['items']]
-    if missing:
-        raise RuntimeError(f'{machine["name"]} has no {", ".join(missing)} in {s["cache"]}: `tutti files list --on {machine["name"]}` '
-                           'shows what it has')
-    remove(machine, s['cache'], list(names))
+    with machine_lock(machine, s['cache']):
+        info = inspect(machine, s['cache'])
+        entries = [e for e, _ in info['items'].values() if e.name not in info['pins']]
+        if everything:
+            names = [e.name for e in entries]
+            remove_partials(machine, s['cache'])
+        elif not names:
+            remove_partials(machine, s['cache'], files.PIN_HOURS * 60)
+            names, _ = files.plan_eviction(entries, s['budget_gb'] * files.GB, 0)
+        missing = [n for n in names if n not in info['items']]
+        if missing:
+            raise RuntimeError(f'{machine["name"]} has no {", ".join(missing)} in {s["cache"]}: `tutti files list --on '
+                               f'{machine["name"]}` shows what it has')
+        pinned = [n for n in names if n in info['pins']]
+        if pinned:
+            raise RuntimeError(f'{", ".join(pinned)} on {machine["name"]} is an input of a running job: clean it after the job ends')
+        remove(machine, s['cache'], list(names))
     return list(names)
+
+
+def pin(machine, base, names, token):
+    """Marks the items as inputs of a running job: eviction, clean and a replacing send leave them alone until unpin()."""
+    b = f'{shell_path(base)}/{files.META}'
+    remote.sh(machine, ' && '.join(f'touch {b}/{shlex.quote(n)}.pin-{shlex.quote(token)}' for n in names))
+
+
+def unpin(machine, base, names, token):
+    b = f'{shell_path(base)}/{files.META}'
+    remote.sh(machine, 'rm -f ' + ' '.join(f'{b}/{shlex.quote(n)}.pin-{shlex.quote(token)}' for n in names))
 
 
 # ---- copying
@@ -227,15 +269,36 @@ def stream_file(machine, src, size, final_sh, bwlimit, job, sent):
 
 def copy_stream(machine, item, base, bwlimit, job):
     parent = os.path.dirname(item.path)
+    if item.dirs:
+        remote.sh(machine, 'mkdir -p ' + ' '.join(shell_path(base, d) for d in item.dirs))
     sent = 0
     for rel, size, _ in item.files:
         stream_file(machine, os.path.join(parent, rel), size, shell_path(base, rel), bwlimit, job, sent)
         sent += size
+    if item.is_dir:
+        drop_extras(machine, base, item)
+
+
+def drop_extras(machine, base, item):
+    """Removes files the folder no longer has, as rsync --delete would; partial files stay for a later resume."""
+    r = remote.sh(machine, f'cd {shell_path(base)} && find {shlex.quote(item.name)} -type f', capture=True)
+    gone = files.extras(r.stdout.splitlines(), item)
+    for i in range(0, len(gone), 200):
+        remote.sh(machine, f'cd {shell_path(base)} && rm -f ' + ' '.join(shlex.quote(p) for p in gone[i:i + 200]))
 
 
 def verify(machine, base, item):
+    if not item.files:
+        r = remote.sh(machine, f'test -d {shell_path(base, item.name)}')
+        return r.returncode == 0, ['the folder is missing']
     r = remote.sh(machine, f'cd {shell_path(base)} && sha256sum -c --quiet --strict -', capture=True, stdin=files.manifest(item))
     return r.returncode == 0, (r.stdout + r.stderr).strip().splitlines()[:5]
+
+
+def forget(machine, base, name):
+    """Drops an item's record before its files change: an interrupted update must not pass for the old, intact version."""
+    b = f'{shell_path(base)}/{files.META}/{shlex.quote(name)}'
+    remote.sh(machine, f'rm -f {b}.json {b}.sha256')
 
 
 def record(machine, base, item):
@@ -309,11 +372,13 @@ def save_sha_cache(cfg, cache):
 
 
 def make_room(machine, base, s, info, todo, keep, job):
-    """The cache's budget and the disk's free space, before a byte moves. Removes least recently used items when needed."""
+    """The cache's budget and the disk's free space, before a byte moves. Removes least recently used items when needed.
+    A replaced item counts once (its new size); partial files of interrupted transfers count against the budget."""
     incoming = sum(i.bytes for i in todo)
-    budget = s['budget_gb'] * files.GB
-    entries = [e for e, _ in info['items'].values()]
-    out, fits = files.plan_eviction(entries, budget, incoming, keep)
+    budget = s['budget_gb'] * files.GB - info['partial']
+    replaced = {i.name for i in todo}
+    entries = [e for e, _ in info['items'].values() if e.name not in replaced]
+    out, fits = files.plan_eviction(entries, budget, incoming, set(keep) | info['pins'])
     if not fits:
         raise RuntimeError(f'{files.human(incoming)} does not fit the {files.human(budget)} cache budget on {machine["name"]}: raise '
                            f'files.budget_gb (or machines.{machine["name"]}.files.budget_gb), or send with --dest <folder>')
@@ -332,16 +397,19 @@ def check_free(machine, s, free, incoming):
                            f'{machine["name"]}`')
 
 
-def send(cfg, machine, paths, dest=None, bwlimit=None, use_rsync=None):
-    """Copies the files and folders to the machine. Returns (folder on the machine, [(name, 'sent' | 'already there', bytes)])."""
+def send(cfg, machine, paths, dest=None, bwlimit=None, use_rsync=None, pin_token=None):
+    """Copies the files and folders to the machine. Returns (folder on the machine, [(name, 'sent' | 'already there', bytes)]).
+    With `pin_token` the items are pinned for a job before the lock is let go (unpin() when the job ends)."""
     s = files.settings(cfg, machine)
     base = base_of(cfg, machine, dest)
     bw = s['bwlimit_kbps'] if bwlimit is None else bwlimit
     items = prepare(cfg, paths, s)
     job = Job(cfg, f'files send {", ".join(i.name for i in items)} -> {machine["name"]}:{base}')
     try:
-        with machine_lock(cfg, machine):
+        with machine_lock(machine, base):
             result = _send(cfg, machine, items, base, s, bw, use_rsync, dest is None, job)
+            if pin_token:
+                pin(machine, base, [i.name for i in items], pin_token)
     except BaseException as e:
         job.say(f'failed: {e}')
         job.end(1)
@@ -353,7 +421,11 @@ def send(cfg, machine, paths, dest=None, bwlimit=None, use_rsync=None):
 def _send(cfg, machine, items, base, s, bw, use_rsync, in_cache, job):
     info = inspect(machine, base)
     have = info['items']
-    todo = [i for i in items if i.name not in have or have[i.name][1].get('manifest') != files.manifest_digest(files.manifest(i))]
+    todo = [i for i in items if i.name not in have or have[i.name][1].get('manifest') != files.identity(i)]
+    busy = [i.name for i in todo if i.name in info['pins']]
+    if busy:
+        raise RuntimeError(f'{", ".join(busy)} on {machine["name"]} is an input of a running job and differs from yours: send it '
+                           'after that job ends, or with --dest <folder>')
     if in_cache:
         make_room(machine, base, s, info, todo, [i.name for i in items], job)
     else:
@@ -368,6 +440,7 @@ def _send(cfg, machine, items, base, s, bw, use_rsync, in_cache, job):
             out.append((i.name, 'already there', i.bytes))
             continue
         job.say(f'{i.name}: {files.human(i.bytes)} to {machine["name"]}:{base} by {"rsync" if rsync else "stream"}')
+        forget(machine, base, i.name)
         copy_item(cfg, machine, i, base, s, rsync, bw, job)
         job.base += i.bytes
         job.progress(0)

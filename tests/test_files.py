@@ -39,7 +39,8 @@ class SecretTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_secret_names_folders_and_key_json_are_refused(self):
-        for name in ('.env', '.env.local', 'github-token.txt', 'my-service-account.json', 'id_ed25519', 'server.pem'):
+        for name in ('.env', '.env.local', '.envrc', '.env-production',
+                     'github-token.txt', 'my-service-account.json', 'id_ed25519', 'server.pem'):
             self.assertIsNotNone(files.secret_reason(write(os.path.join(self.d, name))), name)
         self.assertIn('.ssh/', files.secret_reason(write(os.path.join(self.d, '.ssh', 'config'))))
         key = write(os.path.join(self.d, 'project-1234.json'), b'{"type": "service_account", "private_key": "-----"}')
@@ -49,6 +50,11 @@ class SecretTest(unittest.TestCase):
         self.assertIsNone(files.secret_reason(write(os.path.join(self.d, 'harti.zip'))))
         self.assertIsNone(files.secret_reason(write(os.path.join(self.d, 'data.json'), b'{"a": 1}')))
         self.assertIsNotNone(files.secret_reason(write(os.path.join(self.d, 'x.sqlite')), ['*.sqlite']))
+
+    def test_a_symlink_to_a_secret_is_refused(self):
+        key = write(os.path.join(self.d, '.ssh', 'id_ed25519'), b'k')
+        os.symlink(key, os.path.join(self.d, 'notes.txt'))
+        self.assertIsNotNone(files.secret_reason(os.path.join(self.d, 'notes.txt')))
 
     def test_a_secret_inside_a_folder_is_found(self):
         write(os.path.join(self.d, 'set', 'a.csv'))
@@ -72,6 +78,14 @@ class PureTest(unittest.TestCase):
         self.assertEqual(files.progress_line(0, 10), '0 1 MB\n')
         self.assertEqual(files.progress_line(10, 10), '1 1 MB\n')
 
+    def test_extras_and_pins(self):
+        item = files.Item('set', '/x/set', True, [('set/a', 1, 'h')], 1, ['set'])
+        self.assertEqual(files.extras(['set/a', 'set/old', 'set/b' + files.PART_SUFFIX, f'set/{files.PARTIAL}/c', ''], item),
+                         ['set/old'])
+        self.assertEqual(files.parse_pins('PIN\ta.zip\nITEM\tx\nPIN\tb'), {'a.zip', 'b'})
+        self.assertEqual(files.parse_number('FREE=12\nPARTIAL=x', 'FREE'), 12)
+        self.assertIsNone(files.parse_number('PARTIAL=x', 'PARTIAL'))
+
     def test_listing_and_names(self):
         text = 'RSYNC=1\nITEM\ta.zip\t100\t{"bytes": 5}\nITEM\tbroken\t1\tnot json\nITEM\tshort\n'
         self.assertEqual(list(files.parse_listing(text)), ['a.zip'])
@@ -91,6 +105,9 @@ class SendTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.d = self.tmp.name
+        env = mock.patch.dict(os.environ, {'XDG_STATE_HOME': os.path.join(self.d, 'xdg')})
+        env.start()
+        self.addCleanup(env.stop)
         self.cfg = cfg_in(self.d)
         self.m = self.cfg['machines']['here']
         self.cache = os.path.join(self.d, 'cache')
@@ -184,6 +201,66 @@ class SendTest(unittest.TestCase):
         self.assertIn('-> here:', jobs[0]['title'])
         self.assertEqual(jobs[0]['progress']['unit'], 'MB')
 
+    def test_stream_keeps_empty_folders_and_drops_removed_files(self):
+        os.makedirs(os.path.join(self.src, 'set', 'empty'))
+        self.send([os.path.join(self.src, 'set')], use_rsync=False)
+        self.assertTrue(os.path.isdir(os.path.join(self.cache, 'set', 'empty')))
+        os.remove(os.path.join(self.src, 'set', 'a.csv'))
+        _, out = self.send([os.path.join(self.src, 'set')], use_rsync=False)
+        self.assertEqual(out[0][1], 'sent')
+        self.assertFalse(os.path.exists(os.path.join(self.cache, 'set', 'a.csv')))
+        os.makedirs(os.path.join(self.src, 'blank'))
+        self.assertEqual(self.send([os.path.join(self.src, 'blank')], use_rsync=True)[1][0][1], 'sent')
+
+    def test_a_pinned_item_is_neither_evicted_nor_replaced_nor_cleaned(self):
+        self.cfg = cfg_in(self.d, budget_gb=4 * files.MB / GB)
+        self.m = self.cfg['machines']['here']
+        small = write(os.path.join(self.src, 'small.bin'), os.urandom(files.MB))
+        self.send([small], use_rsync=False, pin_token='job1')
+        with self.assertRaisesRegex(RuntimeError, 'does not fit'):
+            self.send([self.archive], use_rsync=False)
+        write(small, b'changed')
+        with self.assertRaisesRegex(RuntimeError, 'input of a running job'):
+            self.send([small], use_rsync=False)
+        with self.assertRaisesRegex(RuntimeError, 'input of a running job'):
+            transfer.clean(self.cfg, self.m, ['small.bin'])
+        self.assertTrue(transfer.stored(self.cfg, self.m)['items'][0]['pinned'])
+        transfer.unpin(self.m, self.cache, ['small.bin'], 'job1')
+        self.assertEqual(self.send([small], use_rsync=False)[1][0][1], 'sent')
+
+    def test_a_replaced_item_counts_once_and_partials_count_and_are_cleaned(self):
+        self.cfg = cfg_in(self.d, budget_gb=4 * files.MB / GB)
+        self.m = self.cfg['machines']['here']
+        self.send([self.archive], use_rsync=False)
+        write(self.archive, os.urandom(3 * files.MB))
+        self.assertEqual(self.send([self.archive], use_rsync=False)[1][0][1], 'sent')
+        part = write(os.path.join(self.cache, 'other.bin' + files.PART_SUFFIX), os.urandom(2 * files.MB))
+        self.assertEqual(transfer.stored(self.cfg, self.m)['partial_bytes'], 2 * files.MB)
+        write(self.archive, os.urandom(3 * files.MB))
+        with self.assertRaisesRegex(RuntimeError, 'does not fit'):
+            self.send([self.archive], use_rsync=False)
+        os.utime(part, (1, 1))
+        transfer.clean(self.cfg, self.m)
+        self.assertFalse(os.path.exists(part))
+
+    def test_an_interrupted_update_does_not_pass_for_the_old_version(self):
+        self.send([self.archive], use_rsync=False)
+        with open(self.archive, 'rb') as f:
+            old = f.read()
+        write(self.archive, b'new')
+        with mock.patch.object(transfer, 'copy_stream', side_effect=RuntimeError('cut')), self.assertRaises(RuntimeError):
+            self.send([self.archive], use_rsync=False)
+        write(self.archive, old)
+        self.assertEqual(self.send([self.archive], use_rsync=False)[1][0][1], 'sent')
+
+    def test_progress_marks_the_log_active(self):
+        job = transfer.Job(self.cfg, 't')
+        os.utime(job.log_path, (1, 1))
+        job.total = 10
+        job.progress(5)
+        self.assertGreater(os.path.getmtime(job.log_path), 1)
+        job.end(0)
+
     def test_stored_and_clean(self):
         self.send([self.archive, os.path.join(self.src, 'set')], use_rsync=False)
         st = transfer.stored(self.cfg, self.m)
@@ -220,6 +297,9 @@ class CliTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.d = self.tmp.name
+        env = mock.patch.dict(os.environ, {'XDG_STATE_HOME': os.path.join(self.d, 'xdg')})
+        env.start()
+        self.addCleanup(env.stop)
         cfg = cfg_in(self.d)
         raw = {'project': cfg['project'], 'machines': {'here': {'host': 'local', 'files': cfg['machines']['here']['files']}}}
         self.path = os.path.join(self.d, 'tutti.config.json')
@@ -241,12 +321,17 @@ class CliTest(unittest.TestCase):
         self.assertEqual((rc, 'here: data.bin sent' in out), (0, True))
         rc, out, _ = self.tutti('files', 'list', '--on', 'here')
         self.assertIn('data.bin', out)
+        rc, out, _ = self.tutti('files', 'clean', '--on', 'here', 'data.bin')
+        self.assertIn('removed data.bin', out)
+        self.tutti('files', 'send', self.src, '--to', 'here')
         rc, out, _ = self.tutti('files', 'clean', '--on', 'here', '--all')
         self.assertIn('removed data.bin', out)
 
     def test_bad_calls_say_what_to_write(self):
-        self.assertEqual(self.tutti('files', 'send', self.src)[0], 2)
-        self.assertEqual(self.tutti('files', 'clean')[0], 2)
+        for args in (('files', 'send', self.src), ('files', 'clean')):
+            with self.assertRaises(SystemExit) as e, redirect_stderr(io.StringIO()):
+                cli.main(['--config', self.path, *args])
+            self.assertEqual(e.exception.code, 2)
         rc, _, err = self.tutti('files', 'send', self.src, '--to', 'all')
         self.assertEqual(rc, 1)
         self.assertIn('no machine other than this computer', err)
@@ -261,6 +346,7 @@ class CliTest(unittest.TestCase):
                                 'test -f "$TUTTI_INPUTS/data.bin"')
         self.assertEqual(rc, 0, err)
         self.assertIn('inputs on here: data.bin (sent)', err)
+        self.assertFalse([f for f in os.listdir(os.path.join(self.d, 'cache', files.META)) if '.pin-' in f])
 
     def test_run_input_needs_on(self):
         with open(self.path, encoding='utf8') as f:

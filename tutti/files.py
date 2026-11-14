@@ -14,7 +14,7 @@ PARTIAL = '.tutti-partial'     # rsync's resumable partial files, inside the des
 PART_SUFFIX = '.tutti-part'    # the stream fallback's partial file, beside the final one
 DEFAULTS = {'cache': '~/.cache/tutti/files', 'budget_gb': 50, 'keep_free_gb': 2, 'bwlimit_kbps': 0, 'compress': False, 'refuse': []}
 # Never copied, whatever the caller asks: names first (case-insensitive), then folders anywhere in the path.
-SECRET_NAMES = ('.env', '.env.*', '*.env', '*token*', '*secret*', '*service-account*.json', '*service_account*.json',
+SECRET_NAMES = ('.env*', '*.env', '*token*', '*secret*', '*service-account*.json', '*service_account*.json',
                 '*credentials*.json', '*.pem', '*.key', '*.p12', '*.pfx', 'id_rsa*', 'id_ed25519*', 'id_ecdsa*', 'id_dsa*',
                 '.netrc', '.npmrc', '.pypirc', '.git-credentials', 'known_hosts', 'authorized_keys')
 SECRET_DIRS = ('.ssh', '.gnupg', '.aws', '.azure', '.kube', '.docker')
@@ -25,7 +25,8 @@ KEY_JSON_MAX = 256 * 1024
 RSYNC_PROGRESS = re.compile(r'([\d,]+)\s+(\d{1,3})%')
 
 Entry = namedtuple('Entry', 'name bytes used_at')
-Item = namedtuple('Item', 'name path is_dir files bytes')   # files: [(relpath, size, sha256)] relative to the item's parent
+Item = namedtuple('Item', 'name path is_dir files bytes dirs')   # files: [(relpath, size, sha256)], dirs: [relpath], relative to the parent
+PIN_HOURS = 24   # a job's pin keeps its inputs from eviction and replacement; an older pin (a crashed job) no longer counts
 
 
 def settings(cfg, machine):
@@ -66,8 +67,13 @@ def _number_errors(key, f):
 
 
 def secret_reason(path, extra=()):
-    """Why `path` must never leave this computer, or None. Looks at the name and the folders above it; a small .json is also
-    scanned for a private key (its bytes are only matched, never shown)."""
+    """Why `path` must never leave this computer, or None. Looks at the name and the folders above it, for the path as given
+    and for where a symlink leads; a small .json is also scanned for a private key (its bytes are only matched, never shown)."""
+    real = os.path.realpath(path)
+    return _secret_reason(path, extra) or (_secret_reason(real, extra) if real != os.path.abspath(path) else None)
+
+
+def _secret_reason(path, extra):
     parts = os.path.normpath(os.path.abspath(path)).split(os.sep)
     hidden = [d for d in parts[:-1] if d.lower() in SECRET_DIRS]
     if hidden:
@@ -138,12 +144,25 @@ def item_of(path, cache=None):
     path = os.path.abspath(path.rstrip(os.sep) or os.sep)
     parent = os.path.dirname(path)
     files = [(os.path.relpath(f, parent), os.path.getsize(f), sha256(f, cache)) for f in walk(path)]
-    return Item(os.path.basename(path), path, os.path.isdir(path), files, sum(s for _, s, _ in files))
+    dirs = [os.path.relpath(r, parent) for r, _, _ in os.walk(path)] if os.path.isdir(path) else []
+    return Item(os.path.basename(path), path, os.path.isdir(path), files, sum(s for _, s, _ in files), sorted(dirs))
 
 
 def manifest(item):
-    """The item's sha256sum file: what `sha256sum -c` checks on the machine."""
+    """The item's sha256sum file: what `sha256sum -c` checks on the machine. Folders, empty ones too, are listed as
+    `dir  <path>/` lines in the digest only (meta_json), so a changed folder layout is a changed item."""
     return ''.join(f'{h}  {rel}\n' for rel, _, h in item.files)
+
+
+def identity(item):
+    """What makes two sends of an item the same: its files' checksums and its folders."""
+    return manifest_digest(manifest(item) + ''.join(f'dir  {d}/\n' for d in item.dirs))
+
+
+def extras(listed, item):
+    """Files on the machine under the item that the item no longer has (a stream copy does not delete like rsync --delete)."""
+    keep = {rel for rel, _, _ in item.files}
+    return sorted(p for p in listed if p and p not in keep and not p.endswith(PART_SUFFIX) and f'/{PARTIAL}/' not in f'/{p}')
 
 
 def manifest_digest(text):
@@ -152,7 +171,7 @@ def manifest_digest(text):
 
 def meta_json(item, now, origin):
     return json.dumps({'name': item.name, 'bytes': item.bytes, 'files': len(item.files), 'sent_at': now, 'from': origin,
-                       'manifest': manifest_digest(manifest(item))})
+                       'manifest': identity(item)})
 
 
 # ---- the cache's budget
@@ -173,7 +192,7 @@ def plan_eviction(entries, budget, incoming, keep=()):
 
 
 def parse_listing(text):
-    """{name: (Entry, meta)} from the machine's `ITEM<tab>name<tab>mtime<tab>json` lines; broken lines are skipped."""
+    """{name: (Entry, meta)} from the machine's `ITEM<tab>name<tab>mtime<tab>json` lines; other and broken lines are skipped."""
     out = {}
     for line in text.splitlines():
         parts = line.split('\t', 3)
@@ -212,3 +231,12 @@ def human(n):
         if n >= size:
             return f'{n / size:.1f} {unit}'
     return f'{n} B'
+
+
+def parse_pins(text):
+    """The items a running job has pinned (`PIN<tab>name` lines)."""
+    return {line.split('\t', 1)[1] for line in text.splitlines() if line.startswith('PIN\t') and '\t' in line}
+
+
+def parse_number(text, key):
+    return next((int(x[len(key) + 1:]) for x in text.splitlines() if x.startswith(key + '=') and x[len(key) + 1:].isdigit()), None)

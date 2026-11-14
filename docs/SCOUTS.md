@@ -94,6 +94,35 @@ Between readings, each question sent logs an estimate on the scout's account (ne
 stale (the Scouts card's **Add a reading** opens the usage page). The reading helper reads Grok Bot's weekly meter in the
 same click as Cursor's (`helper_label: Grok Bot`); a page still on its spinner is reported, never saved as 0.
 
+## Sentry triage
+
+With `sentry_triage: true` on a scout, every project under `projects:` with a `sentry: {org, project}` entry gets a daily
+watch `sentry-<project>` (`sentry.every`, default `1d`; paced like any watch). Grok Bot, connected to Sentry in the Grok
+Bot app's **Connect apps**, looks at the issues that are new or regressed since its last report, groups them, and for each
+group names the likely cause, the file and the commit or release, a suggested fix and a severity, with links. The answer
+goes on a `tutti-scout-watch` issue in the project's repository: `sentry.reply_repo`, else the project's `repo`, else the
+scout's `reply.github_repo` (Tutti's). It ends with one line per fix worth doing:
+
+```text
+TUTTI-TASK: <what to change> || check: <a command that fails before the fix and passes after> || sentry: <issue id> || severity: high
+```
+
+Those lines become backlog tasks (`source: sentry`, tagged with the project, one per Sentry issue) only for a project that
+opts in with `self_improve: {tasks: true, autopilot_repo: <repo>}`; with self-improvement off they wait as `candidate`
+until `tutti backlog accept <id>`. A project without that opt-in (one Tutti may only read) gets the issue alone. What
+happens next (pull request, reviews, merge only where allowed) is docs/TELEMETRY.md, *Self-improvement*.
+
+On demand: `tutti scout ask grok "triage Sentry issue <id> in <org>/<project>: cause, file, commit, fix, severity"
+--skill triage --repo <owner/name>`.
+
+```yaml
+projects:
+  Tutti: {repo: octo/tutti, sentry: {org: octo, project: tutti}, self_improve: {tasks: true, autopilot_repo: tutti}}
+  Other: {sentry: {org: octo, project: other}}          # issues only
+scouts:
+  grok: {..., sentry_triage: true}
+```
+
 ## The review trial
 
 `review_trial: {repos: [...], prs: 5}` starts a trial: for the next 5 pull requests of those repositories, `tutti pr

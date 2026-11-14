@@ -250,7 +250,10 @@ main:
 # The dashboard's projects: named by their git remote; these entries name them and lend them machines, containers and a
 # Windows folder (a WSL machine's Windows processes, read over its plain ssh). Read-only: nothing is started or stopped.
 projects:
-  my-app: {match: 'my-app', containers: [my-app-], repo: octo/my-app}   # repo: its open pull requests (a release), CI and reviews
+  my-app: {match: 'my-app', containers: [my-app-], repo: octo/my-app,   # repo: its open pull requests (a release), CI and reviews
+           sentry: {org: octo, project: my-app}}   # a daily Sentry triage by a scout with sentry_triage (docs/SCOUTS.md)
+  # self_improve: {tasks: true, autopilot_repo: app, base: develop}   # its triage becomes tasks and ready PRs to develop
+  #               (merge: true, release: true, release_command: ... only where Tutti may merge and tag; docs/TELEMETRY.md)
   tool: {match: '/tool(\.git)?\b', checks: [{run: bash scripts/check.sh}]}   # `tutti run --repo` in this repo runs these checks
   # other-app: {match: other-app, machines: [win-box], windows: {win-box: 'C:\Users\me\Projects\other-app'}}
 
@@ -276,4 +279,19 @@ scouts:
         every: 1d
         early: true                       # may go ahead of time when the allowance is behind its pace
         task: Open https://my-app.example and report console errors, broken pages and failed requests, with steps.
+    sentry_triage: true                   # a daily watch per project with a sentry: entry (docs/SCOUTS.md, Sentry triage)
     review_trial: {repos: [octo/my-app], prs: 5}   # `tutti pr review` also asks the scout for the next 5 pull requests
+
+# Telemetry (docs/TELEMETRY.md): recorded in <state>/telemetry always; sent only after you say yes (tutti telemetry on).
+# Keep the DSN out of this file: `tutti telemetry setup` stores it in ~/.config/tutti/telemetry.env (or $TUTTI_SENTRY_DSN).
+telemetry:
+  environment: production
+  # endpoint: https://collect.example/tutti   # your own collector instead of Sentry
+
+# Self-improvement (docs/TELEMETRY.md): crashes and insights become autopilot tasks, PRs, and where a project allows it,
+# merges and patch releases. home: the project Tutti's own fixes go to.
+self_improve:
+  enabled: true
+  every_hours: 6
+  max_new_per_day: 3
+  # home: tool

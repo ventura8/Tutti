@@ -2,6 +2,31 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.21 (2026-11-14)
+
+### Added
+
+- Telemetry (docs/TELEMETRY.md): every command (name, fixed action, option names only, duration, exit code, outcome) and
+  feature use (routing decisions, test and device runs, delegated runs, autopilot plans, attempts, escalations and parks,
+  waits and stalls, scout commands, dashboard panels and controls) recorded in `<state>/telemetry/events.jsonl`, rotated.
+  Field values are categories or numbers only; free text (crash messages) is scrubbed of home paths, hosts, IPs, e-mails,
+  URLs, tokens, keys and quoted fragments (`tutti/scrub.py`).
+- Crash reporting to Sentry through its envelope API (no SDK): uncaught exceptions in the CLI and the dashboard server,
+  failed commands with their exit code, and the dashboard page's script errors, with release, environment, OS and Python.
+  Sending is opt-in (asked once on the first interactive run; `tutti telemetry on|off`; the dashboard's switch), batched
+  and offline-tolerant; also to a custom `telemetry.endpoint`.
+- `tutti telemetry status|on|off|setup|report|send`: `setup` keeps the DSN in `~/.config/tutti/telemetry.env` (600),
+  `report` and the dashboard's Insights card summarise the local events (most used, slowest, most failing, wasted quota,
+  stall causes, crashes), `send --test` checks the DSN.
+- Sentry triage by a scout: `projects.<name>.sentry: {org, project}` and `sentry_triage: true` on a scout give a daily
+  watch per project; its `TUTTI-TASK` lines become backlog tasks (`source: sentry`, one per Sentry issue) only for a
+  project that opts in, otherwise the issue alone. `tutti backlog accept <id>` queues a `candidate`.
+- Self-improvement (on by default; `tutti selfimprove`, the dashboard's Self-improvement card): Sentry issues and local
+  insights become tasks with a regression test, the autopilot fixes them, a ready pull request gets `tutti pr review`, and
+  where a project allows (`projects.<name>.self_improve: merge, release`) a green pull request with no open thread is
+  merged (never `--admin`) and released in batches (`scripts/release-patch.sh`); other projects stop at a ready pull
+  request to their work branch, never `main` or `master`.
+
 ## 0.1.20 (2026-11-14)
 
 ### Added

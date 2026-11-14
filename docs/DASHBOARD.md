@@ -83,6 +83,16 @@ real, noise, to mark) and the verdict. When a scout is not set up, or none is co
 shown. After every probe the dashboard runs one scouts round (`tutti scout tick`), so start it from a shell that has the
 scout's variables.
 
+## Insights and self-improvement
+
+The **Insights** card summarises the local telemetry events of the last 7 days (most used, slowest, most failing, wasted
+quota, stall causes, crashes) and holds the **Send reports** switch (`POST /api/telemetry {"consent": true}`); nothing in
+the card was sent anywhere. The **Self-improvement** card shows each Sentry issue or insight on its way: task, pull
+request, merged, released, and the gate it waits on, with its switch (`POST /api/self-improve {"enabled": false}`). The
+page posts its script errors and the panels and controls used (ids only) to `POST /api/telemetry`, which scrubs them
+before recording. After each probe the dashboard runs one self-improvement round and sends the telemetry queue when due.
+See [TELEMETRY.md](TELEMETRY.md).
+
 ## Controls
 
 The *Devices and controls* card: the Android devices (connected, battery, charging, battery temperature, screen, Wi-Fi,

@@ -2,7 +2,9 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
-## 0.7.0 (2026-11-15)### Added
+## 0.7.0 (2026-11-15)
+
+### Added
 
 - Run to completion (docs/NEEDS.md): a failure climbs the ladder at once and each further one waits 1, 2, 4... minutes
   (at most 30); a watchdog ends a run with no new output for `autopilot.stuck_minutes` (30) and queues it again; one

@@ -151,3 +151,10 @@ WSL had no interop (`Exec format error` for every `.exe`), and WSL's `/proc` nev
 
 `on pace` meant within 5 points of the line. On the second day of a week the line is about 6 %, so 10 % used (two thirds
 over) read as `on pace`. The band is now a quarter of the line, 1 to 5 points, and each row prints the math.
+
+## A headless agent denies a compound shell line (2026-11-14)
+
+The first agy conductor runs passed; a later one ended after its CLI auto-denied a `Bash` call: the model had joined
+commands (`cd`, `&&`, `>>`) that no `command(...)` rule allows, and Claude models in agy use a `Bash` tool the list does
+not cover at all. The turn had exited 0, so it would have read as done: a turn now counts as done only with a `DONE:` line
+and no denied tool call, and the instructions ask for one command per line and edits through the agent's own edit tool.

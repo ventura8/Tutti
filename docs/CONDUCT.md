@@ -76,6 +76,8 @@ main:
 
 | Agent | As main agent |
 | --- | --- |
-| Antigravity (`agy`) | Works end to end: created files, ran `tutti usage`, `tutti workers` and `tutti handoff`, ended with `DONE:`. A switch stopped it mid-run (`tutti wait` in progress) and the handoff note carried its done and next steps. |
-| Local model (Ollama, a 9B model) | Works through the loop: continued from agy's note, ran `tutti wait`, `tutti handoff` and `tutti usage`, ended with `DONE:`. |
-| Cursor, Copilot CLI, Claude Code | Same path as agy (a headless CLI with a shell); covered by the unit tests with a stand-in command, not yet run for real as main agent. |
+| Antigravity (`agy`) | Works end to end on a Gemini model: edited files, ran `tutti usage`, `tutti workers` and `tutti handoff`, ended with `DONE:`. A switch stopped it mid-run (a `tutti wait` in progress) and the handoff note carried its done and next steps. Two limits seen: a compound shell line (`cd`, pipes, `>>`) is auto-denied headless, so the instructions ask for one command per line; its Claude models call a `Bash` tool that the `command(...)` allow list does not cover, so pin a Gemini model in `main.commands.agy` (pinning also turns off the account's `args`). A denied tool call ends the turn as "ended", never "done". |
+| Cursor (`cursor-agent --force`) | Works end to end: edited a file, ran `tutti workers` and `tutti handoff`, ended with `DONE:`. |
+| GitHub Copilot CLI (`copilot --allow-all-tools`) | Works end to end, the same small goal, ended with `DONE:`. |
+| Local model (Ollama, a 9B model) | Works through Tutti's loop: continued from agy's handoff note, ran `tutti wait`, `tutti handoff` and `tutti usage`, ended with `DONE:`. It may not call `tutti test`, `tutti agent`, `tutti files` (other than `list`) or `tutti runs discard`: they run shell lines it would write, or delete. A machine whose yield flag is up keeps its model out. |
+| Claude Code | Not run as main agent here (it is the usual orchestrator); give it `--allowedTools 'Bash(tutti:*)'` in `main.commands.claude`. |

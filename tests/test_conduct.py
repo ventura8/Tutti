@@ -156,6 +156,13 @@ class LocalCommandTest(unittest.TestCase):
         self.assertIn('does not parse', conduct.local_command('RUN: tutti usage "x')[1])
         self.assertEqual(conduct.local_command('hello')[1], 'not a RUN: line')
 
+    def test_shell_running_and_deleting_commands_are_refused(self):
+        for line in ('RUN: tutti test t "git push"', 'RUN: tutti agent w "x" "rm -rf ." f', 'RUN: tutti files clean --on nuc --all',
+                     'RUN: tutti runs discard 1-2'):
+            self.assertIsNone(conduct.local_command(line)[0], line)
+        self.assertEqual(conduct.local_command('RUN: tutti files list')[0], ['files', 'list'])
+        self.assertEqual(conduct.local_command('RUN: tutti runs show 1-2')[0], ['runs', 'show', '1-2'])
+
     def test_ship_only_as_a_dry_run(self):
         self.assertEqual(conduct.local_command('RUN: tutti ship "m" --dry-run')[1], None)
         self.assertIn('--dry-run', conduct.local_command('RUN: tutti ship "m"')[1])
@@ -164,7 +171,7 @@ class LocalCommandTest(unittest.TestCase):
 
 class FakeWatch:
     def __init__(self, hit=None):
-        self.hit, self.reason = hit, None
+        self.hit, self.reason, self.every = hit, None, 0.01
 
     def check(self):
         return self.hit
@@ -228,7 +235,7 @@ class ConductTest(Folder):
         self.assertEqual(current['status'], 'done')
 
     def test_an_out_main_is_skipped_and_none_left_stops_with_3(self):
-        run_fn, calls = self.fake([(0, [], None)])
+        run_fn, calls = self.fake([(0, ['DONE: ok'], None)])
         rc, _run, said = self.go(run_fn, out_fn=lambda n: 'spent' if n == 'agy' else '')
         self.assertEqual((rc, calls[0][0]), (0, 'cursor'))
         self.assertIn('conduct: skipped agy: spent', said)
@@ -237,7 +244,7 @@ class ConductTest(Folder):
 
     def test_a_switch_puts_the_owners_choice_first_even_if_it_ran(self):
         conduct.choose(self.cfg, 'local')
-        run_fn, calls = self.fake([(1, [], ('switch', 'switched to agy')), (0, [], None)])
+        run_fn, calls = self.fake([(1, [], ('switch', 'switched to agy')), (0, ['DONE: ok'], None)])
 
         def switching(cfg, agent, text, run, out_fn, out=None):
             conduct.choose(cfg, 'agy')
@@ -248,6 +255,17 @@ class ConductTest(Folder):
     def test_an_exit_without_reason_ends_the_run_with_its_code(self):
         rc, run, _ = self.go(self.fake([(5, [], None)])[0])
         self.assertEqual((rc, run['status']), (5, 'ended: agy exited 5'))
+
+    def test_done_needs_a_done_line_and_blocked_or_denied_is_not_done(self):
+        rc, run, _ = self.go(self.fake([(0, ['all good I think'], None)])[0])
+        self.assertEqual(rc, 1)
+        self.assertIn('without a DONE: line', run['status'])
+        rc, run, _ = self.go(self.fake([(0, ['BLOCKED: needs a push'], None)])[0])
+        self.assertEqual((rc, run['status']), (1, 'blocked: needs a push'))
+        self.cfg['workers']['agy']['denied'] = 'soft-denying'
+        rc, run, _ = self.go(self.fake([(0, ['soft-denying command(rm)', 'DONE: ok'], None)])[0])
+        self.assertEqual(rc, 1)
+        self.assertIn('denied 1 tool call', run['status'])
 
     def test_an_unknown_main_is_refused(self):
         with self.assertRaises(conduct.ConductError):
@@ -283,6 +301,47 @@ class RunCliTest(Folder):
         self.assertIsNone(watch.check())
         conduct.choose(self.cfg, 'cursor')
         self.assertEqual(watch.check()[0], 'switch')
+
+    def test_the_account_with_room_gives_its_model(self):
+        self.cfg['accounts']['agy-claude']['args'] = ['--model', 'c']
+        self.cfg['accounts']['agy-gemini']['args'] = ['--model', 'g']
+        spent = [{'name': 'agy-claude', 'verdict': 'spent'}, {'name': 'agy-gemini', 'verdict': 'behind'}]
+        self.assertEqual(conduct.account_args(self.cfg, 'agy', spent), ['--model', 'g'])
+        self.assertEqual(conduct.account_args(self.cfg, 'local', spent), [])
+        self.cfg['main']['commands'] = {'agy': ['agy', '-p', '{prompt}', '--model', 'g']}
+        self.assertEqual(conduct.account_args(self.cfg, 'agy', spent), [])
+
+    def test_switching_back_to_the_earlier_choice_counts(self):
+        conduct.choose(self.cfg, 'agy')
+        watch = conduct.Watch(self.cfg, 'cursor', conduct.choice_record(self.cfg), lambda n: '', 1)
+        self.assertIsNone(watch.check())   # agy was chosen before this turn: no new switch
+        conduct.choose(self.cfg, 'agy')
+        self.assertEqual(watch.check()[0], 'switch')
+
+    def test_a_local_model_whose_machine_is_lent_out_is_out(self):
+        self.cfg['machines']['box'] = {'name': 'box', 'transport': 'local', 'yield_file': '/y'}
+        self.cfg['workers']['local']['machine'] = 'box'
+        with mock.patch('tutti.local.yield_cached', return_value='mine'):
+            self.assertIn('lent out', conduct.out_reason(self.cfg, 'local', []))
+        with mock.patch('tutti.local.yield_cached', return_value=None):
+            self.assertEqual(conduct.out_reason(self.cfg, 'local', []), '')
+
+    def test_a_long_tutti_command_is_stopped_by_the_watch(self):
+        script = os.path.join(self.dir, 'slow.sh')
+        with open(script, 'w', encoding='utf8') as f:
+            f.write('sleep 30\n')
+        with mock.patch.object(conduct.remote, 'BIN', script), mock.patch.object(conduct.sys, 'executable', '/bin/sh'):
+            started = time.monotonic()
+            w = FakeWatch(('switch', 'to cursor'))
+            out = conduct.run_tutti(self.cfg, ['30'], self.run, 'local', w)
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertEqual(w.reason[0], 'switch')
+        self.assertTrue(out.startswith('exit '))
+
+    def test_a_limit_message_with_exit_zero_still_hands_over(self):
+        self.cfg['accounts']['agy-claude']['match'] = {'command': r'\bagy\b'}
+        with mock.patch.object(conduct, 'run_cli', return_value=(0, ['You have hit your usage limit. Resets 5pm'])):
+            self.assertEqual(conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')[2][0], 'limit')
 
     def test_a_limit_message_hands_over(self):
         self.cfg['accounts']['agy-claude']['match'] = {'command': r'\bagy\b'}
@@ -322,6 +381,9 @@ class CliAndDashboardTest(Folder):
                                 'main': {'fallback': ['zz'], 'commands': {'b': ['b'], 'a': []}, 'rounds': 0}})
         errs = config.validate(bad)
         for part in ('main.fallback names "zz"', 'main.commands.b', 'main.commands.a is []', 'main.rounds is 0'):
+            self.assertTrue(any(part in e for e in errs), (part, errs))
+        errs = config.validate(config.normalise({'main': {'rounds': 1.5}}))
+        for part in ('main.rounds is 1.5',):
             self.assertTrue(any(part in e for e in errs), (part, errs))
         self.assertIn('main.fallback is', config.validate(config.normalise({'main': {'fallback': 'a'}}))[0])
         self.assertIn('main is', config.validate(config.normalise({'main': 'a'}))[-1])

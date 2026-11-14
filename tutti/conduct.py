@@ -13,10 +13,13 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from . import config, pacing, readers, remote, routing, workers
+from . import config, delegate, local, pacing, readers, remote, routing, workers
 
 # The commands a main agent is told about, in the order of the instruction file: (subcommand, the line it calls, what for).
 TOOLS = (
@@ -33,7 +36,9 @@ TOOLS = (
     ('ship', 'tutti ship "<message>" --dry-run', 'the commit, checks, push and deploy plan; only --dry-run: a person ships'),
 )
 # What a local model may call through the conductor's loop: the tools above plus the local-model helpers.
-LOCAL_ALLOWED = {t[0] for t in TOOLS} | {'ask', 'code', 'agent'}
+# `test` and `agent` run shell commands the model would write, and `files clean` deletes: a local model may not call them.
+LOCAL_ALLOWED = ({t[0] for t in TOOLS} - {'test', 'files'}) | {'ask', 'code', 'files'}
+LOCAL_SUBCOMMANDS = {'files': {'list'}, 'runs': {'list', 'show'}}
 SAFETY = (
     'Never push, tag, merge, publish or deploy. `tutti ship` only with --dry-run; a real ship is refused while you conduct.',
     'Never commit to or push a protected branch ({protected}).',
@@ -82,7 +87,7 @@ def read_json(path):
 
 
 def write_json(path, data):
-    tmp = f'{path}.{os.getpid()}.tmp'
+    tmp = f'{path}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}.tmp'   # concurrent writers never share it
     with open(tmp, 'w', encoding='utf8') as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
@@ -93,9 +98,14 @@ def candidates(cfg):
     return list(cfg['workers'])
 
 
+def choice_record(cfg):
+    """The owner's switch as written: {agent, at}; {} when none."""
+    return read_json(choice_path(cfg)) or {}
+
+
 def chosen(cfg):
     """The owner's switch (the dashboard or `tutti main <agent>`), when it names a worker; else None."""
-    c = read_json(choice_path(cfg)) or {}
+    c = choice_record(cfg)
     return c.get('agent') if c.get('agent') in cfg['workers'] else None
 
 
@@ -109,7 +119,7 @@ def choose(cfg, agent, now=None):
     if agent not in cfg['workers']:
         raise ConductError(f'"{agent}" is not a worker in {cfg["_path"]}: the main agent can be {", ".join(candidates(cfg)) or "(none)"}')
     now = now or datetime.now(timezone.utc)
-    write_json(choice_path(cfg), {'agent': agent, 'at': now.isoformat()})
+    write_json(choice_path(cfg), {'agent': agent, 'at': now.isoformat(), 'rev': uuid.uuid4().hex})
     return agent
 
 
@@ -128,14 +138,40 @@ def accounts_of(cfg, agent):
             if (n == agent or (a or {}).get('worker') == agent) and (a or {}).get('enabled', True) is not False]
 
 
+def yield_reason(cfg, agent):
+    """A local model whose machine has its yield flag up is lent out: it must not conduct (its owner wants the machine)."""
+    w = cfg['workers'].get(agent) or {}
+    machine = cfg['machines'].get(w.get('machine', '')) if w.get('kind') == 'ollama' else None
+    if machine and local.yield_cached(machine) is not None:
+        return f'{machine["name"]} is lent out (its yield flag {machine["yield_file"]} is up)'
+    return ''
+
+
 def out_reason(cfg, agent, states):
-    """Why an agent must not conduct now (every account it spends is in panic or spent), or ''. No account: never out."""
+    """Why an agent must not conduct now (every account it spends is in panic or spent, or a local model's machine is lent
+    out), or ''. No account: never out by quota."""
+    lent = yield_reason(cfg, agent)
+    if lent:
+        return lent
     names = accounts_of(cfg, agent)
     by_name = {s['name']: s for s in states}
     reasons = [routing.account_unfit(by_name[n]) for n in names if n in by_name]
     if not reasons or not all(reasons):
         return ''
     return '; '.join(f'{n}: {r}' for n, r in zip(names, reasons, strict=False))
+
+
+def account_args(cfg, agent, states):
+    """The extra arguments of the first account of the agent with room (its model, as `tutti run auto` adds them). None
+    when main.commands names the agent's command: the owner pinned it (agy's Claude models use a Bash tool its headless
+    permission list does not cover, so a pinned Gemini model is how agy conducts today)."""
+    if agent in settings(cfg)['commands']:
+        return []
+    by_name = {x['name']: x for x in states}
+    for n in accounts_of(cfg, agent):
+        if n in by_name and not routing.account_unfit(by_name[n]):
+            return list((cfg['accounts'][n] or {}).get('args') or [])
+    return []
 
 
 def next_agent(names, tried, out_fn):
@@ -179,6 +215,8 @@ def instructions(cfg, agent, goal, cwd, progress, commands, now):
     lines += [f'- {r}' for r in cfg['brief']['rules']]
     lines += ['', '## Tutti\'s commands (run them in the shell; `tutti <command> --help` for the options)', '']
     lines += [f'- `{call}`: {text}' for name, call, text in TOOLS if name in commands]
+    lines += ['- Run each command on its own line: no `cd`, pipes, `&&` or redirections. A headless agent may run only the commands it '
+              'is allowed one by one; edit files with your own edit tool, not with the shell.']
     ask_first = ', '.join([*ASK_FIRST, *s['ask_first']])
     protected = ', '.join(cfg['ship']['protected'])
     lines += ['', '## Safety limits', '']
@@ -315,13 +353,18 @@ class Watch:
     """Checks every few seconds why the running agent should stop: the owner switched, or its accounts are out."""
 
     def __init__(self, cfg, agent, started_choice, out_fn, every):
-        self.cfg, self.agent, self.started_choice, self.out_fn, self.every = cfg, agent, started_choice, out_fn, every
+        """`started_choice`: the choice record when the turn began; only a newer switch (another revision) counts, so the
+        owner can switch back to an agent that was already chosen before."""
+        self.cfg, self.agent, self.out_fn, self.every = cfg, agent, out_fn, every
+        self.started = started_choice if isinstance(started_choice, dict) else {'agent': started_choice}
         self.reason = None
         self.stop = threading.Event()
 
     def check(self):
+        rec = choice_record(self.cfg)
         c = chosen(self.cfg)
-        if c and c != self.agent and c != self.started_choice:
+        new = (rec.get('rev'), rec.get('at'), c) != (self.started.get('rev'), self.started.get('at'), self.started.get('agent'))
+        if c and c != self.agent and new:
             return 'switch', f'the owner switched the main agent to {c}'
         why = self.out_fn(self.agent)
         return ('panic', why) if why else None
@@ -345,11 +388,11 @@ def stop_process(p):
         return
 
 
-def run_cli(cfg, agent, text, run, watch, out=None):
+def run_cli(cfg, agent, text, run, watch, out=None, extra=()):
     """Runs a CLI agent headless in the project, its output passed through and kept; (rc, last lines)."""
     out = out or sys.stdout
     log = os.path.join(run['dir'], f'{agent}-{len(run["agents"])}.agent.log')
-    argv = cli_argv(cfg, agent, text, log)
+    argv = cli_argv(cfg, agent, text, log) + list(extra)
     kept = []
     with subprocess.Popen(argv, cwd=run['cwd'], env=agent_env(cfg, run, agent), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, text=True, errors='replace', bufsize=1, start_new_session=True) as p:
@@ -379,6 +422,9 @@ def local_command(line, protected_ok=False):
         args = args[1:]
     if not args or args[0] not in LOCAL_ALLOWED:
         return None, f'only these Tutti commands run here: {", ".join(sorted(LOCAL_ALLOWED))}'
+    allowed = LOCAL_SUBCOMMANDS.get(args[0])
+    if allowed and (len(args) < 2 or args[1] not in allowed):
+        return None, f'tutti {args[0]} runs here only as: {", ".join(f"tutti {args[0]} {x}" for x in sorted(allowed))}'
     if args[0] == 'ship' and ('--dry-run' not in args or ('--allow-protected' in args and not protected_ok)):
         return None, 'ship runs only with --dry-run (and without --allow-protected) while a model conducts'
     return args, None
@@ -399,21 +445,38 @@ LOCAL_PROTOCOL = ('You cannot run a shell yourself. To run one of Tutti\'s comma
                   '`DONE: <what was achieved>` or `BLOCKED: <what a human must do>`. Keep answers short.')
 
 
-def run_tutti(cfg, args, run, agent):
-    r = subprocess.run([sys.executable, remote.BIN, '--config', cfg['_path'], *args], cwd=run['cwd'], env=agent_env(cfg, run, agent),
-                       capture_output=True, text=True, errors='replace', timeout=settings(cfg)['command_timeout'], check=False)
-    text = (r.stdout + r.stderr).strip()
-    return f'exit {r.returncode}\n{text[-OUTPUT_MAX:]}'
+def stopped(watch, poll):
+    """Waits up to `poll` seconds; True (and the reason kept) when the watch says the agent must stop."""
+    hit = watch.check()
+    if hit:
+        watch.reason = hit
+    return bool(hit)
 
 
-def local_step(cfg, agent, reply, run):
+def run_tutti(cfg, args, run, agent, watch=None):
+    """One `tutti ...` for a local model; stopped at once when the watch says so (a switch or panic)."""
+    argv = [sys.executable, remote.BIN, '--config', cfg['_path'], *args]
+    with subprocess.Popen(argv, cwd=run['cwd'], env=agent_env(cfg, run, agent), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, text=True, errors='replace', start_new_session=True) as p:
+        reader = ThreadPoolExecutor(max_workers=1).submit(p.stdout.read)
+        end = time.monotonic() + settings(cfg)['command_timeout']
+        while p.poll() is None:
+            if time.monotonic() > end or (watch and stopped(watch, 0)):
+                stop_process(p)
+                break
+            time.sleep(min(1.0, watch.every if watch else 1.0))
+        text = reader.result().strip()
+    return f'exit {p.returncode}\n{text[-OUTPUT_MAX:]}'
+
+
+def local_step(cfg, agent, reply, run, watch=None):
     """(the next user message, the final line or None) for one model answer."""
     for line in reply.splitlines():
         if DONE.match(line):
             return None, line.strip()
         args, why = local_command(line)
         if args:
-            return run_tutti(cfg, args, run, agent), None
+            return run_tutti(cfg, args, run, agent, watch), None
         if RUN.match(line):
             return f'refused: {why}', None
     return 'Answer with one RUN: line or one DONE:/BLOCKED: line.', None
@@ -424,16 +487,23 @@ def run_local(cfg, agent, text, run, watch, out=None, reply_fn=local_reply):
     out = out or sys.stdout
     messages = [{'role': 'system', 'content': LOCAL_PROTOCOL}, {'role': 'user', 'content': text}]
     kept = []
+    local.busy_marker(cfg)   # low-priority local jobs wait while the conductor's model works
+    pool = ThreadPoolExecutor(max_workers=1)
     for _ in range(settings(cfg)['rounds']):
-        hit = watch.check()
-        if hit:
-            watch.reason = hit
+        if stopped(watch, 0):
             return 1, kept
-        reply = reply_fn(cfg['workers'][agent], messages)
+        pending = pool.submit(reply_fn, cfg['workers'][agent], messages)
+        while not pending.done():
+            if stopped(watch, 0):
+                return 1, kept   # the answer still on its way is dropped: the departing model takes no further step
+            time.sleep(min(1.0, watch.every))
+        reply = pending.result()
+        if stopped(watch, 0):
+            return 1, kept
         out.write(reply.rstrip() + '\n')
         out.flush()
         kept = [*kept, *reply.splitlines()][-workers.KEEP_LINES:]
-        answer, final = local_step(cfg, agent, reply, run)
+        answer, final = local_step(cfg, agent, reply, run, watch)
         if final:
             return (0 if final.startswith('DONE') else 1), kept
         out.write(answer + '\n')
@@ -500,13 +570,31 @@ def instruction_file(cfg, run, agent, commands, now):
 
 def run_agent(cfg, agent, text, run, out_fn, out=None):
     """(rc, last lines, stop reason or None) for one agent's turn as the main agent."""
-    watch = Watch(cfg, agent, chosen(cfg), out_fn, settings(cfg)['check_seconds'])
-    fn = run_cli if cfg['workers'][agent]['kind'] == 'cli' else run_local
-    rc, lines = fn(cfg, agent, text, run, watch, out=out)
+    watch = Watch(cfg, agent, choice_record(cfg), out_fn, settings(cfg)['check_seconds'])
+    if cfg['workers'][agent]['kind'] == 'cli':
+        rc, lines = run_cli(cfg, agent, text, run, watch, out=out, extra=account_args(cfg, agent, account_states(cfg)))
+    else:
+        rc, lines = run_local(cfg, agent, text, run, watch, out=out)
     if watch.reason:
         return rc, lines, watch.reason
-    hit = limit_hit(cfg, agent, lines) if rc != 0 else None
+    hit = limit_hit(cfg, agent, lines)   # a CLI may print its limit and still exit 0
     return rc, lines, ('limit', hit) if hit else None
+
+
+def outcome(cfg, agent, rc, lines, run):
+    """(exit code, status) of a turn that ended by itself: done only with a DONE: line, no BLOCKED: and no denied tool call."""
+    final = next((m for m in (DONE.match(x) for x in reversed(lines[-50:])) if m), None)
+    log = os.path.join(run['dir'], f'{agent}-{len(run["agents"])}.agent.log')   # as run_cli named it
+    denied = delegate.denials(cfg['workers'][agent], lines, log)
+    if denied:
+        return 1, f'ended: {agent}\'s CLI denied {len(denied)} tool call(s) ({denied[0][:80]}): allow them in main.commands.{agent}'
+    if rc != 0:
+        return rc, f'ended: {agent} exited {rc}'
+    if not final:
+        return 1, f'ended: {agent} stopped without a DONE: line; read the handoff progress and its output'
+    if final.group(1) == 'BLOCKED':
+        return 1, f'blocked: {final.group(2).strip()[:200]}'
+    return 0, 'done'
 
 
 def turn_order(cfg, names, reason):
@@ -544,7 +632,7 @@ def conduct(cfg, goal, main=None, fallback=None, cwd='.', commands=(), say=print
         rc, lines, reason = run_fn(cfg, agent, prompt(text, handoff), run, out_fn, out=out)
         run['agents'][-1].update(ended=datetime.now(timezone.utc).isoformat(), rc=rc, stopped=reason and reason[0])
         if not reason:
-            run['status'] = 'done' if rc == 0 else f'ended: {agent} exited {rc}'
+            rc, run['status'] = outcome(cfg, agent, rc, lines, run)
             break
         names, first = turn_order(cfg, names, reason)
         if first in tried:

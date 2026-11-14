@@ -139,8 +139,13 @@ def container_project(cfg, title):
 def run_worktree(cfg, job):
     """A delegated run's worktree, from its report (the job's log is <runs>/<id>.log)."""
     from . import delegate  # delegate imports modules that import the dashboard's
+    if job.get('kind') != 'run':
+        return None
     run_id = os.path.basename(job.get('log') or '')[:-len('.log')]
-    return (delegate.load_report(cfg, run_id) or {}).get('worktree') if job.get('kind') == 'run' else None
+    report = delegate.load_report(cfg, run_id) or {}
+    meta = delegate.read_meta(cfg, run_id) if delegate.valid_id(run_id) else {}
+    folders = [report.get('worktree'), meta.get('worktree'), meta.get('repo')]   # a discarded worktree still has its repo
+    return next((f for f in folders if f and os.path.isdir(f)), None)
 
 
 def job_folder(cfg, job):
@@ -268,6 +273,9 @@ def probe_windows(machine, folders, timeout=40):
         r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
     except (OSError, subprocess.SubprocessError) as e:
         return {'error': f'the Windows side was not looked at ({type(e).__name__})'}
+    if r.returncode != 0:
+        why = (r.stderr or '').strip()[:200]
+        return {'error': f'the Windows side answered with exit {r.returncode} (is its OpenSSH server up?): {why}'}
     return parse_windows(r.stdout)
 
 
@@ -400,4 +408,6 @@ def projects_state(cfg, jobs, machines, activity, conduct_run=None, now_iso=None
                       'machines': [{'name': n, **m} for n, m in p['machines'].items()]})
     items.sort(key=lambda p: (-p['running'] - sum(m['processes'] for m in p['machines']), p['name'].lower()))
     errors = {n: a['error'] for n, a in (activity or {}).items() if a.get('error')}
+    errors.update({f'{n} (Windows)': a['windows']['error'] for n, a in (activity or {}).items()
+                   if isinstance(a.get('windows'), dict) and a['windows'].get('error')})
     return {'items': items, 'errors': errors}

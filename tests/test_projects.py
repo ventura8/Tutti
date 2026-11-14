@@ -1,4 +1,5 @@
 """Projects for the dashboard: a folder's repository, the jobs and machine processes per project, RoRadio's Windows side."""
+import json
 import os
 import subprocess
 import tempfile
@@ -75,6 +76,17 @@ class TagTest(unittest.TestCase):
             projects.tag(cfg, jobs)
             self.assertEqual([j['project'] for j in jobs], ['the-map', 'RoRadio', 'RoRadio', None])
 
+    def test_a_running_delegated_run_is_found_by_its_start_record(self):
+        with tempfile.TemporaryDirectory() as d:
+            main = repo(d)
+            cfg = cfg_of(d)
+            run_dir = os.path.join(cfg['project']['state'], 'runs', '20260101-000000-1')
+            os.makedirs(run_dir)
+            with open(os.path.join(run_dir, 'meta.json'), 'w', encoding='utf8') as f:
+                json.dump({'repo': main, 'worktree': '/gone'}, f)
+            jobs = projects.tag(cfg, [{'kind': 'run', 'log': run_dir + '.log', 'status': 'running'}])
+            self.assertEqual(jobs[0]['project'], 'the-map')
+
     def test_a_delegated_run_is_found_by_its_report(self):
         with tempfile.TemporaryDirectory() as d:
             repo(d, worktree=os.path.join(d, 'wt', 'tutti-run-1'))
@@ -128,6 +140,8 @@ class ActivityTest(unittest.TestCase):
     def test_windows_over_ssh_failing_says_so(self):
         with mock.patch('subprocess.run', side_effect=OSError('no ssh')):
             self.assertIn('not looked at', projects.probe_windows({'host': 'pc.example'}, [('a', 'b')])['error'])
+        with mock.patch('subprocess.run', return_value=subprocess.CompletedProcess([], 255, '', 'refused')):
+            self.assertIn('exit 255', projects.probe_windows({'host': 'pc.example'}, [('a', 'b')])['error'])
         with mock.patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, 'B\tRoRadio\tref: refs/heads/dev\n', '')):
             self.assertEqual(projects.probe_windows({'host': 'pc.example'}, [('RoRadio', 'C:\\r')])['branches'], {'RoRadio': 'dev'})
 
@@ -150,12 +164,13 @@ class ProjectsStateTest(unittest.TestCase):
                 'pc': {'procs': [], 'repos': {}, 'gpu': {'util_pct': 80.0, 'mem_used_mib': 2048.0, 'mem_total_mib': 32768.0},
                        'windows': {'procs': [('RoRadio', 'dotnet.exe', '2026-01-01T02:00:00+00:00'), ('RoRadio', 'cmd.exe', 'x')],
                                    'branches': {'RoRadio': 'master'}, 'gpu': None}},
-                'gone': {'error': 'did not answer'}}
+                'gone': {'error': 'did not answer'},
+                'win': {'procs': [], 'repos': {}, 'gpu': None, 'windows': {'error': 'exit 255'}}}
             machines = [{'name': 'pc', 'paused': True, 'status': 'paused'}]
             run = {'status': 'running', 'cwd': os.path.join(d, 'wt', 'pwa'), 'agents': [{'agent': 'agy'}]}
             out = projects.projects_state(cfg, jobs, machines, activity, run, '2026-01-01T03:00:00+00:00')
             by = {p['name']: p for p in out['items']}
-            self.assertEqual(out['errors'], {'gone': 'did not answer'})
+            self.assertEqual(out['errors'], {'gone': 'did not answer', 'win (Windows)': 'exit 255'})
             m = by['the-map']
             self.assertEqual((m['jobs'], m['running'], m['agents'], m['runs'], m['conductor']), (2, 1, 1, 1, 'agy'))
             self.assertEqual(m['machines'][0], {'name': 'nuc', 'processes': 1, 'agents': 0, 'programs': ['node']})

@@ -250,10 +250,13 @@ def _main_errors(cfg):
     errs += [f'main.commands.{n}: "{n}" is not under workers:' for n in commands if n not in cfg['workers']]
     errs += [f'main.commands.{n} is {c!r}: a list such as [claude, -p, "{{prompt}}"]' for n, c in commands.items()
              if not isinstance(c, list) or not c or not all(isinstance(x, str) for x in c)]
-    for key in ('check_seconds', 'rounds', 'command_timeout'):
+    for key in ('check_seconds', 'command_timeout'):
         v = m.get(key)
         if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
             errs.append(f'main.{key} is {v!r}: use a number above 0')
+    rounds = m.get('rounds')
+    if isinstance(rounds, bool) or not isinstance(rounds, int) or rounds < 1:
+        errs.append(f'main.rounds is {rounds!r}: use a whole number, 1 or more (a local model\'s answers before it is stopped)')
     return errs
 
 

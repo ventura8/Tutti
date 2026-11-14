@@ -2,6 +2,21 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.13 (2026-11-14)
+
+### Added
+
+- `tutti autopilot`: when an account is behind its pace, Tutti hands bounded backlog tasks to it by itself instead of only
+  advising: worktrees, each task's own check, at most `max_parallel`, only while a machine has a cool free slot, never on an
+  account that costs money, is in panic, spent or at its line. A pass becomes a branch (or a draft pull request), never merged.
+  A failure retries from the same worktree with the diff, the failing output and the reviewer's notes in its brief, one step
+  up `autopilot.ladder`; the same failure 3 times on the strongest step (or `max_attempts`) parks it as "needs a person".
+- `tutti backlog add|list|rm|seed|retry|done`: the queue in `<state>/backlog.json`, seeded from FEEDBACK open items,
+  `TODO(owner)` comments and a repo's `gaps` command.
+- The dashboard's Autopilot card: the toggle, the last decision, runs, results to review, parked tasks, the queue, attempt
+  counts and failure histories; `POST /api/autopilot`.
+- `tutti run --repo ... --check "<cmd>"` runs the target repo's own check; a local-model worker takes a delegated task.
+
 ## 0.1.12 (2026-11-14)
 
 ### Added

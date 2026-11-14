@@ -17,5 +17,7 @@ $t dashboard --once --no-probe > /dev/null
 $t conduct --show --main cursor "smoke" > /dev/null
 $t main > /dev/null
 $t runs > /dev/null
+$t backlog list > /dev/null
+$t autopilot > /dev/null
 $t pr --help > /dev/null
 echo "check: all passed"

@@ -41,6 +41,9 @@ DEFAULTS = {
     'review': {'reviewers': [], 'timeout_minutes': 20, 'poll_seconds': 30, 'fallback': []},
     # main: `tutti conduct`; the main (conductor) agent, the ones that take over when its quota is out, a command per agent
     # when it conducts (default: its worker command), extra ask-first actions, how often the run checks the readings
+    # autopilot: `tutti autopilot`; accounts whose pace triggers it, the escalation ladder of retries, how many runs at once,
+    # when a task is parked for a person, and the repos it may work in ({name: {path, check, where, pr, commit, trailers, gaps}})
+    'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'max_parallel': 1, 'no_progress': 3, 'max_attempts': 12, 'repos': {}},
     'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
              'command_timeout': 3600},
 }
@@ -243,7 +246,47 @@ def validate(cfg):
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
     errs += _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
-    return errs + _main_errors(cfg) + _projects_errors(cfg)
+    return errs + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg)
+
+
+def _autopilot_name_errors(cfg, key, names):
+    errs = []
+    for n in names or []:
+        a, w = cfg['accounts'].get(n), cfg['workers'].get(n)
+        paid = any(o['name'] == n and o['costs_money'] for o in cfg.get('off') or [])
+        if paid or (a or {}).get('costs_money') or (w or {}).get('costs_money'):
+            errs.append(f'autopilot.{key} names "{n}", which costs money per use: the autopilot never spends money; remove it')
+        elif a is None and w is None:
+            errs.append(f'autopilot.{key} names "{n}", which is neither under accounts: nor under workers: (or it is turned off)')
+    return errs
+
+
+def _autopilot_repo_errors(n, r):
+    if not isinstance(r, dict) or not r.get('path'):
+        return [f'autopilot.repos.{n} needs path: the repository\'s folder (and check: its acceptance check)']
+    errs = []
+    if r.get('where', 'local') not in ('local', 'route'):
+        errs.append(f'autopilot.repos.{n}.where is {r["where"]!r}: use local (the check runs here) or route (a routed machine)')
+    if r.get('pr', False) not in (False, 'draft'):
+        errs.append(f'autopilot.repos.{n}.pr is {r["pr"]!r}: use false (a branch to review) or draft (also a draft pull request)')
+    return errs
+
+
+def _autopilot_errors(cfg):
+    ap = cfg['autopilot']
+    if not isinstance(ap, dict):
+        return [f'autopilot is {ap!r}: write it as a mapping, e.g. autopilot: {{enabled: false, accounts: [...], repos: {{...}}}}']
+    errs = _autopilot_name_errors(cfg, 'accounts', ap.get('accounts')) + _autopilot_name_errors(cfg, 'ladder', ap.get('ladder'))
+    for key in ('max_parallel', 'no_progress', 'max_attempts'):
+        v = ap.get(key)
+        if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+            errs.append(f'autopilot.{key} is {v!r}: use a whole number of 1 or more')
+    repos = ap.get('repos') or {}
+    if not isinstance(repos, dict):
+        return errs + [f'autopilot.repos is {repos!r}: write {{<name>: {{path: <folder>, check: <command>}}}}']
+    for n, r in repos.items():
+        errs += _autopilot_repo_errors(n, r)
+    return errs
 
 
 def _projects_errors(cfg):

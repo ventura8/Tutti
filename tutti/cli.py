@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 
 from . import (
     __version__,
+    autopilot,
+    backlog,
     conduct,
     config,
     dashboard,
@@ -240,7 +242,8 @@ def cmd_run(cfg, a):
             return 3
         say(f'run auto: {pick["worker"]} {" ".join(pick["args"])} ({pick["reason"]})'.replace('  ', ' '))
         a.worker, extra, a.account = pick['worker'], pick['args'], pick['account']
-    worker_of(cfg, a.worker, 'cli')
+    if not (a.repo and cfg['workers'].get(a.worker, {}).get('kind') == 'ollama'):
+        worker_of(cfg, a.worker, 'cli')   # a local model takes a delegated task through `tutti agent`'s loop
     if a.input and not a.on:
         say('run --input: name the machine the inputs go to with --on <machine> (the worker then finds them there)')
         return 2
@@ -271,6 +274,10 @@ def run_in_background(cfg, a, extra):
     argv += [f'--extra={x}' for x in extra]
     argv += [flag for flag, on in (('--no-checks', a.no_checks), ('--discard', a.discard)) if on]
     argv += ['--track', a.track] if a.track else []
+    argv += ['--remote-track', a.remote_track] if a.remote_track else []
+    for c in a.check or []:
+        argv += ['--check', c]
+    argv += ['--check-where', a.check_where] if a.check else []
     os.makedirs(os.path.dirname(p['log']), exist_ok=True)
     with open(p['log'], 'a', encoding='utf8') as log:
         child = subprocess.Popen(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
@@ -285,8 +292,9 @@ def run_delegated(cfg, a, extra):
     extra = [*extra, *(a.extra or [])]
     if a.bg:
         return run_in_background(cfg, a, extra)
+    check_list = [{'run': c, 'where': a.check_where} for c in a.check] if a.check else None
     r = delegate.delegate(cfg, a.worker, a.task, a.files, a.repo, run_id=a.id, track=a.track, extra=extra,
-                          checks=not a.no_checks, discard=a.discard)
+                          checks=not a.no_checks, discard=a.discard, check_list=check_list, remote_track=a.remote_track)
     with open(delegate.paths(cfg, r['id'])['rc'], 'w', encoding='utf8') as f:
         f.write(f'{r["rc"]}\n')
     with open(delegate.paths(cfg, r['id'])['log'], encoding='utf8', errors='replace') as f:
@@ -664,6 +672,66 @@ def cmd_handoff(cfg, a):
     return 0
 
 
+def repo_of(cfg, name):
+    repos = cfg['autopilot']['repos']
+    if name not in repos:
+        have = ', '.join(repos) or '(none)'
+        raise backlog.BacklogError(f'no repo "{name}" under autopilot.repos in {cfg["_path"]}: the repos are {have}')
+    return repos[name]
+
+
+def cmd_backlog(cfg, a):
+    """`tutti backlog add|list|rm|seed|retry|done`: the queue `tutti autopilot` takes its tasks from."""
+    try:
+        if a.action == 'list':
+            print(backlog.listing(backlog.load(cfg), a.all))
+            return 0
+        with backlog.locked(cfg) as data:
+            return backlog_change(cfg, a, data)
+    except backlog.BacklogError as e:
+        say(str(e))
+        return 2
+
+
+def backlog_change(cfg, a, data):
+    if a.action == 'add':
+        repo = repo_of(cfg, a.repo)
+        task, new = backlog.add(data, backlog.new_task(a.repo, a.title or '', a.scope or [], a.check or repo.get('check') or '', a.size,
+                                                       a.source, a.note or []))
+        print(f'{task["id"]}: {"added" if new else "already in the backlog"}: {task["title"][:90]}')
+    elif a.action == 'seed':
+        added = backlog.seed(cfg, data, a.repo, repo_of(cfg, a.repo))
+        print('\n'.join(f'{t["id"]}: {t["title"][:100]}' for t in added) or f'seed: nothing new found in {a.repo}')
+    else:
+        task = backlog.find(data, a.repo)   # rm, retry and done take the task id in the first argument
+        if a.action == 'rm':
+            if task['status'] == 'running':
+                raise backlog.BacklogError(f'{task["id"]} is running (run {task.get("run")}): wait for it, then remove it')
+            task['status'] = 'dropped'
+        elif a.action == 'done':
+            task['status'] = 'done'
+        else:
+            task['notes'] = [*task.get('notes', []), *(a.note or [])]
+            task.update(status='queued', parked=None)
+        print(f'{task["id"]}: {task["status"]}')
+    return 0
+
+
+def cmd_autopilot(cfg, a):
+    """`tutti autopilot [status|on|off|tick]`."""
+    if a.action in ('on', 'off'):
+        autopilot.set_enabled(cfg, a.action == 'on')
+    elif a.action == 'tick':
+        now = datetime.now(timezone.utc)
+        states = {s['name']: s for s in state.usage_state(cfg, now)['accounts']}
+        machines = state.machines_state(cfg, remote.probe)
+        _plan, events = autopilot.tick(cfg, states, machines)
+        for e in events:
+            say(f'autopilot: {e}')
+    print(autopilot.describe(autopilot.view(cfg)))
+    return 0
+
+
 SUBCOMMANDS = []
 
 
@@ -725,6 +793,11 @@ def parser():
     s.add_argument('--bg', action='store_true', help='with --repo: run detached; prints the id for `tutti wait run <id>`')
     s.add_argument('--no-checks', action='store_true', help='with --repo: skip the checks (the report says nothing was tested)')
     s.add_argument('--discard', action='store_true', help='with --repo: remove a new worktree after the report (the diff file stays)')
+    s.add_argument('--check', action='append', metavar='CMD',
+                   help='with --repo: the target repo\'s own check instead of delegate.checks (repeat it)')
+    s.add_argument('--check-where', default='local', choices=['local', 'route'],
+                   help='with --check: run it here (local, the default) or on a routed machine (route)')
+    s.add_argument('--remote-track', help=argparse.SUPPRESS)
     s.add_argument('--id', help=argparse.SUPPRESS)
     s.add_argument('--extra', action='append', help=argparse.SUPPRESS)
     s = add('pr', cmd_pr, 'pull requests: `pr review <n>` asks the reviewers, says when none will come, and falls back to a local '
@@ -817,6 +890,20 @@ def parser():
     s = add('handoff', cmd_handoff, 'inside `tutti conduct`: record a finished step (done) or the next one (next) for the handoff note')
     s.add_argument('section', choices=['done', 'next'])
     s.add_argument('text')
+    s = add('backlog', cmd_backlog, 'the autopilot\'s queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> '
+                                    '(FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>')
+    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done'])
+    s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done: the task id')
+    s.add_argument('title', nargs='?')
+    s.add_argument('--scope', action='append', metavar='PATH', help='a path the task may change (repeat it)')
+    s.add_argument('--check', help='the acceptance check (default: the repo\'s check)')
+    s.add_argument('--size', default='S', choices=list(backlog.SIZES))
+    s.add_argument('--source', default='orchestrator')
+    s.add_argument('--note', action='append', help='a note for the worker (retry: the reviewer\'s notes)')
+    s.add_argument('--all', action='store_true', help='list: also done and dropped tasks')
+    s = add('autopilot', cmd_autopilot, 'send backlog tasks to accounts that are behind their pace, by itself: status, on, off, '
+                                        'tick (one round now; the dashboard ticks while it runs)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])
     s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it')
     s.add_argument('agent', nargs='?')
     return p
@@ -828,7 +915,7 @@ def main(argv=None):
         cfg = config.load(a.config)
         os.environ['TUTTI_CONFIG'] = cfg['_path']
         return a.fn(cfg, a)
-    except (config.ConfigError, ship.ShipError, RuntimeError, ValueError) as e:
+    except (config.ConfigError, ship.ShipError, backlog.BacklogError, RuntimeError, ValueError) as e:
         say(str(e))
         return 1
     except KeyboardInterrupt:

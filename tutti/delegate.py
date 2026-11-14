@@ -234,17 +234,38 @@ def write(p, text, mode='w'):
         f.write(text)
 
 
-def delegate(cfg, name, task, files, repo, run_id=None, track=None, extra=(), checks=True, discard=False, say=None):
+def delegate(cfg, name, task, files, repo, run_id=None, track=None, extra=(), checks=True, discard=False, say=None, check_list=None,
+             remote_track=None):
     """The whole hand-off. Returns the report dict (also written to report.json and report.txt). Runs that name the same
-    --track share one worktree, so they take turns: the second waits until the first has its report."""
+    --track share one worktree, so they take turns: the second waits until the first has its report. `check_list` replaces the
+    configured checks (`tutti run --check`: the target repo's own check); `remote_track` the folder routed checks copy into."""
     if track and not TRACK.match(track):
         raise ship.ShipError(f'refused: --track "{track}" must be one folder name (letters, digits, . _ -), nothing was changed')
     lock = track_lock(cfg, f'tree-{track}', say or (lambda m: sys.stderr.write(f'tutti: {m}\n'))) if track else contextlib.nullcontext()
     with lock:
-        return _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say)
+        return _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list, remote_track)
 
 
-def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say):
+def run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list):
+    """(exit code, last lines) of the worker in the worktree. A local model (kind ollama) works through `tutti agent`'s loop on
+    the given files with the first check as its own check."""
+    if cfg['workers'][name]['kind'] != 'ollama':
+        return workers.run(cfg, name, task, files, cwd=wt, out=log, extra=extra, log=worker_log)
+    from . import local
+    check = (check_list or [{}])[0].get('run') or 'true'
+    with contextlib.redirect_stdout(log):
+        ok = local.agent(cfg, cfg['workers'][name], task, check, files, base=wt)
+    return (0 if ok else 1), []
+
+
+def chosen_checks(cfg, repo, check_list):
+    """(checks, where they come from): `tutti run --check` (the autopilot's task check) beats the target repo's own."""
+    if check_list is not None:
+        return check_list, '--check'
+    return checks_for(cfg, repo)
+
+
+def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list=None, remote_track=None):
     if run_id and not valid_id(run_id):
         raise ship.ShipError(f'refused: run id "{run_id}" is not <time>-<pid>: let tutti choose it (nothing was changed)')
     run_id = run_id or new_id(cfg)
@@ -259,16 +280,16 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
         # what the run works on, for the dashboard's projects while it runs
         write(os.path.join(p['dir'], 'meta.json'), json.dumps({'repo': os.path.abspath(repo), 'worktree': wt}) + '\n')
         worktree.share(wt, cfg['ship'].get('share', []), say)
-        rc, lines = workers.run(cfg, name, task, files, cwd=wt, out=log, extra=extra, log=p['worker_log'])
+        rc, lines = run_worker(cfg, name, task, files, wt, log, extra, p['worker_log'], check_list)
         changed, stat = capture_diff(wt, p['diff'])
         found = denials(cfg['workers'][name], lines, p['worker_log'])
         r = {'id': run_id, 'worker': name, 'task': task, 'worker_rc': rc, 'worktree': wt, 'created': created, 'diff': p['diff'],
              'changed': changed, 'stat': stat, 'denied': found, 'checks': None, 'report': p['report']}
-        chosen, source = checks_for(cfg, repo)
+        chosen, source = chosen_checks(cfg, repo, check_list)
         r['checks_from'] = checks_note(chosen, source)
         if checks and changed and chosen:
             env = {'TUTTI_CHANGED': ship.join_changed(changed), 'TUTTI_TREE': wt, 'TUTTI_GIT_MOUNT': worktree.docker_mount(wt)}
-            remote_track = track or cfg['delegate']['remote_track']
+            remote_track = remote_track or track or cfg['delegate']['remote_track']
             say(f'run: checking the change ({len(chosen)} check(s))')   # the dashboard's phase marker
             with track_lock(cfg, remote_track, say):
                 r['checks'] = run_checks(cfg, wt, chosen, env, remote_track, say, p['dir'])

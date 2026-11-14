@@ -34,6 +34,13 @@ by itself once `tutti dashboard` runs again.
 Machines and workers are probed in the background every `dashboard.probe_seconds` (ssh answers can be slow); the
 rest is read on each request. The page polls `/api/state` every `dashboard.refresh_seconds` and pauses while hidden.
 
+## Autopilot
+
+The **Autopilot** card turns it on or off (`POST /api/autopilot {"enabled": true}`, same-origin and token checks as a
+reading) and shows its last decision, the runs going, the results to review, the tasks that need a person and the queue, each
+with its attempt count and failure history. While it is on, the probe thread runs one autopilot round after every probe.
+`/api/state` carries it as `autopilot`. See [AUTOPILOT.md](AUTOPILOT.md).
+
 ## Add a reading
 
 An account card has **Add a reading** only where a reading is needed: nothing reads the account on its own (no

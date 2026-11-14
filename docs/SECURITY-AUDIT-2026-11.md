@@ -75,14 +75,16 @@ that needs a position on your network; **low**, hardening, or a risk that needs 
   repo's result is a draft pull request. The task title still reaches the worker, with the safety note (H7).
 - **H3** `manage.is_self`: with sign-in, "self" is the signed-in user's own member id only; the household of one runs the same
   check. `test_security_audit.ViewerActsForTheOwnerTest`.
-- **H4** `httpguard.loopback_owner_ok`: without sign-in, a loopback connection is served only when /proc/net/tcp says its
-  process runs as this user (or root). macOS and Windows have no such table: there the dashboard is as before, so use sign-in
+- **H4** `httpguard.loopback_owner_ok`: without sign-in, a loopback connection is served only when /proc/net/tcp lists it
+  as established and owned by this user; a connection not listed (looked for twice) is refused, and a closing socket's uid 0
+  is never taken as root. macOS and Windows have no such table: there the dashboard is as before, so use sign-in
   on a computer others log in to. `test_security_audit.LoopbackOwnerTest`.
-- **H5** slot.sh sets umask 0 only for the lock file it makes, makes it with noclobber (O_EXCL: a planted link is not opened),
-  refuses a lock that is a link, and opens locks read-only; `household machine share` requires the shared folder to be sticky
+- **H5** slot.sh sets umask 0 only for the lock file it makes, makes it with noclobber (O_EXCL: never created through a
+  planted link), refuses a lock that is a link, and opens every lock read-only (a link swapped in after the check is never
+  written); `household machine share` requires the shared folder to be sticky
   and not a link. `test_slot.test_a_planted_link_is_never_followed_and_the_run_keeps_the_callers_umask`.
-- **H6** `scouts.trusted`: an answer comes from `scouts.<name>.github_login`, or from someone GitHub lists as the repository's
-  owner, member or collaborator. `test_scouts.test_a_strangers_comment_is_never_taken_as_the_answer`.
+- **H6** `scouts.trusted`: an answer comes from `scouts.<name>.github_login`, or from an owner, member or collaborator whose
+  permission on the repository GitHub reports as write, maintain or admin. `test_scouts.test_a_strangers_comment_is_never_taken_as_the_answer`.
 - **H7** The suggested check command is no longer in the task's notes; a task from Sentry, a scout, the household or feedback
   carries a safety note in its brief; workers and reviewers run with `workers.worker_env`, without GH_TOKEN, GITHUB_TOKEN,
   Sentry, npm, PyPI, cloud tokens and the scouts' URL and key variables. **Residual risk:** a worker that runs headless with
@@ -94,8 +96,8 @@ that needs a position on your network; **low**, hardening, or a risk that needs 
   (`ssh-keygen -Y verify` needs nothing but OpenSSH), or releases built in CI with provenance. Until then an update is as
   trustworthy as the GitHub account that publishes releases: keep it behind two-factor sign-in and a hardware key.
 - **M1, M2** `coordinator.content_length` refuses a missing number, a negative or an oversized length; every server
-  (dashboard, coordinator, MCP) closes a connection silent for 30 s and serves a bounded number of requests at once
-  (`httpguard.CappedServer`). `test_security_audit.CoordinatorHttpTest`, `CappedServerTest`.
+  (dashboard, coordinator, MCP) closes a connection silent for 30 s and serves a bounded number of requests at once, and at
+  most a few per client address, so one host trickling bytes cannot hold every slot (`httpguard.CappedServer`). `test_security_audit.CoordinatorHttpTest`, `CappedServerTest`.
 - **M3** `fill.merge` merges with `--match-head-commit` of the reviewed commit. `test_fill.test_the_merge_is_pinned_to_the_reviewed_commit`.
 - **M4** The self-improvement round records the head commit the reviews were asked on and asks again when it changed;
   `tutti pr review` exits 3 when the local fallback review has findings. `test_selfimprove.test_a_commit_pushed_after_the_review_is_never_merged_unreviewed`,
@@ -103,13 +105,16 @@ that needs a position on your network; **low**, hardening, or a risk that needs 
 - **M5** `conduct.local_args_refusal`: no `--check` (also abbreviated), and `code` and `ask` only on files inside the folder
   the conductor works in. `test_conduct.test_a_local_model_gets_no_shell_through_check_and_no_file_outside_its_folder`.
 - **M6** `tutti mcp --http` on a LAN or VPN address is a viewer unless `mcp.role: admin` (stdio and loopback stay admin); a
-  request with another site's Origin gets 403. `test_security_audit.McpTest`.
-- **M7** `fill.gate_files_touched`: a branch that changes CI, build or lint configs, or a file the check command names, stops at
-  its pull request for a person. `test_fill.test_a_branch_that_changes_its_own_gates_is_never_merged_by_the_autopilot`.
+  request with another site's Origin gets 403. Free text (a title, a task, a question) goes after `--`, so it is never an
+  option; a name argument (repo, project, scout, machine...) that starts with `-` is refused. `test_security_audit.McpTest`.
+- **M7** `fill.gate_files_touched` (against `origin/<base>`): a branch that changes CI, build, dependency or lint configs, a
+  file the check command names or anything in its script's folder, or modifies or deletes an existing test, stops at its
+  pull request for a person. A best-effort list: the review and a person's look at `land: merge` repos remain the defence. `test_fill.test_a_branch_that_changes_its_own_gates_is_never_merged_by_the_autopilot`.
 - **M8** `update.npm_before`: npm installs the newest version (and dependencies) out for 3 days. `test_update`.
 - **M9** The coordinator signs each answer to a signed request with the member's token over the path, the request's nonce
-  and the body (`X-Tutti-Answer`); a member's Tutti checks it, and once it has seen one signed answer it refuses unsigned
-  ones. `test_security_audit.CoordinatorHttpTest`.
+  and the body (`X-Tutti-Answer`), and a join's answer with the code's (or invite's) secret. A join requires the signed
+  answer and the membership it makes demands signed answers from then on; a membership made by an older Tutti demands them
+  once it has seen one. `test_security_audit.CoordinatorHttpTest`.
 - **M10** As H5: never truncated, never a link.
 
 ## Defences confirmed (not findings)

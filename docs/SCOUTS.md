@@ -23,8 +23,9 @@ hour per routine, 300 in total; a run over a limit fails with "Automation run ra
 2. It POSTs `{task, skill, from, id, reply_to: {repo, issue, url, how}}` to the routine.
 3. The routine does the task and posts the result as a comment on that issue (the owner connected GitHub to Grok Bot).
 4. Tutti polls the issue through `gh` and prints the first comment made after the question by the scout's account
-   (`scouts.<name>.github_login`) or by someone who may write to the repository (GitHub's owner, member or collaborator):
-   in a public repository a stranger's comment is never the answer. The issue is then closed.
+   (`scouts.<name>.github_login`), or by an owner, member or collaborator whose permission on the repository is write or
+   more (asked of GitHub once per login): in a public repository a stranger's comment is never the answer. The issue is
+   then closed.
    With no answer within `timeout_minutes` it exits 3 and says to look again with `tutti scout answer <id>`.
 
 A watch's issue (label `tutti-scout-watch` as well) stays open: it is the orchestrator's inbox.

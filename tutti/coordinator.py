@@ -245,6 +245,7 @@ class Service:
         server_nonce = secrets.token_hex(16)
         token = household.derive_token(code['secret'], uid, nonce, server_nonce)
         final = household.join(data, uid, users.id_hash(uid), ask['name'], str(ask.get('agent') or '')[:32], token, now)
+        self.answering.key = code['secret']   # the answer is signed with the code: the joiner knows it is the coordinator's
         return 200, {'household': data['household'], 'nonce': server_nonce, 'name': final}
 
     def join_invite(self, data, headers, body, addr, now):
@@ -276,6 +277,7 @@ class Service:
         final = household.join(data, sub, users.id_hash(sub), name, str(ask.get('agent') or '')[:32], token, now)
         data['members'][sub].update(email=user.get('email'), sub=sub, accounts=[str(x)[:32] for x in ask.get('accounts') or []][:20])
         inv.redeem(ident, 'household', sub=sub)
+        self.answering.key = secret
         return 200, {'household': data['household'], 'nonce': server_nonce, 'name': final, 'sub': sub, 'email': user.get('email')}
 
     def member_call(self, data, uid, path, ask, now):
@@ -519,6 +521,20 @@ class Client:
             raise Unreachable(f'the household coordinator at {self.m["coordinator"]} did not answer ({type(e).__name__})') from e
 
     def check_answer(self, path, nonce, answer, sign, key):
+        if path == JOIN:
+            return self.check_join(nonce, answer, sign, key)
+        return self.check_member(path, nonce, answer, sign, key)
+
+    @staticmethod
+    def check_join(nonce, answer, sign, key):
+        """A join's answer must be signed with the code's (or the invite's) secret: whoever answers without it is not the
+        coordinator, and a membership made from a signed join demands signed answers from then on."""
+        if not sign or not hmac.compare_digest(sign, answer_signature(key, JOIN, nonce, answer)):
+            raise household.HouseholdError('the join\'s answer is not signed by the household\'s coordinator (someone else on '
+                                           'this network answered, or the coordinator runs an older Tutti: update it with '
+                                           '`tutti update` there, then join again); nothing was saved')
+
+    def check_member(self, path, nonce, answer, sign, key):
         """An answer to a member's call is the coordinator's own: signed with the member's token. Once one signed answer came,
         an unsigned one is refused (someone on the LAN answering in the coordinator's place); before that (an older
         coordinator), unsigned answers are taken."""
@@ -554,7 +570,7 @@ def join(cfg, code, name, agent, client_fn=Client, clock=time.time):
     c = client_fn({'coordinator': f'{host}:{port}'}, timeout=max(5.0, float(cfg['household']['timeout_seconds'])), clock=clock)
     answer = c.post(JOIN, {'user_id': me['id'], 'nonce': nonce, 'name': name, 'agent': agent}, secret)
     token = household.derive_token(secret, me['id'], nonce, answer['nonce'])
-    users.write_household({'household': answer['household'], 'coordinator': f'{host}:{port}', 'user_id': me['id'],
+    users.write_household({'household': answer['household'], 'coordinator': f'{host}:{port}', 'user_id': me['id'], 'signed_answers': True,
                            'name': answer['name'], 'token': token, 'role': 'member', 'joined': clock()})
     return answer
 
@@ -602,6 +618,7 @@ def join_invite(cfg, link, agent, accounts, override=None, client_fn=Client, clo
             sleep(INVITE_POLL)
     tok = household.derive_token(invites.household_secret(token), answer['sub'], nonce, answer['nonce'])
     users.write_household({'household': answer['household'], 'coordinator': where, 'user_id': answer['sub'], 'sub': answer['sub'],
+                           'signed_answers': True,
                            'email': answer.get('email'), 'name': answer['name'], 'token': tok, 'role': 'member', 'joined': clock()})
     return answer
 

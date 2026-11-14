@@ -141,15 +141,17 @@ def tick(cfg, client=None, spawn=subprocess.Popen, room=2):
     os.makedirs(folder(cfg), exist_ok=True)
     started = []
     for j in jobs:
-        if not isinstance(j, dict) or not JOB_ID.fullmatch(str(j.get('id') or '')):
+        try:
+            jid = job_name(j.get('id') if isinstance(j, dict) else None)
+        except JobError:
             continue   # an answer that names no job id is never a file name here
-        with open(os.path.join(folder(cfg), f'{j["id"]}.json'), 'w', encoding='utf8') as f:
+        with open(os.path.join(folder(cfg), f'{jid}.json'), 'w', encoding='utf8') as f:
             json.dump(j, f)
-        log = open(os.path.join(folder(cfg), f'{j["id"]}.log'), 'a', encoding='utf8')
+        log = open(os.path.join(folder(cfg), f'{jid}.log'), 'a', encoding='utf8')
         with log:
-            spawn([sys.executable, remote.BIN, '--config', cfg['_path'], 'household', 'job', j['id']], stdout=log, stderr=log,
-                  stdin=subprocess.DEVNULL, start_new_session=True, env={**os.environ, JOB_ENV: j['id']})
-        started.append(j['id'])
+            spawn([sys.executable, remote.BIN, '--config', cfg['_path'], 'household', 'job', jid], stdout=log, stderr=log,
+                  stdin=subprocess.DEVNULL, start_new_session=True, env={**os.environ, JOB_ENV: jid})
+        started.append(jid)
     return started
 
 
@@ -187,6 +189,13 @@ def extract(tarball, tree):
     """The job's files from `git archive`: never a path or a link that leaves the tree (tarfile's data filter, or the same
     refusals by hand on an older Python)."""
     import tarfile
+    try:
+        _extract(tarfile, tarball, tree)
+    except tarfile.TarError as e:   # FilterError (a link or path out of the tree), ReadError: the job is refused, not crashed
+        raise JobError(f'the job\'s files could not be unpacked safely ({type(e).__name__}: {str(e)[:120]}): refused') from e
+
+
+def _extract(tarfile, tarball, tree):
     with tarfile.open(tarball) as t:
         if hasattr(tarfile, 'data_filter'):
             t.extractall(tree, filter='data')
@@ -199,14 +208,19 @@ def extract(tarball, tree):
         t.extractall(tree)
 
 
-def prepare(cfg, j, run=subprocess.run):
+def job_name(jid):
+    """The job's file name: `j<number>`, rebuilt from the number (never a path), else JobError."""
+    if not JOB_ID.fullmatch(str(jid or '')):
+        raise JobError(f'{str(jid)[:40]!r} is not a job id: refused')
+    return f'j{int(str(jid)[1:])}'
+
+
+def prepare(cfg, j, tree, run=subprocess.run):
     """The sandboxed tree of the job: the member's WIP ref fetched with the owner's git sign-in into a cache of its own, then
     exported as plain files (`git archive`). The tree has no .git: the container never sees, and so never changes, the
     cache's hooks or config that the owner's git runs next time (a linked worktree would mount them read-write)."""
     if not j['repo'].startswith(('https://', 'ssh://', 'git@')) or not household.project_key(j['repo']):
         raise JobError(f'{j["repo"]} is not a git remote of a shared project: refused')
-    if not JOB_ID.fullmatch(str(j.get('id') or '')):
-        raise JobError(f'{str(j.get("id"))[:40]!r} is not a job id: refused')
     cache = os.path.join(folder(cfg), 'repos', slug(j['repo']))
     if not os.path.isdir(cache):
         os.makedirs(cache)
@@ -215,31 +229,33 @@ def prepare(cfg, j, run=subprocess.run):
     if got.returncode != 0:
         raise JobError(f'the owner\'s git could not read {j["repo"]} ({got.stderr.strip()[:160]}): share the repository with '
                        'them, or run it on your own machines')
-    tree = os.path.join(folder(cfg), j['id'])
     tarball = tree + '.tar'
     try:
         out = git(cache, *CACHE_GIT, 'archive', '--format=tar', f'--output={tarball}', j['ref'], run=run)
         if out.returncode != 0:
             raise JobError(f'could not export the job\'s files ({out.stderr.strip()[:160]})')
+        shutil.rmtree(tree, ignore_errors=True)   # a half-made tree of an earlier try of this id
         os.makedirs(tree)
         extract(tarball, tree)
     finally:
         if os.path.exists(tarball):
             os.remove(tarball)
-    return cache, tree
+    return cache
 
 
 def run_job(cfg, jid, client=None, run=subprocess.run, exec_fn=subprocess.run):
     """`tutti household job <id>` (spawned by tick): the job run under the owner's Tutti; its result to the coordinator."""
     client = client or coordinator.client_of(cfg)
+    jid = job_name(jid)
     with open(os.path.join(folder(cfg), f'{jid}.json'), encoding='utf8') as f:
         j = json.load(f)
-    rc, tail, cache, tree = 125, '', None, None
+    rc, tail, cache = 125, '', None
+    tree = os.path.join(folder(cfg), jid)   # from the checked id: removed afterwards whatever happened
     try:
         why = sandbox_refusal(cfg, j['machine'], j.get('device'))
         if why:
             raise JobError(why)
-        cache, tree = prepare(cfg, j, run)
+        cache = prepare(cfg, j, tree, run)
         argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'test', f'hh-{jid}', '--dir', tree,
                 *(['--device', j['device']] if j.get('device') else ['--on', j['machine']]), '--', *j['command']]
         done = exec_fn(argv, capture_output=True, text=True, timeout=j['timeout'], env={**os.environ, JOB_ENV: jid})
@@ -249,8 +265,7 @@ def run_job(cfg, jid, client=None, run=subprocess.run, exec_fn=subprocess.run):
     except (JobError, OSError) as e:
         rc, tail = 125, f'household: {e}'
     finally:
-        if tree:
-            shutil.rmtree(tree, ignore_errors=True)   # never follows a link the run left in it
+        shutil.rmtree(tree, ignore_errors=True)   # never follows a link the run left in it
         if cache:
             git(cache, *CACHE_GIT, 'update-ref', '-d', j['ref'], run=run)
     result = {'action': 'finish', 'id': jid, 'rc': rc, 'tail': tail[-household.JOB_TAIL:]}

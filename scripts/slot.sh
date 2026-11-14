@@ -8,8 +8,9 @@
 #      HOT_SLOTS other runs hold a slot; it gives its slot back and waits until the machine cools down.
 #      SLOT_SHARED: a household's shared machine: its lock folder is mode 1777, so a lock file another login made is opened
 #      read-only (flock needs no write access) and a missing one is made readable by every login (umask 0 for that file
-#      only: the command itself runs with the caller's umask). A lock file is never followed through a symlink: one that is
-#      a link is refused, and a new one is made with noclobber (O_EXCL), so a link planted in a shared folder is not opened.
+#      only: the command itself runs with the caller's umask). A lock that is a symlink is refused, a new one is made with
+#      noclobber (O_EXCL: a planted link is never created through), and every lock is opened read-only, so even a link
+#      swapped in between the check and the open is never written or truncated.
 #      THERMAL_GLOB (/sys/class/thermal/thermal_zone*/temp): where the millidegrees are read (tests point it elsewhere).
 prefix="${SLOT_LOCK_PREFIX:-/tmp/tutti-slot-}"
 locks=()

@@ -449,7 +449,7 @@ def local_args_refusal(args, cwd=None):
     ~/.ssh)."""
     if any(shell_option(a) for a in args):
         return 'a local model may not pass --check (a shell command): the repo\'s own configured check runs'
-    files = args[2:3] if args[0] == 'code' else args[3:] if args[0] == 'ask' else []
+    files = {'code': args[2:3], 'ask': args[3:]}.get(args[0], [])
     root = os.path.realpath(cwd or os.getcwd())
     for f in files:
         full = os.path.realpath(os.path.join(root, os.path.expanduser(f)))

@@ -268,7 +268,7 @@ def publish_reviewed(cfg, task, base, reviewer, run=git, gh=subprocess.run):
     task['pr'] = url
     if land_policy(cfg, task) != 'merge':
         return 'done', f'reviewed clean by {reviewer}: pull request {url} into {base}, for a person to merge (land: pr)'
-    touched = gate_files_touched(cfg, task, run)
+    touched = gate_files_touched(cfg, task, base, run)
     if touched:
         return 'done', (f'reviewed clean by {reviewer}: pull request {url} into {base}, for a person to merge: it changes '
                         f'{", ".join(touched[:3])}, which the gates themselves run (a result never merges a change to its own '
@@ -277,24 +277,39 @@ def publish_reviewed(cfg, task, base, reviewer, run=git, gh=subprocess.run):
 
 
 # what the gates run or read: a change to one of these is never merged by the autopilot (a worker could make its check pass by
-# editing the check); the repo's check command also names its own scripts, which are added
+# editing the check). A best-effort list: CI, build, dependency and lint configs, every file the check command names and
+# everything in the folder of a script it names, and tests that already existed (a new test is the usual work, a changed or
+# deleted one could be weakened)
 GATE_FILES = ('Makefile', 'package.json', 'pyproject.toml', 'setup.cfg', 'tox.ini', 'ruff.toml', '.ruff.toml', 'noxfile.py',
-              '.pre-commit-config.yaml', 'eslint.config.js', 'eslint.config.mjs', '.eslintrc', '.eslintrc.json', 'tsconfig.json')
+              '.pre-commit-config.yaml', 'eslint.config.js', 'eslint.config.mjs', '.eslintrc', '.eslintrc.json', 'tsconfig.json',
+              'conftest.py', 'pytest.ini', 'vitest.config.ts', 'jest.config.js', 'playwright.config.ts')
 GATE_DIRS = ('.github/', '.gitlab-ci', '.circleci/', '.tutti')
+GATE_PREFIXES = ('requirements', 'Dockerfile')
+TEST_RX = re.compile(r'(^|/)(tests?|__tests__|e2e)/|(^|/)test_[^/]*$|_test\.[a-z]+$|\.(test|spec)\.[a-z]+$')
 
 
-def gate_files_touched(cfg, task, run=None):
-    """The changed paths of the branch (against the fetched base) that the gates run or read: CI, build and lint configs,
-    and every file the repo's check command names."""
+def check_paths(task, repo):
+    """(files, folders) the acceptance check names: `bash scripts/check.sh` names scripts/check.sh and the folder scripts/."""
+    words = [w.strip('\'"').removeprefix('./') for w in re.split(r'[\s;&|()]+', autopilot.acceptance(task, repo))]
+    files = {w for w in words if '/' in w or w.endswith(('.sh', '.py', '.mk', '.js', '.ts'))}
+    return files, {os.path.dirname(w) + '/' for w in files if os.path.dirname(w)}
+
+
+def is_gate(status, path, files, folders):
+    name = os.path.basename(path)
+    return (name in GATE_FILES or name.startswith(GATE_PREFIXES) or path.startswith(GATE_DIRS) or path in files
+            or path.startswith(tuple(folders)) or (status != 'A' and bool(TEST_RX.search(path))))
+
+
+def gate_files_touched(cfg, task, base, run=None):
+    """The changed paths of the branch (against origin/<base>, which the rebase just fetched) that the gates run or read."""
     run = run or git
-    out = run(task['worktree'], 'diff', '--name-only', 'FETCH_HEAD...HEAD')
+    out = run(task['worktree'], 'diff', '--name-status', '--no-renames', f'origin/{base}...HEAD')
     if out.returncode != 0:
         return ['(the changed files could not be listed)']
-    repo = autopilot.settings(cfg)['repos'].get(task['repo']) or {}
-    named = {w.strip('\'"').lstrip('./') for w in re.split(r'[\s;&|()]+', autopilot.acceptance(task, repo)) if '/' in w or
-             w.endswith(('.sh', '.py', '.mk', '.js', '.ts'))}
-    paths = [ln.strip() for ln in (out.stdout or '').splitlines() if ln.strip()]
-    return [p for p in paths if os.path.basename(p) in GATE_FILES or p.startswith(GATE_DIRS) or p in named]
+    files, folders = check_paths(task, autopilot.settings(cfg)['repos'].get(task['repo']) or {})
+    rows = [ln.split('\t', 1) for ln in (out.stdout or '').splitlines() if '\t' in ln]
+    return [p.strip() for st, p in rows if is_gate(st.strip()[:1], p.strip(), files, folders)]
 
 
 def decide(cfg, task, run=git, gh=subprocess.run, run_worker=None):

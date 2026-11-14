@@ -977,7 +977,7 @@ class Server(httpguard.CappedServer):
     """Drops a connection from a public address before reading it: the dashboard serves this computer, the LAN and a VPN.
     Without sign-in it serves only this login: a loopback connection from another user's process on a shared computer is
     dropped too (httpguard.loopback_owner_ok). At most MAX_CONNECTIONS requests at once."""
-    max_connections = MAX_CONNECTIONS
+    max_connections, max_per_client = MAX_CONNECTIONS, 64   # tailscale serve brings every tailnet user from 127.0.0.1
 
     def verify_request(self, request, client_address):
         if not private_client(client_address[0]):

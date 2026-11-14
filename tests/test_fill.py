@@ -231,14 +231,19 @@ class LandTest(Base):
         with backlog.locked(cfg) as data:
             data['tasks'][0]['attempts'][-1]['gates'] = 'bash scripts/check.sh'
         def run(cwd, *args):
-            if args[:2] == ('diff', '--name-only'):
-                return done(0, 'src/a.py\nscripts/check.sh\n')
+            if args[:2] == ('diff', '--name-status'):
+                self.assertEqual(args[-1], 'origin/main...HEAD')
+                return done(0, 'A\tsrc/a.py\nA\ttests/test_new.py\nM\tscripts/lib.sh\n')
             return done(0, 'HEAD' if args[0] == 'rev-parse' else 'feat: x' if args[0] == 'log' else 'diff')
         gh = mock.Mock(return_value=done(0, 'https://github.example/o/r/pull/9'))
         with mock.patch.object(fill, 'ask_reviewer', return_value=('cheap', 'No findings.')):
             fill.land(cfg, 't1', run=run, gh=gh)
         self.assertEqual(gh.call_count, 1)   # the pull request only: no merge
-        self.assertIn('scripts/check.sh', backlog.load(cfg)['tasks'][0]['publish_note'])
+        self.assertIn('scripts/lib.sh', backlog.load(cfg)['tasks'][0]['publish_note'])   # in the check script's folder
+        self.assertNotIn('tests/test_new.py', backlog.load(cfg)['tasks'][0]['publish_note'])   # a new test is the usual work
+        for status, path, gate in (('M', 'tests/test_old.py', True), ('D', 'src/x_test.go', True), ('A', 'web/a.spec.ts', False),
+                                   ('M', 'requirements-dev.txt', True), ('M', 'src/app.py', False)):
+            self.assertEqual(fill.is_gate(status, path, set(), set()), gate, path)
 
     def test_land_pr_opens_a_pull_request_and_never_merges(self):
         cfg = self.cfg()

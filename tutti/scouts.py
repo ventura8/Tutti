@@ -345,14 +345,26 @@ def open_issue(sc, r, gh_fn=gh):
     return int(m.group(1)), out.strip().splitlines()[-1]
 
 
-TRUSTED = ('OWNER', 'MEMBER', 'COLLABORATOR')   # GitHub's author_association of someone who may write to the repository
+TRUSTED = ('OWNER', 'MEMBER', 'COLLABORATOR')   # GitHub's author_association: then the account's permission is asked
+WRITE = ('admin', 'maintain', 'write')
 
 
-def trusted(c, login=None):
-    """A comment a scout's answer may come from: by the account the scout posts as (scouts.<name>.github_login), or by
-    someone who may write to the repository. In a public repository anyone can comment, and an answer becomes backlog work."""
+def writer(repo, who, gh_fn, seen):
+    """Whether `who` may write to the repository (GitHub's collaborator permission), asked once per login."""
+    if who not in seen:
+        rc, out, _ = gh_fn(['api', f'repos/{repo}/collaborators/{who}/permission', '--jq', '.permission'])
+        seen[who] = rc == 0 and out.strip() in WRITE
+    return seen[who]
+
+
+def trusted(c, repo, gh_fn, login=None, seen=None):
+    """A comment a scout's answer may come from: by the account the scout posts as (scouts.<name>.github_login), or by an
+    owner, member or collaborator whose permission on the repository is write or more (an organisation member or a
+    collaborator may be read-only). In a public repository anyone can comment, and an answer becomes backlog work."""
     who = (c.get('user') or {}).get('login', '')
-    return bool(login and who == login) or c.get('author_association') in TRUSTED
+    if login and who == login:
+        return True
+    return c.get('author_association') in TRUSTED and bool(who) and writer(repo, who, gh_fn, {} if seen is None else seen)
 
 
 def answer_of(repo, issue, since, gh_fn=gh, marker=None, login=None):
@@ -363,9 +375,11 @@ def answer_of(repo, issue, since, gh_fn=gh, marker=None, login=None):
     if rc != 0:
         raise ScoutError(f'reading the comments of {repo}#{issue} failed ({err}): check `gh auth status`')
     items = [c for page in documents(text) for c in (page if isinstance(page, list) else [page])]
+    seen = {}
     for c in sorted(items, key=lambda c: c.get('created_at') or ''):
         at = pacing.parse_time(c['created_at']).timestamp() if c.get('created_at') else 0
-        if at >= since - 60 and (c.get('body') or '').strip() and (not marker or marker in c['body']) and trusted(c, login):
+        if at >= since - 60 and (c.get('body') or '').strip() and (not marker or marker in c['body']) and \
+                trusted(c, repo, gh_fn, login, seen):
             return c['body'].strip()[:ANSWER_CHARS], (c.get('user') or {}).get('login', '')
     return None
 

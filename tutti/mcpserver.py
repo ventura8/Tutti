@@ -24,7 +24,7 @@ BIN = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
 TIMEOUT = 120          # seconds a read or a quick change may take; long work runs detached and is polled with job_status
 HTTP_PORT = 4779
 # tool arguments that land as positional words of a `tutti` command: one that starts with "-" would be read as an option
-POSITIONAL = ('repo', 'title', 'task', 'project', 'track', 'scout', 'question', 'mode', 'machine', 'device', 'skill')
+POSITIONAL = ('repo', 'project', 'track', 'scout', 'mode', 'machine', 'device', 'skill')   # names: free text goes after `--`
 MAX_BODY = 1 << 20
 
 INSTRUCTIONS = ('Tutti runs bounded coding tasks on cheaper workers (cursor-agent, Antigravity, local models) and shared '
@@ -126,12 +126,14 @@ def argv_of(name, a):
         'machines': lambda: ['machines'],
         'devices': lambda: ['devices'],
         'backlog_list': lambda: ['backlog', 'list'] + (['--all'] if a.get('all') else []),
-        'backlog_add': lambda: (['backlog', 'add', a['repo'], a['title'], '--source', 'mcp'] + (['--size', size] if size else [])
-                                + [x for p in scopes(a.get('scope')) for x in ('--scope', p)]
-                                + (['--check', a['check']] if a.get('check') else [])),
-        'delegate_task': lambda: (['run', 'auto', (f'[size {size}] ' if size else '') + a['task'], '--repo', a['project'], '--bg']
-                                  + (['--track', a['track']] if a.get('track') else [])),
-        'scout_ask': lambda: ['scout', 'ask', a['scout'], a['question'], '--no-wait'] + (['--skill', a['skill']] if a.get('skill') else []),
+        # options first, then `--`: a title, task or question that starts with "-" stays text, never an option
+        'backlog_add': lambda: (['backlog', 'add', '--source', 'mcp'] + (['--size', size] if size else [])
+                                + [x for p in scopes(a.get('scope')) for x in (f'--scope={p}',)]
+                                + ([f'--check={a["check"]}'] if a.get('check') else []) + ['--', a['repo'], a['title']]),
+        'delegate_task': lambda: (['run', '--repo', a['project'], '--bg'] + (['--track', a['track']] if a.get('track') else [])
+                                  + ['--', 'auto', (f'[size {size}] ' if size else '') + a['task']]),
+        'scout_ask': lambda: (['scout', '--no-wait'] + (['--skill', a['skill']] if a.get('skill') else [])
+                              + ['--', 'ask', a['scout'], a['question']]),
         'away_mode': lambda: ['owner', 'mode', a['mode']] if a.get('mode') else ['owner', 'status'],
     }
     return table[name]() if name in table else None

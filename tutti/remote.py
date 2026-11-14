@@ -15,7 +15,10 @@ import time
 from . import routing, worktree
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SLOT_SCRIPT = os.path.join(ROOT, 'scripts', 'slot.sh')
+# a checkout or a release has scripts/ beside the package; a uv or pipx install ships them inside it (pyproject.toml)
+SCRIPTS = os.path.join(ROOT, 'scripts') if os.path.isdir(os.path.join(ROOT, 'scripts')) else \
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts')
+SLOT_SCRIPT = os.path.join(SCRIPTS, 'slot.sh')
 BIN = os.path.join(ROOT, 'bin', 'tutti')
 SSH = ['ssh', '-o', 'LogLevel=ERROR']
 BATCH = 'BatchMode=yes'                        # never a password prompt: a key works, or the machine counts as down
@@ -454,10 +457,10 @@ def device_readings(machine, device, wake=False, timeout=90):
     from . import devices
     try:
         if machine['transport'] == 'local':
-            scripts = shlex.quote(bash_path(os.path.join(ROOT, 'scripts')))
+            scripts = shlex.quote(bash_path(SCRIPTS))
         else:
             scripts = root_path(machine)
-            with open(os.path.join(ROOT, 'scripts', devices.READINGS_SCRIPT), encoding='utf8') as f:
+            with open(os.path.join(SCRIPTS, devices.READINGS_SCRIPT), encoding='utf8') as f:
                 up = sh(machine, f'mkdir -p {scripts} && cat > {scripts}/{devices.READINGS_SCRIPT}', stdin=f.read(), timeout=timeout,
                         ssh_opts=QUICK)
             if up.returncode != 0:

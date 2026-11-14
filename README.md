@@ -6,8 +6,8 @@ rules that keep them from stepping on each other.
 Tutti is a small toolkit for AI-assisted work on a software project when you have more than one model subscription and
 more than one computer. It grew out of one project's working day and keeps only what proved useful.
 
-> **Status: v0.1.10.** Linux only. The npm package `tutti-agents` is marked `private` until the first
-> publish. **Licence:** MIT (see `LICENSE`).
+> **Status: v0.1.36.** Linux first; the installer and `tutti setup` also cover macOS, WSL and Windows. The npm package `tutti-agents` is not published yet (until then: the install line, uv or pipx).
+> **Licence:** MIT (see `LICENSE`).
 
 ## The ideas
 
@@ -36,45 +36,41 @@ more than one computer. It grew out of one project's working day and keeps only 
 
 ## Install
 
-Linux, WSL, macOS:
+One line, then sign in. **Linux, WSL, macOS:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ventura8/Tutti/main/install/install.sh | bash
+curl -fsSLo tutti-bootstrap.sh https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.sh && echo "e85e22cb369b46f122c4159301287250c9cd32d97c7a30b20488bd244b202130  tutti-bootstrap.sh" | (sha256sum -c - || shasum -a 256 -c -) && bash tutti-bootstrap.sh
 ```
 
-Windows (PowerShell):
+**Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/ventura8/Tutti/main/install/install.ps1 | iex
+irm https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.ps1 -OutFile tutti-bootstrap.ps1; if ((Get-FileHash tutti-bootstrap.ps1).Hash -eq 'D8C7ED5B2E5976B72CB432D91621765F79FF12F84D887A19FADFFDFE68AD2848') { powershell -ExecutionPolicy Bypass -File tutti-bootstrap.ps1 } else { 'tutti: checksum mismatch, not run' }
 ```
 
-Re-run the same line to update. Uninstall with `install/uninstall.sh` or `install/uninstall.ps1` the same way (config is kept unless `TUTTI_PURGE=1`). Edit the example config the installer wrote under `$XDG_CONFIG_HOME/tutti/config.yaml` (`~/.config/tutti/config.yaml` when `XDG_CONFIG_HOME` is unset; `TUTTI_CONFIG` or a project `tutti.config.yaml` takes precedence), then run `tutti config` and `tutti workers`.
+It installs Tutti and what it needs (Python through uv, gh) in your user space, checking every download's SHA-256,
+then runs `tutti setup`, which asks nothing: it finds your agents and their sign-ins, GPUs and local models, machines, Android devices and
+git projects, writes the config, opens each tool's own sign-in, starts the dashboard at login and turns on automatic
+updates. Run `tutti setup` again any time: it only fills what is missing. Details, uv and pipx, and the household's
+`--join`: [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Quick start: use Tutti from your own agent
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/ventura8/Tutti/main/install/install.sh | bash   # 1. install
-tutti setup              # 2. sign in and find your machines and agents (it runs step 3 too)
-tutti connect --all      # 3. connect Claude Code, Claude Desktop, Codex, Antigravity, Cursor, Copilot, VS Code, Gemini
-```
-
-Then ask your agent to hand work to Tutti. Each agent gets Tutti's MCP server and a short instruction; your other
-settings are kept and backed up, `tutti connect --undo <agent>` takes it out, and the dashboard's **Connect your agent**
-card shows each agent's state with a Test button. See [docs/CONNECT.md](docs/CONNECT.md).
-
-## Quick start from a clone
-
-Requirements: Linux, Python 3.10+ (3.11+ for connecting Codex), `PyYAML`, `git`, `rsync`, `ssh` with key-based login to your machines, and Docker
-on the machines if you use the container runner.
+The one line above already ran `tutti setup`, which also connects every agent it found (`tutti connect --all`: Claude
+Code, Claude Desktop, Codex, Antigravity, Cursor, Copilot, VS Code, Gemini). Then ask your agent to hand work to Tutti.
+Each agent gets Tutti's MCP server and a short instruction; your other settings are kept and backed up, `tutti connect
+--undo <agent>` takes it out, and the dashboard's **Connect your agent** card shows each agent's state with a Test
+button. See [docs/CONNECT.md](docs/CONNECT.md). Then:
 
 ```bash
-git clone <this repository> ~/Projects/tutti
-ln -s ~/Projects/tutti/bin/tutti ~/.local/bin/tutti       # or, once published: npm install -g tutti-agents
-python3 -m pip install -r ~/Projects/tutti/requirements.txt
-cp ~/Projects/tutti/tutti.config.example.yaml ~/my-project-wt/tutti.config.yaml   # then edit: machines, workers, accounts
 tutti config        # checks the file and names every problem with its key
 tutti machines      # free slots, load and yield flag of every machine
+tutti dashboard     # already running at login: http://127.0.0.1:4777/ (its Set up card lists what is left)
 ```
+
+From source instead: `git clone https://github.com/ventura8/Tutti`, then `install/install.sh` (or `uv tool install
+git+https://github.com/ventura8/Tutti`), then `tutti setup`. Machines you send work to need `rsync` and `ssh` with
+key-based login, and Docker if you use the container runner.
 
 Tutti finds its config in `$TUTTI_CONFIG`, else the nearest `tutti.config.yaml` from the current folder upwards, else
 `~/.config/tutti/config.yaml` (or `~/.config/tutti/tutti.config.yaml` as a fallback; `$XDG_CONFIG_HOME` is honoured).
@@ -116,6 +112,8 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | `tutti yield on\|off\|status --machine <m>` | Raises or lowers a machine's yield flag (`--unload` asks for models to be unloaded). |
 | `tutti update` | Updates every worker CLI on every machine without sudo (`cursor-agent update`, `agy update`, `copilot update`, `claude update`, npm for user installs, ollama pulls), never while a Tutti run uses the program, and prints the one exact sudo command for apt packages (`update.packages`, e.g. the Cursor editor) or root-owned npm installs. `--check` only reads versions. The dashboard runs it daily (`update.auto: false` turns that off). |
 | `tutti machines [add-android]` | Probes every machine (a Termux phone also shows battery, charging, heat and Wi-Fi). `add-android` prints the one-time Termux setup and the config lines; lint and unit runs on a phone are opt-in. |
+| `tutti setup [--ask] [--join <invite>]` | The first run, no questions (docs/INSTALL.md): finds agents and their sign-ins, GPUs, local models, machines (ssh config, Tailscale, LAN), Android devices, git projects and gh; writes the config with recommended defaults, keeping your comments (the Set up card shows each default with Change); at the end lists once what only you can do and opens each tool's own sign-in; starts the dashboard at login (systemd, launchd, a Windows task); turns on self-update; fixes a git that cannot do HTTPS. Again: only fills what is missing. |
+| `tutti self-update [--check]` | Installs the newest checksummed release (release installs; on by default at login and daily, `self_update.enabled: false` turns it off). |
 | `tutti doctor` | Checks this machine; today: a git whose HTTPS helper cannot load its libraries (a broken git first in PATH), with the fix. |
 | `tutti quiet [--summary <worker>] <cmd>` | Runs a command, keeps the log, prints only the exit code and, on failure, a five-line summary. |
 | `tutti progress <done>/<total> [--job <log>]` | Reports how far a job is for the dashboard's progress bar (inside `tutti quiet` it finds its job through `TUTTI_PROGRESS_FILE`): the exact layer, above known phases, estimates from history and agent estimates (docs/DASHBOARD.md, *Progress*). |
@@ -133,6 +131,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 - [docs/CONDUCT.md](docs/CONDUCT.md): another agent as the main agent, its tools, limits and the handoff.
 - [docs/WORKERS.md](docs/WORKERS.md): briefing Cursor, Antigravity and local models; review the diff, then gate.
 - [docs/SCOUTS.md](docs/SCOUTS.md): scouts (Grok Bot): questions answered on GitHub issues, watches, the review trial, the owner's setup.
+- [docs/INSTALL.md](docs/INSTALL.md): the one-line install per OS, `tutti setup`, updates, uv and pipx, and the interface `household join` uses.
 - [docs/HOUSEHOLD.md](docs/HOUSEHOLD.md): several users in one household: users, the coordinator, leases, fair shares, the threat model and the migration.
 - [docs/USAGE-PACING.md](docs/USAGE-PACING.md): the pacing rule and its arithmetic.
 - [docs/MACHINES.md](docs/MACHINES.md): slots, routing, heat and memory guards, the yield flag, peers.

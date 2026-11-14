@@ -13,6 +13,31 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 ### Added
 
+- One-line install per OS (docs/INSTALL.md): Linux, WSL and macOS (`curl` the bootstrap, check its SHA-256 written in the
+  line, run it) and Windows (PowerShell, the same with `Get-FileHash`). The bootstrap, attached to every GitHub release,
+  installs uv 0.13.8 (Python without sudo) and gh 2.104.0 against pinned SHA-256s, Git through winget in user scope on
+  Windows, then the release tarball checked against the release's `SHA256SUMS`, into `~/.local/share/tutti/versions/<v>`
+  with `current` and a `tutti` command on PATH, and runs `tutti setup`. Nothing unverified is piped into a shell.
+- `tutti setup`: the first run with no questions: every default picked and shown on the Set up card with Change, and
+  only what no tool can do (sign-ins in the tool's own window, a sudo line, a phone tap) listed once at the end. It finds the agent CLIs (claude, cursor-agent, agy, copilot) and
+  whether each is signed in (its status command or its login file's existence; no credential is read), Cursor's plan,
+  GPUs, ollama models, machines (~/.ssh/config, Tailscale, LAN ssh services), Android devices (adb), git repositories
+  under the usual folders (priority by recent work) and gh's sign-in; writes the config keeping every comment (entries
+  only added, the old file kept as `.bak`, the result checked before it is written); `--ask` asks about each default instead; opens each tool's own sign-in at the
+  end; installs the dashboard as a
+  login service (systemd --user, launchd, a Windows scheduled task with no console window); opens the dashboard on the first run
+  to install the app; fixes a first git that cannot do HTTPS with a wrapper; saves its report. Again: fills only what is
+  missing. `--join <invite>` then joins a household (what a new member's install line passes). It also connects every
+  agent it found to Tutti's MCP server (`tutti connect --all`; `--no-connect` skips it).
+- `tutti self-update [--check]`: the newest release, checked against `SHA256SUMS` before `current` moves. On by default
+  at login (the service) and daily from the dashboard, which restarts in place; `self_update: {enabled: false}` opts out.
+- The dashboard's Set up card: what setup found and what is left, each row with its command (Copy) or Fix (`tutti setup
+  --yes` in the background, POST /api/setup).
+- uv and pipx installs from GitHub (`pyproject.toml`; the machine scripts ship inside the package); npm is a ready hook
+  (`install.CHANNELS['npm']`, `published: False`).
+- `scripts/release-assets.sh`: the tarball, both bootstraps and `SHA256SUMS`; `release-patch.sh` attaches them.
+- The shared interface for `household join` and other callers: `tutti/install.py`, and `tutti/guided.py`, the rule every
+  setup follows (detect, else a default, then the human steps listed once; docs/INSTALL.md, *The rule for every setup*).
 - The dashboard's **Settings** tab (docs/DASHBOARD.md, *Settings*): every key of `tutti.config.yaml`, grouped like the
   file, each with a plain label, a one-line help, its control (switch, number with unit, choice, day and hour pickers, list
   editor, YAML), its value, its default and **Reset to default**; search and a *Changed from default* filter; a phone

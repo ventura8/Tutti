@@ -287,3 +287,11 @@ queue existed for the phone, so nothing could tell it was idle.
 
 **Rule.** Work that a target can do must be declared where Tutti sees it (`projects.<p>.tests`), and idle targets must pull
 it themselves. A watchdog that shows "idle while work waits" turns a silent gap into a visible fix.
+
+## A YAML scalar dumped alone ends with a document marker (2026-11-14)
+
+`yaml.safe_dump('site.github.io', default_flow_style=True)` is `site.github.io\n...\n`: a bare scalar gets the `...`
+document end, so a config line built from it broke the file on the first real run of `tutti setup` (a repository named
+like a domain). `configmerge.flow` dumps the value inside a list and strips the brackets; a test round-trips names with
+dots and values with colons.
+

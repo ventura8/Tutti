@@ -1,0 +1,33 @@
+# pyproject.toml: makes Tutti installable with uv or pipx straight from GitHub (docs/INSTALL.md, *Other ways*):
+#   uv tool install git+https://github.com/ventura8/Tutti     or     pipx install git+https://github.com/ventura8/Tutti
+# The machine scripts (scripts/*.sh) ship inside the package as tutti/scripts; the version is tutti/__init__.py's.
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tutti-agents"
+dynamic = ["version"]
+description = "Tutti: one orchestrator, many AI workers, shared machines."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = ["PyYAML==6.0.3"]
+
+[project.scripts]
+tutti = "tutti.cli:entry"
+
+[project.urls]
+Homepage = "https://github.com/ventura8/Tutti"
+
+[tool.setuptools]
+packages = ["tutti", "tutti.scripts"]
+package-dir = { "tutti.scripts" = "scripts" }
+include-package-data = false
+
+[tool.setuptools.package-data]
+tutti = ["web/*", "web/icons/*"]
+"tutti.scripts" = ["*.sh"]
+
+[tool.setuptools.dynamic]
+version = { attr = "tutti.__version__" }

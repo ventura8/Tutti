@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export TUTTI_TELEMETRY=off   # the smoke runs below are not usage: record nothing
-shellcheck scripts/*.sh
+shellcheck scripts/*.sh install/*.sh
 if command -v ruff > /dev/null; then ruff check . bin/tutti; else echo "ruff is not installed here: skipped (CI runs it)"; fi
 XDG_CONFIG_HOME="$(mktemp -d)" python3 -m unittest discover -s tests   # never the owner's grok.env
 # smoke: the example config is valid and the commands that need no machine answer
@@ -31,4 +31,6 @@ $t pr --help > /dev/null
 $t scout list > /dev/null
 $t scout setup > /dev/null
 $t scout trial > /dev/null
+$t setup --help > /dev/null
+$t self-update --help > /dev/null
 echo "check: all passed"

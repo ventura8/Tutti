@@ -90,6 +90,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | `tutti agent <worker> "<task>" "<check>" files...` | A local model edits, runs the check, reads the failure, retries. |
 | `tutti yield on\|off\|status --machine <m>` | Raises or lowers a machine's yield flag (`--unload` asks for models to be unloaded). |
 | `tutti machines` | Probes every machine. |
+| `tutti doctor` | Checks this machine; today: a git whose HTTPS helper cannot load its libraries (a broken git first in PATH), with the fix. |
 | `tutti quiet [--summary <worker>] <cmd>` | Runs a command, keeps the log, prints only the exit code and, on failure, a five-line summary. |
 | `tutti progress <done>/<total> [--job <log>]` | Reports how far a job is for the dashboard's progress bar (inside `tutti quiet` it finds its job through `TUTTI_PROGRESS_FILE`): the exact layer, above known phases, estimates from history and agent estimates (docs/DASHBOARD.md, *Progress*). |
 | `tutti guard` | Pauses test containers when memory runs low; resumes them later. |

@@ -2,6 +2,13 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.15 (2026-11-14)
+
+### Added
+
+- `tutti doctor`: finds a git first in PATH whose HTTPS helper cannot run (another tool's bundled git with a mismatched
+  libcurl) and says to fix PATH, naming a working git when there is one; it runs without a project config.
+
 ## 0.1.14 (2026-11-14)
 
 ### Added

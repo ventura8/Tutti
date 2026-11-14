@@ -884,9 +884,22 @@ def task_change(task, a):
 
 
 def cmd_autopilot(cfg, a):
-    """`tutti autopilot [status|on|off|tick]`."""
+    """`tutti autopilot [status|on|off|tick|fill on|off|land <id>]`."""
+    from . import fill
     if a.action in ('on', 'off'):
         autopilot.set_enabled(cfg, a.action == 'on')
+    elif a.action == 'fill':
+        if a.arg not in ('on', 'off'):
+            say('autopilot fill: say on or off (autopilot.fill_room: free room on the trigger accounts is filled by itself)')
+            return 2
+        fill.set_fill(cfg, a.arg == 'on')
+    elif a.action == 'land':
+        try:
+            print(fill.land(cfg, a.arg or ''))
+        except backlog.BacklogError as e:
+            say(str(e))
+            return 2
+        return 0
     elif a.action == 'tick':
         now = datetime.now(timezone.utc)
         states = {s['name']: s for s in state.usage_state(cfg, now)['accounts']}
@@ -1127,8 +1140,10 @@ def parser():
     s.add_argument('--note', action='append', help='a note for the worker (retry: the reviewer\'s notes)')
     s.add_argument('--all', action='store_true', help='list: also done and dropped tasks')
     s = add('autopilot', cmd_autopilot, 'send backlog tasks to accounts that are behind their pace, by itself: status, on, off, '
-                                        'tick (one round now; the dashboard ticks while it runs)')
-    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])
+                                        'tick (one round now; the dashboard ticks while it runs), fill on|off (fill free room from '
+                                        'the repos\' sources), land <id> (review a result and land it)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick', 'fill', 'land'])
+    s.add_argument('arg', nargs='?', help='fill: on or off; land: the task id')
     s = add('scout', cmd_scout, 'scouts, helpers that are not workers (Grok Bot): ask <scout> "<question>" (answered on a GitHub '
                                 'issue), answer <id>, watch [<scout> <watch>], tick (send what is due within the allowance), '
                                 'review <pr> (advisory), trial (the review trial), list, setup')

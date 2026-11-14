@@ -225,7 +225,9 @@ Besides `tutti quiet` runs, ship checks, waits and delegated runs, the Jobs card
 A card whose account is read by hand shows **Reminder: ... tutti usage log <account> <percent>** once its reading is
 older than `stale_hours` (default 2), and the Usage header counts such accounts. A card read automatically says how and
 when ("read automatically · 3 minutes ago", "written by the orchestrator", "read by the helper"). An account behind its
-line shows **Use it: N bounded task(s) can go here now**: 0 % used and "behind" means quota going unused. Machines show
+line has room, and its card says what happens to it. With the autopilot and `fill_room` on, a trigger account
+(`autopilot.accounts`) shows **Autopilot: filling N slots — R running here, Q queued** and what the last fill did; otherwise
+"N bounded tasks fit here now" and **Let autopilot fill it**, which turns both on (docs/AUTOPILOT.md). Machines show
 their temperature, highlighted at or over `heat.cap_c`.
 
 ## Automatic readings

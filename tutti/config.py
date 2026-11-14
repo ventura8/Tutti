@@ -46,9 +46,11 @@ DEFAULTS = {
     # main: `tutti conduct`; the main (conductor) agent, the ones that take over when its quota is out, a command per agent
     # when it conducts (default: its worker command), extra ask-first actions, how often the run checks the readings
     # autopilot: `tutti autopilot`; accounts whose pace triggers it, the escalation ladder of retries, how many runs at once,
-    # when a task is parked for a person, and the repos it may work in ({name: {path, check, where, pr, commit, trailers, gaps}})
+    # when a task is parked for a person, and the repos it may work in ({name: {path, check, where, pr, commit, trailers, gaps,
+    # land, base}}); fill_room: free room on the trigger accounts is filled from the repos' sources by itself (tutti/fill.py);
+    # auto_review: a result to review is reviewed by review.fallback and landed by its repo's `land` (merge, pr or branch)
     'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'max_parallel': 1, 'no_progress': 3, 'max_attempts': 12, 'repos': {},
-                  'quiet_hours': []},
+                  'quiet_hours': [], 'fill_room': True, 'auto_review': True},
     # scouts: helpers that are not workers (Grok Bot's webhook routine): asked questions, they answer on a GitHub issue
     'scouts': {},
     # telemetry: crash reports and usage statistics (docs/TELEMETRY.md); recorded locally always, sent only with consent.
@@ -322,6 +324,9 @@ def _autopilot_repo_errors(n, r):
         errs.append(f'autopilot.repos.{n}.where is {r["where"]!r}: use local (the check runs here) or route (a routed machine)')
     if r.get('pr', False) not in (False, 'draft'):
         errs.append(f'autopilot.repos.{n}.pr is {r["pr"]!r}: use false (a branch to review) or draft (also a draft pull request)')
+    if r.get('land', 'pr') not in ('merge', 'pr', 'branch'):
+        errs.append(f'autopilot.repos.{n}.land is {r["land"]!r}: use merge (a reviewed result is merged), pr (a pull request a '
+                    'person merges) or branch (it waits for a person)')
     return errs
 
 
@@ -343,6 +348,7 @@ def _autopilot_errors(cfg):
         return [f'autopilot is {ap!r}: write it as a mapping, e.g. autopilot: {{enabled: false, accounts: [...], repos: {{...}}}}']
     errs = _autopilot_name_errors(cfg, 'accounts', ap.get('accounts')) + _autopilot_name_errors(cfg, 'ladder', ap.get('ladder'))
     errs += quiet_hours_errors(ap.get('quiet_hours'))
+    errs += [f'autopilot.{k} is {ap[k]!r}: use true or false' for k in ('fill_room', 'auto_review') if not isinstance(ap.get(k), bool)]
     for key in ('max_parallel', 'no_progress', 'max_attempts'):
         v = ap.get(key)
         if isinstance(v, bool) or not isinstance(v, int) or v < 1:

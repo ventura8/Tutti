@@ -21,6 +21,7 @@ from . import (
     config,
     controls,
     dashtelemetry,
+    fill,
     handover,
     helper,
     pacing,
@@ -155,6 +156,8 @@ class Collector:
         out['scouts'] = {**scouts.view(self.cfg, accounts, self.env), 'error': probes.get('scout_error'), 'trial': trial.view(self.cfg)}
         out['controls'] = controls.view(self.cfg, controls.read(config.state_dir(self.cfg)))
         out['telemetry'] = dashtelemetry.view(self.cfg)
+        out['controls']['opt_in'].append({'kind': 'autopilot', 'name': 'fill_room', 'on': out['autopilot']['fill_room'],
+                                          'why': 'free room on the trigger accounts is filled from the repos\' sources by itself'})
         return out
 
     def reload(self):
@@ -267,15 +270,20 @@ def save_main(cfg, raw):
 
 
 def save_autopilot(cfg, raw):
-    """(status, answer) for POST /api/autopilot {"enabled": true|false}: the dashboard's toggle."""
+    """(status, answer) for POST /api/autopilot {"enabled": true|false, "fill_room": true|false}: the dashboard's switches
+    (either key, or both: "Let autopilot fill it" sends both)."""
     try:
         data = json.loads(raw or b'null')
     except ValueError:
         data = None
-    if not isinstance(data, dict) or not isinstance(data.get('enabled'), bool):
-        return 400, {'error': 'send {"enabled": true} or {"enabled": false} as JSON'}
-    autopilot.set_enabled(cfg, data['enabled'])
-    return 200, {'ok': True, 'enabled': data['enabled']}
+    keys = [k for k in ('enabled', 'fill_room') if isinstance(data, dict) and k in data]
+    if not keys or not all(isinstance(data[k], bool) for k in keys):
+        return 400, {'error': 'send {"enabled": true|false} and/or {"fill_room": true|false} as JSON'}
+    if 'enabled' in keys:
+        autopilot.set_enabled(cfg, data['enabled'])
+    if 'fill_room' in keys:
+        fill.set_fill(cfg, data['fill_room'])
+    return 200, {'ok': True, **{k: data[k] for k in keys}}
 
 
 def save_control(collector, raw, stop_fn=handover.stop_now):

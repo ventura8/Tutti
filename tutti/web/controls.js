@@ -71,7 +71,11 @@ function optIn(o) {
         el('div', { class: 'row__name' }, o.name, el('span', { class: 'row__kind', text: `${o.kind} · ${o.why}` })),
         chip(o.on ? 'on' : 'off', o.on ? 'ok' : 'idle'),
         el('div', { class: 'row__stats' }, el('button', { class: 'btn btn--tonal', type: 'button', 'aria-pressed': String(o.on),
-            onclick: async () => { await control({ action: 'optin', kind: o.kind, name: o.name, on: !o.on }, `${label} was not switched.`); } },
+            onclick: async () => {
+                // the autopilot's own switches (fill_room) are saved by /api/autopilot, the entries' by /api/control
+                if (o.kind === 'autopilot') await switchAutopilot({ [o.name]: !o.on }, `${label} was not switched.`);
+                else await control({ action: 'optin', kind: o.kind, name: o.name, on: !o.on }, `${label} was not switched.`);
+            } },
         o.on ? 'Turn off' : 'Turn on')));
 }
 

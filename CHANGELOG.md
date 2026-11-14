@@ -2,6 +2,32 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.23 (2026-11-14)
+
+### Added
+
+- `autopilot.fill_room` (on by default; `tutti autopilot fill on|off`, and a **fill_room** switch under the dashboard's
+  Opt-in): free room on the trigger accounts, as the planner gives it, is filled by itself. Fresh tasks are queued from
+  the repos' FEEDBACK.md, owner-tagged TODOs, the `gaps` command and the tracked source files no test names, up to three
+  per parallel run; a title the backlog ever had is never queued again.
+- `autopilot.auto_review` (on by default) and `autopilot.repos.<repo>.land` (`merge`, `pr`, `branch`) with `base`: a result
+  to review is read by the cheap reviewer (`review.fallback`) in the background (`tutti autopilot land <id>`); clean, it is
+  rebased, pushed and opened as a pull request, merged at once with `land: merge`; findings send it back with them as notes,
+  the third time to a person. A result lands only when its passing attempt ran the repo's current `check` (its lint and
+  type gates, recorded at dispatch); the reviewer reads the whole rebased branch; a failed fetch, reviewer or merge is
+  tried again in 10 minutes; the repos' sources are read outside the backlog's lock, each command with a 120 s timeout.
+
+### Changed
+
+- The accounts' cards no longer show "Use it: N bounded task(s) can go here now (tutti run auto …)". With the autopilot and
+  `fill_room` on: "Autopilot: filling N slots — R running here, Q queued" and what the last fill did; otherwise a short hint
+  and **Let autopilot fill it**.
+
+### Fixed
+
+- A retry whose steps above all had no room waited while the steps below had room: t13 to t15 had failed on agy-gemini and
+  agy-claude, so only cursor (ahead of its pace) and the PC (yielding) could take them and both agy accounts sat idle. A
+  retry now falls back to the steps below, strongest first, and the stopped line names every step, the ones with room too.
 ## 0.1.21 (2026-11-14)
 
 ### Added

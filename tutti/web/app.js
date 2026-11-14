@@ -625,6 +625,65 @@ async function toggleAutopilot() {
     }
 }
 
+// ---- scouts: helpers that answer on a GitHub issue (Grok Bot), with their weekly meter and the review trial
+
+const REQ_TONE = { queued: 'idle', waiting: 'accent', answered: 'ok', failed: 'bad', timeout: 'warn' };
+
+function scoutMeter(m) {
+    if (!m || m.used === null || m.used === undefined) return 'no meter reading yet: read Grok Bot on the spending page with the reading helper';
+    return `${m.used}% of the week used · ${m.verdict}${m.reset ? ` · resets ${when(m.reset)}` : ''}`;
+}
+
+function scoutRequest(r) {
+    const head = `${r.kind}${r.watch ? ` ${r.watch}` : ''} · ${r.task}`;
+    const note = r.answer || r.why || (r.url ? `answer goes to ${r.url}` : 'not sent yet');
+    return el('li', { class: 'row' },
+        el('div', { class: 'row__name', title: r.task }, head.length > 110 ? `${head.slice(0, 110)}…` : head,
+            el('span', { class: 'row__kind', text: `${r.id} · ${r.at ? relative(r.at) : ''}` })),
+        chip(r.status, REQ_TONE[r.status] || 'idle'),
+        el('p', { class: 'row__note', text: note.length > 400 ? `${note.slice(0, 400)}…` : note }),
+        r.url && r.url.startsWith('https://') ? el('a', { href: r.url, target: '_blank', rel: 'noopener', text: 'Open on GitHub' }) : null);
+}
+
+function scoutBlock(sc) {
+    const state = sc.ready ? chip(sc.auto ? 'ready · rounds on' : 'ready', 'ok') : chip(`not set up: ${sc.missing.join(', ')} missing`, 'bad');
+    const watches = sc.watches.map((w) => el('li', { class: 'row' },
+        el('div', { class: 'row__name', text: `${w.name} · every ${w.every}` }),
+        el('p', { class: 'row__note', text: `last ${w.last ? relative(w.last) : 'never'} · next ${w.next ? when(w.next) : 'at the next round'}` })));
+    return el('div', {},
+        el('h3', { class: 'card__sub', text: `${sc.name} · ${sc.kind}` }), state,
+        el('p', { class: 'row__note', text: `${scoutMeter(sc.meter)} · ${sc.waiting} waiting, ${sc.queued} queued · plan: ${sc.plan}` }),
+        el('p', { class: 'row__note', text: `Skills: ${sc.skills.join(', ')} · answers in ${sc.repo}` }),
+        watches.length ? el('ul', { class: 'list', 'aria-label': `${sc.name} watches` }, ...watches) : null,
+        sc.recent.length ? el('ul', { class: 'list', 'aria-label': `${sc.name} recent questions` }, ...sc.recent.map(scoutRequest)) : null);
+}
+
+function trialBlock(t) {
+    const rows = Object.entries(t.reviewers).map(([who, r]) => el('li', { class: 'row' },
+        el('div', { class: 'row__name', text: who }),
+        el('p', { class: 'row__note', text: `${r.raised} raised · ${r.real} real · ${r.noise} noise · ${r.open} to mark` })));
+    const verdict = t.verdict ? t.verdict.why : `${t.closed} of ${t.limit} pull requests done; the verdict comes after the last one`;
+    return el('div', {},
+        el('h3', { class: 'card__sub', text: `Review trial: ${t.scout} (advisory, never blocking)` }),
+        el('p', { class: 'row__note', text: `${verdict} · ${t.unique_real} real finding(s) only ${t.scout} raised` }),
+        rows.length ? el('ul', { class: 'list' }, ...rows) : null);
+}
+
+function renderScouts(s) {
+    const sc = s.scouts;
+    if (!sc) return;
+    $('scouts-meta').textContent = sc.configured ? `${sc.items.filter((i) => i.ready).length} of ${sc.items.length} ready` : 'none configured';
+    const parts = sc.items.map(scoutBlock).concat((sc.trial || []).map(trialBlock));
+    if (sc.error) parts.unshift(el('p', { class: 'row__note', text: `The last scouts round failed: ${sc.error}` }));
+    if (sc.setup.length) {
+        parts.push(el('details', { open: !sc.configured || undefined },
+            el('summary', { text: 'Set up Grok Bot as a scout (owner, once)' }),
+            el('ol', { class: 'list' }, ...sc.setup.map((step) => el('li', { text: step })))));
+    }
+    if (!sc.configured) parts.unshift(empty('No scouts yet', 'Add scouts: to the config (docs/SCOUTS.md), then follow the steps below.'));
+    $('scouts').replaceChildren(...parts);
+}
+
 // ---- jobs
 
 const LAYER = { exact: 'exact', shape: 'known phases', estimate: 'estimated from earlier runs', agent: 'agent estimate', elapsed: 'elapsed, no estimate yet' };
@@ -829,6 +888,7 @@ function render() {
     renderJobs(s);
     renderMachines(s);
     renderAutopilot(s);
+    renderScouts(s);
     renderMain(s);
     renderWorkers(s);
     renderProjects(s);

@@ -132,6 +132,16 @@ accounts:
     resets_estimated: true
     source: agy /usage (Gemini models, weekly)
     reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: gemini-weekly}
+  # Grok Bot's weekly allowance (Cursor Pro includes it): read from the same spending page by the reading helper. Scouts
+  # (below) are paced against it and send nothing once it is used: Grok Bot then pauses, or bills on-demand if allowed.
+  grok-bot:
+    window: 7d
+    resets: '2026-01-04T00:00Z'
+    resets_estimated: true
+    usage_url: https://cursor.com/dashboard/spending
+    helper_label: Grok Bot
+    source: cursor.com/dashboard/spending (Grok Bot, weekly)
+    task_pct: 2
 # Each account may set panic_at (default 95): at or over that % before the target time, it is in quota panic.
 
 # `tutti dashboard`: the local web dashboard on 127.0.0.1 (stall_minutes: a running job whose log is quiet that long is stalled)
@@ -230,3 +240,27 @@ projects:
   my-app: {match: 'my-app', containers: [my-app-], repo: octo/my-app}   # repo: its open pull requests (a release), CI and reviews
   tool: {match: '/tool(\.git)?\b', checks: [{run: bash scripts/check.sh}]}   # `tutti run --repo` in this repo runs these checks
   # other-app: {match: other-app, machines: [win-box], windows: {win-box: 'C:\Users\me\Projects\other-app'}}
+
+# Scouts: helpers that are not workers (docs/SCOUTS.md). Grok Bot answers through a webhook routine: Tutti opens an issue,
+# POSTs {task, reply_to} to the routine, and reads the answer the routine posts as a comment. The URL and key live only in
+# the environment variables named here (`tutti scout setup` prints the owner's steps).
+scouts:
+  grok:
+    kind: grok-bot-webhook
+    url_env: TUTTI_GROK_URL
+    key_env: TUTTI_GROK_KEY
+    account: grok-bot                     # its weekly allowance paces the watches and queued questions
+    reply: {github_repo: octo/my-app, issue_label: tutti-scout}
+    skills: [research, web-browse, triage, monitoring, drafting]
+    timeout_minutes: 20                   # `tutti scout ask` waits this long for the answer
+    watches:                              # sent by the dashboard's round when due; each result is an issue to triage
+      dependency-notes:
+        every: 7d
+        task: >-
+          Read the release notes published in the last 7 days of mapbox-gl, Playwright, Firebase (JS SDK and tools), Cursor,
+          Google Antigravity and GitHub Copilot CLI. Summarise every breaking change and deprecation, with links.
+      live-site:
+        every: 1d
+        early: true                       # may go ahead of time when the allowance is behind its pace
+        task: Open https://my-app.example and report console errors, broken pages and failed requests, with steps.
+    review_trial: {repos: [octo/my-app], prs: 5}   # `tutti pr review` also asks the scout for the next 5 pull requests

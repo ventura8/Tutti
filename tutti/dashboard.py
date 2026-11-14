@@ -14,7 +14,23 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-from . import __version__, autopilot, conduct, config, helper, pacing, projects, readers, releases, remote, state, transfer, workers
+from . import (
+    __version__,
+    autopilot,
+    conduct,
+    config,
+    helper,
+    pacing,
+    projects,
+    readers,
+    releases,
+    remote,
+    scouts,
+    state,
+    transfer,
+    trial,
+    workers,
+)
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 BIND = '127.0.0.1'
@@ -47,6 +63,7 @@ class Collector:
         self.lock = threading.Lock()
         self.read_lock = threading.Lock()   # the probe thread and a Refresh readings click never run the readers at once
         self.stop = threading.Event()
+        self.env = os.environ   # the scouts' webhook variables (names only ever leave this process)
 
     def read_usage(self, force=False):
         """The automatic readings: each account's reader (cached per command unless `force`) and limit messages in recent job
@@ -86,11 +103,25 @@ class Collector:
         states = {a['name']: a for a in snap['usage']['accounts']}
         return autopilot.tick(self.cfg, states, snap['machines']['items'])
 
+    def scouts_tick(self):
+        """One scouts round after each probe: answers collected, due watches and queued questions sent within the allowance."""
+        if not self.cfg.get('scouts'):
+            return []
+        states = {a['name']: a for a in self.snapshot()['usage']['accounts']}
+        try:
+            events, error = scouts.tick(self.cfg, states, env=self.env), None
+        except scouts.ScoutError as e:
+            events, error = [], str(e)
+        with self.lock:
+            self.probes = {**self.probes, 'scout_error': error}
+        return events
+
     def loop(self):
         while not self.stop.is_set():
             try:
                 self.refresh()
                 self.autopilot_tick()
+                self.scouts_tick()
             except Exception as e:  # a probe bug must not end the loop; the page shows the last good data and its age
                 state_error = f'probing failed ({type(e).__name__}: {e}); the dashboard keeps the last results'
                 with self.lock:
@@ -112,6 +143,8 @@ class Collector:
         releases.attach(out['projects'], probes.get('prs'))
         out['probe_error'] = probes.get('error')
         out['autopilot'] = autopilot.view(self.cfg)
+        accounts = {a['name']: a for a in out['usage']['accounts']}
+        out['scouts'] = {**scouts.view(self.cfg, accounts, self.env), 'error': probes.get('scout_error'), 'trial': trial.view(self.cfg)}
         return out
 
 

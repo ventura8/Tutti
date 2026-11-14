@@ -125,7 +125,8 @@ its use is higher then; on weekends, on holiday, or while away the agents work a
   busiest `hours` contiguous hours. Days not in `schedule.days` never keep a reserve.
 - **The reserve.** On the main agent's accounts the planner keeps the owner's expected burn for the owner hours left
   before the window's target, weekly windows across the whole week (a reset on a Wednesday keeps Monday's and Tuesday's
-  hours, nothing after). An account with `limits` keeps it out of the weekly limit's budget. The rest is spent by the
+  hours, nothing after). An account with `limits` keeps it out of the weekly limit's budget, and the planner's windows
+  spread the rest (*The planner* above). Without `limits` the rest is spent by the
   workers (Claude-backed autopilot too, when the main account is in `autopilot.accounts`), evenly: at most the rest x 5 h /
   the hours left at a time, so it ends near 100 % about an hour before the reset with no burst that would block the owner.
 - **The mode** (`pacing.mode`, `tutti owner mode <m>`, or the dashboard): `auto` (the profile; once it is learned, away

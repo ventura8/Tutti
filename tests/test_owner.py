@@ -143,6 +143,21 @@ class ProfileTest(unittest.TestCase):
     def test_config_errors_name_the_key(self):
         errs = owner.schedule_errors({'schedule': {'days': ['monday'], 'window': '1-14', 'hours': 30}, 'mode': 'gone'})
         self.assertEqual(len(errs), 4)
+        bad = owner.schedule_errors({'schedule': {}, 'accounts': 'claude', 'away_after_hours': 'x'})
+        self.assertEqual([e.split(' ')[0] for e in bad], ['pacing.accounts', 'pacing.away_after_hours'])
+
+    def test_an_owner_account_under_a_weekly_limit_keeps_the_reserve_out_of_it(self):
+        now = datetime(2026, 11, 16, 0, tzinfo=UTC)
+        own = {'name': 'agy', 'used': 10.0, 'window_start': (now - timedelta(hours=1)).isoformat(),
+               'reset': (now + timedelta(hours=4)).isoformat(), 'target': (now + timedelta(hours=3)).isoformat()}
+        lim = {'name': 'agy-weekly', 'share': 1.0, 'used': 20.0, 'readings': [], 'window_start': (now - timedelta(days=2)).isoformat(),
+               'target': (now + timedelta(days=4)).isoformat()}
+        ctx = owner.context({'accounts': ['agy'], 'schedule': SCHED, 'mode': 'auto', 'away_after_hours': 3}, [], now)
+        with_owner = planner.plan_limited(own, lim, {}, {}, [], ctx, now)
+        alone = planner.plan_limited(own, lim, {}, {}, [])
+        self.assertEqual(with_owner['owner_reserve'], 32.0)   # Mon-Thu 01-09 before Friday's target
+        self.assertLess(with_owner['allowance'], alone['allowance'])
+        self.assertIn('kept for the owner', planner.explain('agy', {**with_owner, 'why': ''}, now))
         self.assertEqual(owner.schedule_errors({'schedule': {}, 'mode': 'vacation-until-2026-12-01'}), [])
 
 

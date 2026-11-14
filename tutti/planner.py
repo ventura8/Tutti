@@ -106,7 +106,7 @@ def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None):
             'windows': len(windows), 'runnable': sum(1 for *_, c in windows if c != 0),
             'per_window': round(room / max(1, len(windows)), 1), 'allowance': round(give, 1), 'this_window': round(spent, 1),
             'left': round(left, 1), 'tasks': tasks, 'lose': round(max(0.0, left_own), 1), 'window_points': per,
-            'owner_reserve': round(kept, 1) if owner else None}
+            'owner_reserve': round(kept, 1) if owner else None, 'mode': owner['mode'] if owner else None}
 
 
 def background_rate(readings, busy):
@@ -160,6 +160,8 @@ def explain(name, p, now):
     if p['limit']:
         head = (f'{name}: spend by {when}; this window: {p["this_window"]:g} of {p["allowance"]:g} weekly points '
                 f'({p["runnable"]} of {p["windows"]} windows left can run)')
+        if p.get('owner_reserve'):
+            head += f'; {p["owner_reserve"]:g} weekly points kept for the owner ({p["mode"]})'
         if p['tasks']:
             return f'{head}; {p["lose"]:g} % would be lost at its end → {p["tasks"]} task(s) now'
         return f'{head} → nothing more this window'

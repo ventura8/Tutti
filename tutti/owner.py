@@ -57,6 +57,11 @@ def schedule_errors(p):
         v = s.get(key, DEFAULT[key])
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
             errs.append(f'pacing.schedule.{key} is {v!r}: a number from {lo} to {hi}')
+    accounts, away = p.get('accounts'), p.get('away_after_hours', 3)
+    if accounts is not None and not (isinstance(accounts, list) and all(isinstance(a, str) for a in accounts)):
+        errs.append(f'pacing.accounts is {accounts!r}: a list of account names, e.g. [claude] (or leave it out: the main agent\'s)')
+    if isinstance(away, bool) or not isinstance(away, (int, float)) or away < 1:
+        errs.append(f'pacing.away_after_hours is {away!r}: a number of hours, 1 or more')
     if not valid_mode(p.get('mode', 'auto')):
         errs.append(f'pacing.mode is {p.get("mode")!r}: auto, active, away or vacation-until-YYYY-MM-DD')
     return errs
@@ -265,8 +270,8 @@ def owner_of(cfg, folder):
     sched = {**DEFAULT, **(p.get('schedule') or {}), **{k: saved[k] for k in ('days', 'window', 'hours') if k in saved}}
     agent = (cfg.get('main') or {}).get('agent')
     accounts = p.get('accounts')
-    if accounts is None:
-        accounts = [n for n, a in cfg['accounts'].items() if n == agent or (a or {}).get('worker') == agent]
+    if accounts is None:   # no main agent: no account is the owner's
+        accounts = [n for n, a in cfg['accounts'].items() if agent and (n == agent or (a or {}).get('worker') == agent)]
     return {'accounts': list(accounts), 'schedule': sched, 'mode': saved.get('mode') or p.get('mode', 'auto'),
             'away_after_hours': p.get('away_after_hours', 3)}
 

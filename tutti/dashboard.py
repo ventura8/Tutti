@@ -909,7 +909,7 @@ def signed_post(rt, collector, headers, path, port, read):
     if not allowed_host(host, port, reach_origins(collector)):
         return 403, {'error': 'open the dashboard at one of its addresses (other host names are refused)'}, None
     path = path.split('?', 1)[0]
-    if path not in POSTS and path not in authweb.AUTH_POSTS:
+    if path not in POSTS and path not in authweb.AUTH_POSTS and path not in SELF_POSTS:
         return 404, {'error': 'this path is not part of the dashboard'}, None
     return authweb.post(rt, headers, path, host, read, lambda csrf, rd: post(collector, headers, path, port, csrf, rd))
 

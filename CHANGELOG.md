@@ -2,6 +2,15 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.65 (2026-11-14)
+
+### Fixed
+
+- With sign-in on, the Users tab's household part and **My main machine** answered "this path is not part of the
+  dashboard": the signed gate knew only the admin POSTs, not the ones that check self-or-admin themselves
+  (`/api/users/manage`, `/api/user/main-machine`). Found checking the owner's own row live; a test now posts them through
+  the signed gate.
+
 ## 0.1.64 (2026-11-14)
 
 ### Added

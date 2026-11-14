@@ -42,6 +42,7 @@ from . import (
     transfer,
     translate,
     trial,
+    update,
     waiting,
     workers,
 )
@@ -98,6 +99,20 @@ def cmd_doctor(cfg, a):
         say(f'problem: {line}')
     print('doctor: ' + (f'{len(problems)} problem(s)' if problems else 'ok'))
     return 1 if problems else 0
+
+
+def cmd_update(cfg, a):
+    if a.machine and a.machine not in cfg['machines']:
+        say(f'"{a.machine}" is not under machines: in {cfg["_path"]}: the machines are {", ".join(cfg["machines"]) or NONE}')
+        return 2
+    try:
+        data = update.run(cfg, check=a.check, only=a.machine)
+    except update.Busy as e:
+        say(str(e))
+        return 1
+    print(update.report(data) or 'nothing to update: no CLI workers, models or update.packages in the config')
+    failed = any(r['error'] or any(x['status'] == 'failed' for x in r['items']) for r in data['machines'].values())
+    return 1 if failed or any(x['status'] == 'failed' for x in data['models']) else 0
 
 
 def cmd_machines(cfg, a):
@@ -984,6 +999,10 @@ def parser():
 
     add('config', cmd_config, 'check the config and print its path')
     add('doctor', cmd_doctor, 'check this machine: a git that cannot do HTTPS comes first in PATH')
+    s = add('update', cmd_update, 'update every worker CLI on every machine without sudo (their own updaters, npm, ollama pulls); '
+                                  'name the exact command for what needs the owner (apt packages such as the Cursor editor)')
+    s.add_argument('--check', action='store_true', help='only read the versions; change nothing')
+    s.add_argument('--machine', help='only this machine')
     s = add('machines', cmd_machines, 'probe every machine: free slots, load, yield flag (add-android: set up a Termux machine)')
     s.add_argument('action', nargs='?', choices=['add-android'], help='print the one-time Termux setup and the config lines')
     s.add_argument('--name', help='add-android: the machine name')

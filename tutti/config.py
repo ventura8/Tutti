@@ -78,6 +78,9 @@ DEFAULTS = {
     'user': {'name': '', 'weight': 1},
     'household': {'port': 4778, 'bind': '0.0.0.0', 'lease_minutes': 30, 'starve_minutes': 20, 'share_spare_hours': 6,
                   'timeout_seconds': 3},
+    # update: `tutti update` and the dashboard's daily round; auto: false turns the round off, packages: apt packages whose
+    # upgrade needs the owner's sudo (named with one exact command), programs: CLIs to update besides the workers' own
+    'update': {'auto': True, 'every_hours': 24, 'packages': [], 'programs': []},
     'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
              'command_timeout': 3600},
 }
@@ -314,7 +317,28 @@ def validate(cfg):
     from . import autocompact, owner, scouts, selfimprove, sentry, users  # they import modules that import this one
     errs += selfimprove.errors(cfg) + sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
-        owner.schedule_errors(cfg['pacing']) + users.errors(cfg)
+        owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update'])
+
+
+PACKAGE_NAME = re.compile(r'^[a-z0-9][a-z0-9+.-]*$')
+PROGRAM_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
+
+
+def _update_errors(u):
+    if not isinstance(u, dict):
+        return [f'update is {u!r}: write it as a mapping, e.g. update: {{auto: true, packages: [cursor]}}, or remove the key']
+    errs = [] if isinstance(u.get('auto'), bool) else [f'update.auto is {u.get("auto")!r}: use true or false']
+    hours = u.get('every_hours')
+    if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not math.isfinite(hours) or hours < 1:
+        errs.append(f'update.every_hours is {hours!r}: use a number of hours, 1 or more (24: once a day)')
+    for key, rule in (('packages', PACKAGE_NAME), ('programs', PROGRAM_NAME)):
+        items = u.get(key)
+        if not isinstance(items, list):
+            errs.append(f'update.{key} is {items!r}: use a list of names, e.g. [cursor]')
+            continue
+        errs += [f'update.{key} names {n!r}: use a plain {key[:-1]} name such as cursor' for n in items
+                 if not isinstance(n, str) or not rule.match(n)]
+    return errs
 
 
 def _autopilot_name_error(cfg, key, n):

@@ -191,6 +191,11 @@ dashboard:
       machine: build-box
   typical_minutes: {agent: 20, agent task: 15, conduct: 30}   # the rough estimate for an agent before any run of it finished
 
+# `tutti update`: worker CLIs updated on every machine without sudo; the dashboard runs it every `every_hours` unless auto: false.
+# packages: apt packages Tutti only reads (installed, newest in their repository, source switched off) and names one sudo command
+# for; programs: CLIs to update besides the workers' (a worker's `update: false` leaves it out, `update: {command: ...}` replaces it)
+update: {auto: true, every_hours: 24, packages: [cursor], programs: [gemini]}
+
 usage:
   log: ~/.local/state/tutti/usage.jsonl
 

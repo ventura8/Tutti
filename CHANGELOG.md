@@ -2,6 +2,20 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.33 (2026-11-14)
+
+### Added
+
+- `tutti update`: updates every worker CLI on every machine without sudo (the program's own updater, or npm for a user-owned
+  install), pulls the ollama workers' models again, and names one exact sudo command for apt packages (`update.packages`:
+  the Cursor editor, Grok Bot) with a newer version or a switched-off apt source. `--check` only reads versions; `--machine`
+  limits it to one machine and merges into the last full round.
+- Use locks (`tutti/inuse.py`): a run of a CLI worker holds its program's lock shared, and the update takes it exclusively,
+  so a program is never replaced while a Tutti run uses it; a running program, a loaded model or a lent-out machine is skipped.
+- The dashboard runs a round every `update.every_hours` (24) unless `update.auto: false` (one round at a time per config; a
+  failed one is retried after an hour), and its Workers card lists the versions per machine, what needs the owner, and
+  **Update now** (`POST /api/update`).
+
 ## 0.1.31 (2026-11-14)
 
 ### Added

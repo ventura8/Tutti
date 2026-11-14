@@ -19,7 +19,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from . import autocompact, compact, config, delegate, local, pacing, readers, remote, routing, workers
+from . import autocompact, compact, config, delegate, inuse, local, pacing, readers, remote, routing, workers
 
 # The commands a main agent is told about, in the order of the instruction file: (subcommand, the line it calls, what for).
 TOOLS = (
@@ -394,8 +394,9 @@ def run_cli(cfg, agent, text, run, watch, out=None, extra=()):
     log = os.path.join(run['dir'], f'{agent}-{len(run["agents"])}.agent.log')
     argv = allow_tutti(workers.with_args(cli_argv(cfg, agent, text, log), extra))
     kept = []
-    with subprocess.Popen(argv, cwd=run['cwd'], env=agent_env(cfg, run, agent), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, text=True, errors='replace', bufsize=1, start_new_session=True) as p:
+    with inuse.using(config.state_dir(cfg), argv[0]), \
+            subprocess.Popen(argv, cwd=run['cwd'], env=agent_env(cfg, run, agent), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, errors='replace', bufsize=1, start_new_session=True) as p:
         threading.Thread(target=watch.loop, args=(lambda: stop_process(p),), daemon=True).start()
         for line in p.stdout:
             out.write(line)

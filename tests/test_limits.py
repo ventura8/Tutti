@@ -55,6 +55,19 @@ class Allowance(unittest.TestCase):
         spent = state([('2026-01-05T23:00Z', 80), ('2026-01-06T02:00Z', 84)])['quota_plan']['why']
         self.assertIn('→ nothing more this window', spent)
 
+    def test_the_plan_comes_as_label_value_rows_without_the_account_name(self):
+        p = state([('2026-01-05T23:00Z', 80), ('2026-01-06T02:00Z', 81)])['quota_plan']
+        got = {r['label']: r.get('value') or r.get('at') for r in p['rows']}
+        self.assertEqual(got['This window'], '1 of 2 weekly points')
+        self.assertEqual(got['Spend by'], p['expires'])                    # a time stays ISO: the page shows it in local time
+        self.assertEqual((got['Decision'], got['Why']), ('5 task(s) now', '10 % would be lost at its end'))
+        self.assertFalse(any('agy' in str(r.get('value', '')) for r in p['rows']))
+        single = planner.rows({'limit': None, 'left': 86, 'expires': '2026-12-09T21:00:00+00:00', 'resets': '2026-12-09T22:00:00+00:00',
+                               'tasks': 0})
+        self.assertEqual([(r['label'], r.get('value') or r.get('at')) for r in single],
+                         [('Points left', '86'), ('Spend by', '2026-12-09T21:00:00+00:00'), ('Resets', '2026-12-09T22:00:00+00:00'),
+                          ('Decision', 'no extra tasks'), ('Why', 'not behind its pace')])
+
     def test_the_allowance_grows_as_the_week_runs_out_of_windows(self):
         early = state([('2026-01-01T02:00Z', 0)], now=T('2026-01-01T06:00Z'), five_used=0)
         late = state([('2026-01-07T19:00Z', 90)], now=T('2026-01-07T21:00Z'), five_used=0)

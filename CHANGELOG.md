@@ -19,6 +19,9 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
   time the comment names, else an hour). It says which reviewer was skipped and until when; after the reset it is asked
   again by itself.
 
+- The planner on every account card is label/value rows (Points left, Spend by, Resets, Decision, Why; `quota_plan.rows`)
+  instead of one run-on sentence, without the account's name; times in the viewer's own time, UTC in the tooltip.
+
 ### Fixed
 
 - Self-improvement insight tasks also wait as `candidate` when `self_improve.auto_accept` is off (cursor's review).

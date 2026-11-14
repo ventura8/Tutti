@@ -32,6 +32,15 @@ function tuttiAttention(s) {
     return items.sort((a, b) => TUTTI_ATTENTION_ORDER.indexOf(a.kind) - TUTTI_ATTENTION_ORDER.indexOf(b.kind));
 }
 
+// The planner's rows on an account card: [{label, text, title}]. A time is shown in the viewer's own time zone (`fmt`, the
+// page's formatter) with UTC in its tooltip; a row without a value is left out.
+function tuttiPlanRows(plan, fmt) {
+    const utc = (iso) => `${new Date(iso).toUTCString().replace(/:\d\d GMT$/, '').replace(/^(\w+),/, '$1')} UTC`;
+    return ((plan && plan.rows) || []).filter((r) => r.value || r.at).map((r) => (r.at
+        ? { label: r.label, text: fmt(r.at), title: utc(r.at) }
+        : { label: r.label, text: String(r.value), title: '' }));
+}
+
 // A long list shows `limit` items and a "Show N more" button; opened, all of them and "Show fewer".
 function tuttiMore(count, limit, expanded) {
     if (count <= limit) return { shown: count, hidden: 0, button: '' };

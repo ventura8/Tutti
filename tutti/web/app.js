@@ -275,6 +275,13 @@ function accountFacts(a) {
     ]);
 }
 
+// The planner's plan as label/value rows (attention.js builds them), times in the viewer's time with UTC as the tooltip.
+function planFacts(plan) {
+    const rows = tuttiPlanRows(plan, (iso) => fmtTime.format(new Date(iso)));
+    return el('dl', { class: 'account__facts account__plan', 'aria-label': 'Planner' },
+        ...rows.flatMap((r) => [el('dt', { text: r.label }), el('dd', { text: r.text, ...(r.title ? { title: r.title } : {}) })]));
+}
+
 // The details of an account fold away so the cards stay compact in one row; an open one stays open across polls.
 function factsToggle(a) {
     const d = el('details', { class: 'account__more', open: ui.expanded.has(`facts:${a.name}`) }, el('summary', { text: 'Details' }), accountFacts(a));
@@ -346,7 +353,8 @@ function account(a, now) {
     }
     if (a.reset) card.append(sparkline(a, now));
     card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
-    if (a.quota_plan?.why) card.append(el('p', { class: 'account__plan', text: `Planner: ${a.quota_plan.why}` }));
+    if (a.quota_plan?.rows?.length) card.append(planFacts(a.quota_plan));
+    else if (a.quota_plan?.why) card.append(el('p', { class: 'account__plan', text: `Planner: ${a.quota_plan.why}` }));
     if (a.projected_end !== undefined && a.projected_end !== null) {
         card.append(el('p', { class: 'account__auto', 'data-tone': a.projected_end < 90 ? 'warn' : 'ok',
             text: `On track to finish at ${a.projected_end} % by its reset (the last day's rate carried on)` }));

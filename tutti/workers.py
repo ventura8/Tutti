@@ -10,7 +10,7 @@ import subprocess
 import sys
 import urllib.request
 
-from . import config
+from . import config, inuse
 
 STANDING = ['Work only inside the current directory.', 'Do not commit, push or deploy: leave your edits uncommitted for review.',
             'Do not read or print secrets (.env files, tokens, keys).']
@@ -128,8 +128,10 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
     env = {**os.environ, **autocompact.env_for(cfg, worker)}
     watch = autocompact.Watch(cfg, worker)
     stopped = False
-    with subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          text=True, errors='replace', bufsize=1, env=env) as p:
+    # the use lock: `tutti update` never replaces the program while this run uses it (tutti/inuse.py)
+    with inuse.using(config.state_dir(cfg), argv[0]), \
+            subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, errors='replace', bufsize=1, env=env) as p:
         for line in p.stdout:
             out.write(line)
             out.flush()

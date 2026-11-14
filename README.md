@@ -99,6 +99,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | `tutti code <worker> <file> "<instruction>"` | A local model rewrites one file; you review `git diff`. |
 | `tutti agent <worker> "<task>" "<check>" files...` | A local model edits, runs the check, reads the failure, retries. |
 | `tutti yield on\|off\|status --machine <m>` | Raises or lowers a machine's yield flag (`--unload` asks for models to be unloaded). |
+| `tutti update` | Updates every worker CLI on every machine without sudo (`cursor-agent update`, `agy update`, `copilot update`, `claude update`, npm for user installs, ollama pulls), never while a Tutti run uses the program, and prints the one exact sudo command for apt packages (`update.packages`, e.g. the Cursor editor) or root-owned npm installs. `--check` only reads versions. The dashboard runs it daily (`update.auto: false` turns that off). |
 | `tutti machines [add-android]` | Probes every machine (a Termux phone also shows battery, charging, heat and Wi-Fi). `add-android` prints the one-time Termux setup and the config lines; lint and unit runs on a phone are opt-in. |
 | `tutti doctor` | Checks this machine; today: a git whose HTTPS helper cannot load its libraries (a broken git first in PATH), with the fix. |
 | `tutti quiet [--summary <worker>] <cmd>` | Runs a command, keeps the log, prints only the exit code and, on failure, a five-line summary. |

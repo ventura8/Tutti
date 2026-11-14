@@ -552,6 +552,53 @@ function renderWorkers(s) {
     if (off) off.replaceChildren(...(w.off || []).map((t) => el('li', { class: 'row__note', text: `Off: ${t}` })));
 }
 
+// ---- versions (tutti update)
+
+const UPDATE_TONE = { updated: 'ok', current: 'ok', checked: 'ok', package: 'ok', busy: 'warn', owner: 'warn', manual: 'warn', 'package-old': 'warn', failed: 'bad' };
+const UPDATE_TEXT = { updated: 'updated', current: 'up to date', checked: 'installed', busy: 'skipped: running', owner: 'needs the owner',
+    manual: 'no updater', failed: 'failed', package: 'newest', 'package-old': 'update waiting' };
+
+function versionRow(x) {
+    const ver = x.after && x.after !== x.before ? `${x.before || '?'} → ${x.after}` : (x.before || '');
+    const note = ['failed', 'busy', 'manual'].includes(x.status) ? x.detail : '';
+    return el('li', { class: 'row' }, el('div', { class: 'row__name' }, x.name, el('span', { class: 'row__kind', text: ver })),
+        chip(UPDATE_TEXT[x.status] || x.status, UPDATE_TONE[x.status]), note ? el('p', { class: 'row__note', text: note }) : null);
+}
+
+function versionMachine(m) {
+    const rows = m.items.filter((x) => x.status !== 'missing');
+    return el('li', {}, el('h4', { class: 'card__sub', text: m.name }),
+        m.error ? el('p', { class: 'row__note', text: m.error }) : el('ul', { class: 'list' }, ...rows.map(versionRow)));
+}
+
+function ownerStep(o) {
+    return el('li', { class: 'row' }, el('div', { class: 'row__name' }, `Needs you on ${o.machine}`, el('span', { class: 'row__kind', text: o.why })),
+        chip('run in a terminal', 'warn'), el('p', { class: 'row__note' }, el('code', { text: o.command })));
+}
+
+function renderVersions(s) {
+    const u = s.updates;
+    if (!u) return;
+    const when = u.at ? `Last round ${relative(new Date(u.at * 1000).toISOString())}` : 'No round yet';
+    const auto = u.auto ? `every ${u.every_hours} h automatically` : 'automatic round off (update.auto: false)';
+    $('versions-meta').textContent = [u.running ? 'Updating now…' : when, auto, u.error].filter(Boolean).join(' · ');
+    $('update-now').disabled = Boolean(u.running);
+    $('owner-steps').replaceChildren(...u.owner.map(ownerStep));
+    const models = u.models.length ? [el('li', {}, el('h4', { class: 'card__sub', text: 'local models' }), el('ul', { class: 'list' }, ...u.models.map(versionRow)))] : [];
+    $('versions').replaceChildren(...u.machines.map(versionMachine), ...models);
+}
+
+async function updateNow() {
+    try {
+        const res = await fetch('/api/update', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: '{}' });
+        const answer = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(answer.error || `the dashboard answered ${res.status}`);
+        await refresh();
+    } catch (err) {
+        showBanner(el('strong', { text: 'The update did not start. ' }), err.message);
+    }
+}
+
 // ---- projects
 
 function machineLine(m) {
@@ -1009,6 +1056,7 @@ function render() {
     renderScouts(s);
     renderMain(s);
     renderWorkers(s);
+    renderVersions(s);
     renderProjects(s);
     renderTelemetry(s);   // telemetry.js: Insights, the Self-improvement lane, the sending switch
     if (s.probe_error) showBanner(s.probe_error);
@@ -1256,6 +1304,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('refresh-readings').addEventListener('click', refreshReadings);
     $('main-form').addEventListener('submit', switchMain);
     $('autopilot-toggle').addEventListener('click', toggleAutopilot);
+    $('update-now').addEventListener('click', updateNow);
     $('job-project').addEventListener('change', (e) => { ui.project = e.target.value; render(); });
     document.addEventListener('keydown', keys);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });

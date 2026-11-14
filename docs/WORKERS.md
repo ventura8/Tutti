@@ -127,6 +127,23 @@ A worker's output is a proposal, whoever wrote it.
 3. **Gate.** `tutti test <track> '<the checks>'`. The same gates as for any other change; no exemptions for speed.
 4. **Ship.** `tutti ship "<message>"` from that worktree.
 
+## Keeping the workers up to date
+
+`tutti update` runs one script on every machine: for each program a CLI worker uses (and `update.programs`) it reads the
+version, runs the program's own updater (`cursor-agent update`, `agy update`, `copilot update`, `claude update`) or, for a CLI
+npm installed under a folder the user owns, `npm install -g --prefix <that folder> <package>@latest`, then reads the version
+again. A program that is running is skipped, and so is one a Tutti run holds: every run of a CLI worker holds the program's use lock
+(`<state>/locks/use-<program>.lock`) shared, and the update takes it with `flock -n -x`, so a job never loses its binary
+mid-run and a run that starts during an update waits for it. A model that is loaded in its server, or whose machine is lent
+out (yield flag), is not pulled. In WSL, a Windows copy on PATH (under `/mnt/<drive>/`, such as an npm shim that
+needs Windows' node) counts as not installed on that machine. Only one round runs at a time per config; a round of one machine (`--machine`) is merged into
+the last full one, and a round that fails as a whole is tried again after an hour. Nothing uses
+sudo: apt packages (`update.packages`, e.g. `cursor` for the editor, `grok-bot`) are only read (installed version, newest in
+the package's own apt repository, a source switched off with `Enabled: no`), and the owner gets one exact command per machine.
+Ollama workers' models are pulled again through their server (only changed layers download). A worker's `update: false`
+leaves it out; `update: {command: ..., version: ...}` replaces how it is updated (a pipx or pip install, say). The dashboard
+runs a round every `update.every_hours` (24) unless `update.auto: false`, and shows the versions per machine.
+
 ## Local models
 
 `kind: ollama` workers need `host` (`name:port`, plain HTTP; write `https://name:port` for a TLS proxy) and `model`; optional `threads`, `num_ctx`, `machine` (to honour that machine's

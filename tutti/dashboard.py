@@ -38,6 +38,7 @@ from . import (
     telemetry,
     transfer,
     trial,
+    update,
     workers,
 )
 
@@ -74,6 +75,7 @@ class Collector:
         self.read_lock = threading.Lock()   # the probe thread and a Refresh readings click never run the readers at once
         self.stop = threading.Event()
         self.env = os.environ   # the scouts' webhook variables (names only ever leave this process)
+        self.updating = threading.Lock()   # one update round at a time in this dashboard (the daily one or a click)
 
     def read_usage(self, force=False):
         """The automatic readings: each account's reader (cached per command unless `force`) and limit messages in recent job
@@ -116,6 +118,25 @@ class Collector:
         beat = sharing.beat(self.cfg, datetime.fromtimestamp(self.clock(), timezone.utc))
         return autopilot.tick(self.cfg, states, snap['machines']['items'], beat=beat)
 
+    def update_round(self, force=False):
+        """`tutti update` in the background: the daily round (update.auto, update.every_hours) or a click on Update now.
+        Returns False when a round is already running here or none is due."""
+        if not (force or update.due(self.cfg, self.clock(), update.load(self.cfg))) or not self.updating.acquire(blocking=False):
+            return False
+
+        def go():
+            try:
+                update.run(self.cfg, clock=self.clock, when_due=not force)
+            except update.Busy:   # `tutti update` or another dashboard is running a round for this config
+                pass
+            except Exception as e:  # a failed round must not end the dashboard; it is tried again in an hour
+                why = f'the update round failed ({type(e).__name__}: {e}): run tutti update to see why'
+                update.record_failure(self.cfg, self.clock(), why)
+            finally:
+                self.updating.release()
+        threading.Thread(target=go, name='tutti-update', daemon=True).start()
+        return True
+
     def scouts_tick(self):
         """One scouts round after each probe: answers collected, due watches and queued questions sent within the allowance."""
         if not self.cfg.get('scouts'):
@@ -133,6 +154,7 @@ class Collector:
         while not self.stop.is_set():
             try:
                 self.refresh()
+                self.update_round()
                 self.autopilot_tick()
                 self.scouts_tick()
                 dashtelemetry.tick(self.cfg)
@@ -166,6 +188,8 @@ class Collector:
                                           'why': 'free room on the trigger accounts is filled from the repos\' sources by itself'})
         out['controls']['autocompact'] = autocompact.view(self.cfg)
         autocompact.tag_jobs(self.cfg, out['jobs']['items'])
+        last = update.load(self.cfg)
+        out['updates'] = {**update.view(self.cfg, last), 'running': self.updating.locked(), 'error': (last or {}).get('error')}
         return out
 
     def reload(self):
@@ -346,7 +370,7 @@ def save_autocompact(collector, raw):
 
 
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
-         '/api/owner', '/api/autocompact')
+         '/api/owner', '/api/autocompact', '/api/update')
 
 
 def post(collector, headers, path, port, token, read):
@@ -358,8 +382,8 @@ def post(collector, headers, path, port, token, read):
     if path not in POSTS:
         return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, {"agent": ...} to /api/main, '
                           '{"enabled": ...} to /api/autopilot or /api/self-improve, {"action": ...} to /api/control, '
-                          '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, or '
-                          '{"consent"|"error"|"use": ...} to /api/telemetry'}
+                          '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, '
+                          '{"consent"|"error"|"use": ...} to /api/telemetry, or {} to /api/update'}
     refused = check_post(headers, host, token)
     if refused:
         return refused[0], {'error': refused[1]}
@@ -370,6 +394,12 @@ def post(collector, headers, path, port, token, read):
     if not 0 < size <= MAX_BODY:
         return 413, {'error': f'a reading is a small JSON object (at most {MAX_BODY} bytes)'}
     return dispatch(collector, path, read(size))
+
+
+def start_update(collector, _body):
+    if collector.update_round(force=True):
+        return 202, {'ok': True, 'started': True}
+    return 409, {'error': 'an update round is already running: wait for it, the Versions list shows when it is done'}
 
 
 def refresh_now(collector, _body):
@@ -390,6 +420,7 @@ HANDLERS = {
     '/api/reading': lambda c, b: save_reading(c.cfg, b),
     '/api/telemetry': dashtelemetry.save,
     '/api/self-improve': dashtelemetry.save_self_improve,
+    '/api/update': start_update,
 }
 
 

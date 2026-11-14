@@ -73,7 +73,7 @@ Lessons that drove it: LESSONS.md (Gemini CLI free tier closed → agy; agy head
 
 **Steady burn.** Target an even ~14 % of the Claude week per day after each reset (100 % / 7), corrected in real time; recompute the line when the user changes the main agent (each agent has its own quota and burn).
 
-**Web app (PWA, no native apps for now)**, Material Design, following the OS light/dark theme and accent colour:
+**Web app (PWA, no native apps for now)**, Material Design, following the OS light/dark theme and accent colour. *First step shipped in 0.1.4:* `tutti dashboard` (usage and pacing, machines, workers, jobs; docs/DASHBOARD.md). Still to come:
 - Left menu panel: main window, projects, dashboards, tasks, agents, devices, live plan, terminal, settings (and anything else needed, above projects).
 - Main window: a vibe-coding workspace for 2026 — tasks, a chat with the main agent, the live context.
 - Dashboards with everything: usage and limits per account/window, pace line, task history (what, who, effort, result, tokens), running tasks and their worker, devices and their load.

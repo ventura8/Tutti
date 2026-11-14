@@ -1,5 +1,6 @@
 """Waits that end. Never wait with `pgrep -f <pattern>` from a shell whose own command line holds the pattern: it matches itself
 and never ends. Wait on a PID, a done-file or a log line, always with a timeout."""
+import json
 import os
 import re
 import time
@@ -82,3 +83,20 @@ def stalled(path, seconds, clock=time.time):
         except OSError:
             return False
     return check
+
+
+def register(folder, info, pid=None):
+    """Records a running wait as <folder>/<pid>.json so the dashboard can show it and whether what it watches has stalled.
+    Returns the record's path; remove it with `unregister` when the wait ends."""
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f'{pid or os.getpid()}.json')
+    with open(path, 'w', encoding='utf8') as f:
+        json.dump({**info, 'started': time.time()}, f)
+    return path
+
+
+def unregister(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass

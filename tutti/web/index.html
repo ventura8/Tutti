@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#F7F7FB" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#111318" media="(prefers-color-scheme: dark)">
+    <meta name="description" content="Usage and pacing, machines, workers and jobs of your Tutti setup, on this computer.">
+    <title>Tutti</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <link rel="stylesheet" href="app.css">
+    <script src="app.js" defer></script>
+</head>
+<body>
+    <a class="skip" href="#main">Skip to the dashboard</a>
+    <header class="appbar">
+        <img class="appbar__logo" src="icons/icon.svg" alt="" width="40" height="40">
+        <div class="appbar__title">
+            <h1>Tutti</h1>
+            <p class="appbar__sub" id="config-path">Connecting to the local service…</p>
+        </div>
+        <div class="appbar__actions">
+            <output class="live" id="live" aria-live="polite"><span class="live__dot" aria-hidden="true"></span><span id="live-text">Loading</span></output>
+            <button class="btn btn--tonal" id="refresh" type="button" title="Refresh now (R)">Refresh</button>
+            <button class="btn btn--filled" id="install" type="button" hidden>Install app</button>
+        </div>
+    </header>
+
+    <div class="banner" id="banner" role="alert" hidden></div>
+
+    <main id="main" tabindex="-1">
+        <section class="tiles" aria-label="At a glance" id="tiles"></section>
+
+        <div class="grid">
+            <section class="card card--usage" aria-labelledby="usage-h">
+                <header class="card__head">
+                    <h2 id="usage-h">Usage &amp; pacing</h2>
+                    <p class="card__meta" id="usage-meta"></p>
+                </header>
+                <div id="usage" class="accounts"></div>
+            </section>
+
+            <section class="card" aria-labelledby="machines-h">
+                <header class="card__head">
+                    <h2 id="machines-h">Machines</h2>
+                    <p class="card__meta" id="machines-meta"></p>
+                </header>
+                <ul id="machines" class="list"></ul>
+            </section>
+
+            <section class="card" aria-labelledby="workers-h">
+                <header class="card__head">
+                    <h2 id="workers-h">Workers</h2>
+                    <p class="card__meta" id="workers-meta"></p>
+                </header>
+                <ul id="workers" class="list"></ul>
+                <h3 class="card__sub">Agents on this computer</h3>
+                <ul id="agents" class="chips"></ul>
+            </section>
+
+            <section class="card card--jobs" aria-labelledby="jobs-h">
+                <header class="card__head">
+                    <h2 id="jobs-h">Jobs</h2>
+                    <fieldset class="segmented" id="job-filter"><legend class="sr-only">Show jobs</legend><div class="segmented__buttons" id="job-filter-buttons"></div></fieldset>
+                </header>
+                <div id="jobs" class="jobs"></div>
+            </section>
+        </div>
+    </main>
+
+    <footer class="foot">
+        <p id="foot-version">Tutti</p>
+        <p id="foot-accent"></p>
+        <p>Served on this computer only (127.0.0.1). Keys: <kbd>R</kbd> refresh, <kbd>1</kbd>–<kbd>5</kbd> job filter.</p>
+    </footer>
+</body>
+</html>

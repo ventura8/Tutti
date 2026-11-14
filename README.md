@@ -6,7 +6,7 @@ rules that keep them from stepping on each other.
 Tutti is a small toolkit for AI-assisted work on a software project when you have more than one model subscription and
 more than one computer. It grew out of one project's working day and keeps only what proved useful.
 
-> **Status: v0.1.3.** Linux only. The npm package `tutti-agents` is marked `private` until the first
+> **Status: v0.1.4.** Linux only. The npm package `tutti-agents` is marked `private` until the first
 > publish. **Licence:** MIT (see `LICENSE`).
 
 ## The ideas
@@ -82,6 +82,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | `tutti guard` | Pauses test containers when memory runs low; resumes them later. |
 | `tutti tunnel start\|stop\|status <worker>` | The self-healing ssh tunnel to a worker's model server. |
 | `tutti wait pid\|file\|grep <target> [regex]` | Waits that end: always with `--timeout`. |
+| `tutti dashboard [--port 4777]` | A local web dashboard on `127.0.0.1` (installable as an app): usage and pacing with the panic threshold, machines and their slots, workers and the agents installed here, running, stalled and recent jobs with the end of their logs. `--once` prints the same state as JSON. See [docs/DASHBOARD.md](docs/DASHBOARD.md). |
 | `tutti translate <source.json> <locale>` | Translation with mandatory QA; `--check <out.json>` is the import gate. |
 
 ## Documents
@@ -90,6 +91,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 - [docs/WORKERS.md](docs/WORKERS.md): briefing Cursor, Antigravity and local models; review the diff, then gate.
 - [docs/USAGE-PACING.md](docs/USAGE-PACING.md): the pacing rule and its arithmetic.
 - [docs/MACHINES.md](docs/MACHINES.md): slots, routing, heat and memory guards, the yield flag, peers.
+- [docs/DASHBOARD.md](docs/DASHBOARD.md): the local dashboard, its data sources and `/api/state`.
 - [docs/LESSONS.md](docs/LESSONS.md): what went wrong, and the rule each failure left behind.
 - [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/FEEDBACK.md](docs/FEEDBACK.md): what is next; where first users log problems.
 - [MIGRATION.md](MIGRATION.md): moving a folder of hand-rolled scripts over to Tutti.

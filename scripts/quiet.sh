@@ -6,8 +6,10 @@
 dir="${QUIET_DIR:-${TMPDIR:-/tmp}/tutti-quiet}"
 mkdir -p "$dir"
 log="$dir/$(date +%s)-$$.log"
+printf '%s\n' "$*" > "$log.cmd"   # what ran, for `tutti dashboard`
 "$@" > "$log" 2>&1
 rc=$?
+echo "$rc" > "$log.rc"   # the result beside the log: `tutti dashboard` shows done or failed
 echo "rc=$rc log=$log"
 if [ "$rc" -ne 0 ]; then
 	if [ ! -s "$log" ]; then

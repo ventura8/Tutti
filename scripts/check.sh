@@ -12,4 +12,5 @@ $t usage --at 2026-01-08T00:00Z > /dev/null
 $t run cursor "smoke" --show > /dev/null
 $t wait file "$0" --timeout 1
 $t ship "chore: smoke" --dry-run --allow-protected > /dev/null
+$t dashboard --once --no-probe > /dev/null
 echo "check: all passed"

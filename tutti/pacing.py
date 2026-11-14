@@ -88,8 +88,53 @@ def latest(entries, account, since=None):
     return best
 
 
+NO_READING = 'no reading'
+PANIC_AT = 95  # percent of the whole quota: at or over it before the target time, the account is in panic mode
+
+
 def _fmt(dt):
     return dt.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M')
+
+
+def panic(used, now, target, threshold=PANIC_AT):
+    """Quota panic: the account is at or over `threshold` % while the target time is still ahead. Nothing new goes to it;
+    bounded work moves to accounts with room and to local models until the reset."""
+    return used >= threshold and now < target
+
+
+def readings(entries, account, since):
+    """The account's readings in the current window, oldest first: [{at, used}]."""
+    out = [(parse_time(e['at']), float(e['used'])) for e in entries if e['account'] == account and parse_time(e['at']) >= since]
+    return [{'at': at.isoformat(), 'used': used} for at, used in sorted(out)]
+
+
+def account_state(name, a, entries, now):
+    """Everything known about one account now, as plain data: the window, the latest reading, the pace and panic.
+    `state` is `ok`, `no reset` (the reset time or window is not in the config) or `no reading` (none in this window)."""
+    a = a or {}
+    src = a.get('source', 'its dashboard')
+    out = {'name': name, 'source': src, 'window': a.get('window'), 'share': a.get('share', 1.0),
+           'lead_hours': a.get('lead_hours', 1), 'panic_at': a.get('panic_at', PANIC_AT), 'used': None, 'expected': None,
+           'verdict': 'unknown', 'panic': False, 'reset': None, 'target': None, 'window_start': None, 'reading_at': None, 'readings': []}
+    if not a.get('resets') or not a.get('window'):
+        return {**out, 'state': 'no reset', 'action': f'read the reset time at {src} and set accounts.{name}.resets and .window'}
+    start, reset = window_at(parse_time(a['resets']), a['window'], now)
+    target = reset - timedelta(hours=out['lead_hours'])
+    out.update(reset=reset.isoformat(), target=target.isoformat(), window_start=start.isoformat(),
+               readings=readings(entries, name, start))
+    e = latest(entries, name, start)
+    if not e:
+        return {**out, 'state': NO_READING, 'verdict': NO_READING,
+                'action': f'read it at {src}, then: tutti usage log {name} <percent>'}
+    used = float(e['used'])
+    p = pace(now, start, reset, used, out['lead_hours'])
+    is_panic = panic(used, now, target, out['panic_at'])
+    action = p['action']
+    if is_panic and p['verdict'] != 'spent':
+        action = (f'panic: {used:g} % used before the target time: nothing new on {name}; '
+                  'move bounded work to other accounts and local models')
+    return {**out, 'state': 'ok', 'used': used, 'expected': round(p['expected'], 1), 'verdict': p['verdict'], 'action': action,
+            'panic': is_panic, 'reading_at': parse_time(e['at']).isoformat()}
 
 
 def report(accounts, entries, now):
@@ -98,23 +143,15 @@ def report(accounts, entries, now):
     # A reading is the whole account's use, whoever spent it, so the pace is judged against the whole quota; an account shared
     # with a peer session shows this session's part beside the verdict.
     for name, a in accounts.items():
-        a = a or {}
-        src = a.get('source', 'its dashboard')
-        if not a.get('resets') or not a.get('window'):
-            rows.append((name, '?', '?', '?', '?', 'unknown', f'read the reset time at {src} and set accounts.{name}.resets and .window'))
+        s = account_state(name, a, entries, now)
+        if s['state'] == 'no reset':
+            rows.append((name, '?', '?', '?', '?', 'unknown', s['action']))
             continue
-        start, reset = window_at(parse_time(a['resets']), a['window'], now)
-        lead = a.get('lead_hours', 1)
-        e = latest(entries, name, start)
-        if not e:
-            target = reset - timedelta(hours=lead)
-            rows.append((name, '?', '?', _fmt(reset), _fmt(target), 'no reading',
-                         f'read it at {src}, then: tutti usage log {name} <percent>'))
+        reset, target = _fmt(parse_time(s['reset'])), _fmt(parse_time(s['target']))
+        if s['state'] == NO_READING:
+            rows.append((name, '?', '?', reset, target, NO_READING, s['action']))
             continue
-        p = pace(now, start, reset, float(e['used']), lead)
-        share = a.get('share', 1.0)
-        mine = '' if share >= 1 else f' (shared: this session\'s part is {100 * share:g} % of the quota)'
-        rows.append((name, f'{float(e["used"]):g} %', f'{p["expected"]:.0f} %', _fmt(reset), _fmt(p['target']), p['verdict'],
-                     p['action'] + mine))
+        mine = '' if s['share'] >= 1 else f' (shared: this session\'s part is {100 * s["share"]:g} % of the quota)'
+        rows.append((name, f'{s["used"]:g} %', f'{s["expected"]:.0f} %', reset, target, s['verdict'], s['action'] + mine))
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
     return '\n'.join('  '.join(c.ljust(w) for c, w in zip(r, widths, strict=True)).rstrip() for r in rows)

@@ -69,6 +69,10 @@ accounts:
   claude: {window: 7d, resets: '2026-01-03T02:00Z', lead_hours: 1, share: 1.0, source: the usage page}
   cursor: {window: monthly, resets: '2026-01-10T00:00Z', lead_hours: 1, source: the dashboard's Usage tab}
   agy: {source: the account page}     # reset unknown yet: `tutti usage` says where to read it
+# Each account may set panic_at (default 95): at or over that % before the target time, it is in quota panic.
+
+# `tutti dashboard`: the local web dashboard on 127.0.0.1 (stall_minutes: a running job whose log is quiet that long is stalled)
+dashboard: {port: 4777, refresh_seconds: 10, probe_seconds: 30, stall_minutes: 10}
 
 usage:
   log: ~/.local/state/tutti/usage.jsonl

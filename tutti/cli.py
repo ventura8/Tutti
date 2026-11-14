@@ -1,12 +1,13 @@
 """The `tutti` command. Every subcommand reads tutti.config.yaml; nothing personal is built in."""
 import argparse
+import json
 import os
 import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
 
-from . import __version__, config, local, pacing, remote, routing, ship, translate, waiting, workers
+from . import __version__, config, dashboard, local, pacing, remote, routing, ship, translate, waiting, workers
 
 SCRIPTS = os.path.join(remote.ROOT, 'scripts')
 SUMMARY = 'In at most 5 short lines: which check failed, the file:line and the exact error. No advice.'
@@ -178,13 +179,22 @@ def cmd_wait(cfg, a):
     done = checks[a.kind]()
     stall = waiting.stalled(a.stall_file or a.target, a.stall) if a.stall else (lambda: False)
     seen = []
+    # Absolute paths: the dashboard reads the record from its own working directory.
+    target = a.target if a.kind == 'pid' else os.path.abspath(a.target)
+    watch = os.path.abspath(a.stall_file) if a.stall_file else target
+    record = waiting.register(os.path.join(config.state_dir(cfg), 'waits'), {
+        'kind': a.kind, 'target': target, 'pattern': a.pattern or '', 'watch': watch, 'timeout': a.timeout, 'stall': a.stall})
 
     def check():
         if done():
             seen.append(True)
             return True
         return stall()
-    if waiting.until(check, a.timeout, a.poll):
+    try:
+        ended = waiting.until(check, a.timeout, a.poll)
+    finally:
+        waiting.unregister(record)
+    if ended:
         if seen:
             return 0
         say(f'wait {a.kind} {a.target}: {a.stall_file or a.target} has not changed for {a.stall:g} s; the job looks stalled: '
@@ -207,6 +217,31 @@ def cmd_translate(cfg, a):
         return 2
     passed, held = translate.run(cfg, a.source, a.locale, a.out)
     print(f'{a.locale}: {passed} passed QA, {held} held for a human ({os.path.join(a.out, "held-" + a.locale + ".jsonl")})')
+    return 0
+
+
+def cmd_dashboard(cfg, a):
+    collector = dashboard.Collector(cfg)
+    if a.once:
+        if not a.no_probe:
+            collector.refresh()
+        print(json.dumps(collector.snapshot(), indent=2))
+        return 0
+    port = cfg['dashboard']['port'] if a.port is None else a.port
+    try:
+        httpd = dashboard.server(cfg, port, collector)
+    except OSError as e:
+        say(f'cannot listen on {dashboard.BIND}:{port} ({e.strerror}): another dashboard may be running there; open it, '
+            'or pass --port <n> (or set dashboard.port)')
+        return 1
+    if not a.no_probe:
+        collector.start()
+    say(f'dashboard: http://{dashboard.BIND}:{httpd.server_address[1]}/ (this computer only; Ctrl+C stops it)')
+    try:
+        httpd.serve_forever()
+    finally:
+        collector.stop.set()
+        httpd.server_close()
     return 0
 
 
@@ -293,6 +328,10 @@ def parser():
     s.add_argument('locale', nargs='?')
     s.add_argument('--out', default='i18n-out')
     s.add_argument('--check', action='store_true')
+    s = add('dashboard', cmd_dashboard, 'a local web dashboard (installable app): usage and pacing, machines, workers and jobs')
+    s.add_argument('--port', type=int, help='the port on 127.0.0.1 (default: dashboard.port, 4777)')
+    s.add_argument('--once', action='store_true', help='print the state as JSON (what /api/state answers) and stop')
+    s.add_argument('--no-probe', action='store_true', help='do not probe machines and workers (ssh, model servers)')
     return p
 
 

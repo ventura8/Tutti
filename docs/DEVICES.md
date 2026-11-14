@@ -105,5 +105,7 @@ command, checks battery and heat first and queues a second run:
 
 - CLI: `tutti test --device <name|any> -- <command>` (for example `tutti test --device pixel9pro -- ./gradlew
   connectedAndroidTest`); `ANDROID_SERIAL` is set for the command. `tutti devices` shows which run holds a device.
+- A session that uses a device outside a Tutti run: `tutti devices claim <name> --who <session>` before, `tutti devices
+  release <name> --who <session>` after; the device is released (its own settings back) when the last user is done.
 - MCP (`tutti mcp`): the `test_on` tool with `device` (and `track`, `command`); it returns a job id to poll with
   `job_status`. The `devices` tool shows each device's state and lock.

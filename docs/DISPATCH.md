@@ -133,24 +133,45 @@ look it up in `adb mdns services` and `adb connect` to today's ip:port, so no po
 
 ## Prep and restore
 
-`devices.<d>.prep` lists the settings a run needs (`tutti/prep.py`):
+Every device run is a device session (`devices.external_wrap`, `tutti/prep.py`). In order:
 
-```yaml
-prep:
-  - {setting: 'secure screensaver_enabled', value: 0}        # Android's settings get|put|delete
-  - {name: music volume, read: 'cmd media_session volume --stream 3 --get', parse: 'volume is (\d+)',
-     set: 'cmd media_session volume --stream 3 --set {value}', value: 2, cap: true}   # cap: only lowers it
-```
-
-1. Once the device's lock is taken, every item's current value is read and saved to `~/.tutti/prep/<device>.saved` on the
-   device's machine. This happens before anything changes. Then the new values are set.
-2. When the run ends, however it ends, exactly the saved values are put back and the file is removed. A setting that was
-   unset (`null`) is deleted again.
-3. A file left behind (the machine rebooted, the device went away) shows in the readings as `prep_left`. The next dispatch
-   round restores it once the device answers and nothing holds it.
+1. **The lock first.** It waits while another tool's lock file (`devices.<d>.external_lock`) is fresh, takes it, and
+   registers the run among the device's users (`~/.tutti/devices/<d>/users/run-<pid>` on its machine). The lock file is
+   refreshed every minute while the run lasts.
+2. **Prep.** Each setting's current value is read and saved to `~/.tutti/prep/<device>.saved` before anything changes;
+   a saved file already there (another user still has the device prepared, or a crash) is kept as it is, so prepared
+   values never become the "originals". The defaults of its kind, then its own `prep:` list (an item with a default's
+   name replaces it; `prep_defaults: false` turns the defaults off):
+   - phone and tablet: brightness about 30 % (`system screen_brightness` 77, manual mode), media volume (Cast plays
+     on it) about 10 % (2 steps, only lowered);
+   - TV: screensaver off, screen on for 30 min, media volume (Cast plays on it) about 10 %.
+3. **Awake and unlocked.** The screen is woken and a swipe lock dismissed; while the run is active a harmless key
+   (`input keyevent KEYCODE_UNKNOWN`) goes every 15 s, because the phone's admin policy caps the screen timeout at 5 min.
+   The loop stops with the run.
+4. **The start check.** `tutti: device ready` is printed; within 2 minutes the run must show a test running (the
+   suite's `started` pattern, else any output after the marker), or it is stopped and queued again.
+5. **Release only when every user is done.** When the run ends, however it ends, the keep-awake loop stops and its lock
+   file and registration go. The device is released only when no Tutti run, no claim (`tutti devices claim`) and no fresh
+   lock file of another tool is left. Then exactly the saved values come back (a setting that was unset is deleted
+   again): phones and tablets sleep again, a TV gets its screensaver and sleep timers back and turns itself off. The
+   output says `tutti: device released <d>`, the dashboard's Keep busy events say it is free, and a line goes to
+   `<state>/devices/free.jsonl` for the other sessions and the coordinator. Otherwise it says who still uses it, and the
+   last user's release restores it.
+6. A saved file left behind (the machine rebooted, the device went away, or the last user was another tool) shows in the
+   readings as `prep_left`. The next dispatch round releases it the same way once nobody uses it.
 
 A read that gives nothing, such as a binary the device lacks (`media` on a Google TV Streamer), skips that item cleanly.
 Nothing is set that could not be put back.
+
+Other rules a device run keeps:
+
+- **An e2e filter is never empty.** `--grep`, `--filter`, `--tests`, `-g`, `--test-name-pattern` or a Gradle
+  `...Arguments.class=` / `package=` with no value would run every test or none: the run is refused before it starts.
+- **One app install per device at a time, debuggable only.** `tutti devices install <d> <file.apk>` refuses an APK that
+  is not a debuggable build (read from its manifest before anything is sent) and installs behind the device's install
+  lock: a second install waits for the first.
+- **Sessions outside Tutti** say they use a device with `tutti devices claim <d> --who <session>` and `tutti devices
+  release <d> --who <session>`; the release puts the device's own settings back when it was the last user.
 
 ## Phone calls
 

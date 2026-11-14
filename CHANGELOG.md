@@ -2,6 +2,23 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.61 (2026-11-14)
+
+### Added
+
+- The owner's device rules (docs/DISPATCH.md, *Prep and restore*), extending prep and restore:
+  - A device is released only when every user is done: no Tutti run, no session's claim (`tutti devices claim|release
+    <d> --who <session>`) and no fresh lock file of another tool. Then its own values come back exactly (phones sleep
+    again; a TV gets its screensaver and sleep timers back and turns itself off) and the other users are told: a Keep busy
+    event and `<state>/devices/free.jsonl`.
+  - Default prep by kind: phone and tablet brightness about 30 %, media volume (Cast plays on it) about 10 %, a TV's screensaver
+    off; a saved file already there is never overwritten, so prepared values never become the originals.
+  - The lock is taken first and refreshed while in use; the screen is woken and unlocked, and a keep-awake key goes every
+    15 s only while a run is active.
+  - Within 2 minutes of the ready marker a device run must show a test running, or it is queued again.
+  - An empty e2e filter is refused; `tutti devices install <d> <apk>` refuses a non-debuggable APK in plain words and
+    allows one install per device at a time.
+
 ## 0.1.60 (2026-11-14)
 
 ### Fixed

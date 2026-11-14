@@ -261,24 +261,31 @@ def external_lock(device):
 
 
 def external_wrap(found, command, who='tutti'):
-    """`command` as a device session: it waits while another tool's lock file (devices.<d>.external_lock) exists and is
-    fresher than external_lock_stale_minutes (30), writes each with "<who> <time>", runs each device's prep (tutti/prep.py:
-    the current values saved first), prints the ready marker (the clock of a suite's `started` check), and when the command
-    ends, however it ends, restores the saved values and removes the lock files."""
+    """`command` as a device session (docs/DISPATCH.md, *Prep and restore*). It waits while another tool's lock file
+    (devices.<d>.external_lock) is fresher than external_lock_stale_minutes (30), then takes it ("<who> <time>") and
+    registers this run among the device's users; runs each device's prep (the current values saved first, once), wakes
+    and unlocks it, and keeps it awake with a key every 15 s while refreshing the lock file; prints the ready marker (the
+    clock of the 2-minute start check). When the command ends, however it ends: the keep-awake loop stops, the lock file
+    and this run's registration go, and each device is released only when no other user is left (tutti/prep.py
+    release_script: then its own values come back and `tutti: device released <name>` is printed)."""
     from . import prep
     locks = [(external_lock(d), int(float(d.get('external_lock_stale_minutes', EXTERNAL_STALE_MINUTES)) * 60)) for d in found]
-    locks = [(p, stale) for p, stale in locks if p]
-    setup, restore = prep.scripts(found)
-    if not locks and not setup:
-        return command
+    have = [(p, stale) for p, stale in locks if p]
     waits = ''.join(
         f'while [ -e {shlex.quote(p)} ] && [ $(( $(date +%s) - $(stat -c %Y {shlex.quote(p)}) )) -lt {stale} ]; do '
-        f'echo "tutti: waiting for {p}: $(head -c 200 {shlex.quote(p)})"; sleep 30; done && ' for p, stale in locks)
-    files = ' '.join(shlex.quote(p) for p, _ in locks)
-    take = f'for f in {files}; do printf "%s %s\\n" {shlex.quote(who)} "$(date -Iseconds)" > "$f"; done && ' if locks else ''
-    release = '; '.join(x for x in (restore, f'rm -f {files}' if locks else '') if x)
-    return (f'{waits}{take}trap {shlex.quote(release)} EXIT && {setup + "; " if setup else ""}echo \'tutti: device ready\' && '
-            f'{{ {command}; }}; exit $?')
+        f'echo "tutti: waiting for {p}: $(head -c 200 {shlex.quote(p)})"; sleep 30; done && ' for p, stale in have)
+    files = ' '.join(shlex.quote(p) for p, _ in have)
+    take = f'for f in {files}; do printf "%s %s\\n" {shlex.quote(who)} "$(date -Iseconds)" > "$f"; done && ' if have else ''
+    users = ' '.join(f'{prep.users_path(d)}/run-$$' for d in found)
+    register = ''.join(f'mkdir -p {prep.users_path(d)} && ' for d in found) + f'touch {users} && '
+    refresh = f'{{ while :; do touch {files} 2>/dev/null; sleep 60; done & }}; ' if have else ''   # the lock stays fresh
+    awake = refresh + ''.join(f'{{ {prep.keep_awake(d)} & }}; ' for d in found)
+    release = '; '.join(x for x in ('kill $(jobs -p) 2>/dev/null', f'rm -f {users}', f'rm -f {files}' if have else '',
+                                     *(prep.release_script(d, p, stale) for d, (p, stale) in zip(found, locks, strict=True))) if x)
+    setup = prep.scripts(found)[0]
+    wake = '; '.join(prep.unlock(d) for d in found)
+    return (f'{waits}{take}{register}trap {shlex.quote(release)} EXIT && {setup + "; " if setup else ""}{wake}; {awake}'
+            f'echo \'tutti: device ready\' && {{ {command}; }}; exit $?')
 
 
 def readings_command(device, scripts_dir, wake=False):

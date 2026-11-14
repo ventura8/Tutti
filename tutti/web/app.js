@@ -144,24 +144,24 @@ function renderTiles(s) {
 // ---- usage
 
 function meter(a) {
-    const used = Math.min(100, a.used ?? 0);
+    const used = Math.round(Math.min(100, Math.max(0, a.used ?? 0)));
     let tone;
     if (a.panic) tone = 'bad';
     else if (a.verdict === 'ahead') tone = 'warn';
     const m = el('div', {
         class: 'meter', 'data-tone': tone, role: 'meter', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': used,
-        'aria-label': `${a.name}: ${used} % used`,
+        'aria-label': `${a.name}: ${tuttiPct(a.used ?? 0)} used`,
     });
     const fill = el('div', { class: 'meter__fill' });
-    fill.style.width = `${used}%`;
+    fill.style.width = tuttiCssPct(a.used);
     m.append(fill);
     if (a.expected !== null) {
-        const mark = el('div', { class: 'meter__mark', title: `By now: ${a.expected} %` });
-        mark.style.left = `${Math.min(100, a.expected)}%`;
+        const mark = el('div', { class: 'meter__mark', title: `By now: ${tuttiPct(a.expected)}` });
+        mark.style.left = tuttiCssPct(a.expected);
         m.append(mark);
     }
-    const p = el('div', { class: 'meter__mark meter__mark--panic', title: `Panic at ${a.panic_at} %` });
-    p.style.left = `${a.panic_at}%`;
+    const p = el('div', { class: 'meter__mark meter__mark--panic', title: `Panic at ${tuttiPct(a.panic_at)}` });
+    p.style.left = tuttiCssPct(a.panic_at);
     m.append(p);
     return m;
 }
@@ -238,11 +238,11 @@ async function saveReading(name, form) {
 function readingForm(a) {
     const f = ui.editing.get(a.name);
     const id = (k) => `reading-${a.name}-${k}`;
-    const pct = el('output', { class: 'reading__pct', for: id('used'), text: `${f.used} %` });
+    const pct = el('output', { class: 'reading__pct', for: id('used'), text: tuttiPct(f.used) });
     const form = el('form', { class: 'reading', 'aria-label': `New reading for ${a.name}` },
         el('label', { for: id('used') }, el('span', {}, 'Used now: ', pct),
             el('input', { id: id('used'), type: 'range', min: 0, max: 100, step: 1, value: f.used,
-                oninput: (e) => { f.used = e.target.value; pct.textContent = `${f.used} %`; } })),
+                oninput: (e) => { f.used = e.target.value; pct.textContent = tuttiPct(f.used); } })),
         el('label', { for: id('resets') }, 'Resets at (your time; prefilled from the window rule)',
             el('input', { id: id('resets'), type: 'datetime-local', value: f.resets, oninput: (e) => { f.resets = e.target.value; } })),
         el('label', { for: id('note') }, 'Note (optional)',
@@ -275,7 +275,7 @@ function accountFacts(a) {
     return facts([
         ['Resets', resetText(a)], ['Spend by', a.target && when(a.target)],
         ['Last reading', a.reading_at && when(a.reading_at)], ['Window', a.window],
-        ['Share', a.share < 1 ? `${Math.round(a.share * 100)} % of the quota is this session's` : null], ['Read at', a.source],
+        ['Share', a.share < 1 ? `${tuttiShare(a.share)} of the quota is this session's` : null], ['Read at', a.source],
     ]);
 }
 
@@ -298,7 +298,7 @@ function windowBlock(w, label) {
     const verdict = w.state === 'ok' ? (w.panic ? 'panic' : w.verdict) : w.state;
     const box = el('div', { class: 'window' }, el('p', { class: 'window__label' }, label, ' ', chip(verdict, w.panic ? 'bad' : VERDICT_TONE[w.verdict])));
     if (w.state !== 'ok') return box;
-    box.append(el('p', { class: 'window__pct' }, `${w.used} %`, el('span', { class: 'account__by', text: ` · ${w.expected} % by now` })), meter(w));
+    box.append(el('p', { class: 'window__pct' }, tuttiPct(w.used), el('span', { class: 'account__by', text: ` · ${tuttiPct(w.expected)} by now` })), meter(w));
     if (w.reset) box.append(el('p', { class: 'account__by', text: `resets ${relative(w.reset)}` }));
     return box;
 }
@@ -358,7 +358,7 @@ function roomLine(a) {
 // A scout's account (Grok Bot): its allowance, the next watch and the last answer, never room for bounded tasks.
 function scoutFacts(sc) {
     const f = sc.facts || {};
-    const allowance = f.used === null || f.used === undefined ? 'allowance: no reading yet' : `allowance: ${f.used} % used, ${f.left} % left`;
+    const allowance = f.used === null || f.used === undefined ? 'allowance: no reading yet' : `allowance: ${tuttiPct(f.used)} used, ${tuttiPct(f.left)} left`;
     const next = f.next_watch ? `next watch: ${f.next_watch.name} ${when(f.next_watch.at)}` : 'no watches';
     const last = f.last_answer ? `last answer ${relative(f.last_answer.at)}: ${f.last_answer.text || f.last_answer.id}` : 'no answer yet';
     const week = sc.week?.text ? ` · this week: ${sc.week.text}` : '';
@@ -377,23 +377,23 @@ function account(a, now) {
     if (a.state === 'ok' && a.limits?.length) {
         card.append(el('div', { class: 'windows' }, windowBlock(a, `${a.window} window`), ...a.limits.map((l) => windowBlock(l, `${l.window} limit`))));
     } else if (a.state === 'ok') {
-        card.append(el('div', { class: 'account__big' }, el('span', { class: 'account__pct', text: `${a.used} %` }),
-            el('span', { class: 'account__by', text: `used · ${a.expected} % by now on an even pace` })));
+        card.append(el('div', { class: 'account__big' }, el('span', { class: 'account__pct', text: tuttiPct(a.used) }),
+            el('span', { class: 'account__by', text: `used · ${tuttiPct(a.expected)} by now on an even pace` })));
         card.append(meter(a));
         card.append(el('div', { class: 'legend' }, el('span', {}, el('i', { class: 'l-used' }), 'used'),
-            el('span', {}, el('i'), 'pace line (by now)'), el('span', {}, el('i', { class: 'l-panic' }), `panic at ${a.panic_at} %`)));
+            el('span', {}, el('i'), 'pace line (by now)'), el('span', {}, el('i', { class: 'l-panic' }), `panic at ${tuttiPct(a.panic_at)}`)));
     } else {
         card.append(el('p', { class: 'account__by', text: a.state === 'no reset' ? 'No reset time in the config yet.' : 'No reading in this window yet.' }));
     }
     if (a.reset) card.append(sparkline(a, now));
-    card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
+    card.append(el('p', { class: 'account__action', text: `Do: ${tuttiTidy(a.action)}` }));
     if (a.quota_plan?.rows?.length) card.append(planFacts(a.quota_plan));
     else if (a.quota_plan?.why) card.append(el('p', { class: 'account__plan', text: `Planner: ${a.quota_plan.why}` }));
     if (a.outlook) {
-        card.append(el('p', { class: 'account__auto', 'data-target': a.name, 'data-tone': a.outlook.short ? 'warn' : 'ok', text: a.outlook.text }));
+        card.append(el('p', { class: 'account__auto', 'data-target': a.name, 'data-tone': a.outlook.short ? 'warn' : 'ok', text: tuttiTidy(a.outlook.text) }));
     } else if (a.projected_end !== undefined && a.projected_end !== null) {
         card.append(el('p', { class: 'account__auto', 'data-tone': a.projected_end < 90 ? 'warn' : 'ok',
-            text: `On track to finish at ${a.projected_end} % by its reset (the last day's rate carried on)` }));
+            text: `On track to finish at ${tuttiPct(a.projected_end)} by its reset (the last day's rate carried on)` }));
     }
     const scout = (ui.scouts?.items || []).find((i) => i.account === a.name);
     if (scout) card.append(scoutFacts(scout));   // a scout answers questions: no task room on its card
@@ -520,7 +520,7 @@ function ownerPanel(o) {
 // ---- machines
 
 function pips(m) {
-    return el('span', { class: 'pips', 'aria-label': m.free === null ? `${m.slots} slots, not reachable` : `${m.busy} of ${m.slots} slots busy` },
+    return el('span', { class: 'pips', role: 'img', 'aria-label': m.free === null ? `${m.slots} slots, not reachable` : `${m.busy} of ${m.slots} slots busy` },
         Array.from({ length: m.slots }, (_, i) => el('span', { class: 'pip', 'data-busy': String(m.free !== null && i < m.busy), 'data-off': String(m.free === null) })));
 }
 
@@ -529,20 +529,20 @@ function machine(m) {
         el('span', { text: m.free === null ? `${m.slots} slots` : `${m.free} of ${m.slots} slots free` }));
     if (m.load !== null) {
         const bar = el('span');
-        bar.style.width = `${Math.min(100, (m.load / m.cores) * 100)}%`;
-        stats.append(el('span', { class: 'load' }, el('span', { class: 'load__bar', 'aria-hidden': 'true' }, bar), `load ${m.load} / ${m.cores} cores`));
+        bar.style.width = tuttiCssPct((m.load / m.cores) * 100);
+        stats.append(el('span', { class: 'load' }, el('span', { class: 'load__bar', 'aria-hidden': 'true' }, bar), `load ${tuttiNum(m.load)} / ${m.cores} cores`));
     }
     for (const [label, t] of [['CPU', m.temp_c], ['GPU', m.gpu_temp_c]]) {
         if (t === null || t === undefined) continue;
         const hot = m.heat?.cap_c !== undefined && t >= m.heat.cap_c;
-        stats.append(el('span', { class: 'temp', 'data-tone': hot ? 'warn' : undefined, text: `${label} ${Math.round(t)} °C` }));
+        stats.append(el('span', { class: 'temp', 'data-tone': hot ? 'warn' : undefined, text: `${label} ${tuttiNum(t, { digits: 0 })} °C` }));
     }
     if (m.temp_note && (m.temp_c === null || m.temp_c === undefined)) stats.append(el('span', { class: 'temp', title: m.temp_note, text: 'CPU temperature not readable' }));
     if (m.rank) stats.append(el('span', { text: `#${m.rank} in routing` }));
     if (m.use_pct !== undefined && m.use_pct !== null) stats.append(el('span', { title: 'machines.<m>.use_pct (Settings)',
-        text: `Tutti's share ${m.use_pct} %${m.use_why ? ` (${m.use_why})` : ''}` }));
+        text: `Tutti's share ${tuttiPct(m.use_pct)}${m.use_why ? ` (${m.use_why})` : ''}` }));
     const use = (ui.last?.household_use?.machines || []).find((u) => u.name === m.name);
-    if (use && use.hour !== null) stats.append(el('span', { text: `used ${use.hour} % last hour · ${use.day ?? '–'} % today` }));
+    if (use && use.hour !== null) stats.append(el('span', { text: `used ${tuttiPct(use.hour)} last hour · ${tuttiPct(use.day)} today` }));
     return el('li', { class: 'row' },
         el('div', { class: 'row__name' }, m.name, el('span', { class: 'row__kind', text: `${m.transport} · ${m.host}` })),
         chip(m.status, MACHINE_TONE[m.status]),
@@ -580,7 +580,7 @@ function limitForm(m) {
 function bytes(n) {
     const units = [['GB', 1024 ** 3], ['MB', 1024 ** 2], ['KB', 1024]];
     const [unit, size] = units.find(([, s]) => n >= s) || ['B', 1];
-    return `${size === 1 ? n : (n / size).toFixed(1)} ${unit}`;
+    return `${size === 1 ? tuttiNum(n, { digits: 0 }) : tuttiNum(n / size, { digits: 1 })} ${unit}`;
 }
 
 // The files `tutti files send` keeps in the machine's cache: what, how big, last used, against the budget.
@@ -732,7 +732,7 @@ function machineLine(m) {
     if (m.gpu) {
         const used = Math.round(m.gpu.mem_used_mib / 1024);
         const total = Math.round(m.gpu.mem_total_mib / 1024);
-        parts.push(`GPU ${m.gpu.util_pct} % · ${used}/${total} GB`);
+        parts.push(`GPU ${tuttiPct(m.gpu.util_pct)} · ${used}/${total} GB`);
     }
     return parts.join(' · ');
 }
@@ -925,7 +925,7 @@ const REQ_TONE = { queued: 'idle', waiting: 'accent', answered: 'ok', failed: 'b
 
 function scoutMeter(m) {
     if (!m || m.used === null || m.used === undefined) return 'no meter reading yet: read Grok Bot on the spending page with the reading helper';
-    return `${m.used}% of the week used · ${m.verdict}${m.reset ? ` · resets ${when(m.reset)}` : ''}`;
+    return `${tuttiPct(m.used)} of the week used · ${m.verdict}${m.reset ? ` · resets ${when(m.reset)}` : ''}`;
 }
 
 function scoutRequest(r) {
@@ -988,9 +988,7 @@ const LAYER = { exact: 'exact', shape: 'known phases', estimate: 'estimated from
 
 function compact(n) {
     if (n === null || n === undefined) return '?';
-    if (n >= 1e6) return `${(n / 1e6).toFixed(1)} M`;
-    if (n >= 1e4) return `${Math.round(n / 1e3)} k`;
-    return String(n);
+    return n >= 1e4 ? tuttiCompact(n) : tuttiNum(n, { digits: 0 });
 }
 
 // A finished job: its result, exit code (when not 0) and how long it took.
@@ -1010,10 +1008,10 @@ function progressBar(j) {
     const bar = el('span', { class: 'job__bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': p.pct,
         'aria-valuetext': p.label, 'aria-label': `${j.title}: ${p.label}`, 'data-late': p.late ? 'true' : null });
     const fill = el('span');
-    fill.style.width = `${p.pct}%`;
+    fill.style.width = tuttiCssPct(p.pct);
     bar.append(fill);
     const rough = p.layer === 'estimate' || (p.layer === 'agent' && p.total === undefined);
-    return el('span', { class: 'job__progress', 'data-layer': p.layer, title: p.label }, bar, el('span', { text: (rough ? '~' : '') + `${p.pct} %` }));
+    return el('span', { class: 'job__progress', 'data-layer': p.layer, title: p.label }, bar, el('span', { text: (rough ? '~' : '') + tuttiPct(p.pct) }));
 }
 
 function layerText(p) {
@@ -1030,7 +1028,7 @@ function tokenText(t) {
 
 function accountText(name) {
     const used = ui.accounts.get(name)?.used;
-    return `account ${name}` + (used === null || used === undefined ? '' : ` (${Math.round(used)} % used)`);
+    return `account ${name}` + (used === null || used === undefined ? '' : ` (${tuttiPct(used)} used)`);
 }
 
 const PASSFAIL = (label, c) => `${label} ${c.passed} passed · ${c.failed} failed`;
@@ -1042,7 +1040,7 @@ function factList(j) {
         [j.progress, () => layerText(j.progress)],
         [f.step, () => `step: ${f.step}`],
         [f.tokens, () => tokenText(f.tokens)],
-        [f.context_pct !== undefined && f.context_pct !== null, () => `context ${Math.round(f.context_pct)} %`],
+        [f.context_pct !== undefined && f.context_pct !== null, () => `context ${tuttiPct(f.context_pct)}`],
         [f.credits, () => `${f.credits} AI credits`],
         [f.worker && !f.account, () => `worker ${f.worker}`],
         [f.account, () => accountText(f.account)],
@@ -1448,7 +1446,7 @@ async function fromHelper() {
             openHelperForm(x.account, x.used, x.resets);
             return;
         }
-        saved.push(`${x.account} ${x.used} %`);
+        saved.push(`${x.account} ${tuttiPct(x.used)}`);
     }
     banner(`Saved, read by the helper: ${saved.join(', ')}.${await notRead(valid, r.page)}`);
 }

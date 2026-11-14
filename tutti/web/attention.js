@@ -10,7 +10,7 @@ function tuttiAttention(s) {
         items.push({ kind: 'needs-person', tone: 'bad', title: t.title, note: `${t.id} · ${t.repo}: ${t.parked || 'parked after its attempts'}`, task: t });
     }
     for (const a of s.usage?.accounts || []) {
-        if (a.panic) items.push({ kind: 'panic', tone: 'bad', title: `${a.name} is in panic (${a.used} % used)`, note: `Do: ${a.action}` });
+        if (a.panic) items.push({ kind: 'panic', tone: 'bad', title: `${a.name} is in panic (${tuttiPct(a.used)} used)`, note: `Do: ${a.action}` });
         else if (a.reader_problem) items.push({ kind: 'reading', tone: 'warn', title: `${a.name}: automatic reading failed`, note: a.reader_problem });
         else if (a.stale) items.push({ kind: 'reading', tone: 'warn', title: `${a.name} needs a fresh reading`, note: a.remind || 'Add a reading on its card.' });
     }
@@ -38,7 +38,7 @@ function tuttiPlanRows(plan, fmt) {
     const utc = (iso) => `${new Date(iso).toUTCString().replace(/:\d\d GMT$/, '').replace(/^(\w+),/, '$1')} UTC`;
     return ((plan && plan.rows) || []).filter((r) => r.value || r.at).map((r) => (r.at
         ? { label: r.label, text: fmt(r.at), title: utc(r.at) }
-        : { label: r.label, text: String(r.value), title: '' }));
+        : { label: r.label, text: typeof tuttiTidy === 'function' ? tuttiTidy(String(r.value)) : String(r.value), title: '' }));
 }
 
 // A long list shows `limit` items and a "Show N more" button; opened, all of them and "Show fewer".

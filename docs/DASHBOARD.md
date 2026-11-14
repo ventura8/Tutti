@@ -73,20 +73,23 @@ narrow with nothing beside it; one column on a phone. Phone (375 px) to 4K (2560
    5 h window and the weekly limit, each with its meter, pace mark and reset) and the planner's rows (This window: 1 of 3
    weekly points, Spend by, Resets, Decision: 3 task(s) now, Why). Every card with a plan shows it as label/value rows
    (`quota_plan.rows`): Points left, Spend by, Resets, Decision, Why; times in the viewer's own time, UTC in the tooltip; the limit has no card of its own unless it needs a reading (its Add a reading
-   lives there). Each card's facts fold under **Details**.
-2. **Needs you**, full width: tasks that need a person, accounts in panic, stalled jobs (**Open its log**), machines
+   lives there). Each card's facts fold under **Details**. Inside the card, in this order: the online agents' accounts,
+   then **Local models**, then **You and the main agent**.
+2. **Machines**, full width, directly below Usage & pacing (the owner, 2026-11-14): each machine's slots, load, heat and
+   presence, its rows in columns.
+3. **Needs you**, full width: tasks that need a person, accounts in panic, stalled jobs (**Open its log**), machines
    offline, workers down, readings due, results to review (each task with its attempts and failure history), agents
    started outside Tutti. **Open its log** clears the project filter and unfolds the running list to show the job. Most urgent first
    (`web/attention.js`, a pure function the tests run in node); "Nothing needs you" when all is clear.
-3. **Running jobs** (with progress, and the project filter), then **Queued**, beside **Main agent** and **Workers**. The two
+4. **Running jobs** (with progress, and the project filter), then **Queued**, beside **Main agent** and **Workers**. The two
    lists fill the height of that column: as many rows as fit show, and "Show more" folds only the rows that do not (measured
    after each render and on every resize with a ResizeObserver; `tuttiFit` in `attention.js`). On a phone, where the columns
-   stack, each shows 8 rows. **Autopilot** and **Machines** follow.
-4. **Autopilot** (its state, runs, queue and latest decisions, each list folded) beside **Main agent** and **Workers**.
-5. **Projects**, full width, in columns.
-6. **Scouts**, full width: each scout, its meter, watches, recent questions and the review trial (*Scouts* below).
-7. **Devices and controls**, full width: the Android devices, pause or resume grouped as Work machines, Android devices, Local agents, Online agents (workers, accounts, scouts), then the opt-in switches (*Controls* below).
-8. **Finished jobs** at the bottom: All, Failed, Done (keys 1 to 3); two columns from 1800 px.
+   stack, each shows 8 rows. **Autopilot** follows.
+5. **Autopilot**, full width (its state, runs, queue and latest decisions, each list folded).
+6. **Projects**, full width, in columns.
+7. **Scouts**, full width: each scout, its meter, watches, recent questions and the review trial (*Scouts* below).
+8. **Devices and controls**, full width: the Android devices, pause or resume grouped as Work machines, Android devices, Local agents, Online agents (workers, accounts, scouts), then the opt-in switches (*Controls* below).
+9. **Finished jobs** at the bottom: All, Failed, Done (keys 1 to 3); two columns from 1800 px.
 
 Long lists fold after a few items with **Show N more** (and **Show fewer**); what is open stays open across polls, and the
 button keeps the keyboard focus. Cards in a row stretch to the same height.
@@ -395,12 +398,47 @@ An account is in panic when its latest reading is at or over `panic_at` while th
 `lead_hours`) is still ahead. Then nothing new goes to it; bounded work moves to accounts with room and local models.
 `tutti usage` shows the same.
 
+## Numbers
+
+Every percentage and number on every card and tab goes through one formatter, `web/format.js` (loaded first):
+
+- `tuttiPct` for percentages in points: whole points from 10 up, one decimal under 10 (0.3 %), in the browser's own locale
+  (`32%` in English, `32 %` in German or Romanian). The grok-bot card's `32.122999999999976 %` reads `32%`.
+- `tuttiNum` for counts and measures (grouped by the locale, rounded by size), `tuttiShare` for fractions, `tuttiCompact`
+  for token counts (`1.2M`), `tuttiCssPct` for a meter's width (clamped to 0–100).
+- A missing value shows `–`, never `NaN` or `undefined`.
+- The planner's own sentences (an account's outlook, its "Do:" line and plan rows, such as "heading for
+  32.122999999999976 %") lose their float noise through `tuttiTidy`; logs, titles and chat text are shown as they are.
+
+## Worker status: one for the CLI and the dashboard
+
+`tutti workers`, the Workers card, the Local models cards and *Needs you* all read one status, `workers.statuses()`: each
+worker asked through its own host (a local model through its tunnel, as `tutti workers` does). A local-models card is
+available while one of its machine's workers answers, even when the machine's ssh probe fails (the card then says so); it
+is offline only when none answers, with the worker's own reason.
+
+- The machine probe keeps numbers only in its GPU field: an `nvidia-smi` installed without a working driver prints its
+  failure on stdout, and that text once made the NUC read as offline while its model answered (2026-11-14).
+- The dashboard reads its config again when the file changes after it loaded it, so a worker added after it started is
+  probed at the next round, as `tutti workers` sees it. An edit that does not load keeps the last good config, and the page
+  says why at every probe until the file loads again.
+
 ## Look and accessibility
 
 Material 3 tokens over the OS light or dark scheme. The accent is the OS accent colour where the browser shares it
 (CSS `AccentColor`); otherwise Tutti's indigo, and the footer says which. The accent only paints indicators and tonal
 backgrounds; text stays on the neutral colours, so any accent keeps its contrast. Keyboard: Tab through everything,
-`R` refreshes, `1`–`5` pick the job filter. Layout from a phone to 4K.
+`R` refreshes, `1`–`5` pick the job filter, **Esc** closes the open disclosure that holds the focus and gives the focus
+back to its summary. Layout from a phone to 4K.
+
+- Every control is a target of at least 24 × 24 px; a field always shows its focus (a date's picker part too).
+- A form field the browser refuses gets `aria-invalid` and a `role="alert"` message tied to it by `aria-describedby`
+  (`web/a11y.js`), cleared as the value is fixed.
+- Long text wraps, never an ellipsis: a job's whole title, a long chip, an e-mail in a row.
+- `[hidden]` always hides, whatever display a class sets.
+
+The browser tests check all of this on every tab, both roles, four widths, both themes, 200 % zoom and WCAG text spacing
+(docs/TESTING.md).
 
 ## `/api/state`
 

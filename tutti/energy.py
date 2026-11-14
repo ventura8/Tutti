@@ -494,7 +494,27 @@ def cloud_cost(cfg, t, tokens_in, tokens_out):
     return {'model': label, 'cost': round(usd * rate, 2) if rate else None, 'usd': round(usd, 2), 'source': CLOUD_SOURCE}
 
 
-def card(cfg, name, host, reading, item, store, runs, now, t, busy_now):
+def worker_status(machine, names, ready, reading):
+    """(status, reason) of a local-models card from the one shared worker status (workers.statuses, what `tutti workers`
+    prints): a worker that answers through its own host or tunnel makes the card available even when the machine's ssh probe
+    failed; none answering makes it offline with the worker's own reason. `ready`: {worker: (ready, note)}, None when the
+    workers were not probed (the machine's row decides alone)."""
+    status, why = machine
+    if ready is None or not names:
+        if reading is None and status == 'available':
+            return 'offline', 'its power and models were not read: the machine did not answer over ssh (`tutti machines`)'
+        return status, why
+    up = [n for n in names if (ready.get(n) or (False, ''))[0]]
+    if not up:
+        notes = '; '.join(f'{n}: {(ready.get(n) or (False, "not probed yet"))[1]}' for n in names)
+        return 'offline', f'its model server does not answer ({notes})'
+    if status == 'offline':   # the machine's ssh probe failed, its worker answers: the worker's status wins, as in `tutti workers`
+        return 'available', (f'{", ".join(up)} answers; the machine\'s own ssh probe failed ({why or "see Machines"}), '
+                             'so its power is not read')
+    return status, why
+
+
+def card(cfg, name, host, reading, item, store, runs, now, t, busy_now, ready=None):
     """One machine's local-models card: models, busy time, tokens, jobs, power, energy and cost by period."""
     mcfg = ((cfg.get('energy') or {}).get('machines') or {}).get(name) or {}
     r = reading or {}
@@ -517,9 +537,7 @@ def card(cfg, name, host, reading, item, store, runs, now, t, busy_now):
                        'cloud': cloud_cost(cfg, t, sum(x.get('in') or 0 for x in rs), sum(x.get('out') or 0 for x in rs))})
     m = per['month']
     hour_price = price_at(t, tz.localtime(now).tm_hour)
-    status, why = availability(item)
-    if reading is None and status == 'available':
-        status, why = 'offline', 'its power and models were not read: the machine did not answer over ssh (`tutti machines`)'
+    status, why = worker_status(availability(item), host['workers'], ready, reading)
     return {'name': name, 'workers': host['workers'], 'gpu': r.get('gpu') or mcfg.get('gpu') or 'GPU not read',
             'installed': sorted(x.get('name') for x in ((r.get('tags') or {}).get('models') or []) if isinstance(x, dict)),
             'loaded': [{'name': x.get('name'), 'on_gpu': bool(x.get('size_vram'))} for x in ps], 'busy_now': busy_now,
@@ -529,20 +547,21 @@ def card(cfg, name, host, reading, item, store, runs, now, t, busy_now):
             'per_busy_hour': round(busy_w / 1000 * hour_price, 2), 'reachable': reading is not None}
 
 
-def view(cfg, readings, machine_items, now, t=None, store=None, runs=None):
+def view(cfg, readings, machine_items, now, t=None, store=None, runs=None, worker_items=None):
     """The dashboard's Local models category: one card per machine running local models, the tariff and how it was found."""
     t = t or tariff(cfg)
     store = load_store(cfg) if store is None else store
     runs = read_runs(cfg, now - 32 * 86400) if runs is None else runs
     live = in_flight(cfg)
     items = {m['name']: m for m in machine_items or []}
+    ready = None if worker_items is None else {w['name']: (w['ready'], w.get('note') or '') for w in worker_items}
     cards = []
     for name, h in hosts(cfg).items():
         r = (readings or {}).get(name) or {}
         if h.get('looked') and not h['workers'] and not ((r.get('tags') or {}).get('models')):
             continue   # a machine looked at for an Ollama that has none: no card
         busy = any(w in live for w in h['workers'])
-        cards.append(card(cfg, name, h, (readings or {}).get(name), items.get(name), store, runs, now, t, busy))
+        cards.append(card(cfg, name, h, (readings or {}).get(name), items.get(name), store, runs, now, t, busy, ready))
     wait = cheap_now(cfg, t, tz.localtime(now).tm_hour)
     return {'cards': cards, 'tariff': t, 'cheap_wait': wait, 'include_idle': (cfg.get('energy') or {}).get('include_idle', True),
             'method': 'docs/ENERGY.md'}

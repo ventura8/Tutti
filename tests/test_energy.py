@@ -10,6 +10,9 @@ import unittest
 
 from tutti import config, dashboard, energy
 
+with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tutti', 'web', 'format.js'), encoding='utf8') as _f:
+    FORMAT_JS = _f.read()   # the shared number formatter every dashboard script uses (tutti/web/format.js)
+
 ZONE_TAB = '# comment\nRO\t+4426+02606\tEurope/Bucharest\nDE\t+5230+01322\tEurope/Berlin\nUS\t+404251-0740023\tAmerica/New_York\n'
 NVIDIA = 'NVIDIA GeForce RTX 3080, 20.10, 3, 320.00\nNVIDIA GeForce RTX 5090, 412.50, 97, 600.00\n'   # the busy one second
 ROCM = json.dumps({'card0': {'Average Graphics Package Power (W)': '183.0', 'GPU use (%)': '88'},
@@ -238,7 +241,9 @@ class Render(unittest.TestCase):
     def js(self, expr):
         with open(os.path.join(dashboard.WEB, 'energy.js'), encoding='utf8') as f:
             src = f.read()
-        out = subprocess.run(['node', '-e', f'{src}\nconsole.log(JSON.stringify({expr}));'], capture_output=True, text=True, check=True)
+        out = subprocess.run(['node', '-e', f'{FORMAT_JS}\n{src}\nconsole.log(JSON.stringify({expr}));'], capture_output=True, text=True,
+                             check=True,
+                             env={**os.environ, 'LC_ALL': 'en_US.UTF-8'})   # numbers in the en-US form, whatever the host's locale
         return json.loads(out.stdout)
 
     CARD = {'name': 'pc', 'gpu': 'NVIDIA GeForce RTX 5090', 'status': 'thermal', 'reason': 'CPU 91 C', 'busy_now': False, 'reachable': True,
@@ -255,8 +260,9 @@ class Render(unittest.TestCase):
         self.assertEqual((v['status'], v['tone']), ('thermal', 'bad'))
         self.assertEqual(v['models'][0], 'Loaded: qwen:27b, gemma:12b (CPU)')
         self.assertIn('512 W', v['power'])
-        self.assertIn('at 97 %', v['power'])
-        self.assertEqual(v['periods'][0], {'label': 'Today', 'busy': '1.5 h', 'jobs': 3, 'tokens': 9000, 'kwh': '0.77', 'cost': '1.1 RON'})
+        self.assertRegex(v['power'], r'at 97\s?%')   # the locale's own percent form (format.js)
+        self.assertEqual(v['periods'][0], {'label': 'Today', 'busy': '1.5 h', 'jobs': '3', 'tokens': '9,000', 'kwh': '0.77',
+                                           'cost': '1.1 RON'})
         self.assertEqual(v['periods'][1]['busy'], '30 s')
         self.assertEqual((v['perJob'], v['perHour']), ('0.04 RON', '0.72 RON'))
         self.assertIn('Claude Sonnet would cost about 1.4 RON', v['cloud'])

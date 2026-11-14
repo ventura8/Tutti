@@ -112,6 +112,8 @@ class Collector:
         self.env = os.environ   # the scouts' webhook variables (names only ever leave this process)
         self.update_error = None
         self.updating = threading.Lock()   # one update round at a time in this dashboard (the daily one or a click)
+        self.config_error = None
+        self.config_mtime = self.config_stamp()   # as loaded: an edit before the first probe is still seen
 
     def read_usage(self, force=False):
         """The automatic readings: each account's reader (cached per command unless `force`) and limit messages in recent job
@@ -130,12 +132,39 @@ class Collector:
             self.probes = {**self.probes, 'readers': found}
         return found
 
+    def config_stamp(self):
+        """The config file's modification time, None when there is no file or it cannot be read."""
+        path = self.cfg.get('_path')
+        try:
+            return os.stat(path).st_mtime if path else None
+        except OSError:
+            return None
+
+    def follow_config(self):
+        """The config read again when its file changed since it was loaded: a worker added after the dashboard started is
+        probed at once, as `tutti workers` sees it (both read the same file). A broken edit keeps the last good config, and
+        why is returned at every probe until the file loads again, for the page."""
+        mtime = self.config_stamp()
+        if mtime is None or mtime == self.config_mtime:
+            return self.config_error
+        self.config_mtime = mtime
+        try:
+            self.reload()
+        except (config.ConfigError, OSError, ValueError, TypeError, AttributeError, KeyError) as e:   # any edit a load cannot take
+            self.config_error = f'the config changed and does not load ({e}): the dashboard keeps the last good one until it is fixed'
+        else:
+            self.config_error = None
+        return self.config_error
+
     def refresh(self):
+        config_error = self.follow_config()
         readings = self.readings_fn
         if readings is remote.device_readings:   # the real one: a device whose Wireless debugging went off is revived
             readings = keepon.readings_with_revive(self.cfg, readings)
         fresh = state.probe_all(self.cfg, self.probe_fn, self.available_fn, clock=self.clock, stored_fn=self.stored_fn,
                                 readings_fn=readings)
+        if config_error:
+            fresh['error'] = config_error
         fresh['activity'] = projects.probe_all(self.cfg, self.activity_fn)
         fresh['prs'] = self.prs_fn(self.cfg)
         try:   # local models: power and models read, energy added to the day's buckets (tutti/energy.py)
@@ -249,7 +278,8 @@ class Collector:
                                                   out['main']['running'], out['generated_at'])
         releases.attach(out['projects'], probes.get('prs'))
         out['probe_error'] = probes.get('error')
-        out['local_models'] = {**energy.view(self.cfg, probes.get('energy'), out['machines']['items'], self.clock()),
+        out['local_models'] = {**energy.view(self.cfg, probes.get('energy'), out['machines']['items'], self.clock(),
+                                                  worker_items=out['workers']['items'] if probes.get('workers') else None),
                                'error': probes.get('energy_error')}
         out['autopilot'] = autopilot.view(self.cfg)
         out['household_use'] = householduse.view(self.cfg, self.clock())   # the headline and each machine's use (docs/FLEET.md)

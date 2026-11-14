@@ -14,6 +14,8 @@
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
     <link rel="stylesheet" href="app.css?v=__TUTTI_VERSION__">
+    <script src="format.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="a11y.js?v=__TUTTI_VERSION__" defer></script>
     <script src="telemetry.js?v=__TUTTI_VERSION__" defer></script>
     <script src="update.js?v=__TUTTI_VERSION__" defer></script>
     <script src="attention.js?v=__TUTTI_VERSION__" defer></script>
@@ -45,7 +47,7 @@
             <h1>Tutti</h1>
             <p class="appbar__sub" id="config-path">Connecting to the local service…</p>
             <output class="appbar__sub" id="household-away" hidden></output>
-            <p class="appbar__sub" id="my-main-machine"></p>
+            <div class="appbar__sub" id="my-main-machine"></div>
         </div>
         <div class="appbar__actions">
             <output class="live" id="live" aria-live="polite"><span class="live__dot" aria-hidden="true"></span><span id="live-text">Loading</span></output>
@@ -193,6 +195,17 @@
                 <div id="owner" class="owner"></div>
             </section>
 
+            <!-- Machines directly below Usage & pacing (the owner, 2026-11-14) -->
+            <section class="card card--machines span-full" aria-labelledby="machines-h">
+                <header class="card__head">
+                    <h2 id="machines-h">Machines</h2>
+                    <p class="card__meta" id="machines-meta"></p>
+                </header>
+                <ul id="machines" class="list list--grid"></ul>
+                <h3 class="card__sub" id="waiting-h" hidden>Waiting on away or asleep targets</h3>
+                <ul id="waiting" class="list" aria-labelledby="waiting-h"></ul>
+            </section>
+
             <section class="card card--attention span-full" aria-labelledby="attention-h">
                 <header class="card__head">
                     <h2 id="attention-h">Needs you</h2>
@@ -265,7 +278,7 @@
                 </section>
             </div>
 
-            <section class="card card--autopilot span-wide" aria-labelledby="autopilot-h">
+            <section class="card card--autopilot span-full" aria-labelledby="autopilot-h">
                 <header class="card__head">
                     <h2 id="autopilot-h">Autopilot</h2>
                     <p class="card__meta" id="autopilot-meta"></p>
@@ -276,17 +289,7 @@
                 <div id="autopilot" class="autopilot"></div>
             </section>
 
-            <section class="card span-narrow" aria-labelledby="machines-h">
-                <header class="card__head">
-                    <h2 id="machines-h">Machines</h2>
-                    <p class="card__meta" id="machines-meta"></p>
-                </header>
-                <ul id="machines" class="list"></ul>
-                <h3 class="card__sub" id="waiting-h" hidden>Waiting on away or asleep targets</h3>
-                <ul id="waiting" class="list" aria-labelledby="waiting-h"></ul>
-            </section>
-
-            <section class="card span-narrow" aria-labelledby="work-browser-h">
+            <section class="card span-full" aria-labelledby="work-browser-h">
                 <header class="card__head">
                     <h2 id="work-browser-h">Work browser</h2>
                     <p class="card__meta" id="work-browser-meta"></p>
@@ -343,7 +346,7 @@
                 </header>
                 <ul id="idle-warnings" class="list" aria-label="Idle while work waits"></ul>
                 <ul id="devices" class="list" aria-label="Android devices"></ul>
-                <div id="device-actions" class="row" aria-label="Pair or move devices"></div>
+                <div id="device-actions" class="row" role="group" aria-label="Pair or move devices"></div>
                 <div id="device-tools" aria-live="polite"></div>
                 <h3 class="card__sub">Pause or resume</h3>
                 <div id="pausable" aria-label="Machines, devices and agents to pause or resume, by category"></div>

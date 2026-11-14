@@ -105,34 +105,40 @@ def policy(cfg, project):
     return selfimprove.policy(cfg, project)
 
 
+def sentry_task(pol, r, it, enabled, now):
+    """One TUTTI-TASK line as a backlog task. The acceptance check is the repo's configured one: a command from the scout's
+    answer (which read attacker-influenced Sentry events) is only a hint for the worker, never run."""
+    project = pol['name']
+    notes = [f'From the Sentry triage of {project} ({r.get("url") or r["id"]}), severity {it["severity"]}.',
+             'First add a regression test that reproduces the issue and fails; then fix it so the test passes.']
+    if it['check']:
+        notes.append(f'The triage suggested this check (not run by Tutti; write your own test): {it["check"][:200]}')
+    t = backlog.new_task(pol['autopilot_repo'], it['title'], check='', source='sentry', notes=notes)
+    t.update(project=project, sentry=it['sentry'], severity=it['severity'], status='queued' if enabled else 'candidate',
+             pr_mode='ready', added=now)
+    return t
+
+
+def open_for(tasks, sentry_id):
+    return bool(sentry_id) and any(t.get('sentry') == sentry_id and t['status'] not in ('done', 'dropped') for t in tasks)
+
+
 def feed(cfg, r, enabled, now=None):
-    """Turns an answered Sentry watch into backlog tasks when its project opts in. Returns (added, why)."""
+    """Turns an answered Sentry watch into backlog tasks when its project opts in, one per Sentry issue, within the day's
+    room. Returns (added, why)."""
+    from . import selfimprove
     project = r.get('project')
-    now = now or time.time()
     items = parse(r.get('answer'))
     pol = policy(cfg, project) if project else None
     if not items:
         return 0, 'no TUTTI-TASK line'
-    if not pol or not pol['tasks'] or pol['autopilot_repo'] not in (cfg.get('autopilot') or {}).get('repos', {}):
+    if not selfimprove.may_add(pol, cfg)[0]:
         return 0, f'{project or "this project"} takes issues only (self_improve.tasks is off or no autopilot repo)'
-    added = 0
-    from . import selfimprove
+    now, added = now or time.time(), 0
     with backlog.locked(cfg) as data:
         room = selfimprove.room_today(data['tasks'], now, selfimprove.settings(cfg)['max_new_per_day'])
-        for it in items:
-            if added >= room:
-                break
-            if it['sentry'] and any(t.get('sentry') == it['sentry'] and t['status'] not in ('done', 'dropped') for t in data['tasks']):
-                continue   # one task per Sentry issue
-            notes = [f'From the Sentry triage of {project} ({r.get("url") or r["id"]}), severity {it["severity"]}.',
-                     'First add a regression test that reproduces the issue and fails; then fix it so the test passes.']
-            if it['check']:   # a hint for the worker only: a command from the scout's answer is never run (prompt injection)
-                notes.append(f'The triage suggested this check (not run by Tutti; write your own test): {it["check"][:200]}')
-            # the acceptance check is the repo's configured one: never a command taken from the triage text
-            t = backlog.new_task(pol['autopilot_repo'], it['title'], check='', source='sentry', notes=notes)
-            t.update(project=project, sentry=it['sentry'], severity=it['severity'], status='queued' if enabled else 'candidate',
-                     pr_mode='ready', added=now)
-            _t, was_new = backlog.add(data, t)
+        for it in [it for it in items if not open_for(data['tasks'], it['sentry'])][:room]:
+            _t, was_new = backlog.add(data, sentry_task(pol, r, it, enabled, now))
             added += int(was_new)
     return added, 'ok'
 

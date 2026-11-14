@@ -339,7 +339,7 @@ def release_ended(cfg, st, name):
     return f'self-improvement: the release of {name} failed (exit {rc}): read {log}; its fixes wait for the next one'
 
 
-def start_release(cfg, pol, name, now, spawn):
+def start_release(cfg, pol, name, spawn):
     path = ((cfg.get('autopilot') or {}).get('repos') or {}).get(pol['autopilot_repo'], {}).get('path')
     log, rc = release_files(cfg, name)
     if os.path.exists(rc):
@@ -368,7 +368,7 @@ def release(cfg, st, now, spawn=subprocess.Popen):
         ok, _why = may_release(pol, tried, len(waiting), now)
         if not ok:
             continue
-        log = start_release(cfg, pol, name, now, spawn)
+        log = start_release(cfg, pol, name, spawn)
         st.setdefault('releasing', {})[name] = {'at': now}
         telemetry.record('feature', 'selfimprove.release', fixes=len(waiting))
         events.append(f'self-improvement: release of {name} started with {len(waiting)} fix(es); log {log}')

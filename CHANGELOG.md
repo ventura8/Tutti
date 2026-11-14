@@ -2,6 +2,30 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.35 (2026-11-14)
+
+### Added
+
+- Several users in one household, increment 4 of 4 (docs/HOUSEHOLD.md). **One command to join:** `tutti household join
+  <invite-url>`, the link from the dashboard's Users card (docs/AUTH.md). It detects the main agent and the
+  subscriptions and asks only what it cannot, opens the invite to sign in with Google, waits for it (every 3 s, up to 2
+  minutes) and pairs: the member's identity is that Google user (`sub`, e-mail, name), the token is derived on both sides
+  from the invite and never travels, and the invite is used up. The admin's dashboard starts the household by itself
+  with the first invite. The Users card shows whether each person's Tutti joined and when it was last seen
+  (`household.members_by_sub`).
+- **Never on the internet** (`tutti/netpolicy.py`): the coordinator and the dashboard listen only on localhost or a
+  private, LAN or VPN address (RFC 1918, 100.64/10, fc00::/7, WireGuard interfaces); `household.bind: auto` (new
+  default) is localhost plus every LAN and VPN address; a public address or a wildcard is refused with the reason, in the
+  config check too; join codes and invites never name a public address. HOUSEHOLD.md says how members join over the VPN.
+- **The dashboard:** a **Me / Household** switch and the **Household** card (members with their main agent, who is
+  prompting, online or last seen, runs today; each shared machine's use per person, your share and its fairness;
+  whether the coordinator answers); a shared machine in **Machines** says who else it is busy for. Others' jobs are never
+  shown, only their names and counts.
+
+### Fixed
+
+- Jain's fairness index divided by zero when nobody got a slot (a paused machine).
+
 ## 0.1.34 (2026-11-14)
 
 ### Added

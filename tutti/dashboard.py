@@ -184,6 +184,9 @@ class Collector:
         out['scouts'] = {**scouts.view(self.cfg, accounts, self.env), 'error': probes.get('scout_error'), 'trial': trial.view(self.cfg)}
         out['controls'] = controls.view(self.cfg, controls.read(config.state_dir(self.cfg)))
         out['telemetry'] = dashtelemetry.view(self.cfg)
+        from . import sharing  # the household (docs/HOUSEHOLD.md): its members, shared machines' use per member, fairness
+        out['household'] = sharing.view(self.cfg, self.clock())
+        sharing.busy_for(out['machines']['items'], out['household'])
         out['controls']['opt_in'].append({'kind': 'autopilot', 'name': 'fill_room', 'on': out['autopilot']['fill_room'],
                                           'why': 'free room on the trigger accounts is filled from the repos\' sources by itself'})
         out['controls']['autocompact'] = autocompact.view(self.cfg)
@@ -639,6 +642,9 @@ def server(cfg, port, collector=None):
     if exposed(cfg) and not auth.enabled(cfg):
         raise AuthRequired('dashboard.bind or dashboard.origins lets others reach the dashboard, and sign-in is off: run '
                            '`tutti auth setup` first, or remove dashboard.bind and dashboard.origins to keep it on this computer')
+    if bind_of(cfg) not in LOOPBACK:   # a LAN or VPN address only: never the internet (tutti/netpolicy.py)
+        from . import netpolicy
+        netpolicy.check(bind_of(cfg), 'dashboard.bind')
     token = secrets.token_urlsafe(24)   # a new one per start: the page loaded from this server sends it back with a POST
     httpd = ThreadingHTTPServer((bind_of(cfg), port), make_handler(collector, token))
     httpd.token = token

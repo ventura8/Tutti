@@ -130,11 +130,12 @@ def sync(cfg, data, beat=None, client=None, now=0.0, run=subprocess.run):
         answer = client.call('/hh/sync', ask(cfg, data, keys, beat or {}))
     except (coordinator.Unreachable, household.HouseholdError) as e:
         telemetry.record('feature', 'household.sync', outcome='offline' if isinstance(e, coordinator.Unreachable) else 'refused')
+        fairshare.save_cache(config.state_dir(cfg), None, now or time.time(), error=str(e))
         return {'hold': offline_hold(data, keys, type(e).__name__), 'events': [], 'answer': None, 'error': str(e), 'keys': keys}
     telemetry.record('feature', 'household.sync', outcome='ok', projects=len(answer.get('projects') or {}),
                      machines=len(answer.get('machines') or {}))
     if answer.get('machines') is not None:
-        fairshare.save_cache(config.state_dir(cfg), answer['machines'], now or time.time())
+        fairshare.save_cache(config.state_dir(cfg), answer['machines'], now or time.time(), answer.get('status'))
         want = (beat or {}).get('machines') or {}
         limited = [n for n, m in answer['machines'].items()
                    if int(m.get('grant', 0)) < sum(int((want.get(n) or {}).get(k, 0)) for k in ('interactive', 'background'))]
@@ -371,3 +372,34 @@ def spare_hold(cfg, data):
     repos = cfg['autopilot']['repos']
     return {t['id']: 'another member\'s project: only room your accounts would lose at their reset does it (share_spare)'
             for t in data['tasks'] if t['status'] == 'queued' and (repos.get(t['repo']) or {}).get('spare')}
+
+
+# ---- the dashboard's household view (docs/DASHBOARD.md, *Household*)
+
+
+def view(cfg, now):
+    """The household as the dashboard shows it, from the last answer kept here (no call while the page loads): who is in
+    it, active and their main agent's kind, each shared machine's use per member and its fairness, whether the coordinator
+    answers. Of the others only aggregates and names: never their jobs, prompts or accounts."""
+    m = users.read_household()
+    me = users.identity(cfg)
+    if not m:
+        return {'role': 'alone', 'me': me['name'], 'main': me['main'], 'members': [], 'machines': {}}
+    cache = fairshare.read_cache(config.state_dir(cfg))
+    status = cache.get('status') or {}
+    fresh = now - (cache.get('at') or 0) <= fairshare.STALE_SECONDS
+    members = [{**{k: x.get(k) for k in ('name', 'agent', 'online', 'active', 'runs_today', 'last_seen')}, 'me': x['name'] == m.get('name')}
+               for x in status.get('members') or []]
+    return {'role': users.role(m), 'household': m.get('household'), 'me': m.get('name'), 'main': me['main'], 'reachable': fresh,
+            'error': cache.get('error') if not fresh else None, 'at': cache.get('at'), 'members': members,
+            'machines': cache.get('machines') or {}, 'admin': status.get('admin'), 'projects': status.get('projects') or {}}
+
+
+def busy_for(items, hh):
+    """The probed machine items with the household's use of each shared machine: who else it is busy for, by name only."""
+    for it in items:
+        m = (hh.get('machines') or {}).get(it['name'])
+        if m:
+            others = {n: k for n, k in (m.get('use') or {}).items() if n != hh.get('me')}
+            it['household_use'] = {'owner': m.get('owner'), 'grant': m.get('grant'), 'others': others, 'paused': m.get('paused')}
+    return items

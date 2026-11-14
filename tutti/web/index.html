@@ -21,6 +21,7 @@
     <script src="controls.js?v=__TUTTI_VERSION__" defer></script>
     <script src="qr.js?v=__TUTTI_VERSION__" defer></script>
     <script src="users.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="household.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
     <a class="skip" href="#main">Skip to the dashboard</a>
@@ -32,6 +33,10 @@
         </div>
         <div class="appbar__actions">
             <output class="live" id="live" aria-live="polite"><span class="live__dot" aria-hidden="true"></span><span id="live-text">Loading</span></output>
+            <span class="seg" role="group" aria-label="Show">
+                <button class="btn btn--text" type="button" data-view-pick="me" aria-pressed="true">Me</button>
+                <button class="btn btn--text" type="button" data-view-pick="household" aria-pressed="false">Household</button>
+            </span>
             <button class="btn btn--tonal" id="refresh" type="button" title="Refresh now (R)">Refresh</button>
             <button class="btn btn--filled" id="install" type="button" hidden>Install app</button>
             <span class="me" id="me" hidden></span>
@@ -63,6 +68,17 @@
                     <p class="card__meta" id="attention-meta"></p>
                 </header>
                 <ul id="attention" class="list list--grid"></ul>
+            </section>
+
+            <section class="card span-full" id="household-card" aria-labelledby="household-h">
+                <header class="card__head">
+                    <h2 id="household-h">Household</h2>
+                    <p class="card__meta" id="household-meta"></p>
+                </header>
+                <h3 class="card__sub" id="household-title"></h3>
+                <ul id="household-members" class="list list--grid" aria-label="Members"></ul>
+                <h3 class="card__sub">Shared machines</h3>
+                <ul id="household-machines" class="list" aria-label="Shared machines"></ul>
             </section>
 
             <section class="card card--running span-wide" aria-labelledby="running-h">

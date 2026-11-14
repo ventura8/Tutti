@@ -373,13 +373,134 @@ class CommandsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home, as_user(home):
             cfg = make_cfg(home, 'Ana')
             out = io.StringIO()
-            rc = householdcmd.cmd_household(cfg, SimpleNamespace(action='init', arg=[], name=None, host='mini.lan', port=4778), out,
+            rc = householdcmd.cmd_household(cfg, SimpleNamespace(action='init', arg=[], name=None, host='192.168.1.10', port=4778), out,
                                             io={'isatty': lambda: True, 'input': lambda _q: 'Casa'})
             self.assertEqual(rc, 0)
-            self.assertIn('tutti household join tutti-hh:mini.lan:4778:', out.getvalue())
+            self.assertIn('tutti household join tutti-hh:192.168.1.10:4778:', out.getvalue())
             self.assertEqual(users.identity(cfg)['role'], 'coordinator')
             again = householdcmd.cmd_household(cfg, SimpleNamespace(action='init', arg=[], name='x', host=None, port=None), out)
             self.assertEqual(again, 2)
+
+
+class InviteJoinTest(unittest.TestCase):
+    """The dashboard's admin (Ana, signed in with Google) invites Bo; Bo runs one command: `tutti household join <link>`."""
+
+    def setUp(self):
+        from tutti import auth, invites
+        self.clock = Clock()
+        self.ana_home, self.bo_home = tempfile.mkdtemp(), tempfile.mkdtemp()
+        self.ana, self.bo = make_cfg(self.ana_home, 'Ana'), make_cfg(self.bo_home, 'Bo')
+        self.folder = config.state_dir(self.ana)
+        self.users = auth.Users(self.folder, clock=self.clock)
+        self.users.sign_in({'sub': 'g-ana', 'email': 'ana@example.com', 'name': 'Ana B'})
+        self.invites = invites.Invites(self.folder, clock=self.clock)
+        self.token, _ = self.invites.create('viewer', by='g-ana')
+        self.link = invites.url('http://127.0.0.1:4777', self.token)
+        self.service = coordinator.Service(self.ana, self.clock)
+        self.httpd = coordinator.server(self.ana, port=0, bind='127.0.0.1', service=self.service)
+        import threading
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.addCleanup(lambda: (self.httpd.shutdown(), self.httpd.server_close()))
+        self.where = f'127.0.0.1:{self.httpd.server_address[1]}'
+        with as_user(self.ana_home):   # what the first invite join does on the admin's dashboard (one process per login)
+            self.founded = coordinator.founding(self.ana, self.clock())
+
+    def join(self, sign_in=True):
+        opened, slept = [], []
+
+        def sleep(_s):   # while the CLI waits, Bo signs in with Google on the invite page
+            slept.append(1)
+            if sign_in:
+                self.users.sign_in({'sub': 'g-bo', 'email': 'bo@example.com', 'name': 'Bo C'}, invite=self.token, invites=self.invites)
+            else:
+                self.clock.t += 61
+        with mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': os.path.join(self.bo_home, 'xdg')}):
+            answer = coordinator.join_invite(self.bo, self.link, 'cursor', ['cursor'], override=self.where, clock=self.clock,
+                                             sleep=sleep, open_fn=opened.append)
+            me = users.identity(self.bo)
+        return answer, me, opened, slept
+
+    def test_one_command_pairs_bo_with_his_google_identity(self):
+        self.assertEqual((self.founded['household'], self.founded['admin']), ("Ana's household", 'g-ana'))
+        with as_user(self.ana_home):
+            self.assertEqual((users.read_household()['role'], users.identity(self.ana)['id']), ('coordinator', 'g-ana'))
+        answer, me, opened, slept = self.join()
+        self.assertEqual((answer['sub'], answer['email'], answer['name']), ('g-bo', 'bo@example.com', 'Bo C'))
+        self.assertEqual((opened, len(slept)), ([self.link], 1))   # the link opened once, while nobody had signed in
+        self.assertEqual((me['id'], me['email'], me['role']), ('g-bo', 'bo@example.com', 'member'))
+        joined = household.members_by_sub(self.folder)
+        self.assertEqual(sorted(joined), ['g-ana', 'g-bo'])   # the Users card: "Tutti joined, last seen"
+        self.assertEqual(joined['g-bo']['agent'], 'cursor')
+        self.assertIn('household', self.invites.listing()[0]['used'])
+
+    def test_the_same_invite_cannot_join_twice_and_a_wrong_link_is_refused(self):
+        self.join()
+        with mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': os.path.join(tempfile.mkdtemp(), 'xdg')}):
+            with self.assertRaisesRegex(household.HouseholdError, 'already used'):
+                coordinator.join_invite(self.bo, self.link, 'cursor', [], override=self.where, clock=self.clock, sleep=lambda s: None)
+            with self.assertRaisesRegex(household.HouseholdError, 'not a Tutti invite link'):
+                coordinator.join_invite(self.bo, 'https://x.example/nope', 'cursor', [], override=self.where)
+
+    def test_nobody_signs_in_within_two_minutes(self):
+        with self.assertRaisesRegex(household.HouseholdError, 'sign in with Google'):
+            self.join(sign_in=False)
+
+    def test_the_cli_detects_the_agent_and_asks_nothing_it_can_detect(self):
+        from tutti import householdcmd
+        out = io.StringIO()
+        fake = mock.Mock(return_value={'household': 'Ana', 'name': 'Bo C', 'sub': 'g-bo', 'email': 'bo@example.com'})
+        with as_user(self.bo_home), mock.patch.object(householdcmd, 'detect_main', return_value='cursor'):
+            rc = householdcmd.join(self.bo, SimpleNamespace(arg=[self.link], name=None, host=None), out, {}, None, invite_fn=fake)
+        self.assertEqual(rc, 0)
+        self.assertIn('Joined "Ana" as Bo C (bo@example.com)', out.getvalue())
+        self.assertEqual(fake.call_args.args[2], 'cursor')
+
+    def test_detect_main_prefers_the_installed_config_agent_then_the_only_one(self):
+        from tutti import householdcmd
+        cfg = make_cfg(tempfile.mkdtemp(), 'Bo')
+        cfg['main']['agent'] = 'cursor'
+        self.assertEqual(householdcmd.detect_main(cfg, {}, which=lambda n: n == 'cursor-agent'), 'cursor')
+        cfg['main']['agent'] = 'claude'
+        self.assertEqual(householdcmd.detect_main(cfg, {}, which=lambda n: n == 'gemini'), 'gemini')
+        asked = householdcmd.detect_main(cfg, {'isatty': lambda: True, 'input': lambda q: 'codex'},
+                                         which=lambda n: n in ('gemini', 'codex'))
+        self.assertEqual(asked, 'codex')
+
+
+HOUSEHOLD_JS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tutti', 'web', 'household.js')
+
+
+def js(expr):
+    import json
+    with open(HOUSEHOLD_JS, encoding='utf8') as f:
+        src = f.read()
+    out = subprocess.run(['node', '-e', f'{src}\nconsole.log(JSON.stringify({expr}));'], capture_output=True, text=True, check=True)
+    return json.loads(out.stdout)
+
+
+@unittest.skipUnless(__import__('shutil').which('node'), 'node is not installed')
+class DashboardHouseholdTest(unittest.TestCase):
+    STATE = {'role': 'member', 'household': 'Ana\'s household', 'me': 'Bo', 'reachable': True, 'at': 1000,
+             'members': [{'name': 'Ana', 'agent': 'claude', 'active': True, 'online': True, 'runs_today': 4},
+                         {'name': 'Bo', 'agent': 'cursor', 'active': False, 'online': True, 'runs_today': 1, 'me': True}],
+             'machines': {'pc': {'owner': 'Ana', 'slots': 4, 'use': {'Ana': 3, 'Bo': 1}, 'grant': 1, 'fairness': 0.9}}}
+
+    def test_members_show_their_main_agent_and_who_is_prompting(self):
+        r = js(f'householdRows({__import__("json").dumps(self.STATE)}, 1010000)')
+        self.assertEqual([(m['name'], m['agent'], m['state']) for m in r['members']],
+                         [('Ana', 'Claude Code', 'prompting now'), ('Bo (you)', 'Cursor', 'online')])
+        self.assertIn('Ana 3, you 1', r['machines'][0]['note'])
+        self.assertIn('fairness 90 %', r['machines'][0]['note'])
+
+    def test_offline_and_alone_say_what_to_do(self):
+        r = js(f'householdRows({__import__("json").dumps({**self.STATE, "reachable": False, "error": "timeout"})})')
+        self.assertIn('working alone', r['note'])
+        self.assertIn('Invite someone', js('householdRows({role: "alone"})')['note'])
+
+    def test_others_jobs_show_only_as_busy_for(self):
+        m = {'household_use': {'owner': 'Ana', 'grant': 1, 'others': {'Ana': 3}}}
+        self.assertEqual(js(f'busyFor({__import__("json").dumps(m)})'), 'household: busy for Ana (3) · your share 1')
+        self.assertEqual(js('busyFor({})'), '')
 
 
 if __name__ == '__main__':

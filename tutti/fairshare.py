@@ -93,6 +93,8 @@ def jain(alloc, demands):
     xs = [alloc.get(u, 0) / d for u, d in demands.items() if d > 0]
     if not xs:
         return None
+    if not any(xs):   # nobody got anything (a paused machine): equally so
+        return 1.0
     return round(sum(xs) ** 2 / (len(xs) * sum(x * x for x in xs)), 3)
 
 
@@ -117,11 +119,16 @@ def cache_path(folder):
     return os.path.join(folder, 'household', 'grants.json')
 
 
-def save_cache(folder, machines, now):
+def save_cache(folder, machines, now, status=None, error=None):
+    """The last answer this member had (the grants, and the household's status for the dashboard); a failed call keeps
+    them and records why."""
     os.makedirs(os.path.dirname(cache_path(folder)), exist_ok=True)
+    old = read_cache(folder)
+    data = ({**old, 'error': error, 'error_at': now} if error else
+            {'at': now, 'machines': machines, 'status': status if status is not None else old.get('status'), 'error': None})
     tmp = f'{cache_path(folder)}.{os.getpid()}.tmp'
     with open(tmp, 'w', encoding='utf8') as f:
-        json.dump({'at': now, 'machines': machines}, f)
+        json.dump(data, f)
     os.replace(tmp, cache_path(folder))
 
 

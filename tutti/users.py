@@ -189,9 +189,10 @@ def identity(cfg, env=None):
     """{name, id, hash, main, role, household, shares, weight}: who this Tutti works for."""
     folder = config.state_dir(cfg)
     saved = read(folder)
-    uid = user_id(folder)
     membership = read_household(env)
-    return {'name': name_of(cfg, saved), 'id': uid, 'hash': id_hash(uid), 'main': (cfg.get('main') or {}).get('agent'),
+    uid = membership.get('sub') or user_id(folder)   # joined with an invite: the household's identity is the Google user
+    return {'name': name_of(cfg, saved), 'id': uid, 'email': membership.get('email'), 'hash': id_hash(uid),
+            'main': (cfg.get('main') or {}).get('agent'),
             'role': role(membership), 'household': membership.get('household') or None, 'shares': shares(cfg, saved),
             'weight': (cfg.get('user') or {}).get('weight', 1)}
 
@@ -241,7 +242,8 @@ def worker_for(cfg, kind):
     for n, w in cfg['workers'].items():
         w = w or {}
         prog = os.path.basename(str((w.get('command') or [''])[0]))
-        if (kind == 'local' and w.get('kind') == 'ollama') or n == kind or prog in names or any(n.startswith(x) for x in names):
+        local = kind == 'local' and w.get('kind') == 'ollama'
+        if local or n == kind or prog in names or any(n.startswith(x) for x in names):
             return n
     return None
 
@@ -296,6 +298,9 @@ def errors(cfg):
         v = h.get(key, lo)
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
             errs.append(f'household.{key} is {v!r}: a number from {lo:g} to {hi:g}')
+    from . import netpolicy  # never a public address or a wildcard (docs/HOUSEHOLD.md, *Network*)
+    errs += netpolicy.errors('household.bind', h.get('bind', 'auto'))
+    errs += netpolicy.errors('dashboard.bind', (cfg.get('dashboard') or {}).get('bind'))
     for n, a in cfg['accounts'].items():
         v = (a or {}).get('share_spare', False)
         if not isinstance(v, bool):

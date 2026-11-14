@@ -581,3 +581,9 @@ body[data-role='viewer'] [data-admin],
 body[data-role='viewer'] .btn:not(.more):not(.btn--text):not(#refresh):not(#install):not(#signout):not(.view-ok),
 body[data-role='viewer'] form.reading, body[data-role='viewer'] #main-form, body[data-role='viewer'] #autocompact-form { display: none !important; }
 [hidden] { display: none !important; }
+
+/* The Me / Household view (household.js): the household card and others' use of shared machines only in Household. */
+.seg { display: inline-flex; gap: 2px; }
+.seg [aria-pressed="true"] { font-weight: 600; text-decoration: underline; text-underline-offset: 4px; }
+body:not([data-view="household"]) #household-card,
+body:not([data-view="household"]) .household-only { display: none; }

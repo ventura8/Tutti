@@ -35,6 +35,15 @@ loads its code as `app.js?v=<version>` and the worker matches those exactly, so 
 new page. It remembers that reload per tab (`sessionStorage`): if the page is still old after
 it, or the browser blocks storage, it never reloads again and says how to reload by hand (`web/update.js`).
 
+## Me and Household
+
+The bar's **Me / Household** switch (remembered per browser): **Me** shows this user's own setup; **Household** adds the
+**Household** card under *Needs you* (the members, each one's main agent, who is prompting now, online or last seen,
+runs today; each shared machine with its use per person, this user's share and its fairness; whether the coordinator
+answers) and, on each shared machine in **Machines**, who else it is busy for ("busy for Ana (3)"). Of other people only
+names and counts are shown: never their jobs, prompts, accounts or readings. The card reads the last answer this computer
+had from the coordinator (`<state>/household/grants.json`), so the page never waits on the network (docs/HOUSEHOLD.md).
+
 ## Layout
 
 The cards go by importance, top to bottom, on a 12-column grid whose rows fill their width, so no card stands tall and

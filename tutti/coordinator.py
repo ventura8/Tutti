@@ -16,7 +16,7 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import config, fairshare, household, telemetry, users
+from . import config, fairshare, household, netpolicy, telemetry, users
 
 FOLDER = 'household'
 FILE = 'coordinator.json'
@@ -58,16 +58,25 @@ def save(path, data):
     users._write(path, data, users.SECRET_MODE)
 
 
-def lan_address():
-    """This computer's address on the LAN (the route a packet to a public address would take; nothing is sent)."""
+def lan_address(ifaces=None):
+    """This computer's address on the LAN or the VPN that members reach it at: the address of its default route when that
+    is private, else its first LAN or VPN address; never a public one (tutti/netpolicy.py)."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(('192.0.2.1', 9))   # TEST-NET-1: never routed; connect() on UDP only picks the interface
-        return s.getsockname()[0]
+        route = s.getsockname()[0]
     except OSError:
-        return '127.0.0.1'
+        route = ''
     finally:
         s.close()
+    ifaces = netpolicy.interfaces() if ifaces is None else ifaces
+    if route and netpolicy.private(route, netpolicy.vpn_addresses(ifaces)):
+        return route
+    found = netpolicy.private_addresses(ifaces)
+    if not found:
+        raise household.HouseholdError('this computer has no LAN or VPN address members could reach (only a public one, '
+                                       f'or none): {netpolicy.WHY}. Connect it to the LAN or the household VPN first')
+    return found[0]
 
 
 def new_code(data, host, port, now):
@@ -84,6 +93,8 @@ def init(cfg, name, host=None, port=None, clock=time.time):
         raise household.HouseholdError('this login is already in a household: `tutti household leave` first, or '
                                        '`tutti household code` for a new join code')
     port = port or cfg['household']['port']
+    if host:
+        netpolicy.check(host, 'the join code\'s address (--host)')
     host = host or lan_address()
     now = clock()
     data = household.new_state(name, now)   # a fresh household: an old coordinator file's members and tokens are gone
@@ -107,6 +118,44 @@ def set_port(cfg, port):
         save(state_path(cfg), data)
 
 
+def invite_join(body):
+    try:
+        return bool(json.loads(body or b'{}').get('invite'))
+    except (ValueError, AttributeError):
+        return False
+
+
+def auth_on(cfg):
+    """Whether this computer's dashboard signs people in with Google (docs/AUTH.md): its admin's invites can then add
+    household members, and the dashboard serves the household with no `household init`."""
+    try:
+        from . import auth
+    except ImportError:
+        return False
+    return auth.enabled(cfg)
+
+
+def founding(cfg, now):
+    """The household the dashboard's admin starts by inviting someone: named after the admin, this login its coordinator
+    and the admin (by their Google identity) its first member. Returns the state."""
+    from . import auth
+    folder = config.state_dir(cfg)
+    admins = sorted((u.get('created') or 0, sub, u) for sub, u in auth.Users(folder).all().items() if u.get('role') == 'admin')
+    sub, who = (admins[0][1], admins[0][2]) if admins else (users.identity(cfg)['id'], {})
+    first = (who.get('name') or users.identity(cfg)['name']).split()[0][:24]
+    data = household.new_state(f'{first}\'s household' if not users.name_error(first) else 'home', now)
+    token = secrets.token_hex(32)
+    final = household.join(data, sub, users.id_hash(sub), first if not users.name_error(first) else 'admin',
+                           telemetry.tool_of((cfg.get('main') or {}).get('agent') or ''), token, now)
+    data['members'][sub].update(email=who.get('email'), sub=sub)
+    data['admin'] = sub
+    save(state_path(cfg), data)
+    users.write_household({'household': data['household'], 'coordinator': f'127.0.0.1:{cfg["household"]["port"]}',
+                           'user_id': sub, 'sub': sub, 'email': who.get('email'), 'name': final, 'token': token,
+                           'role': 'coordinator', 'joined': now})
+    return data
+
+
 # ---- the service
 
 
@@ -125,6 +174,8 @@ class Service:
         """(status, answer) of a POST."""
         with self.lock:
             data = load(self.path)
+            if not data and path == JOIN and invite_join(body):
+                data = founding(self.cfg, self.clock())   # the dashboard's admin invited someone: the household starts here
             if not data:
                 return 503, {'error': 'this computer is not a household coordinator: run `tutti household init` here'}
             now = self.clock()
@@ -159,6 +210,8 @@ class Service:
     def join(self, data, headers, body, addr, now):
         if self.join_blocked(addr, now):
             return 429, {'error': 'too many wrong join codes from this computer: wait an hour, or ask for a new code'}
+        if invite_join(body):
+            return self.join_invite(data, headers, body, addr, now)
         code = data.get('code') or {}
         if not code.get('secret') or code.get('until', 0) < now:
             return 403, {'error': 'the join code expired: run `tutti household code` on the coordinator for a new one'}
@@ -177,6 +230,37 @@ class Service:
         token = household.derive_token(code['secret'], uid, nonce, server_nonce)
         final = household.join(data, uid, users.id_hash(uid), ask['name'], str(ask.get('agent') or '')[:32], token, now)
         return 200, {'household': data['household'], 'nonce': server_nonce, 'name': final}
+
+    def join_invite(self, data, headers, body, addr, now):
+        """A join with the dashboard's invite (docs/AUTH.md): proved with the secret both sides derive from the invite; the
+        member is the Google user who signed in with that invite, so it answers 428 until someone has."""
+        from . import auth, invites
+        ask = json.loads(body or b'{}')
+        ident, nonce = str(ask.get('invite') or ''), str(ask.get('nonce') or '')
+        folder = config.state_dir(self.cfg)
+        inv = invites.Invites(folder, clock=self.clock)
+        try:
+            secret = inv.household_secret_for(ident)
+        except invites.InviteError as e:
+            self.join_fails.setdefault(addr, []).append(now)
+            return 403, {'error': str(e)}
+        why = household.check_signed(secret, 'POST', JOIN, headers.get('X-Tutti-Time'), headers.get('X-Tutti-Nonce'), body,
+                                     headers.get('X-Tutti-Sign'), now, data.setdefault('nonces', {}))
+        if why or len(nonce) != 32:
+            self.join_fails.setdefault(addr, []).append(now)
+            return 403, {'error': f'the invite link was not proved: copy the whole link again ({why or "incomplete request"})'}
+        sub = inv.signed_in_with(ident)
+        if not sub:
+            return 428, {'error': 'sign in with Google on the invite page first (it opened in your browser)', 'waiting': True}
+        user = auth.Users(folder, clock=self.clock).get(sub) or {}
+        server_nonce = secrets.token_hex(16)
+        token = household.derive_token(secret, sub, nonce, server_nonce)
+        name = (user.get('name') or (user.get('email') or 'member').split('@')[0])[:32]
+        name = name if not users.name_error(name) else 'member'
+        final = household.join(data, sub, users.id_hash(sub), name, str(ask.get('agent') or '')[:32], token, now)
+        data['members'][sub].update(email=user.get('email'), sub=sub, accounts=[str(x)[:32] for x in ask.get('accounts') or []][:20])
+        inv.redeem(ident, 'household', sub=sub)
+        return 200, {'household': data['household'], 'nonce': server_nonce, 'name': final, 'sub': sub, 'email': user.get('email')}
 
     def member_call(self, data, uid, path, ask, now):
         if path == '/hh/sync':
@@ -265,28 +349,47 @@ def make_handler(service):
     return Handler
 
 
-def server(cfg, port=None, bind=None, service=None, clock=time.time):
-    """The coordinator's HTTP server (not started: call serve_forever())."""
+def server(cfg, port=None, bind=None, service=None, clock=time.time, ifaces=None):
+    """One HTTP server of the coordinator on `bind` (checked: never a public address or a wildcard). Not started."""
+    bind = bind or '127.0.0.1'
+    if not bind.startswith('127.'):
+        netpolicy.check(bind, 'household.bind', ifaces)
     service = service or Service(cfg, clock)
-    httpd = ThreadingHTTPServer((bind or cfg['household']['bind'], cfg['household']['port'] if port is None else port),
-                                make_handler(service))
+    httpd = ThreadingHTTPServer((bind, cfg['household']['port'] if port is None else port), make_handler(service))
     httpd.daemon_threads = True
     httpd.service = service
     return httpd
+
+
+def servers(cfg, port=None, service=None, clock=time.time, ifaces=None):
+    """The coordinator on every address `household.bind` allows (auto: localhost and each LAN and VPN address of this
+    computer), sharing one service; a public bind raises netpolicy.PublicAddress before anything listens."""
+    addrs = netpolicy.binds(cfg['household'].get('bind', 'auto'), 'household.bind', ifaces)
+    service = service or Service(cfg, clock)
+    out = []
+    for a in addrs:
+        try:
+            out.append(server(cfg, port if not out else out[0].server_address[1], a, service, clock, ifaces))
+        except OSError:
+            if not out:
+                raise
+    return out
 
 
 def start_in_background(cfg):
     """The dashboard of the coordinator's computer serves the household too; None when this login is not the coordinator
     or its port is taken (then `tutti household serve` is probably running)."""
     m = users.read_household()
-    if m.get('role') != 'coordinator':
-        return None
+    if m.get('role') != 'coordinator' and (m or not auth_on(cfg)):
+        return None   # a member, or a household of one without sign-in: nothing to serve
+    port = int(m['coordinator'].rsplit(':', 1)[1]) if m.get('coordinator') else cfg['household']['port']
     try:
-        httpd = server(cfg, int(m['coordinator'].rsplit(':', 1)[1]))
+        all_ = servers(cfg, port)
     except OSError:
         return None
-    threading.Thread(target=httpd.serve_forever, name='tutti-household', daemon=True).start()
-    return httpd
+    for httpd in all_:
+        threading.Thread(target=httpd.serve_forever, name='tutti-household', daemon=True).start()
+    return all_
 
 
 # ---- the member's client
@@ -334,6 +437,7 @@ def join(cfg, code, name, agent, client_fn=Client, clock=time.time):
     if users.read_household():
         raise household.HouseholdError('this login is already in a household: `tutti household leave` first')
     host, port, secret = household.parse_code(code)
+    netpolicy.check(host, 'the join code\'s address')
     me = users.identity(cfg)
     nonce = secrets.token_hex(16)
     c = client_fn({'coordinator': f'{host}:{port}'}, timeout=max(5.0, float(cfg['household']['timeout_seconds'])), clock=clock)
@@ -342,6 +446,61 @@ def join(cfg, code, name, agent, client_fn=Client, clock=time.time):
     users.write_household({'household': answer['household'], 'coordinator': f'{host}:{port}', 'user_id': me['id'],
                            'name': answer['name'], 'token': token, 'role': 'member', 'joined': clock()})
     return answer
+
+
+INVITE_WAIT = 120     # seconds `household join <invite-url>` waits for the Google sign-in in the browser
+INVITE_POLL = 3
+
+
+def coordinator_of(origin, cfg, override=None):
+    """host:port of the household coordinator behind an invite's dashboard origin: the same host, household.port."""
+    if override:
+        return override if ':' in override else f'{override}:{cfg["household"]["port"]}'
+    return f'{urllib.parse.urlsplit(origin).hostname}:{cfg["household"]["port"]}'
+
+
+def join_invite(cfg, link, agent, accounts, override=None, client_fn=Client, clock=time.time, sleep=time.sleep, open_fn=None,
+                say=None):
+    """`tutti household join <invite-url>`: the join proved with the secret derived from the invite (the token never
+    travels); while nobody has signed in with the invite, the link opens in the browser and the join is asked again every
+    3 s for up to 2 minutes. The membership is saved (600) with the Google identity the coordinator names."""
+    from . import invites
+    if users.read_household():
+        raise household.HouseholdError('this login is already in a household: `tutti household leave` first')
+    try:
+        origin, token = invites.parse_url(link)
+    except invites.InviteError as e:
+        raise household.HouseholdError(str(e)) from e
+    where = coordinator_of(origin, cfg, override)
+    netpolicy.check(where.rsplit(':', 1)[0].strip('[]'), 'the invite\'s household address')
+    c = client_fn({'coordinator': where}, timeout=max(5.0, float(cfg['household']['timeout_seconds'])), clock=clock)
+    opened, start = False, clock()
+    while True:
+        nonce = secrets.token_hex(16)
+        try:
+            answer = c.post(JOIN, {'invite': invites.invite_id(token), 'nonce': nonce, 'agent': agent, 'accounts': accounts},
+                            invites.household_secret(token))
+            break
+        except household.HouseholdError as e:
+            if 'sign in with Google' not in str(e) or clock() - start > INVITE_WAIT:
+                raise
+            if not opened:
+                (say or (lambda m: None))('sign in with Google in the page that opened (the invite link); waiting...')
+                (open_fn or _open_browser)(link)
+                opened = True
+            sleep(INVITE_POLL)
+    tok = household.derive_token(invites.household_secret(token), answer['sub'], nonce, answer['nonce'])
+    users.write_household({'household': answer['household'], 'coordinator': where, 'user_id': answer['sub'], 'sub': answer['sub'],
+                           'email': answer.get('email'), 'name': answer['name'], 'token': tok, 'role': 'member', 'joined': clock()})
+    return answer
+
+
+def _open_browser(link):
+    import webbrowser
+    try:
+        webbrowser.open(link)
+    except webbrowser.Error:
+        pass
 
 
 def client_of(cfg, membership=None):

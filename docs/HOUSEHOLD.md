@@ -78,7 +78,8 @@ The dashboard says "household coordinator not reachable since 14:02: working alo
 
 ## Auth and the threat model
 
-- **Join code.** `tutti household init` prints a code like `tutti-hh:mini.lan:4778:7KQ2-M9XD-4TRW-P3ZA-HB6E-YN5C`
+- **Invite** (with the dashboard's sign-in, the usual way): see *Joining with an invite* above.
+- **Join code** (without sign-in). `tutti household init` prints a code like `tutti-hh:mini.lan:4778:7KQ2-M9XD-4TRW-P3ZA-HB6E-YN5C`
   (the coordinator's address and a 120-bit secret). It is shown once, valid 7 days (`household code` makes a new one and
   ends the old), and is read off the screen or sent by the person, never by Tutti.
 - **Per-user token, never sent.** `tutti household join <code>` sends its name, its main agent and a random nonce, signed
@@ -93,7 +94,7 @@ The dashboard says "household coordinator not reachable since 14:02: working alo
   name, main agent's *kind*, active or not, a 7 x 24 activity profile (0 to 1 per hour, not prompts), running jobs as
   counts per shared machine, per-user totals, the shared projects' task titles (already visible to every member of that
   project) and lease keys. Never a prompt, brief, diff, log, path, reading of an account, account name or credential.
-  A household that wants encryption on the wire runs the coordinator behind its VPN or `tutti tunnel`.
+  A household that wants encryption on the wire has its members reach it over the household VPN (WireGuard, Tailscale).
 - **Who sees what.** A member sees its own everything, and of the household only: who is a member and active, each shared
   machine's slots used per user, the per-user totals (runs today, minutes on shared machines) and the fairness. Another
   member's jobs show as "busy for Bo". The coordinator's own login can read its state folder: the shared backlogs and the
@@ -102,6 +103,45 @@ The dashboard says "household coordinator not reachable since 14:02: working alo
   take it back out (`household machine unshare`); the coordinator's admin (the member who ran `init`) may pause any shared
   machine and remove a member. When the admin leaves, the longest-standing member who stays becomes the admin. Every member can stop their own use of any machine, and the yield, pause and heat flags
   of a machine are respected by everyone's routing as today.
+
+## Network: LAN or VPN, never the internet
+
+The owner's rule: a household's dashboard and coordinator are never exposed to the internet; people use them on the LAN,
+or from elsewhere through the household VPN. `tutti/netpolicy.py` enforces it for the coordinator, the dashboard and
+`tutti mcp --http`:
+
+- They may listen only on localhost or a private, LAN or VPN address: RFC 1918 (10/8, 172.16/12, 192.168/16), CGNAT
+  100.64.0.0/10 (Tailscale), IPv6 ULA fc00::/7, or any address of a WireGuard (or Tailscale, ZeroTier, Nebula) interface.
+- `household.bind: auto` (the default) listens on localhost and each LAN and VPN address of this computer (not on a
+  container bridge). A wildcard (`0.0.0.0`, `::`) would include a public interface and is refused, like a public address:
+  the command stops and says why and which addresses it may use. `tutti config` names such a setting too.
+- Join codes and invite links name a LAN or VPN address only; `tutti household join` refuses a public one before it sends
+  anything. Tutti never offers a public tunnel or a port forward.
+
+**A member away from home** joins and works through the household VPN: put the coordinator's computer and theirs on the
+VPN (e.g. Tailscale or WireGuard), and make the invite from the dashboard's VPN address (its `dashboard.origins` entry);
+`tutti household join <invite-url>` then reaches the coordinator at that address. On the LAN nothing else is needed.
+
+## Joining with an invite (the dashboard's sign-in)
+
+When the dashboard signs people in with Google (docs/AUTH.md), its **Users** card's **Invite someone** makes the one link
+a new member needs; the household starts by itself on the admin's dashboard with the first one (no `household init`).
+The new member, in their own login:
+
+```bash
+tutti household join https://<dashboard on the LAN or VPN>/invite#<code>
+```
+
+1. Their Tutti detects their main agent (the config's when it is installed, else the only agent installed; it asks only
+   when several are installed) and their subscriptions (the kinds of their accounts), and sends the invite's id, proved
+   with a secret both sides derive from the invite (the invite's code itself never travels).
+2. Until someone has signed in with that invite, the coordinator answers "sign in first": the link opens in their
+   browser, they sign in with Google, and the join is asked again every 3 s (up to 2 minutes). Done in under a minute.
+3. Their household identity is that Google user (`sub` and e-mail), not a separate id; their name comes from it. The
+   coordinator ties the membership to the invite's sign-in and uses the invite up for joining.
+
+The **Users** card then shows, for each person, whether their Tutti joined and when their computer was last seen
+(`household.members_by_sub`). The older `tutti-hh:` join code still works.
 
 ## Same project, several users
 
@@ -265,4 +305,4 @@ a user is named by `user` = the first 12 hex digits of `SHA-256("tutti-user:" + 
 | 1 (0.1.29) | the user model (`tutti user`, the hashed id, `share_spare`), per-user state, the single-user migration, this design |
 | 2 (0.1.31) | the coordinator, `household init\|join\|status\|leave\|code`, signed requests, leases with heartbeats, shared backlogs and dedupe |
 | 3 (0.1.34) | fair shares of shared machines in routing and the autopilot, the household plan from every member's profile, `share_spare` |
-| 4 | the dashboard: **Me / Household**, the household card, others' jobs as "busy for <user>" |
+| 4 (0.1.35) | joining with the dashboard's invite and Google identity, LAN or VPN only (`netpolicy`); the dashboard: **Me / Household**, the household card, others' jobs as "busy for <user>" |

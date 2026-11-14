@@ -407,9 +407,15 @@ def machines_view(state, user_id):
                 use[mm['name']] = running
         out[name] = {**{k: m.get(k) for k in MACHINE_KEYS}, 'owner': holder_name(state, m['owner']), 'mine': m['owner'] == user_id,
                      'grant': (g.get('grants') or {}).get(user_id, 0), 'capacity': g.get('capacity', m['slots']), 'use': use,
+                     'fairness': _fairness(g),
                      'paused': bool(m.get('paused')),
                      'paused_by': holder_name(state, m['paused']['by']) if m.get('paused') else None}
     return out
+
+
+def _fairness(g):
+    from tutti import fairshare
+    return fairshare.jain(g.get('grants') or {}, g.get('demand') or {})
 
 
 def clean_demand(raw, shared):
@@ -422,3 +428,22 @@ def clean_demand(raw, shared):
         if d.get('capacity') is not None:
             out[name]['capacity'] = max(0, min(256, int(d['capacity'])))
     return out
+
+
+# ---- the dashboard's Users card (docs/AUTH.md, *The interface for the household*)
+
+
+def members_by_sub(state_dir):
+    """{Google sub: {joined, last_seen, agent, online}} of the members who joined with an invite, read from this login's
+    coordinator state (empty when this computer is not the coordinator)."""
+    import json
+    import time
+    try:
+        with open(os.path.join(state_dir, 'household', 'coordinator.json'), encoding='utf8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    now = time.time()
+    return {m['sub']: {'joined': m.get('joined'), 'last_seen': m.get('last_seen'), 'agent': m.get('agent'),
+                       'online': now - (m.get('last_seen') or 0) <= SEEN_MINUTES * 60}
+            for m in (data.get('members') or {}).values() if m.get('sub') and not m.get('left')}

@@ -5,7 +5,7 @@
 const CACHE = 'tutti-shell-__TUTTI_VERSION__';
 const V = '?v=__TUTTI_VERSION__';   // the page loads its code with the release in the URL (index.html)
 // the page itself is not precached: with sign-in on it carries the session's CSRF token (it is kept only when not no-store)
-const SHELL = [`app.css${V}`, `telemetry.js${V}`, `update.js${V}`, `attention.js${V}`, `app.js${V}`, `controls.js${V}`, `qr.js${V}`, `users.js${V}`, 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
+const SHELL = [`app.css${V}`, `telemetry.js${V}`, `update.js${V}`, `attention.js${V}`, `app.js${V}`, `controls.js${V}`, `qr.js${V}`, `users.js${V}`, `household.js${V}`, 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
     'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {

@@ -99,3 +99,21 @@ Lessons that drove it: LESSONS.md (Gemini CLI free tier closed → agy; agy head
 - One install, both parts (owner, 2026-11-14): the one-line installer also installs the PWA — it starts the local service, then opens the app's URL in the default Chromium browser in install mode (`--app=` / a first-run page with the browser's install prompt), creates a desktop/start-menu shortcut that launches the app window (Windows: Start menu + desktop .lnk to `msedge --app`/`chrome --app`; Linux: a .desktop entry; macOS: an app shortcut via Chrome's `--app` or Safari "Add to Dock" guidance), and registers the service to start at login. Uninstall removes the shortcut too. Mobile devices install the PWA from the same page by scanning a QR code shown on the desktop.
 - The chat (owner, 2026-11-14): a prompt queue (queue, reorder, edit or delete prompts not yet sent; send now; send later at a time or when a condition holds — e.g. after the reset, when a task finishes); switch the main agent and the effort level per message or per conversation; and everything a 2026 AI IDE chat needs: @-mentions of files, tasks, agents and machines; attachments and screenshots; slash commands; branch/fork a conversation; message history with search; diff previews and apply/reject; inline task cards with live status; voice input; per-message cost and tokens; stop/retry/regenerate; drafts kept across sessions; keyboard-first, works on phone.
 - Reset moments are user-editable (owner, 2026-11-14): for every account and window (weekly, monthly, rolling 5 h) the user can set or change the reset day/time and time zone in Settings, the TUI and `tutti usage set-reset <account> <when>`; auto-detected values (e.g. Claude's get_usage) are shown as suggestions the user can override; pacing, panic thresholds and the daily target recompute at once.
+
+## Ideas borrowed from the best AI dev tools (2026)
+- Worktree per task with one-click review: side-by-side diff, accept/reject hunks, run tests, then merge or discard (Conductor, Orca, Emdash).
+- Plan mode: the agent proposes a plan, the user edits/approves it before any edit; plans saved with the task.
+- Checkpoints and rewind: snapshot files before every agent edit; roll back a task or a single step.
+- Best-of-N: run the same task on 2–3 workers in parallel, compare results and test verdicts, keep the best (cost-capped).
+- Background/cloud agents for long tasks, with notifications (desktop, phone push) when a task needs input or finishes.
+- Codebase index and semantic search shared by all agents (one index, no re-reading files per agent) to save tokens.
+- Project memory/rules files (AGENTS.md/CLAUDE.md) managed and synced for every agent; lessons captured automatically from failures.
+- Hooks: run formatters, tests or policies before/after agent actions; pre-push gates.
+- Issue/PR integration: start a task from a GitHub issue, open the PR, request AI reviews, resolve threads, merge (with the repo's rules).
+- Review agent: an independent reviewer pass on every diff before merge (different model than the author).
+- Spec-driven tasks: requirements → design → tasks checklist the agents tick off (Kiro-style).
+- Cost guardrails: per-task and per-day budgets, a hard stop, and "cheapest worker that passes" routing.
+- Session replay and audit log: who/what changed which file, with prompts and outputs, searchable.
+- Templates/recipes: reusable task recipes (add a feature + tests + docs; fix a CI gate; translate with QA).
+- Secrets safety: never send secrets to agents; redact in logs; detect leaks before push.
+- Offline/local-first mode: everything runs with local models when the network or quotas are gone.

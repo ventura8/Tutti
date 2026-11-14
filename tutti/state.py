@@ -188,7 +188,7 @@ def wait_jobs(folder, now, stall, is_alive):
     return out
 
 
-def pid_jobs(folder, now, is_alive):
+def pid_jobs(folder, is_alive):
     """Local-model jobs (llm-busy-<pid>) and tunnels (tunnel-<worker>.pid) that are running now."""
     out = []
     for path in glob.glob(os.path.join(folder, 'llm-busy-*')):
@@ -222,7 +222,7 @@ def jobs_state(cfg, now, is_alive=alive):
     items = [log_job(p, 'quiet', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'quiet', '*.log'))]
     items += [log_job(p, 'ship', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'ship-*.log'))]
     items += wait_jobs(os.path.join(folder, 'waits'), now, stall, is_alive)
-    items += pid_jobs(folder, now, is_alive)
+    items += pid_jobs(folder, is_alive)
     items.sort(key=lambda j: (ORDER.get(j['status'], 9), -(datetime.fromisoformat(j['updated']).timestamp() if j['updated'] else 0)))
     return {'folder': folder, 'stall_seconds': stall, 'items': items[:MAX_JOBS], 'total': len(items)}
 

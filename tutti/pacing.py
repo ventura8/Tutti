@@ -88,6 +88,7 @@ def latest(entries, account, since=None):
     return best
 
 
+NO_READING = 'no reading'
 PANIC_AT = 95  # percent of the whole quota: at or over it before the target time, the account is in panic mode
 
 
@@ -123,7 +124,7 @@ def account_state(name, a, entries, now):
                readings=readings(entries, name, start))
     e = latest(entries, name, start)
     if not e:
-        return {**out, 'state': 'no reading', 'verdict': 'no reading',
+        return {**out, 'state': NO_READING, 'verdict': NO_READING,
                 'action': f'read it at {src}, then: tutti usage log {name} <percent>'}
     used = float(e['used'])
     p = pace(now, start, reset, used, out['lead_hours'])
@@ -147,8 +148,8 @@ def report(accounts, entries, now):
             rows.append((name, '?', '?', '?', '?', 'unknown', s['action']))
             continue
         reset, target = _fmt(parse_time(s['reset'])), _fmt(parse_time(s['target']))
-        if s['state'] == 'no reading':
-            rows.append((name, '?', '?', reset, target, 'no reading', s['action']))
+        if s['state'] == NO_READING:
+            rows.append((name, '?', '?', reset, target, NO_READING, s['action']))
             continue
         mine = '' if s['share'] >= 1 else f' (shared: this session\'s part is {100 * s["share"]:g} % of the quota)'
         rows.append((name, f'{s["used"]:g} %', f'{s["expected"]:.0f} %', reset, target, s['verdict'], s['action'] + mine))

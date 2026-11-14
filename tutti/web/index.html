@@ -23,7 +23,7 @@
             <p class="appbar__sub" id="config-path">Connecting to the local service…</p>
         </div>
         <div class="appbar__actions">
-            <p class="live" id="live" role="status" aria-live="polite"><span class="live__dot" aria-hidden="true"></span><span id="live-text">Loading</span></p>
+            <output class="live" id="live" aria-live="polite"><span class="live__dot" aria-hidden="true"></span><span id="live-text">Loading</span></output>
             <button class="btn btn--tonal" id="refresh" type="button" title="Refresh now (R)">Refresh</button>
             <button class="btn btn--filled" id="install" type="button" hidden>Install app</button>
         </div>
@@ -64,7 +64,7 @@
             <section class="card card--jobs" aria-labelledby="jobs-h">
                 <header class="card__head">
                     <h2 id="jobs-h">Jobs</h2>
-                    <div class="segmented" role="group" aria-label="Show jobs" id="job-filter"></div>
+                    <fieldset class="segmented" id="job-filter"><legend class="sr-only">Show jobs</legend><div class="segmented__buttons" id="job-filter-buttons"></div></fieldset>
                 </header>
                 <div id="jobs" class="jobs"></div>
             </section>

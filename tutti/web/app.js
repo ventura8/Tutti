@@ -67,6 +67,8 @@ function tile(label, value, note, tone) {
         el('p', { class: 'tile__value', text: value }), el('p', { class: 'tile__note', text: note }));
 }
 
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 function quotaTile(s) {
     const t = s.summary;
     const read = s.usage.accounts.filter((a) => a.state === 'ok').length;
@@ -82,7 +84,7 @@ function renderTiles(s) {
     $('tiles').replaceChildren(
         quotaTile(s),
         tile('Free slots', `${t.free_slots} / ${t.slots}`,
-            t.machines_offline.length ? `Offline: ${t.machines_offline.join(', ')}` : `${s.machines.items.length} machine${s.machines.items.length === 1 ? '' : 's'}`,
+            t.machines_offline.length ? `Offline: ${t.machines_offline.join(', ')}` : plural(s.machines.items.length, 'machine'),
             t.machines_offline.length ? 'warn' : undefined),
         tile('Jobs', `${t.running} running`, t.stalled ? `${t.stalled} stalled: open its log` : 'none stalled', t.stalled ? 'warn' : undefined),
         tile('Workers', `${t.workers_ready} / ${t.workers} ready`, t.workers_ready < t.workers ? 'Some are down: see Workers' : 'all ready',
@@ -94,7 +96,9 @@ function renderTiles(s) {
 
 function meter(a) {
     const used = Math.min(100, a.used ?? 0);
-    const tone = a.panic ? 'bad' : (a.verdict === 'ahead' ? 'warn' : undefined);
+    let tone;
+    if (a.panic) tone = 'bad';
+    else if (a.verdict === 'ahead') tone = 'warn';
     const m = el('div', {
         class: 'meter', 'data-tone': tone, role: 'meter', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': used,
         'aria-label': `${a.name}: ${used} % used`,
@@ -208,11 +212,18 @@ function worker(w, accounts) {
         el('div', { class: 'row__name' }, w.name, el('span', { class: 'row__kind', text: w.kind === 'ollama' ? `local model · ${w.model}` : `cli · ${w.command}` })),
         chip(w.ready ? 'ready' : 'down', w.ready ? 'ok' : 'bad'),
         el('p', { class: 'row__note', text: w.note }),
-        acc ? el('div', { class: 'row__stats' }, chip(`account: ${acc.panic ? 'panic' : acc.state === 'no reset' ? 'reset not set' : acc.verdict}`, acc.panic ? 'bad' : VERDICT_TONE[acc.verdict])) : null);
+        acc ? el('div', { class: 'row__stats' }, accountChip(acc)) : null);
+}
+
+function accountChip(acc) {
+    if (acc.panic) return chip('account: panic', 'bad');
+    if (acc.state === 'no reset') return chip('account: reset not set', 'idle');
+    return chip(`account: ${acc.verdict}`, VERDICT_TONE[acc.verdict]);
 }
 
 function agent(a) {
-    const state = a.installed ? (a.configured ? 'installed · a worker' : 'installed · not in the config') : 'not installed here';
+    let state = 'not installed here';
+    if (a.installed) state = a.configured ? 'installed · a worker' : 'installed · not in the config';
     return el('li', { class: 'agent', 'data-tone': a.installed ? 'ok' : undefined }, el('b', { text: a.label }), el('span', { text: state }));
 }
 
@@ -237,10 +248,12 @@ function job(j) {
             ui.open.delete(j.id);
         }
     });
-    const idle = j.status === 'stalled' ? `no output for ${duration(j.idle_seconds)}` : (j.updated ? `updated ${relative(j.updated)}` : '');
+    let idle = j.updated ? `updated ${relative(j.updated)}` : '';
+    if (j.status === 'stalled') idle = `no output for ${duration(j.idle_seconds)}`;
+    const meta = j.pid ? `${j.kind} · pid ${j.pid}` : j.kind;
     d.append(el('summary', {},
         chip(j.status === 'failed' && j.rc !== null ? `failed · ${j.rc}` : j.status, JOB_TONE[j.status]),
-        el('span', { class: 'job__title' }, j.title, el('small', { text: `${j.kind}${j.pid ? ` · pid ${j.pid}` : ''}` })),
+        el('span', { class: 'job__title' }, j.title, el('small', { text: meta })),
         el('span', { class: 'job__when', text: idle })));
     const body = el('div', { class: 'job__body' });
     if (j.status === 'stalled') body.append(el('p', { text: 'Its log has not changed for a while. Read the end of the log: stop or restart the job rather than wait on it again.' }));
@@ -257,11 +270,11 @@ function renderJobs(s) {
     const items = s.jobs.items;
     const count = (f) => (f === 'all' ? items.length : items.filter((j) => j.status === f || (f === 'done' && j.status === 'ended')).length);
     const filterFocus = document.activeElement?.closest?.('#job-filter') ? document.activeElement.dataset.f : null;
-    $('job-filter').replaceChildren(...FILTERS.map(([f, label], i) => el('button', {
+    $('job-filter-buttons').replaceChildren(...FILTERS.map(([f, label], i) => el('button', {
         type: 'button', 'data-f': f, 'aria-pressed': String(ui.filter === f), title: `Show ${label.toLowerCase()} jobs (${i + 1})`, text: `${label} ${count(f)}`,
         onclick: () => { ui.filter = f; render(); },
     })));
-    if (filterFocus) $('job-filter').querySelector(`[data-f="${filterFocus}"]`)?.focus();
+    if (filterFocus) $('job-filter-buttons').querySelector(`[data-f="${filterFocus}"]`)?.focus();
     const shown = items.filter((j) => ui.filter === 'all' || j.status === ui.filter || (ui.filter === 'done' && j.status === 'ended'));
     if (shown.length) {
         const focused = document.activeElement?.closest?.('.job')?.dataset.id;
@@ -339,7 +352,7 @@ function accentNote() {
 
 function keys(e) {
     if (e.target.closest('input, textarea, select') || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key === 'r' || e.key === 'R') refresh();
+    if (e.key === 'r' || e.key === 'R') void refresh();
     const i = Number(e.key);
     if (i >= 1 && i <= FILTERS.length) {
         ui.filter = FILTERS[i - 1][0];
@@ -368,9 +381,9 @@ function install() {
 document.addEventListener('DOMContentLoaded', () => {
     $('refresh').addEventListener('click', refresh);
     document.addEventListener('keydown', keys);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
     setInterval(live, 1000);
     accentNote();
     install();
-    refresh();
+    void refresh();
 });

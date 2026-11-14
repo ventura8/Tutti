@@ -32,7 +32,7 @@
 }
 
 @supports (color: AccentColor) {
-    :root { --accent: AccentColor; }
+    html { --accent: AccentColor; }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -57,7 +57,7 @@
     }
 }
 
-:root {
+html {
     --accent-c: color-mix(in oklab, var(--accent) 16%, var(--surface-1));
     --accent-line: color-mix(in oklab, var(--accent) 70%, var(--on-surface));
     --tint-1: color-mix(in oklab, var(--accent) 3%, var(--surface-1));
@@ -364,7 +364,9 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
 
 /* ---- jobs */
 
-.segmented { display: inline-flex; max-width: 100%; border: 1px solid var(--outline); border-radius: 20px; overflow-x: auto; scrollbar-width: none; }
+.segmented { margin: 0; padding: 0; min-width: 0; max-width: 100%; border: 1px solid var(--outline); border-radius: 20px; overflow-x: auto; scrollbar-width: none; }
+.segmented__buttons { display: flex; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .segmented button {
     min-height: 36px;
@@ -449,7 +451,7 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
 kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outline); border-bottom-width: 2px; border-radius: 5px; }
 
 @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { transition: none !important; animation: none !important; }
+    .btn, .meter__fill { transition: none; }
 }
 
 @media (forced-colors: active) {

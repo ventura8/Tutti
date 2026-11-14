@@ -12,8 +12,11 @@ from . import remote, state, workers
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 BIND = '127.0.0.1'
+JSON_TYPE = 'application/json'
 TYPES = {'.webmanifest': 'application/manifest+json', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-         '.html': 'text/html; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json'}
+         '.html': 'text/html; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': JSON_TYPE}
+# Never echoes the request path back: nothing the browser sent is reflected into a response.
+NOT_FOUND = b'{"error": "this path is not part of the dashboard: open / instead"}'
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
@@ -71,12 +74,12 @@ def static_path(url_path):
 def route(collector, path):
     """(status, body, content type, cache control) for a GET of `path`."""
     if path == '/api/state':
-        return 200, json.dumps(collector.snapshot()).encode(), 'application/json', 'no-store'
+        return 200, json.dumps(collector.snapshot()).encode(), JSON_TYPE, 'no-store'
     if path == '/api/health':
-        return 200, b'{"ok": true}', 'application/json', 'no-store'
+        return 200, b'{"ok": true}', JSON_TYPE, 'no-store'
     full = static_path(path)
     if not full:
-        return 404, json.dumps({'error': f'{path} is not part of the dashboard: open / instead'}).encode(), 'application/json', 'no-store'
+        return 404, NOT_FOUND, JSON_TYPE, 'no-store'
     with open(full, 'rb') as f:
         body = f.read()
     # no-cache: revalidated every time, so a new version reaches the service worker and the page at once.
@@ -104,7 +107,7 @@ def make_handler(collector):
                 self.wfile.write(body)
 
         def fail(self, code, text):
-            self.send(code, json.dumps({'error': text}).encode(), 'application/json')
+            self.send(code, json.dumps({'error': text}).encode(), JSON_TYPE)
 
         def do_HEAD(self):
             self.do_GET()

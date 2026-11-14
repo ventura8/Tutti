@@ -13,11 +13,15 @@ and then by kind:
   4. research questions from the backlog: a queued task whose title starts with `scout:` (or `research:`);
   5. second opinions on autopilot tasks that failed twice or more, before they climb the ladder again (tutti/autopilot.py
      waits up to `second_wait_minutes` for the answer, which joins the next attempt's brief);
+  6. while the scout is behind its pace (the allowance would be lost at the reset), a scouting question for each queued
+     backlog task not started yet: files, risk, approach and a check for the coding agent that takes it;
 then, with the room left, a review of each open pull request of `review_repos` (default: the projects' `repo`, the review
 trial's repositories) not reviewed by the scout since it last changed (GitHub is asked outside the scouts' lock, so reviews
-come last in a round). A watch runs again only `pace_gap_hours` after its last run (`min_gap_hours` in the burst, once more at
-most). The caps still hold: `per_tick` per round and `max_open` waiting (`burst_per_tick` and `burst_max_open` in the burst),
-and the points left before `stop_at`."""
+come last in a round), and while behind its pace an audit of each pull request merged in the last 7 days. A watch
+runs again `pace_gap_hours` after its last run, `min_gap_hours` while the scout is behind its pace or in the burst (once
+more at most in the burst). The Do line says how many items are ready now and how many only later. The caps still hold:
+`per_tick` per round and `max_open` waiting (`burst_per_tick` and `burst_max_open` in the burst), and the points left
+before `stop_at`."""
 import json
 import re
 import time
@@ -27,7 +31,13 @@ from . import backlog, config, grokweek, pacing, scouts
 DEFAULTS = {'enabled': True, 'hours': 6, 'stop_at': 95, 'min_gap_hours': 3, 'pace_gap_hours': 6, 'burst_per_tick': 10,
             'burst_max_open': 30, 'review_repos': None, 'second_wait_minutes': 30}
 NUMBERS = ('hours', 'stop_at', 'min_gap_hours', 'pace_gap_hours', 'burst_per_tick', 'burst_max_open', 'second_wait_minutes')
-RANK = {'sentry': 0, 'notes': 1, 'check': 2, 'research': 3, 'second': 4}
+RANK = {'sentry': 0, 'notes': 1, 'check': 2, 'research': 3, 'second': 4, 'scouting': 5}
+SCOUTING = ('Before a coding agent starts this task in {repo}: "{title}".\n\nLook at the repository and name: the files it will touch, '
+            'the risk (what could break), the simplest approach, and a check that proves it works. Plain words, short.')
+AUDIT = ('Audit pull request {url} ({repo}#{number}), merged in the last {days} days. Read its diff: name a bug, a missing test, '
+         'a security or performance problem, or a doc that is now wrong, each with the file and line and a concrete fix. '
+         'Say "No findings." when there is none. Answer on that pull request.')
+AUDIT_DAYS = 7
 PREFIX = 'scout:'
 NOTES_RX = re.compile(r'dep|changelog|release|notes', re.I)
 SECOND = ('Second opinion before a coding agent retries. Task in {repo}: "{title}". It failed {n} time(s); the last failure:\n'
@@ -105,7 +115,7 @@ def extra_watches(sc, requests, acc, now, until=None):
     s = settings(sc)
     hot = burst(sc, acc, until or now)
     since = pacing.parse_time(acc['target']).timestamp() - s['hours'] * 3600
-    gap = (s['min_gap_hours'] if hot else s['pace_gap_hours']) * 3600
+    gap = (s['min_gap_hours'] if hot or behind(acc) else s['pace_gap_hours']) * 3600
     out = []
     for name, w in (sc.get('watches') or {}).items():
         last = scouts.last_fired(requests, sc['name'], name)
@@ -116,6 +126,21 @@ def extra_watches(sc, requests, acc, now, until=None):
             continue
         out.append({'kind': kind_of(name, w), 'ref': name, 'project': w.get('project')})
     return out
+
+
+def behind(acc):
+    """The scout's allowance would be lost at its reset: its account is behind its pace (pacing's verdict)."""
+    return bool(acc) and acc.get('verdict') == 'behind'
+
+
+def scouting(cfg, requests, name):
+    """While the scout is behind its pace: a scouting question per queued backlog task not scouted yet (no attempt yet), so
+    the quota that would be lost at the reset prepares the coding agents' work."""
+    asked = {r.get('backlog') for r in requests if r['scout'] == name and r.get('scouting')}
+    return [{'kind': 'scouting', 'ref': t['id'], 'project': config.project_of_repo(cfg, t['repo']),
+             'task': SCOUTING.format(repo=t['repo'], title=t['title'][:300])}
+            for t in backlog.load(cfg)['tasks']
+            if t['status'] == 'queued' and not t.get('attempts') and not backlog.is_question(t) and t['id'] not in asked]
 
 
 def questions(cfg):
@@ -152,8 +177,11 @@ def plan(cfg, sc, requests, acc, now):
     if not on:
         return {'on': False, 'why': why, 'items': [], 'later': 0, 'week': b}
     items = ordered(cfg, extra_watches(sc, requests, acc, now) + questions(cfg) + seconds(cfg, requests, sc['name']))
+    if behind(acc):   # the allowance would be lost at the reset: useful scouting of the backlog fills it
+        items += ordered(cfg, scouting(cfg, requests, sc['name']))
     target = pacing.parse_time(acc['target']).timestamp()
-    later = len(extra_watches(sc, requests, acc, now, target)) - sum(1 for i in items if i['kind'] not in ('research', 'second'))
+    later = len(extra_watches(sc, requests, acc, now, target)) - sum(1 for i in items if i['kind'] not in ('research', 'second',
+                                                                                                         'scouting'))
     return {'on': True, 'why': '', 'items': items, 'later': max(0, later), 'week': b}
 
 
@@ -169,9 +197,9 @@ def line(p, reviews=0):
     b = p.get('week') or {}
     if b.get('mode') == 'burst':
         return f'Scout: burst before the reset: {b.get("left", 0)} run(s) of allowance left, sending all the useful work that fits'
-    n = count(p, reviews)
-    return (f'Scout: {b.get("now", 0)} run(s) can go now on its even weekly line ({n} useful item(s) ready, '
-            f'{b.get("left", 0)} runs left this week)')
+    ready, later = len(p['items']) + reviews, p.get('later', 0)
+    return (f'Scout: {b.get("now", 0)} run(s) can go now on its even weekly line; {ready} useful item(s) ready now, {later} '
+            f'later ({b.get("left", 0)} runs left this week)')
 
 
 def room(sc, data, acc, sent, now=None):
@@ -192,9 +220,10 @@ def round_(cfg, sc, data, acc, url, key, sent, gh_fn=scouts.gh, post_fn=scouts.p
     p = plan(cfg, sc, data['requests'], acc, now)
     events, n = [], 0
     for item in p['items'][:room(sc, data, acc, sent, now)]:
-        if item['kind'] in ('research', 'second'):
+        if item['kind'] in ('research', 'second', 'scouting'):
             r = scouts.new_request(data, sc, item['task'], 'ask', skill='research', now=now)
             r['backlog'] = item['ref']
+            r['scouting'] = item['kind'] == 'scouting'
             if item['kind'] == 'second':
                 r['second_opinion'] = {'key': item['key'], 'task': item['ref']}
         else:
@@ -325,4 +354,42 @@ def reviews(cfg, name, acc, left, gh_fn=scouts.gh, post_fn=scouts.post, env=None
             left -= 1
             keep_head(cfg, r['id'], head)
             events.append(f'scout week: review {r["id"]} {r["status"]}: {url}')
+    if left > 0 and behind(acc):   # still room that the reset would take: audit what merged lately
+        events += audits(cfg, name, acc, left, gh_fn, post_fn, env, now)
+    return events
+
+
+def merged_prs(repo, gh_fn=scouts.gh, days=AUDIT_DAYS, now=None):
+    """[(number, url)] of the pull requests merged in the last `days`, newest first, or [] when GitHub cannot be asked."""
+    since = time.strftime('%Y-%m-%d', time.gmtime((now or time.time()) - days * 86400))
+    rc, out, _ = gh_fn(['pr', 'list', '--repo', repo, '--state', 'merged', '--search', f'merged:>={since}', '--json', 'number,url',
+                        '--limit', '30'])
+    try:
+        return [(int(p['number']), p['url']) for p in json.loads(out or '[]')] if rc == 0 else []
+    except (ValueError, KeyError, TypeError):
+        return []
+
+
+def audits(cfg, name, acc, left, gh_fn=scouts.gh, post_fn=scouts.post, env=None, now=None):
+    """Outside the scouts lock: an audit of each pull request merged lately that the scout has not audited, at most `left`."""
+    sc = scouts.settings(cfg, name)
+    url_, key = scouts.secrets(sc, env)
+    events = []
+    for repo in review_repos(cfg, name):
+        done = {r.get('issue') for r in scouts.load(cfg)['requests']
+                if r['scout'] == name and r.get('audit') and r.get('repo') == repo
+                and r['status'] != 'failed'}   # a failed send is tried again next round
+        for number, url in merged_prs(repo, gh_fn, now=now):
+            if left <= 0 or number in done:
+                continue
+            with scouts.locked(cfg) as data:
+                r = scouts.new_request(data, sc, AUDIT.format(url=url, repo=repo, number=number, days=AUDIT_DAYS), 'review',
+                                       repo=repo, skill='review', now=now)
+                r.update(issue=number, url=url, extra=True, audit=True)   # answered on the pull request, as a review
+                try:
+                    scouts.send(sc, r, url_, key, gh_fn, post_fn, now)
+                except scouts.ScoutError as e:
+                    r.update(status='failed', why=str(e))
+            left -= r['status'] == 'waiting'
+            events.append(f'scout week: audit {r["id"]} {r["status"]}: {url}')
     return events

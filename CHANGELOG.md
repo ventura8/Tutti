@@ -2,7 +2,9 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
-## 0.9.2 (2026-11-15)
+## 0.9.3 (2026-11-15)
+
+
 
 ### Security
 
@@ -18,6 +20,12 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 ## 0.9.1 (2026-11-15)
 
 ### Fixed
+
+- The scout said "192 run(s) can go now (6 useful item(s) ready)" while `tutti scout tick` sent nothing: the 6 were
+  watches due only later, and everything else was reviewed. The Do line now says how many are ready now and how many
+  later. While the scout is behind its pace, so its allowance would be lost at the reset, it does useful work instead of
+  idling: watches every `min_gap_hours`, a scouting question for each queued backlog task not started yet, and an audit
+  of each pull request merged in the last 7 days.
 
 - Tasks parked before the needs-input queue existed get their one question (options and a default) at the dashboard's
   start or with `tutti needs backfill`, worded by a local model from the last failure (its output marked as data, only a

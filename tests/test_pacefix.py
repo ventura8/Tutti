@@ -10,6 +10,7 @@ import tempfile
 import unittest
 import urllib.error
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 from test_scouts import KEY, FakeGh, cfg_of
 
@@ -186,12 +187,56 @@ class SpendTheRest(unittest.TestCase):
         with backlog.locked(self.cfg) as data:
             backlog.add(data, backlog.new_task('tutti', 'scout: which CLIs changed their usage pages this week?'))
             backlog.add(data, backlog.new_task('tutti', 'fix the reader'))
-        p = spendrest.plan(self.cfg, self.sc, self.requests, grok_acc(), self.now)
+        p = spendrest.plan(self.cfg, self.sc, self.requests, grok_acc(verdict='on pace'), self.now)
         self.assertEqual([i['ref'] for i in p['items']], ['t1', 'live-site', 'dependency-notes'])   # Tutti 0, Map 2, unranked
         self.assertTrue(spendrest.line(p).startswith('Scout: burst before the reset: 41 run(s)'))   # (95 - 13) / 2 points
         self.assertEqual([t['id'] for t in backlog.queued(backlog.load(self.cfg))], ['t2'])   # a question is no worker's task
         recent = [{**x, 'sent': self.now - 3600} for x in self.requests]
-        self.assertEqual([i['ref'] for i in spendrest.plan(self.cfg, self.sc, recent, grok_acc(), self.now)['items']], ['t1'])   # min gap
+        self.assertEqual([i['ref'] for i in spendrest.plan(self.cfg, self.sc, recent, grok_acc(verdict='on pace'), self.now)['items']],
+                         ['t1'])   # min gap
+
+    def test_behind_its_pace_the_backlog_is_scouted_once_and_the_line_says_what_is_ready_now(self):
+        with backlog.locked(self.cfg) as data:
+            backlog.add(data, backlog.new_task('tutti', 'fix the reader'))
+        recent = [{**x, 'sent': self.now - 3600} for x in self.requests]   # the watches ran an hour ago
+        p = spendrest.plan(self.cfg, self.sc, recent, grok_acc(), self.now - 2 * 86400)   # days before the reset, behind
+        self.assertEqual([(i['kind'], i['ref']) for i in p['items']], [('scouting', 't1')])
+        self.assertIn('fix the reader', p['items'][0]['task'])
+        self.assertIn('1 useful item(s) ready now', spendrest.line(p))
+        asked = recent + [{'scout': 'grok', 'backlog': 't1', 'scouting': True, 'status': 'waiting', 'added': self.now}]
+        self.assertEqual(spendrest.plan(self.cfg, self.sc, asked, grok_acc(), self.now - 2 * 86400)['items'], [])   # once
+        self.assertEqual(spendrest.plan(self.cfg, self.sc, recent, grok_acc(verdict='on pace'), self.now - 2 * 86400)['items'], [])
+
+    def test_behind_its_pace_recent_merges_are_audited_once(self):
+        calls = []
+
+        def gh(args):
+            calls.append(args)
+            if args[:2] == ['pr', 'list']:
+                return 0, '[{"number": 7, "url": "https://github.example/o/r/pull/7"}]', ''
+            return 0, '', ''
+        sent = []
+        with mock.patch.object(scouts, 'secrets', return_value=('https://hook.example', 'k')), \
+                mock.patch.object(scouts, 'send', side_effect=lambda sc, r, *a, **k: (sent.append(r), r.update(status='waiting'))), \
+                mock.patch.object(spendrest, 'review_repos', return_value=['o/r']):
+            out = spendrest.audits(self.cfg, 'grok', grok_acc(), 3, gh, now=self.now)
+            self.assertEqual(len(sent), 1)
+            self.assertIn('Audit pull request https://github.example/o/r/pull/7', sent[0]['task'])
+            self.assertIn('audit', out[0])
+            self.assertEqual(spendrest.audits(self.cfg, 'grok', grok_acc(), 3, gh, now=self.now), [])   # never twice
+
+    def test_an_audit_whose_send_failed_is_sent_again_next_round(self):
+        def gh(args):
+            return (0, '[{"number": 8, "url": "https://github.example/o/r/pull/8"}]', '') if args[:2] == ['pr', 'list'] else (0, '', '')
+
+        def broken(sc, r, *a, **k):
+            raise scouts.ScoutError('the webhook did not answer')
+        with mock.patch.object(scouts, 'secrets', return_value=('https://hook.example', 'k')), \
+                mock.patch.object(spendrest, 'review_repos', return_value=['o/r']):
+            with mock.patch.object(scouts, 'send', side_effect=broken):
+                self.assertIn('failed', spendrest.audits(self.cfg, 'grok', grok_acc(), 3, gh, now=self.now)[0])
+            with mock.patch.object(scouts, 'send', side_effect=lambda sc, r, *a, **k: r.update(status='waiting')):
+                self.assertIn('waiting', spendrest.audits(self.cfg, 'grok', grok_acc(), 3, gh, now=self.now)[0])
 
     def test_a_round_sends_within_the_caps_and_marks_the_question(self):
         with backlog.locked(self.cfg) as data:

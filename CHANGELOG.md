@@ -2,6 +2,23 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.4.0 (2026-11-15)
+
+### Added
+
+- Planned absences: `tutti pause <device|machine|...> <name> --from <time> --until <time|unknown>` (local time: "2026-11-16
+  07:00", "tomorrow 07:00", "07:00"). Nothing new is scheduled on it from 30 min before; at the start its running work
+  is handed over; it ends at `--until`, or, left open, when presence has seen it away and then back. The dashboard's row
+  shows **away later** / **away** with the window (docs/DASHBOARD.md, *Controls*). An end before the start, and `--from`
+  with `--stop-now`, are refused.
+
+### Fixed
+
+- `tutti rsh <wsl machine>` (backlog t38): a script with `;` or new lines failed ("unexpected end of file") and a command
+  lost its first word, because the first argument was always dropped as the ssh host. The host is now dropped only when it
+  is the machine's host or LAN address (git and rsync put it first); one word runs as a bash script (base64-encoded to
+  WSL), several words as a command with each argument quoted. `tutti rsh w5090 adb.exe devices` works.
+
 ## 0.3.0 (2026-11-15)
 
 ### Added

@@ -5,6 +5,7 @@ step up the escalation ladder), then dispatch the next tasks while a ladder step
 not hot and fewer than max_parallel runs are going. Nothing is ever merged. A task that fails the same way
 `no_progress` times in a row on the strongest step, or reaches `max_attempts`, is parked as "needs a person".
 The plan is pure (plan, signature, brief, should_park); the I/O is in tick, dispatch and collect."""
+import contextlib
 import hashlib
 import json
 import os
@@ -14,6 +15,11 @@ import sys
 import time
 
 from . import backlog, config, delegate, remote, routing, worktree
+
+try:
+    import fcntl
+except ImportError:   # Windows: no flock
+    fcntl = None
 
 STATE = 'autopilot.json'
 TRACK_PREFIX = 'ap-'
@@ -40,10 +46,21 @@ def read_state(cfg):
 
 
 def write_state(cfg, data):
-    tmp = state_path(cfg) + '.tmp'
+    tmp = f'{state_path(cfg)}.{os.getpid()}.tmp'
     with open(tmp, 'w', encoding='utf8') as f:
         json.dump(data, f, indent=1)
     os.replace(tmp, state_path(cfg))
+
+
+@contextlib.contextmanager
+def state_locked(cfg):
+    """The state file read and written back under one lock: the dashboard's toggle and a round never overwrite each other."""
+    with open(state_path(cfg) + '.lock', 'w', encoding='utf8') as lock:
+        if fcntl:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        data = read_state(cfg)
+        yield data
+        write_state(cfg, data)
 
 
 def enabled(cfg):
@@ -53,10 +70,9 @@ def enabled(cfg):
 
 
 def set_enabled(cfg, on):
-    data = read_state(cfg)
-    data['enabled'] = bool(on)
-    data['toggled_at'] = time.time()
-    write_state(cfg, data)
+    with state_locked(cfg) as data:
+        data['enabled'] = bool(on)
+        data['toggled_at'] = time.time()
 
 
 def ladder(cfg):
@@ -81,9 +97,14 @@ def step_of(cfg, name):
         if not w:
             return None
         return {'name': name, 'worker': a['worker'], 'kind': w['kind'], 'args': list(a.get('args') or []), 'account': name}
-    if name in cfg['workers']:
+    if name in cfg['workers'] and not any((a or {}).get('worker') == name for a in cfg['accounts'].values()):
         return {'name': name, 'worker': name, 'kind': cfg['workers'][name]['kind'], 'args': [], 'account': None}
     return None
+
+
+def has_files(task):
+    """A local model edits only the files it is given: the task's scope must name files (with an extension), not folders."""
+    return bool(task['scope']) and all('.' in os.path.basename(s.rstrip('/')) and not s.endswith('/') for s in task['scope'])
 
 
 def units(task):
@@ -128,26 +149,65 @@ def machine_capacity(cfg, machines):
     return 0, 'no machine has a free slot that is not hot: ' + '; '.join(f'{m["name"]}: {m.get("reason")}' for m in machines)
 
 
-def assign(steps, queued, rooms, free, out):
-    """Each queued task, oldest first, to the first step from its attempt's rung up that has room for its size."""
+def candidates(cfg, t):
+    """The steps a task may go to now, weakest first. A fresh task only to a trigger account (autopilot.accounts): the
+    autopilot spends what would be lost, it does not start new work elsewhere. A retry from one step above its last failed
+    attempt (the same step after a reviewer's retry of a pass); the last step repeats. A local model only with file scope."""
+    steps = ladder(cfg)
+    if not t['attempts']:
+        trig = settings(cfg)['accounts']
+        return [n for n in steps if n in trig] + [n for n in trig if n not in steps]
+    last = t['attempts'][-1]
+    at = steps.index(last['step']) if last['step'] in steps else -1
+    start = min(at + (0 if last['ok'] else 1), len(steps) - 1)
+    out = steps[max(start, 0):]
+    return [n for n in out if (step_of(cfg, n) or {}).get('kind') != 'ollama' or has_files(t)]
+
+
+def assign(cfg, queued, rooms, free, out):
+    """Each queued task, oldest first, to the first of its candidate steps that has room for its size."""
     for t in queued:
         if free <= 0:
             break
-        start = min(len(t['attempts']), len(steps) - 1) if steps else 0
-        pick = next((n for n in steps[start:] if rooms[n][0] >= units(t)), None)
+        steps = candidates(cfg, t)
+        pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t)), None)
         if pick is None:
-            out['waiting'][t['id']] = '; '.join(rooms[n][1] or f'{n}: too little room for a {t["size"]} task' for n in steps[start:])
+            out['waiting'][t['id']] = '; '.join(rooms.get(n, (0, f'{n}: not on the ladder'))[1] or f'{n}: too little room for a '
+                                                f'{t["size"]} task' for n in steps) or 'no step it may go to'
             continue
         rooms[pick] = (rooms[pick][0] - units(t), rooms[pick][1] or f'{pick}: its room is taken by the running tasks')
         out['dispatch'].append((t['id'], pick))
         free -= 1
 
 
+def spent_units(tasks, states):
+    """{step: units} the readings do not show yet: the runs going, and every attempt started on an account after its newest
+    reading (a finished run's cost stays counted until a new reading includes it)."""
+    used = {}
+    for t in tasks:
+        if t['status'] == 'running':
+            used[t.get('step')] = used.get(t.get('step'), 0) + units(t)
+        for a in t['attempts']:
+            read = (states.get(a['step']) or {}).get('reading_at')
+            if a.get('started') and read and a['started'] > _ts(read):
+                used[a['step']] = used.get(a['step'], 0) + units(t)
+    return used
+
+
+def _ts(iso):
+    from . import pacing
+    return pacing.parse_time(iso).timestamp()
+
+
 def plan(cfg, tasks, states, machines, on):
     """What to do now, pure. {state, reason, dispatch: [(task id, step name)], waiting: {task id: why}}."""
     queued = [t for t in tasks if t['status'] == 'queued' and t['repo'] in settings(cfg)['repos']]
+    unchecked = [t for t in queued if not (t.get('check') or settings(cfg)['repos'][t['repo']].get('check'))]
+    queued = [t for t in queued if t not in unchecked]
     running = [t for t in tasks if t['status'] == 'running']
-    out = {'state': 'off', 'reason': 'turned off: the dashboard\'s toggle or `tutti autopilot on` starts it', 'dispatch': [], 'waiting': {}}
+    out = {'state': 'off', 'reason': 'turned off: the dashboard\'s toggle or `tutti autopilot on` starts it', 'dispatch': [],
+           'waiting': {t['id']: f'no acceptance check: give it one (tutti backlog rm {t["id"]}, then add it with --check) or set '
+                                f'autopilot.repos.{t["repo"]}.check' for t in unchecked}}
     if not on:
         return out
     if not queued:
@@ -161,11 +221,10 @@ def plan(cfg, tasks, states, machines, on):
         free = min(free, slots)
         if free <= 0:
             return {**out, 'state': 'waiting', 'reason': why}
-    used = {}
-    for t in running:
-        used[t.get('step')] = used.get(t.get('step'), 0) + units(t)
-    rooms = {n: step_room(cfg, n, states, used) for n in ladder(cfg)}
-    assign(ladder(cfg), queued, rooms, free, out)
+    used = spent_units(tasks, states)
+    names = list(dict.fromkeys([*ladder(cfg), *settings(cfg)['accounts']]))
+    rooms = {n: step_room(cfg, n, states, used) for n in names}
+    assign(cfg, queued, rooms, free, out)
     if out['dispatch']:
         return {**out, 'state': 'dispatching', 'reason': f'{len(out["dispatch"])} task(s) sent to ' +
                 ', '.join(sorted({n for _, n in out['dispatch']}))}
@@ -258,12 +317,13 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen):
     check = task.get('check') or repo.get('check') or ''
     argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', step['worker'], brief(task, repo)]
     if step['kind'] == 'ollama':
-        argv += [s for s in task['scope'] if os.path.isfile(os.path.join(repo_path(cfg, task), s))]
+        argv += [s for s in task['scope'] if not os.path.isdir(os.path.join(repo_path(cfg, task), s))]
     argv += ['--repo', repo_path(cfg, task), '--track', TRACK_PREFIX + task['id'], '--id', run_id,
              '--remote-track', cfg['delegate']['remote_track']]
     if check:
         argv += ['--check', check, '--check-where', repo.get('where', 'local')]
     argv += [f'--extra={x}' for x in step['args']]
+    argv += ['--account', step['account']] if step['account'] else []
     with open(p['log'], 'a', encoding='utf8') as log:
         child = spawn(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
     with open(p['pid'], 'w', encoding='utf8') as f:
@@ -289,7 +349,7 @@ def attempt_of(cfg, task, report, now):
     ok = bool(report) and report['rc'] == 0
     if ok:
         sig, why = '', 'passed'
-    return {'run': task['run'], 'step': task.get('step'), 'worker': task.get('worker'), 'at': now, 'ok': ok,
+    return {'run': task['run'], 'step': task.get('step'), 'worker': task.get('worker'), 'at': now, 'ok': ok, 'started': task.get('started'),
             'signature': sig, 'why': why, 'stat': (report or {}).get('stat', ''), 'diff': (report or {}).get('diff'),
             'tail': '' if report and report['rc'] == 0 else failing[-1][-TAIL_CHARS:]}
 
@@ -309,8 +369,12 @@ def publish(cfg, task, report, run=git, gh=subprocess.run):
     wt = report['worktree']
     branch = f'autopilot/{task["id"]}-{slug(task["title"])}'
     task.update(branch=branch, worktree=wt, diff=report['diff'])
-    run(wt, 'checkout', '-q', '-B', branch)
-    run(wt, 'add', '-A')
+    for step in (('checkout', '-q', '-B', branch), ('add', '-A')):
+        done = run(wt, *step)
+        if done.returncode != 0:
+            task['publish_note'] = (f'git {step[0]} failed in {wt} ({(done.stderr or done.stdout).strip()[:200]}): nothing was '
+                                    f'committed; review the diff {report["diff"]}')
+            return
     subject = repo.get('commit', 'chore(autopilot): {title}').replace('{title}', task['title'])
     subject = subject if len(subject) <= 100 else subject[:99].rsplit(' ', 1)[0] + '…'   # a subject line of at most 100
     msg = f'{subject}\n\nBacklog task {task["id"]}, attempt {len(task["attempts"])}, run {report["id"]} by {task.get("step")}.\n'
@@ -378,14 +442,19 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     with backlog.locked(cfg) as data:
         events = collect(cfg, data, now, is_alive, publish_fn)
         p = plan(cfg, data['tasks'], states, machines, on)
+        backlog.save(cfg, data)   # what was collected is kept even if a start below fails
         for task_id, step in p['dispatch']:
             t = backlog.find(data, task_id)
-            run_id = dispatch(cfg, t, step, now, spawn)
+            try:
+                run_id = dispatch(cfg, t, step, now, spawn)
+            except OSError as e:
+                events.append(f'{task_id} could not be started on {step} ({e}): it stays queued')
+                continue
+            backlog.save(cfg, data)
             events.append(f'{task_id} sent to {step} (run {run_id}, attempt {len(t["attempts"]) + 1})')
-    st = read_state(cfg)
-    st['last'] = {'at': now, 'state': p['state'], 'reason': p['reason'], 'waiting': p['waiting']}
-    st['events'] = ([{'at': now, 'text': e} for e in events] + st.get('events', []))[:50]
-    write_state(cfg, st)
+    with state_locked(cfg) as st:
+        st['last'] = {'at': now, 'state': p['state'], 'reason': p['reason'], 'waiting': p['waiting']}
+        st['events'] = ([{'at': now, 'text': e} for e in events] + st.get('events', []))[:50]
     return p, events
 
 

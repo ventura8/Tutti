@@ -43,10 +43,17 @@ def locked(cfg):
             fcntl.flock(lock, fcntl.LOCK_EX)
         data = load(cfg)
         yield data
-        tmp = p + '.tmp'
-        with open(tmp, 'w', encoding='utf8') as f:
-            json.dump(data, f, indent=1)
-        os.replace(tmp, p)
+        save(cfg, data)
+
+
+def save(cfg, data):
+    """Writes the backlog at once (inside `locked`, e.g. right after a run is started, so a crash later in the round never
+    leaves a started run marked queued). A temp name of this process: two writers never share one."""
+    p = path_of(cfg)
+    tmp = f'{p}.{os.getpid()}.tmp'
+    with open(tmp, 'w', encoding='utf8') as f:
+        json.dump(data, f, indent=1)
+    os.replace(tmp, p)
 
 
 def load(cfg):

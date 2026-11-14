@@ -40,13 +40,16 @@ The dashboard runs one round after every probe while the autopilot is on (`tutti
 
 1. **Collect.** Every running task whose run ended gets an attempt. A pass is published: Tutti (never the worker) commits the
    worktree on `autopilot/<id>-<slug>` with `autopilot.repos.<repo>.commit` (default `chore(autopilot): {title}`) and the
-   repo's `trailers`, and with `pr: draft` pushes it and opens a draft pull request. The task waits in **Results to review**.
+   repo's `trailers` (a failed checkout or staging stops there and says so), and with `pr: draft` pushes it and opens a draft pull request. The task waits in **Results to review**.
 2. **Plan.** Capacity is `max_parallel` minus the runs going, and at most the free slots of machines that are fit and not hot
-   (no machines configured: the checks run here). Fresh tasks go to an account of `autopilot.accounts` that is **behind** its
-   line (or late), as many units as its room (`room_tasks`) minus what already runs on it. Never an account that costs money,
-   is in panic or is spent.
+   (no machines configured: the checks run here). Fresh tasks go only to an account of `autopilot.accounts` that is
+   **behind** its line (or late), as many units as its room (`room_tasks`) minus what runs on it and what attempts started
+   after its newest reading already spent (that cost stays counted until a new reading shows it). Never an account that
+   costs money, is in panic or is spent. A task without an acceptance check (its own or the repo's) is never sent.
 3. **Dispatch.** `tutti run <worker> "<brief>" --repo <path> --track ap-<id> --check "<check>"` in the background, with the
-   account's `args` (its model). A local-model worker works through `tutti agent`'s loop on the task's scope files.
+   account's `args` (its model) and its name. Each start is saved at once, so a start that fails leaves the task queued and a
+   crash never starts it twice. A local-model worker works through `tutti agent`'s loop on the task's scope files (it may
+   create them). A running task cannot be retried, marked done or removed until its run ends.
 
 It stops dispatching, and the panel says why, when the backlog is empty ("backlog empty — add tasks"), when every account is
 at or over its even-pace line, in panic or spent, when no machine has a cool free slot, or when it is turned off. Runs already
@@ -59,10 +62,13 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
 - **It continues from the same worktree** (`ap-<id>`): the next worker sees the earlier changes and is told to continue.
 - **Its brief carries what went wrong**: the last attempt's diff stat, the end of the failing check's output, the earlier
   failures one line each, and the reviewer's notes.
-- **It climbs the ladder.** Attempt *n* starts at step *n* of `autopilot.ladder` (default: `autopilot.accounts`), e.g.
-  `agy-gemini → agy-claude → cursor → pc` (a local model); the last step repeats. A step that has no room now is skipped
-  upwards. An account outside `autopilot.accounts` takes one task at a time and only while it is not ahead of its pace; a
-  worker without an account (a local model) one at a time.
+- **It climbs the ladder.** A retry starts one step above the step its last attempt failed on in `autopilot.ladder`
+  (default: `autopilot.accounts`), e.g. `agy-gemini → agy-claude → cursor → pc` (a local model); the last step repeats, and
+  a reviewer's `retry` of a passed task stays on its step. A step that has no room now is skipped upwards, never downwards.
+  An account outside `autopilot.accounts` takes one task at a time and only while it is not ahead of its pace; a worker
+  without an account (a local model) one at a time, and only for a task whose scope names files (it edits only those). The
+  ladder names accounts, not a worker that accounts share (`agy-claude`, not `agy`), so each step's pace, panic and model
+  apply; the run is logged against that account.
 - **It is parked when it makes no progress.** The same failure signature `no_progress` times in a row (default 3) on the
   strongest step, or `max_attempts` attempts (default 12), parks the task as **needs a person** with a summary on the
   dashboard. The signature is a hash of how it failed (worker exit, refused command, no change, or the failing check's last

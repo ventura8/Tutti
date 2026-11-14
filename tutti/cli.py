@@ -275,6 +275,7 @@ def run_in_background(cfg, a, extra):
     argv += [flag for flag, on in (('--no-checks', a.no_checks), ('--discard', a.discard)) if on]
     argv += ['--track', a.track] if a.track else []
     argv += ['--remote-track', a.remote_track] if a.remote_track else []
+    argv += ['--account', a.account] if getattr(a, 'account', None) else []
     for c in a.check or []:
         argv += ['--check', c]
     argv += ['--check-where', a.check_where] if a.check else []
@@ -307,7 +308,9 @@ def run_delegated(cfg, a, extra):
 
 
 def note_limits(cfg, worker, lines):
-    """A usage-limit message in the worker's output logs its account as spent."""
+    """A usage-limit message in the worker's output logs its account as spent (a CLI worker's; a local model has none)."""
+    if 'command' not in cfg['workers'][worker]:
+        return
     now = datetime.now(timezone.utc)
     cmd_text = ' '.join(cfg['workers'][worker]['command'])
     hits = readers.scan_text(cfg['accounts'], cmd_text, lines, now, f'run-{worker}-{int(now.timestamp())}')
@@ -704,9 +707,10 @@ def backlog_change(cfg, a, data):
         print('\n'.join(f'{t["id"]}: {t["title"][:100]}' for t in added) or f'seed: nothing new found in {a.repo}')
     else:
         task = backlog.find(data, a.repo)   # rm, retry and done take the task id in the first argument
+        if task['status'] == 'running':
+            raise backlog.BacklogError(f'{task["id"]} is running (run {task.get("run")}): wait for it '
+                                       f'(tutti wait run {task.get("run")}), then {a.action} it')
         if a.action == 'rm':
-            if task['status'] == 'running':
-                raise backlog.BacklogError(f'{task["id"]} is running (run {task.get("run")}): wait for it, then remove it')
             task['status'] = 'dropped'
         elif a.action == 'done':
             task['status'] = 'done'
@@ -798,6 +802,7 @@ def parser():
     s.add_argument('--check-where', default='local', choices=['local', 'route'],
                    help='with --check: run it here (local, the default) or on a routed machine (route)')
     s.add_argument('--remote-track', help=argparse.SUPPRESS)
+    s.add_argument('--account', help=argparse.SUPPRESS)   # the autopilot's account of a shared worker (agy-gemini, agy-claude)
     s.add_argument('--id', help=argparse.SUPPRESS)
     s.add_argument('--extra', action='append', help=argparse.SUPPRESS)
     s = add('pr', cmd_pr, 'pull requests: `pr review <n>` asks the reviewers, says when none will come, and falls back to a local '

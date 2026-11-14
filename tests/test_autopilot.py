@@ -158,13 +158,44 @@ class PlanTest(Base):
     def test_a_retry_climbs_the_ladder_and_skips_a_step_ahead_of_its_pace(self):
         states = self.states(cursor=account('cursor', 'ahead', None))
         tries = [attempt('agy-gemini'), attempt('agy-claude')]
-        p = autopilot.plan(self.cfg(), [task('t1', attempts=tries)], states, FREE, True)
+        scoped = {**task('t1', attempts=tries), 'scope': ['src/a.py']}
+        p = autopilot.plan(self.cfg(), [scoped], states, FREE, True)
         self.assertEqual(p['dispatch'], [('t1', 'pc')])   # cursor is ahead: the local model, the strongest step, takes it
+        unscoped = autopilot.plan(self.cfg(), [task('t3', attempts=tries)], states, FREE, True)
+        self.assertEqual(unscoped['dispatch'], [])        # a local model needs files to edit
         one = autopilot.plan(self.cfg(), [task('t2', attempts=tries[:1])], states, FREE, True)
         self.assertEqual(one['dispatch'], [('t2', 'agy-claude')])
 
+    def test_a_fresh_task_goes_only_to_a_trigger_account_behind_its_line(self):
+        states = self.states(**{'agy-gemini': account('agy-gemini', 'on pace'), 'agy-claude': account('agy-claude', 'on pace')})
+        p = autopilot.plan(self.cfg(), [task('t1')], states, FREE, True)
+        self.assertEqual(p['dispatch'], [])               # cursor (on pace) and pc are only for retries
+        self.assertEqual(p['state'], 'stopped')
+
+    def test_escalation_starts_above_the_last_failed_step_and_a_reviewer_retry_stays(self):
+        states = self.states(cursor=account('cursor', 'on pace', None))
+        p = autopilot.plan(self.cfg(), [task('t1', attempts=[attempt('agy-claude')])], states, FREE, True)
+        self.assertEqual(p['dispatch'], [('t1', 'cursor')])
+        again = autopilot.plan(self.cfg(), [task('t2', attempts=[attempt('agy-claude', ok=True)])], states, FREE, True)
+        self.assertEqual(again['dispatch'], [('t2', 'agy-claude')])
+
+    def test_a_task_without_a_check_is_never_sent(self):
+        cfg = self.cfg()
+        cfg['autopilot']['repos']['app']['check'] = ''
+        p = autopilot.plan(cfg, [{**task('t1'), 'check': ''}], self.states(), FREE, True)
+        self.assertEqual(p['dispatch'], [])
+        self.assertIn('no acceptance check', p['waiting']['t1'])
+
+    def test_the_cost_of_finished_attempts_stays_counted_until_a_new_reading(self):
+        states = self.states(**{'agy-gemini': {**account('agy-gemini', room=1), 'reading_at': '2026-11-14T10:00:00+00:00'}})
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        done = {**task('t0', 'review'), 'attempts': [{**attempt('agy-gemini', ok=True), 'started': 1794660000.0}]}
+        self.assertEqual(autopilot.plan(cfg, [done, task('t1')], states, FREE, True)['dispatch'], [])
+        older = {**done, 'attempts': [{**done['attempts'][0], 'started': 1794600000.0}]}
+        self.assertEqual(autopilot.plan(cfg, [older, task('t1')], states, FREE, True)['dispatch'], [('t1', 'agy-gemini')])
+
     def test_a_step_that_costs_money_is_never_used(self):
-        cfg = self.cfg(ladder=['paid'])
+        cfg = self.cfg(ladder=['paid'], accounts=['paid'])
         self.assertIsNone(autopilot.step_of(cfg, 'paid'))
         self.assertEqual(autopilot.plan(cfg, [task('t1')], self.states(), FREE, True)['dispatch'], [])
 
@@ -288,6 +319,35 @@ class SurfaceTest(Base):
             self.assertIn(part, errs)
         self.assertEqual(config.validate(self.cfg()), [])
 
+    def test_a_worker_that_accounts_use_must_be_named_by_its_account(self):
+        errs = '\n'.join(config.validate(self.cfg(ladder=['agy'])))
+        self.assertIn('name the account instead (agy-gemini, agy-claude)', errs)
+        self.assertIsNone(autopilot.step_of(self.cfg(), 'agy'))
+
+    def test_publish_stops_when_git_fails_before_the_commit(self):
+        calls = []
+
+        def run(cwd, *args):
+            calls.append(args[0])
+            return SimpleNamespace(returncode=1 if args[0] == 'checkout' else 0, stderr='bad ref', stdout='')
+        t = task('t1')
+        autopilot.publish(self.cfg(), t, {'worktree': '/wt', 'diff': '/d.patch', 'id': '1-1'}, run=run)
+        self.assertEqual(calls, ['checkout'])
+        self.assertIn('git checkout failed', t['publish_note'])
+
+    def test_a_start_that_fails_leaves_the_task_queued(self):
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        cfg['machines'] = {}
+        cfg['_path'] = os.path.join(self.tmp.name, 'x.yaml')
+        with backlog.locked(cfg) as data:
+            backlog.add(data, backlog.new_task('app', 'x', [], 'true'))
+
+        def broken(*a, **k):
+            raise OSError('no such program')
+        _, events = autopilot.tick(cfg, {'agy-gemini': account('agy-gemini')}, [], spawn=broken)
+        self.assertIn('could not be started', events[0])
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
+
     def test_the_dashboard_toggle_and_its_bad_body(self):
         cfg = self.cfg(enabled=False)
         self.assertFalse(autopilot.enabled(cfg))
@@ -311,11 +371,25 @@ class SurfaceTest(Base):
             self.assertEqual(cli.main(['backlog', 'add', 'app', 'Fix a typo', '--scope', 'README.md']), 0)
             self.assertEqual(cli.main(['backlog', 'retry', 't1', '--note', 'use the British spelling']), 0)
             self.assertEqual(cli.main(['backlog', 'add', 'nope', 'x']), 2)
+            with backlog.locked(cfg) as data:
+                data['tasks'][0].update(status='running', run='1-1')
+            self.assertEqual(cli.main(['backlog', 'retry', 't1']), 2)   # a running task is never changed under its run
+            with backlog.locked(cfg) as data:
+                data['tasks'][0]['status'] = 'queued'
             self.assertEqual(cli.main(['backlog', 'rm', 't1']), 0)
             self.assertEqual(cli.main(['autopilot', 'off']), 0)
         t = backlog.load(cfg)['tasks'][0]
         self.assertEqual((t['status'], t['notes'], t['check']), ('dropped', ['use the British spelling'], 'true'))
         self.assertFalse(autopilot.enabled(cfg))
+
+
+class LocalModelTest(Base):
+    def test_a_local_model_may_create_a_scoped_file_and_has_no_limit_scan(self):
+        from tutti import local
+        self.assertIn('new file', local.current(os.path.join(self.tmp.name, 'nope.py')))
+        written = local.apply_blocks('=== FILE: sub/new.py ===\n```\nx = 1\n```\n', ['sub/new.py'], self.tmp.name)
+        self.assertEqual(written, ['sub/new.py'])
+        cli.note_limits(self.cfg(), 'pc', ['usage limit reached'])   # no command to match: nothing happens, no KeyError
 
 
 class DelegateCheckTest(Base):

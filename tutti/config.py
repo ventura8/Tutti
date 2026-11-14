@@ -258,6 +258,11 @@ def _autopilot_name_errors(cfg, key, names):
             errs.append(f'autopilot.{key} names "{n}", which costs money per use: the autopilot never spends money; remove it')
         elif a is None and w is None:
             errs.append(f'autopilot.{key} names "{n}", which is neither under accounts: nor under workers: (or it is turned off)')
+        elif a is None:
+            users = [x for x, acc in cfg['accounts'].items() if (acc or {}).get('worker') == n]
+            if users:
+                errs.append(f'autopilot.{key} names the worker "{n}", which accounts use: name the account instead '
+                            f'({", ".join(users)}), so its pace, panic and model apply')
     return errs
 
 

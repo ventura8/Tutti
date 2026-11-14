@@ -97,6 +97,11 @@ def read(path):
         return f.read()
 
 
+def current(path):
+    """A file's text for a brief; a file the task is to create does not exist yet."""
+    return read(path) if os.path.exists(path) else '(a new file: write it)\n'
+
+
 def ask(cfg, worker, instruction, files=(), stdin_text=''):
     parts = [instruction] + [f'--- {p} ---\n{read(p)}' for p in files]
     if stdin_text:
@@ -131,6 +136,7 @@ def apply_blocks(answer, allowed, base):
     changed = []
     for path, content in FILE_BLOCK.findall(answer):
         if path in allowed:
+            os.makedirs(os.path.dirname(os.path.join(base, path)) or '.', exist_ok=True)   # a file the task creates
             with open(os.path.join(base, path), 'w', encoding='utf8') as f:
                 f.write(content)
             changed.append(path)
@@ -142,7 +148,7 @@ def agent(cfg, worker, task, check, files, rounds=4, base='.'):
     busy_marker(cfg)
     feedback = ''
     for n in range(1, rounds + 1):
-        sources = ''.join(f'\n=== FILE: {f} ===\n```\n{read(os.path.join(base, f))}```\n' for f in files)
+        sources = ''.join(f'\n=== FILE: {f} ===\n```\n{current(os.path.join(base, f))}```\n' for f in files)
         prompt = (f'{rules_text(cfg)}TASK:\n{task}\n{feedback}\nCurrent files:{sources}\n'
                   'Answer ONLY with the files you change, each as "=== FILE: <path> ===" followed by its complete content in one '
                   'fenced block.')

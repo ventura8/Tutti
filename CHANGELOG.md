@@ -2,6 +2,34 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.34 (2026-11-14)
+
+### Added
+
+- Several users in one household, increment 3 of 4 (docs/HOUSEHOLD.md): fair shares of shared machines. `tutti household
+  machine share <m>` lends a machine to the household (its slot locks move to `/tmp/tutti-household`, mode 1777, made by
+  Tutti over ssh and opened read-only by `slot.sh`, so every member's login takes one slot queue), `machine use <m>` adds another member's (kept in
+  `user.json`, never in the config file; ssh is checked and the one human step is named), `machine pause|resume|unshare`
+  (its owner or the admin). The coordinator grants each member a share of each machine's slots every round: interactive
+  demand (prompting, runs by hand) before background autopilots, then weighted max-min fair shares weighted by each
+  member's expected activity this hour from their 7 x 24 profile (the household plan), one slot for a member starved 20
+  minutes, never idle while someone has work. `tutti test`'s routing and the autopilot see at most the grant free, with
+  who the machine is busy for. Autopilot runs are marked background (`TUTTI_BACKGROUND`).
+- The main agent is a per-user setting: `tutti user main-agent <kind>` (claude, codex, agy, cursor, copilot, gemini,
+  local), kept in `user.json`; the owner reserve moves to the accounts behind the new agent, and `tutti connect` runs for
+  it. Tested: a switch moves the reserve.
+- From the review of #35: a status look keeps the last demand; queued work and the prompting slot are counted once, not
+  on every machine; one's own machine reports its fit slots (hot: `heat.hot_slots`); shared lock folder mode 1777 with
+  read-only lock fds instead of a world-writable folder.
+- `share_spare`: an account whose planner room would be lost within `household.share_spare_hours` of its target makes its
+  member *spare*; the coordinator then offers other members' shared projects, cloned once with the member's own git
+  sign-in and taken only by the spare accounts, results as draft pull requests.
+- A member reserves only as many shared tasks as it could start now; the coordinator reserves in the member's order,
+  skipping tasks others hold, so one member never keeps shared tasks from another.
+- Tests: a 48-hour simulation of two members with different working hours on two shared machines and one shared project
+  (every round within capacity and work-conserving, each member's prompting served in their hours, nobody without a slot
+  past the starvation limit, 30 tasks with an overlap deduplicated and each done exactly once, by both members).
+
 ## 0.1.33 (2026-11-14)
 
 ### Added

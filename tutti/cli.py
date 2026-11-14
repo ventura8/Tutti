@@ -200,7 +200,10 @@ def test_choice(cfg, a):
     if a.on:
         return routing.Choice(machine_of(cfg, a.on)['name'], False, 'chosen with --on'), None
     try:
-        return routing.choose(cfg['routing']['order'], cfg['machines'], lambda n: remote.probe(cfg['machines'][n])), None
+        from . import sharing  # a household's shared machine offers only this member's grant (docs/HOUSEHOLD.md)
+        now = time.time()
+        return routing.choose(cfg['routing']['order'], cfg['machines'],
+                              lambda n: sharing.limited_probe(cfg, n, remote.probe(cfg['machines'][n]), now)), None
     except routing.NoMachine as e:
         raise config.ConfigError(str(e)) from e
 
@@ -211,6 +214,8 @@ def test_job(cfg, a, machine, device, src, command):
             *[f'--fetch={p}' for p in a.fetch or []], a.track, *command]
     on = machine['name'] + (f' / {device["name"]}' if device else '')
     target = f'machine:{machine["name"]}' + (f' device:{device["name"]}' if device else '')
+    if os.environ.get('TUTTI_BACKGROUND'):   # started by the autopilot: background demand on a household's shared machine
+        target += ' class:background'
     return transfer.Job(cfg, f'test {a.track} on {on}: {" ".join(command)}'[:200], folder='devices' if device else 'tests',
                         target=target, spec={'kind': 'test', 'track': a.track, 'device': bool(device), 'args': args})
 
@@ -943,8 +948,9 @@ def cmd_autopilot(cfg, a):
     elif a.action == 'tick':
         now = datetime.now(timezone.utc)
         states = {s['name']: s for s in state.usage_state(cfg, now)['accounts']}
-        machines = state.machines_state(cfg, remote.probe)
-        _plan, events = autopilot.tick(cfg, states, machines)
+        from . import sharing
+        machines = sharing.limit_items(cfg, state.machines_state(cfg, remote.probe), time.time())
+        _plan, events = autopilot.tick(cfg, states, machines, beat=sharing.beat(cfg, now, machines))
         for e in events:
             say(f'autopilot: {e}')
     print(autopilot.describe(autopilot.view(cfg)))
@@ -1218,18 +1224,22 @@ def parser():
                                             'allows it merges and patch releases: status, on, off, tick (one round now)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])
     s = add('user', householdcmd.cmd_user, 'who this Tutti works for: show, name <name> (config: back to the config\'s), '
+                                           'main-agent <kind> (claude, codex, agy, cursor, copilot, gemini, local), '
                                            'share <account> on|off (room it would lose at its reset may do the household\'s '
                                            'shared tasks; docs/HOUSEHOLD.md)')
-    s.add_argument('action', nargs='?', default='show', choices=['show', 'name', 'share'])
-    s.add_argument('arg', nargs='?', help='name: the name; share: the account')
+    s.add_argument('action', nargs='?', default='show', choices=['show', 'name', 'main-agent', 'share'])
+    s.add_argument('arg', nargs='?', help='name: the name; main-agent: the kind; share: the account')
     s.add_argument('value', nargs='?', help='share: on or off')
     s = add('household', householdcmd.cmd_household, 'several people, one set of machines (docs/HOUSEHOLD.md): status, init '
                                                      '(this computer coordinates; prints the join code), join <code>, leave, '
-                                                     'code (a new join code), serve (the coordinator alone), project share|unshare <repo>')
+                                                     'code (a new join code), serve (the coordinator alone), project share|unshare <repo>, '
+                                                     'machine share|unshare|use|pause|resume <machine>')
     s.add_argument('action', nargs='?', default='status', choices=list(householdcmd.ACTIONS))
-    s.add_argument('arg', nargs='*', help='join: the code; project: share or unshare and the repo')
+    s.add_argument('arg', nargs='*', help='join: the code; project: share or unshare and the repo; machine: the action and the machine')
+    s.add_argument('--user', help='machine use: your login on that machine (default: this login\'s name)')
     s.add_argument('--name', help='init: the household\'s name; join: your name in it (default: `tutti user`\'s)')
-    s.add_argument('--host', help='init: the address members reach this computer at (default: its LAN address)')
+    s.add_argument('--host', help='init: the address members reach this computer at (default: its LAN address); machine share: '
+                                  'the address members reach the machine at (default: its host, or this computer\'s LAN address)')
     s.add_argument('--port', type=int, help='init, serve: the port (default: household.port, 4778)')
     s.add_argument('--json', action='store_true', help='status: as JSON')
     s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it')

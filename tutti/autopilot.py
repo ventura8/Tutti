@@ -138,7 +138,7 @@ def step_room(cfg, name, states, running_units, machines=()):
     if unfit:
         return 0, f'{name}: {unfit}'
     p = s.get('quota_plan')
-    if name in settings(cfg)['accounts'] and p:
+    if (name in settings(cfg)['accounts'] or name in cfg.get('_spare_accounts', ())) and p:
         # the planner's room (tutti/planner.py): a window's share of its weekly limit, or the room left after the reserve and
         # the background spend; spent before it expires
         room = p['tasks'] - used
@@ -170,6 +170,10 @@ def candidates(cfg, t):
     autopilot spends what would be lost, it does not start new work elsewhere. A retry from one step above its last failed
     attempt (the same step after a reviewer's retry of a pass); the last step repeats. A local model only with file scope."""
     steps = ladder(cfg)
+    if (settings(cfg)['repos'].get(t['repo']) or {}).get('spare'):
+        # another member's project, adopted for spare room (accounts.<n>.share_spare): only the accounts whose room would
+        # otherwise be lost at their reset (docs/HOUSEHOLD.md)
+        return list(cfg.get('_spare_accounts', ()))
     if not t['attempts']:
         trig = settings(cfg)['accounts']
         return [n for n in steps if n in trig] + [n for n in trig if n not in steps]
@@ -272,7 +276,7 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     if stop:
         return {**out, **stop}
     used = spent_units(tasks, states)
-    names = list(dict.fromkeys([*ladder(cfg), *settings(cfg)['accounts']]))
+    names = list(dict.fromkeys([*ladder(cfg), *settings(cfg)['accounts'], *cfg.get('_spare_accounts', ())]))
     rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}
     assign(cfg, queued, rooms, free, out)
     if out['dispatch']:
@@ -396,7 +400,9 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen):
     argv += [f'--extra={x}' for x in step['args']]
     argv += ['--account', step['account']] if step['account'] else []
     with open(p['log'], 'a', encoding='utf8') as log:
-        child = spawn(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
+        # TUTTI_BACKGROUND: its runs on a household's shared machines are background demand (docs/HOUSEHOLD.md)
+        child = spawn(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True,
+                      env={**os.environ, 'TUTTI_BACKGROUND': '1'})
     with open(p['pid'], 'w', encoding='utf8') as f:
         f.write(f'{child.pid}\n')
     # the repo's gates this attempt runs (acceptance holds them): a result lands only when they are today's (tutti/fill.py)
@@ -587,11 +593,16 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     filled = None
     found = fill.gather(cfg, backlog.load(cfg), states, machines, now) if on else None   # the repos' commands: never under the lock
     from . import sharing  # sharing imports backlog and coordinator; a household of one makes no call
+    cfg['_spare_accounts'] = sharing.spare_accounts(cfg, states, now)
+    if beat is not None:
+        beat = {**beat, 'spare': bool(cfg['_spare_accounts'])}
     shared = sharing.sync(cfg, backlog.load(cfg), beat, now=now)   # the coordinator's call: never under the lock either
+    events_spare = sharing.adopt_offers(cfg, shared, now)
     with backlog.locked(cfg) as data:
         events = collect(cfg, data, now, is_alive, publish_fn)
         hold, mirrored = sharing.under_lock(shared, data, now)
-        events += mirrored
+        hold.update(sharing.spare_hold(cfg, data))
+        events += mirrored + events_spare
         started = []
         if on:
             filled = fill.fill(cfg, data, states, machines, now, found)

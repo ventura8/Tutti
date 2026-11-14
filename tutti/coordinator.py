@@ -16,7 +16,7 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import config, household, telemetry, users
+from . import config, fairshare, household, telemetry, users
 
 FOLDER = 'household'
 FILE = 'coordinator.json'
@@ -135,7 +135,10 @@ class Service:
                 why = self.verify(data, uid, path, headers, body, now)
                 if why:
                     return 401, {'error': why}
-                code, answer = self.member_call(data, uid, path, json.loads(body or b'{}'), now)
+                try:
+                    code, answer = self.member_call(data, uid, path, json.loads(body or b'{}'), now)
+                except household.HouseholdError as e:
+                    code, answer = 409, {'error': str(e)}
             if code == 200:
                 save(self.path, data)
             return code, answer
@@ -183,6 +186,8 @@ class Service:
         if path == '/hh/leave':
             household.leave(data, uid)
             return 200, {'left': True}
+        if path == '/hh/machine':
+            return 200, self.machine(data, uid, ask, now)
         if path == '/hh/code':
             if data.get('admin') != uid:
                 return 403, {'error': 'only the household\'s admin (who ran `tutti household init`) makes join codes'}
@@ -190,13 +195,35 @@ class Service:
             return 200, {'code': new_code(data, c.get('host') or lan_address(), c.get('port') or self.cfg['household']['port'], now)}
         return 404, {'error': 'not a household call: update Tutti on this computer'}
 
+    def weight_at(self, now):
+        from datetime import datetime, timedelta, timezone
+        utc = datetime.fromtimestamp(now, timezone.utc)
+        return lambda m: fairshare.hour_weight(m.get('weight', 1), m.get('profile'), utc + timedelta(hours=m.get('utc_offset') or 0))
+
     def sync(self, data, uid, ask, now):
         household.heartbeat(data, uid, ask.get('beat') or {}, now)
         projects = {}
         for pkey, p in (ask.get('projects') or {}).items():
             if isinstance(p, dict) and household.project_key(f'https://{pkey}') == pkey:
                 projects[pkey] = household.sync_project(data, pkey, p, uid, now, self.minutes())
-        return {'projects': projects, 'status': household.status(data, uid, now)}
+        household.machine_round(data, now, float(self.cfg['household'].get('starve_minutes', 20)), self.weight_at(now))
+        answer = {'projects': projects, 'status': household.status(data, uid, now), 'machines': household.machines_view(data, uid)}
+        if (ask.get('beat') or {}).get('spare'):
+            answer['offers'] = household.offers(data, set(projects), now)
+        return answer
+
+    def machine(self, data, uid, ask, now):
+        name = str(ask.get('name') or '')
+        action = ask.get('action')
+        if action == 'share':
+            household.share_machine(data, uid, name, ask.get('info') or {}, now)
+        elif action == 'unshare':
+            household.unshare_machine(data, uid, name)
+        elif action in ('pause', 'resume'):
+            household.pause_machine(data, uid, name, action == 'pause', now)
+        else:
+            raise household.HouseholdError('say share, unshare, pause or resume')
+        return {'machines': household.machines_view(data, uid)}
 
 
 def make_handler(service):

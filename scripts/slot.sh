@@ -6,8 +6,11 @@
 #      HEAT_STOP_C, HEAT_CAP_C, HOT_SLOTS (1): machines.<m>.heat. A run that already waits here re-reads the temperature
 #      right before it starts: at HEAT_STOP_C or more it does not start, at HEAT_CAP_C or more only while fewer than
 #      HOT_SLOTS other runs hold a slot; it gives its slot back and waits until the machine cools down.
+#      SLOT_SHARED: a household's shared machine: its lock folder is mode 1777, so a lock file another login made is opened
+#      read-only (flock needs no write access) and a missing one is made readable by every login (umask 0).
 #      THERMAL_GLOB (/sys/class/thermal/thermal_zone*/temp): where the millidegrees are read (tests point it elsewhere).
 prefix="${SLOT_LOCK_PREFIX:-/tmp/tutti-slot-}"
+if [[ -n "${SLOT_SHARED:-}" ]]; then umask 0000; fi
 locks=()
 if [ -n "${SLOT_LOCKS:-}" ]; then
 	read -r -a locks <<< "$SLOT_LOCKS"
@@ -57,7 +60,12 @@ said=""
 queued=""
 while :; do
 	for lock in "${locks[@]}"; do
-		exec 9>"$lock"
+		if [[ -n "${SLOT_SHARED:-}" ]]; then
+			[[ -e "$lock" ]] || : > "$lock"
+			exec 9< "$lock"
+		else
+			exec 9> "$lock"
+		fi
 		if flock -n 9; then
 			until [ "$(avail_gb)" -ge "${MIN_FREE_GB:-6}" ]; do sleep 20; done
 			if why=$(too_hot "$lock"); then

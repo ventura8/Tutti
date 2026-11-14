@@ -29,7 +29,8 @@ stored as `<other>`, so a task, a prompt or a path can never pass as a value.
   `autopilot.escalate`, `autopilot.park` with its cause `no_progress` or `max_attempts`), waits (`wait.stall`,
   `wait.timeout` with the kind of wait and seconds), scouts (`scout.ask`, `scout.tick`, ...: the skill and the outcome),
   self-improvement (`selfimprove.analyse`, `merge`, `release`, `switch`), the household (`user.<action>`,
-  `household.init`, `household.join`, `household.sync`: the outcome and counts; a user only as `user`, 12 hex digits of
+  `household.init`, `household.join`, `household.sync`, `household.grant` (machines, slots granted, machines limited): the
+  outcome and counts; a user only as `user`, 12 hex digits of
   SHA-256 of a random id, never a name: docs/HOUSEHOLD.md), handled errors by exception type.
 - **Dashboard**: which panel and which control was used (`usage` / `refresh-readings`): the card's heading id and the
   control's id, never its text or a value; script errors and unhandled rejections of the page.

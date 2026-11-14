@@ -97,6 +97,46 @@ def leave_household(env=None):
         return False
 
 
+def _apply_machines(raw, saved):
+    machines = raw.get('machines') or {}
+    for n, over in (saved.get('machine_overrides') or {}).items():
+        if n in machines and isinstance(over, dict):
+            machines[n] = {**(machines[n] or {}), **over}
+    added = [n for n in (saved.get('household_machines') or {}) if n not in machines]
+    for n in added:
+        machines[n] = dict(saved['household_machines'][n])
+    if machines:
+        raw['machines'] = machines
+    order = (raw.get('routing') or {}).get('order')
+    if added and order:
+        raw['routing']['order'] = [*order, *added]
+
+
+def _apply_spare(raw, saved):
+    spare = saved.get('spare_repos') or {}
+    if spare and isinstance(raw.get('autopilot'), dict):
+        repos = raw['autopilot'].get('repos') or {}
+        raw['autopilot']['repos'] = {**{n: r for n, r in spare.items() if n not in repos}, **repos}
+
+
+def _apply_main(raw, saved):
+    agent = saved.get('main_agent')
+    if isinstance(agent, str) and agent:
+        raw['main'] = {**(raw.get('main') or {}), 'agent': agent}
+
+
+def apply(raw, saved):
+    """The household's machines and spare repos written into the raw config before defaults (like the dashboard's
+    switches): this member's own shared machines get the shared lock path (`machine_overrides`), the machines it uses
+    from other members are added (`household_machines`, also to an explicit routing.order), and the projects adopted for
+    spare room join autopilot.repos (`spare_repos`). Never an entry the config already has."""
+    if isinstance(raw, dict):
+        _apply_main(raw, saved)
+        _apply_machines(raw, saved)
+        _apply_spare(raw, saved)
+    return raw
+
+
 # ---- identity
 
 
@@ -185,6 +225,53 @@ def set_share(cfg, account, on):
     share = dict(read(folder).get('share') or {})
     share[account] = bool(on)
     write(folder, share=share)
+
+
+# ---- the main agent: a per-user setting (docs/HOUSEHOLD.md, *The main agent*)
+
+# the supported kinds, the program names that mean them, and `tutti connect`'s name for each (None: nothing to connect)
+MAIN_KINDS = {'claude': (('claude',), 'claude-code'), 'codex': (('codex', 'chatgpt'), 'codex'),
+              'agy': (('agy', 'antigravity'), 'antigravity'), 'cursor': (('cursor-agent', 'cursor'), 'cursor'),
+              'copilot': (('copilot',), 'copilot-cli'), 'gemini': (('gemini',), 'gemini'), 'local': ((), None)}
+
+
+def worker_for(cfg, kind):
+    """The config's worker that is this kind of main agent (by name or program; `local`: a local model), else None."""
+    names, _ = MAIN_KINDS[kind]
+    for n, w in cfg['workers'].items():
+        w = w or {}
+        prog = os.path.basename(str((w.get('command') or [''])[0]))
+        if (kind == 'local' and w.get('kind') == 'ollama') or n == kind or prog in names or any(n.startswith(x) for x in names):
+            return n
+    return None
+
+
+def set_main_agent(cfg, kind, connect_fn=None):
+    """Makes `kind` this user's main agent (kept in user.json, so the config file is untouched); the planner's owner reserve
+    moves to the accounts behind it. Then `tutti connect` for it. Returns (worker name, a note)."""
+    if kind not in MAIN_KINDS:
+        raise UserError(f'"{kind}" is not a main agent Tutti knows: pick one of {", ".join(MAIN_KINDS)}')
+    worker = worker_for(cfg, kind)
+    write(config.state_dir(cfg), main_agent=worker or kind)
+    note = '' if worker else (f'no worker of kind {kind} in {cfg.get("_path")} yet, so no account backs it and nothing is kept '
+                              'for you: `tutti setup` adds it')
+    target = MAIN_KINDS[kind][1]
+    if target:
+        note = '; '.join(x for x in (note, connect_main(cfg, target, connect_fn)) if x)
+    return worker or kind, note
+
+
+def connect_main(cfg, target, connect_fn=None):
+    """`tutti connect` for the new main agent (tutti/connect.py's connect_all), or what to run when it is not here yet."""
+    if connect_fn is None:
+        try:
+            from . import connect  # built beside this (docs/CONNECT.md); absent in an older install
+        except ImportError:
+            return f'run `tutti connect {target}` once your Tutti has it, so the agent knows Tutti'
+        connect_fn = connect.connect_all
+    results = connect_fn(cfg.get('_path'), names=[target])
+    bad = [r.get('note') for r in results if r.get('status') == 'error']
+    return f'tutti connect {target}: ' + ('; '.join(bad) if bad else 'done')
 
 
 # ---- config checks

@@ -355,6 +355,8 @@ def slot_prefix(machine):
     heat = machine.get('heat') or {}
     names = {'stop_c': 'HEAT_STOP_C', 'cap_c': 'HEAT_CAP_C', 'hot_slots': 'HOT_SLOTS'}
     extra = ''.join(f' {names[k]}={int(float(heat[k]))}' for k in names if heat.get(k) is not None)
+    if machine.get('household_shared'):
+        extra += ' SLOT_SHARED=1'   # lock files every member's login can open (docs/HOUSEHOLD.md, shared machines)
     return f'MIN_FREE_GB={int(machine["min_free_gb"])} SLOT_LOCKS={locks}{extra}'
 
 

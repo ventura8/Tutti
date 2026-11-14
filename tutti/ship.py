@@ -2,6 +2,7 @@
 Targeted checks by default (only what changed); the full checks only when asked (--full), for example before a release."""
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -60,7 +61,14 @@ def changed_since(top, base):
 
 
 def shell(top, command, env):
-    return subprocess.run(['bash', '-c', command], cwd=top, env={**os.environ, **env})
+    """Runs `command` with bash in `top`. Tutti's variables are exported at the start of the bash line as well as put in
+    the process environment: on Windows `bash` is often WSL, which does not inherit the Windows process environment.
+    Exported, not prefixed: `K=v echo "$K"` expands $K before the assignment applies, so a check read it empty. The line
+    goes through remote.argv, which sends it base64-encoded on Windows (WSL's bash.exe mangled its quotes)."""
+    if env:
+        exports = '; '.join(f'export {k}={shlex.quote(str(v))}' for k, v in env.items())
+        command = f'{exports}; {command}'
+    return subprocess.run(remote.argv({'transport': 'local'}, command), cwd=top, env={**os.environ, **env})
 
 
 def run_check(cfg, top, check, env, track):

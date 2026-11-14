@@ -1,8 +1,11 @@
 """Small pure pieces: the brief, the remote command lines, waits, the translation validators and the QA gate."""
+import base64
 import json
 import os
+import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from tutti import config, local, remote, translate, waiting, workers
 
@@ -37,11 +40,23 @@ class RemoteTest(unittest.TestCase):
 
     def test_transports(self):
         m = self.cfg['machines']
-        self.assertEqual(remote.argv(m['l'], 'true'), ['bash', '-c', 'true'])
+        with mock.patch.object(remote.os, 'name', 'posix'):
+            self.assertEqual(remote.argv(m['l'], 'true'), ['bash', '-c', 'true'])
         self.assertEqual(remote.argv(m['a'], 'true')[-2:], ['a.example', 'true'])
         line = remote.argv(m['w'], "echo 'it works'")[-1]
         self.assertTrue(line.startswith('wsl -e /home/u/run64.sh '))
         self.assertNotIn("'", line)   # nothing left for Windows' shell to mangle
+
+    def test_local_on_windows_sends_the_line_without_quotes(self):
+        # Windows rebuilt `cut -d" "` as `cut -d\"` for bash.exe: the local probe failed and `here` showed unreachable.
+        script = 'echo "a b" | cut -d" " -f1'
+        with mock.patch.object(remote.os, 'name', 'nt'):
+            args = remote.argv(self.cfg['machines']['l'], script)
+        self.assertEqual(args[:2], ['bash', '-c'])
+        self.assertNotIn('"', args[2])
+        packed = args[2].split('echo ')[1].split()[0]
+        self.assertEqual(base64.b64decode(packed).decode(), script)
+        self.assertNotIn('| bash', args[2])  # the script goes to a file: the command keeps the caller's stdin
 
     def test_docker_runner_is_capped_and_quotes_the_command(self):
         line = remote.runner_command(self.cfg['machines']['a'], 'trk', "echo 'hi' && exit 3")
@@ -60,18 +75,25 @@ class RemoteTest(unittest.TestCase):
         self.assertEqual(remote.home_path('/mnt/c/a b.txt'), "'/mnt/c/a b.txt'")
 
     def test_local_probe_and_run_and_yield(self):
+        # flock needs a POSIX filesystem: a Windows tempfile path (often /mnt/c/...) reports free=0 under WSL/Git Bash.
+        # Locks and the yield flag live under bash's /tmp; the work tree stays in the Windows-visible temp dir.
         with tempfile.TemporaryDirectory() as d:
-            cfg = cfg_of({'machines': {'l': {'host': 'local', 'min_free_gb': 0, 'locks': [f'{d}/s.lock'], 'yield_file': f'{d}/yield'}}})
-            m = cfg['machines']['l']
-            p = remote.probe(m)
-            self.assertEqual((p.reachable, p.free, p.yielding), (True, 1, False))
-            self.assertEqual(remote.run(cfg, m, 't', d, 'echo ran > out.txt; exit 7'), 7)
-            self.assertTrue(os.path.exists(f'{d}/out.txt'))
-            self.assertEqual(remote.set_yield(m, True, 'unload: release build'), 0)
-            self.assertTrue(remote.probe(m).yielding)
-            self.assertEqual(remote.yield_note(m), 'unload: release build')
-            self.assertEqual(remote.set_yield(m, False), 0)
-            self.assertIsNone(remote.yield_note(m))
+            lock_dir = subprocess.check_output(['bash', '-c', 'mktemp -d /tmp/tutti-test.XXXXXX'], text=True).strip()
+            try:
+                cfg = cfg_of({'machines': {'l': {'host': 'local', 'min_free_gb': 0,
+                                                 'locks': [f'{lock_dir}/s.lock'], 'yield_file': f'{lock_dir}/yield'}}})
+                m = cfg['machines']['l']
+                p = remote.probe(m)
+                self.assertEqual((p.reachable, p.free, p.yielding), (True, 1, False))
+                self.assertEqual(remote.run(cfg, m, 't', d, 'echo ran > out.txt; exit 7'), 7)
+                self.assertTrue(os.path.exists(f'{d}/out.txt'))
+                self.assertEqual(remote.set_yield(m, True, 'unload: release build'), 0)
+                self.assertTrue(remote.probe(m).yielding)
+                self.assertEqual(remote.yield_note(m), 'unload: release build')
+                self.assertEqual(remote.set_yield(m, False), 0)
+                self.assertIsNone(remote.yield_note(m))
+            finally:
+                subprocess.run(['bash', '-c', 'rm -rf "$1"', 'bash', lock_dir], check=False)
 
 
 class WaitingTest(unittest.TestCase):
@@ -89,6 +111,7 @@ class WaitingTest(unittest.TestCase):
                 f.write('stage static passed\n')
             self.assertTrue(waiting.file_matches(path, r'stage \w+ passed')())
         self.assertFalse(waiting.pid_gone(os.getpid())())
+        self.assertTrue(waiting.pid_gone(2_000_000_000)())
 
 
 class LocalTest(unittest.TestCase):

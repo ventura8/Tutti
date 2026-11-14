@@ -4,7 +4,9 @@
 set -euo pipefail
 home="${TUTTI_HOME:-$HOME/.local/share/tutti}"
 bin="${TUTTI_BIN:-$HOME/.local/bin}"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+config_dir="$config_home/tutti"
 rm -f "$bin/tutti"
 rm -rf "$home"
-if [ "${TUTTI_PURGE:-0}" = "1" ]; then rm -rf "$HOME/.config/tutti"; echo "tutti: config removed"; fi
-echo "tutti removed (config kept in ~/.config/tutti unless TUTTI_PURGE=1)"
+if [ "${TUTTI_PURGE:-0}" = "1" ]; then rm -rf "$config_dir"; echo "tutti: config removed"; fi
+echo "tutti removed (config kept in $config_dir unless TUTTI_PURGE=1)"

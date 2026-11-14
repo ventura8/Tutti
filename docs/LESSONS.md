@@ -76,5 +76,17 @@ the kernel killed the browser and the session.
 (`--oom-score-adj`), with `tutti guard` pausing containers when memory runs low. Briefs tell workers not to run heavy
 commands themselves.
 
+## WSL bash does not see Windows process environment (2026-11-14)
+
+**What happened.** `tutti ship` checks that read `$TUTTI_CHANGED` wrote an empty file on Windows even though the commit
+listed the new paths.
+
+**Why.** On many Windows setups `bash` is WSL. `subprocess.run(..., env=...)` sets the Windows process environment;
+WSL does not inherit it unless variables are listed in `WSLENV`. Git Bash does inherit it, so the same code worked on
+one machine and not another.
+
+**Rule.** When Tutti starts bash for a command that needs `TUTTI_*` (or any other variable), put the assignments on the
+bash command line as well as in `env=`. Do not assume the Windows process environment crosses into WSL.
+
 ## Antigravity headless refuses shell commands without per-command rules (2026-11-14)
 `agy -p` in print mode soft-denies any tool needing "command" permission unless `permissions.allow` in `~/.gemini/antigravity-cli/settings.json` lists it (`command(grep)` …). Its `cli.log` shows "soft-denying tool confirmation \"Bash\" at step N" without the command, so `tutti doctor` must find it another way (re-run with logging, or start with a broader read-only rule set). Claude Code likewise needs `Bash(agy *)` / `Bash(cursor-agent *)` allow rules before it can start these CLIs; the user must write them (an agent may not edit its own permissions).

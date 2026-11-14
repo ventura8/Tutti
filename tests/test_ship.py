@@ -3,6 +3,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from tutti import config, ship
 
@@ -92,6 +93,18 @@ class ShipTest(unittest.TestCase):
         self.write('b.txt', 'two\n')
         self.ship(self.cfg(checks=[{'run': 'echo noise; echo "[SUCCESS] stage static passed"', 'quiet': True, 'verdict': r'\[SUCCESS\]'}]))
         self.assertTrue(any('[SUCCESS] stage static passed' in line for line in self.said))
+
+    def test_shell_exports_tutti_env_on_the_bash_line(self):
+        # WSL bash does not inherit the Windows process environment, so the variables are exported on the line itself;
+        # a `K=v cmd` prefix would leave "$K" empty inside cmd (expanded before the assignment).
+        with mock.patch('tutti.ship.subprocess.run') as run, mock.patch.object(ship.remote.os, 'name', 'posix'):
+            run.return_value = subprocess.CompletedProcess(['bash'], 0)
+            ship.shell('/tmp/tree', 'echo ok', {'TUTTI_CHANGED': 'b.txt', 'TUTTI_COMMIT': 'abc'})
+        args = run.call_args.args[0]
+        self.assertEqual(args[:2], ['bash', '-c'])
+        self.assertIn('export TUTTI_CHANGED=b.txt', args[2])
+        self.assertIn('export TUTTI_COMMIT=abc', args[2])
+        self.assertTrue(args[2].endswith('echo ok'))
 
 
 if __name__ == '__main__':

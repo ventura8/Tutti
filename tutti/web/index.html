@@ -24,6 +24,7 @@
     <script src="settings.js?v=__TUTTI_VERSION__" defer></script>
     <script src="setup.js?v=__TUTTI_VERSION__" defer></script>
     <script src="energy.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="queue.js?v=__TUTTI_VERSION__" defer></script>
     <script src="household.js?v=__TUTTI_VERSION__" defer></script>
     <script src="where.js?v=__TUTTI_VERSION__" defer></script>
     <script src="vpn.js?v=__TUTTI_VERSION__" defer></script>
@@ -111,6 +112,14 @@
                     <select class="pick" id="job-project"></select>
                 </header>
                 <div id="running" class="jobs"></div>
+            </section>
+
+            <section class="card card--queued span-wide" aria-labelledby="queued-h">
+                <header class="card__head">
+                    <h2 id="queued-h">Queued</h2>
+                    <p class="card__meta" id="queued-meta"></p>
+                </header>
+                <div id="queued" class="jobs"></div>
             </section>
 
             <section class="card span-narrow" aria-labelledby="machines-h">

@@ -168,6 +168,13 @@ def machine_capacity(cfg, machines):
 
 
 def candidates(cfg, t):
+    """The steps a task may go to now (below), with the step the dashboard's Move to picked first when it is one of them."""
+    out = _candidates(cfg, t)
+    want = t.get('prefer')
+    return [want, *[n for n in out if n != want]] if want in out else out
+
+
+def _candidates(cfg, t):
     """The steps a task may go to now, weakest first. A fresh task only to a trigger account (autopilot.accounts): the
     autopilot spends what would be lost, it does not start new work elsewhere. A retry from one step above its last failed
     attempt (the same step after a reviewer's retry of a pass); the last step repeats. A local model only with file scope."""
@@ -321,6 +328,7 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     for t in running:
         going[t['repo']] = going.get(t['repo'], 0) + 1
     prefer = {n: tiers.choose(cfg, n, states.get(n))['sizes'] for n in names if n in cfg['accounts']}
+    queued.sort(key=lambda t: (not t.get('urgent'), t.get('rank', 0)))   # the dashboard's Run now and Priority up/down
     assign(cfg, priority.by_repo(cfg, queued, lambda t: t['repo'], going), rooms, free, out, prefer)
     if out['dispatch']:
         return {**out, 'state': 'dispatching', 'reason': f'{len(out["dispatch"])} task(s) sent to ' +

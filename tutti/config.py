@@ -563,6 +563,8 @@ def lenient(cfg):
             if problems:
                 warns += [f'{p}: this reader is skipped; the account still works with readings by hand' for p in problems]
                 a.pop('reader')
+    from . import shards  # a shard entry this version cannot use is skipped with a warning
+    warns += shards.lenient(cfg)
     cfg['_warnings'] = warns
     return warns
 

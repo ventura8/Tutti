@@ -540,6 +540,7 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
     on = settings(cfg).get('enabled', True) is not False
     rows = worker_rows(cfg, accounts or {}, machine_rows) if accounts is not None else []
     with locked(cfg) as st:
+        restore_left(cfg, st, devices_rows, now)
         before = {lid: lease['project'] for lid, lease in st['leases'].items()}
         recover(cfg, st, now, is_alive)
         touched = {pr for lid, pr in before.items() if lid not in st['leases']}
@@ -562,6 +563,27 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
             shards.write_report(cfg, project, st['projects'][project], now)
     telemetry.record('feature', 'dispatch.tick', sent=len(p['assign']), pending=len(pend), blocked=len(p['blocked']))
     return p
+
+
+def restore_left(cfg, st, rows, now, sh=None):
+    """A device whose prep values were saved but never put back (its run's machine rebooted, the device was gone) gets
+    them back once it answers again and nothing holds it (tutti/prep.py)."""
+    from . import prep, remote
+    sh = sh or remote.sh
+    leased = {lease['name'] for lease in st['leases'].values()} | {n for lease in st['leases'].values() for n in lease.get('holds') or []}
+    done = []
+    for d in rows or []:
+        if d.get('prep_left') != 1 or d.get('status') != 'ready' or d['name'] in leased:
+            continue
+        device = cfg['devices'][d['name']]
+        try:
+            ok = sh(cfg['machines'][device['machine']], prep.restore_script(device), capture=True, timeout=120).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+        event(st, now, f'{d["name"]}: the settings a run changed were put back after it ended uncleanly' if ok else
+              f'{d["name"]}: putting back the settings a run changed failed; the next round tries again')
+        done.append(d['name'])
+    return done
 
 
 def cooling(st, now):

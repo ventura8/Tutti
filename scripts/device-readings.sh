@@ -3,7 +3,7 @@
 # (tutti/devices.py reads them): adb, state, locked, battery, charging, battery_c, screen, call, wifi. Read-only: it changes no
 # setting; WAKE=1 only presses the wake key, so an e2e run does not start against a dark screen.
 # env: DEVICE_SERIAL (required: the serial `adb devices` lists, or ip:port for wireless debugging), EXT_LOCK and EXT_STALE
-#      (another tool's lock file for it and its staleness in seconds),
+#      (another tool's lock file for it and its staleness in seconds), PREP_SAVED (values a prep saved, not yet restored),
 #      DEVICE_LOCK (its lock file: reports whether a run holds it), ADB (adb), WAKE (0).
 [[ -n "${DEVICE_SERIAL:-}" ]] || { echo "usage: DEVICE_SERIAL=<serial> device-readings.sh" >&2; exit 2; }
 adb=${ADB:-adb}
@@ -16,6 +16,8 @@ if [[ -n "${EXT_LOCK:-}" && -e "$EXT_LOCK" ]] && (( $(date +%s) - $(stat -c %Y "
 	echo "external=1"
 	echo "external_by=$(head -n 1 "$EXT_LOCK" | tr -d '\r' | tr -c '[:alnum:] ._:()+-' ' ' | cut -c1-120)"
 fi
+# a prep whose saved values were never put back (the run's machine rebooted, the device was gone): the next round restores it
+if [[ -n "${PREP_SAVED:-}" && -e "$PREP_SAVED" ]]; then echo "prep_left=1"; fi
 command -v "$adb" > /dev/null 2>&1 || { echo "adb=missing"; exit 0; }
 # a Windows adb.exe called from WSL without interop is found but cannot run ("Exec format error")
 timeout 20 "$adb" version > /dev/null 2>&1 || { echo "adb=broken"; exit 0; }

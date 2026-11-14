@@ -127,6 +127,27 @@ log. Put it where the project's own sessions read it.
 A wireless-debugging serial (`<name>._adb-tls-connect._tcp`) whose port changed is found again each round. The readings
 look it up in `adb mdns services` and `adb connect` to today's ip:port, so no port is written in the config.
 
+## Prep and restore
+
+`devices.<d>.prep` lists the settings a run needs (`tutti/prep.py`):
+
+```yaml
+prep:
+  - {setting: 'secure screensaver_enabled', value: 0}        # Android's settings get|put|delete
+  - {name: music volume, read: 'cmd media_session volume --stream 3 --get', parse: 'volume is (\d+)',
+     set: 'cmd media_session volume --stream 3 --set {value}', value: 2, cap: true}   # cap: only lowers it
+```
+
+1. Once the device's lock is taken, every item's current value is read and saved to `~/.tutti/prep/<device>.saved` on the
+   device's machine. This happens before anything changes. Then the new values are set.
+2. When the run ends, however it ends, exactly the saved values are put back and the file is removed. A setting that was
+   unset (`null`) is deleted again.
+3. A file left behind (the machine rebooted, the device went away) shows in the readings as `prep_left`. The next dispatch
+   round restores it once the device answers and nothing holds it.
+
+A read that gives nothing, such as a binary the device lacks (`media` on a Google TV Streamer), skips that item cleanly.
+Nothing is set that could not be put back.
+
 ## Phone calls
 
 An Android device that rings or is in a call takes no new work (`tutti/calls.py`). The call state comes from

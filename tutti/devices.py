@@ -70,6 +70,8 @@ def errors(cfg):
         if d.get('machine') not in cfg['machines']:
             errs.append(f'{where}.machine is {d.get("machine")!r}: name the machine its adb sees it on, one of machines:')
         errs += policy_errors(where, d.get('policy'))
+        from . import prep
+        errs += prep.errors(where, d.get('prep'))
         if d.get('kind', 'phone') not in KINDS:
             errs.append(f'{where}.kind is {d["kind"]!r}: use phone, tablet or tv (a Cast receiver: only suites with targets: [tv] use it)')
         if 'calls' in d and not isinstance(d['calls'], bool):
@@ -229,19 +231,24 @@ def external_lock(device):
 
 
 def external_wrap(found, command, who='tutti'):
-    """`command` behind the lock files other tools keep for these devices (devices.<d>.external_lock): it waits while one
-    exists and is fresher than external_lock_stale_minutes (30), writes each with "<who> <time>", prints the ready marker
-    (the clock of a suite's `started` check) and removes them when the command ends, however it ends."""
+    """`command` as a device session: it waits while another tool's lock file (devices.<d>.external_lock) exists and is
+    fresher than external_lock_stale_minutes (30), writes each with "<who> <time>", runs each device's prep (tutti/prep.py:
+    the current values saved first), prints the ready marker (the clock of a suite's `started` check), and when the command
+    ends, however it ends, restores the saved values and removes the lock files."""
+    from . import prep
     locks = [(external_lock(d), int(float(d.get('external_lock_stale_minutes', EXTERNAL_STALE_MINUTES)) * 60)) for d in found]
     locks = [(p, stale) for p, stale in locks if p]
-    if not locks:
+    setup, restore = prep.scripts(found)
+    if not locks and not setup:
         return command
-    waits = ' && '.join(
+    waits = ''.join(
         f'while [ -e {shlex.quote(p)} ] && [ $(( $(date +%s) - $(stat -c %Y {shlex.quote(p)}) )) -lt {stale} ]; do '
-        f'echo "tutti: waiting for {p}: $(head -c 200 {shlex.quote(p)})"; sleep 30; done' for p, stale in locks)
+        f'echo "tutti: waiting for {p}: $(head -c 200 {shlex.quote(p)})"; sleep 30; done && ' for p, stale in locks)
     files = ' '.join(shlex.quote(p) for p, _ in locks)
-    return (f'{waits} && for f in {files}; do printf "%s %s\\n" {shlex.quote(who)} "$(date -Iseconds)" > "$f"; done && '
-            f"trap 'rm -f {files}' EXIT && echo 'tutti: device ready' && {{ {command}; }}; exit $?")
+    take = f'for f in {files}; do printf "%s %s\\n" {shlex.quote(who)} "$(date -Iseconds)" > "$f"; done && ' if locks else ''
+    release = '; '.join(x for x in (restore, f'rm -f {files}' if locks else '') if x)
+    return (f'{waits}{take}trap {shlex.quote(release)} EXIT && {setup + "; " if setup else ""}echo \'tutti: device ready\' && '
+            f'{{ {command}; }}; exit $?')
 
 
 def readings_command(device, scripts_dir, wake=False):
@@ -250,6 +257,9 @@ def readings_command(device, scripts_dir, wake=False):
     env = f'DEVICE_SERIAL={shlex.quote(str(device["serial"]))} DEVICE_LOCK={remote.home_path(device["lock"])}'
     if device.get('adb'):
         env += f' ADB={shlex.quote(device["adb"])}'
+    if device.get('prep'):
+        from . import prep
+        env += f' PREP_SAVED={prep.saved_path(device)}'
     if external_lock(device):
         stale = int(float(device.get('external_lock_stale_minutes', EXTERNAL_STALE_MINUTES)) * 60)
         env += f' EXT_LOCK={shlex.quote(external_lock(device))} EXT_STALE={stale}'
@@ -259,7 +269,7 @@ def readings_command(device, scripts_dir, wake=False):
 def device_state(d, readings):
     pol = policy(d)
     st, reason = status(pol, readings, d['serial'])
-    keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi', 'call', 'external_by')
+    keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi', 'call', 'external_by', 'prep_left')
     return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'kind': d.get('kind', 'phone'), 'status': st,
             'reason': reason,
             'policy': pol, **{k: readings.get(k) for k in keep}}

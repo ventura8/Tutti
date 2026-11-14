@@ -77,13 +77,21 @@ class ShardOptionsTest(Base):
         self.assertNotEqual(got.get('device:tablet'), 'Cast')
         self.assertTrue(got)
 
-    def test_bad_shard_entries_are_refused(self):
+    def test_bad_suite_settings_are_refused(self):
         with self.assertRaises(config.ConfigError) as e:
-            self.cfg({'shards': [{'name': 'X', 'holds': ['nope'], 'extra': 3}, {'devices': ['phone']}], 'verdict': {'pass': '('},
-                      'started': {'pattern': 'x'}, 'prepare': {'run': ''}})
+            self.cfg({'verdict': {'pass': '('}, 'started': {'pattern': 'x'}, 'prepare': {'run': ''}})
         text = str(e.exception)
-        for part in ('holds names "nope"', 'extra is 3', 'shards[1]', 'verdict.pass', 'started is', 'prepare is'):
+        for part in ('verdict.pass', 'started is', 'prepare is'):
             self.assertIn(part, text)
+
+    def test_a_shard_this_version_cannot_read_is_skipped_with_a_warning_not_a_config_error(self):
+        cfg = self.cfg({'shards': ['Search', {'name': 'Future', 'devices': ['phone'], 'needs_wifi_6': True},
+                                   {'name': 'Gone', 'holds': ['nope']}, ['odd'], {'name': 'X', 'extra': 3}]})
+        self.assertEqual(dispatch.suites(cfg)[0]['shards'], ['Search'])
+        warns = ' '.join(cfg['_warnings'])
+        for part in ('shards[1]: shard Future has needs_wifi_6', 'shards[2]: shard Gone names device nope', 'shards[3]',
+                     'shards[4]: shard X has extra 3', 'this shard is skipped'):
+            self.assertIn(part, warns)
 
 
 class BuildTest(Base):

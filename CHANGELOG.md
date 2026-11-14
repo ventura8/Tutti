@@ -22,9 +22,18 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
   - `calls: false` skips the phone-call check.
   - A wireless-debugging serial whose port changed is reconnected through `adb mdns services`.
 
+- Device prep and restore (`devices.<d>.prep`, docs/DISPATCH.md):
+  - Once the lock is taken, each setting's current value is read and saved on the device's machine before anything
+    changes, then the run's values are set.
+  - The saved values are put back however the run ends; a file left by a crash is restored by the next round.
+  - A command the device lacks is skipped cleanly.
+- Lenient shards: a shard entry this version cannot read (an unknown form or key, a device not configured) is a warning
+  and that shard is skipped, never a config error that stops every command.
+
 ### Fixed
 
-- The device-lock test polls for the queue line instead of sleeping 1.5 s (it raced a slow readings round under load).
+- The device-lock test (failing on main under load) reads the run's output until slot.sh queues behind the lock, instead of
+  sleeping 1.5 s: deterministic, no sleeps.
 
 ## 0.1.41 (2026-11-14)
 

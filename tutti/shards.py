@@ -34,22 +34,50 @@ def _regex(key, v):
     return []
 
 
-def _shard_errors(cfg, key, x):
+SHARD_KEYS = {'name', 'devices', 'extra', 'holds'}
+
+
+def shard_problem(cfg, x):
+    """Why this version cannot use a shard entry ('' when it can): a name, or {name, devices, extra, holds}."""
     if isinstance(x, (str, int)) and not isinstance(x, bool):
-        return []
+        return ''
     if not isinstance(x, dict) or not isinstance(x.get('name'), (str, int)):
-        return [f'{key} is {x!r}: a shard name, or {{name: <name>, devices: [...], extra: <args>, holds: [<device>]}}']
-    errs = [f'{key}.{k} names "{n}", which is not under devices:' for k in ('devices', 'holds') for n in x.get(k) or []
-            if n not in (cfg.get('devices') or {})]
+        return f'{x!r} is not a shard this version reads (a name, or {{name, devices, extra, holds}})'
+    unknown = sorted(set(x) - SHARD_KEYS)
+    if unknown:
+        return f'shard {x["name"]} has {", ".join(unknown)}, which this version does not know (a newer Tutti may read it)'
+    gone = [n for k in ('devices', 'holds') for n in x.get(k) or [] if n not in (cfg.get('devices') or {})]
+    if gone:
+        return f'shard {x["name"]} names device {", ".join(gone)}, which is not under devices:'
     if 'extra' in x and not isinstance(x['extra'], str):
-        errs.append(f'{key}.extra is {x["extra"]!r}: the extra arguments as one string (the command\'s {{extra}})')
-    return errs
+        return f'shard {x["name"]} has extra {x["extra"]!r}: the extra arguments as one string (the command\'s {{extra}})'
+    return ''
+
+
+def lenient(cfg):
+    """Warnings, never errors, for shard entries this version cannot use: each such shard is skipped (removed from its
+    suite), the rest of the config and the dashboard still start (docs/LESSONS.md: a live config may be written for a
+    newer Tutti)."""
+    warns = []
+    ps = cfg.get('projects') or {}
+    for pname, p in (ps.items() if isinstance(ps, dict) else ()):
+        tests = (p or {}).get('tests') if isinstance(p, dict) else None
+        for sname, s in (tests.items() if isinstance(tests, dict) else ()):
+            if not isinstance(s, dict) or not isinstance(s.get('shards'), list):
+                continue
+            keep = []
+            for i, x in enumerate(s['shards']):
+                why = shard_problem(cfg, x)
+                if why:
+                    warns.append(f'projects.{pname}.tests.{sname}.shards[{i}]: {why}: this shard is skipped')
+                else:
+                    keep.append(x)
+            s['shards'] = keep
+    return warns
 
 
 def suite_errors(cfg, key, s, where_errors):
     errs = []
-    for i, x in enumerate(s.get('shards') or []):
-        errs += _shard_errors(cfg, f'{key}.shards[{i}]', x)
     if 'prepare' in s:
         errs += where_errors(cfg, f'{key}.prepare', s['prepare'])
     v = s.get('verdict')

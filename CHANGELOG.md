@@ -2,7 +2,7 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
-## 0.2.0 (2026-11-15)
+## 0.3.0 (2026-11-15)
 
 ### Added
 

@@ -60,10 +60,10 @@ def pr_items(data):
     out = []
     for p in data or []:
         ci, detail = ci_state(p.get('checks'))
-        version = VERSION.search(p.get('title') or '')
+        found = VERSION.findall(p.get('title') or '')   # the last one: "fix the items of 0.1.8 (0.1.10)" releases 0.1.10
         url = p.get('url') if str(p.get('url') or '').startswith('https://') else None   # the page links only https addresses
         out.append({'number': p.get('number'), 'title': p.get('title') or '', 'url': url, 'branch': p.get('branch'),
-                    'draft': bool(p.get('draft')), 'release': version.group(1) if version else None, 'ci': ci, 'ci_detail': detail,
+                    'draft': bool(p.get('draft')), 'release': found[-1] if found else None, 'ci': ci, 'ci_detail': detail,
                     'review': review_state(p.get('decision'), p.get('reviews'))})
     out.sort(key=lambda x: (x['release'] is None, -(x['number'] or 0)))
     return out

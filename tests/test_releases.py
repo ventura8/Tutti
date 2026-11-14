@@ -5,7 +5,7 @@ import unittest
 
 from tutti import config, dashboard, releases
 
-GH = [{'number': 11, 'title': 'feat: agy-claude conducts (0.1.10)', 'url': 'https://github.com/o/r/pull/11', 'branch': 'feat/x',
+GH = [{'number': 11, 'title': 'fix: the open items of 0.1.8/0.1.9 (0.1.10)', 'url': 'https://github.com/o/r/pull/11', 'branch': 'feat/x',
        'draft': False, 'decision': '',
        'checks': [{'name': 'check', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}, {'name': 'lint', 'status': 'IN_PROGRESS'}],
        'reviews': [{'author': 'copilot-pull-request-reviewer', 'state': 'COMMENTED'}]},

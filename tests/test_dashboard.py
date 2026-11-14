@@ -233,6 +233,7 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(etag.startswith('W/"'))
         r2, body2 = self.get('/api/state', headers={'If-None-Match': etag})
         self.assertEqual((r2.status, body2), (304, b''))   # within STATE_FRESH: the same answer
+        self.assertIsNone(r2.getheader('Content-Length'))   # a 304 never states the empty body's length
         r3, body3 = self.get('/api/state', headers={'If-None-Match': 'W/"other"', 'Accept-Encoding': 'gzip, deflate'})
         self.assertEqual((r3.status, r3.getheader('Content-Encoding')), (200, 'gzip'))
         self.assertEqual(gzip.decompress(body3), body)

@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -117,6 +118,35 @@ def live_socket(p):
         s.close()
 
 
+def private_dir(d):
+    """Creates the socket folder, and True only when it is a real folder of this user that nobody else may open: on a shared
+    /tmp another user could create it first, so its owner and mode are checked, not assumed."""
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        st = os.lstat(d)
+    except OSError:
+        return False
+    return stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and not st.st_mode & 0o077
+
+
+def claim(lock, clock=time.time):
+    """True for the one process that may start a master now: the lock file is created atomically (O_EXCL, never through a
+    symlink); one older than MUX_RETRY is taken over."""
+    try:
+        if clock() - os.lstat(lock).st_mtime < MUX_RETRY:
+            return False
+        os.remove(lock)
+    except OSError:
+        pass
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+    except OSError:
+        return False
+    with os.fdopen(fd, 'w', encoding='utf8') as f:
+        f.write(f'{os.getpid()}\n')
+    return True
+
+
 def ensure_master(machine, spawn=subprocess.Popen, clock=time.time):
     """Starts the machine's shared connection in the background when it has none; at most once a MUX_RETRY per machine
     (a lock file), so a host that is down is not dialled twice per probe. Returns True when it started one."""
@@ -125,15 +155,8 @@ def ensure_master(machine, spawn=subprocess.Popen, clock=time.time):
     p = mux_path(machine)
     if live_socket(p):
         return False
-    os.makedirs(os.path.dirname(p), mode=0o700, exist_ok=True)
-    lock = p + '.try'
-    try:
-        if clock() - os.path.getmtime(lock) < MUX_RETRY:
-            return False
-    except OSError:
-        pass
-    with open(lock, 'w', encoding='utf8') as f:
-        f.write(f'{os.getpid()}\n')
+    if not private_dir(os.path.dirname(p)) or not claim(p + '.try', clock):
+        return False
     spawn([*SSH, *port_opts(machine), '-o', BATCH, '-o', 'ConnectTimeout=5', '-o', 'ControlMaster=yes', '-o', f'ControlPath={p}',
            '-o', f'ControlPersist={MUX_PERSIST}', '-N', '-f', dest(machine)],
           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
@@ -170,9 +193,9 @@ def tee(machine, script, out):
 def rsh(cfg, machine):
     """What git (GIT_SSH_COMMAND) and rsync (-e) use to reach the machine: plain ssh, or `tutti rsh` for WSL."""
     if machine['transport'] == 'android':
-        return f'ssh -p {int(machine.get("port") or 8022)}'
+        return shlex.join(['ssh', '-p', str(int(machine.get('port') or 8022)), *mux_opts(machine)])
     if machine['transport'] != 'wsl':
-        return ' '.join(['ssh', *mux_opts(machine)])
+        return shlex.join(['ssh', *mux_opts(machine)])   # git runs GIT_SSH_COMMAND through a shell
     return f'{shlex.quote(sys.executable)} {shlex.quote(BIN)} --config {shlex.quote(cfg["_path"])} rsh {shlex.quote(machine["name"])}'
 
 

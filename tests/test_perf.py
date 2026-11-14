@@ -89,6 +89,31 @@ class SharedSshTest(unittest.TestCase):
         self.addCleanup(live.close)
         self.assertIn('ControlMaster=no', remote.mux_opts(self.m))
 
+    def test_the_retry_claim_is_atomic_and_expires(self):
+        lock = os.path.join(self.tmp.name, 'x.try')
+        self.assertTrue(remote.claim(lock, clock=lambda: 1000.0))
+        self.assertFalse(remote.claim(lock, clock=lambda: os.lstat(lock).st_mtime + 1))   # within MUX_RETRY
+        self.assertTrue(remote.claim(lock, clock=lambda: os.lstat(lock).st_mtime + remote.MUX_RETRY + 1))
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX modes')
+    def test_a_socket_folder_others_may_open_is_not_used(self):
+        d = os.path.join(self.tmp.name, 'open')
+        os.makedirs(d)
+        os.chmod(d, 0o777)
+        self.assertFalse(remote.private_dir(d))
+        os.chmod(d, 0o700)
+        self.assertTrue(remote.private_dir(d))
+        link = os.path.join(self.tmp.name, 'link')
+        os.symlink(d, link)
+        self.assertFalse(remote.private_dir(link))
+
+    @unittest.skipIf(os.name == 'nt', 'no shared ssh connections on Windows')
+    def test_git_gets_a_quoted_command_with_the_shared_socket(self):
+        with mock.patch.object(remote, 'mux_opts', return_value=['-o', 'ControlPath=/tmp/a;b']):
+            self.assertEqual(remote.rsh({}, self.m), "ssh -o 'ControlPath=/tmp/a;b'")
+            self.assertEqual(remote.rsh({}, {**self.m, 'transport': 'android', 'port': 8022}),
+                             "ssh -p 8022 -o 'ControlPath=/tmp/a;b'")
+
     def test_off_for_local_and_when_the_config_says_so(self):
         spawned = []
         for m in ({'transport': 'local'}, {**self.m, 'ssh_reuse': False}):
@@ -189,6 +214,36 @@ class AutocompactTest(unittest.TestCase):
         self.assertIn('RUN: tutti runs show 0', out[2]['content'])
         self.assertLess(autocompact.message_tokens(out), autocompact.message_tokens(msgs))
         self.assertIs(autocompact.compact_messages({**self.cfg, 'autocompact': {'enabled': False}}, w, msgs), msgs)
+
+    def test_gzip_only_when_the_browser_takes_it(self):
+        for accept, ok in (('gzip', True), ('gzip, deflate', True), ('br;q=1, gzip;q=0.5', True), ('*', True),
+                           ('gzip;q=0, identity;q=1', False), ('identity', False), ('', False), (None, False),
+                           ('*;q=0', False), ('gzip;q=x', False)):
+            self.assertEqual(dashboard.takes_gzip(accept), ok, accept)
+
+    def test_the_etag_ignores_the_assembly_time(self):
+        t = [0.0]
+        c = dashboard.StateCache(clock=lambda: t[0])
+        snaps = iter([{'generated_at': 'a', 'n': 1}, {'generated_at': 'b', 'n': 1}, {'generated_at': 'c', 'n': 2}])
+        fake = SimpleCollector(None)
+        fake.snapshot = lambda: next(snaps)
+        first = c.get(fake)[1]
+        t[0] += dashboard.STATE_FRESH
+        self.assertEqual(c.get(fake)[1], first)
+        t[0] += dashboard.STATE_FRESH
+        self.assertNotEqual(c.get(fake)[1], first)
+
+    def test_a_reader_answer_it_cannot_parse_never_backs_off(self):
+        from tutti import readers
+        cfg = {**self.cfg, 'accounts': {'a': {'window': '5h', 'reader': {'command': ['agy', '-p', '/usage'], 'bucket': 'x'}}},
+               'dashboard': {**self.cfg['dashboard']}}
+        r = readers.Readers(cfg, run=lambda cmd: ({}, None), clock=lambda: 0.0)
+        t = [0.0]
+        r.clock = lambda: t[0]
+        for _ in range(3):
+            self.assertIn('accounts.a.reader', r.read_all()['a']['problem'])
+            t[0] += 31
+        self.assertEqual(r.runs, 3)
 
     def test_a_gzip_body_is_never_sent_under_a_newer_etag(self):
         c = dashboard.StateCache(clock=lambda: 0.0)

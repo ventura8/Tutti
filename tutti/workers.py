@@ -112,6 +112,7 @@ def listing(cfg):
 KEEP_LINES = 2000
 
 
+TERM_WAIT = 10   # seconds a CLI stopped at the threshold gets to exit before it is killed
 COMPACT_RC = 76   # the run was stopped at the context threshold, to be started again with a handoff (tutti/autocompact.py)
 
 
@@ -136,6 +137,10 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
             if watch.line(line) and p.poll() is None:   # only a run still going is stopped; a final status line is not
                 stopped = True
                 p.terminate()
+                try:
+                    p.wait(timeout=TERM_WAIT)
+                except subprocess.TimeoutExpired:   # it ignored SIGTERM: the restart must not hang on it
+                    p.kill()
                 out.write(f'tutti: context at {watch.pct:g} % (autocompact.threshold_pct {watch.limit}): stopped, restarting '
                           'with a handoff\n')
                 break

@@ -279,6 +279,7 @@ class Readers:
                     out['used'], out['resets'] = self.parse(r, a, data, now or datetime.fromtimestamp(self.clock(), timezone.utc))
                 except (ValueError, KeyError, TypeError) as e:
                     problem = f'accounts.{name}.reader: {e}'
+                    self.backoff[tuple(r['command'])] = 1   # an answer it cannot read is asked again at its own interval
             out['problem'] = problem or out['problem']
         return out
 

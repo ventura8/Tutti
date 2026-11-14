@@ -417,8 +417,11 @@ class StateCache:
     def get(self, collector):
         with self.lock:
             if self.at is None or self.clock() - self.at >= STATE_FRESH:
-                self.body = safe_json(collector.snapshot())
-                self.etag = 'W/"' + hashlib.sha256(self.body).hexdigest()[:20] + '"'
+                snap = collector.snapshot()
+                self.body = safe_json(snap)
+                # the ETag leaves out generated_at, so an answer whose data did not change keeps its tag (a 304)
+                stable = safe_json({k: v for k, v in snap.items() if k != 'generated_at'})
+                self.etag = 'W/"' + hashlib.sha256(stable).hexdigest()[:20] + '"'
                 self.zipped, self.at = None, self.clock()
                 self.stats['built'] += 1
             return self.body, self.etag
@@ -433,6 +436,23 @@ class StateCache:
             return self.zipped
 
 
+def takes_gzip(accept):
+    """True when Accept-Encoding takes gzip: named (or *) with a quality above zero (`gzip;q=0` refuses it)."""
+    found = {}
+    for part in (accept or '').lower().split(','):
+        name, _, params = part.strip().partition(';')
+        q = 1.0
+        for p in params.split(';'):
+            k, _, v = p.strip().partition('=')
+            if k == 'q':
+                try:
+                    q = float(v)
+                except ValueError:
+                    q = 0.0
+        found[name.strip()] = q
+    return found.get('gzip', found.get('*', 0.0)) > 0
+
+
 def state_response(collector, headers):
     """(status, body, extra headers) for GET /api/state: 304 when the page already has this answer (If-None-Match), the
     body gzipped when the browser takes it. The page then only parses and renders an answer that changed."""
@@ -443,7 +463,7 @@ def state_response(collector, headers):
     if etag in [t.strip() for t in (headers.get('If-None-Match') or '').split(',')]:
         cache.stats['not_modified'] += 1
         return 304, b'', extra
-    zipped = cache.gzipped(etag) if len(body) >= GZIP_FROM and 'gzip' in (headers.get('Accept-Encoding') or '') else None
+    zipped = cache.gzipped(etag) if len(body) >= GZIP_FROM and takes_gzip(headers.get('Accept-Encoding')) else None
     if zipped is not None:   # never a newer body under this answer's ETag
         cache.stats['gzip'] += 1
         return 200, zipped, {**extra, 'Content-Encoding': 'gzip'}
@@ -492,6 +512,14 @@ def get(collector, path, token, headers):
     return (*route(collector, path, token), None)
 
 
+def response_headers(code, body, ctype, cache, extra=None):
+    """[(name, value)] of every answer. A 304 states no Content-Length: it would have to be the full answer's."""
+    out = [*(extra or {}).items(), ('Content-Type', ctype)]
+    out += [] if code == 304 else [('Content-Length', str(len(body)))]
+    return out + [('Cache-Control', cache), ('X-Content-Type-Options', 'nosniff'), ('Referrer-Policy', 'no-referrer'),
+                  ('Content-Security-Policy', CSP)]
+
+
 def make_handler(collector, token):
     class Handler(BaseHTTPRequestHandler):
         server_version = 'tutti'
@@ -502,14 +530,8 @@ def make_handler(collector, token):
 
         def send(self, code, body, ctype, cache='no-store', extra=None):
             self.send_response(code)
-            for k, v in (extra or {}).items():
+            for k, v in response_headers(code, body, ctype, cache, extra):
                 self.send_header(k, v)
-            self.send_header('Content-Type', ctype)
-            self.send_header('Content-Length', str(len(body)))
-            self.send_header('Cache-Control', cache)
-            self.send_header('X-Content-Type-Options', 'nosniff')
-            self.send_header('Referrer-Policy', 'no-referrer')
-            self.send_header('Content-Security-Policy', CSP)
             self.end_headers()
             if self.command != 'HEAD':
                 self.wfile.write(body)

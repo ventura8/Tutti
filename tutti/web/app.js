@@ -1014,7 +1014,7 @@ function live() {
     }
 }
 
-async function refresh() {
+async function refresh(how) {
     clearTimeout(ui.timer);
     // Only the newest request may publish its answer and schedule the next poll: a Refresh click during a slow
     // request must not start a second polling loop or let the older answer overwrite the newer one.
@@ -1026,9 +1026,10 @@ async function refresh() {
         // a bare 304 keeps the last answer (the browser normally turns its own revalidation into a 200 from its cache)
         if (!res.ok && res.status !== 304) throw new Error(`HTTP ${res.status}`);
         const etag = res.headers.get('ETag');
-        const same = res.status === 304 ? Boolean(ui.last) : etag && etag === ui.etag && ui.last && !ui.failing;
-        if (res.status === 304 && !same) throw new Error('HTTP 304 with no earlier answer');
-        const data = same ? ui.last : await res.json();
+        // only a timed poll skips an unchanged answer: after a save or a click the page renders its own changes too
+        const same = how === 'poll' && (res.status === 304 ? Boolean(ui.last) : etag && etag === ui.etag && ui.last && !ui.failing);
+        if (res.status === 304 && !ui.last) throw new Error('HTTP 304 with no earlier answer');
+        const data = same || res.status === 304 ? ui.last : await res.json();
         if (seq !== ui.seq) return;
         ui.fetchedAt = Date.now();
         if (!same) {
@@ -1047,7 +1048,7 @@ async function refresh() {
     }
     live();
     const every = (ui.last?.refresh_seconds || 10) * 1000;
-    if (!document.hidden) ui.timer = setTimeout(refresh, ui.failing ? Math.min(every, 5000) : every);
+    if (!document.hidden) ui.timer = setTimeout(() => refresh('poll'), ui.failing ? Math.min(every, 5000) : every);
 }
 
 function accentNote() {

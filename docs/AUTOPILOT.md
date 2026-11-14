@@ -97,7 +97,7 @@ Opt-in turns it off. Each round, while the autopilot is on:
    already queued: the queue never floods, and never runs dry.
 3. **The sources** (every repo of `autopilot.repos`, read at most every 10 minutes while nothing new turns up): FEEDBACK.md
    open items, `TODO(owner)` / `FIXME(owner)`, the repo's `gaps` command (lint findings, coverage gaps, Sentry or scout
-   findings: one per line, `<path>: <what>`), and the tracked source files no test names or imports ("Add unit tests for
+   findings: one per line, `<path>: <what>`), and the tracked Python, TypeScript and JavaScript files no test names or imports ("Add unit tests for
    `<path>`"; a test imports it when an import, from or require line names it; built folders (`built:`, default dist, build,
    cdn, vendor, third_party, node_modules, generated, coverage), minified and content-hashed bundles skipped; `untested: false` turns it off for a repo whose
    coverage gate already proves every file tested). A TODO in prose, in quotes or in a test is not a task. A title the backlog ever had (dropped and done ones too) is never queued again; repos take turns.

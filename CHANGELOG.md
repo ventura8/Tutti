@@ -2,6 +2,13 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.26 (2026-11-14)
+
+### Fixed
+
+- `fill_room` queued "Add unit tests" for shell scripts (`install.sh`, `scripts/check.sh`): shell is checked by shellcheck
+  and its callers' tests, so the untested source now takes Python, TypeScript and JavaScript files only.
+
 ## 0.1.25 (2026-11-14)
 
 ### Added

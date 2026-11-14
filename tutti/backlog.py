@@ -180,7 +180,7 @@ def gap_items(lines):
     return out
 
 
-SOURCE_EXT = ('.py', '.ts', '.tsx', '.js', '.mjs', '.sh')
+SOURCE_EXT = ('.py', '.ts', '.tsx', '.js', '.mjs')   # a shell script is checked by shellcheck and its callers' tests
 PROSE = ('.md', '.txt', '.rst')   # a TODO in prose is about TODOs (a changelog, a README), never a task
 BUILT = ('dist', 'build', 'cdn', 'vendor', 'third_party', 'node_modules', 'generated', 'coverage', 'site-packages')   # repos.<r>.built
 HASHED = re.compile(r'-([A-Za-z0-9_-]{8})\.m?js$')   # a bundler's content hash (vite: compare-CNW-vnBa.js)

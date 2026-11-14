@@ -15,6 +15,7 @@ from . import (
     backlog,
     conduct,
     config,
+    connect,
     controls,
     dashboard,
     delegate,
@@ -28,6 +29,7 @@ from . import (
     helper,
     householdcmd,
     local,
+    mcpserver,
     pacing,
     readers,
     remote,
@@ -1268,6 +1270,18 @@ def parser():
                                   'the address members reach the machine at (default: its host, or this computer\'s LAN address)')
     s.add_argument('--port', type=int, help='init, serve: the port (default: household.port, 4778)')
     s.add_argument('--json', action='store_true', help='status: as JSON')
+    s = add('mcp', mcpserver.cmd, 'Tutti as an MCP server for your main agent (stdio; --http for a local HTTP endpoint); '
+                                  '`tutti connect` wires it in (docs/CONNECT.md)')
+    s.add_argument('--http', type=int, nargs='?', const=0, default=None, metavar='PORT',
+                   help='serve on http://127.0.0.1:PORT/mcp with a bearer token instead of stdio (default port: mcp.http_port, 4779)')
+    s = add('connect', connect.cmd, 'wire Tutti into your main agents (Claude Code, Claude Desktop, Codex, Antigravity, Cursor, '
+                                    'Copilot, VS Code, Gemini): the MCP server plus a short instruction; --undo takes it out')
+    s.add_argument('agent', nargs='?', help=f'one agent: {", ".join(connect.AGENTS)} (default: every installed one)')
+    s.add_argument('--all', action='store_true', help='every installed agent (the default)')
+    s.add_argument('--undo', action='store_true', help='remove Tutti from the agent (or all), restoring its config otherwise untouched')
+    s.add_argument('--status', action='store_true', help='show each agent\'s state; change nothing')
+    s.add_argument('--test', action='store_true', help='with the status: start each connected agent\'s server and list its tools')
+    s.add_argument('--json', action='store_true')
     s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it')
     s.add_argument('agent', nargs='?')
     return p

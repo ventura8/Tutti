@@ -2,6 +2,24 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.37 (2026-11-14)
+
+### Added
+
+- `tutti mcp`: Tutti as an MCP server (stdio; `--http [PORT]` on 127.0.0.1 with a bearer token), so any MCP-capable main
+  agent drives it natively: `handoff_advice`, `delegate_task` (project and size), `job_status`, `backlog_list`,
+  `backlog_add`, `usage`, `machines`, `devices`, `test_on`, `scout_ask`, `away_mode`. Changing tools need the `admin` role
+  (`$TUTTI_ROLE`, `mcp.role`; default admin, the owner of this computer); a refusal names the role and where to get it.
+- `tutti connect [agent|--all] [--undo] [--status [--test]]` wires Tutti into Claude Code (`claude mcp add-json --scope
+  user` and a skill), Claude Desktop, Codex CLI (config.toml block, AGENTS.md block), Antigravity (`~/.gemini/config/
+  mcp_config.json`, GEMINI.md), Cursor (mcp.json, a skill), Copilot CLI, VS Code and Gemini CLI; ChatGPT says why a local
+  server cannot work and the steps instead. Merges only Tutti's entry and a marked block, backs each file up first, is
+  idempotent and undoable. `connect.connect_all()` is the interface `tutti setup` calls (docs/CONNECT.md).
+- The dashboard's **Connect your agent** card: each agent's state (connected, needs restart, not installed, can't connect
+  locally), Connect, Disconnect and Test (a real MCP round trip through the agent's configured command); `POST /api/connect`.
+- Tests: every connector against fake homes (merge, idempotency, undo, other servers kept, broken files refused), the
+  tool schemas, the stdio protocol and role enforcement on every changing tool.
+
 ## 0.1.35 (2026-11-14)
 
 ### Added

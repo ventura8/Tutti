@@ -28,7 +28,9 @@ stored as `<other>`, so a task, a prompt or a path can never pass as a value.
   (`autopilot.plan` state and counts, `autopilot.attempt` outcome, attempt number, tool, step kind, size, minutes,
   `autopilot.escalate`, `autopilot.park` with its cause `no_progress` or `max_attempts`), waits (`wait.stall`,
   `wait.timeout` with the kind of wait and seconds), scouts (`scout.ask`, `scout.tick`, ...: the skill and the outcome),
-  self-improvement (`selfimprove.analyse`, `merge`, `release`, `switch`), handled errors by exception type.
+  self-improvement (`selfimprove.analyse`, `merge`, `release`, `switch`), the household (`user.<action>`,
+  `household.init`, `household.join`, `household.sync`: the outcome and counts; a user only as `user`, 12 hex digits of
+  SHA-256 of a random id, never a name: docs/HOUSEHOLD.md), handled errors by exception type.
 - **Dashboard**: which panel and which control was used (`usage` / `refresh-readings`): the card's heading id and the
   control's id, never its text or a value; script errors and unhandled rejections of the page.
 - **Crashes** (Python and the dashboard's script): the exception type, its message scrubbed (below), and the stack frames

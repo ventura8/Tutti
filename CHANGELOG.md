@@ -2,6 +2,24 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.31 (2026-11-14)
+
+### Added
+
+- Several users in one household, increment 2 of 4 (docs/HOUSEHOLD.md): the coordinator. `tutti household init` makes an
+  always-on computer the household's coordinator (its dashboard serves it on port 4778, or `tutti household serve`) and
+  prints a join code; `tutti household join <code>` in each member's login asks only their name. The member's token is
+  derived on both sides from the code's secret and two nonces and never travels; every request is signed (time, nonce,
+  body hash), replays and stale times are refused, ten wrong codes close the join to that address for an hour, and both
+  sides keep their files mode 600. `household status|leave|code`.
+- Shared projects: `autopilot.repos.<r>.household: true` or `tutti household project share <r>`. One coordinator call per
+  autopilot round (outside the backlog's lock) publishes new tasks to the project's shared backlog with dedupe by folded
+  title, closes finished ones for everyone, renews the leases of running and in-review tasks (30 minutes, the heartbeat)
+  and reserves the next ones (5 minutes); the other members' tasks are mirrored in and a task leased by another member
+  waits ("leased by Bo"). Unreachable, a member works alone: private repos go on, shared tasks wait.
+- Tests: two simulated users on one shared project never run the same task, a task one adds is done by the other and
+  closed for both, the coordinator over real HTTP on loopback (join, a wrong, expired or forged request, mode 600).
+
 ## 0.1.30 (2026-11-14)
 
 ### Changed

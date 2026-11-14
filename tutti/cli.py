@@ -786,6 +786,9 @@ def cmd_dashboard(cfg, a):
     if not a.no_probe:
         collector.start()
     say(f'dashboard: http://{dashboard.BIND}:{httpd.server_address[1]}/ (this computer only; Ctrl+C stops it)')
+    from . import coordinator  # the household coordinator's computer serves the household from its dashboard too
+    if coordinator.start_in_background(cfg):
+        say(f'household coordinator: on port {cfg["household"]["port"]} of this computer\'s network address')
     try:
         httpd.serve_forever()
     finally:
@@ -1201,8 +1204,15 @@ def parser():
     s.add_argument('action', nargs='?', default='show', choices=['show', 'name', 'share'])
     s.add_argument('arg', nargs='?', help='name: the name; share: the account')
     s.add_argument('value', nargs='?', help='share: on or off')
-    s = add('household', householdcmd.cmd_household, 'several people, one set of machines: status (docs/HOUSEHOLD.md)')
-    s.add_argument('action', nargs='?', default='status', choices=['status'])
+    s = add('household', householdcmd.cmd_household, 'several people, one set of machines (docs/HOUSEHOLD.md): status, init '
+                                                     '(this computer coordinates; prints the join code), join <code>, leave, '
+                                                     'code (a new join code), serve (the coordinator alone), project share|unshare <repo>')
+    s.add_argument('action', nargs='?', default='status', choices=list(householdcmd.ACTIONS))
+    s.add_argument('arg', nargs='*', help='join: the code; project: share or unshare and the repo')
+    s.add_argument('--name', help='init: the household\'s name; join: your name in it (default: `tutti user`\'s)')
+    s.add_argument('--host', help='init: the address members reach this computer at (default: its LAN address)')
+    s.add_argument('--port', type=int, help='init, serve: the port (default: household.port, 4778)')
+    s.add_argument('--json', action='store_true', help='status: as JSON')
     s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it')
     s.add_argument('agent', nargs='?')
     return p

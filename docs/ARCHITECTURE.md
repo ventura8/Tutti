@@ -29,6 +29,8 @@ run on the machines. There is no daemon and no server; state is files.
 | `tutti/translate.py` | Translation with mandatory QA and the import gate. |
 | `tutti/ship.py` | The ship sequence and its refusals (wrong worktree, protected branch). |
 | `tutti/waiting.py` | Waits on a pid, a file or a log line, always under a timeout. |
+| `tutti/files.py` | Files for other machines, the pure part: the secret check, item manifests (SHA-256), the cache's least-recently-used eviction, progress lines. |
+| `tutti/transfer.py` | `tutti files` and `--input`: copies items over the machine's transport (rsync, else a resumable stream), verifies them with `sha256sum` there, records them in the machine's cache and keeps it within its budget. |
 | `tutti/state.py` | The dashboard's state as plain data: accounts and pacing, machines, workers, jobs, the summary. Probes are passed in. |
 | `tutti/dashboard.py`, `tutti/web/` | `tutti dashboard`: the 127.0.0.1 HTTP server, background probes, `/api/state` and the PWA shell. |
 | `scripts/slot.sh` | The slot queue, copied to each machine on every run. |

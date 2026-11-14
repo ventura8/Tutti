@@ -196,7 +196,7 @@ class ReadingPostTest(unittest.TestCase):
         acc = {**ACCOUNTS, 'cursor': {**ACCOUNTS['cursor'], 'usage_url': 'https://provider.example/usage'}}
         cls.cfg = cfg_of(cls.tmp.name, acc)
         collector = dashboard.Collector(cls.cfg, probe_fn=lambda m: routing.Probe(True, 1, 0.5, 4, False),
-                                        available_fn=lambda w: (True, 'ok'),
+                                        available_fn=lambda w: (True, 'ok'), stored_fn=lambda m: None,
                                         reader=readers.Readers(cls.cfg, run=lambda cmd: ({'subscriptionTier': 'Pro'}, None)
                                                                if cmd[0] == 'cursor-agent' else (AGY, None)))
         collector.refresh()

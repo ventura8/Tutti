@@ -2,6 +2,29 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.7 (2026-11-14)
+
+Files for other machines.
+
+### Added
+
+- `tutti files send <path>... --to <machine|all> [--dest <folder>] [--bwlimit <KB/s>]`: copies files and folders over the
+  machine's transport (ssh, WSL, local): rsync when both ends have it (resumable partials, skips what is there), else a
+  resumable byte stream; each item is verified with `sha256sum -c` on the machine and re-sent once if damaged; an
+  unchanged item is skipped without copying; a changed item's record is dropped before it is overwritten. The stream
+  keeps empty folders and removes files a folder no longer has. One send or clean per destination at a time, across
+  projects (`$XDG_STATE_HOME/tutti/locks`).
+- A cache per machine (`files.cache`, `files.budget_gb`, `files.keep_free_gb`, `files.bwlimit_kbps`, `files.compress`,
+  `files.refuse`; a machine may override each): least recently used items leave first, a replaced item counts once,
+  partial files count; `tutti files list` and `tutti files clean --on <m> [name...] [--all]`.
+- Secrets never leave: `.env*`, `*token*`, `*secret*`, keys, `*service-account*.json`, a small `.json` holding a
+  `private_key`, `.ssh/` and the like refuse the whole send, naming the file; symlinks are judged by their target too.
+- `tutti test --input <path>` copies a job's inputs first and exports `$TUTTI_INPUTS` (mounted read-only in a docker
+  runner); `tutti run --input <path> --on <machine>` does the same before briefing a worker. Inputs stay pinned until
+  the job ends.
+- Dashboard: transfers in Jobs with their progress in MB (`<log>.progress` may carry a unit); each machine's stored
+  files, their size against the budget and last use, under Machines.
+
 ## 0.1.6 (2026-11-14)
 
 Dependencies at latest stable.

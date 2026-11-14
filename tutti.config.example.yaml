@@ -44,6 +44,10 @@ sync:
   exclude: ['/.git', '/dist/', '__pycache__', '.env', '.env.*', '*.key', '*.pem']   # never copied to a machine
   ensure_dirs: []
 
+# `tutti files send` and `--input`: where files land on a machine, its cache's size budget, spare disk, bandwidth.
+# A machine may override any key with its own `files:`. Secrets (.env*, *token*, keys, service-account JSON) are always refused.
+files: {cache: ~/.cache/tutti/files, budget_gb: 50, keep_free_gb: 2, bwlimit_kbps: 0, compress: false, refuse: []}
+
 # Workers the orchestrator can brief. kind: cli (another vendor's agent) or ollama (a local model server).
 workers:
   cursor: {kind: cli, command: [cursor-agent, -p, '{prompt}', --trust, --output-format, text]}

@@ -390,6 +390,48 @@ function renderWorkers(s) {
     $('agents').replaceChildren(...w.agents.map(agent));
 }
 
+// ---- the main agent
+
+function mainRun(m) {
+    const r = m.running || m.last;
+    if (!r) return empty('No conductor run yet', 'Start one with tutti conduct "<goal>"; it shows here.');
+    const turns = (r.agents || []).map((t) => `${t.agent}${t.stopped ? ` (stopped: ${t.stopped})` : ''}`).join(' → ');
+    return el('div', { class: 'row' },
+        el('div', { class: 'row__name' }, m.running ? 'Running' : 'Last run', el('span', { class: 'row__kind', text: r.goal })),
+        chip(r.status, m.running ? 'accent' : (r.status === 'done' ? 'ok' : 'warn')),
+        el('p', { class: 'row__note', text: `${turns || 'no agent started'} · since ${relative(r.started)}` }));
+}
+
+function renderMain(s) {
+    const m = s.main;
+    if (!m) return;
+    $('main-meta').textContent = m.chosen ? `${m.agent} · switched here` : `${m.agent} · from the config`;
+    const pick = $('main-pick');
+    if (document.activeElement !== pick) {
+        pick.replaceChildren(...m.choices.map((c) => el('option', {
+            value: c.name, selected: c.name === m.agent,
+            text: `${c.name} (${c.kind === 'ollama' ? 'local model' : 'cli'})${c.out ? ` · out: ${c.out}` : ''}`,
+        })));
+    }
+    $('main-run').replaceChildren(mainRun(m));
+}
+
+async function switchMain(e) {
+    e.preventDefault();
+    const agent = $('main-pick').value;
+    try {
+        const res = await fetch('/api/main', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify({ agent }),
+        });
+        const answer = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(answer.error || `the dashboard answered ${res.status}`);
+        ui.notice = null;
+        await refresh();
+    } catch (err) {
+        showBanner(el('strong', { text: 'The main agent was not switched. ' }), err.message);
+    }
+}
+
 // ---- jobs
 
 function progressBar(j) {
@@ -479,6 +521,7 @@ function render() {
     $('config-path').title = s.config;
     $('foot-version').textContent = `Tutti ${s.version}`;
     renderTiles(s);
+    renderMain(s);
     renderUsage(s, now);
     renderMachines(s);
     renderWorkers(s);
@@ -640,6 +683,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('hashchange', () => { void fromHelper().then(() => refresh()); });   // the dashboard tab was already open
     $('refresh').addEventListener('click', refresh);
     $('refresh-readings').addEventListener('click', refreshReadings);
+    $('main-form').addEventListener('submit', switchMain);
     document.addEventListener('keydown', keys);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
     setInterval(live, 1000);

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from . import (
     __version__,
+    conduct,
     config,
     dashboard,
     delegate,
@@ -119,6 +120,9 @@ def cmd_rsh(cfg, a):
 
 
 def cmd_ship(cfg, a):
+    if os.environ.get('TUTTI_CONDUCT') and (not a.dry_run or a.allow_protected):
+        raise ship.ShipError(f'a main agent is conducting (run {os.environ["TUTTI_CONDUCT"]}): ship only with --dry-run and without '
+                             '--allow-protected; a person ships after reading the plan')
     ship.ship(cfg, a.dir, a.message, full=a.full, no_add=a.no_add, track=a.track, allow_protected=a.allow_protected, dry_run=a.dry_run)
     return 0
 
@@ -570,6 +574,48 @@ def cmd_dashboard(cfg, a):
     return 0
 
 
+def cmd_conduct(cfg, a):
+    """`tutti conduct --main <agent> "<goal>"`: the chosen agent conducts with Tutti's commands; others take over on panic."""
+    fallback = [x for x in a.fallback.split(',') if x] if a.fallback is not None else None
+    commands = set(SUBCOMMANDS)
+    if a.show:
+        now = datetime.now(timezone.utc)
+        agent = a.main or conduct.current(cfg)
+        print(conduct.instructions(cfg, agent, a.goal, os.path.abspath(a.dir), '<run>/progress.md', commands, now))
+        return 0
+    try:
+        rc, _run = conduct.conduct(cfg, a.goal, main=a.main, fallback=fallback, cwd=a.dir, commands=commands, say=say)
+    except conduct.ConductError as e:
+        say(str(e))
+        return 2
+    return rc
+
+
+def cmd_main(cfg, a):
+    """`tutti main`: the main agent and who has room; `tutti main <agent>` switches it (a running conductor hands over)."""
+    if a.agent:
+        try:
+            conduct.choose(cfg, a.agent)
+        except conduct.ConductError as e:
+            say(str(e))
+            return 2
+    print(conduct.describe(cfg))
+    return 0
+
+
+def cmd_handoff(cfg, a):
+    try:
+        path = conduct.note_progress(os.environ.get('TUTTI_CONDUCT'), a.section, a.text)
+    except conduct.ConductError as e:
+        say(str(e))
+        return 2
+    say(f'handoff: noted under {a.section} in {path}')
+    return 0
+
+
+SUBCOMMANDS = []
+
+
 def parser():
     p = argparse.ArgumentParser(prog='tutti', description='One orchestrator, many workers, shared machines.')
     p.add_argument('--version', action='version', version=f'tutti {__version__}')
@@ -577,6 +623,8 @@ def parser():
     sub = p.add_subparsers(dest='cmd', required=True)
 
     def add(name, fn, text):
+        if name not in SUBCOMMANDS:
+            SUBCOMMANDS.append(name)
         s = sub.add_parser(name, help=text, description=text)
         s.set_defaults(fn=fn)
         return s
@@ -708,6 +756,18 @@ def parser():
     s.add_argument('--port', type=int, help='the port on 127.0.0.1 (default: dashboard.port, 4777)')
     s.add_argument('--once', action='store_true', help='print the state as JSON (what /api/state answers) and stop')
     s.add_argument('--no-probe', action='store_true', help='do not probe machines and workers (ssh, model servers)')
+    s = add('conduct', cmd_conduct, 'another agent (cursor, agy, copilot, a local model) as the main agent: it gets the goal, an '
+                                    'instruction file with Tutti\'s commands and the safety limits; on panic the next one takes over')
+    s.add_argument('goal')
+    s.add_argument('--main', help='the main agent, a worker (default: the dashboard\'s choice, else main.agent)')
+    s.add_argument('--fallback', help='comma-separated workers that take over in turn (default: main.fallback)')
+    s.add_argument('--dir', default='.', help='the project folder the main agent works in (default: here)')
+    s.add_argument('--show', action='store_true', help='print the instruction file and stop')
+    s = add('handoff', cmd_handoff, 'inside `tutti conduct`: record a finished step (done) or the next one (next) for the handoff note')
+    s.add_argument('section', choices=['done', 'next'])
+    s.add_argument('text')
+    s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it')
+    s.add_argument('agent', nargs='?')
     return p
 
 

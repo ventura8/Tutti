@@ -77,3 +77,24 @@ class PacingTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ToleranceTest(unittest.TestCase):
+    def test_early_in_the_window_ten_against_six_is_ahead(self):
+        start = pacing.parse_time('2026-11-14T02:00Z')
+        reset = start + pacing.timedelta(days=7)
+        now = start + (reset - pacing.timedelta(hours=1) - start) * 0.06
+        p = pacing.pace(now, start, reset, 10)
+        self.assertAlmostEqual(p['expected'], 6, places=3)
+        self.assertEqual((p['verdict'], p['tolerance']), ('ahead', 1.5))
+        self.assertEqual(pacing.pace(now, start, reset, 7)['verdict'], 'on pace')
+
+    def test_the_band_is_one_point_at_least_and_five_at_most(self):
+        self.assertEqual((pacing.tolerance(0), pacing.tolerance(80)), (1.0, 5))
+
+    def test_the_report_row_shows_the_math(self):
+        acc = {'claude': {'window': '7d', 'resets': '2026-01-03T02:00Z', 'share': 0.5}}
+        entries = [{'at': '2026-01-06T00:00Z', 'account': 'claude', 'used': 50, 'note': ''}]
+        out = pacing.report(acc, entries, pacing.parse_time('2026-01-06T02:00Z'))
+        self.assertIn('the line is the whole account', out)
+        self.assertIn('50 % vs', out)

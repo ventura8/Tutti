@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-from . import config, helper, pacing, readers, remote, state, transfer, workers
+from . import conduct, config, helper, pacing, readers, remote, state, transfer, workers
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 BIND = '127.0.0.1'
@@ -89,6 +89,7 @@ class Collector:
             probes = dict(self.probes)
         out = state.assemble(self.cfg, probes)
         state.with_readers(out['usage'], probes.get('readers'))
+        out['main'] = conduct.main_state(self.cfg, out['usage']['accounts'])
         out['probe_error'] = probes.get('error')
         return out
 
@@ -178,7 +179,20 @@ def save_reading(cfg, raw, now=None):
     return 200, {'ok': True, 'reading': entry}
 
 
-POSTS = ('/api/reading', '/api/refresh')
+def save_main(cfg, raw):
+    """(status, answer) for POST /api/main {"agent": <worker>}: the owner's switch of the main agent."""
+    try:
+        data = json.loads(raw or b'null')
+        agent = data.get('agent') if isinstance(data, dict) else None
+        conduct.choose(cfg, agent)
+    except ValueError:
+        return 400, {'error': 'send {"agent": "<worker>"} as JSON'}
+    except conduct.ConductError as e:
+        return 400, {'error': str(e)}
+    return 200, {'ok': True, 'agent': agent}
+
+
+POSTS = ('/api/reading', '/api/refresh', '/api/main')
 
 
 def post(collector, headers, path, port, token, read):
@@ -188,7 +202,7 @@ def post(collector, headers, path, port, token, read):
         return 403, {'error': 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)'}
     path = path.split('?', 1)[0]
     if path not in POSTS:
-        return 404, {'error': 'POST a reading to /api/reading, or {} to /api/refresh to read usage now'}
+        return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, or {"agent": ...} to /api/main'}
     refused = check_post(headers, host, token)
     if refused:
         return refused[0], {'error': refused[1]}
@@ -199,6 +213,8 @@ def post(collector, headers, path, port, token, read):
     if not 0 < size <= MAX_BODY:
         return 413, {'error': f'a reading is a small JSON object (at most {MAX_BODY} bytes)'}
     body = read(size)
+    if path == '/api/main':
+        return save_main(collector.cfg, body)
     if path == '/api/refresh':
         try:
             found = collector.refresh_readings()

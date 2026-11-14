@@ -38,6 +38,10 @@ DEFAULTS = {
     'delegate': {'checks': None, 'prefix': 'tutti-run-', 'remote_track': 'tutti-run'},
     # review: `tutti pr review`; who to ask, how long to wait for them, and which cheap workers review when none answers
     'review': {'reviewers': [], 'timeout_minutes': 20, 'poll_seconds': 30, 'fallback': []},
+    # main: `tutti conduct`; the main (conductor) agent, the ones that take over when its quota is out, a command per agent
+    # when it conducts (default: its worker command), extra ask-first actions, how often the run checks the readings
+    'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
+             'command_timeout': 3600},
 }
 MACHINE_DEFAULTS = {'transport': 'ssh', 'root': 'tutti-wt', 'slots': 2, 'min_free_gb': 6, 'lock_prefix': '/tmp/tutti-slot-',
                     'yield_file': '~/.tutti/yield'}
@@ -210,7 +214,26 @@ def validate(cfg):
              if n not in cfg['workers']]
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
-    return errs + _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
+    return errs + _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg) + _main_errors(cfg)
+
+
+def _main_errors(cfg):
+    m = cfg['main']
+    if not isinstance(m, dict):
+        return [f'main is {m!r}: write it as a mapping, e.g. main: {{agent: cursor, fallback: [agy, local]}}']
+    fallback = m.get('fallback')
+    if not isinstance(fallback, list):
+        return [f'main.fallback is {fallback!r}: a list of workers, e.g. [agy, cursor]']
+    errs = [f'main.fallback names "{n}", which is not under workers:' for n in fallback if n not in cfg['workers']]
+    commands = m.get('commands') if isinstance(m.get('commands'), dict) else {}
+    errs += [f'main.commands.{n}: "{n}" is not under workers:' for n in commands if n not in cfg['workers']]
+    errs += [f'main.commands.{n} is {c!r}: a list such as [claude, -p, "{{prompt}}"]' for n, c in commands.items()
+             if not isinstance(c, list) or not c or not all(isinstance(x, str) for x in c)]
+    for key in ('check_seconds', 'rounds', 'command_timeout'):
+        v = m.get(key)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
+            errs.append(f'main.{key} is {v!r}: use a number above 0')
+    return errs
 
 
 def _account_pace_errors(name, a):

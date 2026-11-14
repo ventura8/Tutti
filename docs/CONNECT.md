@@ -25,7 +25,7 @@ shape they write).
 | Claude Code (CLI and the desktop app's Code tab) | `claude mcp add-json --scope user tutti` (user scope in `~/.claude.json`) | skill `~/.claude/skills/tutti/SKILL.md` | a new session |
 | Claude Desktop (chat) | `~/.config/Claude/claude_desktop_config.json` (`mcpServers`; macOS: `~/Library/Application Support/Claude/`) | none (the server's own instructions) | quit and reopen the app |
 | OpenAI Codex CLI | `~/.codex/config.toml`, a marked `[mcp_servers.tutti]` block | marked block in `~/.codex/AGENTS.md` | a new session |
-| ChatGPT app (desktop, web) | not possible: its connectors (developer mode) only reach a public HTTPS server | | see below |
+| ChatGPT app (desktop, web) | not possible: its connectors only reach servers on the internet | | use Codex |
 | Antigravity (IDE and `agy`) | `~/.gemini/config/mcp_config.json` (`mcpServers`, what `agy mcp add` writes; it no longer reads `.agents/settings.json`) | marked block in `~/.gemini/GEMINI.md` | a new `agy` session; the IDE: MCP, Refresh |
 | Cursor (IDE and `cursor-agent`) | `~/.cursor/mcp.json` | skill `~/.cursor/skills/tutti/SKILL.md` | restart, switch `tutti` on once in Settings, MCP |
 | GitHub Copilot CLI | `~/.copilot/mcp-config.json` (`type: local`) | marked block in `~/.copilot/copilot-instructions.md` | a new session |
@@ -40,16 +40,21 @@ copied to `~/.config/tutti/connect-backups/<agent>/` before its first change (`~
 not valid JSON or TOML is refused and left untouched. A `[mcp_servers.tutti]` you wrote yourself in Codex is kept as it
 is. Antigravity and Gemini CLI share `GEMINI.md`: undoing one keeps the block while the other is connected.
 
-**ChatGPT.** ChatGPT's developer-mode connectors call the server from OpenAI's side, so they need a public HTTPS URL;
-they cannot start a program on your computer. Use Codex (the same OpenAI account), or, if you accept exposing it:
-`tutti mcp --http` (a bearer token in `<state>/mcp-token`) behind your own HTTPS tunnel, then in ChatGPT: Settings, Apps &
-Connectors, Advanced, Developer mode, Create, and paste the tunnel's `/mcp` URL.
+**ChatGPT.** ChatGPT's app cannot connect: its connectors call the server from OpenAI's side, so they only reach servers
+on the internet, and Tutti is never exposed to the internet. Use Codex instead (the same OpenAI account):
+`tutti connect codex`.
 
 ## The MCP server
 
 `tutti mcp` speaks MCP over stdio (what every agent above launches). `tutti mcp --http [PORT]` serves the same on
 `http://127.0.0.1:PORT/mcp` (default `mcp.http_port`, 4779) for a client that needs HTTP; it answers only with
-`Authorization: Bearer <the token in <state>/mcp-token>` (mode 600, made on first use). Every tool runs the `tutti`
+`Authorization: Bearer <the token in <state>/mcp-token>` (mode 600, made on first use). `--bind <address>` (or
+`mcp.bind`) listens on a LAN or VPN address instead, for another computer of the household over the VPN: only loopback
+and private addresses are accepted (10/8, 172.16/12, 192.168/16, 100.64/10 as Tailscale uses, fc00::/7, a WireGuard
+address, whatever its range; checked by `tutti/netpolicy.py`, the same rule as the household's servers). A public
+address, a host name that resolves to one, and `0.0.0.0` / `::` are refused: Tutti is never exposed to the internet; people
+reach it only over a VPN. `auto` means 127.0.0.1 here. Off loopback the HTTP is plain, so use it over the VPN (which
+encrypts) rather than an untrusted LAN. Every tool runs the `tutti`
 command itself, so an answer is what the terminal would print.
 
 | Tool | Changes something | Runs |
@@ -76,7 +81,11 @@ it; nothing runs.
 from tutti import connect
 results = connect.connect_all(cfg_path)   # [{agent, status, changed: [{file, backup}], note}] for every agent
 rows = connect.status_all()               # [{agent, label, status, note}] for the summary screen
+steps = connect.human_steps(results)      # guided.step('other', 'Restart <agent>', None, why): the restarts, for guided.render
 ```
+
+`tutti setup` adds those steps to its one list at the end (docs/INSTALL.md, *The rule for every setup*); `tutti connect`
+prints the same list itself.
 
 `status` is one of `connected`, `needs-restart`, `not-connected`, `not-installed`, `cannot` (ChatGPT) or `error` (a
 broken config file; `note` names it and the fix). Agents that are not installed are skipped, never created.

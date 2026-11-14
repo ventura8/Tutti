@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from tutti import config, connect, dashboard, mcpserver
+from tutti import config, connect, dashboard, mcpserver, netpolicy
 
 CFG = '/cfg/tutti.config.yaml'
 
@@ -57,6 +57,16 @@ class ConnectorTest(unittest.TestCase):
                 data = json.loads(self.read(rel))
                 self.assertEqual(data[key], {'other': {'command': 'x'}})
                 self.assertEqual(data['theme'], 'dark')
+
+    def test_restarts_become_one_guided_list(self):
+        results = [self.apply('cursor'), self.apply('cursor'), connect.apply('chatgpt', CFG, True, self.home)]
+        steps = connect.human_steps(results)
+        self.assertEqual([s['title'] for s in steps], ['Restart Cursor (IDE and cursor-agent)'])
+        self.assertEqual(steps[0]['kind'], 'other')
+        out = io.StringIO()
+        with mock.patch.object(connect, 'connect_all', lambda path, names=None: results):
+            connect.cmd({'_path': CFG}, mock.Mock(all=True, agent=None, status=False, test=False, undo=False, json=False), out)
+        self.assertIn('Left for you (1)', out.getvalue())
 
     def test_entry_shapes_follow_each_tool(self):
         self.assertEqual(connect.entry('copilot', CFG, 't')['type'], 'local')
@@ -134,7 +144,7 @@ class ConnectorTest(unittest.TestCase):
         self.assertEqual(r['status'], 'not-installed')
         self.assertFalse(os.path.exists(self.p('.cursor/mcp.json')))
         self.assertEqual(connect.apply('chatgpt', CFG, True, self.home)['status'], 'cannot')
-        self.assertIn('HTTPS', connect.status('chatgpt', self.home)['note'])
+        self.assertIn('Codex', connect.status('chatgpt', self.home)['note'])
 
     def test_unknown_agent_is_refused(self):
         with self.assertRaises(connect.ConnectError):
@@ -262,6 +272,29 @@ class McpServerTest(unittest.TestCase):
             f.write('0\n')
         self.assertIn('exit code 0', mcpserver.call(self.cfg, 'job_status', {'id': jid}, 'viewer')[1])
         self.assertTrue(mcpserver.call(self.cfg, 'job_status', {'id': 'test-nope'}, 'viewer')[0])
+
+    def test_http_never_listens_on_a_public_address(self):
+        for bad in ('0.0.0.0', '::', '8.8.8.8', '2606:4700::1'):
+            with self.assertRaises(netpolicy.PublicAddress):
+                mcpserver.http_server(self.cfg, 0, host=bad)
+        with self.assertRaisesRegex(netpolicy.PublicAddress, 'never exposed to the internet'):
+            mcpserver.http_server(self.cfg, 0, host='1.1.1.1')
+        for default in (None, 'auto', '127.0.0.1'):
+            httpd = mcpserver.http_server(self.cfg, 0, host=default)
+            self.assertEqual(httpd.server_address[0], '127.0.0.1')
+            httpd.server_close()
+
+    def test_http_on_an_address_this_computer_lacks_says_so(self):
+        err = io.StringIO()
+        a = mock.Mock(http=0, bind='10.255.255.254')
+        with mock.patch.object(mcpserver.netpolicy, 'check', return_value=['10.255.255.254']), mock.patch('sys.stderr', err):
+            self.assertEqual(mcpserver.cmd(self.cfg, a), 2)
+        self.assertIn('cannot listen on 10.255.255.254', err.getvalue())
+
+    def test_chatgpt_points_to_codex_never_a_tunnel(self):
+        text = connect.AGENTS['chatgpt']['cannot']
+        self.assertIn('tutti connect codex', text)
+        self.assertNotIn('tunnel', text)
 
     def test_http_token_is_private(self):
         tok = mcpserver.http_token(self.cfg)

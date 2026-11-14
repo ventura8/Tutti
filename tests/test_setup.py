@@ -465,15 +465,19 @@ class Connect(unittest.TestCase):
         from tutti import connect
         orig = connect.connect_all
         connect.connect_all = lambda path: [{'agent': 'claude', 'status': 'connected', 'note': ''},
+                                            {'agent': 'gemini', 'status': 'needs-restart', 'note': 'Start a new Gemini CLI session.'},
                                             {'agent': 'codex', 'status': 'not-installed', 'note': 'x'},
                                             {'agent': 'cursor', 'status': 'error', 'note': 'bad json'}]
         try:
-            rows = {r['id']: r for r in setupcmd.connect_rows('/c.yaml')}
+            steps = []
+            rows = {r['id']: r for r in setupcmd.connect_rows('/c.yaml', steps)}
         finally:
             connect.connect_all = orig
         self.assertEqual(rows['connect-claude']['state'], 'ok')
         self.assertNotIn('connect-codex', rows)
         self.assertEqual((rows['connect-cursor']['state'], rows['connect-cursor']['command']), ('todo', 'tutti connect cursor'))
+        self.assertEqual([(s['kind'], s['title']) for s in steps], [('other', 'Restart Gemini CLI')])
+        self.assertIn('Start a new Gemini CLI session.', guided.render(steps))
 
 
 class Run(unittest.TestCase):

@@ -15,7 +15,15 @@ function Need($cmd, $winget) {
 }
 Need git 'Git.Git'
 Need python 'Python.Python.3.13'
-if (Test-Path (Join-Path $app '.git')) { git -C $app pull --ff-only --quiet } else {
+if (Test-Path (Join-Path $app '.git')) {
+    git -C $app pull --ff-only --quiet
+    # An install made before .gitattributes kept its CRLF scripts through every pull (git rewrites only changed files),
+    # so bash still could not run scripts/slot.sh (QA round 2, 2026-11-14). The scripts are written out again under the
+    # current line-ending rules; this folder is the installer's own clone, never edited by hand.
+    Get-ChildItem -LiteralPath $app -Recurse -File -Include '*.sh' | Where-Object { $_.FullName -notmatch '\\\.git\\' } | Remove-Item -Force
+    Remove-Item -LiteralPath (Join-Path $app 'bin\tutti') -Force -ErrorAction SilentlyContinue
+    git -C $app checkout --quiet -- .
+} else {
     New-Item -ItemType Directory -Force -Path $home_ | Out-Null
     git clone --quiet --depth 1 $repo $app
 }

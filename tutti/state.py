@@ -260,6 +260,7 @@ def status_of(running, updated, rc, now, stall):
     return 'done' if rc == 0 else 'failed'
 
 
+LOGS = '*.log'
 JOB_TITLES = {'quiet': 'quiet run', 'ship': 'ship check', 'files': 'file transfer', 'run': 'delegated run'}
 
 
@@ -372,10 +373,10 @@ def jobs_state(cfg, now, is_alive=alive):
     """Running, stalled and recent jobs from the state folder: quiet runs, ship checks, file transfers, waits, local-model jobs, tunnels."""
     folder = config.expand(cfg['project']['state'])
     stall = float(cfg['dashboard']['stall_minutes']) * 60
-    items = [log_job(p, 'quiet', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'quiet', '*.log'))]
+    items = [log_job(p, 'quiet', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'quiet', LOGS))]
     items += [log_job(p, 'ship', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'ship-*.log'))]
-    items += [log_job(p, 'files', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'files', '*.log'))]
-    items += [log_job(p, 'run', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'runs', '*.log'))]
+    items += [log_job(p, 'files', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'files', LOGS))]
+    items += [log_job(p, 'run', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'runs', LOGS))]
     items += wait_jobs(os.path.join(folder, 'waits'), now, stall, is_alive)
     items += pid_jobs(folder, is_alive)
     items += found_jobs(cfg, folder, now, stall, is_alive, items)

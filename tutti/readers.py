@@ -176,13 +176,14 @@ def json_field(data, field):
 # ---- the edge: running reader commands, scanning job logs, appending readings
 
 
-HINT = re.compile(r'needs the "?\w+"? scope|(?:gh )?auth (?:login|refresh)[^\n]*|sign in[^\n]*|log in[^\n]*', re.I)
+HINTS = (re.compile(r'needs the "?\w+"? scope', re.I), re.compile(r'(?:gh )?auth (?:login|refresh)[^\n]*'),
+         re.compile(r'(?:sign|log) in[^\n]*', re.I))
 
 
 def sign_in_hint(stderr):
     """What the CLI said to do about signing in or a missing scope (gh: `gh auth refresh -h github.com -s user`), or ''.
     Only such lines are kept: never anything that looks like a token."""
-    found = [m.group(0).strip() for m in HINT.finditer(stderr or '') if 'token' not in m.group(0).lower()]
+    found = [m.group(0).strip() for rx in HINTS for m in rx.finditer(stderr or '') if 'token' not in m.group(0).lower()]
     return '; '.join(dict.fromkeys(found))[:300]
 
 
@@ -242,15 +243,20 @@ class Readers:
             data, problem = self._answer(r, force)
             if data is not None:
                 try:
-                    if r.get('format') == 'github-premium':
-                        out['used'], out['resets'] = github_premium(data, r['allowance'], now or utcnow())
-                    else:
-                        out['used'], out['resets'] = agy_usage(data, r['bucket'])
-                    out['resets'] = not_started(out['resets'], a.get('window'), now or datetime.fromtimestamp(self.clock(), timezone.utc))
+                    out['used'], out['resets'] = self.parse(r, a, data, now or datetime.fromtimestamp(self.clock(), timezone.utc))
                 except (ValueError, KeyError, TypeError) as e:
                     problem = f'accounts.{name}.reader: {e}'
             out['problem'] = problem or out['problem']
         return out
+
+    @staticmethod
+    def parse(r, a, data, now):
+        """(used %, reset) from a reader's answer: GitHub's premium-request report, else agy's /usage buckets."""
+        if r.get('format') == 'github-premium':
+            used, resets = github_premium(data, r['allowance'], now)
+        else:
+            used, resets = agy_usage(data, r['bucket'])
+        return used, not_started(resets, a.get('window'), now)
 
     def read_all(self, now=None, force=False):
         """Every account with a reader or plan. Pass the `now` the readings will be recorded at."""

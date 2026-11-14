@@ -18,11 +18,12 @@ import time
 from . import state
 
 INTERPRETERS = ('bash', 'sh', 'node', 'python3', 'python')
+PROC = '/proc'
 TASK_RECENT = 6 * 3600     # task outputs older than this are not listed
 TASK_ACTIVE = 120          # a task output written in the last 2 minutes is active
 
 
-def processes(proc='/proc'):
+def processes(proc=PROC):
     """[(pid, argv)] of every process whose command line can be read."""
     out = []
     for name in os.listdir(proc):
@@ -86,7 +87,7 @@ def outermost(proc, pids):
     return keep
 
 
-def script_jobs(cfg, now, stall, proc='/proc', procs=None):
+def script_jobs(cfg, now, stall, proc=PROC, procs=None):
     """The configured scripts and agent CLIs that are running, one job per outermost process."""
     names = set(cfg['dashboard'].get('watch_scripts') or [])
     agents = set(cfg['dashboard'].get('watch_agents') or [])
@@ -136,23 +137,30 @@ def registered_jobs(folder, now, stall, is_alive):
     """Jobs written by `tutti job register`: running while their pid lives; then done or failed by `tutti job done`, or ended."""
     out = []
     for path in glob.glob(os.path.join(folder, '*.json')):
-        try:
-            with open(path, encoding='utf8') as f:
-                info = json.load(f)
-        except (OSError, ValueError):
-            continue
-        pid, log = info.get('pid'), info.get('log')
-        running = info.get('rc') is None and bool(pid) and is_alive(pid)
-        if not running and now - (state.mtime(path) or 0) > TASK_RECENT:
-            continue
-        updated = state.mtime(log) if log else None
-        lines = state.tail(log) if log else []
-        status = state.status_of(running, updated, info.get('rc'), now, stall)
-        out.append({'id': f'job:{pid}', 'kind': 'job', 'title': info.get('title') or f'job {pid}', 'pid': pid, 'log': log,
-                    'started': state.iso(info.get('started')), 'updated': state.iso(updated),
-                    'idle_seconds': round(now - updated) if updated else None, 'rc': info.get('rc'), 'status': status,
-                    'tail': lines[-12:], 'progress': state.progress(log, lines) if log else None})
+        job = registered_job(path, now, stall, is_alive)
+        if job:
+            out.append(job)
     return out
+
+
+def registered_job(path, now, stall, is_alive):
+    """One registered job, or None when its record is unreadable or it ended more than TASK_RECENT ago."""
+    try:
+        with open(path, encoding='utf8') as f:
+            info = json.load(f)
+    except (OSError, ValueError):
+        return None
+    pid, log = info.get('pid'), info.get('log')
+    running = info.get('rc') is None and bool(pid) and is_alive(pid)
+    if not running and now - (state.mtime(path) or 0) > TASK_RECENT:
+        return None
+    updated = state.mtime(log) if log else None
+    lines = state.tail(log) if log else []
+    status = state.status_of(running, updated, info.get('rc'), now, stall)
+    return {'id': f'job:{pid}', 'kind': 'job', 'title': info.get('title') or f'job {pid}', 'pid': pid, 'log': log,
+            'started': state.iso(info.get('started')), 'updated': state.iso(updated),
+            'idle_seconds': round(now - updated) if updated else None, 'rc': info.get('rc'), 'status': status,
+            'tail': lines[-12:], 'progress': state.progress(log, lines) if log else None}
 
 
 def task_jobs(cfg, now):
@@ -171,7 +179,7 @@ def task_jobs(cfg, now):
     return out
 
 
-def register(folder, pid, title, log=None, proc='/proc', clock=time.time):
+def register(folder, pid, title, log=None, proc=PROC, clock=time.time):
     """`tutti job register`: the record; the log defaults to where the process's standard output goes, when that is a file."""
     if not log:
         out = link(proc, pid, 'fd/1')

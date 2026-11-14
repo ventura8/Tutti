@@ -281,8 +281,9 @@ def cmd_test(cfg, a):
     rc = 1
     try:
         with job_inputs(cfg, machine, a.input) as base:
+            holds = [devices.of(cfg, n) for n in getattr(a, 'hold_device', None) or []]
             rc = remote.run(cfg, machine, a.track, src, ' '.join(command), inputs=base and transfer.shell_path(base), device=device,
-                            out=job.log)
+                            out=job.log, holds=holds)
         fetch_results(cfg, machine, a.track, src, a.fetch)
         return rc
     finally:
@@ -1006,6 +1007,12 @@ def cmd_dispatch(cfg, a):
             say('name the lease: tutti dispatch run <lease> (the dispatcher starts these itself)')
             return 2
         return dispatch.run(cfg, a.lease)
+    if a.action == 'build':
+        if len(a.rest) != 2 or not a.lease:
+            say('tutti dispatch build <project> <suite> <rc file> (the dispatcher starts these itself)')
+            return 2
+        from . import shards
+        return shards.run_prepare(cfg, a.lease, a.rest[0], a.rest[1])
     if a.action == 'now':
         p = dispatch.live_tick(cfg)
         for t, w in p['assign']:
@@ -1111,6 +1118,8 @@ def parser():
     s.add_argument('--on', help='skip routing and use this machine')
     s.add_argument('--device', help='an Android device (or `any`): ANDROID_SERIAL set, its lock held, on the machine it is plugged into')
     s.add_argument('--wait-minutes', type=int, default=30, help='with --device: how long to wait for it to get ready (charge, heat)')
+    s.add_argument('--hold-device', action='append', metavar='NAME',
+                   help='with --device: another device the run uses too (its external lock is held as well; repeat it)')
     s.add_argument('--fetch', action='append', metavar='PATH', help='a result folder or file to copy back from the machine (repeat it)')
     s.add_argument('--input', action='append', metavar='PATH',
                    help='a file or folder the job needs: copied to the machine\'s cache first, its folder in $TUTTI_INPUTS (repeat it)')
@@ -1294,9 +1303,11 @@ def parser():
     s.add_argument('--json', action='store_true', help='report: print the summary as JSON')
     s.add_argument('--test', action='store_true', help='send: one test event straight to the project, to check the DSN')
     s = add('dispatch', cmd_dispatch, 'keep devices and machines busy: idle ones pull pending test shards (projects.<p>.tests) by '
-                                      'themselves: status, on, off, now (one round with fresh probes), run <lease> (internal)')
-    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'now', 'run'])
-    s.add_argument('lease', nargs='?', help='run: the lease id')
+                                      'themselves: status, on, off, now (one round with fresh probes), run <lease> and build '
+                                      '<project> <suite> <rc> (internal)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'now', 'run', 'build'])
+    s.add_argument('lease', nargs='?', help='run: the lease id; build: the project')
+    s.add_argument('rest', nargs='*', help='build: the suite and the rc file')
     s = add('selfimprove', cmd_selfimprove, 'crashes and insights become autopilot tasks, pull requests, and where a project '
                                             'allows it merges and patch releases: status, on, off, tick (one round now)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])

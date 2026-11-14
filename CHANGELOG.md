@@ -2,6 +2,38 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.44 (2026-11-14)
+
+### Added
+
+- Suites in depth (docs/DISPATCH.md):
+  - A shard may carry its own `devices`, an `{extra}` for its command and `holds`: other devices it needs free, which are
+    held with it (`tutti test --hold-device`).
+  - `prepare` builds once per commit before any shard.
+  - `verdict` judges a runner that always exits 0.
+  - `started` stops a run whose tests never start in time.
+  - `requeue_on` names output that is not the test's fault.
+  - A requeued device rests for `dispatch.requeue_cooldown_minutes`.
+  - `projects.<p>.report` writes the results, with failed shards' log ends, to a file the project's sessions read.
+- Devices shared with other tools:
+  - `devices.<d>.external_lock`: Tutti waits while another tool's lock file is fresh, writes its own and removes it after.
+    The readings show the device as busy, held by that tool.
+  - `kind: tv` is a Cast receiver: no battery or call state, and used only by `targets: [tv]` suites or `holds`.
+  - `calls: false` skips the phone-call check.
+  - A wireless-debugging serial whose port changed is reconnected through `adb mdns services`.
+- Device prep and restore (`devices.<d>.prep`, docs/DISPATCH.md):
+  - Once the lock is taken, each setting's current value is read and saved on the device's machine before anything
+    changes, then the run's values are set.
+  - The saved values are put back however the run ends; a file left by a crash is restored by the next round.
+  - A command the device lacks is skipped cleanly.
+- Lenient shards: a shard entry this version cannot read (an unknown form or key, a device not configured) is a warning
+  and that shard is skipped, never a config error that stops every command.
+
+### Fixed
+
+- The device-lock test (failing on main under load) reads the run's output until slot.sh queues behind the lock, instead of
+  sleeping 1.5 s: deterministic, no sleeps.
+
 ## 0.1.43 (2026-11-14)
 
 ### Security

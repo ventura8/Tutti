@@ -413,7 +413,7 @@ def device_wrap(device, command):
     return f'mkdir -p "$(dirname {lock})" && env ANDROID_SERIAL={serial} SLOT_LOCKS={lock} MIN_FREE_GB=0 bash {{slot}} env {command}'
 
 
-def run(cfg, machine, track, src, command, inputs=None, device=None, out=None):
+def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, holds=()):
     """Runs `command` over the tree on the machine, behind its slot queue, after the steps it needs first (test.prepare).
     With `device` the command also holds that Android device's lock and gets ANDROID_SERIAL. With `out` (a job log) the
     output goes there too. Returns the command's exit code."""
@@ -421,6 +421,8 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None):
     slot = slot_prefix(machine)
     export, mount = inputs_env(inputs)
     if device:
+        from . import devices
+        command = devices.external_wrap([device, *holds], command)   # other tools' lock files (devices.<d>.external_lock)
         export += f'export ANDROID_SERIAL={shlex.quote(str(device["serial"]))} && '
         runner = merge_runner(machine['runner'], device.get('runner'))   # a device's own runner (shell for Gradle, host network)
         machine = {**machine, 'runner': {**runner, 'env': {**runner.get('env', {}), 'ANDROID_SERIAL': str(device['serial'])}}}

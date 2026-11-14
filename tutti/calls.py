@@ -21,7 +21,9 @@ def hold_for(cfg, st, d, now, leased):
     delay = float(s.get('resume_after_call_seconds', 30))
     calls = st.setdefault('calls', {})
     name = d['name']
-    if devices.on_call(d):
+    conf = (cfg.get('devices') or {}).get(name) or {}
+    checks_calls = conf.get('calls', True) is not False and conf.get('kind') != 'tv'   # a TV has no call state
+    if checks_calls and devices.on_call(d):
         calls[name] = {'active': True, 'since': (calls.get(name) or {}).get('since') or now}
         return f'{CALL} ({devices.CALL_WORDS[d["call"]]})'
     c = calls.get(name) or {}
@@ -38,7 +40,7 @@ def hold_for(cfg, st, d, now, leased):
 
 def holds(cfg, st, devices_rows, now):
     """{device name: why it is held} for every device on a call, just after one, or (opt-in) in its owner's hands."""
-    leased = {lease['name'] for lease in st['leases'].values() if lease.get('kind') == 'android'}
+    leased = {lease['name'] for lease in st['leases'].values() if lease.get('kind') in ('android', 'tv')}
     out = {}
     for d in devices_rows or []:
         why = hold_for(cfg, st, d, now, d['name'] in leased)

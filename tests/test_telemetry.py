@@ -73,7 +73,6 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.state = os.path.join(self.tmp.name, 'state')
-        self.folder = telemetry.configure(self.state, {'machines': {'nuc': {'host': 'my-nuc', 'user': 'alice'}}}, 'test', env={})
         self.env = {'XDG_CONFIG_HOME': os.path.join(self.tmp.name, 'xdg')}
         # hermetic: a real DSN or opt-in on this machine (~/.config/tutti/telemetry.env, $TUTTI_SENTRY_DSN) is never read,
         # so no test can send to a real Sentry or fail because of one; every call gets self.env, never {} (which falls back
@@ -82,6 +81,7 @@ class Base(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {**clean, **self.env}, clear=True)
         patcher.start()
         self.addCleanup(patcher.stop)
+        self.folder = telemetry.configure(self.state, {'machines': {'nuc': {'host': 'my-nuc', 'user': 'alice'}}}, 'test', env=self.env)
 
     def tearDown(self):
         telemetry.unconfigure()

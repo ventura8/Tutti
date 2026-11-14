@@ -123,7 +123,7 @@
         </aside>
         <section class="chat__main" id="chat-main" aria-labelledby="chat-title">
           <header class="chat__head">
-            <button class="btn btn--text chat__back" id="chat-back" type="button" aria-label="Back to your conversations">‹ Chats</button>
+            <button class="btn btn--text chat__back" id="chat-back" type="button" title="Back to your conversations"><span aria-hidden="true">‹ </span>Chats</button>
             <h2 class="chat__title" id="chat-title">New chat</h2>
             <label class="sr-only" for="chat-model">Who answers</label>
             <select class="chat__model" id="chat-model" title="Who answers: Auto uses the household's local models first, then online agents">
@@ -136,7 +136,7 @@
           </header>
           <div class="chat__log" id="chat-log" role="log" aria-live="off" aria-label="Messages" tabindex="0"></div>
           <button class="btn btn--tonal chat__jump" id="chat-jump" type="button" hidden>Jump to latest ↓</button>
-          <p class="sr-only" id="chat-announce" role="status" aria-live="polite"></p>
+          <output class="sr-only" id="chat-announce" aria-live="polite"></output>
           <form class="chat__composer" id="chat-form">
             <p class="chat__editing" id="chat-editing" hidden>Editing your last message: sending replaces it and its answer.
               <button class="btn btn--text" id="chat-edit-cancel" type="button">Cancel edit</button></p>
@@ -146,7 +146,7 @@
               <button class="btn btn--text chat__attach" id="chat-attach" type="button" aria-label="Attach a text or log file (up to 3, 32 KB each)" title="Attach a text or log file">
                 <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M16.5 6.5v10a4.5 4.5 0 0 1-9 0V5a3 3 0 0 1 6 0v10.5a1.5 1.5 0 0 1-3 0V6.5H9v9a3 3 0 0 0 6 0V5a4.5 4.5 0 0 0-9 0v11.5a6 6 0 0 0 12 0v-10z"/></svg>
               </button>
-              <input id="chat-file" type="file" multiple hidden accept=".txt,.log,.md,.json,.yaml,.yml,.csv,.toml,.ini,.py,.js,.ts,.sh,.diff,.patch,text/*">
+              <input id="chat-file" type="file" multiple hidden aria-label="Text or log files to attach" accept=".txt,.log,.md,.json,.yaml,.yml,.csv,.toml,.ini,.py,.js,.ts,.sh,.diff,.patch,text/*">
               <label class="sr-only" for="chat-input">Message</label>
               <textarea class="chat__input" id="chat-input" rows="1" placeholder="Ask, or queue work…" aria-describedby="chat-hint" enterkeyhint="send" maxlength="8000"></textarea>
               <button class="btn btn--filled chat__send" id="chat-send" type="submit">Send</button>
@@ -156,7 +156,7 @@
           </form>
         </section>
         <dialog class="chat__dialog" id="chat-dialog" aria-labelledby="chat-dialog-title">
-          <h2 id="chat-dialog-title"></h2>
+          <h2 id="chat-dialog-title">Chat</h2>
           <div id="chat-dialog-body"></div>
           <div class="chat__dialogacts" id="chat-dialog-actions"></div>
         </dialog>

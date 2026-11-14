@@ -15,8 +15,8 @@ or your main agent's machine, is off.
   | --- | --- | --- |
   | `add task in <project>: <what to change>` (optionally `[size M]`) | `backlog_add` | removes the task (`backlog rm`) |
   | `queue tests for <project>` | `backlog_add` ("Run the full test suite and fix what fails") | removes the task |
-  | `delegate in <project>: <task>` | `delegate_task` (a run in the background) | none: stop it on the Dashboard tab |
-  | `ask <scout>: <question>` | `scout_ask` | none |
+  | `delegate in <project>: <task>` (admins) | `delegate_task` (a run in the background) | none: stop it on the Dashboard tab |
+  | `ask <scout>: <question>` (admins) | `scout_ask` | none |
   | `pause <name>` / `resume <name>` (a machine, device, worker or account) | the dashboard's pause switch | the opposite switch |
 
   Each action shows as a card under the answer: **Done**, **Not allowed** or **Failed**, with what happened, its id, and
@@ -30,10 +30,13 @@ or your main agent's machine, is off.
 
 The server decides, for every action, with `auth.act_for` (and so `auth.may_act_for`):
 
-- **Viewers** ask anything, and create work for themselves: tasks, hand-offs and scout questions, for the projects in
-  `chat.viewer_projects` (empty: every project), up to `chat.viewer_tasks_per_day` (5) a day. A refused request says why
-  and who can change it.
-- **Admins** also pause and resume machines, devices, workers and accounts. Settings and users stay on their own tabs.
+- **Viewers** ask anything, and queue backlog tasks for the projects in `chat.viewer_projects` (empty: every project), up
+  to `chat.viewer_tasks_per_day` (5) a day. The autopilot runs those under its own pacing and sharing rules. A refused
+  request says why and who can change it. Viewers see the same household state the Dashboard tab shows them (jobs, queue,
+  accounts, machines), so the chat's answers and read-only tools tell them nothing more.
+- **Admins** also hand work straight to a worker (`delegate`), ask scouts, run tests on machines and devices, and pause
+  and resume machines, devices, workers and accounts: each of these spends an account or a machine at once, so a viewer's
+  request never spends another member's private quota. Settings and users stay on their own tabs.
 - **Pending** users (waiting for approval) cannot use the chat.
 - Conversations are private: each user sees only their own. Admins have **Household activity**: the actions the chat took
   for each member, from the audit log, never anyone's messages.
@@ -71,12 +74,14 @@ A model works through the same calls as the MCP tools, so a local model can do w
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `usage`, `machines`, `devices`, `backlog_list`, `job_status` | read | runs at once; its output goes back to the model |
-| `backlog_add`, `delegate_task`, `scout_ask` | work | proposed; runs when the user confirms |
+| `backlog_add` | work | proposed; runs when the user confirms |
+| `delegate_task`, `scout_ask` | work | proposed; admins (they spend an account at once) |
 | `test_on` (a track and a command, on a machine or an Android device) | work | proposed; admins |
 | `control` (pause or resume a machine, device, worker or account) | household | proposed; admins |
 
 - **Native tool calls** for local models: Ollama's function calling with each tool's JSON schema. A model under 7B
-  parameters only talks (it is not given the tools). Online agents (a CLI such as `claude -p`) get the same schemas and
+  parameters, or whose size neither the fleet's reading of its Ollama (docs/FLEET.md) nor its name tells, only talks
+  (it is not given the tools). Online agents (a CLI such as `claude -p`) get the same schemas and
   answer with `ACTION {"tool": ..., "args": {...}}` lines, which the page never shows.
 - **Validation**: every call is checked against its schema (required fields, types, enums, no other fields) and against
   the names that exist here (projects, scouts, machines, devices). A bad call is not run; its error goes back to the model.
@@ -84,7 +89,10 @@ A model works through the same calls as the MCP tools, so a local model can do w
   **Confirm** and **Cancel**; Confirm checks it again, then runs it with the same role checks, audit line and Undo as a
   request you typed. A request you type in so many words ("add task in map: …") runs at once: your words are the
   confirmation.
-- Up to 4 tool rounds per answer.
+- Up to 4 tool rounds per answer, at most 4 calls a round (the rest are told to ask again); a round that only looked things
+  up and never answered says so. A model that stops halfway is replaced by the next one on a clean answer; a CLI agent
+  that prints nothing past its deadline (180 s) is stopped. Confirm runs the tool outside the store's lock, and the daily
+  limit and its audit line are taken together, so two quick Confirms cannot both pass the limit.
 
 ## The page
 

@@ -836,9 +836,8 @@ body[data-view-name='chat'] .foot { display: none; }
     body.kbd-open .tabs { display: none; }
     body[data-chat-pane='list'] .chat__main, body[data-chat-pane='conv'] .chat__side { display: none; }
     .chat__back { display: inline-flex; padding: 0 8px; flex: none; }
-    .chat__head { padding: 6px 8px; }
+    .chat__head { padding: 6px 8px; flex-wrap: wrap; }
     .chat__convacts .btn { padding: 0 10px; }
-    .chat__head { flex-wrap: wrap; }
     .chat__model { order: 3; flex: 1 1 100%; max-width: none; }
     .chat__side, .chat__main { border-radius: var(--r-m); }
     .chat__hint { display: none; }

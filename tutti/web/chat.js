@@ -34,9 +34,14 @@ function mdList(lines, i, ordered) {
     return [{ t: ordered ? 'ol' : 'ul', c: items }, i];
 }
 
+// A line that starts another block: the same fence pattern as mdBlock's, so a line like "```js foo" stays paragraph text.
+const FENCE = /^\s*```\s*([\w+-]*)\s*$/;
+const BLOCK_START = /^(#{1,6}\s|\s*[-*+]\s|\s*\d+[.)]\s|\s*>)/;
+const isBlockStart = (line) => FENCE.test(line) || BLOCK_START.test(line);
+
 function mdBlock(lines, i) {
     const line = lines[i];
-    const fence = line.match(/^\s*```\s*([\w+-]*)\s*$/);
+    const fence = line.match(FENCE);
     if (fence) {
         const body = [];
         let j = i + 1;
@@ -56,7 +61,7 @@ function mdBlock(lines, i) {
     }
     const para = [];
     let j = i;
-    while (j < lines.length && lines[j].trim() && !/^(\s*```|#{1,6}\s|\s*[-*+]\s+|\s*\d+[.)]\s+|\s*>)/.test(lines[j])) para.push(lines[j++]);
+    while (j < lines.length && lines[j].trim() && !isBlockStart(lines[j])) para.push(lines[j++]);
     const kids = [];
     para.forEach((p, k) => { if (k) kids.push({ t: 'br', c: [] }); kids.push(...mdInline(p)); });
     return [{ t: 'p', c: kids }, Math.max(j, i + 1)];
@@ -312,7 +317,7 @@ function messageActions(m, opts) {
 function workStatus(ref) {
     const snap = typeof ui !== 'undefined' ? ui.last : null;
     if (!ref || !snap) return null;
-    const job = (snap.jobs?.items || []).find((j) => String(j.id).includes(ref) || String(j.title || '').includes(ref));
+    const job = (snap.jobs?.items || []).find((j) => String(j.id) === ref || String(j.id).split(':').pop() === ref);
     if (job) {
         const where = job.machine || job.worker || 'the host';
         const took = job.progress?.elapsed_seconds ? ` · ${duration(job.progress.elapsed_seconds)}` : '';
@@ -463,10 +468,10 @@ function cancelEdit() {
 
 async function follow(id) {
     const msg = CHAT.conv.messages.find((m) => m.id === id);
-    await stream({ action: 'follow', message: id }, null, msg);
+    await stream({ action: 'follow', message: id }, null, msg, true);
 }
 
-async function stream(body, local, known = null) {
+async function stream(body, local, known = null, following = false) {
     const controller = new AbortController();
     CHAT.controller = controller;
     CHAT.streaming = known || { id: null };
@@ -486,7 +491,10 @@ async function stream(body, local, known = null) {
             for (const e of events) answer = onEvent(e, local, answer);
         }
     } catch (err) {
-        if (err.name !== 'AbortError') failSend(local, answer, err);
+        if (following && err.name !== 'AbortError') {   // the answer finished meanwhile: show it as saved
+            const fresh = await chatApi({ action: 'get', id: CHAT.conv.id }).catch(() => null);
+            if (fresh) CHAT.conv = fresh.conversation;
+        } else if (err.name !== 'AbortError') failSend(local, answer, err);
     } finally {
         CHAT.streaming = null;
         CHAT.controller = null;

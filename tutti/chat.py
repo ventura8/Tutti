@@ -22,7 +22,9 @@ MAX_MESSAGES = 400         # per conversation; the oldest beyond this are droppe
 TITLE_MAX = 80
 HISTORY_TURNS = 10         # earlier messages a model sees
 DEFAULTS = {'viewer_tasks_per_day': 5, 'viewer_projects': [], 'history_turns': HISTORY_TURNS}
-WORK_TOOLS = ('backlog_add', 'delegate_task', 'scout_ask')   # work a viewer may create, for itself, within the limits
+# work a viewer may create, within the limits: backlog tasks, which the autopilot runs under its own pacing and sharing rules.
+# A hand-off or a scout question spends an account at once, so it is an admin's (never another member's private quota).
+WORK_TOOLS = ('backlog_add',)
 HOUSEHOLD_TOOLS = ('control',)                              # changes the household: admins only
 HOUSEHOLD = {'sub': 'household', 'email': None}              # the target of a household action (auth.may_act_for: admins only)
 DIR_MODE, FILE_MODE = 0o700, 0o600
@@ -64,6 +66,8 @@ class Store:
                 data = json.load(f)
         except (OSError, ValueError):
             data = {}
+        if not isinstance(data, dict) or not isinstance(data.get('conversations', []), list):
+            data = {}   # a damaged file: start again rather than fail every request of this user
         data.setdefault('conversations', [])
         return data
 
@@ -153,6 +157,21 @@ class Store:
             c['updated'] = now_iso(self.clock)
         self.change(sub, go)
 
+    def update_message(self, sub, cid, msg):
+        """Replaces a message that is still there; one dropped meanwhile (an edit, a delete) stays dropped. False if gone."""
+        def go(d):
+            c = self.conversation(d, cid)
+            for i, m in enumerate(c['messages']):
+                if m['id'] == msg['id']:
+                    c['messages'][i] = msg
+                    c['updated'] = now_iso(self.clock)
+                    return True
+            return False
+        try:
+            return self.change(sub, go)
+        except ChatError:
+            return False
+
     def truncate_after(self, sub, cid, mid, keep=True):
         """Drops the messages after `mid` (and `mid` itself unless keep): an edit or a retry starts again from there."""
         def go(d):
@@ -188,6 +207,8 @@ def check_message(text, attachments):
     """(text, attachments) cleaned, or ChatError in plain words. Attachments are text or log snippets only."""
     text = str(text or '').strip()
     attachments = attachments or []
+    if not isinstance(attachments, list) or not all(isinstance(a, dict) for a in attachments):
+        raise ChatError('Attachments must be files: attach text or log files with the paper clip.')
     if not text and not attachments:
         raise ChatError('Type a message first.')
     if len(text) > MAX_TEXT:
@@ -196,7 +217,7 @@ def check_message(text, attachments):
         raise ChatError(f'Attach at most {MAX_ATTACHMENTS} files to one message.')
     out = []
     for a in attachments:
-        name, body = str((a or {}).get('name') or 'snippet.txt')[:80], (a or {}).get('text')
+        name, body = str(a.get('name') or 'snippet.txt')[:80], a.get('text')
         if not isinstance(body, str) or '\x00' in body:
             raise ChatError(f'"{name}" is not a text file. Attach text or log snippets only (.txt, .log, .json, .md, code).')
         size = len(body.encode())
@@ -329,6 +350,9 @@ def refusal(user, call, cfg, done_today):
     if call['tool'] in HOUSEHOLD_TOOLS:
         return ('Pausing or resuming machines, devices, workers and accounts changes the whole household, so only an admin can '
                 'do it. Ask an admin, or ask me why something is busy.')
+    if call['tool'] in ('delegate_task', 'scout_ask'):
+        return ('Handing work straight to a worker or asking a scout spends an account at once, so only an admin can do it. '
+                'Queue it as a task instead ("add task in <project>: …"): the autopilot runs it when there is room.')
     if call['tool'] not in WORK_TOOLS:
         return 'Only an admin can do that from the chat.'
     s = settings(cfg)
@@ -484,10 +508,19 @@ def params_b(model):
     return float(m[1]) if m else None
 
 
-def local_capable(model, fleet=None):
-    """Whether a local model may call tools: its size from the fleet's reading (Ollama's own), else from its name."""
-    size = (fleet or {}).get(model) or params_b(model)
-    return size is None or size >= TOOL_PARAMS_B
+def local_capable(model, sizes=None):
+    """Whether a local model may call tools: its size from the fleet's reading (Ollama's own), else from its name; a model
+    whose size nobody knows only talks."""
+    size = (sizes or {}).get(model) or params_b(model)
+    return size is not None and size >= TOOL_PARAMS_B
+
+
+def fleet_sizes(cfg):
+    """{model name: billions of parameters} from the fleet's last reading of every machine's Ollama (docs/FLEET.md)."""
+    from . import fleet  # it imports config, which imports this module's errors()
+    machines = (fleet.read_state(cfg).get('machines') or {}) if cfg.get('project') else {}
+    return {m.get('name'): m.get('params_b') for e in machines.values() if isinstance(e, dict)
+            for m in e.get('models') or [] if isinstance(m, dict) and m.get('params_b')}
 
 
 def capability(cand):
@@ -500,7 +533,7 @@ def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
     paused = _paused(snap)
     workers = cfg.get('workers') or {}
     rows = {w.get('name'): w for w in (snap.get('workers') or {}).get('items') or []}
-    local, online = [], []
+    local, online, sizes = [], [], fleet_sizes(cfg)
     for name, w in workers.items():
         if (w or {}).get('kind') != 'ollama':
             continue
@@ -509,7 +542,7 @@ def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
             why = f'{name}\'s model server does not answer'
         where = w.get('machine') or 'the host'
         local.append({'kind': 'ollama', 'worker': name, 'model': w.get('model'), 'machine': where, 'why': why,
-                      'params': params_b(w.get('model')), 'tools': local_capable(w.get('model')),
+                      'params': sizes.get(w.get('model')) or params_b(w.get('model')), 'tools': local_capable(w.get('model'), sizes),
                       'label': f'{w.get("model")} on {where}'})
     local.sort(key=lambda c: -capability(c))
     accounts = {a.get('name'): a for a in (snap.get('usage') or {}).get('accounts') or []}
@@ -631,7 +664,7 @@ def facts(snap):
 
 
 IDLE = re.compile(r'why\s+is\s+(?:the\s+)?(?P<name>[\w.-]+)\s+(?:idle|free|doing nothing|not busy)', re.I)
-QUOTA = re.compile(r'quota|usage|how much .*left|room|limit', re.I)
+QUOTA = re.compile(r'\bquota\b|how much (?:quota|usage|room) ', re.I)
 RUN = re.compile(r'what.?s\s+running|what is running|running now|busy|status', re.I)
 QUEUE = re.compile(r'queue|waiting|backlog', re.I)
 

@@ -15,8 +15,8 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
   - Model order: the household's local models on machines that are here (never the asker's own computer), then accounts
     with room that the asker owns or that are shared (`share_spare`); never another member's private quota; a built-in
     answer from the state when none answers. Each answer names its model.
-  - Roles enforced on the server (`auth.act_for`): viewers ask and create work for `chat.viewer_projects` up to
-    `chat.viewer_tasks_per_day`; pausing is for admins; conversations are private; admins see Household activity (actions
+  - Roles enforced on the server (`auth.act_for`): viewers ask and queue backlog tasks for `chat.viewer_projects` up to
+    `chat.viewer_tasks_per_day`; hand-offs, scout questions, test runs and pausing are for admins; conversations are private; admins see Household activity (actions
     only, never messages).
   - The page: streamed answers, Stop (Esc), Retry, Edit (↑), Not sent with Send again; safe Markdown (a parsed tree drawn
     with `textContent`, code blocks with Copy); follow-the-end scrolling with Jump to latest; suggestions from the state;

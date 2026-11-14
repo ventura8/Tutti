@@ -9,6 +9,7 @@ import stat
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -184,6 +185,8 @@ def fake_streams(script):
         for piece in out:
             if cancel.is_set():
                 return
+            if isinstance(piece, Exception):
+                raise piece
             if piece == 'WAIT':
                 cancel.wait(2)
                 continue
@@ -510,6 +513,69 @@ class Validation(unittest.TestCase):
             shutil.rmtree(d)
 
 
+class Robustness(ApiBase):
+    def test_deleting_the_chat_while_it_answers_still_ends_the_answer(self):
+        eng = self.engine({'pc': ['Part one. ', 'WAIT', 'never']})
+        code, stream = chatrun.post(eng, ADMIN, {'action': 'send', 'text': 'tell me everything'})
+        lines = stream.lines()
+        first = json.loads(next(lines))
+        threading.Timer(0.2, lambda: (chatrun.post(eng, ADMIN, {'action': 'delete', 'id': first['conversation']}),
+                                      chatrun.post(eng, ADMIN, {'action': 'stop', 'message': first['message']['id']}))).start()
+        rest = [json.loads(x) for x in lines]
+        self.assertEqual(rest[-1]['type'], 'done')
+        self.assertEqual(eng.live_ids(), set())
+        self.assertEqual(eng.store.listing('local'), [])   # not brought back by the answer's last save
+
+    def test_a_model_that_stops_halfway_leaves_no_half_answer(self):
+        eng = self.engine({'pc': ['Half an ans', OSError('connection reset')], 'nuc': ['A whole answer.']})
+        events = self.send(eng, ADMIN, 'hello')
+        done = events[-1]['message']
+        self.assertEqual((done['text'], done['model']), ('A whole answer.', 'small:9b on nuc'))
+        self.assertIn({'type': 'replace', 'text': ''}, events)
+
+    def test_a_cli_agent_that_hangs_is_cut_off_and_the_next_one_answers(self):
+        cancel = threading.Event()
+        started = time.monotonic()
+        with self.assertRaises(OSError) as e:
+            list(chatrun.cli_stream({'command': ['sleep', '5']}, [{'role': 'user', 'content': 'hi'}], cancel, timeout=0.5))
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertIn('no full answer within', str(e.exception))
+
+    def test_a_viewer_cannot_hand_off_or_ask_a_scout(self):
+        for text in ('delegate in map: rename the helper', 'ask grok: anything new?'):
+            card = next(e['card'] for e in self.send(self.engine({}), VIEWER, text) if e['type'] == 'card')
+            self.assertEqual(card['state'], 'refused')
+            self.assertIn('Queue it as a task instead', card['text'])
+        self.assertEqual(self.calls, [])
+
+    def test_malformed_requests_get_plain_words_not_a_crash(self):
+        eng = self.engine({})
+        for body in ({'action': 'send', 'text': 'x', 'attachments': {'name': 'a'}}, {'action': 'send', 'text': 'x', 'attachments': ['ab']}):
+            code, answer = chatrun.post(eng, ADMIN, body)
+            self.assertEqual(code, 409)
+            self.assertIn('paper clip', answer['error'])
+        self.assertEqual(chatrun.post(eng, ADMIN, {'action': ['list']})[0], 400)
+        os.makedirs(os.path.join(self.dir, 'chat'), exist_ok=True)
+        with open(eng.store.path('local'), 'w', encoding='utf8') as f:
+            f.write('[1, 2]')
+        self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'list'}, self.snap)[0], 200)
+
+    def test_the_built_in_answer_answers_the_question_asked(self):
+        self.assertNotIn('Quota now', chat.builtin_answer('is there room for tests?', self.snap) or '')
+        self.assertNotIn('Quota now', chat.builtin_answer('what is running now?', self.snap))
+        self.assertIn('Quota now', chat.builtin_answer('how much quota is left?', self.snap))
+
+    def test_a_model_of_unknown_size_only_talks_unless_the_fleet_knows_it(self):
+        self.assertFalse(chat.local_capable('mistral:latest'))
+        self.assertTrue(chat.local_capable('mistral:latest', {'mistral:latest': 7.2}))
+        os.makedirs(self.dir, exist_ok=True)
+        with open(os.path.join(self.dir, 'fleet.json'), 'w', encoding='utf8') as f:
+            json.dump({'machines': {'nuc': {'models': [{'name': 'small:9b', 'params_b': 15.7}]}}}, f)
+        self.assertEqual(chat.fleet_sizes(self.cfg), {'small:9b': 15.7})
+        nuc = next(c for c in chat.candidates(self.cfg, self.snap, ADMIN)[0] if c['worker'] == 'nuc')
+        self.assertEqual((nuc['params'], nuc['tools']), (15.7, True))
+
+
 class Wiring(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
@@ -648,7 +714,7 @@ class PageMarkup(unittest.TestCase):
         self.assertEqual(nameless, [])
         chat_part = self.html.split('id="chat-view"', 1)[1].split('id="dashboard-view"', 1)[0]
         self.assertIn('role="log"', chat_part)
-        self.assertIn('role="status" aria-live="polite"', chat_part)   # new answers are announced
+        self.assertIn('<output class="sr-only" id="chat-announce" aria-live="polite">', chat_part)   # new answers are announced
         self.assertIn('aria-describedby="chat-hint"', chat_part)
 
     def test_phone_layout_reduced_motion_and_themes(self):

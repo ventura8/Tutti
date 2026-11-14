@@ -2,6 +2,7 @@
 closes), the models (Ollama's streaming chat, a CLI worker), the tools (the same calls as the MCP server's), Undo, the audit
 log and the HTTP actions. tutti/chat.py holds the pure part."""
 import json
+import queue
 import re
 import subprocess
 import threading
@@ -14,6 +15,9 @@ from . import auth, chat, config, controls, mcpserver, workers
 MODEL_TIMEOUT = 120      # seconds a model may take to start answering
 CLI_TIMEOUT = 180        # seconds a CLI worker may take for a whole answer
 ACTIVITY_SHOWN = 50
+PREFIX = 'chat: '   # the chat's lines in the audit log
+NO_ANSWER = ('I looked things up but did not reach an answer. Ask again, more specifically, or pick a more capable model '
+             'above.')
 ROUNDS = 4        # tool rounds a model may take for one answer
 MAX_CALLS = 4     # tool calls taken from one round
 WORK_ACTIONS = ('chat: Queue a task', 'chat: Hand off', 'chat: Ask ')   # audit lines that count against a viewer's daily limit
@@ -50,23 +54,39 @@ def ollama_stream(worker, messages, cancel, timeout=MODEL_TIMEOUT, tools=None):
                 return
 
 
-def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.Popen):
-    """Yields a CLI worker's answer line by line (`claude -p`, `cursor-agent -p`): the conversation as one prompt."""
+def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.Popen, clock=time.monotonic):
+    """Yields a CLI worker's answer line by line (`claude -p`, `cursor-agent -p`): the conversation as one prompt. A reader
+    thread feeds a queue, so Stop and the deadline are seen even while the worker prints nothing; past the deadline the
+    worker is killed and OSError lets the next model answer."""
     prompt = '\n\n'.join(f'{m["role"].upper()}:\n{m["content"]}' for m in messages) + '\n\nASSISTANT:'
     proc = popen(workers.command(worker, prompt), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
                  text=True, start_new_session=True)
-    start = time.monotonic()
+    lines = queue.Queue()
+    threading.Thread(target=_pump, args=(proc.stdout, lines), daemon=True).start()
+    deadline, name = clock() + timeout, (worker.get('command') or ['the worker'])[0]
     try:
-        for line in proc.stdout:
-            if cancel.is_set() or time.monotonic() - start > timeout:
-                return
+        while not cancel.is_set():
+            if clock() > deadline:
+                raise OSError(f'{name} gave no full answer within {timeout} s')
+            try:
+                line = lines.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            if line is None:
+                break
             yield line
     finally:
         if proc.poll() is None:
             proc.kill()
         proc.wait()
-    if proc.returncode:
-        raise OSError(f'{worker.get("command", ["the worker"])[0]} ended with exit code {proc.returncode}')
+    if proc.returncode and not cancel.is_set():
+        raise OSError(f'{name} ended with exit code {proc.returncode}')
+
+
+def _pump(src, lines):
+    for line in src:
+        lines.put(line)
+    lines.put(None)
 
 
 def stream_of(cand, cfg, messages, cancel):
@@ -97,7 +117,7 @@ def run_tool(cfg, call, runner=None):
     return not err, text, undo
 
 
-def job_ref(call, text):
+def job_ref(text):
     """The id the dashboard shows the work under (a backlog task, a delegated run, a test job, a scout request)."""
     m = re.search(r'\b(t\d+|test-\d+-[0-9a-f]+|\d{10}-\d+(?:-\d+)?|q\d+)\b', text or '')
     return m[1] if m else None
@@ -146,7 +166,7 @@ class Engine:
         self.streams = streams or stream_of
         self.owner_fn = owner_fn or (lambda: None)
         self.own_machine_fn = own_machine_fn or (lambda user: None)
-        self.jobs, self.lock = {}, threading.Lock()
+        self.jobs, self.lock, self.act_lock = {}, threading.Lock(), threading.Lock()
 
     # -- reading
 
@@ -166,8 +186,8 @@ class Engine:
     def activity(self):
         """The household's chat actions (admins): who did what, from the audit log; never anyone's messages."""
         return [{'at': e.get('at'), 'by': e.get('by_email') or ('the owner' if e.get('by') == 'local' else 'a user'),
-                 'action': e['action'][len('chat: '):], 'detail': e.get('detail')}
-                for e in auth.audit_log(self.folder, 1000) if str(e.get('action', '')).startswith('chat: ')][:ACTIVITY_SHOWN]
+                 'action': e['action'][len(PREFIX):], 'detail': e.get('detail')}
+                for e in auth.audit_log(self.folder, 1000) if str(e.get('action', '')).startswith(PREFIX)][:ACTIVITY_SHOWN]
 
     # -- sending
 
@@ -230,10 +250,12 @@ class Engine:
             job.emit('note', text=msg['note'])
             msg['error'] = f'{type(e).__name__}: {e}'[:300]
         finally:
-            if job.cancel.is_set() and msg['status'] != 'failed':
-                msg['status'] = 'stopped'
-            self.store.put_message(job.sub, job.cid, msg)
-            job.emit('done', message=msg)
+            try:
+                if job.cancel.is_set() and msg['status'] != 'failed':
+                    msg['status'] = 'stopped'
+                self.store.update_message(job.sub, job.cid, msg)   # a chat deleted or edited meanwhile is left as it is
+            finally:
+                job.emit('done', message=msg)   # always: a page following the answer must never wait forever
 
     def _say(self, job, text, _kind=None):
         job.msg['text'] = text
@@ -243,18 +265,19 @@ class Engine:
 
     def execute(self, user, cfg, call, card):
         """Runs one call for `user` into `card`: the role check, the audit line, the MCP tool's call, Undo where possible."""
-        why = chat.refusal(user, call, cfg, self.done_today(user))
-        if why:
-            card.update(state='refused', text=why)
-            return card
-        target = chat.HOUSEHOLD if call['tool'] in chat.HOUSEHOLD_TOOLS else user
-        try:
-            auth.act_for(self.folder, user, target, 'chat: ' + card['label'][:80], detail=card['label'], clock=self.clock)
-        except auth.AuthError:
-            card.update(state='refused', text='Only an admin can do that.')
-            return card
+        with self.act_lock:   # the daily limit and its audit line together: two quick Confirms cannot both pass
+            why = chat.refusal(user, call, cfg, self.done_today(user))
+            if why:
+                card.update(state='refused', text=why, call=None)
+                return card
+            target = chat.HOUSEHOLD if call['tool'] in chat.HOUSEHOLD_TOOLS else user
+            try:
+                auth.act_for(self.folder, user, target, PREFIX + card['label'][:80], detail=card['label'], clock=self.clock)
+            except auth.AuthError:
+                card.update(state='refused', text='Only an admin can do that.', call=None)
+                return card
         ok, text, undo = run_tool(cfg, call, self.runner)
-        card.update(state='done' if ok else 'failed', text=plain(text, ok), ref=job_ref(call, text), undo=undo, call=None)
+        card.update(state='done' if ok else 'failed', text=plain(text, ok), ref=job_ref(text), undo=undo, call=None)
         return card
 
     def new_card(self, call):
@@ -294,6 +317,10 @@ class Engine:
                     return
             except (OSError, ValueError):
                 failed.append(f'{cand["label"]} did not answer')   # the next model: a machine went to sleep, a tunnel is down
+                if job.msg['text']:   # it stopped halfway: the next model starts on a clean answer
+                    job.msg['text'] = ''
+                    job.emit('replace', text='')
+                job.msg['cards'] = [c for c in job.msg['cards'] if c.get('state') != 'proposed']
         text = chat.builtin_answer(history[-1].get('text') or '', snap) if history else None
         self._say(job, text or ('No model of the household is free to answer right now. I can still answer from the dashboard: '
                                 'try "What\'s running?", "How much quota is left?" or "Why is the NUC idle?", or queue work '
@@ -310,6 +337,9 @@ class Engine:
         becomes a card the user confirms (and ends the loop). False when the model gave nothing at all."""
         msgs = list(messages)
         for rnd in range(ROUNDS):
+            if job.msg['text'] and not job.msg['text'].endswith('\n\n'):   # each round's text its own paragraph
+                job.msg['text'] += '\n\n'
+                job.emit('delta', text='\n\n')
             text, native = self._round(job, cand, cfg, msgs)
             if text is None:
                 return rnd > 0
@@ -328,6 +358,9 @@ class Engine:
             msgs += [{'role': 'assistant', 'content': text, **({'tool_calls': said} if native else {})}]
             msgs += [{'role': 'tool', 'tool_name': n, 'content': r} if native else
                      {'role': 'user', 'content': f'Tool {n} answered:\n{r}'} for n, r in results]
+        if not job.msg['text'].strip():   # every round only looked things up
+            job.msg['text'] = NO_ANSWER
+            job.emit('replace', text=NO_ANSWER)
         return True
 
     def _round(self, job, cand, cfg, msgs):
@@ -359,14 +392,16 @@ class Engine:
         """([(tool, result)] of the read-only calls, whether one was proposed). Every call is validated first; a bad one's
         error goes back to the model as its result."""
         results, proposed, tools = [], False, chat.model_tools()
+        results += [(c.get('tool') if isinstance(c, dict) else '?', f'skipped: at most {MAX_CALLS} calls at a time; ask again')
+                    for c in calls[MAX_CALLS:]]
         for raw in calls[:MAX_CALLS]:
             call = chat.validate(raw, known)
             if isinstance(call, str):
                 results.append(((raw or {}).get('tool') if isinstance(raw, dict) else '?', f'refused: {call}'))
                 continue
             if not tools[call['tool']]['mutating']:
-                ok, text, _ = run_tool(cfg, call, self.runner)
-                results.append((call['tool'], text[-3000:]))
+                _ok, text, _ = run_tool(cfg, call, self.runner)
+                results.append((call['tool'], text if len(text) <= 3000 else '(the start is cut)\n' + text[-3000:]))
                 continue
             card = self.new_card(call)
             why = chat.refusal(user, call, cfg, self.done_today(user))
@@ -379,25 +414,39 @@ class Engine:
 
     # -- confirming what a model proposed
 
-    def confirm(self, user, cid, mid, kid, yes=True):
-        cfg = self.cfg_fn()
-        with self.store.lock:
-            data = self.store.load(user['sub'])
-            conv = self.store.conversation(data, cid)
+    def _card_change(self, sub, cid, mid, kid, fn):
+        """fn(card) under the store's lock, saved; ChatError when the card is gone."""
+        def go(d):
+            conv = self.store.conversation(d, cid)
             msg = next((m for m in conv['messages'] if m['id'] == mid), None)
             card = next((k for k in (msg or {}).get('cards') or [] if k['id'] == kid), None)
-            if not card or card.get('state') != 'proposed':
+            if card is None:
+                raise chat.ChatError('That card is gone: reload the chat.')
+            return fn(card)
+        return self.store.change(sub, go)
+
+    def confirm(self, user, cid, mid, kid, yes=True):
+        """Runs (or cancels) what a model proposed. The card is marked running under the lock, the tool runs outside it (one
+        slow call never blocks other users' chats), then the result is saved."""
+        cfg = self.cfg_fn()
+
+        def claim(card):
+            if card.get('state') != 'proposed':
                 raise chat.ChatError('That proposal was already confirmed or cancelled.')
-            known = chat.known_names(cfg, self.snap_fn() or {})
-            call = chat.validate(card['call'], known)   # checked again: the config may have changed since
-            if isinstance(call, str):
-                card.update(state='failed', text=f'It can no longer run: {call}.', call=None)
-            elif yes:
-                self.execute(user, cfg, call, card)
-            else:
-                card.update(state='cancelled', text='Cancelled: nothing was done.', call=None)
-            self.store.save(user['sub'], data)
+            card['state'] = 'running' if yes else 'cancelled'
+            if not yes:
+                card.update(text='Cancelled: nothing was done.', call=None)
+            return dict(card)
+        card = self._card_change(user['sub'], cid, mid, kid, claim)
+        if not yes:
             return card
+        call = chat.validate(card['call'], chat.known_names(cfg, self.snap_fn() or {}))   # again: the config may have changed
+        if isinstance(call, str):
+            card.update(state='failed', text=f'It can no longer run: {call}.', call=None)
+        else:
+            self.execute(user, cfg, call, card)
+        self._card_change(user['sub'], cid, mid, kid, lambda k: k.update(card))
+        return card
 
     # -- Undo
 
@@ -416,7 +465,7 @@ class Engine:
             back = card['undo']
             target = chat.HOUSEHOLD if back['tool'] == 'control' else user
             try:
-                auth.act_for(self.folder, user, target, 'chat: undo ' + card['label'][:80], detail=card['label'], clock=self.clock)
+                auth.act_for(self.folder, user, target, PREFIX + 'undo ' + card['label'][:80], detail=card['label'], clock=self.clock)
             except auth.AuthError as e:
                 raise chat.ChatError('Only an admin can undo that.') from e
             ok, text, _ = run_tool(cfg, back, self.runner)
@@ -455,6 +504,8 @@ def post(engine, user, data, snap=None):
     if not isinstance(data, dict):
         return 400, {'error': 'Send a JSON object with an "action".'}
     act = data.get('action')
+    if not isinstance(act, str):
+        return 400, {'error': 'Send a JSON object with an "action" (a word such as "send").'}
     try:
         return ACTIONS[act](engine, user, data, snap) if act in ACTIONS else \
             (400, {'error': f'Unknown chat action "{act}". Reload the page; it may be older than the dashboard.'})

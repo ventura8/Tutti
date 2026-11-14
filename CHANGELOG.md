@@ -2,6 +2,18 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.14 (2026-11-14)
+
+### Added
+
+- The dashboard updates itself: a restart on a new release is noticed through `/api/state`'s version; the page updates
+  its service worker (`registration.update()`, `skipWaiting`, `clients.claim`) and reloads once, never in a loop.
+
+### Changed
+
+- Docs: an agy account whose `--settings` allow only some commands soft-denies the rest headless, so autopilot tasks that
+  need a command lost one attempt on it; give every agy account the `command(*)` allow the autopilot needs (LESSONS).
+
 ## 0.1.13 (2026-11-14)
 
 ### Added

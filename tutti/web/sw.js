@@ -1,12 +1,18 @@
 // Tutti dashboard service worker: the app shell works offline (stale-while-revalidate); /api/ is never cached, so the
 // page always shows live data or says plainly that the local service is not answering. The page itself is network-first:
 // it carries the running server's token for saving readings, so a cached copy is only the offline fallback.
-const CACHE = 'tutti-shell-v6';
-const SHELL = ['./', 'index.html', 'app.css', 'app.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
+// The server writes its version here: a new release is a new worker, its own cache, and the old cache is dropped.
+const CACHE = 'tutti-shell-__TUTTI_VERSION__';
+const SHELL = ['./', 'index.html', 'app.css', 'update.js', 'app.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
     'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {
     event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
+});
+
+// The page asks a waiting worker to take over at once when it sees a new version in /api/state.
+self.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'skip-waiting') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {

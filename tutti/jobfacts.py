@@ -20,7 +20,9 @@ NUM = r'(\d[\d,]*(?:\.\d+)?\s*[kKmM]?)'
 TOKENS_IN = re.compile(NUM + r'\s+(?:input|prompt)\s+tokens|"input_tokens"\s*:\s*(\d+)', re.I)
 TOKENS_OUT = re.compile(NUM + r'\s+(?:output|completion)\s+tokens|"output_tokens"\s*:\s*(\d+)', re.I)
 TOKENS_PAIR = re.compile(r'\btokens?\b\W{0,4}' + NUM + r'\s+in\b\W{0,4}' + NUM + r'\s+out\b', re.I)
-SHORTSTAT = re.compile(r'(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?')
+SHORTSTAT = re.compile(r'(\d+) files? changed')
+INSERTIONS = re.compile(r'(\d+) insertions?\(\+\)')
+DELETIONS = re.compile(r'(\d+) deletions?\(-\)')
 TRANSCRIPT_MAX = 8 * 1024 * 1024      # an agent transcript larger than this is read from its last 8 MB
 DIFF_TTL = 30                          # a running run's `git diff --shortstat` is asked at most every 30 s
 _cache = {}
@@ -36,23 +38,36 @@ def number(text):
         return None
 
 
+def _line_counts(line):
+    """(passed, failed) one line says, each None when it does not say it."""
+    bad, ran = UNITTEST_BAD.search(line), UNITTEST_RAN.search(line)
+    if bad:
+        return None, sum(int(n) for n in re.findall(r'=(\d+)', bad.group(1)))
+    if ran:
+        return int(ran.group(1)), None
+    p, f = PASSED.search(line), FAILED.search(line)
+    if line.lstrip().startswith(('FAILED ', 'FAIL ')):
+        f = None   # a failing test's own line, not a count
+    return (int(p.group(1)) if p else None), (int(f.group(1)) if f else None)
+
+
 def tests(lines):
-    """{passed, failed} from the last lines that count tests, or None when no line does."""
+    """{passed, failed} from the last lines that count tests, or None when no line does. unittest's "Ran N tests" is the
+    total: the failures and errors of its "FAILED (...)" line are taken out of it."""
     passed = failed = None
+    ran_total = False
     for line in reversed(lines):
-        ran, bad = UNITTEST_RAN.search(line), UNITTEST_BAD.search(line)
-        if bad and failed is None:
-            failed = sum(int(n) for n in re.findall(r'=(\d+)', bad.group(1)))
-        if ran and passed is None:
-            passed = int(ran.group(1)) - (failed or 0)
-        if passed is None and PASSED.search(line):
-            passed = int(PASSED.search(line).group(1))
-        if failed is None and FAILED.search(line) and not line.lstrip().startswith(('FAILED ', 'FAIL ')):
-            failed = int(FAILED.search(line).group(1))
+        p, f = _line_counts(line)
+        if failed is None and f is not None:
+            failed = f
+        if passed is None and p is not None:
+            passed, ran_total = p, bool(UNITTEST_RAN.search(line))
         if passed is not None and failed is not None:
             break
     if passed is None and failed is None:
         return None
+    if ran_total:
+        passed -= failed or 0
     return {'passed': passed or 0, 'failed': failed or 0}
 
 
@@ -76,6 +91,29 @@ def tokens_in_lines(lines):
     return {'in': tin, 'out': tout}
 
 
+def usage_of(raw):
+    """(message id, usage) of one transcript line, or None."""
+    try:
+        msg = json.loads(raw).get('message') or {}
+    except (ValueError, AttributeError):
+        return None
+    u = msg.get('usage') if isinstance(msg, dict) else None
+    return (msg.get('id'), u) if isinstance(u, dict) else None
+
+
+def read_usage(path, size):
+    """({message id: its last usage}, tool calls) from the last TRANSCRIPT_MAX bytes of a transcript."""
+    usage, calls = {}, 0
+    with open(path, 'rb') as f:
+        f.seek(max(0, size - TRANSCRIPT_MAX))
+        for raw in f:
+            calls += raw.count(b'"type":"tool_use"')
+            found = usage_of(raw) if b'"usage"' in raw else None
+            if found:
+                usage[found[0] or len(usage)] = found[1]
+    return usage, calls
+
+
 def transcript_tokens(path):
     """{in, out, calls} of an agent session's JSONL transcript (a Claude Code subagent's task output): per message the last
     usage seen (a streamed message repeats it), in = input + cache tokens, calls = tool calls. Cached by size and time."""
@@ -87,21 +125,8 @@ def transcript_tokens(path):
     hit = _cache.get(key)
     if hit and hit[0] == (st.st_size, st.st_mtime):
         return hit[1]
-    usage, calls = {}, 0
     try:
-        with open(path, 'rb') as f:
-            f.seek(max(0, st.st_size - TRANSCRIPT_MAX))
-            for raw in f:
-                calls += raw.count(b'"type":"tool_use"')
-                if b'"usage"' not in raw:
-                    continue
-                try:
-                    msg = (json.loads(raw).get('message') or {})
-                except (ValueError, AttributeError):
-                    continue
-                u = msg.get('usage') if isinstance(msg, dict) else None
-                if isinstance(u, dict):
-                    usage[msg.get('id') or len(usage)] = u
+        usage, calls = read_usage(path, st.st_size)
     except OSError:
         return None
     out = None
@@ -150,7 +175,8 @@ def files_in_lines(lines):
     for line in reversed(lines):
         m = SHORTSTAT.search(line)
         if m:
-            return {'files': int(m.group(1)), 'plus': int(m.group(2) or 0), 'minus': int(m.group(3) or 0)}
+            plus, minus = INSERTIONS.search(line), DELETIONS.search(line)
+            return {'files': int(m.group(1)), 'plus': int(plus.group(1)) if plus else 0, 'minus': int(minus.group(1)) if minus else 0}
     return None
 
 
@@ -199,29 +225,29 @@ def run_entry(state_folder, run_id):
     return None
 
 
-def run_facts(job, state_folder, worker_account):
-    """A delegated run: its worker and account, files changed (the report, or the worktree so far), the report's path."""
+def report_facts(report):
+    """Files changed, checks passed and failed, and the report's path, from a finished run's report.json."""
+    checks = report.get('checks') or []
+    files = files_in_lines([report.get('stat') or '']) or {'files': len(report.get('changed') or []), 'plus': 0, 'minus': 0}
+    return {'files': files, 'report': report.get('report'),
+            'checks': {'passed': sum(1 for c in checks if c.get('rc') == 0), 'failed': sum(1 for c in checks if c.get('rc') != 0)}}
+
+
+def run_facts(job, state_folder, worker_account, own_tree=lambda path: None):
+    """A delegated run: its worker and account, files changed (the report, or the worktree so far), the report's path.
+    `own_tree(path)` is the worktree when it is one of Tutti's run worktrees, else None: a meta.json edited to name another
+    folder never gets git run in it."""
     d = run_dir(job)
-    out = {}
     report = read_json(os.path.join(d, 'report.json')) or {}
-    meta = read_json(os.path.join(d, 'meta.json')) or {}
     m = re.match(r'run (\S+):', job.get('title') or '')
     worker = report.get('worker') or (m.group(1) if m else None)
     entry = run_entry(state_folder, os.path.basename(d)) or {}
-    if worker:
-        out['worker'] = worker
-    account = entry.get('account') or worker_account(worker)
-    if account:
-        out['account'] = account
-    if entry.get('credits'):
-        out['credits'] = entry['credits']
+    out = {'worker': worker, 'account': entry.get('account') or worker_account(worker), 'credits': entry.get('credits') or None}
     if report:
-        out['files'] = files_in_lines([report.get('stat') or '']) or {'files': len(report.get('changed') or []), 'plus': 0, 'minus': 0}
-        out['report'] = report.get('report')
-        out['checks'] = {'passed': sum(1 for c in report.get('checks') or [] if c.get('rc') == 0),
-                         'failed': sum(1 for c in report.get('checks') or [] if c.get('rc') != 0)}
-    elif meta.get('worktree') and job.get('status') in ('running', 'stalled'):
-        out['files'] = diff_files(meta['worktree'])
+        out.update(report_facts(report))
+    elif job.get('status') in ('running', 'stalled'):
+        tree = own_tree((read_json(os.path.join(d, 'meta.json')) or {}).get('worktree'))
+        out['files'] = diff_files(tree) if tree else None
     return {k: v for k, v in out.items() if v is not None}
 
 
@@ -256,14 +282,14 @@ def from_lines(job):
     return {k: v for k, v in found.items() if v}
 
 
-def facts(job, state_folder, worker_account, now):
+def facts(job, state_folder, worker_account, now, own_tree=lambda path: None):
     """The job's facts: always its elapsed time (or duration when finished), then whatever its log, report or transcript says."""
     out = {**timing(job, now), **from_lines(job)}
     p = job.get('progress') or {}
     if p.get('unit'):
         out['copied'] = {'done': p['done'], 'total': p['total'], 'unit': p['unit']}
     if job.get('kind') == 'run' and job.get('log'):
-        out.update(run_facts(job, state_folder, worker_account))
+        out.update(run_facts(job, state_folder, worker_account, own_tree))
     if job.get('log'):
         out['log'] = job['log']
     return out

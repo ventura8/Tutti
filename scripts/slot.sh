@@ -68,12 +68,12 @@ while :; do
 				break
 			fi
 			# the dashboard reads these two lines: queued (progress 0, "waiting for a slot"), then out of the queue
-			[ -z "$queued" ] || echo "slot.sh: got a slot" >&2
+			[[ -z "$queued" ]] || echo "slot.sh: got a slot" >&2
 			"$@"
 			exit $?
 		fi
 	done
-	if [ -z "$queued" ] && [ -z "$said" ]; then
+	if [[ -z "$queued" && -z "$said" ]]; then
 		echo "slot.sh: waiting for a free slot (all ${#locks[@]} busy)" >&2
 		queued=1
 	fi

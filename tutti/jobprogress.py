@@ -30,7 +30,8 @@ FORGET = 86400         # running records not seen for a day are dropped
 WRITE_EVERY = 60
 LOG_MAX = 1024 * 1024
 TOTAL_TTL = 3600
-AGENT_KINDS = ('agent', 'agent task', 'conduct')
+AGENT_TASK = 'agent task'
+AGENT_KINDS = ('agent', AGENT_TASK, 'conduct')
 SERVICE_KINDS = ('tunnel', 'local model')
 ACTIVE = ('running', 'stalled')
 # A delegated run (`tutti run`) says each phase in its log.
@@ -40,7 +41,7 @@ BUILTIN_SHAPES = {
         {'name': 'the worker works', 'when': r'^run: (?:new worktree|reusing the worktree)'},
         {'name': 'checks', 'when': r'^run: checking the change'}]},
 }
-AGE = re.compile(r'(?:(\d+)|an?|About an?)\s+(second|minute|hour|day|week)s?\s+ago', re.I)
+AGE = re.compile(r'\b(\d+|an?) (second|minute|hour|day|week)s? ago', re.I)   # docker ps: "4 minutes ago", "About an hour ago"
 UNIT = {'second': 1, 'minute': 60, 'hour': 3600, 'day': 86400, 'week': 604800}
 _lock = threading.Lock()
 _logs = {}
@@ -176,35 +177,37 @@ class History:
         del runs[:-KEEP]
         self.dirty = True
 
+    def see(self, j, now):
+        """One job of this look: a running one is remembered, a done one is learned from, any other is forgotten."""
+        key, started = j['_key'], j.get('_started')
+        running = self.data['running']
+        if j['status'] in ACTIVE:
+            self.dirty = self.dirty or j['id'] not in running
+            running[j['id']] = {'key': key, 'started': started or now, 'last': now, 'kind': j.get('kind'), 'machine': j.get('machine')}
+            return
+        if j['status'] == 'done' and started:
+            self.record(key, j['id'], (jobfacts.seconds(j.get('updated')) or now) - started)
+        self.dirty = self.dirty or running.pop(j['id'], None) is not None
+
+    def gone(self, job_id, now, reachable):
+        """A running job no longer listed has finished: learned from when it was seen in the last hour (a container only
+        when its machine was probed: a failed probe lists none)."""
+        r = self.data['running'].pop(job_id)
+        self.dirty = True
+        probed = r.get('kind') != 'remote' or (reachable is not None and r.get('machine') in reachable)
+        if now - r['last'] < VANISH_WINDOW and probed:
+            self.record(r['key'], job_id, r['last'] - r['started'])
+
     def observe(self, jobs, now, reachable=None):
         """Learn from what changed since the last look: a finished job's duration (done ones, and running ones that are gone)."""
-        seen = set()
-        running = self.data['running']
-        for j in jobs:
-            key, started = j.get('_key'), j.get('_started')
-            if not key:
-                continue
-            seen.add(j['id'])
-            if j['status'] in ACTIVE:
-                if j['id'] not in running:
-                    self.dirty = True
-                running[j['id']] = {'key': key, 'started': started or now, 'last': now, 'kind': j.get('kind'),
-                                    'machine': j.get('machine')}
-            elif j['status'] == 'done':
-                end = jobfacts.seconds(j.get('updated')) or now
-                if started:
-                    self.record(key, j['id'], end - started)
-                self.dirty = self.dirty or running.pop(j['id'], None) is not None
-            else:
-                self.dirty = self.dirty or running.pop(j['id'], None) is not None
-        for jid in [i for i in running if i not in seen]:
-            r = running.pop(jid)
-            self.dirty = True
-            gone_while_probed = r.get('kind') != 'remote' or (reachable is not None and r.get('machine') in reachable)
-            if now - r['last'] < VANISH_WINDOW and gone_while_probed:
-                self.record(r['key'], jid, r['last'] - r['started'])
-        for jid in [i for i, r in running.items() if now - r['last'] > FORGET]:
-            running.pop(jid)
+        listed = [j for j in jobs if j.get('_key')]
+        for j in listed:
+            self.see(j, now)
+        seen = {j['id'] for j in listed}
+        for jid in [i for i in self.data['running'] if i not in seen]:
+            self.gone(jid, now, reachable)
+        for jid in [i for i, r in self.data['running'].items() if now - r['last'] > FORGET]:
+            self.data['running'].pop(jid)
         self.save()
 
     def first_seen(self, job_id):
@@ -225,8 +228,8 @@ def key_of(job, name, groups):
         what = ' '.join([name, *groups])
     elif job.get('kind') == 'remote':
         parts = (job.get('title') or '').split(' ', 1)[0].split('-')   # <prefix>-<machine>-<track>-<random>: the track varies
-        what = 'remote ' + '-'.join(parts[:-2] if len(parts) >= 4 else [re.sub(r'\d+$', '', '-'.join(parts))])
-    elif job.get('kind') == 'agent task':
+        what = 'remote ' + ('-'.join(parts[:-2]) if len(parts) >= 4 else '-'.join(parts).rstrip('0123456789'))
+    elif job.get('kind') == AGENT_TASK:
         what = 'agent task (an agent)' if jobfacts.is_transcript(job.get('path')) else 'agent task (a command)'
     else:
         first = re.sub(r'\d+', '#', (job.get('title') or '').split(' ', 1)[0])
@@ -237,13 +240,13 @@ def key_of(job, name, groups):
 def started_at(job, hist, now):
     """When the job started: its record, a container's age ("3 minutes ago"), else when Tutti first saw it running."""
     started = jobfacts.seconds(job.get('started'))
-    if not started and job.get('kind') == 'agent task' and job.get('path'):
+    if not started and job.get('kind') == AGENT_TASK and job.get('path'):
         started = jobfacts.transcript_started(job['path'])
     if started:
         return started
     m = AGE.search(job.get('title') or '')
     if m and now:
-        return now - int(m.group(1) or 1) * UNIT[m.group(2).lower()]
+        return now - (int(m.group(1)) if m.group(1).isdigit() else 1) * UNIT[m.group(2).lower()]
     return hist.first_seen(job['id']) or now
 
 
@@ -259,7 +262,7 @@ def exact(job, elapsed):
     p = job.get('progress')
     if not p or p.get('source') == 'finished':
         return None
-    if job.get('kind') == 'agent task' and jobfacts.is_transcript(job.get('path')):
+    if job.get('kind') == AGENT_TASK and jobfacts.is_transcript(job.get('path')):
         return None   # "[3/4]" inside an agent's transcript is text it read or wrote, not its progress
     where = {'reported': 'reported with tutti progress', 'queue': 'its machine\'s slot queue'}.get(p.get('source'), 'a counter in its log')
     label = f'{p["done"]}/{p["total"]}{" " + p["unit"] if p.get("unit") else ""} ({where})'
@@ -347,8 +350,12 @@ def minutes(s):
 
 def annotate(cfg, items, now, worker_account=lambda w: None, machines=None):
     """Every job gets `progress` (running: the layered figure; finished: None) and `facts` (what it did so far or did)."""
+    from . import delegate  # delegate imports modules that import this one
     hist = history(cfg)
     folder = config.expand(cfg['project']['state'])
+
+    def own_tree(path):
+        return delegate.own_worktree(cfg, path)
     all_shapes = shapes(cfg)
     with _lock:
         for j in items:
@@ -357,7 +364,7 @@ def annotate(cfg, items, now, worker_account=lambda w: None, machines=None):
             else:
                 name, _, groups = shape_for(j, all_shapes)
                 j['_key'], j['_started'] = key_of(j, name, groups), started_at(j, hist, None)
-            j['facts'] = jobfacts.facts({**j, 'first_seen': j['_started']}, folder, worker_account, now)
+            j['facts'] = jobfacts.facts({**j, 'first_seen': j['_started']}, folder, worker_account, now, own_tree)
             if j['status'] not in ACTIVE:
                 j['progress'] = None
             elif j['progress'].get('step'):
@@ -370,27 +377,32 @@ def annotate(cfg, items, now, worker_account=lambda w: None, machines=None):
     return items
 
 
-def conduct_job(cfg, now, alive):
+def count_notes(path):
+    """(done, next): the "- " items under a progress file's "## Done" and "## Next"."""
+    counts = {'done': 0, 'next': 0}
+    section = None
+    try:
+        with open(path or '', encoding='utf8') as f:
+            for line in f:
+                if line.startswith('## '):
+                    section = line[3:].strip().lower()
+                elif line.startswith('- ') and section in counts:
+                    counts[section] += 1
+    except OSError:
+        pass
+    return counts['done'], counts['next']
+
+
+def conduct_job(cfg, alive):
     """The running `tutti conduct` run as a job, with its handoff notes counted (done and next)."""
     path = os.path.join(config.expand(cfg['project']['state']), 'conduct', 'current.json')
     run = jobfacts.read_json(path)
     if not run or run.get('status') != 'running' or not alive(run.get('pid')):
         return None
-    done = nxt = 0
-    try:
-        with open(run.get('progress') or '', encoding='utf8') as f:
-            section = None
-            for line in f:
-                if line.startswith('## '):
-                    section = line[3:].strip().lower()
-                elif line.startswith('- ') and section in ('done', 'next'):
-                    done, nxt = (done + 1, nxt) if section == 'done' else (done, nxt + 1)
-    except OSError:
-        pass
+    done, nxt = count_notes(run.get('progress'))
     agents = run.get('agents') or []
     who = agents[-1].get('agent') if agents and isinstance(agents[-1], dict) else None
     return {'id': f'conduct:{run.get("id")}', 'kind': 'conduct', 'title': f'conduct: {(run.get("goal") or "")[:150]}',
-            'pid': run.get('pid'), 'log': None, 'cwd': run.get('cwd'),
-            'started': run.get('started'),
+            'pid': run.get('pid'), 'log': None, 'cwd': run.get('cwd'), 'started': run.get('started'),
             'updated': None, 'idle_seconds': None, 'rc': None, 'status': 'running', 'tail': [], 'progress': None,
             'agent': who, 'handoff_done': done, 'handoff_next': nxt}

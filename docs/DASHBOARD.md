@@ -36,7 +36,10 @@ rest is read on each request. The page polls `/api/state` every `dashboard.refre
 
 ## Add a reading
 
-Every account card has **Add a reading**. One tap opens the provider's usage page (`usage_url`, in a new tab) and a
+An account card has **Add a reading** only where a reading is needed: nothing reads the account on its own (no
+`reader` command and no `reading_file`; Cursor), or its newest reading is older than `stale_hours` (default 2) or
+missing. An account read automatically and recently (Antigravity) has none. An account's `note` is a warning callout
+(an icon and the word "Note", not colour alone) right above the button. One tap opens the provider's usage page (`usage_url`, in a new tab) and a
 short form on the card: a slider for the percent used and the reset time, prefilled from the window rule, plus an
 optional note. **Save reading** posts it to `POST /api/reading`, which appends the same line as `tutti usage log`
 (with `source: dashboard` and the reset). While the form is open the usage cards stop refreshing, so a poll never wipes

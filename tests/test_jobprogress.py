@@ -169,10 +169,10 @@ class AgentTest(Base):
         write(os.path.join(self.dir, 'state', 'conduct', 'current.json'), json.dumps(
             {'id': 'r1', 'goal': 'g', 'progress': prog, 'status': 'running', 'pid': 7, 'started': iso(NOW - 60),
              'agents': [{'agent': 'agy'}]}))
-        j = jobprogress.conduct_job(self.cfg, NOW, lambda pid: True)
+        j = jobprogress.conduct_job(self.cfg, lambda pid: True)
         p = self.one(j)['progress']
         self.assertEqual((p['layer'], p['pct'], p['done'], p['total']), ('agent', 75, 3, 4))
-        self.assertIsNone(jobprogress.conduct_job(self.cfg, NOW, lambda pid: False))
+        self.assertIsNone(jobprogress.conduct_job(self.cfg, lambda pid: False))
 
     def test_agents_without_history_get_a_rough_labelled_estimate(self):
         p = self.one(job(kind='agent', title='agy in /x', started=iso(NOW - 600)))['progress']
@@ -271,7 +271,7 @@ class EveryRunningJobTest(Base):
         running = [j for j in items if j['status'] in ('running', 'stalled')]
         kinds = {j['kind'] for j in running}
         every = {'quiet', 'files', 'run', 'job', 'local model', 'tunnel', 'wait', 'conduct', 'agent task', 'remote'}
-        self.assertTrue(every <= kinds, kinds)
+        self.assertLessEqual(every, kinds)
         for j in running:
             p = j['progress']
             self.assertTrue(p['pct'] is not None or p['elapsed_seconds'] is not None, j['id'])

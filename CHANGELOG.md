@@ -16,6 +16,8 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
   prints), AI credits, the account spent with its % used, tests passed and failed, files changed (+/−), bytes copied,
   the current step. A finished job shows no bar: its result, exit code, duration and the report.
 - A running `tutti conduct` is a job; `slot.sh` says when a run waits for a slot and when it gets one.
+- Usage cards: **Add a reading** shows only where it is needed (no automatic reading, or one older than `stale_hours`);
+  an account's `note` is a warning callout with an icon, right above it.
 
 ### Fixed
 

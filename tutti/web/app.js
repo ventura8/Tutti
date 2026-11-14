@@ -279,10 +279,18 @@ function account(a, now) {
     if (a.reset) card.append(sparkline(a, now));
     card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
     if (a.room_tasks) card.append(el('p', { class: 'account__nudge', 'data-tone': 'ok', text: `Use it: ${a.room_tasks} bounded task(s) can go here now (tutti run auto "<task>" --repo <repo>)` }));
-    if (a.note) card.append(el('p', { class: 'account__note', text: a.note }));
     if (a.credits_used !== undefined) card.append(el('p', { class: 'account__auto', text: `${a.credits_used} AI credits in this window from Tutti's runs` }));
     if (a.stale) card.append(el('p', { class: 'account__remind', 'data-tone': 'warn', role: 'note', text: `Reminder: ${a.remind}` }));
-    card.append(accountFacts(a), autoLine(a) || '', ui.editing.has(a.name) ? readingForm(a) : addButton(a));
+    card.append(accountFacts(a), autoLine(a) || '');
+    // The account's note is a warning callout right above Add a reading (icon and the word "Note", never colour alone).
+    if (a.note) {
+        card.append(el('div', { class: 'account__callout', role: 'note', 'data-tone': 'warn' },
+            el('span', { class: 'account__callout-icon', 'aria-hidden': 'true', text: '⚠' }),
+            el('p', {}, el('strong', { text: 'Note: ' }), a.note)));
+    }
+    // Add a reading only where it is needed: nothing reads the account on its own, or its reading is old (a form being typed stays).
+    if (ui.editing.has(a.name)) card.append(readingForm(a));
+    else if (a.needs_reading !== false) card.append(addButton(a));
     return card;
 }
 
@@ -508,45 +516,64 @@ function compact(n) {
     return String(n);
 }
 
+// A finished job: its result, exit code (when not 0) and how long it took.
+function finishedText(f) {
+    const parts = [f.result || 'finished'];
+    if (f.rc !== undefined && f.rc !== 0) parts.push(`exit ${f.rc}`);
+    if (f.seconds !== undefined) parts.push(`took ${duration(f.seconds)}`);
+    return parts.join(' · ');
+}
+
 // Running jobs: a bar for layers 1 to 3 (and an agent's rough estimate), labelled with where the number comes from; an
 // elapsed time with no bar when nothing can say how far it is. Finished jobs: no bar, their result and duration.
 function progressBar(j) {
     const p = j.progress;
-    const f = j.facts || {};
-    if (!p) {
-        const text = f.result ? `${f.result}${f.rc !== undefined && f.rc !== 0 ? ` · exit ${f.rc}` : ''}${f.seconds !== undefined ? ` · took ${duration(f.seconds)}` : ''}`
-            : (f.seconds !== undefined ? `took ${duration(f.seconds)}` : 'finished');
-        return el('span', { class: 'job__progress', 'data-layer': 'finished', text });
-    }
+    if (!p) return el('span', { class: 'job__progress', 'data-layer': 'finished', text: finishedText(j.facts || {}) });
     if (!p.determinate) return el('span', { class: 'job__progress', 'data-layer': p.layer, title: p.label, text: duration(p.elapsed_seconds) });
     const bar = el('span', { class: 'job__bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': p.pct,
         'aria-valuetext': p.label, 'aria-label': `${j.title}: ${p.label}`, 'data-late': p.late ? 'true' : null });
     const fill = el('span');
     fill.style.width = `${p.pct}%`;
     bar.append(fill);
-    const approx = p.layer === 'estimate' || (p.layer === 'agent' && p.total === undefined) ? '~' : '';
-    return el('span', { class: 'job__progress', 'data-layer': p.layer, title: p.label }, bar, el('span', { text: `${approx}${p.pct} %` }));
+    const rough = p.layer === 'estimate' || (p.layer === 'agent' && p.total === undefined);
+    return el('span', { class: 'job__progress', 'data-layer': p.layer, title: p.label }, bar, el('span', { text: (rough ? '~' : '') + `${p.pct} %` }));
 }
+
+function layerText(p) {
+    const parts = [LAYER[p.layer] || p.layer];
+    if (p.eta_seconds) parts.push(`~${duration(p.eta_seconds)} left`);
+    if (p.late) parts.push('longer than usual');
+    return parts.join(' · ');
+}
+
+function tokenText(t) {
+    const calls = t.calls ? ` · ${t.calls} tool calls` : '';
+    return `tokens ${compact(t.in)} in · ${compact(t.out)} out` + calls;
+}
+
+function accountText(name) {
+    const used = ui.accounts.get(name)?.used;
+    return `account ${name}` + (used === null || used === undefined ? '' : ` (${Math.round(used)} % used)`);
+}
+
+const PASSFAIL = (label, c) => `${label} ${c.passed} passed · ${c.failed} failed`;
 
 // What a job did or has done so far: tokens, credits, the account it spends, tests, files changed, bytes copied, the step.
 function factList(j) {
     const f = j.facts || {};
-    const out = [];
-    const p = j.progress;
-    if (p) out.push(`${LAYER[p.layer] || p.layer}${p.eta_seconds ? ` · ~${duration(p.eta_seconds)} left` : ''}${p.late ? ' · longer than usual' : ''}`);
-    if (f.step) out.push(`step: ${f.step}`);
-    if (f.tokens) out.push(`tokens ${compact(f.tokens.in)} in · ${compact(f.tokens.out)} out${f.tokens.calls ? ` · ${f.tokens.calls} tool calls` : ''}`);
-    if (f.credits) out.push(`${f.credits} AI credits`);
-    if (f.worker && !f.account) out.push(`worker ${f.worker}`);
-    if (f.account) {
-        const a = ui.accounts.get(f.account);
-        out.push(`account ${f.account}${a && a.used !== null && a.used !== undefined ? ` (${Math.round(a.used)} % used)` : ''}`);
-    }
-    if (f.tests) out.push(`tests ${f.tests.passed} passed · ${f.tests.failed} failed`);
-    if (f.checks) out.push(`checks ${f.checks.passed} passed · ${f.checks.failed} failed`);
-    if (f.files) out.push(`${f.files.files} file(s) +${f.files.plus} −${f.files.minus}`);
-    if (f.copied) out.push(`copied ${f.copied.done}/${f.copied.total} ${f.copied.unit}`);
-    return out;
+    const rows = [
+        [j.progress, () => layerText(j.progress)],
+        [f.step, () => `step: ${f.step}`],
+        [f.tokens, () => tokenText(f.tokens)],
+        [f.credits, () => `${f.credits} AI credits`],
+        [f.worker && !f.account, () => `worker ${f.worker}`],
+        [f.account, () => accountText(f.account)],
+        [f.tests, () => PASSFAIL('tests', f.tests)],
+        [f.checks, () => PASSFAIL('checks', f.checks)],
+        [f.files, () => `${f.files.files} file(s) +${f.files.plus} −${f.files.minus}`],
+        [f.copied, () => `copied ${f.copied.done}/${f.copied.total} ${f.copied.unit}`],
+    ];
+    return rows.filter(([on]) => on).map(([, text]) => text());
 }
 
 function job(j) {

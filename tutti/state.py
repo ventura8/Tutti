@@ -26,7 +26,8 @@ PROGRESS = (
     ('percent', re.compile(r'\[\s*(\d{1,3})\s*%\s*\]')),                            # pytest [ 13%]
     ('tests', re.compile(r'\b(\d+)\s*/\s*(\d+)\s+(?:tests?|files?|specs?|passed|done)\b', re.I)),
     ('gates', re.compile(r'^\s*[a-z][\w-]*\s+(\d+)/(\d+)\s+[\w.:-]+\s*$')),     # a pipeline's gate: "static 3/51 eslint"
-    ('percent', re.compile(r'^\s*[\d,]+\s+(\d{1,3})%\s+[\d.]+\S*/s\b')),          # rsync --info=progress2
+    # rsync's progress2 line: bytes, percent, speed
+    ('percent', re.compile(r'^ *[\d,]+ +(\d{1,3})% +[\d.]+[kMG]?B/s')),
     ('queue', re.compile(r'slot\.sh: waiting for a free slot \(all (\d+) busy\)')),
 )
 SLOT_START = re.compile(r'slot\.sh: (?:got|started in) a slot')
@@ -419,7 +420,7 @@ def assemble(cfg, probes, now=None, is_alive=alive):
     workers = probes.get('workers') or {'items': [], 'agents': []}
     jobs = jobs_state(cfg, now_ts, is_alive)
     from . import jobprogress  # it imports jobfacts, which this module's callers import
-    extra = remote_jobs(machines) + [j for j in [jobprogress.conduct_job(cfg, now_ts, is_alive)] if j]
+    extra = remote_jobs(machines) + [j for j in [jobprogress.conduct_job(cfg, is_alive)] if j]
     jobs['items'] = extra + jobs['items']
     jobs['total'] += len(extra)
     jobprogress.annotate(cfg, jobs['items'], now_ts, lambda w: account_of_worker(cfg, w) if w else None,

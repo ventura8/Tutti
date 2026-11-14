@@ -149,6 +149,25 @@ def run_checks(cfg, wt, checks, env, track, say=print, folder=None):
     return out
 
 
+def default_checks(cfg):
+    """The config's own checks and their key: delegate.checks, else ship.checks."""
+    if cfg['delegate']['checks'] is not None:
+        return cfg['delegate']['checks'], 'delegate.checks'
+    return cfg['ship']['checks'], 'ship.checks'
+
+
+def repo_config_checks(cfg, top):
+    """(checks, path) from a tutti.config.* inside the target repository (not this config itself), else None."""
+    local = next((os.path.join(top, n) for n in config.NAMES if os.path.isfile(os.path.join(top, n))), None)
+    if not local or os.path.abspath(local) == os.path.abspath(cfg.get('_path') or ''):
+        return None
+    try:
+        theirs = config.load(local)
+    except (config.ConfigError, ValueError, yaml.YAMLError) as e:
+        return [], f'none: {local} is not a valid config ({e}); fix it to run its checks'
+    return default_checks(theirs)[0], local
+
+
 def checks_for(cfg, repo):
     """(checks, where they come from) for a run in `repo`. A repository's checks belong to it, so the config's default
     checks never run on another project's code: the project's own `projects.<name>.checks`, else a tutti.config.* inside
@@ -160,21 +179,21 @@ def checks_for(cfg, repo):
     own = (projects.configured(cfg).get(name) or {}).get('checks') if name else None
     if own is not None:
         return own, f'projects.{name}.checks'
-    top = found.get('folder') or os.path.abspath(repo)
-    local = next((os.path.join(top, n) for n in config.NAMES if os.path.isfile(os.path.join(top, n))), None)
-    if local and os.path.abspath(local) != os.path.abspath(cfg.get('_path') or ''):
-        try:
-            theirs = config.load(local)
-        except (config.ConfigError, ValueError, yaml.YAMLError) as e:
-            return [], f'none: {local} is not a valid config ({e}); fix it to run its checks'
-        chosen = theirs['delegate']['checks'] if theirs['delegate']['checks'] is not None else theirs['ship']['checks']
-        return chosen, local
+    theirs = repo_config_checks(cfg, found.get('folder') or os.path.abspath(repo))
+    if theirs:
+        return theirs
     home = cfg['delegate'].get('project')
     if home and name != home:
-        return [], (f'none for {name or top}: the default checks are for {home} (delegate.project); give this repository its own '
+        return [], (f'none for {name or repo}: the default checks are for {home} (delegate.project); give this repository its own '
                     f'with projects.{name or "<name>"}.checks in the config')
-    chosen = cfg['delegate']['checks'] if cfg['delegate']['checks'] is not None else cfg['ship']['checks']
-    return chosen, 'delegate.checks' if cfg['delegate']['checks'] is not None else 'ship.checks'
+    return default_checks(cfg)
+
+
+def checks_note(chosen, source):
+    """What the report says when no check ran: why none was chosen."""
+    if chosen or source.startswith('none'):
+        return source
+    return f'none configured ({source})'
 
 
 def summary(r):
@@ -246,7 +265,7 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
         r = {'id': run_id, 'worker': name, 'task': task, 'worker_rc': rc, 'worktree': wt, 'created': created, 'diff': p['diff'],
              'changed': changed, 'stat': stat, 'denied': found, 'checks': None, 'report': p['report']}
         chosen, source = checks_for(cfg, repo)
-        r['checks_from'] = source if chosen else (source if source.startswith('none') else f'none configured ({source})')
+        r['checks_from'] = checks_note(chosen, source)
         if checks and changed and chosen:
             env = {'TUTTI_CHANGED': ship.join_changed(changed), 'TUTTI_TREE': wt, 'TUTTI_GIT_MOUNT': worktree.docker_mount(wt)}
             remote_track = track or cfg['delegate']['remote_track']

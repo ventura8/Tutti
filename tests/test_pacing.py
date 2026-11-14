@@ -75,8 +75,6 @@ class PacingTest(unittest.TestCase):
         self.assertNotIn('2026-01-10 01:00', text)
 
 
-if __name__ == '__main__':
-    unittest.main()
 
 
 class ToleranceTest(unittest.TestCase):
@@ -98,3 +96,20 @@ class ToleranceTest(unittest.TestCase):
         out = pacing.report(acc, entries, pacing.parse_time('2026-01-06T02:00Z'))
         self.assertIn('the line is the whole account', out)
         self.assertIn('50 % vs', out)
+
+
+class NeedsReadingTest(unittest.TestCase):
+    """Add a reading shows only where it is needed: no automatic reading, or an old one."""
+
+    def test_only_where_nothing_reads_it_or_the_reading_is_old(self):
+        now = pacing.parse_time('2026-01-06T12:00Z')
+        fresh, old = now - timedelta(minutes=30), now - timedelta(hours=3)
+        self.assertTrue(pacing.needs_reading({}, fresh, now))                                  # read by hand (Cursor)
+        self.assertFalse(pacing.needs_reading({'reader': {'command': ['x']}}, fresh, now))     # agy: read automatically
+        self.assertTrue(pacing.needs_reading({'reader': {'command': ['x']}}, old, now))
+        self.assertTrue(pacing.needs_reading({'reading_file': '/r.json'}, None, now))
+        self.assertFalse(pacing.needs_reading({'reading_file': '/r.json', 'stale_hours': 4}, old, now))
+
+
+if __name__ == '__main__':
+    unittest.main()

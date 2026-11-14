@@ -315,6 +315,13 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
 .reading__msg { font-size: 0.8125rem; }
 .reading__msg[data-tone='bad'] { color: var(--bad); }
 .account__add { justify-self: start; }
+.account__callout {
+    display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: var(--r-s);
+    background: color-mix(in oklab, var(--warn) 14%, transparent); border: 1px solid color-mix(in oklab, var(--warn) 45%, transparent);
+    font-size: 0.8125rem; color: var(--on-surface);
+}
+.account__callout p { margin: 0; }
+.account__callout-icon { font-size: 1rem; line-height: 1.2; color: var(--warn); flex: none; }
 .job__progress { display: inline-flex; align-items: center; gap: 8px; font-size: 0.8125rem; color: var(--on-surface-2); white-space: nowrap; }
 .job__bar { display: inline-block; flex: none; width: 72px; height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
 .job__bar > span { display: block; height: 100%; background: var(--accent); }

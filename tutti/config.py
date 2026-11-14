@@ -385,22 +385,23 @@ def _shape_errors(shapes):
     neither phases nor count only names a kind of job (and its machine) for the estimates from history."""
     if not isinstance(shapes, dict):
         return [f'dashboard.shapes is {shapes!r}: write it as a mapping of names to shapes, or remove the key']
+    return [e for name, s in shapes.items() for e in _one_shape_errors(f'dashboard.shapes.{name}', s)]
+
+
+def _one_shape_errors(where, s):
+    if not isinstance(s, dict) or not (s.get('match') or s.get('kind')):
+        return [f'{where}: give it match (a regex on the job title) or kind (quiet, script, run, ...)']
     errs = []
-    for name, s in shapes.items():
-        where = f'dashboard.shapes.{name}'
-        if not isinstance(s, dict) or not (s.get('match') or s.get('kind')):
-            errs.append(f'{where}: give it match (a regex on the job title) or kind (quiet, script, run, ...)')
-            continue
-        phases = s.get('phases') or []   # neither phases nor count: the shape only names the kind (and machine) for the history
-        if s.get('count') and not (s.get('total') or s.get('total_command')):
-            errs.append(f'{where}.count: give total (a number) or total_command (prints the number)')
-        errs += _regex_errors(f'{where}.match', s['match']) if s.get('match') else []
-        errs += _regex_errors(f'{where}.count', s['count']) if s.get('count') else []
-        for i, p in enumerate(phases if isinstance(phases, list) else []):
-            if not isinstance(p, dict) or not p.get('name'):
-                errs.append(f'{where}.phases[{i}]: write {{name: ..., when: <regex>}} (the first phase may leave out when)')
-            elif p.get('when'):
-                errs += _regex_errors(f'{where}.phases[{i}].when', p['when'])
+    if s.get('count') and not (s.get('total') or s.get('total_command')):
+        errs.append(f'{where}.count: give total (a number) or total_command (prints the number)')
+    errs += _regex_errors(f'{where}.match', s['match']) if s.get('match') else []
+    errs += _regex_errors(f'{where}.count', s['count']) if s.get('count') else []
+    phases = s.get('phases') or []
+    for i, p in enumerate(phases if isinstance(phases, list) else []):
+        if not isinstance(p, dict) or not p.get('name'):
+            errs.append(f'{where}.phases[{i}]: write {{name: ..., when: <regex>}} (the first phase may leave out when)')
+        elif p.get('when'):
+            errs += _regex_errors(f'{where}.phases[{i}].when', p['when'])
     return errs
 
 

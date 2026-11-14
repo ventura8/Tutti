@@ -87,10 +87,8 @@ function moveForm(s) {
                 onclick: () => devicesPost('/api/devices/move', { to: to.value, devices: chosen(), dry_run: false, key })
                     .then((a) => showBanner(el('strong', { text: 'Moving. ' }), `The log is ${a.log}; the card updates when it is done.`),
                         (err) => showBanner(el('strong', { text: 'The move did not start. ' }), err.message)) });
-            const replace = r.key === 'ask' ? el('button', { class: 'btn btn--small', type: 'button', text: `Use the old key (back up ${to.value}'s)`,
-                onclick: () => plan('replace') }) : null;
             out.replaceChildren(el('ol', { class: 'row__note' }, ...r.plan.map((l) => el('li', { text: l }))),
-                ...r.problems.map((p) => el('p', { class: 'row__note', text: `Cannot move yet: ${p}` })), replace, move);
+                ...r.problems.map((p) => el('p', { class: 'row__note', text: `Cannot move yet: ${p}` })), move);
         } catch (err) {
             out.replaceChildren(el('p', { class: 'row__note', text: err.message }));
         }

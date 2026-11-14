@@ -34,6 +34,7 @@ from . import (
     fill,
     handover,
     helper,
+    keepon,
     local,
     move,
     owner,
@@ -114,8 +115,11 @@ class Collector:
         return found
 
     def refresh(self):
+        readings = self.readings_fn
+        if readings is remote.device_readings:   # the real one: a device whose Wireless debugging went off is revived
+            readings = keepon.readings_with_revive(self.cfg, readings)
         fresh = state.probe_all(self.cfg, self.probe_fn, self.available_fn, clock=self.clock, stored_fn=self.stored_fn,
-                                readings_fn=self.readings_fn)
+                                readings_fn=readings)
         fresh['activity'] = projects.probe_all(self.cfg, self.activity_fn)
         fresh['prs'] = self.prs_fn(self.cfg)
         try:   # local models: power and models read, energy added to the day's buckets (tutti/energy.py)

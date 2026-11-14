@@ -2,6 +2,22 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.53 (2026-11-14)
+
+### Changed
+
+- Moving devices asks the user nothing: the old machine's adb key is the default (a different key on the new machine is
+  backed up first; `--keep-key` keeps it), Wireless debugging is read, kept and set on over the old machine's live
+  connection and re-asserted from the new one, and re-pairing is only the last resort (docs/DEVICES.md).
+- A wireless device whose Wireless debugging went off (a reboot, a Wi-Fi change) is switched back on by itself through any
+  machine that still reaches it, over Wi-Fi or USB; only when none does, its row asks the one step left, with the reason.
+- `tutti move --to <machine> --devices`: every Android device follows Tutti to its new machine (the same zero-step move).
+
+### Fixed
+
+- `tutti devices move` counts another tool's lock file (`devices.<d>.external_lock`) as held only while it is fresher than
+  `external_lock_stale_minutes` (30), as the readings and the dispatcher do: a file left behind no longer blocks a move.
+
 ## 0.1.52 (2026-11-14)
 
 ### Changed

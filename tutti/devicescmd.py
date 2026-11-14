@@ -110,7 +110,7 @@ def cmd_move(cfg, a, read_code=input):
     if not a.dry_run and not ensure_adb(new, a.install_adb):
         say(f'adb is not on {a.to}: run again with --install-adb (a user-space copy of Android platform-tools)')
         return 1
-    choice = 'replace' if a.replace_key else 'repair' if a.repair else None
+    choice = 'keep' if a.keep_key else 'repair' if a.repair else None
     pre = devmove.preflight(cfg, a.to, found, old, new, choice)
     for line in devmove.plan_lines(pre, found):
         print(line)
@@ -141,8 +141,10 @@ def add_arguments(s):
     s.add_argument('names', nargs='*', help='move: the devices to move (default: every device not on --to)')
     s.add_argument('--to', help='move: the machine the devices go to')
     s.add_argument('--dry-run', action='store_true', help='move: print the plan and the preflight, change nothing')
-    s.add_argument('--replace-key', action='store_true', help='move: back up the new machine\'s own adb key and use the old one')
-    s.add_argument('--repair', action='store_true', help='move: pair each device again instead of copying the adb key')
+    s.add_argument('--replace-key', action='store_true', help='move: the default (kept for old scripts): back up the new '
+                   'machine\'s own adb key and use the old one')
+    s.add_argument('--keep-key', action='store_true', help='move: keep the new machine\'s own adb key (then --repair is needed)')
+    s.add_argument('--repair', action='store_true', help='move: last resort: pair each device again instead of copying the adb key')
     s.add_argument('--install-adb', action='store_true', help='pair, move: install platform-tools in user space if adb is missing')
     s.add_argument('--flow', choices=adbpair.FLOWS, help='pair: qr (default), code (a TV: default) or usb')
     s.add_argument('--tv', action='store_true', help='pair: a TV (no camera): the pairing-code flow')

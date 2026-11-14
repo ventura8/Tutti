@@ -656,3 +656,6 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
 .seg [aria-pressed="true"] { font-weight: 600; text-decoration: underline; text-underline-offset: 4px; }
 body:not([data-view="household"]) #household-card,
 body:not([data-view="household"]) .household-only { display: none; }
+
+/* devices.js: the wireless-debugging pairing QR code; white quiet zone, scannable in dark mode too */
+.qr { width: min(240px, 100%); height: auto; display: block; margin: 8px 0; }

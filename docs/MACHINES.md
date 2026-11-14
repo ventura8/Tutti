@@ -98,6 +98,9 @@ A phone or tablet is first an **e2e target**: a host machine (this computer, the
 USB or by wireless debugging, and runs the UI tests against it. Lending its CPU to lint and unit runs (Termux, below) is a
 second use, **off by default**.
 
+Pairing a device over Wi-Fi (`tutti devices pair`, a QR code or the code a TV shows) and moving devices to another
+machine (`tutti devices move --to <machine>`): [DEVICES.md](DEVICES.md).
+
 ```yaml
 devices:
   pixel:

@@ -2,6 +2,19 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.47 (2026-11-14)
+
+### Added
+
+- `tutti devices pair` and the dashboard's Pair a device / Pair a TV buttons: wireless debugging with a QR code (drawn on
+  the dashboard and in the terminal, no library), the 6-digit code a TV shows, or USB then adb over the LAN. The device
+  is added to the config with its name from the model, its machine, kind (phone, tablet, tv) and capabilities; the only
+  user steps are Developer options, Wireless debugging and the scan (docs/DEVICES.md).
+- `tutti devices move --to <machine> [devices]` and the Move devices button: copies the old machine's adb key over ssh at
+  mode 600 (never printed), so devices need no re-pairing; a different key on the new machine is only replaced with
+  `--replace-key` (backed up) or kept with `--repair`. Preflight (adb, versions, mDNS from the new machine, dispatch
+  leases, the device lock and `devices.<d>.external_lock`), `--dry-run` (plans only: it connects nothing), and a rollback
+  for a device that does not connect. docs/DEVICES.md says how another tool's agents switch to Tutti's leases.
 ## 0.1.46 (2026-11-14)
 
 ### Added

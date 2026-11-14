@@ -2,6 +2,27 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.51 (2026-11-14)
+
+### Changed
+
+- Shared machines are compute only, and a member needs **no login** on them (docs/HOUSEHOLD.md, *Compute on shared
+  machines*). `tutti household machine use <m>` adds the machine as transport `household`; a `tutti test` routed there
+  pushes the worktree as it is (uncommitted changes included) to a `refs/tutti-wip/` ref with the member's own git
+  sign-in and sends a signed job; the owner's Tutti claims it in its dashboard round, fetches the ref with the owner's
+  sign-in into a sandboxed worktree and runs it with its own `tutti test --on <m>` in the machine's container runner (a
+  shell runner only with `household.member_shell: true`), then returns the exit code and the end of the output through
+  the coordinator. No credential, token or login crosses; the WIP ref and the sandbox are deleted. The trust model is
+  in HOUSEHOLD.md. A household machine is never reached over ssh; its probe comes from the grants.
+- Safe by construction (from the review of #61): a job's repo must be a shared project's `https`/`ssh` remote (git's
+  file and ext protocols off, no password prompt), so a member cannot point the owner's git sign-in at another host; a
+  claimed run is not taken again before its timeout plus 15 minutes; a paused machine takes no more queued runs; a
+  result the coordinator missed is kept and sent again; the WIP ref stays until the result is in.
+- Tests: a member's run on the owner's machine with his uncommitted change, a failing run's exit code and output, the
+  job carrying only repo, ref and command, the shell-runner opt-in, only the owner claiming and only the member reading
+  a job, a repo without origin.
+
+
 ## 0.1.50 (2026-11-14)
 
 ### Added

@@ -275,6 +275,8 @@ class Service:
         if path == '/hh/leave':
             household.leave(data, uid)
             return 200, {'left': True}
+        if path == '/hh/job':
+            return 200, self.job(data, uid, ask, now)
         if path == '/hh/machine':
             return 200, self.machine(data, uid, ask, now)
         if path == '/hh/code':
@@ -304,6 +306,20 @@ class Service:
         if (ask.get('beat') or {}).get('spare'):
             answer['offers'] = household.offers(data, set(projects), now)
         return answer
+
+    def job(self, data, uid, ask, now):
+        """Compute jobs on shared machines: submit and status (a member), claim and finish (the machine's owner)."""
+        action = ask.get('action')
+        if action == 'submit':
+            return {'id': household.submit_job(data, uid, ask.get('job') or {}, now)}
+        if action == 'status':
+            return household.job_view(data, uid, str(ask.get('id') or ''))
+        if action == 'claim':
+            return {'jobs': household.claim_jobs(data, uid, now, int(ask.get('room') or 4))}
+        if action == 'finish':
+            household.finish_job(data, uid, str(ask.get('id') or ''), ask.get('rc', 1), ask.get('tail', ''), now)
+            return {'ok': True}
+        raise household.HouseholdError('say submit, status, claim or finish')
 
     def machine(self, data, uid, ask, now):
         name = str(ask.get('name') or '')

@@ -451,3 +451,73 @@ def members_by_sub(state_dir):
     return {m['sub']: {'joined': m.get('joined'), 'last_seen': m.get('last_seen'), 'agent': m.get('agent'),
                        'online': now - (m.get('last_seen') or 0) <= SEEN_MINUTES * 60}
             for m in (data.get('members') or {}).values() if m.get('sub') and not m.get('left')}
+
+
+# ---- compute jobs on shared machines (a member's tests run there under the owner's Tutti; docs/HOUSEHOLD.md, *Compute*)
+
+JOB_KINDS = ('test',)
+JOB_STATES = ('queued', 'running', 'done')
+JOB_TAIL = 8000          # characters of a job's output the coordinator keeps for the member
+JOB_KEEP = 200           # finished jobs kept (the oldest leave first)
+CLAIM_GRACE = 15 * 60    # a claimed job whose owner went quiet past its timeout and this grace goes back to the queue
+
+
+def submit_job(state, user_id, job, now):
+    """A member asks for a run on a shared machine: a repo URL, a WIP ref, a command; never a credential. Returns its id."""
+    m = (state.get('machines') or {}).get(job.get('machine'))
+    if not m:
+        raise HouseholdError(f'the household has no machine "{job.get("machine")}": `tutti household status` lists them')
+    if m.get('paused'):
+        raise HouseholdError(f'{job["machine"]} is paused for the household by {holder_name(state, m["paused"]["by"])}')
+    for key, limit in (('repo', 300), ('ref', 200)):
+        if not isinstance(job.get(key), str) or not job[key] or len(job[key]) > limit:
+            raise HouseholdError(f'a job needs its {key} (at most {limit} characters): update Tutti on this computer')
+    if not job['ref'].startswith('refs/tutti-wip/'):
+        raise HouseholdError('a job\'s ref must be a refs/tutti-wip/ ref: update Tutti on this computer')
+    if not job['repo'].startswith(('https://', 'ssh://', 'git@')) or project_key(job['repo']) not in (state.get('projects') or {}):
+        raise HouseholdError('a shared machine runs only the household\'s shared projects (the owner\'s git fetches them): '
+                             'share the project with `tutti household project share <repo>`, or run it on your own machines')
+    cmd = job.get('command')
+    if not isinstance(cmd, list) or not cmd or not all(isinstance(x, str) for x in cmd) or sum(len(x) for x in cmd) > 4000:
+        raise HouseholdError('a job needs its command as a list of words (at most 4000 characters)')
+    jobs = state.setdefault('jobs', {})
+    jid = f'j{state.get("next_job", 1)}'
+    state['next_job'] = state.get('next_job', 1) + 1
+    jobs[jid] = {'by': user_id, 'machine': job['machine'], 'repo': job['repo'], 'ref': job['ref'], 'command': cmd,
+                 'device': str(job.get('device') or '')[:64] or None, 'timeout': min(int(job.get('timeout') or 3600), 6 * 3600),
+                 'kind': 'test', 'state': 'queued', 'at': now}
+    done = sorted((j['at'], k) for k, j in jobs.items() if j['state'] == 'done')
+    for _at, k in done[:max(0, len(jobs) - JOB_KEEP)]:
+        del jobs[k]
+    return jid
+
+
+def claim_jobs(state, user_id, now, room=4):
+    """The queued jobs on the machines `user_id` owns (and stale claims of theirs), up to `room`: the owner's Tutti runs
+    them. Another member can never claim them."""
+    out = []
+    for jid, j in sorted((state.get('jobs') or {}).items(), key=lambda kv: kv[1]['at']):
+        m = (state.get('machines') or {}).get(j['machine'])
+        if not m or m['owner'] != user_id or m.get('paused') or len(out) >= room:
+            continue
+        stale = j['state'] == 'running' and now - j.get('claimed', 0) > j['timeout'] + CLAIM_GRACE
+        if j['state'] == 'queued' or stale:
+            j.update(state='running', claimed=now)
+            out.append({'id': jid, **{k: j[k] for k in ('machine', 'repo', 'ref', 'command', 'device', 'timeout')},
+                        'member': holder_name(state, j['by'])})
+    return out
+
+
+def finish_job(state, user_id, jid, rc, tail, now):
+    j = (state.get('jobs') or {}).get(jid)
+    if not j or (state.get('machines') or {}).get(j['machine'], {}).get('owner') != user_id:
+        raise HouseholdError(f'no job "{jid}" on a machine of yours')
+    j.update(state='done', rc=int(rc), tail=str(tail or '')[-JOB_TAIL:], finished=now)
+
+
+def job_view(state, user_id, jid):
+    """A member sees its own job only: its state, and when done its exit code and the end of its output."""
+    j = (state.get('jobs') or {}).get(jid)
+    if not j or j['by'] != user_id:
+        raise HouseholdError(f'no job "{jid}" of yours')
+    return {'id': jid, 'state': j['state'], 'machine': j['machine'], 'rc': j.get('rc'), 'tail': j.get('tail', '')}

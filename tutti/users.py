@@ -279,28 +279,36 @@ def connect_main(cfg, target, connect_fn=None):
 # ---- config checks
 
 
-def errors(cfg):
-    """Config errors of `user:`, `household:` and `accounts.<n>.share_spare`, each naming the key and the fix."""
+HOUSEHOLD_RANGES = (('job_timeout_seconds', 60, 86400), ('port', 1, 65535), ('lease_minutes', 1, 1440), ('starve_minutes', 1, 1440),
+                    ('share_spare_hours', 0, 168), ('timeout_seconds', 0.1, 60))
+
+
+def _user_errors(u):
     errs = []
-    u = cfg.get('user') or {}
-    if not isinstance(u, dict):
-        return [f'user is {u!r}: write {{name: <your name>, weight: 1}}, or remove the key']
     if u.get('name') and name_error(u['name']):
         errs.append(f'user.name: {name_error(u["name"])}')
     w = u.get('weight', 1)
     if isinstance(w, bool) or not isinstance(w, (int, float)) or not 0 < w <= 10:
         errs.append(f'user.weight is {w!r}: a number above 0 and up to 10 (1: an equal share of the household\'s machines)')
-    h = cfg.get('household') or {}
-    if not isinstance(h, dict):
-        return errs + [f'household is {h!r}: write {{port: 4778}}, or remove the key']
-    for key, lo, hi in (('port', 1, 65535), ('lease_minutes', 1, 1440), ('starve_minutes', 1, 1440),
-                        ('share_spare_hours', 0, 168), ('timeout_seconds', 0.1, 60)):
+    return errs
+
+
+def _household_errors(cfg, h):
+    errs = []
+    if not isinstance(h.get('member_shell', False), bool):
+        errs.append(f'household.member_shell is {h["member_shell"]!r}: true lets members\' runs use a shell runner on your shared '
+                    'machines (default false: a container only)')
+    for key, lo, hi in HOUSEHOLD_RANGES:
         v = h.get(key, lo)
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
             errs.append(f'household.{key} is {v!r}: a number from {lo:g} to {hi:g}')
     from . import netpolicy  # never a public address or a wildcard (docs/HOUSEHOLD.md, *Network*)
-    errs += netpolicy.errors('household.bind', h.get('bind', 'auto'))
-    errs += netpolicy.errors('dashboard.bind', (cfg.get('dashboard') or {}).get('bind'))
+    return errs + netpolicy.errors('household.bind', h.get('bind', 'auto')) + \
+        netpolicy.errors('dashboard.bind', (cfg.get('dashboard') or {}).get('bind'))
+
+
+def _share_errors(cfg):
+    errs = []
     for n, a in cfg['accounts'].items():
         v = (a or {}).get('share_spare', False)
         if not isinstance(v, bool):
@@ -308,3 +316,15 @@ def errors(cfg):
         elif v and (a or {}).get('costs_money'):
             errs.append(f'accounts.{n}.share_spare is true but it costs money per use: its room is never shared; remove share_spare')
     return errs
+
+
+def errors(cfg):
+    """Config errors of `user:`, `household:` and `accounts.<n>.share_spare`, each naming the key and the fix."""
+    u = cfg.get('user') or {}
+    if not isinstance(u, dict):
+        return [f'user is {u!r}: write {{name: <your name>, weight: 1}}, or remove the key']
+    errs = _user_errors(u)
+    h = cfg.get('household') or {}
+    if not isinstance(h, dict):
+        return errs + [f'household is {h!r}: write {{port: 4778}}, or remove the key']
+    return errs + _household_errors(cfg, h) + _share_errors(cfg)

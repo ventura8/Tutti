@@ -12,7 +12,7 @@ PROJECT_NAME = 'tutti.config.yaml'
 NAMES = (PROJECT_NAME, 'tutti.config.yml', 'tutti.config.json')
 # Under XDG: the canonical name first, then the project-style name as a fallback.
 XDG_NAMES = ('config.yaml', PROJECT_NAME)
-TRANSPORTS = ('local', 'ssh', 'wsl', 'android')
+TRANSPORTS = ('local', 'ssh', 'wsl', 'android', 'household')   # household: another member's machine, run by its owner's Tutti
 RUNNERS = ('docker', 'shell', 'native')
 # A Termux machine (transport android): one light run at a time, little memory, locks in Termux's own tmp (Android has no /tmp)
 ANDROID_DEFAULTS = {'port': 8022, 'slots': 1, 'min_free_gb': 2, 'lock_prefix': '/data/data/com.termux/files/usr/tmp/tutti-slot-'}
@@ -85,8 +85,9 @@ DEFAULTS = {
     'self_update': {'enabled': True},
     # vpn: optional (docs/NETWORK.md). prefer: which one `tutti vpn setup` sets up (tailscale or wireguard); Tutti never needs one
     'vpn': {'prefer': 'tailscale', 'wireguard': {'port': 51820, 'subnet': 'auto', 'hub': None, 'endpoint': None}},
-    'household': {'port': 4778, 'bind': 'auto', 'lease_minutes': 30, 'starve_minutes': 20, 'share_spare_hours': 6,
-                  'timeout_seconds': 3},
+    # member_shell: members' runs on this login's shared machines may use a shell runner (default: a container only)
+    'household': {'member_shell': False, 'job_timeout_seconds': 3600, 'port': 4778, 'bind': 'auto', 'lease_minutes': 30,
+                  'starve_minutes': 20, 'share_spare_hours': 6, 'timeout_seconds': 3},
     # update: `tutti update` and the dashboard's daily round; auto: false turns the round off, packages: apt packages whose
     # upgrade needs the owner's sudo (named with one exact command), programs: CLIs to update besides the workers' own
     'update': {'auto': True, 'every_hours': 24, 'packages': [], 'programs': []},
@@ -250,7 +251,7 @@ def _machine_errors(name, m):
     errs = []
     if m['transport'] not in TRANSPORTS:
         errs.append(f'machines.{name}.transport is "{m["transport"]}": use one of {", ".join(TRANSPORTS)}')
-    if m['transport'] != 'local' and not m.get('host'):
+    if m['transport'] not in ('local', 'household') and not m.get('host'):
         errs.append(f'machines.{name}.host is missing: give its ssh alias, or "local" for this computer')
     if m['transport'] == 'wsl' and not m.get('wsl_helper'):
         errs.append(f'machines.{name}.wsl_helper is missing: the path, inside WSL, of the base64 runner (docs/MACHINES.md)')
@@ -758,3 +759,8 @@ def state_dir(cfg):
     d = expand(cfg['project']['state'])
     os.makedirs(d, exist_ok=True)
     return d
+
+
+def state_dir_of_machine(machine):
+    """The state folder a household machine's entry was made under (`tutti household machine use` records it)."""
+    return expand(machine.get('household_state') or DEFAULTS['project']['state'])

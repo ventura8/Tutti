@@ -129,10 +129,12 @@ class MachinesTest(unittest.TestCase):
         self.assertEqual(rc, 0, text)
         self.assertTrue(users.read(config.state_dir(self.h.ana))['machine_overrides']['pc']['household_shared'])
         with as_user(self.h.bo_home):
-            rc, text = self.cmd(self.h.bo, self.bo, 'use', 'pc', probe=routing.Probe(False))
-        self.assertEqual(rc, 1)
-        self.assertIn('adds a login for you', text)
-        self.assertEqual(users.read(config.state_dir(self.h.bo))['household_machines']['pc']['host'], 'pc.lan')
+            rc, text = self.cmd(self.h.bo, self.bo, 'use', 'pc')
+        self.assertEqual(rc, 0, text)
+        self.assertIn("Ana's Tutti runs them there", text)   # no login on pc for Bo, nothing to set up there
+        entry = users.read(config.state_dir(self.h.bo))['household_machines']['pc']
+        self.assertEqual((entry['transport'], entry['household_owner']), ('household', 'Ana'))
+        self.assertNotIn('host', entry)
         with self.assertRaisesRegex(household.HouseholdError, 'only Ana'):
             self.bo.call('/hh/machine', {'action': 'pause', 'name': 'pc'})
         self.ana.call('/hh/machine', {'action': 'pause', 'name': 'pc'})

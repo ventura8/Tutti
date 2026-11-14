@@ -5,9 +5,9 @@ import json
 import sys
 import time
 
-from . import config, coordinator, guided, household, netpolicy, sharing, telemetry, users
+from . import config, coordinator, guided, hhjobs, household, netpolicy, sharing, telemetry, users
 
-ACTIONS = ('status', 'init', 'join', 'leave', 'code', 'serve', 'project', 'machine')
+ACTIONS = ('status', 'init', 'join', 'leave', 'code', 'serve', 'project', 'machine', 'job')
 MACHINE_ACTIONS = ('share', 'unshare', 'use', 'pause', 'resume')
 
 
@@ -272,30 +272,26 @@ def machine(cfg, a, out, client_fn, probe_fn=None, sh_fn=None):
 
 
 def use_machine(cfg, name, a, out, c, probe_fn):
-    """Adds another member's shared machine to this member's machines (user.json, never the config file) and checks ssh."""
+    """Adds another member's shared machine to this member's machines (user.json, never the config file). No login there:
+    its owner's Tutti runs this member's tests on it (tutti/hhjobs.py); nothing to set up on the machine."""
     view = (c.call('/hh/sync', {'beat': {}}).get('machines') or {}).get(name)
     if not view:
         raise household.HouseholdError(f'the household has no machine "{name}": `tutti household status` lists them')
-    if name in cfg['machines'] and not view['mine']:
+    if view['mine']:
+        print(f'{name} is your own machine: it is already in your config.', file=out)
+        return 0
+    if name in cfg['machines'] and cfg['machines'][name]['transport'] != hhjobs.TRANSPORT:
         raise household.HouseholdError(f'you already have a machine "{name}" in {cfg["_path"]}: rename yours to use the '
                                        'household\'s')
-    entry = {'host': view['host'], 'transport': 'ssh', 'slots': view['slots'], 'lock_prefix': view['lock_prefix'],
-             'household_shared': True, 'household_owner': view['owner']}
-    if a.user:
-        entry['user'] = a.user
     folder = config.state_dir(cfg)
     used = dict(users.read(folder).get('household_machines') or {})
-    used[name] = entry
+    used[name] = {'transport': hhjobs.TRANSPORT, 'slots': view['slots'], 'household_owner': view['owner'],
+                  'household_state': folder}
     users.write(folder, household_machines=used)
-    from . import config as config_mod
-    p = probe_fn(config_mod.machine_of(cfg, name, entry))
-    if p.reachable:
-        print(f'{name} ({view["owner"]}\'s) is now one of your machines; routing gives you your fair share of it.', file=out)
-        return 0
-    print(f'{name} is added, but it did not answer over ssh as {a.user or users.login_name()}@{view["host"]}: {view["owner"]} '
-          f'adds a login for you on {name} (or your ssh key to one), then `tutti machines` shows it ready '
-          f'(`tutti household machine use {name} --user <login on {name}>` if your login there differs).', file=out)
-    return 1
+    print(f'{name} ({view["owner"]}\'s) is now one of your machines for tests, gates and builds: {view["owner"]}\'s Tutti '
+          'runs them there (your code goes as a WIP ref of the repository; no login or credential of yours goes to the '
+          'machine). Routing gives you your fair share of it.', file=out)
+    return 0
 
 
 def serve(cfg, a, out):
@@ -355,7 +351,8 @@ def cmd_household(cfg, a, out=sys.stdout, io=None, client_fn=coordinator.client_
     actions = {'status': lambda: status(cfg, a, out, client_fn), 'init': lambda: init(cfg, a, out, io),
                'join': lambda: join(cfg, a, out, io, join_fn), 'leave': lambda: leave(cfg, out, client_fn),
                'project': lambda: project(cfg, a, out), 'serve': lambda: serve(cfg, a, out),
-               'machine': lambda: machine(cfg, a, out, client_fn), 'code': lambda: code(cfg, out, client_fn)}
+               'machine': lambda: machine(cfg, a, out, client_fn), 'code': lambda: code(cfg, out, client_fn),
+        'job': lambda: hhjobs.run_job(cfg, (a.arg or [''])[0])}
     try:
         return actions[a.action]()
     except (household.HouseholdError, users.UserError) as e:

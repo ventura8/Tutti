@@ -229,12 +229,47 @@ coordinator pc's address (`--host`, default its `host`, or this computer's LAN a
 and whether it has a GPU. The owner's yield flag stays where it is: while it is up (or pc is offline or paused), the
 owner's heartbeat reports no fit slot and the coordinator grants nobody a slot on pc.
 
-`tutti household machine use pc` (each other member): pc joins their machines (in `user.json`; after the routing order
-they wrote) with the household's paths, and Tutti checks it answers over ssh. It runs as the member's own login on pc
-(`--user <login>` when it differs): the owner adds a login for them there, or their ssh key to an account, once. That is
-the one step Tutti cannot do for them.
+`tutti household machine use pc` (each other member): pc joins their machines (in `user.json`, transport `household`)
+and that is all: **no login on pc, nothing set up there**. See *Compute on shared machines* below.
 
 `machine pause|resume pc` pauses it for the whole household (its owner or the admin); `machine unshare pc` takes it out.
+
+## Compute on shared machines
+
+A shared machine is **compute only**: tests, gates, builds, local models and devices. A member never logs in to it, and
+no credential of theirs goes there; work that needs a member's subscription (their agent) runs on the member's own
+computer. `tutti/hhjobs.py`:
+
+1. Bo's `tutti test` (or a routed check) picks pc, a machine of transport `household`, by his fair share of it.
+2. His worktree as it is (`git stash create`: tracked files with his uncommitted changes; HEAD when clean) is pushed
+   with **his own** git sign-in to `refs/tutti-wip/<his hash>/<id>` of the repository's origin. The job (pc, the repo
+   URL, that ref, the command) goes to the coordinator, signed.
+3. Ana's Tutti (pc's owner; her dashboard round) claims the jobs for the machines she shares, fetches the ref with
+   **her** git sign-in into a sandboxed worktree of its own (`<state>/household/jobs/<id>`), and runs the command with
+   her own `tutti test --on pc`: pc's runner, a container (memory and CPUs capped, no home folder mounted), behind pc's
+   slot queue. The run counts as Bo's demand on pc, not Ana's.
+4. The exit code and the end of the output (8 000 characters) go back through the coordinator; Bo's command prints them
+   and exits with that code. The WIP ref and the sandbox are deleted.
+
+A shared machine runs only the household's shared projects: the job's repo must be one (its origin, `https` or `ssh`,
+fetched with git's file and ext protocols off and no password prompt), so a member can never point the owner's git
+sign-in at another host. Bo's repository needs an origin both can read; otherwise the run is refused with the reason
+and he runs it on his own machines (`--on <machine>`). A claimed run lasts its timeout plus 15 minutes before it may be
+claimed again; a result the coordinator could not take is kept and sent again; the WIP ref is deleted once the result is
+in (while the run may still go on, it stays). A paused machine takes no more of the queued runs. `--input`, `--fetch` and `--device` go to his own machines.
+
+### Trust model
+
+- **What Bo trusts Ana with:** the code of the ref he pushed, the command and its output. Not his prompts, briefs,
+  accounts, readings, tokens or files outside that commit.
+- **What Ana trusts Bo with:** running his command on her machine, as her Tutti, inside pc's container runner (no
+  network rule beyond the container's, memory and CPUs capped, her home folder not mounted). A shell runner would run
+  his command as her login with her files in reach, so it is refused unless she sets `household.member_shell: true` for
+  a household she trusts that far.
+- **Never crossing:** credentials (Bo's git sign-in pushes, Ana's fetches; agents' sign-ins stay home), the member
+  tokens, logins. The coordinator sees the job (repo URL, ref, command, exit code, output tail) and nothing more.
+- **Who decides:** pc's owner shares, pauses or unshares it (`tutti household machine pause pc`) and chooses the runner;
+  her Tutti claims only jobs for her own machines, and no member can claim or read another's job.
 
 ## Spare room shared with the household
 
@@ -328,6 +363,7 @@ a user is named by `user` = the first 12 hex digits of `SHA-256("tutti-user:" + 
 | 1 (0.1.29) | the user model (`tutti user`, the hashed id, `share_spare`), per-user state, the single-user migration, this design |
 | 2 (0.1.31) | the coordinator, `household init\|join\|status\|leave\|code`, signed requests, leases with heartbeats, shared backlogs and dedupe |
 | 3 (0.1.34) | fair shares of shared machines in routing and the autopilot, the household plan from every member's profile, `share_spare` |
+| 5 (0.1.51) | shared machines as compute only: a member's runs go to the owner's Tutti as a WIP ref and a signed job; no login for members |
 | 4 (0.1.46) | joining with the dashboard's invite and Google identity, LAN or VPN only (`netpolicy`); the dashboard: **Me / Household**, the household card, others' jobs as "busy for <user>" |
 
 ## A new member's machine

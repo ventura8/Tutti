@@ -16,7 +16,9 @@ python3 bin/tutti --config tutti.config.example.yaml config
 - **Nothing personal in the repository.** No real hostnames, user names, emails, project names, paths or account
   details, in code, docs, tests or examples. Hosts are `*.example`; everything real belongs in a user's own
   `tutti.config.yaml`, which is git-ignored here.
-- **No secrets, ever.** Do not read `.env` or credential files. Tutti does not store, print or send credentials.
+- **No secrets, ever.** Do not read `.env` or credential files. Tutti does not store, print or send credentials. The one
+  exception is the owner's: `tutti move`, run by an admin, copies the agent tools' login files to the new host unread
+  (docs/MOVE.md, *Logins*).
 - **Config, not code.** A new host, model, worker or account is a config entry. If a change needs a name hard-coded,
   the design is wrong.
 - **Say what happened, why, and the fix.** Every error message names the key or step, the cause and the next action.

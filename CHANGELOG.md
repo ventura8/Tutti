@@ -2,6 +2,21 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.54 (2026-11-14)
+
+### Changed
+
+- `tutti move` brings everything Tutti relies on to the new host, so it keeps working while the old computer is away
+  (docs/MOVE.md, *Everything Tutti relies on*): the agent CLIs at the same versions (their install folders copied, node
+  from nodejs.org checked against its sums when an npm CLI needs it), their logins (the owner's documented exception:
+  copied unread with mode 600, gh's token the way gh documents, each checked with the tool's own status command, a
+  device-code sign-in only for a tool that refuses the copy), the repositories and their worktrees (one rsync with hard
+  links kept, then `git worktree repair`), and every path under the home in the config. Jobs, readers, reviews, git and
+  gh run on the host; the old computer is a client that forwards its commands and agents and sends its session's
+  reading files (Claude's) to the host whenever they change.
+- The plan no longer asks to mask the host's sleep targets (presence handles a host that sleeps), and gh needs no sign-in.
+- Verify runs `tutti doctor` and `tutti workers` on the new host.
+
 ## 0.1.53 (2026-11-14)
 
 ### Changed

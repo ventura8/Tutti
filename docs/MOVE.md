@@ -26,9 +26,11 @@ stops it (a dropped connection, a closed laptop lid), `tutti move --to <machine>
 
 | Step | What happens |
 | --- | --- |
-| preflight | ssh works; the target's OS and architecture, free disk in its home (twice the state plus 1 GB), Tutti there and its version, Python's venv, rsync, systemd --user, lingering, whether it can suspend, its LAN and VPN addresses, which of the other machines it can ssh to, which worker and reader programs it has. A blocker stops the move with the fix. |
+| preflight | ssh works; the target's OS and architecture, free disk in its home (twice the state, plus the repositories, plus 1 GB), Tutti there and its version, Python's venv, rsync, systemd --user, lingering, its LAN and VPN addresses, which of the other machines it can ssh to, the version of each agent CLI there. A blocker stops the move with the fix. Sleep is left alone: presence handles a host that sleeps. |
 | install | Tutti installed there when it is missing or older, with the one-line install (`tutti/install.py`, `install_line`, `--no-setup`: the config comes from this move). |
-| copy | The state folder, the usage log and `~/.local/state/tutti` copied with rsync while Tutti still runs here (usage logs, the backlog, the telemetry queue, users and roles, sessions, controls, the learned pacing profile, the household coordinator's state). |
+| tools | The agent CLIs (claude, cursor-agent, agy, copilot, gemini, codex) there at the same versions, below. |
+| logins | Their logins copied and checked, below. |
+| copy | The state folder, the usage log, `~/.local/state/tutti` and the repositories with their worktrees copied with rsync while Tutti still runs here (usage logs, the backlog, the telemetry queue, users and roles, sessions, controls, the learned pacing profile, the household coordinator's state, the scouts' state). |
 | freeze | The dashboard here is stopped (its user service, or the process by its pid) and `<state>/move/frozen` refuses every command that would change the state (reads still run). |
 | jobs | Running autopilot runs: `--jobs wait` (the default) waits up to `--wait-minutes` (60) for them, then hands over what is left; `--jobs handover` stops each one at once (its process tree) and queues its task again, so it continues from its worktree. |
 | sync | The final copy, with deletions. |
@@ -36,33 +38,79 @@ stops it (a dropped connection, a closed laptop lid), `tutti move --to <machine>
 | start | Tutti started there as the login service `tutti setup` installs (`install.service_plan`: `tutti-dashboard.service`, systemd --user), and `tutti-name.service` publishing `tutti.local` on the LAN (mDNS, when `avahi-publish` is there). |
 | health | The dashboard must answer on the target's `127.0.0.1` within 30 s. If it does not, the move rolls back by itself. |
 | client | This computer's config (and the per-login copy when it is the same Tutti) gets a `host:` block pointing at the new host, with a `.bak-pre-move` backup; `tutti-client.service` starts here; this login's household membership points at the stable name (its old file kept for a rollback). |
-| verify | `http://127.0.0.1:<port>/` here answers as the new host's dashboard, and the host sees this computer's bridge. |
+| verify | `http://127.0.0.1:<port>/` here answers as the new host's dashboard (a failure rolls back), and `tutti doctor` and `tutti workers` run there and are reported. |
 | done | The move recorded (`<state>/move/last.json`, here and there) for the card's "Last move". |
 
 ### The config from the target's point of view
 
 - the target becomes `host: local`; this computer becomes an ssh machine (`host:` its LAN address, `user:`, `via:` itself);
 - a machine the target cannot reach by ssh gets `via: <this computer>`: the host probes it through this computer;
-- the state, the worktrees folder and the usage log move under the target's home;
-- an account whose reader needs a program or a sign-in the target lacks gets `read_on: <this computer>`, and one with a
-  `reading_file` gets `reading_from: <this computer>`: they are read here, through the bridge, and logged there;
-- `host: {machine, me, address, port, jobs}`: `jobs: <this computer>` when the repositories or the workers' sign-ins are
-  here (the usual case): worker runs, the reviewer, and the autopilot's git and gh then run here, started by the host;
+- every path under this computer's home (the state, the worktrees, the usage log, the autopilot repos, scripts, reading
+  files) becomes the same path under the target's home: the jobs, the readers, the reviews, git and gh run on the target,
+  which has the CLIs, the logins and the repositories after the move, so it keeps working while this computer is away;
+- `host: {machine, me, address, port}`;
+- the same text is written to every config path the old computer had for this Tutti (e.g. a project's `tutti.config.yaml`
+  inside the copied worktrees folder), so a command run anywhere on the target finds the host's config;
 - a `household.bind` or `dashboard.bind` that names an address becomes `auto` (`netpolicy.binds`: the target's own LAN and VPN addresses).
 
 Every comment and the key order are kept (`tutti/yamledit.py`), and the result passes the config check before anything
 is written.
 
+## Everything Tutti relies on
+
+### CLIs at the same versions
+
+Each agent CLI installed under the home is carried by its own install folder, so the target runs the very same version
+with no download: `~/.local/share/<tool>/versions/<v>` (claude, cursor-agent), an npm package under
+`~/.local/lib/node_modules` (copilot, gemini), or the single file in `~/.local/bin` (agy); its link in `~/.local/bin` is
+made again. A tool the target already has at the same version is skipped. When an npm CLI moves and the target has no
+node, the same node version comes from nodejs.org, checked against its SHA256SUMS. gh comes with Tutti's own install.
+A CLI installed by a system package manager cannot be carried: the plan names it, to be installed on the target the same way.
+
+### Logins
+
+The owner decided (2026-11-14, relayed by the orchestrating agent) that a move copies the agent tools' logins, so the
+target needs no sign-in. This is the one documented exception to "Tutti never copies another tool's credential files",
+and it applies only to `tutti move`, run by an admin:
+
+- each tool's login and settings files (`~/.claude/.credentials.json`, `~/.claude.json`, `~/.claude/settings.json`;
+  `~/.config/cursor/auth.json`, `~/.cursor/cli-config.json`; `~/.gemini/oauth_creds.json`, `google_accounts.json`,
+  `settings.json`, `installation_id` and `antigravity-cli/` without its conversations and caches; `~/.copilot/config.json`;
+  `~/.codex/auth.json`, `config.toml`) go over ssh with rsync, files mode 600 and folders 700. Tutti finds them by name
+  only; it never reads, prints or logs their content;
+- gh keeps its token in the keyring, so it goes the way gh documents: `gh auth token` piped straight into
+  `gh auth login --with-token` there (held in memory, never shown), then `gh auth setup-git`;
+- each tool's own status command checks the login on the target (`claude auth status`, `cursor-agent status`,
+  agy's `/usage`, `gh auth status`, `codex login status`; gemini and copilot have none, so their login file there must be
+  non-empty); its output is matched, never shown;
+- a tool that refuses a copied login gets its own device-code sign-in (`ssh -t <target> <tool> login`), listed once at the
+  end: the only prompt a move can leave.
+
+### Repositories and worktrees
+
+The autopilot repos, every git worktree of them under the home and the worktrees folder go in one rsync with hard links
+kept (the worktrees share node_modules with the main checkout), the state folder excluded. Then `git worktree repair`
+runs there with the new paths, so each worktree and its repository find each other and WIP, branches and refs come along.
+The final sync copies what changed during the move. Projects on other machines stay where they are.
+
+### Readings from the old computer's session
+
+An account's `reading_file` (Claude's readings, written by the main session's get_usage on the old computer) is sent by
+`tutti client` to the same path under the host's home whenever it changes (checked every minute), so the host paces
+with it while the old computer is on.
+
 ## After the move
 
-**The host** runs the dashboard, the state, the readings, the autopilot's planning, scouts, self-improvement and the
-household coordinator. The dashboard still listens on its own `127.0.0.1` only.
+**The host** runs the dashboard, the state, the readings, the autopilot and its worker runs, reviews and landings,
+scouts, self-improvement, the daily update round and the household coordinator, with its own CLIs, logins and
+repositories: household work goes on while the old computer is away or asleep. The dashboard still listens on its own
+`127.0.0.1` only.
 
 **The old computer is a client.** `tutti-client.service` keeps one ssh connection to the host open. It carries:
 
 - the dashboard's port: `http://127.0.0.1:4777/` here is the host's dashboard (same address, same installed app, same
   OAuth origins);
-- the bridge (below).
+- the bridge (below): this computer's own jobs on the host's jobs card, and probes of machines the host cannot reach.
 
 Commands that read or change the state (`backlog`, `autopilot`, `pause`, `resume`, `optin`, `usage`, `main`, `owner`,
 `dispatch`, `selfimprove`, `scout`, `runs`, `wait run`, `household`, `user`, `run`) run on the host over ssh, so the
@@ -70,8 +118,8 @@ terminal, scripts and every connected agent (`tutti mcp` runs these same command
 no change) see the one state the dashboard shows. Commands about this computer (`test`, `ship`, `connect`, `mcp`,
 `update`, `doctor`, `conduct`) stay here.
 
-`tutti run auto "<task>" --repo map` from the client: the host picks the worker from its readings, runs the job here
-through the bridge (this computer's repositories and sign-ins), and keeps the record and the report.
+`tutti run auto "<task>" --repo map` from the client runs on the host, in its copy of the repository. The bookmarklet and
+the reading helper keep posting to `http://127.0.0.1:4777/`, which is the host's dashboard through the client.
 
 ### When the host is down
 
@@ -124,13 +172,11 @@ internet.
 
 The plan lists these once, at the end, each with its exact command:
 
-- `sudo loginctl enable-linger <user>` on the target, when lingering is off (Tutti then runs with nobody signed in);
-- `sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target`, when the target can suspend;
-- a worker's sign-in on the target (`ssh -t <target> <tool> login`), only when its jobs run there (no `host.jobs`).
-  Tutti never copies another tool's credential files.
+- `sudo loginctl enable-linger <user>` on the target, only when lingering is off there (shown in the plan, before the move);
+- a tool's own device-code sign-in, only when it refuses its copied login.
 
-To run the jobs on the host instead: clone the repositories there, sign the workers in there, point
-`autopilot.repos.<r>.path` at the clones and remove `host.jobs` from the host's config.
+`host.jobs: <client>` (an option, not set by a move) still runs the worker jobs on a client through its bridge, for a
+host that cannot hold the CLIs.
 
 ## Known limits
 

@@ -1,0 +1,331 @@
+"""Self-improvement and Sentry triage: the gates (who takes tasks, which base a pull request may target, when a merge and a
+release may happen), dedupe and the daily rate, the local analysis, the triage watches per project and the TUTTI-TASK
+lines, and a merge round against a fake `gh`. Nothing leaves the temp folder; no real repository or Sentry is used."""
+import io
+import json
+import os
+import tempfile
+import unittest
+from contextlib import redirect_stdout
+from types import SimpleNamespace
+
+from tutti import backlog, cli, config, scouts, selfimprove, telemetry, triage
+
+NOW = 1_800_000_000.0
+GREEN = [{'conclusion': 'SUCCESS', 'name': 'ci'}, {'conclusion': 'SUCCESS', 'name': 'SonarCloud'}]
+
+
+def pr(**kw):
+    return {'state': 'OPEN', 'isDraft': False, 'reviewDecision': 'APPROVED', 'open_threads': 0, 'mergeable': 'MERGEABLE',
+            'statusCheckRollup': GREEN, 'headRefOid': 'abc123', **kw}
+
+
+def finished_review(rc='0'):
+    """A spawn that stands for `tutti pr review`: it writes its exit code where the wrapper would."""
+    def spawn(argv, **kw):
+        if 'RC_FILE' in (kw.get('env') or {}):   # a release starts without one
+            with open(kw['env']['RC_FILE'], 'w', encoding='utf8') as f:
+                f.write(rc + '\n')
+        spawn.calls.append(argv)
+    spawn.calls = []
+    return spawn
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state = os.path.join(self.tmp.name, 'state')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def cfg(self, **si):
+        raw = {'project': {'state': self.state},
+               'autopilot': {'repos': {'tutti': {'path': self.tmp.name, 'check': 'true'}, 'app': {'path': self.tmp.name, 'check': 'true'}}},
+               'projects': {
+                   'Tutti': {'match': 'tutti', 'repo': 'octo/tutti', 'sentry': {'org': 'octo', 'project': 'tutti'},
+                             'self_improve': {'tasks': True, 'autopilot_repo': 'tutti', 'merge': True, 'release': True,
+                                              'release_every_hours': 24, 'release_command': 'true'}},
+                   'App': {'match': 'app', 'repo': 'octo/app', 'sentry': {'org': 'octo', 'project': 'app'},
+                           'self_improve': {'tasks': True, 'autopilot_repo': 'app', 'base': 'develop'}},
+                   'Radio': {'match': 'radio', 'sentry': {'org': 'octo', 'project': 'radio'}}},
+               'self_improve': {'home': 'Tutti', **si},
+               'scouts': {'grok': {'kind': 'grok-bot-webhook', 'url_env': 'U', 'key_env': 'K', 'sentry_triage': True,
+                                   'reply': {'github_repo': 'octo/tutti'}}}}
+        cfg = config.normalise(raw)
+        self.assertEqual(config.validate(cfg), [])
+        cfg['_path'] = os.path.join(self.tmp.name, 'tutti.config.yaml')
+        return cfg
+
+
+class Gates(Base):
+    def test_only_a_project_that_opts_in_takes_tasks(self):
+        cfg = self.cfg()
+        self.assertTrue(selfimprove.may_add(selfimprove.policy(cfg, 'Tutti'), cfg)[0])
+        ok, why = selfimprove.may_add(selfimprove.policy(cfg, 'Radio'), cfg)
+        self.assertFalse(ok)
+        self.assertIn('issues only', why)
+        self.assertFalse(selfimprove.may_add(None, cfg)[0])
+
+    def test_a_pull_request_never_targets_a_protected_branch_without_merge_authority(self):
+        cfg = self.cfg()
+        task = {'source': 'sentry', 'pr_mode': 'ready', 'repo': 'app'}
+        self.assertEqual(selfimprove.pr_plan(cfg, task, {})[:2], ('ready', 'develop'))
+        cfg['projects']['App']['self_improve']['base'] = 'master'
+        mode, _base, why = selfimprove.pr_plan(cfg, task, {})
+        self.assertIsNone(mode)
+        self.assertIn('work branch', why)
+        cfg['projects']['App']['self_improve']['base'] = ''
+        self.assertIsNone(selfimprove.pr_plan(cfg, task, {})[0])   # no base: gh would pick the default branch
+        self.assertEqual(selfimprove.pr_plan(cfg, {**task, 'repo': 'tutti'}, {})[:2], ('ready', None))   # merge authority
+
+    def test_an_ordinary_task_keeps_the_repo_setting(self):
+        cfg = self.cfg()
+        self.assertEqual(selfimprove.pr_plan(cfg, {'source': 'orchestrator'}, {'pr': 'draft'})[0], 'draft')
+        self.assertIsNone(selfimprove.pr_plan(cfg, {'source': 'orchestrator'}, {'pr': False})[0])
+
+    def test_merge_needs_authority_green_checks_reviews_and_no_open_thread(self):
+        pol = selfimprove.policy(self.cfg(), 'Tutti')
+        self.assertEqual(selfimprove.may_merge(pol, pr(), True), (True, ''))
+        cases = [({}, False, 'AI reviews'), ({'reviewDecision': 'CHANGES_REQUESTED'}, True, 'changes'),
+                 ({'open_threads': 2}, True, 'thread'), ({'isDraft': True}, True, 'ready'),
+                 ({'mergeable': 'CONFLICTING'}, True, 'mergeable'),
+                 ({'mergeable': 'UNKNOWN'}, True, 'not computed'), ({'reviewDecision': 'REVIEW_REQUIRED'}, True, 'approving'),
+                 ({'statusCheckRollup': [{'conclusion': 'FAILURE'}]}, True, 'green'),
+                 ({'statusCheckRollup': [{'status': 'IN_PROGRESS', 'conclusion': ''}]}, True, 'green'),
+                 ({'statusCheckRollup': []}, True, 'green'),
+                 ({'statusCheckRollup': [{'conclusion': 'SKIPPED'}, {'conclusion': 'NEUTRAL'}]}, True, 'green')]
+        for change, reviewed, word in cases:
+            ok, why = selfimprove.may_merge(pol, pr(**change), reviewed)
+            self.assertFalse(ok, change)
+            self.assertIn(word, why)
+        ok, why = selfimprove.may_merge(selfimprove.policy(self.cfg(), 'App'), pr(), True)
+        self.assertFalse(ok)
+        self.assertIn('owner merges', why)
+
+    def test_releases_are_batched_and_spaced(self):
+        cfg = self.cfg()
+        pol = selfimprove.policy(cfg, 'Tutti')
+        self.assertTrue(selfimprove.may_release(pol, NOW - 25 * 3600, 2, NOW)[0])
+        self.assertIn('in 1.0 h', selfimprove.may_release(pol, NOW - 23 * 3600, 2, NOW)[1])
+        self.assertIn('no merged fix', selfimprove.may_release(pol, 0, 0, NOW)[1])
+        self.assertIn('owner tags', selfimprove.may_release(selfimprove.policy(cfg, 'App'), 0, 3, NOW)[1])
+
+    def test_the_daily_room(self):
+        tasks = [{'source': 'sentry', 'added': NOW - 100}, {'source': 'insight', 'added': NOW - 2 * 86400},
+                 {'source': 'test', 'added': NOW}]
+        self.assertEqual(selfimprove.room_today(tasks, NOW, 3), 2)
+        self.assertEqual(selfimprove.room_today(tasks * 5, NOW, 3), 0)
+
+    def test_config_errors_name_the_key(self):
+        cfg = self.cfg()
+        cfg['projects']['App']['self_improve'] = {'tasks': True, 'autopilot_repo': 'nope', 'merge_now': True}
+        cfg['projects']['Radio']['self_improve'] = {'merge': True}
+        cfg['self_improve']['home'] = 'Ghost'
+        errs = '\n'.join(config.validate(cfg))
+        for word in ('merge_now', 'autopilot_repo must name', 'need projects.Radio.repo', 'self_improve.home names "Ghost"'):
+            self.assertIn(word, errs)
+
+
+class Analysis(Base):
+    def summary(self):
+        return {'crashes': [{'where': 'KeyError in main', 'count': 2}], 'most_failing': [{'name': 'ship', 'failed': 4, 'runs': 5},
+                {'name': 'run', 'failed': 1, 'runs': 9}], 'stalls': [{'cause': 'run', 'count': 3}],
+                'wasted': [{'who': 'agy', 'runs': 1, 'minutes': 3}]}
+
+    def test_insights_become_candidates_over_the_thresholds(self):
+        sigs = [c['sig'] for c in selfimprove.candidates(self.summary(), 3)]
+        self.assertEqual(sigs, ['crash:KeyError in main', 'failing:ship', 'stall:run'])
+
+    def test_tasks_are_deduped_and_rate_limited(self):
+        cfg = self.cfg(max_new_per_day=2)
+        items = selfimprove.candidates(self.summary(), 3)
+        self.assertEqual(selfimprove.add_candidates(cfg, items, 'insight', NOW), 2)
+        self.assertEqual(selfimprove.add_candidates(cfg, items, 'insight', NOW + 10), 0)   # the day's room is used
+        self.assertEqual(selfimprove.add_candidates(cfg, items[:2], 'insight', NOW + 2 * 86400), 0)   # the same signatures
+        tasks = backlog.load(cfg)['tasks']
+        self.assertEqual({t['project'] for t in tasks}, {'Tutti'})
+        self.assertTrue(all(t['pr_mode'] == 'ready' and 'regression test' in t['notes'][0] for t in tasks))
+
+    def test_analysis_reads_the_local_events_and_waits_its_interval(self):
+        cfg = self.cfg()
+        telemetry.configure(self.state, cfg, 'x', env={})
+        self.addCleanup(telemetry.unconfigure)
+        for _ in range(3):
+            telemetry.record('command', 'ship', rc=1, outcome='failed')
+        self.assertEqual(len(selfimprove.analyse(cfg, telemetry.time.time())), 1)
+        self.assertEqual(selfimprove.analyse(cfg, telemetry.time.time()), [])
+
+    def test_the_switch_turns_the_round_off(self):
+        cfg = self.cfg()
+        selfimprove.set_enabled(cfg, False)
+        self.assertFalse(selfimprove.enabled(cfg))
+        self.assertEqual(selfimprove.tick(cfg, NOW), [])
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cli.cmd_selfimprove(cfg, SimpleNamespace(action='on'))
+        self.assertIn('self-improvement: on', out.getvalue())
+
+
+class FakeGh:
+    """`gh pr view`, the review-thread query and `gh pr merge`, answered from memory."""
+
+    def __init__(self, view, threads=0, merge_rc=0):
+        self.view, self.threads, self.merge_rc, self.calls = view, threads, merge_rc, []
+
+    def __call__(self, args, **_kw):
+        self.calls.append(args)
+        if args[1:3] == ['pr', 'view']:
+            return SimpleNamespace(returncode=0, stdout=json.dumps(self.view), stderr='')
+        if args[1:3] == ['api', 'graphql']:
+            nodes = [{'isResolved': False}] * self.threads
+            body = {'data': {'repository': {'pullRequest': {'reviewThreads': {'nodes': nodes}}}}}
+            return SimpleNamespace(returncode=0, stdout=json.dumps(body), stderr='')
+        return SimpleNamespace(returncode=self.merge_rc, stdout='', stderr='refused' if self.merge_rc else '')
+
+
+class Rounds(Base):
+    def add_review_task(self, cfg, repo='tutti', number=7):
+        with backlog.locked(cfg) as data:
+            t = backlog.new_task(repo, 'Fix the crash', source='sentry')
+            t.update(status='review', pr=f'https://github.com/octo/{repo}/pull/{number}', pr_mode='ready', project='Tutti')
+            backlog.add(data, t)
+
+    def test_reviews_are_asked_once_then_a_green_pr_is_merged_and_released(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        spawn = finished_review()
+        gh = FakeGh(pr())
+        ev = selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+        self.assertIn('AI reviews asked', ev[0])
+        self.assertIn('review', spawn.calls[0])
+        ev = selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
+        self.assertTrue(any('merged octo/tutti#7' in e for e in ev))
+        self.assertTrue(any('release of Tutti started' in e for e in ev))
+        merge = [c for c in gh.calls if c[1:3] == ['pr', 'merge']][0]
+        self.assertNotIn('--admin', merge)
+        self.assertEqual(merge[merge.index('--match-head-commit') + 1], 'abc123')
+        self.assertFalse(selfimprove.lane(cfg)['items'][0]['released'])   # started is not released
+        self.assertEqual(selfimprove.tick(cfg, NOW + 3700, run=gh, spawn=spawn), ['self-improvement: release of Tutti done'])
+        lane = selfimprove.lane(cfg)
+        self.assertEqual((lane['items'][0]['merged'], lane['items'][0]['released'], lane['items'][0]['status']), (True, True, 'done'))
+        self.assertEqual(selfimprove.tick(cfg, NOW + 7200, run=gh, spawn=spawn), [])   # spaced
+
+    def test_a_failed_release_keeps_its_fixes_for_the_next_one(self):
+        cfg = self.cfg()
+        st = {'merged': [{'project': 'Tutti', 'pr': 'octo/tutti#1', 'at': NOW, 'task': 't1'}]}
+        selfimprove.release(cfg, st, NOW + 10, finished_review('1'))
+        ev = selfimprove.release(cfg, st, NOW + 20, finished_review('1'))
+        self.assertIn('failed (exit 1)', ev[0])
+        self.assertNotIn('released', st)
+        self.assertEqual(selfimprove.release(cfg, st, NOW + 3600, finished_review()), [])   # the retry waits its interval
+        ev = selfimprove.release(cfg, st, NOW + 25 * 3600, finished_review())
+        self.assertIn('started with 1 fix', ev[0])
+
+    def test_a_review_that_did_not_finish_well_blocks_the_merge(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh = FakeGh(pr())
+        for when, spawn in ((NOW, finished_review('1')), (NOW + 3600, None)):
+            selfimprove.tick(cfg, when, run=gh, spawn=spawn or (lambda *a, **k: None))
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+        self.assertIn('AI reviews', backlog.load(cfg)['tasks'][0]['self_improve'])
+
+    def test_changes_requested_send_the_task_back_and_nothing_merges(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh = FakeGh(pr(reviewDecision='CHANGES_REQUESTED'))
+        spawn = finished_review()
+        selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
+        t = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(t['status'], 'queued')
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+        self.assertEqual(selfimprove.read_state(cfg)['reviews'], {})   # the pushed fix is reviewed again
+
+    def test_open_threads_or_a_project_without_authority_never_merge(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg, 'app', 3)
+        self.add_review_task(cfg, 'tutti', 4)
+        gh = FakeGh(pr(), threads=1)
+        for t in (NOW, NOW + 3600):
+            selfimprove.tick(cfg, t, run=gh, spawn=finished_review())
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+        gates = {t['repo']: t['self_improve'] for t in backlog.load(cfg)['tasks']}
+        self.assertIn('owner merges', gates['app'])
+        self.assertIn('thread', gates['tutti'])
+
+
+class Triage(Base):
+    ANSWER = ('Groups...\n'
+              '- TUTTI-TASK: Guard None in cli.main || check: python3 -m unittest tests.test_cli || sentry: 123 || severity: high\n'
+              'TUTTI-TASK: Retry the probe on timeout || check: `true` || sentry: 124\nTUTTI-TASK:  \nnot a task line')
+
+    def test_every_project_with_sentry_gets_a_daily_watch_in_its_own_repo(self):
+        cfg = self.cfg()
+        w = scouts.settings(cfg, 'grok')['watches']
+        self.assertEqual(sorted(w), ['sentry-app', 'sentry-radio', 'sentry-tutti'])
+        self.assertEqual((w['sentry-app']['repo'], w['sentry-radio']['repo']), ('octo/app', 'octo/tutti'))   # Radio: the scout's
+        self.assertEqual(w['sentry-tutti']['every'], '1d')
+        self.assertIn('TUTTI-TASK', w['sentry-tutti']['task'])
+        cfg['scouts']['grok']['sentry_triage'] = False
+        self.assertEqual(scouts.settings(cfg, 'grok')['watches'], {})
+
+    def test_task_lines_are_parsed(self):
+        items = triage.parse(self.ANSWER)
+        self.assertEqual([i['sentry'] for i in items], ['123', '124'])
+        self.assertEqual((items[0]['check'], items[0]['severity'], items[1]['check'], items[1]['severity']),
+                         ('python3 -m unittest tests.test_cli', 'high', 'true', 'medium'))
+
+    def request(self, project):
+        return {'id': 's1', 'kind': 'watch', 'watch': f'sentry-{project.lower()}', 'project': project, 'status': 'answered',
+                'answer': self.ANSWER, 'url': 'https://github.com/octo/tutti/issues/1'}
+
+    def test_an_opted_in_project_gets_tasks_once_per_sentry_issue(self):
+        cfg = self.cfg()
+        data = {'requests': [self.request('Tutti')]}
+        triage.feed_answered(cfg, data, True)
+        data['requests'].append({**self.request('Tutti'), 'id': 's2'})
+        triage.feed_answered(cfg, data, True)
+        tasks = backlog.load(cfg)['tasks']
+        self.assertEqual(len(tasks), 2)
+        self.assertEqual({(t['source'], t['project'], t['status']) for t in tasks}, {('sentry', 'Tutti', 'queued')})
+        self.assertEqual({t['check'] for t in tasks}, {''})   # the repo's own check: a command from the answer is never run
+        self.assertIn('not run by Tutti', tasks[0]['notes'][-1])
+        self.assertEqual(data['requests'][0]['fed']['added'], 2)
+
+    def test_triage_tasks_count_toward_the_daily_room(self):
+        cfg = self.cfg(max_new_per_day=1)
+        triage.feed_answered(cfg, {'requests': [self.request('Tutti')]}, True, NOW)
+        tasks = backlog.load(cfg)['tasks']
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]['added'], NOW)
+
+    def test_a_read_only_project_gets_the_issue_only(self):
+        cfg = self.cfg()
+        data = {'requests': [self.request('Radio')]}
+        events = triage.feed_answered(cfg, data, True)
+        self.assertEqual(backlog.load(cfg)['tasks'], [])
+        self.assertIn('issues only', events[0])
+
+    def test_with_self_improvement_off_tasks_wait_as_candidates_until_accepted(self):
+        cfg = self.cfg()
+        triage.feed_answered(cfg, {'requests': [self.request('App')]}, False)
+        t = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(t['status'], 'candidate')
+        with redirect_stdout(io.StringIO()), backlog.locked(cfg) as data:
+            cli.task_change(backlog.find(data, t['id']), SimpleNamespace(action='accept', note=None))
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
+        with backlog.locked(cfg) as data, self.assertRaises(backlog.BacklogError):
+            cli.task_change(backlog.find(data, t['id']), SimpleNamespace(action='accept', note=None))
+
+    def test_sentry_config_errors(self):
+        cfg = self.cfg()
+        cfg['projects']['App']['sentry'] = {'org': 'Bad Org', 'project': 'app', 'reply_repo': 'nope', 'every': 'daily'}
+        errs = '\n'.join(config.validate(cfg))
+        for word in ('sentry.org', 'reply_repo', 'sentry.every'):
+            self.assertIn(word, errs)
+
+
+if __name__ == '__main__':
+    unittest.main()

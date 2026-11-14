@@ -72,7 +72,11 @@ def settings(cfg, name):
     if acc is not None and cfg.get('project'):   # where a sent question's spend estimate goes (its account's usage log)
         from . import state  # state imports config, which imports this module
         extra = {'_usage_log': state.usage_log_path(cfg), '_task_pct': float((acc or {}).get('task_pct', pacing.TASK_PCT))}
-    return {**DEFAULTS, **sc, 'name': name, **extra}
+    # Sentry triage watches, one per project with a sentry: entry (triage builds on this module)
+    from . import triage
+    out = {**DEFAULTS, **sc, 'name': name, **extra}
+    out['watches'] = {**triage.watches(cfg, out), **(out.get('watches') or {})}
+    return out
 
 
 def spend_estimate(sc, r, now=None):
@@ -131,6 +135,12 @@ def _account_errors(cfg, key, sc):
     return []
 
 
+def _triage_errors(key, sc):
+    if 'sentry_triage' in sc and not isinstance(sc['sentry_triage'], bool):
+        return [f'{key}.sentry_triage is {sc["sentry_triage"]!r}: true or false']
+    return []
+
+
 def _one_errors(cfg, name, sc):
     key = f'scouts.{name}'
     if not isinstance(sc, dict):
@@ -144,7 +154,7 @@ def _one_errors(cfg, name, sc):
     if 'issue_label' in reply and not (isinstance(reply['issue_label'], str) and reply['issue_label'].strip()):
         errs.append(f'{key}.reply.issue_label is {reply["issue_label"]!r}: a label name such as {LABEL}')
     from . import trial  # trial builds on this module
-    errs += trial.errors(f'{key}.review_trial', sc.get('review_trial'))
+    errs += trial.errors(f'{key}.review_trial', sc.get('review_trial')) + _triage_errors(key, sc)
     bad = [s for s in sc.get('skills') or [] if s not in SKILLS]
     if bad:
         errs.append(f'{key}.skills has {", ".join(map(str, bad))}: use any of {", ".join(SKILLS)}')
@@ -160,7 +170,8 @@ def errors(cfg):
     s = cfg.get('scouts') or {}
     if not isinstance(s, dict):
         return [f'scouts is {s!r}: a mapping such as scouts: {{grok: {{kind: grok-bot-webhook, ...}}}}']
-    return [e for name, sc in s.items() for e in _one_errors(cfg, name, sc)]
+    from . import triage
+    return [e for name, sc in s.items() for e in _one_errors(cfg, name, sc)] + triage.errors(cfg)
 
 
 def missing_env(sc, env=None):
@@ -459,6 +470,8 @@ def tick(cfg, accounts, env=None, gh_fn=gh, post_fn=post, now=None):
         url, key = secrets(sc, env)
         with locked(cfg) as data:
             events += _round(sc, data, accounts.get(sc.get('account')), url, key, gh_fn, post_fn, now)
+            from . import selfimprove, triage
+            events += triage.feed_answered(cfg, data, selfimprove.enabled(cfg))
     return events
 
 
@@ -479,6 +492,8 @@ def _round(sc, data, acc, url, key, gh_fn, post_fn, now):
         if what == 'watch':
             w = sc['watches'][ref]
             r = new_request(data, sc, w['task'], 'watch', ref, w.get('repo'), w.get('skill'), now)
+            if w.get('project'):
+                r['project'] = w['project']
         else:
             r = find(data, ref)
         try:

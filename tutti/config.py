@@ -51,6 +51,13 @@ DEFAULTS = {
                   'quiet_hours': []},
     # scouts: helpers that are not workers (Grok Bot's webhook routine): asked questions, they answer on a GitHub issue
     'scouts': {},
+    # telemetry: crash reports and usage statistics (docs/TELEMETRY.md); recorded locally always, sent only with consent.
+    # sentry_dsn: prefer $TUTTI_SENTRY_DSN or ~/.config/tutti/telemetry.env (`tutti telemetry setup`); endpoint: your own
+    # collector instead of Sentry; environment: Sentry's environment tag
+    'telemetry': {'sentry_dsn': '', 'endpoint': '', 'environment': 'production'},
+    # self_improve: crashes and insights become autopilot tasks, PRs and (where a project allows) merges and patch releases;
+    # home: the project Tutti's own fixes go to (docs/TELEMETRY.md, *Self-improvement*)
+    'self_improve': {'enabled': True, 'every_hours': 6, 'max_new_per_day': 3, 'min_count': 3, 'home': ''},
     'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
              'command_timeout': 3600},
 }
@@ -284,7 +291,8 @@ def validate(cfg):
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
     errs += _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
-    from . import scouts  # scouts imports modules that import this one
+    from . import scouts, selfimprove, sentry  # they import modules that import this one
+    errs += selfimprove.errors(cfg) + sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg)
 
 

@@ -33,8 +33,11 @@ from . import (
     routing,
     scoutcmd,
     scouts,
+    selfimprove,
     ship,
     state,
+    telemetry,
+    telemetrycmd,
     transfer,
     translate,
     trial,
@@ -212,6 +215,12 @@ def cmd_test(cfg, a):
         return 3
     say(f'test: {choice.machine}{", queued" if choice.queued else ""} ({choice.reason})' + (f', device {device["name"]}' if device else ''))
     machine = cfg['machines'][choice.machine]
+    how = 'on' if a.on else 'routed'
+    if device:
+        how = 'device'
+    telemetry.record('feature', 'routing.choice', how=how, machine_kind=telemetry.machine_kind(machine), queued=bool(choice.queued),
+                     order=len(cfg['routing']['order']))
+    started = time.monotonic()
     job = test_job(cfg, a, machine, device, src, command)
     rc = 1
     try:
@@ -222,6 +231,9 @@ def cmd_test(cfg, a):
         return rc
     finally:
         job.end(rc)
+        telemetry.record('feature', 'device.run' if device else 'test.run', machine_kind=telemetry.machine_kind(machine), rc=rc,
+                         outcome='passed' if rc == 0 else 'failed', minutes=round((time.monotonic() - started) / 60, 2),
+                         inputs=len(a.input or []), fetch=len(a.fetch or []))
 
 
 def fetch_results(cfg, machine, track, src, paths):
@@ -428,7 +440,11 @@ def run_delegated(cfg, a, extra):
     with open(delegate.paths(cfg, r['id'])['log'], encoding='utf8', errors='replace') as f:
         lines = f.read().splitlines()[-workers.KEEP_LINES:]
     note_limits(cfg, a.worker, lines)
-    delegate.log_run(cfg, a.worker, getattr(a, 'account', None) or state.account_of_worker(cfg, a.worker), r['rc'], r['id'], lines)
+    account = getattr(a, 'account', None) or state.account_of_worker(cfg, a.worker)
+    delegate.log_run(cfg, a.worker, account, r['rc'], r['id'], lines)
+    telemetry.record('feature', 'run.delegated', worker_kind=telemetry.tool_of(a.worker), account=telemetry.tool_of(account),
+                     outcome='passed' if r['rc'] == 0 else 'failed', autopilot=bool(a.id and a.account is not None),
+                     checks=len(r.get('checks') or []), minutes=round((time.time() - float(str(r['id']).split('-')[0])) / 60, 2))
     with open(r['report'], encoding='utf8') as f:
         print(f.read().rstrip())
     return r['rc']
@@ -646,9 +662,11 @@ def wait_ended(cfg, a, ended, seen, started):
         print(line)
         return rc
     if ended:
+        telemetry.record('feature', 'wait.stall', cause=a.kind, seconds=round(time.monotonic() - started))
         say(f'wait {a.kind} {a.target}: {a.stall_file or a.target} has not changed for {a.stall:g} s; the job looks stalled: '
             'read its log, then stop or restart it (do not wait again on the same job)')
         return 125
+    telemetry.record('feature', 'wait.timeout', cause=a.kind, seconds=round(time.monotonic() - started))
     say(f'wait {a.kind} {a.target}: not seen within {a.timeout:g} s; the thing waited for may have failed: look at its log')
     return 124
 
@@ -853,7 +871,11 @@ def task_change(task, a):
     if task['status'] == 'running':
         raise backlog.BacklogError(f'{task["id"]} is running (run {task.get("run")}): wait for it '
                                    f'(tutti wait run {task.get("run")}), then {a.action} it')
-    if a.action == 'retry':
+    if a.action == 'accept':
+        if task['status'] != 'candidate':
+            raise backlog.BacklogError(f'{task["id"]} is {task["status"]}, not a candidate: only a suggested task is accepted')
+        task['status'] = 'queued'
+    elif a.action == 'retry':
         task['notes'] = [*task.get('notes', []), *(a.note or [])]
         task.update(status='queued', parked=None)
     else:
@@ -876,11 +898,32 @@ def cmd_autopilot(cfg, a):
     return 0
 
 
+def cmd_selfimprove(cfg, a):
+    """`tutti selfimprove [status|on|off|tick]` (docs/TELEMETRY.md, *Self-improvement*)."""
+    if a.action in ('on', 'off'):
+        selfimprove.set_enabled(cfg, a.action == 'on')
+    elif a.action == 'tick':
+        for e in selfimprove.tick(cfg):
+            say(e)
+    v = selfimprove.lane(cfg)
+    print(f'self-improvement: {"on" if v["enabled"] else "off"}; {len(v["items"])} task(s) from Sentry and the insights')
+    for t in v['items']:
+        stage = t['status']
+        if t['merged']:
+            stage = 'released' if t['released'] else 'merged'
+        gate = f' ({t["gate"]})' if t['gate'] else ''
+        print(f'  {t["id"]:5} {t["source"]:8} {stage:12} {t["project"] or ""}: {t["title"][:80]}{gate}')
+    return 0
+
+
 def cmd_scout(cfg, a):
     """`tutti scout list|setup|ask|answer|watch|tick`: helpers that answer on a GitHub issue (docs/SCOUTS.md)."""
     try:
-        return scoutcmd.run(cfg, a)
+        rc = scoutcmd.run(cfg, a)
+        telemetry.record('feature', f'scout.{a.action}', skill=a.skill, rc=rc, outcome='ok' if rc == 0 else 'failed')
+        return rc
     except scouts.ScoutError as e:
+        telemetry.record('feature', f'scout.{a.action}', skill=a.skill, outcome='refused')
         say(str(e))
         return 2
 
@@ -1072,9 +1115,10 @@ def parser():
     s.add_argument('section', choices=['done', 'next'])
     s.add_argument('text')
     s = add('backlog', cmd_backlog, 'the autopilot\'s queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> '
-                                    '(FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>')
-    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done'])
-    s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done: the task id')
+                                    '(FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, '
+                                    'accept <id> (a suggested candidate)')
+    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept'])
+    s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done, accept: the task id')
     s.add_argument('title', nargs='?')
     s.add_argument('--scope', action='append', metavar='PATH', help='a path the task may change (repeat it)')
     s.add_argument('--check', help='the acceptance check (default: the repo\'s check)')
@@ -1102,6 +1146,15 @@ def parser():
     s.add_argument('--queue', action='store_true', help='ask: do not send now; the next round sends it when the allowance has room')
     s.add_argument('--timeout', type=float, help='ask, answer: minutes to wait for the answer (default: timeout_minutes; 0: look once)')
     s.add_argument('--key-stdin', action='store_true', help='ask: read the webhook key from the first line of stdin instead of key_env')
+    s = add('telemetry', telemetrycmd.cmd, 'crash reports and usage statistics: status, on, off (sending is opt-in; recording '
+                                           'on this computer is always on), setup (paste the Sentry DSN), report, send')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'setup', 'report', 'send'])
+    s.add_argument('--days', type=int, default=7, help='report: the last this many days (7)')
+    s.add_argument('--json', action='store_true', help='report: print the summary as JSON')
+    s.add_argument('--test', action='store_true', help='send: one test event straight to the project, to check the DSN')
+    s = add('selfimprove', cmd_selfimprove, 'crashes and insights become autopilot tasks, pull requests, and where a project '
+                                            'allows it merges and patch releases: status, on, off, tick (one round now)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])
     s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it')
     s.add_argument('agent', nargs='?')
     return p
@@ -1117,7 +1170,13 @@ def main(argv=None):
         os.environ['TUTTI_CONFIG'] = cfg['_path']
         return a.fn(cfg, a)
     except (config.ConfigError, ship.ShipError, backlog.BacklogError, RuntimeError, ValueError) as e:
+        telemetry.record('error', type(e).__name__, command=a.cmd)
         say(str(e))
         return 1
     except KeyboardInterrupt:
         return 130
+
+
+def entry(argv=None):
+    """bin/tutti: main() with telemetry (every command recorded on this computer; a crash reported when sending is on)."""
+    return telemetrycmd.run(main, argv)

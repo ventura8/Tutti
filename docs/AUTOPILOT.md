@@ -16,8 +16,8 @@ One queue in `<state>/backlog.json`, a task per line of work:
 | `scope` | The paths it may change (`--scope`, repeatable); empty means the worker decides. |
 | `check` | The acceptance check, run from the repository root; default the repo's `check`. |
 | `size` | `S`, `M` or `L`: 1, 2 or 3 bounded-task units of an account's room. |
-| `source` | `feedback`, `todo`, `gaps` or `orchestrator`. |
-| `status` | `queued`, `running`, `review`, `needs-person`, `done` or `dropped`. |
+| `source` | `feedback`, `todo`, `gaps`, `orchestrator`, `sentry` (a scout's Sentry triage) or `insight` (self-improvement's local analysis). |
+| `status` | `candidate` (suggested; waits for `tutti backlog accept <id>`), `queued`, `running`, `review`, `needs-person`, `done` or `dropped`. |
 | `attempts` | Every run: the step (account or worker), pass or fail, the failure's signature and words, its diff stat and output tail. |
 | `notes` | The reviewer's notes; every later attempt gets them. |
 
@@ -28,7 +28,12 @@ tutti backlog seed <repo>                 # the repo's safe sources, each once
 tutti backlog retry <id> --note "<what to change>"   # back to the queue, a needs-person or review task too
 tutti backlog done <id>                   # accepted (you merged it)
 tutti backlog rm <id>                     # dropped, kept for the record
+tutti backlog accept <id>                 # a candidate (suggested by a scout's Sentry triage) joins the queue
 ```
+
+Tasks from self-improvement (`sentry`, `insight`) get a ready pull request instead of a branch, to the project's
+`self_improve.base` unless the project may merge; the rest of their way (reviews, merge, release) is
+[TELEMETRY.md](TELEMETRY.md#self-improvement).
 
 `seed` reads only sources that are safe to automate: the open items of the repo's `docs/FEEDBACK.md` (table rows whose status
 starts with "Open", and the dated notes under the table), `TODO(owner):` and `FIXME(owner):` comments (an owner tag means a

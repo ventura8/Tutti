@@ -14,6 +14,7 @@
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
     <link rel="stylesheet" href="app.css?v=__TUTTI_VERSION__">
+    <script src="telemetry.js?v=__TUTTI_VERSION__" defer></script>
     <script src="update.js?v=__TUTTI_VERSION__" defer></script>
     <script src="attention.js?v=__TUTTI_VERSION__" defer></script>
     <script src="app.js?v=__TUTTI_VERSION__" defer></script>
@@ -137,6 +138,25 @@
                 <div id="pausable" aria-label="Machines, devices and agents to pause or resume, by category"></div>
                 <h3 class="card__sub">Opt-in</h3>
                 <ul id="optin" class="list" aria-label="Opt-in items"></ul>
+            </section>
+
+            <section class="card span-full" aria-labelledby="selfimprove-h">
+                <header class="card__head">
+                    <h2 id="selfimprove-h">Self-improvement</h2>
+                    <p class="card__meta" id="selfimprove-meta"></p>
+                    <button class="btn btn--tonal" id="selfimprove-toggle" type="button" aria-pressed="true" title="Crashes and insights become tasks, pull requests and, where a project allows, merges and releases">Turn off</button>
+                </header>
+                <ul id="selfimprove" class="list" aria-label="Sentry issues and insights: task, pull request, merge, release"></ul>
+            </section>
+
+            <section class="card span-full" aria-labelledby="insights-h">
+                <header class="card__head">
+                    <h2 id="insights-h">Insights</h2>
+                    <p class="card__meta" id="insights-meta"></p>
+                    <button class="btn btn--tonal" id="telemetry-toggle" type="button" aria-pressed="false" title="Send anonymous crash reports and usage statistics (docs/TELEMETRY.md)">Send reports</button>
+                </header>
+                <p class="row__note" id="telemetry-state"></p>
+                <div id="insights" class="autopilot"></div>
             </section>
 
             <section class="card card--jobs span-full" aria-labelledby="jobs-h">

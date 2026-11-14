@@ -36,7 +36,8 @@ def probe_https(git):
     """Run `git remote-https` through the git itself (same launch environment as a clone): a sound helper exits 1 with
     its usage line; a loader error, a missing helper or a crash is a problem. Returns (ok, output)."""
     try:
-        r = subprocess.run([git, 'remote-https'], capture_output=True, text=True, timeout=20, check=False)
+        env = {**os.environ, 'LC_ALL': 'C', 'LANGUAGE': ''}  # an English usage line whatever the owner's locale
+        r = subprocess.run([git, 'remote-https'], capture_output=True, text=True, timeout=20, check=False, env=env)
     except (OSError, subprocess.SubprocessError) as e:
         return False, f'error while loading shared libraries: {e}'
     out = r.stderr or r.stdout or f'exit code {r.returncode}'

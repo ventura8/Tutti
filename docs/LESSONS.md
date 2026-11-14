@@ -114,3 +114,28 @@ no reading. Read and record with one `now`, and clamp a reset more than one wind
 Twice in one day a ship ran while a rebase was stopped on a conflict, and committed files with `<<<<<<<` markers. Ship
 now checks `git rev-parse --git-path` for `rebase-merge`, `rebase-apply`, `MERGE_HEAD`, `CHERRY_PICK_HEAD` and
 `REVERT_HEAD`, and `git grep --untracked` for opening or closing markers, before the commit and again before the push.
+
+## Antigravity's `--settings` replaces the allow list (2026-11-14)
+
+`agy -p ... --settings '{"permissions":{"allow":["command(node)"]}}'` ran with `Allow:[command(node)]` only: the saved
+list (`grep`, `git`, ...) was gone for that session (agy 1.5.9, its log's "CLI settings initialized" line). A per-run
+allow list must name every command the task needs. agy 1.5.9 also ran `node -e` headless without any rule, where 1.3.3
+soft-denied commands, so denials are detected from the run (`denied:` and `{log}`), not assumed from the version.
+
+## Two runs in one second shared a worktree (2026-11-14)
+
+Run ids were `<time>-<pid>`; two delegated runs started by one process within a second got the same id, so the second
+reused the first's worktree and its diff. A unit test caught it. Ids now get `-<n>` when the log already exists.
+
+## A routed check cannot read $TUTTI_CHANGED (2026-11-14)
+
+A check that runs on another machine gets only its command line: the environment of `tutti ship` stays here. The list
+of changed files travels in the command (`{changed}`, `{changed:ts,js}`). Inside one bash line, `${F:+cmd &&}` does not
+make `&&` an operator: test with `[ -z "$F" ] || { ...; }`.
+
+## A reviewer's acknowledgement is not a review (2026-11-14)
+
+The first real `tutti pr review` reported "coderabbit reviewed" while CodeRabbit had only answered "Action not completed:
+Review rate limited", and it edits its summary comment in place (its `created_at` stays old, `updated_at` moves) to say
+"Review limit reached". Only a pull request review counts as a review; comments are read for limit messages, at the later
+of their created and updated times.

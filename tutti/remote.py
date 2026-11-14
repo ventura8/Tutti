@@ -1,6 +1,7 @@
 """Runs commands on machines (this computer, ssh, or WSL behind a Windows ssh) and copies a work tree to them."""
 import base64
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -96,7 +97,20 @@ def probe_script(machine):
     y = home_path(machine['yield_file'])
     locks = ' '.join(shlex.quote(p) for p in lock_files(machine))
     return (f'n=0; for l in {locks}; do flock -n "$l" true 2>/dev/null && n=$((n+1)); done; '
-            f'y=0; [ -e {y} ] && y=1; echo "$n $(cut -d" " -f1 /proc/loadavg) $(nproc) $y"')
+            f'y=0; [ -e {y} ] && y=1; '
+            # the hottest readable thermal zone in millidegrees (0 when none): routing caps or skips a hot machine
+            't=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -n 1); '
+            f'{containers_script(machine)}'
+            f'echo "$n $(cut -d" " -f1 /proc/loadavg) $(nproc) $y ${{t:-0}}"')
+
+
+def containers_script(machine):
+    """Lines `C <name> <running for>` for the machine's running test containers (names starting with one of
+    `containers`, default tutti-), before the probe's summary line: what holds its slots, for the dashboard."""
+    prefixes = machine.get('containers') or ['tutti-']
+    rx = shlex.quote('^(' + '|'.join(re.escape(p) for p in prefixes) + ')')
+    return ("docker ps --format '{{.Names}} {{.RunningFor}}' 2>/dev/null | "
+            f"grep -E {rx} | sed 's/^/C /'; ")
 
 
 def probe(machine, timeout=20):
@@ -104,7 +118,10 @@ def probe(machine, timeout=20):
         r = sh(machine, probe_script(machine), capture=True, timeout=timeout, ssh_opts=('-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes'))
     except (OSError, subprocess.SubprocessError):
         return routing.Probe()
-    return routing.parse_probe(r.stdout.strip().splitlines()[-1] if r.returncode == 0 and r.stdout.strip() else '')
+    lines = r.stdout.strip().splitlines() if r.returncode == 0 else []
+    p = routing.parse_probe(lines[-1] if lines else '')
+    p.containers = [line[2:].strip() for line in lines[:-1] if line.startswith('C ')]
+    return p
 
 
 def rewrite(runner, command):
@@ -168,7 +185,9 @@ def inputs_env(inputs):
 
 
 def run(cfg, machine, track, src, command, inputs=None):
-    """Runs `command` over the tree on the machine, behind its slot queue. Returns the command's exit code."""
+    """Runs `command` over the tree on the machine, behind its slot queue, after the steps it needs first (test.prepare).
+    Returns the command's exit code."""
+    command = routing.prepare(command, (cfg.get('test') or {}).get('prepare'))
     slot = slot_prefix(machine)
     export, mount = inputs_env(inputs)
     if machine['transport'] == 'local':

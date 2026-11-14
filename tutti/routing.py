@@ -1,5 +1,6 @@
 """Fall-over routing: which machine runs a heavy command. Pure logic; the probes come from the caller."""
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -10,6 +11,8 @@ class Probe:
     load: float = 0.0
     cores: int = 1
     yielding: bool = False
+    temp: float | None = None     # the hottest thermal zone in degrees C, None when the machine has none readable
+    containers: list = field(default_factory=list)   # `<name> <running for>` of its running test containers
 
 
 @dataclass
@@ -19,13 +22,40 @@ class Choice:
     reason: str
 
 
+def parse_temp(word):
+    """Millidegrees from /sys/class/thermal (`96050`), or 0 / missing when nothing is readable: degrees C or None."""
+    try:
+        t = float(word) / 1000
+    except (TypeError, ValueError):
+        return None
+    return t if t > 0 else None
+
+
 def parse_probe(text):
-    """The probe script prints `<free> <load> <cores> <yield 0|1>`; anything else means the machine did not answer."""
+    """The probe script prints `<free> <load> <cores> <yield 0|1> [<millidegrees>]`; anything else means the machine did not
+    answer. The temperature is optional: an older probe (or a machine without thermal zones) leaves it out."""
     parts = (text or '').split()
     try:
-        return Probe(True, int(parts[0]), float(parts[1]), max(1, int(parts[2])), parts[3] == '1')
+        temp = parse_temp(parts[4] if len(parts) > 4 else None)
+        return Probe(True, int(parts[0]), float(parts[1]), max(1, int(parts[2])), parts[3] == '1', temp)
     except (IndexError, ValueError):
         return Probe()
+
+
+def heat_unfit(machine, probe):
+    """Why the machine's temperature refuses a run, or ''. `heat.stop_c`: nothing new at or above it; `heat.cap_c`: at or above
+    it only `heat.hot_slots` (default 1) runs at a time, so a hot machine cools down instead of throttling every run."""
+    heat = machine.get('heat') or {}
+    t = probe.temp
+    if t is None or not heat:
+        return ''
+    if heat.get('stop_c') is not None and t >= heat['stop_c']:
+        return f'too hot: {t:.0f} C (nothing new at {heat["stop_c"]:g} C or more)'
+    busy = int(machine.get('slots', 1)) - probe.free
+    hot_slots = int(heat.get('hot_slots', 1))
+    if heat.get('cap_c') is not None and t >= heat['cap_c'] and busy >= hot_slots:
+        return f'hot: {t:.0f} C, slots capped to {hot_slots} at {heat["cap_c"]:g} C or more ({busy} running)'
+    return ''
 
 
 def unfit(machine, probe):
@@ -39,6 +69,30 @@ def unfit(machine, probe):
     ratio = machine.get('max_load_ratio')
     if ratio is not None and probe.load >= ratio * probe.cores:
         return f'load {probe.load:g} is over {ratio:g} x {probe.cores} cores'
+    return heat_unfit(machine, probe)
+
+
+def prepare(command, rules):
+    """The command with the steps it needs first: each rule {when: regex, run: cmd} whose `when` matches the command (and whose
+    `run` is not already in it) puts `run && ` in front. Example: Playwright needs the e2e build or its webServer times out."""
+    first = []
+    for r in rules or []:
+        if re.search(r['when'], command) and r['run'] not in command and r['run'] not in first:
+            first.append(r['run'])
+    if not first:
+        return command
+    # grouped: `a; b` or `a || b` as the command must not run when a step failed
+    return ' && '.join(f'{{ {c}; }}' for c in [*first, command])
+
+
+# A targeted run that turns coverage off says nothing about the per-file coverage gate: say so instead of staying silent.
+NO_COVERAGE = r'coverage\.enabled[= ]false|--no-cov\b|--coverage=false|COVERAGE=0'
+
+
+def coverage_note(command, pattern=NO_COVERAGE):
+    """A warning line when `command` runs tests with coverage switched off, else ''."""
+    if re.search(pattern or NO_COVERAGE, command):
+        return 'coverage NOT checked: this run turns coverage off; the per-file coverage gate runs only in the full checks'
     return ''
 
 
@@ -55,8 +109,15 @@ def choose(order, machines, probe_fn):
             note = f'free slots {seen[name].free}' + (f'; {"; ".join(why)}' if why else '')
             return Choice(name, False, note)
         why.append(f'{name}: {reason}')
-    patient = [n for n in order if seen[n].reachable and not seen[n].yielding]
-    return Choice((patient or order)[0], True, '; '.join(why))
+    # never queue on a machine refused for heat: slot.sh would start the run there as soon as a lock is free
+    patient = [n for n in order if seen[n].reachable and not seen[n].yielding and not heat_unfit(machines[n], seen[n])]
+    if patient:
+        return Choice(patient[0], True, '; '.join(why))
+    # every machine refused for heat (or unreachable): queue on the coolest reachable one, and say so
+    hot = sorted((n for n in order if seen[n].reachable and not seen[n].yielding), key=lambda n: seen[n].temp or 0)
+    if hot:
+        return Choice(hot[0], True, '; '.join(why) + f'; every machine is hot: queued on the coolest, {hot[0]}')
+    return Choice(order[0], True, '; '.join(why))
 
 
 # ---- which agent account takes the next job, from the latest readings

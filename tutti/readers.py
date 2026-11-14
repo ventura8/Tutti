@@ -114,6 +114,50 @@ def agy_usage(data, bucket):
     raise ValueError(f'no bucket "{bucket}" in the answer; the buckets are {", ".join(seen) or "(none)"}')
 
 
+def github_premium(data, allowance, now):
+    """(used %, reset) from GitHub's premium-request usage report (GET /users/<login>/settings/billing/premium_request/usage):
+    the Copilot premium requests of this month against the plan's `allowance`; the month resets on the 1st, 00:00 UTC."""
+    items = (data or {}).get('usageItems') if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        raise ValueError('no usageItems in the answer: is this the premium_request/usage report?')
+    used = sum(float(i.get('grossQuantity') or 0) for i in items if 'copilot' in str(i.get('product', '')).lower())
+    first = now.astimezone(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return round(100.0 * used / float(allowance), 1), pacing.shift(first, 'monthly', 1)
+
+
+CREDITS = re.compile(r'\bAI Credits\s+([\d.]+)')
+
+
+def credits_in(lines):
+    """The AI credits a `copilot -p` run printed at its end ("AI Credits 6.84 (3s)"), summed over the lines given."""
+    total = 0.0
+    for line in lines:
+        m = CREDITS.search(line)
+        if m:
+            try:
+                total += float(m.group(1))
+            except ValueError:
+                continue
+    return round(total, 2)
+
+
+def credits_since(folders, since):
+    """AI credits printed by agent runs whose logs changed since `since` (a datetime), in the given folders (Tutti's runs
+    and quiet logs)."""
+    total = 0.0
+    for folder in folders:
+        for path in glob.glob(os.path.join(folder, '*.log')):
+            seen = mtime(path)
+            if seen is None or seen < since.timestamp():
+                continue
+            try:
+                with open(path, encoding='utf8', errors='replace') as f:
+                    total += credits_in(f)
+            except OSError:
+                continue
+    return round(total, 2)
+
+
 def not_started(resets, window, now):
     """A rolling window nobody has started yet is reported as resetting one full window after the CLI's own clock, a few
     seconds past ours; it would then start just after `now` and the reading would fall in the window before. Clamp it."""
@@ -132,6 +176,16 @@ def json_field(data, field):
 # ---- the edge: running reader commands, scanning job logs, appending readings
 
 
+HINT = re.compile(r'needs the "?\w+"? scope|(?:gh )?auth (?:login|refresh)[^\n]*|sign in[^\n]*|log in[^\n]*', re.I)
+
+
+def sign_in_hint(stderr):
+    """What the CLI said to do about signing in or a missing scope (gh: `gh auth refresh -h github.com -s user`), or ''.
+    Only such lines are kept: never anything that looks like a token."""
+    found = [m.group(0).strip() for m in HINT.finditer(stderr or '') if 'token' not in m.group(0).lower()]
+    return '; '.join(dict.fromkeys(found))[:300]
+
+
 def run_json(command, timeout=READER_TIMEOUT, cwd=None):
     """Runs a reader command and parses its JSON answer. Returns (data, problem); only stdout is read."""
     try:
@@ -141,7 +195,8 @@ def run_json(command, timeout=READER_TIMEOUT, cwd=None):
     except subprocess.TimeoutExpired:
         return None, f'{" ".join(command)} did not answer within {timeout} s; it is asked again at the next reading'
     if r.returncode != 0:
-        return None, f'{" ".join(command)} exited {r.returncode}: is it signed in? Run it once by hand to see why'
+        hint = sign_in_hint(r.stderr)
+        return None, f'{" ".join(command)} exited {r.returncode}: ' + (hint or 'is it signed in? Run it once by hand to see why')
     try:
         return json.loads(r.stdout), None
     except ValueError:
@@ -187,7 +242,10 @@ class Readers:
             data, problem = self._answer(r, force)
             if data is not None:
                 try:
-                    out['used'], out['resets'] = agy_usage(data, r['bucket'])
+                    if r.get('format') == 'github-premium':
+                        out['used'], out['resets'] = github_premium(data, r['allowance'], now or utcnow())
+                    else:
+                        out['used'], out['resets'] = agy_usage(data, r['bucket'])
                     out['resets'] = not_started(out['resets'], a.get('window'), now or datetime.fromtimestamp(self.clock(), timezone.utc))
                 except (ValueError, KeyError, TypeError) as e:
                     problem = f'accounts.{name}.reader: {e}'
@@ -278,6 +336,48 @@ def record(path, readings, hits, now):
         note = f'a limit message in {ref}' + ('' if reset else ' (no reset time in it: the window rule applies)')
         written.append(pacing.append_log(path, name, 100, now, note, resets=reset, source='limit message', ref=ref))
     return written
+
+
+def parse_reading_file(text, account=None):
+    """(used, resets or None, at or None) from a reading file: `42`, `42 %`, {"used": 42, "resets": ISO, "at": ISO}, or one
+    file for several accounts: {"claude": {"used": 7, "resets": ...}, "claude-fable": {"used": 3}} (or {"claude": 7})."""
+    text = text.strip()
+    if text.startswith('{'):
+        data = json.loads(text)
+        if account is not None and account in data:
+            data = data[account] if isinstance(data[account], dict) else {'used': data[account]}
+        elif 'used' not in data:
+            raise ValueError(f'no "{account}" in the file: write {{"{account}": {{"used": 42}}}} or {{"used": 42}}')
+        used, resets, at = data.get('used'), data.get('resets'), data.get('at')
+    else:
+        used, resets, at = text.rstrip('%').strip(), None, None
+    used = float(used)
+    if not 0 <= used <= 100:
+        raise ValueError(f'used is {used:g}: write a percentage from 0 to 100')
+    return used, pacing.parse_time(resets) if resets else None, pacing.parse_time(at) if at else None
+
+
+def record_files(path, accounts):
+    """Readings an orchestrator wrote to accounts.<name>.reading_file (it gets the plan's % from its own tool, which no CLI
+    prints). Each version of the file is logged once (its ref holds the file's mtime). Returns (lines written, problems)."""
+    entries = pacing.read_log(path)
+    refs = {e.get('ref') for e in entries if e.get('ref')}
+    written, problems = [], []
+    for name, a in accounts.items():
+        f = config.expand((a or {}).get('reading_file') or '') if (a or {}).get('reading_file') else None
+        seen = mtime(f) if f else None
+        ref = f'file:{f}:{name}:{seen}'   # one file may hold several accounts: each is logged once per version
+        if seen is None or ref in refs:
+            continue
+        try:
+            with open(f, encoding='utf8') as fh:
+                used, resets, at = parse_reading_file(fh.read(), name)
+        except (OSError, ValueError, TypeError) as e:
+            problems.append(f'accounts.{name}.reading_file {f}: {e}: write a percentage such as 42, or {{"used": 42}}')
+            continue
+        written.append(pacing.append_log(path, name, used, at or datetime.fromtimestamp(seen, timezone.utc), 'from the reading file',
+                                         resets=resets, source='file', ref=ref))
+    return written, problems
 
 
 def utcnow():

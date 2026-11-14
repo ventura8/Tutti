@@ -16,6 +16,7 @@ machines:
     host: gpu-box.example
     slots: 2
     max_load_ratio: 0.5               # fit only while its load is under half its cores
+    heat: {cap_c: 85, stop_c: 98, hot_slots: 1}   # one run at 85 C or more, none at 98 C (the hottest thermal zone)
     yield_file: ~/.tutti/yield        # while this file exists, tutti sends the machine nothing new
   # win-box:                          # a Windows machine, commands run in its WSL
   #   host: win-box.example
@@ -50,8 +51,9 @@ files: {cache: ~/.cache/tutti/files, budget_gb: 50, keep_free_gb: 2, bwlimit_kbp
 
 # Workers the orchestrator can brief. kind: cli (another vendor's agent) or ollama (a local model server).
 workers:
-  cursor: {kind: cli, command: [cursor-agent, -p, '{prompt}', --trust, --output-format, text]}
-  agy: {kind: cli, command: [agy, -p, '{prompt}', --print-timeout, 600s]}        # Google Antigravity
+  cursor: {kind: cli, command: [cursor-agent, -p, '{prompt}', --trust, --force, --output-format, text]}   # --force: commands run headless
+  # Google Antigravity: {log} is a log file per run, where a headless permission denial shows ("soft-denying ...")
+  agy: {kind: cli, command: [agy, -p, '{prompt}', --print-timeout, 600s, --mode, accept-edits, --log-file, '{log}'], denied: soft-denying}
   claude: {kind: cli, command: [claude, -p, '{prompt}']}
   copilot: {kind: cli, command: [copilot, -p, '{prompt}', --allow-all-tools, --no-ask-user, -s]}   # GitHub Copilot CLI
   big:                                # a large model on the GPU box, reached through a tunnel
@@ -73,15 +75,17 @@ brief:
 # Quotas to pace. `resets` is any one known reset time (UTC); `window` repeats it: 5h, 7d, 2w or monthly.
 accounts:
   claude: {window: 7d, resets: '2026-01-03T02:00Z', lead_hours: 1, share: 1.0, source: the usage page,
-           match: {command: '\bclaude\b'}}   # no CLI prints the plan's %: a limit message ("resets 3pm") still logs it as spent
+           match: {command: '\bclaude\b'},   # no CLI prints the plan's %: a limit message ("resets 3pm") still logs it as spent
+           reading_file: ~/.local/state/tutti/claude-usage.json,   # the orchestrator writes {"used": 42} here from its own tool
+           stale_hours: 2}                  # a reading by hand older than this gets a reminder
   # Cursor prints no usage: the plan comes from `cursor-agent about`, "used" from a limit message in a job's output or one tap
   # on the dashboard's "Add a reading" (it opens usage_url). The reset day is a guess until a reading names the real one.
   cursor:
     window: monthly
     resets: '2026-01-01T00:00Z'
     resets_estimated: true
-    usage_url: https://cursor.com/dashboard?tab=usage
-    source: cursor.com/dashboard (Usage)
+    usage_url: https://cursor.com/dashboard/spending   # the dashboard's reading helper reads this page in one click
+    source: cursor.com/dashboard/spending
     worker: cursor
     plan: {command: [cursor-agent, about, --format, json], field: subscriptionTier, every_minutes: 360}
     match: {command: cursor-agent}
@@ -109,7 +113,14 @@ accounts:
 # The weekly agy buckets (3p-weekly, gemini-weekly) can be accounts of their own the same way, with window: 7d.
 
 # `tutti dashboard`: the local web dashboard on 127.0.0.1 (stall_minutes: a running job whose log is quiet that long is stalled)
-dashboard: {port: 4777, refresh_seconds: 10, probe_seconds: 30, stall_minutes: 10}
+dashboard:
+  port: 4777
+  refresh_seconds: 10
+  probe_seconds: 30
+  stall_minutes: 10
+  watch_scripts: [test.sh, ship.sh]             # running scripts shown as jobs, with the log their output goes to
+  watch_agents: [cursor-agent, agy, copilot]    # agent CLIs by process (program and folder only)
+  task_globs: []                                # an agent session's background task outputs, e.g. ['/tmp/agent-*/tasks/*.output']
 
 usage:
   log: ~/.local/state/tutti/usage.jsonl
@@ -137,3 +148,20 @@ translate:
   languages: {fr: French, de: German}
   keep: []                            # names never translated
   retries: 2
+
+# Steps a test command needs first: when the command matches `when`, `run` goes in front (Playwright needs its build).
+test:
+  prepare:
+    - {when: 'playwright|e2e/', run: 'npm run build:e2e'}
+
+# `tutti run <worker> "<task>" --repo <repo>`: the checks of the worker's diff (default: ship.checks). A routed check gets the
+# changed files through {changed} or {changed:ts,js}; the report says when a check turns coverage off.
+delegate:
+  checks:
+    - {run: 'F={changed:py}; [ -z "$F" ] || python3 -m pytest -q --no-cov $F', where: route, verdict: 'passed|failed|error'}
+
+# `tutti pr review <n>`: who to ask, how long to wait, and the cheap workers that review when no one answers.
+review:
+  reviewers: [copilot, coderabbit]
+  timeout_minutes: 15
+  fallback: [cursor, agy]

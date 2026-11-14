@@ -2,6 +2,65 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.8 (2026-11-14)
+
+Usable by an orchestrator end to end: hand off, wait, test, review, read usage.
+
+### Added
+
+- `tutti run <worker|auto> "<task>" --repo <repo>`: a bounded task handed to a cheap worker end to end: a worktree of the
+  repo (new, or `--track <name>` reused), the worker headless with stdin closed, the diff of everything it changed or added
+  as one patch, the checks of `delegate.checks` (default `ship.checks`; routed checks share one remote copy,
+  `delegate.remote_track`, one run at a time) and a report: changed files, the diff's path, each check's verdict and
+  log, "coverage NOT checked", DENIED tool calls, and the lines to review, apply or discard. `--bg` returns the id at
+  once; `--discard` removes a new worktree after the report. `tutti runs [show|discard <id>]`.
+- `tutti wait run <id>`: waits on the run's result file, gives up when its log stalls (exit 125), reports a run whose
+  process vanished at once, and ends with one line: the verdict and the report's path. Every successful `tutti wait`
+  now prints one `done: ...` line.
+- Worker commands take `{log}` (a log file per run; a `--flag {log}` pair is dropped without one) and `denied:` (a regex
+  for the CLI's own permission refusals, scanned in the output and the log). The example agy worker runs with
+  `--mode accept-edits --log-file {log}` and `denied: soft-denying`; cursor with `--force`.
+- Heat: the probe reads the hottest thermal zone; `machines.<m>.heat: {cap_c, stop_c, hot_slots}` caps a hot machine to
+  `hot_slots` runs and refuses new runs when very hot, so routing falls over. `tutti machines` and the dashboard show
+  the temperature.
+- `test.prepare: [{when, run}]`: steps a command needs first (the e2e build before Playwright), put in front once by
+  `tutti test` and routed checks.
+- `{changed}` and `{changed:ts,js}` in check commands: the changed files reach a check that runs on another machine.
+- Coverage: a check that turns coverage off (`coverage.enabled=false`, `--no-cov`, in the command or the script it
+  runs, or `coverage: false`) is reported as "coverage NOT checked" by `tutti ship` and the run report.
+- `tutti pr review <n>`: requests Copilot (REST) and CodeRabbit (`@coderabbitai review`), says at once when a request is
+  refused or CodeRabbit answers "Review limit reached", waits `review.timeout_minutes`, then has the first available
+  `review.fallback` worker whose account has room review the diff in an empty folder, and posts its findings as a
+  comment (`--no-post` prints them).
+- Usage: `stale_hours` (default 2) reminders for accounts read by hand, in `tutti usage` and on the dashboard;
+  `reading_file`, a file an orchestrator writes its % to, logged once per version; "use it: N bounded task(s) can go
+  to <worker> now" for an account behind its line (`task_pct`, default 2); cards say how and when an account was read.
+- The reading helper (`/helper`): a bookmarklet that reads the spend and the reset from the visible text of the
+  provider's usage page the owner has open (Cursor), and saves it through the dashboard with a per-install key. It never
+  reads cookies or tokens; when the page's text does not match it says so and opens the form.
+
+- Jobs found by themselves on the dashboard: `tutti job register|done` for any script; `dashboard.watch_scripts` (running
+  scripts by process, with the log their output goes to, its tail and progress); `dashboard.watch_agents` (cursor-agent,
+  agy, copilot by process: program and folder only, flagged "started outside Tutti" unless they work in a Tutti run
+  worktree or review folder); `dashboard.task_globs` (an agent session's background task outputs, by time only); and the
+  test containers holding a machine's slots (`machines.<m>.containers`, read by the probe).
+- `<state>/runs.jsonl`: every worker run with the account it spent; the dashboard shows runs per worker today. A tile
+  says where the next tasks go ("Next tasks go to: agy").
+- `accounts.<name>.enabled: false` keeps an account (an opt-in model) out of pacing, panic, routing and the dashboard; its
+  readings stay in the log. `note:` is shown on the card. One `reading_file` may hold several accounts.
+- The reading helper reads several meters of one page in one click (`helper_label`, e.g. Cursor's "Cursor Models" and
+  "Other Models"); the reset from the meter, else "limits reset <date>".
+- Copilot: a `github-premium` reader (`gh api /users/<login>/settings/billing/premium_request/usage`, `allowance`, the
+  month from the 1st UTC), `credits: true` sums the "AI Credits N" lines of Tutti's runs per window, and a reader that
+  fails says the CLI's own fix (`gh auth refresh -h github.com -s user`).
+
+### Fixed
+
+- Headless agy auto-denied every command outside its saved allow list ("jetski: ... auto-denied"): the example worker
+  passes its own list with `--settings` and `denied:` matches `auto-denied`.
+- `tutti test <track> echo -n x`: the command's own options are no longer read as options of tutti (FEEDBACK #4).
+- Cursor's usage page is `https://cursor.com/dashboard/spending`.
+
 ## 0.1.7 (2026-11-14)
 
 Files for other machines.

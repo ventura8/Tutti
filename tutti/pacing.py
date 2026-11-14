@@ -105,6 +105,7 @@ def latest(entries, account, since=None):
     return best
 
 
+STALE_HOURS = 2   # a reading typed or written by hand is old after this; the dashboard and `tutti usage` remind
 NO_READING = 'no reading'
 PANIC_AT = 95  # percent of the whole quota: at or over it before the target time, the account is in panic mode
 
@@ -132,6 +133,52 @@ def no_reading_action(name, a, src):
     return f'read it at {src}, then: tutti usage log {name} <percent>{tap}'
 
 
+TASK_PCT = 2   # what one bounded delegated task costs, in points of a quota (accounts.<name>.task_pct): a first guess
+
+
+def room_tasks(p, used, task_pct):
+    """How many bounded tasks an account behind its line (or late) can take now without going over the line: the points it
+    is short of, divided by the cost of one task. None when it is on pace or ahead."""
+    if p['verdict'] not in ('behind', 'late') or not task_pct:
+        return None
+    short = (p['budget'] - used) if p['verdict'] == 'late' else (p['expected'] - used)
+    return max(1, int(short // task_pct))
+
+
+def staleness(name, a, reading_at, now):
+    """(stale, the reminder or '') for an account no reader reads on its own: no reading, or the last one older than
+    accounts.<name>.stale_hours (default 2). An account with a reader command is read automatically: never stale (a plan
+    command gives only a label, not the % used, so it does not count)."""
+    if a.get('reader') or a.get('stale_hours') == 0:
+        return False, ''
+    hours = float(a.get('stale_hours', STALE_HOURS))
+    if reading_at is not None and (now - reading_at).total_seconds() < hours * 3600:
+        return False, ''
+    age = 'no reading yet' if reading_at is None else f'the last reading is {(now - reading_at).total_seconds() / 3600:.1f} h old'
+    where = f' (or write it to {a["reading_file"]})' if a.get('reading_file') else ''
+    return True, f'{name}: {age}: tutti usage log {name} <percent>{where}'
+
+
+AUTO_SOURCES = ('reader', 'file', 'helper')
+
+
+def freshness(name, a, newest, now):
+    """How the account's newest reading came in and whether it needs a reminder: {stale, remind, auto, reading_source}."""
+    stale, remind = staleness(name, a, parse_time(newest['at']) if newest else None, now)
+    source = newest.get('source') if newest else None
+    return {'stale': stale, 'remind': remind, 'auto': bool(a.get('reader')) or source in AUTO_SOURCES, 'reading_source': source}
+
+
+def account_action(name, a, p, used, is_panic, room):
+    """What to do about the account now: the pace's action, the room for bounded tasks, or panic."""
+    if is_panic and p['verdict'] != 'spent':
+        return (f'panic: {used:g} % used before the target time: nothing new on {name}; '
+                'move bounded work to other accounts and local models')
+    if room:
+        return p['action'] + f'; use it: about {room} bounded task(s) can go to {a.get("worker") or name} now'
+    return p['action']
+
+
 def account_state(name, a, entries, now):
     """Everything known about one account now, as plain data: the window, the latest reading, the pace and panic.
     `state` is `ok`, `no reset` (the reset time or window is not in the config) or `no reading` (none in this window)."""
@@ -140,7 +187,8 @@ def account_state(name, a, entries, now):
     out = {'name': name, 'source': src, 'window': a.get('window'), 'share': a.get('share', 1.0), 'usage_url': a.get('usage_url'),
            'reset_from': None,
            'lead_hours': a.get('lead_hours', 1), 'panic_at': a.get('panic_at', PANIC_AT), 'used': None, 'expected': None,
-           'verdict': 'unknown', 'panic': False, 'reset': None, 'target': None, 'window_start': None, 'reading_at': None, 'readings': []}
+           'verdict': 'unknown', 'panic': False, 'reset': None, 'target': None, 'window_start': None, 'reading_at': None, 'readings': [],
+           'stale': False, 'remind': '', 'auto': False, 'reading_source': None, 'room_tasks': None, 'note': a.get('note')}
     anchor = reading_anchor(entries, name)
     if anchor:
         out['reset_from'] = 'reading'
@@ -154,15 +202,14 @@ def account_state(name, a, entries, now):
     out.update(reset=reset.isoformat(), target=target.isoformat(), window_start=start.isoformat(),
                readings=readings(entries, name, start))
     e = latest(entries, name, start)
+    out.update(freshness(name, a, latest(entries, name), now))
     if not e:
         return {**out, 'state': NO_READING, 'verdict': NO_READING, 'action': no_reading_action(name, a, src)}
     used = float(e['used'])
     p = pace(now, start, reset, used, out['lead_hours'])
     is_panic = panic(used, now, target, out['panic_at'])
-    action = p['action']
-    if is_panic and p['verdict'] != 'spent':
-        action = (f'panic: {used:g} % used before the target time: nothing new on {name}; '
-                  'move bounded work to other accounts and local models')
+    out['room_tasks'] = room_tasks(p, used, a.get('task_pct', TASK_PCT))
+    action = account_action(name, a, p, used, is_panic, out['room_tasks'])
     return {**out, 'state': 'ok', 'used': used, 'expected': round(p['expected'], 1), 'verdict': p['verdict'], 'action': action,
             'panic': is_panic, 'reading_at': parse_time(e['at']).isoformat()}
 

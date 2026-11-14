@@ -44,8 +44,19 @@ def usage_state(cfg, now):
         problem = None
     except (OSError, ValueError) as e:
         entries, problem = [], f'{path} could not be read ({e}): fix or move the broken line, then `tutti usage` to check'
-    accounts = [pacing.account_state(n, a, entries, now) for n, a in cfg['accounts'].items()]
+    accounts = [with_credits(cfg, pacing.account_state(n, a, entries, now), a or {}) for n, a in cfg['accounts'].items()]
     return {'log': path, 'problem': problem, 'accounts': accounts}
+
+
+def with_credits(cfg, s, a):
+    """For an account with `credits: true` (Copilot): the AI credits its runs printed in this window, from Tutti's run and
+    quiet logs. Runs started outside Tutti are not counted; the plan's own report (a reader) is the full picture."""
+    from . import readers
+    if a.get('credits') and s.get('window_start'):
+        folder = config.expand(cfg['project']['state'])
+        s['credits_used'] = readers.credits_since([os.path.join(folder, 'runs'), os.path.join(folder, 'quiet')],
+                                                  pacing.parse_time(s['window_start']))
+    return s
 
 
 # ---- machines
@@ -68,7 +79,8 @@ def machine_state(m, p, rank):
             'busy': None if free is None else slots - free, 'load': p.load if p.reachable else None,
             'cores': p.cores if p.reachable else None,
             'reachable': p.reachable, 'paused': p.yielding, 'status': status, 'reason': reason or 'fit: takes the next run', 'rank': rank,
-            'min_free_gb': m['min_free_gb']}
+            'min_free_gb': m['min_free_gb'], 'temp_c': p.temp if p.reachable else None, 'heat': m.get('heat'),
+            'containers': list(getattr(p, 'containers', []) or [])}
 
 
 def machines_state(cfg, probe_fn, stored_fn=None):
@@ -248,15 +260,19 @@ def status_of(running, updated, rc, now, stall):
     return 'done' if rc == 0 else 'failed'
 
 
+JOB_TITLES = {'quiet': 'quiet run', 'ship': 'ship check', 'files': 'file transfer', 'run': 'delegated run'}
+
+
 def log_job(path, kind, now, stall, is_alive):
     m = LOG_NAME.match(os.path.basename(path))
     started, pid = (int(m.group(1)), int(m.group(2))) if m else (None, None)
+    pid = read_rc(path + '.pid') or pid   # a background run names its own process (the starter's pid is in the name)
     # A progress report is activity too: a long copy that only moves its byte counter is not stalled.
     updated = max((t for t in (mtime(path), mtime(path + '.progress')) if t), default=None)
     # The result first: a ship check's pid is the ship process, which lives on through later checks and the deploy.
     rc = read_rc(path + '.rc')
     running = rc is None and bool(pid) and is_alive(pid)
-    title = read_first_line(path + '.cmd') or {'quiet': 'quiet run', 'ship': 'ship check', 'files': 'file transfer'}[kind]
+    title = read_first_line(path + '.cmd') or JOB_TITLES[kind]
     lines = tail(path)
     status = status_of(running, updated, rc, now, stall)
     prog = progress(path, lines)
@@ -320,6 +336,35 @@ def pid_jobs(folder, is_alive):
     return out
 
 
+def found_jobs(cfg, folder, now, stall, is_alive, known):
+    """Work started outside tutti (discover.py): registered jobs, watched scripts, agent CLIs, background task outputs.
+    A process already shown (a registered job, a quiet run) is not shown twice."""
+    from . import discover  # discover imports this module
+    seen = {j['pid'] for j in known if j.get('pid')}
+    out = []
+    for j in discover.registered_jobs(os.path.join(folder, 'jobs'), now, stall, is_alive):
+        out.append(j)
+        seen.add(j['pid'])
+    try:
+        procs = discover.script_jobs(cfg, now, stall)
+    except OSError:
+        procs = []
+    out += [j for j in procs if j['pid'] not in seen]
+    return out + discover.task_jobs(cfg, now)
+
+
+def remote_jobs(machines):
+    """The test containers the last probe saw running on each machine (they hold its slots)."""
+    out = []
+    for m in machines:
+        for c in m.get('containers') or []:
+            name, _, age = c.partition(' ')
+            out.append({'id': f'remote:{m["name"]}:{name}', 'kind': 'remote', 'title': f'{name} on {m["name"]} (started {age})',
+                        'pid': None, 'log': None, 'started': None, 'updated': None, 'idle_seconds': None, 'rc': None,
+                        'status': 'running', 'tail': [], 'progress': None})
+    return out
+
+
 ORDER = {'stalled': 0, 'running': 1, 'failed': 2, 'ended': 3, 'done': 4}
 
 
@@ -330,8 +375,10 @@ def jobs_state(cfg, now, is_alive=alive):
     items = [log_job(p, 'quiet', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'quiet', '*.log'))]
     items += [log_job(p, 'ship', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'ship-*.log'))]
     items += [log_job(p, 'files', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'files', '*.log'))]
+    items += [log_job(p, 'run', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'runs', '*.log'))]
     items += wait_jobs(os.path.join(folder, 'waits'), now, stall, is_alive)
     items += pid_jobs(folder, is_alive)
+    items += found_jobs(cfg, folder, now, stall, is_alive, items)
     items.sort(key=lambda j: (ORDER.get(j['status'], 9), -(datetime.fromisoformat(j['updated']).timestamp() if j['updated'] else 0)))
     return {'folder': folder, 'stall_seconds': stall, 'items': items[:MAX_JOBS], 'total': len(items)}
 
@@ -347,6 +394,7 @@ def summary(usage, machines, workers, jobs, nxt=None):
             'machines_offline': [m['name'] for m in machines if m['status'] == 'offline'],
             'workers_ready': sum(1 for w in workers['items'] if w['ready']), 'workers': len(workers['items']),
             'running': sum(1 for j in jobs['items'] if j['status'] == 'running'),
+            'outside': sum(1 for j in jobs['items'] if j.get('outside')),
             'stalled': sum(1 for j in jobs['items'] if j['status'] == 'stalled')}
 
 
@@ -359,11 +407,19 @@ def assemble(cfg, probes, now=None, is_alive=alive):
     machines = probes.get('machines') or []
     workers = probes.get('workers') or {'items': [], 'agents': []}
     jobs = jobs_state(cfg, now_ts, is_alive)
+    remote = remote_jobs(machines)
+    jobs['items'] = remote + jobs['items']
+    jobs['total'] += len(remote)
     return {'version': __version__, 'generated_at': now_dt.isoformat(), 'config': cfg['_path'],
             'refresh_seconds': cfg['dashboard']['refresh_seconds'], 'usage': usage,
             'machines': {'probed_at': iso(probes.get('machines_at')), 'items': machines},
             'workers': {'probed_at': iso(probes.get('workers_at')), **workers}, 'jobs': jobs,
-            'summary': summary(usage, machines, workers, jobs, next_worker(cfg, usage['accounts']))}
+            'summary': {**summary(usage, machines, workers, jobs, next_worker(cfg, usage['accounts'])), 'runs_today': runs_today(cfg)}}
+
+
+def runs_today(cfg):
+    from . import delegate  # delegate imports modules that import this one
+    return delegate.runs_today(cfg)
 
 
 def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, stored_fn=None):

@@ -5,6 +5,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -12,11 +13,14 @@ from . import (
     __version__,
     config,
     dashboard,
+    delegate,
+    discover,
     files,
     local,
     pacing,
     readers,
     remote,
+    review,
     routing,
     ship,
     state,
@@ -71,11 +75,15 @@ def cmd_machines(cfg, a):
     for name, m in cfg['machines'].items():
         p = remote.probe(m)
         state = routing.unfit(m, p) or 'fit'
-        print(f'{name:12} {m["transport"]:5} slots {p.free}/{m["slots"]}  load {p.load:g}/{p.cores}  {state}')
+        heat = f'  {p.temp:.0f} C' if p.temp is not None else ''
+        print(f'{name:12} {m["transport"]:5} slots {p.free}/{m["slots"]}  load {p.load:g}/{p.cores}{heat}  {state}')
     return 0
 
 
 def cmd_test(cfg, a):
+    if not a.command:
+        say('name the command: tutti test <track> <command ...> (or one quoted string)')
+        return 2
     src = config.expand(a.dir) if a.dir else os.path.join(config.expand(cfg['project']['worktrees']), a.track)
     if not os.path.isdir(src):
         say(f'no work tree at {src}: create the worktree for track "{a.track}" there, or pass --dir <path>')
@@ -135,13 +143,24 @@ def cmd_usage(cfg, a):
     now = pacing.parse_time(a.at) if a.at else datetime.now(timezone.utc)
     if a.action in ('read', 'refresh'):
         read_now(cfg, path, now)
+    for problem in readers.record_files(path, cfg['accounts'])[1]:
+        say(problem)
     if a.action == 'log':
+        if a.account in cfg['disabled_accounts'] and a.percent is not None:
+            pacing.append_log(path, a.account, float(a.percent), now, a.note, resets=a.resets)
+            say(f'{a.account} is turned off (enabled: false in {cfg["_path"]}): the reading is kept in the log but not used')
+            return 0
         if a.account not in cfg['accounts'] or a.percent is None:
             names = ', '.join(cfg['accounts']) or '(none)'
             say(f'usage: tutti usage log <account> <percent> [--resets <ISO time>]; the accounts are {names}')
             return 2
         pacing.append_log(path, a.account, float(a.percent), now, a.note, resets=a.resets)
-    print(pacing.report(cfg['accounts'], pacing.read_log(path), now))
+    entries = pacing.read_log(path)
+    print(pacing.report(cfg['accounts'], entries, now))
+    for name, acc in cfg['accounts'].items():
+        s = pacing.account_state(name, acc, entries, now)
+        if s.get('remind'):
+            say(f'reminder: {s["remind"]}')
     return 0
 
 
@@ -165,7 +184,7 @@ def cmd_run(cfg, a):
             say(f'run auto: {pick["reason"]}')
             return 3
         say(f'run auto: {pick["worker"]} {" ".join(pick["args"])} ({pick["reason"]})'.replace('  ', ' '))
-        a.worker, extra = pick['worker'], pick['args']
+        a.worker, extra, a.account = pick['worker'], pick['args'], pick['account']
     worker_of(cfg, a.worker, 'cli')
     if a.input and not a.on:
         say('run --input: name the machine the inputs go to with --on <machine> (the worker then finds them there)')
@@ -173,6 +192,8 @@ def cmd_run(cfg, a):
     if a.show:
         print(workers.brief(cfg, a.task, a.files))
         return 0
+    if a.repo:
+        return run_delegated(cfg, a, extra)
     with job_inputs(cfg, machine_of(cfg, a.on) if a.input else None, a.input) as base:
         if base:
             names = ', '.join(os.path.basename(os.path.abspath(p).rstrip(os.sep)) for p in a.input)
@@ -182,15 +203,105 @@ def cmd_run(cfg, a):
 
 def run_worker(cfg, a, extra):
     rc, lines = workers.run(cfg, a.worker, a.task, a.files, cwd=a.dir, extra=extra)
+    note_limits(cfg, a.worker, lines)
+    delegate.log_run(cfg, a.worker, getattr(a, 'account', None) or state.account_of_worker(cfg, a.worker), rc, None, lines)
+    return rc
+
+
+def run_in_background(cfg, a, extra):
+    """`tutti run ... --bg`: the same run, detached, its output in the run's log; prints the id and the wait line at once."""
+    run_id = delegate.new_id(cfg)
+    p = delegate.paths(cfg, run_id)
+    argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', a.worker, a.task, *a.files, '--repo', a.repo, '--id', run_id]
+    argv += [f'--extra={x}' for x in extra]
+    argv += [flag for flag, on in (('--no-checks', a.no_checks), ('--discard', a.discard)) if on]
+    argv += ['--track', a.track] if a.track else []
+    os.makedirs(os.path.dirname(p['log']), exist_ok=True)
+    with open(p['log'], 'a', encoding='utf8') as log:
+        child = subprocess.Popen(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
+    with open(p['pid'], 'w', encoding='utf8') as f:
+        f.write(f'{child.pid}\n')
+    print(f'run {run_id} started in the background (pid {child.pid}); wait for it with: tutti wait run {run_id}')
+    return 0
+
+
+def run_delegated(cfg, a, extra):
+    """`tutti run <worker> "<task>" --repo <repo>`: worktree, headless worker, diff, targeted checks, report."""
+    extra = [*extra, *(a.extra or [])]
+    if a.bg:
+        return run_in_background(cfg, a, extra)
+    r = delegate.delegate(cfg, a.worker, a.task, a.files, a.repo, run_id=a.id, track=a.track, extra=extra,
+                          checks=not a.no_checks, discard=a.discard)
+    with open(delegate.paths(cfg, r['id'])['rc'], 'w', encoding='utf8') as f:
+        f.write(f'{r["rc"]}\n')
+    with open(delegate.paths(cfg, r['id'])['log'], encoding='utf8', errors='replace') as f:
+        lines = f.read().splitlines()[-workers.KEEP_LINES:]
+    note_limits(cfg, a.worker, lines)
+    delegate.log_run(cfg, a.worker, getattr(a, 'account', None) or state.account_of_worker(cfg, a.worker), r['rc'], r['id'], lines)
+    with open(r['report'], encoding='utf8') as f:
+        print(f.read().rstrip())
+    return r['rc']
+
+
+def note_limits(cfg, worker, lines):
+    """A usage-limit message in the worker's output logs its account as spent."""
     now = datetime.now(timezone.utc)
-    cmd_text = ' '.join(cfg['workers'][a.worker]['command'])
-    hits = readers.scan_text(cfg['accounts'], cmd_text, lines, now, f'run-{a.worker}-{int(now.timestamp())}')
+    cmd_text = ' '.join(cfg['workers'][worker]['command'])
+    hits = readers.scan_text(cfg['accounts'], cmd_text, lines, now, f'run-{worker}-{int(now.timestamp())}')
     if hits:
         readers.record(usage_log_path(cfg), {}, hits, now)
         for name, reset, _ref, _text in hits[:1]:
-            say(f'{a.worker} hit a usage limit: {name} is logged as spent'
+            say(f'{worker} hit a usage limit: {name} is logged as spent'
                 + (f' until {reset.isoformat()}' if reset else ' (no reset time in its message)') + '; send new work to other workers')
-    return rc
+
+
+def cmd_pr(cfg, a):
+    """`tutti pr review <n>`: reviewers, the wait, the fallback review."""
+    return review.review(cfg, a.number, a.repo, a.timeout, post=not a.no_post, say=say)
+
+
+def cmd_job(cfg, a):
+    """`tutti job register|done`: a script outside tutti shows on the dashboard with its log, progress and result."""
+    folder = os.path.join(config.state_dir(cfg), 'jobs')
+    pid = a.pid or os.getppid()
+    if a.action == 'register':
+        path = discover.register(folder, pid, a.title or f'job {pid}', a.log)
+        say(f'job {pid} registered ({path})')
+        return 0
+    if a.rc is None:
+        say('job done needs the result: tutti job done --pid <pid> --rc <exit code>')
+        return 2
+    if not discover.finish(folder, pid, a.rc):
+        say(f'no job {pid} in {folder}: register it first (tutti job register --pid {pid} --title ...)')
+        return 1
+    return 0
+
+
+def cmd_runs(cfg, a):
+    """`tutti runs`: the delegated runs; `show <id>` prints a report, `discard <id>` removes its worktree."""
+    if a.action == 'list':
+        print(delegate.listing(cfg))
+        return 0
+    if not a.id or not delegate.valid_id(a.id):
+        say(f'name the run by its id: tutti runs {a.action} <id> (tutti runs lists them)')
+        return 2
+    r = delegate.load_report(cfg, a.id)
+    if not r:
+        say(f'no report for run {a.id} in {delegate.runs_dir(cfg)}: it may still be running (tutti wait run {a.id})')
+        return 1
+    if a.action == 'show':
+        with open(delegate.paths(cfg, a.id)['report'], encoding='utf8') as f:
+            print(f.read().rstrip())
+        return 0
+    wt = delegate.own_worktree(cfg, r.get('worktree'))
+    if not wt:
+        say(f'run {a.id}: its report names a worktree outside {cfg["project"]["worktrees"]}: nothing removed')
+        return 1
+    if os.path.isdir(wt):
+        delegate.remove_tree(wt, say)
+    else:
+        say(f'run {a.id}: its worktree {wt} is already gone')
+    return 0
 
 
 def cmd_ask(cfg, a):
@@ -280,17 +391,73 @@ def cmd_tunnel(cfg, a):
     return subprocess.run([os.path.join(SCRIPTS, 'tunnel.sh'), a.action, a.worker, w['host'], t['ssh'], t['remote']], env=env).returncode
 
 
-def cmd_wait(cfg, a):
+def wait_run_args(cfg, a):
+    """`tutti wait run <id>`: a delegated run is done when its .rc file appears; its log is what stalls. A run whose process
+    is gone without an .rc file ended badly and is reported at once instead of waited on until the timeout."""
+    if not delegate.valid_id(a.target):
+        raise config.ConfigError(f'"{a.target}" is not a run id (<time>-<pid>): `tutti runs` lists the runs')
+    p = delegate.paths(cfg, a.target)
+    if not os.path.exists(p['log']):
+        raise config.ConfigError(f'no run {a.target} in {delegate.runs_dir(cfg)}: `tutti runs` lists the runs')
+    a.stall_file = a.stall_file or p['log']
+    a.stall_watch = [a.stall_file, p['dir']]   # the run's log and its folder, where each check writes its own log
+    a.stall = float(cfg['dashboard']['stall_minutes']) * 60 if a.stall is None else a.stall   # --stall 0: off
+    pid = state.read_rc(p['pid'])
+    gone = waiting.pid_gone(pid) if pid else (lambda: False)
+    return lambda: os.path.exists(p['rc']) or gone(), p['rc']
+
+
+def finished_line(cfg, a, started):
+    """The one notification line when a wait ends well: what, after how long, and for a run its verdict and report."""
+    took = f'{time.monotonic() - started:.0f} s'
+    if a.kind != 'run':
+        return f'done: {a.kind} {a.target}{" " + a.pattern if a.pattern else ""} after {took}', 0
+    p = delegate.paths(cfg, a.target)
+    rc = state.read_rc(p['rc'])
+    r = delegate.load_report(cfg, a.target)
+    if rc is None or not r:
+        return f'run {a.target} ended after {took} without a report: its process is gone; read {p["log"]}', 1
+    checks = r['checks'] or []
+    failed = sum(1 for c in checks if c['rc'] != 0)
+    nocov = ' (coverage not checked)' if any(c['coverage'] for c in checks) else ''
+    tested = 'not tested' if r['checks'] is None or not checks else f'checks {len(checks) - failed}/{len(checks)} passed{nocov}'
+    return (f'run {a.target} done after {took}: {r["worker"]} rc {r["worker_rc"]}, {len(r["changed"])} file(s), {tested}'
+            f'{", DENIED tool calls" if r["denied"] else ""}; report {r["report"]}'), rc
+
+
+def wait_check(cfg, a):
+    """(the done check, the target as recorded) for one kind of wait."""
+    if a.kind == 'run':
+        return wait_run_args(cfg, a)
     checks = {'pid': lambda: waiting.pid_gone(a.target), 'file': lambda: waiting.file_exists(a.target),
               'grep': lambda: waiting.file_matches(a.target, a.pattern or '')}
+    # Absolute paths: the dashboard reads the record from its own working directory.
+    return checks[a.kind](), a.target if a.kind == 'pid' else os.path.abspath(a.target)
+
+
+def wait_ended(cfg, a, ended, seen, started):
+    """The exit code and the one line a wait ends with."""
+    if ended and seen:
+        line, rc = finished_line(cfg, a, started)
+        print(line)
+        return rc
+    if ended:
+        say(f'wait {a.kind} {a.target}: {a.stall_file or a.target} has not changed for {a.stall:g} s; the job looks stalled: '
+            'read its log, then stop or restart it (do not wait again on the same job)')
+        return 125
+    say(f'wait {a.kind} {a.target}: not seen within {a.timeout:g} s; the thing waited for may have failed: look at its log')
+    return 124
+
+
+def cmd_wait(cfg, a):
     if a.kind == 'grep' and not a.pattern:
         say('wait grep needs a pattern: tutti wait grep <file> <regex>')
         return 2
-    done = checks[a.kind]()
-    stall = waiting.stalled(a.stall_file or a.target, a.stall) if a.stall else (lambda: False)
+    started = time.monotonic()
+    done, target = wait_check(cfg, a)
+    watched = getattr(a, 'stall_watch', None) or a.stall_file or a.target
+    stall = waiting.stalled(watched, a.stall) if a.stall else (lambda: False)
     seen = []
-    # Absolute paths: the dashboard reads the record from its own working directory.
-    target = a.target if a.kind == 'pid' else os.path.abspath(a.target)
     watch = os.path.abspath(a.stall_file) if a.stall_file else target
     record = waiting.register(os.path.join(config.state_dir(cfg), 'waits'), {
         'kind': a.kind, 'target': target, 'pattern': a.pattern or '', 'watch': watch, 'timeout': a.timeout, 'stall': a.stall})
@@ -304,14 +471,7 @@ def cmd_wait(cfg, a):
         ended = waiting.until(check, a.timeout, a.poll)
     finally:
         waiting.unregister(record)
-    if ended:
-        if seen:
-            return 0
-        say(f'wait {a.kind} {a.target}: {a.stall_file or a.target} has not changed for {a.stall:g} s; the job looks stalled: '
-            'read its log, then stop or restart it (do not wait again on the same job)')
-        return 125
-    say(f'wait {a.kind} {a.target}: not seen within {a.timeout:g} s; the thing waited for may have failed: look at its log')
-    return 124
+    return wait_ended(cfg, a, ended, seen, started)
 
 
 def cmd_translate(cfg, a):
@@ -429,7 +589,8 @@ def parser():
     s.add_argument('--input', action='append', metavar='PATH',
                    help='a file or folder the job needs: copied to the machine\'s cache first, its folder in $TUTTI_INPUTS (repeat it)')
     s.add_argument('track')
-    s.add_argument('command', nargs='+')
+    # REMAINDER: `tutti test t echo -n x` keeps -n for the command instead of reading it as an option of tutti (FEEDBACK #4)
+    s.add_argument('command', nargs=argparse.REMAINDER)
     s = add('rsh', cmd_rsh, 'remote-shell shim for git and rsync on a WSL machine (internal)')
     s.add_argument('machine')
     s.add_argument('args', nargs=argparse.REMAINDER)
@@ -459,6 +620,30 @@ def parser():
     s.add_argument('--show', action='store_true', help='print the brief and stop')
     s.add_argument('--input', action='append', metavar='PATH', help='a file or folder to copy to the --on machine first (repeat it)')
     s.add_argument('--on', help='the machine --input files go to')
+    s.add_argument('--repo', help='hand the task off end to end: a worktree of this repo, the worker headless, the diff, the checks, '
+                                  'a report (tutti runs show <id>)')
+    s.add_argument('--track', help='with --repo: reuse or create the worktree <delegate.prefix><track> instead of a new one')
+    s.add_argument('--bg', action='store_true', help='with --repo: run detached; prints the id for `tutti wait run <id>`')
+    s.add_argument('--no-checks', action='store_true', help='with --repo: skip the checks (the report says nothing was tested)')
+    s.add_argument('--discard', action='store_true', help='with --repo: remove a new worktree after the report (the diff file stays)')
+    s.add_argument('--id', help=argparse.SUPPRESS)
+    s.add_argument('--extra', action='append', help=argparse.SUPPRESS)
+    s = add('pr', cmd_pr, 'pull requests: `pr review <n>` asks the reviewers, says when none will come, and falls back to a local '
+                          'review by a cheap worker posted to the pull request')
+    s.add_argument('action', choices=['review'])
+    s.add_argument('number', type=int)
+    s.add_argument('--repo', help='owner/name (default: the repository of the current directory)')
+    s.add_argument('--timeout', type=float, help='minutes to wait for the reviewers (default: review.timeout_minutes)')
+    s.add_argument('--no-post', action='store_true', help='print the fallback review instead of posting it')
+    s = add('job', cmd_job, 'register a script\'s run for the dashboard (`job register --title t`), and its result (`job done --rc n`)')
+    s.add_argument('action', choices=['register', 'done'])
+    s.add_argument('--pid', type=int, help='the process (default: the caller, the shell that runs tutti)')
+    s.add_argument('--title', help='what the job does')
+    s.add_argument('--log', help='its log (default: where the process\'s standard output goes, when that is a file)')
+    s.add_argument('--rc', type=int, help='job done: the exit code')
+    s = add('runs', cmd_runs, 'the delegated runs: list, show <id> (the report), discard <id> (removes its worktree)')
+    s.add_argument('action', nargs='?', default='list', choices=['list', 'show', 'discard'])
+    s.add_argument('id', nargs='?')
     s = add('ask', cmd_ask, 'a short answer from a local model about files or stdin')
     s.add_argument('worker')
     s.add_argument('instruction')
@@ -491,12 +676,12 @@ def parser():
     s.add_argument('action', choices=['start', 'stop', 'status'])
     s.add_argument('worker')
     s = add('wait', cmd_wait, 'wait for a pid to end, a file to appear or a line in a log; always with a timeout')
-    s.add_argument('kind', choices=['pid', 'file', 'grep'])
+    s.add_argument('kind', choices=['pid', 'file', 'grep', 'run'], help='run: a `tutti run --repo --bg` id; ends with its verdict')
     s.add_argument('target')
     s.add_argument('pattern', nargs='?')
     s.add_argument('--timeout', type=float, default=3600)
     s.add_argument('--poll', type=float, default=2)
-    s.add_argument('--stall', type=float, default=0, help='give up (exit 125) when the log has not changed for this many seconds')
+    s.add_argument('--stall', type=float, default=None, help='give up (exit 125) when the log has not changed for this many seconds')
     s.add_argument('--stall-file', help='the log watched by --stall (default: the target)')
     s = add('translate', cmd_translate, 'translate a flat JSON catalogue with mandatory QA; --check verifies an output\'s report')
     s.add_argument('source')

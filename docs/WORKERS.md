@@ -16,14 +16,53 @@ in a day; `tutti usage` tracks them like any account.
 
 ## The CLI agents
 
-Configured under `workers:` with `kind: cli` and a command list; `{prompt}` is replaced by the brief as one argument.
+Configured under `workers:` with `kind: cli` and a command list; `{prompt}` is replaced by the brief as one argument,
+`{log}` by a log file of this run (a `--flag {log}` pair is dropped when there is none). `denied:` is a regex for the
+CLI's own permission refusals: a headless CLI that denies a tool call still exits 0, so `tutti run --repo` scans its
+output and `{log}` for this pattern and reports every hit as DENIED. All three run headless with stdin closed.
 
-- **Cursor**: `cursor-agent -p "<brief>" --trust --output-format text`.
-- **Google Antigravity**: `agy -p "<brief>" --print-timeout 600s` (`--mode plan` for a read-only pass). Gemini CLI's
-  free tier is closed, so Antigravity's CLI is the Google worker; see [LESSONS.md](LESSONS.md).
+- **Cursor**: `cursor-agent -p "<brief>" --trust --force --output-format text` (`--force`: commands run without a prompt
+  unless explicitly denied; `--mode ask` for a read-only pass).
+- **Google Antigravity**: `agy -p "<brief>" --print-timeout 600s --mode accept-edits --log-file {log}`, with
+  `denied: 'soft-denying'` (`--mode plan` for a read-only pass). Headless, agy allows only the commands in
+  `permissions.allow` of `~/.gemini/antigravity-cli/settings.json` (`command(grep)`, ...) and soft-denies the rest; its log
+  says `soft-denying tool confirmation "Bash"`. For one run, add `--settings '{"permissions":{"allow":["command(npx)"]}}'`:
+  it **replaces** the saved list for that session (agy 1.5.9), so list every command the task needs. Gemini CLI's free
+  tier is closed, so Antigravity's CLI is the Google worker; see [LESSONS.md](LESSONS.md).
+  agy 1.5.9 headless prints `jetski: ... a tool required the "command" permission ... auto-denied` for a command outside
+  the list; match it with `denied: 'auto-denied|soft-denying'`.
+- **GitHub Copilot CLI**: `copilot -p "<brief>" --allow-all-tools --no-ask-user -s`.
 - **Claude**: `claude -p "<brief>"`.
 
 A person installs each CLI and signs in once. Tutti never types a credential.
+
+## One entry point
+
+An orchestrator never starts `cursor-agent`, `agy` or `copilot` itself: `tutti run auto "<task>" --repo <repo>` picks the
+account with room (behind its line first, never one ahead while another is behind, never panic or spent), runs it
+headless with its allow list, logs the run with its account (`<state>/runs.jsonl`) and reads limit messages. The
+dashboard flags agent processes it finds working outside a Tutti folder.
+
+## Hand off a task end to end
+
+`tutti run <worker|auto> "<task>" [files] --repo <repo> [--bg] [--track <name>] [--discard] [--no-checks]`:
+
+1. a worktree of `<repo>` at its HEAD, detached, at `<project.worktrees>/<delegate.prefix><id>` (or `<prefix><track>`,
+   reused when it exists); the dependency folders of `ship.share` are hard-linked from the main checkout;
+2. the worker, headless, in that worktree, on the brief below; its output goes to the run's log;
+3. the diff of everything it changed or added, as one patch file, and the list of changed paths;
+4. the checks (`delegate.checks`, default `ship.checks`) with `$TUTTI_CHANGED`; a routed check (`where: route`) runs on
+   the first fit machine in a copy named `delegate.remote_track` (one run at a time per copy; `--track` gives a run its
+   own) and gets the list through `{changed}` or `{changed:ts,js}` in its command (space-separated, like
+   `$TUTTI_CHANGED`: a path with a space in its name is split; such repositories need a check that reads the list from git);
+5. a report (`tutti runs show <id>`): the changed files, the diff's path, each check's verdict and log, **"coverage NOT
+   checked"** when a check turns coverage off (seen in the command or the script it runs, or `coverage: false`), DENIED
+   tool calls, and the lines to review, apply or discard.
+
+Exit 0 only when the worker finished, changed something, nothing was denied and every check passed. With `--bg` it
+prints the id at once; `tutti wait run <id> --timeout 1800` ends with one line (the verdict and the report's path), or
+exit 125 when the run's log stops changing (`--stall`, default `dashboard.stall_minutes`). The worker never commits:
+apply the patch in your tree (`git apply --index <diff>`), then `tutti ship`.
 
 ## The brief
 

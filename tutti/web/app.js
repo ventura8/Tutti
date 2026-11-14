@@ -89,16 +89,31 @@ function quotaTile(s) {
     return tile('Quota', 'On pace', (missing ? `${read} paced · ${missing} without a reading` : `${read} accounts paced`) + nextNote(t));
 }
 
+function nextTile(t) {
+    const n = t.next_worker;
+    if (!n) return tile('Next tasks go to', '—', 'No agent account names a worker');
+    if (!n.worker) return tile('Next tasks go to', 'a local model', n.reason, 'warn');
+    return tile('Next tasks go to', n.worker, `${n.account}: ${n.reason}`, 'ok');
+}
+
+function workersNote(t) {
+    const runs = Object.entries(t.runs_today || {}).map(([w, n]) => `${w} ${n}`).join(', ');
+    const parts = [runs ? `runs today: ${runs}` : 'no runs today'];
+    if (t.outside) parts.push(`${plural(t.outside, 'agent')} started outside Tutti: use tutti run auto`);
+    if (t.workers_ready < t.workers) parts.push('some are down: see Workers');
+    return parts.join(' · ');
+}
+
 function renderTiles(s) {
     const t = s.summary;
     $('tiles').replaceChildren(
+        nextTile(t),
         quotaTile(s),
         tile('Free slots', `${t.free_slots} / ${t.slots}`,
             t.machines_offline.length ? `Offline: ${t.machines_offline.join(', ')}` : plural(s.machines.items.length, 'machine'),
             t.machines_offline.length ? 'warn' : undefined),
         tile('Jobs', `${t.running} running`, t.stalled ? `${t.stalled} stalled: open its log` : 'none stalled', t.stalled ? 'warn' : undefined),
-        tile('Workers', `${t.workers_ready} / ${t.workers} ready`, t.workers_ready < t.workers ? 'Some are down: see Workers' : 'all ready',
-            t.workers_ready < t.workers ? 'warn' : undefined),
+        tile('Workers', `${t.workers_ready} / ${t.workers} ready`, workersNote(t), t.workers_ready < t.workers || t.outside ? 'warn' : undefined),
     );
 }
 
@@ -216,10 +231,13 @@ function readingForm(a) {
     return form;
 }
 
+const SOURCE = { reader: 'read automatically', file: 'written by the orchestrator', helper: 'read by the helper', 'limit message': 'from a limit message' };
+
 function autoLine(a) {
     if (a.reader_problem) return el('p', { class: 'account__auto', 'data-tone': 'bad', text: `Automatic reading failed: ${a.reader_problem}` });
     const parts = [];
-    if (a.auto_every_minutes) parts.push(`Read automatically every ${a.auto_every_minutes} min, no input needed`);
+    if (a.auto && a.reading_at) parts.push(`${SOURCE[a.reading_source] || 'read automatically'} · ${relative(a.reading_at)}`);
+    if (a.auto_every_minutes) parts.push(`every ${a.auto_every_minutes} min, no input needed`);
     if (a.plan) parts.push(`plan: ${a.plan}`);
     return parts.length ? el('p', { class: 'account__auto', text: parts.join(' · ') }) : null;
 }
@@ -260,6 +278,10 @@ function account(a, now) {
     }
     if (a.reset) card.append(sparkline(a, now));
     card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
+    if (a.room_tasks) card.append(el('p', { class: 'account__nudge', 'data-tone': 'ok', text: `Use it: ${a.room_tasks} bounded task(s) can go here now (tutti run auto "<task>" --repo <repo>)` }));
+    if (a.note) card.append(el('p', { class: 'account__note', text: a.note }));
+    if (a.credits_used !== undefined) card.append(el('p', { class: 'account__auto', text: `${a.credits_used} AI credits in this window from Tutti's runs` }));
+    if (a.stale) card.append(el('p', { class: 'account__remind', 'data-tone': 'warn', role: 'note', text: `Reminder: ${a.remind}` }));
     card.append(accountFacts(a), autoLine(a) || '', ui.editing.has(a.name) ? readingForm(a) : addButton(a));
     return card;
 }
@@ -267,11 +289,13 @@ function account(a, now) {
 function renderUsage(s, now, force) {
     const u = s.usage;
     // While a reading is being typed, the cards stay as they are: a poll must not wipe the form or move the focus.
-    if (ui.editing.size && !force) {
+    if (ui.editing.size && !force && !ui.formPending) {
         $('usage-meta').textContent = 'Paused while you add a reading';
         return;
     }
-    $('usage-meta').textContent = u.problem || `Readings from ${u.log}`;
+    ui.formPending = false;
+    const stale = u.accounts.filter((a) => a.stale).length;
+    $('usage-meta').textContent = u.problem || (stale ? `${plural(stale, 'account')} need a fresh reading · ` : '') + `Readings from ${u.log}`;
     $('usage').replaceChildren(...(u.accounts.length ? u.accounts.map((a) => account(a, now))
         : [empty('No accounts yet', codeText('Add an accounts: section to the config (see ', 'tutti.config.example.yaml', ').'))]));
 }
@@ -290,6 +314,10 @@ function machine(m) {
         const bar = el('span');
         bar.style.width = `${Math.min(100, (m.load / m.cores) * 100)}%`;
         stats.append(el('span', { class: 'load' }, el('span', { class: 'load__bar', 'aria-hidden': 'true' }, bar), `load ${m.load} / ${m.cores} cores`));
+    }
+    if (m.temp_c !== null && m.temp_c !== undefined) {
+        const hot = m.heat?.cap_c !== undefined && m.temp_c >= m.heat.cap_c;
+        stats.append(el('span', { class: 'temp', 'data-tone': hot ? 'warn' : undefined, text: `${Math.round(m.temp_c)} °C` }));
     }
     if (m.rank) stats.append(el('span', { text: `#${m.rank} in routing` }));
     return el('li', { class: 'row' },
@@ -456,6 +484,7 @@ function render() {
     renderWorkers(s);
     renderJobs(s);
     if (s.probe_error) showBanner(s.probe_error);
+    else if (ui.notice) showBanner(ui.notice);
     else if (!ui.failing) $('banner').hidden = true;
 }
 
@@ -556,7 +585,59 @@ function install() {
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
+// ---- the reading helper's bookmarklet opens /#reading=<json>: saved when it carries this install's key (the server checks it),
+// else (a page that opened the dashboard with a made-up reading, or nothing was found) shown in the form for the owner to save.
+async function postHelperReading(r, key) {
+    const body = { account: r.account, used: r.used, key, note: String(r.note || '').slice(0, 200) };
+    if (r.resets) body.resets = r.resets;
+    const res = await fetch('/api/reading', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify(body),
+    }).catch(() => null);
+    const answer = res ? await res.json().catch(() => ({})) : {};
+    return res?.ok ? '' : answer.error || 'the dashboard did not answer';
+}
+
+function openHelperForm(account, used, resets) {
+    ui.editing.set(account, { used: Math.round(typeof used === 'number' ? used : 0), resets: localInput(resets), note: '', msg: 'From the helper: check and save', tone: '' });
+    ui.formPending = true;   // the next render draws the form even though a form is "open"
+}
+
+async function fromHelper() {
+    const h = location.hash;
+    if (!h.startsWith('#reading=')) return;
+    history.replaceState(null, '', location.pathname);
+    let r;
+    try { r = JSON.parse(decodeURIComponent(h.slice('#reading='.length))); } catch { return; }
+    if (!r || typeof r.account !== 'string') return;
+    // one bookmarklet click may carry several meters of one page: {key, account, readings: [{account, used, resets, note}]}
+    const list = Array.isArray(r.readings) ? r.readings : [r];
+    const valid = list.filter((x) => x && typeof x.account === 'string' && typeof x.used === 'number');
+    if (!valid.length || !r.key) {
+        openHelperForm(r.account, valid[0]?.used, valid[0]?.resets);
+        if (r.key) banner('The helper found no reading on that page: type it in the form.');
+        return;
+    }
+    const saved = [];
+    for (const x of valid) {
+        const error = await postHelperReading(x, r.key);
+        if (error) {
+            banner(`The helper's reading for ${x.account} was not saved: ${error}. Check it in the form.`);
+            openHelperForm(x.account, x.used, x.resets);
+            return;
+        }
+        saved.push(`${x.account} ${x.used} %`);
+    }
+    banner(`Saved, read by the helper: ${saved.join(', ')}.`);
+}
+
+function banner(text) {
+    ui.notice = text;   // kept across polls until the page is reloaded
+    showBanner(text);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    void fromHelper().then(() => refresh());
+    window.addEventListener('hashchange', () => { void fromHelper().then(() => refresh()); });   // the dashboard tab was already open
     $('refresh').addEventListener('click', refresh);
     $('refresh-readings').addEventListener('click', refreshReadings);
     document.addEventListener('keydown', keys);

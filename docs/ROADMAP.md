@@ -10,13 +10,15 @@ v0.1.0 is the extraction of one project's working toolkit. The backlog is fed by
 - `tutti translate`: the rest of the original pipeline: several streams sharing one queue (`flock` claims), a second
   judge on a larger model for strings the first judge doubted, a per-locale glossary and register, locale punctuation
   fixes, catalogue formats beyond flat JSON.
-- `tutti worktree add|remove <track>`: create and clean worktrees, so a brief can name one.
+- `tutti worktree add|remove <track>`: create and clean worktrees, so a brief can name one. *Partly shipped in 0.1.8:*
+  `tutti run --repo` creates (or reuses with `--track`) a worktree per delegated task and `tutti runs discard` removes it.
 - `tutti lock <name> -- <cmd>`: named locks for devices and other things peers share.
 - A `limits` section in the config that renders the shared limits file for peers.
 
 ## Later
 
-- Heat guard (CPU and GPU temperature) beside the memory guard.
+- Heat guard (CPU and GPU temperature) beside the memory guard. *CPU heat shipped in 0.1.8* (`machines.<m>.heat`); GPU
+  temperature still to come.
 - A machine-readable `--json` output for `machines`, `usage` and `workers`.
 - macOS support for the orchestrator's side (the machines stay Linux).
 - Publishing: choose the licence, flip `private` in `package.json`, release on npm as `tutti-agents`.

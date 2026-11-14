@@ -40,8 +40,35 @@ window from then on: it beats the config's `resets`, which is only a first guess
 only when they say something new (a point or more, a moved reset, or an hour since the last one).
 
 `usage_url` is the provider's usage page: the dashboard's **Add a reading** opens it and a short form (the percent and
-the reset time, prefilled from the window rule), for what no CLI prints (Cursor's spend this month). `worker` names the
-worker whose card shows this account.
+the reset time, prefilled from the window rule), for what no CLI prints (Cursor's spend this month:
+`https://cursor.com/dashboard/spending`). `worker` names the worker whose card shows this account.
+
+Two more sources for what no CLI prints:
+
+- **A reading file** (`reading_file: <path>`): an orchestrator that knows an account's % from its own tool (Claude Code's
+  usage, which no CLI prints) writes `42`, or `{"used": 42, "resets": "2026-11-21T01:59Z"}`, to that file. `tutti usage`
+  and every dashboard probe log each new version of the file once (`source: file`). `tutti usage log claude 42` does the
+  same from a shell.
+- **The reading helper** (docs/DASHBOARD.md): a bookmarklet that reads the spend from the provider's page the owner has
+  open, signed in, and saves it in one click. It reads only the page's visible text, never cookies or tokens.
+
+**Opt-in accounts.** `enabled: false` keeps an account (a premium model you use only on request) out of pacing, panic,
+routing and the dashboard; `tutti usage log` still keeps its readings. `note:` is shown on the card (for example "includes
+your own IDE use, which Tutti does not start"). One `reading_file` can serve several accounts:
+`{"claude": {"used": 7, "resets": "..."}, "claude-fable": {"used": 0}}`.
+
+**Copilot.** `reader: {command: [gh, api, /users/<login>/settings/billing/premium_request/usage], format: github-premium,
+allowance: 300}` reads the month's premium requests (the gh token needs the `user` scope: `gh auth refresh -h github.com
+-s user`, a step for the owner). `credits: true` adds the "AI Credits N" that `copilot -p` prints at the end of each run,
+summed over the window from Tutti's own run logs (runs started elsewhere are not in it).
+
+**Stale readings.** An account with no `reader` is read by hand (or by the helper or a file). When it has no reading,
+or its newest is older than `stale_hours` (default 2; 0 turns the reminder off), `tutti usage` prints
+`reminder: <account>: ...: tutti usage log <account> <percent>` and the dashboard's card shows the same reminder.
+
+**Room for work.** An account `behind` its line (or `late`) says how many bounded tasks it can take now: the points it is
+short of divided by `task_pct` (default 2, the points one bounded task costs; tune it from your runs). The action and the
+dashboard card say "use it: about N bounded task(s) can go to <worker> now".
 
 ## Readings decide where work goes
 

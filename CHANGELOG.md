@@ -15,6 +15,8 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
   Releases before 0.9.2 have no signature (docs/INSTALL.md, *How a release is checked*).
 - The work browser's worker broker refuses a negative body size and closes silent connections.
 
+## 0.9.1 (2026-11-15)
+
 ### Fixed
 
 - Tasks parked before the needs-input queue existed get their one question (options and a default) at the dashboard's

@@ -201,8 +201,9 @@ def machines_state(cfg, probe_fn, stored_fn=None):
     def one(n):
         m = cfg['machines'][n]
         p = probe_fn(m)
-        out = machine_state(m, p, order.index(n) + 1 if n in order else None, now,
-                            idle if m.get('transport') == 'local' else None, quiet)
+        here = idle if m.get('transport') == 'local' else getattr(p, 'idle_s', None)   # remote: read by its probe
+        out = machine_state(m, p, order.index(n) + 1 if n in order else None, now, here, quiet)
+        out['idle_s'] = here
         out['stored'] = stored_fn(m) if stored_fn and p.reachable else None
         return out
     with ThreadPoolExecutor(max_workers=min(8, len(names))) as pool:

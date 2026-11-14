@@ -117,6 +117,9 @@ DEFAULTS = {
     # fleet: the household's local models as workers (docs/FLEET.md): every machine's Ollama is read and a machine with models
     # but no configured ollama worker gets `<machine>-local` (a tunnel from port_base on); memory_floor_gb: this computer
     # runs no local model with less memory free; enabled: false turns the discovery and the overflow routing off
+    # work_queue: compute jobs for machines whose model is busy or missing (docs/FLEET.md, The work queue): each job {name, run,
+    # project, repo, where (route, here or a machine), heavy, every (commit or 6h), ref, share, findings {pattern, title, size}}
+    'work_queue': {'enabled': True, 'jobs': []},
     'fleet': {'enabled': True, 'port_base': 11450, 'memory_floor_gb': 3},
     # host: where Tutti runs (docs/MOVE.md), written by `tutti move`: the machine that serves the dashboard and keeps the
     # state, this computer's own name (me), and on a client how to reach the host (ssh, config, tutti, state, usage_log),
@@ -374,7 +377,8 @@ def validate(cfg):
              for n, m in cfg['machines'].items() if m.get('via') and m['via'] not in cfg['machines']]
     from . import move
     errs += move.errors(cfg)
-    from . import devices, vpn
+    from . import devices, vpn, workq
+    errs += workq.errors(cfg)
     errs += devices.errors(cfg)
     errs += vpn.errors(cfg)
     for name, w in cfg['workers'].items():

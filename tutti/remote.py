@@ -259,6 +259,53 @@ def lock_files(machine):
     return machine.get('locks') or [f'{machine["lock_prefix"]}{i}.lock' for i in range(1, int(machine['slots']) + 1)]
 
 
+# Seconds since a person last used the machine's graphical session (logind's idle hint of its x11 or wayland sessions; the
+# smallest wins), `-` when it has none (a headless machine: nobody at its keyboard). tutti/share.py backs off while it is short.
+IDLE = ('i=-; now=$(date +%s); for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk \'{print $1}\'); do '
+        'T=; H=; S=0; while IFS== read -r k v; do case "$k" in Type) T=$v;; IdleHint) H=$v;; IdleSinceHint) S=$v;; esac; '
+        'done < <(loginctl show-session "$s" -p Type -p IdleHint -p IdleSinceHint 2>/dev/null); '
+        # a desktop that never sets the hint leaves IdleSinceHint at 0: not known, not "in use" (the NUC's x11, 2026-11-15)
+        'case "$T" in x11|wayland) [ "${S:-0}" -gt 0 ] 2>/dev/null || continue; if [ "$H" = no ]; then v=0; else '
+        'v=$(( now - S / 1000000 )); fi; if [ "$i" = - ] || [ "$v" -lt "$i" ]; then i=$v; fi;; esac; done; ')
+
+
+def parse_query_user(text):
+    """Seconds since the Windows console user's last input from `query user`'s IDLE TIME (`none` or `.`: active now; `5`
+    minutes; `1:05`; `2+03:10` days), or None when no console session is listed."""
+    for line in (text or '').splitlines():
+        parts = line.split()
+        if 'console' not in parts:
+            continue
+        idle = parts[parts.index('console') + 3] if len(parts) > parts.index('console') + 3 else ''
+        if idle in ('none', '.'):
+            return 0.0
+        days, _, rest = idle.rpartition('+')
+        hours, _, minutes = rest.rpartition(':')
+        try:
+            return (int(days or 0) * 1440 + int(hours or 0) * 60 + int(minutes)) * 60.0
+        except ValueError:
+            return None
+    return None
+
+
+_win_idle = {}
+
+
+def windows_idle(machine, clock=time.time, timeout=20):
+    """Seconds since the person at a WSL machine's Windows console last used it (`query user` over its plain ssh), asked at
+    most every WIN_TEMP_SECONDS; None when it cannot be told."""
+    hit = _win_idle.get(machine['name'])
+    if hit and clock() - hit[0] < WIN_TEMP_SECONDS:
+        return hit[1]
+    try:
+        r = subprocess.run([*SSH, *QUICK, machine['host'], 'query user'], capture_output=True, text=True, timeout=timeout, check=False)
+        value = parse_query_user(r.stdout)
+    except (OSError, subprocess.SubprocessError):
+        value = None
+    _win_idle[machine['name']] = (clock(), value)
+    return value
+
+
 def probe_script(machine):
     y = home_path(machine['yield_file'])
     locks = ' '.join(shlex.quote(p) for p in lock_files(machine))
@@ -274,7 +321,8 @@ def probe_script(machine):
             # Android may refuse /proc/loadavg (SELinux): the load is then 0, not a broken line
             # free memory in GB (MemAvailable), `-` when unreadable: the autopilot's limit and the dashboard show it
             'm=$(awk \'/MemAvailable/{printf "%.1f", $2/1048576}\' /proc/meminfo 2>/dev/null); '
-            f'echo "$n $(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo 0) $(nproc) $y ${{t:-0}} ${{g:--}} ${{m:--}}"')
+            f'{IDLE}'
+            f'echo "$n $(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo 0) $(nproc) $y ${{t:-0}} ${{g:--}} ${{m:--}} ${{i:--}}"')
 
 
 def termux_readings(machine):
@@ -369,7 +417,7 @@ def household_probe(machine):
     return routing.Probe(True, int(m.get('grant', 0)), 0.0, int(m.get('slots') or 1))
 
 
-def probe(machine, timeout=20, windows_fn=None):
+def probe(machine, timeout=20, windows_fn=None, idle_fn=None):
     if machine['transport'] == 'household':
         return household_probe(machine)
     if machine.get('via') and machine.get('_state'):   # only a client of this host reaches it (docs/MOVE.md, *The bridge*)
@@ -389,6 +437,8 @@ def probe(machine, timeout=20, windows_fn=None):
         p.readings = devices.parse_readings('\n'.join(lines[:-1]), prefix='R ')
     if p.reachable and p.temp is None and machine['transport'] == 'wsl':
         p.temp, p.temp_note = windows_fn(machine)
+    if p.reachable and machine['transport'] == 'wsl':   # the person is at Windows' console, not in WSL
+        p.idle_s = (idle_fn or windows_idle)(machine)
     return p
 
 

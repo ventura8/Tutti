@@ -1134,6 +1134,16 @@ def cmd_autopilot(cfg, a):
     return 0
 
 
+def cmd_workq(cfg, a):
+    """`tutti workq [status|tick]`."""
+    from . import workq
+    if a.action == 'tick':
+        for e in workq.tick(cfg, state.machines_state(cfg, remote.probe)):
+            say(f'work queue: {e}')
+    print(workq.describe(workq.view(cfg)))
+    return 0
+
+
 def cmd_fleet(cfg, a):
     """`tutti fleet`: every local model worker, discovered or configured, with its machine, models, speed and hardware."""
     from . import fleet
@@ -1484,6 +1494,9 @@ def parser():
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick', 'fill', 'land', 'allow'])
     s.add_argument('arg', nargs='?', help='fill: on or off; land: the task id; allow: the account that may take first attempts '
                                           'for 7 days (the block resolver\'s one action)')
+    s = add('workq', cmd_workq, 'the compute work queue: the projects\' gates, tests and reports on machines with a free slot '
+                                '(status, or tick: one round now; docs/FLEET.md)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'tick'])
     s = add('fleet', cmd_fleet, 'the household\'s local models as workers: every machine\'s Ollama, its models, their kinds, '
                                 'speed and hardware (docs/FLEET.md)')
     s = add('scout', cmd_scout, 'scouts, helpers that are not workers (Grok Bot): ask <scout> "<question>" (answered on a GitHub '

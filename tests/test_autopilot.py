@@ -62,6 +62,8 @@ class Base(unittest.TestCase):
                              'fill_room': False, 'auto_review': False, **ap}}
         cfg = config.normalise(raw)
         cfg['_path'] = os.path.join(self.tmp.name, 'tutti.config.yaml')
+        # a roomy computer: the adaptive limit must not read this one's free memory (the tests failed at night on a busy laptop)
+        cfg['_host_raw'] = {'mem_gb': 64.0, 'cores': 64, 'load': 0.0}
         return cfg
 
 

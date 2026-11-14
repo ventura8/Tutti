@@ -101,10 +101,22 @@ def available(worker, timeout=3):
     return True, f'{model} at {worker["host"]}'
 
 
-def listing(cfg):
+def statuses(cfg, available_fn=None):
+    """{worker: (ready, note)}: every worker asked at once. The one status `tutti workers`, the dashboard's Workers card, its
+    Local models cards and Needs you all show (a local model is ready when its server answers through the worker's own host,
+    its tunnel included, whatever the machine's ssh probe says)."""
+    from concurrent.futures import ThreadPoolExecutor
+    available_fn = available_fn or available
+    names = list(cfg['workers'])
+    with ThreadPoolExecutor(max_workers=max(1, min(8, len(names)))) as pool:
+        return dict(zip(names, pool.map(lambda n: available_fn(cfg['workers'][n]), names), strict=True))
+
+
+def listing(cfg, available_fn=None):
     rows = []
+    checks = statuses(cfg, available_fn)
     for name, w in cfg['workers'].items():
-        ok, note = available(w)
+        ok, note = checks[name]
         rows.append(f'{name:12} {w["kind"]:7} {"ready" if ok else "DOWN":6} {note}')
     return '\n'.join(rows) or 'no workers in the config: add a workers: section (tutti.config.example.yaml)'
 

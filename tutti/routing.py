@@ -57,10 +57,29 @@ def parse_gpu_temp(word):
     return t if 0 < t < 150 else None
 
 
+def _field(word):
+    try:
+        float(word)
+    except ValueError:
+        return word == '-'
+    return True
+
+
+def without_gpu_text(parts):
+    """The probe line's fields with a GPU tool's error text (nvidia-smi without a driver prints it on stdout) taken out of the
+    GPU field and replaced by `-`: the fields after it (free memory, idle time) keep their places."""
+    if len(parts) <= 5 or _field(parts[5]):
+        return parts
+    end = 5
+    while end < len(parts) and not _field(parts[end]):
+        end += 1
+    return parts[:5] + ['-'] + parts[end:]
+
+
 def parse_probe(text):
     """The probe script prints `<free> <load> <cores> <yield 0|1> [<millidegrees> [<GPU degrees or ->]]`; anything else means
     the machine did not answer. The temperatures are optional: an older probe (or a machine without sensors) leaves them out."""
-    parts = (text or '').split()
+    parts = without_gpu_text((text or '').split())
     try:
         temp = parse_temp(parts[4] if len(parts) > 4 else None)
         gpu = parse_gpu_temp(parts[5] if len(parts) > 5 else None)

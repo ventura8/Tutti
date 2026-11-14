@@ -12,6 +12,9 @@ from unittest import mock
 
 from tutti import autopilot, backlog, config, coordinator, household, householdcmd, sharing, users
 
+with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tutti', 'web', 'format.js'), encoding='utf8') as _f:
+    FORMAT_JS = _f.read()   # the shared number formatter every dashboard script uses (tutti/web/format.js)
+
 REMOTE = 'git@github.com:octo/app.git'
 
 
@@ -544,7 +547,8 @@ def js(expr):
     import json
     with open(HOUSEHOLD_JS, encoding='utf8') as f:
         src = f.read()
-    out = subprocess.run(['node', '-e', f'{src}\nconsole.log(JSON.stringify({expr}));'], capture_output=True, text=True, check=True)
+    out = subprocess.run(['node', '-e', f'{FORMAT_JS}\n{src}\nconsole.log(JSON.stringify({expr}));'], capture_output=True, text=True,
+                         check=True)
     return json.loads(out.stdout)
 
 
@@ -560,7 +564,7 @@ class DashboardHouseholdTest(unittest.TestCase):
         self.assertEqual([(m['name'], m['agent'], m['state']) for m in r['members']],
                          [('Ana', 'Claude Code', 'prompting now'), ('Bo (you)', 'Cursor', 'online')])
         self.assertIn('Ana 3, you 1', r['machines'][0]['note'])
-        self.assertIn('fairness 90 %', r['machines'][0]['note'])
+        self.assertRegex(r['machines'][0]['note'], r'fairness 90\s?%')   # the locale's percent form
 
     def test_offline_and_alone_say_what_to_do(self):
         r = js(f'householdRows({__import__("json").dumps({**self.STATE, "reachable": False, "error": "timeout"})})')

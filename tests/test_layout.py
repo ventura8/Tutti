@@ -9,13 +9,17 @@ import unittest
 
 from tutti import config, dashboard, settings_schema
 
+with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tutti', 'web', 'format.js'), encoding='utf8') as _f:
+    FORMAT_JS = _f.read()   # the shared number formatter every dashboard script uses (tutti/web/format.js)
+
 ATTENTION = os.path.join(dashboard.WEB, 'attention.js')
 
 
 def js(expr):
     with open(ATTENTION, encoding='utf8') as f:
         src = f.read()
-    out = subprocess.run(['node', '-e', f'{src}\nconsole.log(JSON.stringify({expr}));'], capture_output=True, text=True, check=True)
+    out = subprocess.run(['node', '-e', f'{FORMAT_JS}\n{src}\nconsole.log(JSON.stringify({expr}));'], capture_output=True, text=True,
+                         check=True)
     return json.loads(out.stdout)
 
 
@@ -24,8 +28,8 @@ class Order(unittest.TestCase):
         with open(os.path.join(dashboard.WEB, 'index.html'), encoding='utf8') as f:
             page = f.read()
         heads = re.findall(r'<h2 id="([a-z]+)-h">', page)
-        self.assertEqual(heads, ['usage', 'attention', 'household',
-                                 'running', 'queued', 'main', 'workers', 'autopilot', 'machines', 'projects', 'scouts',
+        self.assertEqual(heads, ['usage', 'machines', 'attention', 'household',
+                                 'running', 'queued', 'main', 'workers', 'autopilot', 'projects', 'scouts',
                                  'connect', 'where', 'setup', 'controls', 'selfimprove', 'aiassist', 'insights', 'jobs', 'vpn', 'users'])
 
     def test_usage_shows_the_accounts_then_local_models_then_the_owner(self):

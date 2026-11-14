@@ -55,6 +55,7 @@ def outlook(s, now, facts):
                         'Slow down, or set a lower main.target_pct.'}
     by = parse_time(s['target'])
     when = tz.show(by, now=now, date=False)
+    end = None if end is None else round(end, 1)   # a sum of shares leaves float noise (32.122999999999976)
     head = f'Target {goal:g} % · on track to finish at {end:g} % by {when}'
     if end is None or end >= goal - SHORT_MARGIN or s.get('scout'):
         return {'target': goal, 'projected': end, 'by': s['target'], 'short': '', 'text': head}

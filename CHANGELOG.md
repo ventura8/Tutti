@@ -2,6 +2,49 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.9.4 (2026-11-15)
+
+### Added
+
+- Browser tests for every dashboard tab (docs/TESTING.md, *Browser tests*), run by `scripts/check.sh` on every pull request
+  as a hard gate: Playwright's Chromium (`playwright==1.65.2`) and axe-core 4.12 (`axe-playwright-python==0.1.8`), pinned
+  in `requirements-dev.txt`. The admin and a viewer sign in through a fake Google; phone, tablet, laptop and 4K, light and
+  dark, 200 % zoom and WCAG 1.4.12 text spacing. Layout: no overlap, no clipped or truncated text, no sideways scroll,
+  nothing past the viewport. Accessibility: axe WCAG 2.2 A/AA and best practices, keyboard (every control reached, focus
+  shown, no trap, Esc), 24 px targets, contrast in both themes, landmarks and headings, labels, live regions, reduced
+  motion, icon names, form errors. Roles: no admin control for a viewer, all of them for an admin.
+- One formatter for every percentage and number on every card and tab (`web/format.js`): locale-aware, rounded by size,
+  never float noise. The grok-bot card's `32.122999999999976 %` reads `32%` (replaces backlog task t60).
+
+### Changed
+
+- **Machines** sits directly below **Usage & pacing**, full width; **Autopilot** is full width. Usage & pacing keeps its
+  order: online agents, Local models, You and the main agent.
+- One worker status for `tutti workers` and the dashboard (`workers.statuses`): a local-models card is available while its
+  worker answers through its tunnel, even when the machine's ssh probe fails, and offline only with the worker's own
+  reason. The dashboard reads its config again when the file changes, so a worker added after it started is probed.
+
+### Fixed
+
+- The "nuc worker unavailable" mismatch: the machine probe took `nvidia-smi`'s driver error (printed on stdout on the NUC,
+  which has no NVIDIA driver) as the GPU field, the summary line did not parse, so the NUC and its Local models card read
+  offline while `tutti workers` reached its Ollama through the tunnel. A probe line with such text now keeps the machine
+  reachable with no GPU reading.
+- What the browser tests found (fixed in the UI, no check relaxed):
+  - a job's title cut with an ellipsis and overlapping its time;
+  - a long chip pushing the phone page sideways;
+  - local-model cards overflowing into each other on a phone;
+  - long e-mails and kinds overlapping in rows under text spacing;
+  - controls under 24 px (fields, selects, checkboxes, disclosures, card links);
+  - a date field with no focus indicator;
+  - the vacation date field shown while marked hidden;
+  - the slot pips' and device actions' ARIA, and an empty table header;
+  - no announced error for a refused form value;
+  - Esc did not close an open disclosure;
+  - the phone's bottom tab bar ran past the screen's edge with four tabs (Chat, Dashboard, Settings, Users);
+  - the config path and My main machine in the app bar cut with an ellipsis;
+  - a select with a long option (My notifications) ran past a phone's edge.
+
 ## 0.9.3 (2026-11-15)
 
 

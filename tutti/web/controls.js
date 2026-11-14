@@ -21,7 +21,7 @@ async function control(body, failText) {
 
 function deviceStats(d) {
     const parts = [];
-    if (d.battery !== null && d.battery !== undefined) parts.push(`battery ${d.battery} %`);
+    if (d.battery !== null && d.battery !== undefined) parts.push(`battery ${tuttiPct(d.battery)}`);
     if (d.charging === 1) parts.push('charging');
     else if (d.charging === 0) parts.push('on battery');
     if (d.battery_c !== null && d.battery_c !== undefined) parts.push(`${d.battery_c} °C`);
@@ -188,7 +188,7 @@ function renderAutocompact(a) {
     if (!a) return;
     const input = $('autocompact-pct');
     if (document.activeElement !== input) input.value = a.threshold_pct;
-    $('autocompact-from').textContent = a.from === 'dashboard' ? `(set here; the config says ${a.config_pct} %)` : '(from the config)';
+    $('autocompact-from').textContent = a.from === 'dashboard' ? `(set here; the config says ${tuttiPct(a.config_pct)})` : '(from the config)';
     const how = Object.entries(a.workers || {}).map(([n, m]) => `${n}: ${COMPACT_HOW[m] || m}`).join(' · ');
     $('autocompact-note').textContent = a.enabled ? (how || 'No workers configured.') : 'Off in the config (autocompact.enabled: false).';
 }
@@ -217,7 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ---- presence (tutti/presence.py): here, away or asleep since when, today's profile strip, and moving work off an absent target
 
 function hereText(x, none) {
-    return x === null ? none : `${Math.round(x * 100)} % here`;
+    return x === null ? none : `${tuttiShare(x)} here`;
 }
 
 function presenceBits(p) {

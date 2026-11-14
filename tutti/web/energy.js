@@ -8,12 +8,12 @@ function tuttiHours(seconds) {
     const s = Math.round(seconds || 0);
     if (s < 60) return `${s} s`;
     if (s < 3600) return `${Math.round(s / 60)} min`;
-    return `${(s / 3600).toFixed(1)} h`;
+    return `${tuttiNum(s / 3600, { digits: 1 })} h`;
 }
 
 function tuttiMoney(v, currency) {
     if (v === null || v === undefined) return '–';
-    return `${v < 1 ? v.toFixed(2) : v.toFixed(v < 100 ? 1 : 0)} ${currency}`;
+    return `${tuttiNum(v, { digits: v < 1 ? 2 : v < 100 ? 1 : 0 })} ${currency}`;
 }
 
 // One card as plain text rows: {title, gpu, status, tone, reason, models, power, periods[], perJob, perHour, cloud, measured}
@@ -23,7 +23,7 @@ function tuttiLocalCard(c, t) {
     const p = c.parts || {};
     const periods = [['Today', 'today'], ['Week', 'week'], ['Month', 'month']].map(([label, k]) => {
         const x = (c.periods || {})[k] || {};
-        return { label, busy: tuttiHours(x.busy_s), jobs: x.jobs || 0, tokens: x.tokens || 0, kwh: (x.kwh || 0).toFixed(2),
+        return { label, busy: tuttiHours(x.busy_s), jobs: tuttiNum(x.jobs || 0), tokens: tuttiNum(x.tokens || 0, { digits: 0 }), kwh: tuttiNum(x.kwh || 0, { digits: 2 }),
             cost: tuttiMoney(x.cost || 0, cur) };
     });
     const month = (c.periods || {}).month || {};
@@ -37,7 +37,7 @@ function tuttiLocalCard(c, t) {
         tone: c.busy_now ? 'accent' : (TUTTI_LOCAL_TONE[c.status] || 'idle'),
         reason: c.reason,
         models: [`Loaded: ${loaded.length ? loaded.join(', ') : 'none'}`, `Installed: ${(c.installed || []).length ? c.installed.join(', ') : 'not read'}`],
-        power: `≈ ${c.watts} W now (GPU ${p.gpu} W${c.util === null || c.util === undefined ? '' : ` at ${c.util} %`} + CPU ${p.cpu} W + base ${p.base} W)`,
+        power: `≈ ${tuttiNum(c.watts, { digits: 0 })} W now (GPU ${tuttiNum(p.gpu, { digits: 0 })} W${c.util === null || c.util === undefined ? '' : ` at ${tuttiPct(c.util)}`} + CPU ${tuttiNum(p.cpu, { digits: 0 })} W + base ${tuttiNum(p.base, { digits: 0 })} W)`,
         measured: c.measured && c.measured.length ? `Measured: ${c.measured.join(', ')}; the rest estimated` : 'Estimated: no power reading here (TDP × utilisation)',
         periods,
         perJob: c.per_job === null || c.per_job === undefined ? 'no job this month' : tuttiMoney(c.per_job, cur),
@@ -63,7 +63,8 @@ function renderLocalModels(s) {
     box.replaceChildren(...lm.cards.map((c) => {
         const v = tuttiLocalCard(c, lm.tariff);
         const table = el('table', { class: 'local__periods' },
-            el('thead', {}, el('tr', {}, ...['', 'Busy', 'Jobs', 'Tokens', 'kWh', 'Cost'].map((h) => el('th', { scope: 'col', text: h })))),
+            el('thead', {}, el('tr', {}, el('th', { scope: 'col' }, el('span', { class: 'sr-only', text: 'Period' })),
+                ...['Busy', 'Jobs', 'Tokens', 'kWh', 'Cost'].map((h) => el('th', { scope: 'col', text: h })))),
             el('tbody', {}, ...v.periods.map((r) => el('tr', {}, el('th', { scope: 'row', text: r.label }),
                 el('td', { text: r.busy }), el('td', { text: String(r.jobs) }), el('td', { text: String(r.tokens) }),
                 el('td', { text: r.kwh }), el('td', { text: r.cost })))));

@@ -1,2 +1,5 @@
 -r requirements.txt
 ruff==0.17.5
+# the dashboard's browser tests (tests/e2e): Playwright's Chromium and axe-core 4.12 (bundled by axe-playwright-python)
+playwright==1.65.2
+axe-playwright-python==0.1.8

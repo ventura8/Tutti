@@ -23,7 +23,7 @@ function householdRows(h, now = Date.now()) {
         state: presence(m), tone: toneOf(m), runs: `${m.runs_today || 0} run(s) today` }));
     const machines = Object.entries(h.machines || {}).sort((a, b) => a[0].localeCompare(b[0])).map(([name, m]) => {
         const use = Object.entries(m.use || {}).map(([who, n]) => `${who === h.me ? 'you' : who} ${n}`).join(', ') || 'idle';
-        const fair = m.fairness === null || m.fairness === undefined ? '' : ` · fairness ${Math.round(m.fairness * 100)} %`;
+        const fair = m.fairness === null || m.fairness === undefined ? '' : ` · fairness ${tuttiShare(m.fairness)}`;
         return { name, owner: m.owner, note: `${m.owner}'s · ${m.slots} slot(s) · ${use} · your share now ${m.grant}${fair}`, paused: !!m.paused };
     });
     const why = h.error ? ' (' + h.error + ')' : '';

@@ -9,7 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from . import __version__, config, controls, devices, pacing, routing, waiting
+from . import __version__, config, controls, devices, pacing, routing, waiting, workers
 
 # CLI agents worth knowing about even when the config does not name them yet: the command and how people call it.
 KNOWN_AGENTS = (('claude', 'Claude Code'), ('cursor-agent', 'Cursor'), ('agy', 'Antigravity'), ('copilot', 'GitHub Copilot CLI'),
@@ -261,9 +261,7 @@ def with_readers(usage, readers):
 
 
 def workers_state(cfg, available_fn, which=shutil.which):
-    names = list(cfg['workers'])
-    with ThreadPoolExecutor(max_workers=max(1, min(8, len(names)))) as pool:
-        checks = dict(zip(names, pool.map(lambda n: available_fn(cfg['workers'][n]), names), strict=True))
+    checks = workers.statuses(cfg, available_fn)   # the same status `tutti workers` prints
     items = []
     for name, w in cfg['workers'].items():
         ok, note = checks[name]

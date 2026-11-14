@@ -13,7 +13,9 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 - `autopilot.auto_review` (on by default) and `autopilot.repos.<repo>.land` (`merge`, `pr`, `branch`) with `base`: a result
   to review is read by the cheap reviewer (`review.fallback`) in the background (`tutti autopilot land <id>`); clean, it is
   rebased, pushed and opened as a pull request, merged at once with `land: merge`; findings send it back with them as notes,
-  the third time to a person. A repo without a `check` (its lint and type gates) never lands by itself.
+  the third time to a person. A result lands only when its passing attempt ran the repo's current `check` (its lint and
+  type gates, recorded at dispatch); the reviewer reads the whole rebased branch; a failed fetch, reviewer or merge is
+  tried again in 10 minutes; the repos' sources are read outside the backlog's lock, each command with a 120 s timeout.
 
 ### Changed
 

@@ -375,7 +375,8 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen):
         child = spawn(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
     with open(p['pid'], 'w', encoding='utf8') as f:
         f.write(f'{child.pid}\n')
-    task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now)
+    # the repo's gates this attempt runs (acceptance holds them): a result lands only when they are today's (tutti/fill.py)
+    task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now, gates=(repo.get('check') or '').strip())
     return run_id
 
 
@@ -425,7 +426,7 @@ def attempt_of(cfg, task, report, now):
         sig, why = '', 'passed'
     return {'run': task['run'], 'step': task.get('step'), 'worker': task.get('worker'), 'at': now, 'ok': ok, 'started': task.get('started'),
             'signature': sig, 'why': why, 'stat': (report or {}).get('stat', ''), 'diff': (report or {}).get('diff'),
-            'tail': '' if report and report['rc'] == 0 else failing[-1][-TAIL_CHARS:]}
+            'tail': '' if report and report['rc'] == 0 else failing[-1][-TAIL_CHARS:], 'gates': task.get('gates') if ok else None}
 
 
 def git(cwd, *args):
@@ -559,10 +560,11 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     on = enabled(cfg)
     from . import fill  # fill imports this module
     filled = None
+    found = fill.gather(cfg, backlog.load(cfg), states, machines, now) if on else None   # the repos' commands: never under the lock
     with backlog.locked(cfg) as data:
         events = collect(cfg, data, now, is_alive, publish_fn)
         if on:
-            filled = fill.fill(cfg, data, states, machines, now)
+            filled = fill.fill(cfg, data, states, machines, now, found)
             events += [f'fill_room: {filled["note"]}'] if filled['added'] else []
             events += fill.review_round(cfg, data, now, is_alive, spawn)
         p = plan(cfg, data['tasks'], states, machines, on, datetime.fromtimestamp(now, timezone.utc))
@@ -632,17 +634,24 @@ def view(cfg, now=None):
             'review': [t for t in tasks if t['status'] == 'review'], 'parked': [t for t in tasks if t['status'] == 'needs-person']}
 
 
+def fill_line(v):
+    fl = v.get('fill') or {}
+    if not (fl and v.get('fill_room')):
+        return f'fill_room {"on" if v.get("fill_room") else "off"}'
+    return f'fill_room on: room {fl["room"]}, {fl["queued"]} fresh queued; {fl["note"]}'.rstrip('; ')
+
+
+def task_lines(title, t):
+    extra = t.get('publish_note') or t.get('parked') or (f'run {t["run"]} on {t["step"]}' if t['status'] == 'running' else '')
+    return [f'{title:15} {t["id"]:5} {t["attempt_count"]} attempt(s)  {t["title"][:70]}'] + ([f'{"":21}{extra}'] if extra else [])
+
+
 def describe(v):
     last = v.get('last') or {}
-    fl = v.get('fill') or {}
-    filling = f'fill_room {"on" if v.get("fill_room") else "off"}' + (f': room {fl["room"]}, {fl["queued"]} fresh queued; {fl["note"]}'
-                                                                     if fl and v.get('fill_room') else '')
     lines = [f'autopilot: {"on" if v["enabled"] else "off"}; {last.get("state", "not run yet")}: {last.get("reason", "")}'.rstrip(': '),
-             filling.rstrip('; '),
+             fill_line(v),
              f'ladder: {" -> ".join(v["ladder"]) or "(none)"}; max_parallel {v["max_parallel"]}']
     for title, items in (('running', v['running']), ('to review', v['review']), ('needs a person', v['parked']), ('queued', v['queue'])):
         for t in items:
-            extra = t.get('publish_note') or t.get('parked') or (f'run {t["run"]} on {t["step"]}' if t['status'] == 'running' else '')
-            lines.append(f'{title:15} {t["id"]:5} {t["attempt_count"]} attempt(s)  {t["title"][:70]}')
-            lines += [f'{"":21}{extra}'] if extra else []
+            lines += task_lines(title, t)
     return '\n'.join(lines)

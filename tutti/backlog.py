@@ -181,22 +181,38 @@ def is_test(path):
         '.test.' in name or '.spec.' in name or name.endswith('_test.py')
 
 
+def test_stem(path):
+    """The unit a test file names: test_foo.py, foo_test.py, foo.test.ts and foo.spec.js all name `foo`."""
+    name = os.path.basename(path).lower().split('.')[0]
+    return re.sub(r'^test_|_test$', '', name)
+
+
 def untested_items(files):
     """(title, path) of every tracked source file (`git ls-files` lines) whose name no test file mentions: a missing test is
     a bounded task with an obvious check. Config files, type declarations, package entry points and the tests are skipped."""
-    tests = ' '.join(os.path.basename(f).lower() for f in files if is_test(f))
+    tests = {test_stem(f) for f in files if is_test(f)}
     out = []
     for f in files:
         base = os.path.basename(f)
         stem, ext = os.path.splitext(base)
         if ext not in SOURCE_EXT or is_test(f) or stem in NOT_UNITS or '.config' in base or base.endswith('.d.ts') \
-                or stem.lower() in tests:
+                or stem.lower() in tests:   # an exact unit name: `a` is not tested by test_data.py
             continue
         out.append((f'Add unit tests for {f}: no test file names it; cover its behaviour, a good case and a bad one', f))
     return out
 
 
-def sources(name, repo, run=subprocess.run, untested=False):
+SOURCE_TIMEOUT = 120   # seconds a repo's `gaps` command or a git listing may take: a hung one never stalls the autopilot
+
+
+def _out(run, argv, **kw):
+    try:
+        return run(argv, capture_output=True, text=True, timeout=SOURCE_TIMEOUT, **kw).stdout or ''
+    except subprocess.TimeoutExpired:
+        return ''
+
+
+def sources(repo, run=subprocess.run, untested=False):
     """(title, scope, source) of every task the repo's safe sources name: FEEDBACK.md's open items, owner-tagged TODO/FIXME,
     the repo's `gaps` command (lint findings, coverage gaps: one per line), and with `untested` the source files without a
     test (autopilot.fill_room)."""
@@ -206,15 +222,14 @@ def sources(name, repo, run=subprocess.run, untested=False):
     if os.path.isfile(fb):
         with open(fb, encoding='utf8') as f:
             found += [(t, [], 'feedback') for t in feedback_items(f.read())]
-    grep = run([worktree.git_bin(), '-C', path, 'grep', '-nE', TODO_ERE],
-               capture_output=True, text=True)
-    found += [(t, [p], 'todo') for t, p in todo_items(grep.stdout.splitlines())]
+    grep = _out(run, [worktree.git_bin(), '-C', path, 'grep', '-nE', TODO_ERE])
+    found += [(t, [p], 'todo') for t, p in todo_items(grep.splitlines())]
     if repo.get('gaps'):
-        res = run(['bash', '-c', repo['gaps']], cwd=path, capture_output=True, text=True)
-        found += [(t, [p] if p else [], 'gaps') for t, p in gap_items(res.stdout.splitlines())]
+        res = _out(run, ['bash', '-c', repo['gaps']], cwd=path)
+        found += [(t, [p] if p else [], 'gaps') for t, p in gap_items(res.splitlines())]
     if untested:
-        files = run([worktree.git_bin(), '-C', path, 'ls-files'], capture_output=True, text=True)
-        found += [(t, [p], 'untested') for t, p in untested_items(files.stdout.splitlines())]
+        files = _out(run, [worktree.git_bin(), '-C', path, 'ls-files'])
+        found += [(t, [p], 'untested') for t, p in untested_items(files.splitlines())]
     return found
 
 
@@ -222,7 +237,7 @@ def seed(data, name, repo, run=subprocess.run):
     """Adds the tasks the repo's safe sources name. Returns the added tasks."""
     check = repo.get('check') or ''
     added = []
-    for title, scope, source in sources(name, repo, run):
+    for title, scope, source in sources(repo, run):
         task, new = add(data, new_task(name, title, scope, check, 'S', source))
         if new:
             added.append(task)

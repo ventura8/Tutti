@@ -64,22 +64,41 @@ def pick(data, found, need):
     return out
 
 
-def fill(cfg, data, states, machines, now, run=subprocess.run):
-    """Queues new tasks for the free room. Returns {room, queued, added, note} for the dashboard."""
+def due(cfg, data, states, machines, now):
+    """(room, want) when the repos' sources should be read now, else None: the switch on, room to fill, and at most every
+    FILL_EVERY seconds while the last read added nothing."""
     st = autopilot.read_state(cfg).get('fill') or {}
     free = room(cfg, data['tasks'], states, machines)
     need = want(cfg, data['tasks'], free)
-    info = {'at': now, 'room': free, 'queued': fresh_units(cfg, data['tasks']), 'added': 0, 'read_at': st.get('read_at'),
-            'note': st.get('note', '')}
     if not fill_on(cfg) or need <= 0 or (st.get('read_at') and now - st['read_at'] < FILL_EVERY and not st.get('added')):
-        return info
+        return None
+    return free, need
+
+
+def gather(cfg, data, states, machines, now, run=subprocess.run):
+    """([(repo, title, scope, source, check)], problems) read from every repo when `due`, else None. Runs the repos' commands,
+    so the caller holds no lock (a slow `gaps` command must not block the backlog)."""
+    if due(cfg, data, states, machines, now) is None:
+        return None
     found, problems = [], []
     for name, repo in autopilot.settings(cfg)['repos'].items():
         if not os.path.isdir(config.expand(repo['path'])):
             problems.append(f'{name}: no folder {repo["path"]}')
             continue
-        found += [(name, t, s, src, repo.get('check') or '') for t, s, src in backlog.sources(name, repo, run, untested=True)]
-    for repo_name, title, scope, source, check in pick(data, found, need):
+        found += [(name, t, s, src, repo.get('check') or '') for t, s, src in backlog.sources(repo, run, untested=True)]
+    return found, problems
+
+
+def fill(cfg, data, states, machines, now, found=None):
+    """Queues the gathered tasks the free room wants (recomputed under the lock). Returns {room, queued, added, note}."""
+    st = autopilot.read_state(cfg).get('fill') or {}
+    free = room(cfg, data['tasks'], states, machines)
+    info = {'at': now, 'room': free, 'queued': fresh_units(cfg, data['tasks']), 'added': 0, 'read_at': st.get('read_at'),
+            'note': st.get('note', '')}
+    if found is None:
+        return info
+    items, problems = found
+    for repo_name, title, scope, source, check in pick(data, items, want(cfg, data['tasks'], free)):
         backlog.add(data, backlog.new_task(repo_name, title, scope, check, 'S', source))
         info['added'] += 1
     info.update(read_at=now, queued=fresh_units(cfg, data['tasks']))
@@ -111,9 +130,10 @@ def review_round(cfg, data, now, is_alive, spawn=subprocess.Popen):
                 going = t
             else:
                 t.pop('landing')
-                t['publish_note'] = f'the review of {t["id"]} stopped before it finished: it is tried again'
+                t['retry_after'] = now + FILL_EVERY
+                t['publish_note'] = f'the review of {t["id"]} stopped before it finished: it is tried again in {FILL_EVERY // 60} min'
     waiting = [t for t in data['tasks'] if t['status'] == 'review' and t['repo'] in autopilot.settings(cfg)['repos']
-               and land_policy(cfg, t) != 'branch' and t.get('branch') and not t.get('landing')]
+               and land_policy(cfg, t) != 'branch' and t.get('branch') and not t.get('landing') and now >= t.get('retry_after', 0)]
     if going or not waiting or not review_on(cfg):
         return events
     t = waiting[0]
@@ -129,18 +149,22 @@ def review_round(cfg, data, now, is_alive, spawn=subprocess.Popen):
 def verdict(text):
     """(clean?, findings) of a review's text: clean when it says `No findings`; else its bullets (at most 8)."""
     body = (text or '').strip()
-    if body.lstrip('*_# ').lower().startswith('no findings'):
-        return True, []
     bullets = [ln.strip()[2:].strip() for ln in body.splitlines() if ln.strip().startswith(('- ', '* '))]
+    if body.lstrip('*_# ').lower().startswith('no findings') and not bullets:   # a hedged "no findings, but - ..." is not clean
+        return True, []
     return False, (bullets or [body[:400] or 'the reviewer gave no verdict'])[:8]
 
 
 def gated(cfg, task):
-    """'' when the attempt's acceptance check held the repo's gates (autopilot.acceptance adds autopilot.repos.<r>.check to
-    every check), else why the result may not land."""
+    """'' when the passing attempt ran the repo's gates as they are today (autopilot.dispatch records them, and acceptance
+    runs them with the task's own check), else why the result may not land yet."""
     repo = autopilot.settings(cfg)['repos'].get(task['repo']) or {}
-    if not (repo.get('check') or '').strip():
+    gates = (repo.get('check') or '').strip()
+    if not gates:
         return f'autopilot.repos.{task["repo"]}.check is not set: a result lands only after the repo\'s lint and type gates passed'
+    passed = [a for a in task['attempts'] if a.get('ok')]
+    if not passed or passed[-1].get('gates') != gates:
+        return 'its passing attempt did not run the repo\'s current gates'
     return ''
 
 
@@ -176,8 +200,10 @@ def base_of(cfg, task, run=git):
 
 def rebase(wt, base, run=git):
     """'' when the branch now sits on the newest base, else why not (a conflicting rebase is aborted)."""
-    fetched = run(wt, 'fetch', '-q', 'origin', base).returncode == 0
-    done = run(wt, 'rebase', '-q', 'FETCH_HEAD' if fetched else base)
+    fetched = run(wt, 'fetch', '-q', 'origin', base)
+    if fetched.returncode != 0:
+        return f'retry: git fetch origin {base} failed ({fetched.stderr.strip()[:200]})'
+    done = run(wt, 'rebase', '-q', 'FETCH_HEAD')
     if done.returncode == 0:
         return ''
     run(wt, 'rebase', '--abort')
@@ -188,21 +214,33 @@ def open_pr(task, base, subject, body, gh=subprocess.run):
     """The task's pull request: its draft marked ready, or a new one. (url, '') or (None, why)."""
     wt = task['worktree']
     if task.get('pr'):
-        gh(['gh', 'pr', 'ready', task['pr']], cwd=wt, capture_output=True, text=True)
-        return task['pr'], ''
+        ready = gh(['gh', 'pr', 'ready', task['pr']], cwd=wt, capture_output=True, text=True)
+        return (task['pr'], '') if ready.returncode == 0 else (None, f'gh pr ready failed: {ready.stderr.strip()[:200]}')
     pr = gh(['gh', 'pr', 'create', '--base', base, '--head', task['branch'], '--title', subject, '--body', body], cwd=wt,
            capture_output=True, text=True)
-    return (pr.stdout.strip().splitlines()[-1], '') if pr.returncode == 0 and pr.stdout.strip() else \
-        (None, f'gh pr create failed: {pr.stderr.strip()[:200]}')
+    lines = (pr.stdout or '').strip().splitlines()
+    if pr.returncode != 0 or not lines:
+        return None, f'gh pr create failed: {pr.stderr.strip()[:200]}'
+    return lines[-1], ''
 
 
-def publish_reviewed(cfg, task, reviewer, run=git, gh=subprocess.run):
-    """(status, note) after a clean review: rebased onto its base, pushed, a pull request, merged when land is merge."""
-    policy, wt = land_policy(cfg, task), task['worktree']
-    base = base_of(cfg, task, run)
-    why = rebase(wt, base, run)
-    if why:
-        return 'needs-person', f'reviewed clean by {reviewer}, but {why}: rebase {task["branch"]} by hand'
+def merge(task, url, base, reviewer, run=git, gh=subprocess.run):
+    """(status, note) of a squash merge. A merge that exits non-zero is checked against the PR's state before it is called
+    failed; the remote branch is deleted after (gh cannot delete a branch a worktree holds)."""
+    wt = task['worktree']
+    merged = gh(['gh', 'pr', 'merge', url, '--squash'], cwd=wt, capture_output=True, text=True)
+    if merged.returncode != 0:
+        state = gh(['gh', 'pr', 'view', url, '--json', 'state', '--jq', '.state'], cwd=wt, capture_output=True, text=True)
+        if (state.stdout or '').strip() != 'MERGED':
+            why = merged.stderr.strip()[:200]
+            return 'review', f'retry: reviewed clean by {reviewer}: pull request {url} is open; the merge failed ({why})'
+    run(wt, 'push', '-q', 'origin', '--delete', task['branch'])
+    return 'done', f'reviewed clean by {reviewer} and merged into {base}: {url}'
+
+
+def publish_reviewed(cfg, task, base, reviewer, run=git, gh=subprocess.run):
+    """(status, note) after a clean review of the rebased branch: pushed, a pull request, merged when land is merge."""
+    wt = task['worktree']
     pushed = run(wt, 'push', '-q', '--force-with-lease', '-u', 'origin', task['branch'])
     if pushed.returncode != 0:
         return 'review', f'reviewed clean by {reviewer}; the push failed ({pushed.stderr.strip()[:200]}): it is tried again'
@@ -213,12 +251,48 @@ def publish_reviewed(cfg, task, reviewer, run=git, gh=subprocess.run):
     if not url:
         return 'review', f'reviewed clean by {reviewer}; {why}'
     task['pr'] = url
-    if policy != 'merge':
+    if land_policy(cfg, task) != 'merge':
         return 'done', f'reviewed clean by {reviewer}: pull request {url} into {base}, for a person to merge (land: pr)'
-    merged = gh(['gh', 'pr', 'merge', url, '--squash', '--delete-branch'], cwd=wt, capture_output=True, text=True)
-    if merged.returncode != 0:
-        return 'done', f'reviewed clean by {reviewer}: pull request {url} is open; the merge failed ({merged.stderr.strip()[:200]})'
-    return 'done', f'reviewed clean by {reviewer} and merged into {base}: {url}'
+    return merge(task, url, base, reviewer, run, gh)
+
+
+def decide(cfg, task, run=git, gh=subprocess.run, run_worker=None):
+    """(status, note, notes) of one result: its gates, its rebase onto the base, the review of the whole branch, the landing."""
+    why = gated(cfg, task)
+    if why:
+        return 'queued', f'{why}: it runs again with them', [why]
+    base = base_of(cfg, task, run)
+    why = rebase(task['worktree'], base, run)
+    if why:
+        return ('review', why, []) if why.startswith('retry') else ('needs-person', f'{why}: rebase {task["branch"]} by hand', [])
+    diff = run(task['worktree'], 'diff', '--stat', '--patch', 'FETCH_HEAD...HEAD')
+    if diff.returncode != 0 or not diff.stdout.strip():
+        return 'needs-person', f'the branch has no diff against {base} to review ({diff.stderr.strip()[:200]})', []
+    try:
+        reviewer, text = ask_reviewer(cfg, diff.stdout, run_worker)
+    except RuntimeError as e:
+        return 'review', f'retry: the review could not run: {e}', []
+    clean, notes = verdict(text)
+    if not clean:
+        return 'queued', f'{reviewer} found {len(notes)} problem(s): sent back with them as notes', notes
+    status, note = publish_reviewed(cfg, task, base, reviewer, run, gh)
+    return status, note, []
+
+
+def record(t, status, note, notes, now):
+    """The outcome written on the task (under the backlog's lock)."""
+    t.pop('landing', None)
+    t['publish_note'] = note
+    if status == 'review':
+        t['retry_after'] = now + FILL_EVERY
+    if status == 'queued':
+        t['reviews'] = t.get('reviews', 0) + 1
+        t['notes'] = [*t.get('notes', []), *notes]
+        if t['reviews'] >= MAX_REVIEWS:
+            status, t['parked'] = 'needs-person', f'sent back {t["reviews"]} times: {"; ".join(notes)[:300]}'
+    elif status == 'needs-person':
+        t['parked'] = note
+    t['status'], t['landed_at'] = status, now
 
 
 def land(cfg, task_id, run=git, gh=subprocess.run, run_worker=None, now=None):
@@ -227,35 +301,12 @@ def land(cfg, task_id, run=git, gh=subprocess.run, run_worker=None, now=None):
     task = backlog.find(backlog.load(cfg), task_id)
     if task['status'] != 'review':
         return f'{task_id} is {task["status"]}, not waiting for a review'
-    status, note, notes = 'review', '', []
-    why = gated(cfg, task)
-    if why:
-        status, note = 'needs-person', why
-    else:
-        diff = run(task['worktree'], 'show', '--stat', '--patch', 'HEAD').stdout
-        try:
-            reviewer, text = ask_reviewer(cfg, diff, run_worker)
-        except RuntimeError as e:
-            reviewer, text, note = None, '', f'the review could not run: {e}; it is tried again after the next probe'
-        if reviewer:
-            clean, notes = verdict(text)
-            if clean:
-                status, note = publish_reviewed(cfg, task, reviewer, run, gh)
-            else:
-                status, note = 'queued', f'{reviewer} found {len(notes)} problem(s): sent back with them as notes'
+    status, note, notes = decide(cfg, task, run, gh, run_worker)
     with backlog.locked(cfg) as data:
         t = backlog.find(data, task_id)
-        t.pop('landing', None)
-        t['publish_note'] = note
-        if status == 'queued':
-            t['reviews'] = t.get('reviews', 0) + 1
-            t['notes'] = [*t.get('notes', []), *notes]
-            if t['reviews'] >= MAX_REVIEWS:
-                status, t['parked'] = 'needs-person', f'the reviewer sent it back {t["reviews"]} times: {"; ".join(notes)[:300]}'
-        elif status == 'needs-person':
-            t['parked'] = note
-        t['status'] = status
+        if t['status'] != 'review':   # changed by hand (or another land) meanwhile: theirs stands
+            return f'{task_id} became {t["status"]} during the review; left as it is ({note})'
         if task.get('pr'):
             t['pr'] = task['pr']
-        t['landed_at'] = now
+        record(t, status, note, notes, now)
     return f'{task_id}: {status}: {note}'

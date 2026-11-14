@@ -39,15 +39,14 @@ class FillTest(Base):
     def test_free_room_is_filled_from_the_sources_up_to_the_cap_and_never_twice(self):
         self.repo()
         cfg = self.cfg(fill_room=True)
-        with backlog.locked(cfg) as data:
-            info = fill.fill(cfg, data, self.states(), FREE, 1000.0)
+        info = self.round(cfg, 1000.0)
         self.assertEqual(info['room'], 10)
         self.assertEqual(info['added'], 2)                  # the TODO in b.py and b.py without a test; a.py has one
         self.assertEqual({t['source'] for t in backlog.load(cfg)['tasks']}, {'todo', 'untested'})
         with backlog.locked(cfg) as data:
             for t in data['tasks']:
                 t['status'] = 'dropped'                     # a dropped task is never queued again
-            again = fill.fill(cfg, data, self.states(), FREE, 2000.0)
+        again = self.round(cfg, 2000.0)
         self.assertEqual(again['added'], 0)
         self.assertIn('nothing new', again['note'])
 
@@ -55,10 +54,9 @@ class FillTest(Base):
         self.repo()
         cfg = self.cfg(fill_room=True)
         run = mock.Mock()
-        with backlog.locked(cfg) as data:
-            self.assertEqual(fill.fill(cfg, data, self.states(room=0), FREE, 1.0, run)['added'], 0)
-            fill.set_fill(cfg, False)
-            self.assertEqual(fill.fill(cfg, data, self.states(), FREE, 1.0, run)['added'], 0)
+        self.assertIsNone(fill.gather(cfg, backlog.load(cfg), self.states(room=0), FREE, 1.0, run))
+        fill.set_fill(cfg, False)
+        self.assertIsNone(fill.gather(cfg, backlog.load(cfg), self.states(), FREE, 1.0, run))
         run.assert_not_called()
         self.assertFalse(autopilot.view(cfg)['fill_room'])
 
@@ -74,9 +72,22 @@ class FillTest(Base):
 
     def test_a_missing_repo_folder_is_named(self):
         cfg = self.cfg(fill_room=True)
+        self.assertIn('no folder', self.round(cfg, 1.0)['note'])
+
+    def test_a_short_name_is_not_tested_by_a_longer_test_name(self):
+        self.assertEqual([p for _, p in backlog.untested_items(['a.py', 'tests/test_data.py', 'b.ts', 'b.spec.ts'])], ['a.py'])
+
+    def test_a_hung_gaps_command_gives_nothing_instead_of_blocking(self):
+        run = mock.Mock(side_effect=subprocess.TimeoutExpired('gaps', 1))
+        self.assertEqual(backlog._out(run, ['x']), '')
+
+    def round(self, cfg, now):
+        found = fill.gather(cfg, backlog.load(cfg), self.states(), FREE, now)
         with backlog.locked(cfg) as data:
-            info = fill.fill(cfg, data, self.states(), FREE, 1.0)
-        self.assertIn('no folder', info['note'])
+            info = fill.fill(cfg, data, self.states(), FREE, now, found)
+        with autopilot.state_locked(cfg) as st:
+            st['fill'] = info
+        return info
 
     def test_the_stopped_line_names_every_step_with_room_too(self):
         states = {**self.states(), 'agy-gemini': account('agy-gemini', 'on pace'), 'agy-claude': account('agy-claude', room=1)}
@@ -124,7 +135,8 @@ class LandTest(Base):
         os.makedirs(self.wt)
 
     def review_task(self, cfg, **extra):
-        t = {**task('t1', 'review', [attempt('agy-gemini', ok=True)]), 'branch': 'autopilot/t1-x', 'worktree': self.wt, **extra}
+        t = {**task('t1', 'review', [{**attempt('agy-gemini', ok=True), 'gates': 'true'}]), 'branch': 'autopilot/t1-x',
+             'worktree': self.wt, **extra}
         with backlog.locked(cfg) as data:
             data['tasks'].append(t)
             data['next'] = 2
@@ -142,6 +154,7 @@ class LandTest(Base):
 
     def test_verdict_reads_no_findings_and_bullets(self):
         self.assertEqual(fill.verdict('**No findings.**'), (True, []))
+        self.assertFalse(fill.verdict('No findings.\n- a.py:1 - x - y')[0])
         self.assertEqual(fill.verdict('- a.py:1 - wrong - fix\n- b.py:2 - x - y'), (False, ['a.py:1 - wrong - fix', 'b.py:2 - x - y']))
         self.assertFalse(fill.verdict('')[0])
 
@@ -150,7 +163,7 @@ class LandTest(Base):
         cfg['autopilot']['repos']['app'].update(land='merge', base='main')
         self.review_task(cfg)
         run, calls = self.gitfake()
-        gh = mock.Mock(side_effect=[done(0, 'https://github.example/o/r/pull/7\n'), done(0)])
+        gh = mock.Mock(side_effect=[done(0, 'https://github.example/o/r/pull/7\n'), done(1, err='cannot delete'), done(0, 'MERGED\n')])
         with mock.patch.object(fill, 'ask_reviewer', return_value=('cheap', 'No findings.')):
             out = fill.land(cfg, 't1', run=run, gh=gh)
         self.assertIn('done', out)
@@ -159,6 +172,8 @@ class LandTest(Base):
         self.assertIn('merged into main', t['publish_note'])
         self.assertEqual(gh.call_args_list[1][0][0][:3], ['gh', 'pr', 'merge'])
         self.assertIn(('rebase', '-q', 'FETCH_HEAD'), calls)
+        self.assertIn(('push', '-q', 'origin', '--delete', 'autopilot/t1-x'), calls)   # merged: the remote branch goes
+        self.assertIn(('diff', '--stat', '--patch', 'FETCH_HEAD...HEAD'), calls)     # the whole branch is reviewed
 
     def test_land_pr_opens_a_pull_request_and_never_merges(self):
         cfg = self.cfg()
@@ -166,6 +181,8 @@ class LandTest(Base):
         self.review_task(cfg)
         run, _ = self.gitfake()
         gh = mock.Mock(return_value=done(0, 'https://github.example/o/r/pull/8'))
+        self.assertEqual(fill.open_pr({'worktree': self.wt, 'pr': 'u'}, 'dev', 's', 'b', mock.Mock(return_value=done(1, err='no')))[0],
+                         None)                              # a draft that cannot be marked ready does not land
         with mock.patch.object(fill, 'ask_reviewer', return_value=('cheap', 'No findings')):
             fill.land(cfg, 't1', run=run, gh=gh)
         self.assertEqual(gh.call_count, 1)
@@ -173,7 +190,14 @@ class LandTest(Base):
 
     def test_findings_send_it_back_and_the_third_time_parks_it(self):
         cfg = self.cfg()
-        self.review_task(cfg, reviews=2)
+        self.review_task(cfg, reviews=1)
+        run, _ = self.gitfake()
+        with mock.patch.object(fill, 'ask_reviewer', return_value=('cheap', 'No findings, but:\n- a.py:3 - off by one - use <=')):
+            fill.land(cfg, 't1', run=run, gh=mock.Mock())
+        t = backlog.load(cfg)['tasks'][0]
+        self.assertEqual((t['status'], t['reviews'], t['notes']), ('queued', 2, ['a.py:3 - off by one - use <=']))
+        with backlog.locked(cfg) as data:
+            data['tasks'][0]['status'] = 'review'
         run, _ = self.gitfake()
         with mock.patch.object(fill, 'ask_reviewer', return_value=('cheap', '- a.py:3 - off by one - use <=')):
             fill.land(cfg, 't1', run=run, gh=mock.Mock())
@@ -181,20 +205,28 @@ class LandTest(Base):
         self.assertEqual(t['status'], 'needs-person')
         self.assertIn('a.py:3 - off by one - use <=', t['notes'])
 
-    def test_a_conflicting_rebase_needs_a_person_and_no_repo_gate_never_lands(self):
+    def test_a_conflicting_rebase_needs_a_person_and_a_failed_fetch_waits(self):
         cfg = self.cfg()
         cfg['autopilot']['repos']['app']['base'] = 'main'
         self.review_task(cfg)
         run, calls = self.gitfake(fail=('rebase',))
-        with mock.patch.object(fill, 'ask_reviewer', return_value=('cheap', 'No findings')):
-            fill.land(cfg, 't1', run=run, gh=mock.Mock())
+        fill.land(cfg, 't1', run=run, gh=mock.Mock())
         self.assertIn('does not rebase cleanly', backlog.load(cfg)['tasks'][0]['parked'])
         self.assertIn(('rebase', '--abort'), calls)
-        cfg['autopilot']['repos']['app']['check'] = ''
         with backlog.locked(cfg) as data:
             data['tasks'][0].update(status='review', parked=None)
-        fill.land(cfg, 't1', run=run, gh=mock.Mock())
-        self.assertIn('lint and type gates', backlog.load(cfg)['tasks'][0]['parked'])
+        fill.land(cfg, 't1', run=self.gitfake(fail=('fetch',))[0], gh=mock.Mock(), now=100.0)
+        t = backlog.load(cfg)['tasks'][0]
+        self.assertEqual((t['status'], t['retry_after']), ('review', 100.0 + fill.FILL_EVERY))
+
+    def test_old_or_missing_gates_send_it_back_to_run_them(self):
+        cfg = self.cfg()
+        self.review_task(cfg)
+        cfg['autopilot']['repos']['app']['check'] = 'ruff check .'
+        fill.land(cfg, 't1', run=self.gitfake()[0], gh=mock.Mock())
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
+        cfg['autopilot']['repos']['app']['check'] = ''
+        self.assertIn('lint and type gates', fill.gated(cfg, backlog.load(cfg)['tasks'][0]))
 
     def test_a_reviewer_without_room_leaves_it_for_the_next_round(self):
         cfg = self.cfg()
@@ -204,6 +236,8 @@ class LandTest(Base):
         t = backlog.load(cfg)['tasks'][0]
         self.assertEqual(t['status'], 'review')
         self.assertIn('could not run', t['publish_note'])
+        self.assertGreater(t['retry_after'], 0)            # not again every round
+        self.assertEqual(fill.review_round(cfg, backlog.load(cfg), 1.0, lambda pid: True, mock.Mock()), [])
 
     def test_the_round_starts_one_review_at_a_time_and_frees_a_dead_one(self):
         cfg = self.cfg(auto_review=True)

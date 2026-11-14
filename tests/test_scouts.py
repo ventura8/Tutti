@@ -300,6 +300,13 @@ class TrialTest(Base):
         self.assertIsNone(r)
         self.assertIn('the review goes on without it', said[0])
 
+    def test_a_refused_send_does_not_use_up_a_trial_pull_request(self):
+        self.hook.status = 403
+        cfg = self.cfg()
+        self.assertEqual(self.review(cfg, 7)['status'], 'failed')
+        self.assertEqual(trial.load(cfg)['scouts']['grok']['prs'], [])
+        self.assertEqual(self.gh.closed, [])   # the pull request is never closed
+
     def test_another_repository_is_not_in_the_trial(self):
         self.assertIsNone(trial.in_trial(self.cfg(), 'octo/other', 1, print, gh_fn=self.gh, env=self.env))
         self.assertEqual(self.hook.calls, [])

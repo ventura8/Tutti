@@ -143,7 +143,8 @@ def ask_review(cfg, name, repo, number, url, gh_fn=gh, post_fn=scouts.post, env=
     with locked(cfg) as data:
         e = entry(data, name)
         k = key_of(repo, number)
-        if trial_scout(cfg, repo) == name and not any(p['key'] == k for p in e['prs']):
+        # only a review that went out counts toward the trial: a refused key must not use up one of its pull requests
+        if r['status'] == 'waiting' and trial_scout(cfg, repo) == name and not any(p['key'] == k for p in e['prs']):
             e['prs'].append({'key': k, 'repo': repo, 'number': number, 'request': r['id'], 'added': time.time(),
                              'findings': [], 'closed': False})
     return r

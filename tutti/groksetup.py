@@ -65,7 +65,8 @@ def check_url(url):
     if u.scheme != 'https' or not host:
         return 'it must start with https:// (copy the routine\'s "POST to" address as it is)'
     if host != HOST_SUFFIX and not host.endswith('.' + HOST_SUFFIX):
-        return f'its host is {host}, not Grok Bot\'s webhook host (…{HOST_SUFFIX}): copy the "POST to" address from the routine\'s Webhook section'
+        return (f'its host is {host}, not Grok Bot\'s webhook host (…{HOST_SUFFIX}): copy the "POST to" address from the '
+                'routine\'s Webhook section')
     return None
 
 

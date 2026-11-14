@@ -115,6 +115,7 @@ class GrokSetup(unittest.TestCase):
 class SpendEstimate(unittest.TestCase):
     def test_a_sent_question_moves_the_meter_but_is_not_a_fresh_reading(self):
         from datetime import datetime, timedelta, timezone
+
         from tutti import pacing, scouts
         log = os.path.join(tempfile.mkdtemp(), 'usage.jsonl')
         now = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)

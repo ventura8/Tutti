@@ -1089,7 +1089,9 @@ def parser():
                                 'issue), answer <id>, watch [<scout> <watch>], tick (send what is due within the allowance), '
                                 'review <pr> (advisory), trial (the review trial), list, setup')
     s.add_argument('action', choices=['list', 'setup', 'ask', 'answer', 'watch', 'tick', 'review', 'trial'])
-    s.add_argument('scout', nargs='?', help='ask, setup, watch: the scout (setup grok: the guided setup in a terminal); answer: the request id; review: the pull request number; '
+    s.add_argument('scout', nargs='?', help='ask, setup, watch: the scout (setup grok: the guided setup in a terminal); '
+                                            'answer: the request id; '
+                                            'review: the pull request number; '
                                             'trial: status, collect, show, mark or done')
     s.add_argument('task', nargs='?', help='ask: the question or task; watch: the watch to run now; trial: owner/name#number')
     s.add_argument('rest', nargs='*', help='trial mark: the finding id and real or noise')

@@ -19,8 +19,9 @@ except ImportError:   # Windows: no flock; one writer at a time is then the call
 FILE = 'backlog.json'
 SIZES = {'S': 1, 'M': 2, 'L': 3}   # what a task costs in bounded-task units of an account's room
 # queued: waits for a worker; running: a run works on it; review: passed its check, a person reviews it; needs-person: parked
-# (no progress, or too many attempts); done: accepted; dropped: removed from the queue but kept for the record
-STATUSES = ('queued', 'running', 'review', 'needs-person', 'done', 'dropped')
+# (no progress, or too many attempts); done: accepted; dropped: removed from the queue but kept for the record; candidate: a
+# suggestion (a scout's Sentry triage while self-improvement is off) that waits for `tutti backlog accept <id>`
+STATUSES = ('candidate', 'queued', 'running', 'review', 'needs-person', 'done', 'dropped')
 OPEN = ('queued', 'running')
 TODO_RX = r'\b(TODO|FIXME)\(([A-Za-z0-9_.@-]+)\):?\s*(.*)'
 TODO_ERE = r'(TODO|FIXME)\([A-Za-z0-9_.@-]+\)'   # the same for git grep -E

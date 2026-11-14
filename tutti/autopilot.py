@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import backlog, config, delegate, planner, remote, routing, worktree
+from . import backlog, config, delegate, planner, remote, routing, telemetry, worktree
 
 try:
     import fcntl
@@ -440,19 +440,27 @@ def publish(cfg, task, report, run=git, gh=subprocess.run):
     if done.returncode != 0:
         task['publish_note'] = f'the commit was refused ({(done.stderr or done.stdout).strip()[:200]}): review the diff {report["diff"]}'
         return
-    if repo.get('pr') != 'draft':
-        task['publish_note'] = f'committed on {branch} in {wt}: review it, then merge or `tutti backlog retry {task["id"]} --note ...`'
+    from . import selfimprove
+    mode, base, why = selfimprove.pr_plan(cfg, task, repo)
+    if not mode:
+        task['publish_note'] = f'committed on {branch} in {wt}{why}: review it, then merge or `tutti backlog retry {task["id"]} --note ...`'
         return
     pushed = run(wt, 'push', '-q', '-u', 'origin', branch)
     if pushed.returncode != 0:
         task['publish_note'] = f'committed on {branch}; the push failed ({pushed.stderr.strip()[:200]})'
         return
     body = f'Backlog task {task["id"]} ({task["source"]}), done by {task.get("step")} in {len(task["attempts"])} attempt(s).\n\n' \
-           f'Check: `{task.get("check") or repo.get("check")}` passed. Opened by `tutti autopilot`; never merged by it.'
-    pr = gh(['gh', 'pr', 'create', '--draft', '--head', branch, '--title', subject, '--body', body], cwd=wt, capture_output=True, text=True)
-    task['pr'] = pr.stdout.strip() if pr.returncode == 0 else None
+           f'Check: `{task.get("check") or repo.get("check")}` passed. Opened by `tutti autopilot`' + \
+           ('; self-improvement merges it only once CI, Sonar and the AI reviews are green.' if task.get('pr_mode')
+            else '; never merged by it.')
+    args = ['gh', 'pr', 'create', *(['--draft'] if mode == 'draft' else []), *(['--base', base] if base else []), '--head', branch,
+            '--title', subject, '--body', body]
+    pr = gh(args, cwd=wt, capture_output=True, text=True)
+    task['pr'] = pr.stdout.strip() if pr.returncode == 0 else task.get('pr')   # a retry pushes onto the open pull request
     failed = f'committed on {branch}; gh pr create failed: {pr.stderr.strip()[:200]}'
-    task['publish_note'] = f'draft pull request {task["pr"]}' if task['pr'] else failed
+    task['publish_note'] = f'{"draft " if mode == "draft" else ""}pull request {task["pr"]}' if task['pr'] else failed
+    if pr.returncode != 0 and task['pr']:
+        task['publish_note'] = f'pushed onto the open pull request {task["pr"]}'
 
 
 def finished(cfg, task, is_alive):
@@ -480,6 +488,7 @@ def collect(cfg, data, now, is_alive, publish_fn=publish):
             continue
         a = attempt_of(cfg, t, report, now)
         t['attempts'].append(a)
+        record_attempt(cfg, t, a, now)
         if a['ok']:
             t['status'] = 'review'
             publish_fn(cfg, t, report)
@@ -487,8 +496,27 @@ def collect(cfg, data, now, is_alive, publish_fn=publish):
             continue
         park = should_park(cfg, t)
         t['status'], t['parked'] = ('needs-person', park) if park else ('queued', None)
+        if park:
+            telemetry.record('feature', 'autopilot.park', cause='max_attempts' if park.endswith(')') and 'max_attempts' in park
+                             else 'no_progress', attempts=len(t['attempts']), source=t.get('source'))
+        elif step_index(cfg, len(t['attempts'])) > step_index(cfg, len(t['attempts']) - 1):
+            telemetry.record('feature', 'autopilot.escalate', attempt=len(t['attempts']) + 1, source=t.get('source'))
         events.append(f'{t["id"]} failed on {a["step"]} ({a["why"][:120]})' + (f': parked: {park}' if park else ': queued again'))
     return events
+
+
+def step_index(cfg, attempt):
+    """The ladder step attempt n (0-based) starts at: step n, the last one repeating."""
+    return min(attempt, max(len(ladder(cfg)) - 1, 0))
+
+
+def record_attempt(cfg, t, a, now):
+    """One autopilot attempt for telemetry: the step's worker kind, the outcome, how long; never the task or its failure."""
+    step = step_of(cfg, a['step']) if a.get('step') in ladder(cfg) else {}
+    telemetry.record('feature', 'autopilot.attempt', outcome='passed' if a['ok'] else 'failed', attempt=len(t['attempts']),
+                     worker_kind=telemetry.tool_of(a.get('worker')), account=telemetry.tool_of(step.get('account')),
+                     step_kind=step.get('kind'), source=t.get('source'), size=t.get('size'),
+                     minutes=round((now - float(a.get('started') or now)) / 60, 2))
 
 
 def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen, publish_fn=publish):
@@ -500,6 +528,8 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     with backlog.locked(cfg) as data:
         events = collect(cfg, data, now, is_alive, publish_fn)
         p = plan(cfg, data['tasks'], states, machines, on, datetime.fromtimestamp(now, timezone.utc))
+        telemetry.record('feature', 'autopilot.plan', state=p['state'], dispatch=len(p['dispatch']), waiting=len(p['waiting']),
+                         collected=len(events))
         backlog.save(cfg, data)   # what was collected is kept even if a start below fails
         for task_id, step in p['dispatch']:
             t = backlog.find(data, task_id)

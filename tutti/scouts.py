@@ -72,7 +72,11 @@ def settings(cfg, name):
     if acc is not None and cfg.get('project'):   # where a sent question's spend estimate goes (its account's usage log)
         from . import state  # state imports config, which imports this module
         extra = {'_usage_log': state.usage_log_path(cfg), '_task_pct': float((acc or {}).get('task_pct', pacing.TASK_PCT))}
-    return {**DEFAULTS, **sc, 'name': name, **extra}
+    # Sentry triage watches, one per project with a sentry: entry (triage builds on this module)
+    from . import triage
+    out = {**DEFAULTS, **sc, 'name': name, **extra}
+    out['watches'] = {**triage.watches(cfg, out), **(out.get('watches') or {})}
+    return out
 
 
 def spend_estimate(sc, r, now=None):
@@ -137,6 +141,8 @@ def _one_errors(cfg, name, sc):
         return [f'{key} is {sc!r}: write it as a mapping with kind, url_env, key_env and reply']
     if sc.get('kind') not in KINDS:
         return [f'{key}.kind is {sc.get("kind")!r}: use {", ".join(KINDS)}']
+    if 'sentry_triage' in sc and not isinstance(sc['sentry_triage'], bool):
+        return [f'{key}.sentry_triage is {sc["sentry_triage"]!r}: true or false']
     errs = _env_errors(key, sc) + _account_errors(cfg, key, sc) + _watch_errors(f'{key}.watches', sc.get('watches') or {})
     reply = sc.get('reply') or {}
     if not is_repo(reply.get('github_repo')):
@@ -160,7 +166,8 @@ def errors(cfg):
     s = cfg.get('scouts') or {}
     if not isinstance(s, dict):
         return [f'scouts is {s!r}: a mapping such as scouts: {{grok: {{kind: grok-bot-webhook, ...}}}}']
-    return [e for name, sc in s.items() for e in _one_errors(cfg, name, sc)]
+    from . import triage
+    return [e for name, sc in s.items() for e in _one_errors(cfg, name, sc)] + triage.errors(cfg)
 
 
 def missing_env(sc, env=None):
@@ -459,6 +466,8 @@ def tick(cfg, accounts, env=None, gh_fn=gh, post_fn=post, now=None):
         url, key = secrets(sc, env)
         with locked(cfg) as data:
             events += _round(sc, data, accounts.get(sc.get('account')), url, key, gh_fn, post_fn, now)
+            from . import selfimprove, triage
+            events += triage.feed_answered(cfg, data, selfimprove.enabled(cfg))
     return events
 
 
@@ -479,6 +488,8 @@ def _round(sc, data, acc, url, key, gh_fn, post_fn, now):
         if what == 'watch':
             w = sc['watches'][ref]
             r = new_request(data, sc, w['task'], 'watch', ref, w.get('repo'), w.get('skill'), now)
+            if w.get('project'):
+                r['project'] = w['project']
         else:
             r = find(data, ref)
         try:

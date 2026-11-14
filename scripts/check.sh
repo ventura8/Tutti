@@ -2,6 +2,7 @@
 # check.sh: everything CI runs, in one go: shellcheck, ruff (when installed), the unit tests and a CLI smoke test.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+export TUTTI_TELEMETRY=off   # the smoke runs below are not usage: record nothing
 shellcheck scripts/*.sh
 if command -v ruff > /dev/null; then ruff check . bin/tutti; else echo "ruff is not installed here: skipped (CI runs it)"; fi
 XDG_CONFIG_HOME="$(mktemp -d)" python3 -m unittest discover -s tests   # never the owner's grok.env
@@ -18,6 +19,9 @@ $t conduct --show --main cursor "smoke" > /dev/null
 $t main > /dev/null
 $t runs > /dev/null
 $t backlog list > /dev/null
+$t telemetry status > /dev/null
+$t telemetry report > /dev/null
+$t selfimprove > /dev/null
 $t autopilot > /dev/null
 $t pr --help > /dev/null
 $t scout list > /dev/null

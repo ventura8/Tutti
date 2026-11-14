@@ -20,6 +20,7 @@ from . import (
     conduct,
     config,
     controls,
+    dashtelemetry,
     handover,
     helper,
     pacing,
@@ -29,6 +30,7 @@ from . import (
     remote,
     scouts,
     state,
+    telemetry,
     transfer,
     trial,
     workers,
@@ -126,7 +128,9 @@ class Collector:
                 self.refresh()
                 self.autopilot_tick()
                 self.scouts_tick()
+                dashtelemetry.tick(self.cfg)
             except Exception as e:  # a probe bug must not end the loop; the page shows the last good data and its age
+                telemetry.capture_exception(type(e), e, e.__traceback__, where='dashboard-loop')
                 state_error = f'probing failed ({type(e).__name__}: {e}); the dashboard keeps the last results'
                 with self.lock:
                     self.probes = {**self.probes, 'error': state_error}
@@ -150,6 +154,7 @@ class Collector:
         accounts = {a['name']: a for a in out['usage']['accounts']}
         out['scouts'] = {**scouts.view(self.cfg, accounts, self.env), 'error': probes.get('scout_error'), 'trial': trial.view(self.cfg)}
         out['controls'] = controls.view(self.cfg, controls.read(config.state_dir(self.cfg)))
+        out['telemetry'] = dashtelemetry.view(self.cfg)
         return out
 
     def reload(self):
@@ -301,7 +306,7 @@ def save_control(collector, raw, stop_fn=handover.stop_now):
     return 200, {'ok': True, 'handed': [{'log': log, 'to': to} for log, to in handed]}
 
 
-POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control')
+POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve')
 
 
 def post(collector, headers, path, port, token, read):
@@ -312,7 +317,8 @@ def post(collector, headers, path, port, token, read):
     path = path.split('?', 1)[0]
     if path not in POSTS:
         return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, {"agent": ...} to /api/main, '
-                          '{"enabled": ...} to /api/autopilot, or {"action": ...} to /api/control'}
+                          '{"enabled": ...} to /api/autopilot or /api/self-improve, {"action": ...} to /api/control, or '
+                          '{"consent"|"error"|"use": ...} to /api/telemetry'}
     refused = check_post(headers, host, token)
     if refused:
         return refused[0], {'error': refused[1]}
@@ -339,6 +345,8 @@ HANDLERS = {
     '/api/control': save_control,
     '/api/refresh': refresh_now,
     '/api/reading': lambda c, b: save_reading(c.cfg, b),
+    '/api/telemetry': dashtelemetry.save,
+    '/api/self-improve': dashtelemetry.save_self_improve,
 }
 
 
@@ -377,6 +385,15 @@ def route(collector, path, token=''):
     return 200, body, TYPES.get(os.path.splitext(full)[1]) or mimetypes.guess_type(full)[0] or 'application/octet-stream', 'no-cache'
 
 
+def reported(where, fn, *args):
+    """fn(*args), an exception reported to telemetry (sent only with consent) before the server's own error handling."""
+    try:
+        return fn(*args)
+    except Exception as e:
+        telemetry.capture_exception(type(e), e, e.__traceback__, where=where)
+        raise
+
+
 def make_handler(collector, token):
     class Handler(BaseHTTPRequestHandler):
         server_version = 'tutti'
@@ -406,10 +423,11 @@ def make_handler(collector, token):
         def do_GET(self):
             if not allowed_host(self.headers.get('Host', ''), self.server.server_address[1]):
                 return self.fail(403, 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)')
-            self.send(*route(collector, self.path.split('?', 1)[0], token))
+            self.send(*reported('dashboard-get', route, collector, self.path.split('?', 1)[0], token))
 
         def do_POST(self):
-            code, answer = post(collector, self.headers, self.path, self.server.server_address[1], token, self.rfile.read)
+            code, answer = reported('dashboard-post', post, collector, self.headers, self.path, self.server.server_address[1], token,
+                                    self.rfile.read)
             self.send(code, json.dumps(answer).encode(), JSON_TYPE)
 
     return Handler

@@ -82,6 +82,13 @@ workers:
   small: {kind: ollama, host: '127.0.0.1:11434', model: 'your-small-model:9b', threads: 4}
 
 # Rules added to every brief (the standing ones, "do not commit", "no secrets", are always added).
+# A worker's context is compacted at this share of its window: natively by Claude Code, by Tutti for a local model in
+# `tutti conduct`, by a handoff restart for other CLIs (docs/WORKERS.md, *Automatic compaction*). The dashboard's
+# Settings row changes the percentage without editing this file. A worker's window: workers.<name>.context_tokens.
+autocompact:
+  threshold_pct: 60
+  context_tokens: 200000
+
 brief:
   rules:
     - Follow AGENTS.md.

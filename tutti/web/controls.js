@@ -123,6 +123,40 @@ function renderControls(s) {
         return [el('h4', { class: 'card__sub', text: title }),
             el('ul', { class: 'list', 'aria-label': title }, ...(list.length ? list : [el('li', { class: 'row__note', text: none })]))];
     }));
+    renderAutocompact(c.autocompact);
     $('optin').replaceChildren(...(c.opt_in.length ? c.opt_in.map(optIn)
         : [el('li', {}, empty('Nothing opt-in', 'Workers or accounts marked costs_money or opt_in, and Android lint runs, appear here.'))]));
 }
+
+// Autocompact: the % of a worker's context window at which it is compacted (POST /api/autocompact, kept in the state folder).
+const COMPACT_HOW = { native: 'compacts by itself', tutti: 'compacted by Tutti', handover: 'restarted with a handoff' };
+
+function renderAutocompact(a) {
+    if (!a) return;
+    const input = $('autocompact-pct');
+    if (document.activeElement !== input) input.value = a.threshold_pct;
+    $('autocompact-from').textContent = a.from === 'dashboard' ? `(set here; the config says ${a.config_pct} %)` : '(from the config)';
+    const how = Object.entries(a.workers || {}).map(([n, m]) => `${n}: ${COMPACT_HOW[m] || m}`).join(' · ');
+    $('autocompact-note').textContent = a.enabled ? (how || 'No workers configured.') : 'Off in the config (autocompact.enabled: false).';
+}
+
+async function saveAutocompact(pct) {
+    try {
+        const res = await fetch('/api/autocompact', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify({ threshold_pct: pct }),
+        });
+        const answer = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(answer.error || `the dashboard answered ${res.status}`);
+        await refresh();
+    } catch (err) {
+        showBanner(el('strong', { text: 'The compaction threshold was not saved. ' }), err.message);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    $('autocompact-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        void saveAutocompact(Number($('autocompact-pct').value));
+    });
+    $('autocompact-reset').addEventListener('click', () => { void saveAutocompact(null); });
+});

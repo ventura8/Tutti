@@ -11,7 +11,9 @@ from datetime import datetime, timezone
 from . import pacing, routing, state, workers
 
 COPILOT_LOGINS = ('copilot-pull-request-reviewer[bot]', 'copilot-pull-request-reviewer', 'Copilot')
-COPILOT_REQUEST_AS = ('copilot-pull-request-reviewer[bot]', 'Copilot')   # the names the REST API has accepted
+# the names the REST API has taken; 'Copilot' first (PRs #9-#20 of the Tutti repository). The answer is checked: GitHub
+# answers 201 and drops the request for a name it does not take, and 422 "not a collaborator" for the bare bot login.
+COPILOT_REQUEST_AS = ('Copilot', 'copilot-pull-request-reviewer[bot]')
 CODERABBIT_LOGIN = 'coderabbitai[bot]'
 CODERABBIT_LIMITED = ('rate limited by coderabbit.ai', 'review limit reached', 'review rate limited', 'reviews paused',
                       'rate limit exceeded')
@@ -55,11 +57,45 @@ def request(repo, number, who, gh_fn=gh):
         return '' if rc == 0 else f'could not comment on the pull request ({err})'
     errors = []
     for login in COPILOT_REQUEST_AS:
-        rc, _out, err = gh_fn(['api', '-X', 'POST', f'repos/{repo}/pulls/{number}/requested_reviewers', '-f', f'reviewers[]={login}'])
-        if rc == 0:
+        rc, out, err = gh_fn(['api', '-X', 'POST', f'repos/{repo}/pulls/{number}/requested_reviewers', '-f', f'reviewers[]={login}'])
+        if rc == 0 and copilot_listed(out):
             return ''
-        errors.append(err)
-    return f'GitHub refused the Copilot review request ({errors[-1]}): Copilot code review may not be enabled for this repository'
+        errors.append(err if rc else f'GitHub answered 201 for "{login}" but did not list Copilot as a reviewer')
+    if request_by_graphql(repo, number, gh_fn):
+        return ''
+    return (f'GitHub did not add Copilot as a reviewer ({errors[-1]}): check that Copilot code review is on for this repository '
+            '(Settings > Copilot > Code review) and that the head commit is not reviewed already')
+
+
+def copilot_listed(out):
+    """True when a requested_reviewers answer (REST) names Copilot. GitHub answers 201 even when it silently drops the
+    request (a login it does not take as a reviewer), so the answer's list is what counts, never the status alone."""
+    try:
+        data = json.loads(out or '{}')
+    except ValueError:
+        return False
+    if not isinstance(data, dict):
+        return False
+    return any(isinstance(r, dict) and r.get('login') in COPILOT_LOGINS for r in data.get('requested_reviewers') or [])
+
+
+GRAPHQL_REQUEST = ('mutation($id:ID!){requestReviewsByLogin(input:{pullRequestId:$id,botLogins:["copilot-pull-request-reviewer"],'
+                   'union:true}){pullRequest{reviewRequests(first:20){nodes{requestedReviewer{... on Bot{login}}}}}}}')
+
+
+def request_by_graphql(repo, number, gh_fn=gh):
+    """The GraphQL way (requestReviewsByLogin with botLogins), which takes Copilot as the bot it is. True when it is listed."""
+    rc, node, _err = gh_fn(['api', f'repos/{repo}/pulls/{number}', '--jq', '.node_id'])
+    if rc != 0 or not node.strip():
+        return False
+    rc, out, _err = gh_fn(['api', 'graphql', '-f', f'id={node.strip()}', '-f', f'query={GRAPHQL_REQUEST}'])
+    if rc != 0:
+        return False
+    try:
+        nodes = json.loads(out)['data']['requestReviewsByLogin']['pullRequest']['reviewRequests']['nodes']
+    except (ValueError, KeyError, TypeError):
+        return False
+    return any(((n or {}).get('requestedReviewer') or {}).get('login') in COPILOT_LOGINS for n in nodes)
 
 
 def events(repo, number, gh_fn=gh):

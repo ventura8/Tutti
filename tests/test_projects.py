@@ -114,6 +114,20 @@ class ActivityTest(unittest.TestCase):
         self.assertNotIn('error', a)
         self.assertTrue(a['procs'] or a['repos'] == {})
 
+    def test_a_process_in_a_folder_under_home_is_found_by_its_program(self):
+        with tempfile.TemporaryDirectory() as home:
+            work = os.path.join(home, 'proj')
+            os.makedirs(work)
+            p = subprocess.Popen(['sleep', '30'], cwd=work)
+            try:
+                with mock.patch.dict(os.environ, {'HOME': home}):
+                    a = projects.probe_activity({'transport': 'local', 'name': 'here'})
+            finally:
+                p.kill()
+                p.wait()
+            self.assertIn((os.path.realpath(work), 'sleep'), [(os.path.realpath(c), n) for c, n in a['procs']])
+            self.assertTrue(all(os.path.realpath(c).startswith(os.path.realpath(home)) for c, _ in a['procs']))
+
     def test_a_machine_that_does_not_answer_says_so(self):
         with mock.patch('tutti.remote.sh', side_effect=subprocess.TimeoutExpired('ssh', 1)):
             self.assertIn('did not answer', projects.probe_activity({'transport': 'ssh', 'host': 'x'}, timeout=1)['error'])

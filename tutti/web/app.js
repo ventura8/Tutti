@@ -838,6 +838,7 @@ function factList(j) {
         [j.progress, () => layerText(j.progress)],
         [f.step, () => `step: ${f.step}`],
         [f.tokens, () => tokenText(f.tokens)],
+        [f.context_pct !== undefined && f.context_pct !== null, () => `context ${Math.round(f.context_pct)} %`],
         [f.credits, () => `${f.credits} AI credits`],
         [f.worker && !f.account, () => `worker ${f.worker}`],
         [f.account, () => accountText(f.account)],
@@ -1013,20 +1014,30 @@ function live() {
     }
 }
 
-async function refresh() {
+async function refresh(how) {
     clearTimeout(ui.timer);
     // Only the newest request may publish its answer and schedule the next poll: a Refresh click during a slow
     // request must not start a second polling loop or let the older answer overwrite the newer one.
     const seq = ++ui.seq;
     try {
-        const res = await fetch('/api/state', { cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        // no-cache: the browser asks with the ETag it kept; an unchanged answer comes back as a 304 (no body sent)
+        // and is neither parsed nor rendered again
+        const res = await fetch('/api/state', { cache: 'no-cache' });
+        // a bare 304 keeps the last answer (the browser normally turns its own revalidation into a 200 from its cache)
+        if (!res.ok && res.status !== 304) throw new Error(`HTTP ${res.status}`);
+        const etag = res.headers.get('ETag');
+        // only a timed poll skips an unchanged answer: after a save or a click the page renders its own changes too
+        const same = how === 'poll' && (res.status === 304 ? Boolean(ui.last) : etag && etag === ui.etag && ui.last && !ui.failing);
+        if (res.status === 304 && !ui.last) throw new Error('HTTP 304 with no earlier answer');
+        const data = same || res.status === 304 ? ui.last : await res.json();
         if (seq !== ui.seq) return;
-        ui.last = data;
         ui.fetchedAt = Date.now();
-        ui.failing = false;
-        render();
+        if (!same) {
+            ui.last = data;
+            ui.etag = etag;
+            ui.failing = false;
+            render();
+        }
         void selfUpdate(data.version);
     } catch {
         if (seq !== ui.seq) return;
@@ -1037,7 +1048,7 @@ async function refresh() {
     }
     live();
     const every = (ui.last?.refresh_seconds || 10) * 1000;
-    if (!document.hidden) ui.timer = setTimeout(refresh, ui.failing ? Math.min(every, 5000) : every);
+    if (!document.hidden) ui.timer = setTimeout(() => refresh('poll'), ui.failing ? Math.min(every, 5000) : every);
 }
 
 function accentNote() {

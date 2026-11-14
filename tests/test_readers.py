@@ -126,6 +126,36 @@ class ReadersTest(unittest.TestCase):
         r.read_all()
         self.assertEqual(len(self.calls), 4)
 
+    def test_an_unchanged_answer_backs_off_and_a_change_or_force_resets_it(self):
+        answers = {'agy': (AGY, None), 'cursor-agent': ({'subscriptionTier': 'Pro'}, None)}
+        r = self.fake(answers)
+        spec = self.cfg['accounts']['agy-claude']['reader']
+        base = float(r.every_minutes(spec)) * 60
+        r.read_all()
+        for wait in (1, 2, 4, 8, 8):   # the same answer each time: twice as long, up to BACKOFF_MAX intervals
+            self.t[0] += base * wait * 0.5
+            before = self.calls.count('agy')
+            r.read_all()
+            self.assertEqual(self.calls.count('agy'), before, f'asked again too early at x{wait}')
+            self.t[0] += base * wait * 0.5
+            r.read_all()
+            self.assertEqual(self.calls.count('agy'), before + 1)
+        self.assertEqual(r.interval_minutes(spec), round(float(r.every_minutes(spec)) * readers.BACKOFF_MAX, 2))
+        answers['agy'] = ({**AGY, 'changed': True}, None)
+        self.t[0] += base * readers.BACKOFF_MAX
+        self.assertEqual(r.read_all()['agy-claude']['every_minutes'], r.every_minutes(spec))   # a change: its own interval
+        r.read_all(force=True)
+        self.assertEqual(r.interval_minutes(spec), r.every_minutes(spec))
+        self.assertGreater(r.runs, 6)
+
+    def test_a_failing_reader_never_backs_off(self):
+        r = self.fake({'agy': (None, 'agy exited 1'), 'cursor-agent': ({'subscriptionTier': 'Pro'}, None)})
+        spec = self.cfg['accounts']['agy-claude']['reader']
+        for _ in range(3):
+            r.read_all()
+            self.t[0] += float(r.every_minutes(spec)) * 60
+        self.assertEqual(self.calls.count('agy'), 3)
+
     def test_problems_are_named_per_account(self):
         r = self.fake({'agy': (None, 'agy is not on PATH: install it and sign in once'), 'cursor-agent': ({}, None)})
         out = r.read_all()

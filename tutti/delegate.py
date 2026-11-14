@@ -12,7 +12,7 @@ import time
 
 import yaml
 
-from . import config, ship, workers, worktree
+from . import compact, config, ship, workers, worktree
 
 try:
     import fcntl
@@ -250,12 +250,28 @@ def run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list):
     """(exit code, last lines) of the worker in the worktree. A local model (kind ollama) works through `tutti agent`'s loop on
     the given files with the first check as its own check."""
     if cfg['workers'][name]['kind'] != 'ollama':
-        return workers.run(cfg, name, task, files, cwd=wt, out=log, extra=extra, log=worker_log)
+        return run_compacting(cfg, name, task, files, wt, log, extra, worker_log)
     from . import local
     check = (check_list or [{}])[0].get('run') or 'true'
     with contextlib.redirect_stdout(log):
         ok = local.agent(cfg, cfg['workers'][name], task, check, files, base=wt)
     return (0 if ok else 1), []
+
+
+def run_compacting(cfg, name, task, files, wt, log, extra, worker_log, run=workers.run):
+    """The worker's run; when it is stopped at the autocompact threshold, started again in the same worktree with a handoff
+    note (the changes, its last output) instead of its grown context, at most autocompact.RESTARTS times."""
+    from . import autocompact, conduct  # conduct imports this module
+    rc, lines = run(cfg, name, task, files, cwd=wt, out=log, extra=extra, log=worker_log)
+    for n in range(autocompact.RESTARTS):
+        if rc != workers.COMPACT_RC:
+            break
+        why = f'its context reached autocompact.threshold_pct (restart {n + 1} of at most {autocompact.RESTARTS})'
+        last = compact.compact('\n'.join(lines), 2000).splitlines()
+        note = conduct.handoff_note(task, name, name, why, '', conduct.tree_changes(wt), last)
+        log.write(f'tutti: run: compacted: {why}\n')
+        rc, lines = run(cfg, name, autocompact.restart_task(task, note), files, cwd=wt, out=log, extra=extra, log=worker_log)
+    return rc, lines
 
 
 def chosen_checks(cfg, repo, check_list):

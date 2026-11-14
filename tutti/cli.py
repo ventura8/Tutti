@@ -399,7 +399,8 @@ def cmd_run(cfg, a):
 
 
 def run_worker(cfg, a, extra):
-    rc, lines = workers.run(cfg, a.worker, a.task, a.files, cwd=a.dir, extra=extra)
+    # restarted with a handoff when it is stopped at autocompact.threshold_pct, as a --repo run is
+    rc, lines = delegate.run_compacting(cfg, a.worker, a.task, a.files, a.dir, sys.stdout, extra, None)
     note_limits(cfg, a.worker, lines)
     delegate.log_run(cfg, a.worker, getattr(a, 'account', None) or state.account_of_worker(cfg, a.worker), rc, None, lines)
     return rc

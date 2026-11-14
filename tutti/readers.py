@@ -25,6 +25,10 @@ CONTEXT_LINES = 2
 MIN_CHANGE = 1.0
 RESET_MOVED = timedelta(minutes=10)
 KEEP_EVERY = timedelta(hours=1)
+# A reader whose answer did not change is asked half as often next time, down to once every BACKOFF_MAX intervals; any
+# change, or a Refresh readings click, brings it back to its own interval. agy's /usage answer is byte for byte the same
+# while nothing ran, so an idle dashboard spawned it 120 times an hour for nothing (owner, 2026-11-14).
+BACKOFF_MAX = 8
 
 LIMITS = tuple(re.compile(p, re.I) for p in (
     r'usage limit', r'rate[ -]?limit', r'quota (?:exceeded|exhausted|reached|limit)', r'resource[_ ]exhausted',
@@ -230,6 +234,8 @@ class Readers:
     def __init__(self, cfg, run=run_json, clock=time.time):
         self.cfg, self.run, self.clock = cfg, run, clock
         self.cache = {}   # command tuple -> (when, data, problem)
+        self.backoff = {}   # command tuple -> how many intervals to wait now (1 .. BACKOFF_MAX)
+        self.runs = 0   # reader commands run, for `tutti dashboard` measurements
         self.scanned = {}   # job log -> mtime already scanned
 
     def every_minutes(self, spec):
@@ -239,12 +245,20 @@ class Readers:
         key = tuple(spec['command'])
         every = float(self.every_minutes(spec)) * 60
         hit = self.cache.get(key)
+        wait = every * self.backoff.get(key, 1)
         # A little under the interval: a probe that comes a moment early still runs the reader.
-        if hit and not force and self.clock() - hit[0] < every * 0.9:
+        if hit and not force and self.clock() - hit[0] < wait * 0.9:
             return hit[1], hit[2]
         data, problem = self.run(list(spec['command']))
+        self.runs += 1
+        same = hit is not None and not force and problem is None and data is not None and data == hit[1]
+        self.backoff[key] = min(BACKOFF_MAX, self.backoff.get(key, 1) * 2) if same else 1
         self.cache[key] = (self.clock(), data, problem)
         return data, problem
+
+    def interval_minutes(self, spec):
+        """The interval a reader is asked at now: its own, times the back-off while its answer stays the same."""
+        return round(float(self.every_minutes(spec)) * self.backoff.get(tuple(spec['command']), 1), 2)
 
     def read(self, name, a, now=None, force=False):
         """{'plan', 'used', 'resets', 'problem', 'every_minutes'} for one account from its `reader` and `plan` commands."""
@@ -258,13 +272,14 @@ class Readers:
             out['problem'] = problem
         r = a.get('reader')
         if r:
-            out['every_minutes'] = self.every_minutes(r)
             data, problem = self._answer(r, force)
+            out['every_minutes'] = self.interval_minutes(r)
             if data is not None:
                 try:
                     out['used'], out['resets'] = self.parse(r, a, data, now or datetime.fromtimestamp(self.clock(), timezone.utc))
                 except (ValueError, KeyError, TypeError) as e:
                     problem = f'accounts.{name}.reader: {e}'
+                    self.backoff[tuple(r['command'])] = 1   # an answer it cannot read is asked again at its own interval
             out['problem'] = problem or out['problem']
         return out
 

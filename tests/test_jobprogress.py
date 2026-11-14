@@ -259,7 +259,7 @@ class FactsTest(Base):
                   'content': [{'type': 'tool_use'}]},
                  {'message': {'id': 'm2', 'usage': {'input_tokens': 1, 'output_tokens': 1}}}]
         path = write(os.path.join(self.dir, 'a.output'), '\n'.join(json.dumps(x, separators=(',', ':')) for x in lines) + '\n')
-        self.assertEqual(jobfacts.transcript_tokens(path), {'in': 101, 'out': 11, 'calls': 1})
+        self.assertEqual(jobfacts.transcript_tokens(path), {'in': 101, 'out': 11, 'calls': 1, 'context': 1})
         self.assertEqual(jobfacts.transcript_started(path), jobfacts.seconds('2026-01-01T00:00:00+00:00'))
         self.assertIsNone(jobfacts.transcript_tokens(os.path.join(self.dir, 'missing')))
 
@@ -338,7 +338,7 @@ class EveryRunningJobTest(Base):
             self.assertEqual(p['determinate'], p['pct'] is not None)
         by_kind = {j['kind']: j for j in running}
         self.assertEqual(by_kind['files']['facts']['copied'], {'done': 512, 'total': 1024, 'unit': 'MB'})
-        self.assertEqual(by_kind['agent task']['facts']['tokens'], {'in': 10, 'out': 3, 'calls': 0})
+        self.assertEqual(by_kind['agent task']['facts']['tokens'], {'in': 10, 'out': 3, 'calls': 0, 'context': 10})
         self.assertEqual(by_kind['run']['progress']['layer'], 'shape')
         self.assertEqual(by_kind['conduct']['progress']['pct'], 50)
         done = [j for j in items if j['status'] == 'done']

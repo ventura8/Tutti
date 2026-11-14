@@ -380,13 +380,23 @@ class HelperTest(unittest.TestCase):
 class FakeGh:
     """`gh` answers from a table; records every call."""
 
-    def __init__(self, copilot_ok=False, events=()):
+    def __init__(self, copilot_ok=False, events=(), dropped=False, graphql_ok=False):
         self.calls, self.copilot_ok, self.events = [], copilot_ok, list(events)
+        self.dropped, self.graphql_ok = dropped, graphql_ok
 
     def __call__(self, args):
         self.calls.append(args)
         if args[:2] == ['api', '-X']:
-            return (0, '{}', '') if self.copilot_ok else (1, '', 'HTTP 422: Reviews may only be requested from collaborators')
+            if self.copilot_ok:
+                return 0, json.dumps({'requested_reviewers': [{'login': 'Copilot'}]}), ''
+            if self.dropped:   # GitHub's 201 that does not add the reviewer
+                return 0, json.dumps({'requested_reviewers': []}), ''
+            return 1, '', 'HTTP 422: Reviews may only be requested from collaborators'
+        if args[:2] == ['api', 'graphql']:
+            nodes = [{'requestedReviewer': {'login': 'copilot-pull-request-reviewer'}}] if self.graphql_ok else []
+            return 0, json.dumps({'data': {'requestReviewsByLogin': {'pullRequest': {'reviewRequests': {'nodes': nodes}}}}}), ''
+        if args[0] == 'api' and args[-2:-1] == ['--jq']:
+            return 0, 'PR_node\n', ''
         if args[0] == 'api':
             assert '--slurp' not in args, 'gh before 2.62 has no --slurp'
             key = 'submitted_at' if args[-1].split('?')[0].endswith('/reviews') else 'created_at'
@@ -444,6 +454,18 @@ class ReviewTest(unittest.TestCase):
             rc = review.review(self.cfg(d, ('copilot',)), 7, 'o/r', timeout_minutes=1, gh_fn=fake, say=said.append, sleep=lambda s: None)
             self.assertEqual(rc, 0)
             self.assertIn('copilot reviewed', said[-1])
+
+    def test_a_silently_dropped_request_falls_back_to_graphql(self):
+        fake = FakeGh(dropped=True, graphql_ok=True)
+        self.assertEqual(review.request('o/r', 7, 'copilot', fake), '')
+        self.assertEqual(fake.calls[0][-1], 'reviewers[]=Copilot')
+        self.assertTrue(any(c[:2] == ['api', 'graphql'] for c in fake.calls))
+
+    def test_a_request_github_never_lists_says_where_to_look(self):
+        why = review.request('o/r', 7, 'copilot', FakeGh(dropped=True))
+        self.assertIn('did not list Copilot', why)
+        self.assertIn('Settings > Copilot > Code review', why)
+        self.assertFalse(review.copilot_listed('not json'))
 
     def test_no_fallback_worker_says_review_it_yourself(self):
         with tempfile.TemporaryDirectory() as d:

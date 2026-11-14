@@ -139,6 +139,16 @@
                 <div id="pausable" aria-label="Machines, devices and agents to pause or resume, by category"></div>
                 <h3 class="card__sub">Opt-in</h3>
                 <ul id="optin" class="list" aria-label="Opt-in items"></ul>
+                <h3 class="card__sub" id="autocompact-h">Settings</h3>
+                <form id="autocompact-form" class="row" aria-labelledby="autocompact-h">
+                    <label class="row__name" for="autocompact-pct">Compact a worker's context at
+                        <span class="row__kind" id="autocompact-from"></span></label>
+                    <span class="row__stats"><input id="autocompact-pct" type="number" min="10" max="95" step="1" required
+                        inputmode="numeric" aria-describedby="autocompact-note"> %
+                        <button class="btn btn--tonal" type="submit">Save</button>
+                        <button class="btn" type="button" id="autocompact-reset">Use the config's</button></span>
+                    <p class="row__note" id="autocompact-note"></p>
+                </form>
             </section>
 
             <section class="card span-full" aria-labelledby="selfimprove-h">

@@ -32,7 +32,8 @@ def read(folder):
     except (OSError, ValueError):
         data = {}
     data = data if isinstance(data, dict) else {}
-    return {'enabled': dict(data.get('enabled') or {}), 'paused': dict(data.get('paused') or {})}
+    return {'enabled': dict(data.get('enabled') or {}), 'paused': dict(data.get('paused') or {}),
+            'settings': dict(data.get('settings') or {})}
 
 
 @contextlib.contextmanager
@@ -77,6 +78,15 @@ def set_paused(folder, kind, name, paused, source='dashboard', note='', clock=ti
             data['paused'][k] = {'by': who(source), 'at': clock(), 'note': note}
         else:
             data['paused'].pop(k, None)
+
+
+def set_setting(folder, name, value):
+    """A setting the owner changed on the dashboard (settings.autocompact_pct); None takes it back to the config's."""
+    with changed(folder) as data:
+        if value is None:
+            data['settings'].pop(name, None)
+        else:
+            data['settings'][name] = value
 
 
 def apply(raw, data):

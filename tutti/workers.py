@@ -2,6 +2,7 @@
 reviews their diff, then gates it; a worker never commits."""
 import collections
 import json
+import os
 import re
 import shlex
 import shutil
@@ -111,17 +112,36 @@ def listing(cfg):
 KEEP_LINES = 2000
 
 
+TERM_WAIT = 10   # seconds a CLI stopped at the threshold gets to exit before it is killed
+COMPACT_RC = 76   # the run was stopped at the context threshold, to be started again with a handoff (tutti/autocompact.py)
+
+
 def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
     """Runs a CLI worker on a brief in `cwd` (give each worker its own worktree). Its output is passed through as it comes and
-    the last lines are kept, so a limit message in them can be read. Returns (exit code, the last lines)."""
+    the last lines are kept, so a limit message in them can be read. Returns (exit code, the last lines); COMPACT_RC when it
+    was stopped at the autocompact threshold (a CLI without native compaction whose output shows its context use)."""
+    from . import autocompact
     worker = cfg['workers'][name]
     out = out or sys.stdout
     kept = collections.deque(maxlen=KEEP_LINES)
     argv = with_args(command(worker, brief(cfg, task, files), log), extra)
+    env = {**os.environ, **autocompact.env_for(cfg, worker)}
+    watch = autocompact.Watch(cfg, worker)
+    stopped = False
     with subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          text=True, errors='replace', bufsize=1) as p:
+                          text=True, errors='replace', bufsize=1, env=env) as p:
         for line in p.stdout:
             out.write(line)
             out.flush()
             kept.append(line.rstrip('\n'))
-    return p.returncode, list(kept)
+            if watch.line(line) and p.poll() is None:   # only a run still going is stopped; a final status line is not
+                stopped = True
+                p.terminate()
+                try:
+                    p.wait(timeout=TERM_WAIT)
+                except subprocess.TimeoutExpired:   # it ignored SIGTERM: the restart must not hang on it
+                    p.kill()
+                out.write(f'tutti: context at {watch.pct:g} % (autocompact.threshold_pct {watch.limit}): stopped, restarting '
+                          'with a handoff\n')
+                break
+    return (COMPACT_RC if stopped else p.returncode), list(kept)

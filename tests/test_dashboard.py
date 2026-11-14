@@ -1,4 +1,5 @@
 """The dashboard: pacing and panic state, jobs from the state folder, machines and workers, the summary and the HTTP server."""
+import gzip
 import http.client
 import io
 import json
@@ -9,6 +10,8 @@ import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import timedelta
+from types import SimpleNamespace
+from unittest import mock
 
 from tutti import cli, config, dashboard, pacing, routing, state, waiting
 
@@ -199,9 +202,9 @@ class ServerTest(unittest.TestCase):
         cls.httpd.server_close()
         cls.tmp.cleanup()
 
-    def get(self, path, host=None):
+    def get(self, path, host=None, headers=None):
         c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=5)
-        c.request('GET', path, headers={'Host': host or f'127.0.0.1:{self.port}'})
+        c.request('GET', path, headers={'Host': host or f'127.0.0.1:{self.port}', **(headers or {})})
         r = c.getresponse()
         body = r.read()
         c.close()
@@ -213,12 +216,43 @@ class ServerTest(unittest.TestCase):
     def test_api_state_carries_the_real_data(self):
         r, body = self.get('/api/state')
         self.assertEqual(r.status, 200)
-        self.assertEqual(r.getheader('Cache-Control'), 'no-store')
+        self.assertEqual(r.getheader('Cache-Control'), 'no-cache')   # kept by the browser, always asked again with its ETag
         s = json.loads(body)
         self.assertEqual(s['summary']['panic'], ['claude'])
         self.assertEqual(s['machines']['items'][0]['status'], 'free')
         self.assertTrue(s['workers']['items'][0]['ready'])
         self.assertIn('jobs', s)
+
+    def test_api_state_answers_304_when_unchanged_and_gzips_when_asked(self):
+        with mock.patch.object(dashboard, 'STATE_FRESH', 600):   # a slow test machine must not build a new answer in between
+            self.check_304_and_gzip()
+
+    def check_304_and_gzip(self):
+        r, body = self.get('/api/state')
+        etag = r.getheader('ETag')
+        self.assertTrue(etag.startswith('W/"'))
+        r2, body2 = self.get('/api/state', headers={'If-None-Match': etag})
+        self.assertEqual((r2.status, body2), (304, b''))   # within STATE_FRESH: the same answer
+        self.assertIsNone(r2.getheader('Content-Length'))   # a 304 never states the empty body's length
+        r3, body3 = self.get('/api/state', headers={'If-None-Match': 'W/"other"', 'Accept-Encoding': 'gzip, deflate'})
+        self.assertEqual((r3.status, r3.getheader('Content-Encoding')), (200, 'gzip'))
+        self.assertEqual(gzip.decompress(body3), body)
+        self.assertLess(len(body3), len(body))
+        stats = self.httpd.collector.state_cache.stats
+        self.assertGreaterEqual(stats['not_modified'], 1)
+
+    def test_the_state_cache_builds_again_after_it_goes_stale(self):
+        t = [0.0]
+        c = dashboard.StateCache(clock=lambda: t[0])
+        snaps = iter([{'n': 1}, {'n': 2}])
+        fake = SimpleNamespace(snapshot=lambda: next(snaps))
+        first = c.get(fake)
+        self.assertEqual(c.get(fake), first)
+        t[0] += dashboard.STATE_FRESH
+        self.assertNotEqual(c.get(fake)[1], first[1])
+        self.assertEqual(c.stats['built'], 2)
+        code, body, extra = dashboard.state_response(SimpleNamespace(state_cache=c), {})
+        self.assertEqual((code, 'Content-Encoding' in extra), (200, False))   # small, and no Accept-Encoding: as it is
 
     def test_the_app_shell_and_pwa_files(self):
         r, body = self.get('/')

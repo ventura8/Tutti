@@ -2,6 +2,41 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.27 (2026-11-14)
+
+Token and runtime savings (measured on the owner's setup, before → after).
+
+### Added
+
+- Automatic compaction of a worker agent's context at `autocompact.threshold_pct` (60 % by default) of its window,
+  changeable on the dashboard (*Devices and controls* → *Settings*, `POST /api/autocompact`) without editing the config.
+  Claude Code compacts natively (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, also as the main agent of `tutti conduct`); a local
+  model as the main agent is compacted by Tutti (older exchanges become one summary line each); cursor-agent, agy and
+  copilot have no headless compaction, so a run whose output shows its context use is stopped at the threshold and
+  started again in the same worktree with a handoff note (at most three times). `workers.<w>.context_tokens` sets a
+  window. Running jobs show `context N %` where it is known.
+- `/api/state` carries an ETag: the page asks with `If-None-Match`, an unchanged answer is a `304` (0 bytes) and is not
+  parsed or rendered again; gzip when the browser takes it (96 KB → 17 KB a poll); one answer serves every tab for a second.
+- One shared ssh connection per machine (a background `ControlMaster`, `ControlPersist` 10 min) for probes, `tutti test`,
+  rsync and git: 0.18 s → 0.02 s a call to the build machine. `machines.<m>.ssh_reuse: false` turns it off; never on Windows.
+
+### Changed
+
+- A reader whose answer did not change is asked half as often next time, down to every eight intervals; a change or
+  **Refresh readings** resets it. agy `/usage` runs: 120 → 40 an hour on an idle dashboard.
+- The projects' activity scan reads every process's folder and program with one `find` and one `ps` instead of three
+  forks per process: a dashboard probe 12.1 s → 1.7 s (median), the scan's CPU 2.9 s → 0.3 s every 30 s.
+- A retry's brief carries the failing output compacted (colour codes, progress redraws, Tutti's echo and repeated lines
+  out, error lines kept) and each earlier reason as one line: the longest real retry brief 847 → 557 tokens. The same
+  compaction shortens a command's answer to a local main agent and the last output in a handoff note.
+
+### Fixed
+
+- `tutti pr review`: GitHub answers 201 to a Copilot review request it silently drops, and 422 "not a collaborator"
+  for the bare bot login, so Copilot looked requested and never came. The request now asks as `Copilot` first, checks
+  that the answer lists Copilot, falls back to GraphQL `requestReviewsByLogin` with the bot login, and otherwise says
+  where to look (Copilot code review in the repository's settings, or a head commit already reviewed).
+
 ## 0.1.26 (2026-11-14)
 
 ### Fixed

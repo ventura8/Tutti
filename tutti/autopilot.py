@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import backlog, config, delegate, planner, remote, routing, telemetry, worktree
+from . import backlog, compact, config, delegate, planner, remote, routing, telemetry, worktree
 
 try:
     import fcntl
@@ -320,6 +320,11 @@ def acceptance(task, repo):
     return own or gates
 
 
+def first_line(why, chars):
+    """The first line of a failure's reason: the rest repeats the failing output, which the brief gives once, compacted."""
+    return (why or '').strip().split('\n', 1)[0][:chars]
+
+
 def brief(task, repo):
     """The worker's task: what to change, where, the acceptance check, and for a retry what went wrong so far."""
     lines = [task['title'], '']
@@ -333,13 +338,14 @@ def brief(task, repo):
     if tries:
         last = tries[-1]
         lines += ['', f'This is attempt {len(tries) + 1}. The worktree already holds the earlier attempts\' changes: continue from '
-                      'them, do not start over.', f'The last attempt ({last["step"]}) failed: {last["why"][:400]}']
+                      'them, do not start over.', f'The last attempt ({last["step"]}) failed: {first_line(last["why"], 400)}']
         if last.get('stat'):
-            lines += ['Its diff:', last['stat'][-1200:]]
+            lines += ['Its diff:', compact.compact(last['stat'], 1200)]
         if last.get('tail'):
-            lines += ['The end of the failing output:', last['tail'][-TAIL_CHARS:]]
+            # compacted: colour codes, Tutti's echo and repeated lines out, error lines kept (tutti/compact.py)
+            lines += ['The end of the failing output:', compact.compact(last['tail'], TAIL_CHARS)]
         if len(tries) > 1:
-            lines += ['Earlier failures:'] + [f'- attempt {i + 1} ({a["step"]}): {a["why"][:160]}'
+            lines += ['Earlier failures:'] + [f'- attempt {i + 1} ({a["step"]}): {first_line(a["why"], 160)}'
                                               for i, a in enumerate(tries[:-1])][-HISTORY_LINES:]
     if task.get('notes'):
         lines += ['', 'The reviewer\'s notes (follow them):'] + [f'- {n}' for n in task['notes']]

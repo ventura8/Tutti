@@ -34,6 +34,7 @@ runner:
   cpus: 8
   env: {HOME: /tmp/tutti-home}
   prelude: mkdir -p $HOME
+  rewrite: {}                         # substring -> replacement, e.g. a script that starts docker -> the one run inside the image
 
 routing:
   order: [builder, gpu-box]           # first fit wins; when none is fit the run queues on the first
@@ -78,6 +79,7 @@ ship:
   protected: [main, master]           # never committed to by accident
   format: ''                          # a command; TUTTI_CHANGED holds the uncommitted files
   add: [.]
+  share: [node_modules]               # a linked worktree gets these from the main checkout (hard links) when missing
   trailer: ''                         # for example a Co-Authored-By line
   base: origin/main                   # TUTTI_CHANGED for the checks = files changed since this ref
   checks:                             # targeted: only what changed

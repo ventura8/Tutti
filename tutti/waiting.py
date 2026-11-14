@@ -71,3 +71,14 @@ def file_matches(path, pattern):
         except OSError:
             return False
     return check
+
+
+def stalled(path, seconds, clock=time.time):
+    """True once `path` has not changed for `seconds` (a background job that hangs). Agents waiting on a job end their wait
+    here instead of polling and re-announcing "still waiting" forever."""
+    def check():
+        try:
+            return clock() - os.path.getmtime(path) >= seconds
+        except OSError:
+            return False
+    return check

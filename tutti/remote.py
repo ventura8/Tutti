@@ -5,7 +5,7 @@ import shlex
 import subprocess
 import sys
 
-from . import routing
+from . import routing, worktree
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SLOT_SCRIPT = os.path.join(ROOT, 'scripts', 'slot.sh')
@@ -107,9 +107,19 @@ def probe(machine, timeout=20):
     return routing.parse_probe(r.stdout.strip().splitlines()[-1] if r.returncode == 0 and r.stdout.strip() else '')
 
 
-def runner_command(machine, track, command):
-    """The line that runs `command` at the tree root: plain bash, or a capped container (memory, no extra swap, CPUs)."""
+def rewrite(runner, command):
+    """runner.rewrite maps a substring to its replacement, e.g. a pipeline entry point that starts docker itself to the one
+    that runs inside the image (there is no docker in the container)."""
+    for old, new in (runner.get('rewrite') or {}).items():
+        command = command.replace(old, new)
+    return command
+
+
+def runner_command(machine, track, command, mount=''):
+    """The line that runs `command` at the tree root: plain bash, or a capped container (memory, no extra swap, CPUs).
+    `mount` is extra docker -v arguments (a linked worktree's main .git)."""
     r = machine['runner']
+    command = rewrite(r, command)
     inner = f'{r["prelude"]} && {command}' if r.get('prelude') else command
     if r['kind'] == 'shell':
         return f'bash -c {shlex.quote(inner)}'
@@ -117,7 +127,7 @@ def runner_command(machine, track, command):
     extra = ' '.join(shlex.quote(str(a)) for a in r.get('args', []))
     return (f'docker run --rm --memory={r["memory_gb"]}g --memory-swap={r["memory_gb"]}g --cpus={r["cpus"]} {env} {extra} '
             f'--name tutti-{machine["name"]}-{track}-$RANDOM -u "$(id -u):$(id -g)" -v "$PWD:$PWD" -w "$PWD" '
-            f'{shlex.quote(r["image"])} bash -c {shlex.quote(inner)}')
+            f'{mount + " " if mount else ""}{shlex.quote(r["image"])} bash -c {shlex.quote(inner)}')
 
 
 def slot_prefix(machine):
@@ -136,11 +146,11 @@ def sync(cfg, machine, track, src):
     commit: a worktree's `.git` is a file that points at this computer, so tests that ask git would fail on the copy."""
     name, root, rs = machine['name'], root_path(machine), rsh(cfg, machine)
     dest = f'{machine["host"]}:{machine["root"]}'
-    is_git = subprocess.run(['git', '-C', src, 'rev-parse', '--git-dir'], capture_output=True).returncode == 0
+    is_git = subprocess.run([worktree.git_bin(), '-C', src, 'rev-parse', '--git-dir'], capture_output=True).returncode == 0
     _check(sh(machine, f'mkdir -p {root}/{track} && {{ [ -d {root}/repo.git ] || git init -q --bare {root}/repo.git; }}'),
            f'preparing {name}')
     if is_git:
-        _check(subprocess.run(['git', '-C', src, 'push', '-q', '-f', f'{dest}/repo.git', f'HEAD:refs/heads/tutti/{track}'],
+        _check(subprocess.run([worktree.git_bin(), '-C', src, 'push', '-q', '-f', f'{dest}/repo.git', f'HEAD:refs/heads/tutti/{track}'],
                               env={**os.environ, 'GIT_SSH_COMMAND': rs}), f'pushing HEAD to {name}')
     excludes = [a for e in cfg['sync']['exclude'] for a in ('--exclude', e)]
     _check(subprocess.run(['rsync', '-a', '--delete', '-e', rs, *excludes, f'{src}/', f'{dest}/{track}/']), f'copying the tree to {name}')
@@ -154,7 +164,7 @@ def run(cfg, machine, track, src, command):
     slot = slot_prefix(machine)
     if machine['transport'] == 'local':
         script = (f'cd {shlex.quote(bash_path(src))} && {slot} bash {shlex.quote(bash_path(SLOT_SCRIPT))} '
-                  f'{runner_command(machine, track, command)}')
+                  f'{runner_command(machine, track, command, worktree.docker_mount(src))}')
         return sh(machine, script).returncode
     is_git = sync(cfg, machine, track, src)
     root = root_path(machine)

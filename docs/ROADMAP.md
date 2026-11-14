@@ -88,3 +88,5 @@ Lessons that drove it: LESSONS.md (Gemini CLI free tier closed → agy; agy head
 **Goal.** The best IDE and the best framework for coordinating AI and local agents and machines in 2026.
 
 **Quality.** Excellent e2e tests for the PWA on Windows (with and without WSL) and on Linux; works perfectly on both.
+- Pause controls (owner, 2026-11-14): pause/resume a worker, a device or machine (until resumed, for 1 h, until tomorrow; the job goes back to the queue without losing work), and pause using an online agent account (Claude, Cursor, agy) — routing and pacing skip it until resumed.
+- Android support: the PWA installs and works fully on Android phones and tablets (as used today: Pixel phone and tablet), with e2e tests on Android Chrome; Android devices can also be connected as devices for non-AI work.

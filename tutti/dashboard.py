@@ -423,8 +423,11 @@ class StateCache:
                 self.stats['built'] += 1
             return self.body, self.etag
 
-    def gzipped(self):
+    def gzipped(self, etag):
+        """The gzipped body of the answer `etag` names, or None when another request built a newer one in between."""
         with self.lock:
+            if etag != self.etag:
+                return None
             if self.zipped is None:
                 self.zipped = gzip.compress(self.body, compresslevel=6, mtime=0)
             return self.zipped
@@ -440,9 +443,10 @@ def state_response(collector, headers):
     if etag in [t.strip() for t in (headers.get('If-None-Match') or '').split(',')]:
         cache.stats['not_modified'] += 1
         return 304, b'', extra
-    if len(body) >= GZIP_FROM and 'gzip' in (headers.get('Accept-Encoding') or ''):
+    zipped = cache.gzipped(etag) if len(body) >= GZIP_FROM and 'gzip' in (headers.get('Accept-Encoding') or '') else None
+    if zipped is not None:   # never a newer body under this answer's ETag
         cache.stats['gzip'] += 1
-        return 200, cache.gzipped(), {**extra, 'Content-Encoding': 'gzip'}
+        return 200, zipped, {**extra, 'Content-Encoding': 'gzip'}
     return 200, body, extra
 
 

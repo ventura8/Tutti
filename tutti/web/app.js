@@ -1023,9 +1023,11 @@ async function refresh() {
         // no-cache: the browser asks with the ETag it kept; an unchanged answer comes back as a 304 (no body sent)
         // and is neither parsed nor rendered again
         const res = await fetch('/api/state', { cache: 'no-cache' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        // a bare 304 keeps the last answer (the browser normally turns its own revalidation into a 200 from its cache)
+        if (!res.ok && res.status !== 304) throw new Error(`HTTP ${res.status}`);
         const etag = res.headers.get('ETag');
-        const same = etag && etag === ui.etag && ui.last && !ui.failing;
+        const same = res.status === 304 ? Boolean(ui.last) : etag && etag === ui.etag && ui.last && !ui.failing;
+        if (res.status === 304 && !same) throw new Error('HTTP 304 with no earlier answer');
         const data = same ? ui.last : await res.json();
         if (seq !== ui.seq) return;
         ui.fetchedAt = Date.now();

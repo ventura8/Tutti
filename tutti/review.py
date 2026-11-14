@@ -74,7 +74,9 @@ def copilot_listed(out):
         data = json.loads(out or '{}')
     except ValueError:
         return False
-    return any((r or {}).get('login') in COPILOT_LOGINS for r in (data.get('requested_reviewers') or []) if isinstance(data, dict))
+    if not isinstance(data, dict):
+        return False
+    return any(isinstance(r, dict) and r.get('login') in COPILOT_LOGINS for r in data.get('requested_reviewers') or [])
 
 
 GRAPHQL_REQUEST = ('mutation($id:ID!){requestReviewsByLogin(input:{pullRequestId:$id,botLogins:["copilot-pull-request-reviewer"],'

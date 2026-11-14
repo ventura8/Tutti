@@ -1,9 +1,11 @@
 """Runs commands on machines (this computer, ssh, or WSL behind a Windows ssh) and copies a work tree to them."""
 import base64
+import contextlib
 import hashlib
 import os
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import tempfile
@@ -94,7 +96,25 @@ def mux_opts(machine):
     if not reuses(machine):
         return []
     p = mux_path(machine)
-    return ['-o', 'ControlMaster=no', '-o', f'ControlPath={p}'] if os.path.exists(p) else []
+    return ['-o', 'ControlMaster=no', '-o', f'ControlPath={p}'] if live_socket(p) else []
+
+
+def live_socket(p):
+    """True when a master answers on the socket. A stale one (its master was killed) is removed: ssh would fall back by
+    itself, but print "Control socket connect: Connection refused" into the output Tutti reads."""
+    if not os.path.exists(p):
+        return False
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.settimeout(1)
+        s.connect(p)
+        return True
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.remove(p)
+        return False
+    finally:
+        s.close()
 
 
 def ensure_master(machine, spawn=subprocess.Popen, clock=time.time):
@@ -103,7 +123,7 @@ def ensure_master(machine, spawn=subprocess.Popen, clock=time.time):
     if not reuses(machine):
         return False
     p = mux_path(machine)
-    if os.path.exists(p):
+    if live_socket(p):
         return False
     os.makedirs(os.path.dirname(p), mode=0o700, exist_ok=True)
     lock = p + '.try'

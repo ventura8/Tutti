@@ -126,15 +126,17 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
     argv = with_args(command(worker, brief(cfg, task, files), log), extra)
     env = {**os.environ, **autocompact.env_for(cfg, worker)}
     watch = autocompact.Watch(cfg, worker)
+    stopped = False
     with subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           text=True, errors='replace', bufsize=1, env=env) as p:
         for line in p.stdout:
             out.write(line)
             out.flush()
             kept.append(line.rstrip('\n'))
-            if watch.line(line):
+            if watch.line(line) and p.poll() is None:   # only a run still going is stopped; a final status line is not
+                stopped = True
                 p.terminate()
                 out.write(f'tutti: context at {watch.pct:g} % (autocompact.threshold_pct {watch.limit}): stopped, restarting '
                           'with a handoff\n')
                 break
-    return (COMPACT_RC if watch.over else p.returncode), list(kept)
+    return (COMPACT_RC if stopped else p.returncode), list(kept)

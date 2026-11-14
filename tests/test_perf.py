@@ -1,6 +1,7 @@
 """Token and runtime savings: compacted output for agents, shared ssh connections, automatic compaction of a context."""
 import io
 import os
+import socket
 import tempfile
 import unittest
 from unittest import mock
@@ -62,13 +63,31 @@ class SharedSshTest(unittest.TestCase):
         self.assertIn('ControlMaster=yes', spawned[0])
         self.assertFalse(remote.ensure_master(self.m, spawn=lambda argv, **kw: spawned.append(argv)))   # within MUX_RETRY
         self.assertEqual(len(spawned), 1)
-        open(remote.mux_path(self.m), 'w').close()   # the master's socket
+        master = socket.socket(socket.AF_UNIX)   # the master's socket, listening
+        master.bind(remote.mux_path(self.m))
+        master.listen(16)
+        self.addCleanup(master.close)
         opts = remote.mux_opts(self.m)
         self.assertIn('ControlMaster=no', opts)
         self.assertEqual(remote.argv(self.m, 'true')[-2:], ['box.example', 'true'])
         self.assertIn(f'ControlPath={remote.mux_path(self.m)}', remote.argv(self.m, 'true'))
         self.assertIn('ControlMaster=no', remote.rsh({}, self.m))
         self.assertFalse(remote.ensure_master(self.m, spawn=lambda argv, **kw: spawned.append(argv)))
+
+    @unittest.skipIf(os.name == 'nt', 'no unix sockets for ssh on Windows')
+    def test_a_stale_socket_is_removed_and_not_joined(self):
+        p = remote.mux_path(self.m)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        s = socket.socket(socket.AF_UNIX)
+        s.bind(p)   # bound, never listening: what a killed master leaves
+        s.close()
+        self.assertEqual(remote.mux_opts(self.m), [])
+        self.assertFalse(os.path.exists(p))
+        live = socket.socket(socket.AF_UNIX)
+        live.bind(p)
+        live.listen(16)
+        self.addCleanup(live.close)
+        self.assertIn('ControlMaster=no', remote.mux_opts(self.m))
 
     def test_off_for_local_and_when_the_config_says_so(self):
         spawned = []
@@ -139,6 +158,15 @@ class AutocompactTest(unittest.TestCase):
         self.assertIn('Context 70% used', calls[1])
         self.assertIn('compacted', out.getvalue())
 
+    def test_a_cli_over_the_threshold_is_stopped(self):
+        with tempfile.TemporaryDirectory() as d:
+            script = os.path.join(d, 'w.sh')
+            with open(script, 'w', encoding='utf8') as f:
+                f.write('echo working; echo "Context 80% used"; sleep 20; echo never\n')
+            cfg = {**self.cfg, 'workers': {'w': {'kind': 'cli', 'command': ['bash', script, '{prompt}']}}}
+            rc, lines = workers.run(cfg, 'w', 'task', cwd=d, out=io.StringIO())
+            self.assertEqual(rc, workers.COMPACT_RC)
+            self.assertNotIn('never', lines)
     def test_restarts_stop_after_the_limit(self):
         n = []
 
@@ -161,6 +189,17 @@ class AutocompactTest(unittest.TestCase):
         self.assertIn('RUN: tutti runs show 0', out[2]['content'])
         self.assertLess(autocompact.message_tokens(out), autocompact.message_tokens(msgs))
         self.assertIs(autocompact.compact_messages({**self.cfg, 'autocompact': {'enabled': False}}, w, msgs), msgs)
+
+    def test_a_gzip_body_is_never_sent_under_a_newer_etag(self):
+        c = dashboard.StateCache(clock=lambda: 0.0)
+        c.body, c.etag, c.at = b'x' * 2000, 'W/"new"', 0.0
+        self.assertIsNone(c.gzipped('W/"old"'))
+        self.assertIsNotNone(c.gzipped('W/"new"'))
+
+    def test_a_non_object_answer_does_not_list_copilot(self):
+        from tutti import review
+        for out in ('null', '[]', '{"requested_reviewers": [null, "x"]}', ''):
+            self.assertFalse(review.copilot_listed(out))
 
     def test_running_jobs_show_their_context(self):
         jobs = [{'facts': {'tokens': {'in': 900, 'out': 1, 'context': 50000}}},

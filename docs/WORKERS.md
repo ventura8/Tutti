@@ -50,8 +50,9 @@ A worker's output is a proposal, whoever wrote it.
 
 ## Local models
 
-`kind: ollama` workers need `host` and `model`; optional `threads`, `num_ctx`, `machine` (to honour that machine's
-yield flag) and `tunnel`.
+`kind: ollama` workers need `host` (`name:port`, plain HTTP; write `https://name:port` for a TLS proxy) and `model`; optional `threads`, `num_ctx`, `machine` (to honour that machine's
+yield flag) and `tunnel`. `tutti workers` marks an ollama worker ready only when `GET /api/tags` lists its model;
+otherwise it shows `model missing: <name>` and `OLLAMA_HOST=<host> ollama pull <name>` (an untagged model means `:latest`).
 
 - `tutti ask <worker> "<question>" [files]`: short answers about big inputs. Ask for short answers.
 - `tutti code <worker> <file> "<instruction>" [context files]`: rewrites one file in place.

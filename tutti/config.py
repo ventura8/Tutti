@@ -3,8 +3,16 @@ import copy
 import json
 import os
 
-NAMES = ('tutti.config.yaml', 'tutti.config.yml', 'tutti.config.json')
+PROJECT_NAME = 'tutti.config.yaml'
+NAMES = (PROJECT_NAME, 'tutti.config.yml', 'tutti.config.json')
+# Under XDG: the canonical name first, then the project-style name as a fallback.
+XDG_NAMES = ('config.yaml', PROJECT_NAME)
 TRANSPORTS = ('local', 'ssh', 'wsl')
+# Ollama serves plain HTTP on localhost or through an ssh tunnel; a host written with its own scheme
+# (https://proxy:443) keeps it.
+OLLAMA_SCHEME = 'http'
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EXAMPLE = os.path.join(ROOT, 'tutti.config.example.yaml')
 DEFAULTS = {
     'project': {'worktrees': '.', 'state': '~/.local/state/tutti'},
     'machines': {},
@@ -24,8 +32,25 @@ class ConfigError(Exception):
     """The config file is missing or wrong; the message says which key and what to write instead."""
 
 
+def ollama_url(host, path):
+    """The URL of an Ollama API path on `host` (`name:port`, or a full `scheme://name:port`)."""
+    base = host if '://' in host else f'{OLLAMA_SCHEME}://{host}'
+    return base.rstrip('/') + path
+
+
+def xdg_tutti_dir(env=None):
+    """`$XDG_CONFIG_HOME/tutti` when set, else `~/.config/tutti`."""
+    env = os.environ if env is None else env
+    return os.path.join(os.path.expanduser(env.get('XDG_CONFIG_HOME') or '~/.config'), 'tutti')
+
+
+def xdg_config_path(env=None):
+    """The canonical XDG config path to create: `.../tutti/config.yaml`."""
+    return os.path.join(xdg_tutti_dir(env), 'config.yaml')
+
+
 def find(start=None, env=None):
-    """$TUTTI_CONFIG, else the nearest tutti.config.* from `start` upwards, else ~/.config/tutti/config.yaml; None when absent."""
+    """$TUTTI_CONFIG, else the nearest tutti.config.* from `start` upwards, else XDG config.yaml, tutti.config.yaml; None if absent."""
     env = os.environ if env is None else env
     if env.get('TUTTI_CONFIG'):
         return env['TUTTI_CONFIG']
@@ -38,11 +63,15 @@ def find(start=None, env=None):
         if parent == d:
             break
         d = parent
-    home = os.path.join(os.path.expanduser(env.get('XDG_CONFIG_HOME') or '~/.config'), 'tutti', 'config.yaml')
-    return home if os.path.isfile(home) else None
+    base = xdg_tutti_dir(env)
+    for n in XDG_NAMES:
+        home = os.path.join(base, n)
+        if os.path.isfile(home):
+            return home
+    return None
 
 
-def parse(text, path='tutti.config.yaml'):
+def parse(text, path=PROJECT_NAME):
     if path.endswith('.json'):
         return json.loads(text) or {}
     try:
@@ -123,10 +152,13 @@ def validate(cfg):
 
 
 def load(path=None, start=None, env=None):
+    env = os.environ if env is None else env
     path = path or find(start, env)
     if not path:
-        raise ConfigError('no tutti.config.yaml found here, in a parent folder or in ~/.config/tutti/: copy '
-                          'tutti.config.example.yaml and edit it, or set TUTTI_CONFIG to its path')
+        dest = xdg_config_path(env)
+        raise ConfigError(
+            f'no config found here, in a parent folder or at {dest}: '
+            f'copy with `cp {EXAMPLE} {dest}` and edit it, or set TUTTI_CONFIG to its path')
     with open(path, encoding='utf8') as f:
         cfg = normalise(parse(f.read(), path))
     errs = validate(cfg)

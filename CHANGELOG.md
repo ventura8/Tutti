@@ -22,9 +22,13 @@ The first extraction of the toolkit from the project it grew in.
   runner or plain bash.
 - `tutti ship`: format, commit, targeted or full checks (local or routed), push, deploy; refuses the wrong worktree and
   protected branches; `--dry-run`.
-- `tutti usage`: quota windows, the "spend it 3 hours before the reset" target and a verdict per account.
-- `tutti workers`, `tutti run`: CLI workers (Cursor, Antigravity, Claude) with a generated brief.
+- `tutti usage`: quota windows, the "spend it 1 hour before the reset" target (override with `lead_hours`) and a verdict
+  per account.
+- `tutti workers`, `tutti run`: CLI workers (Cursor, Antigravity, Claude) with a generated brief; ollama readiness checks
+  that `GET /api/tags` lists the configured model.
 - `tutti ask`, `tutti code`, `tutti agent`: local models through Ollama's HTTP API.
+- Config discovery: `$TUTTI_CONFIG`, then nearest `tutti.config.yaml`, then `$XDG_CONFIG_HOME/tutti/config.yaml` (with
+  `tutti.config.yaml` there as a fallback); a missing config names the exact path and the `cp` from the example.
 - `tutti yield`, `tutti machines`, `tutti guard`, `tutti tunnel`, `tutti quiet`, `tutti wait`.
 - `tutti translate`: translation of flat JSON catalogues with mandatory QA and an import gate.
 - Docs: architecture, workers, usage pacing, machines, lessons, roadmap, feedback log, migration.

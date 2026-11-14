@@ -20,9 +20,9 @@ more than one computer. It grew out of one project's working day and keeps only 
   heavy runs at once and only with enough free memory. A run that waits is normal, not a hang.
 - **Fall-over routing.** `tutti test` picks the first fit machine: the quiet build box first, a shared machine only
   when the first is full and the shared one is idle enough. See [docs/MACHINES.md](docs/MACHINES.md).
-- **Usage pacing.** Spend every quota fully about 3 hours before its reset. Not earlier (work stalls), not later (quota
-  is wasted). `tutti usage` says whether each account is ahead, behind or on pace, and what to do. See
-  [docs/USAGE-PACING.md](docs/USAGE-PACING.md).
+- **Usage pacing.** Spend every quota fully about 1 hour before its reset (override per account with `lead_hours`). Not
+  earlier (work stalls), not later (quota is wasted). `tutti usage` says whether each account is ahead, behind or on
+  pace, and what to do. See [docs/USAGE-PACING.md](docs/USAGE-PACING.md).
 - **Peer coordination.** Two orchestrator sessions can share accounts and machines: lock files are the only signal,
   limits live in one shared file, and each session's risky actions need its own owner's approval.
 - **The yield flag.** A file on a shared machine that says "this machine is mine for now". While it exists Tutti
@@ -61,8 +61,8 @@ tutti machines      # free slots, load and yield flag of every machine
 ```
 
 Tutti finds its config in `$TUTTI_CONFIG`, else the nearest `tutti.config.yaml` from the current folder upwards, else
-`~/.config/tutti/config.yaml`. Nothing personal is built in: hosts, paths and accounts live only in that file. It never
-holds a secret.
+`~/.config/tutti/config.yaml` (or `~/.config/tutti/tutti.config.yaml` as a fallback; `$XDG_CONFIG_HOME` is honoured).
+Nothing personal is built in: hosts, paths and accounts live only in that file. It never holds a secret.
 
 ## The CLI
 

@@ -1,4 +1,4 @@
-"""Usage pacing: spend every quota fully a few hours before its reset. Not earlier (work stalls), not later (quota is wasted)."""
+"""Usage pacing: spend every quota fully about an hour before its reset. Not earlier (work stalls), not later (quota is wasted)."""
 import calendar
 import json
 import os
@@ -44,7 +44,7 @@ def window_at(anchor, window, now):
     return shift(anchor, window, n - 1), shift(anchor, window, n)
 
 
-def pace(now, start, reset, used, lead_hours=3, share=1.0):
+def pace(now, start, reset, used, lead_hours=1, share=1.0):
     """Where a quota stands. `used` is the percentage of the whole quota spent; `share` is this session's part of it.
     Returns the target time (reset minus the lead), the percentage that should be spent by now and a verdict with its action."""
     target = reset - timedelta(hours=lead_hours)
@@ -104,13 +104,14 @@ def report(accounts, entries, now):
             rows.append((name, '?', '?', '?', '?', 'unknown', f'read the reset time at {src} and set accounts.{name}.resets and .window'))
             continue
         start, reset = window_at(parse_time(a['resets']), a['window'], now)
+        lead = a.get('lead_hours', 1)
         e = latest(entries, name, start)
         if not e:
-            target = reset - timedelta(hours=a.get('lead_hours', 3))
+            target = reset - timedelta(hours=lead)
             rows.append((name, '?', '?', _fmt(reset), _fmt(target), 'no reading',
                          f'read it at {src}, then: tutti usage log {name} <percent>'))
             continue
-        p = pace(now, start, reset, float(e['used']), a.get('lead_hours', 3))
+        p = pace(now, start, reset, float(e['used']), lead)
         share = a.get('share', 1.0)
         mine = '' if share >= 1 else f' (shared: this session\'s part is {100 * share:g} % of the quota)'
         rows.append((name, f'{float(e["used"]):g} %', f'{p["expected"]:.0f} %', _fmt(reset), _fmt(p['target']), p['verdict'],

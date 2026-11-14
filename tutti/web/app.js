@@ -1010,6 +1010,29 @@ function fillJobs(box, jobs, none, key, limit) {
 
 const finishedAs = (j, f) => f === 'all' || j.status === f || (f === 'done' && j.status === 'ended');
 
+// Running jobs and Queued use the height of the column beside them: rows that fit show, "Show more" only for the rest.
+// Measured after each render and whenever either column changes size (ResizeObserver); a phone (stacked columns) keeps 8.
+function measureFit() {
+    const side = $('side-stack'), stack = $('jobs-stack');
+    if (!side || !stack) return;
+    const lists = [$('running'), $('queued')];
+    const rowOf = (box) => box.querySelector('.job, .row')?.getBoundingClientRect().height || 72;
+    const listsH = lists.reduce((h, box) => h + (box?.getBoundingClientRect().height || 0), 0);
+    const fit = tuttiFit({ column: side.getBoundingClientRect().height, others: stack.getBoundingClientRect().height - listsH,
+        rowRunning: rowOf(lists[0]), rowQueued: rowOf(lists[1]), running: ui.counts?.running || 0, queued: ui.counts?.queued || 0,
+        phone: !window.matchMedia('(min-width: 960px)').matches });
+    if (fit.running !== ui.fit?.running || fit.queued !== ui.fit?.queued) {
+        ui.fit = fit;
+        render();
+    }
+}
+
+function watchFit() {
+    if (ui.fitWatch || typeof ResizeObserver !== 'function') return;
+    ui.fitWatch = new ResizeObserver(() => requestAnimationFrame(measureFit));
+    for (const id of ['side-stack', 'jobs-stack']) if ($(id)) ui.fitWatch.observe($(id));
+}
+
 function renderJobs(s) {
     ui.accounts = new Map((s.usage?.accounts || []).map((a) => [a.name, a]));
     renderProjectPick(s);
@@ -1017,7 +1040,9 @@ function renderJobs(s) {
     const running = items.filter((j) => LIVE.has(j.status));
     const finished = items.filter((j) => !LIVE.has(j.status));
     fillJobs($('running'), running, empty('Nothing running', codeText('Runs from ', 'tutti quiet', ', ship checks, transfers and the autopilot show here with their progress.')),
-        'running', 8);
+        'running', ui.fit?.running ?? 8);
+    ui.counts = { running: running.length, queued: s.queue?.queued || 0 };
+    watchFit();
     $('jobs-meta').textContent = ui.project ? `of ${ui.project === '-' ? 'no project' : ui.project} (choose in Running jobs)` : '';
     const filterFocus = document.activeElement?.closest?.('#job-filter') ? document.activeElement.dataset.f : null;
     $('job-filter-buttons').replaceChildren(...FILTERS.map(([f, label], i) => el('button', {

@@ -30,6 +30,7 @@ class OwnerDay(unittest.TestCase):
         rs = readings(MON, day(rate=4.0, hours_now=12))
         ctx = owner.context(OWNER, rs, now)
         self.assertGreater(ctx['today']['factor'], 3)
+        self.assertEqual(ctx['reserve'][1], ctx['planned_reserve'][1])   # a spike today never inflates Tuesday's reserve
         self.assertIn('burning', ctx['today_line'])
         s = {'share': 1.0, 'used': 40.0, 'target': (MON + timedelta(days=4, hours=23)).isoformat(),
              'reset': (MON + timedelta(days=5)).isoformat()}

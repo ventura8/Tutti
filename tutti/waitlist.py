@@ -120,7 +120,7 @@ def act(cfg, data):
         if not t:
             return 404, {'error': f'no queued task {tid}: it may have started or finished (refresh the page)'}
         if action == 'move':
-            names = autopilot.ladder(cfg) + autopilot.settings(cfg)['accounts']
+            names = [n for n in autopilot.candidates(cfg, {**t, 'prefer': None})]   # only where the task may really go now
             if data.get('to') not in names:
                 return 400, {'error': f'move {tid} to one of {", ".join(dict.fromkeys(names)) or "(no ladder step)"}'}
             t['prefer'] = data['to']

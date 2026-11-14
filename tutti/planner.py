@@ -167,7 +167,9 @@ def run_out_of(s, owner, now):
     if not owner or s.get('used') is None or not s.get('reset') or not owner.get('reserve'):
         return None
     from tutti import ownerday
-    t = ownerday.run_out(float(s['used']), now, parse_time(s['reset']), owner['reserve'], owner.get('offset', 0.0), 1.0)
+    factor = (owner.get('today') or {}).get('factor', 1.0)   # today's pace carried forward over the plan
+    t = ownerday.run_out(float(s['used']), now, parse_time(s['reset']), owner.get('planned_reserve') or owner['reserve'],
+                         owner.get('offset', 0.0), factor)
     return t.isoformat() if t else None
 
 

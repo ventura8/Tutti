@@ -2,7 +2,7 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
-## 0.1.55 (2026-11-14)
+## 0.1.58 (2026-11-14)
 
 ### Added
 
@@ -24,6 +24,8 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 - The dashboard's **Queued** list beside Running jobs (docs/DASHBOARD.md): autopilot tasks, Keep busy shards, scout questions
   and due watches, Tutti's waiting move; grouped by project priority, with size, destination, estimated start and why it
   waits; an admin's Run now, Move to, Cancel and Priority up or down. The header counts `N running · M queued`.
+- Running jobs and Queued fill the height of the main-agent and workers column beside them: as many rows as fit, then "Show
+  more" for the rest; re-measured on resize; 8 rows on a phone (docs/DASHBOARD.md, *Layout*).
 - Targets (docs/USAGE-PACING.md): `accounts.<name>.target_pct` and `main.target_pct` (100 by default, Settings) set where each
   window's spend ends by its spend-by time (reset minus lead); the owner's reserve still holds. Each account card says
   `Target 100 % · on track to finish at X % by HH:MM`, and when short, why and what Tutti is doing about it.
@@ -39,7 +41,84 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 - A backlog task whose title starts with `research:` now goes to a scout, like `scout:`, never to a worker.
 - `scouts.<name>.spend_rest.hours` (the burst before the reset) defaults to 6, was 24: the even weekly line now spends the
   allowance all week, so the burst only sends what is left.
+- The dashboard's order: Running jobs and Queued beside Main agent and Workers, then Autopilot beside Machines.
+- With no cap and free memory unknown (no /proc/meminfo), the adaptive limit stays at 2 runs.
 - `autopilot.max_parallel` has no default: the limit is adaptive unless the owner caps it.
+
+## 0.1.57 (2026-11-14)
+
+### Added
+
+- Sign-in with Google from the home network or any VPN (the router's, OpenVPN, IPsec; no Tailscale or WireGuard
+  needed): on a plain LAN address over http the page uses Google's device flow (a code at google.com/device; the second
+  OAuth client, "TVs and Limited Input devices", its secret mode 600 and read from stdin). The flow is bound to the
+  browser that started it; the server asks Google once per interval. Clients from any private subnet are accepted, a
+  public source address is dropped. `tutti auth setup --client-id <web> --device-client-id <tv> --device-secret-stdin`
+  takes everything with no prompt.
+- Sign-in with Google for the dashboard (docs/AUTH.md). `tutti auth setup` prints the Google Cloud console page and the
+  exact fields (consent screen: External, Testing, test users; OAuth client: Web application, the JavaScript origins),
+  then saves the client ID (`--client-id <id>`, public; no client secret). The server checks the ID token's RS256
+  signature against Google's JWKS (cached), `iss`, `aud`, `exp`, `iat`, a nonce bound to this browser and the verified
+  e-mail, with no new dependency.
+- Viewers see only the dashboard: one CSS rule hides every control for a viewer unless it is marked viewer-safe (new
+  controls are hidden by default), and the header says "Viewer: read-only". Every user, viewers included, edits their own
+  **My schedule** (working days, hours, away or vacation mode; `POST /api/me/schedule`, 403 for someone else's unless
+  admin; `<state>/schedules.json`, read by the household's per-user pacing through `myschedule.read`).
+- `auth.may_act_for(actor, target)` and `auth.act_for(...)`: an admin may do any member's action for them (the household's
+  Manage panel calls it), a member only their own; each one is audited as "by actor for target".
+- Role changes from the Users tab (Make admin, Make viewer, also one's own while another admin exists), each one
+  click and a confirm, enforced on the server, and an audit log (`<state>/auth-audit.jsonl`, mode 600) shown under
+  **Changes**: who changed which role, and when.
+- Roles: the first user to sign in becomes admin (atomic under a file lock); later users wait for approval as pending,
+  then viewer; an admin can Make admin, Make viewer or Remove; the last admin can be neither. Viewers see the dashboard
+  read-only; every POST is admin-only on the server unless listed, and Settings, the reading helper and the Users list
+  are admin-only GETs.
+- Invites: **Invite someone** creates a single-use, 7-day, revocable link with a QR code and a role (viewer by default);
+  signing in through it approves at once. Only the token's hash is stored. The same invite lets the person's Tutti join
+  the household (`tutti household join <invite-url>`, wired by the household's increment 4; `tutti/invites.py` is the
+  shared interface). A bad invite fails only a new or pending user's sign-in; an invite stays revocable while its
+  household use is open; `reset-admin` revokes every invite.
+- Sessions: HttpOnly, SameSite=Strict cookie with a random id, stored server-side as a hash with an expiry
+  (`auth.session_hours`, 72) and a CSRF token checked on every POST; Sign out. Signed-in answers are `no-store` and the
+  service worker never keeps them.
+- `dashboard.bind` and `dashboard.origins` (https, or http only on a loopback name): reaching the dashboard from other
+  computers requires sign-in, and only through the LAN or a VPN. A public bind, `0.0.0.0`, or an origin that resolves to
+  a public address is refused at start (`tutti/netpolicy.py`, shared with the household); the OAuth origins and the invite
+  links use only localhost and LAN or VPN names. `tutti auth setup` detects Tailscale; `--tailscale` serves the dashboard
+  on this computer's tailnet-only https name (`tailscale serve`, never funnel) and adds that origin.
+  `auth.required_origins(cfg)` is the interface `tutti move` shows after a move. Recovery from a
+  shell: `tutti auth users|promote <email>|reset-admin --yes`.
+
+## 0.1.56 (2026-11-14)
+
+### Added
+
+- Presence (`tutti/presence.py`, docs/PRESENCE.md): every device, machine, member's laptop and Ollama server is present,
+  away, asleep or unknown, with a last-seen time. The state comes from the adb readings, ssh probes, household heartbeats
+  and `/api/tags`, and away is told apart from asleep: a device that left with its owner's laptop, or a machine silent in
+  its night hours. Cards say "Away since 18:40 (left with its owner)" and show today's 24-hour profile strip. `tutti presence`
+  prints the same.
+- A run whose target leaves is queued again and not counted as a failure, retry or no-progress event. The idle watchdog
+  never flags an away or asleep target. A returning phone is reconnected over mDNS and picked up within one tick.
+- Learned 7 × 24 availability profiles: long shards (suite `minutes`) avoid targets likely to leave or sleep soon, and
+  always-on targets choose first.
+- Before this computer sleeps or shuts down, a logind delay inhibitor hands running work over (as "stop now" does),
+  requeues leases and flushes state, within the time the OS allows (`tutti/sleepwatch.py`). On wake, the work starts
+  again.
+- Nothing lost on a hard power-off: atomic, fsynced state writes and an fsynced usage log whose torn last line is
+  repaired at start (`tutti/durable.py`, `tutti/recovery.py`). Runs from an earlier boot are interrupted, not failed.
+  Autopilot attempts are checkpointed every 5 min through a separate git index and pushed to `refs/tutti/wip/*` (never
+  main or master). They are reconciled before resuming.
+- Move work now (`tutti/jobmove.py`): `tutti job waiting`, `tutti job move <id> --to <target|auto> [--bump]`, `tutti
+  machine evacuate <m>` and the dashboard's admin-only Move now, First in queue and Move all buttons (`POST /api/work/move`,
+  403 for viewers). A member whose task moved never runs it again and keeps its work on `tutti/backup/<name>`.
+  `presence.move_after_minutes` moves urgent work by itself (opt-in).
+- The owner counts as away while `presence.owner_laptop` is away or asleep. the Where Tutti runs card warns when Tutti
+  runs on a laptop. Wake-on-LAN for an asleep machine with waiting work is opt-in, on the LAN only.
+
+### Changed
+
+- The dashboard service restarts always and lingers (`loginctl enable-linger`), so it starts at boot after a power cut.
 
 ## 0.1.54 (2026-11-14)
 

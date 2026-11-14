@@ -29,7 +29,7 @@ function queueItem(it, ladder) {
         'data-queue-action': a, text: QUEUE_ACTIONS[a],
         onclick: () => queueAction({ kind: it.kind, id: it.id, action: a }, `${QUEUE_ACTIONS[a]} did not work for ${it.id}.`) }));
     if ((it.actions || []).includes('move') && ladder.length) acts.push(...queueMove(it, ladder));
-    return el('li', { class: 'row', 'data-queued': it.id, 'data-kind': it.kind },
+    return el('div', { class: 'row', 'data-queued': it.id, 'data-kind': it.kind },
         el('div', { class: 'row__name', text: `${it.title}` }),
         el('p', { class: 'row__note', text: `${it.kind} ${it.id} · size ${it.size} · goes to ${it.to} · starts ${it.eta}` }),
         el('p', { class: 'row__note', 'data-why': '', text: `Waiting: ${it.why}` }),
@@ -41,8 +41,12 @@ function renderQueue(s) {
     if (!q || !$('queued')) return;
     $('queued-meta').textContent = q.header;
     const ladder = s.autopilot?.ladder || [];
-    const groups = q.groups.map((g) => el('section', { class: 'queue__group', 'aria-label': `${g.project} (priority ${g.priority})` },
-        el('h3', { class: 'card__sub', text: `${g.project} · priority ${g.priority} · ${g.items.length} queued` }),
-        el('ul', { class: 'list' }, ...g.items.map((it) => queueItem(it, q.can_act ? ladder : [])))));
-    $('queued').replaceChildren(...(groups.length ? groups : [el('p', { class: 'row__note', text: 'Nothing is waiting.' })]));
+    // as many rows as fit beside the main-agent and workers column (app.js measureFit), then "Show more" for the rest
+    const rows = q.groups.flatMap((g) => [
+        el('h3', { class: 'card__sub queue__group', 'aria-label': `${g.project} (priority ${g.priority})`,
+            text: `${g.project} · priority ${g.priority} · ${g.items.length} queued` }),
+        ...g.items.map((it) => queueItem(it, q.can_act ? ladder : []))]);
+    const limit = (typeof ui === 'object' && ui.fit?.queued) || 8;
+    const shown = typeof more === 'function' ? more('queued', rows, limit, 'div') : rows;
+    $('queued').replaceChildren(...(rows.length ? shown : [el('p', { class: 'row__note', text: 'Nothing is waiting.' })]));
 }

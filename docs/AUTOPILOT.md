@@ -41,7 +41,7 @@ starts with "Open", and the dated notes under the table), `TODO(owner):` and `FI
 person meant it), and the lines the repo's `gaps` command prints (`<path>: <what is missing>`, e.g. a coverage or lint report).
 
 A task whose title starts with `scout:` or `research:` is a research question for a scout (docs/SCOUTS.md, *The week's
-plan*): the autopilot never sends it to a worker (`research:` joined in 0.1.55: retitle a worker's task that starts with it).
+plan*): the autopilot never sends it to a worker (`research:` joined in 0.1.58: retitle a worker's task that starts with it).
 
 ## A round
 
@@ -51,7 +51,7 @@ The dashboard runs one round after every probe while the autopilot is on (`tutti
    worktree on `autopilot/<id>-<slug>` with `autopilot.repos.<repo>.commit` (default `chore(autopilot): {title}`) and the
    repo's `trailers` (a failed checkout or staging stops there and says so), and with `pr: draft` pushes it and opens a draft pull request. The task waits in **Results to review**.
 2. **Plan.** Capacity is the **adaptive limit** (`tutti/parallel.py`, below) minus the runs going. Fresh tasks go only to an account of `autopilot.accounts` that is
-   **behind** its line (or late), as many units as its room (`room_tasks`) minus what runs on it and what attempts started
+   **behind** its line (or late), or on pace but still under its line (topped up to it, so the window ends at its target), as many units as its room (`room_tasks`) minus what runs on it and what attempts started
    after its newest reading already spent (that cost stays counted until a new reading shows it). Never an account that
    costs money, is in panic or is spent. A task without an acceptance check (its own or the repo's) is never sent.
 3. **Dispatch.** `tutti run <worker> "<brief>" --repo <path> --track ap-<id> --check "<check>"` in the background, with the

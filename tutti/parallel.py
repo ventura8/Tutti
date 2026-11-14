@@ -17,6 +17,7 @@ import re
 DEFAULTS = {'run_gb': 0.6, 'run_cpu': 0.25, 'reserve_gb': 4.0, 'gate_share': 3, 'ceiling': 12,
             'heavy': r'eslint|\btsc\b|vitest|jest|pytest|playwright|PIPELINE_STAGE|npm (run )?(lint|test)|\bmypy\b|gradle|'
                      r'dotnet (build|test)'}
+UNKNOWN_MEMORY_RUNS = 2
 NUMBERS = ('run_gb', 'run_cpu', 'reserve_gb', 'gate_share', 'ceiling')
 
 
@@ -69,6 +70,8 @@ def bounds(cfg, running, room, here, gate_slots):
     if here and here.get('mem_gb') is not None:
         more = max(0, int((here['mem_gb'] - s['reserve_gb']) // s['run_gb']))
         out['memory'] = (running + more, f'{here["mem_gb"]:.1f} GB free here, {s["reserve_gb"]:g} GB kept')
+    elif not cap:   # free memory unknown (no /proc/meminfo) and no cap set: stay low rather than guess
+        out['memory'] = (max(running, UNKNOWN_MEMORY_RUNS), f'free memory unknown here: at most {UNKNOWN_MEMORY_RUNS} runs')
     if here and here.get('load') is not None:
         more = max(0, int((here['cores'] - here['load']) // s['run_cpu']))
         out['cpu'] = (running + more, f'load {here["load"]:.1f} of {here["cores"]} cores')

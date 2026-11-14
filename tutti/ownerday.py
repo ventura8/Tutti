@@ -93,9 +93,10 @@ def today(reserve, readings, now, offset, stop_minutes=STOP_MINUTES):
 
 
 def shifted(reserve, day, now, offset):
-    """The reserve with today's row replaced by the day's shifted row, all scaled by the burn factor until the target."""
+    """The reserve with today's row replaced by the day's shifted row, scaled by today's burn factor (a spike today never
+    inflates the other days' reserve; the run-out warning carries today's pace forward instead)."""
     wd = _local(now, offset).weekday()
-    return [[round(x * day['factor'], 3) for x in (day['row'] if d == wd else reserve[d])] for d in range(7)]
+    return [[round(x * day['factor'], 3) for x in day['row']] if d == wd else list(reserve[d]) for d in range(7)]
 
 
 def run_out(used, now, reset, ctx_reserve, offset, factor):

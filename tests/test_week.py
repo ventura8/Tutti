@@ -112,6 +112,12 @@ class Parallel(unittest.TestCase):
         self.assertEqual((tight['limit'], tight['by']), (2, 'memory'))   # 0.5 GB above the 4 GB kept: no new run
         self.assertIn('running 2 of 2 possible: limited by memory', parallel.line(tight))
 
+    def test_unknown_free_memory_keeps_it_low_unless_the_owner_caps_it(self):
+        blind = parallel.limit(self.CFG, 0, 40, {'mem_gb': None, 'cores': 16, 'load': 0.0}, 9)
+        self.assertEqual((blind['limit'], blind['by']), (2, 'memory'))
+        capped = parallel.limit({**self.CFG, 'autopilot': {'max_parallel': 5}}, 0, 40, {'mem_gb': None, 'cores': 16, 'load': 0.0}, 9)
+        self.assertEqual(capped['limit'], 5)
+
     def test_the_accounts_room_and_the_owner_cap_bound_it(self):
         small = parallel.limit(self.CFG, 1, 2, {'mem_gb': 30.0, 'cores': 16, 'load': 0.0}, 9)
         self.assertEqual((small['limit'], small['by'], small['others']), (3, 'accounts', 12))

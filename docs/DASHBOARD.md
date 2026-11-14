@@ -60,7 +60,10 @@ narrow with nothing beside it; one column on a phone. Phone (375 px) to 4K (2560
    offline, workers down, readings due, results to review (each task with its attempts and failure history), agents
    started outside Tutti. **Open its log** clears the project filter and unfolds the running list to show the job. Most urgent first
    (`web/attention.js`, a pure function the tests run in node); "Nothing needs you" when all is clear.
-3. **Running jobs** (with progress, and the project filter), then **Queued**, beside **Machines**.
+3. **Running jobs** (with progress, and the project filter), then **Queued**, beside **Main agent** and **Workers**. The two
+   lists fill the height of that column: as many rows as fit show, and "Show more" folds only the rows that do not (measured
+   after each render and on every resize with a ResizeObserver; `tuttiFit` in `attention.js`). On a phone, where the columns
+   stack, each shows 8 rows. **Autopilot** and **Machines** follow.
 4. **Autopilot** (its state, runs, queue and latest decisions, each list folded) beside **Main agent** and **Workers**.
 5. **Projects**, full width, in columns.
 6. **Scouts**, full width: each scout, its meter, watches, recent questions and the review trial (*Scouts* below).

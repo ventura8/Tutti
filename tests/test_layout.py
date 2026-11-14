@@ -25,7 +25,7 @@ class Order(unittest.TestCase):
             page = f.read()
         heads = re.findall(r'<h2 id="([a-z]+)-h">', page)
         self.assertEqual(heads, ['usage', 'attention', 'household',
-                                 'running', 'queued', 'machines', 'autopilot', 'main', 'workers', 'projects', 'scouts',
+                                 'running', 'queued', 'main', 'workers', 'autopilot', 'machines', 'projects', 'scouts',
                                  'connect', 'where', 'setup', 'controls', 'selfimprove', 'insights', 'jobs', 'vpn', 'users'])
 
     def test_usage_shows_the_accounts_then_local_models_then_the_owner(self):
@@ -47,6 +47,32 @@ class Order(unittest.TestCase):
             self.assertIn('`attention.js${V}`', f.read())
         _, page, _, _ = dashboard.route(dashboard.Collector(config.normalise({}), reader=object()), '/', 'tok')
         self.assertIn(b'attention.js?v=', page)
+
+
+@unittest.skipUnless(shutil.which('node'), 'node is not installed')
+class Fit(unittest.TestCase):
+    ROWS = 'running: 30, queued: 40, rowRunning: 80, rowQueued: 60, others: 200'
+
+    def test_a_tall_neighbour_column_shows_more_rows_before_show_more(self):
+        short = js(f'tuttiFit({{column: 700, {self.ROWS}}})')
+        tall = js(f'tuttiFit({{column: 2400, {self.ROWS}}})')
+        self.assertGreater(tall['running'], short['running'])
+        self.assertEqual(tall['running'], 27)                   # (2400 - 200) / 80
+        self.assertEqual(short, {'running': 6, 'queued': 3})    # the rest of a short column, at least 3 queued rows
+
+    def test_the_space_left_by_few_running_jobs_goes_to_the_queue_and_a_phone_keeps_its_cap(self):
+        few = js('tuttiFit({column: 1400, others: 200, running: 2, queued: 40, rowRunning: 100, rowQueued: 50})')
+        self.assertEqual(few, {'running': 3, 'queued': 20})     # 1200 - 2 x 100 left for the queue
+        self.assertEqual(js(f'tuttiFit({{column: 2400, {self.ROWS}, phone: true}})'), {'running': 8, 'queued': 8})
+
+    def test_the_page_measures_both_columns_and_watches_their_size(self):
+        with open(os.path.join(dashboard.WEB, 'index.html'), encoding='utf8') as f:
+            page = f.read()
+        self.assertLess(page.index('id="jobs-stack"'), page.index('id="side-stack"'))   # side by side, jobs first
+        with open(os.path.join(dashboard.WEB, 'app.js'), encoding='utf8') as f:
+            app = f.read()
+        self.assertIn('new ResizeObserver', app)
+        self.assertIn("ui.fit?.running", app)
 
 
 @unittest.skipUnless(shutil.which('node'), 'node is not installed')

@@ -2,6 +2,7 @@
 links, and the docker mount that lets git inside a container reach the main repository's .git."""
 import glob
 import os
+import shlex
 import shutil
 import subprocess
 
@@ -44,6 +45,19 @@ def main_checkout(top):
     return os.path.dirname(c) if c and os.path.basename(c) == '.git' else ''
 
 
+def _copy(src, dst):
+    """cp -al into a temporary name, then rename; a plain copy when hard links cannot cross filesystems. Never leaves a
+    partial destination behind."""
+    tmp = f'{dst}.tutti-tmp'
+    for args in (['cp', '-al'], ['cp', '-a']):
+        shutil.rmtree(tmp, ignore_errors=True)
+        if subprocess.run([*args, src, tmp], capture_output=True).returncode == 0:
+            os.rename(tmp, dst)
+            return True
+    shutil.rmtree(tmp, ignore_errors=True)
+    return False
+
+
 def share(top, patterns, say=print):
     """Hard-links (cp -al) each folder matching `patterns` from the main checkout into the worktree when it is missing there.
     Hard links cost no space; a later install in the worktree replaces files instead of writing through them."""
@@ -56,8 +70,8 @@ def share(top, patterns, say=print):
             rel = os.path.relpath(src, main)
             dst = os.path.join(top, rel)
             if os.path.isdir(src) and not os.path.exists(dst) and os.path.isdir(os.path.dirname(dst)):
-                subprocess.run(['cp', '-al', src, dst], check=True)
-                done.append(rel)
+                if _copy(src, dst):
+                    done.append(rel)
     if done:
         say(f'worktree: shared {", ".join(done)} from {main} (hard links)')
     return done
@@ -66,4 +80,4 @@ def share(top, patterns, say=print):
 def docker_mount(top):
     """`-v <common>:<common>` for a linked worktree (git inside the container needs the main .git), else ''."""
     c = common_dir(top)
-    return f'-v {c}:{c}' if c else ''
+    return f'-v {shlex.quote(f"{c}:{c}")}' if c else ''

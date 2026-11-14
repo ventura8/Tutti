@@ -164,8 +164,15 @@ def cmd_wait(cfg, a):
         return 2
     done = checks[a.kind]()
     stall = waiting.stalled(a.stall_file or a.target, a.stall) if a.stall else (lambda: False)
-    if waiting.until(lambda: done() or stall(), a.timeout, a.poll):
+    seen = []
+
+    def check():
         if done():
+            seen.append(True)
+            return True
+        return stall()
+    if waiting.until(check, a.timeout, a.poll):
+        if seen:
             return 0
         say(f'wait {a.kind} {a.target}: {a.stall_file or a.target} has not changed for {a.stall:g} s; the job looks stalled: '
             'read its log, then stop or restart it (do not wait again on the same job)')

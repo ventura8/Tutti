@@ -37,6 +37,14 @@ class HelperParse(unittest.TestCase):
         r = self.parse([{'account': 'grok', 'label': 'Weekly usage'}])
         self.assertEqual((r['readings'][0]['used'], r['readings'][0]['resets']), (0, '2026-11-15T00:00:00.000Z'))
 
+    def test_a_meter_stops_at_the_next_label(self):
+        r = self.parse(CURSOR, text='Cursor Models\n25%\nOther Models\n14% used\n')
+        self.assertEqual([x['used'] for x in r['readings']], [25, 14])
+
+    def test_no_label_searches_the_whole_page(self):
+        page = '\n'.join([f'Menu {i}' for i in range(12)] + ['Plan', '37% used'])
+        self.assertEqual(self.parse([{'account': 'x', 'label': None}], text=page)['readings'][0]['used'], 37)
+
     def test_a_label_not_on_the_page_is_missing(self):
         r = self.parse([{'account': 'x', 'label': 'Premium Models'}])
         self.assertEqual((r['readings'], r['missing']), ([], ['Premium Models']))

@@ -48,6 +48,10 @@ def machine_of(cfg, name):
 
 def worker_of(cfg, name, kind):
     w = cfg['workers'].get(name)
+    if not w and name in cfg.get('disabled_workers', []):
+        paid = any(o['name'] == name and o['costs_money'] for o in cfg['off'])
+        why = 'it costs money per use and is opt-in' if paid else 'enabled: false'
+        raise config.ConfigError(f'"{name}" is turned off in {cfg["_path"]} ({why}): set workers.{name}.enabled: true to use it')
     if not w or w['kind'] != kind:
         names = [n for n, x in cfg['workers'].items() if x['kind'] == kind]
         have = ', '.join(names) or '(none)'
@@ -163,7 +167,10 @@ def page_reading(cfg, path, text, now):
     try:
         data = json.loads(sys.stdin.read() if text in (None, '-') else text)
         readings, missing = data['readings'], data.get('missing') or []
-    except (ValueError, TypeError, KeyError) as e:
+        if not (isinstance(readings, list) and all(isinstance(r, dict) for r in readings)
+                and isinstance(missing, list) and all(isinstance(m, str) for m in missing)):
+            raise TypeError('readings must be a list of objects and missing a list of labels')
+    except (ValueError, TypeError, KeyError, AttributeError) as e:
         say(f'usage page-reading: the text is not what `tutti usage page-script` returns ({e}): pass the JSON string it evaluated to')
         return 2
     for m in missing:

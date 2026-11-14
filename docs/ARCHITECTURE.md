@@ -39,7 +39,6 @@ run on the machines. There is no daemon and no server; state is files.
 | `tutti/delegate.py` | `tutti run --repo` and `tutti runs`: the worktree, the headless worker, the diff, the checks (never stopping at the first failure), DENIED tool calls, the coverage note and the report. |
 | `tutti/review.py` | `tutti pr review`: asking Copilot and CodeRabbit through `gh`, reading their answers and limits, the local fallback review posted as a comment. `gh` is passed in for tests. |
 | `tutti/helper.py` | The reading helper: the per-install key, the bookmarklet page (`/helper`) and the page script for an orchestrator's browser tool; the parser both use is `tutti/web/helper-parse.js`, the bookmarklet's wrapper `tutti/web/helper-bookmarklet.js`. |
-| `tutti/credits.py` | Copilot AI credits from the CLI's own session records (`session.shutdown`), here and on `credits_machines` (a WSL machine's Windows side too), cached per machine. |
 | `tutti/releases.py` | A project's open pull requests (`projects.<n>.repo`, through gh): a release in progress first, CI and review state, cached per repository. |
 | `tutti/dashboard.py`, `tutti/web/` | `tutti dashboard`: the 127.0.0.1 HTTP server, background probes, `/api/state` and the PWA shell. |
 | `scripts/slot.sh` | The slot queue, copied to each machine on every run. |

@@ -280,10 +280,7 @@ function account(a, now) {
     card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
     if (a.room_tasks) card.append(el('p', { class: 'account__nudge', 'data-tone': 'ok', text: `Use it: ${a.room_tasks} bounded task(s) can go here now (tutti run auto "<task>" --repo <repo>)` }));
     if (a.note) card.append(el('p', { class: 'account__note', text: a.note }));
-    if (a.credits_used !== undefined) {
-        card.append(el('p', { class: 'account__auto', text: `${a.credits_used} AI credits in this window (${a.credits_where || 'here'})` }));
-        if (a.credits_problem) card.append(el('p', { class: 'account__auto', text: a.credits_problem }));
-    }
+    if (a.credits_used !== undefined) card.append(el('p', { class: 'account__auto', text: `${a.credits_used} AI credits in this window from Tutti's runs` }));
     if (a.stale) card.append(el('p', { class: 'account__remind', 'data-tone': 'warn', role: 'note', text: `Reminder: ${a.remind}` }));
     card.append(accountFacts(a), autoLine(a) || '', ui.editing.has(a.name) ? readingForm(a) : addButton(a));
     return card;
@@ -391,6 +388,8 @@ function renderWorkers(s) {
     $('workers').replaceChildren(...(w.items.length ? w.items.map((x) => worker(x, s.usage.accounts))
         : [el('li', {}, w.probed_at ? empty('No workers', 'Add workers: to the config (cursor, agy, local models).') : empty('Checking workers…', ''))]));
     $('agents').replaceChildren(...w.agents.map(agent));
+    const off = $('workers-off');
+    if (off) off.replaceChildren(...(w.off || []).map((t) => el('li', { class: 'row__note', text: `Off: ${t}` })));
 }
 
 // ---- projects

@@ -1,8 +1,9 @@
+import copy
 import os
 import tempfile
 import unittest
 
-from tutti import config
+from tutti import cli, config, state
 
 EXAMPLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tutti.config.example.yaml')
 
@@ -89,6 +90,42 @@ class LeadHoursWarningTest(unittest.TestCase):
         lines = cli.lead_hours_warnings(cfg)
         self.assertEqual(len(lines), 1)
         self.assertIn('set lead_hours: 1 for "a" in /c.yaml', lines[0])
+
+
+class OptInTest(unittest.TestCase):
+    RAW = {'machines': {'a': {'host': 'a.example'}},
+           'workers': {'agy': {'kind': 'cli', 'command': ['agy', '{prompt}']},
+                       'copilot': {'kind': 'cli', 'command': ['copilot', '{prompt}'], 'costs_money': True}},
+           'accounts': {'agy': {'worker': 'agy'}, 'copilot': {'worker': 'copilot'}, 'api': {'costs_money': True}},
+           'routing': {'workers': ['agy', 'copilot']}, 'main': {'fallback': ['agy', 'copilot'], 'commands': {'copilot': ['c']}},
+           'review': {'fallback': ['copilot']}}
+
+    def test_what_costs_money_is_off_until_enabled(self):
+        cfg = config.normalise(copy.deepcopy(self.RAW))
+        self.assertEqual(list(cfg['workers']), ['agy'])
+        self.assertEqual(list(cfg['accounts']), ['agy'])        # copilot's account goes with its worker; api costs money
+        self.assertEqual((cfg['routing']['workers'], cfg['main']['fallback'], cfg['review']['fallback']), (['agy'], ['agy'], []))
+        self.assertEqual(cfg['main']['commands'], {})
+        self.assertEqual(config.validate(cfg), [])
+        self.assertIn({'name': 'copilot', 'kind': 'worker', 'costs_money': True}, cfg['off'])
+
+    def test_enabled_true_turns_it_on_and_enabled_false_turns_anything_off(self):
+        raw = copy.deepcopy(self.RAW)
+        raw['workers']['copilot']['enabled'] = True
+        raw['accounts']['agy']['enabled'] = False
+        cfg = config.normalise(raw)
+        self.assertEqual(sorted(cfg['workers']), ['agy', 'copilot'])
+        self.assertEqual(sorted(cfg['accounts']), ['copilot'])
+        self.assertEqual(cfg['routing']['workers'], ['agy', 'copilot'])
+
+    def test_an_off_worker_says_how_to_turn_it_on(self):
+        cfg = config.normalise(copy.deepcopy(self.RAW))
+        cfg['_path'] = '/c.yaml'
+        with self.assertRaises(config.ConfigError) as e:
+            cli.worker_of(cfg, 'copilot', 'cli')
+        self.assertIn('costs money per use and is opt-in', str(e.exception))
+        self.assertIn('workers.copilot.enabled: true', str(e.exception))
+        self.assertIn('copilot (worker): costs money per use', state.off_notes(cfg)[0])
 
 
 if __name__ == '__main__':

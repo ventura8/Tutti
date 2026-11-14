@@ -24,9 +24,9 @@ The open items of 0.1.8 and 0.1.9, each proven with a real run.
 
 - `tutti usage page-script [<url part>]` and `tutti usage page-reading '<json>'`: the helper's parser for an
   orchestrator's browser tool, when nobody clicks the bookmarklet (the dashboard cannot read cursor.com).
-- Copilot AI credits from the CLI's own session records (`~/.copilot/session-state`), so runs outside Tutti count, and
-  `accounts.<n>.credits_machines` adds other machines' sessions (a WSL machine's Windows side too). The card says where
-  they came from.
+- `costs_money: true` on a worker or account: pay-per-use entries (the Copilot CLI's premium requests) are **off by
+  default**, out of routing, the conduct and review fallbacks, pacing and the dashboard, until `enabled: true`. The
+  Workers panel lists what is off and why; `tutti run <it>` names the line that turns it on.
 - `projects.<n>.repo: owner/name`: the Projects panel shows the project's open pull requests, a release in progress first,
   with CI and review state.
 

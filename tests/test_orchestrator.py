@@ -114,6 +114,8 @@ class ChangedPlaceholderTest(unittest.TestCase):
             with open(os.path.join(d, 'out.txt'), encoding='utf8') as f:
                 self.assertEqual(sorted(f.read().splitlines()), found)
             self.assertEqual(ship.split_changed(''), [])
+            with self.assertRaises(ship.ShipError):          # a missing base is an error, not "nothing changed"
+                ship.changed_since(d, 'origin/no-such-branch')
 
 
 class WorkerCommandTest(unittest.TestCase):
@@ -329,6 +331,23 @@ class HelperTest(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_page_reading_records_good_json_and_refuses_bad_shapes(self):
+        log = os.path.join(self.tmp.name, 'usage.jsonl')
+        now = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
+        good = json.dumps({'readings': [{'account': 'cursor', 'used': 25, 'resets': '2026-12-10T00:00Z', 'how': 'Cursor Models'}],
+                           'missing': []})
+        self.assertEqual(cli.page_reading(self.cfg, log, good, now), 0)
+        with open(log, encoding='utf8') as f:
+            entry = json.loads(f.readline())
+        self.assertEqual((entry['account'], entry['used'], entry['source']), ('cursor', 25.0, 'page script'))
+        for bad in ('not json', '{"readings": null}', '{"readings": [null]}', '{"readings": [], "missing": [1]}', '[]'):
+            self.assertEqual(cli.page_reading(self.cfg, log, bad, now), 2, bad)
+        self.assertEqual(cli.page_reading(self.cfg, log, json.dumps({'readings': [], 'missing': ['Other Models']}), now), 1)
+        self.assertEqual(cli.page_reading(self.cfg, log, json.dumps({'readings': [{'account': 'ghost', 'used': 5}]}), now), 2)
+
+    def test_the_page_script_lists_hand_read_pages_only(self):
+        self.assertEqual(cli.page_scripts(self.cfg, 'nothing-matches'), 2)
 
     def test_the_key_is_kept_and_checked(self):
         k = helper.key(self.tmp.name)

@@ -37,7 +37,14 @@ output and `{log}` for this pattern and reports every hit as DENIED. All three r
   `--settings '{"permissions":{"allow":["command(*)"]}}'`, which replaces the worker's list for those runs only; an
   account's `args` replace a flag the worker command already has (`--model`, `--settings`) instead of doubling it. The
   limits are then Tutti's: the run's own worktree, the brief's "do not commit or push", ship's guard and the review.
-- **GitHub Copilot CLI**: `copilot -p "<brief>" --allow-all-tools --no-ask-user -s`.
+- **GitHub Copilot CLI**: `copilot -p "<brief>" --allow-all-tools --no-ask-user -s`. Its premium requests are paid per
+  use, so the example marks it `costs_money: true`.
+
+**Opt-in for what costs money.** A worker or account with `costs_money: true` (pay per use: API keys, premium requests)
+is off unless it also says `enabled: true`; `enabled: false` turns anything off. An off worker leaves `routing.workers`,
+`main.fallback`, `main.commands` and `review.fallback`, its accounts leave pacing, panic and the dashboard (their readings
+stay in the log), and `tutti run <it>` says it is off and which line turns it on. The dashboard's Workers panel lists what
+is off and why.
 - **Claude**: `claude -p "<brief>"`.
 
 A person installs each CLI and signs in once. Tutti never types a credential.

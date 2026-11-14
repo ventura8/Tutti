@@ -123,11 +123,38 @@ def normalise(raw):
         cfg['machines'][name] = m
     if not cfg['routing']['order']:
         cfg['routing']['order'] = list(cfg['machines'])
-    # enabled: false keeps an account out of pacing, panic, routing and the dashboard (an opt-in model such as a premium one);
-    # its readings stay in the log, unused
-    cfg['disabled_accounts'] = sorted(n for n, a in cfg['accounts'].items() if (a or {}).get('enabled', True) is False)
-    cfg['accounts'] = {n: a for n, a in cfg['accounts'].items() if n not in cfg['disabled_accounts']}
+    opt_out(cfg)
     return cfg
+
+
+def is_on(entry):
+    """An account or worker is on unless `enabled: false`; one marked `costs_money: true` (pay per use: API keys, premium
+    requests) is off unless `enabled: true`, so nothing that can cost extra money runs by default."""
+    entry = entry or {}
+    if 'enabled' in entry:
+        return entry['enabled'] is not False
+    return not entry.get('costs_money')
+
+
+def opt_out(cfg):
+    """Takes the accounts and workers that are off out of the config: out of pacing, panic, routing, review and conduct
+    fallbacks and the dashboard (an account's readings stay in the log, unused). An account whose worker is off is off too.
+    `off` lists them for the dashboard's note, with whether they cost money."""
+    off_workers = sorted(n for n, w in cfg['workers'].items() if not is_on(w))
+    off_accounts = sorted(n for n, a in cfg['accounts'].items() if not is_on(a) or (a or {}).get('worker') in off_workers)
+    def entry(kind, n, section):
+        return {'name': n, 'kind': kind, 'costs_money': bool((cfg[section][n] or {}).get('costs_money'))}
+    cfg['off'] = [entry('worker', n, 'workers') for n in off_workers] + [entry('account', n, 'accounts') for n in off_accounts]
+    cfg['disabled_accounts'], cfg['disabled_workers'] = off_accounts, off_workers
+    cfg['accounts'] = {n: a for n, a in cfg['accounts'].items() if n not in off_accounts}
+    cfg['workers'] = {n: w for n, w in cfg['workers'].items() if n not in off_workers}
+    gone = set(off_workers)
+    cfg['routing']['workers'] = [w for w in cfg['routing'].get('workers') or [] if w not in gone]
+    for section in ('main', 'review'):
+        if isinstance(cfg.get(section), dict) and isinstance(cfg[section].get('fallback'), list):
+            cfg[section]['fallback'] = [w for w in cfg[section]['fallback'] if w not in gone]
+    if isinstance(cfg.get('main'), dict) and isinstance(cfg['main'].get('commands'), dict):
+        cfg['main']['commands'] = {n: c for n, c in cfg['main']['commands'].items() if n not in gone}
 
 
 def _machine_errors(name, m):
@@ -326,11 +353,6 @@ def _account_worker_errors(cfg, name, a):
     args = a.get('args', [])
     if not isinstance(args, list) or not all(isinstance(x, str) for x in args):
         errs.append(f'accounts.{name}.args is {args!r}: a list of extra arguments for its worker, e.g. [--model, gemini-3.8-flash-high]')
-    cm = a.get('credits_machines', [])
-    if not isinstance(cm, list):
-        errs.append(f'accounts.{name}.credits_machines is {cm!r}: a list of machines whose Copilot sessions count, e.g. [pc]')
-    else:
-        errs += [f'accounts.{name}.credits_machines names "{m}", which is not under machines:' for m in cm if m not in cfg['machines']]
     return errs
 
 

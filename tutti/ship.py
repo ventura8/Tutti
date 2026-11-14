@@ -24,10 +24,13 @@ def git(top, *args, check=True):
     return r.stdout.strip()
 
 
-def names(top, *args):
+def names(top, *args, check=True):
     """Paths git lists, read NUL-separated (`-z`): a name with a space, a leading space or a non-ASCII letter stays whole and
-    unquoted (plain --name-only quotes such names and the old space-joined list split them)."""
+    unquoted (plain --name-only quotes such names and the old space-joined list split them). A git failure raises ShipError
+    (a missing base must not read as "nothing changed"); `check=False` only where a failure means an empty list."""
     r = subprocess.run([worktree.git_bin(), '-C', top, *args, '-z'], capture_output=True, text=True)
+    if check and r.returncode != 0:
+        raise ShipError(f'git {" ".join(args)} failed in {top}: {r.stderr.strip() or r.stdout.strip()}')
     return [n for n in r.stdout.split('\0') if n]
 
 
@@ -104,7 +107,8 @@ def message(text, trailer):
 
 def pending(top):
     """Files changed or new in the work tree, not yet committed."""
-    found = names(top, 'diff', '--name-only', 'HEAD') + names(top, 'ls-files', '--others', '--exclude-standard')
+    # a new repository has no HEAD yet: its diff fails and only the untracked files count
+    found = names(top, 'diff', '--name-only', 'HEAD', check=False) + names(top, 'ls-files', '--others', '--exclude-standard')
     return sorted(set(found))
 
 

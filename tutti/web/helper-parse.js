@@ -5,7 +5,8 @@
 // targets is [{account, label}]. A meter is read line by line (Cursor's spending page, 2026-11-14: "Cursor Models · Includes
 // ...", "25% used", ..., "Other Models", "14% used", then "Grok Bot", "Weekly usage", "0% used", "Resets Nov 15"): it starts
 // at the first line that begins with the label (else the first that contains it) and ends at the line with its amount ("N%
-// used", "$spent of $limit", else a bare "N%"), plus the next line when that line says "Resets <date>". A reset in the meter
+// used", "$spent of $limit", else a bare "N%"), plus the next line when that line says "Resets <date>"; it never reaches
+// past the next configured label or 8 lines. With no label the whole page is searched. A reset in the meter
 // wins; otherwise the page's "limits reset <date>", else the end of a "billing period <a> - <b>". A "Resets" line of another
 // meter (Grok's weekly) is never taken for this one.
 function (text, targets, now) {
@@ -43,7 +44,13 @@ function (text, targets, now) {
         if (start < 0) {
             return null;
         }
-        const stop = Math.min(lines.length, start + 8);
+        const others = targets.map((t) => (t.label || '').toLowerCase()).filter((l) => l && l !== (label || '').toLowerCase());
+        let stop = label ? Math.min(lines.length, start + 8) : lines.length;
+        for (let i = start + 1; i < stop; i++) {
+            if (others.some((o) => lines[i].toLowerCase().startsWith(o))) {
+                stop = i;
+            }
+        }
         for (const find of [amount, bare]) {
             for (let i = start; i < stop; i++) {
                 const found = find(lines[i]);

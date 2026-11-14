@@ -51,6 +51,11 @@ cannot read the token, and its requests carry its own `Origin`. After a restart 
 Body: `{"account": "cursor", "used": 37, "resets": "2026-12-03T00:00Z", "note": "..."}`; `resets` and `note` are
 optional; `used` is 0 to 100; `resets` lies from a day ago to two months ahead.
 
+## What is off
+
+Under the workers, one line per worker or account that is off: `copilot (worker): costs money per use, so it is opt-in;
+workers.copilot.enabled: true in the config turns it on`. See docs/WORKERS.md, *Opt-in for what costs money*.
+
 ## The reading helper
 
 For an account no CLI reads (Cursor), `/helper` (the footer's **Reading helper** link) offers one button per account

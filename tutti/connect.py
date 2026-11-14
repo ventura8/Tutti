@@ -5,7 +5,7 @@ its global instructions file) telling it to hand bounded work to Tutti and to ho
 `tutti` entry and the marked block are ever written or removed, the file is backed up first, a second run changes nothing,
 and `tutti connect --undo <agent>` takes it out again. The paths were checked against each tool on 2026-11-14 (docs).
 
-The interface `tutti setup` calls: connect_all(cfg_path, home=None) -> [result], status_all(cfg_path, home=None) -> [row].
+The interface `tutti setup` calls: connect_all(cfg_path, home=None) -> [result], status_all(home=None) -> [row].
 """
 import json
 import os
@@ -13,8 +13,6 @@ import shutil
 import subprocess
 import sys
 import time
-
-import tomllib
 
 from . import mcpserver
 
@@ -170,13 +168,21 @@ def load_json(path):
 # ---- the MCP entry
 
 
+def servers_of(data, path, key):
+    servers = data.get(key)
+    servers = {} if servers is None else servers
+    if not isinstance(servers, dict):
+        raise ConnectError(f'"{key}" in {path} is not a JSON object: fix it, then run `tutti connect` again; nothing was changed')
+    return servers
+
+
 def json_entry(path, key):
-    return (load_json(path).get(key) or {}).get(NAME)
+    return servers_of(load_json(path), path, key).get(NAME)
 
 
 def set_json(path, key, value, agent, home, changed):
     data = load_json(path)
-    servers = dict(data.get(key) or {})
+    servers = dict(servers_of(data, path, key))
     if value is None:
         if NAME not in servers:
             return
@@ -206,8 +212,18 @@ def strip_block(text, begin, end):
     return before + ('\n\n' if before and after else '\n' if before else '') + after
 
 
+def toml():
+    try:
+        import tomllib
+    except ImportError as e:   # Python 3.10: every other agent works; Codex's config.toml needs 3.11
+        raise ConnectError('Codex\'s config.toml needs Python 3.11 or newer to read safely: upgrade Python, '
+                           'or add [mcp_servers.tutti] by hand (docs/CONNECT.md)') from e
+    return tomllib
+
+
 def toml_entry(path):
     text = _read(path)
+    tomllib = toml()
     try:
         return (tomllib.loads(text).get('mcp_servers') or {}).get(NAME)
     except tomllib.TOMLDecodeError as e:
@@ -219,7 +235,7 @@ def set_toml(path, value, agent, home, changed):
     toml_entry(path)   # refuses a broken file before any change
     base = strip_block(text, TBEGIN, TEND)
     if value is not None:
-        if (tomllib.loads(base).get('mcp_servers') or {}).get(NAME):
+        if (toml().loads(base).get('mcp_servers') or {}).get(NAME):
             return   # the user's own [mcp_servers.tutti]: theirs, left as it is
         base = (base.rstrip('\n') + '\n\n' if base.strip() else '') + toml_block(value)
     _write(path, base, agent, home, changed)
@@ -298,8 +314,9 @@ def apply(name, cfg_path, on, home=None, which=shutil.which, run=subprocess.run,
     value = entry(style, cfg_path, command) if on else None
     if use_cli(name, home, which):
         if current_entry(name, home) != value:
+            saved = backup(path, name, home)
             cli_set(name, value, run)
-            changed.append({'file': path, 'backup': None, 'via': f'{a["cli"]} mcp'})
+            changed.append({'file': path, 'backup': saved, 'via': f'{a["cli"]} mcp'})
     elif kind == 'toml':
         set_toml(path, value, name, home, changed)
     else:
@@ -419,7 +436,11 @@ def roundtrip(e, timeout=30, popen=subprocess.Popen):
     try:
         p = popen([e['command'], *e.get('args', [])], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         out, err = p.communicate(''.join(json.dumps(m) + '\n' for m in msgs), timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired) as x:
+    except subprocess.TimeoutExpired as x:
+        p.kill()
+        p.communicate()
+        return False, f'the server `{e["command"]}` did not answer within {timeout} s ({x}): run it in a terminal to see why'
+    except OSError as x:
         return False, f'the server `{e["command"]}` did not answer ({x}): run `{e["command"]} {" ".join(e.get("args", []))}` in a terminal'
     for line in out.splitlines():
         try:

@@ -64,7 +64,7 @@ card shows each agent's state with a Test button. See [docs/CONNECT.md](docs/CON
 
 ## Quick start from a clone
 
-Requirements: Linux, Python 3.10+, `PyYAML`, `git`, `rsync`, `ssh` with key-based login to your machines, and Docker
+Requirements: Linux, Python 3.10+ (3.11+ for connecting Codex), `PyYAML`, `git`, `rsync`, `ssh` with key-based login to your machines, and Docker
 on the machines if you use the container runner.
 
 ```bash

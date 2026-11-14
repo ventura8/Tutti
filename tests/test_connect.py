@@ -7,8 +7,6 @@ import tempfile
 import unittest
 from unittest import mock
 
-import tomllib
-
 from tutti import config, connect, dashboard, mcpserver
 
 CFG = '/cfg/tutti.config.yaml'
@@ -70,7 +68,7 @@ class ConnectorTest(unittest.TestCase):
         self.put('.codex/config.toml', 'model = "o5"\n\n[mcp_servers.other]\ncommand = "x"\n')
         self.apply('codex')
         first = self.read('.codex/config.toml')
-        data = tomllib.loads(first)
+        data = connect.toml().loads(first)
         self.assertEqual(data['model'], 'o5')
         self.assertEqual(data['mcp_servers']['other'], {'command': 'x'})
         self.assertEqual(data['mcp_servers']['tutti']['args'], ['--config', CFG, 'mcp'])
@@ -110,6 +108,12 @@ class ConnectorTest(unittest.TestCase):
         self.assertIn(connect.BEGIN, self.read('.gemini/GEMINI.md'))
         self.apply('antigravity', on=False)
         self.assertNotIn(connect.BEGIN, self.read('.gemini/GEMINI.md'))
+
+    def test_servers_that_are_not_an_object_are_refused(self):
+        self.put('.cursor/mcp.json', '{"mcpServers": []}')
+        with self.assertRaises(connect.ConnectError):
+            self.apply('cursor')
+        self.assertEqual(connect.status('cursor', self.home, which=all_bins)['status'], 'error')
 
     def test_empty_config_file_is_an_empty_object(self):
         self.put('.gemini/config/mcp_config.json', '')
@@ -228,9 +232,9 @@ class McpServerTest(unittest.TestCase):
         self.assertEqual(self.calls, [])
         err, _ = mcpserver.call(self.cfg, 'usage', {}, 'viewer', runner=self.runner)
         self.assertFalse(err)
-        err, _ = mcpserver.call(self.cfg, 'away_mode', {}, 'viewer', runner=self.runner)
-        self.assertFalse(err)
-        self.assertEqual(self.calls, [['usage'], ['owner', 'status']])
+        self.assertEqual(self.calls, [['usage']])
+        mcpserver.call(self.cfg, 'backlog_add', {'repo': 'r', 'title': 't', 'scope': 'src/a.py'}, 'admin', runner=self.runner)
+        self.assertEqual(self.calls[-1][-2:], ['--scope', 'src/a.py'])
 
     def fail(self, *a, **k):
         raise AssertionError('a refused call must not start anything')

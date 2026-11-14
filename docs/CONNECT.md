@@ -36,7 +36,7 @@ The entry starts the absolute `tutti` with `--config <your config> mcp`, so a de
 
 **Safe edits.** Only the `tutti` entry and the block between `<!-- tutti:begin -->` and `<!-- tutti:end -->` (TOML:
 `# tutti:begin` / `# tutti:end`) are ever written or removed; every other server, setting and line stays. Each file is
-copied to `~/.config/tutti/connect-backups/<agent>/` before its first change. A second run changes nothing. A file that is
+copied to `~/.config/tutti/connect-backups/<agent>/` before its first change (`~/.claude.json` too, before `claude mcp` edits it). A second run changes nothing. A file that is
 not valid JSON or TOML is refused and left untouched. A `[mcp_servers.tutti]` you wrote yourself in Codex is kept as it
 is. Antigravity and Gemini CLI share `GEMINI.md`: undoing one keeps the block while the other is connected.
 
@@ -61,7 +61,7 @@ command itself, so an answer is what the terminal would print.
 | `usage`, `machines`, `devices` | no | the same commands |
 | `test_on` (track, command, machine or device) | yes | `tutti test` detached; poll `job_status` |
 | `scout_ask` (scout, question, skill) | yes | `tutti scout ask --no-wait` |
-| `away_mode` (mode) | setting a mode: yes | `tutti owner status\|mode <m>` |
+| `away_mode` (mode) | yes (admin, also for the status) | `tutti owner status\|mode <m>` |
 
 **Roles.** A tool that changes something needs the `admin` role; read-only tools are open to every role. The roles are
 the dashboard sign-in's (`pending`, `viewer`, `admin`). The server takes `$TUTTI_ROLE`, else `mcp.role` in the config,

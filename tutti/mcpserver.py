@@ -22,6 +22,7 @@ MUTATING_ROLE = 'admin'
 BIN = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'bin', 'tutti')
 TIMEOUT = 120          # seconds a read or a quick change may take; long work runs detached and is polled with job_status
 HTTP_PORT = 4779
+MAX_BODY = 1 << 20
 
 INSTRUCTIONS = ('Tutti runs bounded coding tasks on cheaper workers (cursor-agent, Antigravity, local models) and shared '
                 'machines, paced against each account\'s usage. Hand off a task when it is bounded (one change with a clear '
@@ -76,9 +77,9 @@ TOOLS = [
          {'scout': _s('the scout name (see `tutti scout list`)'), 'question': _s('the question or research task'),
           'skill': _s('optional hint', enum=['research', 'web-browse', 'triage', 'monitoring', 'drafting', 'browser-repro'])},
          required=('scout', 'question'), mutating=True),
-    tool('away_mode', 'The owner\'s mode for pacing: status, or set active, away (the rest of today), auto, or vacation until a '
-         'date. While away, Tutti fills the owner\'s room with backlog work.',
-         {'mode': _s('empty for the status; or active, away, auto, vacation-until-YYYY-MM-DD')}),
+    tool('away_mode', 'Set the owner\'s mode for pacing: active, away (the rest of today), auto, or vacation until a date. While '
+         'away, Tutti fills the owner\'s room with backlog work. With no mode it only shows the status (still needs admin).',
+         {'mode': _s('active, away, auto or vacation-until-YYYY-MM-DD; empty for the status')}, mutating=True),
 ]
 BY_NAME = {t['name']: t for t in TOOLS}
 
@@ -101,6 +102,13 @@ def refusal(name, role):
             'raise your role on the dashboard (Settings, Users), or set mcp.role: admin in your own tutti.config.yaml.')
 
 
+def scopes(value):
+    """A list of paths; a lone string (a common slip for an array field) is one path, never its characters."""
+    if isinstance(value, str):
+        return [value]
+    return [str(p) for p in value or []]
+
+
 def argv_of(name, a):
     """The `tutti` arguments of a tool call (a list), or None for a tool handled here."""
     size = a.get('size')
@@ -110,7 +118,7 @@ def argv_of(name, a):
         'devices': lambda: ['devices'],
         'backlog_list': lambda: ['backlog', 'list'] + (['--all'] if a.get('all') else []),
         'backlog_add': lambda: (['backlog', 'add', a['repo'], a['title'], '--source', 'mcp'] + (['--size', size] if size else [])
-                                + [x for p in a.get('scope') or [] for x in ('--scope', p)]
+                                + [x for p in scopes(a.get('scope')) for x in ('--scope', p)]
                                 + (['--check', a['check']] if a.get('check') else [])),
         'delegate_task': lambda: (['run', 'auto', (f'[size {size}] ' if size else '') + a['task'], '--repo', a['project'], '--bg']
                                   + (['--track', a['track']] if a.get('track') else [])),
@@ -277,7 +285,12 @@ def http_server(cfg, port, env=None):
                 return self.reply(404, {'error': 'POST JSON-RPC to /mcp'})
             if not secrets.compare_digest(self.headers.get('Authorization', ''), f'Bearer {token}'):
                 return self.reply(401, {'error': f'send Authorization: Bearer <the token in {token_path(cfg)}>'})
-            size = int(self.headers.get('Content-Length') or 0)
+            try:
+                size = int(self.headers.get('Content-Length') or 0)
+            except ValueError:
+                size = -1
+            if not 0 < size <= MAX_BODY:
+                return self.reply(400, {'error': f'send one JSON-RPC message with a Content-Length from 1 to {MAX_BODY} bytes'})
             out = answer_line(cfg, self.rfile.read(size).decode('utf8', 'replace'), role)
             if out is None:
                 self.send_response(202)

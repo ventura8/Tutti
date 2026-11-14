@@ -40,7 +40,7 @@ SECTIONS = [
     ('review', 'Review', '`tutti pr review`: who reviews a pull request and who steps in when no one answers.', ['review']),
     ('scouts', 'Scouts', 'Helpers that are not workers (Grok Bot): questions, watches and reviews.', ['scouts']),
     ('telemetry', 'Telemetry and self-improvement', 'Crash reports and usage statistics, and the fixes they turn into.',
-     ['telemetry', 'self_improve']),
+     ['telemetry', 'self_improve', 'ai_assist', 'welcome']),
     ('projects', 'Projects and repos', 'Your projects, their checks, shipping, delegation, tests and translation.',
      ['projects', 'ship', 'delegate', 'test', 'translate']),
     ('optins', 'Opt-ins', 'Everything that is off until you turn it on: what costs money per use, and Android runs.', []),
@@ -343,6 +343,27 @@ FIELDS = {
     'self_improve.max_new_per_day': field('New tasks a day', 'At most this many.', 'number', min=0),
     'self_improve.min_count': field('Seen at least', 'A crash becomes a task once seen this many times.', 'number', min=1),
     'self_improve.home': field('Home project', 'The project Tutti\'s own fixes go to.', 'select', choices_from='projects'),
+    'welcome.enabled': field('Welcome back', 'When you return after being away, a summary of what happened, and What did I '
+                             'miss? at any time. Each user may turn theirs off.', 'switch', default=True),
+    'welcome.away_hours': field('Away after', 'Gone this long counts as away (empty: the pacing\'s away_after_hours).', **HRS),
+    'welcome.ai': field('Written by a local model', 'A local model writes the opening words when AI assist allows; '
+                        'otherwise the template.', 'switch'),
+    'ai_assist.enabled': field('AI assist (admin opt-in)', 'Tutti uses AI to make itself better: proposals, smarter retries, '
+                               'auto-tuning, research. Off until you turn it on.', 'switch', default=False),
+    'ai_assist.local': field('Local AI', 'Your local models (ollama workers) read Tutti\'s telemetry, failures and tasks.', 'switch'),
+    'ai_assist.online': field('Online AI', 'The scout researches release notes, models and prices, and reviews the scrubbed '
+                              'telemetry; only with spare quota, never your reserve.', 'switch', default=False),
+    'ai_assist.online_code': field('Code to online AI', 'Briefs, failure output and code may go to online models too. Off: '
+                                   'they stay on local models.', 'switch', default=False),
+    'ai_assist.auto_tune': field('Auto-tune', 'Small, safe changes to Tutti\'s own parameters are applied by themselves '
+                                 '(logged, undo on the dashboard); larger ones wait for you.', 'switch'),
+    'ai_assist.every_hours': field(LOOK_EVERY, 'How often the local model analyses the telemetry.', **HRS),
+    'ai_assist.max_proposals': field('Proposals a round', 'At most this many; the day\'s task cap still holds.', 'number', min=1),
+    'ai_assist.local_worker': field('Local model', 'The ollama worker to ask first (empty: the first one up).', 'select',
+                                    choices_from='workers'),
+    'ai_assist.scout': field('Research scout', 'The scout that researches (empty: the one with the research skill).', 'select',
+                             choices_from='scouts'),
+    'ai_assist.research_every': field('Research every', 'How often the online research and design review run, e.g. 7d.', 'text'),
     # projects and repos
     'projects.*.priority': field('Priority', '0 is the most important; work is shared out by priority, the lowest still gets its turn.',
                              'number', min=0, step=1, default=None),

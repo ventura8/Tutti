@@ -197,7 +197,7 @@ def candidates(summary, min_count):
     return out
 
 
-def add_candidates(cfg, items, source, now):
+def add_candidates(cfg, items, source, now, accept=None):
     """Adds items to the home project's repo, deduped by signature, within the day's room. Returns how many were added."""
     s = settings(cfg)
     pol = policy(cfg, s['home'])
@@ -212,11 +212,12 @@ def add_candidates(cfg, items, source, now):
                 break
             if any(t.get('sig') == it['sig'] and t['status'] not in ('done', 'dropped') for t in data['tasks']):
                 continue
-            notes = [f'Self-improvement ({it["why"]}). First add a regression test that reproduces it and fails; then fix it.',
-                     'The local events are in <state>/telemetry/events.jsonl; `tutti telemetry report` summarises them.']
+            notes = it.get('notes') or [f'Self-improvement ({it["why"]}). First add a regression test that reproduces it and fails; '
+                                        'then fix it.', 'The local events are in <state>/telemetry/events.jsonl; `tutti telemetry '
+                                        'report` summarises them.']
             t = backlog.new_task(pol['autopilot_repo'], it['title'], source=source, notes=notes)
             t.update(project=pol['name'], sig=it['sig'], pr_mode='ready', added=now,
-                     status='queued' if auto_accept(cfg) else 'candidate')
+                     status='queued' if (auto_accept(cfg) if accept is None else accept) else 'candidate')
             _t, new = backlog.add(data, t)
             added += int(new)
     return added

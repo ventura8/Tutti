@@ -267,6 +267,7 @@ class View:
                                  f'{controls.OPT_IN_WHY[why]}.', 'control': 'switch', 'default': False}, f'{coll}.*.enabled')
                     rows.append(r)
         rows.append(self.row(['autopilot', 'fill_room'], FIELDS[FILL_ROOM], FILL_ROOM))
+        rows.append(self.row(['ai_assist', 'enabled'], FIELDS['ai_assist.enabled'], 'ai_assist.enabled'))
         return rows
 
     def other(self):

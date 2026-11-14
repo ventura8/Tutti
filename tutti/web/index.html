@@ -33,6 +33,7 @@
     <script src="users.js?v=__TUTTI_VERSION__" defer></script>
     <script src="report.js?v=__TUTTI_VERSION__" defer></script>
     <script src="chat.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="welcome.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
     <a class="skip" href="#main">Skip to the content</a>
@@ -51,6 +52,7 @@
                 <button class="btn btn--text" type="button" data-view-pick="me" aria-pressed="true">Me</button>
                 <button class="btn btn--text" type="button" data-view-pick="household" aria-pressed="false">Household</button>
             </fieldset>
+            <button class="btn btn--text" id="welcome-miss" type="button" title="A summary of what happened since your last one">What did I miss?</button>
             <button class="btn btn--tonal" id="refresh" type="button" title="Refresh now (R)">Refresh</button>
             <button class="btn btn--filled" id="install" type="button" hidden>Install app</button>
             <span class="me" id="me" hidden></span>
@@ -98,6 +100,7 @@
             </div>
         </form>
     </dialog>
+    <section class="welcome" id="welcome" aria-labelledby="welcome-h" hidden></section>
 
     <main id="main" tabindex="-1">
       <!-- The Chat (chat.js, docs/CHAT.md): the default view, for every signed-in user. view-ok: viewers use it too; the
@@ -350,6 +353,15 @@
                     <button class="btn btn--tonal" id="selfimprove-toggle" data-admin type="button" aria-pressed="true" title="Crashes and insights become tasks, pull requests and, where a project allows, merges and releases">Turn off</button>
                 </header>
                 <ul id="selfimprove" class="list" aria-label="Sentry issues and insights: task, pull request, merge, release"></ul>
+            </section>
+
+            <section class="card span-full" aria-labelledby="aiassist-h">
+                <header class="card__head">
+                    <h2 id="aiassist-h">Tutti is improving itself</h2>
+                    <p class="card__meta" id="aiassist-meta"></p>
+                    <button class="btn btn--tonal" id="aiassist-toggle" type="button" aria-pressed="false" title="AI assist (admin opt-in): local and online AI make Tutti better (docs/TELEMETRY.md)">Turn on</button>
+                </header>
+                <div id="aiassist"></div>
             </section>
 
             <section class="card span-full" aria-labelledby="insights-h">

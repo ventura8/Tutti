@@ -167,6 +167,21 @@ h1, h2, h3, p { margin: 0; }
 
 .banner code { font-family: var(--mono); font-size: 0.9em; }
 
+/* ---- welcome back (welcome.js): the summary of what happened while this user was away */
+.welcome {
+    margin: 16px max(16px, env(safe-area-inset-left)) 0;
+    padding: 14px 18px;
+    border-radius: var(--r-m);
+    background: var(--surface-2);
+    color: var(--on-surface);
+    border-left: 4px solid var(--accent);
+}
+.welcome h2 { margin: 0 0 6px; font-size: 1.1rem; }
+.welcome code { font-family: var(--mono); font-size: 0.9em; overflow-wrap: anywhere; }
+.welcome ol { padding-left: 1.4em; }
+.welcome__group summary { cursor: pointer; }
+.welcome__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
 /* ---- layout */
 
 main {

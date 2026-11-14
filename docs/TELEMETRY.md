@@ -32,7 +32,7 @@ stored as `<other>`, so a task, a prompt or a path can never pass as a value.
   (`autopilot.plan` state and counts, `autopilot.attempt` outcome, attempt number, tool, step kind, size, minutes,
   `autopilot.escalate`, `autopilot.park` with its cause `no_progress` or `max_attempts`), waits (`wait.stall`,
   `wait.timeout` with the kind of wait and seconds), scouts (`scout.ask`, `scout.tick`, ...: the skill and the outcome),
-  self-improvement (`selfimprove.analyse`, `merge`, `release`, `switch`), the household (`user.<action>`,
+  self-improvement (`selfimprove.analyse`, `merge`, `release`, `switch`), AI assist (`aiassist.analyse`, `tune`, `undo`, `switch`), the household (`user.<action>`,
   `household.init`, `household.join`, `household.sync`, `household.grant` (machines, slots granted, machines limited): the
   outcome and counts; a user only as `user`, 12 hex digits of
   SHA-256 of a random id, never a name: docs/HOUSEHOLD.md), handled errors by exception type.
@@ -145,3 +145,59 @@ self_improve: {enabled: true, auto_accept: true, home: Tutti, every_hours: 6, ma
 The dashboard's **Self-improvement** card shows each item's way: the Sentry issue or insight, the task, its pull request,
 merged, released, and the gate it waits on. The gates are pure functions in `tutti/selfimprove.py`, tested in
 `tests/test_selfimprove.py`.
+
+## AI assist
+
+Tutti uses AI, local and online, to make itself better. **Off by default**: an admin opts in with `ai_assist.enabled`
+(Settings, *Opt-ins* or *Telemetry and self-improvement*, or **Turn on** on the dashboard's *Tutti is improving itself*
+card; `POST /api/ai-assist` is an admin request). The other switches count only while it is on:
+
+```yaml
+ai_assist:
+  enabled: true        # the opt-in (default false)
+  local: true          # local models: the ollama workers (default true)
+  online: true         # the scout's research and design review, with spare quota only (default false)
+  online_code: false   # briefs, failure output and code may go online too (default false: they stay local)
+  auto_tune: true      # small parameter changes apply by themselves, undoable (default true)
+  every_hours: 6       # the self-analysis round
+  max_proposals: 5
+  local_worker: ''     # the ollama worker to ask first; empty: one that lists `analysis` under capabilities, then config order
+  scout: ''            # the research scout; empty: the one with the research skill
+  research_every: 7d
+```
+
+What it does (`tutti/aiassist.py`, tested in `tests/test_aiassist.py`):
+
+1. **Self-analysis** (local). Every `every_hours` a local model reads the Insights summary of the last 7 days (the
+   categories and numbers above, nothing else) and writes ranked `PROPOSAL:` lines. Each becomes a self-improvement task
+   in `self_improve.home` with its evidence and a regression-test-first note, inside the day's cap and the dedupe.
+2. **Smarter decisions** (local, each with a cheap fallback when AI is off or every model is down):
+   - a failed autopilot attempt is classified **flaky** (a dropped connection, a DNS failure), **environment** (a missing
+     tool, a full disk, out of memory) or **real** (regular expressions at once, a local model's `CLASS:` line later): a
+     flaky or environment failure retries once on the same ladder step, then escalates; a real one escalates at once. A
+     rate limit is never flaky: the ladder moves on. With AI assist off the ladder works as before;
+   - the model's one-line cause of the failure goes into the retry's brief;
+   - a queued task gets acceptance criteria (*Done when:* in its brief) and a size, S, M or L (the model tier that takes
+     it); the fallback sizes it from its scope and title, and the criteria are asked again once a model is back.
+   The model is asked outside the backlog's lock, at most 5 tasks a round; after a round where no model answered, the
+   next waits 30 minutes.
+3. **Auto-tuning.** Measured outcomes (and the model's `TUNE:` lines) propose new values for `autopilot.no_progress`,
+   `autopilot.max_attempts`, `dashboard.stall_minutes`, `dashboard.probe_seconds` and `self_improve.every_hours`. A change
+   inside the key's bounds and step is written to the config file by itself (with the usual backup), at most two a day and
+   one per key a day, and logged with its old value: **Undo** on the card, or `tutti ai-assist undo <id>`, puts it back.
+   A larger one waits on the card, where the admin applies it (logged and undoable the same way) or dismisses it; a
+   proposal older than 7 days goes. A small one past the day's room waits for the next round. The card shows the measured
+   gain since each change (wasted quota, stalls).
+4. **Research and design** (online). The scout gets two generated watches, `tutti-ai-release-notes` (the agent CLIs'
+   release notes, new models, prices, usage APIs) and `tutti-ai-design` (a design review of the scrubbed summary). Both
+   are `spare_only`: sent only while the scout's account is behind its pace, quota the planner says would be lost, never
+   the owner's reserve. Their `TUTTI-TASK:` lines become *candidates* in the home project (outside text: the admin accepts
+   them with `tutti backlog accept <id>`); an answer that arrives after online AI was turned off is dropped.
+5. **Privacy.** What goes online is scrubbed as above (`tutti/scrub.py`) and is the summary of categories and numbers, or
+   a research question naming the agent CLIs. With `online_code: true` the design review also gets the titles of the
+   failed and parked tasks (scrubbed); briefs, failure output and code always stay on local models. Local-only
+   (`online: false`) makes no online watch at all. `false` written in the config always wins over the dashboard's switch.
+
+`tutti ai-assist` shows the switches, the latest proposals, the tuned parameters and the gains; `tutti ai-assist tick`
+runs one round now. Telemetry records `aiassist.analyse` (counts), `aiassist.tune`, `aiassist.undo` (the key) and
+`aiassist.switch`.

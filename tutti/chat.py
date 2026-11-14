@@ -716,7 +716,7 @@ def idle_answer(name, snap):
 
 def suggestions(snap, user, known, cfg=None):
     """Up to four prompts for an empty chat, from the state now; a viewer gets only what it may do."""
-    out = []
+    out = ['What did I miss?']   # the welcome-back summary (tutti/welcome.py)
     for m in (snap.get('machines') or {}).get('items') or []:
         if m.get('status') in ('free', 'offline') or m.get('busy') == 0:
             out.append(f'Why is the {m["name"]} idle?')

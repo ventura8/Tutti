@@ -241,7 +241,10 @@ def _candidates(cfg, t, over='', machines=()):
     if is_local(cfg, last['step']) and not last['ok']:
         return [n for n in steps if not is_local(cfg, n)] + [n for n in locals_ if n != last['step']]
     at = steps.index(last['step']) if last['step'] in steps else -1
-    start = max(min(at + (0 if last['ok'] else 1), len(steps) - 1), 0)
+    # a stronger model does not fix a dropped connection or a full disk: the same step once more, then up the ladder
+    again = len(t['attempts']) > 1 and t['attempts'][-2].get('step') == last['step']
+    stay = last['ok'] or (last.get('class') in ('flaky', 'environment') and not again)
+    start = max(min(at + (0 if stay else 1), len(steps) - 1), 0)
     # the steps above first; then the ones below, strongest first, so a retry never waits while only a weaker step has room
     # (agy's accounts sat idle behind a paced cursor and a yielding PC, 2026-11-14)
     out = steps[start:] + steps[:start][::-1]
@@ -469,6 +472,26 @@ def first_line(why, chars):
     return (why or '').strip().split('\n', 1)[0][:chars]
 
 
+def retry_lines(tries):
+    """For a retry: what went wrong so far (the last attempt's cause, diff and output; the earlier ones in a line each)."""
+    if not tries:
+        return []
+    last = tries[-1]
+    lines = ['', f'This is attempt {len(tries) + 1}. The worktree already holds the earlier attempts\' changes: continue from '
+                 'them, do not start over.', f'The last attempt ({last["step"]}) failed: {first_line(last["why"], 400)}']
+    if last.get('summary'):
+        lines.append(f'The cause, as a local model read it ({last.get("class") or "real"}): {last["summary"]}')
+    if last.get('stat'):
+        lines += ['Its diff:', compact.compact(last['stat'], 1200)]
+    if last.get('tail'):
+        # compacted: colour codes, Tutti's echo and repeated lines out, error lines kept (tutti/compact.py)
+        lines += ['The end of the failing output:', compact.compact(last['tail'], TAIL_CHARS)]
+    if len(tries) > 1:
+        lines += ['Earlier failures:'] + [f'- attempt {i + 1} ({a["step"]}): {first_line(a["why"], 160)}'
+                                          for i, a in enumerate(tries[:-1])][-HISTORY_LINES:]
+    return lines
+
+
 def brief(task, repo):
     """The worker's task: what to change, where, the acceptance check, and for a retry what went wrong so far."""
     lines = [task['title'], '']
@@ -477,20 +500,10 @@ def brief(task, repo):
     check = acceptance(task, repo)
     if check:
         lines.append(f'Acceptance: this command must pass from the repository root: {check}')
+    if task.get('criteria'):
+        lines += ['Done when:'] + [f'- {c}' for c in task['criteria']]
     lines.append('Keep the change small and bounded; if the task is not safe to do as described, change nothing and say why.')
-    tries = task['attempts']
-    if tries:
-        last = tries[-1]
-        lines += ['', f'This is attempt {len(tries) + 1}. The worktree already holds the earlier attempts\' changes: continue from '
-                      'them, do not start over.', f'The last attempt ({last["step"]}) failed: {first_line(last["why"], 400)}']
-        if last.get('stat'):
-            lines += ['Its diff:', compact.compact(last['stat'], 1200)]
-        if last.get('tail'):
-            # compacted: colour codes, Tutti's echo and repeated lines out, error lines kept (tutti/compact.py)
-            lines += ['The end of the failing output:', compact.compact(last['tail'], TAIL_CHARS)]
-        if len(tries) > 1:
-            lines += ['Earlier failures:'] + [f'- attempt {i + 1} ({a["step"]}): {first_line(a["why"], 160)}'
-                                              for i, a in enumerate(tries[:-1])][-HISTORY_LINES:]
+    lines += retry_lines(task['attempts'])
     if task.get('resume_note'):
         lines += ['', f'Note: {task["resume_note"]}. The worktree holds that run\'s changes: continue from them.']
     if task.get('notes'):
@@ -594,7 +607,9 @@ def attempt_of(cfg, task, report, now):
     ok = bool(report) and report['rc'] == 0
     if ok:
         sig, why = '', 'passed'
-    return {'run': task['run'], 'step': task.get('step'), 'worker': task.get('worker'), 'at': now, 'ok': ok, 'started': task.get('started'),
+    from . import aiassist  # with AI assist on: flaky or environment retries on the same step once; real escalates
+    return {'class': aiassist.attempt_class(cfg, ok, failing[-1]),
+            'run': task['run'], 'step': task.get('step'), 'worker': task.get('worker'), 'at': now, 'ok': ok, 'started': task.get('started'),
             'signature': sig, 'why': why, 'stat': (report or {}).get('stat', ''), 'diff': (report or {}).get('diff'),
             'tail': '' if report and report['rc'] == 0 else failing[-1][-TAIL_CHARS:], 'gates': task.get('gates') if ok else None}
 

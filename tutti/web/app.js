@@ -645,7 +645,7 @@ function project(p) {
         ...repos.map((r) => el('p', { class: 'row__note', text: r })),
         ...p.machines.map((m) => el('p', { class: 'row__note', text: machineLine(m) })),
         el('div', { class: 'row__stats' }, el('button', {
-            class: 'btn btn--tonal', type: 'button', text: 'Show its jobs',
+            class: 'btn btn--tonal view-ok', type: 'button', text: 'Show its jobs',
             onclick: () => { ui.project = p.name; render(); $('running-h').scrollIntoView({ behavior: 'smooth' }); },
         })));
 }

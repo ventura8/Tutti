@@ -34,7 +34,10 @@ DEFAULTS = {
     # watch_scripts: script names whose running processes are jobs; watch_agents: agent CLIs shown by process; task_globs:
     # an agent session's background task outputs (shown by time only); shapes: a job kind's known phases or counted lines
     # (docs/DASHBOARD.md, *Progress*); typical_minutes: the rough estimate for an agent kind before any run of it finished
-    'dashboard': {'port': 4777, 'refresh_seconds': 10, 'probe_seconds': 30, 'stall_minutes': 10, 'watch_scripts': [],
+    # bind: the address the dashboard listens on (127.0.0.1; another needs sign-in); origins: https names it is reached at
+    # through a proxy (a LAN or household address; sign-in required)
+    'dashboard': {'port': 4777, 'bind': '127.0.0.1', 'origins': [], 'refresh_seconds': 10, 'probe_seconds': 30, 'stall_minutes': 10,
+                  'watch_scripts': [],
                   'watch_agents': [], 'task_globs': [], 'shapes': {}, 'typical_minutes': {'agent': 20, 'agent task': 15, 'conduct': 30}},
     # test.prepare: steps a command needs first ({when: regex, run: cmd}); test.no_coverage: how a run with coverage off looks
     'test': {'prepare': [], 'no_coverage': ''},
@@ -81,6 +84,9 @@ DEFAULTS = {
     # update: `tutti update` and the dashboard's daily round; auto: false turns the round off, packages: apt packages whose
     # upgrade needs the owner's sudo (named with one exact command), programs: CLIs to update besides the workers' own
     'update': {'auto': True, 'every_hours': 24, 'packages': [], 'programs': []},
+    # auth: sign-in with Google for the dashboard (docs/AUTH.md): the OAuth client ID (public; `tutti auth setup` saves it in
+    # the state folder instead) and how long a session lasts
+    'auth': {'client_id': '', 'session_hours': 72},
     'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
              'command_timeout': 3600},
 }
@@ -313,7 +319,8 @@ def validate(cfg):
              if n not in cfg['workers']]
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
-    errs += _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
+    errs += _dashboard_errors(cfg['dashboard']) + _auth_errors(cfg.get('auth'))
+    errs += files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
     from . import autocompact, owner, scouts, selfimprove, sentry, users  # they import modules that import this one
     errs += selfimprove.errors(cfg) + sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
@@ -554,7 +561,27 @@ def _dashboard_errors(d):
         v = d.get(key)
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0:
             errs.append(f'dashboard.{key} is {v!r}: use a number above 0')
+    bind = d.get('bind')
+    if not isinstance(bind, str) or not bind:
+        errs.append(f'dashboard.bind is {bind!r}: use an address such as 127.0.0.1 (another one needs `tutti auth setup`)')
+    origins = d.get('origins')
+    if not isinstance(origins, list) or not all(isinstance(o, str) and re.fullmatch(r'https?://[^/\s?#]+', o.rstrip('/'))
+                                                for o in origins):
+        errs.append(f'dashboard.origins is {origins!r}: list full origins such as https://tutti.example (no path)')
     return errs + _shape_errors(d.get('shapes')) + _typical_errors(d.get('typical_minutes'))
+
+
+def _auth_errors(a):
+    if not isinstance(a, dict):
+        return [f'auth is {a!r}: write it as a mapping, e.g. auth: {{session_hours: 72}}, or remove the key']
+    errs = []
+    cid = a.get('client_id') or ''
+    if cid and not re.fullmatch(r'[0-9]{4,}-[a-z0-9]{8,}\.apps\.googleusercontent\.com', str(cid)):
+        errs.append('auth.client_id is not a Google OAuth client ID (…apps.googleusercontent.com): copy it from the console, '
+                    'or run `tutti auth setup`')
+    if not _positive(a.get('session_hours')):
+        errs.append(f'auth.session_hours is {a.get("session_hours")!r}: use hours above 0, e.g. 72')
+    return errs
 
 
 def _positive(v):

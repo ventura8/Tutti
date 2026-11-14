@@ -107,6 +107,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | `tutti guard` | Pauses test containers when memory runs low; resumes them later. |
 | `tutti tunnel start\|stop\|status <worker>` | The self-healing ssh tunnel to a worker's model server. |
 | `tutti wait pid\|file\|grep\|run <target> [regex]` | Waits that end: always with `--timeout`, never by matching command lines; `--stall <s>` gives up (exit 125) when the watched log stops changing. Ends with one line: `done: ...`, or for `run <id>` the run's verdict and report. |
+| `tutti auth status\|setup [--client-id <id>]\|users\|promote <email>\|reset-admin --yes` | Sign-in with Google for the dashboard: `setup` prints the console page and the fields (Web application, the JavaScript origins), then saves the client ID (public; no secret). The first sign-in becomes admin; others wait for approval or come in through an invite link; viewers see the dashboard read-only. `users`, `promote` and `reset-admin` are the recovery from a shell on the host. See [docs/AUTH.md](docs/AUTH.md). |
 | `tutti dashboard [--port 4777]` | A local web dashboard on `127.0.0.1` (installable as an app): the projects Tutti sees on every machine (jobs, agents and runs per project, repositories and branches, a peer's processes, yield flags and GPU), the main agent with a switch, usage and pacing first (agy's 5 h and weekly windows side by side, the planner's decision), what needs you, machines and their slots, workers and the agents installed here, running, stalled and recent jobs with the end of their logs and their context use, and the autocompact threshold. `--once` prints the same state as JSON. See [docs/DASHBOARD.md](docs/DASHBOARD.md). |
 | `tutti translate <source.json> <locale>` | Translation with mandatory QA; `--check <out.json>` is the import gate. |
 
@@ -120,6 +121,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 - [docs/HOUSEHOLD.md](docs/HOUSEHOLD.md): several users in one household: users, the coordinator, leases, fair shares, the threat model and the migration.
 - [docs/USAGE-PACING.md](docs/USAGE-PACING.md): the pacing rule and its arithmetic.
 - [docs/MACHINES.md](docs/MACHINES.md): slots, routing, heat and memory guards, the yield flag, peers.
+- [docs/AUTH.md](docs/AUTH.md): sign-in with Google, roles, invites, sessions and CSRF, recovery, and the household's interface.
 - [docs/DASHBOARD.md](docs/DASHBOARD.md): the local dashboard, its data sources and `/api/state`.
 - [docs/LESSONS.md](docs/LESSONS.md): what went wrong, and the rule each failure left behind.
 - [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/FEEDBACK.md](docs/FEEDBACK.md): what is next; where first users log problems.

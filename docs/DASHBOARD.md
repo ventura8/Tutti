@@ -1,8 +1,15 @@
 # The dashboard
 
 `tutti dashboard` serves a local web dashboard at `http://127.0.0.1:4777/` (`--port` or `dashboard.port` to change
-it). It binds to 127.0.0.1 only and refuses requests whose `Host` is not a loopback name with that port, so another
-site cannot read it through DNS rebinding. Python standard library only: no build step, no CDN, no data leaves the
+it). It binds to 127.0.0.1 and refuses requests whose `Host` is not a loopback name with that port, so another
+site cannot read it through DNS rebinding.
+
+**Sign-in with Google** (`tutti auth setup`, [AUTH.md](AUTH.md)): with an OAuth client ID set, every page and `/api/*`
+route needs a signed-in user. The first one to sign in is the admin; later ones wait for approval, or come in at once
+through an invite link. Viewers see the dashboard read-only (no controls, no Settings); admins also get the **Users**
+card (approve, Make admin, Make viewer, Remove, Invite someone with a link and a QR code). Without a client ID the
+dashboard stays as it was, on this computer only, with a banner that offers the setup. `dashboard.bind` and
+`dashboard.origins` (an `https://` proxy name) let others reach it, and then sign-in is required. Python standard library only: no build step, no CDN, no data leaves the
 computer.
 
 ```bash

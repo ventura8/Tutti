@@ -563,3 +563,21 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
 .heat__cell[data-reserve='true'] { outline: 1px solid var(--on-surface); }
 .heat__label { height: auto; background: none; font-size: 0.625rem; color: var(--on-surface-2); }
 .owner .btn[aria-pressed='true'] { background: var(--accent-c); outline: 1px solid var(--accent); }
+
+/* Sign-in, invite and waiting pages (login.html), and the Users card (users.js) */
+body.login { min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--surface); }
+.login__card { max-width: 32rem; width: 100%; display: grid; gap: 12px; justify-items: start; }
+.login__error { color: var(--bad); margin: 0; }
+.login__join { display: grid; gap: 8px; border-top: 1px solid var(--outline-2); padding-top: 12px; width: 100%; }
+.login__join h2 { font-size: 1rem; margin: 0; }
+.login__cmd, .invite__link { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.login__cmd code, .invite__link code { font-family: var(--mono); font-size: 0.85em; overflow-wrap: anywhere; background: var(--surface-2);
+    padding: 6px 8px; border-radius: var(--r-s); flex: 1 1 16rem; }
+.qr { width: 192px; height: 192px; border-radius: var(--r-s); }
+.invite { display: grid; gap: 8px; margin-top: 8px; }
+.me { font-size: 0.85rem; color: var(--on-surface-2); }
+/* A viewer sees the dashboard, never a control that changes something (the server refuses those anyway). */
+body[data-role='viewer'] [data-admin],
+body[data-role='viewer'] .btn:not(.more):not(.btn--text):not(#refresh):not(#install):not(#signout):not(.view-ok),
+body[data-role='viewer'] form.reading, body[data-role='viewer'] #main-form, body[data-role='viewer'] #autocompact-form { display: none !important; }
+[hidden] { display: none !important; }

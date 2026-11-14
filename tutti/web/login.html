@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <meta name="tutti-client" content="__TUTTI_CLIENT__">
+    <meta name="tutti-nonce" content="__TUTTI_NONCE__">
+    <meta name="tutti-token" content="__TUTTI_TOKEN__">
+    <meta name="tutti-install" content="__TUTTI_INSTALL__">
+    <title>Sign in · Tutti</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="app.css?v=__TUTTI_VERSION__">
+    <script src="login.js?v=__TUTTI_VERSION__" defer></script>
+</head>
+<body class="login">
+    <main id="main" class="login__card card">
+        <img class="appbar__logo" src="icons/icon.svg" alt="" width="56" height="56">
+        <h1 id="login-title">Tutti</h1>
+        <p id="login-text" class="row__note">Checking whether you are signed in…</p>
+        <div id="login-button"></div>
+        <p id="login-error" class="login__error" role="alert" hidden></p>
+        <button class="btn btn--tonal" id="login-out" type="button" hidden>Sign out</button>
+        <a class="btn btn--filled" id="login-open" href="/" hidden>Open the dashboard</a>
+        <section id="login-join" class="login__join" hidden aria-labelledby="join-h">
+            <h2 id="join-h">Join the household from your own computer</h2>
+            <p class="row__note">Run this once in a terminal on your computer, after signing in here:</p>
+            <div class="login__cmd"><code id="join-cmd"></code>
+                <button class="btn btn--tonal" id="join-copy" type="button">Copy</button></div>
+            <p class="row__note">No Tutti yet? <a id="join-install" href="#" rel="noopener noreferrer" target="_blank">Install Tutti</a> first.</p>
+        </section>
+    </main>
+</body>
+</html>

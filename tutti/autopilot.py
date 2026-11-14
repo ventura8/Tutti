@@ -557,7 +557,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     now = now or time.time()
     is_alive = is_alive or state_mod.alive
     on = enabled(cfg)
-    from . import fill   # fill imports this module
+    from . import fill  # fill imports this module
     filled = None
     with backlog.locked(cfg) as data:
         events = collect(cfg, data, now, is_alive, publish_fn)

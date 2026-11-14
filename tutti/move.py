@@ -252,7 +252,9 @@ def machine_edits(cfg, target, facts, src):
         edits += [(['machines', src['name'], k], v) for k, v in me.items()]
     else:
         edits.append((['machines', src['name']], me))
-    return edits + [(['machines', n, 'via'], src['name']) for n, _h in ssh_machines(cfg, target) if facts.get(f'reach_{n}') != 'yes']
+    carried = set(facts.get('_ssh_carried') or ())   # given the same ssh access by the move (movetools.ssh_carry)
+    return edits + [(['machines', n, 'via'], src['name']) for n, _h in ssh_machines(cfg, target)
+                    if facts.get(f'reach_{n}') != 'yes' and n not in carried]
 
 
 def host_edits(raw, cfg, target, facts, src):
@@ -260,7 +262,8 @@ def host_edits(raw, cfg, target, facts, src):
     and the repositories are on the target after the move, so nothing points back here but the machines it cannot reach."""
     host = {'machine': target, 'me': target, 'address': src['address_name'], 'port': src['port']}
     binds = (['household', 'bind'], ['dashboard', 'bind'])
-    return machine_edits(cfg, target, facts, src) + [(['host'], host)] + \
+    models = [(['workers', n, 'host'], f'127.0.0.1:{port}') for n, port, _here in movetools.reverse_ports(cfg)]
+    return machine_edits(cfg, target, facts, src) + models + [(['host'], host)] + \
         [(key, 'auto') for key in binds if _get(raw, key) not in (None, 'auto')]   # the target's own LAN and VPN addresses
 
 
@@ -274,7 +277,9 @@ def client_block(cfg, target, facts, host_cfg_path, src):
     state = home_map(config.expand(cfg['project']['state']), os.path.expanduser('~'), facts['home'])
     usage = home_map(config.expand((cfg.get('usage') or {}).get('log') or os.path.join(cfg['project']['state'], 'usage.jsonl')),
                      os.path.expanduser('~'), facts['home'])
-    return {'machine': target, 'me': src['name'], 'ssh': remote.dest(m), 'config': host_cfg_path,
+    reverse = [[port, here] for _n, port, here in movetools.reverse_ports(cfg)]
+    extra = {'reverse': reverse} if reverse else {}
+    return {'machine': target, 'me': src['name'], 'ssh': remote.dest(m), **extra, 'config': host_cfg_path,
             'tutti': facts.get('tutti') or f'{facts["home"]}/.local/bin/tutti', 'state': state, 'usage_log': usage,
             'address': src['address_name'], 'port': src['port'], 'home': facts['home'],
             'moved': time.strftime('%Y-%m-%dT%H:%MZ', time.gmtime())}
@@ -365,7 +370,11 @@ def carried(cfg, facts):
     if any(t['node'] for t in tools) and not facts.get('ver_node'):
         node = movetools.version_of('node')
     repos = movetools.repo_set(cfg, home, config.expand)
-    return {'tools': tools, 'node': node, 'logins': movetools.login_tools(), 'repos': repos,
+    hosts = {n: m['host'] for n, m in cfg['machines'].items() if m['transport'] in ('ssh', 'wsl') and not m.get('via')}
+    unreachable = [n for n in hosts if facts.get(f'reach_{n}') != 'yes']
+    ssh = movetools.ssh_carry([hosts[n] for n in unreachable], home)
+    facts['_ssh_carried'] = [n for n in unreachable if hosts[n] in ssh]
+    return {'ssh': ssh,'tools': tools, 'node': node, 'logins': movetools.login_tools(), 'repos': repos,
             'uncarried': movetools.uncarried(home),
             'repos_gb': round(movetools.size_kb(repos['paths'], home) / 1048576, 1)}
 
@@ -411,6 +420,12 @@ def describe_carry(plan):
     if c.get('uncarried'):
         out.append(f'  not carried (installed by a package manager here): {", ".join(c["uncarried"])}: install them on {to} the same '
                    'way, or their jobs fail there')
+    for alias, e in (c.get('ssh') or {}).items():
+        out.append(f'  ssh access to {alias} ({e["hostname"]}): its config entry, its key ({", ".join(e["keys"]) or "none"}, mode 600) and '
+                   'its host key; then `ssh` there is tried from the target')
+    if plan['client'].get('reverse'):
+        out += [f'  local model {here} here: reached by the host at 127.0.0.1:{p} through the client\'s ssh'
+                for p, here in plan['client']['reverse']]
     if c['node']:
         out.append(f'  node {c["node"]} for the npm CLIs: from nodejs.org, checked against its SHA256SUMS')
     if c['logins']:
@@ -591,6 +606,21 @@ def start_local(cfg, j, run=subprocess.run, popen=subprocess.Popen):
 # ---- running jobs
 
 
+def final_paths(cfg, repos, home):
+    """What the final sync copies again: each repository's git folder (refs, branches, the worktrees' records) and the
+    autopilot's own worktrees, the only ones Tutti changed during the bulk copy. Everything else was copied while Tutti ran."""
+    home = home.rstrip('/') + '/'
+    root = config.expand(cfg['project']['worktrees']).rstrip('/')
+    prefix = cfg['delegate']['prefix']
+    out = [os.path.join(r, '.git')[len(home):] for r in repos['repos'] if r.startswith(home) and os.path.isdir(os.path.join(r, '.git'))]
+    try:
+        names = os.listdir(root)
+    except OSError:
+        names = []
+    out += [os.path.join(root, n)[len(home):] for n in sorted(names) if n.startswith(prefix) and root.startswith(home.rstrip('/'))]
+    return out
+
+
 def running_runs(cfg):
     """[(task id, pid)] of the autopilot's runs that are running on this computer."""
     from . import backlog
@@ -600,7 +630,15 @@ def running_runs(cfg):
             pid = autopilot_pid(cfg, t['run'])
             if pid:
                 out.append((t['id'], pid))
+        lnd = t.get('landing') or {}
+        if lnd.get('pid') and _alive(lnd['pid']):   # a review or a merge in flight: never cut over in its middle
+            out.append((t['id'], lnd['pid']))
     return out
+
+
+def _alive(pid):
+    from . import state
+    return state.alive(pid)
 
 
 def autopilot_pid(cfg, run_id):
@@ -624,6 +662,10 @@ def hand_over(cfg, ids, end=None):
     jobs = bridge.jobs_machine(cfg)
     with backlog.locked(cfg) as data:
         for t in data.get('tasks', []):
+            lnd = t.get('landing') or {}
+            if t['id'] in ids and lnd.get('pid') and _alive(lnd['pid']):   # a review or merge in flight: stopped, landed again later
+                end(lnd['pid'])
+                t.pop('landing', None)
             if t['id'] in ids and t.get('status') == 'running':
                 if jobs:   # the run itself is on the jobs machine: stop it there, not only its wrapper here
                     try:
@@ -703,6 +745,17 @@ class Move:
             r = self.ops.pipe(['gh', 'auth', 'token'], f'{gh} auth login --with-token && {gh} auth setup-git')   # gh's documented way
             if r.returncode != 0:
                 self.note('gh\'s token did not go across (gh here has none, or gh there refused it): gh gets its own sign-in')
+        if c.get('ssh'):
+            keys = [k for e in c['ssh'].values() for k in e['keys']]
+            if keys:
+                must(self.ops.rsync_home(keys, chmod='D700,F600'), 'copying the ssh keys')
+            must(self.ops.target(movetools.ssh_script(c['ssh'], movetools.known_hosts)), 'adding the ssh entries')
+            for alias in c['ssh']:
+                t = self.ops.target(f'ssh -o BatchMode=yes -o ConnectTimeout=5 {shlex.quote(alias)} true', timeout=30)
+                how = 'works' if t.returncode == 0 else 'does not work: probed through this computer'
+                self.note(f'ssh from {self.target} to {alias}: {how}')
+                if t.returncode != 0:   # no access after all: that machine keeps the client as its way in
+                    self.via_again(alias)
         r = self.ops.target(movetools.verify_script(c['logins']), timeout=900)
         ok = movetools.parse_verify(r.stdout)
         dest = remote.dest(self.cfg['machines'][self.target])
@@ -711,6 +764,12 @@ class Move:
                                                 'your browser') for n in c['logins'] if not ok.get(n)]
         state = ', '.join(f'{n} {"signed in" if ok.get(n) else "needs its own sign-in"}' for n in c['logins'])
         self.note(f'logins copied (mode 600): {state}')
+
+    def via_again(self, alias):
+        p = self.j['plan']
+        names = [n for n, m in self.cfg['machines'].items() if m.get('host') == alias]
+        p['host_text'] = apply_edits(p['host_text'], [(['machines', n, 'via'], p['src']['name']) for n in names])
+        write_journal(self.cfg, self.j)
 
     def paths(self):
         p = self.j['plan']
@@ -732,7 +791,8 @@ class Move:
         if repos['paths']:
             home = os.path.expanduser('~').rstrip('/')
             skip = [f'/{os.path.relpath(here, home)}/'] if here.startswith(home + '/') else []
-            must(self.ops.rsync_home(repos['paths'], skip, delete=delete), 'copying the repositories')
+            paths = final_paths(self.cfg, repos, home) if delete else repos['paths']   # the cut-over stays short
+            must(self.ops.rsync_home(paths, skip), 'copying the repositories')
             must(self.ops.target(movetools.repair_script(repos['repos'], home, self.j['plan']['facts']['home'])),
                  'repairing the worktrees\' links (git worktree repair)')
         self.note(f'state and {len(repos["paths"])} repository folder(s) copied to {self.target}' + (' (final sync)' if delete else ''))

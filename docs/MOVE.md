@@ -32,8 +32,8 @@ stops it (a dropped connection, a closed laptop lid), `tutti move --to <machine>
 | logins | Their logins copied and checked, below. |
 | copy | The state folder, the usage log, `~/.local/state/tutti` and the repositories with their worktrees copied with rsync while Tutti still runs here (usage logs, the backlog, the telemetry queue, users and roles, sessions, controls, the learned pacing profile, the household coordinator's state, the scouts' state). |
 | freeze | The dashboard here is stopped (its user service, or the process by its pid) and `<state>/move/frozen` refuses every command that would change the state (reads still run). |
-| jobs | Running autopilot runs: `--jobs wait` (the default) waits up to `--wait-minutes` (60) for them, then hands over what is left; `--jobs handover` stops each one at once (its process tree) and queues its task again, so it continues from its worktree. |
-| sync | The final copy, with deletions. |
+| jobs | Running autopilot runs and reviews or merges in flight: `--jobs wait` (the default) waits up to `--wait-minutes` (60) for them, then hands over what is left; `--jobs handover` stops each one at once (its process tree) and queues its task again, so it continues from its worktree. |
+| sync | The final copy: the state (with deletions), each repository's git folder and the autopilot's own worktrees; everything else was copied while Tutti still ran, so the cut-over stays short. |
 | configure | The target's config written to `~/.config/tutti/config.yaml` there (below), and the secrets in `~/.config/tutti/*.env` and `household.json` copied over ssh's standard input with mode 600. Their content never appears in argv, the journal or a log. |
 | start | Tutti started there as the login service `tutti setup` installs (`install.service_plan`: `tutti-dashboard.service`, systemd --user), and `tutti-name.service` publishing `tutti.local` on the LAN (mDNS, when `avahi-publish` is there). |
 | health | The dashboard must answer on the target's `127.0.0.1` within 30 s. If it does not, the move rolls back by itself. |
@@ -44,7 +44,8 @@ stops it (a dropped connection, a closed laptop lid), `tutti move --to <machine>
 ### The config from the target's point of view
 
 - the target becomes `host: local`; this computer becomes an ssh machine (`host:` its LAN address, `user:`, `via:` itself);
-- a machine the target cannot reach by ssh gets `via: <this computer>`: the host probes it through this computer;
+- a machine the target cannot reach by ssh gets the same ssh access as here (below); only when that is not possible (no
+  entry here, or ssh still fails from the target) it gets `via: <this computer>` and is probed through this computer;
 - every path under this computer's home (the state, the worktrees, the usage log, the autopilot repos, scripts, reading
   files) becomes the same path under the target's home: the jobs, the readers, the reviews, git and gh run on the target,
   which has the CLIs, the logins and the repositories after the move, so it keeps working while this computer is away;
@@ -92,6 +93,20 @@ The autopilot repos, every git worktree of them under the home and the worktrees
 kept (the worktrees share node_modules with the main checkout), the state folder excluded. Then `git worktree repair`
 runs there with the new paths, so each worktree and its repository find each other and WIP, branches and refs come along.
 The final sync copies what changed during the move. Projects on other machines stay where they are.
+
+### Machines the target cannot reach yet
+
+For a machine this computer reaches by ssh and the target does not (a desktop only this computer has a key for), the move
+gives the target the same access (the owner's decision, 2026-11-14): its `Host` entry from `~/.ssh/config` (added there only
+when that alias has none), the key file it names (mode 600, never read or shown) and its host key from `known_hosts`
+(`ssh-keygen -F`). Then `ssh <alias> true` is tried from the target, and the machine is used directly from there (tests
+routed to it, a model's tunnel). Only a machine whose entry cannot be found here is probed through the client.
+
+### Local models on the old computer
+
+A local model this computer serves on its own loopback (an ollama worker at `127.0.0.1:<port>`, no `machine`) is reached by
+the host at its own `127.0.0.1:11435` (then 11436, ...) through the client's ssh (`-R`, `host.reverse`): never a LAN
+bind. While the old computer is away, that worker does not answer and routing skips it.
 
 ### Readings from the old computer's session
 

@@ -531,3 +531,54 @@ class ReadingsTest(Base):
         self.assertEqual(clientmode.push_readings(cfg, run=run), ['/home/target/claude-usage.json'])
         self.assertFalse(clientmode.push_readings(cfg, run=run))
         self.assertIn('/home/target/claude-usage.json', calls[0][0])
+
+
+class SshAccessTest(unittest.TestCase):
+    CONFIG = "Host *\n  ServerAliveInterval 15\nHost w5090\n  HostName 192.168.1.154\n  User ventu\n  IdentityFile ~/.ssh/id_pc\n" \
+             "Host nuc other\n  HostName 192.168.1.53\n"
+
+    def test_the_machine_entry_and_its_key_are_found_by_alias(self):
+        b = movetools.ssh_blocks({'w5090', 'nuc'}, self.CONFIG)
+        self.assertEqual(list(b), ['w5090'])   # a multi-alias block is never rewritten for another machine
+        self.assertEqual((b['w5090']['hostname'], b['w5090']['identities']), ('192.168.1.154', ['~/.ssh/id_pc']))
+        self.assertIn('User ventu', b['w5090']['block'])
+        with tempfile.TemporaryDirectory() as home:
+            os.makedirs(os.path.join(home, '.ssh'))
+            with open(os.path.join(home, '.ssh', 'id_pc'), 'w') as f:
+                f.write('k')
+            text = self.CONFIG.replace('~/.ssh/id_pc', f'{home}/.ssh/id_pc')
+            got = movetools.ssh_carry(['w5090'], home, read=lambda _p: text)
+            self.assertIn('IdentityFile ~/.ssh/id_pc', got['w5090']['block'])   # the target's own home, not this one
+
+    def test_the_target_gets_the_entry_once_and_the_host_key(self):
+        e = {'alias': 'w5090', 'block': 'Host w5090\n  HostName 192.168.1.154\n', 'hostname': '192.168.1.154', 'port': '22'}
+        script = movetools.ssh_script({'w5090': e}, lambda _e: ['192.168.1.154 ssh-ed25519 AAAA'])
+        self.assertIn('grep -qiE "^Host[[:space:]]+w5090', script)
+        self.assertIn('known_hosts', script)
+        self.assertIn('chmod 600', script)
+        found = '# Host 192.168.1.154 found: line 3\n192.168.1.154 ssh-ed25519 AAAA\n'
+        fake = mock.Mock(return_value=subprocess.CompletedProcess([], 0, found, ''))
+        self.assertEqual(movetools.known_hosts(e, runner=fake), ['192.168.1.154 ssh-ed25519 AAAA'])
+
+
+class ModelsTest(Base):
+    def test_a_model_on_this_loopback_reaches_the_host_through_the_client_ssh(self):
+        cfg = dict(self.cfg)
+        cfg['workers'] = {**cfg['workers'], 'laptop': {'kind': 'ollama', 'host': '127.0.0.1:11434'},
+                          'pc': {'kind': 'ollama', 'host': '127.0.0.1:11436', 'machine': 'pc', 'tunnel': {'ssh': 'pc'}}}
+        self.assertEqual(movetools.reverse_ports(cfg), [('laptop', 11435, '127.0.0.1:11434')])
+        cfg['host'] = {'machine': 'nuc', 'me': 'laptop', 'ssh': 'nuc', 'config': '/c', 'reverse': [[11435, '127.0.0.1:11434']]}
+        argv = bridge.ssh_argv(cfg)
+        self.assertIn('127.0.0.1:11435:127.0.0.1:11434', argv)   # the host's own loopback: never a LAN bind
+
+
+class FinalSyncTest(Base):
+    def test_the_cut_over_copies_only_git_folders_and_autopilot_worktrees(self):
+        repo = os.path.join(self.home, 'repo')
+        os.makedirs(os.path.join(repo, '.git'))
+        cfg = dict(self.cfg)
+        cfg['project'] = {**cfg['project'], 'worktrees': os.path.join(self.home, 'wt')}
+        for n in ('tutti-run-ap-t1', 'feature'):
+            os.makedirs(os.path.join(self.home, 'wt', n))
+        got = move.final_paths(cfg, {'repos': {repo: []}}, self.home)
+        self.assertEqual(got, ['repo/.git', 'wt/tutti-run-ap-t1'])   # a feature worktree was copied while Tutti ran

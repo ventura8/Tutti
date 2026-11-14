@@ -2,6 +2,17 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.58 (2026-11-14)
+
+### Changed
+
+- `tutti move` gives the new host the same ssh access as the old computer to the machines it cannot reach yet (their
+  `~/.ssh/config` entry, key file with mode 600 and host key; the owner's decision), then tries ssh from there, so tests
+  and model tunnels to them run from the host directly (docs/MOVE.md, *Machines the target cannot reach yet*).
+- A local model on the old computer's loopback is reached by the host through the client's ssh (`host.reverse`).
+- The cut-over is short: the final sync copies only the state, the git folders and the autopilot's own worktrees, and the
+  move waits for (or hands over) a review or merge the autopilot has in flight.
+
 ## 0.1.57 (2026-11-14)
 
 ### Added

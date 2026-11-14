@@ -1234,7 +1234,8 @@ SUBCOMMANDS = []
 def parser():
     p = argparse.ArgumentParser(prog='tutti', description='One orchestrator, many workers, shared machines.')
     p.add_argument('--version', action='version', version=f'tutti {__version__}')
-    p.add_argument('--config', help='path of tutti.config.yaml (default: $TUTTI_CONFIG, then ~/.config/tutti/config.yaml, then the nearest one upwards)')
+    p.add_argument('--config', help='path of tutti.config.yaml (default: $TUTTI_CONFIG, then ~/.config/tutti/config.yaml, '
+                                    'then the nearest one upwards)')
     sub = p.add_subparsers(dest='cmd', required=True)
 
     def add(name, fn, text):

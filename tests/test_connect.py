@@ -317,7 +317,8 @@ class ClaudeStatusTest(unittest.TestCase):
 
     def test_parse_mcp_list(self):
         self.assertEqual(connect.parse_mcp_list(self.LISTED), ('connected', ''))
-        self.assertEqual(connect.parse_mcp_list('tutti: /bin/tutti mcp - \u2717 Failed to connect\n'), ('failed', '\u2717 Failed to connect'))
+        failed = 'tutti: /bin/tutti mcp - \u2717 Failed to connect\n'
+        self.assertEqual(connect.parse_mcp_list(failed), ('failed', '\u2717 Failed to connect'))
         self.assertEqual(connect.parse_mcp_list('other: x - \u2713 Connected\n'), ('absent', ''))
         self.assertEqual(connect.parse_mcp_list('tutti: /bin/tutti mcp - Disconnected\n')[0], 'failed')
         self.assertEqual(connect.parse_mcp_list('tutti: /bin/tutti mcp - \u26a0 Needs authentication\n')[0], 'failed')

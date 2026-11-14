@@ -653,7 +653,7 @@ function scoutBlock(sc) {
     return el('div', {},
         el('h3', { class: 'card__sub', text: `${sc.name} · ${sc.kind}` }), state,
         el('p', { class: 'row__note', text: `${scoutMeter(sc.meter)} · ${sc.waiting} waiting, ${sc.queued} queued · plan: ${sc.plan}` }),
-        sc.meter && sc.meter.usage_url && (sc.meter.stale || sc.meter.used === null || sc.meter.used === undefined)
+        sc.meter?.usage_url && (sc.meter.stale || sc.meter.used === null || sc.meter.used === undefined)
             ? el('a', { class: 'btn btn--tonal', href: sc.meter.usage_url, target: '_blank', rel: 'noopener noreferrer', text: 'Add a reading',
                 title: `Opens ${sc.meter.usage_url}: click the reading helper there (it reads Grok Bot with Cursor)` }) : null,
         el('p', { class: 'row__note', text: `Skills: ${sc.skills.join(', ')} · answers in ${sc.repo}` }),
@@ -1111,7 +1111,7 @@ async function fromHelper() {
 
 // An account on the same usage page that the click did not carry: the button was dragged before that account was configured.
 async function notRead(valid, page) {
-    const where = page || String(valid[0].note || '').replace(/^read from (\S+).*$/, '$1');
+    const where = page || (String(valid[0].note || '').split(' ')[2] || '');
     const res = await fetch('/api/state', { cache: 'no-store' }).catch(() => null);
     const snap = res?.ok ? await res.json().catch(() => null) : null;
     const got = new Set(valid.map((x) => x.account));

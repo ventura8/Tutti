@@ -77,9 +77,11 @@ function optIn(o) {
 
 // A scout (Grok Bot) is listed with the online agents; it pauses through its config's auto: and its account, so no button.
 function scoutRow(sc) {
+    let state = 'not set up: tutti scout setup grok';
+    if (sc.ready) state = sc.auto ? 'ready · rounds on' : 'ready';
     return el('li', { class: 'row' },
         el('div', { class: 'row__name' }, sc.name, el('span', { class: 'row__kind', text: `scout · ${sc.kind}` })),
-        chip(sc.ready ? (sc.auto ? 'ready · rounds on' : 'ready') : 'not set up: tutti scout setup grok', sc.ready ? 'ok' : 'bad'));
+        chip(state, sc.ready ? 'ok' : 'bad'));
 }
 
 function renderControls(s) {

@@ -20,6 +20,7 @@ from .review import gh
 FILE = 'grok.env'
 URL_ENV, KEY_ENV = 'TUTTI_GROK_URL', 'TUTTI_GROK_KEY'
 HOST_SUFFIX = 'cursor.sh'          # the routine's "POST to" address is https://api2.cursor.sh/automations/webhook/...
+PROC = '/proc'
 TEST_QUESTION = "Say hello and name today's date"
 EXPORT_RX = re.compile(r'\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)')
 
@@ -149,7 +150,7 @@ def add_scout(cfg, name, repo):
     return True
 
 
-def dashboard_pids(proc='/proc'):
+def dashboard_pids(proc=PROC):
     """The pids of running `tutti dashboard` servers (not `--once`), read from /proc."""
     pids = []
     for d in os.listdir(proc) if os.path.isdir(proc) else []:
@@ -165,7 +166,7 @@ def dashboard_pids(proc='/proc'):
     return pids
 
 
-def restart_dashboard(pid, proc='/proc', kill=os.kill, spawn=subprocess.Popen, sleep=time.sleep, log=None):
+def restart_dashboard(pid, proc=PROC, kill=os.kill, spawn=subprocess.Popen, sleep=time.sleep, log=None):
     """Stops the dashboard `pid` and starts the same command in the same folder, with this process's (loaded) environment."""
     with open(os.path.join(proc, str(pid), 'cmdline'), 'rb') as f:
         argv = [a.decode() for a in f.read().split(b'\0') if a]
@@ -205,7 +206,7 @@ def no_tty(name, out):
     return 2
 
 
-def run(cfg, name='grok', io=None, gh_fn=gh, post_fn=scouts.post, profile=None, proc='/proc', restart=restart_dashboard):
+def run(cfg, name='grok', io=None, gh_fn=gh, post_fn=scouts.post, profile=None, proc=PROC, restart=restart_dashboard):
     """The interactive setup. `io` holds the terminal hooks (isatty, input, getpass, out) so tests drive it."""
     io = io or {}
     out = io.get('out', sys.stdout)

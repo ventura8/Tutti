@@ -2,6 +2,14 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.9.1 (2026-11-15)
+
+### Fixed
+
+- Tasks parked before the needs-input queue existed get their one question (options and a default) at the dashboard's
+  start or with `tutti needs backfill`, worded by a local model from the last failure (its output marked as data, only a
+  listed option as the default), the template when no model answers, so they take the same answer flow (docs/NEEDS.md).
+
 ## 0.9.0 (2026-11-15)
 
 ### Added

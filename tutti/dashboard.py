@@ -236,6 +236,7 @@ class Collector:
         recovery.on_start(self.cfg)   # a power-off's torn writes repaired, orphaned runs marked interrupted (docs/PRESENCE.md)
         threading.Thread(target=self.loop, name='tutti-probes', daemon=True).start()
         sleepwatch.start_in_background(self.cfg)
+        needs.backfill_in_background(self.cfg)   # tasks parked before the queue existed get their question (docs/NEEDS.md)
 
     def snapshot(self):
         with self.lock:

@@ -9,6 +9,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import tempfile
 import threading
 import time
@@ -109,9 +110,9 @@ class Store:
                         'preview': (hit or last)[:120], 'count': len(c['messages'])})
         return sorted(out, key=lambda c: c['updated'] or '', reverse=True)
 
-    def create(self, sub, title='', model='auto'):
+    def create(self, sub, title='', model='auto', messages=None):
         conv = {'id': new_id('c'), 'title': clean_title(title), 'created': now_iso(self.clock), 'updated': now_iso(self.clock),
-                'model': model, 'messages': []}
+                'model': model, 'messages': list(messages or [])}
         self.change(sub, lambda d: d['conversations'].insert(0, conv))
         return conv
 
@@ -131,12 +132,37 @@ class Store:
         self.change(sub, go)
 
     def clear(self, sub):
-        """Every conversation of this user, gone: the file itself is removed."""
+        """Every conversation of this user, gone: the file itself is removed, and the images beside it."""
         with self.lock:
             try:
                 os.remove(self.path(sub))
             except FileNotFoundError:
                 pass
+            shutil.rmtree(self.blobs(sub), ignore_errors=True)
+
+    def blobs(self, sub):
+        return os.path.join(self.folder, user_key(sub) + '.files')
+
+    def put_blob(self, sub, data):
+        """Keeps an image (base64) in its own file beside the user's chats, so the conversations stay small; its ref."""
+        ref = hashlib.sha256(data.encode()).hexdigest()[:24]
+        folder = self.blobs(sub)
+        os.makedirs(folder, mode=DIR_MODE, exist_ok=True)
+        path = os.path.join(folder, ref)
+        if not os.path.exists(path):
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, FILE_MODE)
+            with os.fdopen(fd, 'w', encoding='ascii') as f:
+                f.write(data)
+        return ref
+
+    def blob(self, sub, ref):
+        if not re.fullmatch(r'[0-9a-f]{24}', str(ref or '')):
+            return None
+        try:
+            with open(os.path.join(self.blobs(sub), ref), encoding='ascii') as f:
+                return f.read()
+        except OSError:
+            return None
 
     def get(self, sub, cid):
         return self.conversation(self.load(sub), cid)
@@ -155,6 +181,29 @@ class Store:
             if not c.get('title') and msg['role'] == 'user':
                 c['title'] = clean_title(msg['text']) or 'New chat'
             c['updated'] = now_iso(self.clock)
+        self.change(sub, go)
+
+    def branch(self, sub, cid, mid):
+        """A new conversation with the messages up to `mid` (its model, effort and mode too): another way from there."""
+        conv = self.get(sub, cid)
+        ids = [m['id'] for m in conv['messages']]
+        if mid not in ids:
+            raise ChatError('That message is gone: reload the chat.')
+        kept = [{**m, 'id': new_id('m'), 'cards': []} if m['role'] == 'assistant' else {**m, 'id': new_id('m')}
+                for m in conv['messages'][:ids.index(mid) + 1]]
+        new = self.create(sub, f'Branch of {conv.get("title") or "a chat"}', conv.get('model') or 'auto', kept)
+
+        def go(d):
+            c = self.conversation(d, new['id'])
+            c.update({k: conv[k] for k in ('effort', 'mode') if conv.get(k)})
+            return c
+        return self.change(sub, go)
+
+    def empty(self, sub, cid):
+        """/clear: the conversation's messages, its summary and totals, gone; the conversation and its settings stay."""
+        def go(d):
+            c = self.conversation(d, cid)
+            c.update(messages=[], summary=None, usage=None)
         self.change(sub, go)
 
     def update_message(self, sub, cid, msg):
@@ -217,6 +266,13 @@ def check_message(text, attachments):
         raise ChatError(f'Attach at most {MAX_ATTACHMENTS} files to one message.')
     out = []
     for a in attachments:
+        if a.get('type') or a.get('data'):   # a pasted screenshot or an image file
+            from . import chatctl
+            try:
+                out.append(chatctl.check_image(a))
+            except chatctl.ControlError as e:
+                raise ChatError(str(e)) from e
+            continue
         name, body = str(a.get('name') or 'snippet.txt')[:80], a.get('text')
         if not isinstance(body, str) or '\x00' in body:
             raise ChatError(f'"{name}" is not a text file. Attach text or log snippets only (.txt, .log, .json, .md, code).')
@@ -450,10 +506,17 @@ def validate(call, known):
         return f'there is no {args["kind"]} "{args["name"]}" here'
     if args.get('device') and args['device'] != 'any' and not find_name(args['device'], known.get('device', [])):
         return f'there is no device "{args["device"]}" here'
+    return {'tool': call['tool'], 'args': cleaned(call['tool'], args, known)}
+
+
+def cleaned(tool, args, known):
+    """The arguments with names as the config spells them, and sizes the backlog takes."""
     fixed = {k: (find_name(v, known.get(NAMED[k], [])) if k in NAMED and isinstance(v, str) else v) for k, v in args.items()}
-    if call['tool'] == 'control':
+    if tool == 'control':
         fixed['name'] = find_name(args['name'], known.get(args['kind'], []))
-    return {'tool': call['tool'], 'args': fixed}
+    if tool == 'backlog_add' and fixed.get('size') == 'XS':   # the backlog's smallest size is S (`tutti backlog add --size`)
+        fixed['size'] = 'S'
+    return fixed
 
 
 ACTION = re.compile(r'^\s*ACTION\s*:?\s*(\{.*\})\s*$')
@@ -745,6 +808,8 @@ AI work (jobs, quota, machines, devices, the queue) from the FACTS below, briefl
 lists, `code`). Never invent jobs, numbers or names that are not in the FACTS; say what is unknown.
 You can act through tools: {tools}. Read-only tools answer at once. A tool that changes something is only proposed: the user
 confirms it on a card, so say what you propose and why. Call a tool only with names that appear here.
+Never say you queued, started, paused or changed anything unless a tool call in this answer did it: to do it, call the
+tool; one call per task.
 {protocol}
 Projects: {projects}. Scouts: {scouts}. Machines: {machines}. Devices: {devices}.
 The user is {who} ({role}).
@@ -767,14 +832,28 @@ def system_prompt(snap, user, known, native_tools=True):
                          role=user.get('role'), facts=facts(snap))
 
 
-def model_messages(system, history, turns=HISTORY_TURNS):
-    """The model's messages: the system prompt, then the last `turns` messages (attachments inlined, fenced)."""
+def model_messages(system, history, turns=HISTORY_TURNS, vision=False, summary=None, load=None):
+    """The model's messages: the system prompt, the summary of what was compacted, then the last `turns` messages after it
+    (text attachments inlined and fenced; images given to a model with `vision: true`, named for the others)."""
     out = [{'role': 'system', 'content': system}]
+    ids = [m['id'] for m in history]
+    if summary and summary.get('upto') in ids:
+        history = history[ids.index(summary['upto']) + 1:]
+        out.append({'role': 'system', 'content': 'Summary of the earlier conversation:\n' + summary.get('text', '')})
     for m in history[-turns:] if turns else []:
         if m.get('status') == 'failed' or not (m.get('text') or m.get('attachments')):
             continue
-        body = m.get('text') or ''
+        body, images = m.get('text') or '', []
         for a in m.get('attachments') or []:
-            body += f'\n\nAttached {a["name"]}:\n```\n{a["text"][-12000:]}\n```'
-        out.append({'role': 'assistant' if m['role'] == 'assistant' else 'user', 'content': body})
+            if a.get('data') or a.get('ref'):
+                data = a.get('data') or (load(a['ref']) if load else None)
+                if data:
+                    images.append(data)
+                body += f'\n\n[Image attached: {a["name"]}{"" if vision else " (this model cannot see images)"}]'
+            else:
+                body += f'\n\nAttached {a["name"]}:\n```\n{a.get("text", "")[-12000:]}\n```'
+        msg = {'role': 'assistant' if m['role'] == 'assistant' else 'user', 'content': body}
+        if images and vision:
+            msg['images'] = images
+        out.append(msg)
     return out

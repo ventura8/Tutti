@@ -30,7 +30,7 @@ or your main agent's machine, is off.
 
 The server decides, for every action, with `auth.act_for` (and so `auth.may_act_for`):
 
-- **Viewers** ask anything, and queue backlog tasks for the projects in `chat.viewer_projects` (empty: every project), up
+- **Viewers** ask anything, in any mode, and queue backlog tasks for the projects in `chat.viewer_projects` (empty: every project), up
   to `chat.viewer_tasks_per_day` (5) a day. The autopilot runs those under its own pacing and sharing rules. A refused
   request says why and who can change it. Viewers see the same household state the Dashboard tab shows them (jobs, queue,
   accounts, machines), so the chat's answers and read-only tools tell them nothing more.
@@ -74,10 +74,10 @@ A model works through the same calls as the MCP tools, so a local model can do w
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `usage`, `machines`, `devices`, `backlog_list`, `job_status` | read | runs at once; its output goes back to the model |
-| `backlog_add` | work | proposed; runs when the user confirms |
-| `delegate_task`, `scout_ask` | work | proposed; admins (they spend an account at once) |
-| `test_on` (a track and a command, on a machine or an Android device) | work | proposed; admins |
-| `control` (pause or resume a machine, device, worker or account) | household | proposed; admins |
+| `backlog_add` | work | as the mode says (*Modes* below) |
+| `delegate_task`, `scout_ask` | work | as the mode says; admins (they spend an account at once) |
+| `test_on` (a track and a command, on a machine or an Android device) | work | as the mode says; admins |
+| `control` (pause or resume a machine, device, worker or account) | household | as the mode says; admins |
 
 - **Native tool calls** for local models: Ollama's function calling with each tool's JSON schema. A model under 7B
   parameters, or whose size neither the fleet's reading of its Ollama (docs/FLEET.md) nor its name tells, only talks
@@ -85,25 +85,81 @@ A model works through the same calls as the MCP tools, so a local model can do w
   answer with `ACTION {"tool": ..., "args": {...}}` lines, which the page never shows.
 - **Validation**: every call is checked against its schema (required fields, types, enums, no other fields) and against
   the names that exist here (projects, scouts, machines, devices). A bad call is not run; its error goes back to the model.
-- **Confirmation**: a call that changes something is never run by the model. It becomes a card, **Needs your OK**, with
-  **Confirm** and **Cancel**; Confirm checks it again, then runs it with the same role checks, audit line and Undo as a
-  request you typed. A request you type in so many words ("add task in map: …") runs at once: your words are the
-  confirmation.
-- Up to 4 tool rounds per answer, at most 4 calls a round (the rest are told to ask again); a round that only looked things
+- Every call that changes something runs through the same server checks whichever mode is on: the role rules above, the
+  viewer's daily limit, the audit line and Undo. Work it queues or starts still follows pacing and the opt-ins: a task waits
+  in the backlog for an account with room, a hand-off goes through `tutti run auto`, a paid worker stays off until opted in.
+- Up to 4 tool rounds per answer (by effort: 2 at low, 6 at high, 8 at max), at most 4 calls a round (the rest are told to ask again); a round that only looked things
   up and never answered says so. A model that stops halfway is replaced by the next one on a clean answer; a CLI agent
   that prints nothing past its deadline (180 s) is stopped. Confirm runs the tool outside the store's lock, and the daily
   limit and its audit line are taken together, so two quick Confirms cannot both pass the limit.
 
+## Modes
+
+Per conversation, with a default in your settings (the last one you picked); the **Mode** picker, or `/mode`:
+
+- **Autonomous** (the default): the chat acts, then shows each action as a card with **Undo**; the result goes back to the
+  model, which says what it did.
+- **Ask before acting**: each call that changes something becomes a card, **Needs your OK**, with **Confirm** and
+  **Cancel**; Confirm checks it again, then runs it.
+- **Plan review**: the model proposes every step at once as a plan card (a request you type is "your request, as a
+  one-step plan"). Untick a step to leave it out, change a step's
+  text (a task's title, a hand-off's task, a question), then **Run the plan**: the steps run in order, each with its own
+  result and Undo; **Cancel** runs nothing. A plan always ends in a state you can act on, and one cut off by a restart
+  goes on with its remaining steps when you run it again. A request you type in so many words also becomes a one-step plan.
+
+In Autonomous and Ask before acting, a request you type in so many words ("add task in map: …") runs at once: your words
+are the confirmation.
+
+## Controls
+
+Under the message box, as in a chat IDE, each starting at Auto:
+
+- **Model**: Auto (local first, then online), Local models only, Online agents only, or one model (*Which model answers*).
+- **Effort**: Auto, low, medium, high or max, mapped to each model's own setting:
+
+  | Effort | A local model (Ollama) | Claude Code | Tool rounds |
+  | --- | --- | --- | --- |
+  | Auto | no thinking, the worker's `num_ctx` | as configured | 4 |
+  | low | no thinking, at most 8,192 tokens of context | `--effort low` | 2 |
+  | medium | no thinking, the worker's `num_ctx` | `--effort medium` | 4 |
+  | high | thinks first, at least 32,768 | `--effort high` | 6 |
+  | max | thinks first, 65,536 | `--effort max` | 8 |
+
+  A local model's context never passes `workers.<n>.max_ctx`. Another online agent takes `workers.<n>.effort_args` (e.g.
+  `['--reasoning', '{effort}']`); without it, it answers as it always does.
+- **Mode**: *Modes* above.
+- **Context** and tokens: how full the model's context was on the last answer, and the conversation's tokens in and out
+  (Ollama's own counts; an online agent's are estimated, four characters a token) with what they would cost at API prices
+  (an account's quota is spent, not money; a local model costs nothing). When the next request would fill the context past
+  your threshold (`autocompact.threshold_pct`, 60 % by default; yours with `compact_pct`), the older messages are folded
+  into a summary written by the model itself (else their first lines), the last four stay whole, and the chat marks where.
+- **Stop** (Esc) ends an answer and keeps what was written; **Edit** on any of your messages resends it and replaces what
+  followed; **Regenerate** answers the last question again; **Branch** on any message starts a new chat with the messages
+  up to it (same model, effort and mode), the original untouched.
+- **@-mentions** add context: `@project:map` (its check and what waits), `@job:<id>` (its line and the end of its log),
+  `@machine:nuc`, `@file:map/src/app.py` (a file git tracks in the repository, up to 32 KB; never an untracked or ignored
+  file, never outside the repository, never a file that looks like a secret). Type `@` for a list (`@map/` lists the
+  project's files); arrows choose, Enter or Tab adds. What could not be read is named under the answer. Viewers mention
+  what the Dashboard tab shows them (projects, jobs' lines, machines); files and job logs are for admins.
+  Mentioned content and attachments reach the model fenced as data, never instructions, and an answer that read any asks
+  before acting even in Autonomous mode, so a line in a log can never start work by itself.
+- **Attachments**: text and logs (32 KB each) and images (PNG, JPEG, WebP, GIF, 1 MB each), 3 a message; paste a screenshot
+  or a long log (over 4,000 characters) and it is attached. A local model given `workers.<n>.vision: true` sees images; the
+  others (and every CLI agent) are told one is attached. Images are kept in their own files beside the user's chats
+  (`<state>/chat/<user>.files/`, mode 600), so conversations stay small; Clear my chat history removes them too. Only a
+  message may be large (5 MB); every other action takes at most 64 KB.
+- **Slash commands**: `/new`, `/model <name>`, `/effort <level>`, `/mode auto|ask|plan`, `/clear` (empty this chat, after a
+  confirmation; its settings stay), `/help`. Type `/` for the list. A path such as `/home/…` is sent as a message.
+- **Keys**: Enter sends, Shift+Enter adds a line, Esc stops or closes a list, ↑ in an empty box edits your last message,
+  `/` (outside a field) goes to the message box, Ctrl+K or ⌘K searches your chats, Alt+N starts a new one, `?` lists them.
+
 ## The page
 
-- Answers stream in as they are written. **Stop** (or Esc) ends one and keeps what was written. **Retry** answers the
-  last question again; **Edit** (or ↑ in an empty box) changes your last message and answers again. A message that could
-  not be sent says **Not sent** with **Send again**.
+- Answers stream in as they are written. A message that could not be sent says **Not sent** with **Send again**.
 - Markdown is drawn safely: the text is parsed into a tree and drawn with DOM nodes and `textContent`, so no message ever
   becomes markup. Only `http`, `https` and `mailto` links are links. Code blocks have **Copy**.
 - The list follows new text while you are at the end; scroll up and it stays put, with **Jump to latest**.
 - An empty chat suggests questions from the state now (an idle machine, the quota, a project to queue tests for).
-- **Attach** text or log snippets: up to 3 files of 32 KB each, text only (checked on the page and on the server).
 - Conversations: **New chat**, **Rename**, **Delete**, and search over titles and messages.
 - Keys: Enter sends, Shift+Enter adds a line, Esc stops, ↑ edits. New answers are announced to screen readers (a polite
   live region); focus stays visible; animations stop with reduced motion.
@@ -125,14 +181,19 @@ folder. **Clear my chat history** deletes the user's file; the work it queued an
 | Action | Body | Answer |
 | --- | --- | --- |
 | `list` | `query` | conversations (newest first), suggestions, the role, the limits, the host's name, the picker's models and the user's default |
-| `get` | `id` | one conversation |
-| `send` | `text`, `attachments` [{name, text}], `conversation`, `model`, `edit` (a message id), `retry` (an answer's id) | a stream (`application/x-ndjson`): `start`, `model`, `delta`, `replace`, `card`, `fallback`, `note`, `ping`, `done` |
+| `get` | `id` | one conversation and its `settings` (model, effort, mode, compact_pct) |
+| `send` | `text`, `attachments` [{name, text} or {name, type, data}], `conversation`, `model`, `effort`, `mode`, `edit` (a message id), `retry` (an answer's id) | a stream (`application/x-ndjson`): `start`, `model`, `delta`, `replace`, `card`, `fallback`, `note`, `compacted`, `usage`, `ping`, `done` |
 | `follow` | `message` | the same stream for an answer still being written (after a reload) |
 | `stop` | `message` | `{stopped}` (only your own) |
 | `new`, `rename`, `delete`, `clear` | `title`, `id` | `{ok}` |
-| `undo` | `conversation`, `message`, `card` | the conversation |
+| `undo` | `conversation`, `message`, `card`, `step` (a plan's) | the conversation |
+| `plan` | `conversation`, `message`, `card`, `steps` [{id, text}] (the kept ones, in order; none: as proposed), `yes` | the plan card after it ran |
+| `settings` | `id`, any of `model`, `effort`, `mode`, `compact_pct` | the conversation's settings (also the user's defaults) |
+| `mentions` | `query` | what `@query` may stand for |
+| `branch` | `conversation`, `message` | the new conversation |
+| `empty` | `id` | `{ok}`: the conversation without its messages |
 | `confirm` | `conversation`, `message`, `card`, `yes` (false cancels) | the card, run or cancelled |
-| `model` | `model` (auto, local, online or a worker), `id` (the conversation) | `{model}`: the conversation's choice and the user's default |
+| `model` | `model`, `id` | the same as `settings` with a model (kept for older pages) |
 | `activity` | | admins: the chat's actions, newest first |
 
 An answer runs in its own thread, so it finishes and is saved even when the page closes.

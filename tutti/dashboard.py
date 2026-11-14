@@ -187,6 +187,8 @@ class Collector:
                 self.dispatch_tick()
                 self.scouts_tick()
                 dashtelemetry.tick(self.cfg)
+                from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)
+                hhjobs.tick(self.cfg)
             except Exception as e:  # a probe bug must not end the loop; the page shows the last good data and its age
                 telemetry.capture_exception(type(e), e, e.__traceback__, where='dashboard-loop')
                 state_error = f'probing failed ({type(e).__name__}: {e}); the dashboard keeps the last results'

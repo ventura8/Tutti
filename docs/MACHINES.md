@@ -223,7 +223,8 @@ machines:
 ## Shared with a household
 
 A machine several people's Tutti use (docs/HOUSEHOLD.md): its owner runs `tutti household machine share <m>`, each other
-member `tutti household machine use <m>`. Its slot locks move to `/tmp/tutti-household/` (mode 1777; under
+member `tutti household machine use <m>`, with no login there: a member's run reaches it as a WIP ref and a signed job,
+and the owner's Tutti runs it in a container (docs/HOUSEHOLD.md, *Compute on shared machines*). Its slot locks move to `/tmp/tutti-household/` (mode 1777; under
 `SLOT_SHARED` `slot.sh` opens a lock another login made read-only), so one slot queue holds for everyone; the owner's
 yield flag reaches the others through the coordinator (no slot is granted while it is up). The household's coordinator grants each member a fair share of the slots; a
 member's routing sees at most its grant free. Heat, the yield flag and a pause still apply to every member.

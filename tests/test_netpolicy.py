@@ -76,6 +76,12 @@ class PolicyTest(unittest.TestCase):
 
 
 class ServersRefuseTest(unittest.TestCase):
+    def setUp(self):   # a login with no household (the join and init checks come after that one)
+        from unittest import mock
+        patcher = mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': tempfile.mkdtemp()})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_the_coordinator_never_listens_on_a_public_address(self):
         cfg = cfg_with()
         with self.assertRaises(netpolicy.PublicAddress):

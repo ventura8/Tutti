@@ -215,6 +215,8 @@ def port_opts(machine):
 
 
 def sh(machine, script, capture=False, timeout=None, stdin=None, ssh_opts=()):
+    if machine['transport'] == 'household':   # another member's machine: never a login there; its owner's Tutti runs jobs
+        return subprocess.CompletedProcess([], 1, '', f'{machine["name"]} is a household machine: its owner\'s Tutti runs on it')
     if machine['transport'] != 'local':
         ensure_master(machine)
     return subprocess.run(argv(machine, script, ssh_opts), capture_output=capture, text=True, timeout=timeout, input=stdin)
@@ -349,7 +351,22 @@ def containers_script(machine):
             f"grep -E {rx} | sed 's/^/C /'; ")
 
 
+def household_probe(machine):
+    """Another member's shared machine, from the last grants (no login there): reachable while the coordinator answered
+    lately and it is not paused; free: this member's grant."""
+    from . import fairshare
+    from .config import state_dir_of_machine
+    cache = fairshare.read_cache(state_dir_of_machine(machine))
+    m = (cache.get('machines') or {}).get(machine['name'])
+    fresh = time.time() - (cache.get('at') or 0) <= fairshare.STALE_SECONDS
+    if not m or not fresh or m.get('paused'):
+        return routing.Probe()
+    return routing.Probe(True, int(m.get('grant', 0)), 0.0, int(m.get('slots') or 1))
+
+
 def probe(machine, timeout=20, windows_fn=None):
+    if machine['transport'] == 'household':
+        return household_probe(machine)
     if machine.get('via') and machine.get('_state'):   # only a client of this host reaches it (docs/MOVE.md, *The bridge*)
         from . import bridge
         return bridge.probe({'project': {'state': machine['_state']}}, machine['via'], machine.get('as') or machine['name'])

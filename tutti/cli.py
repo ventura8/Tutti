@@ -257,6 +257,8 @@ def test_job(cfg, a, machine, device, src, command):
             *[f'--fetch={p}' for p in a.fetch or []], a.track, *command]
     on = machine['name'] + (f' / {device["name"]}' if device else '')
     target = f'machine:{machine["name"]}' + (f' device:{device["name"]}' if device else '')
+    if os.environ.get('TUTTI_HH_JOB'):   # a household member's job this owner's Tutti runs: the member's demand, not ours
+        target += ' class:member'
     if os.environ.get('TUTTI_BACKGROUND'):   # started by the autopilot: background demand on a household's shared machine
         target += ' class:background'
     return transfer.Job(cfg, f'test {a.track} on {on}: {" ".join(command)}'[:200], folder='devices' if device else 'tests',
@@ -279,6 +281,8 @@ def cmd_test(cfg, a):
         return 3
     say(f'test: {choice.machine}{", queued" if choice.queued else ""} ({choice.reason})' + (f', device {device["name"]}' if device else ''))
     machine = cfg['machines'][choice.machine]
+    if machine['transport'] == 'household':   # another member's machine: its owner's Tutti runs it (tutti/hhjobs.py)
+        return household_test(cfg, a, machine, src, command)
     how = 'on' if a.on else 'routed'
     if device:
         how = 'device'
@@ -299,6 +303,22 @@ def cmd_test(cfg, a):
         telemetry.record('feature', 'device.run' if device else 'test.run', machine_kind=telemetry.machine_kind(machine), rc=rc,
                          outcome='passed' if rc == 0 else 'failed', minutes=round((time.monotonic() - started) / 60, 2),
                          inputs=len(a.input or []), fetch=len(a.fetch or []))
+
+
+def household_test(cfg, a, machine, src, command):
+    from . import hhjobs
+    if a.input or a.fetch or a.device:
+        say(f'test: {machine["name"]} is another member\'s machine: --input, --fetch and --device go to your own machines; '
+            'route this run elsewhere (--on <machine>)')
+        return 2
+    job = test_job(cfg, a, machine, None, src, command)
+    rc = 1
+    try:
+        rc = hhjobs.run_on(cfg, machine, src, command, out=sys.stdout, say=lambda m: (say(f'test: {m}'), job.say(m)))
+        return rc
+    finally:
+        job.end(rc)
+        telemetry.record('feature', 'test.run', machine_kind='household', rc=rc, outcome='passed' if rc == 0 else 'failed')
 
 
 def fetch_results(cfg, machine, track, src, paths):

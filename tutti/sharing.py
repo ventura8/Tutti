@@ -250,9 +250,12 @@ def running_on(folder, name):
     for log, _pid in controls.running_jobs(folder, 'machine', name):
         try:
             with open(log + '.target', encoding='utf8') as f:
-                background = 'class:background' in f.read().split()
+                words = f.read().split()
+            background = 'member' if 'class:member' in words else 'class:background' in words
         except OSError:
             background = False
+        if background == 'member':
+            continue
         back, inter = (back + 1, inter) if background else (back, inter + 1)
     return inter, back
 

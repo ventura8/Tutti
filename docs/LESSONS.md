@@ -277,3 +277,13 @@ answer that did not change, and each ssh call paid a new handshake.
 
 **Rule.** Measure a probe's wall time, CPU and spawns before adding to it (`time`, a Popen counter). One process for a
 list (find, ps, awk), shared connections, and back-off when an answer repeats.
+
+## A device nobody queues work for sits idle (2026-11-14)
+
+**What happened.** A phone sat idle while a project still had e2e tests for it. The phone was attached to the PC's
+Windows adb. That PC's Tutti was an old install with no device support and an example config, and the laptop's config
+listed no devices. The project was read-only for Tutti, and its e2e ran only when its own session started it by hand. No
+queue existed for the phone, so nothing could tell it was idle.
+
+**Rule.** Work that a target can do must be declared where Tutti sees it (`projects.<p>.tests`), and idle targets must pull
+it themselves. A watchdog that shows "idle while work waits" turns a silent gap into a visible fix.

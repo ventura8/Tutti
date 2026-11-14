@@ -282,6 +282,16 @@ projects:
   #               (merge: true, release: true, release_command: ... only where Tutti may merge and tag; docs/TELEMETRY.md)
   tool: {match: '/tool(\.git)?\b', checks: [{run: bash scripts/check.sh}]}   # `tutti run --repo` in this repo runs these checks
   # other-app: {match: other-app, machines: [win-box], windows: {win-box: 'C:\Users\me\Projects\other-app'}}
+  # Keep busy (docs/DISPATCH.md): declared suites are run by idle devices and machines on each new commit, highest priority first
+  # phone-app:
+  #   match: phone-app
+  #   priority: 1                                   # 0 the highest; the dashboard's Settings tab can change it
+  #   commit: {run: 'git -C ~/src/phone-app rev-parse HEAD', where: builder}
+  #   tests:
+  #     e2e: {kind: e2e, targets: [android], run: './e2e.sh --spec {shard}', shards: [player.spec, search.spec]}
+
+# Keep busy (docs/DISPATCH.md): idle devices and machines pull pending test shards by themselves; on by default
+dispatch: {enabled: true, idle_minutes: 5, lease_minutes: 10, retries: 2}
 
 # Scouts: helpers that are not workers (docs/SCOUTS.md). Grok Bot answers through a webhook routine: Tutti opens an issue,
 # POSTs {task, reply_to} to the routine, and reads the answer the routine posts as a comment. The URL and key live only in

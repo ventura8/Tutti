@@ -81,6 +81,13 @@ DEFAULTS = {
     # update: `tutti update` and the dashboard's daily round; auto: false turns the round off, packages: apt packages whose
     # upgrade needs the owner's sudo (named with one exact command), programs: CLIs to update besides the workers' own
     'update': {'auto': True, 'every_hours': 24, 'packages': [], 'programs': []},
+    # dispatch: keep devices, machines and workers busy (tutti/dispatch.py, docs/DISPATCH.md): idle targets pull pending test
+    # shards (projects.<p>.tests) by themselves; a target idle idle_minutes while compatible work waits gets a warning; a
+    # run's lease ends after lease_minutes without a heartbeat; a failed shard is retried `retries` times. On by default.
+    # A phone call on a device (any SIM slot) pauses its work: looked for every call_poll_seconds during a run, work starts
+    # again resume_after_call_seconds after the call; pause_on_owner_use (opt-in): a screen a person turned on holds it too.
+    'dispatch': {'enabled': True, 'idle_minutes': 5, 'lease_minutes': 10, 'retries': 2, 'quiet_hours': [],
+                 'call_poll_seconds': 3, 'resume_after_call_seconds': 30, 'pause_on_owner_use': False},
     'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
              'command_timeout': 3600},
 }
@@ -314,7 +321,8 @@ def validate(cfg):
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
     errs += _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
-    from . import autocompact, owner, scouts, selfimprove, sentry, users  # they import modules that import this one
+    from . import autocompact, dispatch, owner, scouts, selfimprove, sentry, users  # they import modules that import this one
+    errs += dispatch.errors(cfg)
     errs += selfimprove.errors(cfg) + sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
         owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update'])
@@ -419,7 +427,8 @@ def _projects_errors(cfg):
     for name, p in ps.items():
         p = p or {}
         if not isinstance(p, dict):
-            errs.append(f'projects.{name} is {p!r}: a mapping with match:, machines:, containers:, windows: or repo:')
+            errs.append(f'projects.{name} is {p!r}: a mapping with match:, machines:, containers:, windows:, repo:, priority:, '
+                        'commit: or tests:')
             continue
         if 'match' in p:
             errs += _regex_errors(f'projects.{name}.match', p['match'])
@@ -428,6 +437,9 @@ def _projects_errors(cfg):
         win = p.get('windows') or {}
         errs += [f'projects.{name}.windows names "{m}", which is not a wsl machine under machines:' for m in win
                  if (cfg['machines'].get(m) or {}).get('transport') != 'wsl']
+        pr = p.get('priority', 0)
+        if isinstance(pr, bool) or not isinstance(pr, int) or pr < 0:
+            errs.append(f'projects.{name}.priority is {pr!r}: a whole number, 0 for the most important project, 1 for the next')
         if 'repo' in p and not (isinstance(p['repo'], str) and re.fullmatch(r'[\w.-]+/[\w.-]+', p['repo'])):
             errs.append(f'projects.{name}.repo is {p["repo"]!r}: the GitHub repository as owner/name, e.g. octo/my-app')
     return errs
@@ -620,6 +632,37 @@ def load(path=None, start=None, env=None):
         raise ConfigError(f'{path} has {len(errs)} problem(s):\n  - ' + '\n  - '.join(errs))
     cfg['_path'] = os.path.abspath(path)
     return cfg
+
+
+# A project with no priority comes after every numbered one (projects.<name>.priority: 0 is the most important).
+UNRANKED_PRIORITY = 100
+
+
+def project_priority(cfg, name):
+    """projects.<name>.priority (0 is the most important); UNRANKED_PRIORITY for a project without one or not in the config.
+    The one helper every scheduler uses: the autopilot's dispatch and fill_room, and idle dispatch."""
+    p = ((cfg.get('projects') or {}).get(name) or {}) if name is not None else {}
+    v = p.get('priority') if isinstance(p, dict) else None
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else UNRANKED_PRIORITY
+
+
+def project_of_repo(cfg, repo):
+    """The project an autopilot repo belongs to: the one whose self_improve.autopilot_repo names it, else the one whose
+    `match` finds the repo's name or folder; None when no project claims it."""
+    projects = cfg.get('projects') or {}
+    for name, p in projects.items():
+        if ((p or {}).get('self_improve') or {}).get('autopilot_repo') == repo:
+            return name
+    path = (((cfg.get('autopilot') or {}).get('repos') or {}).get(repo) or {}).get('path') or ''
+    for name, p in projects.items():
+        rx = (p or {}).get('match')
+        if isinstance(rx, str) and rx and any(re.search(rx, x) for x in (repo, os.path.basename(path.rstrip('/'))) if x):
+            return name
+    return None
+
+
+def repo_priority(cfg, repo):
+    return project_priority(cfg, project_of_repo(cfg, repo))
 
 
 def expand(p):

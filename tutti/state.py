@@ -80,6 +80,7 @@ def machine_state(m, p, rank):
             'cores': p.cores if p.reachable else None,
             'reachable': p.reachable, 'paused': p.yielding, 'status': status, 'reason': reason or 'fit: takes the next run', 'rank': rank,
             'min_free_gb': m['min_free_gb'], 'temp_c': p.temp if p.reachable else None, 'heat': m.get('heat'),
+            'gpu_temp_c': p.gpu_temp if p.reachable else None, 'temp_note': p.temp_note if p.reachable else '',
             'containers': list(getattr(p, 'containers', []) or [])}
 
 

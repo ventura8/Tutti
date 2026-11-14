@@ -18,6 +18,10 @@ The open items of 0.1.8 and 0.1.9, each proven with a real run.
   reset on <date>". The parser moved to `tutti/web/helper-parse.js` and is tested in node on the real page's text.
 - Heat: a run already waiting in `slot.sh` re-reads the temperature right before it starts (`heat` reaches it as
   `HEAT_STOP_C`, `HEAT_CAP_C`, `HOT_SLOTS`); too hot, it gives its lock back and waits.
+- Temperatures: the probe reads the GPU too (`nvidia-smi`, also from WSL's `/usr/lib/wsl/lib`, or an AMD/Intel hwmon
+  sensor), and a WSL machine's CPU from Windows (PowerShell over its plain ssh; a placeholder ACPI value is shown as "not
+  readable" with the reason). The dashboard and `tutti machines` show CPU and GPU per machine; heat limits, routing and
+  `slot.sh` use the hotter of the two.
 - Changed files with spaces: git's names are read with `-z`; `$TUTTI_CHANGED` and `{changed}` hold one path per line.
 
 ### Added

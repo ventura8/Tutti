@@ -5,6 +5,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 
 from . import routing, worktree
 
@@ -100,8 +101,68 @@ def probe_script(machine):
             f'y=0; [ -e {y} ] && y=1; '
             # the hottest readable thermal zone in millidegrees (0 when none): routing caps or skips a hot machine
             't=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -n 1); '
+            f'{GPU_TEMP}'
             f'{containers_script(machine)}'
-            f'echo "$n $(cut -d" " -f1 /proc/loadavg) $(nproc) $y ${{t:-0}}"')
+            f'echo "$n $(cut -d" " -f1 /proc/loadavg) $(nproc) $y ${{t:-0}} ${{g:--}}"')
+
+
+# The hottest GPU in degrees C, `-` when none is readable: nvidia-smi (in WSL it lives in /usr/lib/wsl/lib, not on PATH),
+# else an AMD or Intel GPU's hwmon sensor (amdgpu, xe, i915). Read-only.
+SMI = '--query-gpu=temperature.gpu --format=csv,noheader,nounits'
+GPU_TEMP = ('g=$( { nvidia-smi ' + SMI + ' 2>/dev/null || /usr/lib/wsl/lib/nvidia-smi ' + SMI + ' 2>/dev/null; '
+            'for h in /sys/class/hwmon/hwmon*; do case "$(cat "$h/name" 2>/dev/null)" in amdgpu|xe|i915) '
+            'awk \'{print $1/1000}\' "$h/temp1_input" 2>/dev/null;; esac; done; } | sort -n | tail -n 1); ')
+
+# A WSL machine has no /sys thermal zones: its CPU temperature is Windows', read over the machine's plain ssh with PowerShell
+# (read-only): LibreHardwareMonitor's or OpenHardwareMonitor's "CPU Package" sensor when one of them runs, else the hottest
+# ACPI thermal zone. Many boards report a fixed placeholder there (about 17 C on a desktop), so a value under 20 C or over
+# 110 C counts as not readable, and the dashboard says so instead of showing a wrong number.
+WIN_TEMP = (
+    "$t = $null; foreach ($ns in 'root/LibreHardwareMonitor','root/OpenHardwareMonitor') { try { "
+    "$s = Get-CimInstance -Namespace $ns -ClassName Sensor -ErrorAction Stop | Where-Object { $_.SensorType -eq 'Temperature' -and "
+    "$_.Name -match 'CPU Package|Core Max|Tctl' } | Sort-Object Value -Descending | Select-Object -First 1; "
+    "if ($s) { $t = [double]$s.Value; 'S ' + $ns.Split('/')[1]; break } } catch { } }; "
+    "if ($t -eq $null) { try { $z = Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop | "
+    "Sort-Object CurrentTemperature -Descending | Select-Object -First 1; if ($z) { $t = $z.CurrentTemperature / 10 - 273.15; 'S ACPI' } } "
+    "catch { } }; if ($t -ne $null) { 'T ' + [Math]::Round($t, 1).ToString([Globalization.CultureInfo]::InvariantCulture) }")
+WIN_TEMP_SECONDS = 120
+_win_temps = {}
+
+
+def parse_win_temp(text):
+    """(degrees C or None, why not) from WIN_TEMP's lines `S <source>` and `T <degrees>`."""
+    source, t = '', None
+    for line in (text or '').splitlines():
+        if line.startswith('S '):
+            source = line[2:].strip()
+        elif line.startswith('T '):
+            try:
+                t = float(line[2:].strip())
+            except ValueError:
+                t = None
+    if t is None:
+        return None, 'CPU not readable: Windows offers no temperature sensor (install LibreHardwareMonitor to give it one)'
+    if not 20 <= t <= 110:
+        return None, (f'CPU not readable: Windows\' {source or "sensor"} reports {t:g} C, a placeholder, not the CPU '
+                      '(LibreHardwareMonitor gives a real one)')
+    return t, ''
+
+
+def windows_temp(machine, clock=time.time, timeout=30):
+    """(CPU degrees C or None, why not) of a WSL machine's Windows side, asked at most every WIN_TEMP_SECONDS."""
+    hit = _win_temps.get(machine['name'])
+    if hit and clock() - hit[0] < WIN_TEMP_SECONDS:
+        return hit[1]
+    packed = base64.b64encode(WIN_TEMP.encode('utf-16le')).decode()
+    try:
+        r = subprocess.run([*SSH, '-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes', machine['host'],
+                            f'powershell -NoProfile -NonInteractive -EncodedCommand {packed}'],
+                           capture_output=True, text=True, timeout=timeout, check=False)
+        value = parse_win_temp(r.stdout) if r.returncode == 0 else (None, f'CPU not read: the Windows side answered exit {r.returncode}')
+    except (OSError, subprocess.SubprocessError) as e:
+        value = (None, f'CPU not read: the Windows side did not answer ({type(e).__name__})')
+    _win_temps[machine['name']] = (clock(), value)
+    return value
 
 
 def containers_script(machine):
@@ -113,14 +174,17 @@ def containers_script(machine):
             f"grep -E {rx} | sed 's/^/C /'; ")
 
 
-def probe(machine, timeout=20):
+def probe(machine, timeout=20, windows_fn=None):
     try:
         r = sh(machine, probe_script(machine), capture=True, timeout=timeout, ssh_opts=('-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes'))
     except (OSError, subprocess.SubprocessError):
         return routing.Probe()
+    windows_fn = windows_fn or windows_temp
     lines = r.stdout.strip().splitlines() if r.returncode == 0 else []
     p = routing.parse_probe(lines[-1] if lines else '')
     p.containers = [line[2:].strip() for line in lines[:-1] if line.startswith('C ')]
+    if p.reachable and p.temp is None and machine['transport'] == 'wsl':
+        p.temp, p.temp_note = windows_fn(machine)
     return p
 
 

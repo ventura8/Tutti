@@ -16,11 +16,18 @@ else
 fi
 [ $# -gt 0 ] || { echo "usage: slot.sh <command...>" >&2; exit 2; }
 avail_gb() { awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo; }
-# the hottest readable zone in whole degrees C, 0 when none is readable
+# the hottest of the CPU's thermal zones and the GPUs (nvidia-smi, in WSL from /usr/lib/wsl/lib), in whole degrees C;
+# 0 when none is readable. NVIDIA_SMI names the program (tests point it elsewhere; `none` skips it).
 temp_c() {
-	local t
+	local t g smi="${NVIDIA_SMI:-}"
 	t=$(compgen -G "${THERMAL_GLOB:-/sys/class/thermal/thermal_zone*/temp}" | while read -r f; do cat "$f" 2>/dev/null; done | sort -n | tail -n 1)
-	echo $(( ${t:-0} / 1000 ))
+	t=$(( ${t:-0} / 1000 ))
+	if [ -z "$smi" ]; then smi=$(command -v nvidia-smi || echo /usr/lib/wsl/lib/nvidia-smi); fi
+	if [ "$smi" != none ] && [ -x "$smi" ]; then
+		g=$("$smi" --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null | cut -d. -f1 | sort -n | tail -n 1)
+		if [ -n "$g" ] && [ "$g" -gt "$t" ] 2>/dev/null; then t=$g; fi
+	fi
+	echo "$t"
 }
 # how many of the other slots are held right now
 busy_others() {

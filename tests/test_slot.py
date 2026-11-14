@@ -30,7 +30,8 @@ class SlotHeatTest(unittest.TestCase):
 
     def start(self, **env):
         locks = ' '.join(os.path.join(self.tmp.name, f'{i}.lock') for i in (1, 2))
-        env = {**os.environ, 'SLOT_LOCKS': locks, 'MIN_FREE_GB': '0', 'SLOT_POLL': '0.1', 'THERMAL_GLOB': self.zone, **env}
+        env = {**os.environ, 'SLOT_LOCKS': locks, 'MIN_FREE_GB': '0', 'SLOT_POLL': '0.1', 'THERMAL_GLOB': self.zone,
+               'NVIDIA_SMI': 'none', **env}
         p = subprocess.Popen(['bash', SLOT, 'touch', self.out], env=env, stderr=subprocess.PIPE, text=True)
         self.addCleanup(p.stderr.close)
         self.addCleanup(lambda: p.poll() is None and p.kill())
@@ -60,6 +61,19 @@ class SlotHeatTest(unittest.TestCase):
             self.start(HEAT_CAP_C='85', HOT_SLOTS='1')
             self.assertFalse(self.started_within(0.8))   # at 90 C only one run at a time
         self.assertTrue(self.started_within(5))           # that run ended: this one starts
+
+    def test_a_hot_gpu_holds_a_run_too(self):
+        self.heat(40000)
+        smi = os.path.join(self.tmp.name, 'smi')
+        with open(smi, 'w') as f:
+            f.write('#!/bin/sh\necho 99.20\n')
+        os.chmod(smi, 0o755)
+        p = self.start(HEAT_STOP_C='98', NVIDIA_SMI=smi)
+        self.assertFalse(self.started_within(0.8))
+        with open(smi, 'w') as f:
+            f.write('#!/bin/sh\necho 50\n')
+        self.assertTrue(self.started_within(5))
+        self.assertEqual(p.wait(5), 0)
 
     def test_without_heat_limits_or_a_readable_zone_it_runs(self):
         self.start()

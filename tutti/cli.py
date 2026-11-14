@@ -81,7 +81,8 @@ def cmd_machines(cfg, a):
     for name, m in cfg['machines'].items():
         p = remote.probe(m)
         state = routing.unfit(m, p) or 'fit'
-        heat = f'  {p.temp:.0f} C' if p.temp is not None else ''
+        heat = ''.join(f'  {w} {t:.0f} C' for t, w in ((p.temp, 'CPU'), (p.gpu_temp, 'GPU')) if t is not None)
+        heat += '  CPU not readable' if p.temp is None and p.temp_note else ''
         print(f'{name:12} {m["transport"]:5} slots {p.free}/{m["slots"]}  load {p.load:g}/{p.cores}{heat}  {state}')
     return 0
 

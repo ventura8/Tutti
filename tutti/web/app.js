@@ -315,10 +315,12 @@ function machine(m) {
         bar.style.width = `${Math.min(100, (m.load / m.cores) * 100)}%`;
         stats.append(el('span', { class: 'load' }, el('span', { class: 'load__bar', 'aria-hidden': 'true' }, bar), `load ${m.load} / ${m.cores} cores`));
     }
-    if (m.temp_c !== null && m.temp_c !== undefined) {
-        const hot = m.heat?.cap_c !== undefined && m.temp_c >= m.heat.cap_c;
-        stats.append(el('span', { class: 'temp', 'data-tone': hot ? 'warn' : undefined, text: `${Math.round(m.temp_c)} °C` }));
+    for (const [label, t] of [['CPU', m.temp_c], ['GPU', m.gpu_temp_c]]) {
+        if (t === null || t === undefined) continue;
+        const hot = m.heat?.cap_c !== undefined && t >= m.heat.cap_c;
+        stats.append(el('span', { class: 'temp', 'data-tone': hot ? 'warn' : undefined, text: `${label} ${Math.round(t)} °C` }));
     }
+    if (m.temp_note && (m.temp_c === null || m.temp_c === undefined)) stats.append(el('span', { class: 'temp', title: m.temp_note, text: 'CPU temperature not readable' }));
     if (m.rank) stats.append(el('span', { text: `#${m.rank} in routing` }));
     return el('li', { class: 'row' },
         el('div', { class: 'row__name' }, m.name, el('span', { class: 'row__kind', text: `${m.transport} · ${m.host}` })),

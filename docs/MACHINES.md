@@ -98,12 +98,17 @@ A machine may override any of these with its own `files:` (for example a larger 
 
 ## Heat and memory guards
 
-- **Heat.** The probe also reads the hottest `/sys/class/thermal/thermal_zone*/temp` (`tutti machines` and the dashboard
-  show it). `heat: {cap_c: 85, stop_c: 98, hot_slots: 1}`: at `cap_c` or more the machine takes a run only while fewer
+- **Heat.** The probe also reads the CPU, the hottest `/sys/class/thermal/thermal_zone*/temp`, and the hottest GPU
+  (`nvidia-smi`, which WSL keeps in `/usr/lib/wsl/lib`, else an `amdgpu`, `xe` or `i915` hwmon sensor); `tutti machines`
+  and the dashboard show both. WSL has no thermal zones, so a WSL machine's CPU is read from Windows over its plain ssh
+  (PowerShell, read-only, every 2 minutes at most): LibreHardwareMonitor's or OpenHardwareMonitor's CPU sensor when one
+  runs, else the ACPI thermal zone. A desktop's ACPI zone is often a fixed placeholder (about 17 C): a value under 20 C or
+  over 110 C is shown as "CPU temperature not readable" with the reason, never as a number. Heat limits apply to the
+  hotter of CPU and GPU. `heat: {cap_c: 85, stop_c: 98, hot_slots: 1}`: at `cap_c` or more the machine takes a run only while fewer
   than `hot_slots` run there; at `stop_c` or more it takes nothing new. Routing then falls over to the next machine in
   `routing.order`, so put a `local` machine with one capped slot last as the fallback. A machine refused for heat is never
-  the queue of last resort either. A machine without readable thermal
-  zones (WSL) is never refused for heat. Routing looks once, when the run is queued; `slot.sh` looks again right before a
+  the queue of last resort either. A machine without any readable
+  sensor is never refused for heat. Routing looks once, when the run is queued; `slot.sh` looks again right before a
   waiting run starts (`HEAT_STOP_C`, `HEAT_CAP_C`, `HOT_SLOTS`, passed from `heat`): when the machine is too hot it gives
   its lock back, says `slot.sh: waiting, too hot: 99 C ...` once, and starts when the machine has cooled down.
 - **Memory guard.** `tutti guard` watches available memory. Under `guard.low_gb` it pauses (never kills) the runner

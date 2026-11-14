@@ -182,3 +182,9 @@ meter below it instead of the plan's "Usage limits reset on Dec 10". A meter now
 
 `$TUTTI_CHANGED` and `{changed}` were space-joined and read back with `split()`, and git's `--name-only` quotes unusual
 names: `my file.ts` reached a check as two paths. Names are read with `-z` and passed one per line.
+
+## WSL has no temperature, and Windows' ACPI zone may lie (2026-11-14)
+
+The PC showed no temperature: WSL has no `/sys/class/thermal` zones and `nvidia-smi` is not on WSL's PATH (it lives in
+`/usr/lib/wsl/lib`). Windows' `MSAcpi_ThermalZoneTemperature` answered 2900 (16.9 C), a fixed placeholder on that board.
+The GPU now comes from `nvidia-smi` there, the CPU from Windows only when the value is plausible, else "not readable".

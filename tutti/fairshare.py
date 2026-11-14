@@ -119,13 +119,16 @@ def cache_path(folder):
     return os.path.join(folder, 'household', 'grants.json')
 
 
-def save_cache(folder, machines, now, status=None, error=None):
+def save_cache(folder, machines, now, status=None, error=None, away=False):
     """The last answer this member had (the grants, and the household's status for the dashboard); a failed call keeps
-    them and records why."""
+    them and records why; an unreachable coordinator marks the member away (since when) until a call answers again."""
     os.makedirs(os.path.dirname(cache_path(folder)), exist_ok=True)
     old = read_cache(folder)
-    data = ({**old, 'error': error, 'error_at': now} if error else
-            {'at': now, 'machines': machines, 'status': status if status is not None else old.get('status'), 'error': None})
+    if error:
+        data = {**old, 'error': error, 'error_at': now, 'away_since': (old.get('away_since') or now) if away else None}
+    else:
+        data = {'at': now, 'machines': machines, 'status': status if status is not None else old.get('status'), 'error': None,
+                'away_since': None}
     tmp = f'{cache_path(folder)}.{os.getpid()}.tmp'
     with open(tmp, 'w', encoding='utf8') as f:
         json.dump(data, f)

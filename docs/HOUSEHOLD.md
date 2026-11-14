@@ -74,7 +74,19 @@ had, and **fails closed for what is shared, open for what is its own**:
 - a shared project's tasks: none start (another member may hold their lease); ones already running finish;
 - another member's shared machine: not used (its share is unknown); its own shared machines: used, at most its last grant.
 
-The dashboard says "household coordinator not reachable since 14:02: working alone (shared projects paused)".
+### Away from home with no VPN
+
+Many members have no VPN: away from home, the coordinator (never on the internet) cannot be reached, and their Tutti
+works on its own until they are back:
+
+- their own accounts, readings, pacing and machines as usual; their own shared machines keep their last grant;
+- no shared task starts and no household lease is taken or renewed: the leases they held run out after
+  `lease_minutes`, so the others may take those tasks (a task the member was running finishes; if another member took it
+  meanwhile, both results are kept and the task says "compare before landing");
+- what they would report is not lost: each round's report is built from their own backlog (tasks added, tasks finished,
+  their totals), so the first round back on the home network sends all of it ("back home: synced ...");
+- the dashboard on their computer says **away from the household: working on your own until you're home**, in both
+  views.
 
 ## Auth and the threat model
 

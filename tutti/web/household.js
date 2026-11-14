@@ -22,8 +22,9 @@ function householdRows(h, now = Date.now()) {
         const fair = m.fairness === null || m.fairness === undefined ? '' : ` · fairness ${Math.round(m.fairness * 100)} %`;
         return { name, owner: m.owner, note: `${m.owner}'s · ${m.slots} slot(s) · ${use} · your share now ${m.grant}${fair}`, paused: !!m.paused };
     });
-    const where = h.reachable ? `coordinator answered ${Math.round((now / 1000 - (h.at || 0)))} s ago`
+    let where = h.reachable ? `coordinator answered ${Math.round((now / 1000 - (h.at || 0)))} s ago`
         : `coordinator not reachable${h.error ? ` (${h.error})` : ''}: working alone, shared projects wait`;
+    if (h.away) where = `${h.away_note} (your accounts and machines as usual; shared tasks wait and sync when you are back)`;
     return { title: `${h.household} · ${(h.members || []).length} member(s)`, note: where, members, machines, reachable: !!h.reachable };
 }
 
@@ -48,6 +49,11 @@ function setHouseholdView(v) {
 
 function renderHousehold(s) {
     const r = householdRows(s.household);
+    const away = $('household-away');   // shown in both views: the one thing a member away from home needs to know
+    if (away) {
+        away.hidden = !s.household?.away;
+        away.textContent = s.household?.away_note || '';
+    }
     $('household-meta').textContent = r.note;
     $('household-title').textContent = r.title;
     $('household-members').replaceChildren(...r.members.map((m) => el('li', { class: 'row' },

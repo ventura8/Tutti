@@ -202,6 +202,9 @@ class Household:
         self.code = self.code.replace(':4778:', f':{self.port}:')
         self.bo = make_cfg(self.bo_home, 'Bo')
 
+    def service_state(self):
+        return coordinator.load(coordinator.state_path(self.ana))
+
     def membership(self, home):
         with as_user(home):
             return users.read_household()
@@ -344,6 +347,44 @@ class TwoUsersOneProjectTest(unittest.TestCase):
             cfg = make_cfg(home, 'Solo')
             result = sharing.sync(cfg, backlog.load(cfg))
         self.assertEqual((result['hold'], result['answer'], result['error']), ({}, None, None))
+
+
+class AwayFromHomeTest(TwoUsersOneProjectTest):
+    """Bo takes his laptop away with no VPN: his Tutti keeps working on its own and syncs when he is home again."""
+
+    def test_offline_then_sync(self):
+        self.add('bo', 'shared before leaving')
+        self.round('bo')                                         # published and started (running) while at home
+        self.assertEqual(backlog.load(self.cfgs['bo'])['tasks'][0]['status'], 'running')
+        self.cfgs['bo']['autopilot']['repos']['own'] = {'path': self.h.bo_home, 'check': 'true'}
+        self.clients['bo'].down = True                           # away: the coordinator is on the home network only
+        with as_user(self.h.bo_home):
+            self.add('bo', 'shared while away')
+            with backlog.locked(self.cfgs['bo']) as data:
+                backlog.add(data, backlog.new_task('own', 'private while away', (), 'true'))
+                data['tasks'][0]['status'] = 'done'              # the running task finished on his own
+            p, _ = self.round('bo')
+            sent = sorted(backlog.find(backlog.load(self.cfgs['bo']), i)['title'] for i, _ in p['dispatch'])
+            self.assertEqual(sent, ['private while away'])       # own work goes on; no shared task starts, no lease is taken
+            self.h.clock.t += 31 * 60
+            v = sharing.view(self.cfgs['bo'], self.h.clock())
+        self.assertTrue(v['away'])
+        self.assertEqual(v['away_note'], "away from the household: working on your own until you're home")
+        live = [k for k, lease in self.h.service_state()['leases'].items()   # his leases ran out; he renewed none while away
+                if lease['user'] == self.bo_id() and lease['until'] > self.h.clock()]
+        self.assertEqual(live, [])
+        self.clients['bo'].down = False                          # home again
+        with as_user(self.h.bo_home):
+            _p, events = self.round('bo')
+            v = sharing.view(self.cfgs['bo'], self.h.clock())
+        self.assertIn('back home: synced', ' '.join(events))
+        self.assertFalse(v['away'])
+        tasks = self.h.service_state()['projects']['github.com/octo/app']['tasks']
+        self.assertEqual(tasks['shared before leaving']['status'], 'done')   # what happened while away reached the household
+        self.assertIn('shared while away', tasks)
+
+    def bo_id(self):
+        return self.h.membership(self.h.bo_home)['user_id']
 
 
 class CommandsTest(unittest.TestCase):

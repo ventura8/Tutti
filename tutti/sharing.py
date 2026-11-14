@@ -106,6 +106,21 @@ def apply(data, keys, answer, now):
     return hold, events
 
 
+def taken_meanwhile(data, keys, answer):
+    """A shared task this member ran while away, whose lease another member took after it expired: said, so the two
+    results are compared before either lands (nothing is dropped)."""
+    out = []
+    by_key = {pkey: repo for repo, pkey in keys.items() if pkey}
+    for pkey, p in (answer.get('projects') or {}).items():
+        held = p.get('held') or {}
+        for t in data['tasks']:
+            if t['repo'] == by_key.get(pkey) and t['status'] in household.HELD and household.fold(t['title']) in held:
+                who = held[household.fold(t['title'])]
+                t['notes'] = [*t.get('notes', []), f'{who} took it while you were away: compare before landing']
+                out.append(f'{t["id"]}: {who} took it while you were away; both results are kept')
+    return out
+
+
 def no_key_hold(data, keys):
     """A shared repo without an origin remote cannot be matched across members: its tasks wait, and say why."""
     return {t['id']: f'shared, but {t["repo"]} has no origin remote: give it one (git remote add origin <url>) so the household '
@@ -129,9 +144,17 @@ def sync(cfg, data, beat=None, client=None, now=0.0, run=subprocess.run):
     try:
         answer = client.call('/hh/sync', ask(cfg, data, keys, beat or {}))
     except (coordinator.Unreachable, household.HouseholdError) as e:
-        telemetry.record('feature', 'household.sync', outcome='offline' if isinstance(e, coordinator.Unreachable) else 'refused')
-        fairshare.save_cache(config.state_dir(cfg), None, now or time.time(), error=str(e))
+        away = isinstance(e, coordinator.Unreachable)
+        telemetry.record('feature', 'household.sync', outcome='offline' if away else 'refused')
+        fairshare.save_cache(config.state_dir(cfg), None, now or time.time(), error=str(e), away=away)
         return {'hold': offline_hold(data, keys, type(e).__name__), 'events': [], 'answer': None, 'error': str(e), 'keys': keys}
+    was_away = fairshare.read_cache(config.state_dir(cfg)).get('away_since')
+    events = []
+    if was_away:   # back on the home network: this round reported everything that happened meanwhile
+        p = ask(cfg, data, keys, beat or {})['projects'].values()
+        events.append(f'back home: synced with the household ({sum(len(x["publish"]) for x in p)} task(s) published, '
+                      f'{sum(len(x["closed"]) for x in p)} closed, after {((now or time.time()) - was_away) / 60:.0f} min away)')
+        telemetry.record('feature', 'household.return', minutes=round(((now or time.time()) - was_away) / 60))
     telemetry.record('feature', 'household.sync', outcome='ok', projects=len(answer.get('projects') or {}),
                      machines=len(answer.get('machines') or {}))
     if answer.get('machines') is not None:
@@ -141,14 +164,15 @@ def sync(cfg, data, beat=None, client=None, now=0.0, run=subprocess.run):
                    if int(m.get('grant', 0)) < sum(int((want.get(n) or {}).get(k, 0)) for k in ('interactive', 'background'))]
         telemetry.record('feature', 'household.grant', machines=len(answer['machines']), limited=len(limited),
                          granted=sum(int(m.get('grant', 0)) for m in answer['machines'].values()))
-    return {'hold': {}, 'events': [], 'answer': answer, 'error': None, 'keys': keys}
+    return {'hold': {}, 'events': events, 'answer': answer, 'error': None, 'keys': keys}
 
 
 def under_lock(result, data, now):
     """(hold, events) for the round's plan, from the backlog read under the lock: the answer mirrored, or every shared
     queued task held while the coordinator cannot be reached."""
     if result['answer'] is not None:
-        return apply(data, result['keys'], result['answer'], now)
+        hold, events = apply(data, result['keys'], result['answer'], now)
+        return hold, list(result.get('events') or []) + events + taken_meanwhile(data, result['keys'], result['answer'])
     if result['error']:
         return offline_hold(data, result['keys'], 'unreachable'), []
     return no_key_hold(data, result['keys']), []
@@ -388,11 +412,14 @@ def view(cfg, now):
     cache = fairshare.read_cache(config.state_dir(cfg))
     status = cache.get('status') or {}
     fresh = now - (cache.get('at') or 0) <= fairshare.STALE_SECONDS
+    away = bool(cache.get('away_since')) and not fresh
     members = [{**{k: x.get(k) for k in ('name', 'agent', 'online', 'active', 'runs_today', 'last_seen')}, 'me': x['name'] == m.get('name')}
                for x in status.get('members') or []]
     return {'role': users.role(m), 'household': m.get('household'), 'me': m.get('name'), 'main': me['main'], 'reachable': fresh,
             'error': cache.get('error') if not fresh else None, 'at': cache.get('at'), 'members': members,
-            'machines': cache.get('machines') or {}, 'admin': status.get('admin'), 'projects': status.get('projects') or {}}
+            'machines': cache.get('machines') or {}, 'admin': status.get('admin'), 'projects': status.get('projects') or {},
+            'away': away, 'away_since': cache.get('away_since') if away else None,
+            'away_note': 'away from the household: working on your own until you\'re home' if away else None}
 
 
 def busy_for(items, hh):

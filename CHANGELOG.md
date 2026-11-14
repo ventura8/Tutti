@@ -22,6 +22,11 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
   whether the coordinator answers); a shared machine in **Machines** says who else it is busy for. Others' jobs are never
   shown, only their names and counts.
 
+- **Away from home with no VPN:** a member who cannot reach the coordinator keeps working on their own (own accounts,
+  readings and machines), starts no shared task and takes or renews no lease, and syncs everything on the first round
+  back home ("back home: synced ..."); a task another member took meanwhile keeps both results with a note. The dashboard
+  says "away from the household: working on your own until you're home". Tested offline, then sync.
+
 ### Fixed
 
 - Jain's fairness index divided by zero when nobody got a slot (a paused machine).

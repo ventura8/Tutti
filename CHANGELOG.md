@@ -2,6 +2,34 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.10 (2026-11-14)
+
+The open items of 0.1.8 and 0.1.9, each proven with a real run.
+
+### Fixed
+
+- Antigravity with Claude models: they call one generic `Bash` tool that per-command allow (and deny) rules do not match,
+  so every command was soft-denied in `accept-edits`. The agy-claude account's `args` carry `--settings` with
+  `command(*)`; an account's args now **replace** a flag the worker (or `main.commands`) already has (`--model`,
+  `--settings`) instead of being appended. `tutti run auto` and `tutti conduct --main agy` run on agy-claude while its
+  window has room (a pinned conduct command no longer drops the account's model).
+- The reading helper on the real Cursor spending page: "Other Models" took the reset of Grok's weekly meter below it. A
+  meter is now read line by line (its label, its amount, a "Resets" line right after it), else the page's "Usage limits
+  reset on <date>". The parser moved to `tutti/web/helper-parse.js` and is tested in node on the real page's text.
+- Heat: a run already waiting in `slot.sh` re-reads the temperature right before it starts (`heat` reaches it as
+  `HEAT_STOP_C`, `HEAT_CAP_C`, `HOT_SLOTS`); too hot, it gives its lock back and waits.
+- Changed files with spaces: git's names are read with `-z`; `$TUTTI_CHANGED` and `{changed}` hold one path per line.
+
+### Added
+
+- `tutti usage page-script [<url part>]` and `tutti usage page-reading '<json>'`: the helper's parser for an
+  orchestrator's browser tool, when nobody clicks the bookmarklet (the dashboard cannot read cursor.com).
+- Copilot AI credits from the CLI's own session records (`~/.copilot/session-state`), so runs outside Tutti count, and
+  `accounts.<n>.credits_machines` adds other machines' sessions (a WSL machine's Windows side too). The card says where
+  they came from.
+- `projects.<n>.repo: owner/name`: the Projects panel shows the project's open pull requests, a release in progress first,
+  with CI and review state.
+
 ## 0.1.9 (2026-11-14)
 
 Any agent can be the main agent; the dashboard shows the projects on every machine.

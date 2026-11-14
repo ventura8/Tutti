@@ -103,7 +103,9 @@ A machine may override any of these with its own `files:` (for example a larger 
   than `hot_slots` run there; at `stop_c` or more it takes nothing new. Routing then falls over to the next machine in
   `routing.order`, so put a `local` machine with one capped slot last as the fallback. A machine refused for heat is never
   the queue of last resort either. A machine without readable thermal
-  zones (WSL) is never refused for heat.
+  zones (WSL) is never refused for heat. Routing looks once, when the run is queued; `slot.sh` looks again right before a
+  waiting run starts (`HEAT_STOP_C`, `HEAT_CAP_C`, `HOT_SLOTS`, passed from `heat`): when the machine is too hot it gives
+  its lock back, says `slot.sh: waiting, too hot: 99 C ...` once, and starts when the machine has cooled down.
 - **Memory guard.** `tutti guard` watches available memory. Under `guard.low_gb` it pauses (never kills) the runner
   image's containers; over `guard.high_gb` it resumes them.
 - **One heavy local job at a time.** A `local` machine with one slot is the only way agents run heavy commands on the

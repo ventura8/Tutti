@@ -41,6 +41,33 @@ def command(worker, prompt, log=None):
     return out
 
 
+def pairs(args):
+    """[(flag, value or None) or (word, None)] of an argument list: `--x v` is one pair when v does not start with `-`."""
+    out, i = [], 0
+    while i < len(args):
+        a = args[i]
+        if a.startswith('-') and i + 1 < len(args) and not args[i + 1].startswith('-'):
+            out.append((a, args[i + 1]))
+            i += 2
+        else:
+            out.append((a, None))
+            i += 1
+    return out
+
+
+def with_args(argv, extra):
+    """The worker's argv with an account's extra arguments: a `--flag value` the command already has gets the account's value
+    (agy-claude's `--settings` replaces the worker's per-command allow list, its `--model` the default), the rest is added."""
+    out = list(argv)
+    for flag, value in pairs(list(extra)):
+        at = out.index(flag) if flag.startswith('-') and value is not None and flag in out[1:] else -1
+        if at > 0 and at + 1 < len(out) and not out[at + 1].startswith('-'):
+            out[at + 1] = value
+        else:
+            out += [flag] if value is None else [flag, value]
+    return out
+
+
 def _tagged(name):
     """Ollama's own identity for a model: an untagged `llama3` is `llama3:latest`."""
     return name if ':' in name.rsplit('/', 1)[-1] else f'{name}:latest'
@@ -90,7 +117,7 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
     worker = cfg['workers'][name]
     out = out or sys.stdout
     kept = collections.deque(maxlen=KEEP_LINES)
-    argv = command(worker, brief(cfg, task, files), log) + list(extra)
+    argv = with_args(command(worker, brief(cfg, task, files), log), extra)
     with subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           text=True, errors='replace', bufsize=1) as p:
         for line in p.stdout:

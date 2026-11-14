@@ -59,8 +59,12 @@ your own IDE use, which Tutti does not start"). One `reading_file` can serve sev
 
 **Copilot.** `reader: {command: [gh, api, /users/<login>/settings/billing/premium_request/usage], format: github-premium,
 allowance: 300}` reads the month's premium requests (the gh token needs the `user` scope: `gh auth refresh -h github.com
--s user`, a step for the owner). `credits: true` adds the "AI Credits N" that `copilot -p` prints at the end of each run,
-summed over the window from Tutti's own run logs (runs started elsewhere are not in it).
+-s user`, a step for the owner). `credits: true` adds the AI credits spent in the window, from the Copilot CLI's own
+session records: every session writes `~/.copilot/session-state/<id>/events.jsonl`, whose `session.shutdown` record has
+`totalNanoAiu` (credits x 1e9) and `sessionStartTime`, so runs started outside Tutti count too (without that folder, the
+"AI Credits N" lines of Tutti's run logs). `credits_machines: [pc]` adds other machines' sessions: over ssh, and for a WSL
+machine its Windows side too (`%USERPROFILE%\.copilot`, PowerShell), read-only and at most every 10 minutes; the card
+says where they came from ("here 15.99, pc 7.49") and names a machine that did not answer.
 
 **Stale readings.** An account with no `reader` is read by hand (or by the helper or a file). When it has no reading,
 or its newest is older than `stale_hours` (default 2; 0 turns the reminder off), `tutti usage` prints

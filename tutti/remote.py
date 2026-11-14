@@ -148,8 +148,13 @@ def runner_command(machine, track, command, mount=''):
 
 
 def slot_prefix(machine):
+    """slot.sh's environment: the memory floor, the lock files and the heat limits, so a run that already waits in the queue
+    re-reads the temperature right before it starts (routing only looked when it was queued)."""
     locks = shlex.quote(' '.join(lock_files(machine)))
-    return f'MIN_FREE_GB={int(machine["min_free_gb"])} SLOT_LOCKS={locks}'
+    heat = machine.get('heat') or {}
+    names = {'stop_c': 'HEAT_STOP_C', 'cap_c': 'HEAT_CAP_C', 'hot_slots': 'HOT_SLOTS'}
+    extra = ''.join(f' {names[k]}={int(float(heat[k]))}' for k in names if heat.get(k) is not None)
+    return f'MIN_FREE_GB={int(machine["min_free_gb"])} SLOT_LOCKS={locks}{extra}'
 
 
 def _check(result, what):

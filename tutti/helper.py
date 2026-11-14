@@ -15,12 +15,26 @@ from urllib.parse import urlsplit
 KEY_FILE = 'helper.key'
 
 # The bookmarklet's script, one expression; its comment lines are dropped and its lines joined with spaces.
-SCRIPT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web', 'helper-bookmarklet.js')
+WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
+SCRIPT_FILE = os.path.join(WEB, 'helper-bookmarklet.js')
+PARSE_FILE = os.path.join(WEB, 'helper-parse.js')   # the parser alone: the bookmarklet and the orchestrator's page script share it
+
+
+def joined(path):
+    with open(path, encoding='utf8') as f:
+        return ' '.join(line.strip() for line in f if line.strip() and not line.lstrip().startswith('//'))
 
 
 def script():
-    with open(SCRIPT_FILE, encoding='utf8') as f:
-        return ' '.join(line.strip() for line in f if line.strip() and not line.lstrip().startswith('//'))
+    return joined(SCRIPT_FILE).replace('__PARSE__', joined(PARSE_FILE))
+
+
+def page_script(targets):
+    """The JavaScript an orchestrator runs in the owner's open usage page through its browser tool (claude-in-chrome's
+    javascript_tool): it reads the visible text with the bookmarklet's parser and evaluates to a JSON string
+    {readings: [{account, used, resets, how}], missing: [...]}, which `tutti usage page-reading '<json>'` records. The dashboard
+    itself cannot read cursor.com (the owner's sign-in lives in the browser), so this is the fallback when nobody clicks."""
+    return f'JSON.stringify(({joined(PARSE_FILE)})(document.body.innerText, {json.dumps(targets)}))'
 
 
 def key(state_dir):

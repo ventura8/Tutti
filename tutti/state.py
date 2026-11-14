@@ -48,14 +48,29 @@ def usage_state(cfg, now):
     return {'log': path, 'problem': problem, 'accounts': accounts}
 
 
-def with_credits(cfg, s, a):
-    """For an account with `credits: true` (Copilot): the AI credits its runs printed in this window, from Tutti's run and
-    quiet logs. Runs started outside Tutti are not counted; the plan's own report (a reader) is the full picture."""
-    from . import readers
-    if a.get('credits') and s.get('window_start'):
+def with_credits(cfg, s, a, machine_fn=None):
+    """For an account with `credits: true` (Copilot): the AI credits spent in this window. Here: the Copilot CLI's own session
+    records (~/.copilot/session-state, every run, Tutti's or not), else the "AI Credits" lines of Tutti's run and quiet logs;
+    plus each machine of `credits_machines` (a WSL machine's Windows side too). `credits_where` says where they came from."""
+    from . import credits, readers
+    if not (a.get('credits') and s.get('window_start')):
+        return s
+    since = pacing.parse_time(s['window_start'])
+    lines = credits.local_lines(since)
+    if lines is None:
         folder = config.expand(cfg['project']['state'])
-        s['credits_used'] = readers.credits_since([os.path.join(folder, 'runs'), os.path.join(folder, 'quiet')],
-                                                  pacing.parse_time(s['window_start']))
+        here = readers.credits_since([os.path.join(folder, 'runs'), os.path.join(folder, 'quiet')], since)
+    else:
+        here = credits.shutdown_credits(lines, since)
+    where, problems, total = [f'here {here:g}'], [], here
+    for name in a.get('credits_machines') or []:
+        value, problem = (machine_fn or credits.machine_credits)({**cfg['machines'][name], 'name': name}, since)
+        if problem:
+            problems.append(problem)
+        if value is not None:
+            total += value
+            where.append(f'{name} {value:g}')
+    s.update(credits_used=round(total, 2), credits_where=', '.join(where), credits_problem='; '.join(problems) or None)
     return s
 
 

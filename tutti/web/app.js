@@ -280,7 +280,10 @@ function account(a, now) {
     card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
     if (a.room_tasks) card.append(el('p', { class: 'account__nudge', 'data-tone': 'ok', text: `Use it: ${a.room_tasks} bounded task(s) can go here now (tutti run auto "<task>" --repo <repo>)` }));
     if (a.note) card.append(el('p', { class: 'account__note', text: a.note }));
-    if (a.credits_used !== undefined) card.append(el('p', { class: 'account__auto', text: `${a.credits_used} AI credits in this window from Tutti's runs` }));
+    if (a.credits_used !== undefined) {
+        card.append(el('p', { class: 'account__auto', text: `${a.credits_used} AI credits in this window (${a.credits_where || 'here'})` }));
+        if (a.credits_problem) card.append(el('p', { class: 'account__auto', text: a.credits_problem }));
+    }
     if (a.stale) card.append(el('p', { class: 'account__remind', 'data-tone': 'warn', role: 'note', text: `Reminder: ${a.remind}` }));
     card.append(accountFacts(a), autoLine(a) || '', ui.editing.has(a.name) ? readingForm(a) : addButton(a));
     return card;
@@ -405,6 +408,21 @@ function machineLine(m) {
     return parts.join(' · ');
 }
 
+function prLine(pr) {
+    const what = pr.release ? `Release ${pr.release} in progress` : (pr.draft ? 'Draft pull request' : 'Pull request');
+    const ci = { failing: 'CI failing', pending: 'CI running', passing: 'CI passing', none: 'no CI' }[pr.ci] || pr.ci;
+    return el('p', { class: 'row__note' },
+        el('a', { href: pr.url, target: '_blank', rel: 'noopener noreferrer', text: `${what}: #${pr.number} ${pr.title}` }),
+        ` · ${ci} (${pr.ci_detail}) · review: ${pr.review}`);
+}
+
+function prLines(prs) {
+    if (!prs) return [];
+    const lines = prs.items.map(prLine);
+    if (prs.error) lines.push(el('p', { class: 'row__note', text: `Pull requests of ${prs.repo} not read: ${prs.error}` }));
+    return lines;
+}
+
 function project(p) {
     const busy = p.running + p.machines.reduce((n, m) => n + m.processes, 0);
     const repos = p.repos.map((r) => [`${r.machine}: ${r.path}`, r.branch && `(${r.branch})`].filter(Boolean).join(' '));
@@ -415,6 +433,7 @@ function project(p) {
         el('div', { class: 'row__name' }, p.name, el('span', { class: 'row__kind', text: counts })),
         chip(busy ? 'active' : 'idle', busy ? 'accent' : 'idle'),
         el('p', { class: 'row__note', text: p.last_activity ? `Last activity ${relative(p.last_activity)}` : 'No activity seen' }),
+        ...prLines(p.prs),
         ...repos.map((r) => el('p', { class: 'row__note', text: r })),
         ...p.machines.map((m) => el('p', { class: 'row__note', text: machineLine(m) })),
         el('div', { class: 'row__stats' }, el('button', {

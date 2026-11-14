@@ -125,7 +125,7 @@ def local_review(cfg, repo, number, name, args, gh_fn=gh, run_worker=None):
     with tempfile.TemporaryDirectory(prefix='tutti-review-') as d:
         with open(os.path.join(d, 'pr.diff'), 'w', encoding='utf8') as f:
             f.write(diff)
-        argv = workers.command(cfg['workers'][name], PROMPT) + list(args)
+        argv = workers.with_args(workers.command(cfg['workers'][name], PROMPT), args)
         run_worker = run_worker or (lambda a, cwd: subprocess.run(a, cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL,
                                                                     timeout=1800))
         r = run_worker(argv, d)

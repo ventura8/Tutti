@@ -24,6 +24,24 @@ def git(top, *args, check=True):
     return r.stdout.strip()
 
 
+def names(top, *args):
+    """Paths git lists, read NUL-separated (`-z`): a name with a space, a leading space or a non-ASCII letter stays whole and
+    unquoted (plain --name-only quotes such names and the old space-joined list split them)."""
+    r = subprocess.run([worktree.git_bin(), '-C', top, *args, '-z'], capture_output=True, text=True)
+    return [n for n in r.stdout.split('\0') if n]
+
+
+def join_changed(paths):
+    """$TUTTI_CHANGED and `{changed}`: one path per line (an environment variable cannot hold NUL). A check splits it on
+    newlines (`mapfile -t F <<< "$TUTTI_CHANGED"`, `xargs -d '\\n'`); a plain `$TUTTI_CHANGED` still word-splits names
+    without spaces as before."""
+    return '\n'.join(paths)
+
+
+def split_changed(text):
+    return [n for n in (text or '').split('\n') if n]
+
+
 def toplevel(directory):
     r = subprocess.run([worktree.git_bin(), '-C', directory, 'rev-parse', '--show-toplevel'], capture_output=True, text=True)
     if r.returncode != 0:
@@ -86,15 +104,14 @@ def message(text, trailer):
 
 def pending(top):
     """Files changed or new in the work tree, not yet committed."""
-    names = git(top, 'diff', '--name-only', 'HEAD', check=False).split('\n') + \
-        git(top, 'ls-files', '--others', '--exclude-standard').split('\n')
-    return sorted({n for n in names if n})
+    found = names(top, 'diff', '--name-only', 'HEAD') + names(top, 'ls-files', '--others', '--exclude-standard')
+    return sorted(set(found))
 
 
 def changed_since(top, base):
     if not base:
         return []
-    return [n for n in git(top, 'diff', '--name-only', '--diff-filter=d', f'{base}...HEAD').split('\n') if n]
+    return names(top, 'diff', '--name-only', '--diff-filter=d', f'{base}...HEAD')
 
 
 def shell(top, command, env):
@@ -112,19 +129,20 @@ CHANGED = re.compile(r'\{changed(?::([\w,]+))?\}')
 
 
 def expand_changed(command, changed):
-    """`{changed}` becomes the changed paths, quoted and space-separated; `{changed:ts,js}` only those with these extensions.
-    A routed check runs on another machine, where $TUTTI_CHANGED is not set: the placeholder carries the list there.
-    Write `F={changed:ts}; ${F:+npx eslint $F &&} true` so an empty list skips the tool instead of running it on everything."""
+    """`{changed}` becomes the changed paths as one quoted word, one path per line; `{changed:ts,js}` only those with these
+    extensions. A routed check runs on another machine, where $TUTTI_CHANGED is not set: the placeholder carries the list there.
+    Write `F={changed:ts}; [ -z "$F" ] || printf '%s\\n' "$F" | xargs -d '\\n' npx eslint` so an empty list skips the tool and a
+    path with a space stays one argument (`${F:+npx eslint $F}` still works for names without spaces)."""
     def one(m):
         exts = tuple(f'.{e}' for e in m.group(1).split(',')) if m.group(1) else None
-        names = [n for n in changed if exts is None or n.endswith(exts)]
-        return shlex.quote(' '.join(names))
+        picked = [n for n in changed if exts is None or n.endswith(exts)]
+        return shlex.quote(join_changed(picked))
     return CHANGED.sub(one, command)
 
 
 def run_check(cfg, top, check, env, track):
     """One check: here, or on a routed machine behind its slot queue. Returns (exit code, the machine or 'local')."""
-    run = expand_changed(check['run'], (env.get('TUTTI_CHANGED') or '').split())
+    run = expand_changed(check['run'], split_changed(env.get('TUTTI_CHANGED')))
     if check.get('where', 'local') != 'route':
         return shell(top, run, env).returncode, 'local'
     machines = {n: config.merge(m, {'runner': check.get('runner') or {}}) for n, m in cfg['machines'].items()}
@@ -225,7 +243,7 @@ def ship(cfg, directory, text, full=False, no_add=False, track=None, allow_prote
         return
     say(f'ship: {top} (branch {branch})')
     worktree.share(top, s.get('share', []), say)
-    if s.get('format') and shell(top, s['format'], {'TUTTI_CHANGED': ' '.join(pending(top))}).returncode != 0:
+    if s.get('format') and shell(top, s['format'], {'TUTTI_CHANGED': join_changed(pending(top))}).returncode != 0:
         say('ship: the format step failed; going on, the checks will show why')
     if not no_add:
         paths = [p for p in s['add'] if os.path.exists(os.path.join(top, p))]
@@ -233,8 +251,8 @@ def ship(cfg, directory, text, full=False, no_add=False, track=None, allow_prote
             git(top, 'add', '-A', '--', *paths)
     if subprocess.run([worktree.git_bin(), '-C', top, 'diff', '--cached', '--quiet']).returncode != 0:
         git(top, 'commit', '-q', '-m', message(text, s.get('trailer', '')))
-    env = {'TUTTI_CHANGED': ' '.join(changed_since(top, s.get('base'))), 'TUTTI_COMMIT': git(top, 'rev-parse', 'HEAD'), 'TUTTI_TREE': top,
-           'TUTTI_GIT_MOUNT': worktree.docker_mount(top)}
+    env = {'TUTTI_CHANGED': join_changed(changed_since(top, s.get('base'))), 'TUTTI_COMMIT': git(top, 'rev-parse', 'HEAD'),
+           'TUTTI_TREE': top, 'TUTTI_GIT_MOUNT': worktree.docker_mount(top)}
     run_checks(cfg, top, s['full_checks'] if full else s['checks'], env, track or os.path.basename(top), say)
     push = s.get('push')
     if push:

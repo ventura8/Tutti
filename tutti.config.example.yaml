@@ -97,7 +97,10 @@ accounts:
     resets_estimated: true
     source: agy /usage (Claude and GPT models, 5 h)
     worker: agy
-    args: [--model, claude-sonnet-5-5-medium]   # `tutti run auto` adds these when it picks this account
+    # `tutti run auto` and `tutti conduct` add these when they pick this account; a flag the worker already has is replaced.
+    # agy's Claude models call one generic Bash tool that per-command rules neither allow nor deny (agy 1.5.9): only
+    # command(*) lets them run commands headless, so this account's --settings replaces the worker's list.
+    args: [--model, claude-sonnet-5-5-medium, --settings, '{"permissions":{"allow":["command(*)"]}}']
     reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: 3p-5h}
     match: {command: '\bagy\b', model: 'claude|sonnet|opus|gpt'}
   agy-gemini:
@@ -177,5 +180,5 @@ main:
 # The dashboard's projects: named by their git remote; these entries name them and lend them machines, containers and a
 # Windows folder (a WSL machine's Windows processes, read over its plain ssh). Read-only: nothing is started or stopped.
 projects:
-  my-app: {match: 'my-app', containers: [my-app-]}
+  my-app: {match: 'my-app', containers: [my-app-], repo: octo/my-app}   # repo: its open pull requests (a release), CI and reviews
   # other-app: {match: other-app, machines: [win-box], windows: {win-box: 'C:\Users\me\Projects\other-app'}}

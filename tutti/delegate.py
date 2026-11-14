@@ -108,7 +108,7 @@ def capture_diff(wt, diff_path):
     Returns (changed paths, the --stat text)."""
     ship.git(wt, 'add', '-A')
     try:
-        names = [n for n in ship.git(wt, 'diff', '--cached', '--name-only', 'HEAD').split('\n') if n]
+        names = ship.names(wt, 'diff', '--cached', '--name-only', 'HEAD')
         stat = ship.git(wt, 'diff', '--cached', '--stat', 'HEAD')
         patch = subprocess.run([worktree.git_bin(), '-C', wt, 'diff', '--cached', '--binary', 'HEAD'], capture_output=True).stdout
     finally:
@@ -216,7 +216,7 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
         r = {'id': run_id, 'worker': name, 'task': task, 'worker_rc': rc, 'worktree': wt, 'created': created, 'diff': p['diff'],
              'changed': changed, 'stat': stat, 'denied': found, 'checks': None, 'report': p['report']}
         if checks and changed:
-            env = {'TUTTI_CHANGED': ' '.join(changed), 'TUTTI_TREE': wt, 'TUTTI_GIT_MOUNT': worktree.docker_mount(wt)}
+            env = {'TUTTI_CHANGED': ship.join_changed(changed), 'TUTTI_TREE': wt, 'TUTTI_GIT_MOUNT': worktree.docker_mount(wt)}
             chosen = cfg['delegate']['checks'] if cfg['delegate']['checks'] is not None else cfg['ship']['checks']
             remote_track = track or cfg['delegate']['remote_track']
             with track_lock(cfg, remote_track, say):

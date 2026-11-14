@@ -158,3 +158,27 @@ The first agy conductor runs passed; a later one ended after its CLI auto-denied
 commands (`cd`, `&&`, `>>`) that no `command(...)` rule allows, and Claude models in agy use a `Bash` tool the list does
 not cover at all. The turn had exited 0, so it would have read as done: a turn now counts as done only with a `DONE:` line
 and no denied tool call, and the instructions ask for one command per line and edits through the agent's own edit tool.
+
+## agy's Claude models ignore per-command rules (2026-11-14)
+
+`agy -p --model claude-sonnet-5-5-low --mode accept-edits` soft-denied `python3 -c ...` although `command(python3)` was
+in the allow list, and ran `echo` although `deny: [command(echo)]` was set: Claude models call one generic `Bash` tool
+(`Step_Generic` in agy's log), which per-command rules do not match. Only `command(*)` allowed it. So agy-claude carries
+its own `--settings` with `command(*)`, and an account's args replace the worker's flag instead of being appended after it.
+
+## A brief rule can veto the task (2026-11-14)
+
+The first agy-claude proof asked the worker to run the tests; it fixed the bug but ran nothing, because the brief's
+standing rule said not to run tests on this computer. A proof of a permission needs a command no brief rule forbids
+(`uname -s`, `git log`).
+
+## A meter's reset is not the next "Resets" on the page (2026-11-14)
+
+The reading helper cut a meter at 400 characters, so "Other Models 14% used" took "Resets Nov 15" from Grok's weekly
+meter below it instead of the plan's "Usage limits reset on Dec 10". A meter now ends at its amount line, and only a
+"Resets" line right after it is its own.
+
+## Changed files with spaces (2026-11-14)
+
+`$TUTTI_CHANGED` and `{changed}` were space-joined and read back with `split()`, and git's `--name-only` quotes unusual
+names: `my file.ts` reached a check as two paths. Names are read with `-z` and passed one per line.

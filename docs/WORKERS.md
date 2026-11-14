@@ -31,6 +31,12 @@ output and `{log}` for this pattern and reports every hit as DENIED. All three r
   tier is closed, so Antigravity's CLI is the Google worker; see [LESSONS.md](LESSONS.md).
   agy 1.5.9 headless prints `jetski: ... a tool required the "command" permission ... auto-denied` for a command outside
   the list; match it with `denied: 'auto-denied|soft-denying'`.
+  **Claude models in agy** (`--model claude-...`) call one generic `Bash` tool: per-command rules neither allow nor deny it
+  in `accept-edits` (`command(python3)` listed, `python3` still soft-denied; `deny: [command(echo)]`, `echo` still ran);
+  only `command(*)` lets them run commands headless (agy 1.5.9, 2026-11-14). The agy-claude account's `args` carry
+  `--settings '{"permissions":{"allow":["command(*)"]}}'`, which replaces the worker's list for those runs only; an
+  account's `args` replace a flag the worker command already has (`--model`, `--settings`) instead of doubling it. The
+  limits are then Tutti's: the run's own worktree, the brief's "do not commit or push", ship's guard and the review.
 - **GitHub Copilot CLI**: `copilot -p "<brief>" --allow-all-tools --no-ask-user -s`.
 - **Claude**: `claude -p "<brief>"`.
 
@@ -53,8 +59,10 @@ dashboard flags agent processes it finds working outside a Tutti folder.
 3. the diff of everything it changed or added, as one patch file, and the list of changed paths;
 4. the checks (`delegate.checks`, default `ship.checks`) with `$TUTTI_CHANGED`; a routed check (`where: route`) runs on
    the first fit machine in a copy named `delegate.remote_track` (one run at a time per copy; `--track` gives a run its
-   own) and gets the list through `{changed}` or `{changed:ts,js}` in its command (space-separated, like
-   `$TUTTI_CHANGED`: a path with a space in its name is split; such repositories need a check that reads the list from git);
+   own) and gets the list through `{changed}` or `{changed:ts,js}` in its command. Both hold one path per line (git's
+   names are read with `-z`), so a path with a space stays whole: `F={changed:ts}; [ -z "$F" ] || printf '%s\n' "$F" |
+   xargs -d '\n' npx eslint`, or `mapfile -t F <<< "$TUTTI_CHANGED"`; a plain `$TUTTI_CHANGED` still word-splits names
+   without spaces as before;
 5. a report (`tutti runs show <id>`): the changed files, the diff's path, each check's verdict and log, **"coverage NOT
    checked"** when a check turns coverage off (seen in the command or the script it runs, or `coverage: false`), DENIED
    tool calls, and the lines to review, apply or discard.

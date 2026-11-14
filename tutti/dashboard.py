@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-from . import conduct, config, helper, pacing, projects, readers, remote, state, transfer, workers
+from . import conduct, config, helper, pacing, projects, readers, releases, remote, state, transfer, workers
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 BIND = '127.0.0.1'
@@ -36,9 +36,9 @@ class Collector:
     """Holds the latest probes and refreshes them every `probe_seconds` in a daemon thread."""
 
     def __init__(self, cfg, probe_fn=remote.probe, available_fn=workers.available, clock=time.time, reader=None, stored_fn=None,
-                 activity_fn=projects.probe_activity):
+                 activity_fn=projects.probe_activity, prs_fn=releases.all_prs):
         self.cfg, self.probe_fn, self.available_fn, self.clock = cfg, probe_fn, available_fn, clock
-        self.activity_fn = activity_fn
+        self.activity_fn, self.prs_fn = activity_fn, prs_fn
         self.stored_fn = stored_fn or (lambda m: transfer.stored(cfg, m))
         self.reader = reader or readers.Readers(cfg, clock=clock)
         self.probes = {}
@@ -66,6 +66,7 @@ class Collector:
     def refresh(self):
         fresh = state.probe_all(self.cfg, self.probe_fn, self.available_fn, clock=self.clock, stored_fn=self.stored_fn)
         fresh['activity'] = projects.probe_all(self.cfg, self.activity_fn)
+        fresh['prs'] = self.prs_fn(self.cfg)
         try:
             fresh['readers'] = self.read_usage()
         except (OSError, ValueError) as e:   # a broken usage log must not hide machines and workers
@@ -97,6 +98,7 @@ class Collector:
         projects.tag(self.cfg, out['jobs']['items'])
         out['projects'] = projects.projects_state(self.cfg, out['jobs']['items'], out['machines']['items'], probes.get('activity'),
                                                   out['main']['running'], out['generated_at'])
+        releases.attach(out['projects'], probes.get('prs'))
         out['probe_error'] = probes.get('error')
         return out
 

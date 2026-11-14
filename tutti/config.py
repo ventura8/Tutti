@@ -226,7 +226,7 @@ def _projects_errors(cfg):
     for name, p in ps.items():
         p = p or {}
         if not isinstance(p, dict):
-            errs.append(f'projects.{name} is {p!r}: a mapping with match:, machines:, containers: or windows:')
+            errs.append(f'projects.{name} is {p!r}: a mapping with match:, machines:, containers:, windows: or repo:')
             continue
         if 'match' in p:
             errs += _regex_errors(f'projects.{name}.match', p['match'])
@@ -235,6 +235,8 @@ def _projects_errors(cfg):
         win = p.get('windows') or {}
         errs += [f'projects.{name}.windows names "{m}", which is not a wsl machine under machines:' for m in win
                  if (cfg['machines'].get(m) or {}).get('transport') != 'wsl']
+        if 'repo' in p and not (isinstance(p['repo'], str) and re.fullmatch(r'[\w.-]+/[\w.-]+', p['repo'])):
+            errs.append(f'projects.{name}.repo is {p["repo"]!r}: the GitHub repository as owner/name, e.g. octo/my-app')
     return errs
 
 
@@ -324,6 +326,11 @@ def _account_worker_errors(cfg, name, a):
     args = a.get('args', [])
     if not isinstance(args, list) or not all(isinstance(x, str) for x in args):
         errs.append(f'accounts.{name}.args is {args!r}: a list of extra arguments for its worker, e.g. [--model, gemini-3.8-flash-high]')
+    cm = a.get('credits_machines', [])
+    if not isinstance(cm, list):
+        errs.append(f'accounts.{name}.credits_machines is {cm!r}: a list of machines whose Copilot sessions count, e.g. [pc]')
+    else:
+        errs += [f'accounts.{name}.credits_machines names "{m}", which is not under machines:' for m in cm if m not in cfg['machines']]
     return errs
 
 

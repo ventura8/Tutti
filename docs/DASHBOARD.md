@@ -24,7 +24,7 @@ by itself once `tutti dashboard` runs again.
 
 | Panel | Source |
 | --- | --- |
-| Projects | Each project Tutti sees: from each job's folder (an agent's working directory, a script's, a delegated run's worktree) to its git repository, named by its remote; and a read-only look at every machine (its processes working inside a git repository under the user's home, a `tutti test` copy under the machine's `root` counted for its local worktree's project, and an NVIDIA GPU's use). Per project: running jobs, running agents and delegated runs, the repositories with machine and branch, per machine the processes and their programs, and its last activity. `projects:` in the config names projects and lends them machines (their yield flag and GPU), test containers and a Windows folder: a WSL machine's Windows processes are invisible from WSL, so Tutti reads them over the machine's plain ssh with PowerShell (program names and start times of processes whose command line names that folder; never a command line, never a change). **Show its jobs** and the Jobs panel's project list filter the jobs. |
+| Projects | Each project Tutti sees: from each job's folder (an agent's working directory, a script's, a delegated run's worktree) to its git repository, named by its remote; and a read-only look at every machine (its processes working inside a git repository under the user's home, a `tutti test` copy under the machine's `root` counted for its local worktree's project, and an NVIDIA GPU's use). Per project: running jobs, running agents and delegated runs, the repositories with machine and branch, per machine the processes and their programs, and its last activity. `projects:` in the config names projects and lends them machines (their yield flag and GPU), test containers and a Windows folder: a WSL machine's Windows processes are invisible from WSL, so Tutti reads them over the machine's plain ssh with PowerShell (program names and start times of processes whose command line names that folder; never a command line, never a change). **Show its jobs** and the Jobs panel's project list filter the jobs. A project with `repo: owner/name` also shows its open pull requests (gh, the owner's sign-in, at most every 2 minutes): a release in progress (a title that names a version) first, each with its CI state (failing, running, passing, with the checks' names) and its reviews (the decision, else who reviewed and how). |
 | Main agent | The main agent (`main.agent`, or the owner's switch), each candidate with why it is out (all its accounts in panic or spent), and the running or last `tutti conduct` run: the goal, its agents in turn and why each stopped. **Switch** posts to `/api/main`; a running conductor hands over at its next check. |
 | Usage & pacing | `accounts:` in the config and the usage log (`tutti usage log`, the automatic readers, the Add a reading form). Per account: % used, the even-pace mark (what should be spent by now), the panic threshold (`panic_at`, default 95 %), the reset and target times and where the reset comes from (a reading, the config, an estimate), the readings of this window against the pace line, the plan and how often it is read automatically, and what to do. |
 | Machines | The same probe as `tutti machines`: free and busy slots, load against cores, routing rank, paused (yield flag up), offline. Under each reachable machine, **Stored files**: what `tutti files send` keeps in its cache, the size against `files.budget_gb` and when each item was last used. |
@@ -56,7 +56,10 @@ optional; `used` is 0 to 100; `resets` lies from a day ago to two months ahead.
 For an account no CLI reads (Cursor), `/helper` (the footer's **Reading helper** link) offers one button per account
 with a `usage_url` and no `reader`. Drag it to the browser's bookmarks bar once. Then, on the provider's usage page,
 signed in as usual (`https://cursor.com/dashboard/spending`), click the bookmark. It reads the page's **visible text**
-only: "N% used", else "$spent of $limit"; the reset from "Resets <date>" or the end of a "billing period <a> - <b>". It
+only, line by line: each meter starts at the line that begins with its `helper_label` ("Cursor Models", "Other Models")
+and ends at its amount ("N% used", else "$spent of $limit"); its reset is a "Resets <date>" line right after the amount,
+else the page's "Usage limits reset on <date>", else the end of a "billing period <a> - <b>" (another meter's "Resets",
+such as Grok's weekly one, is never taken). The parser is `tutti/web/helper-parse.js`. It
 opens the dashboard at `/#reading=<json>`; the page posts that reading through `POST /api/reading` with its own token,
 and the reading is saved with `source: helper`.
 
@@ -64,7 +67,14 @@ What it never does: read cookies, storage or tokens, call the provider's API, or
 computer. The fragment carries this install's helper key (`<state>/helper.key`, 0600): the server refuses a reading whose
 key is wrong (403), so a site that opens the dashboard with a made-up reading only fills the form for the owner to check.
 **The patterns are not a stable API.** When the page's text changes and nothing matches, the bookmarklet says so and the
-dashboard opens the form instead. The parser is tested on sample texts, not on the live page; check the first reading.
+dashboard opens the form instead. The tests run the parser on the text of the real Cursor spending page (2026-11-14:
+"Cursor Models 25% used", "Other Models 14% used", "Usage limits reset on Dec 10"), and it was checked on the live page.
+
+**Without a click.** The dashboard cannot read cursor.com (the sign-in lives in the owner's browser). An orchestrator
+with browser tools does it instead: `tutti usage page-script [cursor]` prints the same parser as one JavaScript
+expression; it runs it in the owner's open, signed-in tab (claude-in-chrome's `javascript_tool`, read-only) and passes the
+JSON string it evaluates to to `tutti usage page-reading '<json>'`, which checks each reading as the dashboard does and
+logs it with `source: page script`. A label not found exits 1 and says to read that one by eye.
 
 ## Jobs found by themselves
 

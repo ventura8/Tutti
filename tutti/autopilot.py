@@ -263,20 +263,31 @@ def waiting_of(tasks, unchecked, hold):
     return out
 
 
-def capacity_now(cfg, running, machines, now):
-    """(how many may start now, None) or (0, {state, reason}) when nothing may: quiet hours, max_parallel, no machine slot."""
+def quiet_stop(cfg, now):
     hours = cfg['autopilot'].get('quiet_hours')
     if now is not None and planner.quiet(now, hours):
         where = f'{tz.zone_name()}, {tz.label(tz.offset_hours(tz.zone(), now))}'
-        return 0, {'state': 'waiting', 'reason': f'quiet hours ({", ".join(hours)} {where}, autopilot.quiet_hours): nothing new starts'}
-    free = settings(cfg)['max_parallel'] - len(running)
-    if free <= 0:
-        return 0, {'state': 'running', 'reason': f'{len(running)} run(s) going: max_parallel is {settings(cfg)["max_parallel"]}'}
+        return {'state': 'waiting', 'reason': f'quiet hours ({", ".join(hours)} {where}, autopilot.quiet_hours): nothing new starts'}
+    return None
+
+
+def capacity_now(cfg, running, machines, now, room=None):
+    """(how many may start now, None) or (0, {state, reason}) when nothing may: quiet hours, or the adaptive limit
+    (tutti/parallel.py: the accounts' `room`, this machine's free memory and cores, the machines' free gate slots,
+    max_parallel when set) is reached. cfg['_parallel'] keeps the measured limit for the dashboard."""
+    from . import parallel
+    stop = quiet_stop(cfg, now)
+    if stop:
+        return 0, stop
     slots, why = machine_capacity(cfg, machines)
-    if slots is not None:
-        free = min(free, slots)
-        if free <= 0:
-            return 0, {'state': 'waiting', 'reason': why}
+    if slots == 0 and why == 'machines not probed yet':
+        return 0, {'state': 'waiting', 'reason': why}
+    lim = parallel.limit(cfg, len(running), room, cfg.get('_host'), slots)
+    cfg['_parallel'], cfg['_parallel_limit'] = lim, lim['limit']
+    free = lim['others'] - len(running)   # the accounts' room is the ladder's own business (assign): it names each step
+    if free <= 0:
+        reason = why if lim['by'] == 'gates' and why else parallel.line(lim)
+        return 0, {'state': 'running' if running else 'waiting', 'reason': reason}
     return free, None
 
 
@@ -297,12 +308,14 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     if not queued:
         busy = f'{len(running)} run(s) going; ' if running else ''
         return {**out, 'state': 'idle' if not running else 'running', 'reason': busy + EMPTY}
-    free, stop = capacity_now(cfg, running, machines, now)
-    if stop:
-        return {**out, **stop}
+    if quiet_stop(cfg, now):
+        return {**out, **quiet_stop(cfg, now)}
     used = spent_units(tasks, states)
     names = list(dict.fromkeys([*ladder(cfg), *settings(cfg)['accounts'], *cfg.get('_spare_accounts', ())]))
     rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}
+    free, stop = capacity_now(cfg, running, machines, now, sum(max(0, r[0]) for r in rooms.values()))
+    if stop:
+        return {**out, **stop}
     # fresh tasks and retries alike, by weighted fair share of their projects' priority (the runs going count as served)
     going = {}
     for t in running:
@@ -433,7 +446,8 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
     argv += ['--repo', repo_path(cfg, task), '--track', TRACK_PREFIX + task['id'], '--id', run_id,
              '--remote-track', cfg['delegate']['remote_track']]
     if check:
-        argv += ['--check', check, '--check-where', repo.get('where', 'local')]
+        from . import parallel  # a heavy gate, or any gate while this machine is short of memory, goes to a machine with room
+        argv += ['--check', check, '--check-where', parallel.check_where(cfg, repo.get('where', 'local'), check, cfg.get('_host'))]
     argv += [f'--extra={x}' for x in step['args']]
     argv += ['--account', step['account']] if step['account'] else []
     from . import bridge
@@ -807,6 +821,9 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     now = now or time.time()
     is_alive = is_alive or state_mod.alive
     on = enabled(cfg)
+    if '_host' not in cfg:
+        from . import parallel
+        cfg['_host'] = parallel.host()
     from . import fill  # fill imports this module
     filled = None
     found = fill.gather(cfg, backlog.load(cfg), states, machines, now) if on else None   # the repos' commands: never under the lock
@@ -823,6 +840,8 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         from . import handover  # handover imports conduct, which imports modules that import this one
         mirrored += moved_away(cfg, data, sharing.moved_of(shared), is_alive, handover.end_tree)
         hold.update(sharing.spare_hold(cfg, data))
+        from . import spendrest  # a retry waits briefly for the scout's second opinion on its failures (tutti/spendrest.py)
+        hold.update({k: v for k, v in spendrest.waiting_seconds(cfg, now).items() if k not in hold})
         events += mirrored + events_spare
         started = []
         if on:
@@ -848,6 +867,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         sharing.renew(cfg, backlog.load(cfg), started)
     with state_locked(cfg) as st:
         st['last'] = {'at': now, 'state': p['state'], 'reason': p['reason'], 'waiting': p['waiting']}
+        st['parallel'] = cfg.get('_parallel') or st.get('parallel')
         st['fill'] = filled or st.get('fill')
         st['events'] = ([{'at': now, 'text': e} for e in events] + st.get('events', []))[:50]
         st['household'] = {'error': shared['error'], 'shared': sorted(shared['keys']), 'held': len(hold)} if shared['keys'] else None
@@ -896,9 +916,15 @@ def view(cfg, now=None):
     from . import fill
     return {'enabled': enabled(cfg), 'fill_room': fill.fill_on(cfg), 'fill': st.get('fill'), 'auto_review': fill.review_on(cfg),
             'configured': bool(s['repos']), 'accounts': s['accounts'], 'ladder': ladder(cfg),
-            'max_parallel': s['max_parallel'], 'last': st.get('last'), 'events': st.get('events', [])[:10],
+            'max_parallel': s.get('max_parallel'), 'parallel': st.get('parallel'), 'parallel_line': parallel_line(st),
+            'last': st.get('last'), 'events': st.get('events', [])[:10],
             'queue': [t for t in tasks if t['status'] == 'queued'], 'running': [t for t in tasks if t['status'] == 'running'],
             'review': [t for t in tasks if t['status'] == 'review'], 'parked': [t for t in tasks if t['status'] == 'needs-person']}
+
+
+def parallel_line(st):
+    from . import parallel
+    return parallel.line(st.get('parallel'))
 
 
 def fill_line(v):
@@ -917,7 +943,8 @@ def describe(v):
     last = v.get('last') or {}
     lines = [f'autopilot: {"on" if v["enabled"] else "off"}; {last.get("state", "not run yet")}: {last.get("reason", "")}'.rstrip(': '),
              fill_line(v),
-             f'ladder: {" -> ".join(v["ladder"]) or "(none)"}; max_parallel {v["max_parallel"]}']
+             f'ladder: {" -> ".join(v["ladder"]) or "(none)"}; {v.get("parallel_line") or ""}'
+             + (f' (max_parallel {v["max_parallel"]})' if v.get('max_parallel') else '')]
     for title, items in (('running', v['running']), ('to review', v['review']), ('needs a person', v['parked']), ('queued', v['queue'])):
         for t in items:
             lines += task_lines(title, t)

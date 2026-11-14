@@ -107,6 +107,7 @@ FIELDS = {
     'accounts.*.reserve': field('Reserve', 'Points the planner leaves for work outside Tutti.', 'number', min=0, default=0),
     'accounts.*.share_spare': field('Share spare room', 'Room it would lose at its reset may do the household\'s shared tasks.',
                                 'switch', default=False),
+    'accounts.*.target_pct': field('Target', 'The % of the quota to have used by its spend-by time (reset minus lead).', **PCT),
     'accounts.*.task_pct': field('One task costs', 'The share of the quota one task spends, for pacing.', **PCT),
     'accounts.*.costs_money': field('Costs money per use', 'Kept off until you turn it on.', 'switch', default=False),
     'accounts.*.enabled': field('On', 'Off takes it out of pacing, routing and the dashboard.', 'switch'),
@@ -131,6 +132,8 @@ FIELDS = {
     'routing.workers': field('Worker order', '`tutti run auto` tries these in order, skipping spent ones.', 'list', choices_from='workers'),
     'brief.rules': field('Rules in every brief', 'Added to every brief (the standing ones are always added).', 'list', item='rule'),
     # main agent
+    'main.target_pct': field('Target', 'The % of the main agent\'s quota to use by its spend-by time; the owner\'s reserve still holds.',
+                             **PCT),
     'main.agent': field('Main agent', 'The worker that conducts the next goal.', 'select', choices_from='workers'),
     'main.fallback': field('Takes over', 'In this order, when the main agent\'s quota is in panic.', 'list', choices_from='workers'),
     'main.commands': field('Commands when conducting', 'A command per agent; default: its worker command.', **YAML),
@@ -194,7 +197,10 @@ FIELDS = {
     'autopilot.enabled': field('Autopilot', 'Sends backlog tasks to accounts that are behind their pace.', 'switch'),
     'autopilot.accounts': field('Trigger accounts', 'Their pace starts the autopilot.', 'list', choices_from='accounts'),
     'autopilot.ladder': field('Retry ladder', 'Attempt n starts at step n; the last step repeats.', 'list', choices_from='accounts'),
-    'autopilot.max_parallel': field('Runs at once', 'The most autopilot runs going together.', 'number', min=1, unit='runs'),
+    'autopilot.max_parallel': field('Runs at once (cap)', 'Optional: the most autopilot runs at once. Empty: adaptive (account room, '
+                                    'free memory and cores, free gate slots).', 'number', min=1, unit='runs'),
+    'autopilot.parallel': field('Adaptive parallelism', 'run_gb, run_cpu, reserve_gb, gate_share, ceiling and the heavy-gate pattern '
+                                '(docs/AUTOPILOT.md).', **YAML),
     'autopilot.no_progress': field('Park after', 'A task with the same failure this many times waits for you.', 'number', min=1,
                                unit='attempts'),
     'autopilot.max_attempts': field('Most attempts', 'A task is parked after this many attempts in all.', 'number', min=1, unit='attempts'),
@@ -269,6 +275,8 @@ FIELDS = {
     'pacing.mode': field('Mode', 'auto learns from your readings; active, away or vacation-until-YYYY-MM-DD say it yourself.', 'text',
                      suggest=['auto', 'active', 'away', 'vacation-until-YYYY-MM-DD']),
     'pacing.away_after_hours': field('Away after', 'Your hours with no rise after which auto says away.', **HRS),
+    'pacing.stop_after_minutes': field('Stopped after', 'Minutes with no rise in your hours after which today\'s reserve is released.',
+                                       **MIN),
     'pacing.accounts': field('Your accounts', 'Empty: the main agent\'s.', 'list', choices_from='accounts'),
     # autocompact
     'autocompact.enabled': field('Autocompact', 'Compact a worker\'s context before its window is full.', 'switch'),
@@ -301,8 +309,8 @@ FIELDS = {
     'scouts.*.watches.*.early': field('May go early', 'Ahead of time while the allowance is behind its pace.', 'switch', default=False),
     'scouts.*.watches.*.task': field('Task', 'What the scout is asked.', 'textarea'),
     'scouts.*.sentry_triage': field('Sentry triage', 'A daily watch per project with a sentry entry.', 'switch', default=False),
-    'scouts.*.spend_rest': field('Spend the rest', 'Near its reset and behind its pace, extra scout work up to 95 % (true, false or '
-                                 '{hours, stop_at, min_gap_hours}).', **YAML, default=True),
+    'scouts.*.spend_rest': field('The week\'s plan', 'Scout work spread evenly over the week up to 95 %, a burst before the reset '
+                                 '(true, false or {hours, stop_at, pace_gap_hours, burst_per_tick, review_repos}).', **YAML, default=True),
     'scouts.*.watches.*.project': field('Project', 'Orders the extra runs of spend the rest by project priority.', 'text'),
     'scouts.*.review_trial': field('Review trial', 'The scout also reviews the next pull requests of these repos.', **YAML),
     # telemetry and self-improvement

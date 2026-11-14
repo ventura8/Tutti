@@ -61,6 +61,15 @@ def window_at(anchor, window, now):
     return shift(anchor, window, n - 1), shift(anchor, window, n)
 
 
+def target_of(name, a, owner=None):
+    """The % of its quota an account aims to have used by its spend-by time (reset minus lead): accounts.<name>.target_pct,
+    else main.target_pct for the main agent's accounts, else 100. A lower target leaves headroom on purpose."""
+    v = (a or {}).get('target_pct')
+    if v is None and owner and name in (owner.get('accounts') or ()):
+        v = owner.get('target_pct')
+    return float(100 if v is None else v)
+
+
 def pace(now, start, reset, used, lead_hours=1, share=1.0):
     """Where a quota stands. `used` is the percentage of the whole quota spent; `share` is this session's part of it.
     Returns the target time (reset minus the lead), the percentage that should be spent by now and a verdict with its action."""
@@ -153,7 +162,12 @@ TASK_PCT = 2   # what one bounded delegated task costs, in points of a quota (ac
 def room_tasks(p, used, task_pct):
     """How many bounded tasks an account behind its line (or late) can take now without going over the line: the points it
     is short of, divided by the cost of one task. None when it is on pace or ahead."""
-    if p['verdict'] not in ('behind', 'late') or not task_pct:
+    if not task_pct:
+        return None
+    if p['verdict'] == 'on pace':   # inside the band but under the line: top up to it, so the window ends at its target
+        short = p['expected'] - used
+        return int(short // task_pct) or None if short >= task_pct else None
+    if p['verdict'] not in ('behind', 'late'):
         return None
     short = (p['budget'] - used) if p['verdict'] == 'late' else (p['expected'] - used)
     return max(1, int(short // task_pct))
@@ -227,6 +241,7 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
     if accounts is not None:
         from tutti import owner as owner_mod
         from tutti import planner  # planner imports pacing: imported here, when a plan is wanted
+        a = {**a, 'target_pct': target_of(name, a, owner)}
         own = account_state(name, {k: v for k, v in a.items() if k != 'limits'}, entries, now)
         ctx = owner_mod.context(owner, owner_readings(entries, owner['accounts'], now), now) \
             if owner and name in owner['accounts'] else None
@@ -240,7 +255,7 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
            'lead_hours': a.get('lead_hours', 1), 'panic_at': a.get('panic_at', PANIC_AT), 'used': None, 'expected': None,
            'verdict': 'unknown', 'panic': False, 'reset': None, 'target': None, 'window_start': None, 'reading_at': None, 'readings': [],
            'stale': False, 'remind': '', 'auto': False, 'reading_source': None, 'room_tasks': None, 'note': a.get('note'),
-           'needs_reading': True}
+           'needs_reading': True, 'target_pct': target_of(name, a)}
     anchor = reading_anchor(entries, name)
     if anchor:
         out['reset_from'] = 'reading'
@@ -255,10 +270,14 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
                readings=readings(entries, name, start))
     e = latest(entries, name, start)
     out.update(freshness(name, a, latest([x for x in entries if x.get('source') != 'estimate'], name), now))
+    if not e and latest(entries, name):
+        # a reset passed since the last reading: the new window starts from 0 at once, so queued work goes on with no gap
+        # (and no stale "nothing more this window" decision); the next real reading replaces this
+        e, out['after_reset'] = {'at': start.isoformat(), 'used': 0.0}, True
     if not e:
         return {**out, 'state': NO_READING, 'verdict': NO_READING, 'action': no_reading_action(name, a, src)}
     used = float(e['used'])
-    p = pace(now, start, reset, used, out['lead_hours'])
+    p = pace(now, start, reset, used, out['lead_hours'], out['target_pct'] / 100)
     is_panic = panic(used, now, target, out['panic_at'])
     out['room_tasks'] = room_tasks(p, used, a.get('task_pct', TASK_PCT))
     action = account_action(name, a, p, used, is_panic, out['room_tasks'])

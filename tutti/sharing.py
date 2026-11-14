@@ -58,7 +58,8 @@ def ask(cfg, data, keys, beat):
     """The whole round's request: the heartbeat and every shared repo with a project key. A member reserves only as many
     next tasks as it could start now (max_parallel minus its runs), so it never keeps tasks from the others."""
     running = sum(1 for t in data['tasks'] if t['status'] == 'running')
-    room = max(0, int(cfg['autopilot'].get('max_parallel', 1)) - running)
+    from . import parallel
+    room = max(0, int(parallel.current(cfg, 1)) - running)
     repos = cfg['autopilot']['repos']
     return {'beat': beat, 'projects': {keys[r]: ask_for(data['tasks'], r, room, (repos[r] or {}).get('check') or '') for r in keys
                                        if keys[r]}}

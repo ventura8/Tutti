@@ -40,7 +40,7 @@ Tasks from self-improvement (`sentry`, `insight`) get a ready pull request inste
 starts with "Open", and the dated notes under the table), `TODO(owner):` and `FIXME(owner):` comments (an owner tag means a
 person meant it), and the lines the repo's `gaps` command prints (`<path>: <what is missing>`, e.g. a coverage or lint report).
 
-A task whose title starts with `scout:` is a research question for a scout (docs/SCOUTS.md, *Spend the rest*): the
+A task whose title starts with `scout:` is a research question for a scout (docs/SCOUTS.md, *The week's plan*): the
 autopilot never sends it to a worker.
 
 ## A round
@@ -50,8 +50,7 @@ The dashboard runs one round after every probe while the autopilot is on (`tutti
 1. **Collect.** Every running task whose run ended gets an attempt. A pass is published: Tutti (never the worker) commits the
    worktree on `autopilot/<id>-<slug>` with `autopilot.repos.<repo>.commit` (default `chore(autopilot): {title}`) and the
    repo's `trailers` (a failed checkout or staging stops there and says so), and with `pr: draft` pushes it and opens a draft pull request. The task waits in **Results to review**.
-2. **Plan.** Capacity is `max_parallel` minus the runs going, and at most the free slots of machines that are fit and not hot
-   (no machines configured: the checks run here). Fresh tasks go only to an account of `autopilot.accounts` that is
+2. **Plan.** Capacity is the **adaptive limit** (`tutti/parallel.py`, below) minus the runs going. Fresh tasks go only to an account of `autopilot.accounts` that is
    **behind** its line (or late), as many units as its room (`room_tasks`) minus what runs on it and what attempts started
    after its newest reading already spent (that cost stays counted until a new reading shows it). Never an account that
    costs money, is in panic or is spent. A task without an acceptance check (its own or the repo's) is never sent.
@@ -148,6 +147,34 @@ On by default. One result at a time, `tutti autopilot land <id>` runs in the bac
 The repos' sources are read before the backlog's lock is taken, and every source command has a 120 s timeout, so a slow
 `gaps` command never blocks the backlog.
 
+## Adaptive parallelism
+
+How many runs go at once is measured every round, not fixed. The limit is the smallest of:
+
+- **accounts**: the runs going plus the room the ladder's accounts have now (the planner's tasks);
+- **memory**: the runs going plus this machine's free memory (MemAvailable) above `reserve_gb`, `run_gb` per run. An agent
+  run (agy, cursor) is mostly cloud-model calls: light here, so many can go together;
+- **cpu**: the runs going plus the idle cores, `run_cpu` per run;
+- **gates**: the runs going plus the fit machines' free gate slots times `gate_share` (a run holds a slot only for its gate);
+- `max_parallel` when the owner sets it (Settings: an optional cap), and `ceiling`.
+
+It rises with free capacity and drops under memory pressure. The dashboard's Autopilot line says
+`running N of M possible: limited by <bound> (<why>)`. Every machine's probe now reports its free memory too (`mem_free_gb`).
+
+**Heavy gates leave the laptop.** A repo whose checks run `local` sends a heavy gate (`parallel.heavy`: ESLint, tsc, Vitest,
+Jest, pytest, Playwright, mypy, a quality stage, Gradle, dotnet) to the routed machines (`--check-where route`: the NUC first),
+and any gate while this machine is under `reserve_gb` free. With no other machine it stays here.
+
+```yaml
+autopilot:
+  # max_parallel: 4                    # optional cap; empty = adaptive
+  parallel: {run_gb: 0.6, run_cpu: 0.25, reserve_gb: 4, gate_share: 3, ceiling: 12}
+```
+
+**Second opinions.** A task that failed twice or more gets one scout question (docs/SCOUTS.md) about its latest failure; its
+retry waits up to `scouts.<name>.spend_rest.second_wait_minutes` (30) for the answer, which joins the task's notes and so the
+next attempt's brief. A backlog task whose title starts with `research:` (or `scout:`) goes to a scout, never to a worker.
+
 ## Config
 
 ```yaml
@@ -155,7 +182,7 @@ autopilot:
   enabled: false                       # the dashboard's toggle (or `tutti autopilot on|off`) overrides it
   accounts: [agy-claude, agy-gemini]   # their "behind" pace triggers fresh tasks
   ladder: [agy-gemini, agy-claude, cursor, pc]   # retries climb it; accounts or workers; never one that costs money
-  max_parallel: 2
+  # max_parallel: 2                    # optional cap on the adaptive limit (above)
   no_progress: 3
   max_attempts: 12
   quiet_hours: []                      # local-time spans (time.zone) it must not run, e.g. ['22:00-06:00']; the planner moves their share

@@ -6,12 +6,17 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 ### Changed
 
-- `tutti move` gives the new host the same ssh access as the old computer to the machines it cannot reach yet (their
-  `~/.ssh/config` entry, key file with mode 600 and host key; the owner's decision), then tries ssh from there, so tests
-  and model tunnels to them run from the host directly (docs/MOVE.md, *Machines the target cannot reach yet*).
-- A local model on the old computer's loopback is reached by the host through the client's ssh (`host.reverse`).
-- The cut-over is short: the final sync copies only the state, the git folders and the autopilot's own worktrees, and the
-  move waits for (or hands over) a review or merge the autopilot has in flight.
+- Moving devices asks the user nothing: the old machine's adb key is the default (a different key on the new machine is
+  backed up first; `--keep-key` keeps it), Wireless debugging is read, kept and set on over the old machine's live
+  connection and re-asserted from the new one, and re-pairing is only the last resort (docs/DEVICES.md).
+- A wireless device whose Wireless debugging went off (a reboot, a Wi-Fi change) is switched back on by itself through any
+  machine that still reaches it, over Wi-Fi or USB; only when none does, its row asks the one step left, with the reason.
+- `tutti move --to <machine> --devices`: every Android device follows Tutti to its new machine (the same zero-step move).
+
+### Fixed
+
+- `tutti devices move` counts another tool's lock file (`devices.<d>.external_lock`) as held only while it is fresher than
+  `external_lock_stale_minutes` (30), as the readings and the dispatcher do: a file left behind no longer blocks a move.
 
 ## 0.1.57 (2026-11-14)
 

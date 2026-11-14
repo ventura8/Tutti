@@ -66,6 +66,9 @@ def schedule_errors(p):
         errs.append(f'pacing.accounts is {accounts!r}: a list of account names, e.g. [claude] (or leave it out: the main agent\'s)')
     if isinstance(away, bool) or not isinstance(away, (int, float)) or away < 1:
         errs.append(f'pacing.away_after_hours is {away!r}: a number of hours, 1 or more')
+    stop = p.get('stop_after_minutes', 60)
+    if isinstance(stop, bool) or not isinstance(stop, (int, float)) or stop < 10:
+        errs.append(f'pacing.stop_after_minutes is {stop!r}: minutes with no rise before today\'s reserve is released, 10 or more')
     if not valid_mode(p.get('mode', 'auto')):
         errs.append(f'pacing.mode is {p.get("mode")!r}: auto, active, away or vacation-until-YYYY-MM-DD')
     return errs
@@ -238,8 +241,13 @@ def context(owner, readings, now):
     mode, until = effective(owner['mode'], prof['reserve'], readings, now, offset, owner.get('away_after_hours', 3), prof['learned'])
     if mode == 'auto' and owner.get('laptop_away'):   # the owner's laptop is away or asleep (presence.owner_laptop): away
         mode, until = 'away', now + timedelta(hours=1)  # for the next hour, looked at again each round
+    from tutti import ownerday  # today's real start, stop and burn move today's reserve (and the burn all of it)
+    day = ownerday.today(prof['reserve'], readings, now, offset, owner.get('stop_after_minutes', ownerday.STOP_MINUTES))
+    if mode not in ('away', 'vacation'):
+        prof = {**prof, 'planned_reserve': prof['reserve'], 'reserve': ownerday.shifted(prof['reserve'], day, now, offset)}
     return {**prof, 'offset': offset, 'zone': offset if isinstance(offset, str) else tz.label(offset),
-            'utc_offset': tz.offset_hours(offset, now), 'mode': mode, 'set_mode': owner['mode'], 'until': until}
+            'utc_offset': tz.offset_hours(offset, now), 'mode': mode, 'set_mode': owner['mode'], 'until': until, 'today': day,
+            'today_line': ownerday.line(day)}
 
 
 def spendable(left, now, target):
@@ -300,7 +308,8 @@ def owner_of(cfg, folder):
     from . import presence  # imported here: config loads this module before presence exists
     return {'accounts': list(accounts), 'schedule': sched, 'mode': saved.get('mode') or p.get('mode', 'auto'),
             'away_after_hours': p.get('away_after_hours', 3), 'zone': tz.zone_name(cfg, saved.get('browser_zone') or ''),
-            'laptop_away': presence.owner_away(cfg)}
+            'laptop_away': presence.owner_away(cfg),
+            'stop_after_minutes': p.get('stop_after_minutes', 60), 'target_pct': (cfg.get('main') or {}).get('target_pct')}
 
 
 def view(cfg, folder, entries, now):
@@ -313,7 +322,7 @@ def view(cfg, folder, entries, now):
     return {'accounts': o['accounts'], 'mode': o['mode'], 'effective': ctx['mode'], 'until': until, 'schedule': o['schedule'],
             'profile': ctx['profile'], 'reserve': ctx['reserve'], 'learned': ctx['learned'], 'hours_seen': ctx['hours_seen'],
             'utc_offset': ctx['utc_offset'], 'zone': ctx['zone'], 'browser_zone': read(folder).get('browser_zone') or '',
-            'days': list(DAYS)}
+            'days': list(DAYS), 'today': ctx.get('today_line')}
 
 
 def change(cfg, folder, data):

@@ -89,16 +89,35 @@ The scout's `account` is paced like any other (docs/USAGE-PACING.md). The plan o
 **A scout takes no backlog tasks.** Its account card never offers bounded tasks or "start more parallel work from the
 backlog"; its Do line says what the scout does with the allowance instead.
 
-**Spend the rest** (`tutti/spendrest.py`, `scouts.<name>.spend_rest`, on by default; `false` turns it off, or `{hours: 24,
-stop_at: 95, min_gap_hours: 3}`). In the last `hours` before the allowance's target, while it is behind its pace (or late)
-and under `stop_at` %, every round sends extra scout work that has value, in the order of the projects' `priority` (0
-first; a watch without `project:` after the ranked ones; a question takes its backlog repo's project), then by kind: Sentry triage of every project with Sentry, dependency and
-changelog notes, the other watches (live-site checks), and research questions from the backlog (a queued task whose title
-starts with `scout:`; it goes to the scout, never to a worker, and moves to review with the issue's link). With the room
-left, the review trial's open pull requests not reviewed yet go out too. Each watch runs at most once more in that stretch,
-`min_gap_hours` after its last run; `per_tick`, `max_open` and the points left before `stop_at` (one question = the
-account's `task_pct`) still hold. The card then says `Scout: will use the remaining allowance on N watch(es) before the
-reset`.
+**The week's plan** (`tutti/grokweek.py`, `tutti/spendrest.py`, `scouts.<name>.spend_rest`, on by default; `false` turns it
+off, or `{hours: 6, stop_at: 95, pace_gap_hours: 6, min_gap_hours: 3, burst_per_tick: 10, burst_max_open: 30, review_repos:
+[owner/name], second_wait_minutes: 30}`). The scout is a contributor all week, not an end-of-week top-up:
+
+- **The cost of a run is measured.** Between two real readings of the scout's account (Tutti's own estimates do not count),
+  the rise over the runs sent in between, summed once they cover at least 3 runs; until then the account's `task_pct` is the
+  guess. Each run sent logs an estimate of that measured cost, so the meter moves between readings. (Measured on 2026-11-14:
+  26 runs of Grok Bot, research, triage and pull-request reviews, cost 6 % of its week, about 0.2 % a run; the old guess of
+  2 % a run made it look 10x fuller than it was and held it back all week.)
+- **An even line to `stop_at`.** By now the scout may have used `stop_at` x the share of the week gone (read an hour ahead).
+  Every round sends up to the runs that line has room for; ahead of it, the scout waits. In the last `hours` before the
+  target (the **burst**) the line is `stop_at` itself: what is left goes out as fast as `burst_per_tick` and `burst_max_open`
+  allow (the scout runs in its own cloud: parallel runs cost the household nothing).
+- **What it sends**, by the projects' `priority` (0 first; a watch without `project:` after the ranked ones; a question takes
+  its backlog repo's project), then by kind: Sentry triage of every project with Sentry, dependency and changelog notes, the
+  other watches (live-site checks), research questions from the backlog (a queued task whose title starts with `scout:` or
+  `research:`; it goes to the scout, never to a worker, and moves to review with the issue's link), and **second opinions** on
+  autopilot tasks that failed twice or more (docs/AUTOPILOT.md). A watch runs again `pace_gap_hours` after its last run
+  (`min_gap_hours` and once more at most in the burst). With the room left, **reviews**: every open pull request of
+  `review_repos` (default: the projects' `repo` and the review trial's repositories) not reviewed by the scout since it last
+  changed.
+- `per_tick`, `max_open` and the points left before `stop_at` still hold; nothing is sent at 100 %, in panic or spent.
+
+The scout's card says the week's plan, e.g. `about 445 runs left this week (0.2 % each, measured over 25 runs): 9 review /
+12 triage / 1 notes / 6 check / 492 research; 4 can go now; today: 3 review, 2 triage`.
+
+**A regular reviewer.** A scout named in `review.reviewers` (e.g. `[copilot, coderabbit, grok]`) is asked by every `tutti pr
+review` like the others: being listed is the owner's consent, whatever its trial says. Its review counts when a comment whose
+first line is `grok-scout` appears after the request; a spent allowance skips it with the reason.
 
 Read the meter in one click: the reading helper's bookmarklet for the Cursor spending page reads every account on that
 page, Grok Bot's weekly meter included (`helper_label: Grok Bot`).

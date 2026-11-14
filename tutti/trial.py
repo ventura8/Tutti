@@ -167,10 +167,11 @@ def active(cfg, rid):
     return None
 
 
-def ask_review(cfg, name, repo, number, url, gh_fn=gh, post_fn=scouts.post, env=None, accounts=None):
+def ask_review(cfg, name, repo, number, url, gh_fn=gh, post_fn=scouts.post, env=None, accounts=None, listed=False):
     """Sends the scout a review of one pull request (it answers on the pull request) and returns the request. A pull request
-    of the trial whose review already went out is not sent again."""
-    why = may_review(cfg, name)
+    of the trial whose review already went out is not sent again. `listed`: the scout is in review.reviewers, which is the
+    owner's consent to its reviews whatever its trial says."""
+    why = '' if listed else may_review(cfg, name)
     if why:
         raise TrialError(why)
     sc = scouts.settings(cfg, name)

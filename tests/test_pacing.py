@@ -67,10 +67,10 @@ class PacingTest(unittest.TestCase):
                     'agy': {'source': 'the account page'}}
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, 'usage.jsonl')
-            pacing.append_log(path, 'claude', 90, T('2026-01-02T00:00Z'))   # the window before: says nothing about this one
+            pacing.append_log(path, 'claude', 90, T('2026-01-02T00:00Z'))   # the window before: a reset passed since
             text = pacing.report(accounts, pacing.read_log(path), T('2026-01-06T12:00Z'))
-            self.assertIn('no reading', text)
-            self.assertIn('tutti usage log claude', text)
+            self.assertIn('claude   0 %', text)                       # the new window starts from 0 at once: work goes on
+            self.assertIn('behind', text)
             self.assertIn('accounts.agy.resets', text)
             self.assertIn('Sat 10 Jan 01:00 (UTC)', text)  # spend by: reset minus the default 1 h lead
             pacing.append_log(path, 'claude', 20, T('2026-01-05T00:00Z'))

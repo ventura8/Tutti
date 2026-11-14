@@ -117,9 +117,16 @@ def events(repo, number, gh_fn=gh):
     return out
 
 
+SCOUT_MARKER = 'grok-scout'   # the first line of a scout's review comment (tutti/scouts.py REVIEW_MARKER)
+
+
 def status(who, evs, since):
     """'reviewed' (a pull request review after `since`), 'limited' (it answered that it will not review now) or 'pending'.
-    A comment is never a review: CodeRabbit acknowledges a request ("Action not completed", "Review triggered") in one."""
+    A comment is never a review: CodeRabbit acknowledges a request ("Action not completed", "Review triggered") in one.
+    A scout (any other name) posts as the owner's GitHub account: its review is a comment whose first line is the marker."""
+    if who not in ('copilot', 'coderabbit'):
+        found = any(t >= since and body.lstrip().lower().startswith(SCOUT_MARKER) for _l, t, body, _k in evs)
+        return 'reviewed' if found else 'pending'
     logins = COPILOT_LOGINS if who == 'copilot' else (CODERABBIT_LOGIN,)
     mine = [(body, kind) for login, t, body, kind in evs if login in logins and t >= since]
     if any(kind == 'review' for _b, kind in mine):
@@ -231,6 +238,22 @@ def note_limited(cfg, repo, number, who, evs, since, now):
     return reset
 
 
+def ask_scout(cfg, repo, number, who, gh_fn=gh):
+    """'' when the scout `who` was asked to review (an advisory comment on the pull request), else why not: its allowance is
+    used, it is not set up. Listed in review.reviewers, it reviews whatever its trial says."""
+    from . import scouts, trial  # trial builds on scouts, which imports this module
+    url = f'https://github.com/{repo}/pull/{number}'
+    try:
+        r = trial.ask_review(cfg, who, repo, int(number), url, gh_fn, listed=True)
+    except scouts.ScoutError as e:
+        return str(e)
+    return '' if r['status'] in ('waiting', 'answered') else (r.get('why') or f'its request {r["id"]} {r["status"]}')
+
+
+def request_any(cfg, repo, number, who, gh_fn=gh):
+    return ask_scout(cfg, repo, number, who, gh_fn) if who in (cfg.get('scouts') or {}) else request(repo, number, who, gh_fn)
+
+
 def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh, say=print, **kw):
     """The whole flow. Returns 0 when a reviewer answered or the fallback review was posted, 1 otherwise."""
     r = cfg['review']
@@ -244,7 +267,7 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
     for who in r['reviewers']:
         until = skipped_until(entries, who, since)
         why = f'skipped until {tz.show(until)}: its allowance is used (account {who} at 100 %)' if until else \
-            request(repo, number, who, gh_fn)
+            request_any(cfg, repo, number, who, gh_fn)
         if why:
             absent[who] = why
             say(f'review: {who} will not come: {why}')

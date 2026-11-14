@@ -97,8 +97,9 @@ def find(data, task_id):
 
 
 def is_question(t):
-    """A research question for a scout (its title starts with `scout:`): never a worker's task (tutti/spendrest.py)."""
-    return str(t.get('title', '')).lower().startswith('scout:')
+    """A research question for a scout (its title starts with `scout:` or `research:`): never a worker's task
+    (tutti/spendrest.py). The autopilot's "needs research" items are added this way."""
+    return str(t.get('title', '')).lower().startswith(('scout:', 'research:'))
 
 
 def queued(data, repos=None):

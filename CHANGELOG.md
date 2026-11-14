@@ -34,6 +34,8 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
   uses the worker of the same name, and an unusable step names its real reason.
 - "pc: room for 1, but the queued tasks need 2": a local model's room counts runs, not quota points.
 
+## 0.1.62 (2026-11-14)
+
 ### Fixed
 
 - One config per user: `~/.config/tutti/config.yaml` (or `$TUTTI_CONFIG`) wins over a project `tutti.config.yaml`, so the

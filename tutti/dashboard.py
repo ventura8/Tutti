@@ -213,6 +213,7 @@ class Collector:
     def loop(self):
         while not self.stop.is_set():
             try:
+                self.reload()   # time-bound switches (planned absences, blocked hours) apply as the clock passes them
                 self.refresh()
                 self.update_round()
                 self.autopilot_tick()

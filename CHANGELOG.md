@@ -2,6 +2,22 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.8.0 (2026-11-15)
+
+### Added
+
+- Recurring blocked hours: `tutti devices hours <device> <HH-HH>[,HH-HH] [--days mon-fri] | off`, the device card's **Set
+  blocked hours** and Settings (`devices.<d>.hours`). Daily local hours when the device is not used at all (a window past
+  midnight belongs to the day it starts on). They work as planned absences do: no new work from 30 min before, running work
+  handed over at the start, the device's own settings restored when its run ends. None by default; kept in the config, so
+  `tutti move` carries them.
+- `tutti machine limit <m> <HH-HH> 0`: 0 % means the machine is not used at all in that window (the same blocked hours).
+
+### Fixed
+
+- The dashboard reads its config again every round, so time-bound switches (planned absences, blocked hours) start and end
+  as the clock passes them, not only after a restart.
+
 ## 0.7.0 (2026-11-15)
 
 ### Added

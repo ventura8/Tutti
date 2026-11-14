@@ -70,6 +70,8 @@ def errors(cfg):
         if d.get('machine') not in cfg['machines']:
             errs.append(f'{where}.machine is {d.get("machine")!r}: name the machine its adb sees it on, one of machines:')
         errs += policy_errors(where, d.get('policy'))
+        from . import hours
+        errs += hours.errors(where, d.get('hours'))
         from . import prep
         errs += prep.errors(where, d.get('prep'))
         if d.get('kind', 'phone') not in KINDS:
@@ -308,7 +310,7 @@ def device_state(d, readings):
     st, reason = status(pol, readings, d['serial'])
     keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi', 'call', 'external_by', 'prep_left', 'revived')
     return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'kind': d.get('kind', 'phone'), 'status': st,
-            'reason': reason,
+            'reason': reason, 'hours': d.get('hours'),
             'policy': pol, **{k: readings.get(k) for k in keep}}
 
 

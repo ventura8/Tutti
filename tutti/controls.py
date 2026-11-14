@@ -37,7 +37,7 @@ def read(folder):
         data = {}
     data = data if isinstance(data, dict) else {}
     return {'enabled': dict(data.get('enabled') or {}), 'paused': dict(data.get('paused') or {}),
-            'settings': dict(data.get('settings') or {})}
+            'settings': dict(data.get('settings') or {}), 'handed': dict(data.get('handed') or {})}
 
 
 @contextlib.contextmanager
@@ -164,6 +164,7 @@ def apply(raw, data):
     """The switches written into the raw config (before defaults and opt-outs): `enabled: <on>` and `paused: {by, at, note}`
     on each named entry. A switch for an entry the config no longer has is ignored."""
     now = time.time()
+    blocked_hours(raw, now)
     for field in ('enabled', 'paused'):
         for k, v in (data.get(field) or {}).items():
             if field == 'paused' and window(v, now) != 'active':
@@ -178,12 +179,72 @@ def apply(raw, data):
     return raw
 
 
+def blocked_spec(kind, entry):
+    """(window spec, days) of an entry's recurring blocked hours, or None: a device's `hours`, a machine's `limit` at 0 %."""
+    e = entry or {}
+    if kind == 'device' and isinstance(e.get('hours'), dict):
+        return e['hours'].get('window'), e['hours'].get('days')
+    lim = e.get('limit')
+    if kind == 'machine' and isinstance(lim, dict) and lim.get('pct') == 0:
+        return lim.get('window'), lim.get('days')
+    return None
+
+
+def blocked_hours(raw, now):
+    """Marks every device or machine inside its blocked hours (or within LEAD_MINUTES of their start) as paused, as a
+    planned absence: {by: 'blocked hours', from, until, blocked: true}. An owner's own pause stays as it is."""
+    from . import hours
+    if not isinstance(raw, dict):
+        return raw
+    for kind, section in (('device', 'devices'), ('machine', 'machines')):
+        for name, entry in (raw.get(section) or {}).items():
+            spec = blocked_spec(kind, entry)
+            if not spec or (entry or {}).get('paused'):
+                continue
+            try:
+                w = hours.window(spec[0], spec[1], now, lead=LEAD_MINUTES * 60)
+            except ValueError:
+                continue   # the config check names a bad window
+            if w:
+                raw[section][name] = {**entry, 'paused': {'by': 'blocked hours', 'at': now, 'from': w[0], 'until': w[1],
+                                                          'blocked': True, 'note': f'not used {spec[0]} (local time)'}}
+    return raw
+
+
+def blocked_round(cfg, now, stop_fn=None):
+    """A blocked-hours window that started hands its running work over once (as a planned absence's start does)."""
+    done = []
+    with changed(config_folder(cfg)) as data:
+        handed = data.setdefault('handed', {})
+        for kind, section in (('device', 'devices'), ('machine', 'machines')):
+            for name, entry in (cfg.get(section) or {}).items():
+                p = (entry or {}).get('paused') or {}
+                k = f'{kind}:{name}@{int(p.get("from") or 0)}'
+                if not p.get('blocked') or now < p['from'] or k in handed:
+                    continue
+                handed[k] = now
+                if stop_fn:
+                    stop_fn(kind, name)
+                done.append(f'{kind}:{name}: its blocked hours started; its running work was handed over')
+        for k in [k for k, at in handed.items() if now - at > 2 * 86400]:
+            handed.pop(k)
+    return done
+
+
+def config_folder(cfg):
+    from . import config
+    return config.state_dir(cfg)
+
+
 def paused_note(entry):
     """'paused by <who> at <time>: <note>' for an entry the owner paused, else ''."""
     p = (entry or {}).get('paused')
     if not p:
         return ''
     at = time.strftime('%Y-%m-%d %H:%M', tz.localtime(p.get('at') or 0))
+    if p.get('blocked'):
+        end = time.strftime('%H:%M', tz.localtime(p['until']))
+        return f'blocked hours: {p.get("note", "not used")}; free again at {end}; change them in Settings or with `tutti devices hours`'
     if 'from' in p:
         start = time.strftime('%a %d %b %H:%M', tz.localtime(p['from']))
         end = time.strftime('%a %d %b %H:%M', tz.localtime(p['until'])) if p.get('until') is not None else 'it is seen again'

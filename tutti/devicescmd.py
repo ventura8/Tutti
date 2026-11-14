@@ -192,7 +192,28 @@ def cmd_install(cfg, a):
     return remote.sh(machine, apk.install_script(d, there) + rm).returncode
 
 
-ACTIONS = {'pair': cmd_pair, 'move': cmd_move, 'claim': cmd_claim, 'release': cmd_claim, 'install': cmd_install}
+def cmd_hours(cfg, a):
+    """`tutti devices hours <device> <HH-HH>[,HH-HH] [--days mon-fri] | off`: the device's recurring blocked hours, in the
+    config (so `tutti move` carries them)."""
+    from . import devices, hours, settings, yamledit
+    if len(a.names or []) != 2:
+        say('name the device and the hours: tutti devices hours <device> 22-07[,12-13] [--days mon-fri], or off')
+        return 2
+    d, spec = devices.of(cfg, a.names[0]), a.names[1]
+    try:
+        value = yamledit.DELETE if spec == 'off' else {'window': ','.join(f'{x:02d}-{y:02d}' for x, y in hours.parse(spec)),
+                                                       **({'days': hours.parse_days(a.days)} if a.days else {})}
+        settings.store(cfg, [(['devices', d['name'], 'hours'], value)])
+    except (ValueError, settings.SettingsError) as e:
+        say(f'devices hours: {e}')
+        return 2
+    print(f'{d["name"]}: ' + ('no blocked hours' if spec == 'off' else
+                              f'not used {value["window"]}' + (f' on {",".join(value["days"])}' if a.days else ' every day')
+                              + '; no new work from 30 min before; its own settings come back'))
+    return 0
+
+
+ACTIONS = {'hours': cmd_hours, 'pair': cmd_pair, 'move': cmd_move, 'claim': cmd_claim, 'release': cmd_claim, 'install': cmd_install}
 
 
 def add_arguments(s):
@@ -212,3 +233,4 @@ def add_arguments(s):
     s.add_argument('--adb', help='pair: the adb to use on the machine (default: found by itself)')
     s.add_argument('--wait', type=int, default=180, help='pair: seconds to wait for the device (180)')
     s.add_argument('--who', help='claim, release: the session or tool that uses the device')
+    s.add_argument('--days', help='hours: the days, e.g. mon-fri or sat,sun (default every day)')

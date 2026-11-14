@@ -639,6 +639,7 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
     off = presence.offset(cfg)
     gone = {tid: presence.label(r, off) for tid, r in presence.absent(pst).items()}
     planned = controls.planned_round(cfg, pst, now, stop_fn=lambda kind, name: hand_over_now(cfg, kind, name))
+    planned += controls.blocked_round(cfg, now, stop_fn=lambda kind, name: hand_over_now(cfg, kind, name))
     with locked(cfg) as st:
         for line in planned:
             event(st, now, line)

@@ -169,6 +169,12 @@ busy or ready and why), and the owner's switches.
   owner"` (local time; `--until` a time, or `unknown`). From 30 min before the start nothing new is scheduled on it; at
   the start its running work is handed over (as *Pause, stop now*). It ends at `--until`, or, left open, when presence
   has seen it away and then back. The row shows **away later** or **away** with the window; Resume ends it at once.
+- **Blocked hours** (recurring): `tutti devices hours <device> 22-07[,12-13] [--days mon-fri]` (`off` removes them), the
+  device card's **Set blocked hours**, or Settings (`devices.<d>.hours`). Daily local hours, all days or the listed ones,
+  when the device is not used at all; a window past midnight belongs to the day it starts on. They work as a planned
+  absence does: no new work from 30 min before, running work handed over at the start, and the device's own settings
+  restored when its run ends. A machine gets the same with `tutti machine limit <m> <HH-HH> 0` (0 %: not used at all).
+  None are set by default. They live in the config, so `tutti move` carries them.
 - A device whose machine is paused is held too. When every machine is paused, off or refused by its power policy, a run
   is not queued anywhere: `tutti test` and routed checks say so and stop (exit 3).
 - **Opt-in** switches: every worker or account marked `costs_money: true` (Copilot, an API key) or `opt_in: true` (a

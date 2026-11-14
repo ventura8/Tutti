@@ -34,8 +34,8 @@ def limit_errors(name, limit):
     if any(d not in DAYS for d in limit.get('days') or []):
         errs.append(f'{key}.days is {limit.get("days")!r}: a list of {", ".join(DAYS)}')
     pct = limit.get('pct', LIMIT_PCT)
-    if isinstance(pct, bool) or not isinstance(pct, (int, float)) or not 1 <= pct <= 100:
-        errs.append(f'{key}.pct is {pct!r}: a share from 1 to 100 (to stop Tutti there, pause the machine)')
+    if isinstance(pct, bool) or not isinstance(pct, (int, float)) or not 0 <= pct <= 100:
+        errs.append(f'{key}.pct is {pct!r}: a share from 0 to 100 (0: not used at all in that window)')
     return errs
 
 

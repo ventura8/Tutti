@@ -38,7 +38,16 @@ function device(d) {
         chip(DEVICE_CHIP[d.status] || d.status, DEVICE_TONE[d.status]),
         deviceStats(d),
         presenceBits(d.presence),
-        el('p', { class: 'row__note', text: d.reason }));
+        el('p', { class: 'row__note', text: d.reason }),
+        blockedHours(d));
+}
+
+// The device's recurring blocked hours (devices.<d>.hours): shown with a link to change them in Settings.
+function blockedHours(d) {
+    const h = d.hours;
+    const link = el('a', { class: 'link', href: `#settings/devices.${d.name}.hours`, text: h ? 'Change' : 'Set blocked hours' });
+    const text = h ? `Not used ${h.window}${h.days ? ` on ${h.days.join(', ')}` : ' every day'} (local time). ` : 'No blocked hours. ';
+    return el('p', { class: 'row__note' }, text, link);
 }
 
 function pausedBy(p) {

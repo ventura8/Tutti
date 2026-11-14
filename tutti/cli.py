@@ -210,7 +210,7 @@ def power_text(r):
 
 def cmd_devices(cfg, a):
     """Exit 1 when a device is offline (not connected, not authorised, or its machine does not answer)."""
-    if a.action in ('pair', 'move', 'claim', 'release', 'install'):
+    if a.action in ('pair', 'move', 'claim', 'release', 'install', 'hours'):
         from . import devicescmd
         return devicescmd.ACTIONS[a.action](cfg, a)
     if a.action == 'add':
@@ -1403,7 +1403,7 @@ def parser():
     s.add_argument('--port', type=int, default=8022, help='add-android: Termux sshd port (8022)')
     s = add('devices', cmd_devices, 'Android devices for e2e: connection, battery, charging, heat, screen, Wi-Fi and lock; pair one '
             'over Wi-Fi (QR code, or the code a TV shows); move devices to another machine')
-    s.add_argument('action', nargs='?', choices=['add', 'pair', 'move', 'claim', 'release', 'install'],
+    s.add_argument('action', nargs='?', choices=['add', 'pair', 'move', 'claim', 'release', 'install', 'hours'],
                    help='pair: wireless debugging (QR code); move: to another machine (--to); add: print the manual setup')
     s.add_argument('--name', help='add, pair: the device name (pair: default from its model)')
     s.add_argument('--serial', help='add: its serial from `adb devices` (or ip:port)')

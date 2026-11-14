@@ -33,6 +33,7 @@
     <script src="users.js?v=__TUTTI_VERSION__" defer></script>
     <script src="report.js?v=__TUTTI_VERSION__" defer></script>
     <script src="chat.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="chatctl.js?v=__TUTTI_VERSION__" defer></script>
     <script src="welcome.js?v=__TUTTI_VERSION__" defer></script>
     <script src="needs.js?v=__TUTTI_VERSION__" defer></script>
 </head>
@@ -129,10 +130,6 @@
           <header class="chat__head">
             <button class="btn btn--text chat__back" id="chat-back" type="button" title="Back to your conversations"><span aria-hidden="true">‹ </span>Chats</button>
             <h2 class="chat__title" id="chat-title">New chat</h2>
-            <label class="sr-only" for="chat-model">Who answers</label>
-            <select class="chat__model" id="chat-model" title="Who answers: Auto uses the household's local models first, then online agents">
-              <option value="auto">Auto: local first, then online</option>
-            </select>
             <div class="chat__convacts" id="chat-conv-actions" hidden>
               <button class="btn btn--text" id="chat-rename-btn" type="button">Rename</button>
               <button class="btn btn--text" id="chat-delete-btn" type="button">Delete</button>
@@ -142,10 +139,11 @@
           <button class="btn btn--tonal chat__jump" id="chat-jump" type="button" hidden>Jump to latest ↓</button>
           <output class="sr-only" id="chat-announce" aria-live="polite"></output>
           <form class="chat__composer" id="chat-form">
-            <p class="chat__editing" id="chat-editing" hidden>Editing your last message: sending replaces it and its answer.
+            <p class="chat__editing" id="chat-editing" hidden>Editing a message: sending replaces it and everything after it.
               <button class="btn btn--text" id="chat-edit-cancel" type="button">Cancel edit</button></p>
             <div class="chat__chips" id="chat-attachments" aria-live="polite"></div>
             <p class="chat__error" id="chat-file-error" role="alert"></p>
+            <ul class="chat__popup" id="chat-popup" role="listbox" aria-label="Suggestions" hidden></ul>
             <div class="chat__row">
               <button class="btn btn--text chat__attach" id="chat-attach" type="button" aria-label="Attach a text or log file (up to 3, 32 KB each)" title="Attach a text or log file">
                 <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M16.5 6.5v10a4.5 4.5 0 0 1-9 0V5a3 3 0 0 1 6 0v10.5a1.5 1.5 0 0 1-3 0V6.5H9v9a3 3 0 0 0 6 0V5a4.5 4.5 0 0 0-9 0v11.5a6 6 0 0 0 12 0v-10z"/></svg>
@@ -156,7 +154,15 @@
               <button class="btn btn--filled chat__send" id="chat-send" type="submit">Send</button>
               <button class="btn btn--tonal chat__send" id="chat-stop" type="button" hidden>Stop</button>
             </div>
-            <p class="chat__hint" id="chat-hint">Enter sends · Shift+Enter adds a line · Esc stops an answer · ↑ edits your last message</p>
+            <div class="chat__tools" role="group" aria-label="How it answers">
+              <label class="chat__tool">Model <select id="chat-model" title="Auto: the household's local models first, then online agents"></select></label>
+              <label class="chat__tool">Effort <select id="chat-effort" title="More effort: the model thinks first and reads more"></select></label>
+              <label class="chat__tool">Mode <select id="chat-mode" title="Autonomous acts and shows Undo; Ask before acting waits for Confirm; Plan review runs a plan you approved"></select></label>
+              <label class="chat__tool chat__ctx" title="How full the model's context is; older messages are summarised at your threshold">Context
+                <meter id="chat-context" min="0" max="100" low="50" high="80" optimum="0" value="0"></meter><span id="chat-context-pct">0 %</span></label>
+              <span class="chat__usage" id="chat-usage"></span>
+            </div>
+            <p class="chat__hint" id="chat-hint">Enter sends · Shift+Enter adds a line · Esc stops · ↑ edits · / for commands · @ to add context · ? for shortcuts</p>
           </form>
         </section>
         <dialog class="chat__dialog" id="chat-dialog" aria-labelledby="chat-dialog-title">

@@ -60,7 +60,8 @@ had from the coordinator (`<state>/household/grants.json`), so the page never wa
 The dashboard opens on the **Chat** tab (`#chat`, the default; the cards below are the **Dashboard** tab, `#dashboard`).
 Every signed-in user, viewers too, asks about the household and queues work there; it runs on the household host, so it
 works while their own computer is off. Each action is a card with Undo and goes into the audit log; viewers' work has
-admin-set limits, and pausing stays with admins. See [CHAT.md](CHAT.md).
+admin-set limits, and pausing stays with admins. Like a chat IDE it has a model, effort and mode picker (Autonomous, Ask
+before acting, Plan review), @-mentions, slash commands, branches and a context meter. See [CHAT.md](CHAT.md).
 
 ## Layout
 

@@ -2,6 +2,38 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.9.0 (2026-11-15)
+
+### Added
+
+- The Chat works like a chat IDE (docs/CHAT.md, *Modes* and *Controls*):
+  - **Modes**, per conversation with a default in your settings: **Autonomous** (the default: it acts, then shows the card
+    with Undo), **Ask before acting** (Confirm on every change) and **Plan review** (it proposes a plan; you leave steps
+    out or change their text, then the whole plan runs, each step with its result and Undo). The server's role limits,
+    the viewer's daily limit, pacing and opt-ins hold in every mode.
+  - **Effort** (Auto, low, medium, high, max), mapped to each model's real setting: Ollama's thinking and `num_ctx`
+    (within `workers.<n>.max_ctx`), Claude Code's `--effort`, `workers.<n>.effort_args` for other agents, and the tool
+    rounds an answer may take.
+  - Under the message box: the model, effort and mode pickers, the context meter, and the conversation's tokens with what
+    they would cost at API prices. Older messages are summarised by the model itself when the context passes your
+    threshold (`autocompact.threshold_pct`, 60 %), and the chat marks where.
+  - **Edit and resend** any of your messages, **Regenerate**, and **Branch** a new chat from any message.
+  - **@-mentions** add a project, a job, a machine or a repository's file (`@file:map/src/app.py`, never outside the
+    repository or a secret) as context, with a keyboard list.
+  - **Attachments**: images (paste a screenshot; PNG, JPEG, WebP, GIF up to 1 MB) beside text and logs; a long pasted log
+    is attached. Models with `workers.<n>.vision: true` see images.
+  - **Slash commands** `/new`, `/model`, `/effort`, `/mode`, `/clear`, `/help`, and keyboard shortcuts (Ctrl+K search,
+    Alt+N new chat, `/` to the message box, `?` for the list).
+
+### Fixed
+
+- A local model said it had queued tasks without calling a tool: the prompt now forbids claiming an action no tool call did.
+- A model's `XS` backlog task failed (`tutti backlog add` takes S, M or L): it is queued as S.
+- Mentions and attachments are data, never instructions: fenced in the prompt, and an answer that read any asks before
+  acting even in Autonomous mode. Viewers mention projects, jobs' lines and machines (no files or job logs); a file is read
+  only when git tracks it. Images live in their own files (600) beside the user's chats; only a message may be large.
+- A plan always ends in a state (a crashed step no longer leaves it running for good), and one cut off by a restart goes on.
+
 ## 0.8.0 (2026-11-15)
 
 ### Added

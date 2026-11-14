@@ -124,9 +124,16 @@ function chatKey(e, state) {
 const atBottom = (box, slack = 80) => box.scrollHeight - box.scrollTop - box.clientHeight <= slack;
 
 // A file the composer may attach: text only, within the size limit. Returns an error in plain words, or ''.
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+const IMAGE_LIMIT = 1024 * 1024;
+const TEXT_NAME = /\.(txt|log|md|json|ya?ml|csv|tsv|xml|ini|toml|cfg|conf|py|js|ts|tsx|jsx|sh|go|rs|java|kt|c|h|cpp|diff|patch)$/i;
+
 function attachmentError(file, limit) {
-    const textual = /^text\//.test(file.type) || /\.(txt|log|md|json|ya?ml|csv|tsv|xml|ini|toml|cfg|conf|py|js|ts|tsx|jsx|sh|go|rs|java|kt|c|h|cpp|diff|patch)$/i.test(file.name);
-    if (!textual) return `"${file.name}" is not a text file. Attach text or log snippets only.`;
+    if (IMAGE_TYPES.includes(file.type)) {
+        return file.size > IMAGE_LIMIT ? `"${file.name}" is ${Math.ceil(file.size / 1024)} KB; images are limited to 1024 KB. Crop it or take a smaller screenshot.` : '';
+    }
+    const textual = file.type.startsWith('text/') || TEXT_NAME.test(file.name);
+    if (!textual) return `"${file.name}" is not a text file or an image. Attach text, logs or screenshots (PNG, JPEG, WebP, GIF).`;
     if (file.size > limit) return `"${file.name}" is ${Math.ceil(file.size / 1024)} KB; the limit is ${Math.floor(limit / 1024)} KB. Attach the part that matters.`;
     return '';
 }
@@ -179,8 +186,9 @@ async function loadList() {
     try {
         const data = await chatApi({ action: 'list', query: CHAT.query });
         Object.assign(CHAT, { list: data.conversations, suggestions: data.suggestions, role: data.role, limits: data.limits, host: data.host || '', failed: '',
-            models: data.models || [], defaultModel: data.default_model || 'auto' });
-        drawPicker();
+            models: data.models || [], defaults: data.defaults || {}, modes: data.modes || {}, efforts: data.efforts || [],
+            compactDefault: data.compact_default || 60 });
+        if (typeof drawControls === 'function') drawControls();
     } catch (err) {
         CHAT.failed = err.message;
     }
@@ -219,7 +227,9 @@ function drawPrivacy() {
 async function openConv(id, focus = true) {
     if (CHAT.streaming) stopAnswer();
     try {
-        CHAT.conv = (await chatApi({ action: 'get', id })).conversation;
+        const got = await chatApi({ action: 'get', id });
+        CHAT.conv = got.conversation;
+        CHAT.settings = got.settings;
     } catch (err) {
         say(err.message);
         CHAT.conv = null;
@@ -238,6 +248,7 @@ async function openConv(id, focus = true) {
 function newChat() {
     if (CHAT.streaming) stopAnswer();
     CHAT.conv = null;
+    CHAT.settings = null;
     CHAT.pending = [];
     document.body.dataset.chatPane = 'conv';
     drawList();
@@ -252,14 +263,19 @@ function drawLog() {
     const msgs = CHAT.conv?.messages || [];
     cq('chat-title').textContent = CHAT.conv?.title || 'New chat';
     cq('chat-conv-actions').hidden = !CHAT.conv;
-    cq('chat-model').value = currentPick();
+    if (typeof drawControls === 'function') drawControls();
     if (!msgs.length) {
         log.replaceChildren(emptyState());
         return;
     }
     const lastUser = [...msgs].reverse().find((m) => m.role === 'user');
     const lastAnswer = msgs[msgs.length - 1].role === 'assistant' ? msgs[msgs.length - 1] : null;
-    log.replaceChildren(...msgs.map((m) => chatMessage(m, { editable: m === lastUser && !CHAT.streaming, retryable: m === lastAnswer && !CHAT.streaming && !(m.cards || []).length })));
+    const upto = CHAT.conv.summary?.upto;
+    log.replaceChildren(...msgs.flatMap((m) => {
+        const node = chatMessage(m, { editable: m.role === 'user' && !CHAT.streaming, last: m === lastUser,
+            retryable: m === lastAnswer && !CHAT.streaming && !(m.cards || []).length });
+        return m.id === upto ? [node, el('p', { class: 'chat__compacted', role: 'note', text: 'Earlier messages above are summarised for the model to save context.' })] : [node];
+    }));
     scrollEnd(true);
 }
 
@@ -305,10 +321,13 @@ function statusText(m) {
 
 function messageActions(m, opts) {
     const acts = [];
-    if (m.role === 'assistant' && m.text) acts.push(el('button', { class: 'btn btn--text', type: 'button', text: 'Copy', 'aria-label': 'Copy this answer', onclick: (e) => copyText(m.text, e.currentTarget) }));
-    if (opts.retryable) acts.push(el('button', { class: 'btn btn--text', type: 'button', text: 'Retry', 'aria-label': 'Answer again', onclick: () => retry(m.id) }));
+    if (m.role === 'assistant' && m.text) acts.push(el('button', { class: 'btn btn--text', type: 'button', text: 'Copy', title: 'Copy this answer', onclick: (e) => copyText(m.text, e.currentTarget) }));
+    if (opts.retryable) acts.push(el('button', { class: 'btn btn--text', type: 'button', text: 'Regenerate', title: 'Answer this again', onclick: () => retry(m.id) }));
+    if (!String(m.id).startsWith('local-') && m.status !== 'streaming' && !CHAT.streaming && CHAT.conv?.id) {
+        acts.push(el('button', { class: 'btn btn--text', type: 'button', text: 'Branch', title: 'A new chat with the messages up to here', onclick: () => branchFrom(m) }));
+    }
     if (m.status === 'unsent') acts.push(el('button', { class: 'btn btn--tonal', type: 'button', text: 'Send again', onclick: () => resend(m) }));
-    if (opts.editable) acts.push(el('button', { class: 'btn btn--text', type: 'button', text: 'Edit', 'aria-label': 'Edit your last message', onclick: () => startEdit(m) }));
+    if (opts.editable && !String(m.id).startsWith('local-')) acts.push(el('button', { class: 'btn btn--text', type: 'button', text: 'Edit', title: 'Edit and resend: the messages after it are replaced', onclick: () => startEdit(m) }));
     return acts.length ? el('footer', { class: 'msg__actions' }, ...acts) : null;
 }
 
@@ -329,6 +348,7 @@ function workStatus(ref) {
 }
 
 function actionCard(m, c) {
+    if (c.steps && typeof planCard === 'function') return planCard(m, c);
     const live = c.state === 'done' ? workStatus(c.ref) : null;
     const tone = { done: 'ok', failed: 'bad', refused: 'warn', undone: 'idle', proposed: 'accent', cancelled: 'idle' }[c.state] || 'idle';
     const title = { done: c.label, failed: `Not done: ${c.label}`, refused: `Not allowed: ${c.label}`, undone: `Undone: ${c.label}`,
@@ -366,34 +386,6 @@ async function confirmCard(m, c, yes, button) {   // a model's proposal: nothing
     }
 }
 
-// ---- the model picker: Auto (local first, then online), Local only, Online only, or one model; per conversation, and the
-// last choice is the default for new chats
-
-function currentPick() { return CHAT.conv?.model || CHAT.defaultModel || 'auto'; }
-
-function drawPicker() {
-    const box = cq('chat-model');
-    const groups = { mode: el('optgroup', { label: 'Mode' }), local: el('optgroup', { label: 'Local models' }), online: el('optgroup', { label: 'Online agents' }) };
-    for (const m of CHAT.models || []) {
-        groups[m.group].append(el('option', { value: m.id, text: m.available ? m.label : `${m.label} (not now: ${m.why})` }));
-    }
-    box.replaceChildren(...Object.values(groups).filter((g) => g.children.length));
-    box.value = currentPick();
-}
-
-async function pickModel(e) {
-    const model = e.target.value;
-    try {
-        await chatApi({ action: 'model', model, id: CHAT.conv?.id || undefined });
-        CHAT.defaultModel = model;
-        if (CHAT.conv) CHAT.conv.model = model;
-        say(`Answers now come from: ${e.target.selectedOptions[0]?.textContent || model}.`);
-    } catch (err) {
-        say(err.message);
-        e.target.value = currentPick();
-    }
-}
-
 async function undo(m, c, button) {
     button.disabled = true;
     try {
@@ -425,10 +417,15 @@ function composerText() { return cq('chat-input').value.replace(/\s+$/, ''); }
 async function send(text, extra = {}) {
     text = (text ?? composerText()).trim();
     if ((!text && !CHAT.pending.length) || CHAT.streaming) return;
+    if (text.startsWith('/') && typeof runSlash === 'function' && await runSlash(text)) {
+        cq('chat-input').value = '';
+        autoGrow();
+        return;
+    }
     const attachments = CHAT.pending;
-    if (!CHAT.conv) CHAT.conv = { id: null, title: '', messages: [], model: currentPick() };
+    if (!CHAT.conv) CHAT.conv = { id: null, title: '', messages: [] };
     if (extra.edit) CHAT.conv.messages = CHAT.conv.messages.slice(0, CHAT.conv.messages.findIndex((x) => x.id === extra.edit));
-    const local = { id: `local-${Date.now()}`, role: 'user', text, attachments: attachments.map((a) => ({ name: a.name, size: a.text.length })), at: new Date().toISOString(), status: 'sending' };
+    const local = { id: `local-${Date.now()}`, role: 'user', text, attachments: attachments.map((a) => ({ name: a.name, size: a.size || (a.text || '').length })), at: new Date().toISOString(), status: 'sending' };
     CHAT.conv.messages.push(local);
     cq('chat-input').value = '';
     CHAT.pending = [];
@@ -436,7 +433,8 @@ async function send(text, extra = {}) {
     autoGrow();
     CHAT.stick = true;
     drawLog();
-    await stream({ action: 'send', conversation: CHAT.conv.id, text, attachments, model: currentPick(), ...extra }, local);
+    const picks = typeof currentSettings === 'function' ? currentSettings() : {};
+    await stream({ action: 'send', conversation: CHAT.conv.id, text, attachments, ...(CHAT.conv.id ? {} : picks), ...extra }, local);
 }
 
 function resend(m) {
@@ -449,6 +447,17 @@ async function retry(id) {
     CHAT.conv.messages = CHAT.conv.messages.filter((x) => x.id !== id);
     drawLog();
     await stream({ action: 'send', conversation: CHAT.conv.id, retry: id }, null);
+}
+
+async function branchFrom(m) {
+    try {
+        const data = await chatApi({ action: 'branch', conversation: CHAT.conv.id, message: m.id });
+        await loadList();
+        await openConv(data.conversation.id);
+        say('A new chat starts from that message. The original is unchanged.');
+    } catch (err) {
+        say(err.message);
+    }
 }
 
 function startEdit(m) {
@@ -529,6 +538,15 @@ function onEvent(e, local, answer) {
         paint(answer);
     } else if (answer && e.type === 'model') {
         answer.model = e.model;
+    } else if (e.type === 'usage') {
+        CHAT.conv.usage = e.total;
+        if (typeof drawUsage === 'function') drawUsage();
+    } else if (e.type === 'compacted') {
+        CHAT.conv.summary = { upto: e.upto };
+        say(e.text);
+    } else if (answer && e.type === 'note') {
+        answer.note = e.text;
+        paint(answer);
     } else if (answer && e.type === 'replace') {
         answer.text = e.text;
         paint(answer);
@@ -607,6 +625,7 @@ function autoGrow() {
 }
 
 function onKey(e) {
+    if (typeof popupKey === 'function' && popupKey(e)) return;
     const action = chatKey(e, { streaming: Boolean(CHAT.streaming), text: cq('chat-input').value, canEdit: Boolean(lastUserMessage()) });
     if (!action) return;
     e.preventDefault();
@@ -633,18 +652,30 @@ async function onFiles(e) {
         if (CHAT.pending.length >= CHAT.limits.attachments) { err.push(`At most ${CHAT.limits.attachments} files per message.`); break; }
         const why = attachmentError(file, CHAT.limits.attachment_bytes);
         if (why) { err.push(why); continue; }
-        const text = await file.text();
-        if (text.includes('\u0000')) { err.push(`"${file.name}" is not a text file. Attach text or log snippets only.`); continue; }
-        CHAT.pending.push({ name: file.name, text });
+        const item = await readAttachment(file);
+        if (typeof item === 'string') err.push(item); else CHAT.pending.push(item);
     }
     e.target.value = '';
     cq('chat-file-error').textContent = err.join(' ');
     drawPending();
 }
 
+// A file as an attachment: {name, text} or {name, type, data (base64), size} for an image; a string says why not.
+async function readAttachment(file) {
+    if (IMAGE_TYPES.includes(file.type)) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        return { name: file.name || 'screenshot.png', type: file.type, data: btoa(bin), size: bytes.length };
+    }
+    const text = await file.text();
+    if (text.includes('\u0000')) return `"${file.name}" is not a text file. Attach text or log snippets only.`;
+    return { name: file.name, text, size: text.length };
+}
+
 function drawPending() {
     cq('chat-attachments').replaceChildren(...CHAT.pending.map((a, i) => el('span', { class: 'chip chat__file' },
-        `${a.name} · ${Math.ceil(a.text.length / 1024)} KB`,
+        `${a.type ? 'Image: ' : ''}${a.name} · ${Math.ceil((a.size || 0) / 1024)} KB`,
         el('button', { class: 'chat__unattach', type: 'button', 'aria-label': `Remove ${a.name}`, text: '×', onclick: () => { CHAT.pending.splice(i, 1); drawPending(); cq('chat-input').focus(); } }))));
 }
 
@@ -755,7 +786,6 @@ function initChat() {
     cq('chat-log').addEventListener('scroll', onScroll, { passive: true });
     cq('chat-jump').addEventListener('click', jumpLatest);
     cq('chat-rename-btn').addEventListener('click', renameConv);
-    cq('chat-model').addEventListener('change', pickModel);
     cq('chat-delete-btn').addEventListener('click', deleteConv);
     cq('chat-clear').addEventListener('click', clearHistory);
     cq('chat-activity-open').addEventListener('click', showActivity);

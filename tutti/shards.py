@@ -130,9 +130,23 @@ def judge(s, log, rc):
     return 0
 
 
-def not_started(s, log, since_start):
-    """Why the run must stop because its tests never started, or ''. The clock runs from the device lock's marker line."""
-    st = s.get('started')
+START_WITHIN = 120   # a device run must show a test running within 2 minutes of the ready marker (the owner's rule)
+FILTER = re.compile(r"""(?:(?<!\S)(?:--grep|--filter|--tests|-g|--test-name-pattern)"""
+                    r"""(?:=(?:''|""|(?=\s|$))|\s+(?:''|""|(?=-))|\s*$))"""
+                    r"""|(?:Arguments\.(?:class|package)=(?:''|""|(?=\s|$)))""")
+
+
+def empty_filter(command):
+    """Why the command must not run ('' when it may): an e2e filter that is empty would run every test, or none."""
+    m = FILTER.search(command or '')
+    return (f'the test filter is empty ("{m.group(0).strip()}"): name the tests to run (the shard\'s extra), never an empty '
+            'filter') if m else ''
+
+
+def not_started(s, log, since_start, device=False):
+    """Why the run must stop because its tests never started, or ''. The clock runs from the device lock's marker line. A
+    device run without its own `started` must show some output after the marker within 2 minutes."""
+    st = s.get('started') or ({'pattern': started_marker() + r'[^\n]*\n[\s\S]*\S', 'within_seconds': START_WITHIN} if device else None)
     if not st or since_start < float(st['within_seconds']) or re.search(st['pattern'], log):
         return ''
     return (f'{REQUEUE} no test started within {int(st["within_seconds"])} s (no "{st["pattern"]}" line): the device may be '

@@ -170,11 +170,12 @@ class JudgeTest(Base):
         self.assertIsNotNone(child.poll())
 
 
-    def test_without_a_device_session_the_started_clock_runs_from_the_spawn(self):
+    def test_every_device_run_is_a_session_whose_clock_starts_at_the_ready_marker(self):
         cfg = self.cfg({'started': {'pattern': 'Unlocked', 'within_seconds': 0.2}})
         log = os.path.join(self.tmp.name, 'run2.log')
         beat = os.path.join(self.tmp.name, 'beat2')
-        open(log, 'w').close()
+        with open(log, 'w', encoding='utf8') as f:
+            f.write('tutti: device ready\n')   # every device run is wrapped (devices.external_wrap) and prints it
         open(beat, 'w').close()
         cfg['dispatch']['call_poll_seconds'] = 0.05
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
@@ -191,11 +192,12 @@ class JudgeTest(Base):
 
 class ExternalLockTest(Base):
     def run_wrapped(self, lock, command, timeout=10):
-        d = {'serial': 'S1', 'external_lock': lock.replace('S1', '{serial}')}
+        d = {'name': 'ph', 'serial': 'S1', 'adb': '/bin/true', 'prep_defaults': False, 'external_lock': lock.replace('S1', '{serial}')}
         line = devices.external_wrap([d], command)
         out = os.path.join(self.tmp.name, 'out.txt')
         with open(out, 'w', encoding='utf8') as f:   # a file, not a pipe: the waiting `sleep` must not hold the test open
-            child = subprocess.Popen(['bash', '-c', line], stdout=f, stderr=f, start_new_session=True)
+            child = subprocess.Popen(['bash', '-c', line], stdout=f, stderr=f, start_new_session=True,
+                                     env={**os.environ, 'HOME': self.tmp.name})   # the users folder: never the real home
         try:
             rc = child.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -222,7 +224,6 @@ class ExternalLockTest(Base):
         old = time.time() - 31 * 60
         os.utime(lock, (old, old))
         self.assertIn('ran', self.run_wrapped(lock, 'echo ran').stdout)
-        self.assertEqual(devices.external_wrap([{'serial': 'S1'}], 'echo x'), 'echo x')
 
     def test_the_readings_say_who_holds_it(self):
         from tests.test_devices import fake_adb

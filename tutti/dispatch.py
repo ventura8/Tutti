@@ -12,6 +12,7 @@ folder (`tutti dispatch status`, the dashboard), never in a commit. Pure plannin
 import contextlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -668,6 +669,34 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
     return p
 
 
+def released(text):
+    """The devices a run's output says were released (every user done: tutti/prep.py release_script)."""
+    return re.findall(r'^tutti: device released (\S+)', text or '', re.M)
+
+
+def announce_free(cfg, names, now=None, st=None):
+    """Tells the other users a device is free: an event on the dashboard (Keep busy) and a line in
+    <state>/devices/free.jsonl that sessions and the coordinator read."""
+    if not names:
+        return
+    now = now or time.time()
+    with contextlib.suppress(KeyError, OSError):   # the notice is a courtesy: a missing state folder never fails a run
+        out = os.path.join(config.state_dir(cfg), 'devices')
+        os.makedirs(out, exist_ok=True)
+        with open(os.path.join(out, 'free.jsonl'), 'a', encoding='utf8') as f:
+            for n in names:
+                f.write(json.dumps({'device': n, 'at': now, 'what': 'free: every user is done; its own settings are back'}) + '\n')
+
+    def tell(state):
+        for n in names:
+            event(state, now, f'{n} is free: every user is done, its own settings are back (it sleeps again)')
+    if st is not None:   # called with the state already held (the dispatch round): never take its lock twice
+        tell(st)
+        return
+    with locked(cfg) as held:
+        tell(held)
+
+
 def restore_left(cfg, st, rows, now, sh=None):
     """A device whose prep values were saved but never put back (its run's machine rebooted, the device was gone) gets
     them back once it answers again and nothing holds it (tutti/prep.py)."""
@@ -679,8 +708,15 @@ def restore_left(cfg, st, rows, now, sh=None):
         if d.get('prep_left') != 1 or d.get('status') != 'ready' or d['name'] in leased:
             continue
         device = cfg['devices'][d['name']]
+        stale = int(float(device.get('external_lock_stale_minutes', devices.EXTERNAL_STALE_MINUTES)) * 60)
+        ext = devices.external_lock(device)
         try:
-            ok = sh(cfg['machines'][device['machine']], prep.restore_script(device), capture=True, timeout=120).returncode == 0
+            r = sh(cfg['machines'][device['machine']], prep.release_script(device, ext, stale), capture=True, timeout=120)
+            if r.returncode == 0 and 'stays in use' in (r.stdout or ''):
+                continue   # another session or tool still uses it: the last one's release puts the values back
+            ok = r.returncode == 0
+            if ok:
+                announce_free(cfg, released(r.stdout), now, st)
         except (OSError, subprocess.SubprocessError):
             ok = False
         event(st, now, f'{d["name"]}: the settings a run changed were put back after it ended uncleanly' if ok else
@@ -737,6 +773,9 @@ def test_argv(cfg, lease, s, shard):
     track = f'dispatch-{s["project"]}-{s["name"]}'.lower().replace(' ', '-')
     holds = [x for n in lease.get('holds') or [] for x in ('--hold-device', n)]
     command = s['run'].replace('{shard}', shard).replace('{extra}', lease.get('extra') or '')
+    empty = shards.empty_filter(command)
+    if empty:
+        raise config.ConfigError(f'{s["project"]} {s["name"]}/{shard}: {empty}')
     return [sys.executable, remote.BIN, '--config', cfg['_path'], 'test', '--dir', tree, *where, *holds, track, command]
 
 
@@ -796,9 +835,8 @@ def supervise(cfg, lease, s, child, beat, look=calls.look, sleep=time.sleep, log
     phone = lease['kind'] == 'android' and (cfg['devices'].get(lease['name']) or {}).get('calls', True) is not False
     poll = float(d.get('call_poll_seconds', 3)) if phone else 5.0 if (s.get('started') or android) else 30.0
     began = clock()
-    conf = cfg['devices'].get(lease['name']) or {} if android else {}
-    # the ready marker comes from the device session (an external lock or a prep); without either, the clock starts now
-    ready_at = None if (conf.get('external_lock') or conf.get('prep')) else began
+    # every device run is a device session (devices.external_wrap): its ready marker starts the 2-minute start check
+    ready_at = None if android else began
     while True:
         os.utime(beat)
         try:
@@ -809,10 +847,10 @@ def supervise(cfg, lease, s, child, beat, look=calls.look, sleep=time.sleep, log
             rc = on_call(cfg, lease, s, child, beat, look, sleep)
             if rc is not None:
                 return rc
-        text = read_log(log) if s.get('started') else ''
+        text = read_log(log) if (s.get('started') or android) else ''
         if ready_at is None and (shards.started_marker() in text or not android):
             ready_at = clock()
-        late = shards.not_started(s, text, clock() - (ready_at if ready_at is not None else began)) if ready_at is not None else ''
+        late = shards.not_started(s, text, clock() - ready_at, device=android) if ready_at is not None else ''
         if late:
             stop(child)
             return late
@@ -833,7 +871,12 @@ def run(cfg, lid, popen=subprocess.Popen, after=live_tick, look=calls.look, slee
         if s:
             child = popen(test_argv(cfg, lease, s, shard), stdin=subprocess.DEVNULL, start_new_session=True)
             rc = supervise(cfg, lease, s, child, p['beat'], look, sleep, log=p['log'])
+    except config.ConfigError as e:   # an empty test filter: refused, never run
+        with open(p['log'], 'a', encoding='utf8') as f:
+            f.write(f'dispatch: refused: {e}\n')
+        rc = 1
     finally:
+        announce_free(cfg, released(read_log(p['log'])))
         with open(p['rc'], 'w', encoding='utf8') as f:
             f.write(f'{rc}\n')
     with contextlib.suppress(Exception):   # the next shard is a bonus: the dashboard's next tick sends it anyway

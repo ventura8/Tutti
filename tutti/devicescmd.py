@@ -136,9 +136,69 @@ def cmd_move(cfg, a, read_code=input):
     return 0 if not result['stayed'] else 1
 
 
+def cmd_claim(cfg, a):
+    """`tutti devices claim <device> --who <session>`: a session that uses the device outside Tutti's runs says so; the
+    device is not released (its own settings put back) while a claim is there. `release` takes the claim away, and the
+    device is released when nobody else uses it."""
+    from . import devices, dispatch, prep, remote
+    if not a.names or not a.who:
+        say(f'name the device and who you are: tutti devices {a.action} <device> --who <session>')
+        return 2
+    d = devices.of(cfg, a.names[0])
+    claim = f'{prep.users_path(d)}/claim-{"".join(c if c.isalnum() or c in "-_." else "_" for c in a.who)}'
+    if a.action == 'claim':
+        script = f'mkdir -p {prep.users_path(d)} && touch {claim} && echo "tutti: {d["name"]} claimed"'
+    else:
+        ext = devices.external_lock(d)
+        stale = int(float(d.get('external_lock_stale_minutes', devices.EXTERNAL_STALE_MINUTES)) * 60)
+        script = f'rm -f {claim}; {prep.release_script(d, ext, stale)}'
+    try:
+        r = remote.sh(cfg['machines'][d['machine']], script, capture=True, timeout=180)
+    except (OSError, ValueError) as e:
+        say(f'{d["machine"]} did not answer ({e}): try again when it is on')
+        return 1
+    print((r.stdout or '').strip())
+    if a.action == 'release':
+        dispatch.announce_free(cfg, dispatch.released(r.stdout))
+    return 0 if r.returncode == 0 else 1
+
+
+def cmd_install(cfg, a):
+    """`tutti devices install <device> <apk>`: refused unless the APK is debuggable; one install per device at a time."""
+    import os
+    import subprocess
+
+    from . import apk, devices, remote
+    if len(a.names or []) != 2:
+        say('name the device and the APK: tutti devices install <device> <file.apk>')
+        return 2
+    d, path = devices.of(cfg, a.names[0]), a.names[1]
+    try:
+        apk.check(path)
+    except apk.ApkError as e:
+        say(f'install refused: {e}')
+        return 1
+    import time
+    machine = cfg['machines'][d['machine']]
+    there, copied = os.path.abspath(path), False
+    if machine['transport'] != 'local':   # a path of its own per install: two installs never overwrite each other's file
+        there, copied = f'.tutti/apk/{d["name"]}-{os.getpid()}-{int(time.time() * 1000)}-{os.path.basename(path)}', True
+        remote.sh(machine, 'mkdir -p ~/.tutti/apk', capture=True, timeout=60)
+        if subprocess.run(['rsync', '-a', '-e', remote.rsh(cfg, machine), path, f'{remote.dest(machine)}:{there}'],
+                          check=False).returncode != 0:
+            say(f'the APK could not be copied to {d["machine"]}: check it answers (`tutti machines`)')
+            return 1
+    rm = f'; rc=$?; rm -f {there}; exit $rc' if copied else ''
+    return remote.sh(machine, apk.install_script(d, there) + rm).returncode
+
+
+ACTIONS = {'pair': cmd_pair, 'move': cmd_move, 'claim': cmd_claim, 'release': cmd_claim, 'install': cmd_install}
+
+
 def add_arguments(s):
     """The `tutti devices` options for pair and move."""
-    s.add_argument('names', nargs='*', help='move: the devices to move (default: every device not on --to)')
+    s.add_argument('names', nargs='*', help='move: the devices to move (default: every device not on --to); claim, release: '
+                   'the device; install: the device and the APK')
     s.add_argument('--to', help='move: the machine the devices go to')
     s.add_argument('--dry-run', action='store_true', help='move: print the plan and the preflight, change nothing')
     s.add_argument('--replace-key', action='store_true', help='move: the default (kept for old scripts): back up the new '
@@ -151,3 +211,4 @@ def add_arguments(s):
     s.add_argument('--code', help='pair: the 6-digit code the device shows (asked when missing)')
     s.add_argument('--adb', help='pair: the adb to use on the machine (default: found by itself)')
     s.add_argument('--wait', type=int, default=180, help='pair: seconds to wait for the device (180)')
+    s.add_argument('--who', help='claim, release: the session or tool that uses the device')

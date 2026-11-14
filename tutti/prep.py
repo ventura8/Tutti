@@ -13,10 +13,33 @@ import shlex
 
 NULL = 'null'   # what `settings get` prints for a key that is not set: restored by `settings delete`
 
+# The owner's defaults while a run uses a device (`prep_defaults: false` turns them off; a `prep:` item with the same name
+# replaces one): screen at about 30 %, media volume at about 10 % (2 of 15 to 25 steps, only lowered; Cast plays on the
+# media stream, so it is the cast volume too), and a TV's
+# screensaver off and its screen on for 30 min. Every value read first is put back exactly at release.
+VOLUME = {'name': 'media volume', 'read': 'cmd media_session volume --stream 3 --get', 'parse': r'volume is (\d+)',
+          'set': 'cmd media_session volume --stream 3 --set {value}', 'value': 2, 'cap': True}
+DEFAULTS = {
+    'phone': [{'setting': 'system screen_brightness_mode', 'value': 0}, {'setting': 'system screen_brightness', 'value': 77}, VOLUME],
+    'tv': [{'setting': 'secure screensaver_enabled', 'value': 0}, {'setting': 'system screen_off_timeout', 'value': 1800000}, VOLUME],
+}
+DEFAULTS['tablet'] = DEFAULTS['phone']
+KEEP_AWAKE_SECONDS = 15   # the phone's admin policy caps the screen timeout at 5 min: a harmless key every 15 s keeps it on
+
+
+def wanted(device):
+    """The device's prep list: the defaults of its kind, then its own `prep:` (an item with a default's name replaces it)."""
+    own = list(device.get('prep') or [])
+    if device.get('prep_defaults') is False:
+        return own
+    names = {x.get('name') or str(x.get('setting', '')).split(None, 1)[-1] for x in own}
+    base = [x for x in DEFAULTS.get(device.get('kind') or 'phone', []) if (x.get('name') or x['setting'].split()[-1]) not in names]
+    return base + own
+
 
 def items(device):
     out = []
-    for i, x in enumerate(device.get('prep') or []):
+    for i, x in enumerate(wanted(device)):
         if 'setting' in x:
             ns, key = str(x['setting']).split(None, 1)
             out.append({'name': x.get('name') or key, 'read': f'settings get {ns} {key}', 'set': f'settings put {ns} {key} {{value}}',
@@ -74,13 +97,16 @@ def prep_script(device):
     if not its:
         return ''
     f = saved_path(device)
-    lines = [f'mkdir -p "$(dirname {f})"', f': > {f}.tmp']
+    # a saved file already there holds the device's own values (another run still uses it, or a crash): never read again,
+    # or the prepared values would become the "originals"
+    reads = [f'mkdir -p "$(dirname {f})"', f': > {f}.tmp']
     for i, it in enumerate(its):
-        lines.append(f'v=$({_read(device, it)})')
+        reads.append(f'v=$({_read(device, it)})')
         bad = 'grep -qiE "not found|inaccessible|unknown|error|exception|usage:"'
-        lines.append(f'if [ -n "$v" ] && ! printf "%s" "$v" | {bad}; then printf "%s\\t%s\\n" {i} "$v" >> {f}.tmp; '
+        reads.append(f'if [ -n "$v" ] && ! printf "%s" "$v" | {bad}; then printf "%s\\t%s\\n" {i} "$v" >> {f}.tmp; '
                      f'else echo "tutti: prep {it["name"]} skipped: the device does not answer {shlex.quote(it["read"])}"; fi')
-    lines.append(f'mv {f}.tmp {f}')
+    reads.append(f'mv {f}.tmp {f}')
+    lines = [f'if [ ! -e {f} ]; then {"; ".join(reads)}; fi']
     for i, it in enumerate(its):
         value = shlex.quote(str(it['value']))
         set_line = f'{_adb(device)} {shlex.quote(it["set"].replace("{value}", str(it["value"])))} > /dev/null 2>&1'
@@ -105,6 +131,38 @@ def restore_script(device):
         cases.append(f'{i}) {put} && echo "tutti: restored {it["name"]} to $v";;')
     return (f'if [ -e {f} ]; then while IFS="$(printf "\\t")" read -r i v; do case "$i" in {" ".join(cases)} esac; done < {f}; '
             f'rm -f {f}; fi')
+
+
+def users_path(device):
+    """The folder of the device's current users on its machine: `run-<pid>` per Tutti run, `claim-<who>` per session claim
+    (`tutti devices claim`). The device is released only when it is empty and no other tool's lock file is fresh."""
+    from . import remote
+    return remote.home_path(f'~/.tutti/devices/{device["name"]}/users')
+
+
+def release_script(device, ext='', stale=1800):
+    """Releases the device if nobody else uses it: no Tutti run or claim left in users_path, no fresh lock file of another
+    tool (`ext`). Then its own values come back (restore_script: phones sleep again, a TV gets its screensaver and timers
+    back) and `tutti: device released <name>` is printed; else `tutti: <name> stays in use by ...`."""
+    u = users_path(device)
+    name = shlex.quote(device['name'])
+    fresh = (f'[ -e {shlex.quote(ext)} ] && [ $(( $(date +%s) - $(stat -c %Y {shlex.quote(ext)}) )) -lt {int(stale)} ] && '
+             f'by="$by $(head -c 120 {shlex.quote(ext)})"; ') if ext else ''
+    # a run-<pid> whose process is gone (killed, OOM, a reboot) is no user: removed before deciding; claims stay until released
+    gone = f'for r in {u}/run-*; do [ -e "$r" ] || continue; kill -0 "${{r##*/run-}}" 2>/dev/null || rm -f "$r"; done; '
+    return (f'{gone}by=$(ls -A {u} 2>/dev/null | tr "\\n" " "); {fresh}'
+            f'if [ -z "${{by// /}}" ]; then {restore_script(device) or ":"}; echo "tutti: device released {device["name"]}"; '
+            f'else echo "tutti: "{name}" stays in use by $by"; fi')
+
+
+def keep_awake(device):
+    """The keep-awake loop of a run (backgrounded by the caller): a harmless key every 15 s while the run lasts."""
+    return (f'while :; do {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; sleep {KEEP_AWAKE_SECONDS}; done')
+
+
+def unlock(device):
+    """Wakes the screen and dismisses a swipe lock (a PIN lock needs the user once; a test device has none)."""
+    return f'{_adb(device)} input keyevent KEYCODE_WAKEUP > /dev/null 2>&1; {_adb(device)} wm dismiss-keyguard > /dev/null 2>&1'
 
 
 def scripts(found):

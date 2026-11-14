@@ -188,9 +188,9 @@ def power_text(r):
 
 def cmd_devices(cfg, a):
     """Exit 1 when a device is offline (not connected, not authorised, or its machine does not answer)."""
-    if a.action in ('pair', 'move'):
+    if a.action in ('pair', 'move', 'claim', 'release', 'install'):
         from . import devicescmd
-        return (devicescmd.cmd_pair if a.action == 'pair' else devicescmd.cmd_move)(cfg, a)
+        return devicescmd.ACTIONS[a.action](cfg, a)
     if a.action == 'add':
         print(devices.ADB_STEPS.format(name=a.name or 'phone', serial=a.serial or '<serial from adb devices>',
                                        machine=a.machine or next(iter(cfg['machines']), 'here')))
@@ -273,6 +273,12 @@ def cmd_test(cfg, a):
             'with a device: tutti test --device <name> -- <command>')
         return 2
     src, command = tree_and_command(cfg, a)
+    if a.device:
+        from . import shards
+        empty = shards.empty_filter(' '.join(command))
+        if empty:
+            say(f'test: refused: {empty}')
+            return 2
     if not os.path.isdir(src):
         say(f'no work tree at {src}: create the worktree for track "{a.track}" there, or pass --dir <path>')
         return 2
@@ -1246,7 +1252,7 @@ def parser():
     s.add_argument('--port', type=int, default=8022, help='add-android: Termux sshd port (8022)')
     s = add('devices', cmd_devices, 'Android devices for e2e: connection, battery, charging, heat, screen, Wi-Fi and lock; pair one '
             'over Wi-Fi (QR code, or the code a TV shows); move devices to another machine')
-    s.add_argument('action', nargs='?', choices=['add', 'pair', 'move'],
+    s.add_argument('action', nargs='?', choices=['add', 'pair', 'move', 'claim', 'release', 'install'],
                    help='pair: wireless debugging (QR code); move: to another machine (--to); add: print the manual setup')
     s.add_argument('--name', help='add, pair: the device name (pair: default from its model)')
     s.add_argument('--serial', help='add: its serial from `adb devices` (or ip:port)')

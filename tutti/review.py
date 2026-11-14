@@ -186,7 +186,7 @@ def local_review(cfg, repo, number, name, args, gh_fn=gh, run_worker=None):
             f.write(diff)
         argv = workers.with_args(workers.command(cfg['workers'][name], PROMPT), args)
         run_worker = run_worker or (lambda a, cwd: subprocess.run(a, cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                                                                    timeout=1800))
+                                                                    timeout=1800, env=workers.worker_env(cfg)))
         r = run_worker(argv, d)
     text = (r.stdout or '').strip()
     if r.returncode != 0 or not text:
@@ -314,5 +314,9 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
         say(f'review: posted {name}\'s review to {repo}#{number}')
     else:
         say(body)
+    from . import fill  # it imports this module
+    if not fill.verdict(text)[0]:
+        say('review: the local review has findings: a person reads them before this pull request merges (exit 3)')
+        return 3   # never "reviewed" for an automatic merge (selfimprove.review_finished needs 0)
     return 0
 

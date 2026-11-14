@@ -297,6 +297,7 @@ def _machine_errors(name, m):
         errs.append(f'machines.{name}.transport is "{m["transport"]}": use one of {", ".join(TRANSPORTS)}')
     if m['transport'] not in ('local', 'household') and not m.get('host'):
         errs.append(f'machines.{name}.host is missing: give its ssh alias, or "local" for this computer')
+    errs += _ssh_word_errors(name, m)
     if m['transport'] == 'wsl' and not m.get('wsl_helper'):
         errs.append(f'machines.{name}.wsl_helper is missing: the path, inside WSL, of the base64 runner (docs/MACHINES.md)')
     if not isinstance(m['slots'], int) or m['slots'] < 1:
@@ -311,6 +312,12 @@ def _machine_errors(name, m):
     if c is not None and (not isinstance(c, list) or not all(isinstance(x, str) and x for x in c)):
         errs.append(f'machines.{name}.containers is {c!r}: a list of container name prefixes, e.g. [tutti-, myproj-test-]')
     return errs + _heat_errors(name, m.get('heat'))
+
+
+def _ssh_word_errors(name, m):
+    """host and user are one word of the ssh command line: never an option (-oProxyCommand=...) or two words."""
+    bad = [k for k in ('host', 'user') if isinstance(m.get(k), str) and (m[k].startswith('-') or any(c.isspace() for c in m[k]))]
+    return [f'machines.{name}.{k} is {m[k]!r}: a host name, address or ssh alias (no leading "-", no spaces)' for k in bad]
 
 
 def _android_errors(name, m):

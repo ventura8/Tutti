@@ -79,7 +79,11 @@ command itself, so an answer is what the terminal would print.
 
 **Roles.** A tool that changes something needs the `admin` role; read-only tools are open to every role. The roles are
 the dashboard sign-in's (`pending`, `viewer`, `admin`). The server takes `$TUTTI_ROLE`, else `mcp.role` in the config,
-else `admin` (the person who owns this computer and its config). A refused call says which role it needs and where to get
+else `admin` (the person who owns this computer and its config) over stdio and on loopback. `--http` on a LAN or VPN
+address defaults to `viewer`: whoever holds the token there is not necessarily the owner, so set `mcp.role: admin` to allow
+changes. A request with another site's `Origin` is refused (a web page cannot call it); free text (a title, a task, a
+question) goes after `--`, so it is never an option, and a name (repo, project, track, scout, mode, machine, device, skill)
+that starts with `-` is refused; a silent connection is closed after 30 s. A refused call says which role it needs and where to get
 it; nothing runs.
 
 ## For `tutti setup`

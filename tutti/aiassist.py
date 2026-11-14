@@ -485,7 +485,8 @@ def feed(cfg, requests, now=None):
     for r in requests:
         items = [{'sig': sig_of(it['title']), 'title': it['title'], 'why': f'online research ({r["watch"]})',
                   'notes': [f'From {r["watch"]} ({r.get("url") or r["id"]}).', 'First add a test that shows the change; then make it.']
-                  + ([f'Suggested check (not run by Tutti): {it["check"][:200]}'] if it['check'] else [])}
+                  + (['A check command was suggested; it is not passed on (outside text, audit 2026-11 H7): write your own '
+                      'test.'] if it['check'] else [])}
                  for it in triage.parse(r.get('answer'))]
         # outside text (a scout's reply): candidates the admin accepts (tutti backlog accept), never queued by itself
         added = selfimprove.add_candidates(cfg, items, 'insight', now, accept=False) if items else 0

@@ -2,6 +2,32 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.5.1 (2026-11-15)
+
+### Security
+
+The November audit (docs/SECURITY-AUDIT-2026-11.md): 2 critical, 9 high and 11 medium findings, each fixed with an
+exploit-style test, except signed releases (H8, open). The changes you may notice:
+
+- A household member's job runs from plain files (`git archive`) in a container on the machine and runner that really run
+  it; a job naming a device needs a device of that shared machine with a container runner (or `member_shell`).
+- Another member's task `check` and a spare-room offer's `check` are never copied; the coordinator signs its answers; a join
+  never takes over a member's id; a removed member needs a code made after the removal.
+- The dashboard without sign-in serves only this login (Linux: another user's process on 127.0.0.1 is dropped); a viewer can
+  no longer act for the owner from the Users tab; the chat never passes a task `check`.
+- Every server closes connections silent for 30 s and caps requests at once; the coordinator refuses a negative body size.
+- `tutti mcp --http` on a LAN or VPN address is a viewer unless `mcp.role: admin`; another site's Origin is refused.
+- A scout's answer counts only from its account (`scouts.<name>.github_login`) or a repository writer. **Upgrade step:** a
+  scout that posts as an account without write access needs `scouts.<name>.github_login` set; until then its comment is
+  ignored and the request says so.
+- The autopilot merges only the reviewed commit and never a branch that changes its own gates; self-improvement asks the
+  reviews again after a new push, and `tutti pr review` exits 3 when the local review has findings.
+- Workers and reviewers run without GH_TOKEN, Sentry, npm and the scouts' variables; tasks from outside text carry a
+  safety note; a Sentry-suggested check is never passed on; a local conductor model may not pass `--check` or touch files
+  outside its folder.
+- npm CLIs update to versions out for 3 days (`--before`); slot.sh keeps the caller's umask and never follows a lock link;
+  the activity scan uses a private temp folder; `machines.<m>.host` may not start with `-`.
+
 ## 0.5.0 (2026-11-15)
 
 ### Added

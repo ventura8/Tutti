@@ -228,9 +228,9 @@ class McpServerTest(unittest.TestCase):
     def test_delegate_maps_to_run_auto_with_project_and_size(self):
         err, _ = mcpserver.call(self.cfg, 'delegate_task', {'task': 'fix x', 'project': '/r', 'size': 'S'}, 'admin', runner=self.runner)
         self.assertFalse(err)
-        self.assertEqual(self.calls[-1], ['run', 'auto', '[size S] fix x', '--repo', '/r', '--bg'])
+        self.assertEqual(self.calls[-1], ['run', '--repo', '/r', '--bg', '--', 'auto', '[size S] fix x'])
         mcpserver.call(self.cfg, 'backlog_add', {'repo': 'r', 'title': 't', 'scope': ['a', 'b']}, 'admin', runner=self.runner)
-        self.assertEqual(self.calls[-1], ['backlog', 'add', 'r', 't', '--source', 'mcp', '--scope', 'a', '--scope', 'b'])
+        self.assertEqual(self.calls[-1], ['backlog', '--source', 'mcp', '--scope=a', '--scope=b', '--', 'add', 'r', 't'])
 
     def test_viewer_may_read_but_not_change(self):
         for name, args in (('delegate_task', {'task': 't', 'project': 'p'}), ('backlog_add', {'repo': 'r', 'title': 't'}),
@@ -245,7 +245,7 @@ class McpServerTest(unittest.TestCase):
         self.assertFalse(err)
         self.assertEqual(self.calls, [['usage']])
         mcpserver.call(self.cfg, 'backlog_add', {'repo': 'r', 'title': 't', 'scope': 'src/a.py'}, 'admin', runner=self.runner)
-        self.assertEqual(self.calls[-1][-2:], ['--scope', 'src/a.py'])
+        self.assertIn('--scope=src/a.py', self.calls[-1])
 
     def fail(self, *a, **k):
         raise AssertionError('a refused call must not start anything')

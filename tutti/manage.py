@@ -29,6 +29,15 @@ HAND_OVER = {
 }
 
 
+def is_self(cfg, who, member):
+    """Whether the member acted for is the one asking. With sign-in that is the signed-in Google user's own member id,
+    never this Tutti's: the owner's id must not let a viewer act for the owner. Without sign-in the dashboard's user is
+    this login's owner."""
+    if who is None:
+        return member == users.identity(cfg)['hash']
+    return bool(who.get('sub')) and users.id_hash(who['sub']) == member
+
+
 def allowed(cfg, who, target_is_self):
     """(ok, why) for the dashboard's own check before anything is queued."""
     if who is None or who.get('role') == 'admin':
@@ -53,9 +62,7 @@ def act_post(collector, headers, body, client=None):
     try:
         if data.get('list'):
             return 200, client.call('/hh/act', {'action': 'list'})
-        me = users.identity(collector.cfg)['hash']
-        target_is_self = data.get('member') == me or (who and users.id_hash(who.get('sub') or '') == data.get('member'))
-        ok, why = allowed(collector.cfg, who, target_is_self)
+        ok, why = allowed(collector.cfg, who, is_self(collector.cfg, who, data.get('member')))
         if not ok:
             return 403, {'error': why}
         if data.get('act') in ('remove', 'make-admin'):
@@ -100,6 +107,9 @@ def alone(cfg, who, data):
         return 200, {'members': [own_row(cfg)], 'acts': [], 'audit': [], 'admin': True, 'admins': 1}
     if data.get('member') != users.identity(cfg)['hash']:
         return 409, {'error': 'this Tutti is not in a household yet: invite someone from Invites first'}
+    ok, why = allowed(cfg, who, is_self(cfg, who, data.get('member')))
+    if not ok:
+        return 403, {'error': why}
     if data.get('act') in ('remove', 'make-admin'):
         return 409, {'error': 'you are the only admin: make another member admin first'}
     ok, note = run(cfg, {'action': data.get('act'), 'args': data.get('args') or {}, 'by': users.identity(cfg)['name']})

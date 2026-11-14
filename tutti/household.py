@@ -110,6 +110,23 @@ def member_view(m, now):
             'runs_today': (m.get('totals') or {}).get('runs_today', 0), 'left': bool(m.get('left'))}
 
 
+def taken_id(state, user_id):
+    """Why a join may not use this id, or '': a member's id travels in every request's X-Tutti-User header, so a join with
+    the code must never take over a member who is in (their token, jobs and machines), nor bring back one the admin removed
+    with a code made before the removal. A member who left on their own may join again."""
+    m = (state.get('members') or {}).get(user_id)
+    if not m:
+        return ''
+    made = ((state.get('code') or {}).get('until') or 0) - CODE_DAYS * 86400
+    if m.get('removed') and made <= m.get('removed', 0):
+        return ('the household\'s admin removed this login: ask them for a new join code (`tutti household code`), made '
+                'after the removal')
+    if not m.get('left'):
+        return ('this login is already a member of the household: `tutti household leave` on it first; if its membership '
+                'is lost, ask the household\'s admin to remove it (Users), then join with a new code')
+    return ''
+
+
 def join(state, user_id, uid_hash, name, agent, token, now):
     """Adds (or re-adds) a member with its derived token; a name another member uses gets a number."""
     others = {m['name'] for u, m in state['members'].items() if u != user_id and not m.get('left')}
@@ -674,6 +691,7 @@ def remove_member(state, caller, target_hash, now):
                              'who can then remove you, or run `tutti household leave` (it hands the admin role on)')
     audit(state, caller, target, 'remove', now)
     leave(state, target)
+    state['members'][target]['removed'] = now   # a join code made before now never brings them back (taken_id)
 
 
 def make_admin(state, caller, target_hash, now):

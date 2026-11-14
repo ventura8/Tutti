@@ -184,27 +184,29 @@ def activity_script():
     """Prints `W\\t<cwd>\\t<program>` for each of the user's processes in a folder under $HOME (not $HOME itself), then
     `R\\t<cwd>\\t<top>\\t<branch>\\t<remote url>` for each such folder in a git work tree, then `G <util %> <MiB used> <MiB total>`
     when an NVIDIA GPU answers. It only reads."""
-    return ('export PATH="$PATH:/usr/lib/wsl/lib"; '
+    # a private folder of its own (mode 700, mktemp): never a predictable /tmp name another login could read or plant
+    return ('export PATH="$PATH:/usr/lib/wsl/lib"; T=$(umask 077; mktemp -d 2>/dev/null) || exit 0; '
+            'trap \'rm -f "$T/cwd" "$T/activity"; rmdir "$T"\' EXIT; '
             # two processes for all of them (find for the folders, ps for the programs), joined by pid in awk: a fork
             # or three per process took 14 s on a computer with 800 processes (2026-11-14), now 0.2 s
             'if find /proc/self/cwd -maxdepth 0 -printf "" 2>/dev/null && ps -o pid=,args= -p $$ > /dev/null 2>&1; then '
-            'find /proc/[0-9]*/cwd -maxdepth 0 -user "$(id -u)" -printf "%h\\t%l\\n" 2>/dev/null > /tmp/tutti-cwd.$$; '
-            'ps -u "$(id -u)" -o pid=,args= 2>/dev/null | awk -v H="$HOME/" -v F=/tmp/tutti-cwd.$$ '
+            'find /proc/[0-9]*/cwd -maxdepth 0 -user "$(id -u)" -printf "%h\\t%l\\n" 2>/dev/null > $T/cwd; '
+            'ps -u "$(id -u)" -o pid=,args= 2>/dev/null | awk -v H="$HOME/" -v F=$T/cwd '
             "'BEGIN { while ((getline l < F) > 0) { split(l, a, \"\\t\"); sub(\"/proc/\", \"\", a[1]); c[a[1]] = a[2] } } "
             "{ d = c[$1]; if (d == \"\" || index(d, H) != 1) next; n = $2; sub(/.*\\//, \"\", n); "
-            "if (n != \"\") printf \"W\\t%s\\t%s\\n\", d, n }' > /tmp/tutti-activity.$$; rm -f /tmp/tutti-cwd.$$; "
+            "if (n != \"\") printf \"W\\t%s\\t%s\\n\", d, n }' > $T/activity; rm -f $T/cwd; "
             # BusyBox (Alpine, some Termux) has neither find -printf nor ps -o: the portable loop, slower but right
             'else for p in /proc/[0-9]*; do [ -O "$p" ] || continue; c=$(readlink "$p/cwd" 2>/dev/null) || continue; '
             'case "$c" in "$HOME"/*) ;; *) continue ;; esac; '
             'n=$(tr "\\0" "\\n" < "$p/cmdline" 2>/dev/null | head -n 1); n=${n%% *}; [ -n "$n" ] || continue; '
-            'printf "W\\t%s\\t%s\\n" "$c" "${n##*/}"; done > /tmp/tutti-activity.$$; fi; '
-            'cat /tmp/tutti-activity.$$; '
-            'cut -f2 /tmp/tutti-activity.$$ | sort -u | while IFS= read -r c; do '
+            'printf "W\\t%s\\t%s\\n" "$c" "${n##*/}"; done > $T/activity; fi; '
+            'cat $T/activity; '
+            'cut -f2 $T/activity | sort -u | while IFS= read -r c; do '
             't=$(git -C "$c" rev-parse --show-toplevel 2>/dev/null) || continue; '
             'b=$(git -C "$c" symbolic-ref --short -q HEAD || echo "detached $(git -C "$c" rev-parse --short HEAD 2>/dev/null)"); '
             'u=$(git -C "$c" config --get remote.origin.url 2>/dev/null); '
             'cm=$(git -C "$c" rev-parse --path-format=absolute --git-common-dir 2>/dev/null); '
-            'printf "R\\t%s\\t%s\\t%s\\t%s\\t%s\\n" "$c" "$t" "$b" "$u" "$cm"; done; rm -f /tmp/tutti-activity.$$; '
+            'printf "R\\t%s\\t%s\\t%s\\t%s\\t%s\\n" "$c" "$t" "$b" "$u" "$cm"; done; rm -f $T/activity; '
             'nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null '
             '| head -n 1 | tr -d "," | sed "s/^/G /"; true')
 

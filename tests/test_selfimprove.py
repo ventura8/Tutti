@@ -211,6 +211,29 @@ class Rounds(Base):
         self.assertEqual((lane['items'][0]['merged'], lane['items'][0]['released'], lane['items'][0]['status']), (True, True, 'done'))
         self.assertEqual(selfimprove.tick(cfg, NOW + 7200, run=gh, spawn=spawn), [])   # spaced
 
+    def test_a_commit_pushed_after_the_review_is_never_merged_unreviewed(self):
+        # exploit (audit 2026-11, M4): the reviews ran on abc123; a later push merged with them
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        spawn = finished_review()
+        selfimprove.tick(cfg, NOW, run=FakeGh(pr()), spawn=spawn)
+        gh = FakeGh(pr(headRefOid='evil999'))
+        selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+        self.assertIn('new commits', backlog.load(cfg)['tasks'][0]['self_improve'])
+        self.assertEqual(selfimprove.read_state(cfg)['reviews'], {})
+        selfimprove.tick(cfg, NOW + 7200, run=gh, spawn=spawn)   # asked again, on evil999
+        self.assertEqual(selfimprove.read_state(cfg)['reviews']['octo/tutti#7']['sha'], 'evil999')
+
+    def test_a_pull_request_without_its_head_commit_is_not_merged_and_nothing_crashes(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        spawn = finished_review()
+        selfimprove.tick(cfg, NOW, run=FakeGh(pr(headRefOid='')), spawn=spawn)
+        gh = FakeGh(pr(headRefOid=''))
+        selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
     def test_a_failed_release_keeps_its_fixes_for_the_next_one(self):
         cfg = self.cfg()
         st = {'merged': [{'project': 'Tutti', 'pr': 'octo/tutti#1', 'at': NOW, 'task': 't1'}]}
@@ -291,7 +314,8 @@ class Triage(Base):
         self.assertEqual(len(tasks), 2)
         self.assertEqual({(t['source'], t['project'], t['status']) for t in tasks}, {('sentry', 'Tutti', 'queued')})
         self.assertEqual({t['check'] for t in tasks}, {''})   # the repo's own check: a command from the answer is never run
-        self.assertIn('not run by Tutti', tasks[0]['notes'][-1])
+        self.assertIn('not passed on', tasks[0]['notes'][-1])
+        self.assertFalse(any('unittest' in n for t in tasks for n in t['notes']))   # the command text never reaches it
         self.assertEqual(data['requests'][0]['fed']['added'], 2)
 
     def test_triage_tasks_count_toward_the_daily_room(self):

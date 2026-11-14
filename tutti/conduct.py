@@ -409,7 +409,7 @@ def run_cli(cfg, agent, text, run, watch, out=None, extra=()):
 # ---- a local model as the main agent: Tutti runs the commands it asks for
 
 
-def local_command(line, protected_ok=False):
+def local_command(line, protected_ok=False, cwd=None):
     """(argv for `tutti`, None) when a model's `RUN: tutti ...` line may run, else (None, why). Only Tutti's commands run, never
     a shell; `ship` only with --dry-run."""
     m = RUN.match(line)
@@ -428,7 +428,47 @@ def local_command(line, protected_ok=False):
         return None, f'tutti {args[0]} runs here only as: {", ".join(f"tutti {args[0]} {x}" for x in sorted(allowed))}'
     if args[0] == 'ship' and ('--dry-run' not in args or ('--allow-protected' in args and not protected_ok)):
         return None, 'ship runs only with --dry-run (and without --allow-protected) while a model conducts'
+    why = local_args_refusal(args, cwd)
+    if why:
+        return None, why
     return args, None
+
+
+SHELL_OPTIONS = ('--check', '--check-where')   # `run --check CMD` runs CMD through bash on this computer
+
+
+def shell_option(arg):
+    """Whether a word is --check or --check-where, also abbreviated (argparse takes `--che`) or with =VALUE."""
+    name = arg.split('=', 1)[0]
+    return len(name) > 3 and name.startswith('--') and any(o.startswith(name) for o in SHELL_OPTIONS)
+
+
+PATH_OPTIONS = ('--input', '--dir', '--repo', '--fetch')   # each names a file or folder: `run --input ~/.ssh --on box` copies it
+
+
+def option_paths(args):
+    """The values of PATH_OPTIONS (`--input X` and `--input=X`, abbreviations too)."""
+    out = []
+    for i, a in enumerate(args):
+        name, eq, value = a.partition('=')
+        if len(name) > 3 and name.startswith('--') and any(o.startswith(name) for o in PATH_OPTIONS):
+            out += [value] if eq else args[i + 1:i + 2]
+    return out
+
+
+def local_args_refusal(args, cwd=None):
+    """Why a local model's arguments may not run, or '': never a shell command through --check, and `code` and `ask` only
+    on files inside the folder the conductor works in (a model steered by a file it read must not rewrite ~/.bashrc or read
+    ~/.ssh)."""
+    if any(shell_option(a) for a in args):
+        return 'a local model may not pass --check (a shell command): the repo\'s own configured check runs'
+    files = {'code': args[2:3], 'ask': args[3:]}.get(args[0], []) + option_paths(args)
+    root = os.path.realpath(cwd or os.getcwd())
+    for f in files:
+        full = os.path.realpath(os.path.join(root, os.path.expanduser(f)))
+        if full != root and not full.startswith(root + os.sep):
+            return f'{f} is outside {root}: a local model reads and edits only files in the folder it conducts in'
+    return ''
 
 
 def local_reply(worker, messages, timeout=600):
@@ -475,7 +515,7 @@ def local_step(cfg, agent, reply, run, watch=None):
     for line in reply.splitlines():
         if DONE.match(line):
             return None, line.strip()
-        args, why = local_command(line)
+        args, why = local_command(line, cwd=run.get('cwd'))
         if args:
             return run_tutti(cfg, args, run, agent, watch), None
         if RUN.match(line):

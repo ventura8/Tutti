@@ -392,6 +392,9 @@ def _control_tool():
                                            'name': {'type': 'string', 'description': 'its name in the config'}}}}
 
 
+CHAT_DROPS = ('check',)   # arguments the chat never passes: a viewer or a steered model would run a command on this host
+
+
 def model_tools():
     """{name: {schema, description, mutating}}: what a model may call. Read-only ones run at once and their answer goes back
     to the model; the others become a proposal the user confirms."""
@@ -399,7 +402,11 @@ def model_tools():
     keep = ('usage', 'machines', 'devices', 'job_status', 'backlog_list', 'backlog_add', 'delegate_task', 'test_on', 'scout_ask')
     out = {}
     for t in [x for x in mcpserver.TOOLS if x['name'] in keep] + [_control_tool()]:
-        out[t['name']] = {'schema': t['inputSchema'], 'description': t['description'],
+        schema = t['inputSchema']
+        if t['name'] == 'backlog_add':   # no `check` from the chat: it is a shell command the autopilot runs (audit 2026-11, H9)
+            props = {k: v for k, v in schema['properties'].items() if k not in CHAT_DROPS}
+            schema = {**schema, 'properties': props, 'required': [r for r in schema.get('required', []) if r in props]}
+        out[t['name']] = {'schema': schema, 'description': t['description'],
                           'mutating': t['name'] == 'control' or not t.get('annotations', {}).get('readOnlyHint', False)}
     return out
 

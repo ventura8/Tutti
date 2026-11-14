@@ -30,6 +30,23 @@ file and the invite file hold only hashes. The dashboard refuses to listen beyon
 without sign-in, and it is never on the internet: a bind must be a LAN or VPN address (RFC 1918, 100.64.0.0/10,
 fc00::/7), never a public one or 0.0.0.0, and every origin must resolve only to such addresses. Recovery needs shell access on the host (`tutti auth promote`, `tutti auth reset-admin`).
 
+## Audits
+
+The last full audit (dashboard, MCP, household, workers and autopilot, secrets, subprocesses, install and update, devices,
+telemetry) is [docs/SECURITY-AUDIT-2026-11.md](docs/SECURITY-AUDIT-2026-11.md): every finding by severity, what was fixed
+and its test, what is still open and why. In short, beyond the above:
+
+- A household member's code runs only in a container, from plain files, on the machine and runner that really run it; a
+  member's shell `check` never runs on another member's computer; answers from the coordinator are signed.
+- Text from outside (Sentry events, issue comments, scout answers, another member's tasks) is never run as a command, and
+  workers run without the tokens Tutti keeps for itself. A scout's answer counts only from its account or a repository
+  writer.
+- The autopilot merges only the reviewed commit, and never a change to its own gates.
+- Every server closes silent connections and caps concurrent requests and body sizes; without sign-in the dashboard serves
+  only this login, also on a computer several people use (Linux).
+- Self-update checks a checksum from the same release: it is not signed yet (open, H8). Keep the publishing GitHub account
+  behind two-factor sign-in.
+
 ## Reporting a vulnerability
 
 Please do not open a public issue for a security problem. Once the repository is public, use GitHub's private

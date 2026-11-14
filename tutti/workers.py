@@ -110,6 +110,23 @@ def listing(cfg):
 
 
 KEEP_LINES = 2000
+# secrets a worker never needs (it edits a worktree; Tutti pushes, opens pull requests and asks scouts itself): a worker steered
+# by a prompt injected through a repository, an issue or a Sentry event cannot hand them on (docs/SECURITY-AUDIT-2026-11.md)
+NOT_FOR_WORKERS = ('GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GITLAB_TOKEN', 'SENTRY_AUTH_TOKEN',
+                   'TUTTI_SENTRY_DSN', 'TUTTI_GROK_KEY', 'TUTTI_GROK_URL', 'NPM_TOKEN', 'NODE_AUTH_TOKEN', 'TWINE_PASSWORD',
+                   'PYPI_TOKEN', 'SONAR_TOKEN', 'CODECOV_TOKEN', 'DOCKER_PASSWORD', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN')
+
+
+def worker_env(cfg, base=None):
+    """The environment of a worker or a reviewer: this one without NOT_FOR_WORKERS and the variables that hold a scout's
+    webhook URL and key (scouts.<name>.url_env, key_env). The worker CLI's own sign-in (its config files, its own API key
+    variable) stays."""
+    base = os.environ if base is None else base
+    drop = set(NOT_FOR_WORKERS)
+    for sc in ((cfg or {}).get('scouts') or {}).values():
+        drop |= {sc.get(k) for k in ('url_env', 'key_env') if isinstance(sc, dict) and isinstance(sc.get(k), str)}
+    return {k: v for k, v in base.items() if k not in drop}
+
 
 
 TERM_WAIT = 10   # seconds a CLI stopped at the threshold gets to exit before it is killed
@@ -125,7 +142,7 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
     out = out or sys.stdout
     kept = collections.deque(maxlen=KEEP_LINES)
     argv = with_args(command(worker, brief(cfg, task, files), log), extra)
-    env = {**os.environ, **autocompact.env_for(cfg, worker)}
+    env = {**worker_env(cfg), **autocompact.env_for(cfg, worker)}
     watch = autocompact.Watch(cfg, worker)
     stopped = False
     # the use lock: `tutti update` never replaces the program while this run uses it (tutti/inuse.py)

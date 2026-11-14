@@ -16,7 +16,7 @@ import sys
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlsplit
 
 from . import (
@@ -39,6 +39,7 @@ from . import (
     handover,
     helper,
     householduse,
+    httpguard,
     keepon,
     local,
     move,
@@ -73,6 +74,8 @@ JSON_TYPE = 'application/json'
 TYPES = {'.webmanifest': 'application/manifest+json', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
          '.html': 'text/html; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': JSON_TYPE}
 # Never echoes the request path back: nothing the browser sent is reflected into a response.
+SOCKET_TIMEOUT = 30    # seconds a connection may stay silent
+MAX_CONNECTIONS = 128  # requests served at once (pages poll; a host opening connections without end is cut off)
 NOT_FOUND = b'{"error": "this path is not part of the dashboard: open / instead"}'
 TOKEN_SLOT = b'__TUTTI_TOKEN__'   # index.html carries this server's token in <meta name="tutti-token">
 INDEX = 'index.html'
@@ -970,11 +973,18 @@ def any_post(rt, collector, headers, path, port, token, read):
     return signed_post(rt, collector, headers, path, port, read)
 
 
-class Server(ThreadingHTTPServer):
-    """Drops a connection from a public address before reading it: the dashboard serves this computer, the LAN and a VPN."""
+class Server(httpguard.CappedServer):
+    """Drops a connection from a public address before reading it: the dashboard serves this computer, the LAN and a VPN.
+    Without sign-in it serves only this login: a loopback connection from another user's process on a shared computer is
+    dropped too (httpguard.loopback_owner_ok). At most MAX_CONNECTIONS requests at once."""
+    max_connections, max_per_client = MAX_CONNECTIONS, 64   # tailscale serve brings every tailnet user from 127.0.0.1
 
     def verify_request(self, request, client_address):
-        return private_client(client_address[0])
+        if not private_client(client_address[0]):
+            return False
+        if getattr(self, 'auth', None) is None and client_address[0] in ('127.0.0.1', '::1', '::ffff:127.0.0.1'):
+            return httpguard.loopback_owner_ok(client_address, self.server_address)
+        return True
 
 
 class AuthRequired(Exception):
@@ -1009,6 +1019,7 @@ def make_handler(collector, token):
     class Handler(BaseHTTPRequestHandler):
         server_version = 'tutti'
         sys_version = ''
+        timeout = SOCKET_TIMEOUT   # a client that sends its request slowly (or never) loses the connection
 
         def log_message(self, fmt, *args):  # quiet: the dashboard polls every few seconds
             return

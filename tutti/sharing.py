@@ -75,8 +75,9 @@ def _close_here(t, st, events):
 
 def _mirror(data, repo, st, local, events, now):
     """A shared task this member does not have yet: added to its backlog (source household)."""
-    task, added = backlog.add(data, {**backlog.new_task(repo, st['title'], st.get('scope') or (), st.get('check') or '',
-                                                        st.get('size') or 'S', SOURCE), 'added': now})
+    # never another member's `check`: it is a shell command, run here by the acceptance; this repo's own check gates it
+    task, added = backlog.add(data, {**backlog.new_task(repo, st['title'], st.get('scope') or (), '', st.get('size') or 'S',
+                                                        SOURCE), 'added': now})
     if added:
         local[st['key']] = task
         events.append(f'{task["id"]} from the household\'s backlog of {repo}')
@@ -465,7 +466,8 @@ def adopt_offers(cfg, result, now, run=subprocess.run):
             failed[o['key']] = now
             events.append(f'spare room: could not clone {o["key"]} with your git sign-in ({why}); tried again in 6 h')
             continue
-        spare[name] = {'path': path, 'check': o.get('check') or '', 'household': True, 'spare': True, 'land': 'pr', 'pr': 'draft'}
+        # no check from the offer: a command another member wrote never runs here (the draft PR is reviewed by a person)
+        spare[name] = {'path': path, 'check': '', 'household': True, 'spare': True, 'land': 'pr', 'pr': 'draft'}
         cfg['autopilot']['repos'][name] = spare[name]
         events.append(f'spare room: {o["key"]} adopted as {name}; your spare accounts take its shared tasks')
     users.write(folder, spare_repos=spare, spare_failed=failed)

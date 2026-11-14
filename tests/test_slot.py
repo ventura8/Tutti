@@ -108,5 +108,23 @@ class SlotSharedTest(unittest.TestCase):
             self.assertEqual(os.stat(new).st_mode & 0o777, 0o666)
 
 
+    def test_a_planted_link_is_never_followed_and_the_run_keeps_the_callers_umask(self):
+        # exploit (audit 2026-11, H5): a dangling link in the shared lock folder made a file in the victim's home, and the
+        # whole run went with umask 0 (every file it made writable by every login)
+        with tempfile.TemporaryDirectory() as d:
+            target, lock, out = os.path.join(d, 'victim-bashrc'), os.path.join(d, '1.lock'), os.path.join(d, 'made')
+            os.symlink(target, lock)
+            env = {**os.environ, 'SLOT_LOCKS': lock, 'MIN_FREE_GB': '0', 'SLOT_SHARED': '1', 'NVIDIA_SMI': 'none',
+                   'THERMAL_GLOB': os.path.join(d, 'none')}
+            res = subprocess.run(['bash', SLOT, 'true'], env=env, capture_output=True, text=True)
+            self.assertEqual(res.returncode, 2)
+            self.assertIn('symbolic link', res.stderr)
+            self.assertFalse(os.path.exists(target))
+            os.remove(lock)
+            res = subprocess.run(['bash', '-c', f'umask 077; bash {SLOT} touch {out}'], env=env, capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertEqual(os.stat(out).st_mode & 0o777, 0o600)   # the caller's umask, not 0
+            self.assertEqual(os.stat(lock).st_mode & 0o777, 0o666)  # only the lock is readable by every login
+
 if __name__ == '__main__':
     unittest.main()

@@ -326,6 +326,22 @@ def review_finished(cfg, repo, number):
         return False
 
 
+def pushed_since_review(reviews, key, pr):
+    """True when the open pull request's head is not the commit the reviews were asked on."""
+    asked = reviews[key] if isinstance(reviews[key], dict) else {}
+    return pr.get('state') == 'OPEN' and bool(pr.get('headRefOid')) and asked.get('sha') != pr['headRefOid']
+
+
+def ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn):
+    """Asks the AI reviews once, remembering the commit they see. Returns the event, or None when gh cannot be read."""
+    pr = pr_state(pol['repo'], number, run)
+    if pr is None:
+        return None
+    request_review(cfg, pol['repo'], number, spawn)
+    reviews[key] = {'at': now, 'sha': pr.get('headRefOid') or ''}   # the commit the reviewers see
+    return f'{t["id"]}: AI reviews asked on {key}'
+
+
 def advance(cfg, t, st, now, run=subprocess.run, spawn=subprocess.Popen):
     """One self-improvement task in review with a pull request: ask for reviews once, then merge when the gates allow."""
     pol = policy_of_repo(cfg, t['repo'])
@@ -335,11 +351,13 @@ def advance(cfg, t, st, now, run=subprocess.run, spawn=subprocess.Popen):
     key = f'{pol["repo"]}#{number}'
     reviews = st.setdefault('reviews', {})
     if key not in reviews:
-        request_review(cfg, pol['repo'], number, spawn)
-        reviews[key] = now
-        return f'{t["id"]}: AI reviews asked on {key}'
+        return ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn)
     pr = pr_state(pol['repo'], number, run)
     if pr is None:
+        return None
+    if pushed_since_review(reviews, key, pr):
+        reviews.pop(key, None)   # commits pushed after the review are never merged unreviewed: the next round asks again
+        t['self_improve'] = 'new commits since the AI reviews: they are asked again'
         return None
     ok, why = may_merge(pol, pr, review_finished(cfg, pol['repo'], number))
     t['self_improve'] = why or 'merging'
@@ -351,9 +369,17 @@ def advance(cfg, t, st, now, run=subprocess.run, spawn=subprocess.Popen):
             t['status'], t['notes'] = 'queued', [*t.get('notes', []), f'Changes requested on {key}: read the review and fix them.']
             reviews.pop(key, None)   # the fix pushed onto this pull request is reviewed again before any merge
         return None
+    if not pr.get('headRefOid'):
+        t['self_improve'] = 'GitHub did not say which commit the pull request is at: not merged; the next round looks again'
+        return None
+    return merge_now(t, st, pol, number, key, pr['headRefOid'], now, run)
+
+
+def merge_now(t, st, pol, number, key, head, now, run):
+    """The squash merge of the reviewed, green head; the event, or None when GitHub refused it."""
     # --match-head-commit: a commit pushed after the gates were read is never merged with them
     done = run(['gh', 'pr', 'merge', str(number), '--repo', pol['repo'], '--squash', '--delete-branch', '--match-head-commit',
-                str(pr.get('headRefOid') or '')], capture_output=True, text=True)
+                str(head)], capture_output=True, text=True)
     if done.returncode != 0:
         t['self_improve'] = f'merge refused: {(done.stderr or done.stdout).strip()[:160]}'
         return None

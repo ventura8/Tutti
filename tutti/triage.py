@@ -115,8 +115,9 @@ def sentry_task(pol, r, it, enabled, now):
     project = pol['name']
     notes = [f'From the Sentry triage of {project} ({r.get("url") or r["id"]}), severity {it["severity"]}.',
              'First add a regression test that reproduces the issue and fails; then fix it so the test passes.']
-    if it['check']:
-        notes.append(f'The triage suggested this check (not run by Tutti; write your own test): {it["check"][:200]}')
+    if it['check']:   # the command itself never reaches a worker that runs commands (audit 2026-11, H7)
+        notes.append('The triage suggested a check command; it is not passed on (it came from untrusted event text): write '
+                     'your own test.')
     t = backlog.new_task(pol['autopilot_repo'], it['title'], check='', source='sentry', notes=notes)
     t.update(project=project, sentry=it['sentry'], severity=it['severity'], status='queued' if enabled else 'candidate',
              pr_mode='ready', added=now)

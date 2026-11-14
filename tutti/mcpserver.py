@@ -13,9 +13,9 @@ import socket
 import subprocess
 import sys
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
-from . import __version__, config, netpolicy
+from . import __version__, config, httpguard, netpolicy
 
 PROTOCOL = '2025-06-18'
 ROLES = ('pending', 'viewer', 'admin')   # the same order as the dashboard sign-in's (a higher index may do more)
@@ -23,6 +23,8 @@ MUTATING_ROLE = 'admin'
 BIN = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'bin', 'tutti')
 TIMEOUT = 120          # seconds a read or a quick change may take; long work runs detached and is polled with job_status
 HTTP_PORT = 4779
+# tool arguments that land as positional words of a `tutti` command: one that starts with "-" would be read as an option
+POSITIONAL = ('repo', 'project', 'track', 'scout', 'mode', 'machine', 'device', 'skill')   # names: free text goes after `--`
 MAX_BODY = 1 << 20
 
 INSTRUCTIONS = ('Tutti runs bounded coding tasks on cheaper workers (cursor-agent, Antigravity, local models) and shared '
@@ -94,10 +96,12 @@ def is_mutating(name, args):
     return not BY_NAME[name]['annotations']['readOnlyHint']
 
 
-def role_of(cfg, env=None):
-    """The caller's role: $TUTTI_ROLE, else mcp.role in the config, else admin (the person who owns this computer)."""
+def role_of(cfg, env=None, default='admin'):
+    """The caller's role: $TUTTI_ROLE, else mcp.role in the config, else `default`: admin over stdio and on loopback (the
+    person who owns this computer), viewer for `--http` on a LAN or VPN address, where whoever holds the token is not
+    necessarily the owner (set mcp.role: admin to allow changes there)."""
     env = os.environ if env is None else env
-    r = env.get('TUTTI_ROLE') or ((cfg or {}).get('mcp') or {}).get('role') or 'admin'
+    r = env.get('TUTTI_ROLE') or ((cfg or {}).get('mcp') or {}).get('role') or default
     return r if r in ROLES else 'pending'
 
 
@@ -122,12 +126,14 @@ def argv_of(name, a):
         'machines': lambda: ['machines'],
         'devices': lambda: ['devices'],
         'backlog_list': lambda: ['backlog', 'list'] + (['--all'] if a.get('all') else []),
-        'backlog_add': lambda: (['backlog', 'add', a['repo'], a['title'], '--source', 'mcp'] + (['--size', size] if size else [])
-                                + [x for p in scopes(a.get('scope')) for x in ('--scope', p)]
-                                + (['--check', a['check']] if a.get('check') else [])),
-        'delegate_task': lambda: (['run', 'auto', (f'[size {size}] ' if size else '') + a['task'], '--repo', a['project'], '--bg']
-                                  + (['--track', a['track']] if a.get('track') else [])),
-        'scout_ask': lambda: ['scout', 'ask', a['scout'], a['question'], '--no-wait'] + (['--skill', a['skill']] if a.get('skill') else []),
+        # options first, then `--`: a title, task or question that starts with "-" stays text, never an option
+        'backlog_add': lambda: (['backlog', '--source', 'mcp'] + (['--size', size] if size else [])
+                                + [x for p in scopes(a.get('scope')) for x in (f'--scope={p}',)]
+                                + ([f'--check={a["check"]}'] if a.get('check') else []) + ['--', 'add', a['repo'], a['title']]),
+        'delegate_task': lambda: (['run', '--repo', a['project'], '--bg'] + (['--track', a['track']] if a.get('track') else [])
+                                  + ['--', 'auto', (f'[size {size}] ' if size else '') + a['task']]),
+        'scout_ask': lambda: (['scout', '--no-wait'] + (['--skill', a['skill']] if a.get('skill') else [])
+                              + ['--', 'ask', a['scout'], a['question']]),
         'away_mode': lambda: ['owner', 'mode', a['mode']] if a.get('mode') else ['owner', 'status'],
     }
     return table[name]() if name in table else None
@@ -201,6 +207,9 @@ def call(cfg, name, args, role, popen=subprocess.Popen, runner=None):
         return True, f'{name} needs {", ".join(missing)}'
     if is_mutating(name, args) and ROLES.index(role) < ROLES.index(MUTATING_ROLE):
         return True, refusal(name, role)
+    flag = next((k for k in POSITIONAL if isinstance(args.get(k), str) and args[k].lstrip().startswith('-')), None)
+    if flag:
+        return True, f'{name}: {flag} may not start with "-" (it would be read as an option of the tutti command)'
     if name == 'test_on':
         rc, text = start_test(cfg, args, popen)
     elif name == 'job_status':
@@ -268,11 +277,27 @@ def http_token(cfg):
         return f.read().strip()
 
 
+def loopback(host):
+    return host in (None, 'auto', 'localhost', '::1') or str(host).startswith('127.')
+
+
+def foreign_origin(origin, host, port):
+    """True when a browser page of another site sends the request (MCP's DNS-rebinding rule): an Origin header that is
+    not this endpoint's own. Clients that are not browsers send none."""
+    if not origin:
+        return False
+    shown = f'[{host}]' if ':' in host else host
+    own = {f'{scheme}://{h}:{port}' for scheme in ('http', 'https') for h in (shown, 'localhost', '127.0.0.1', '[::1]')}
+    return origin.rstrip('/') not in own
+
+
 def http_server(cfg, port, env=None, host='127.0.0.1'):
-    token, role = http_token(cfg), role_of(cfg, env)
+    token, role = http_token(cfg), role_of(cfg, env, 'admin' if loopback(host) else 'viewer')
 
     class Handler(BaseHTTPRequestHandler):
         server_version = 'tutti-mcp'
+        sys_version = ''
+        timeout = 30   # a client that sends its request slowly (or never) loses the connection
 
         def log_message(self, fmt, *args):
             return
@@ -288,6 +313,8 @@ def http_server(cfg, port, env=None, host='127.0.0.1'):
         def do_POST(self):
             if self.path.split('?', 1)[0] != '/mcp':
                 return self.reply(404, {'error': 'POST JSON-RPC to /mcp'})
+            if foreign_origin(self.headers.get('Origin'), self.server.server_address[0], self.server.server_address[1]):
+                return self.reply(403, {'error': 'a web page of another site may not call Tutti\'s MCP endpoint'})
             if not secrets.compare_digest(self.headers.get('Authorization', ''), f'Bearer {token}'):
                 return self.reply(401, {'error': f'send Authorization: Bearer <the token in {token_path(cfg)}>'})
             try:
@@ -307,7 +334,7 @@ def http_server(cfg, port, env=None, host='127.0.0.1'):
     # never on the internet: a public address or a wildcard is refused (auto: loopback here)
     host = '127.0.0.1' if host in (None, 'auto') else netpolicy.check(host, 'mcp.http')[0]
 
-    class Server(ThreadingHTTPServer):
+    class Server(httpguard.CappedServer):
         address_family = socket.AF_INET6 if ':' in host else socket.AF_INET
 
     return Server((host, port), Handler)

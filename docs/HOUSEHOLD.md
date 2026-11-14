@@ -23,7 +23,7 @@ command works as before.
 
 A user is a login, not a profile inside one login, on purpose: every agent CLI (`claude`, `cursor-agent`, `agy`,
 `copilot`) keeps its sign-in in the home folder, so two people on one login would spend each other's subscriptions.
-Each person installs Tutti in their own login (`npm i -g tutti-agents` or `install/install.sh`), signs their agents in
+Each person installs Tutti in their own login (the one-line install of docs/INSTALL.md; the npm name `tutti-agents` is not published yet, so never `npm i -g` it), signs their agents in
 once, and joins.
 
 **One user's accounts never do another user's work.** An autopilot dispatches only to its own user's accounts, from its
@@ -107,7 +107,18 @@ See [PRESENCE.md](PRESENCE.md).
 - **Every request signed.** `X-Tutti-User`, `X-Tutti-Time` and `X-Tutti-Sign = HMAC(token, method | path | time | nonce |
   SHA-256 of the body)`; the coordinator refuses a time more than 120 s off, a nonce it saw (kept in its state file, so a
   restart does not forget them), a body over 64 KB, and a user that left or was removed. A wrong join code is refused, and after 10 wrong tries in 10 minutes from one address the
-  join is closed for that address for an hour.
+  join is closed for that address for an hour. A join never takes the id of a member who is in (ids travel in clear), and
+  a member the admin removed comes back only with a code made after the removal.
+- **Every answer signed.** The coordinator signs its answer to a member's request with that member's token
+  (`X-Tutti-Answer = HMAC(token, ANSWER | path | | request nonce | SHA-256 of the answer)`), and a join's answer with the
+  code's secret. A join needs that signed answer (a coordinator on an older Tutti is updated first), and the membership
+  refuses unsigned answers from then on (one made by an older Tutti does so once it has seen a signed answer). Error
+  answers are not signed: they can only stop an action (a refusal), never start one. Someone else on the LAN answering in the coordinator's
+  place cannot hand you jobs or actions.
+- **Nothing a member writes runs as a command elsewhere.** Another member's task `check`, and a spare-room offer's, are
+  never copied: your own repo's check gates the task. A member's job runs from plain files (`git archive`, no .git) in a
+  container on the machine and runner that really run it; a job naming a device runs only on a device of that shared
+  machine whose runner is a container (or with `member_shell`). The shared lock folder must be sticky (mode 1777).
 - **What crosses the network.** Bodies are not encrypted (standard library only), so they carry nothing private: a user's
   name, main agent's *kind*, active or not, a 7 x 24 activity profile (0 to 1 per hour, not prompts), running jobs as
   counts per shared machine, per-user totals, the shared projects' task titles (already visible to every member of that

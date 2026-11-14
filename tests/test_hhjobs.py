@@ -178,6 +178,68 @@ class ComputeTest(unittest.TestCase):
         self.assertIsInstance(remote.probe(machine), routing.Probe)
         self.assertEqual(config.validate({**config.normalise({'machines': {'pc': {'transport': 'household'}}}), '_path': 'x'}), [])
 
+    # ---- security audit 2026-11 (docs/SECURITY-AUDIT-2026-11.md, C1 and C2)
+
+    def bo_runs_on_device(self, device):
+        stop = threading.Event()
+        owner = threading.Thread(target=self.owner_runs, args=(stop,), daemon=True)
+        owner.start()
+        out = io.StringIO()
+        try:
+            machine = config.machine_of(self.h.bo, 'pc', {'transport': hhjobs.TRANSPORT, 'slots': 2})
+            with as_user(self.h.bo_home):
+                rc = hhjobs.run_on(self.h.bo, machine, self.src, ['id'], device=device, out=out, client=self.bo,
+                                   sleep=lambda s: None)
+        finally:
+            stop.set()
+            owner.join(5)
+        return rc, out.getvalue()
+
+    def test_a_device_never_takes_a_members_run_out_of_the_container(self):
+        # exploit: the job names a device whose runner is a shell (Gradle on the host) on another of the owner's machines
+        self.h.ana['machines']['mini'] = config.machine_of(self.h.ana, 'mini', {'host': 'mini.lan', 'slots': 1})
+        self.h.ana['devices'] = {'phone': {'name': 'phone', 'machine': 'mini', 'serial': 'S1', 'runner': {'kind': 'shell'}},
+                                 'tab': {'name': 'tab', 'machine': 'pc', 'serial': 'S2', 'runner': {'kind': 'shell'}}}
+        for device, why in (('any', 'never "any"'), ('phone', 'not on the shared machine'), ('tab', 'member_shell'),
+                            ('ghost', 'named in its owner')):
+            rc, text = self.bo_runs_on_device(device)
+            self.assertEqual(rc, 125, text)
+            self.assertIn(why, text)
+
+    def test_the_run_never_sees_the_owners_git_cache(self):
+        # exploit: a linked worktree mounted the cache read-write; a hook planted there ran under the owner's git
+        rc, text = self.bo_runs(['bash', '-c', 'test -e .git && echo HAS-GIT; ls -a; true'])
+        self.assertEqual(rc, 0, text)
+        self.assertNotIn('HAS-GIT', text)
+        self.assertIn('flag.txt', text)
+        cache = os.path.join(hhjobs.folder(self.h.ana), 'repos', hhjobs.slug('https://git.example/home/app.git'))
+        self.assertEqual(os.listdir(os.path.join(cache, 'worktrees')) if os.path.isdir(os.path.join(cache, 'worktrees')) else [], [])
+        self.assertEqual([d for d in os.listdir(hhjobs.folder(self.h.ana)) if d.startswith('j') and os.path.isdir(
+            os.path.join(hhjobs.folder(self.h.ana), d))], [])   # the tree is gone after the run
+
+    def test_a_claimed_job_whose_id_is_a_path_is_never_written(self):
+        class Fake:
+            def call(self, path, body):
+                return {'jobs': [{'id': '../../../evil'}, {'id': 'j7', 'machine': 'pc'}]} if body.get('action') == 'claim' else {}
+        started = hhjobs.tick(self.h.ana, client=Fake(), spawn=lambda *a, **k: None)
+        self.assertEqual(started, ['j7'])
+
+    def test_an_archive_with_a_link_out_of_the_tree_is_refused(self):
+        import tarfile
+        d = tempfile.mkdtemp()
+        import shutil
+        self.addCleanup(shutil.rmtree, d, True)
+        tb = os.path.join(d, 'x.tar')
+        with tarfile.open(tb, 'w') as t:
+            info = tarfile.TarInfo('evil')
+            info.type, info.linkname = tarfile.SYMTYPE, '/etc/passwd'
+            t.addfile(info)
+            info2 = tarfile.TarInfo('evil/x')
+            t.addfile(info2, io.BytesIO(b''))
+        with self.assertRaises(hhjobs.JobError):
+            hhjobs.extract(tb, os.path.join(d, 'tree'))
+        self.assertFalse(os.path.exists('/etc/passwd/x'))
+
 
 if __name__ == '__main__':
     unittest.main()

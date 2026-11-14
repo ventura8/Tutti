@@ -438,7 +438,7 @@ class ReviewTest(unittest.TestCase):
             with mock.patch.object(review.workers, 'available', return_value=(True, 'cheap')), \
                     mock.patch.object(review.subprocess, 'run', return_value=done) as run:
                 rc = review.review(self.cfg(d), 7, 'o/r', gh_fn=fake, say=said.append, sleep=lambda s: None)
-            self.assertEqual(rc, 0)
+            self.assertEqual(rc, 3)   # findings: posted, and never counted as reviewed for an automatic merge
             self.assertIn('copilot will not come', said[0])
             self.assertIn('no automated review will come', ' '.join(said))
             self.assertEqual(run.call_args.args[0][0], 'cheap')
@@ -483,6 +483,20 @@ class ReviewTest(unittest.TestCase):
             entries = pacing.read_log(state.usage_log_path(cfg))
             self.assertIsNone(review.skipped_until(entries, 'copilot', now + timedelta(days=4)))   # after the reset
             self.assertIsNone(review.skipped_until(entries, 'coderabbit', now))
+
+    def test_a_local_review_with_findings_never_counts_as_reviewed(self):
+        # exploit (audit 2026-11, M4): the fallback review found problems, exited 0, and the self-improvement merge went on
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self.cfg(d, ('copilot',))
+            now = datetime.now(timezone.utc)
+            pacing.append_log(state.usage_log_path(cfg), 'copilot', 100, now, 'budget', resets=now + timedelta(days=3))
+            done = SimpleNamespace(returncode=0, stdout='- a.py:3 - the token is logged - drop it', stderr='')
+            said = []
+            with mock.patch.object(review.workers, 'available', return_value=(True, 'cheap')), \
+                    mock.patch.object(review.subprocess, 'run', return_value=done):
+                self.assertEqual(review.review(cfg, 7, 'o/r', gh_fn=FakeGh(copilot_ok=True), say=said.append,
+                                               sleep=lambda s: None), 3)
+            self.assertTrue(any('has findings' in x for x in said))
 
     def test_a_rate_limited_reviewer_is_noted_until_the_time_its_comment_names(self):
         with tempfile.TemporaryDirectory() as d:

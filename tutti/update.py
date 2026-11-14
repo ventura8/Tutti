@@ -48,7 +48,7 @@ one() {
 			*/lib/node_modules/*)
 				prefix=${real%%/lib/node_modules/*}; rest=${real#*/lib/node_modules/}
 				case "$rest" in @*) pkg=$(echo "$rest" | cut -d/ -f1-2) ;; *) pkg=${rest%%/*} ;; esac
-				uc=$(printf 'npm install -g --prefix %q %q' "$prefix" "$pkg@latest")
+				uc=$(printf 'npm install -g --prefix %q %q --before=%q' "$prefix" "$pkg@latest" "__BEFORE__")
 				if [ ! -w "$prefix/lib/node_modules" ]; then row "$p" owner "$before" '' "sudo $uc"; return; fi ;;
 			*) row "$p" manual "$before" '' "no updater known for $real: set workers.<name>.update.command"; return ;;
 		esac
@@ -121,9 +121,21 @@ def default_update(program):
     return f'{shlex.quote(program)} {sub}' if sub else ''
 
 
+NPM_COOLDOWN_DAYS = 3   # an npm CLI updates to the newest version that has been out this long (docs/SECURITY-AUDIT-2026-11.md)
+
+
+def npm_before(now=None):
+    """npm's --before date: a version (and every dependency) published in the last NPM_COOLDOWN_DAYS is not installed yet,
+    so a hijacked release the registry pulls within days never reaches a machine by itself."""
+    from datetime import datetime, timedelta, timezone
+    now = now or datetime.now(timezone.utc)
+    return (now - timedelta(days=NPM_COOLDOWN_DAYS)).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
 def script(progs, packages, check=False, locks=''):
     """The bash script one machine runs; `locks`: the use-lock folder on this computer (empty on other machines)."""
-    lines = [f'L={shlex.quote(locks)}', SCRIPT_HEAD.replace('__MARK__', MARK).replace('__TIMEOUT__', str(TIMEOUT))]
+    head = SCRIPT_HEAD.replace('__MARK__', MARK).replace('__TIMEOUT__', str(TIMEOUT)).replace('__BEFORE__', npm_before())
+    lines = [f'L={shlex.quote(locks)}', head]
     for p, s in progs.items():
         lines.append(f'one {shlex.quote(p)} {shlex.quote(s["version"])} {shlex.quote(s["update"])} {1 if check else 0}')
     lines += [f'pkg {shlex.quote(n)}' for n in packages]

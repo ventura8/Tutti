@@ -212,6 +212,9 @@ class Household:
     def close(self):
         self.httpd.shutdown()
         self.httpd.server_close()
+        import shutil
+        for home in (self.ana_home, self.bo_home):   # never left in /tmp (docs/LESSONS.md, the test suite filled /tmp)
+            shutil.rmtree(home, ignore_errors=True)
 
 
 class CoordinatorTest(unittest.TestCase):

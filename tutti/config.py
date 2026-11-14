@@ -1,6 +1,7 @@
 """Finds, loads and checks tutti.config.yaml. Everything personal (hosts, paths, accounts) lives in that file, never in code."""
 import copy
 import json
+import math
 import os
 
 PROJECT_NAME = 'tutti.config.yaml'
@@ -156,13 +157,15 @@ def validate(cfg):
 
 
 def _dashboard_errors(d):
+    if not isinstance(d, dict):
+        return [f'dashboard is {d!r}: write it as a mapping, e.g. dashboard: {{port: 4777}}, or remove the key']
     errs = []
     port = d.get('port')
-    if not isinstance(port, int) or not 0 <= port <= 65535:
+    if isinstance(port, bool) or not isinstance(port, int) or not 0 <= port <= 65535:
         errs.append(f'dashboard.port is {port!r}: use a port number such as 4777')
     for key in ('refresh_seconds', 'probe_seconds', 'stall_minutes'):
         v = d.get(key)
-        if not isinstance(v, (int, float)) or v <= 0:
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0:
             errs.append(f'dashboard.{key} is {v!r}: use a number above 0')
     return errs
 

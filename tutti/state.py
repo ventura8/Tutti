@@ -18,7 +18,7 @@ TAIL_LINES = 40
 TAIL_WIDTH = 400
 MAX_JOBS = 40
 ANSI = re.compile(r'\x1b\[[0-9;?]*[ -/]*[@-~]')
-LOG_NAME = re.compile(r'^(?:ship-)?(\d+)-(\d+)\.log$')
+LOG_NAME = re.compile(r'^(?:ship-)?(\d+)-(\d+)(?:-\d+)?\.log$')
 
 
 def iso(ts):
@@ -159,8 +159,9 @@ def log_job(path, kind, now, stall, is_alive):
     m = LOG_NAME.match(os.path.basename(path))
     started, pid = (int(m.group(1)), int(m.group(2))) if m else (None, None)
     updated = mtime(path)
-    running = bool(pid) and is_alive(pid)
-    rc = None if running else read_rc(path + '.rc')
+    # The result first: a ship check's pid is the ship process, which lives on through later checks and the deploy.
+    rc = read_rc(path + '.rc')
+    running = rc is None and bool(pid) and is_alive(pid)
     title = read_first_line(path + '.cmd') or {'quiet': 'quiet run', 'ship': 'ship check'}[kind]
     return {'id': f'{kind}:{os.path.basename(path)}', 'kind': kind, 'title': title, 'pid': pid, 'log': path, 'started': iso(started),
             'updated': iso(updated), 'idle_seconds': round(now - updated) if updated else None, 'rc': rc,

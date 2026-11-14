@@ -179,9 +179,11 @@ def cmd_wait(cfg, a):
     done = checks[a.kind]()
     stall = waiting.stalled(a.stall_file or a.target, a.stall) if a.stall else (lambda: False)
     seen = []
+    # Absolute paths: the dashboard reads the record from its own working directory.
+    target = a.target if a.kind == 'pid' else os.path.abspath(a.target)
+    watch = os.path.abspath(a.stall_file) if a.stall_file else target
     record = waiting.register(os.path.join(config.state_dir(cfg), 'waits'), {
-        'kind': a.kind, 'target': a.target, 'pattern': a.pattern or '', 'watch': a.stall_file or a.target, 'timeout': a.timeout,
-        'stall': a.stall})
+        'kind': a.kind, 'target': target, 'pattern': a.pattern or '', 'watch': watch, 'timeout': a.timeout, 'stall': a.stall})
 
     def check():
         if done():

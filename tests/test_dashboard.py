@@ -68,6 +68,11 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(any('dashboard.port' in e for e in errs))
         self.assertTrue(any('dashboard.stall_minutes' in e for e in errs))
         self.assertTrue(any('accounts.a.panic_at' in e for e in errs))
+        nan = config.normalise({'dashboard': {'probe_seconds': float('nan')}})
+        self.assertTrue(any('dashboard.probe_seconds' in e for e in config.validate(nan)))
+        inf = config.normalise({'dashboard': {'refresh_seconds': float('inf')}})
+        self.assertTrue(any('dashboard.refresh_seconds' in e for e in config.validate(inf)))
+        self.assertTrue(any('write it as a mapping' in e for e in config.validate(config.normalise({'dashboard': None}))))
 
 
 class JobsTest(unittest.TestCase):
@@ -99,8 +104,11 @@ class JobsTest(unittest.TestCase):
         self.write('quiet/300-33.log', 'working\n', age=600)   # alive, quiet for 10 min: stalled
         self.write('quiet/400-44.log', 'fresh\n')               # alive, fresh: running
         self.write('quiet/50-55.log', 'old\n')                  # gone, no result recorded: ended
-        jobs = state.jobs_state(self.cfg, time.time(), is_alive=lambda pid: int(pid) in (33, 44))
+        self.write('ship-500-66-2.log', 'checked\n')           # a numbered check whose ship process lives on: its result wins
+        self.write('ship-500-66-2.log.rc', '0\n')
+        jobs = state.jobs_state(self.cfg, time.time(), is_alive=lambda pid: int(pid) in (33, 44, 66))
         by = {j['id']: j for j in jobs['items']}
+        self.assertEqual((by['ship:ship-500-66-2.log']['status'], by['ship:ship-500-66-2.log']['pid']), ('done', 66))
         self.assertEqual(by['quiet:100-11.log']['status'], 'done')
         self.assertEqual(by['quiet:100-11.log']['title'], 'npm test')
         self.assertEqual(by['quiet:100-11.log']['tail'], ['a', 'ok'])

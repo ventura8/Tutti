@@ -11,7 +11,8 @@ tutti dashboard --port 4790        # another port
 tutti dashboard --once             # print /api/state as JSON and stop (--no-probe: skip ssh and model servers)
 ```
 
-Start it in the background with `nohup tutti dashboard > ~/.local/state/tutti/dashboard.log 2>&1 &`.
+Start it in the background with
+`mkdir -p ~/.local/state/tutti && nohup tutti dashboard > ~/.local/state/tutti/dashboard.log 2>&1 &`.
 
 ## Install it as an app
 

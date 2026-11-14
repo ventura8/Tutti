@@ -1,5 +1,6 @@
 """ship: format -> commit -> checks -> push -> deploy, in the work tree you are standing in, and nowhere else.
 Targeted checks by default (only what changed); the full checks only when asked (--full), for example before a release."""
+import itertools
 import os
 import re
 import shlex
@@ -8,6 +9,8 @@ import sys
 import time
 
 from . import config, remote, routing, worktree
+
+_CHECK_NUMBER = itertools.count(1)
 
 
 class ShipError(Exception):
@@ -82,7 +85,8 @@ def run_check(cfg, top, check, env, track):
 
 def quiet_check(cfg, top, check, env, track):
     """The same, with the output kept in a log; only the verdict line (check.verdict, a regex) reaches the screen."""
-    log = os.path.join(config.state_dir(cfg), f'ship-{int(time.time())}-{os.getpid()}.log')
+    # <time>-<pid>-<n>: two checks started in the same second by one ship each keep their own log, result and command.
+    log = os.path.join(config.state_dir(cfg), f'ship-{int(time.time())}-{os.getpid()}-{next(_CHECK_NUMBER)}.log')
     with open(log + '.cmd', 'w', encoding='utf8') as f:   # what ran, for the dashboard
         f.write(check['run'] + '\n')
     with open(log, 'w', encoding='utf8') as f:

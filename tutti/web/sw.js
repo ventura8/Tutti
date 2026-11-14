@@ -27,6 +27,7 @@ self.addEventListener('fetch', (event) => {
             }
             return res;
         }).catch(() => cached);
+        event.waitUntil(fresh.then(() => undefined, () => undefined));   // keep the worker alive until the cache write ends
         return cached || fresh;
     }));
 });

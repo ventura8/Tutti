@@ -6,7 +6,7 @@ const FILTERS = [['all', 'All'], ['running', 'Running'], ['stalled', 'Stalled'],
 const VERDICT_TONE = { 'on pace': 'ok', ahead: 'warn', behind: 'warn', late: 'bad', spent: 'bad', 'no reading': 'idle', unknown: 'idle' };
 const MACHINE_TONE = { free: 'ok', loaded: 'warn', busy: 'accent', paused: 'warn', offline: 'bad' };
 const JOB_TONE = { running: 'accent', stalled: 'warn', failed: 'bad', done: 'ok', ended: 'idle' };
-const ui = { filter: 'all', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false };
+const ui = { filter: 'all', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0 };
 
 function el(tag, props, ...kids) {
     const node = document.createElement(tag);
@@ -277,10 +277,21 @@ function renderJobs(s) {
     if (filterFocus) $('job-filter-buttons').querySelector(`[data-f="${filterFocus}"]`)?.focus();
     const shown = items.filter((j) => ui.filter === 'all' || j.status === ui.filter || (ui.filter === 'done' && j.status === 'ended'));
     if (shown.length) {
-        const focused = document.activeElement?.closest?.('.job')?.dataset.id;
+        const active = document.activeElement;
+        const focused = active?.closest?.('.job')?.dataset.id;
+        const focusedLog = active?.tagName === 'PRE';
+        // Each open log keeps where the reader was; it follows new output only when it was already at the bottom.
+        const where = new Map([...$('jobs').querySelectorAll('details[open] pre')].map((pre) => [pre.closest('.job').dataset.id,
+            { top: pre.scrollTop, bottom: pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4 }]));
         $('jobs').replaceChildren(...shown.map(job));
-        for (const pre of $('jobs').querySelectorAll('details[open] pre')) pre.scrollTop = pre.scrollHeight;
-        if (focused) $('jobs').querySelector(`[data-id="${CSS.escape(focused)}"] > summary`)?.focus();
+        for (const pre of $('jobs').querySelectorAll('details[open] pre')) {
+            const w = where.get(pre.closest('.job').dataset.id);
+            pre.scrollTop = !w || w.bottom ? pre.scrollHeight : w.top;
+        }
+        if (focused) {
+            const box = $('jobs').querySelector(`[data-id="${CSS.escape(focused)}"]`);
+            box?.querySelector(focusedLog ? 'pre' : ':scope > summary')?.focus({ preventScroll: true });
+        }
     } else if (items.length) {
         $('jobs').replaceChildren(empty(`No ${ui.filter} jobs`, 'Choose All to see every recent job.'));
     } else {
@@ -326,14 +337,20 @@ function live() {
 
 async function refresh() {
     clearTimeout(ui.timer);
+    // Only the newest request may publish its answer and schedule the next poll: a Refresh click during a slow
+    // request must not start a second polling loop or let the older answer overwrite the newer one.
+    const seq = ++ui.seq;
     try {
         const res = await fetch('/api/state', { cache: 'no-store' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        ui.last = await res.json();
+        const data = await res.json();
+        if (seq !== ui.seq) return;
+        ui.last = data;
         ui.fetchedAt = Date.now();
         ui.failing = false;
         render();
     } catch {
+        if (seq !== ui.seq) return;
         ui.failing = true;
         showBanner(el('strong', { text: 'The Tutti service on this computer is not answering. ' }),
             codeText('Start it again with ', 'tutti dashboard', ' and this page reconnects by itself.'),

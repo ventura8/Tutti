@@ -13,8 +13,9 @@ import re
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 
-from . import backlog, config, delegate, remote, routing, worktree
+from . import backlog, config, delegate, planner, remote, routing, worktree
 
 try:
     import fcntl
@@ -136,6 +137,12 @@ def step_room(cfg, name, states, running_units, machines=()):
     unfit = routing.account_unfit(s)
     if unfit:
         return 0, f'{name}: {unfit}'
+    p = s.get('quota_plan')
+    if name in settings(cfg)['accounts'] and p:
+        # the planner's room (tutti/planner.py): a window's share of its weekly limit, or the room left after the reserve and
+        # the background spend; spent before it expires
+        room = p['tasks'] - used
+        return (room, '') if room > 0 else (0, f'{name}: {p["why"]}')
     if name in settings(cfg)['accounts']:
         if s.get('verdict') not in ('behind', 'late'):
             return 0, f'{name}: at its even-pace line ({s.get("verdict")})'
@@ -208,8 +215,9 @@ def _ts(iso):
     return pacing.parse_time(iso).timestamp()
 
 
-def plan(cfg, tasks, states, machines, on):
-    """What to do now, pure. {state, reason, dispatch: [(task id, step name)], waiting: {task id: why}}."""
+def plan(cfg, tasks, states, machines, on, now=None):
+    """What to do now, pure. {state, reason, dispatch: [(task id, step name)], waiting: {task id: why}}. `now` (a datetime):
+    nothing new starts in `autopilot.quiet_hours`; finished runs are still collected."""
     queued = [t for t in tasks if t['status'] == 'queued' and t['repo'] in settings(cfg)['repos']]
     unchecked = [t for t in queued if not (t.get('check') or settings(cfg)['repos'][t['repo']].get('check'))]
     queued = [t for t in queued if t not in unchecked]
@@ -222,6 +230,9 @@ def plan(cfg, tasks, states, machines, on):
     if not queued:
         busy = f'{len(running)} run(s) going; ' if running else ''
         return {**out, 'state': 'idle' if not running else 'running', 'reason': busy + EMPTY}
+    hours = cfg['autopilot'].get('quiet_hours')
+    if now is not None and planner.quiet(now, hours):
+        return {**out, 'state': 'waiting', 'reason': f'quiet hours ({", ".join(hours)} UTC, autopilot.quiet_hours): nothing new starts'}
     free = settings(cfg)['max_parallel'] - len(running)
     if free <= 0:
         return {**out, 'state': 'running', 'reason': f'{len(running)} run(s) going: max_parallel is {settings(cfg)["max_parallel"]}'}
@@ -282,12 +293,21 @@ def should_park(cfg, task):
     return ''
 
 
+def acceptance(task, repo):
+    """The command a result must pass: the task's own check AND the repository's `check` (its lint and type gates), so a
+    task's new tests passing never hides a gate it broke. Either alone when the other is missing; '' when neither is set."""
+    own, gates = (task.get('check') or '').strip(), (repo.get('check') or '').strip()
+    if own and gates and own != gates:
+        return f'( {own} ) && ( {gates} )'
+    return own or gates
+
+
 def brief(task, repo):
     """The worker's task: what to change, where, the acceptance check, and for a retry what went wrong so far."""
     lines = [task['title'], '']
     if task['scope']:
         lines.append('Change only these paths (and tests or docs that belong to them): ' + ', '.join(task['scope']))
-    check = task.get('check') or repo.get('check')
+    check = acceptance(task, repo)
     if check:
         lines.append(f'Acceptance: this command must pass from the repository root: {check}')
     lines.append('Keep the change small and bounded; if the task is not safe to do as described, change nothing and say why.')
@@ -323,7 +343,7 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen):
     p = delegate.paths(cfg, run_id)
     with open(p['log'], 'a', encoding='utf8') as log:   # the id is taken from here on: the next dispatch gets another
         log.write(f'autopilot: task {task["id"]} attempt {len(task["attempts"]) + 1} on {step_name}\n')
-    check = task.get('check') or repo.get('check') or ''
+    check = acceptance(task, repo)
     argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', step['worker'], brief(task, repo)]
     if step['kind'] == 'ollama':
         argv += [s for s in task['scope'] if not os.path.isdir(os.path.join(repo_path(cfg, task), s))]
@@ -479,7 +499,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     on = enabled(cfg)
     with backlog.locked(cfg) as data:
         events = collect(cfg, data, now, is_alive, publish_fn)
-        p = plan(cfg, data['tasks'], states, machines, on)
+        p = plan(cfg, data['tasks'], states, machines, on, datetime.fromtimestamp(now, timezone.utc))
         backlog.save(cfg, data)   # what was collected is kept even if a start below fails
         for task_id, step in p['dispatch']:
             t = backlog.find(data, task_id)

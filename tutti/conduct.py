@@ -192,7 +192,7 @@ def account_states(cfg, now=None):
         entries = pacing.read_log(path)
     except (OSError, ValueError):
         entries = []
-    return [pacing.account_state(n, a, entries, now) for n, a in cfg['accounts'].items()]
+    return [pacing.account_state(n, a, entries, now, *pacing.plan_args(cfg)) for n, a in cfg['accounts'].items()]
 
 
 # ---- the instruction file

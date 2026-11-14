@@ -49,8 +49,24 @@ def usage_state(cfg, now):
         problem = None
     except (OSError, ValueError) as e:
         entries, problem = [], f'{path} could not be read ({e}): fix or move the broken line, then `tutti usage` to check'
-    accounts = [with_credits(cfg, pacing.account_state(n, a, entries, now), a or {}) for n, a in cfg['accounts'].items()]
+    accounts = []
+    for n, a in cfg['accounts'].items():
+        s = with_credits(cfg, pacing.account_state(n, a, entries, now, *pacing.plan_args(cfg)), a or {})
+        accounts.append(with_background(cfg, s, a or {}, now))
     return {'log': path, 'problem': problem, 'accounts': accounts}
+
+
+def with_background(cfg, s, a, now):
+    """For an account with `background: true` (Cursor, whose own automatic reviews spend it outside Tutti): its rise with no
+    Tutti run on it, per hour, from this window's readings, and the plan re-made around what that spends until the target."""
+    from . import planner, readers
+    if not a.get('background') or s.get('state') != 'ok' or a.get('limits'):
+        return s
+    busy = readers.busy_intervals(os.path.join(config.expand(cfg['project']['state']), 'runs'), a.get('worker') or '', now)
+    rate = planner.background_rate(s['readings'], busy)
+    s = planner.plan_alone(s, a, now, rate)
+    s['background_rate'] = None if rate is None else round(rate, 3)
+    return s
 
 
 def with_credits(cfg, s, a):

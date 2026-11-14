@@ -212,3 +212,23 @@ allow as agy-claude (the worktree, the brief and ship's guard are the limits).
 
 `pkill -f "dashboard --port N"` inside a `bash -c '...'` matched that shell's own command line and killed it mid-command.
 Stop a dashboard by its pid (`ps`, then `kill <pid>`), never by a pattern.
+
+## A task's own check hid the gates it broke (2026-11-14)
+
+**What happened.** Six autopilot results on a project's backlog were marked passing and waited for review, yet each failed
+the repository's static gates (ruff check, ruff format, mypy, the scenario registry).
+
+**Why.** A task's `check` replaced the repo's: it ran only the task's new tests, which passed. Nothing ran the lint and type
+gates of the changed files.
+
+**Rule.** Acceptance is the task's check AND the repo's `check` (0.1.16, `autopilot.acceptance`); a repo's `check` names its
+gates for the changed files, not only its tests.
+
+## A field name shared by two meanings (2026-11-14)
+
+**What happened.** The planner's decision, stored on an account's state as `plan`, came out empty on the dashboard.
+
+**Why.** `plan` was already the account's subscription label from its `plan` reader, written after pacing; it overwrote the
+planner's dict with `None`.
+
+**Rule.** The planner's field is `quota_plan`. Before adding a key to a shared state dict, grep for every writer of it.

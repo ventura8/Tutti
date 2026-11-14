@@ -176,6 +176,28 @@ class PlanTest(Base):
         self.assertIn('yield flag is up', why)
         self.assertEqual(autopilot.step_room(cfg, 'pc', {}, {}, FREE)[0], 1)
 
+    def test_a_result_passes_only_with_the_repos_gates_too(self):
+        repo = {'check': 'ruff check . && mypy .'}
+        both = '( pytest tests/test_new.py ) && ( ruff check . && mypy . )'
+        self.assertEqual(autopilot.acceptance({'check': 'pytest tests/test_new.py'}, repo), both)
+        self.assertEqual(autopilot.acceptance({'check': ''}, repo), 'ruff check . && mypy .')
+        self.assertEqual(autopilot.acceptance({'check': 'make t'}, {}), 'make t')
+        self.assertEqual(autopilot.acceptance({'check': 'ruff check . && mypy .'}, repo), 'ruff check . && mypy .')   # never twice
+        self.assertEqual(autopilot.acceptance({}, {}), '')
+        self.assertIn('( ruff check . && mypy . )', autopilot.brief({**task('t1'), 'check': 'pytest x'}, repo))
+
+    def test_a_window_under_a_weekly_limit_spends_its_planned_share(self):
+        cfg = self.cfg()
+        plan = {'limit': 'agy-claude-weekly', 'tasks': 3, 'left': 6, 'allowance': 8, 'this_window': 2,
+                'why': 'agy-claude: window ends 16:00 UTC'}
+        s = {**account('agy-claude', 'on pace', None), 'quota_plan': plan}
+        room = autopilot.step_room(cfg, 'agy-claude', {'agy-claude': s}, {'agy-claude': 1}, FREE)
+        self.assertEqual(room, (2, ''))
+        none = {**s, 'quota_plan': {**plan, 'tasks': 0}}
+        room, why = autopilot.step_room(cfg, 'agy-claude', {'agy-claude': none}, {}, FREE)
+        self.assertEqual(room, 0)
+        self.assertIn('window ends 16:00', why)                # the planner's reason, said as such
+
     def test_a_fresh_task_goes_only_to_a_trigger_account_behind_its_line(self):
         states = self.states(**{'agy-gemini': account('agy-gemini', 'on pace'), 'agy-claude': account('agy-claude', 'on pace')})
         p = autopilot.plan(self.cfg(), [task('t1')], states, FREE, True)

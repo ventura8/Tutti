@@ -78,6 +78,40 @@ lost at the reset), then `on pace` or unread, then `ahead`; the order of `routin
 account's `worker` with its `args` (agy: `--model` of the window's model family). When no account has room it exits 3
 and says to use a local model. The dashboard's Quota tile shows where the next agent job goes.
 
+## The planner: what expires soonest is spent first
+
+Quota that expires unused is waste. The planner (`tutti/planner.py`, re-run at every probe from fresh readings) keeps it
+small, and stays simple enough to check by hand:
+
+- **Soonest first.** Among accounts with room, a job goes to the one whose planned room expires first (a 5 h window ending
+  in an hour before a monthly quota ending in three weeks); an account ahead of its pace still comes last.
+- **Windows under a limit.** `accounts.<name>.limits: [<other account>]` names a longer quota that also bounds an account
+  (agy's 5 h windows under their weekly quota: `agy-claude-weekly`, `agy-gemini-weekly`, read from the same `/usage`
+  answer). The limit's room (its budget, minus `reserve`, minus what was used when this window started) is shared over the
+  windows left until the limit's target (its reset minus the lead) that can run:
+
+  `allowance = max(room / runnable windows, room - what the later runnable windows can hold)`, at most what this window has left.
+
+  A window in `autopilot.quiet_hours` (UTC spans, e.g. `['22:00-06:00']`) gets nothing and its share moves to the windows
+  that can run; with no quiet hours, overnight windows are filled by the autopilot instead of lost. What a whole window
+  costs of the limit is `window_points`, else measured from this window's readings (the limit's rise over the window's
+  rise), else unknown (no cap from the later windows). When this window has spent its allowance, nothing new goes to it until
+  it resets; a limit spent or in panic closes it at once.
+- **Room in tasks.** The allowance left, in the window's own points, divided by `task_pct` (0: no tasks), is how many tasks
+  the autopilot sends now (its trigger accounts) and the room `tutti run auto` sees. With several limits, the one that allows
+  the fewest tasks binds (points of different limits do not compare). An account without limits gets its pace's room, never
+  more than what is left after `reserve` and its background spend; when that is used, routing skips it.
+- **Quiet hours** stop new dispatches at the current time too; finished runs are still collected.
+- **Reserve.** `reserve` (points, default 0) is left for work outside Tutti; the default assumes all work goes through it.
+- **Background spend.** `background: true` (Cursor: its own automatic security and dependency reviews spend it outside
+  Tutti) estimates the rise per hour between readings with no Tutti run of its worker (`<state>/runs/*.log.cmd`) and keeps
+  that much of the room for it until the target, instead of a fixed reserve. Read on the dashboard and by the autopilot.
+
+The dashboard says each decision on the account's card: `agy-claude: window ends 18:44 UTC (in 2.1 h); this window: 1 of 3
+weekly points (30 of 34 windows left can run); 40 % would be lost at its end → 3 task(s) now`. The tests simulate a week
+(`tests/test_limits.py`): with a third or half of the windows quiet, the planner wastes nothing where spreading the
+weekly room evenly over every window (the min() rule) loses 4 to 7 points.
+
 ## The arithmetic
 
 For a window from `start` to `reset`, the target time is `reset - lead_hours`. The share of the quota that should be

@@ -28,16 +28,39 @@ loads its code as `app.js?v=<version>` and the worker matches those exactly, so 
 new page. It remembers that reload per tab (`sessionStorage`): if the page is still old after
 it, or the browser blocks storage, it never reloads again and says how to reload by hand (`web/update.js`).
 
+## Layout
+
+The cards go by importance, top to bottom, on a 12-column grid whose rows fill their width, so no card stands tall and
+narrow with nothing beside it; one column on a phone. Phone (375 px) to 4K (2560 px), light and dark:
+
+1. **At a glance** (the tiles) and **Usage & pacing**, full width: the accounts as one row of compact cards (on a phone,
+   a row to swipe sideways; each card snaps). An account under a longer limit shows both windows side by side (agy: the
+   5 h window and the weekly limit, each with its meter, pace mark and reset) and the planner's line ("this window: 1 of 3
+   weekly points … → 3 task(s) now"); the limit has no card of its own unless it needs a reading (its Add a reading
+   lives there). Each card's facts fold under **Details**.
+2. **Needs you**, full width: tasks that need a person, accounts in panic, stalled jobs (**Open its log**), machines
+   offline, workers down, readings due, results to review (each task with its attempts and failure history), agents
+   started outside Tutti. **Open its log** clears the project filter and unfolds the running list to show the job. Most urgent first
+   (`web/attention.js`, a pure function the tests run in node); "Nothing needs you" when all is clear.
+3. **Running jobs** (with progress, and the project filter) beside **Machines**.
+4. **Autopilot** (its state, runs, queue and latest decisions, each list folded) beside **Main agent** and **Workers**.
+5. **Projects**, full width, in columns.
+6. **Finished jobs** at the bottom: All, Failed, Done (keys 1 to 3); two columns from 1800 px.
+
+Long lists fold after a few items with **Show N more** (and **Show fewer**); what is open stays open across polls, and the
+button keeps the keyboard focus. Cards in a row stretch to the same height.
+
 ## What it shows, and where each part comes from
 
 | Panel | Source |
 | --- | --- |
 | Projects | Each project Tutti sees: from each job's folder (an agent's working directory, a script's, a delegated run's worktree) to its git repository, named by its remote; and a read-only look at every machine (its processes working inside a git repository under the user's home, a `tutti test` copy under the machine's `root` counted for its local worktree's project, and an NVIDIA GPU's use). Per project: running jobs, running agents and delegated runs, the repositories with machine and branch, per machine the processes and their programs, and its last activity. `projects:` in the config names projects and lends them machines (their yield flag and GPU), test containers and a Windows folder: a WSL machine's Windows processes are invisible from WSL, so Tutti reads them over the machine's plain ssh with PowerShell (program names and start times of processes whose command line names that folder; never a command line, never a change). **Show its jobs** and the Jobs panel's project list filter the jobs. A project with `repo: owner/name` also shows its open pull requests (gh, the owner's sign-in, at most every 2 minutes): a release in progress (a title that names a version) first, each with its CI state (failing, running, passing, with the checks' names) and its reviews (the decision, else who reviewed and how). |
 | Main agent | The main agent (`main.agent`, or the owner's switch), each candidate with why it is out (all its accounts in panic or spent), and the running or last `tutti conduct` run: the goal, its agents in turn and why each stopped. **Switch** posts to `/api/main`; a running conductor hands over at its next check. |
-| Usage & pacing | `accounts:` in the config and the usage log (`tutti usage log`, the automatic readers, the Add a reading form). Per account: % used, the even-pace mark (what should be spent by now), the panic threshold (`panic_at`, default 95 %), the reset and target times and where the reset comes from (a reading, the config, an estimate), the readings of this window against the pace line, the plan and how often it is read automatically, and what to do. |
+| Needs you | Gathered on the page from the rest of `/api/state` (`web/attention.js`): `autopilot.parked` and `.review`, accounts in panic, with a failed reader or a reading due, stalled jobs, `summary.machines_offline`, workers not ready, `summary.outside`. |
+| Usage & pacing | `accounts:` in the config and the usage log (`tutti usage log`, the automatic readers, the Add a reading form). Per account: % used, the even-pace mark (what should be spent by now), the panic threshold (`panic_at`, default 95 %), the reset and target times and where the reset comes from (a reading, the config, an estimate), the readings of this window against the pace line, the plan and how often it is read automatically, and what to do; the planner's decision (`quota_plan.why`, docs/USAGE-PACING.md, *The planner*); an account with `limits` shows them inside its card (`limits`, each a full account state). |
 | Machines | The same probe as `tutti machines`: free and busy slots, load against cores, routing rank, paused (yield flag up), offline. Under each reachable machine, **Stored files**: what `tutti files send` keeps in its cache, the size against `files.budget_gb` and when each item was last used. |
 | Workers | The same check as `tutti workers`, plus the known CLI agents on this computer (Claude Code, Cursor, Antigravity, GitHub Copilot CLI, Gemini CLI, Ollama): installed or not, and whether a worker uses them. |
-| Jobs | A running job shows its progress (see *Progress* below: a bar with its percentage and where the number comes from, or its elapsed time when nothing can say) and, under it, what it has done so far: the step, tokens and tool calls, AI credits, the account it spends with that account's % used, tests passed and failed, files changed (+/−), bytes copied. A finished job shows no bar: its result (passed, failed with the exit code, or ended), how long it took and the same facts, with the report's path. `<project.state>`: `quiet/*.log` (`tutti quiet`), `ship-*.log` (quiet ship checks), `files/*.log` (`tutti files send` and `--input`, with the bytes copied in MB), `runs/*.log` (`tutti run --repo`), `waits/*.json` (`tutti wait`), `conduct/current.json` (a running `tutti conduct`), `llm-busy-*` (local-model jobs) and `tunnel-*.pid`. Running, **stalled** (its log has not changed for `dashboard.stall_minutes`), failed (with its exit code), done, or ended (a run from before 0.1.4, whose result was not recorded). Each opens to the end of its log. |
+| Running jobs, Finished jobs | Running and stalled jobs in their own card; finished ones (passed, failed, ended) at the bottom. A running job shows its progress (see *Progress* below: a bar with its percentage and where the number comes from, or its elapsed time when nothing can say) and, under it, what it has done so far: the step, tokens and tool calls, AI credits, the account it spends with that account's % used, tests passed and failed, files changed (+/−), bytes copied. A finished job shows no bar: its result (passed, failed with the exit code, or ended), how long it took and the same facts, with the report's path. `<project.state>`: `quiet/*.log` (`tutti quiet`), `ship-*.log` (quiet ship checks), `files/*.log` (`tutti files send` and `--input`, with the bytes copied in MB), `runs/*.log` (`tutti run --repo`), `waits/*.json` (`tutti wait`), `conduct/current.json` (a running `tutti conduct`), `llm-busy-*` (local-model jobs) and `tunnel-*.pid`. Running, **stalled** (its log has not changed for `dashboard.stall_minutes`), failed (with its exit code), done, or ended (a run from before 0.1.4, whose result was not recorded). Each opens to the end of its log. |
 
 Machines and workers are probed in the background every `dashboard.probe_seconds` (ssh answers can be slow); the
 rest is read on each request. The page polls `/api/state` every `dashboard.refresh_seconds` and pauses while hidden.

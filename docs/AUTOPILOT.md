@@ -84,10 +84,11 @@ autopilot:
   max_parallel: 2
   no_progress: 3
   max_attempts: 12
+  quiet_hours: []                      # UTC spans it must not run, e.g. ['22:00-06:00']; the planner moves their share
   repos:
     tutti:
       path: ~/Projects/tutti
-      check: bash scripts/check.sh     # the default acceptance check of its tasks
+      check: bash scripts/check.sh     # the repo's gates: run with every task's own check, both must pass
       where: local                     # or route: the check runs on a routed machine (the runner image)
       pr: false                        # or draft: push the branch and open a draft pull request
       commit: 'chore(autopilot): {title}'
@@ -97,9 +98,18 @@ autopilot:
 
 `tutti config` names every wrong key: an unknown account or worker, one that costs money, a repo without `path`.
 
+**Acceptance is the task's check and the repo's gates.** A result passes only when the task's own check (its new tests)
+and the repo's `check` (its lint and type gates of the changed files) both pass: `( <task check> ) && ( <repo check> )`.
+Before 0.1.16 a task's own check replaced the repo's, and results whose new tests passed were marked passing while they
+broke ruff, mypy and the scenario registry (LESSONS). A failure of either feeds the retry loop like any other.
+
+**Room comes from the planner.** A trigger account whose windows sit under a weekly limit gets as many tasks as the
+planner's allowance holds (docs/USAGE-PACING.md, *The planner*), whatever its own verdict: a 5 h window's quota is spent
+before it expires, as far as the weekly allows. `autopilot.quiet_hours` lists UTC spans it must not run.
+
 ## The panel
 
 **Autopilot** on the dashboard: the toggle, the ladder and `max_parallel`, the last decision and its reason, then the runs
-going (step, elapsed time, credits when the CLI prints them, the last log line), the results to review (branch, pull request,
-or why the commit or push was refused), what needs a person, and the queue. Every task shows its attempt count and its
-failure history (step, why, run, signature).
+going (step, elapsed time, credits when the CLI prints them, the last log line), the queue and the latest decisions (four,
+then **Show N more**, in a box that scrolls). Results to review and tasks that need a person are in **Needs you**. Every task
+shows its attempt count and its failure history (step, why, run, signature).

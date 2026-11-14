@@ -89,6 +89,7 @@ accounts:
     usage_url: https://cursor.com/dashboard/spending   # the dashboard's reading helper reads this page in one click
     source: cursor.com/dashboard/spending
     worker: cursor
+    background: true                   # Cursor's own automatic reviews spend it outside Tutti: the planner estimates them
     plan: {command: [cursor-agent, about, --format, json], field: subscriptionTier, every_minutes: 360}
     match: {command: cursor-agent}
   # Antigravity answers `agy -p /usage --output-format json` with every quota bucket, its remaining share and reset time,
@@ -104,6 +105,8 @@ accounts:
     # command(*) lets them run commands headless, so this account's --settings replaces the worker's list.
     args: [--model, claude-sonnet-5-5-medium, --settings, '{"permissions":{"allow":["command(*)"]}}']
     reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: 3p-5h}
+    limits: [agy-claude-weekly]        # the weekly quota bounds the 5 h windows: the planner shares it out (docs/USAGE-PACING.md)
+    # window_points: 10                # what one whole 5 h window costs of the weekly, in points; measured from readings when unset
     match: {command: '\bagy\b', model: 'claude|sonnet|opus|gpt'}
   agy-gemini:
     window: 5h
@@ -113,9 +116,23 @@ accounts:
     worker: agy
     args: [--model, gemini-3.8-flash-high]
     reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: gemini-5h}
+    limits: [agy-gemini-weekly]
     match: {command: '\bagy\b', model: gemini, fallback: true}   # an agy job that names no model counts here
+  # agy's weekly limits: the same /usage answer, their own buckets; no worker, they bound the 5 h windows above
+  agy-claude-weekly:
+    window: 7d
+    resets: '2026-01-01T00:00Z'
+    resets_estimated: true
+    source: agy /usage (Claude and GPT models, weekly)
+    reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: 3p-weekly}
+    # reserve: 0                       # points the planner leaves for work outside Tutti (default 0: all work goes through Tutti)
+  agy-gemini-weekly:
+    window: 7d
+    resets: '2026-01-01T00:00Z'
+    resets_estimated: true
+    source: agy /usage (Gemini models, weekly)
+    reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: gemini-weekly}
 # Each account may set panic_at (default 95): at or over that % before the target time, it is in quota panic.
-# The weekly agy buckets (3p-weekly, gemini-weekly) can be accounts of their own the same way, with window: 7d.
 
 # `tutti dashboard`: the local web dashboard on 127.0.0.1 (stall_minutes: a running job whose log is quiet that long is stalled)
 dashboard:
@@ -189,8 +206,10 @@ autopilot:
   accounts: [cursor]
   ladder: [cursor]
   max_parallel: 1
+  quiet_hours: []                      # UTC spans the autopilot must not run, e.g. ['22:00-06:00']: the planner gives them nothing
   repos:
-    app: {path: ~/src/app, check: 'python3 -m pytest -q', where: local, pr: false}
+    # check: the repo's gates; a task's own check runs too, and a result passes only when both pass
+    app: {path: ~/src/app, check: 'ruff check . && python3 -m pytest -q', where: local, pr: false}
 
 review:
   reviewers: [copilot, coderabbit]

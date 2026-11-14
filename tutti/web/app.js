@@ -2,12 +2,13 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
-const FILTERS = [['all', 'All'], ['running', 'Running'], ['stalled', 'Stalled'], ['failed', 'Failed'], ['done', 'Done']];
+const FILTERS = [['all', 'All'], ['failed', 'Failed'], ['done', 'Done']];   // finished jobs; running and stalled ones have their own card
+const LIVE = new Set(['running', 'stalled']);
 const VERDICT_TONE = { 'on pace': 'ok', ahead: 'warn', behind: 'warn', late: 'bad', spent: 'bad', 'no reading': 'idle', unknown: 'idle' };
 const MACHINE_TONE = { free: 'ok', loaded: 'warn', busy: 'accent', paused: 'warn', offline: 'bad' };
 const JOB_TONE = { running: 'accent', stalled: 'warn', failed: 'bad', done: 'ok', ended: 'idle' };
 const storedOpen = new Set();   // machines whose stored-files list is open: kept across re-renders
-const ui = { filter: 'all', project: '', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0, editing: new Map(), accounts: new Map() };
+const ui = { filter: 'all', project: '', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0, editing: new Map(), accounts: new Map(), expanded: new Set() };
 const TOKEN = document.querySelector('meta[name="tutti-token"]')?.content || '';
 const PAGE_VERSION = document.querySelector('meta[name="tutti-version"]')?.content || '';
 const RELOADED_FOR = 'tutti-reloaded-for';   // sessionStorage: the version this tab already reloaded for (never a loop)
@@ -63,6 +64,23 @@ function empty(title, text) {
 
 function codeText(before, code, after) {
     return el('span', {}, before, el('code', { text: code }), after || '');
+}
+
+// ---- long lists: the first `limit` items and "Show N more" (tuttiMore in attention.js); the choice is kept across polls
+
+function more(key, nodes, limit, tag = 'li') {
+    const m = tuttiMore(nodes.length, limit, ui.expanded.has(key));
+    if (!m.button) return nodes;
+    const button = el('button', {
+        class: 'btn btn--text more', type: 'button', 'data-more': key, 'aria-expanded': String(ui.expanded.has(key)), text: m.button,
+        onclick: () => {
+            if (ui.expanded.has(key)) ui.expanded.delete(key);
+            else ui.expanded.add(key);
+            render();
+            document.querySelector(`[data-more="${CSS.escape(key)}"]`)?.focus({ preventScroll: true });
+        },
+    });
+    return [...nodes.slice(0, m.shown), el(tag, { class: 'more__row' }, button)];
 }
 
 // ---- tiles
@@ -257,6 +275,23 @@ function accountFacts(a) {
     ]);
 }
 
+// The details of an account fold away so the cards stay compact in one row; an open one stays open across polls.
+function factsToggle(a) {
+    const d = el('details', { class: 'account__more', open: ui.expanded.has(`facts:${a.name}`) }, el('summary', { text: 'Details' }), accountFacts(a));
+    d.addEventListener('toggle', () => (d.open ? ui.expanded.add(`facts:${a.name}`) : ui.expanded.delete(`facts:${a.name}`)));
+    return d;
+}
+
+// One window of an account bound by a longer limit (agy: 5 h and weekly side by side), with the planner's share of it.
+function windowBlock(w, label) {
+    const verdict = w.state === 'ok' ? (w.panic ? 'panic' : w.verdict) : w.state;
+    const box = el('div', { class: 'window' }, el('p', { class: 'window__label' }, label, ' ', chip(verdict, w.panic ? 'bad' : VERDICT_TONE[w.verdict])));
+    if (w.state !== 'ok') return box;
+    box.append(el('p', { class: 'window__pct' }, `${w.used} %`, el('span', { class: 'account__by', text: ` · ${w.expected} % by now` })), meter(w));
+    if (w.reset) box.append(el('p', { class: 'account__by', text: `resets ${relative(w.reset)}` }));
+    return box;
+}
+
 function addButton(a) {
     return el('button', {
         class: 'btn btn--tonal account__add', type: 'button', 'data-add': a.name, text: 'Add a reading',
@@ -269,7 +304,9 @@ function account(a, now) {
     const card = el('article', { class: 'account', 'data-panic': String(a.panic), 'aria-label': `${a.name}: ${verdict}` },
         el('div', { class: 'account__top' }, el('h3', { class: 'account__name', text: a.name }),
             chip(verdict, a.panic ? 'bad' : VERDICT_TONE[a.verdict])));
-    if (a.state === 'ok') {
+    if (a.state === 'ok' && a.limits?.length) {
+        card.append(el('div', { class: 'windows' }, windowBlock(a, `${a.window} window`), ...a.limits.map((l) => windowBlock(l, `${l.window} limit`))));
+    } else if (a.state === 'ok') {
         card.append(el('div', { class: 'account__big' }, el('span', { class: 'account__pct', text: `${a.used} %` }),
             el('span', { class: 'account__by', text: `used · ${a.expected} % by now on an even pace` })));
         card.append(meter(a));
@@ -280,10 +317,11 @@ function account(a, now) {
     }
     if (a.reset) card.append(sparkline(a, now));
     card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
+    if (a.quota_plan?.why) card.append(el('p', { class: 'account__plan', text: `Planner: ${a.quota_plan.why}` }));
     if (a.room_tasks) card.append(el('p', { class: 'account__nudge', 'data-tone': 'ok', text: `Use it: ${a.room_tasks} bounded task(s) can go here now (tutti run auto "<task>" --repo <repo>)` }));
     if (a.credits_used !== undefined) card.append(el('p', { class: 'account__auto', text: `${a.credits_used} AI credits in this window from Tutti's runs` }));
     if (a.stale) card.append(el('p', { class: 'account__remind', 'data-tone': 'warn', role: 'note', text: `Reminder: ${a.remind}` }));
-    card.append(accountFacts(a), autoLine(a) || '');
+    card.append(factsToggle(a), autoLine(a) || '');
     // The account's note is a warning callout right above Add a reading (icon and the word "Note", never colour alone).
     if (a.note) {
         card.append(el('div', { class: 'account__callout', role: 'note', 'data-tone': 'warn' },
@@ -306,7 +344,13 @@ function renderUsage(s, now, force) {
     ui.formPending = false;
     const stale = u.accounts.filter((a) => a.stale).length;
     $('usage-meta').textContent = u.problem || (stale ? `${plural(stale, 'account')} need a fresh reading · ` : '') + `Readings from ${u.log}`;
-    $('usage').replaceChildren(...(u.accounts.length ? u.accounts.map((a) => account(a, now))
+    // An account that is another's limit (agy's weekly) shows inside that account's card, beside its 5 h window.
+    // A limit that needs a reading (or has its form open) keeps its own card too: Add a reading lives there.
+    const byName = new Map(u.accounts.map((a) => [a.name, a]));
+    const ownCard = (n) => ui.editing.has(n) || byName.get(n)?.needs_reading !== false;
+    const inside = new Set(u.accounts.flatMap((a) => (a.limits || []).map((l) => l.name)).filter((n) => !ownCard(n)));
+    const shown = u.accounts.filter((a) => !inside.has(a.name));
+    $('usage').replaceChildren(...(shown.length ? shown.map((a) => account(a, now))
         : [empty('No accounts yet', codeText('Add an accounts: section to the config (see ', 'tutti.config.example.yaml', ').'))]));
 }
 
@@ -449,7 +493,7 @@ function project(p) {
         ...p.machines.map((m) => el('p', { class: 'row__note', text: machineLine(m) })),
         el('div', { class: 'row__stats' }, el('button', {
             class: 'btn btn--tonal', type: 'button', text: 'Show its jobs',
-            onclick: () => { ui.project = p.name; render(); $('jobs-h').scrollIntoView({ behavior: 'smooth' }); },
+            onclick: () => { ui.project = p.name; render(); $('running-h').scrollIntoView({ behavior: 'smooth' }); },
         })));
 }
 
@@ -458,7 +502,7 @@ function renderProjects(s) {
     if (!ps) return;
     const errors = Object.entries(ps.errors || {}).map(([m, e]) => `${m}: ${e}`);
     $('projects-meta').textContent = errors.length ? `Not looked at: ${errors.join('; ')}` : `${ps.items.length} seen on your machines`;
-    $('projects').replaceChildren(...(ps.items.length ? ps.items.map(project)
+    $('projects').replaceChildren(...(ps.items.length ? more('projects', ps.items.map(project), 6)
         : [el('li', {}, empty('No projects seen yet', 'Jobs and processes inside a git repository show their project here.'))]));
 }
 
@@ -510,7 +554,7 @@ async function switchMain(e) {
 // ---- the autopilot
 
 const TASK_TONE = { queued: 'idle', running: 'accent', review: 'ok', 'needs-person': 'bad' };
-const AP_GROUPS = [['running', 'Running'], ['review', 'Results to review'], ['parked', 'Needs a person'], ['queue', 'Queue']];
+const AP_GROUPS = [['running', 'Running', 6], ['queue', 'Queue', 5]];   // results to review and parked tasks are under Needs you
 
 function attemptHistory(t) {
     if (!t.history.length) return null;
@@ -552,9 +596,17 @@ function renderAutopilot(s) {
     if (last) stateText = `${last.state}: ${last.reason} (${relative(new Date(last.at * 1000).toISOString())})`;
     else if (ap.configured) stateText = 'Not run yet: turn it on; it checks after every probe.';
     $('autopilot-state').textContent = stateText;
-    const groups = AP_GROUPS.filter(([key]) => ap[key].length).map(([key, title]) => el('div', {},
+    const groups = AP_GROUPS.filter(([key]) => ap[key].length).map(([key, title, limit]) => el('section', { class: 'autopilot__group' },
         el('h3', { class: 'card__sub', text: `${title} (${ap[key].length})` }),
-        el('ul', { class: 'list' }, ...ap[key].slice(0, 20).map(apTask))));
+        el('ul', { class: 'list' }, ...more(`ap:${key}`, ap[key].map(apTask), limit))));
+    const waiting = ap.review.length + ap.parked.length;
+    if (waiting) groups.push(el('p', { class: 'row__note', text: `${plural(ap.review.length, 'result')} to review and ${ap.parked.length} parked: see Needs you.` }));
+    if (ap.events?.length) {
+        groups.push(el('section', { class: 'autopilot__group autopilot__group--wide' }, el('h3', { class: 'card__sub', text: `Decisions (${ap.events.length})` }),
+            el('ol', { class: 'decisions', tabindex: 0, 'aria-label': 'The autopilot\'s latest decisions, newest first' },
+                ...more('ap:events', ap.events.map((e) => el('li', {},
+                    el('time', { datetime: new Date(e.at * 1000).toISOString(), text: relative(new Date(e.at * 1000).toISOString()) }), ' ', e.text)), 4))));
+    }
     $('autopilot').replaceChildren(...(groups.length ? groups : [empty('Backlog empty — add tasks',
         'tutti backlog add <repo> "<title>" --check "<command>", or tutti backlog seed <repo>.')]));
 }
@@ -688,39 +740,78 @@ function renderProjectPick(s) {
         el('option', { value: '-', text: 'No project', selected: ui.project === '-' }));
 }
 
+// Fills one job list and keeps the reader's place: the focused job (or its log) and where each open log was scrolled.
+function fillJobs(box, jobs, none, key, limit) {
+    if (!jobs.length) {
+        box.replaceChildren(none);
+        return;
+    }
+    const active = document.activeElement;
+    const focused = box.contains(active) ? active.closest('.job')?.dataset.id : null;
+    const focusedLog = active?.tagName === 'PRE';
+    // Each open log keeps where the reader was; it follows new output only when it was already at the bottom.
+    const where = new Map([...box.querySelectorAll('details[open] pre')].map((pre) => [pre.closest('.job').dataset.id,
+        { top: pre.scrollTop, bottom: pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4 }]));
+    box.replaceChildren(...more(key, jobs.map(job), limit, 'div'));
+    for (const pre of box.querySelectorAll('details[open] pre')) {
+        const w = where.get(pre.closest('.job').dataset.id);
+        pre.scrollTop = !w || w.bottom ? pre.scrollHeight : w.top;
+    }
+    if (focused) box.querySelector(`[data-id="${CSS.escape(focused)}"]`)?.querySelector(focusedLog ? 'pre' : ':scope > summary')?.focus({ preventScroll: true });
+}
+
+const finishedAs = (j, f) => f === 'all' || j.status === f || (f === 'done' && j.status === 'ended');
+
 function renderJobs(s) {
     ui.accounts = new Map((s.usage?.accounts || []).map((a) => [a.name, a]));
     renderProjectPick(s);
     const items = s.jobs.items.filter((j) => !ui.project || (ui.project === '-' ? !j.project : j.project === ui.project));
-    const count = (f) => (f === 'all' ? items.length : items.filter((j) => j.status === f || (f === 'done' && j.status === 'ended')).length);
+    const running = items.filter((j) => LIVE.has(j.status));
+    const finished = items.filter((j) => !LIVE.has(j.status));
+    fillJobs($('running'), running, empty('Nothing running', codeText('Runs from ', 'tutti quiet', ', ship checks, transfers and the autopilot show here with their progress.')),
+        'running', 8);
+    $('jobs-meta').textContent = ui.project ? `of ${ui.project === '-' ? 'no project' : ui.project} (choose in Running jobs)` : '';
     const filterFocus = document.activeElement?.closest?.('#job-filter') ? document.activeElement.dataset.f : null;
     $('job-filter-buttons').replaceChildren(...FILTERS.map(([f, label], i) => el('button', {
-        type: 'button', 'data-f': f, 'aria-pressed': String(ui.filter === f), title: `Show ${label.toLowerCase()} jobs (${i + 1})`, text: `${label} ${count(f)}`,
+        type: 'button', 'data-f': f, 'aria-pressed': String(ui.filter === f), title: `Show ${label.toLowerCase()} finished jobs (${i + 1})`,
+        text: `${label} ${finished.filter((j) => finishedAs(j, f)).length}`,
         onclick: () => { ui.filter = f; render(); },
     })));
     if (filterFocus) $('job-filter-buttons').querySelector(`[data-f="${filterFocus}"]`)?.focus();
-    const shown = items.filter((j) => ui.filter === 'all' || j.status === ui.filter || (ui.filter === 'done' && j.status === 'ended'));
-    if (shown.length) {
-        const active = document.activeElement;
-        const focused = active?.closest?.('.job')?.dataset.id;
-        const focusedLog = active?.tagName === 'PRE';
-        // Each open log keeps where the reader was; it follows new output only when it was already at the bottom.
-        const where = new Map([...$('jobs').querySelectorAll('details[open] pre')].map((pre) => [pre.closest('.job').dataset.id,
-            { top: pre.scrollTop, bottom: pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4 }]));
-        $('jobs').replaceChildren(...shown.map(job));
-        for (const pre of $('jobs').querySelectorAll('details[open] pre')) {
-            const w = where.get(pre.closest('.job').dataset.id);
-            pre.scrollTop = !w || w.bottom ? pre.scrollHeight : w.top;
-        }
-        if (focused) {
-            const box = $('jobs').querySelector(`[data-id="${CSS.escape(focused)}"]`);
-            box?.querySelector(focusedLog ? 'pre' : ':scope > summary')?.focus({ preventScroll: true });
-        }
-    } else if (items.length) {
-        $('jobs').replaceChildren(empty(`No ${ui.filter} jobs`, 'Choose All to see every recent job.'));
-    } else {
-        $('jobs').replaceChildren(empty('No jobs yet', codeText('Runs from ', 'tutti quiet', ', ship checks, file transfers and tutti wait show up here with the end of their log.')));
-    }
+    const none = finished.length ? empty(`No ${ui.filter} jobs`, 'Choose All to see every finished job.')
+        : empty('No finished jobs yet', 'Each run shows here when it ends, with its result and the end of its log.');
+    fillJobs($('jobs'), finished.filter((j) => finishedAs(j, ui.filter)), none, 'history', 10);
+}
+
+// ---- what needs the owner: tuttiAttention (attention.js) gathers it, most urgent first
+
+const ATTENTION_LABEL = { 'needs-person': 'Needs a person', panic: 'Panic', stalled: 'Stalled', offline: 'Offline', down: 'Down',
+    reading: 'Reading', review: 'To review', outside: 'Outside Tutti' };
+
+function attentionItem(it) {
+    const open = it.job ? el('button', { class: 'btn btn--text', type: 'button', text: 'Open its log', onclick: () => openJob(it.job) }) : null;
+    return el('li', { class: 'row row--attention', 'data-tone': it.tone },
+        el('div', { class: 'row__name', title: it.title }, it.title.length > 140 ? `${it.title.slice(0, 140)}…` : it.title),
+        chip(ATTENTION_LABEL[it.kind] || it.kind, it.tone),
+        el('p', { class: 'row__note', text: it.note }), open, it.task ? attemptHistory(it.task) : null);
+}
+
+function openJob(id) {
+    ui.open.add(id);
+    ui.project = '';            // the job may belong to a project the filter hides,
+    ui.expanded.add('running'); // or sit past the fold of the running list
+    render();
+    const box = document.querySelector(`.job[data-id="${CSS.escape(id)}"]`);
+    box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    box?.querySelector(':scope > summary')?.focus({ preventScroll: true });
+}
+
+function renderAttention(s) {
+    const items = tuttiAttention(s);
+    const urgent = items.filter((i) => i.tone !== 'ok').length;
+    $('attention-meta').textContent = items.length ? `${urgent} to act on · ${items.length - urgent} to review` : 'All clear';
+    $('attention').replaceChildren(...(items.length ? more('attention', items.map(attentionItem), 6)
+        : [el('li', {}, empty('Nothing needs you', 'No task waits for a person, no result to review, no warning.'))]));
 }
 
 // ---- the loop
@@ -733,13 +824,14 @@ function render() {
     $('config-path').title = s.config;
     $('foot-version').textContent = `Tutti ${s.version}`;
     renderTiles(s);
-    renderProjects(s);
-    renderMain(s);
-    renderAutopilot(s);
     renderUsage(s, now);
-    renderMachines(s);
-    renderWorkers(s);
+    renderAttention(s);
     renderJobs(s);
+    renderMachines(s);
+    renderAutopilot(s);
+    renderMain(s);
+    renderWorkers(s);
+    renderProjects(s);
     if (s.probe_error) showBanner(s.probe_error);
     else if (ui.notice) showBanner(ui.notice);
     else if (!ui.failing) $('banner').hidden = true;

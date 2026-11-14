@@ -146,11 +146,22 @@ NORMAL = ('on pace', 'no reading', 'unknown')
 def account_unfit(s):
     """Why an account (a pacing.account_state) must not take new work, or ''."""
     if s.get('panic'):
-        return f'panic: {s["used"]:g} % used before the target time'
+        return f'panic: {s["used"]:g} % used before the target time' if s.get('used') is not None else 'panic'
     if s.get('verdict') == 'spent':
         return 'spent until the reset'
     if s.get('used') is not None and s['used'] >= s.get('panic_at', 95):
         return f'{s["used"]:g} % used: at the panic threshold'
+    p = s.get('quota_plan')
+    if p and not p.get('limit') and p['left'] <= 0:
+        return 'its planned room is used (what is left is kept as its reserve or for its spend outside Tutti)'
+    if p and p.get('limit') and p['left'] <= 0:
+        if not p['allowance']:
+            return 'this window is in the quiet hours (autopilot.quiet_hours)'
+        return f'this window used its share of {p["limit"]} ({p["this_window"]:g} of {p["allowance"]:g} points)'
+    for lim in s.get('limits') or []:   # a weekly limit spent or in panic closes its 5 h window too
+        why = account_unfit(lim)
+        if why:
+            return f'its limit {lim["name"]}: {why}'
     return ''
 
 
@@ -159,6 +170,17 @@ def rank(s):
     if v in USE_FIRST:
         return 0
     return 1 if v in NORMAL else 2
+
+
+def expiry(s):
+    """When the account's planned room expires (the planner's window end), or never: soonest first wastes the least."""
+    p = s.get('quota_plan')
+    return p['expires'] if p and p.get('tasks') else '9999'
+
+
+def order(s):
+    """Accounts ahead of their pace last; among the rest, the capacity that expires soonest first, then the verdict."""
+    return (s.get('verdict') == 'ahead', expiry(s), rank(s))
 
 
 def pick_account(states):
@@ -175,6 +197,6 @@ def pick_account(states):
     if not usable:
         why = '; '.join(skipped) or 'no account names a worker (accounts.<name>.worker)'
         return None, f'no agent account has room ({why}): use a local model or wait for a reset'
-    best = min(usable, key=rank)   # min keeps the first of equal rank: the configured order breaks ties
+    best = min(usable, key=order)   # min keeps the first of equal rank: the configured order breaks ties
     note = f'{best["name"]} is {best["verdict"]}'
     return best, note + (f'; skipped {"; ".join(skipped)}' if skipped else '')

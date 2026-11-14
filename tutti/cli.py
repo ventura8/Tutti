@@ -18,6 +18,7 @@ from . import (
     dashboard,
     delegate,
     discover,
+    doctor,
     files,
     helper,
     local,
@@ -78,6 +79,14 @@ def cmd_config(cfg, a):
     for line in lead_hours_warnings(cfg):
         say(f'warning: {line}')
     return 0
+
+
+def cmd_doctor(cfg, a):
+    problems = doctor.check_git()
+    for line in problems:
+        say(f'problem: {line}')
+    print('doctor: ' + (f'{len(problems)} problem(s)' if problems else 'ok'))
+    return 1 if problems else 0
 
 
 def cmd_machines(cfg, a):
@@ -756,6 +765,7 @@ def parser():
         return s
 
     add('config', cmd_config, 'check the config and print its path')
+    add('doctor', cmd_doctor, 'check this machine: a git that cannot do HTTPS comes first in PATH')
     add('machines', cmd_machines, 'probe every machine: free slots, load, yield flag')
     s = add('test', cmd_test, 'run a command over a track\'s work tree on the first fit machine, behind its slot queue')
     s.add_argument('--dir', help='the work tree (default: <project.worktrees>/<track>)')

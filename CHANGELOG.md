@@ -19,6 +19,10 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 - A desktop that never sets logind's idle hint counted as "in use" for ever: now as not known.
 - The autopilot's round tests read this computer's free memory and failed on a busy laptop: they use a fixed measure.
 
+## 0.1.69 (2026-11-15)
+
+### Added
+
 - **Chat**, the dashboard's first tab and default view, for every signed-in user, viewers too (docs/CHAT.md). It runs on the
   household host inside `tutti dashboard`, so it answers while your own computer is off.
   - Answers questions from the dashboard's state: what is running, quota left, why a machine is idle, what waits.

@@ -2,9 +2,22 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
-## 0.1.69 (2026-11-15)
+## 0.1.70 (2026-11-15)
 
 ### Added
+
+- The compute work queue (docs/FLEET.md, *The work queue*). Machines whose model is busy or missing take `work_queue.jobs`:
+  each project's gates and tests on its latest commit (heavy ones on the machine with the most cores), coverage reports and
+  translation QA, by project priority, within each machine's share and quiet hours. A failure runs again (flaky hunting).
+  Findings such as coverage FAIL rows become backlog tasks. Run `tutti workq [tick]`.
+- Someone at the keyboard of a remote machine: the probe reads a Linux machine's graphical-session idle hint and a WSL
+  machine's Windows console idle time (`query user`), so their share backs off too.
+
+### Fixed
+
+- `/api/vpn` crashed on every POST (`bytes` has no `get`): the body is read as JSON, and a bad one is refused with a 400.
+- A desktop that never sets logind's idle hint counted as "in use" for ever: now as not known.
+- The autopilot's round tests read this computer's free memory and failed on a busy laptop: they use a fixed measure.
 
 - **Chat**, the dashboard's first tab and default view, for every signed-in user, viewers too (docs/CHAT.md). It runs on the
   household host inside `tutti dashboard`, so it answers while your own computer is off.

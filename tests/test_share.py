@@ -45,8 +45,10 @@ class Share(Base):
         def run(argv, **k):
             return SimpleNamespace(returncode=0, stdout='IdleHint=yes\nIdleSinceHint=1000000000\n')
         self.assertEqual(share.idle_seconds(run, clock=lambda: 1100.0), 100.0)
-        busy = share.idle_seconds(lambda argv, **k: SimpleNamespace(returncode=0, stdout='IdleHint=no\n'))
+        busy = share.idle_seconds(lambda argv, **k: SimpleNamespace(returncode=0, stdout='IdleHint=no\nIdleSinceHint=5\n'))
         self.assertEqual(busy, 0.0)
+        never = share.idle_seconds(lambda argv, **k: SimpleNamespace(returncode=0, stdout='IdleHint=no\nIdleSinceHint=0\n'))
+        self.assertIsNone(never)                                           # a desktop that never sets the hint: not known
 
 
 class KeepAlive(Base):
@@ -117,3 +119,24 @@ class Probe(Base):
             ok = subprocess.run(['bash', '-c', remote.GPU_TEMP + 'echo "[$g]"'], capture_output=True, text=True,
                                 env={**os.environ, 'PATH': f'{d}:/usr/bin:/bin'}).stdout
             self.assertIn('[55]', ok)                                           # a real reading still comes through
+
+
+class RemoteIdle(Base):
+    def test_windows_console_idle_time_and_the_probe_field(self):
+        head = ' USERNAME   SESSIONNAME   ID  STATE   IDLE TIME  LOGON TIME\n'
+        self.assertEqual(remote.parse_query_user(head + ' ventu  console  1  Active  none  12.11.2026 19:23\n'), 0.0)
+        self.assertEqual(remote.parse_query_user(head + ' ventu  console  1  Active  1:05  12.11.2026 19:23\n'), 3900.0)
+        self.assertEqual(remote.parse_query_user(head + ' ventu  console  1  Active  2+00:10  12.11.2026\n'), 2 * 86400.0 + 600)
+        self.assertIsNone(remote.parse_query_user(head + ' ventu  rdp-tcp#1  2  Active  5  12.11.2026\n'))
+        self.assertEqual(routing.parse_probe('1 0.5 8 0 50000 - 9.5 120').idle_s, 120.0)
+        self.assertIsNone(routing.parse_probe('1 0.5 8 0 50000 - 9.5 -').idle_s)
+
+    def test_a_remote_machine_in_use_lowers_its_share(self):
+        m = {'name': 'pc', 'transport': 'wsl', 'host': 'pc.example', 'slots': 4, 'min_free_gb': 6}
+        row = state.machine_state(m, routing.Probe(True, 4, 0.1, 16), 1, NIGHT.replace(hour=12), idle_s=10)
+        self.assertEqual((row['use_pct'], row['free']), (30, 1))
+
+    def test_the_idle_script_skips_a_desktop_that_never_sets_the_hint(self):
+        self.assertIn('IdleSinceHint', remote.IDLE)
+        self.assertIn('${i:--}', remote.probe_script({'yield_file': '~/y', 'name': 'n', 'transport': 'ssh', 'slots': 1,
+                                                      'lock_prefix': '/tmp/x-'}))

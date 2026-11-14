@@ -354,3 +354,11 @@ MCP servers read the first, the autopilot (started in the project folder) the se
 The card compared the connect time with the start time of every `claude` process. In Claude Desktop's Code tab old
 sessions always run, so the row never left "needs restart". **Rule.** Ask the agent's own health check when it has one
 (`claude mcp list`); an older session is a soft note, not the status.
+
+## 2026-11-15: a probe line broken by a tool's error, an idle hint that is never set
+
+- **What happened:** the NUC read as unreachable for hours, so its model and slots sat idle. On the NUC, `nvidia-smi` without
+  its driver printed its error on stdout, inside the probe's one summary line.
+- **The rule:** every value a probe line carries is filtered to its expected shape (numbers only) before it is printed.
+- **Also:** logind's `IdleHint=no` with `IdleSinceHint=0` means the desktop does not report, not that someone is at the
+  keyboard. Trust a hint only when its time is set.

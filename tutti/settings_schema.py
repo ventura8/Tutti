@@ -31,7 +31,7 @@ SECTIONS = [
     ('autopilot', 'Autopilot', 'Backlog tasks sent to accounts that are behind their pace; retries climb the ladder.',
      ['autopilot', 'autopilot.repos']),
     ('fleet', 'Local models', 'Every machine\'s Ollama as a worker; they take tasks while the online accounts are spared '
-     '(docs/FLEET.md).', ['fleet']),
+     '(docs/FLEET.md).', ['fleet', 'work_queue']),
     ('dispatch', 'Keep busy', 'Idle devices and machines pull the projects\' pending test shards (docs/DISPATCH.md).', ['dispatch']),
     ('time', 'Time zone', 'What local time means for your hours, quiet hours and tariffs; auto is this computer\'s.', ['time']),
     ('presence', 'Presence', 'Devices and machines that come and go: away, asleep, moving work and Wake-on-LAN (docs/PRESENCE.md).',
@@ -255,6 +255,8 @@ FIELDS = {
     'projects.*.commit': field('Latest commit', 'Shards not passed on this commit are pending.', 'text'),
     'projects.*.tests': field('Test suites', 'kind, targets, run with {shard}, shards, retries (docs/DISPATCH.md).', **YAML),
     # fleet (docs/FLEET.md)
+    'work_queue.enabled': field('Work queue', 'Machines with a free slot run the projects\' gates, tests and reports.', 'switch'),
+    'work_queue.jobs': field('Jobs', 'name, run, project, repo, where, heavy, every, findings (docs/FLEET.md).', **YAML),
     'fleet.enabled': field('Use every machine\'s models', 'Find each machine\'s Ollama and make it a worker.', 'switch'),
     'fleet.port_base': field('Tunnel ports from', 'Another machine\'s Ollama is reached on this port and the next ones.',
                              'number', min=1024, step=1),

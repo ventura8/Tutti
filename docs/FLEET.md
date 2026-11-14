@@ -120,3 +120,47 @@ Each probe samples every machine:
 
 A paused, offline or yielding machine has nothing available. The Usage card's headline reads "Household use: X % of
 available capacity (last hour)". Each machine card shows its use over the last hour and today, and why it is idle when it is.
+
+## The work queue
+
+Machines whose model is busy or missing still contribute. After each autopilot round, every machine with a free slot at its
+share (`use_pct`, someone at its keyboard, its quiet hours) takes the next due job of `work_queue.jobs`. Each machine takes
+one queue job at a time, and the most important project goes first (`projects.<p>.priority`).
+
+```yaml
+work_queue:
+  jobs:
+    - {name: map-static, project: Historic City Map Maker, repo: map, run: 'PIPELINE_STAGE=static bash scripts/ci/in-container.sh',
+       heavy: true, every: commit, share: [node_modules]}
+    - {name: tutti-check, project: Tutti, repo: tutti, run: bash scripts/check.sh, where: here}
+    - {name: map-coverage, repo: map, run: 'PIPELINE_STAGE=tests bash scripts/ci/in-container.sh', heavy: true, every: 12h,
+       findings: {pattern: '^(?P<file>\S+)\s*\|\s*(?P<pct>[\d.]+) ?%.*FAIL', title: 'Raise the coverage of {file} ({pct} %)'}}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `repo` | An `autopilot.repos` name or a folder. The job runs in its own detached worktree at the repo's `ref` (default `HEAD`), with `share` folders hard-linked from the main checkout. |
+| `where` | `route` (default) uses any free machine. `here` runs on this computer with no slot, for light checks. A machine name pins the job to that machine. |
+| `heavy` | The job goes to the free machine with the most cores. |
+| `every` | `commit` (default) runs once on each new commit; a period (`6h`, `30m`, `1d`) runs again after that long. |
+| `findings` | A regex with a `file` group: each match becomes a backlog task, such as the coverage gate's FAIL rows. |
+
+Flaky-test hunting:
+
+- A failed job runs once more on the same commit.
+- If it passes the second time, it leaves a "Flaky" backlog task.
+- If it fails again, it leaves a "fails on" task.
+
+`tutti workq` shows the jobs and the latest events; `tutti workq tick` runs one round now. The RoRadio device shards stay
+with Keep busy (docs/DISPATCH.md).
+
+## Someone at the keyboard
+
+The probe reads, on each kind of machine:
+
+- **Linux:** the graphical sessions' logind idle hint. A desktop that never sets it, with `IdleSinceHint` 0 like the NUC's
+  x11, counts as not known, not as in use.
+- **A WSL machine:** the Windows console's idle time from `query user`, over its plain ssh.
+- **This computer:** `xprintidle`, else the same logind hint.
+
+Each machine's share uses its own reading.

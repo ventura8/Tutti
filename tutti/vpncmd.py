@@ -371,6 +371,13 @@ def status(cfg, facts, phones, out):
 def api(cfg, body, sh=remote.sh, run=subprocess.run):
     """(status, answer) for POST /api/vpn {"action": "status"} | {"action": "qr", "phone": name} | {"action": "router"} |
     {"action": "open-port", "consent": true}."""
+    if isinstance(body, (bytes, str)):   # the dashboard hands the raw request body (a POST crashed on bytes.get, 2026-11-14)
+        try:
+            body = json.loads(body or b'null')
+        except ValueError:
+            body = None
+    if not isinstance(body, dict):
+        return 400, {'error': 'send a JSON object such as {"action": "status"}'}
     action = body.get('action')
     st = read_state(cfg)
     if action == 'status':

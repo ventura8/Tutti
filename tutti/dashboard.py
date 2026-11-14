@@ -61,6 +61,7 @@ from . import (
     update,
     vpncmd,
     workers,
+    workq,
 )
 from . import dispatch as keepbusy  # dashboard.dispatch() routes POSTs
 
@@ -154,7 +155,12 @@ class Collector:
         from . import sharing  # a household member's heartbeat rides on the round; shared machines offer its grant only
         machines = sharing.limit_items(self.cfg, [dict(m) for m in snap['machines']['items']], self.clock())
         beat = sharing.beat(self.cfg, datetime.fromtimestamp(self.clock(), timezone.utc), machines)
-        return autopilot.tick(self.cfg, states, machines, beat=beat)
+        out = autopilot.tick(self.cfg, states, machines, beat=beat)
+        try:   # the work queue: machines with a free slot left after the autopilot run the projects' jobs (tutti/workq.py)
+            workq.tick(self.cfg, machines)
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
+            self.probes = {**self.probes, 'workq_error': f'the work queue failed ({e}): the next round tries again'}
+        return out
 
     def update_round(self, force=False):
         """`tutti update` in the background: the daily round (update.auto, update.every_hours) or a click on Update now.
@@ -236,6 +242,7 @@ class Collector:
         out['autopilot'] = autopilot.view(self.cfg)
         out['household_use'] = householduse.view(self.cfg, self.clock())   # the headline and each machine's use (docs/FLEET.md)
         out['fleet'] = fleet.view(self.cfg)
+        out['work_queue'] = workq.view(self.cfg)
         accounts = {a['name']: a for a in out['usage']['accounts']}
         out['scouts'] = {**scouts.view(self.cfg, accounts, self.env), 'error': probes.get('scout_error'), 'trial': trial.view(self.cfg)}
         out['controls'] = controls.view(self.cfg, controls.read(config.state_dir(self.cfg)))

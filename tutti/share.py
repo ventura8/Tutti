@@ -65,7 +65,7 @@ def idle_seconds(run=subprocess.run, clock=time.time):
     except (OSError, subprocess.SubprocessError):
         return None
     values = dict(line.split('=', 1) for line in r.stdout.splitlines() if '=' in line)
-    if values.get('IdleHint') == 'no':
-        return 0.0
     since = values.get('IdleSinceHint', '')
-    return max(0.0, clock() - int(since) / 1e6) if since.isdigit() and int(since) else None
+    if not (since.isdigit() and int(since)):
+        return None   # a desktop that never sets the hint: not known (it would read "in use" for ever)
+    return 0.0 if values.get('IdleHint') == 'no' else max(0.0, clock() - int(since) / 1e6)

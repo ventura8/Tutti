@@ -3,6 +3,8 @@ transport into temp folders (rsync and the stream fallback, resume, skip, damage
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -10,6 +12,8 @@ from unittest import mock
 
 from tutti import cli, config, files, routing, state, transfer
 from tutti.files import Entry
+
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 GB = files.GB
 
@@ -384,3 +388,11 @@ class DashboardTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class WindowsImportTest(unittest.TestCase):
+    def test_the_cli_imports_where_there_is_no_fcntl(self):
+        # Windows has no fcntl: an unguarded import broke every command there (the PC install, 2026-11-14)
+        code = 'import sys; sys.modules["fcntl"] = None; import tutti.cli; print("ok")'
+        r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, cwd=ROOT_DIR)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'ok'), r.stderr[-800:])

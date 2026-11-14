@@ -2,7 +2,6 @@
 ends have it (resumable partials, skips what is already there), else a resumable byte stream; every item is checked with
 sha256sum on the machine before it counts as stored. Items sent without --dest live in the machine's cache, which keeps
 to a size budget by removing the least recently used items first. Secrets never leave: the send is refused instead."""
-import fcntl
 import hashlib
 import json
 import os
@@ -14,6 +13,11 @@ import time
 from contextlib import contextmanager
 
 from . import config, files, remote
+
+try:
+    import fcntl
+except ImportError:   # Windows: no flock; one sender at a time there
+    fcntl = None
 
 CHUNK = files.MB
 SSH_OPTS = ('-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes')
@@ -95,7 +99,8 @@ def machine_lock(machine, base):
     os.makedirs(lock_dir(), exist_ok=True)
     key = hashlib.sha256(f'{machine.get("host") or "local"}|{base}'.encode()).hexdigest()[:16]
     with open(os.path.join(lock_dir(), f'files-{key}.lock'), 'w', encoding='utf8') as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        if fcntl:
+            fcntl.flock(f, fcntl.LOCK_EX)
         yield
 
 

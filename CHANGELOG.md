@@ -2,6 +2,13 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.39 (2026-11-14)
+
+### Fixed
+
+- Windows: every command failed with "No module named 'fcntl'" (`tutti/transfer.py` imported it unguarded). The import is
+  guarded like the other modules' (a send waits on `msvcrt.locking` there), and a test imports the CLI with no fcntl.
+
 ## 0.1.38 (2026-11-14)
 
 ### Added

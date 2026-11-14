@@ -9,27 +9,34 @@ import time
 ALLOW_DAYS = 7
 
 
-def attempts(cfg, plan, tasks, rooms, events=()):
-    """[{fix, done, note}] of the automatic fixes for a stopped plan, in the order tried."""
-    from . import autopilot
+def attempts(cfg, plan, tasks, rooms, events=(), now=None):
+    """[{fix, done, note}] of the automatic fixes for a stopped plan, in the order tried. Each one is applied by the round
+    itself (the scope guess, the local routing and the tiers in the plan, the household's spare share, the tunnels in the
+    dashboard's probe); this lists what each found, from the tasks' and Tutti's own state."""
+    from . import autopilot, fleet
+    now = time.time() if now is None else now
     queued = [t for t in tasks if t['status'] == 'queued']
+    given = [t['id'] for t in queued if not t.get('scope') and t.get('local_scope')]
     no_files = [t['id'] for t in queued if not autopilot.has_files(t)]
-    guessed = [e for e in events if 'so a local model can take it' in e]
-    out = [{'fix': 'split or resize', 'done': bool(guessed),
-            'note': (f'files picked for {len(guessed)} task(s); a larger task is worked in steps of a few files'
-                     if guessed else f'{len(no_files)} task(s) name no file Tutti can find from their title')}]
+    out = [{'fix': 'split or resize', 'done': bool(given),
+            'note': (f'files picked for {len(given)} task(s), worked in steps of a few files; ' if given else '') +
+                    (f'{len(no_files)} task(s) name no file Tutti can find from their title' if no_files else 'every task has files')}]
     locals_ = [n for n in autopilot.ladder(cfg) if autopilot.is_local(cfg, n)]
-    local_why = '; '.join((rooms.get(n) or (0, f'{n}: not planned'))[1] or f'{n}: free, but no queued task fits it' for n in locals_)
+    local_why = '; '.join((rooms.get(n) or (0, f'{n}: not planned'))[1] or f'{n}: free, but no queued task fits its models'
+                          for n in locals_)
     out.append({'fix': 'any local worker', 'done': False, 'note': local_why or 'no machine has a local model (tutti fleet)'})
     cheap = [n for n in cfg['accounts'] if (cfg['accounts'][n].get('tiers') or {}).get('cheap')]
     out.append({'fix': 'lower the model tier', 'done': False,
-                'note': (f'{", ".join(cheap)} already use their cheap tier while ahead' if cheap else 'no account has a cheap tier')})
+                'note': (f'checked: {", ".join(cheap)} already switch to their cheap tier while ahead, and still have no room'
+                         if cheap else 'checked: no account has a cheap tier (accounts.<n>.tiers)')})
     spare = list(cfg.get('_spare_accounts') or ())
     out.append({'fix': 'borrow household spare', 'done': bool(spare),
-                'note': f'spare room on {", ".join(spare)}' if spare else 'no household member shares spare room now'})
-    woke = [e for e in events if 'tunnel' in e]
-    out.append({'fix': 'wake an idle machine', 'done': bool(woke),
-                'note': '; '.join(woke) or 'every local model server answers or its machine is not up'})
+                'note': f'spare room on {", ".join(spare)}' if spare else 'checked: no household member shares spare room now'})
+    woke = fleet.read_state(cfg).get('woke') or {}
+    recent = woke.get('at', 0) > now - 900
+    out.append({'fix': 'wake an idle machine', 'done': recent,
+                'note': (f'tunnels started for {", ".join(woke["workers"])}' if recent else
+                         'checked: every local model server answers, or its machine is not up')})
     return out
 
 

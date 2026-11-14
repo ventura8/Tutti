@@ -69,6 +69,9 @@ class Discovery(Base):
         paused = [{**FREE[0], 'status': 'paused', 'reason': 'yield flag is up'}]
         self.assertEqual(fleet.ensure_tunnels(cfg, paused, {'pc': False}, run), [])   # the PC yields: no tunnel either
         self.assertEqual(fleet.ensure_tunnels(cfg, FREE, {'pc': True}, run), [])
+        self.assertEqual(fleet.ensure_tunnels(cfg, FREE, {}, run), [])           # not probed yet: no restart every round
+        failed = fleet.ensure_tunnels(cfg, FREE, {'pc': False}, lambda argv, **k: SimpleNamespace(returncode=1))
+        self.assertEqual(failed, [])                                               # a start that failed is not reported started
 
 
 class Routing(Base):
@@ -147,7 +150,8 @@ class OwnerBlock(Base):
         p, events = autopilot.tick(cfg, blocked_states(), self.machines(), is_alive=lambda pid: True,
                                    spawn=lambda argv, **k: started.append(argv) or SimpleNamespace(pid=1))
         sent = dict(p['dispatch'])
-        self.assertIn(sent.get('t1'), ('pc', 'laptop'))                    # an M task, no quota points: a slot takes it
+        self.assertEqual(sent.get('t1'), 'laptop')                        # an M task, no quota points: the idle laptop takes it
+        self.assertNotIn('t2', sent)                                       # it names no file a local model could be given
         self.assertIn('ahead of pace', p['overflow'])
         self.assertTrue(any('picked tutti/energy.py' in e for e in events))
         self.assertIn('tutti/energy.py', started[0])                       # the local model is given the guessed files
@@ -192,6 +196,21 @@ class Governor(Base):
         p = autopilot.plan(cfg, [t], blocked_states(), hot, True)
         self.assertEqual(p['dispatch'], [])
         self.assertIn('too hot', autopilot.step_room(cfg, 'pc', blocked_states(), {}, hot)[1])
+
+    def test_a_failed_step_ends_the_run_and_the_chosen_model_is_used(self):
+        cfg = self.cfg()
+        cfg['workers']['pc']['models'] = [fleet.classify(m) for m in TAGS['models']]
+        seen = []
+        from tutti import local
+        orig = local.agent
+        local.agent = lambda c, w, t, chk, files, base='.': seen.append(w['model']) and False
+        try:
+            rc, _ = delegate.run_worker(cfg, 'pc', 'Fix the parser', ['a.py', 'b.py', 'c.py', 'd.py'], self.tmp.name, None,
+                                        ('--model', 'deepseek-coder-v2:latest'), None, None)
+        finally:
+            local.agent = orig
+        self.assertEqual(rc, 1)
+        self.assertEqual(seen, ['deepseek-coder-v2:latest'])               # step 1 of 2 failed: step 2 never ran
 
     def test_the_step_loop_uses_the_model_for_the_kind(self):
         cfg = self.cfg()

@@ -13,6 +13,7 @@ import json
 import os
 import re
 import subprocess
+import time
 
 from . import config, planner
 
@@ -21,12 +22,12 @@ DEFAULT_ON = '127.0.0.1:11434'   # where Ollama listens on a machine unless ener
 SUFFIX = '-local'
 KINDS = ('fix', 'tests', 'docs', 'translations', 'review', 'summary', 'triage', 'lint-fix')
 # What a model of each tier takes: the task kinds, the backlog sizes (a larger one is worked in steps of files_per_step files:
-# the model never holds more at once), the units of room and the rank used to order the machines
+# the model never holds more at once) and the rank used to order the machines
 TIERS = {
-    'strong': {'kinds': KINDS, 'sizes': ('S', 'M', 'L'), 'units': 2, 'files_per_step': 3, 'rank': 2},
-    'normal': {'kinds': ('fix', 'tests', 'docs', 'translations', 'review', 'summary', 'triage'), 'sizes': ('S', 'M'), 'units': 1,
+    'strong': {'kinds': KINDS, 'sizes': ('S', 'M', 'L'), 'files_per_step': 3, 'rank': 2},
+    'normal': {'kinds': ('fix', 'tests', 'docs', 'translations', 'review', 'summary', 'triage'), 'sizes': ('S', 'M'),
                'files_per_step': 2, 'rank': 1},
-    'small': {'kinds': ('docs', 'summary', 'triage', 'translations'), 'sizes': ('S',), 'units': 1, 'files_per_step': 1, 'rank': 0},
+    'small': {'kinds': ('docs', 'summary', 'triage', 'translations'), 'sizes': ('S',), 'files_per_step': 1, 'rank': 0},
 }
 NOT_TEXT = re.compile(r'llava|vision|embed|clip|bge|nomic|minilm|whisper|-vl\b', re.I)
 TRANSLATOR = re.compile(r'translat|madlad|nllb|opus-mt', re.I)
@@ -48,9 +49,10 @@ SIZE_RE = re.compile(r'(\d+(?:\.\d+)?)\s*([BM])', re.I)
 
 
 def params_b(m):
-    """The model's parameters in billions: details.parameter_size ('12.2B', '494M'), else its name (qwen3.5:9b), else 0."""
-    for text in ((m.get('details') or {}).get('parameter_size') or '', m.get('name') or ''):
-        hit = SIZE_RE.search(text.split(':')[-1] if text is m.get('name') else text)
+    """The model's parameters in billions: details.parameter_size ('12.2B', '494M'), else its name's tag (qwen3.5:9b), else 0."""
+    name = m.get('name') or ''
+    for text in ((m.get('details') or {}).get('parameter_size') or '', name.split(':')[-1] if ':' in name else ''):
+        hit = SIZE_RE.search(text)
         if hit:
             n = float(hit.group(1))
             return n / 1000 if hit.group(2).upper() == 'M' else n
@@ -113,13 +115,6 @@ def fits(worker, task):
         names = ', '.join(x['name'] for x in worker.get('models') or [] if x) or worker.get('model')
         return f'no model here ({names}) takes a {task.get("size") or "S"} {kind_of(task)} task', None
     return '', m
-
-
-def units_of(worker):
-    """The room a free local worker offers: the units of its strongest model's tier (2 lets an M task in)."""
-    own = (classify({'name': worker.get('model') or ''}) or {}).get('tier', 'small')
-    tiers = [m['tier'] for m in worker.get('models') or [] if m] or [own]
-    return max(TIERS[t]['units'] for t in tiers)
 
 
 def files_per_step(model):
@@ -213,6 +208,7 @@ def machine_of(cfg, name):
     return w.get('machine') or next((n for n, m in cfg['machines'].items() if m.get('transport') == 'local'), '')
 
 
+HOT_OR_LOADED = re.compile(r'^(too hot|hot): |^load [\d.]+ is over')   # routing.heat_unfit and unfit's load ratio
 BLOCKING = {'held': 'paused by the owner', 'off': 'turned off', 'offline': 'offline', 'paused': 'its yield flag is up'}
 
 
@@ -226,7 +222,7 @@ def governor(cfg, name, machines, now=None, mem_gb=None, hardware=None):
         st, reason = row.get('status'), row.get('reason') or ''
         if st in BLOCKING:
             return f'{name}: its machine {home} is {BLOCKING[st]} ({reason})'
-        if st == 'loaded' and re.search(r'\d ?C\b|hot|heat|load ', reason):
+        if st == 'loaded' and HOT_OR_LOADED.search(reason):
             return f'{name}: its machine {home} is {reason}'
         if st == 'busy' and not (hardware or {}).get('gpu'):
             return f'{name}: its machine {home} runs on its CPU and every slot is busy'
@@ -252,12 +248,12 @@ def entries(cfg, readings, now, old=None):
     old = old or {}
     out = {}
     for name, r in (readings or {}).items():
-        tags = (r or {}).get('tags') or {}
-        models = [c for c in (classify(m) for m in tags.get('models') or [] if isinstance(m, dict)) if c]
-        if r is None or not isinstance(tags, dict) or 'models' not in tags:
+        tags = (r or {}).get('tags')
+        if r is None or not isinstance(tags, dict) or not isinstance(tags.get('models'), list):
             if name in old:
                 out[name] = {**old[name], 'stale': True}
             continue
+        models = [c for c in (classify(m) for m in tags['models'] if isinstance(m, dict)) if c]
         loaded = [m.get('name') for m in ((r.get('ps') or {}).get('models') or []) if isinstance(m, dict)]
         out[name] = {'models': models, 'gpu': r.get('gpu') or '', 'npu': r.get('npu') or '', 'cpu': r.get('cpu') or '',
                      'loaded': loaded, 'updated': now, 'stale': False}
@@ -400,14 +396,19 @@ def ensure_tunnels(cfg, machines, answers, run=subprocess.run):
     for n, w in cfg['workers'].items():
         t = w.get('tunnel') or {}
         home = rows.get(machine_of(cfg, n)) or {}
-        if w.get('kind') != 'ollama' or not t.get('ssh') or answers.get(n) or home.get('status') in BLOCKING:
-            continue
+        if w.get('kind') != 'ollama' or not t.get('ssh') or answers.get(n) is not False or home.get('status') in BLOCKING:
+            continue   # answers None: not probed yet
         env = {**os.environ, 'TUTTI_STATE': config.state_dir(cfg)}
         try:
-            run([script, 'start', n, w['host'], t['ssh'], t['remote']], env=env, capture_output=True, timeout=20)
-            started.append(n)
+            r = run([script, 'start', n, w['host'], t['ssh'], t['remote']], env=env, capture_output=True, timeout=20)
         except (OSError, subprocess.SubprocessError):
             continue
+        if getattr(r, 'returncode', 0) == 0:
+            started.append(n)
+    if started:
+        data = read_state(cfg)
+        data['woke'] = {'at': time.time(), 'workers': started}
+        save(cfg, data)
     return started
 
 

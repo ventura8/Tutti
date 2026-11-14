@@ -70,7 +70,9 @@ A local model takes nothing while any of these holds:
 
 ## The block resolver
 
-When work waits and no worker takes it, the round tries these fixes in order and the autopilot card lists each one:
+When work waits and no worker takes it, the autopilot card lists each fix in order with what it found. Each one is applied
+by Tutti's own rounds: the scope guess and the local routing in the plan, the tiers by pace, the household's spare share, and
+the tunnels in the dashboard's probe.
 
 1. Split or resize the task: give it files, work it in steps.
 2. Route it to any local worker.

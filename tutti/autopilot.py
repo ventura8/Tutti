@@ -352,7 +352,8 @@ def capacity_now(cfg, running, machines, now, room=None):
     lim = parallel.limit(cfg, len(online), room, cfg.get('_host'), slots)
     cfg['_parallel'], cfg['_parallel_limit'] = lim, lim['limit']
     free = lim['others'] - len(online)   # the accounts' room is the ladder's own business (assign): it names each step
-    local = (len(ladder(cfg)) if slots is None else slots) if any(is_local(cfg, n) for n in ladder(cfg)) else 0
+    servers = sum(1 for n in ladder(cfg) if is_local(cfg, n))   # one task per model server
+    local = (servers if slots is None else slots) if servers else 0
     if free <= 0 and local <= 0:
         reason = why if lim['by'] == 'gates' and why else parallel.line(lim)
         return (0, 0), {'state': 'running' if running else 'waiting', 'reason': reason}
@@ -382,7 +383,8 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     used = spent_units(tasks, states)
     names = list(dict.fromkeys([*ladder(cfg), *trigger_accounts(cfg), *cfg.get('_spare_accounts', ())]))
     rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}
-    free, stop = capacity_now(cfg, running, machines, now, sum(max(0, r[0]) for r in rooms.values()))
+    online_room = sum(max(0, r[0]) for n, r in rooms.items() if not is_local(cfg, n))   # local runs are outside that limit
+    free, stop = capacity_now(cfg, running, machines, now, online_room)
     if stop:
         return {**out, **stop}
     # fresh tasks and retries alike, by weighted fair share of their projects' priority (the runs going count as served)
@@ -521,6 +523,9 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
     if step['kind'] == 'ollama':
         from . import fleet
         argv += [s for s in fleet.task_files(task) if not os.path.isdir(os.path.join(repo_path(cfg, task), s))]
+        model = fleet.model_for(cfg['workers'][step['worker']], task)   # the model the scheduler checked to fit
+        if model:
+            step = {**step, 'args': [*step['args'], '--model', model['name']]}
     argv += ['--repo', repo_path(cfg, task), '--track', TRACK_PREFIX + task['id'], '--id', run_id,
              '--remote-track', cfg['delegate']['remote_track']]
     if check:
@@ -910,10 +915,11 @@ def guess_scopes(data, files):
     from . import fleet
     events = []
     for t in data['tasks']:
-        if t['status'] != 'queued' or t.get('scope') or 'local_scope' in t or t['repo'] not in files:
+        if t['status'] != 'queued' or t.get('scope') or t.get('local_scope') or t['repo'] not in files:
             continue
-        t['local_scope'] = fleet.guess_scope(t['title'], files[t['repo']])
-        if t['local_scope']:
+        guess = fleet.guess_scope(t['title'], files[t['repo']])   # none found: guessed again next round (the repo changes)
+        if guess:
+            t['local_scope'] = guess
             events.append(f'{t["id"]}: no files named; Tutti picked {", ".join(t["local_scope"])} so a local model can take it')
     return events
 
@@ -978,7 +984,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         from . import resolver  # work waits and no one takes it: the automatic fixes tried, then the owner's one action
         st['resolver'] = None if p['state'] != 'stopped' else {
             'at': now, 'attempts': resolver.attempts(cfg, p, data['tasks'], {n: tuple(r) for n, r in (p.get('rooms') or {}).items()},
-                                                     events),
+                                                     events, now),
             'action': resolver.action(cfg, states, now)}
         st['events'] = ([{'at': now, 'text': e} for e in events] + st.get('events', []))[:50]
         st['household'] = {'error': shared['error'], 'shared': sorted(shared['keys']), 'held': len(hold)} if shared['keys'] else None

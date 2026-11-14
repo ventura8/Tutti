@@ -16,8 +16,22 @@ from . import config, files, remote
 
 try:
     import fcntl
-except ImportError:   # Windows: no flock; one sender at a time there
+except ImportError:   # Windows: no flock; msvcrt's byte lock instead
     fcntl = None
+
+
+def lock_file(f, sleep=time.sleep):
+    """An exclusive lock on an open file until it closes: flock, or on Windows msvcrt.locking (retried while held)."""
+    if fcntl:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        return
+    import msvcrt
+    while True:
+        try:
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            return
+        except OSError:
+            sleep(1)
 
 CHUNK = files.MB
 SSH_OPTS = ('-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes')
@@ -99,8 +113,7 @@ def machine_lock(machine, base):
     os.makedirs(lock_dir(), exist_ok=True)
     key = hashlib.sha256(f'{machine.get("host") or "local"}|{base}'.encode()).hexdigest()[:16]
     with open(os.path.join(lock_dir(), f'files-{key}.lock'), 'w', encoding='utf8') as f:
-        if fcntl:
-            fcntl.flock(f, fcntl.LOCK_EX)
+        lock_file(f)
         yield
 
 

@@ -27,6 +27,8 @@ def print_user(v, out=sys.stdout):
 def cmd_user(cfg, a, out=sys.stdout):
     """`tutti user [show|name <name>|share <account> on|off]`."""
     try:
+        if a.action == 'notify':
+            return notify(cfg, a, out)
         if a.action == 'main-machine':
             from . import mainmachine
             return mainmachine.change(cfg, a.arg or '', dry_run=bool(getattr(a, 'dry_run', False)), out=out)
@@ -51,6 +53,29 @@ def cmd_user(cfg, a, out=sys.stdout):
     v = users.view(cfg)
     telemetry.record('feature', f'user.{a.action}', user=v['hash'], role=v['role'])
     print_user(v, out)
+    return 0
+
+
+def notify(cfg, a, out):
+    """`tutti user notify always|work-hours [--batch N] [--quiet HH:MM-HH:MM] [--for <email>]`."""
+    from . import auth, needs
+    changes = {k: v for k, v in (('notify', a.arg), ('batch', a.batch), ('quiet', a.quiet)) if v is not None}
+    key = needs.OWNER
+    if a.for_user:
+        found = [s for s, u in auth.Users(config.state_dir(cfg)).all().items() if (u.get('email') or '').lower() == a.for_user.lower()]
+        if not found:
+            say(f'user notify: no signed-in user {a.for_user}: `tutti auth users` lists them')
+            return 2
+        key = found[0]
+    ok, res = needs.set_user(cfg, key, changes)
+    if not ok:
+        say(f'user notify: {res}')
+        return 2
+    if a.for_user:   # audited once the change is made (the owner at this computer's terminal)
+        auth.audit(config.state_dir(cfg), {'sub': needs.OWNER, 'email': 'tutti user notify'}, 'notify',
+                   {'sub': key, 'email': a.for_user}, detail=', '.join(f'{k}={v}' for k, v in changes.items()))
+    print(f'questions: {res["notify"]} (outside work hours once {res["batch"]} wait, urgent at once; quiet {res["quiet"] or "none"})'
+          if res['notify'] == 'always' else 'questions: in work hours; the rest wait for your welcome-back summary', file=out)
     return 0
 
 

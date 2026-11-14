@@ -31,6 +31,7 @@ $t telemetry report > /dev/null
 $t selfimprove > /dev/null
 $t ai-assist > /dev/null
 $t welcome > /dev/null
+$t needs > /dev/null
 $t autopilot > /dev/null
 $t pr --help > /dev/null
 $t scout list > /dev/null

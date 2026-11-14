@@ -2,6 +2,23 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.7.0 (2026-11-15)
+
+### Added
+
+- Run to completion (docs/NEEDS.md): a failure climbs the ladder at once and each further one waits 1, 2, 4... minutes
+  (at most 30); a watchdog ends a run with no new output for `autopilot.stuck_minutes` (30) and queues it again; one
+  failure never stops the rest, and a blocked round says why on the Autopilot card.
+- The needs-input queue: a task that needs a decision is parked with one question (what, why, options, a default) and the
+  rest goes on. The autopilot asks it when it parks a task (retry, from scratch, or drop), a worker with a
+  `TUTTI-QUESTION:` line. Answered in the Chat (`q3 retry`), on the Me tab's *My questions* card, with `tutti needs answer`
+  or through the main agent (MCP `pending_questions`, `answer_question`); the task resumes with its tries counted afresh.
+- At work the questions reach the main agent and a *Questions from Tutti* chat in batches (one every 30 minutes, urgent
+  at once); off work they wait for the welcome-back summary's *Needs you*. *Get questions outside work hours*, a per-user
+  opt-in (off by default): off work they still come once N wait (default 3), urgent ones at once, never in the user's
+  quiet hours. `tutti user notify always|work-hours [--batch N] [--quiet HH:MM-HH:MM] [--for <email>]`, the Me tab, and an
+  admin for any member from the Users tab, audited. Admins see everyone's questions, members their own.
+
 ## 0.6.0 (2026-11-15)
 
 ### Added

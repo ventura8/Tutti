@@ -1262,6 +1262,18 @@ def cmd_presence(cfg, a):
     return 0
 
 
+def cmd_needs(cfg, a):
+    """`tutti needs [list|answer <id> [choice]]` (docs/NEEDS.md): the questions waiting for you, and your answer."""
+    from . import mcpserver, needs
+    role = mcpserver.role_of(cfg)
+    if a.action == 'answer':
+        ok, why = needs.answer(cfg, a.id or '', a.choice, role, needs.OWNER)
+        print(why) if ok else say(why)
+        return 0 if ok else 2
+    print(needs.lines_for_agent(cfg, role, needs.OWNER))
+    return 0
+
+
 def cmd_welcome(cfg, a):
     """`tutti welcome [show|miss|on|off]` (docs/WELCOME.md): the owner's welcome-back summary, What did I miss?, the switch."""
     from . import mcpserver, welcome
@@ -1647,6 +1659,11 @@ def parser():
     s = add('selfimprove', cmd_selfimprove, 'crashes and insights become autopilot tasks, pull requests, and where a project '
                                             'allows it merges and patch releases: status, on, off, tick (one round now)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])
+    s = add('needs', cmd_needs, 'the questions only you can answer (a parked task\'s next step, a worker\'s question): list, '
+                                 'answer <id> [choice] (empty: the default); the task resumes (docs/NEEDS.md)')
+    s.add_argument('action', nargs='?', default='list', choices=['list', 'answer'])
+    s.add_argument('id', nargs='?', help='answer: the question id (q1, q2, ...)')
+    s.add_argument('choice', nargs='?', help='answer: one of its options, or your own words')
     s = add('welcome', cmd_welcome, 'welcome back: what happened while you were away (shipped, running, failed, usage, what '
                                      'needs you): show (the latest), miss (What did I miss? since the last one), on, off')
     s.add_argument('action', nargs='?', default='show', choices=['show', 'miss', 'on', 'off'])
@@ -1659,8 +1676,12 @@ def parser():
                                            'main-agent <kind> (claude, codex, agy, cursor, copilot, gemini, local), '
                                            'main-machine <m> (your Tutti and main agent move there, like `tutti move`), '
                                            'share <account> on|off (room it would lose at its reset may do the household\'s '
-                                           'shared tasks; docs/HOUSEHOLD.md)')
-    s.add_argument('action', nargs='?', default='show', choices=['show', 'name', 'main-agent', 'main-machine', 'share'])
+                                           'shared tasks; docs/HOUSEHOLD.md), notify always|work-hours [--batch N] [--quiet '
+                                           'HH:MM-HH:MM] (Get questions outside work hours; docs/NEEDS.md)')
+    s.add_argument('action', nargs='?', default='show', choices=['show', 'name', 'main-agent', 'main-machine', 'share', 'notify'])
+    s.add_argument('--batch', type=int, help='notify: questions to collect off work before you are told (default 3)')
+    s.add_argument('--quiet', help='notify: your quiet hours, HH:MM-HH:MM (default 23:00-07:00; "" for none)')
+    s.add_argument('--for', dest='for_user', help='notify: a signed-in user\'s e-mail (an admin changes it for them; audited)')
     s.add_argument('--dry-run', action='store_true', help='main-machine: check the machine and print the plan; change nothing')
     s.add_argument('arg', nargs='?', help='name: the name; main-agent: the kind; main-machine: the machine; share: the account')
     s.add_argument('value', nargs='?', help='share: on or off')

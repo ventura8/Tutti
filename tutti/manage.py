@@ -187,7 +187,16 @@ def run_detached(cfg, argv_tail, what):
     return f'{" ".join(argv_tail)} started'
 
 
+def run_notify(cfg, args):
+    from . import needs
+    ok, res = needs.set_user(cfg, needs.OWNER, {k: args[k] for k in ('notify', 'batch', 'quiet') if k in args})
+    if not ok:
+        raise household.HouseholdError(res)
+    return f'questions: {res["notify"]}, batch {res["batch"]}, quiet {res["quiet"] or "none"}'
+
+
 RUNNERS = {
+    'notify': run_notify,
     'schedule': run_schedule,
     'main-agent': run_main_agent,
     'main-machine': run_main_machine,

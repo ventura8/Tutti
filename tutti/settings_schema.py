@@ -348,6 +348,7 @@ FIELDS = {
     'self_improve.max_new_per_day': field('New tasks a day', 'At most this many.', 'number', min=0),
     'self_improve.min_count': field('Seen at least', 'A crash becomes a task once seen this many times.', 'number', min=1),
     'self_improve.home': field('Home project', 'The project Tutti\'s own fixes go to.', 'select', choices_from='projects'),
+    'autopilot.stuck_minutes': field('Stuck after', 'A run with no new output this long is ended and queued again.', **MIN),
     'welcome.enabled': field('Welcome back', 'When you return after being away, a summary of what happened, and What did I '
                              'miss? at any time. Each user may turn theirs off.', 'switch', default=True),
     'welcome.away_hours': field('Away after', 'Gone this long counts as away (empty: the pacing\'s away_after_hours).', **HRS),

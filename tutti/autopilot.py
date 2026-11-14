@@ -440,7 +440,7 @@ def park_reason(cfg, task):
     """('', '') to retry, else (the cause, `max_attempts` or `no_progress`, and why the task needs a person): the same failure
     `no_progress` times in a row on the strongest step, or max_attempts reached."""
     s = settings(cfg)
-    tries = task['attempts']
+    tries = task['attempts'][int(task.get('resume_from') or 0):]   # counted afresh after a person's answer (tutti/needs.py)
     if len(tries) >= s['max_attempts']:
         return 'max_attempts', f'{len(tries)} attempts without a pass (autopilot.max_attempts is {s["max_attempts"]})'
     n = s['no_progress']
@@ -703,27 +703,73 @@ def finished(cfg, task, is_alive):
     return (not pid or not is_alive(pid)), None
 
 
-def collect(cfg, data, now, is_alive, publish_fn=publish):
+def stuck(cfg, t, now, kill=None):
+    """The watchdog: a run whose log has not grown for autopilot.stuck_minutes is ended (its process tree) and counted as a
+    failed attempt to retry (flaky: the same step once more). Returns why, or ''."""
+    limit = float(settings(cfg).get('stuck_minutes') or 0) * 60
+    if not limit or now - float(t.get('started') or now) < limit:
+        return ''
+    try:
+        quiet_for = now - os.path.getmtime(run_log(cfg, t['run']))
+    except OSError:
+        quiet_for = now - float(t.get('started') or now)
+    if quiet_for < limit:
+        return ''
+    try:
+        with open(delegate.paths(cfg, t['run'])['pid'], encoding='utf8') as f:
+            pid = int(f.read().strip())
+    except (OSError, ValueError):
+        pid = None
+    if pid:
+        from . import handover
+        (kill or handover.end_tree)(pid)
+    telemetry.record('feature', 'autopilot.stuck', minutes=round(quiet_for / 60))
+    return f'stuck: no new output for {quiet_for / 60:.0f} min (autopilot.stuck_minutes): ended and queued again'
+
+
+def worker_question(cfg, t, a):
+    """The worker's own TUTTI-QUESTION in its output, or None: a marker line that the brief itself carries (an echoed note
+    or doc) is never taken for one."""
+    from . import needs
+    text = (a.get('tail') or '') if a['ok'] else (a.get('tail') or tail_of(run_log(cfg, t['run'])))
+    asked = needs.from_output(text)
+    if asked and asked['question'] in brief(t, settings(cfg)['repos'].get(t['repo']) or {}):
+        return None
+    return asked
+
+
+def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
     """Every running task whose run ended: an attempt recorded; a pass published for review, a failure queued again (from the
     same worktree, one step up) or parked. Returns event lines."""
     events = []
     for t in [t for t in data['tasks'] if t['status'] == 'running']:
         ended, report = finished(cfg, t, is_alive)
-        if not ended:
+        stuck_why = '' if ended else stuck(cfg, t, now, kill)
+        if not ended and not stuck_why:
             continue
         if report is None and durable.died_with_host(t.get('boot')):
             events.append(interrupt(cfg, t))
             continue
         a = attempt_of(cfg, t, report, now)
+        if stuck_why:
+            a.update(why=stuck_why, ok=False, signature=f'stuck:{a.get("step")}', **{'class': 'flaky'})
         t.pop('resume_note', None)
         t['attempts'].append(a)
         record_attempt(cfg, t, a, now)
+        from . import needs
+        asked = worker_question(cfg, t, a)
         if a['ok']:
+            if asked:   # a pass wins; its question goes to the reviewer with the result
+                t['notes'] = [*t.get('notes', []), f'The worker asked: {asked["question"]} (it chose: {asked["default"] or "?"})'][-20:]
             t['status'] = 'review'
             publish_fn(cfg, t, report)
             events.append(f'{t["id"]} passed on {a["step"]}: {t.get("publish_note", "")}')
             continue
-        park = after_failure(cfg, t)
+        if asked:   # the worker needs a person's decision: parked with its question, the rest goes on
+            q = needs.ask(cfg, t, **asked, user=t.get('user') or needs.OWNER, now=now)
+            events.append(f'{t["id"]} needs an answer ({q["id"]}): {q["question"][:120]}')
+            continue
+        park = after_failure(cfg, t, now)
         events.append(f'{t["id"]} failed on {a["step"]} ({a["why"][:120]})' + (f': parked: {park}' if park else ': queued again'))
     return events
 
@@ -895,12 +941,32 @@ def moved_away(cfg, data, moved, is_alive=None, kill=None, run=git):
     return out
 
 
-def after_failure(cfg, t):
-    """A failed task is parked or queued again (one step up the ladder: an escalation). Returns why it was parked, or ''."""
+BACKOFF_MAX = 1800
+
+
+def backoff(t):
+    """Seconds a failed task waits before its retry: none after the first failure (it climbs the ladder at once), then 1, 2,
+    4... minutes for each further failure in a row, at most 30."""
+    k = 0
+    for a in reversed(t['attempts'][int(t.get('resume_from') or 0):]):
+        if a['ok']:
+            break
+        k += 1
+    return 0 if k <= 1 else min(60 * 2 ** (k - 2), BACKOFF_MAX)
+
+
+def after_failure(cfg, t, now=None):
+    """A failed task is parked with a question for a person (tutti/needs.py) or queued again (one step up the ladder: an
+    escalation) after its backoff. Returns why it was parked, or ''."""
+    from . import needs
+    now = now or time.time()
     cause, park = park_reason(cfg, t)
     t['status'], t['parked'] = ('needs-person', park) if park else ('queued', None)
     n = len(t['attempts'])
+    if not park:
+        t['not_before'] = now + backoff(t)
     if park:
+        needs.ask(cfg, t, **needs.park_question(t, park), user=t.get('user') or needs.OWNER, now=now)
         telemetry.record('feature', 'autopilot.park', cause=cause, attempts=n, source=t.get('source'))
     elif step_index(cfg, n) > step_index(cfg, n - 1):
         telemetry.record('feature', 'autopilot.escalate', attempt=n + 1, source=t.get('source'))
@@ -990,6 +1056,9 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         hold.update(sharing.spare_hold(cfg, data))
         from . import spendrest  # a retry waits briefly for the scout's second opinion on its failures (tutti/spendrest.py)
         hold.update({k: v for k, v in spendrest.waiting_seconds(cfg, now).items() if k not in hold})
+        hold.update({t['id']: f'retries in {(float(t["not_before"]) - now) / 60:.0f} min (backoff after {len(t["attempts"])} '
+                     'failure(s))' for t in data['tasks'] if t['status'] == 'queued' and float(t.get('not_before') or 0) > now
+                     and t['id'] not in hold})
         events += mirrored + events_spare
         started = []
         if on:

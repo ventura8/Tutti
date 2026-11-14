@@ -251,10 +251,25 @@ def run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list):
     the given files with the first check as its own check."""
     if cfg['workers'][name]['kind'] != 'ollama':
         return run_compacting(cfg, name, task, files, wt, log, extra, worker_log)
-    from . import local
+    from . import fleet, local
+    from . import workers as workers_mod
     check = (check_list or [{}])[0].get('run') or 'true'
+    w = cfg['workers'][name]
+    # the model the scheduler chose (`--extra=--model --extra=<name>`, tutti/autopilot.py), else the one that suits the task's
+    # first line; its files in steps the model can hold at once. A failed step ends the run: later steps never build on it
+    chosen = dict(workers_mod.pairs(list(extra or ()))).get('--model')
+    model = next((m for m in w.get('models') or [] if m and m['name'] == chosen), None) or \
+        fleet.model_for(w, {'title': task.splitlines()[0] if task else '', 'scope': list(files), 'size': 'S'}) or {}
+    worker = {**w, 'model': chosen or model.get('name') or w['model'], '_name': name}
+    parts = fleet.steps(files, fleet.files_per_step(model))
+    ok = False
     with contextlib.redirect_stdout(log):
-        ok = local.agent(cfg, cfg['workers'][name], task, check, files, base=wt)
+        for i, part in enumerate(parts, 1):
+            step_task = task if len(parts) == 1 else f'{task}\n\n(Step {i} of {len(parts)}: change only these files now.)'
+            ok = local.agent(cfg, worker, step_task, check, part, base=wt)
+            if not ok:
+                print(f'step {i} of {len(parts)} failed: the run stops here', flush=True)
+                break
     return (0 if ok else 1), []
 
 

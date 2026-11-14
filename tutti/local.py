@@ -105,7 +105,7 @@ def _timed(cfg, worker, call):
     """The call, with a marker while it runs (the dashboard counts the machine busy) and its tokens logged after
     (tutti/energy.py): the energy card's busy time, jobs and tokens."""
     from . import energy
-    name = next((n for n, w in cfg['workers'].items() if w is worker), worker.get('host', ''))
+    name = worker.get('_name') or next((n for n, w in cfg['workers'].items() if w is worker), worker.get('host', ''))
     marker = os.path.join(config.state_dir(cfg), f'local-run-{os.getpid()}-{time.monotonic_ns()}')
     start = time.time()
     try:

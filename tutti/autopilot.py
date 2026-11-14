@@ -74,9 +74,21 @@ def set_enabled(cfg, on):
 
 
 def ladder(cfg):
-    """The escalation ladder: autopilot.ladder, else autopilot.accounts. Attempt n starts at step n (the last step repeats)."""
+    """The escalation ladder: autopilot.ladder, else autopilot.accounts, then every local model worker not on it (the household's
+    machines, tutti/fleet.py: first-class steps). Attempt n starts at step n (the last step repeats)."""
     s = settings(cfg)
-    return list(s.get('ladder') or s['accounts'])
+    out = list(s.get('ladder') or s['accounts'])
+    from . import fleet
+    if fleet.settings(cfg).get('enabled') is not False:
+        out += [n for n in fleet.local_names(cfg) if n not in out]
+    return out
+
+
+def trigger_accounts(cfg, now=None):
+    """autopilot.accounts plus the ones the owner allowed for a while from the dashboard's one-click fix (tutti/resolver.py)."""
+    now = time.time() if now is None else now
+    allowed = [n for n, until in (read_state(cfg).get('allow') or {}).items() if until > now and n in cfg['accounts']]
+    return list(dict.fromkeys([*settings(cfg)['accounts'], *allowed]))
 
 
 def costs_money(cfg, name):
@@ -85,42 +97,70 @@ def costs_money(cfg, name):
     return bool(a.get('costs_money') or w.get('costs_money'))
 
 
+def worker_of_account(cfg, name):
+    """The worker an account's runs use: accounts.<n>.worker, else the worker of the same name (claude -> workers.claude)."""
+    a = cfg['accounts'].get(name) or {}
+    return a.get('worker') or (name if name in cfg['workers'] else None)
+
+
+def unusable_why(cfg, name):
+    """The real reason a ladder or trigger name is not a usable step (step_of is None)."""
+    if costs_money(cfg, name):
+        return f'{name}: costs money per use, so it is off unless accounts.{name}.enabled: true'
+    if name in cfg['accounts']:
+        w = worker_of_account(cfg, name)
+        return (f'{name}: no worker runs this account: add workers.{name} (e.g. {{kind: cli, command: [{name}, -p, "{{prompt}}"]}}) '
+                f'or accounts.{name}.worker') if not w else f'{name}: its worker {w} is not in workers: (turned off?)'
+    off = {o['name'] for o in cfg.get('off') or []} if isinstance(cfg.get('off'), list) else set()
+    if name in off:
+        return f'{name}: turned off (enabled: false or paused)'
+    return f'{name}: not an account or a worker in the config: fix autopilot.ladder or autopilot.accounts'
+
+
 def step_of(cfg, name):
-    """A ladder step as {name, worker, kind, args, account}, or None when it is not usable at all (unknown, off, costs money)."""
+    """A ladder step as {name, worker, kind, args, account}, or None when it is not usable at all (unusable_why says why)."""
     if costs_money(cfg, name):
         return None
     if name in cfg['accounts']:
         a = cfg['accounts'][name]
-        w = cfg['workers'].get(a.get('worker'))
+        wn = worker_of_account(cfg, name)
+        w = cfg['workers'].get(wn)
         if not w:
             return None
-        return {'name': name, 'worker': a['worker'], 'kind': w['kind'], 'args': list(a.get('args') or []), 'account': name}
+        return {'name': name, 'worker': wn, 'kind': w['kind'], 'args': list(a.get('args') or []), 'account': name}
     if name in cfg['workers'] and not any((a or {}).get('worker') == name for a in cfg['accounts'].values()):
         return {'name': name, 'worker': name, 'kind': cfg['workers'][name]['kind'], 'args': [], 'account': None}
     return None
 
 
 def has_files(task):
-    """A local model edits only the files it is given: the task's scope must name files (with an extension), not folders."""
-    return bool(task['scope']) and all('.' in os.path.basename(s.rstrip('/')) and not s.endswith('/') for s in task['scope'])
+    """A local model edits only the files it is given: the task's scope (or the files Tutti guessed for it, local_scope) must
+    name files (with an extension), not folders."""
+    from . import fleet
+    files = fleet.task_files(task)
+    return bool(files) and all('.' in os.path.basename(s.rstrip('/')) and not s.endswith('/') for s in files)
 
 
 def units(task):
     return backlog.SIZES.get(task.get('size'), 1)
 
 
-def local_room(cfg, name, step, used, machines):
-    """A worker without an account (a local model): one task at a time, none while its machine is paused or offline."""
-    home = cfg['workers'][step['worker']].get('machine')
-    m = next((x for x in machines if x.get('name') == home), None)
-    if m and m.get('status') in ('paused', 'offline'):
-        return 0, f'{name}: its machine {home} is {m["status"]} ({m.get("reason")})'   # a yielding PC is its owner's
+def local_room(cfg, name, step, used, machines, now=None):
+    """A worker without an account (a local model): no quota, one task at a time per model server, as many units as its
+    strongest model takes (the loop works a larger task in steps); none while the governor says no (tutti/fleet.py: owner
+    pause, offline, its yield flag, heat, quiet hours, memory)."""
+    from . import fleet
+    w = cfg['workers'][step['worker']]
+    local_host = fleet.machine_of(cfg, name) == next((n for n, m in cfg['machines'].items() if m.get('transport') == 'local'), None)
+    no = fleet.governor(cfg, name, machines, now, fleet.mem_free_gb() if local_host else None, w.get('hardware'))
+    if no:
+        return 0, no   # a yielding PC is its owner's
     if (cfg.get('energy') or {}).get('prefer_cheap_hours'):   # a time-of-day tariff: local runs wait for the cheap hours
         from . import energy
         wait = energy.cheap_now(cfg, energy.tariff(cfg), tz.localtime().tm_hour)
         if wait:
             return 0, f'{name}: {wait}'
-    return (0, f'{name}: busy with a task') if used else (1, '')
+    return (0, f'{name}: busy with a task') if used else (fleet.UNITS_ANY, '')
 
 
 def step_room(cfg, name, states, running_units, machines=()):
@@ -129,10 +169,10 @@ def step_room(cfg, name, states, running_units, machines=()):
     at a time; a worker without an account (a local model) one task at a time. Panic and spent are never used."""
     step = step_of(cfg, name)
     if not step:
-        return 0, f'{name}: not usable (unknown, turned off, or it costs money)'
+        return 0, unusable_why(cfg, name)
     used = running_units.get(name, 0)
     if not step['account']:
-        return local_room(cfg, name, step, used, machines)
+        return local_room(cfg, name, step, used, machines, cfg.get('_now'))
     s = states.get(name)
     if not s:
         return 0, f'{name}: no pacing state yet'
@@ -140,12 +180,12 @@ def step_room(cfg, name, states, running_units, machines=()):
     if unfit:
         return 0, f'{name}: {unfit}'
     p = s.get('quota_plan')
-    if (name in settings(cfg)['accounts'] or name in cfg.get('_spare_accounts', ())) and p:
+    if (name in trigger_accounts(cfg) or name in cfg.get('_spare_accounts', ())) and p:
         # the planner's room (tutti/planner.py): a window's share of its weekly limit, or the room left after the reserve and
         # the background spend; spent before it expires
         room = p['tasks'] - used
         return (room, '') if room > 0 else (0, f'{name}: {p["why"]}')
-    if name in settings(cfg)['accounts']:
+    if name in trigger_accounts(cfg):
         if s.get('verdict') not in ('behind', 'late'):
             return 0, f'{name}: at its even-pace line ({s.get("verdict")})'
         room = (s.get('room_tasks') or 0) - used
@@ -167,32 +207,45 @@ def machine_capacity(cfg, machines):
     return 0, 'no machine has a free slot that is not hot: ' + '; '.join(f'{m["name"]}: {m.get("reason")}' for m in machines)
 
 
-def candidates(cfg, t):
+def is_local(cfg, name):
+    """A step that is a local model worker (no account, no quota)."""
+    w = (cfg.get('workers') or {}).get(name) or {}
+    return w.get('kind') == 'ollama' and name not in (cfg.get('accounts') or {}) and not w.get('costs_money')
+
+
+def candidates(cfg, t, over='', machines=()):
     """The steps a task may go to now (below), with the step the dashboard's Move to picked first when it is one of them."""
-    out = _candidates(cfg, t)
+    out = _candidates(cfg, t, over, machines)
     want = t.get('prefer')
     return [want, *[n for n in out if n != want]] if want in out else out
 
 
-def _candidates(cfg, t):
-    """The steps a task may go to now, weakest first. A fresh task only to a trigger account (autopilot.accounts): the
-    autopilot spends what would be lost, it does not start new work elsewhere. A retry from one step above its last failed
-    attempt (the same step after a reviewer's retry of a pass); the last step repeats. A local model only with file scope."""
+def _candidates(cfg, t, over='', machines=()):
+    """The steps a task may go to now, in the order tried. A fresh task: the trigger accounts (autopilot.accounts) and the
+    household's local models that fit it (tutti/fleet.py), the local ones first while `over` (the online accounts are ahead of
+    their pace or held by the owner's reserve). A retry from one step above its last failed attempt (the same step after a
+    reviewer's retry of a pass); the last step repeats; a failed local attempt escalates to the online steps first, then to
+    another machine's model. A local model only with file scope and a model that fits the task's kind and size."""
+    from . import fleet
     steps = ladder(cfg)
     if (settings(cfg)['repos'].get(t['repo']) or {}).get('spare'):
         # another member's project, adopted for spare room (accounts.<n>.share_spare): only the accounts whose room would
         # otherwise be lost at their reset (docs/HOUSEHOLD.md)
         return list(cfg.get('_spare_accounts', ()))
+    locals_ = fleet.order(cfg, [n for n in steps if is_local(cfg, n)], t, machines) if has_files(t) else []
     if not t['attempts']:
-        trig = settings(cfg)['accounts']
-        return [n for n in steps if n in trig] + [n for n in trig if n not in steps]
+        trig = trigger_accounts(cfg)
+        online = [n for n in steps if n in trig] + [n for n in trig if n not in steps]
+        return locals_ + online if over else online + locals_
     last = t['attempts'][-1]
+    if is_local(cfg, last['step']) and not last['ok']:
+        return [n for n in steps if not is_local(cfg, n)] + [n for n in locals_ if n != last['step']]
     at = steps.index(last['step']) if last['step'] in steps else -1
     start = max(min(at + (0 if last['ok'] else 1), len(steps) - 1), 0)
     # the steps above first; then the ones below, strongest first, so a retry never waits while only a weaker step has room
     # (agy's accounts sat idle behind a paced cursor and a yielding PC, 2026-11-14)
     out = steps[start:] + steps[:start][::-1]
-    return pinned(cfg, t, [n for n in out if (step_of(cfg, n) or {}).get('kind') != 'ollama' or has_files(t)])
+    return pinned(cfg, t, [n for n in out if not is_local(cfg, n) or n in locals_])
 
 
 def pinned(cfg, t, names):
@@ -213,23 +266,28 @@ def tier_last(prefer, size):
     return lambda n: bool(prefer.get(n)) and size not in prefer[n]
 
 
-def assign(cfg, queued, rooms, free, out, prefer=None):
+def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
     """Each queued task, in the order given (by priority, then oldest), to the first of its candidate steps that has room for its
-    size. `prefer`: {step: the sizes its model tier wants} (tutti/tiers.py): a step whose tier names sizes is tried last for a
-    task of another size."""
+    size. `free`: the online runs that may start, or (online, local): a local model's run is not counted in max_parallel, only
+    in the machines' slots. `prefer`: {step: the sizes its model tier wants} (tutti/tiers.py): a step whose tier names sizes is
+    tried last for a task of another size."""
     prefer = prefer or {}
+    free, local = free if isinstance(free, tuple) else (free, free)
     for t in queued:
-        if free <= 0:
+        if free <= 0 and local <= 0:
             break
-        steps = sorted(candidates(cfg, t), key=tier_last(prefer, t.get('size')))
+        steps = sorted(candidates(cfg, t, over, machines), key=tier_last(prefer, t.get('size')))
+        steps = [n for n in steps if local > 0 and (is_local(cfg, n) or free > 0)]
         pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t)), None)
         if pick is None:
             out['waiting'][t['id']] = '; '.join(rooms.get(n, (0, f'{n}: not on the ladder'))[1] or f'{n}: too little room for a '
                                                 f'{t["size"]} task' for n in steps) or 'no step it may go to'
             continue
-        rooms[pick] = (rooms[pick][0] - units(t), rooms[pick][1] or f'{pick}: its room is taken by the running tasks')
+        left = 0 if is_local(cfg, pick) else rooms[pick][0] - units(t)   # a model server takes one task at a time
+        rooms[pick] = (left, rooms[pick][1] or f'{pick}: its room is taken by the running tasks')
         out['dispatch'].append((t['id'], pick))
-        free -= 1
+        local -= 1   # every run takes a machine slot for its checks
+        free -= 0 if is_local(cfg, pick) else 1
 
 
 def spent_units(tasks, states):
@@ -279,23 +337,27 @@ def quiet_stop(cfg, now):
 
 
 def capacity_now(cfg, running, machines, now, room=None):
-    """(how many may start now, None) or (0, {state, reason}) when nothing may: quiet hours, or the adaptive limit
-    (tutti/parallel.py: the accounts' `room`, this machine's free memory and cores, the machines' free gate slots,
-    max_parallel when set) is reached. cfg['_parallel'] keeps the measured limit for the dashboard."""
+    """((online runs that may start, runs of any kind that may start), None) or ((0, 0), {state, reason}) when nothing may:
+    quiet hours, or the adaptive limit (tutti/parallel.py: the accounts' `room`, this machine's free memory and cores, the
+    machines' free gate slots, max_parallel when set) is reached. A local model's run has no quota: it counts only against
+    the machines' gate slots, not the online limit. cfg['_parallel'] keeps the measured limit for the dashboard."""
     from . import parallel
     stop = quiet_stop(cfg, now)
     if stop:
-        return 0, stop
+        return (0, 0), stop
     if cfg['machines'] and not machines:
-        return 0, {'state': 'waiting', 'reason': 'machines not probed yet'}
+        return (0, 0), {'state': 'waiting', 'reason': 'machines not probed yet'}
     slots, why = machine_capacity(cfg, machines)
-    lim = parallel.limit(cfg, len(running), room, cfg.get('_host'), slots)
+    online = [t for t in running if not is_local(cfg, t.get('step'))]
+    lim = parallel.limit(cfg, len(online), room, cfg.get('_host'), slots)
     cfg['_parallel'], cfg['_parallel_limit'] = lim, lim['limit']
-    free = lim['others'] - len(running)   # the accounts' room is the ladder's own business (assign): it names each step
-    if free <= 0:
+    free = lim['others'] - len(online)   # the accounts' room is the ladder's own business (assign): it names each step
+    servers = sum(1 for n in ladder(cfg) if is_local(cfg, n))   # one task per model server
+    local = (servers if slots is None else slots) if servers else 0
+    if free <= 0 and local <= 0:
         reason = why if lim['by'] == 'gates' and why else parallel.line(lim)
-        return 0, {'state': 'running' if running else 'waiting', 'reason': reason}
-    return free, None
+        return (0, 0), {'state': 'running' if running else 'waiting', 'reason': reason}
+    return (max(0, free), max(local, max(0, free))), None
 
 
 def plan(cfg, tasks, states, machines, on, now=None, hold=None):
@@ -312,15 +374,17 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
            'waiting': waiting_of(tasks, unchecked, hold)}
     if not on:
         return out
+    cfg['_now'] = now   # the local models' governor reads the machines' quiet hours at this time
     if not queued:
         busy = f'{len(running)} run(s) going; ' if running else ''
         return {**out, 'state': 'idle' if not running else 'running', 'reason': busy + EMPTY}
     if quiet_stop(cfg, now):
         return {**out, **quiet_stop(cfg, now)}
     used = spent_units(tasks, states)
-    names = list(dict.fromkeys([*ladder(cfg), *settings(cfg)['accounts'], *cfg.get('_spare_accounts', ())]))
+    names = list(dict.fromkeys([*ladder(cfg), *trigger_accounts(cfg), *cfg.get('_spare_accounts', ())]))
     rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}
-    free, stop = capacity_now(cfg, running, machines, now, sum(max(0, r[0]) for r in rooms.values()))
+    online_room = sum(max(0, r[0]) for n, r in rooms.items() if not is_local(cfg, n))   # local runs are outside that limit
+    free, stop = capacity_now(cfg, running, machines, now, online_room)
     if stop:
         return {**out, **stop}
     # fresh tasks and retries alike, by weighted fair share of their projects' priority (the runs going count as served)
@@ -329,10 +393,17 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
         going[t['repo']] = going.get(t['repo'], 0) + 1
     prefer = {n: tiers.choose(cfg, n, states.get(n))['sizes'] for n in names if n in cfg['accounts']}
     queued.sort(key=lambda t: (not t.get('urgent'), t.get('rank', 0)))   # the dashboard's Run now and Priority up/down
-    assign(cfg, priority.by_repo(cfg, queued, lambda t: t['repo'], going), rooms, free, out, prefer)
+    from . import fleet
+    over = fleet.overflow(cfg, states, rooms, [n for n in names if is_local(cfg, n)])
+    out['overflow'] = over
+    assign(cfg, priority.by_repo(cfg, queued, lambda t: t['repo'], going), rooms, free, out, prefer, over, machines or ())
+    out['rooms'] = {n: list(r) for n, r in rooms.items()}
     if out['dispatch']:
         return {**out, 'state': 'dispatching', 'reason': f'{len(out["dispatch"])} task(s) sent to ' +
-                ', '.join(sorted({n for _, n in out['dispatch']}))}
+                ', '.join(sorted({n for _, n in out['dispatch']})) + (f' (online accounts spared: {over})' if over else '')}
+    if free[0] <= 0 and running:   # the online limit reached and no local model took a task: the online runs are going
+        from . import parallel
+        return {**out, 'state': 'running', 'reason': parallel.line(cfg.get('_parallel'))}
     reasons = '; '.join(room_reason(n, r, queued) for n, r in rooms.items()) or 'no ladder step (autopilot.ladder or autopilot.accounts)'
     return {**out, 'state': 'stopped', 'reason': f'no worker takes a task now: {reasons}'}
 
@@ -450,7 +521,11 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
     check = acceptance(task, repo)
     argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', step['worker'], brief(task, repo)]
     if step['kind'] == 'ollama':
-        argv += [s for s in task['scope'] if not os.path.isdir(os.path.join(repo_path(cfg, task), s))]
+        from . import fleet
+        argv += [s for s in fleet.task_files(task) if not os.path.isdir(os.path.join(repo_path(cfg, task), s))]
+        model = fleet.model_for(cfg['workers'][step['worker']], task)   # the model the scheduler checked to fit
+        if model:
+            step = {**step, 'args': [*step['args'], '--model', model['name']]}
     argv += ['--repo', repo_path(cfg, task), '--track', TRACK_PREFIX + task['id'], '--id', run_id,
              '--remote-track', cfg['delegate']['remote_track']]
     if check:
@@ -822,6 +897,33 @@ def record_attempt(cfg, t, a, now):
                      minutes=round((now - float(a.get('started') or now)) / 60, 2))
 
 
+def repo_files(cfg, run=subprocess.run):
+    """{repo name: its tracked files}, for the scope guess of tasks that name none."""
+    out = {}
+    for name, r in settings(cfg)['repos'].items():
+        try:
+            res = run(['git', '-C', config.expand(r['path']), 'ls-files'], capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        out[name] = res.stdout.splitlines() if res.returncode == 0 else []
+    return out
+
+
+def guess_scopes(data, files):
+    """Queued tasks without scope get the files their title names (local_scope), so a household local model can take them;
+    the online workers keep their whole-repo freedom. Returns the events."""
+    from . import fleet
+    events = []
+    for t in data['tasks']:
+        if t['status'] != 'queued' or t.get('scope') or t.get('local_scope') or t['repo'] not in files:
+            continue
+        guess = fleet.guess_scope(t['title'], files[t['repo']])   # none found: guessed again next round (the repo changes)
+        if guess:
+            t['local_scope'] = guess
+            events.append(f'{t["id"]}: no files named; Tutti picked {", ".join(t["local_scope"])} so a local model can take it')
+    return events
+
+
 def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen, publish_fn=publish, beat=None):
     """One round: collect, plan, dispatch. `states`: {account: pacing.account_state}; `machines`: state.machines_state items;
     `beat`: this member's heartbeat for the household coordinator (shared projects only; docs/HOUSEHOLD.md)."""
@@ -841,9 +943,11 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         beat = {**beat, 'spare': bool(cfg['_spare_accounts'])}
     shared = sharing.sync(cfg, backlog.load(cfg), beat, now=now)   # the coordinator's call: never under the lock either
     events_spare = sharing.adopt_offers(cfg, shared, now)
+    listed_files = repo_files(cfg) if on else {}   # git ls-files per repo: never under the lock
     with backlog.locked(cfg) as data:
         events = collect(cfg, data, now, is_alive, publish_fn)
         checkpoints(cfg, data, now)
+        events += guess_scopes(data, listed_files)
         hold, mirrored = sharing.under_lock(shared, data, now)
         from . import handover  # handover imports conduct, which imports modules that import this one
         mirrored += moved_away(cfg, data, sharing.moved_of(shared), is_alive, handover.end_tree)
@@ -877,6 +981,11 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         st['last'] = {'at': now, 'state': p['state'], 'reason': p['reason'], 'waiting': p['waiting']}
         st['parallel'] = cfg.get('_parallel') or st.get('parallel')
         st['fill'] = filled or st.get('fill')
+        from . import resolver  # work waits and no one takes it: the automatic fixes tried, then the owner's one action
+        st['resolver'] = None if p['state'] != 'stopped' else {
+            'at': now, 'attempts': resolver.attempts(cfg, p, data['tasks'], {n: tuple(r) for n, r in (p.get('rooms') or {}).items()},
+                                                     events, now),
+            'action': resolver.action(cfg, states, now)}
         st['events'] = ([{'at': now, 'text': e} for e in events] + st.get('events', []))[:50]
         st['household'] = {'error': shared['error'], 'shared': sorted(shared['keys']), 'held': len(hold)} if shared['keys'] else None
     return p, events
@@ -925,7 +1034,7 @@ def view(cfg, now=None):
     return {'enabled': enabled(cfg), 'fill_room': fill.fill_on(cfg), 'fill': st.get('fill'), 'auto_review': fill.review_on(cfg),
             'configured': bool(s['repos']), 'accounts': s['accounts'], 'ladder': ladder(cfg),
             'max_parallel': s.get('max_parallel'), 'parallel': st.get('parallel'), 'parallel_line': parallel_line(st),
-            'last': st.get('last'), 'events': st.get('events', [])[:10],
+            'last': st.get('last'), 'resolver': st.get('resolver'), 'events': st.get('events', [])[:10],
             'queue': [t for t in tasks if t['status'] == 'queued'], 'running': [t for t in tasks if t['status'] == 'running'],
             'review': [t for t in tasks if t['status'] == 'review'], 'parked': [t for t in tasks if t['status'] == 'needs-person']}
 
@@ -953,6 +1062,12 @@ def describe(v):
              fill_line(v),
              f'ladder: {" -> ".join(v["ladder"]) or "(none)"}; {v.get("parallel_line") or ""}'
              + (f' (max_parallel {v["max_parallel"]})' if v.get('max_parallel') else '')]
+    r = v.get('resolver') or {}
+    for a in r.get('attempts') or []:
+        lines.append(f'  tried {a["fix"]}: {"done" if a["done"] else "no"}: {a["note"]}')
+    if r.get('action'):
+        lines.append(f'  your one action: {r["action"]["label"]} ({r["action"]["why"]})' +
+                     (f': tutti autopilot allow {r["action"]["account"]}' if r['action'].get('account') else ''))
     for title, items in (('running', v['running']), ('to review', v['review']), ('needs a person', v['parked']), ('queued', v['queue'])):
         for t in items:
             lines += task_lines(title, t)

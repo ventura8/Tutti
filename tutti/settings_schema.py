@@ -27,6 +27,8 @@ SECTIONS = [
     ('devices', 'Devices', 'Android devices for end-to-end runs, and when a run may start on them.', ['devices']),
     ('autopilot', 'Autopilot', 'Backlog tasks sent to accounts that are behind their pace; retries climb the ladder.',
      ['autopilot', 'autopilot.repos']),
+    ('fleet', 'Local models', 'Every machine\'s Ollama as a worker; they take tasks while the online accounts are spared '
+     '(docs/FLEET.md).', ['fleet']),
     ('dispatch', 'Keep busy', 'Idle devices and machines pull the projects\' pending test shards (docs/DISPATCH.md).', ['dispatch']),
     ('time', 'Time zone', 'What local time means for your hours, quiet hours and tariffs; auto is this computer\'s.', ['time']),
     ('presence', 'Presence', 'Devices and machines that come and go: away, asleep, moving work and Wake-on-LAN (docs/PRESENCE.md).',
@@ -242,6 +244,12 @@ FIELDS = {
     'dispatch.pause_on_owner_use': field('Pause while I use a device', 'A run pauses while you use the device.', 'switch'),
     'projects.*.commit': field('Latest commit', 'Shards not passed on this commit are pending.', 'text'),
     'projects.*.tests': field('Test suites', 'kind, targets, run with {shard}, shards, retries (docs/DISPATCH.md).', **YAML),
+    # fleet (docs/FLEET.md)
+    'fleet.enabled': field('Use every machine\'s models', 'Find each machine\'s Ollama and make it a worker.', 'switch'),
+    'fleet.port_base': field('Tunnel ports from', 'Another machine\'s Ollama is reached on this port and the next ones.',
+                             'number', min=1024, step=1),
+    'fleet.memory_floor_gb': field('Keep memory free (GB)', 'No local model runs on this computer with less memory free.',
+                                   'number', min=0, step=0.5),
     # energy (docs/ENERGY.md)
     'energy.price_per_kwh': field('Price per kWh', 'From your bill, in your currency. Empty: a typical price, shown as estimated.',
                                   'number', min=0, step=0.01),

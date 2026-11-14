@@ -2,6 +2,38 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.63 (2026-11-14)
+
+### Added
+
+- Local models as first-class workers (docs/FLEET.md). Every machine's Ollama is read at each probe and its models are
+  classed (tier, kinds). A machine with models and no worker gets `<machine>-local` through a tunnel, and `tutti fleet`
+  lists them.
+- Overflow routing. While an online account is ahead of its pace, in panic or spent, or held by the owner's reserve, a fresh
+  task goes to an idle machine's model first: by capability, then by energy. A failed local attempt escalates to the cloud.
+- Local runs have no quota.
+  - A free model server takes one task of any size its models fit, worked in steps of a few files.
+  - Local runs count only against the machines' gate slots, not the online limit.
+  - `fill_room` counts free local models as room.
+- A task that names no file gets the files its title names (`local_scope`), so a local model can take it.
+- The governor for local models: owner pause, offline, the yield flag, heat or load, `machines.<m>.quiet_hours`,
+  `fleet.memory_floor_gb`, and a CPU-only machine with every slot busy.
+- The block resolver. When work waits and no worker takes it, the round tries:
+  1. give the task files and steps;
+  2. route it to any local worker;
+  3. lower the tier;
+  4. borrow household spare;
+  5. wake a tunnel.
+
+  Then the card offers one action (`tutti autopilot allow <account>`, one click on the dashboard) and logs every attempt.
+- Speed: local runs log Ollama's eval time, and tokens per second are measured per model.
+
+### Fixed
+
+- `claude` in `autopilot.accounts` was "not usable (unknown, turned off, or it costs money)": an account without `worker:` now
+  uses the worker of the same name, and an unusable step names its real reason.
+- "pc: room for 1, but the queued tasks need 2": a local model's room counts runs, not quota points.
+
 ## 0.1.62 (2026-11-14)
 
 ### Fixed

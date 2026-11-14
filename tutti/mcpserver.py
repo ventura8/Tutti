@@ -127,9 +127,9 @@ def argv_of(name, a):
         'devices': lambda: ['devices'],
         'backlog_list': lambda: ['backlog', 'list'] + (['--all'] if a.get('all') else []),
         # options first, then `--`: a title, task or question that starts with "-" stays text, never an option
-        'backlog_add': lambda: (['backlog', 'add', '--source', 'mcp'] + (['--size', size] if size else [])
+        'backlog_add': lambda: (['backlog', '--source', 'mcp'] + (['--size', size] if size else [])
                                 + [x for p in scopes(a.get('scope')) for x in (f'--scope={p}',)]
-                                + ([f'--check={a["check"]}'] if a.get('check') else []) + ['--', a['repo'], a['title']]),
+                                + ([f'--check={a["check"]}'] if a.get('check') else []) + ['--', 'add', a['repo'], a['title']]),
         'delegate_task': lambda: (['run', '--repo', a['project'], '--bg'] + (['--track', a['track']] if a.get('track') else [])
                                   + ['--', 'auto', (f'[size {size}] ' if size else '') + a['task']]),
         'scout_ask': lambda: (['scout', '--no-wait'] + (['--skill', a['skill']] if a.get('skill') else [])

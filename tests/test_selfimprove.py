@@ -225,6 +225,15 @@ class Rounds(Base):
         selfimprove.tick(cfg, NOW + 7200, run=gh, spawn=spawn)   # asked again, on evil999
         self.assertEqual(selfimprove.read_state(cfg)['reviews']['octo/tutti#7']['sha'], 'evil999')
 
+    def test_a_pull_request_without_its_head_commit_is_not_merged_and_nothing_crashes(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        spawn = finished_review()
+        selfimprove.tick(cfg, NOW, run=FakeGh(pr(headRefOid='')), spawn=spawn)
+        gh = FakeGh(pr(headRefOid=''))
+        selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
     def test_a_failed_release_keeps_its_fixes_for_the_next_one(self):
         cfg = self.cfg()
         st = {'merged': [{'project': 'Tutti', 'pr': 'octo/tutti#1', 'at': NOW, 'task': 't1'}]}

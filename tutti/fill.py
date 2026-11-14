@@ -304,12 +304,13 @@ def is_gate(status, path, files, folders):
 def gate_files_touched(cfg, task, base, run=None):
     """The changed paths of the branch (against origin/<base>, which the rebase just fetched) that the gates run or read."""
     run = run or git
-    out = run(task['worktree'], 'diff', '--name-status', '--no-renames', f'origin/{base}...HEAD')
+    out = run(task['worktree'], 'diff', '--name-status', '--no-renames', '-z', f'origin/{base}...HEAD')
     if out.returncode != 0:
         return ['(the changed files could not be listed)']
     files, folders = check_paths(task, autopilot.settings(cfg)['repos'].get(task['repo']) or {})
-    rows = [ln.split('\t', 1) for ln in (out.stdout or '').splitlines() if '\t' in ln]
-    return [p.strip() for st, p in rows if is_gate(st.strip()[:1], p.strip(), files, folders)]
+    words = (out.stdout or '').split('\0')   # -z: status, path, status, path... with no quoting of unusual names
+    rows = list(zip(words[0::2], words[1::2], strict=False))
+    return [p for st, p in rows if p and is_gate(st.strip()[:1], p, files, folders)]
 
 
 def decide(cfg, task, run=git, gh=subprocess.run, run_worker=None):

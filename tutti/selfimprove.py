@@ -369,6 +369,9 @@ def advance(cfg, t, st, now, run=subprocess.run, spawn=subprocess.Popen):
             t['status'], t['notes'] = 'queued', [*t.get('notes', []), f'Changes requested on {key}: read the review and fix them.']
             reviews.pop(key, None)   # the fix pushed onto this pull request is reviewed again before any merge
         return None
+    if not pr.get('headRefOid'):
+        t['self_improve'] = 'GitHub did not say which commit the pull request is at: not merged; the next round looks again'
+        return None
     return merge_now(t, st, pol, number, key, pr['headRefOid'], now, run)
 
 

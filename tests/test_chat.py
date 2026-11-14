@@ -205,7 +205,7 @@ class ApiBase(unittest.TestCase):
 
         def runner(path, argv):
             self.calls.append(argv)
-            if argv[:2] == ['backlog', 'add']:
+            if argv[:1] == ['backlog'] and 'add' in argv:
                 return 0, f't60: added: {argv[-1]}'
             return 0, 'ok'
         self.runner = runner
@@ -280,7 +280,7 @@ class Api(ApiBase):
         events = self.send(eng, VIEWER, 'add task in map: fix the legend')
         card = next(e['card'] for e in events if e['type'] == 'card')
         self.assertEqual((card['state'], card['ref']), ('done', 't60'))
-        self.assertEqual(self.calls[0][-3:], ['--', 'map', 'fix the legend'])
+        self.assertEqual(self.calls[0][-4:], ['--', 'add', 'map', 'fix the legend'])
         with open(os.path.join(self.dir, 'auth-audit.jsonl'), encoding='utf8') as f:
             audit = [json.loads(x) for x in f]
         self.assertEqual((audit[-1]['by'], audit[-1]['action']), ('v1', 'chat: Queue a task in map: fix the legend'))
@@ -312,7 +312,7 @@ class Api(ApiBase):
         self.send(eng, VIEWER, 'add task in map: one')
         card = next(e['card'] for e in self.send(eng, VIEWER, 'add task in map: two') if e['type'] == 'card')
         self.assertEqual(card['state'], 'refused')
-        self.assertEqual(len([c for c in self.calls if c[:2] == ['backlog', 'add']]), 1)
+        self.assertEqual(len([c for c in self.calls if c[:1] == ['backlog'] and 'add' in c]), 1)
 
     def test_conversations_are_private_and_activity_is_for_admins(self):
         eng = self.engine({'pc': ['hi']})
@@ -455,7 +455,7 @@ class ToolLoop(ApiBase):
         code, answer = chatrun.post(eng, ADMIN, {'action': 'confirm', 'conversation': events[0]['conversation'],
                                                  'message': done['id'], 'card': card['id']})
         self.assertEqual((code, answer['card']['state'], answer['card']['ref']), (200, 'done', 't60'))
-        self.assertEqual(self.calls[-1][-3:], ['--', 'map', 'Fix the legend on phones'])
+        self.assertEqual(self.calls[-1][-4:], ['--', 'add', 'map', 'Fix the legend on phones'])
         self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'confirm', 'conversation': events[0]['conversation'],
                                                    'message': done['id'], 'card': card['id']})[0], 409)
 

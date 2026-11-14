@@ -233,7 +233,7 @@ class LandTest(Base):
         def run(cwd, *args):
             if args[:2] == ('diff', '--name-status'):
                 self.assertEqual(args[-1], 'origin/main...HEAD')
-                return done(0, 'A\tsrc/a.py\nA\ttests/test_new.py\nM\tscripts/lib.sh\n')
+                return done(0, 'A\0src/a.py\0A\0tests/test_new.py\0M\0scripts/lib.sh\0')
             return done(0, 'HEAD' if args[0] == 'rev-parse' else 'feat: x' if args[0] == 'log' else 'diff')
         gh = mock.Mock(return_value=done(0, 'https://github.example/o/r/pull/9'))
         with mock.patch.object(fill, 'ask_reviewer', return_value=('cheap', 'No findings.')):

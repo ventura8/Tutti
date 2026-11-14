@@ -230,7 +230,7 @@ class McpServerTest(unittest.TestCase):
         self.assertFalse(err)
         self.assertEqual(self.calls[-1], ['run', '--repo', '/r', '--bg', '--', 'auto', '[size S] fix x'])
         mcpserver.call(self.cfg, 'backlog_add', {'repo': 'r', 'title': 't', 'scope': ['a', 'b']}, 'admin', runner=self.runner)
-        self.assertEqual(self.calls[-1], ['backlog', 'add', '--source', 'mcp', '--scope=a', '--scope=b', '--', 'r', 't'])
+        self.assertEqual(self.calls[-1], ['backlog', '--source', 'mcp', '--scope=a', '--scope=b', '--', 'add', 'r', 't'])
 
     def test_viewer_may_read_but_not_change(self):
         for name, args in (('delegate_task', {'task': 't', 'project': 'p'}), ('backlog_add', {'repo': 'r', 'title': 't'}),

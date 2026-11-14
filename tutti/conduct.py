@@ -443,13 +443,26 @@ def shell_option(arg):
     return len(name) > 3 and name.startswith('--') and any(o.startswith(name) for o in SHELL_OPTIONS)
 
 
+PATH_OPTIONS = ('--input', '--dir', '--repo', '--fetch')   # each names a file or folder: `run --input ~/.ssh --on box` copies it
+
+
+def option_paths(args):
+    """The values of PATH_OPTIONS (`--input X` and `--input=X`, abbreviations too)."""
+    out = []
+    for i, a in enumerate(args):
+        name, eq, value = a.partition('=')
+        if len(name) > 3 and name.startswith('--') and any(o.startswith(name) for o in PATH_OPTIONS):
+            out += [value] if eq else args[i + 1:i + 2]
+    return out
+
+
 def local_args_refusal(args, cwd=None):
     """Why a local model's arguments may not run, or '': never a shell command through --check, and `code` and `ask` only
     on files inside the folder the conductor works in (a model steered by a file it read must not rewrite ~/.bashrc or read
     ~/.ssh)."""
     if any(shell_option(a) for a in args):
         return 'a local model may not pass --check (a shell command): the repo\'s own configured check runs'
-    files = {'code': args[2:3], 'ask': args[3:]}.get(args[0], [])
+    files = {'code': args[2:3], 'ask': args[3:]}.get(args[0], []) + option_paths(args)
     root = os.path.realpath(cwd or os.getcwd())
     for f in files:
         full = os.path.realpath(os.path.join(root, os.path.expanduser(f)))

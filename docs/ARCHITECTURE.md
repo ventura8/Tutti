@@ -23,7 +23,8 @@ coordinator (docs/HOUSEHOLD.md), and only when several people share machines and
 
 | File | Owns |
 | --- | --- |
-| `tutti/config.py` | Finding (`$TUTTI_CONFIG`, nearest file, then `$XDG_CONFIG_HOME/tutti/config.yaml`), loading, defaulting and validating. Every error names its key and the fix. |
+| `tutti/config.py` | Finding (`$TUTTI_CONFIG`, then `$XDG_CONFIG_HOME/tutti/config.yaml`, then the nearest file), loading, defaulting and validating; `write_text` saves through a symlink into the real file, atomically. Every error names its key and the fix. |
+| `tutti/configone.py` | One config per user: other copies that differ (doctor, Settings) and their merge into the one in use, each copy then a symlink to it. |
 | `tutti/routing.py` | Pure fall-over logic over `Probe`s. No I/O, so it is unit-tested exhaustively. |
 | `tutti/remote.py` | Transports (`local`, `ssh`, `wsl`), the probe, the tree copy, the runner line, the yield flag. |
 | `tutti/pacing.py` | Quota windows, the target time, the verdict and the report. Pure apart from the log file. |

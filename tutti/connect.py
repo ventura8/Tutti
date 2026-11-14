@@ -9,6 +9,7 @@ The interface `tutti setup` calls: connect_all(cfg_path, home=None) -> [result],
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -46,15 +47,19 @@ def home_of(home=None):
 
 AGENTS = {
     'claude-code': {
-        'label': 'Claude Code (CLI and the desktop Code tab)', 'bins': ['claude'], 'dirs': ['.claude'],
+        'label': 'Claude Code (Code tab in Claude Desktop, and the CLI)', 'bins': ['claude'], 'dirs': ['.claude'],
         'mcp': ('json', '.claude.json', 'mcpServers', 'plain'), 'cli': 'claude',
         'guide': ('skill', '.claude/skills/tutti/SKILL.md'), 'procs': ['claude'],
-        'restart': 'Start a new Claude Code session (in the desktop app: a new session in the Code tab).'},
+        'restart': 'Start a new Claude Code session (in the desktop app: a new session in the Code tab).',
+        'session': 'A session started before Tutti was added does not see it yet: start a new session (in Claude Desktop, '
+                   'a new session in the Code tab); new sessions have it.'},
     'claude-desktop': {
         'label': 'Claude Desktop (chat)', 'bins': [], 'dirs': ['.config/Claude'],
         'mcp': ('json', '.config/Claude/claude_desktop_config.json', 'mcpServers', 'plain'),
-        'procs': ['claude-desktop', 'Claude'],
-        'restart': 'Quit Claude Desktop fully and open it again; Tutti\'s tools appear under the tools menu.'},
+        'procs': ['claude-desktop', 'Claude'], 'rewrites': True,   # the app rewrites its file and may drop Tutti's entry
+        'restart': 'Only the chat part of Claude Desktop needs this (the Code tab is the Claude Code row): quit Claude Desktop '
+                   'fully (its tray or menu bar icon, Quit; closing the window is not enough) and open it again; Tutti\'s tools '
+                   'then appear under the chat\'s tools menu.'},
     'codex': {
         'label': 'OpenAI Codex CLI', 'bins': ['codex'], 'dirs': ['.codex'],
         'mcp': ('toml', '.codex/config.toml', 'mcp_servers', 'plain'),
@@ -141,6 +146,7 @@ def _write(path, text, agent, home, changed):
     if _read(path) == text:
         return
     changed.append({'file': path, 'backup': backup(path, agent, home)})
+    path = os.path.realpath(path)   # a symlinked settings file stays a symlink: its target gets the text
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = f'{path}.tutti-tmp'
     with open(tmp, 'w', encoding='utf8') as f:
@@ -322,9 +328,12 @@ def apply(name, cfg_path, on, home=None, which=shutil.which, run=subprocess.run,
         set_json(path, key, value, name, home, changed)
     if a.get('guide') and (on or not sharing_guide(name, home)):
         set_guide(a['guide'], on, name, home, changed)
-    status = ('needs-restart' if changed else 'connected') if on else 'removed'
     if changed:
         mark(name, on, home)
+        _health.clear()   # the next status asks `claude mcp list` again
+    if on and a.get('session'):   # Claude Code: new sessions have it at once; only older ones need a new session
+        return {'agent': name, 'status': 'connected', 'changed': changed, 'note': '', 'soft': a['session'] if changed else ''}
+    status = ('needs-restart' if changed else 'connected') if on else 'removed'
     return {'agent': name, 'status': status, 'changed': changed, 'note': a.get('restart', '') if on and changed else ''}
 
 
@@ -396,13 +405,62 @@ def stale(name, home=None, started_fn=started):
     return bool(at) and any(t < at for t in started_fn(AGENTS[name].get('procs') or []))
 
 
-def status(name, home=None, which=shutil.which, started_fn=started):
+def parse_mcp_list(text):
+    """Tutti's line in `claude mcp list`: ('connected', ''), ('failed', what it says), or ('absent', '')."""
+    for line in (text or '').splitlines():
+        if line.strip().startswith(f'{NAME}:'):
+            tail = line.rsplit(' - ', 1)[-1].strip()
+            low = tail.lower()   # "Connected" only as a whole word: "Disconnected" or "Failed to connect" are not
+            ok = re.search(r'\bconnected\b', low) and not any(w in low for w in ('fail', 'not ', 'error', 'needs'))
+            return ('connected', '') if ok else ('failed', tail)
+    return 'absent', ''
+
+
+HEALTH_TTL = 60   # `claude mcp list` starts every server to check it: asked at most once a minute
+_health = {}
+
+
+def claude_health(run=subprocess.run, clock=time.time, timeout=60):
+    """What `claude mcp list` says of Tutti's server (parse_mcp_list), or None when it could not be asked."""
+    if _health and clock() - _health['at'] < HEALTH_TTL:
+        return _health['value']
+    try:
+        p = run([AGENTS['claude-code']['cli'], 'mcp', 'list'], capture_output=True, text=True, check=False, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        p = None   # cached too: a hung `claude mcp list` is not asked again on every poll
+    value = parse_mcp_list(p.stdout) if p is not None and p.returncode == 0 else None
+    _health.update(at=clock(), value=value)
+    return value
+
+
+def cli_status(row, name, health, home, started_fn):
+    """The row from the agent's own health check (`claude mcp list`): registered and healthy is connected; a session
+    started before it was added gets a soft note, not another status."""
+    a, (state, said) = AGENTS[name], health
+    if state == 'absent':
+        return {**row, 'status': 'not-connected', 'note': f'Tutti is not registered in {a["label"]}: run `tutti connect {name}`'}
+    if state == 'failed':
+        return {**row, 'status': 'error', 'note': f'Tutti is registered, but `{a["cli"]} mcp list` says "{said}": run '
+                                                  f'`tutti connect --test {name}` to see why its server does not start'}
+    soft = a['session'] if stale(name, home, started_fn) else ''
+    if a.get('guide') and not guide_present(a['guide'], home):
+        soft = 'The instructions are missing: run `tutti connect` again. ' + soft
+    return {**row, 'status': 'connected', 'note': '', 'soft': soft.strip(), 'checked': f'{a["cli"]} mcp list'}
+
+
+def status(name, home=None, which=shutil.which, started_fn=started, ask=None):
+    """One agent's row. `ask`: the agent's own health check (Claude Code: `claude mcp list`), used when it answers."""
     a = AGENTS[name]
     row = {'agent': name, 'label': a['label']}
     if 'cannot' in a:
         return {**row, 'status': 'cannot', 'note': a['cannot']}
     if not installed(name, home, which):
         return {**row, 'status': 'not-installed', 'note': f'{a["label"]} was not found on this computer'}
+    if ask is None and use_cli(name, home, which):
+        ask = claude_health
+    health = ask() if ask and a.get('cli') else None
+    if health:
+        return cli_status(row, name, health, home, started_fn)
     try:
         e = current_entry(name, home)
     except ConnectError as err:
@@ -412,12 +470,49 @@ def status(name, home=None, which=shutil.which, started_fn=started):
     if a.get('guide') and not guide_present(a['guide'], home):
         return {**row, 'status': 'connected', 'note': 'the MCP server is in; the instructions are missing: run `tutti connect` again'}
     if stale(name, home, started_fn):
+        if a.get('session'):
+            return {**row, 'status': 'connected', 'note': '', 'soft': a['session'], 'entry': e}
         return {**row, 'status': 'needs-restart', 'note': a.get('restart', ''), 'entry': e}
     return {**row, 'status': 'connected', 'note': a.get('restart', ''), 'entry': e}
 
 
-def status_all(home=None, which=shutil.which, started_fn=started):
-    return [status(n, home, which, started_fn) for n in AGENTS]
+HEAL_EVERY = 600
+_healed = {}
+
+
+def marked(name, home=None):
+    try:
+        return bool(json.loads(_read(marks_path(home)) or '{}').get(name))
+    except ValueError:
+        return False
+
+
+def heal(row, home=None, which=shutil.which, cfg_path=None):
+    """An app that rewrites its own settings file (Claude Desktop) and dropped Tutti's entry after `tutti connect` put it
+    there: the entry goes back (the file is backed up first) and the row says so and what the person has to do."""
+    name = row['agent']
+    if row['status'] != 'not-connected' or not AGENTS[name].get('rewrites') or not marked(name, home):
+        return row
+    if time.time() - _healed.get(name, 0) < HEAL_EVERY:
+        return row   # at most once in HEAL_EVERY: an app in the middle of writing its file is not fought over
+    _healed[name] = time.time()
+    from . import config
+    cfg_path = cfg_path or config.find()
+    if not cfg_path:
+        return row
+    try:
+        r = apply(name, cfg_path, True, home, which)
+    except ConnectError as e:
+        return {**row, 'status': 'error', 'note': f'{AGENTS[name]["label"]} dropped Tutti from its settings and it could not be '
+                                                  f'added back: {e}'}
+    saved = next((c['backup'] for c in r['changed'] if c.get('backup')), None)
+    return {**row, 'status': 'needs-restart', 'healed': True,
+            'note': f'{AGENTS[name]["label"]} rewrote its settings file and dropped Tutti; Tutti added it back'
+                    + (f' (the old file is kept as {saved})' if saved else '') + '. ' + AGENTS[name]['restart']}
+
+
+def status_all(home=None, which=shutil.which, started_fn=started, ask=None, cfg_path=None):
+    return [heal(status(n, home, which, started_fn, ask), home, which, cfg_path) for n in AGENTS]
 
 
 # ---- the round trip
@@ -468,6 +563,8 @@ def print_result(r, out):
         out.write(f'  changed {c["file"]}' + (f' (backup {c["backup"]})' if c.get('backup') else '') + '\n')
     if r.get('note'):
         out.write(f'  {r["note"]}\n')
+    if r.get('soft'):
+        out.write(f'  note: {r["soft"]}\n')
 
 
 def human_steps(results):
@@ -480,14 +577,15 @@ def human_steps(results):
 def status_line(r):
     t = r.get('test')
     line = f'{r["label"]}: {r["status"]}' + (f' (test: {"ok" if t["ok"] else "failed"}, {t["text"]})' if t else '')
-    return line + (f'\n  {r["note"]}' if r.get('note') and r['status'] != 'connected' else '') + '\n'
+    line += f'\n  {r["note"]}' if r.get('note') and r['status'] != 'connected' else ''
+    return line + (f'\n  note: {r["soft"]}' if r.get('soft') else '') + '\n'
 
 
 def cmd(cfg, a, out=None):
     out = out or sys.stdout
     names = resolve(['all'] if a.all or not a.agent else [a.agent])
     if a.status or a.test:
-        rows = status_all() if a.agent is None else [status(n) for n in names]
+        rows = status_all(cfg_path=cfg['_path']) if a.agent is None else [heal(status(n), cfg_path=cfg['_path']) for n in names]
         for r in rows:
             if a.test and r['status'] in ('connected', 'needs-restart'):
                 ok, text = test(r['agent'])

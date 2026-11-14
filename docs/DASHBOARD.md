@@ -202,6 +202,11 @@ The **Settings** tab (beside *Dashboard* in the app bar; at the bottom of the sc
 readings, workers, main agent, machines, devices, autopilot, pacing, autocompact, review, scouts, telemetry and
 self-improvement, projects and repos, opt-ins, dashboard, you and your household, and *Other*.
 
+When another copy of the config differs from the one in use (a project `tutti.config.yaml` beside the XDG one, say), the
+tab opens with a warning that names each copy and what differs, and **Merge into one** (`POST /api/settings
+{"action": "merge-configs"}`): what only the copy has is added, the file in use wins where both differ, and the copy
+becomes a symlink to the one file, kept first as `<copy>.bak-merge-<time>`.
+
 - Each setting has a plain label, a one-line help, the key, its control (a switch, a number with its unit, a choice, day
   and hour pickers, a list editor, YAML for a structured value), its value and its default, a *changed* mark and
   **Reset to default** (the key is taken out of the file, so the default applies). Named entries (each machine, worker,

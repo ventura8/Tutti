@@ -14,7 +14,7 @@ import time
 
 import yaml
 
-from . import adbpair, yamledit
+from . import adbpair, config, yamledit
 
 KEY_ACTIONS = ('same', 'copy', 'replace', 'repair', 'ask')
 
@@ -149,8 +149,7 @@ def set_machine(path, moves):
             text = yamledit.edit(text, ['devices', name, 'adb'], adb)
         elif 'adb' in (((yaml.safe_load(text) or {}).get('devices') or {}).get(name) or {}):
             text = yamledit.edit(text, ['devices', name, 'adb'], yamledit.DELETE)
-    with open(path, 'w', encoding='utf8') as f:
-        f.write(text)
+    config.write_text(path, text)
 
 
 def check(new, d, wait=60, sleep=time.sleep):
@@ -267,6 +266,5 @@ def save_device(path, devs, machine, serial, info, adb=None, name=None):
             text = yamledit.edit(text, ['devices', name, key], value)
     else:
         text = yamledit.edit(text, ['devices', name], adbpair.entry(serial, machine, info, adb))
-    with open(path, 'w', encoding='utf8') as f:
-        f.write(text)
+    config.write_text(path, text)
     return name

@@ -45,7 +45,8 @@ class ConnectorTest(unittest.TestCase):
                 _kind, rel, key, _style = connect.AGENTS[name]['mcp']
                 self.put(rel, json.dumps({'theme': 'dark', key: {'other': {'command': 'x'}}}))
                 r = self.apply(name)
-                self.assertEqual(r['status'], 'needs-restart')
+                # Claude Code: a new session has it at once, so it is connected with a soft note about older sessions
+                self.assertEqual(r['status'], 'connected' if name == 'claude-code' else 'needs-restart')
                 data = json.loads(self.read(rel))
                 self.assertEqual(data['theme'], 'dark')
                 self.assertEqual(data[key]['other'], {'command': 'x'})
@@ -300,6 +301,90 @@ class McpServerTest(unittest.TestCase):
         tok = mcpserver.http_token(self.cfg)
         self.assertEqual(mcpserver.http_token(self.cfg), tok)
         self.assertEqual(os.stat(mcpserver.token_path(self.cfg)).st_mode & 0o777, 0o600)
+
+
+class ClaudeStatusTest(unittest.TestCase):
+    """Claude Code's row comes from `claude mcp list`; Claude Desktop's dropped entry comes back by itself."""
+    LISTED = ('Checking MCP server health...\n\nother: npx other - \u2713 Connected\n'
+              'tutti: /bin/tutti --config /cfg/tutti.config.yaml mcp - \u2713 Connected\n')
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        connect._healed.clear()
+        os.makedirs(os.path.join(self.home, '.claude', 'skills', 'tutti'))
+        with open(os.path.join(self.home, '.claude', 'skills', 'tutti', 'SKILL.md'), 'w', encoding='utf8') as f:
+            f.write(connect.SKILL)
+
+    def test_parse_mcp_list(self):
+        self.assertEqual(connect.parse_mcp_list(self.LISTED), ('connected', ''))
+        failed = 'tutti: /bin/tutti mcp - \u2717 Failed to connect\n'
+        self.assertEqual(connect.parse_mcp_list(failed), ('failed', '\u2717 Failed to connect'))
+        self.assertEqual(connect.parse_mcp_list('other: x - \u2713 Connected\n'), ('absent', ''))
+        self.assertEqual(connect.parse_mcp_list('tutti: /bin/tutti mcp - Disconnected\n')[0], 'failed')
+        self.assertEqual(connect.parse_mcp_list('tutti: /bin/tutti mcp - \u26a0 Needs authentication\n')[0], 'failed')
+
+    def test_listed_and_healthy_is_connected_even_with_older_sessions(self):
+        listed = connect.parse_mcp_list(self.LISTED)
+
+        def ask():
+            return listed
+        connect.mark('claude-code', True, self.home)
+        r = connect.status('claude-code', self.home, which=all_bins, started_fn=lambda n: [0.0], ask=ask)
+        self.assertEqual(r['status'], 'connected')
+        self.assertIn('new session', r['soft'])
+        self.assertEqual(connect.status('claude-code', self.home, which=all_bins, started_fn=lambda n: [], ask=ask)['soft'], '')
+
+    def test_failed_or_missing_in_mcp_list(self):
+        failed = connect.status('claude-code', self.home, which=all_bins, ask=lambda: ('failed', 'Failed to connect'))
+        self.assertEqual(failed['status'], 'error')
+        self.assertIn('tutti connect --test claude-code', failed['note'])
+        absent = connect.status('claude-code', self.home, which=all_bins, ask=lambda: ('absent', ''))
+        self.assertEqual(absent['status'], 'not-connected')
+
+    def test_claude_health_reads_the_cli_once_a_minute(self):
+        calls = []
+
+        def run(argv, **kw):
+            calls.append(argv)
+            return mock.Mock(returncode=0, stdout=self.LISTED)
+        connect._health.clear()
+        self.assertEqual(connect.claude_health(run, clock=lambda: 1000.0), ('connected', ''))
+        self.assertEqual(connect.claude_health(run, clock=lambda: 1030.0), ('connected', ''))
+        self.assertEqual(calls, [['claude', 'mcp', 'list']])
+        connect._health.clear()
+        self.assertIsNone(connect.claude_health(lambda *a, **k: (_ for _ in ()).throw(OSError('no claude'))))
+
+    def test_dropped_desktop_entry_is_added_back_with_a_backup(self):
+        path = os.path.join(self.home, '.config', 'Claude', 'claude_desktop_config.json')
+        os.makedirs(os.path.dirname(path))
+        r = connect.apply('claude-desktop', CFG, True, self.home, which=all_bins, command='/bin/tutti')
+        self.assertEqual(r['status'], 'needs-restart')
+        with open(path, 'w', encoding='utf8') as f:   # the app rewrote its file without Tutti
+            json.dump({'mcpServers': {'other': {'command': 'x'}}, 'preferences': {'a': 1}}, f)
+        row = connect.heal(connect.status('claude-desktop', self.home, which=all_bins, started_fn=lambda n: []), self.home,
+                           all_bins, CFG)
+        self.assertEqual(row['status'], 'needs-restart')
+        self.assertTrue(row['healed'])
+        self.assertIn('quit Claude Desktop fully', row['note'])
+        with open(path, encoding='utf8') as f:
+            data = json.load(f)
+        self.assertEqual(set(data['mcpServers']), {'other', 'tutti'})
+        self.assertEqual(data['preferences'], {'a': 1})
+        self.assertTrue(os.listdir(os.path.join(self.home, '.config', 'tutti', 'connect-backups', 'claude-desktop')))
+        with open(path, 'w', encoding='utf8') as f:   # dropped again at once: not fought over within HEAL_EVERY
+            json.dump({'mcpServers': {}}, f)
+        again = connect.heal(connect.status('claude-desktop', self.home, which=all_bins, started_fn=lambda n: []), self.home,
+                             all_bins, CFG)
+        self.assertEqual(again['status'], 'not-connected')
+
+    def test_never_connected_or_undone_desktop_is_left_alone(self):
+        os.makedirs(os.path.join(self.home, '.config', 'Claude'))
+        row = connect.heal(connect.status('claude-desktop', self.home, which=all_bins), self.home, all_bins, CFG)
+        self.assertEqual(row['status'], 'not-connected')
+        connect.apply('claude-desktop', CFG, True, self.home, which=all_bins, command='/bin/tutti')
+        connect.apply('claude-desktop', CFG, False, self.home, which=all_bins)
+        row = connect.heal(connect.status('claude-desktop', self.home, which=all_bins), self.home, all_bins, CFG)
+        self.assertEqual(row['status'], 'not-connected')
 
 
 class DashboardConnectTest(unittest.TestCase):

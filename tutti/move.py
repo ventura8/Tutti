@@ -872,8 +872,7 @@ class Move:
             if not os.path.exists(backup):
                 shutil.copy2(path, backup)
             self.j['backups'][path] = backup
-            with open(path, 'w', encoding='utf8') as f:
-                f.write(yamledit.edit(text, ['host'], p['client']))
+            config.write_text(path, yamledit.edit(text, ['host'], p['client']))
         self.ops.local(['systemctl', '--user', 'disable', UNIT])
         unit_dir = os.path.expanduser('~/.config/systemd/user')
         os.makedirs(unit_dir, exist_ok=True)

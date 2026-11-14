@@ -36,6 +36,7 @@ function connectRow(r) {
         el('div', { class: 'row__name' }, r.label, el('span', { class: 'row__kind', text: r.agent })),
         chip(CONNECT_TEXT[r.status] || r.status, CONNECT_TONE[r.status]),
         r.note ? el('p', { class: 'row__note', text: r.note }) : '',
+        r.soft ? el('p', { class: 'row__note row__note--soft', text: r.soft }) : '',
         t ? el('p', { class: 'row__note', text: `Test: ${t.ok ? 'ok' : 'failed'}, ${t.text}` }) : '',
         buttons.length ? el('div', { class: 'row__stats' }, ...buttons) : '');
 }

@@ -146,10 +146,22 @@ def xdg_config_path(env=None):
 
 
 def find(start=None, env=None):
-    """$TUTTI_CONFIG, else the nearest tutti.config.* from `start` upwards, else XDG config.yaml, tutti.config.yaml; None if absent."""
+    """The one config of this user, whatever the working directory: $TUTTI_CONFIG, else the XDG config.yaml (or its
+    tutti.config.yaml), else the nearest tutti.config.* from `start` upwards; None if absent. The XDG file wins over a
+    project file so the dashboard, the MCP server, the service and every command read the same file (docs/CONFIG.md)."""
     env = os.environ if env is None else env
     if env.get('TUTTI_CONFIG'):
         return env['TUTTI_CONFIG']
+    base = xdg_tutti_dir(env)
+    for n in XDG_NAMES:
+        home = os.path.join(base, n)
+        if os.path.isfile(home):
+            return home
+    return nearest(start)
+
+
+def nearest(start=None):
+    """The nearest tutti.config.* from `start` (the working directory) upwards; None if there is none."""
     d = os.path.abspath(start or os.getcwd())
     while True:
         for n in NAMES:
@@ -157,14 +169,26 @@ def find(start=None, env=None):
                 return os.path.join(d, n)
         parent = os.path.dirname(d)
         if parent == d:
-            break
+            return None
         d = parent
-    base = xdg_tutti_dir(env)
-    for n in XDG_NAMES:
-        home = os.path.join(base, n)
-        if os.path.isfile(home):
-            return home
-    return None
+
+
+def write_text(path, text):
+    """Writes the config atomically (a temp file beside it, then a rename) into the real file: a symlinked config stays a
+    symlink, its target gets the new text and keeps its mode. Returns the real path written."""
+    real = os.path.realpath(path)
+    mode = os.stat(real).st_mode & 0o777 if os.path.exists(real) else 0o644
+    os.makedirs(os.path.dirname(real), exist_ok=True)
+    tmp = f'{real}.{os.getpid()}.tmp'
+    try:
+        with open(tmp, 'w', encoding='utf8') as f:
+            f.write(text)
+        os.chmod(tmp, mode)
+        os.replace(tmp, real)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)   # a failed write leaves no temp file behind
+    return real
 
 
 def parse(text, path=PROJECT_NAME):

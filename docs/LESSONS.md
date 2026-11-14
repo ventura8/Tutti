@@ -342,3 +342,15 @@ schedule) silently did nothing. The unit tests passed; only a real browser showe
 
 **Rule.** A test reads every script that index.html loads and fails on a top-level name declared twice. Check a page
 change in a browser, with the service worker's cache cleared.
+## Two config files that drifted apart (2026-11-14)
+
+**What happened.** The owner had `~/.config/tutti/config.yaml` and a project `tutti.config.yaml`. The dashboard and the
+MCP servers read the first, the autopilot (started in the project folder) the second; Settings edits landed in one copy.
+**Rule.** One config per user: the XDG file wins over a project file (0.1.62), every write goes through
+`config.write_text` (a symlink stays a symlink), and `tutti doctor` reports a copy that differs.
+
+## Claude Code "needs restart" while `claude mcp list` said Connected (2026-11-14)
+
+The card compared the connect time with the start time of every `claude` process. In Claude Desktop's Code tab old
+sessions always run, so the row never left "needs restart". **Rule.** Ask the agent's own health check when it has one
+(`claude mcp list`); an older session is a soft note, not the status.

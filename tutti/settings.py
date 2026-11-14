@@ -20,7 +20,7 @@ import time
 
 import yaml
 
-from . import autopilot, config, controls, groksetup, owner, telemetry, users, yamledit
+from . import autopilot, config, configone, controls, groksetup, owner, telemetry, users, yamledit
 from .settings_schema import DAYS, ENTRIES, ENTRY_DEFAULTS, FIELDS, MISSING, RESTART, SECTIONS
 
 SECRET_RX = re.compile(r'(dsn|token|secret|password|passwd|api_?key|private_?key|credential)', re.I)
@@ -386,7 +386,18 @@ def view(cfg, env=None):
         raw = config.parse(read_file(cfg), cfg['_path']) or {}
     out = View(cfg, raw, env).payload()
     out['etag'] = etag(read_file(cfg)) if out['path'] and os.path.isfile(out['path']) else ''
+    out['copies'] = configone.diverging(cfg) if cfg.get('_path') else []   # other config files that drifted apart
     return out
+
+
+def merge_copies(collector):
+    """(status, answer) for POST /api/settings {"action": "merge-configs"}: Settings' Merge into one (docs/CONFIG.md)."""
+    try:
+        done = configone.merge(collector.cfg)
+    except (config.ConfigError, OSError, yamledit.EditError) as e:
+        return 409, {'error': f'the copies were not merged: {e}; run `tutti doctor --merge-configs` in a terminal to see more'}
+    collector.reload()
+    return 200, {'ok': True, **done}
 
 
 # ---- saving
@@ -494,12 +505,7 @@ def backup(cfg, folder, clock=time.time):
 
 
 def write_text(path, text):
-    mode = os.stat(path).st_mode & 0o777
-    tmp = f'{path}.{os.getpid()}.tmp'
-    with open(tmp, 'w', encoding='utf8') as f:
-        f.write(text)
-    os.chmod(tmp, mode)
-    os.replace(tmp, path)
+    config.write_text(path, text)   # through a symlink into the real file, atomically
 
 
 def store(cfg, changes, tag=None):
@@ -537,6 +543,8 @@ def save(collector, raw_body):
     except ValueError:
         body = None
     cfg = collector.cfg
+    if isinstance(body, dict) and body.get('action') == 'merge-configs':
+        return merge_copies(collector)
     try:
         if isinstance(body, dict) and body.get('path') == ['projects'] and 'order' in body:
             done = store(cfg, order_changes(cfg, body['order']), body.get('etag'))

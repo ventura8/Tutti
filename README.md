@@ -72,8 +72,11 @@ From source instead: `git clone https://github.com/ventura8/Tutti`, then `instal
 git+https://github.com/ventura8/Tutti`), then `tutti setup`. Machines you send work to need `rsync` and `ssh` with
 key-based login, and Docker if you use the container runner.
 
-Tutti finds its config in `$TUTTI_CONFIG`, else the nearest `tutti.config.yaml` from the current folder upwards, else
-`~/.config/tutti/config.yaml` (or `~/.config/tutti/tutti.config.yaml` as a fallback; `$XDG_CONFIG_HOME` is honoured).
+Tutti reads one config per user, whatever folder a command starts in: `$TUTTI_CONFIG`, else `~/.config/tutti/config.yaml`
+(or `~/.config/tutti/tutti.config.yaml`; `$XDG_CONFIG_HOME` is honoured), and only when neither exists the nearest
+`tutti.config.yaml` from the current folder upwards. The dashboard, the MCP server, the service and every command resolve
+the same file. A symlinked config stays a symlink: every save writes its real file. `tutti doctor` and Settings warn about
+another copy it could pick (the XDG files, the nearest from the current folder) that differs, and merge it in with one click (`tutti doctor --merge-configs`).
 Nothing personal is built in: hosts, paths and accounts live only in that file. It never holds a secret.
 
 ## The CLI
@@ -117,7 +120,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | `tutti machines [add-android]` | Probes every machine (a Termux phone also shows battery, charging, heat and Wi-Fi). `add-android` prints the one-time Termux setup and the config lines; lint and unit runs on a phone are opt-in. |
 | `tutti setup [--ask] [--join <invite>]` | The first run, no questions (docs/INSTALL.md): finds agents and their sign-ins, GPUs, local models, machines (ssh config, Tailscale, LAN), Android devices, git projects and gh; writes the config with recommended defaults, keeping your comments (the Set up card shows each default with Change); at the end lists once what only you can do and opens each tool's own sign-in; starts the dashboard at login (systemd, launchd, a Windows task); turns on self-update; fixes a git that cannot do HTTPS. Again: only fills what is missing. |
 | `tutti self-update [--check]` | Installs the newest checksummed release (release installs; on by default at login and daily, `self_update.enabled: false` turns it off). |
-| `tutti doctor` | Checks this machine; today: a git whose HTTPS helper cannot load its libraries (a broken git first in PATH), with the fix. |
+| `tutti doctor [--merge-configs]` | Checks this machine: a git whose HTTPS helper cannot load its libraries (a broken git first in PATH), with the fix; another copy of the config that differs from the one in use. `--merge-configs` adds what only a copy has (the file in use wins where both differ), keeps the copy as `<copy>.bak-merge-<time>` and makes it a symlink to the one file. |
 | `tutti quiet [--summary <worker>] <cmd>` | Runs a command, keeps the log, prints only the exit code and, on failure, a five-line summary. |
 | `tutti progress <done>/<total> [--job <log>]` | Reports how far a job is for the dashboard's progress bar (inside `tutti quiet` it finds its job through `TUTTI_PROGRESS_FILE`): the exact layer, above known phases, estimates from history and agent estimates (docs/DASHBOARD.md, *Progress*). |
 | `tutti guard` | Pauses test containers when memory runs low; resumes them later. |

@@ -55,8 +55,39 @@ class ConfigTest(unittest.TestCase):
             os.makedirs(deep)
             path = os.path.join(d, 'tutti.config.yaml')
             open(path, 'w', encoding='utf8').close()
-            self.assertEqual(config.find(deep, {}), path)
+            self.assertEqual(config.find(deep, {'XDG_CONFIG_HOME': os.path.join(d, 'none')}), path)
             self.assertEqual(config.find(deep, {'TUTTI_CONFIG': '/elsewhere.yaml'}), '/elsewhere.yaml')
+
+    def test_every_entry_point_resolves_the_one_xdg_config(self):
+        # the bug: a project copy read by commands started in its folder, the XDG one by the dashboard and MCP
+        with tempfile.TemporaryDirectory() as d:
+            project, other = os.path.join(d, 'project', 'deep'), os.path.join(d, 'elsewhere')
+            os.makedirs(project)
+            os.makedirs(other)
+            with open(os.path.join(d, 'project', 'tutti.config.yaml'), 'w', encoding='utf8') as f:
+                f.write('machines: {}\n')
+            xdg = os.path.join(d, 'xdg', 'tutti')
+            os.makedirs(xdg)
+            with open(os.path.join(xdg, 'config.yaml'), 'w', encoding='utf8') as f:
+                f.write('machines: {}\n')
+            env = {'XDG_CONFIG_HOME': os.path.join(d, 'xdg')}
+            found = {config.find(start, env) for start in (project, other, d)}
+            self.assertEqual(found, {os.path.join(xdg, 'config.yaml')})
+
+    def test_writing_through_a_symlink_keeps_the_symlink(self):
+        with tempfile.TemporaryDirectory() as d:
+            real, link = os.path.join(d, 'tutti.config.yaml'), os.path.join(d, 'xdg', 'config.yaml')
+            with open(real, 'w', encoding='utf8') as f:
+                f.write('a: 1\n')
+            os.chmod(real, 0o600)
+            os.makedirs(os.path.dirname(link))
+            os.symlink(real, link)
+            self.assertEqual(config.write_text(link, 'a: 2\n'), real)
+            self.assertTrue(os.path.islink(link))
+            with open(real, encoding='utf8') as f:
+                self.assertEqual(f.read(), 'a: 2\n')
+            self.assertEqual(os.stat(real).st_mode & 0o777, 0o600)
+            self.assertEqual(sorted(os.listdir(d)), ['tutti.config.yaml', 'xdg'])   # no temp file left behind
 
     def test_find_uses_xdg_config_yaml_then_tutti_config_yaml(self):
         with tempfile.TemporaryDirectory() as d:

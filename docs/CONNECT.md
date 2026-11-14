@@ -12,7 +12,16 @@ tutti connect --undo codex   # take Tutti out of one agent (or --undo alone: all
 ```
 
 The dashboard has the same as a card, **Connect your agent**: one row per agent with its state (connected, needs restart,
-not installed, can't connect locally and why), Connect, Disconnect and **Test**. Test is a real round trip: it starts the
+not installed, can't connect locally and why), Connect, Disconnect and **Test**.
+
+Claude has two rows, kept apart: **Claude Code (Code tab in Claude Desktop, and the CLI)** and **Claude Desktop (chat)**.
+Claude Code's state comes from `claude mcp list` (asked at most once a minute): registered and healthy is *connected*;
+registered but failing is *error*, with what `claude mcp list` says. A Claude Code session started before Tutti was added
+does not see it, but new sessions do, so that is a soft note under *connected*, never the status. Claude Desktop rewrites
+`claude_desktop_config.json` itself and can drop Tutti's entry: when an agent `tutti connect` connected (and nobody
+disconnected) has lost its entry, the status check puts it back (at most once in 10 minutes, so an app mid-write is
+not fought over), backs the file up first, and says that only the chat
+part of Claude Desktop needs a full quit (its tray or menu bar icon, Quit) and reopen. Test is a real round trip: it starts the
 server exactly as that agent's config says and lists Tutti's tools through MCP.
 
 ## What each agent gets
@@ -87,5 +96,5 @@ steps = connect.human_steps(results)      # guided.step('other', 'Restart <agent
 `tutti setup` adds those steps to its one list at the end (docs/INSTALL.md, *The rule for every setup*); `tutti connect`
 prints the same list itself.
 
-`status` is one of `connected`, `needs-restart`, `not-connected`, `not-installed`, `cannot` (ChatGPT) or `error` (a
+`status` is one of `connected` (with `soft`: a note that is not a problem, such as older Claude Code sessions), `needs-restart`, `not-connected`, `not-installed`, `cannot` (ChatGPT) or `error` (a
 broken config file; `note` names it and the fix). Agents that are not installed are skipped, never created.

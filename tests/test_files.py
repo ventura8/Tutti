@@ -3,6 +3,8 @@ transport into temp folders (rsync and the stream fallback, resume, skip, damage
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -10,6 +12,8 @@ from unittest import mock
 
 from tutti import cli, config, files, routing, state, transfer
 from tutti.files import Entry
+
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 GB = files.GB
 
@@ -380,6 +384,28 @@ class DashboardTest(unittest.TestCase):
             self.assertEqual(state.read_progress_file(p)['unit'], 'MB')
             write(p, b'5 10\n')
             self.assertNotIn('unit', state.read_progress_file(p))
+
+
+class WindowsImportTest(unittest.TestCase):
+    def test_the_cli_imports_where_there_is_no_fcntl(self):
+        # Windows has no fcntl: an unguarded import broke every command there (the PC install, 2026-11-14)
+        code = 'import sys; sys.modules["fcntl"] = None; import tutti.cli; print("ok")'
+        r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, cwd=ROOT_DIR)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'ok'), r.stderr[-800:])
+
+    def test_without_flock_the_lock_waits_on_msvcrt_until_it_is_free(self):
+        tries = []
+
+        def locking(fd, mode, n):
+            tries.append(mode)
+            if len(tries) < 3:
+                raise OSError('held by another sender')
+        fake = mock.Mock(LK_NBLCK=2, locking=locking)
+        slept = []
+        with mock.patch.object(transfer, 'fcntl', None), mock.patch.dict(sys.modules, {'msvcrt': fake}), \
+                tempfile.TemporaryFile() as f:
+            transfer.lock_file(f, sleep=slept.append)
+        self.assertEqual((tries, slept), ([2, 2, 2], [1, 1]))
 
 
 if __name__ == '__main__':

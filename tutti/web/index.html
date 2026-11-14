@@ -69,12 +69,13 @@
                     <button class="btn btn--tonal" id="refresh-readings" type="button" title="Run the automatic usage readers now">Refresh readings</button>
                 </header>
                 <div id="usage" class="accounts" tabindex="0" role="group" aria-label="Accounts: scroll sideways for more on a small screen"></div>
-                <div id="owner" class="owner"></div>
                 <div class="local-models" aria-labelledby="local-h">
                     <h3 id="local-h" class="local-models__head">Local models</h3>
                     <p class="card__meta" id="local-meta">All figures are estimates; open "how they are made" on a card.</p>
                     <div id="local-models" class="accounts" tabindex="0" role="group" aria-label="Local models: scroll sideways for more on a small screen"></div>
                 </div>
+                <!-- The owner's own prompting after both kinds of usage: subscription accounts, then local models. -->
+                <div id="owner" class="owner"></div>
             </section>
 
             <section class="card card--attention span-full" aria-labelledby="attention-h">

@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import unittest
 
-from tutti import config, dashboard
+from tutti import config, dashboard, settings_schema
 
 ATTENTION = os.path.join(dashboard.WEB, 'attention.js')
 
@@ -27,6 +27,20 @@ class Order(unittest.TestCase):
         self.assertEqual(heads, ['usage', 'attention', 'household',
                                  'running', 'machines', 'autopilot', 'main', 'workers', 'projects', 'scouts',
                                  'connect', 'where', 'setup', 'controls', 'selfimprove', 'insights', 'jobs', 'vpn'])
+
+    def test_usage_shows_the_accounts_then_local_models_then_the_owner(self):
+        # the served page: online agents' usage cards, then Local models, then "You and the main agent" (#owner)
+        _, page, _, _ = dashboard.route(dashboard.Collector(config.normalise({}), reader=object()), '/', 'tok')
+        page = page.decode()
+        usage = page[page.index('id="usage-h"'):page.index('id="attention-h"')]
+        # whole ids: id="usage" is not id="usage-h"
+        at = [usage.index(x) for x in ('id="usage" ', 'id="local-h" ', 'id="local-models" ', 'id="owner" ')]
+        self.assertEqual(at, sorted(at))
+        # Settings follows the same order: accounts, then energy, then the main agent
+        names = [s[0] for s in settings_schema.SECTIONS]
+        self.assertLess(names.index('accounts'), names.index('energy'))
+        self.assertEqual(names.index('energy'), names.index('accounts') + 1)
+        self.assertLess(names.index('energy'), names.index('main'))
 
     def test_the_page_and_the_worker_load_the_attention_code(self):
         with open(os.path.join(dashboard.WEB, 'sw.js'), encoding='utf8') as f:

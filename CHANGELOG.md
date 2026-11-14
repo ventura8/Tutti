@@ -2,6 +2,14 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.52 (2026-11-14)
+
+### Changed
+
+- Usage & pacing: **Local models** sits directly below the online agents' usage cards, and *You and the main agent* comes
+  after it (before, it sat between them). Settings follows the same order: Energy right after Accounts and readings. A
+  layout test checks both orders.
+
 ## 0.1.51 (2026-11-14)
 
 ### Changed

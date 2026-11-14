@@ -67,6 +67,7 @@ class ProfileTest(unittest.TestCase):
         self.assertEqual(fairshare.jain({'a': 2, 'b': 2}, {'a': 2, 'b': 2}), 1.0)
         self.assertLess(fairshare.jain({'a': 2, 'b': 0}, {'a': 2, 'b': 2}), 1.0)
         self.assertIsNone(fairshare.jain({}, {}))
+        self.assertEqual(fairshare.jain({'a': 0, 'b': 0}, {'a': 1, 'b': 1}), 1.0)   # a paused machine: nobody got a slot
 
 
 class LimitTest(unittest.TestCase):

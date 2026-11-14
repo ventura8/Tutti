@@ -211,6 +211,9 @@ class Collector:
         out['controls'] = controls.view(self.cfg, controls.read(config.state_dir(self.cfg)))
         out['telemetry'] = dashtelemetry.view(self.cfg)
         out['setup'] = setupcmd.read_report(self.cfg)
+        from . import sharing  # the household (docs/HOUSEHOLD.md): its members, shared machines' use per member, fairness
+        out['household'] = sharing.view(self.cfg, self.clock())
+        sharing.busy_for(out['machines']['items'], out['household'])
         out['controls']['opt_in'].append({'kind': 'autopilot', 'name': 'fill_room', 'on': out['autopilot']['fill_room'],
                                           'why': 'free room on the trigger accounts is filled from the repos\' sources by itself'})
         out['controls']['autocompact'] = autocompact.view(self.cfg)

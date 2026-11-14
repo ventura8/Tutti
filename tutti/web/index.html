@@ -23,6 +23,7 @@
     <script src="settings.js?v=__TUTTI_VERSION__" defer></script>
     <script src="setup.js?v=__TUTTI_VERSION__" defer></script>
     <script src="energy.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="household.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
     <a class="skip" href="#main">Skip to the dashboard</a>
@@ -31,9 +32,15 @@
         <div class="appbar__title">
             <h1>Tutti</h1>
             <p class="appbar__sub" id="config-path">Connecting to the local service…</p>
+            <output class="appbar__sub" id="household-away" hidden></output>
         </div>
         <div class="appbar__actions">
             <output class="live" id="live" aria-live="polite"><span class="live__dot" aria-hidden="true"></span><span id="live-text">Loading</span></output>
+            <fieldset class="seg">
+                <legend class="sr-only">Show</legend>
+                <button class="btn btn--text" type="button" data-view-pick="me" aria-pressed="true">Me</button>
+                <button class="btn btn--text" type="button" data-view-pick="household" aria-pressed="false">Household</button>
+            </fieldset>
             <button class="btn btn--tonal" id="refresh" type="button" title="Refresh now (R)">Refresh</button>
             <button class="btn btn--filled" id="install" type="button" hidden>Install app</button>
         </div>
@@ -73,6 +80,17 @@
                     <p class="card__meta" id="attention-meta"></p>
                 </header>
                 <ul id="attention" class="list list--grid"></ul>
+            </section>
+
+            <section class="card span-full" id="household-card" aria-labelledby="household-h">
+                <header class="card__head">
+                    <h2 id="household-h">Household</h2>
+                    <p class="card__meta" id="household-meta"></p>
+                </header>
+                <h3 class="card__sub" id="household-title">Members</h3>
+                <ul id="household-members" class="list list--grid" aria-label="Members"></ul>
+                <h3 class="card__sub">Shared machines</h3>
+                <ul id="household-machines" class="list" aria-label="Shared machines"></ul>
             </section>
 
             <section class="card card--running span-wide" aria-labelledby="running-h">

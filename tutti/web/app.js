@@ -485,6 +485,7 @@ function machine(m) {
         chip(m.status, MACHINE_TONE[m.status]),
         stats,
         el('p', { class: 'row__note', text: m.status === 'paused' ? 'Yield flag is up: Tutti sends it nothing new until it is lowered.' : m.reason }),
+        m.household_use ? el('p', { class: 'row__note household-only', text: busyFor(m) }) : null,
         storedFiles(m.name, m.stored));
 }
 
@@ -1064,6 +1065,7 @@ function render() {
     renderProjects(s);
     if (typeof renderSetup === 'function') renderSetup(s);   // setup.js: the Set up card
     renderTelemetry(s);   // telemetry.js: Insights, the Self-improvement lane, the sending switch
+    renderHousehold(s);   // household.js: the household card (shown in the Household view)
     if (s.probe_error) showBanner(s.probe_error);
     else if (ui.notice) showBanner(ui.notice);
     else if (!ui.failing) $('banner').hidden = true;

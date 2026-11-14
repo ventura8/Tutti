@@ -14,7 +14,7 @@ import socket
 import subprocess
 
 PRIVATE = [ipaddress.ip_network(n) for n in ('127.0.0.0/8', '::1/128', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16',
-                                               '100.64.0.0/10', 'fc00::/7')]
+                                               '100.64.0.0/10', 'fc00::/7', 'fe80::/10')]   # fe80: link-local, never routed
 WILDCARDS = ('', '0.0.0.0', '::', '*')
 VIRTUAL = ('docker', 'br-', 'veth', 'lxcbr', 'virbr', 'cni', 'flannel')   # containers' bridges: private, but nobody joins there
 WG_NAMES = ('wg', 'tailscale', 'zt', 'nebula')
@@ -27,14 +27,32 @@ class PublicAddress(ValueError):
 
 
 def interfaces(run=subprocess.run):
-    """[(interface, kind, [addresses])] of this computer (Linux `ip -j addr`); [] when it cannot be read."""
+    """[(interface, kind, [addresses])] of this computer: Linux `ip -j addr`, else `ifconfig -a` (macOS, BSD); [] when
+    neither can be read (then only the route's address and localhost are known)."""
     try:
         out = run(['ip', '-j', 'addr'], capture_output=True, text=True, timeout=5)
         rows = json.loads(out.stdout or '[]')
+        return [(r.get('ifname', ''), (r.get('linkinfo') or {}).get('info_kind') or '',
+                 [a.get('local') for a in r.get('addr_info') or [] if a.get('local')]) for r in rows]
     except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    try:
+        return parse_ifconfig(run(['ifconfig', '-a'], capture_output=True, text=True, timeout=5).stdout or '')
+    except (OSError, subprocess.SubprocessError):
         return []
-    return [(r.get('ifname', ''), (r.get('linkinfo') or {}).get('info_kind') or '', [a.get('local') for a in r.get('addr_info') or []
-                                                                                   if a.get('local')]) for r in rows]
+
+
+def parse_ifconfig(text):
+    """`ifconfig -a`'s interfaces: a line `name: flags...` starts one, `inet <addr>` and `inet6 <addr>` lines add to it."""
+    out = []
+    for line in text.splitlines():
+        if line and not line[0].isspace() and ':' in line:
+            out.append((line.split(':', 1)[0], 'wireguard' if line.startswith(('utun', 'wg')) else '', []))
+            continue
+        words = line.split()
+        if out and len(words) > 1 and words[0] in ('inet', 'inet6'):
+            out[-1][2].append(words[1].split('%', 1)[0] if words[0] == 'inet6' and not words[1].startswith('fe80') else words[1])
+    return out
 
 
 def vpn_addresses(ifaces):
@@ -54,11 +72,25 @@ def private(addr, vpn=()):
 
 
 def private_addresses(ifaces):
-    """This computer's own LAN and VPN addresses (not loopback, not link-local, not a container bridge), IPv4 first."""
+    """This computer's own LAN and VPN addresses (not loopback, not a container bridge), IPv4 first, then IPv6 (ULA, and
+    link-local with its interface: `fe80::1%wlo1`, the only way it can be listened on)."""
     vpn = vpn_addresses(ifaces)
-    out = [a for name, _kind, addrs in ifaces if not name.startswith(VIRTUAL) and name != 'lo' for a in addrs
-           if private(a, vpn) and not a.startswith(('127.', 'fe80')) and a != '::1']
-    return sorted(out, key=lambda a: (':' in a, a))
+    out = []
+    for name, _kind, addrs in ifaces:
+        if name.startswith(VIRTUAL) or name == 'lo':
+            continue
+        for a in addrs:
+            if not private(a, vpn) or a.startswith('127.') or a == '::1':
+                continue
+            out.append(f'{a.split("%", 1)[0]}%{name}' if a.startswith('fe80') else a)
+    return sorted(out, key=lambda a: (':' in a, a.startswith('fe80'), a))
+
+
+def bridged(addr, ifaces):
+    """Whether an address belongs to a container bridge (docker0, br-*, veth*, lxcbr0, virbr0): private, but nobody joins
+    there, and a container could reach it."""
+    plain = addr.split('%', 1)[0]
+    return any(plain in [x.split('%', 1)[0] for x in addrs] for name, _k, addrs in ifaces if name.startswith(VIRTUAL))
 
 
 def resolve(host):
@@ -80,18 +112,26 @@ def check(host, what, ifaces=None, resolve_fn=resolve):
         raise PublicAddress(f'{what}: "{host}" does not resolve to an address on this network; use one of: {allowed}')
     vpn = vpn_addresses(ifaces)
     public = [a for a in addrs if not private(a, vpn)]
+    if not public and any(bridged(a, ifaces) for a in addrs):
+        raise PublicAddress(f'{what}: "{host}" is a container bridge\'s address: no member can reach it there, and a container '
+                            f'could; use a LAN or VPN address: {allowed}')
     if public:
         raise PublicAddress(f'{what}: "{host}" is a public address ({", ".join(public)}), and {WHY}. Use a LAN or VPN address '
                             f'instead: {allowed}')
     return addrs
 
 
-def binds(setting, what, ifaces=None, resolve_fn=resolve):
-    """The addresses a server listens on for a `bind` setting: `auto` is localhost plus every LAN and VPN address of this
-    computer; anything else is checked (a public one or a wildcard raises PublicAddress)."""
+def binds(setting, what, ifaces=None, resolve_fn=resolve, route=None):
+    """The addresses a server listens on for a `bind` setting: `auto` is localhost (IPv4 and IPv6) plus every LAN and VPN
+    address of this computer (IPv4, ULA, link-local) and the route's own address when it is private (what a join code
+    names, also when the interfaces cannot be read); anything else is checked (a public one, a wildcard or a container
+    bridge raises PublicAddress)."""
     ifaces = interfaces() if ifaces is None else ifaces
     if setting in (None, 'auto'):
-        return ['127.0.0.1', *[a for a in private_addresses(ifaces) if ':' not in a]]
+        out = ['127.0.0.1', '::1', *private_addresses(ifaces)]
+        if route and private(route, vpn_addresses(ifaces)) and route not in out:
+            out.append(route)
+        return out
     check(setting, what, ifaces, resolve_fn)
     return [setting]
 
@@ -104,12 +144,15 @@ def _is_ip(host):
         return False
 
 
-def errors(key, value):
-    """A config check of a bind setting that is an address: a public address or a wildcard is named with the fix."""
+def errors(key, value, ifaces=None):
+    """A config check of a bind setting that is an address: a public address or a wildcard is named with the fix; an
+    address of this computer's WireGuard (or Tailscale) interface is a VPN address, whatever its range."""
     if value in (None, 'auto') or not isinstance(value, str):
         return [] if value in (None, 'auto') else [f'{key} is {value!r}: auto, or a LAN or VPN address of this computer']
     if value in WILDCARDS:
         return [f'{key} is "{value}": every interface includes a public one, and {WHY}; write auto instead']
     if _is_ip(value) and not private(value):
-        return [f'{key} is {value}, a public address, and {WHY}; write auto or a LAN or VPN address']
+        vpn = vpn_addresses(interfaces() if ifaces is None else ifaces)
+        if not private(value, vpn):
+            return [f'{key} is {value}, a public address, and {WHY}; write auto or a LAN or VPN address']
     return []

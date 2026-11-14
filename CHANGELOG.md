@@ -2,6 +2,44 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.46 (2026-11-14)
+
+### Added
+
+- Several users in one household, increment 4 of 4 (docs/HOUSEHOLD.md). **One command to join:** `tutti household join
+  <invite-url>`, the link from the dashboard's Users card (docs/AUTH.md). It detects the main agent and the
+  subscriptions and asks nothing (the guided rule of `tutti/guided.py`: defaults recorded as choices, the one human step,
+  a Google sign-in, listed at the end), opens the invite to sign in with Google, waits for it (every 3 s, up to 2
+  minutes) and pairs: the member's identity is that Google user (`sub`, e-mail, name), the token is derived on both sides
+  from the invite and never travels, and the invite is used up. The admin's dashboard starts the household by itself
+  with the first invite. The Users card shows whether each person's Tutti joined and when it was last seen
+  (`household.members_by_sub`). `householdcmd.invite_lines(invite)`: the invite page's single install line per platform
+  (`install.install_line(platform, join=...)`), so a member with no Tutti installs, sets up and joins in one paste. The
+  invite join needs the dashboard sign-in (#39); its end-to-end tests run once that lands.
+- **Never on the internet** (`tutti/netpolicy.py`): the coordinator and the dashboard listen only on localhost or a
+  private, LAN or VPN address (RFC 1918, 100.64/10, fc00::/7, WireGuard interfaces); `household.bind: auto` (new
+  default) is localhost plus every LAN and VPN address; a public address or a wildcard is refused with the reason, in the
+  config check too; join codes and invites never name a public address. HOUSEHOLD.md says how members join over the VPN.
+- **The dashboard:** a **Me / Household** switch and the **Household** card (members with their main agent, who is
+  prompting, online or last seen, runs today; each shared machine's use per person, your share and its fairness;
+  whether the coordinator answers); a shared machine in **Machines** says who else it is busy for. Others' jobs are never
+  shown, only their names and counts.
+
+- **Away from home with no VPN:** a member who cannot reach the coordinator keeps working on their own (own accounts,
+  readings and machines), starts no shared task and takes or renews no lease, and syncs everything on the first round
+  back home ("back home: synced ..."); a task another member took meanwhile keeps both results with a note. The dashboard
+  says "away from the household: working on your own until you're home". Tested offline, then sync.
+
+### Fixed
+
+- Jain's fairness index divided by zero when nobody got a slot (a paused machine).
+- `netpolicy` (from the review of #44): the config check knows WireGuard and Tailscale addresses outside the private
+  ranges; without `ip` the interfaces come from `ifconfig -a` (macOS, BSD); `auto` adds `::1`, IPv6 ULA, link-local with
+  its interface and the default route's own address (the one join codes name); an explicit bind on a container bridge
+  is refused. The coordinator listens on IPv6 too.
+- From the review of #47: invite links are quoted in the docs and hints (a shell drops `#`); "back home" is said only
+  after being away longer than a blip; the docs say exactly which servers `netpolicy` guards.
+
 ## 0.1.44 (2026-11-14)
 
 ### Added

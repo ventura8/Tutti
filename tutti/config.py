@@ -80,7 +80,7 @@ DEFAULTS = {
     # self_update: Tutti installs its newest checksummed release at login and once a day from the dashboard (docs/INSTALL.md);
     # enabled: false is the opt-out
     'self_update': {'enabled': True},
-    'household': {'port': 4778, 'bind': '0.0.0.0', 'lease_minutes': 30, 'starve_minutes': 20, 'share_spare_hours': 6,
+    'household': {'port': 4778, 'bind': 'auto', 'lease_minutes': 30, 'starve_minutes': 20, 'share_spare_hours': 6,
                   'timeout_seconds': 3},
     # update: `tutti update` and the dashboard's daily round; auto: false turns the round off, packages: apt packages whose
     # upgrade needs the owner's sudo (named with one exact command), programs: CLIs to update besides the workers' own

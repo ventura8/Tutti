@@ -166,9 +166,47 @@ def ensure_master(machine, spawn=subprocess.Popen, clock=time.time):
     return True
 
 
+REACH_CACHE = {}
+REACH_SECONDS = 60
+
+
+def ssh_target(host, run=subprocess.run):
+    """(hostname, port) ssh would connect to for `host` (an ~/.ssh/config alias or a name), from `ssh -G`."""
+    try:
+        out = run(['ssh', '-G', host], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return host, 22
+    kv = dict(line.split(' ', 1) for line in out.splitlines() if ' ' in line)
+    return kv.get('hostname', host), int(kv.get('port', 22) or 22)
+
+
+def reachable(host, port=None, connect=socket.create_connection, target=ssh_target, clock=time.time):
+    """Whether ssh's port on `host` answers within 2 s; remembered for a minute."""
+    hit = REACH_CACHE.get(host)
+    if hit and clock() - hit[1] < REACH_SECONDS:
+        return hit[0]
+    name, p = target(host)
+    try:
+        connect((name, port or p), 2).close()
+        ok = True
+    except OSError:
+        ok = False
+    REACH_CACHE[host] = (ok, clock())
+    return ok
+
+
+def pick_host(machine, reach=reachable):
+    """`host` (a VPN name, say), else `lan:` when the host does not answer and the LAN address does (docs/NETWORK.md)."""
+    lan = machine.get('lan')
+    if not lan or lan == machine['host'] or reach(machine['host']):
+        return machine['host']
+    return lan if reach(lan) else machine['host']
+
+
 def dest(machine):
-    """The ssh destination: [user@]host (a Termux machine's user is like u0_a123)."""
-    return f'{machine["user"]}@{machine["host"]}' if machine.get('user') else machine['host']
+    """The ssh destination: [user@]host (a Termux machine's user is like u0_a123); the `lan:` fallback when the host is away."""
+    host = pick_host(machine)
+    return f'{machine["user"]}@{host}' if machine.get('user') else host
 
 
 def port_opts(machine):
@@ -347,7 +385,8 @@ def runner_command(machine, track, command, mount=''):
         return f'bash -c {shlex.quote(inner)}'
     if r['kind'] == 'native':   # Android (Termux): no Docker; niced so the phone stays responsive
         return f'nice -n 10 bash -c {shlex.quote(inner)}'
-    env = ' '.join(f'-e {shlex.quote(f"{k}={v}")}' for k, v in r.get('env', {}).items())
+    # a None value passes the variable through from the shell (a wireless device's ANDROID_SERIAL is picked at run time)
+    env = ' '.join(f'-e {shlex.quote(k if v is None else f"{k}={v}")}' for k, v in r.get('env', {}).items())
     extra = ' '.join(shlex.quote(str(a)) for a in r.get('args', []))
     return (f'docker run --rm --memory={r["memory_gb"]}g --memory-swap={r["memory_gb"]}g --cpus={r["cpus"]} {env} {extra} '
             f'--name tutti-{machine["name"]}-{track}-$RANDOM -u "$(id -u):$(id -g)" -v "$PWD:$PWD" -w "$PWD" '
@@ -412,7 +451,8 @@ def device_wrap(device, command):
     run at a time uses it; a second run waits in the same queue as a machine's slots (slot.sh, memory floor off)."""
     if not device:
         return command
-    serial, lock = shlex.quote(str(device['serial'])), home_path(device['lock'])
+    from . import devices
+    serial, lock = devices.serial_expr(device), home_path(device['lock'])
     return f'mkdir -p "$(dirname {lock})" && env ANDROID_SERIAL={serial} SLOT_LOCKS={lock} MIN_FREE_GB=0 bash {{slot}} env {command}'
 
 
@@ -426,9 +466,10 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
     if device:
         from . import devices
         command = devices.external_wrap([device, *holds], command)   # other tools' lock files (devices.<d>.external_lock)
-        export += f'export ANDROID_SERIAL={shlex.quote(str(device["serial"]))} && '
+        export += f'export ANDROID_SERIAL={devices.serial_expr(device)} && '
         runner = merge_runner(machine['runner'], device.get('runner'))   # a device's own runner (shell for Gradle, host network)
-        machine = {**machine, 'runner': {**runner, 'env': {**runner.get('env', {}), 'ANDROID_SERIAL': str(device['serial'])}}}
+        picked = None if device.get('wireless') else str(device['serial'])   # None: the serial the export picked at run time
+        machine = {**machine, 'runner': {**runner, 'env': {**runner.get('env', {}), 'ANDROID_SERIAL': picked}}}
     if machine['transport'] == 'local':
         mount = ' '.join(x for x in (worktree.docker_mount(src), mount) if x)
         slot_sh = shlex.quote(bash_path(SLOT_SCRIPT))

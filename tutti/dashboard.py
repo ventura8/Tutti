@@ -50,6 +50,7 @@ from . import (
     transfer,
     trial,
     update,
+    vpncmd,
     workers,
 )
 from . import dispatch as keepbusy  # dashboard.dispatch() routes POSTs
@@ -262,7 +263,7 @@ def static_path(url_path):
 API_SETTINGS, API_RESTART, API_SETUP = '/api/settings', '/api/restart', '/api/setup'
 API_PAIR, API_MOVE = '/api/devices/pair', '/api/devices/move'
 API_TUTTI_MOVE = '/api/move'   # Tutti itself to another machine (docs/MOVE.md); API_MOVE moves a device
-ADMIN_PATHS = (API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE)   # these change the config: an admin's
+ADMIN_PATHS = (API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn')   # these change the config: an admin's
 BODY_LIMITS[API_SETTINGS] = 65536
 
 
@@ -485,7 +486,7 @@ def save_dispatch(collector, raw):
 
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
          '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, API_SETUP,
-         API_PAIR, API_MOVE, API_TUTTI_MOVE)
+         API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn')
 
 
 def save_connect(collector, body, home=None):
@@ -521,7 +522,7 @@ def post(collector, headers, path, port, token, read):
         return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, {"agent": ...} to /api/main, '
                           '{"enabled": ...} to /api/autopilot or /api/self-improve, {"action": ...} to /api/control, '
                           '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, '
-                          '{"enabled"|"action": ...} to /api/dispatch, {"action": ...} to /api/connect, '
+                          '{"enabled"|"action": ...} to /api/dispatch, {"action": ...} to /api/connect or /api/vpn, '
                           '{"path": ...} to /api/settings, {} to /api/restart, '
                           '{"consent"|"error"|"use": ...} to /api/telemetry, {} to /api/update, {"action": "run"} to /api/setup, '
                           '{"action": ...} to /api/devices/pair or {"to": ...} to /api/devices/move'}
@@ -635,6 +636,7 @@ HANDLERS = {
     '/api/autocompact': save_autocompact,
     '/api/dispatch': save_dispatch,
     '/api/connect': save_connect,
+    '/api/vpn': lambda c, b: vpncmd.api(c.cfg, b),
     '/api/refresh': refresh_now,
     '/api/reading': lambda c, b: save_reading(c.cfg, b),
     '/api/telemetry': dashtelemetry.save,

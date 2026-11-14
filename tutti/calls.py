@@ -54,7 +54,7 @@ def holds(cfg, st, devices_rows, now):
 
 def adb_line(device, args):
     adb = shlex.quote(device.get('adb') or 'adb')
-    return f'timeout 10 {adb} -s {shlex.quote(str(device["serial"]))} shell {args}'
+    return f'timeout 10 {adb} -s {devices.serial_expr(device)} shell {args}'
 
 
 def look(cfg, device):

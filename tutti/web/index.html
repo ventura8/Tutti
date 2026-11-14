@@ -26,6 +26,7 @@
     <script src="energy.js?v=__TUTTI_VERSION__" defer></script>
     <script src="household.js?v=__TUTTI_VERSION__" defer></script>
     <script src="where.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="vpn.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
     <a class="skip" href="#main">Skip to the dashboard</a>
@@ -248,6 +249,19 @@
                     <fieldset class="segmented" id="job-filter"><legend class="sr-only">Show finished jobs</legend><div class="segmented__buttons" id="job-filter-buttons"></div></fieldset>
                 </header>
                 <div id="jobs" class="jobs jobs--history"></div>
+            </section>
+
+            <section class="card span-full" aria-labelledby="vpn-h">
+                <header class="card__head">
+                    <h2 id="vpn-h">Private network (optional)</h2>
+                    <p class="card__meta" id="vpn-meta">Already have a VPN to your home? Nothing to do. Tutti works on the LAN too (docs/NETWORK.md)</p>
+                </header>
+                <details class="vpn">
+                    <summary>Set one up between your devices</summary>
+                    <p class="row__note" id="vpn-intro">Run <code>tutti vpn setup</code> on this computer: it does what it can and lists the rest here, in order.</p>
+                    <ol id="vpn-steps" class="list"></ol>
+                    <div id="vpn-qr"></div>
+                </details>
             </section>
         </div>
       </div>

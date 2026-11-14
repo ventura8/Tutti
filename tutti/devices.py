@@ -82,7 +82,35 @@ def errors(cfg):
         v = d.get('external_lock_stale_minutes')
         if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0):
             errs.append(f'{where}.external_lock_stale_minutes is {v!r}: minutes after which another tool\'s lock counts as left behind')
+        errs += wireless_errors(where, d.get('wireless'))
     return errs
+
+
+def wireless_errors(where, w):
+    if w is None:
+        return []
+    if not isinstance(w, list) or not all(isinstance(x, str) and re.fullmatch(r'[A-Za-z0-9_.:\[\]-]+:\d{2,5}', x) for x in w):
+        return [f'{where}.wireless is {w!r}: a list of host:port adb addresses, LAN first, e.g. [192.168.1.20:5555, '
+                'phone.your-tailnet.ts.net:5555] (docs/NETWORK.md, *Android*)']
+    return []
+
+
+def transports(device):
+    """The adb addresses in the order they are tried: the USB serial, then each wireless address (LAN, then a VPN one)."""
+    return [str(device['serial']), *[a for a in device.get('wireless') or [] if a != str(device['serial'])]]
+
+
+def serial_expr(device):
+    """The shell word for the device's adb serial. With no `wireless:` it is the serial itself; with it, a bash snippet that picks
+    the first transport adb sees as `device`, reconnects a dropped wireless one (`adb connect`) on the way, and falls back to the
+    serial (the readings then say how to reconnect)."""
+    if not device.get('wireless'):
+        return shlex.quote(str(device['serial']))
+    adb = shlex.quote(device.get('adb') or 'adb')
+    usb, *wifi = [shlex.quote(t) for t in transports(device)]
+    ok = '[ "$(timeout 5 ' + adb + ' -s "$t" get-state 2>/dev/null | tr -d \'\\r\')" = device ]'
+    return ('"$(for t in ' + ' '.join([usb, *wifi]) + '; do ' + ok + ' && { echo "$t"; exit 0; }; case "$t" in *:*) timeout 10 ' + adb +
+            ' connect "$t" >/dev/null 2>&1; ' + ok + ' && { echo "$t"; exit 0; };; esac; done; echo ' + usb + ')"')
 
 
 def policy_errors(where, p):
@@ -254,7 +282,7 @@ def external_wrap(found, command, who='tutti'):
 def readings_command(device, scripts_dir, wake=False):
     """The bash line that prints the device's readings on its machine."""
     from . import remote  # remote imports routing, which imports this module
-    env = f'DEVICE_SERIAL={shlex.quote(str(device["serial"]))} DEVICE_LOCK={remote.home_path(device["lock"])}'
+    env = f'DEVICE_SERIAL={serial_expr(device)} DEVICE_LOCK={remote.home_path(device["lock"])}'
     if device.get('adb'):
         env += f' ADB={shlex.quote(device["adb"])}'
     if device.get('prep'):

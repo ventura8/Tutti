@@ -42,6 +42,8 @@ SECTIONS = [
      ['dashboard', 'project']),
     ('household', 'You and your household', 'Who this Tutti works for, and the household it shares machines with.',
      ['user', 'household', 'host']),
+    ('vpn', 'Private network (optional)', 'Already have a VPN to your home? Nothing to do. Which one `tutti vpn setup` sets up '
+     '(docs/NETWORK.md).', ['vpn']),
 ]
 
 
@@ -172,6 +174,8 @@ FIELDS = {
     # devices
     'devices.*.serial': field('adb serial', 'Wireless: its mDNS name (adb-…._adb-tls-connect._tcp, set by `tutti devices pair`); '
                                 'USB: from `adb devices`.', 'text'),
+    'devices.*.wireless': field('Wireless adb', 'host:port addresses tried after USB: LAN first, then the VPN.', 'list',
+                                item='host:port'),
     'devices.*.machine': field('Plugged into', 'The machine the device is reached from.', 'select', choices_from='machines'),
     'devices.*.kind': field('Kind', 'Set by `tutti devices pair`: phone, tablet or tv.', 'select', choices=['phone', 'tablet', 'tv']),
     'devices.*.model': field('Model', 'Set by `tutti devices pair`; a move checks the device it reaches is this one.', 'text'),
@@ -345,6 +349,14 @@ FIELDS = {
     'household.starve_minutes': field('Starved after', 'A member with no slot this long counts as starved.', **MIN),
     'household.share_spare_hours': field('Share spare room', 'How long before a reset spare room may be shared.', **HRS),
     'household.timeout_seconds': field('Coordinator timeout', 'After this, a member works alone.', **SEC),
+    # the optional private network (docs/NETWORK.md)
+    'vpn.prefer': field('Set up', 'Which one `tutti vpn setup` sets up; neither is on until you run it.', 'select',
+                        choices=['tailscale', 'wireguard']),
+    'vpn.wireguard.port': field('WireGuard port', 'UDP; the only port ever forwarded on the router.', 'number', min=1024, max=65535),
+    'vpn.wireguard.subnet': field('WireGuard subnet', 'auto: a free private /24, never 100.64.0.0/10.', 'text'),
+    'vpn.wireguard.hub': field('WireGuard hub', 'The always-on Tutti host. Empty: the dashboard\'s computer.', 'select',
+                               choices_from='machines'),
+    'vpn.wireguard.endpoint': field('Hub\'s public name', 'For use away from home. Empty: its LAN address.', 'text'),
 }
 # a Termux machine's policy fields, like a device's
 FIELDS.update({f'machines.*.{k}': v for k, v in POLICY.items()})

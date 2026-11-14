@@ -2,6 +2,28 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.49 (2026-11-14)
+
+### Added
+
+- `tutti vpn status|setup`: an optional private network between the household's devices (docs/NETWORK.md). Detects
+  Tailscale and WireGuard on every machine (over ssh, read-only) and the apps on every phone (over adb); `setup` picks
+  `vpn.prefer` (Tailscale suggested) without asking, does every step it can (install and join with passwordless sudo, opens
+  each sign-in page, opens the Play Store page on phones) and writes the rest into one ordered checklist. `--authkey <m>`
+  joins a headless machine with a hidden, never-stored key; `--cert` makes the private https certificate; `--dry-run`.
+- `tutti vpn setup --wireguard`: plain WireGuard with no account. A free private /24 (no clash with the LAN or 100.64/10),
+  keys made in Python (X25519) and sent only to their own machine (600), configs with no private key, one sudo line per
+  machine, a phone QR code shown once, and WireGuard's UDP port opened on the router (UPnP, NAT-PMP) only after a click.
+- The dashboard's **Private network (optional)** card ("Already have a VPN to your home? Nothing to do.") and
+  `POST /api/vpn`.
+- Android: `devices.<n>.wireless` adb addresses; every look and run picks USB, then LAN Wi-Fi, then the tailnet, and
+  reconnects a dropped wireless one. Machines: `lan:` is the ssh fallback when `host` (a VPN name) does not answer.
+
+### Security
+
+- Tailscale Funnel is never enabled: `tutti vpn funnel` refuses and the dashboard refuses to start while Funnel forwards
+  to one of Tutti's ports. `tutti/netpolicy.py` (shared with the household) keeps every bind private.
+
 ## 0.1.48 (2026-11-14)
 
 ### Added

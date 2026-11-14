@@ -71,14 +71,20 @@ function tile(label, value, note, tone) {
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+function nextNote(t) {
+    const n = t.next_worker;
+    if (!n) return '';
+    return n.worker ? ` · next agent job: ${n.worker}${n.args.length ? ' ' + n.args.join(' ') : ''}` : ' · no agent account has room';
+}
+
 function quotaTile(s) {
     const t = s.summary;
     const read = s.usage.accounts.filter((a) => a.state === 'ok').length;
     const missing = s.usage.accounts.length - read;
-    if (t.panic.length) return tile('Quota', `Panic: ${t.panic.join(', ')}`, 'Nothing new on these accounts until the reset', 'bad');
-    if (t.behind.length) return tile('Quota', `Behind: ${t.behind.join(', ')}`, 'Start more parallel work from the backlog', 'warn');
+    if (t.panic.length) return tile('Quota', `Panic: ${t.panic.join(', ')}`, 'Nothing new on these accounts until the reset' + nextNote(t), 'bad');
+    if (t.behind.length) return tile('Quota', `Behind: ${t.behind.join(', ')}`, 'Start more parallel work from the backlog' + nextNote(t), 'warn');
     if (!read) return tile('Quota', 'No readings', 'Log one: tutti usage log <account> <percent>', 'warn');
-    return tile('Quota', 'On pace', missing ? `${read} paced · ${missing} without a reading` : `${read} accounts paced`);
+    return tile('Quota', 'On pace', (missing ? `${read} paced · ${missing} without a reading` : `${read} accounts paced`) + nextNote(t));
 }
 
 function renderTiles(s) {
@@ -216,6 +222,26 @@ function autoLine(a) {
     return parts.length ? el('p', { class: 'account__auto', text: parts.join(' · ') }) : null;
 }
 
+function resetText(a) {
+    if (!a.reset) return null;
+    return a.reset_from ? when(a.reset) + ', ' + RESET_FROM[a.reset_from] : when(a.reset);
+}
+
+function accountFacts(a) {
+    return facts([
+        ['Resets', resetText(a)], ['Spend by', a.target && when(a.target)],
+        ['Last reading', a.reading_at && when(a.reading_at)], ['Window', a.window],
+        ['Share', a.share < 1 ? `${Math.round(a.share * 100)} % of the quota is this session's` : null], ['Read at', a.source],
+    ]);
+}
+
+function addButton(a) {
+    return el('button', {
+        class: 'btn btn--tonal account__add', type: 'button', 'data-add': a.name, text: 'Add a reading',
+        title: a.usage_url ? `Opens ${a.usage_url} and a short form` : 'Opens a short form', onclick: () => openReading(a),
+    });
+}
+
 function account(a, now) {
     const verdict = a.panic ? 'panic' : a.verdict;
     const card = el('article', { class: 'account', 'data-panic': String(a.panic), 'aria-label': `${a.name}: ${verdict}` },
@@ -232,20 +258,7 @@ function account(a, now) {
     }
     if (a.reset) card.append(sparkline(a, now));
     card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
-    card.append(facts([
-        ['Resets', a.reset && `${when(a.reset)}${a.reset_from ? `, ${RESET_FROM[a.reset_from]}` : ''}`], ['Spend by', a.target && when(a.target)],
-        ['Last reading', a.reading_at && when(a.reading_at)], ['Window', a.window],
-        ['Share', a.share < 1 ? `${Math.round(a.share * 100)} % of the quota is this session's` : null], ['Read at', a.source],
-    ]));
-    card.append(autoLine(a) || '');
-    if (ui.editing.has(a.name)) {
-        card.append(readingForm(a));
-    } else {
-        card.append(el('button', {
-            class: 'btn btn--tonal account__add', type: 'button', 'data-add': a.name, text: 'Add a reading',
-            title: a.usage_url ? `Opens ${a.usage_url} and a short form` : 'Opens a short form', onclick: () => openReading(a),
-        }));
-    }
+    card.append(accountFacts(a), autoLine(a) || '', ui.editing.has(a.name) ? readingForm(a) : addButton(a));
     return card;
 }
 
@@ -324,6 +337,19 @@ function renderWorkers(s) {
 
 // ---- jobs
 
+function progressBar(j) {
+    const p = j.progress;
+    if (!p) return el('span', { class: 'job__progress', title: 'Nothing in its log says how far it is', text: '—' });
+    const bar = el('span', { class: 'job__bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': p.pct,
+        'aria-label': `${j.title}: ${p.pct} %` });
+    const fill = el('span');
+    fill.style.width = `${p.pct}%`;
+    bar.append(fill);
+    const label = p.total === 100 || p.source === 'finished' ? `${p.pct} %` : `${p.pct} % · ${p.done}/${p.total}`;
+    return el('span', { class: 'job__progress', title: p.source === 'reported' ? 'reported with tutti progress' : 'read from its log' },
+        bar, el('span', { text: label }));
+}
+
 function job(j) {
     const d = el('details', { class: 'job', 'data-status': j.status, 'data-id': j.id, open: ui.open.has(j.id) });
     d.addEventListener('toggle', () => {
@@ -341,6 +367,7 @@ function job(j) {
     d.append(el('summary', {},
         chip(j.status === 'failed' && j.rc !== null ? `failed · ${j.rc}` : j.status, JOB_TONE[j.status]),
         el('span', { class: 'job__title' }, j.title, el('small', { text: meta })),
+        progressBar(j),
         el('span', { class: 'job__when', text: idle })));
     const body = el('div', { class: 'job__body' });
     if (j.status === 'stalled') body.append(el('p', { text: 'Its log has not changed for a while. Read the end of the log: stop or restart the job rather than wait on it again.' }));
@@ -454,6 +481,25 @@ function accentNote() {
         : "Accent colour: Tutti's indigo (this browser does not share the system accent colour).";
 }
 
+async function refreshReadings() {
+    const b = $('refresh-readings');
+    b.disabled = true;
+    b.textContent = 'Reading…';
+    try {
+        const res = await fetch('/api/refresh', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: '{}',
+        });
+        const answer = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(answer.error || `the dashboard answered ${res.status}`);
+        await refresh();
+    } catch (e) {
+        showBanner(el('strong', { text: 'Usage was not read. ' }), e.message);
+    } finally {
+        b.disabled = false;
+        b.textContent = 'Refresh readings';
+    }
+}
+
 function keys(e) {
     if (e.target.closest('input, textarea, select') || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'r' || e.key === 'R') void refresh();
@@ -484,6 +530,7 @@ function install() {
 
 document.addEventListener('DOMContentLoaded', () => {
     $('refresh').addEventListener('click', refresh);
+    $('refresh-readings').addEventListener('click', refreshReadings);
     document.addEventListener('keydown', keys);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
     setInterval(live, 1000);

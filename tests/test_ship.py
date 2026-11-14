@@ -83,6 +83,36 @@ class ShipTest(unittest.TestCase):
         with self.assertRaises(ship.ShipError):
             ship.ship(self.cfg(), self.tmp.name, 'feat: x', say=self.said.append)
 
+    def test_refuses_conflict_markers_and_names_the_files(self):
+        self.write('b.txt', 'two\n<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> other\n')
+        self.write('README.md', 'Title\n=======\n')   # a heading underline alone is not a conflict
+        before = git(self.origin, 'rev-parse', 'main')
+        with self.assertRaises(ship.ShipError) as ctx:
+            self.ship(self.cfg())
+        self.assertIn('conflict markers', str(ctx.exception))
+        self.assertIn('b.txt', str(ctx.exception))
+        self.assertNotIn('README.md', str(ctx.exception))
+        self.assertEqual((git(self.tree, 'log', '-1', '--format=%s'), git(self.origin, 'rev-parse', 'main')), ('chore: start', before))
+        self.write('b.txt', 'two\n')
+        self.ship(self.cfg())
+
+    def test_refuses_a_rebase_or_merge_in_progress(self):
+        self.write('a.txt', 'work\n')
+        git(self.tree, 'commit', '-qam', 'feat: work')
+        git(self.tree, 'checkout', '-q', 'main')
+        self.write('a.txt', 'main\n')
+        git(self.tree, 'commit', '-qam', 'feat: main')
+        git(self.tree, 'checkout', '-q', 'work')
+        subprocess.run(['git', '-C', self.tree, 'rebase', 'main'], capture_output=True)
+        with self.assertRaises(ship.ShipError) as ctx:
+            self.ship(self.cfg())
+        self.assertIn('middle of a rebase', str(ctx.exception))
+        git(self.tree, 'rebase', '--abort')
+        subprocess.run(['git', '-C', self.tree, 'merge', 'main'], capture_output=True)
+        with self.assertRaises(ship.ShipError) as ctx:
+            self.ship(self.cfg())
+        self.assertIn('middle of a merge', str(ctx.exception))
+
     def test_dry_run_changes_nothing(self):
         self.write('b.txt', 'two\n')
         self.ship(self.cfg(), dry_run=True)

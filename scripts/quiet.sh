@@ -7,6 +7,7 @@ dir="${QUIET_DIR:-${TMPDIR:-/tmp}/tutti-quiet}"
 mkdir -p "$dir"
 log="$dir/$(date +%s)-$$.log"
 printf '%s\n' "$*" > "$log.cmd"   # what ran, for `tutti dashboard`
+export TUTTI_PROGRESS_FILE="$log.progress"   # `tutti progress <n>/<m>` inside the job writes here; the dashboard shows it
 "$@" > "$log" 2>&1
 rc=$?
 echo "$rc" > "$log.rc"   # the result beside the log: `tutti dashboard` shows done or failed

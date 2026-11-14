@@ -18,6 +18,14 @@ TAIL_LINES = 40
 TAIL_WIDTH = 400
 MAX_JOBS = 40
 ANSI = re.compile(r'\x1b\[[0-9;?]*[ -/]*[@-~]')
+# Progress lines, most specific first; a job's progress is the last line of its log any of them matches. Bare `a/b` and
+# bare percentages are not used: dates, ratios and coverage figures would read as progress.
+PROGRESS = (
+    ('steps', re.compile(r'\[\s*(\d+)\s*/\s*(\d+)\s*\]')),                       # playwright [150/177], many build tools
+    ('stage', re.compile(r'\b(?:stage|step|gate|phase|chunk)\s+(\d+)\s*(?:/|of)\s*(\d+)\b', re.I)),
+    ('percent', re.compile(r'\[\s*(\d{1,3})\s*%\s*\]')),                            # pytest [ 13%]
+    ('tests', re.compile(r'\b(\d+)\s*/\s*(\d+)\s+(?:tests?|files?|specs?|passed|done)\b', re.I)),
+)
 LOG_NAME = re.compile(r'^(?:ship-)?(\d+)-(\d+)(?:-\d+)?\.log$')
 
 
@@ -93,6 +101,26 @@ def account_of_worker(cfg, name):
     return next((n for n, a in cfg['accounts'].items() if (a or {}).get('worker') == name), None)
 
 
+def worker_accounts(cfg):
+    """Accounts that name a worker, in `routing.workers` order (by worker) when given, else in config order."""
+    names = [n for n, a in cfg['accounts'].items() if (a or {}).get('worker')]
+    order = cfg['routing'].get('workers') or []
+    pos = {w: i for i, w in enumerate(order)}
+    names = [n for n in names if not order or cfg['accounts'][n]['worker'] in pos]
+    return sorted(names, key=lambda n: pos.get(cfg['accounts'][n]['worker'], 0))
+
+
+def next_worker(cfg, accounts):
+    """Where the next agent job goes, from the latest readings: {worker, account, args, reason}, worker None when none has room."""
+    by_name = {a['name']: a for a in accounts}
+    states = [by_name[n] for n in worker_accounts(cfg) if n in by_name]
+    best, reason = routing.pick_account(states)
+    if not best:
+        return {'worker': None, 'account': None, 'args': [], 'reason': reason}
+    acc = cfg['accounts'][best['name']]
+    return {'worker': acc['worker'], 'account': best['name'], 'args': list(acc.get('args') or []), 'reason': reason}
+
+
 def with_readers(usage, readers):
     """The accounts with what their automatic readers said: the plan label, how often they are read, and a problem if any."""
     for a in usage['accounts']:
@@ -130,6 +158,44 @@ def tail(path, lines=TAIL_LINES):
         return []
     out = [ANSI.sub('', line).replace('\r', '')[:TAIL_WIDTH] for line in text.splitlines()[-lines:]]
     return out
+
+
+def progress_of_line(line):
+    for source, pattern in PROGRESS:
+        m = pattern.search(line)
+        if not m:
+            continue
+        if source == 'percent':
+            pct = int(m.group(1))
+            return {'done': pct, 'total': 100, 'pct': pct, 'source': 'log'} if pct <= 100 else None
+        done, total = int(m.group(1)), int(m.group(2))
+        if 0 < total and done <= total:
+            return {'done': done, 'total': total, 'pct': round(100 * done / total), 'source': 'log'}
+    return None
+
+
+def read_progress_file(path):
+    """`tutti progress n/m` (or a job's own script) writes `<n> <m>` to <log>.progress; it beats the log's lines."""
+    try:
+        with open(path, encoding='utf8') as f:
+            done, total = (int(x) for x in f.read().replace('/', ' ').split()[:2])
+    except (OSError, ValueError):
+        return None
+    if total <= 0 or not 0 <= done <= total:
+        return None
+    return {'done': done, 'total': total, 'pct': round(100 * done / total), 'source': 'reported'}
+
+
+def progress(log_path, lines):
+    """{done, total, pct, source} or None when nothing says how far the job is (the page then shows a dash, never a guess)."""
+    reported = read_progress_file(log_path + '.progress')
+    if reported:
+        return reported
+    for line in reversed(lines):
+        p = progress_of_line(line)
+        if p:
+            return p
+    return None
 
 
 def alive(pid):
@@ -178,9 +244,14 @@ def log_job(path, kind, now, stall, is_alive):
     rc = read_rc(path + '.rc')
     running = rc is None and bool(pid) and is_alive(pid)
     title = read_first_line(path + '.cmd') or {'quiet': 'quiet run', 'ship': 'ship check'}[kind]
+    lines = tail(path)
+    status = status_of(running, updated, rc, now, stall)
+    prog = progress(path, lines)
+    if status == 'done':
+        prog = {'done': 1, 'total': 1, 'pct': 100, 'source': 'finished'}
     return {'id': f'{kind}:{os.path.basename(path)}', 'kind': kind, 'title': title, 'pid': pid, 'log': path, 'started': iso(started),
             'updated': iso(updated), 'idle_seconds': round(now - updated) if updated else None, 'rc': rc,
-            'status': status_of(running, updated, rc, now, stall), 'tail': tail(path)}
+            'status': status, 'tail': lines, 'progress': prog}
 
 
 def wait_jobs(folder, now, stall, is_alive):
@@ -200,7 +271,8 @@ def wait_jobs(folder, now, stall, is_alive):
         target = f'{info.get("kind", "?")} {info.get("target", "")} {info.get("pattern", "")}'.strip()
         out.append({'id': f'wait:{pid}', 'kind': 'wait', 'title': f'wait {target}', 'pid': int(pid), 'log': watch if updated else None,
                     'started': iso(info.get('started')), 'updated': iso(updated), 'idle_seconds': round(now - updated) if updated else None,
-                    'rc': None, 'status': status_of(True, updated, None, now, limit), 'tail': tail(watch, 12) if updated else []})
+                    'rc': None, 'status': status_of(True, updated, None, now, limit), 'tail': tail(watch, 12) if updated else [],
+                    'progress': progress(watch, tail(watch)) if updated else None})
     return out
 
 
@@ -212,7 +284,7 @@ def pid_jobs(folder, is_alive):
         if pid.isdigit() and is_alive(pid):
             out.append({'id': f'llm:{pid}', 'kind': 'local model', 'title': 'local-model job', 'pid': int(pid), 'log': None,
                         'started': iso(mtime(path)), 'updated': iso(mtime(path)), 'idle_seconds': None, 'rc': None, 'status': 'running',
-                        'tail': []})
+                        'tail': [], 'progress': None})
     for path in glob.glob(os.path.join(folder, 'tunnel-*.pid')):
         name = os.path.basename(path)[len('tunnel-'):-len('.pid')]
         try:
@@ -224,7 +296,7 @@ def pid_jobs(folder, is_alive):
             log = path[:-4] + '.log'
             out.append({'id': f'tunnel:{name}', 'kind': 'tunnel', 'title': f'tunnel to {name}', 'pid': int(pid), 'log': log,
                         'started': iso(mtime(path)), 'updated': iso(mtime(log)), 'idle_seconds': None, 'rc': None, 'status': 'running',
-                        'tail': tail(log, 8)})
+                        'tail': tail(log, 8), 'progress': None})
     return out
 
 
@@ -246,9 +318,9 @@ def jobs_state(cfg, now, is_alive=alive):
 # ---- the whole state
 
 
-def summary(usage, machines, workers, jobs):
+def summary(usage, machines, workers, jobs, nxt=None):
     accounts = usage['accounts']
-    return {'panic': [a['name'] for a in accounts if a['panic']],
+    return {'next_worker': nxt, 'panic': [a['name'] for a in accounts if a['panic']],
             'behind': [a['name'] for a in accounts if a['verdict'] in ('behind', 'late')],
             'free_slots': sum(m['free'] or 0 for m in machines), 'slots': sum(m['slots'] for m in machines),
             'machines_offline': [m['name'] for m in machines if m['status'] == 'offline'],
@@ -270,7 +342,7 @@ def assemble(cfg, probes, now=None, is_alive=alive):
             'refresh_seconds': cfg['dashboard']['refresh_seconds'], 'usage': usage,
             'machines': {'probed_at': iso(probes.get('machines_at')), 'items': machines},
             'workers': {'probed_at': iso(probes.get('workers_at')), **workers}, 'jobs': jobs,
-            'summary': summary(usage, machines, workers, jobs)}
+            'summary': summary(usage, machines, workers, jobs, next_worker(cfg, usage['accounts']))}
 
 
 def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time):

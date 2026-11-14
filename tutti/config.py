@@ -147,8 +147,11 @@ def validate(cfg):
         errs += _worker_errors(name, w)
         if (w or {}).get('machine') and w['machine'] not in cfg['machines']:
             errs.append(f'workers.{name}.machine names "{w["machine"]}", which is not under machines:')
+    errs += [f'routing.workers names "{n}", which is not under workers:' for n in cfg['routing'].get('workers') or []
+             if n not in cfg['workers']]
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {})
+        errs += _account_worker_errors(cfg, name, a or {})
         share = (a or {}).get('share', 1)
         if not isinstance(share, (int, float)) or not 0 < share <= 1:
             errs.append(f'accounts.{name}.share is {share!r}: use a fraction above 0 and up to 1 (0.5 = half)')
@@ -167,7 +170,7 @@ def _command_errors(key, spec, needs):
         errs.append(f'{key}.command is missing: a list such as [agy, -p, /usage, --output-format, json]')
     if not isinstance(spec.get(needs), str) or not spec.get(needs):
         errs.append(f'{key}.{needs} is missing (docs/USAGE-PACING.md: Automatic readings)')
-    every = spec.get('every_minutes', 10)
+    every = spec.get('every_minutes', 1)
     if isinstance(every, bool) or not isinstance(every, (int, float)) or not math.isfinite(every) or every <= 0:
         errs.append(f'{key}.every_minutes is {every!r}: use a number of minutes above 0')
     return errs
@@ -192,13 +195,26 @@ def _account_source_errors(name, a):
         errs += _command_errors(f'{key}.reader', a['reader'], 'bucket')
     if 'plan' in a:
         errs += _command_errors(f'{key}.plan', a['plan'], 'field')
-    m = a.get('match')
-    if m is not None:
-        if not isinstance(m, dict) or not m.get('command'):
-            return errs + [f'{key}.match needs command: a pattern for the job command lines of this account (e.g. "\\bagy\\b")']
-        errs += _regex_errors(f'{key}.match.command', m['command'])
-        errs += _regex_errors(f'{key}.match.model', m['model']) if 'model' in m else []
+    return errs + _match_errors(key, a.get('match'))
+
+
+def _account_worker_errors(cfg, name, a):
+    errs = []
+    if a.get('worker') and a['worker'] not in cfg['workers']:
+        errs.append(f'accounts.{name}.worker names "{a["worker"]}", which is not under workers:')
+    args = a.get('args', [])
+    if not isinstance(args, list) or not all(isinstance(x, str) for x in args):
+        errs.append(f'accounts.{name}.args is {args!r}: a list of extra arguments for its worker, e.g. [--model, gemini-3.8-flash-high]')
     return errs
+
+
+def _match_errors(key, m):
+    if m is None:
+        return []
+    if not isinstance(m, dict) or not m.get('command'):
+        return [f'{key}.match needs command: a pattern for the job command lines of this account (e.g. "\\bagy\\b")']
+    errs = _regex_errors(f'{key}.match.command', m['command'])
+    return errs + (_regex_errors(f'{key}.match.model', m['model']) if 'model' in m else [])
 
 
 def _dashboard_errors(d):

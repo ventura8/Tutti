@@ -11,6 +11,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
 from . import pacing, readers, remote, state, workers
 
@@ -38,14 +39,23 @@ class Collector:
         self.reader = reader or readers.Readers(cfg, clock=clock)
         self.probes = {}
         self.lock = threading.Lock()
+        self.read_lock = threading.Lock()   # the probe thread and a Refresh readings click never run the readers at once
         self.stop = threading.Event()
 
-    def read_usage(self):
-        """The automatic readings: each account's reader (cached per command) and limit messages in recent job logs, appended
-        to the usage log when they say something new."""
-        now = datetime.fromtimestamp(self.clock(), timezone.utc)
-        found = self.reader.read_all(now)
-        readers.record(state.usage_log_path(self.cfg), found, self.reader.scan_jobs(now), now)
+    def read_usage(self, force=False):
+        """The automatic readings: each account's reader (cached per command unless `force`) and limit messages in recent job
+        logs, appended to the usage log when they say something new."""
+        with self.read_lock:
+            now = datetime.fromtimestamp(self.clock(), timezone.utc)
+            found = self.reader.read_all(now, force)
+            readers.record(state.usage_log_path(self.cfg), found, self.reader.scan_jobs(now), now)
+            return found
+
+    def refresh_readings(self):
+        """Refresh readings (the dashboard button): the readers now, without waiting for the next probe or their interval."""
+        found = self.read_usage(force=True)
+        with self.lock:
+            self.probes = {**self.probes, 'readers': found}
         return found
 
     def refresh(self):
@@ -95,11 +105,16 @@ def static_path(url_path):
     return full
 
 
+def same_origin(origin, host):
+    """The dashboard is served over plain HTTP on loopback only (allowed_host), so its Origin is that scheme and host."""
+    parts = urlsplit(origin or '')
+    return parts.scheme == 'http' and parts.netloc == host and parts.path == '' and not parts.query
+
+
 def check_post(headers, host, token):
     """None when a POST may write, else (status, why). Same origin only: the Origin header must be this dashboard's, a
     browser's Sec-Fetch-Site must say same-origin, the body is JSON and the page's token is sent back."""
-    origin = headers.get('Origin')
-    if origin != f'http://{host}':
+    if not same_origin(headers.get('Origin'), host):
         return 403, 'only the dashboard page itself may save a reading (the Origin header is not this dashboard)'
     if headers.get('Sec-Fetch-Site', 'same-origin') != 'same-origin':
         return 403, 'only the dashboard page itself may save a reading (the request is cross-site)'
@@ -150,13 +165,17 @@ def save_reading(cfg, raw, now=None):
     return 200, {'ok': True, 'reading': entry}
 
 
-def post(cfg, headers, path, port, token, read):
+POSTS = ('/api/reading', '/api/refresh')
+
+
+def post(collector, headers, path, port, token, read):
     """(status, answer) for a POST. `read(n)` reads n bytes of the body, only once the request passed every check."""
     host = headers.get('Host', '')
     if not allowed_host(host, port):
         return 403, {'error': 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)'}
-    if path.split('?', 1)[0] != '/api/reading':
-        return 404, {'error': 'the only thing to POST is a reading, to /api/reading'}
+    path = path.split('?', 1)[0]
+    if path not in POSTS:
+        return 404, {'error': 'POST a reading to /api/reading, or {} to /api/refresh to read usage now'}
     refused = check_post(headers, host, token)
     if refused:
         return refused[0], {'error': refused[1]}
@@ -166,7 +185,14 @@ def post(cfg, headers, path, port, token, read):
         size = -1
     if not 0 < size <= MAX_BODY:
         return 413, {'error': f'a reading is a small JSON object (at most {MAX_BODY} bytes)'}
-    return save_reading(cfg, read(size))
+    body = read(size)
+    if path == '/api/refresh':
+        try:
+            found = collector.refresh_readings()
+        except (OSError, ValueError) as e:
+            return 500, {'error': f'reading usage failed ({e}): fix the usage log, then refresh again'}
+        return 200, {'ok': True, 'read': sorted(found), 'problems': {n: r['problem'] for n, r in found.items() if r['problem']}}
+    return save_reading(collector.cfg, body)
 
 
 def route(collector, path, token=''):
@@ -218,7 +244,7 @@ def make_handler(collector, token):
             self.send(*route(collector, self.path.split('?', 1)[0], token))
 
         def do_POST(self):
-            code, answer = post(collector.cfg, self.headers, self.path, self.server.server_address[1], token, self.rfile.read)
+            code, answer = post(collector, self.headers, self.path, self.server.server_address[1], token, self.rfile.read)
             self.send(code, json.dumps(answer).encode(), JSON_TYPE)
 
     return Handler

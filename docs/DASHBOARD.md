@@ -27,7 +27,7 @@ by itself once `tutti dashboard` runs again.
 | Usage & pacing | `accounts:` in the config and the usage log (`tutti usage log`, the automatic readers, the Add a reading form). Per account: % used, the even-pace mark (what should be spent by now), the panic threshold (`panic_at`, default 95 %), the reset and target times and where the reset comes from (a reading, the config, an estimate), the readings of this window against the pace line, the plan and how often it is read automatically, and what to do. |
 | Machines | The same probe as `tutti machines`: free and busy slots, load against cores, routing rank, paused (yield flag up), offline. |
 | Workers | The same check as `tutti workers`, plus the known CLI agents on this computer (Claude Code, Cursor, Antigravity, GitHub Copilot CLI, Gemini CLI, Ollama): installed or not, and whether a worker uses them. |
-| Jobs | `<project.state>`: `quiet/*.log` (`tutti quiet`), `ship-*.log` (quiet ship checks), `waits/*.json` (`tutti wait`), `llm-busy-*` (local-model jobs) and `tunnel-*.pid`. Running, **stalled** (its log has not changed for `dashboard.stall_minutes`), failed (with its exit code), done, or ended (a run from before 0.1.4, whose result was not recorded). Each opens to the end of its log. |
+| Jobs | Each job shows a progress bar and its percentage when something says how far it is: `tutti progress <done>/<total>` (written beside the log), else the last progress line in its log (`[150/177]`, pytest's `[ 13%]`, `stage 2 of 4`, `12/40 tests`); a finished job is 100 %. Otherwise a dash: never a guessed number. `<project.state>`: `quiet/*.log` (`tutti quiet`), `ship-*.log` (quiet ship checks), `waits/*.json` (`tutti wait`), `llm-busy-*` (local-model jobs) and `tunnel-*.pid`. Running, **stalled** (its log has not changed for `dashboard.stall_minutes`), failed (with its exit code), done, or ended (a run from before 0.1.4, whose result was not recorded). Each opens to the end of its log. |
 
 Machines and workers are probed in the background every `dashboard.probe_seconds` (ssh answers can be slow); the
 rest is read on each request. The page polls `/api/state` every `dashboard.refresh_seconds` and pauses while hidden.
@@ -51,7 +51,9 @@ optional; `used` is 0 to 100; `resets` lies from a day ago to two months ahead.
 
 ## Automatic readings
 
-The background probe also runs each account's `reader` and `plan` command (at most every `every_minutes`) and scans
+**Refresh readings** (beside the Usage title) posts to `POST /api/refresh` (the same same-origin and token checks) and
+runs every reader at once, without waiting for the next probe; `tutti usage refresh` does the same from a terminal. The
+page then updates in place. The background probe also runs each account's `reader` and `plan` command (at most every `every_minutes`) and scans
 recent `tutti quiet` logs of agent jobs for limit messages (docs/USAGE-PACING.md, *Automatic readings*).
 
 ## Quota panic

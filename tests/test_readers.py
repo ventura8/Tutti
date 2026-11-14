@@ -52,6 +52,16 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(readers.parse_reset('resume in 45 minutes', NOW), NOW + timedelta(minutes=45))
         self.assertIsNone(readers.parse_reset('you have reached your usage limit', NOW))
 
+    def test_clock_time_resets(self):
+        local = NOW.astimezone()
+        at = readers.parse_reset("Claude usage limit reached. Your limit resets 3pm", NOW).astimezone(local.tzinfo)
+        self.assertEqual((at.hour, at.minute), (15, 0))
+        self.assertTrue(NOW < at <= NOW + timedelta(days=1))
+        at = readers.parse_reset('limit reached, available again at 09:30', NOW).astimezone(local.tzinfo)
+        self.assertEqual((at.hour, at.minute), (9, 30))
+        self.assertIsNone(readers.parse_reset('try again 3 times', NOW))
+        self.assertIsNone(readers.parse_reset('resets at 27:00', NOW))
+
     def test_only_limit_lines_are_hits(self):
         lines = ['working', "You've hit your usage limit for this month.", 'It resets in 2 days.', 'Error: 429 is a test name']
         hits = readers.limit_hits(lines, NOW)
@@ -209,11 +219,11 @@ class ReadingPostTest(unittest.TestCase):
         c.close()
         return r.status, data
 
-    def post(self, data, **over):
+    def post(self, data, path='/api/reading', **over):
         headers = {'Origin': f'http://{self.host}', 'Content-Type': 'application/json', 'X-Tutti-Token': self.httpd.token}
         headers.update({k.replace('_', '-'): v for k, v in over.items()})
         headers = {k: v for k, v in headers.items() if v is not None}
-        code, body = self.request('POST', '/api/reading', json.dumps(data).encode(), **headers)
+        code, body = self.request('POST', path, json.dumps(data).encode(), **headers)
         return code, json.loads(body)
 
     def test_the_page_carries_the_token_and_the_state_the_readers(self):
@@ -224,7 +234,7 @@ class ReadingPostTest(unittest.TestCase):
         self.assertEqual(acc['cursor']['plan'], 'Pro')
         self.assertEqual(acc['cursor']['usage_url'], 'https://provider.example/usage')
         self.assertEqual((acc['agy-claude']['used'], acc['agy-claude']['reset_from']), (90.0, 'reading'))
-        self.assertEqual(acc['agy-gemini']['auto_every_minutes'], 10)
+        self.assertEqual(acc['agy-gemini']['auto_every_minutes'], 0.5)
 
     def test_a_reading_from_the_page_is_saved(self):
         resets = (readers.utcnow() + timedelta(days=20)).isoformat()
@@ -233,6 +243,13 @@ class ReadingPostTest(unittest.TestCase):
         last = pacing.read_log(self.cfg['usage']['log'])[-1]
         self.assertEqual((last['account'], last['used'], last['source']), ('cursor', 37.0, 'dashboard'))
         self.assertEqual(T(last['resets']), T(resets))
+
+    def test_refresh_readings_runs_the_readers_now(self):
+        code, answer = self.post({}, path='/api/refresh')
+        self.assertEqual((code, answer['ok']), (200, True))
+        self.assertEqual(answer['read'], ['agy-claude', 'agy-gemini', 'cursor'])
+        self.assertEqual(self.post({}, path='/api/refresh', X_Tutti_Token='stale')[0], 403)
+        self.assertEqual(self.post({}, path='/api/refresh', Origin='http://evil.example')[0], 403)
 
     def test_cross_site_and_bad_readings_are_refused(self):
         self.assertEqual(self.post({'account': 'cursor', 'used': 1}, Origin='https://evil.example')[0], 403)
@@ -254,6 +271,118 @@ class ReadingPostTest(unittest.TestCase):
         self.assertEqual(code, 404)
         code, _ = self.request('POST', '/api/reading', b'{}', Host='attacker.example')
         self.assertEqual(code, 403)
+
+
+class RouteByReadingsTest(unittest.TestCase):
+    ROUTED = {'agy-claude': {'window': '5h', 'worker': 'agy', 'args': ['--model', 'claude-x']},
+              'agy-gemini': {'window': '5h', 'worker': 'agy', 'args': ['--model', 'gemini-x']},
+              'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z', 'worker': 'cursor'}}
+    WORKERS = {'agy': {'kind': 'cli', 'command': ['agy', '-p', '{prompt}']},
+               'cursor': {'kind': 'cli', 'command': ['cursor-agent', '{prompt}']}}
+
+    def pick(self, entries, now=NOW, order=None):
+        with tempfile.TemporaryDirectory() as folder:
+            cfg = cfg_of(folder, self.ROUTED, self.WORKERS)
+            cfg['routing']['workers'] = order or []
+            accounts = [pacing.account_state(n, a, entries, now) for n, a in cfg['accounts'].items()]
+            return state.next_worker(cfg, accounts)
+
+    def r(self, account, used, resets):
+        return {'at': (NOW - timedelta(minutes=5)).isoformat(), 'account': account, 'used': used, 'resets': resets}
+
+    def test_a_near_cap_reading_moves_the_next_job_to_another_account(self):
+        fresh = [self.r('agy-claude', 30, '2026-01-06T14:00Z'), self.r('agy-gemini', 10, '2026-01-06T16:00Z')]
+        first = self.pick(fresh)
+        self.assertEqual((first['worker'], first['account'], first['args']), ('agy', 'agy-claude', ['--model', 'claude-x']))
+        near_cap = fresh + [{**self.r('agy-claude', 97, '2026-01-06T14:00Z'), 'at': NOW.isoformat()}]
+        moved = self.pick(near_cap)
+        self.assertEqual((moved['account'], moved['args']), ('agy-gemini', ['--model', 'gemini-x']))
+        self.assertIn('agy-claude: panic', moved['reason'])
+        spent = [{**self.r(n, 100, resets), 'at': NOW.isoformat()} for n, resets in (('agy-gemini', '2026-01-06T16:00Z'),
+                                                                                      ('cursor', '2026-02-01T00:00Z'))]
+        all_spent = near_cap + spent
+        none = self.pick(all_spent)
+        self.assertIsNone(none['worker'])
+        self.assertIn('local model', none['reason'])
+
+    def test_quota_that_would_be_lost_goes_first_and_order_breaks_ties(self):
+        late = [self.r('agy-claude', 10, '2026-01-06T12:30Z'), self.r('agy-gemini', 0, '2026-01-06T16:59Z')]
+        self.assertEqual(self.pick(late)['account'], 'agy-claude')   # 30 min to its reset with 90 % left: late
+        self.assertEqual(self.pick([], order=['cursor', 'agy'])['account'], 'cursor')
+        self.assertEqual(self.pick([], order=['agy'])['account'], 'agy-claude')
+
+    def test_run_auto_uses_the_pick_and_refuses_when_nothing_has_room(self):
+        with tempfile.TemporaryDirectory() as folder:
+            script = os.path.join(folder, 'agent')
+            with open(script, 'w', encoding='utf8') as f:
+                f.write('import sys\nprint("args", sys.argv[2:])\n')
+            wk = {'agy': {'kind': 'cli', 'command': [sys.executable, script, '{prompt}']}}
+            acc = {'agy-claude': {'window': '5h', 'worker': 'agy', 'args': ['--model', 'claude-x']}}
+            cfg = cfg_of(folder, acc, wk)
+            path = os.path.join(folder, 'tutti.config.json')
+            with open(path, 'w', encoding='utf8') as f:
+                json.dump({k: cfg[k] for k in ('project', 'accounts', 'workers', 'usage')}, f)
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                self.assertEqual(cli.main(['--config', path, 'run', 'auto', 'task']), 0)
+            self.assertIn("'--model', 'claude-x'", out.getvalue())
+            self.assertIn('run auto: agy --model claude-x', err.getvalue())
+            soon = (readers.utcnow() + timedelta(hours=2)).isoformat()
+            pacing.append_log(cfg['usage']['log'], 'agy-claude', 99, readers.utcnow(), resets=soon)
+            with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                self.assertEqual(cli.main(['--config', path, 'run', 'auto', 'task']), 3)
+            self.assertIn('no agent account has room', err.getvalue())
+
+    def test_config_checks_worker_keys(self):
+        bad = config.normalise({'routing': {'workers': ['ghost']}, 'accounts': {'a': {'worker': 'ghost', 'args': '--x'}}})
+        errs = '\n'.join(config.validate(bad))
+        for text in ('routing.workers names "ghost"', 'accounts.a.worker names "ghost"', 'accounts.a.args'):
+            self.assertIn(text, errs)
+
+
+class ProgressTest(unittest.TestCase):
+    def test_progress_from_log_lines_never_a_guess(self):
+        p = state.progress_of_line
+        self.assertEqual(p('  ✓ [150/177] e2e/admin.spec.ts')['pct'], 85)
+        self.assertEqual(p('tests/test_a.py ....  [ 13%]')['pct'], 13)
+        self.assertEqual(p('stage 2 of 4: tests')['pct'], 50)
+        self.assertEqual(p('12/40 tests')['pct'], 30)
+        for line in ('coverage 90%', 'on 11/14 at noon', '[9/3]', '[ 140%]', 'stage 5 of 0'):
+            self.assertIsNone(p(line), line)
+
+    def test_jobs_carry_progress_and_tutti_progress_reports_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            quiet = os.path.join(folder, 'state', 'quiet')
+            os.makedirs(quiet)
+            log = os.path.join(quiet, '1700000000-999999.log')
+            with open(log, 'w', encoding='utf8') as f:
+                f.write('[3/10] building\n[4/10] building\nwarning: 50% of x\n')
+            cfg = cfg_of(folder)
+            cfg['dashboard']['stall_minutes'] = 10
+            item = state.jobs_state(cfg, 1700000100, is_alive=lambda pid: True)['items'][0]
+            self.assertEqual(item['progress'], {'done': 4, 'total': 10, 'pct': 40, 'source': 'log'})
+            path = os.path.join(folder, 'tutti.config.json')
+            with open(path, 'w', encoding='utf8') as f:
+                json.dump({'project': cfg['project']}, f)
+            self.assertEqual(cli.main(['--config', path, 'progress', '7/10', '--job', 'quiet:1700000000-999999.log']), 0)
+            item = state.jobs_state(cfg, 1700000100, is_alive=lambda pid: True)['items'][0]
+            self.assertEqual((item['progress']['pct'], item['progress']['source']), (70, 'reported'))
+            err = io.StringIO()
+            with redirect_stderr(err):
+                self.assertEqual(cli.main(['--config', path, 'progress', '11/10', '--job', log]), 2)
+                os.environ.pop('TUTTI_PROGRESS_FILE', None)
+                self.assertEqual(cli.main(['--config', path, 'progress', '1/2']), 2)
+            self.assertIn('<done>/<total>', err.getvalue())
+            self.assertIn('TUTTI_PROGRESS_FILE', err.getvalue())
+            with open(log + '.rc', 'w', encoding='utf8') as f:
+                f.write('0\n')
+            item = state.jobs_state(cfg, 1700000100, is_alive=lambda pid: False)['items'][0]
+            self.assertEqual(item['progress']['pct'], 100)
+            os.remove(log + '.progress')
+            with open(log, 'w', encoding='utf8') as f:
+                f.write('no numbers here\n')
+            os.remove(log + '.rc')
+            self.assertIsNone(state.jobs_state(cfg, 1700000100, is_alive=lambda pid: True)['items'][0]['progress'])
 
 
 class CliTest(unittest.TestCase):

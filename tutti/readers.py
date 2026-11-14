@@ -18,7 +18,6 @@ from datetime import datetime, timedelta, timezone
 from . import config, pacing
 
 READER_TIMEOUT = 90
-DEFAULT_EVERY_MINUTES = 10
 SCAN_DAYS = 2
 CONTEXT_LINES = 2
 # Keep a new automatic reading only when it says something new: a change of a point or more, a reset that moved, or an hour
@@ -27,14 +26,16 @@ MIN_CHANGE = 1.0
 RESET_MOVED = timedelta(minutes=10)
 KEEP_EVERY = timedelta(hours=1)
 
-LIMIT = re.compile(r'usage limit|rate[ -]?limit(?:ed)?|quota (?:exceeded|exhausted|reached|limit)|resource[_ ]exhausted|'
-                   r'limit (?:reached|exceeded|hit)|out of (?:credits|requests|quota)|(?:hit|reached) (?:your|the) .{0,40}limit|'
-                   r'too many requests|exhausted (?:your|the) .{0,30}quota', re.I)
+LIMITS = tuple(re.compile(p, re.I) for p in (
+    r'usage limit', r'rate[ -]?limit', r'quota (?:exceeded|exhausted|reached|limit)', r'resource[_ ]exhausted',
+    r'limit (?:reached|exceeded|hit)', r'out of (?:credits|requests|quota)', r'(?:hit|reached) (?:your|the) .{0,40}limit',
+    r'too many requests', r'exhausted (?:your|the) .{0,30}quota'))
 ISO = re.compile(r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?')
 UNIT = r'(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b'
 RELATIVE = re.compile(r'\b(?:in|after|within)\s+((?:\d+(?:\.\d+)?\s*' + UNIT + r'[\s,]*(?:and\s+)?)+)', re.I)
 PART = re.compile(r'(\d+(?:\.\d+)?)\s*' + UNIT, re.I)
 SECONDS = {'d': 86400, 'h': 3600, 'm': 60, 's': 1}
+CLOCK = re.compile(r'\b(?:resets?|refresh(?:es)?|available|again)\b\D{0,12}?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b', re.I)
 
 
 def _unit_seconds(unit):
@@ -51,16 +52,32 @@ def parse_reset(text, now):
             pass
     m = RELATIVE.search(text)
     if not m:
-        return None
+        return clock_reset(text, now)
     total = sum(float(n) * _unit_seconds(u) for n, u in PART.findall(m.group(1)))
     return now + timedelta(seconds=total) if total else None
+
+
+def clock_reset(text, now):
+    """`resets 3pm` / `resets at 15:30`: the next such time of day, in this computer's time zone."""
+    m = CLOCK.search(text)
+    if not m:
+        return None
+    hour, minute, half = int(m.group(1)), int(m.group(2) or 0), (m.group(3) or '').lower()
+    if not (m.group(2) or half):
+        return None   # a bare number ("again 3") is not a time
+    hour = hour % 12 + (12 if half == 'pm' else 0) if half else hour
+    if hour > 23 or minute > 59:
+        return None
+    local = now.astimezone()
+    at = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return (at if at > local else at + timedelta(days=1)).astimezone(timezone.utc)
 
 
 def limit_hits(lines, now):
     """[(line number, reset or None, the text around it)] for every line that says a limit was reached."""
     hits = []
     for i, line in enumerate(lines):
-        if not LIMIT.search(line):
+        if not any(p.search(line) for p in LIMITS):
             continue
         around = ' '.join(lines[i:i + 1 + CONTEXT_LINES])
         hits.append((i, parse_reset(around, now), around[:400]))
@@ -131,28 +148,33 @@ def run_json(command, timeout=READER_TIMEOUT, cwd=None):
 
 
 class Readers:
-    """Runs each reader command at most every `every_minutes` (one run serves every account that shares the command)."""
+    """Runs each reader command at most every `every_minutes` (default: every probe, `dashboard.probe_seconds`); one run
+    serves every account that shares the command. `force` (Refresh readings, `tutti usage refresh`) skips the wait."""
 
     def __init__(self, cfg, run=run_json, clock=time.time):
         self.cfg, self.run, self.clock = cfg, run, clock
         self.cache = {}   # command tuple -> (when, data, problem)
         self.scanned = {}   # job log -> mtime already scanned
 
-    def _answer(self, spec):
+    def every_minutes(self, spec):
+        return spec.get('every_minutes') or round(float(self.cfg['dashboard']['probe_seconds']) / 60, 2)
+
+    def _answer(self, spec, force=False):
         key = tuple(spec['command'])
-        every = float(spec.get('every_minutes', DEFAULT_EVERY_MINUTES)) * 60
+        every = float(self.every_minutes(spec)) * 60
         hit = self.cache.get(key)
-        if hit and self.clock() - hit[0] < every:
+        # A little under the interval: a probe that comes a moment early still runs the reader.
+        if hit and not force and self.clock() - hit[0] < every * 0.9:
             return hit[1], hit[2]
         data, problem = self.run(list(spec['command']))
         self.cache[key] = (self.clock(), data, problem)
         return data, problem
 
-    def read(self, name, a, now=None):
+    def read(self, name, a, now=None, force=False):
         """{'plan', 'used', 'resets', 'problem', 'every_minutes'} for one account from its `reader` and `plan` commands."""
         out = {'plan': None, 'used': None, 'resets': None, 'problem': None, 'every_minutes': None}
         if a.get('plan'):
-            data, problem = self._answer(a['plan'])
+            data, problem = self._answer(a['plan'], force)
             try:
                 out['plan'] = json_field(data, a['plan']['field']) if data is not None else None
             except ValueError as e:
@@ -160,8 +182,8 @@ class Readers:
             out['problem'] = problem
         r = a.get('reader')
         if r:
-            out['every_minutes'] = r.get('every_minutes', DEFAULT_EVERY_MINUTES)
-            data, problem = self._answer(r)
+            out['every_minutes'] = self.every_minutes(r)
+            data, problem = self._answer(r, force)
             if data is not None:
                 try:
                     out['used'], out['resets'] = agy_usage(data, r['bucket'])
@@ -171,9 +193,10 @@ class Readers:
             out['problem'] = problem or out['problem']
         return out
 
-    def read_all(self, now=None):
+    def read_all(self, now=None, force=False):
         """Every account with a reader or plan. Pass the `now` the readings will be recorded at."""
-        return {n: self.read(n, a or {}, now) for n, a in self.cfg['accounts'].items() if (a or {}).get('reader') or (a or {}).get('plan')}
+        accounts = {n: a or {} for n, a in self.cfg['accounts'].items()}
+        return {n: self.read(n, a, now, force) for n, a in accounts.items() if a.get('reader') or a.get('plan')}
 
     def scan_jobs(self, now, folder=None):
         """[(account, reset, ref, text)] for limit messages in recent `tutti quiet` logs of CLI-agent jobs not scanned yet."""

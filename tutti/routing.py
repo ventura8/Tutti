@@ -57,3 +57,44 @@ def choose(order, machines, probe_fn):
         why.append(f'{name}: {reason}')
     patient = [n for n in order if seen[n].reachable and not seen[n].yielding]
     return Choice((patient or order)[0], True, '; '.join(why))
+
+
+# ---- which agent account takes the next job, from the latest readings
+
+USE_FIRST = ('late', 'behind')    # quota that will be lost at the reset: spend it first
+NORMAL = ('on pace', 'no reading', 'unknown')
+
+
+def account_unfit(s):
+    """Why an account (a pacing.account_state) must not take new work, or ''."""
+    if s.get('panic'):
+        return f'panic: {s["used"]:g} % used before the target time'
+    if s.get('verdict') == 'spent':
+        return 'spent until the reset'
+    if s.get('used') is not None and s['used'] >= s.get('panic_at', 95):
+        return f'{s["used"]:g} % used: at the panic threshold'
+    return ''
+
+
+def rank(s):
+    v = s.get('verdict')
+    return 0 if v in USE_FIRST else 1 if v in NORMAL else 2
+
+
+def pick_account(states):
+    """(the account state to use, why) from states in preference order: never one in panic or spent; first the ones that
+    would lose quota at the reset (late, behind), then on pace or unread, then ahead. (None, why) when none has room."""
+    skipped = []
+    usable = []
+    for s in states:
+        reason = account_unfit(s)
+        if reason:
+            skipped.append(f'{s["name"]}: {reason}')
+        else:
+            usable.append(s)
+    if not usable:
+        why = '; '.join(skipped) or 'no account names a worker (accounts.<name>.worker)'
+        return None, f'no agent account has room ({why}): use a local model or wait for a reset'
+    best = min(usable, key=rank)   # min keeps the first of equal rank: the configured order breaks ties
+    note = f'{best["name"]} is {best["verdict"]}'
+    return best, note + (f'; skipped {"; ".join(skipped)}' if skipped else '')

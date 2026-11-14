@@ -20,8 +20,24 @@ Usage readings with minimum input.
   slider, reset time prefilled from the window rule); it saves through `POST /api/reading` (loopback host, same origin,
   JSON, the page's per-start token). Cards show the plan, how often the account is read automatically and where its
   reset comes from.
-- Config: `accounts.<name>.usage_url`, `reader`, `plan`, `match`, `worker`, `resets_estimated`, each checked with a
+- Config: `accounts.<name>.usage_url`, `reader`, `plan`, `match`, `worker`, `args`, `resets_estimated` and
+  `routing.workers`, each checked with a
   message that names the key and the fix.
+
+- `tutti run auto`: the readings decide which worker takes the job (panic and spent accounts are skipped; quota that
+  would be lost at the reset goes first; `routing.workers`, `accounts.<name>.worker` and `args`). The Quota tile shows
+  where the next agent job goes.
+- Refresh readings: a dashboard button (`POST /api/refresh`) and `tutti usage refresh` run every reader now. Readers
+  run at every probe by default (`every_minutes` to slow one down).
+- Job progress: a bar and percentage per job from `tutti progress <done>/<total>` (`tutti quiet` sets
+  `TUTTI_PROGRESS_FILE`) or the log's progress lines; a dash when unknown.
+- Claude limit messages with a clock time ("resets 3pm") are read too (`match` on the claude account).
+- The example config has a GitHub Copilot CLI worker.
+
+### Fixed
+
+- `tutti ship` refuses to commit or push in the middle of a rebase, merge, cherry-pick or revert, or with conflict
+  markers left in files (it names them); a lone `=======` heading underline is not a conflict.
 
 ### Changed
 

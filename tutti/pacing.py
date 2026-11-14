@@ -127,8 +127,7 @@ def readings(entries, account, since):
 
 def no_reading_action(name, a, src):
     if a.get('reader'):
-        every = a['reader'].get('every_minutes', 10)
-        return f'read automatically every {every:g} min by `tutti dashboard`; `tutti usage read` reads it now'
+        return 'read automatically at every probe of `tutti dashboard`; `tutti usage refresh` reads it now'
     tap = ', or Add a reading on the dashboard' if a.get('usage_url') else ''
     return f'read it at {src}, then: tutti usage log {name} <percent>{tap}'
 

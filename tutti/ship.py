@@ -46,6 +46,40 @@ def guard_tree(cfg, top, track=None, allow_protected=False):
     return branch
 
 
+IN_PROGRESS = (('rebase-merge', 'a rebase'), ('rebase-apply', 'a rebase or git am'), ('MERGE_HEAD', 'a merge'),
+               ('CHERRY_PICK_HEAD', 'a cherry-pick'), ('REVERT_HEAD', 'a revert'))
+# A conflict block: an opening and a closing marker. A lone `=======` line is a Markdown or reStructuredText heading
+# underline, so it only counts in a file that also has one of these.
+MARKERS = r'^(<<<<<<< |>>>>>>> )'
+
+
+def operation_in_progress(top):
+    """What git is in the middle of in this tree (a rebase, a merge, ...), or ''."""
+    for name, what in IN_PROGRESS:
+        if os.path.exists(os.path.join(top, git(top, 'rev-parse', '--git-path', name))):
+            return what
+    return ''
+
+
+def conflicted_files(top):
+    """Files, tracked or about to be added, that still hold conflict markers."""
+    out = git(top, 'grep', '-lE', '--untracked', MARKERS, check=False)
+    return sorted(n for n in out.split('\n') if n)
+
+
+def guard_conflicts(top):
+    """Refuses to commit or push in the middle of a rebase or merge, or with conflict markers left in files."""
+    what = operation_in_progress(top)
+    if what:
+        raise ShipError(f'refused: {top} is in the middle of {what}. Finish it (resolve, `git add`, then `git rebase --continue` '
+                        'or `git commit`) or abort it, then ship again (nothing was committed or pushed)')
+    files = conflicted_files(top)
+    if files:
+        shown = ', '.join(files[:10]) + (f' and {len(files) - 10} more' if len(files) > 10 else '')
+        raise ShipError(f'refused: conflict markers (<<<<<<< / =======  / >>>>>>>) are still in {shown}. Resolve them, then ship '
+                        'again (nothing was committed or pushed)')
+
+
 def message(text, trailer):
     return f'{text.strip()}\n\n{trailer.strip()}' if trailer else text.strip()
 
@@ -141,6 +175,7 @@ def ship(cfg, directory, text, full=False, no_add=False, track=None, allow_prote
     s = cfg['ship']
     top = toplevel(directory)
     branch = guard_tree(cfg, top, track, allow_protected)
+    guard_conflicts(top)
     if dry_run:
         say(plan(cfg, top, branch, text, full, no_add))
         return
@@ -159,6 +194,7 @@ def ship(cfg, directory, text, full=False, no_add=False, track=None, allow_prote
     run_checks(cfg, top, s['full_checks'] if full else s['checks'], env, track or os.path.basename(top), say)
     push = s.get('push')
     if push:
+        guard_conflicts(top)   # a format step or a check could have left a tree half merged
         git(top, 'push', '-q', push['remote'], f'HEAD:{push["branch"]}')
         say(f'pushed {git(top, "log", "--oneline", "-1")} to {push["remote"]}/{push["branch"]}')
     if s.get('deploy') and shell(top, s['deploy'], env).returncode != 0:

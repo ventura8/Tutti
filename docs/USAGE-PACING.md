@@ -43,6 +43,14 @@ only when they say something new (a point or more, a moved reset, or an hour sin
 the reset time, prefilled from the window rule), for what no CLI prints (Cursor's spend this month). `worker` names the
 worker whose card shows this account.
 
+## Readings decide where work goes
+
+`tutti run auto "<task>"` reads the latest readings (automatic and typed) and picks the account for the job: never one in
+panic (at or over `panic_at` before its target time) or spent; first one that is `late` or `behind` (quota that would be
+lost at the reset), then `on pace` or unread, then `ahead`; the order of `routing.workers` breaks ties. It runs that
+account's `worker` with its `args` (agy: `--model` of the window's model family). When no account has room it exits 3
+and says to use a local model. The dashboard's Quota tile shows where the next agent job goes.
+
 ## The arithmetic
 
 For a window from `start` to `reset`, the target time is `reset - lead_hours`. The share of the quota that should be

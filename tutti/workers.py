@@ -70,13 +70,13 @@ def listing(cfg):
 KEEP_LINES = 2000
 
 
-def run(cfg, name, task, files=(), cwd=None, out=None):
+def run(cfg, name, task, files=(), cwd=None, out=None, extra=()):
     """Runs a CLI worker on a brief in `cwd` (give each worker its own worktree). Its output is passed through as it comes and
     the last lines are kept, so a limit message in them can be read. Returns (exit code, the last lines)."""
     worker = cfg['workers'][name]
     out = out or sys.stdout
     kept = collections.deque(maxlen=KEEP_LINES)
-    with subprocess.Popen(command(worker, brief(cfg, task, files)), cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    with subprocess.Popen(command(worker, brief(cfg, task, files)) + list(extra), cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           text=True, errors='replace', bufsize=1) as p:
         for line in p.stdout:
             out.write(line)

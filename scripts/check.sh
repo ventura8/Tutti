@@ -5,7 +5,11 @@ cd "$(dirname "$0")/.."
 export TUTTI_TELEMETRY=off   # the smoke runs below are not usage: record nothing
 shellcheck scripts/*.sh install/*.sh
 if command -v ruff > /dev/null; then ruff check . bin/tutti; else echo "ruff is not installed here: skipped (CI runs it)"; fi
-XDG_CONFIG_HOME="$(mktemp -d)" python3 -m unittest discover -s tests   # never the owner's grok.env
+# its own temp folder, removed at the end: a test's leftovers never reach /tmp (tests/run.py fails a test that leaves any)
+TMPDIR="$(mktemp -d)"
+export TMPDIR
+trap 'rm -rf "$TMPDIR"' EXIT
+XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.env
 # the dashboard in a real browser, every tab: layout, accessibility, roles (docs/TESTING.md, *Browser tests*). A hard gate:
 # Playwright and axe come from requirements-dev.txt; the browser is fetched once (on CI with its system libraries).
 if [ -n "${CI:-}" ]; then python3 -m playwright install --with-deps chromium > /dev/null; else python3 -m playwright install chromium > /dev/null; fi

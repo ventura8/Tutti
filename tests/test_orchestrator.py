@@ -128,6 +128,17 @@ class WorkerCommandTest(unittest.TestCase):
         self.assertEqual(workers.with_args(['x', '--quiet'], ['--trust', '--n', '2']), ['x', '--quiet', '--trust', '--n', '2'])
         self.assertEqual(workers.with_args(['x', '-p', 'brief'], []), ['x', '-p', 'brief'])
 
+    def test_a_headless_allow_list_may_read_and_write_its_own_worktree_only(self):
+        argv = ['agy', '-p', 'b', '--settings', '{"permissions":{"allow":["command(git)"]}}']
+        out = workers.grant_tree(argv, '/w/tree')
+        tree = os.path.abspath('/w/tree')   # the platform's spelling (a drive and backslashes on Windows)
+        self.assertEqual(json.loads(out[4])['permissions']['allow'], ['command(git)', f'read_file({tree})', f'write_file({tree})'])
+        odd = ['agy', '--settings', '{"permissions":["read"]}']
+        self.assertEqual(workers.grant_tree(odd, '/w/tree'), odd)          # no allow list: passed through
+        self.assertEqual(workers.grant_tree(out, '/w/tree'), out)              # never twice
+        self.assertEqual(workers.grant_tree(['claude', '-p', 'b'], '/w/tree'), ['claude', '-p', 'b'])   # no allow-list: as is
+        self.assertEqual(workers.grant_tree(argv, None), argv)
+
     def test_log_placeholder_filled_or_dropped_with_its_flag(self):
         w = {'command': ['agy', '-p', '{prompt}', '--log-file', '{log}']}
         self.assertEqual(workers.command(w, 'do it', '/tmp/x.log'), ['agy', '-p', 'do it', '--log-file', '/tmp/x.log'])

@@ -12,6 +12,7 @@ import time
 import unittest
 from unittest import mock
 
+import tmpdirs
 import yaml
 
 from tutti import bridge, clientmode, config, move, movetools
@@ -65,7 +66,7 @@ def facts(**over):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = tmpdirs.mkdtemp()
         self.home = os.path.join(self.tmp, 'home')
         os.makedirs(os.path.join(self.home, '.config', 'tutti'))
         self.env = mock.patch.dict(os.environ, {'HOME': self.home, 'XDG_CONFIG_HOME': os.path.join(self.home, '.config'),
@@ -470,7 +471,7 @@ if __name__ == '__main__':
 
 class CarryTest(unittest.TestCase):
     def setUp(self):
-        self.home = tempfile.mkdtemp()
+        self.home = tmpdirs.mkdtemp()
 
     def test_each_cli_is_carried_by_its_own_install_folder(self):
         def real(p):

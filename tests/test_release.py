@@ -4,12 +4,13 @@ refused. A fake adb on this computer keeps the device's settings in files; HOME 
 import os
 import struct
 import subprocess
-import tempfile
 import textwrap
 import threading
 import time
 import unittest
 import zipfile
+
+import tmpdirs
 
 from tutti import apk, devices, prep, shards
 
@@ -33,7 +34,7 @@ FAKE_ADB = textwrap.dedent('''\
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = tmpdirs.mkdtemp()
         self.addCleanup(subprocess.run, ['rm', '-rf', self.tmp])
         os.makedirs(os.path.join(self.tmp, 'settings'))
         self.adb = os.path.join(self.tmp, 'adb')

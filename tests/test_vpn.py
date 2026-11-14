@@ -11,6 +11,9 @@ import subprocess
 import tempfile
 import textwrap
 import unittest
+from types import SimpleNamespace
+
+import tmpdirs
 
 from tutti import config, dashboard, devices, netpolicy, remote, vpn, vpncmd, wireguard
 
@@ -47,7 +50,7 @@ class FakeSh:
 
 
 def write_cfg(text):
-    d = tempfile.mkdtemp()
+    d = tmpdirs.mkdtemp()
     path = os.path.join(d, 'tutti.config.yaml')
     with open(path, 'w', encoding='utf8') as f:
         f.write(textwrap.dedent(text).replace('STATE', os.path.join(d, 'state')))
@@ -359,6 +362,24 @@ class LanOnly(unittest.TestCase):
         self.assertEqual(remote.pick_host(m, reach=lambda h: h == '192.168.1.5'), '192.168.1.5')
         self.assertEqual(remote.pick_host(m, reach=lambda h: True), 'box.tail0.ts.net')
         self.assertEqual(remote.pick_host({'host': 'box.example'}, reach=lambda h: 1 / 0), 'box.example')
+
+    def test_the_card_reads_its_state_with_a_get_that_answers_200_with_no_vpn_set_up(self):
+        cfg = config.normalise({})
+        with tempfile.TemporaryDirectory() as d:
+            cfg['project']['state'] = d
+            code, body, ctype, _ = dashboard.route(SimpleNamespace(cfg=cfg), dashboard.API_VPN_STATUS)
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(body)['provider'], '')   # nothing set up: a plain state, never an error
+        self.assertNotIn(dashboard.API_VPN_STATUS, dashboard.ADMIN_PATHS)   # any signed-in viewer loads the card
+
+    def test_the_dashboard_post_hands_raw_bytes_and_gets_an_answer(self):
+        cfg = config.normalise({})
+        with tempfile.TemporaryDirectory() as d:
+            cfg['project']['state'] = d
+            self.assertEqual(vpncmd.api(cfg, b'{"action": "status"}')[0], 200)   # the bytes the server reads: no AttributeError
+            self.assertEqual(vpncmd.api(cfg, b'not json')[0], 400)
+            self.assertEqual(vpncmd.api(cfg, b'[1]')[0], 400)
+            self.assertEqual(vpncmd.api(cfg, b'[' * 100000)[0], 400)   # nested too deep: still an answer
 
     def test_card_status_empty(self):
         cfg = write_cfg(LAN_CFG)

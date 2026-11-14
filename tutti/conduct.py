@@ -246,9 +246,10 @@ def allow_tutti(argv):
                 data = json.loads(a)
             except ValueError:
                 data = None
-        allow = ((data or {}).get('permissions') or {}).get('allow') if isinstance(data, dict) else None
+        perms = data.get('permissions') if isinstance(data, dict) else None
+        allow = perms.get('allow') if isinstance(perms, dict) else None
         if isinstance(allow, list) and 'command(tutti)' not in allow:
-            data['permissions']['allow'] = [*allow, 'command(tutti)']
+            perms['allow'] = [*allow, 'command(tutti)']
             a = json.dumps(data, separators=(',', ':'))
         out.append(a)
     return out

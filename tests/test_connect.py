@@ -3,9 +3,10 @@ import io
 import json
 import os
 import sys
-import tempfile
 import unittest
 from unittest import mock
+
+import tmpdirs
 
 from tutti import config, connect, dashboard, mcpserver, netpolicy
 
@@ -22,7 +23,7 @@ def all_bins(b):
 
 class ConnectorTest(unittest.TestCase):
     def setUp(self):
-        self.home = tempfile.mkdtemp()
+        self.home = tmpdirs.mkdtemp()
 
     def p(self, rel):
         return os.path.join(self.home, rel)
@@ -188,7 +189,7 @@ class ConnectorTest(unittest.TestCase):
 
 class McpServerTest(unittest.TestCase):
     def setUp(self):
-        d = tempfile.mkdtemp()
+        d = tmpdirs.mkdtemp()
         self.cfg = config.normalise({'project': {'worktrees': d, 'state': os.path.join(d, 'state')}})
         self.cfg['_path'] = os.path.join(d, 'tutti.config.yaml')
         self.calls = []
@@ -309,7 +310,7 @@ class ClaudeStatusTest(unittest.TestCase):
               'tutti: /bin/tutti --config /cfg/tutti.config.yaml mcp - \u2713 Connected\n')
 
     def setUp(self):
-        self.home = tempfile.mkdtemp()
+        self.home = tmpdirs.mkdtemp()
         connect._healed.clear()
         os.makedirs(os.path.join(self.home, '.claude', 'skills', 'tutti'))
         with open(os.path.join(self.home, '.claude', 'skills', 'tutti', 'SKILL.md'), 'w', encoding='utf8') as f:
@@ -389,7 +390,7 @@ class ClaudeStatusTest(unittest.TestCase):
 
 class DashboardConnectTest(unittest.TestCase):
     def test_status_test_and_bad_requests(self):
-        home = tempfile.mkdtemp()
+        home = tmpdirs.mkdtemp()
         col = mock.Mock(cfg={'_path': CFG})
         code, body = dashboard.save_connect(col, b'{"action": "status"}', home)
         self.assertEqual(code, 200)

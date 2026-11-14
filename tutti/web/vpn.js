@@ -49,7 +49,9 @@ function vpnStep(s) {
 
 async function renderVpn() {
     try {
-        const a = await vpnPost({ action: 'status' });
+        const res = await fetch('/api/vpn/status', { cache: 'no-store' });   // a GET: any viewer, 200 when no VPN is set up
+        const a = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(a.error || `the dashboard answered ${res.status}`);
         if (a.provider) $('vpn-intro').textContent = `${a.provider}: what is left for you, in order (\`tutti vpn setup\` again continues).`;
         $('vpn-steps').replaceChildren(...a.checklist.map(vpnStep));
     } catch (err) {

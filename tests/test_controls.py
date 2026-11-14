@@ -262,3 +262,21 @@ class HandoverTest(Base):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BeforeTheFirstProbe(unittest.TestCase):
+    def test_the_config_names_are_listed_while_the_first_probe_runs(self):
+        from tutti import state
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tutti.config.example.yaml')
+        cfg = config.load(path)
+        with tempfile.TemporaryDirectory() as d:
+            cfg['project']['state'] = d
+            out = state.assemble(cfg, {})
+        self.assertEqual(out['machines']['items'], [])   # nothing probed yet
+        self.assertEqual([m['name'] for m in out['machines']['configured']], list(cfg['machines']))
+        self.assertEqual([w['name'] for w in out['workers']['configured']], list(cfg['workers']))
+        self.assertEqual(len(out['devices']['configured']), len(cfg.get('devices') or {}))
+
+    def test_an_empty_config_lists_nothing(self):
+        from tutti import state
+        self.assertEqual(state.configured(config.normalise({})), {'machines': [], 'devices': [], 'workers': []})

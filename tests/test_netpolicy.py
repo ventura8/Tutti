@@ -1,8 +1,9 @@
 """Never on the internet (docs/HOUSEHOLD.md, *Network*): the coordinator, the dashboard and join links may use only
 localhost, private, LAN or VPN addresses; a public address or a wildcard is refused with the reason. No real network."""
 import os
-import tempfile
 import unittest
+
+import tmpdirs
 
 from tutti import config, coordinator, household, netpolicy, users
 
@@ -11,7 +12,7 @@ IFACES = [('lo', '', ['127.0.0.1', '::1']), ('wlo1', '', ['192.168.1.33', 'fe80:
 
 
 def cfg_with(**household_cfg):
-    d = tempfile.mkdtemp()
+    d = tmpdirs.mkdtemp()
     cfg = config.normalise({'project': {'state': os.path.join(d, 'state')}, 'household': household_cfg})
     cfg['_path'] = os.path.join(d, 'c.yaml')
     return cfg
@@ -78,7 +79,7 @@ class PolicyTest(unittest.TestCase):
 class ServersRefuseTest(unittest.TestCase):
     def setUp(self):   # a login with no household (the join and init checks come after that one)
         from unittest import mock
-        patcher = mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': tempfile.mkdtemp()})
+        patcher = mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': tmpdirs.mkdtemp()})
         patcher.start()
         self.addCleanup(patcher.stop)
 

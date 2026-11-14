@@ -10,6 +10,8 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest import mock
 
+import tmpdirs
+
 from tutti import autopilot, backlog, config, coordinator, household, householdcmd, sharing, users
 
 with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tutti', 'web', 'format.js'), encoding='utf8') as _f:
@@ -193,7 +195,7 @@ class Household:
     def __init__(self, test):
         self.test = test
         self.clock = Clock()
-        self.ana_home, self.bo_home = tempfile.mkdtemp(), tempfile.mkdtemp()
+        self.ana_home, self.bo_home = tmpdirs.mkdtemp(), tmpdirs.mkdtemp()
         self.ana = make_cfg(self.ana_home, 'Ana')
         with as_user(self.ana_home):
             self.code = coordinator.init(self.ana, 'home', host='127.0.0.1', port=4778, clock=self.clock)
@@ -439,7 +441,7 @@ class InviteJoinTest(unittest.TestCase):
     def setUp(self):
         from tutti import auth, invites
         self.clock = Clock()
-        self.ana_home, self.bo_home = tempfile.mkdtemp(), tempfile.mkdtemp()
+        self.ana_home, self.bo_home = tmpdirs.mkdtemp(), tmpdirs.mkdtemp()
         self.ana, self.bo = make_cfg(self.ana_home, 'Ana'), make_cfg(self.bo_home, 'Bo')
         self.folder = config.state_dir(self.ana)
         self.users = auth.Users(self.folder, clock=self.clock)
@@ -486,7 +488,7 @@ class InviteJoinTest(unittest.TestCase):
 
     def test_the_same_invite_cannot_join_twice_and_a_wrong_link_is_refused(self):
         self.join()
-        with mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': os.path.join(tempfile.mkdtemp(), 'xdg')}):
+        with mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': os.path.join(tmpdirs.mkdtemp(), 'xdg')}):
             with self.assertRaisesRegex(household.HouseholdError, 'already used'):
                 coordinator.join_invite(self.bo, self.link, 'cursor', [], override=self.where, clock=self.clock, sleep=lambda s: None)
             with self.assertRaisesRegex(household.HouseholdError, 'not a Tutti invite link'):
@@ -503,7 +505,7 @@ class GuidedJoinTest(unittest.TestCase):
 
     def test_the_cli_detects_the_agent_and_asks_nothing(self):
         out = io.StringIO()
-        bo_home = tempfile.mkdtemp()
+        bo_home = tmpdirs.mkdtemp()
         bo = make_cfg(bo_home, 'Bo')
         fake = mock.Mock(return_value={'household': 'Ana', 'name': 'Bo C', 'sub': 'g-bo', 'email': 'bo@example.com'})
         with as_user(bo_home), mock.patch.object(householdcmd, 'detect_main',
@@ -516,7 +518,7 @@ class GuidedJoinTest(unittest.TestCase):
 
     def test_not_signed_in_yet_is_one_step_at_the_end(self):
         out = io.StringIO()
-        bo_home = tempfile.mkdtemp()
+        bo_home = tmpdirs.mkdtemp()
         fake = mock.Mock(side_effect=household.HouseholdError('sign in with Google on the invite page first'))
         with as_user(bo_home):
             rc = householdcmd.join(make_cfg(bo_home, 'Bo'), SimpleNamespace(arg=[self.LINK], name=None, host=None), out, {}, None,
@@ -525,7 +527,7 @@ class GuidedJoinTest(unittest.TestCase):
         self.assertIn('1. Sign in with Google on the invite page', out.getvalue())
 
     def test_detect_main_never_asks(self):
-        cfg = make_cfg(tempfile.mkdtemp(), 'Bo')
+        cfg = make_cfg(tmpdirs.mkdtemp(), 'Bo')
         cfg['main']['agent'] = 'cursor'
         self.assertEqual(householdcmd.detect_main(cfg, which=lambda n: n == 'cursor-agent')[0], 'cursor')
         cfg['main']['agent'] = 'claude'

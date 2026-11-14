@@ -113,10 +113,45 @@ class Attention(unittest.TestCase):
         self.assertEqual(len(rows), 2)                                     # an empty row is left out
         self.assertEqual(js('tuttiPlanRows(null, String)'), [])
 
+    def test_a_hidden_element_stays_hidden_when_its_class_sets_display(self):
+        # .users-view { display: grid } beat the hidden attribute: the empty Users card showed on the main dashboard
+        with open(os.path.join(dashboard.WEB, 'index.html'), encoding='utf8') as f:
+            page = f.read()
+        with open(os.path.join(dashboard.WEB, 'app.css'), encoding='utf8') as f:
+            css = f.read()
+        shown = set(re.findall(r'(?m)^\.([a-z][\w-]*) \{[^}]*\bdisplay:\s*(?!none)', css))
+        hidden_rules = set(re.findall(r'[.#]([\w-]+)\[hidden\]', css))
+        if re.search(r'(?m)^\[hidden\] \{ display: none !important; \}', css):
+            return   # one rule hides every element marked hidden
+        for tag in re.findall(r'<[a-z]+\b[^>]*\bhidden\b[^>]*>', page):
+            ident = re.search(r'\bid="([^"]+)"', tag)
+            for cls in (re.search(r'\bclass="([^"]+)"', tag) or [None, ''])[1].split():
+                if cls in shown:
+                    self.assertTrue(cls in hidden_rules or (ident and ident.group(1) in hidden_rules), f'{tag}: add .{cls}[hidden]')
+
     def test_long_lists_fold(self):
         self.assertEqual(js('tuttiMore(10, 4, false)'), {'shown': 4, 'hidden': 6, 'button': 'Show 6 more'})
         self.assertEqual(js('tuttiMore(10, 4, true)'), {'shown': 10, 'hidden': 0, 'button': 'Show fewer'})
         self.assertEqual(js('tuttiMore(3, 4, false)'), {'shown': 3, 'hidden': 0, 'button': ''})
+
+
+    def test_open_folds_and_filters_survive_a_refresh(self):
+        ui = 'const ui = {open: new Set(), expanded: new Set(), collapsed: new Set(), filter: "all", project: ""};'
+        # opened by the owner: open after the re-render and after a reload from the kept text
+        out = js(f'(() => {{ {ui} tuttiKept.toggled(ui, "history:t16", true); ui.filter = "failed"; ui.open.add("j7");'
+                 'const back = tuttiKept.load({open: new Set(), expanded: new Set(), collapsed: new Set(), filter: "all", project: ""},'
+                 ' tuttiKept.dump(ui));'
+                 'return [tuttiKept.isOpen(ui, "history:t16", false), tuttiKept.isOpen(back, "history:t16", false),'
+                 ' back.filter, [...back.open]]; })()')
+        self.assertEqual(out, [True, True, 'failed', ['j7']])
+        # a fold open by default stays closed once the owner closed it
+        closed = f'(() => {{ {ui} tuttiKept.toggled(ui, "scouts:setup", false); return tuttiKept.isOpen(ui, "scouts:setup", true); }})()'
+        self.assertFalse(js(closed))
+
+    def test_a_damaged_kept_state_falls_back_to_the_defaults(self):
+        ui = '{open: new Set(), expanded: new Set(), collapsed: new Set(), filter: "all", project: ""}'
+        self.assertEqual(js(f'tuttiKept.load({ui}, "{{not json").filter'), 'all')
+        self.assertEqual(js(f'tuttiKept.load({ui}, null).project'), '')
 
 
 if __name__ == '__main__':

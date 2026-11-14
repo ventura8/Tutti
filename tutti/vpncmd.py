@@ -370,16 +370,24 @@ def status(cfg, facts, phones, out):
 
 # ---- the dashboard's card: POST /api/vpn
 
+def as_request(body):
+    """The POST body as a dict: the dashboard hands the raw bytes (a body that is not a JSON object is an empty request,
+    answered with the list of actions, never a crash)."""
+    if isinstance(body, (bytes, str)):
+        try:
+            body = json.loads(body or b'{}')
+        except (ValueError, RecursionError):   # malformed, or nested too deep to parse
+            body = None
+    return body if isinstance(body, dict) else {}
+
+
 def api(cfg, body, sh=remote.sh, run=subprocess.run):
     """(status, answer) for POST /api/vpn {"action": "status"} | {"action": "qr", "phone": name} | {"action": "router"} |
     {"action": "open-port", "consent": true}."""
-    if isinstance(body, (bytes, str)):   # the dashboard hands the raw request body (a POST crashed on bytes.get, 2026-11-14)
-        try:
-            body = json.loads(body or b'null')
-        except ValueError:
-            body = None
-    if not isinstance(body, dict):
-        return 400, {'error': 'send a JSON object such as {"action": "status"}'}
+    body = as_request(body)
+    if not body:
+        return 400, {'error': 'send a JSON object such as {"action": "status"}; the actions are status, qr (with "phone"), '
+                              'router and open-port (with "consent": true)'}
     action = body.get('action')
     st = read_state(cfg)
     if action == 'status':

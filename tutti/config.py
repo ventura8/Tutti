@@ -140,6 +140,10 @@ DEFAULTS = {
     # run the worker jobs through its bridge. Empty: Tutti runs here, as it always did.
     'host': {},
 }
+# Safe by default: a machine without a `heat` block takes one run at 85 C or more and none at 95 C, the hotter of its CPU
+# and GPU (a laptop with no limit ran at load 16/16 and 95 C under a work-queue job, 2026-11-15). Termux machines have
+# their own battery-temperature policy.
+HEAT_DEFAULT = {'cap_c': 85, 'stop_c': 95, 'hot_slots': 1}
 MACHINE_DEFAULTS = {'transport': 'ssh', 'root': 'tutti-wt', 'slots': 2, 'min_free_gb': 6, 'lock_prefix': '/tmp/tutti-slot-',
                     'yield_file': '~/.tutti/yield'}
 
@@ -237,6 +241,8 @@ def machine_of(cfg, name, own):
     if m.get('locks'):
         m['slots'] = len(m['locks'])
     m['name'] = name
+    if not android and not own.get('heat'):
+        m['heat'] = dict(HEAT_DEFAULT)
     m['runner'] = merge(cfg['runner'], own.get('runner') or {})
     if android and 'kind' not in (own.get('runner') or {}):
         m['runner']['kind'] = 'native'   # Android has no Docker: a Termux machine runs commands natively, niced

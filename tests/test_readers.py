@@ -62,6 +62,10 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(readers.parse_reset('try again in 3h 12m', NOW), NOW + timedelta(hours=3, minutes=12))
         self.assertEqual(readers.parse_reset('it refreshes in 6 days, 12 hours', NOW), NOW + timedelta(days=6, hours=12))
         self.assertEqual(readers.parse_reset('resume in 45 minutes', NOW), NOW + timedelta(minutes=45))
+        # agy's quota message writes the units together: 147h44m29s (it was read as no reset, so agy kept getting work)
+        self.assertEqual(readers.parse_reset('Individual quota reached. Resets in 147h44m29s.', NOW),
+                         NOW + timedelta(hours=147, minutes=44, seconds=29))
+        self.assertIsNone(readers.parse_reset('back in 3 months', NOW))
         self.assertIsNone(readers.parse_reset('you have reached your usage limit', NOW))
 
     def test_clock_time_resets(self):

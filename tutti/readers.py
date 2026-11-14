@@ -37,7 +37,7 @@ LIMITS = tuple(re.compile(p, re.I) for p in (
     r'limit (?:reached|exceeded|hit)', r'out of (?:credits|requests|quota)', r'(?:hit|reached) your .{0,40}limit',
     r'reached the .{0,40}limit', r'too many requests', r'exhausted your .{0,30}quota'))
 ISO = re.compile(r'\d{4}-\d\d-\d\d[T ]\d\d:\d\d[\d:.]*(?:Z|[+-][\d:]{4,5})?')   # parse_time checks the rest
-UNIT = r'(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b'
+UNIT = r'(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)(?![a-z])'   # "147h44m29s": a unit may touch the next number
 RELATIVE = re.compile(r'\b(?:in|after|within)\s+((?:\d+(?:\.\d+)?\s*' + UNIT + r'[\s,]*(?:and\s+)?)+)', re.I)
 PART = re.compile(r'(\d+(?:\.\d+)?)\s*' + UNIT, re.I)
 SECONDS = {'d': 86400, 'h': 3600, 'm': 60, 's': 1}

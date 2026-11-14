@@ -27,7 +27,7 @@ Docker. A machine may override any runner field.
 `routing.order` lists machines by preference. For `tutti test`:
 
 1. A machine is **fit** when it answers, its yield flag is down, a slot is free, if `max_load_ratio` is set its
-   1-minute load is under that share of its cores, and if `heat` is set it is not too hot (below).
+   1-minute load is under that share of its cores, and it is not too hot (`heat`, safe by default; below).
 2. The first fit machine wins. Later machines are not even asked.
 3. If none is fit, the run queues on the first reachable machine whose flag is down.
 
@@ -205,7 +205,8 @@ machines:
   runs, else the ACPI thermal zone. A desktop's ACPI zone is often a fixed placeholder (about 17 C): a value under 20 C or
   over 110 C is shown as "CPU temperature not readable" with the reason, never as a number. Heat limits apply to the
   hotter of CPU and GPU. `heat: {cap_c: 85, stop_c: 98, hot_slots: 1}`: at `cap_c` or more the machine takes a run only while fewer
-  than `hot_slots` run there; at `stop_c` or more it takes nothing new. Routing then falls over to the next machine in
+  than `hot_slots` run there; at `stop_c` or more it takes nothing new. A machine without a `heat` block gets
+  `{cap_c: 85, stop_c: 95, hot_slots: 1}` (a Termux machine keeps its battery policy); `tutti setup` writes it. Routing then falls over to the next machine in
   `routing.order`, so put a `local` machine with one capped slot last as the fallback. A machine refused for heat is never
   the queue of last resort either. A machine without any readable
   sensor is never refused for heat. Routing looks once, when the run is queued; `slot.sh` looks again right before a

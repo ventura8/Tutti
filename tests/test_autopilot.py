@@ -62,8 +62,10 @@ class Base(unittest.TestCase):
                              'fill_room': False, 'auto_review': False, **ap}}
         cfg = config.normalise(raw)
         cfg['_path'] = os.path.join(self.tmp.name, 'tutti.config.yaml')
-        # a roomy computer: the adaptive limit must not read this one's free memory (the tests failed at night on a busy laptop)
-        cfg['_host_raw'] = {'mem_gb': 64.0, 'cores': 64, 'load': 0.0}
+        # hermetic: the adaptive limit (tutti/parallel.py) reads this computer's free memory and load when `_host` is unset,
+        # so a busy laptop (the whole suite running) left no online slot and the local model took the task
+        cfg['_host'] = cfg['_host_raw'] = {'mem_gb': 64.0, 'cores': 16, 'load': 0.0}
+        cfg['_disk'] = []   # nor this computer's disks (tutti/diskroom.py)
         return cfg
 
 
@@ -275,6 +277,46 @@ class FailureTest(Base):
         self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=mixed)), '')
         self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=[attempt('cursor', 's1')] * 3)), '')
         self.assertIn('max_attempts', autopilot.should_park(self.cfg(max_attempts=2), task('t1', attempts=[attempt('cursor')] * 2)))
+
+    def test_the_same_failure_twice_on_different_workers_parks_it(self):
+        cfg = self.cfg()
+        twice = [attempt('agy-gemini', 's9'), attempt('agy-claude', 's9')]
+        self.assertIn('the task or its check is the problem', autopilot.should_park(cfg, task('t1', attempts=twice)))
+        self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=[attempt('agy-gemini', 's1'), attempt('agy-claude', 's2')])),
+                         '')
+
+    def test_the_same_failure_twice_on_one_step_drops_that_step_for_the_task(self):
+        cfg = self.cfg()
+        t = task('t1', attempts=[attempt('agy-gemini', 's9')] * 2)
+        self.assertNotIn('agy-gemini', autopilot.candidates(cfg, t))
+        self.assertEqual(autopilot.should_park(cfg, t), '')            # other steps are left: tried there, not parked
+        quota = {**attempt('agy-gemini', 'q'), 'why': 'the worker hit its usage limit'}
+        t = task('t1', attempts=[quota, {**quota, 'step': 'agy-claude'}])
+        self.assertEqual(autopilot.should_park(cfg, t), '')            # the worker's own problem: never parks the task
+
+    def test_a_worker_exit_says_whether_it_was_its_limit_or_its_time(self):
+        r = {'worker_rc': 3}
+        self.assertEqual(autopilot.signature(r, {}, 'Individual quota reached. Resets in 147h44m29s.')[1], 'the worker hit its usage limit')
+        self.assertEqual(autopilot.signature(r, {}, 'error: print timeout after 15m0s with the turn still in progress')[1],
+                         'the worker ran out of time')
+        self.assertEqual(autopilot.signature(r, {}, 'boom')[1], 'the worker exited 3')
+        # a task about rate limits, quoted in Tutti's summary, is not the worker's limit
+        summary = 'boom\nrun 1-2: agy exit 3; 0 file(s) changed\ntask      Add a rate limit to the API'
+        self.assertEqual(autopilot.signature(r, {}, summary)[1], 'the worker exited 3')
+
+    def test_an_exhausted_ladder_parks_even_when_the_last_two_differ(self):
+        cfg = self.cfg(ladder=['agy-gemini', 'agy-claude'])
+        a, b = attempt('agy-gemini', 'x'), attempt('agy-claude', 'y')
+        self.assertIn('every step it may go to', autopilot.should_park(cfg, task('t1', attempts=[a, b, a, b])))
+
+    def test_a_refused_tool_with_an_exit_code_is_the_workers_problem(self):
+        words = autopilot.signature({'worker_rc': 1, 'denied': ['tool read_file auto-denied']}, {})[1]
+        self.assertTrue(words.startswith(autopilot.WORKER_SIDE))
+        self.assertIn('refused a command', words)
+
+    def test_the_same_bare_exit_on_two_workers_is_the_workers_problem(self):
+        crash = {**attempt('agy-gemini', 'x3'), 'why': 'the worker exited 3'}
+        self.assertEqual(autopilot.should_park(self.cfg(), task('t1', attempts=[crash, {**crash, 'step': 'agy-claude'}])), '')
 
     def test_the_retry_brief_carries_the_diff_the_failure_the_history_and_the_notes(self):
         t = task('t1', attempts=[attempt('agy-gemini', 's0'), {**attempt('agy-claude', 's1'), 'stat': ' a.txt | 1 +', 'tail': 'E: boom'}])

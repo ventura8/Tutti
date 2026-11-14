@@ -7,16 +7,47 @@ const LIVE = new Set(['running', 'stalled']);
 const VERDICT_TONE = { 'on pace': 'ok', ahead: 'warn', behind: 'warn', late: 'bad', spent: 'bad', 'no reading': 'idle', unknown: 'idle' };
 const MACHINE_TONE = { free: 'ok', loaded: 'warn', busy: 'accent', paused: 'warn', offline: 'bad', held: 'warn', off: 'idle' };
 const JOB_TONE = { running: 'accent', stalled: 'warn', failed: 'bad', done: 'ok', ended: 'idle' };
-const storedOpen = new Set();   // machines whose stored-files list is open: kept across re-renders
-const ui = { filter: 'all', project: '', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0, editing: new Map(), accounts: new Map(), expanded: new Set() };
+const ui = { filter: 'all', project: '', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0, editing: new Map(), accounts: new Map(),
+    expanded: new Set(), collapsed: new Set() };
+// What the owner opened or closed (a job, a details fold, Show more, the filters) is kept by item id across refreshes and reloads
+// of this tab: tuttiKept (attention.js) reads and writes it to sessionStorage.
+const UI_KEY = 'tutti-ui';
 const TOKEN = document.querySelector('meta[name="tutti-token"]')?.content || '';
 const PAGE_VERSION = document.querySelector('meta[name="tutti-version"]')?.content || '';
 const RELOADED_FOR = 'tutti-reloaded-for';   // sessionStorage: the version this tab already reloaded for (never a loop)
 const RESET_FROM = { reading: 'from the latest reading', estimate: 'an estimate from the config: add a reading to set it', config: 'from the config' };
 
+function saveUi() {
+    try { sessionStorage.setItem(UI_KEY, tuttiKept.dump(ui)); } catch { /* storage blocked: kept for this page only */ }
+}
+
+function loadUi() {
+    try { tuttiKept.load(ui, sessionStorage.getItem(UI_KEY)); } catch { /* storage blocked: start from the defaults */ }
+}
+
+// A <details> with `keep: key` opens as the owner left it (its `open` prop is only the default) and remembers each toggle.
+// The toggle event of the render's own opening is not the owner's choice: only a change from what is kept is recorded.
+function keepOpen(node, key, byDefault) {
+    node.open = tuttiKept.isOpen(ui, key, byDefault);
+    node.addEventListener('toggle', () => {
+        if (node.open === tuttiKept.isOpen(ui, key, byDefault)) return;
+        tuttiKept.toggled(ui, key, node.open);
+        saveUi();
+    });
+}
+
+// The props without `keep` (and its `open`), the fold wired up when there is one.
+function keptProps(node, props) {
+    const { keep, ...rest } = props || {};
+    if (!keep) return rest;
+    keepOpen(node, keep, Boolean(rest.open));
+    delete rest.open;
+    return rest;
+}
+
 function el(tag, props, ...kids) {
     const node = document.createElement(tag);
-    for (const [k, v] of Object.entries(props || {})) {
+    for (const [k, v] of Object.entries(keptProps(node, props))) {
         if (v === undefined || v === null || v === false) continue;
         if (k === 'text') node.textContent = v;
         else if (k === 'class') node.className = v;
@@ -80,6 +111,7 @@ function more(key, nodes, limit, tag = 'li') {
         onclick: () => {
             if (ui.expanded.has(key)) ui.expanded.delete(key);
             else ui.expanded.add(key);
+            saveUi();
             render();
             document.querySelector(`[data-more="${CSS.escape(key)}"]`)?.focus({ preventScroll: true });
         },
@@ -288,8 +320,7 @@ function planFacts(plan) {
 
 // The details of an account fold away so the cards stay compact in one row; an open one stays open across polls.
 function factsToggle(a) {
-    const d = el('details', { class: 'account__more', open: ui.expanded.has(`facts:${a.name}`) }, el('summary', { text: 'Details' }), accountFacts(a));
-    d.addEventListener('toggle', () => (d.open ? ui.expanded.add(`facts:${a.name}`) : ui.expanded.delete(`facts:${a.name}`)));
+    const d = el('details', { class: 'account__more', keep: `facts:${a.name}` }, el('summary', { text: 'Details' }), accountFacts(a));
     return d;
 }
 
@@ -537,6 +568,8 @@ function machine(m) {
         const hot = m.heat?.cap_c !== undefined && t >= m.heat.cap_c;
         stats.append(el('span', { class: 'temp', 'data-tone': hot ? 'warn' : undefined, text: `${label} ${tuttiNum(t, { digits: 0 })} °C` }));
     }
+    if (m.heat?.cap_c !== undefined) stats.append(el('span', { class: 'temp', title: 'machines.<m>.heat (Settings): one run at the cap, none at the stop',
+        text: `heat cap ${m.heat.cap_c} °C · stop ${m.heat.stop_c ?? '–'} °C` }));
     if (m.temp_note && (m.temp_c === null || m.temp_c === undefined)) stats.append(el('span', { class: 'temp', title: m.temp_note, text: 'CPU temperature not readable' }));
     if (m.rank) stats.append(el('span', { text: `#${m.rank} in routing` }));
     if (m.use_pct !== undefined && m.use_pct !== null) stats.append(el('span', { title: 'machines.<m>.use_pct (Settings)',
@@ -589,8 +622,7 @@ function storedFiles(name, st) {
     if (st.problem) return el('p', { class: 'row__note', text: `Stored files: ${st.problem}` });
     const head = `Stored files: ${bytes(st.bytes)} of ${bytes(st.budget_bytes)} in ${st.cache}`;
     if (!st.items.length) return el('p', { class: 'row__note', text: `${head}. None yet: tutti files send <path> --to <machine>` });
-    const d = el('details', { class: 'stored', open: storedOpen.has(name), 'data-machine': name });
-    d.addEventListener('toggle', () => (d.open ? storedOpen.add(name) : storedOpen.delete(name)));
+    const d = el('details', { class: 'stored', keep: `stored:${name}`, 'data-machine': name });
     d.append(el('summary', { text: `${head} · ${st.items.length} item${st.items.length === 1 ? '' : 's'}` }),
         el('ul', { class: 'stored__list' }, ...st.items.map((it) => el('li', {},
             el('span', { class: 'stored__name', text: it.name }),
@@ -601,6 +633,8 @@ function storedFiles(name, st) {
 function renderMachines(s) {
     const ms = s.machines;
     $('machines-meta').textContent = ms.probed_at ? `Probed ${relative(ms.probed_at)}` : 'Probing…';
+    // this computer's disks (tutti/diskroom.py): low space or file slots stop new work; the fix in plain words
+    $('machines-disk').replaceChildren(...(s.disk || []).map((t) => el('p', { class: 'row__note', 'data-tone': 'bad', role: 'alert', text: t })));
     // A re-render replaces the rows: the stored-files toggle that had focus gets it back (keyboard users keep their place).
     const focused = document.activeElement?.closest?.('.stored')?.dataset.machine;
     $('machines').replaceChildren(...(ms.items.length ? ms.items.map(machine)
@@ -832,7 +866,7 @@ const AP_GROUPS = [['running', 'Running', 6], ['queue', 'Queue', 5]];   // resul
 
 function attemptHistory(t) {
     if (!t.history.length) return null;
-    return el('details', {},
+    return el('details', { keep: `history:${t.id}` },
         el('summary', { text: `${t.attempt_count} attempt(s): failure history` }),
         el('ol', { class: 'list' }, ...t.history.map((h) => el('li', {
             text: `${h.step}: ${h.ok ? 'passed' : h.why} (run ${h.run}, signature ${h.signature})`,
@@ -974,7 +1008,7 @@ function renderScouts(s) {
     const parts = sc.items.map(scoutBlock).concat((sc.trial || []).map(trialBlock));
     if (sc.error) parts.unshift(el('p', { class: 'row__note', text: `The last scouts round failed: ${sc.error}` }));
     if (sc.setup.length) {
-        parts.push(el('details', { open: !sc.configured || undefined },
+        parts.push(el('details', { keep: 'scouts:setup', open: !sc.configured },
             el('summary', { text: 'Set up Grok Bot as a scout (owner, once)' }),
             el('ol', { class: 'list' }, ...sc.setup.map((step) => el('li', { text: step })))));
     }
@@ -1057,10 +1091,12 @@ function job(j) {
     d.addEventListener('toggle', () => {
         if (d.open) {
             ui.open.add(j.id);
+            saveUi();
             const pre = d.querySelector('pre');
             if (pre) pre.scrollTop = pre.scrollHeight;
         } else {
             ui.open.delete(j.id);
+            saveUi();
         }
     });
     let idle = j.updated ? `updated ${relative(j.updated)}` : '';
@@ -1201,6 +1237,7 @@ function renderAttention(s) {
 function render() {
     const s = ui.last;
     if (!s) return;
+    saveUi();   // the filters, the project, Show more and the open jobs, as this render shows them
     const now = Date.now();
     $('config-path').textContent = s.config;
     $('config-path').title = s.config;
@@ -1468,6 +1505,7 @@ function banner(text) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    loadUi();   // the folds, filters and open jobs this tab had before a reload
     void fromHelper().then(() => refresh());
     window.addEventListener('hashchange', () => { void fromHelper().then(() => refresh()); });   // the dashboard tab was already open
     $('refresh').addEventListener('click', refresh);

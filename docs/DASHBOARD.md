@@ -450,5 +450,21 @@ The browser tests check all of this on every tab, both roles, four widths, both 
 The answer carries an `ETag` and `Cache-Control: no-cache`: the page asks again with `If-None-Match`, an unchanged
 answer is a `304` with no body, and the page neither parses nor renders it again. A browser that sends
 `Accept-Encoding: gzip` gets it gzipped. One assembled answer serves every tab that asks within a second. A running
-job's `facts.context_pct` is its context use in % of its window, where it is known (an agent's transcript, or what a
-CLI printed about its context).
+job's `facts.context_pct` is its context use in % of its window, where it is known: an agent's transcript gives the
+newest turn's prompt (never the run's total) against its model's window (Claude models: 1M, the older ones 200k), or the
+worker's `context_tokens`; what a CLI printed about its context. An unknown window, or a count above it, shows nothing.
+
+No tab shows a missing value as text ("null", "undefined", "NaN", "[object Object]"): `tests/test_rendered_text.py`
+renders each one in headless Chrome. The Private network card reads `GET /api/vpn/status` (any signed-in viewer, 200
+with no VPN set up); its actions stay admin POSTs to `/api/vpn`.
+
+The Machines card warns when this computer's temp folder or work disk is low (under 10 % free file slots, or under 10 %
+free space with less than 20 GB left; `tutti/diskroom.py`), says the fix, and no new work starts until there is room;
+`tutti doctor` reports the same.
+
+Before the first probe answers, the machines, devices and workers of the config are listed as **checking**, never as
+"none in the config". Every fold the owner opens or closes (a job, a task's failure history, Details, Show more), the
+finished-jobs filter and the project filter are kept by item id across refreshes and reloads of the tab
+(sessionStorage); the render's own opening of a fold is not taken for the owner's choice. A class that sets a
+`display` gets a `[hidden]` rule beside it (a test lists them), so the Users view shows only in its tab, for an admin
+with sign-in on.

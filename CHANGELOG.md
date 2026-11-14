@@ -2,6 +2,51 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+**Versions (the owner, 2026-11-15).** Tutti stays 0.x. A big feature raises the minor version (0.N.0, patch back to 0),
+a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
+start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
+
+## 0.9.5 (2026-11-15)
+
+### Fixed
+
+- Dashboard: folds, Show more and the filters stay as the owner left them across refreshes and reloads (kept by item id
+  in sessionStorage); a task's "N attempt(s): failure history" no longer collapses on the next poll.
+- Dashboard: Pause or resume and Devices and controls list the config's machines, devices and local workers as
+  "checking" until the first probe answers, instead of "No work machines in the config" and "0 devices".
+- Dashboard: a running agent task's context % is the newest turn's prompt against its model's window (1M for current
+  Claude models), not 174-361 % of a 200k default; nothing is shown when the window is unknown or exceeded.
+- Dashboard: the Private network card's POST crashed (`AttributeError`: the raw body was used as a dict), which was
+  both "Failed to fetch" on the card and Insights' "AttributeError in api"; any body now gets an answer.
+- Dashboard: a hidden element stays hidden (`[hidden]` rules beside classes that set a display), so the empty Users view (Invite, Invites, Changes) no longer
+  shows on the main dashboard; it stays in the Users tab for an admin with sign-in on.
+- Telemetry: a refused send says which cause it is: Sentry's reason (`ProjectId`: the project was deleted or moved, or
+  the key disabled or rotated), a clue (the DSN from `$TUTTI_SENTRY_DSN`, or when the DSN file was written), and the fix. A send cut off midway
+  gives its items back to the queue.
+- Autopilot: agy's quota message "Resets in 147h44m29s" is read (the units touch), so the spent account stops getting
+  work; a worker's exit says whether it hit its limit or its time; a CLI with an allow-list may read and write its own
+  worktree (headless agy auto-denied every read); the same failure twice on one step drops that step for the task, and
+  twice on different workers parks it (no more 23 wasted runs on one failure).
+- Autopilot: a result that does not rebase onto its base never waits for a person: it is closed as superseded when the
+  base already has it, else redone on the fresh base with the old diff as a guide (parked only after 3 redos); a worktree
+  with uncommitted edits is never redone, it waits with a note.
+- A full disk stops work instead of every command: `tutti doctor`, the Machines card and the autopilot and dispatch
+  rounds check the temp folder and the work disk. Under 10 % free file slots, or under 10 % free space with less than
+  20 GB left, they say so in plain words with the fix, and no new work starts until there is room (`tutti/diskroom.py`).
+- Dashboard: "My main machine: … (no other machine of yours to move to)null" lost its "null" (a missing value handed to
+  `replaceChildren` is printed as text). A test renders every tab in headless Chrome, with the example config and with a
+  single computer, and fails on "null", "undefined", "NaN" or "[object Object]".
+- Dashboard: the Private network card reads its state with `GET /api/vpn/status`, 200 for every signed-in viewer and with
+  no VPN set up; the page's POST was an admin's and failed on load for others (Lighthouse best practices).
+- Safe heat by default: a machine without a `heat` block gets `{cap_c: 85, stop_c: 95, hot_slots: 1}`, judged on the
+  hotter of its CPU and GPU (a laptop ran at load 16/16 and 95 C with no limit); `tutti setup` writes it, and the
+  machine card shows the cap and the stop.
+- The tests clean up after themselves: `tests/run.py` (run by `scripts/check.sh` in its own temp folder, removed at the
+  end) gives each test a temp folder and fails a test that leaves anything there. About 45,000 left-over test folders
+  had filled /tmp's file slots. Three autopilot tests no longer read this computer's load and disks.
+
+## 0.9.2 (2026-11-15)
+
 ## 0.9.4 (2026-11-15)
 
 ### Added

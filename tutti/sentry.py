@@ -6,6 +6,7 @@ breadcrumbs of one `info` event (Sentry keeps at most 100 breadcrumbs an event).
 recorded (telemetry.py, scrub.py); nothing here adds a host name, a path or an IP address."""
 import json
 import os
+import re
 import secrets
 import time
 import urllib.error
@@ -108,10 +109,53 @@ def post(url, body, headers, timeout=TIMEOUT):
         with urllib.request.build_opener(NoRedirect).open(req, timeout=timeout) as r:
             return r.status
     except urllib.error.HTTPError as e:
+        try:
+            detail = e.read(2000)
+        except OSError:
+            detail = b''
         e.close()
-        return e.code
+        return Answer(e.code, reason_of(detail))
     except (OSError, ValueError):   # URLError is an OSError
         return 0
+
+
+class Answer(int):
+    """An HTTP status that also carries Sentry's reason for a refusal (`ProjectId`, ...), when it gave one."""
+
+    def __new__(cls, code, reason=''):
+        out = super().__new__(cls, code)
+        out.reason = reason
+        return out
+
+
+REASON = re.compile(r'with_reason:\s*([A-Za-z]+)')
+
+
+def reason_of(detail):
+    """Sentry's reason word from a refusal body ({"detail": "event submission rejected with_reason: ProjectId"}), or ''."""
+    m = REASON.search((detail or b'').decode('utf8', errors='replace'))
+    return m.group(1) if m else ''
+
+
+# Why Sentry refused the key, in plain words: which of the possible causes it is.
+KEY_GONE = ('ProjectId', 'DisabledProject', 'ProjectKey', 'DisabledKey')
+
+
+def refusal_text(code, reason, kept):
+    """The message of a refused DSN: what Sentry said, which cause it is, and the fix (never the key)."""
+    said = f'Sentry answered {code}{f" ({reason})" if reason else ""}'
+    fix = ('in Sentry open Settings, Projects, <your project>, Client Keys (DSN), copy the active DSN (create a key if none is '
+           f'active), then run `tutti telemetry setup` and paste it ({kept} item(s) kept, sent once it works)')
+    if reason in KEY_GONE:
+        why = ('Sentry no longer accepts this key for this project: the project was deleted or moved, or the key was disabled '
+               'or rotated, or the DSN in use is not the one that worked. The request itself was well formed')
+    elif code == 401:
+        why = 'Sentry could not read Tutti\'s auth header: run `tutti self-update`; if it stays, report it'
+    elif code == 404:
+        why = 'the DSN names a project id or host Sentry does not know: it was copied wrong'
+    else:
+        why = 'the DSN is wrong or its key was revoked'
+    return f'{said}: {why}. Fix: {fix}'
 
 
 def auth_header(key):
@@ -131,8 +175,7 @@ def send_sentry(t, payloads, post_fn):
             # offline, throttled, a server error, or a wrong or revoked DSN (401, 403, 404): keep the rest for later
             raise_keep = [it for it, _ in payloads[i:]]
             if code in (401, 403, 404):
-                raise DsnError(f'Sentry answered {code}: the DSN is wrong or its key was revoked; run `tutti telemetry setup` '
-                               f'with the DSN from the project\'s Client Keys ({len(raise_keep)} item(s) kept)')
+                raise DsnError(refusal_text(int(code), getattr(code, 'reason', ''), len(raise_keep)))
             return sent, left + raise_keep
         # 400, 413, 422: Sentry refused this item itself; sending it again would be refused again, so it is dropped
     return sent, left

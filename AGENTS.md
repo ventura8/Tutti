@@ -31,6 +31,10 @@ python3 bin/tutti --config tutti.config.example.yaml config
   that taught something goes into `docs/LESSONS.md`; a user's problem into `docs/FEEDBACK.md`.
 - **Style.** Python: 4 spaces, 140 columns, single quotes, no new dependencies without a reason in the pull request.
   Bash: tabs, `shellcheck` clean, a usage comment at the top. Conventional Commits.
+- **Versions.** Tutti stays 0.x: a big feature is the next minor (0.N.0), a fix the next patch; take the next free
+  number at merge time (CHANGELOG.md, top).
+- **Tests clean up.** `tests/run.py` (what `scripts/check.sh` runs) gives each test its own temp folder and fails a test
+  that leaves anything there: use `tmpdirs.mkdtemp()`, a `TemporaryDirectory` or `addCleanup`.
 - **Pins.** GitHub Actions by full commit SHA with a version comment; Python tools with `==`.
 - **Ask first:** pushing, tagging, publishing to npm, changing the licence, editing `.github/workflows/`.
 - **Never** run a command against a real machine from a test; tests use the `local` transport and temp folders.

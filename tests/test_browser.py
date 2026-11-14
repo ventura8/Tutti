@@ -3,10 +3,8 @@ its DevToolsActivePort, a dedicated profile of its own, DevTools on 127.0.0.1 or
 after, a queue, idle shutdown, the broker's scopes and log, and the isolated unit's sandbox. No real browser starts."""
 import json
 import os
-import shutil
 import socket
 import sys
-import tempfile
 import threading
 import time
 import types
@@ -15,20 +13,14 @@ import unittest.mock
 import urllib.error
 import urllib.request
 
-from tutti import browser, browserbroker, browsercmd, browsersandbox
+import tmpdirs
 
-_DIRS = []
+from tutti import browser, browserbroker, browsercmd, browsersandbox
 
 
 def tmp():
-    """A temp folder removed when the module's tests end (no leak into /tmp)."""
-    _DIRS.append(tempfile.mkdtemp())
-    return _DIRS[-1]
-
-
-def tearDownModule():
-    for d in _DIRS:
-        shutil.rmtree(d, ignore_errors=True)
+    """A temp folder removed when its test ends (tests/tmpdirs.py; no leak into /tmp)."""
+    return tmpdirs.mkdtemp()
 
 
 class Proc:

@@ -164,6 +164,19 @@ class MainMachineTest(unittest.TestCase):
                 self.assertTrue(mainmachine.present(cfg))
 
 
+class SignedInTest(unittest.TestCase):
+    def test_with_sign_in_on_the_users_tab_and_main_machine_posts_reach_their_handlers(self):
+        # 0.1.64 answered 404 "not part of the dashboard" to them once sign-in was on: signed_post knew only POSTS
+        cfg = config.normalise({})
+        collector = SimpleNamespace(cfg=cfg)
+        for path in dashboard.SELF_POSTS:
+            with mock.patch.object(dashboard, 'allowed_host', return_value=True), \
+                    mock.patch.object(dashboard.authweb, 'post', return_value=(202, {'ok': True}, None)) as gate:
+                code, _answer, _extra = dashboard.signed_post(object(), collector, {'Host': '127.0.0.1:4777'}, path, 4777, None)
+            self.assertEqual(code, 202, path)
+            gate.assert_called_once()
+
+
 class TabTest(unittest.TestCase):
     def page(self):
         with open(os.path.join(WEB, 'index.html'), encoding='utf8') as f:

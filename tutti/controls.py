@@ -13,7 +13,7 @@ import json
 import os
 import time
 
-from . import tz
+from . import durable, tz
 
 try:
     import fcntl
@@ -50,10 +50,7 @@ def changed(folder):
             fcntl.flock(lock, fcntl.LOCK_EX)
         data = read(folder)
         yield data
-        tmp = f'{path(folder)}.{os.getpid()}.tmp'
-        with open(tmp, 'w', encoding='utf8') as f:
-            json.dump(data, f, indent=1)
-        os.replace(tmp, path(folder))
+        durable.dump_json(path(folder), data, indent=1)
 
 
 def who(source):

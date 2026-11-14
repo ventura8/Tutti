@@ -206,7 +206,9 @@ class Service(unittest.TestCase):
         self.assertEqual(path, '/h/.config/systemd/user/tutti-dashboard.service')
         self.assertIn('self-update --auto; exec', text)
         self.assertIn('WantedBy=default.target', text)
-        self.assertEqual(cmds[-1], ['systemctl', '--user', 'enable', '--now', 'tutti-dashboard.service'])
+        self.assertEqual(cmds[-2], ['systemctl', '--user', 'enable', '--now', 'tutti-dashboard.service'])
+        self.assertEqual(cmds[-1], ['loginctl', 'enable-linger'])   # starts at boot: a power cut resumes by itself
+        self.assertIn('Restart=always', text)
 
     def test_the_service_runs_the_given_tutti(self):
         files, _ = install.service_plan('linux', '/h', env={}, tutti='/opt/bin/tutti')

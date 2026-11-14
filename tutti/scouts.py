@@ -15,7 +15,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
-from . import pacing
+from . import durable, pacing
 from .review import documents, gh
 
 try:
@@ -276,10 +276,7 @@ def locked(cfg):
             fcntl.flock(lock, fcntl.LOCK_EX)
         data = load(cfg)
         yield data
-        tmp = f'{p}.{os.getpid()}.tmp'
-        with open(tmp, 'w', encoding='utf8') as f:
-            json.dump(data, f, indent=1)
-        os.replace(tmp, p)
+        durable.dump_json(p, data, indent=1)
 
 
 def find(data, rid):

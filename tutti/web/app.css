@@ -659,3 +659,7 @@ body:not([data-view="household"]) .household-only { display: none; }
 
 /* devices.js: the wireless-debugging pairing QR code; white quiet zone, scannable in dark mode too */
 .qr { width: min(240px, 100%); height: auto; display: block; margin: 8px 0; }
+/* presence (controls.js): the label and today's 24-hour strip on each device and machine card */
+.presence__label[data-state='away'], .presence__label[data-state='asleep'] { color: var(--warn, inherit); }
+.presence__strip { display: inline-flex; gap: 1px; }
+.presence__hour { width: 5px; height: 10px; border-radius: 1px; background: var(--ok, currentColor); }

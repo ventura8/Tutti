@@ -2,6 +2,37 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.56 (2026-11-14)
+
+### Added
+
+- Presence (`tutti/presence.py`, docs/PRESENCE.md): every device, machine, member's laptop and Ollama server is present,
+  away, asleep or unknown, with a last-seen time. The state comes from the adb readings, ssh probes, household heartbeats
+  and `/api/tags`, and away is told apart from asleep: a device that left with its owner's laptop, or a machine silent in
+  its night hours. Cards say "Away since 18:40 (left with its owner)" and show today's 24-hour profile strip. `tutti presence`
+  prints the same.
+- A run whose target leaves is queued again and not counted as a failure, retry or no-progress event. The idle watchdog
+  never flags an away or asleep target. A returning phone is reconnected over mDNS and picked up within one tick.
+- Learned 7 × 24 availability profiles: long shards (suite `minutes`) avoid targets likely to leave or sleep soon, and
+  always-on targets choose first.
+- Before this computer sleeps or shuts down, a logind delay inhibitor hands running work over (as "stop now" does),
+  requeues leases and flushes state, within the time the OS allows (`tutti/sleepwatch.py`). On wake, the work starts
+  again.
+- Nothing lost on a hard power-off: atomic, fsynced state writes and an fsynced usage log whose torn last line is
+  repaired at start (`tutti/durable.py`, `tutti/recovery.py`). Runs from an earlier boot are interrupted, not failed.
+  Autopilot attempts are checkpointed every 5 min through a separate git index and pushed to `refs/tutti/wip/*` (never
+  main or master). They are reconciled before resuming.
+- Move work now (`tutti/jobmove.py`): `tutti job waiting`, `tutti job move <id> --to <target|auto> [--bump]`, `tutti
+  machine evacuate <m>` and the dashboard's admin-only Move now, First in queue and Move all buttons (`POST /api/work/move`,
+  403 for viewers). A member whose task moved never runs it again and keeps its work on `tutti/backup/<name>`.
+  `presence.move_after_minutes` moves urgent work by itself (opt-in).
+- The owner counts as away while `presence.owner_laptop` is away or asleep. the Where Tutti runs card warns when Tutti
+  runs on a laptop. Wake-on-LAN for an asleep machine with waiting work is opt-in, on the LAN only.
+
+### Changed
+
+- The dashboard service restarts always and lingers (`loginctl enable-linger`), so it starts at boot after a power cut.
+
 ## 0.1.54 (2026-11-14)
 
 ### Changed
@@ -60,7 +91,6 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 - Tests: a member's run on the owner's machine with his uncommitted change, a failing run's exit code and output, the
   job carrying only repo, ref and command, the shell-runner opt-in, only the owner claiming and only the member reading
   a job, a repo without origin.
-
 
 ## 0.1.50 (2026-11-14)
 
@@ -136,6 +166,7 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
   `--replace-key` (backed up) or kept with `--repair`. Preflight (adb, versions, mDNS from the new machine, dispatch
   leases, the device lock and `devices.<d>.external_lock`), `--dry-run` (plans only: it connects nothing), and a rollback
   for a device that does not connect. docs/DEVICES.md says how another tool's agents switch to Tutti's leases.
+
 ## 0.1.46 (2026-11-14)
 
 ### Added

@@ -121,6 +121,16 @@ def taken_meanwhile(data, keys, answer):
     return out
 
 
+def moved_of(result):
+    """{task key: who has it now} of the shared tasks an admin moved away from this member (tutti/jobmove.py), from the
+    coordinator's answer ({} without one). Only these are given up here; a lease taken after it expired keeps both results."""
+    out = {}
+    for p in ((result.get('answer') or {}).get('projects') or {}).values():
+        held = p.get('held') or {}
+        out.update({k: held.get(k, 'another member') for k in p.get('moved') or []})
+    return out
+
+
 def no_key_hold(data, keys):
     """A shared repo without an origin remote cannot be matched across members: its tasks wait, and say why."""
     return {t['id']: f'shared, but {t["repo"]} has no origin remote: give it one (git remote add origin <url>) so the household '

@@ -320,6 +320,12 @@ projects:
 # Keep busy (docs/DISPATCH.md): idle devices and machines pull pending test shards by themselves; on by default
 dispatch: {enabled: true, idle_minutes: 5, lease_minutes: 10, retries: 2}
 
+# Presence (docs/PRESENCE.md): devices and machines that come and go. A target missing for grace_seconds is away or asleep
+# (a machine silent in its night hours is asleep; a device missing while its owner's laptop, devices.<d>.with, is away left
+# with its owner). Absent targets are never idle; their runs are requeued, not failed. Moving waiting work by itself
+# (move_after_minutes, urgent jobs only) and Wake-on-LAN (machines.<m>.wol_mac) are off until you turn them on.
+presence: {grace_seconds: 120, night: '23-08', long_minutes: 30, owner_laptop: null, move_after_minutes: null, wake: false}
+
 # Scouts: helpers that are not workers (docs/SCOUTS.md). Grok Bot answers through a webhook routine: Tutti opens an issue,
 # POSTs {task, reply_to} to the routine, and reads the answer the routine posts as a comment. The URL and key live only in
 # the environment variables named here (`tutti scout setup` prints the owner's steps).

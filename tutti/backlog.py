@@ -9,7 +9,7 @@ import re
 import subprocess
 import time
 
-from . import config, worktree
+from . import config, durable, worktree
 
 try:
     import fcntl
@@ -51,10 +51,7 @@ def save(cfg, data):
     """Writes the backlog at once (inside `locked`, e.g. right after a run is started, so a crash later in the round never
     leaves a started run marked queued). A temp name of this process: two writers never share one."""
     p = path_of(cfg)
-    tmp = f'{p}.{os.getpid()}.tmp'
-    with open(tmp, 'w', encoding='utf8') as f:
-        json.dump(data, f, indent=1)
-    os.replace(tmp, p)
+    durable.dump_json(p, data, indent=1)
 
 
 def load(cfg):

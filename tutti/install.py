@@ -110,7 +110,7 @@ def systemd_unit(tutti):
     return ('[Unit]\nDescription=Tutti dashboard (http://127.0.0.1:4777/)\nAfter=network-online.target\n\n'
             '[Service]\n'
             f"ExecStart=/bin/sh -c '\"{tutti}\" self-update --auto; exec \"{tutti}\" dashboard'\n"
-            'Restart=on-failure\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n')
+            'Restart=always\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n')
 
 
 def launchd_plist(tutti, log):
@@ -162,8 +162,10 @@ def service_plan(platform, home_dir, env=None, tutti=None):
         return [(path, launchd_plist(tutti, log))], [['launchctl', 'unload', path], ['launchctl', 'load', '-w', path]]
     config_home = env.get('XDG_CONFIG_HOME') or os.path.join(os.path.expanduser('~'), '.config')
     path = os.path.join(config_home, 'systemd', 'user', f'{SERVICE}.service')
+    # linger: the user's services start at boot, before anyone logs in, so a power cut or a reboot resumes work by itself
     return [(path, systemd_unit(tutti))], [['systemctl', '--user', 'daemon-reload'],
-                                           ['systemctl', '--user', 'enable', '--now', f'{SERVICE}.service']]
+                                           ['systemctl', '--user', 'enable', '--now', f'{SERVICE}.service'],
+                                           ['loginctl', 'enable-linger']]
 
 
 def platform_name(env=None):

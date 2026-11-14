@@ -1,9 +1,10 @@
 """Usage pacing: spend every quota fully about an hour before its reset. Not earlier (work stalls), not later (quota is wasted)."""
 import calendar
 import json
-import os
 import re
 from datetime import datetime, timedelta, timezone
+
+from . import durable
 
 UNITS = {'h': 'hours', 'd': 'days', 'w': 'weeks'}
 TOLERANCE = 5  # at most this many percentage points either side of the line still count as on pace
@@ -83,10 +84,7 @@ def pace(now, start, reset, used, lead_hours=1, share=1.0):
 
 
 def read_log(path):
-    if not os.path.exists(path):
-        return []
-    with open(path, encoding='utf8') as f:
-        return [json.loads(line) for line in f if line.strip()]
+    return durable.read_jsonl(path)   # a line torn by a power-off is skipped (tutti/durable.py)
 
 
 def append_log(path, account, used, at, note='', resets=None, source=None, ref=None):
@@ -96,9 +94,7 @@ def append_log(path, account, used, at, note='', resets=None, source=None, ref=N
     if resets is not None:
         entry['resets'] = parse_time(resets).isoformat()
     entry.update({k: v for k, v in (('source', source), ('ref', ref)) if v})
-    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-    with open(path, 'a', encoding='utf8') as f:
-        f.write(json.dumps(entry) + '\n')
+    durable.append_line(path, json.dumps(entry))
     return entry
 
 

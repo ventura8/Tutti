@@ -501,6 +501,7 @@ function machine(m) {
         el('div', { class: 'row__name' }, m.name, el('span', { class: 'row__kind', text: `${m.transport} · ${m.host}` })),
         chip(m.status, MACHINE_TONE[m.status]),
         stats,
+        presenceBits(m.presence),   // controls.js: Here / Away since 18:40 (left with its owner), today's strip
         el('p', { class: 'row__note', text: m.status === 'paused' ? 'Yield flag is up: Tutti sends it nothing new until it is lowered.' : m.reason }),
         m.household_use ? el('p', { class: 'row__note household-only', text: busyFor(m) }) : null,
         storedFiles(m.name, m.stored));
@@ -1074,6 +1075,7 @@ function render() {
     renderControls(s);   // controls.js: devices, pause and resume, opt-in switches
     renderJobs(s);
     renderMachines(s);
+    renderPresence(s);   // controls.js: work waiting on away or asleep targets, the host's warning
     renderAutopilot(s);
     renderScouts(s);
     renderMain(s);

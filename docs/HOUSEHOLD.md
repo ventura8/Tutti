@@ -88,6 +88,12 @@ works on its own until they are back:
 - the dashboard on their computer says **away from the household: working on your own until you're home**, in both
   views.
 
+When a member's laptop leaves or sleeps, the coordinator carries on with the household's machines and devices. When the
+coordinator's own computer is off, members work alone and their shared tasks wait until it is back. An always-on
+coordinator, such as a NUC, avoids that pause. An admin on the coordinator can move a member's task to another member
+(`tutti job move lease:<project>:<task>`). The old holder's next sync then refuses it, and the task is never run twice.
+See [PRESENCE.md](PRESENCE.md).
+
 ## Auth and the threat model
 
 - **Invite** (with the dashboard's sign-in, the usual way): see *Joining with an invite* above.

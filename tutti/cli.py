@@ -173,7 +173,10 @@ def cmd_self_update(cfg, a):
             on = True
         if not on:
             return 0
-    code, msg = install.self_update(home_dir, check_only=a.check)
+    skip = bool(getattr(a, 'insecure_skip_verify', False)) and not a.auto   # never unattended
+    if skip:
+        say(f'self-update: {install.SKIP_WARNING}')
+    code, msg = install.self_update(home_dir, check_only=a.check, skip_verify=skip)
     say(msg)
     return code
 
@@ -1396,7 +1399,9 @@ def parser():
                                                                                'server (`tutti connect --all`)')
     s.add_argument('--from-dashboard', action='store_true', help='run by the dashboard\'s Set up card: the login service is '
                                                                  'enabled for the next login, not started next to that dashboard')
-    s = add('self-update', cmd_self_update, 'install the newest checksummed release of Tutti (release installs)')
+    s = add('self-update', cmd_self_update, 'install the newest signed and checksummed release of Tutti (release installs)')
+    s.add_argument('--insecure-skip-verify', action='store_true',
+                   help='offline only: install without checking the release\'s Sigstore signature (a loud warning; never with --auto)')
     s.add_argument('--check', action='store_true', help='only say whether a newer release is out')
     s.add_argument('--auto', action='store_true', help='quiet no-op when turned off (self_update.enabled) or not a release install')
     s = add('machines', cmd_machines, 'probe every machine: free slots, load, yield flag (add-android: set up a Termux machine)')

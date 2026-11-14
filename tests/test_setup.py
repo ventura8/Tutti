@@ -3,6 +3,7 @@ idempotency; the login service per OS; checksums of the bootstrap and of release
 import io
 import json
 import os
+import shutil
 import stat
 import tarfile
 import tempfile
@@ -337,7 +338,8 @@ class SelfUpdate(unittest.TestCase):
             orig = install.requirements
             install.requirements = lambda h, v: True
             try:
-                code, msg = install.self_update(os.path.join(t, 'home'), '0.1.0', self.fetcher(tarball, sums))
+                code, msg = install.self_update(os.path.join(t, 'home'), '0.1.0', self.fetcher(tarball, sums),
+                                                verify_fn=lambda *a: '')
             finally:
                 install.requirements = orig
             self.assertEqual(code, 0, msg)
@@ -351,10 +353,45 @@ class SelfUpdate(unittest.TestCase):
     def test_a_bad_checksum_changes_nothing(self):
         with tempfile.TemporaryDirectory() as t:
             tarball, _ = release(t, '9.9.9')
-            code, msg = install.self_update(os.path.join(t, 'home'), '0.1.0', self.fetcher(tarball, f'{"0" * 64}  tutti-9.9.9.tar.gz\n'))
+            code, msg = install.self_update(os.path.join(t, 'home'), '0.1.0', self.fetcher(tarball, f'{"0" * 64}  tutti-9.9.9.tar.gz\n'),
+                                            verify_fn=lambda *a: '')
             self.assertEqual(code, 1)
             self.assertIn('nothing was installed', msg)
             self.assertFalse(os.path.lexists(os.path.join(t, 'home', 'current')))
+
+    def test_an_unsigned_or_forged_release_is_refused_and_skip_says_so_loudly(self):
+        with tempfile.TemporaryDirectory() as t:
+            tarball, sums = release(t, '9.9.9')
+            seen = []
+
+            def bad(sums_path, bundle_path, version):
+                with open(sums_path, encoding='utf8') as f:
+                    seen.append((f.read(), version, os.path.basename(bundle_path)))
+                return 'v9.9.9\'s SHA256SUMS is not signed by ventura8/Tutti/.github/workflows/release.yml (bad)'
+            code, msg = install.self_update(os.path.join(t, 'home'), '0.1.0', self.fetcher(tarball, sums), verify_fn=bad)
+            self.assertEqual(code, 1)
+            self.assertIn('not signed', msg)
+            self.assertEqual(seen, [(sums, '9.9.9', install.BUNDLE)])   # the very sums the tarball is checked against
+            self.assertFalse(os.path.lexists(os.path.join(t, 'home', 'current')))
+
+            def no_bundle(url, dest=None):
+                if url.endswith(install.BUNDLE):
+                    raise OSError('HTTP Error 404')
+                return self.fetcher(tarball, sums)(url, dest)
+            code, msg = install.self_update(os.path.join(t, 'home'), '0.1.0', no_bundle)
+            self.assertEqual(code, 1)
+            self.assertIn('has no signature file', msg)
+            self.assertIn('--insecure-skip-verify', msg)
+            orig = install.requirements
+            install.requirements = lambda h, v: True
+            try:
+                code, msg = install.self_update(os.path.join(t, 'home'), '0.1.0', no_bundle, skip_verify=True)
+            finally:
+                install.requirements = orig
+            self.assertEqual(code, 0, msg)
+            self.assertIn('WARNING', msg)
+            self.assertIn('NOT checked', msg)
+
 
     def test_up_to_date_and_offline(self):
         self.assertEqual(install.self_update('/nowhere', '9.9.9', lambda u, d=None: f'{"0" * 64}  tutti-1.0.0.tar.gz\n')[0], 0)
@@ -510,6 +547,112 @@ class Run(unittest.TestCase):
             self.assertTrue(any(r['change'] == 'projects' for r in kept))   # the first run's defaults stay listed
             with open(path, encoding='utf8') as f:
                 self.assertEqual(f.read(), first)
+
+
+
+class Signature(unittest.TestCase):
+    """verify_signature over a fixed bundle and the recorded `gh attestation verify --format json` answer for it."""
+    FIX = os.path.join(ROOT, 'tests', 'fixtures', 'sigstore')
+
+    def answer(self):
+        with open(os.path.join(self.FIX, 'gh-verify-v0.5.2.json'), encoding='utf8') as f:
+            return f.read()
+
+    def run_gh(self, rc=0, out=None, err=''):
+        calls = []
+
+        def run(argv, **kw):
+            calls.append(argv)
+            return SimpleNamespace(returncode=rc, stdout=self.answer() if out is None else out, stderr=err)
+        return run, calls
+
+    def test_signed_by_the_release_workflow_on_its_tag(self):
+        run, calls = self.run_gh()
+        sums, bundle = os.path.join(self.FIX, 'SHA256SUMS'), os.path.join(self.FIX, 'forged.sigstore.json')
+        self.assertEqual(install.verify_signature(sums, bundle, '0.5.2', gh='gh', run=run), '')
+        argv = calls[0]
+        self.assertEqual(argv[:4], ['gh', 'attestation', 'verify', sums])
+        for flag, value in (('--bundle', bundle), ('--repo', 'ventura8/Tutti'),
+                            ('--signer-workflow', 'ventura8/Tutti/.github/workflows/release.yml'), ('--format', 'json')):
+            self.assertEqual(argv[argv.index(flag) + 1], value)
+        self.assertEqual(install.signed_refs(self.answer()), {'refs/tags/v0.5.2'})
+
+    def test_another_tag_a_branch_a_failure_or_no_gh_is_refused(self):
+        run, _ = self.run_gh()
+        self.assertIn('not on the tag refs/tags/v0.5.3', install.verify_signature('s', 'b', '0.5.3', gh='gh', run=run))
+        branch = self.answer().replace('refs/tags/v0.5.2', 'refs/heads/main')
+        run, _ = self.run_gh(out=branch)
+        self.assertIn('refs/heads/main', install.verify_signature('s', 'b', '0.5.2', gh='gh', run=run))
+        run, _ = self.run_gh(rc=1, out='', err='Error: verifying with issuer "sigstore.dev": no matching certificate')
+        why = install.verify_signature('s', 'b', '0.5.2', gh='gh', run=run)
+        self.assertIn('not signed by ventura8/Tutti', why)
+        self.assertIn('no matching certificate', why)
+        run, _ = self.run_gh(rc=1, out='', err='unknown command "attestation" for "gh"')
+        self.assertIn('too old', install.verify_signature('s', 'b', '0.5.2', gh='gh', run=run))
+        self.assertIn('not installed', install.verify_signature('s', 'b', '0.5.2', gh=None))
+
+    def bootstrap(self, gh_rc, bundle=True, extra=()):
+        """install/bootstrap.sh with curl, gh and uv faked: the release files come from the fixture folder."""
+        import subprocess
+        with tempfile.TemporaryDirectory() as t:
+            fake = os.path.join(t, 'fake')
+            os.makedirs(fake)
+            scripts = {
+                'curl': f'out=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; -*) shift;; *) url="$1"; shift;; esac; done\n'
+                        f'case "$url" in */SHA256SUMS) cp {self.FIX}/SHA256SUMS "$out";; */SHA256SUMS.sigstore.json) '
+                        f'{"cp " + self.FIX + "/forged.sigstore.json " + chr(34) + "$out" + chr(34) if bundle else "exit 22"};; '
+                        '*) exit 22;; esac\n',
+                'gh': f'[ "$3" = --help ] && exit 0\n[ {gh_rc} = 0 ] && cat {self.FIX}/gh-verify-v0.5.2.json && exit 0\n'
+                      'echo "Error: verifying with issuer sigstore.dev: no matching certificate" >&2; exit 1\n',
+                'uv': 'exit 0\n',
+            }
+            for name, body in scripts.items():
+                with open(os.path.join(fake, name), 'w') as f:
+                    f.write('#!/bin/bash\n' + body)
+                os.chmod(os.path.join(fake, name), 0o755)
+            env = {**os.environ, 'PATH': f'{fake}:/usr/bin:/bin', 'HOME': t, 'TUTTI_HOME': os.path.join(t, 'home'),
+                   'TUTTI_BIN': os.path.join(t, 'bin')}
+            return subprocess.run(['bash', os.path.join(ROOT, 'install', 'bootstrap.sh'), '--no-setup', *extra], env=env,
+                                  capture_output=True, text=True, timeout=60)
+
+    @unittest.skipUnless(os.name == 'posix' and shutil.which('git'), 'the bash bootstrap')
+    def test_the_bootstrap_checks_the_signature_before_the_tarball(self):
+        r = self.bootstrap(0)
+        self.assertIn('signed by Tutti\'s release workflow (Sigstore)', r.stdout)
+        self.assertIn('tutti-0.5.2.tar.gz', r.stderr)            # verified: it went on to the tarball (not served here)
+        r = self.bootstrap(1)
+        self.assertIn('is not signed by Tutti\'s release workflow (Error: verifying', r.stderr)
+        self.assertNotIn('tutti-0.5.2.tar.gz', r.stderr)
+        r = self.bootstrap(0, bundle=False)
+        self.assertIn('has no signature', r.stderr)
+        r = self.bootstrap(1, bundle=False, extra=('--insecure-skip-verify',))
+        self.assertIn('WARNING: --insecure-skip-verify', r.stdout)
+        self.assertIn('tutti-0.5.2.tar.gz', r.stderr)
+        r = self.bootstrap(0, extra=('--version', '0.5.3'))
+        self.assertIn('not installed', r.stderr)   # 0.5.3's sums are not served here, nothing installs
+
+    @unittest.skipUnless(shutil.which('gh'), 'needs GitHub\'s CLI')
+    def test_the_real_gh_refuses_the_forged_bundle(self):
+        sums, bundle = os.path.join(self.FIX, 'SHA256SUMS'), os.path.join(self.FIX, 'forged.sigstore.json')
+        why = install.verify_signature(sums, bundle, '0.5.2', gh=shutil.which('gh'))
+        if 'too old' in why:
+            self.skipTest('this gh has no attestation command')
+        self.assertIn('is not signed by ventura8/Tutti', why)
+        self.assertRegex(why.lower(), r'bundle|certificate|signature|media type|verif')   # refused for the forged bundle
+
+    def test_the_gh_that_can_verify_is_picked(self):
+        with tempfile.TemporaryDirectory() as t:
+            for d, ok in (('path', False), (os.path.join('home', 'bin'), True)):
+                os.makedirs(os.path.join(t, d))
+                with open(os.path.join(t, d, 'gh'), 'w') as f:
+                    f.write(f'#!/bin/sh\nexit {0 if ok else 1}\n')
+                os.chmod(os.path.join(t, d, 'gh'), 0o755)
+            old = os.environ['PATH']
+            os.environ['PATH'] = os.path.join(t, 'path')
+            try:
+                self.assertEqual(install.gh_program(os.path.join(t, 'home')), os.path.join(t, 'home', 'bin', 'gh'))
+            finally:
+                os.environ['PATH'] = old
 
 
 if __name__ == '__main__':

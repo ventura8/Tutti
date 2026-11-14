@@ -2,6 +2,19 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.9.2 (2026-11-15)
+
+### Security
+
+- **Signed releases** (docs/SECURITY-AUDIT-2026-11.md, H8). The release workflow signs `SHA256SUMS` keylessly with
+  Sigstore (GitHub OIDC, actions/attest-build-provenance pinned by SHA) and attaches `SHA256SUMS.sigstore.json`.
+  `tutti self-update`, `bootstrap.sh` and `bootstrap.ps1` check it with `gh attestation verify` (signer
+  `ventura8/Tutti/.github/workflows/release.yml`, made on the version's tag) before the tarball's checksum, and install
+  nothing otherwise, saying why. `--insecure-skip-verify` (`-InsecureSkipVerify`) is the offline fallback, with a loud
+  warning, never used by the daily or login update. An older gh than 2.49 gets Tutti's own pinned copy in the bootstrap.
+  Releases before 0.9.2 have no signature (docs/INSTALL.md, *How a release is checked*).
+- The work browser's worker broker refuses a negative body size and closes silent connections.
+
 ## 0.9.1 (2026-11-15)
 
 ### Fixed
@@ -102,7 +115,7 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 ### Security
 
 The November audit (docs/SECURITY-AUDIT-2026-11.md): 2 critical, 9 high and 11 medium findings, each fixed with an
-exploit-style test, except signed releases (H8, open). The changes you may notice:
+exploit-style test; signed releases (H8) followed in 0.9.2. The changes you may notice:
 
 - A household member's job runs from plain files (`git archive`) in a container on the machine and runner that really run
   it; a job naming a device needs a device of that shared machine with a container runner (or `member_shell`).

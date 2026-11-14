@@ -137,6 +137,8 @@ def serve(broker, kind, who, token=None, port=0):
     token = token or secrets.token_urlsafe(24)
 
     class Handler(BaseHTTPRequestHandler):
+        timeout = 30   # a silent connection is closed
+
         def log_message(self, fmt, *args):
             return
 
@@ -152,7 +154,10 @@ def serve(broker, kind, who, token=None, port=0):
             if not secrets.compare_digest(self.headers.get('X-Tutti-Task', ''), token) or self.path not in ('/page', '/file'):
                 return self.answer(403, {'error': 'this broker serves POST /page and /file with its task token only'})
             try:
-                body = json.loads(self.rfile.read(min(int(self.headers.get('Content-Length') or 0), 65536)) or b'{}')
+                size = int(self.headers.get('Content-Length') or 0)
+                if not 0 <= size <= 65536:   # a negative length would read until the connection closes
+                    raise ValueError('send a JSON object of at most 64 KB with its Content-Length')
+                body = json.loads(self.rfile.read(size) or b'{}')
                 if not isinstance(body, dict):
                     raise ValueError('send a JSON object')
                 if self.path == '/file':

@@ -25,6 +25,11 @@ from . import __version__
 REPO = 'ventura8/Tutti'
 RELEASES = f'https://github.com/{REPO}/releases'
 SUMS = 'SHA256SUMS'
+BUNDLE = 'SHA256SUMS.sigstore.json'   # the release workflow's Sigstore attestation of SHA256SUMS (keyless, GitHub OIDC)
+SIGNER = f'{REPO}/.github/workflows/release.yml'
+SKIP_WARNING = ('WARNING: --insecure-skip-verify: the release\'s signature was NOT checked. Anyone who could change the '
+                'files on the way (or on GitHub) could have changed what was installed. Use it only offline, on a release '
+                'you checked another way.')
 TARBALL = re.compile(r'^tutti-(\d+\.\d+\.\d+)\.tar\.gz$')
 SERVICE = 'tutti-dashboard'                  # the systemd unit, the launchd label's tail and the scheduled task's name
 LAUNCHD_LABEL = 'io.github.tutti.dashboard'
@@ -198,6 +203,63 @@ def install_line(platform, join=None, root=None):
             f'echo "{sha}  tutti-bootstrap.sh" | (sha256sum -c - || shasum -a 256 -c -) && bash tutti-bootstrap.sh{extra}')
 
 
+# --- the release signature (docs/INSTALL.md, *How a release is checked*) ---
+
+def signed_refs(text):
+    """The git refs the attestations in `gh attestation verify --format json` were made on: the certificate's
+    sourceRepositoryRef or githubWorkflowRef, or the tail of its workflow identity (…/release.yml@refs/tags/v1.2.3)."""
+    import json
+    try:
+        items = json.loads(text or '[]')
+    except ValueError:
+        return set()
+    refs = set()
+    for it in items if isinstance(items, list) else [items]:
+        cert = (((it or {}).get('verificationResult') or {}).get('signature') or {}).get('certificate') or {}
+        refs |= {cert.get(k) for k in ('sourceRepositoryRef', 'githubWorkflowRef') if isinstance(cert.get(k), str)}
+        san = cert.get('subjectAlternativeName')
+        if isinstance(san, str) and '@' in san:
+            refs.add(san.rsplit('@', 1)[1])
+    return {r for r in refs if r}
+
+
+def gh_program(home_dir=None, run=subprocess.run):
+    """GitHub's CLI that can verify signatures (`gh attestation`, gh 2.49+): the one on PATH, else the pinned copy the
+    bootstrap put in <home>/bin when the PATH one is older; the first found when none can (its error then says why)."""
+    found = [g for g in (shutil.which('gh'), shutil.which('gh', path=os.path.join(home_dir or home(), 'bin'))) if g]
+    for g in dict.fromkeys(found):
+        try:
+            if run([g, 'attestation', 'verify', '--help'], capture_output=True, text=True, timeout=30).returncode == 0:
+                return g
+        except (OSError, subprocess.SubprocessError):
+            continue
+    return found[0] if found else None
+
+
+def verify_signature(sums_path, bundle_path, version, gh=None, run=subprocess.run):
+    """'' when SHA256SUMS carries a valid Sigstore signature by ventura8/Tutti's release workflow, made on the tag
+    v<version>; else why not, in plain words, with what to do."""
+    if not gh:
+        return ('the release\'s signature cannot be checked: GitHub\'s CLI (gh) is not installed; run the one-line install '
+                'again (it installs gh), or install gh from https://cli.github.com')
+    try:
+        r = run([gh, 'attestation', 'verify', sums_path, '--bundle', bundle_path, '--repo', REPO, '--signer-workflow', SIGNER,
+                 '--format', 'json'], capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.SubprocessError) as e:
+        return f'the release\'s signature could not be checked ({type(e).__name__}): check the network and try again'
+    if r.returncode != 0:
+        why = ((r.stderr or r.stdout or '').strip().splitlines() or ['no reason given'])[-1][:200]
+        if 'unknown command' in why or 'unknown flag' in why:
+            return f'gh is too old to check signatures ({why}): update it (gh 2.49 or newer, https://cli.github.com)'
+        return (f'v{version}\'s SHA256SUMS is not signed by {SIGNER} ({why}): it was not made by Tutti\'s release '
+                'workflow, or it was changed since; nothing was installed')
+    want = f'refs/tags/v{version}'
+    if want not in signed_refs(r.stdout):
+        return (f'v{version}\'s SHA256SUMS is signed, but not on the tag {want} (signed on '
+                f'{", ".join(sorted(signed_refs(r.stdout))) or "an unknown ref"}): nothing was installed')
+    return ''
+
+
 # --- self-update (I/O) ---
 
 def fetch(url, dest=None, timeout=60):
@@ -254,12 +316,14 @@ def requirements(home_dir, version_dir):
     return subprocess.run(argv, check=False, capture_output=True, text=True).returncode == 0
 
 
-def self_update(home_dir=None, current=__version__, fetch_fn=fetch, check_only=False):
-    """(code, message). Installs the newest release when it is newer than `current`: sums, download, verify, unpack,
-    requirements, then `current` moves. Any failure leaves the running version in place."""
+def self_update(home_dir=None, current=__version__, fetch_fn=fetch, check_only=False, skip_verify=False, verify_fn=None):
+    """(code, message). Installs the newest release when it is newer than `current`: sums, their signature (Sigstore, by
+    the release workflow on the release's tag), download, checksum, unpack, requirements, then `current` moves. Any failure
+    leaves the running version in place. `skip_verify` (--insecure-skip-verify) skips the signature, loudly."""
     home_dir = home_dir or home()
     try:
-        sums = parse_sums(fetch_fn(f'{RELEASES}/latest/download/{SUMS}'))
+        sums_text = fetch_fn(f'{RELEASES}/latest/download/{SUMS}')
+        sums = parse_sums(sums_text)
     except OSError as e:
         return 1, f'self-update: could not read {RELEASES}/latest ({e}); offline? It tries again at the next login.'
     latest = newest(sums)
@@ -273,6 +337,10 @@ def self_update(home_dir=None, current=__version__, fetch_fn=fetch, check_only=F
     os.makedirs(os.path.join(home_dir, 'versions'), exist_ok=True)
     with tempfile.TemporaryDirectory(dir=home_dir) as tmp:
         path = os.path.join(tmp, name)
+        why = signature_refusal(tmp, sums_text, latest, fetch_fn, skip_verify, verify_fn or
+                                (lambda s, b, v: verify_signature(s, b, v, gh_program(home_dir))))
+        if why:
+            return 1, f'self-update: {why}; {current} stays'
         try:
             fetch_fn(f'{RELEASES}/download/v{latest}/{name}', path)
         except OSError as e:
@@ -286,7 +354,23 @@ def self_update(home_dir=None, current=__version__, fetch_fn=fetch, check_only=F
     if not requirements(home_dir, target):
         return 1, f'self-update: installing the Python requirements of {latest} failed; {current} stays'
     point_current(home_dir, latest)
-    return 0, f'self-update: {current} -> {latest} (restart the dashboard, or it restarts itself within a day)'
+    warn = f' {SKIP_WARNING}' if skip_verify else ''
+    return 0, f'self-update: {current} -> {latest} (restart the dashboard, or it restarts itself within a day).{warn}'
+
+
+def signature_refusal(tmp, sums_text, version, fetch_fn, skip_verify, verify_fn):
+    """'' when SHA256SUMS is signed (or the check is skipped on purpose), else why."""
+    if skip_verify:
+        return ''
+    sums_path, bundle_path = os.path.join(tmp, SUMS), os.path.join(tmp, BUNDLE)
+    with open(sums_path, 'w', encoding='utf8', newline='') as f:
+        f.write(sums_text)
+    try:
+        fetch_fn(f'{RELEASES}/download/v{version}/{BUNDLE}', bundle_path)
+    except OSError as e:
+        return (f'v{version} has no signature file {BUNDLE} ({e}): it was not published by Tutti\'s release workflow; '
+                'nothing was installed (offline and sure of the files? `tutti self-update --insecure-skip-verify`)')
+    return verify_fn(sums_path, bundle_path, version)
 
 
 DAY = 24 * 3600

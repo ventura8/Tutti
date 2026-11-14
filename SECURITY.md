@@ -44,8 +44,8 @@ and its test, what is still open and why. In short, beyond the above:
 - The autopilot merges only the reviewed commit, and never a change to its own gates.
 - Every server closes silent connections and caps concurrent requests and body sizes; without sign-in the dashboard serves
   only this login, also on a computer several people use (Linux).
-- Self-update checks a checksum from the same release: it is not signed yet (open, H8). Keep the publishing GitHub account
-  behind two-factor sign-in.
+- Releases are signed keylessly with Sigstore by the release workflow on the release's tag; self-update and the
+  bootstrap refuse anything else (docs/INSTALL.md, *How a release is checked*).
 
 ## Reporting a vulnerability
 

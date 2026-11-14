@@ -33,7 +33,7 @@ that needs a position on your network; **low**, hardening, or a risk that needs 
 | H6 | high | scouts | The first comment after the scout's question was its answer, whoever wrote it: in a public reply repository anyone queued tasks | fixed |
 | H7 | high | Sentry triage, workers | Text from Sentry events reached the worker's brief (with a "check" command), and workers inherited GH_TOKEN and the scout's webhook key | fixed (the command and the tokens); the residual risk is below |
 | H9 | high | dashboard Chat (0.1.69) | A viewer's chat (or a model steered by text it read) queued a backlog task with a `check`, a shell command the admin's autopilot runs on the host | fixed: the chat's `backlog_add` has no `check` (`test_chat.test_a_chat_task_never_carries_a_shell_check`) |
-| H8 | high | self-update | `SHA256SUMS` comes from the same release as the tarball and is not signed: whoever can publish a release reaches every install within a day | open: needs the owner's signing key (backlog) |
+| H8 | high | self-update | `SHA256SUMS` comes from the same release as the tarball and is not signed: whoever can publish a release reaches every install within a day | fixed in 0.9.2: keyless Sigstore signature by the release workflow on the tag, verified by self-update and both bootstraps |
 | M1 | medium | coordinator | A negative Content-Length made the server read until the socket closed, unauthenticated | fixed |
 | M2 | medium | every server | No socket timeout and no limit on threads: slow or many connections held the process | fixed |
 | M3 | medium | autopilot `land: merge` | The merge was not pinned to the reviewed commit: a push after the review went in with it | fixed |
@@ -57,6 +57,7 @@ that needs a position on your network; **low**, hardening, or a risk that needs 
 | L10 | low | dashboard | Viewers see the command lines of watched processes (a token typed on a command line would show) | backlog |
 | L11 | low | dashboard | Links built from data (a PR or usage URL) are not checked for `javascript:` (the CSP blocks them) | backlog |
 | L12 | low | coordinator | A join with an invite founds the household state before the invite is proved | backlog |
+| L14 | low | work browser (0.6.0) | The worker's one-task broker read a negative Content-Length to the end of the connection (loopback, after its task token) and had no socket timeout; otherwise the broker holds: DevTools only on 127.0.0.1 or a 0660 Unix socket, https scopes per task type, Tutti's own read-only extractors, `/api/browser` admin-only by the sign-in's default deny, the isolated mode's systemd sandbox | fixed in 0.9.2 |
 | L13 | low | gitleaks | The scrubber's tests hold fake AWS keys and JWTs that gitleaks flags in history | accepted: test data, no real secret |
 
 ## What each fix does, and its test
@@ -93,9 +94,14 @@ that needs a position on your network; **low**, hardening, or a risk that needs 
   the git and gh sign-ins stored in files. The defence is that it works in a worktree, never pushes, and that nothing it does
   lands without the gates, a review and, for a change to the gates, a person. Keep `self_improve.auto_accept` off for public
   projects if that is not enough. `test_security_audit.WorkerEnvTest`, `test_selfimprove` (the note).
-- **H8** Open. The fix is a signature on `SHA256SUMS` by a key only the owner holds, verified by a public key in the code
-  (`ssh-keygen -Y verify` needs nothing but OpenSSH), or releases built in CI with provenance. Until then an update is as
-  trustworthy as the GitHub account that publishes releases: keep it behind two-factor sign-in and a hardware key.
+- **H8** (0.9.2) The release workflow signs `SHA256SUMS` keylessly (Sigstore through GitHub OIDC,
+  actions/attest-build-provenance pinned by SHA) and attaches `SHA256SUMS.sigstore.json`. `install.verify_signature` (and
+  the same check in bootstrap.sh and bootstrap.ps1) runs `gh attestation verify` with the release workflow as the signer
+  and requires the certificate's ref to be the version's tag; otherwise nothing installs. `--insecure-skip-verify` is the
+  loud, manual-only offline fallback. A stolen token that can only upload release files cannot make the signature;
+  one that can push a `v*` tag can (it runs the workflow from that tag), so `v*` tags need a ruleset that only the
+  maintainer may create them (the owner's step, filed). `test_setup.Signature` (a fixed bundle and the recorded gh answer; the real gh refuses the forged bundle; the bash
+  bootstrap with faked curl and gh) and `test_an_unsigned_or_forged_release_is_refused_and_skip_says_so_loudly`.
 - **M1, M2** `coordinator.content_length` refuses a missing number, a negative or an oversized length; every server
   (dashboard, coordinator, MCP) closes a connection silent for 30 s and serves a bounded number of requests at once, and at
   most a few per client address, so one host trickling bytes cannot hold every slot (`httpguard.CappedServer`). `test_security_audit.CoordinatorHttpTest`, `CappedServerTest`.

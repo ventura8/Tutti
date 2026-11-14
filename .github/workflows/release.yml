@@ -3,6 +3,10 @@ name: release
 # client's secret (the Actions secret TUTTI_GOOGLE_DEVICE_SECRET) and the default Sentry DSN (the Actions variable
 # TUTTI_SENTRY_DSN), then replaces the files scripts/release-patch.sh attached. Without them the release still works:
 # the button sign-in on this computer is built in, and a household adds its own device client (docs/AUTH.md).
+# It then signs SHA256SUMS with Sigstore, keyless (GitHub OIDC, actions/attest-build-provenance), and attaches the bundle as
+# SHA256SUMS.sigstore.json: `tutti self-update` and the bootstrap refuse a release whose SHA256SUMS is not signed by this
+# workflow on the release's v* tag (docs/INSTALL.md, *How a release is checked*). A manual run must be dispatched on the tag
+# itself (`gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z`), or its signature names a branch and is refused.
 on:
   release:
     types: [published]
@@ -12,7 +16,9 @@ on:
         description: the release tag to rebuild, e.g. v0.1.60
         required: true
 permissions:
-  contents: write
+  contents: write      # replace the release's files
+  id-token: write      # the OIDC token Sigstore's keyless certificate is issued for
+  attestations: write  # store the attestation on GitHub too
 jobs:
   assets:
     runs-on: ubuntu-24.04
@@ -29,6 +35,15 @@ jobs:
           TUTTI_GOOGLE_DEVICE_SECRET: ${{ secrets.TUTTI_GOOGLE_DEVICE_SECRET }}
           TUTTI_SENTRY_DSN: ${{ vars.TUTTI_SENTRY_DSN }}
         run: bash scripts/release-assets.sh "${TAG#v}" "$RUNNER_TEMP/assets" HEAD
+      - name: Sign SHA256SUMS (Sigstore, keyless)
+        id: sign
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/assets/SHA256SUMS
+      - name: Attach the signature bundle
+        env:
+          BUNDLE: ${{ steps.sign.outputs.bundle-path }}
+        run: cp "$BUNDLE" "$RUNNER_TEMP/assets/SHA256SUMS.sigstore.json"
       - name: Replace the release's files
         env:
           GH_TOKEN: ${{ github.token }}

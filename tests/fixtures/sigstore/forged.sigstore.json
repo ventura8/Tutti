@@ -1,0 +1,19 @@
+{
+ "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+ "verificationMaterial": {
+  "certificate": {
+   "rawBytes": "bm90IGEgcmVhbCBjZXJ0aWZpY2F0ZTogYSBmb3JnZWQgYnVuZGxl"
+  },
+  "tlogEntries": [],
+  "timestampVerificationData": {}
+ },
+ "dsseEnvelope": {
+  "payload": "eyJfdHlwZSI6ICJodHRwczovL2luLXRvdG8uaW8vU3RhdGVtZW50L3YxIiwgInN1YmplY3QiOiBbeyJuYW1lIjogIlNIQTI1NlNVTVMiLCAiZGlnZXN0IjogeyJzaGEyNTYiOiAiMWM1NDE2MWJhN2Y4YjFiNDJjMmU0OTY4MjhkNzBkZDljYjg3NTQ0OThiMWNlYzczNjNlNzFjYmY2MjhiNTRiMCJ9fV0sICJwcmVkaWNhdGVUeXBlIjogImh0dHBzOi8vc2xzYS5kZXYvcHJvdmVuYW5jZS92MSIsICJwcmVkaWNhdGUiOiB7fX0=",
+  "payloadType": "application/vnd.in-toto+json",
+  "signatures": [
+   {
+    "sig": "MAIBAA=="
+   }
+  ]
+ }
+}

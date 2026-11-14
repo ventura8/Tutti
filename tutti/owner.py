@@ -31,8 +31,17 @@ BLOCK = 5             # hours: the workers may spend left x BLOCK / hours left n
 DEFAULT = {'days': list(DAYS[:5]), 'hours': 8, 'window': '01-14', 'rate': 1.0, 'utc_offset': None}
 
 
+def vacation_day(mode):
+    """The date of `vacation-until-YYYY-MM-DD`, or None (not that mode, or not a real date)."""
+    m = VACATION.fullmatch(mode) if isinstance(mode, str) else None
+    try:
+        return datetime.strptime(m.group(1), '%Y-%m-%d') if m else None
+    except ValueError:
+        return None
+
+
 def valid_mode(mode):
-    return mode in MODES or bool(isinstance(mode, str) and VACATION.fullmatch(mode))
+    return mode in MODES or vacation_day(mode) is not None
 
 
 def schedule_errors(p):
@@ -117,7 +126,8 @@ def learn(readings, offset):
 
 
 def busiest(row, hours):
-    """The `hours` contiguous hours (wrapping past midnight) of a day with the highest sum: the day's reserve window."""
+    """The `hours` contiguous hours (wrapping past midnight) of a day with the highest sum: the day's reserve window (the
+    owner works in one stretch; a scattered peak keeps the stretch that holds most of it)."""
     if sum(1 for x in row if x > 0) <= hours:
         return {h for h in range(24) if row[h] > 0}
     start = max(range(24), key=lambda s: sum(row[(s + i) % 24] for i in range(hours)))
@@ -127,7 +137,7 @@ def busiest(row, hours):
 def profile_of(schedule, readings, offset):
     """{profile, reserve: 7 x 24 points per hour the planner keeps, learned: bool}. Once LEARN_HOURS of readings on
     LEARN_DAYS weekdays exist, a weekday seen for 12 h or more takes its learned row (others keep the seed's); its window,
-    if wider than `hours`, keeps its `hours` busiest. Days outside schedule.days (the weekend) reserve nothing."""
+    if wider than `hours`, keeps its busiest `hours` contiguous hours. Days outside schedule.days (the weekend) reserve nothing."""
     seeded = seed(schedule)
     learned, seen, weekdays = learn(readings, offset)
     total = sum(map(sum, seen))
@@ -150,18 +160,21 @@ def owner_excess(readings, now, offset, hours):
     return sum(max(0.0, rates.get(h, 0.0) - base) for h in hours)
 
 
-def effective(mode, reserve, readings, now, offset, away_after):
-    """(mode in effect, until: datetime or None). auto becomes away for the rest of today when `away_after` of today's
-    reserve hours have passed with no rise; vacation-until-<date> is away until that local date's midnight."""
-    m = VACATION.fullmatch(mode or '')
-    if m:
-        until = datetime.fromisoformat(m.group(1)).replace(tzinfo=timezone.utc) - timedelta(hours=offset)
+def effective(mode, reserve, readings, now, offset, away_after, learned=True):
+    """(mode in effect, until: datetime or None). auto becomes away for the rest of today when the last `away_after` of
+    today's reserve hours (the owner's busiest, learned: a seeded window says nothing about when they start) rose under
+    AWAY_SHARE of their expected burn; vacation-until-<date> is away until that local date's midnight."""
+    day = vacation_day(mode)
+    if day:
+        until = day.replace(tzinfo=timezone.utc) - timedelta(hours=offset)
         return ('vacation', until) if now < until else ('auto', None)
+    if not valid_mode(mode):
+        mode = 'auto'   # a hand-edited owner.json with a bad mode: the profile decides, nothing breaks
     lt = local(now, offset)
     midnight = lt.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1) - timedelta(hours=offset)
     if mode == 'away':
         return 'away', midnight
-    if mode != 'auto':
+    if mode != 'auto' or not learned:
         return mode, None
     passed = [h for h in range(lt.hour) if reserve[lt.weekday()][h] > 0][-int(away_after):]
     if len(passed) < away_after:
@@ -192,7 +205,7 @@ def context(owner, readings, now):
     sched = owner['schedule']
     offset = offset_of(sched, now)
     prof = profile_of(sched, readings, offset)
-    mode, until = effective(owner['mode'], prof['reserve'], readings, now, offset, owner.get('away_after_hours', 3))
+    mode, until = effective(owner['mode'], prof['reserve'], readings, now, offset, owner.get('away_after_hours', 3), prof['learned'])
     return {**prof, 'offset': offset, 'mode': mode, 'set_mode': owner['mode'], 'until': until}
 
 

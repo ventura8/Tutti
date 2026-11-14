@@ -122,15 +122,15 @@ its use is higher then; on weekends, on holiday, or while away the agents work a
   "01-14"`, `rate: 1.0` points per hour; Sat-Sun nothing) until the owner accounts' readings cover 48 h on 3 weekdays;
   then each weekday seen for 12 h takes its learned row. Workers spend the same account, so each day's lower quartile
   (their even spread) is taken off before the owner's hours are learned. A learned window wider than `hours` keeps its
-  `hours` busiest. Days not in `schedule.days` never keep a reserve.
+  busiest `hours` contiguous hours. Days not in `schedule.days` never keep a reserve.
 - **The reserve.** On the main agent's accounts the planner keeps the owner's expected burn for the owner hours left
   before the window's target, weekly windows across the whole week (a reset on a Wednesday keeps Monday's and Tuesday's
   hours, nothing after). An account with `limits` keeps it out of the weekly limit's budget. The rest is spent by the
   workers (Claude-backed autopilot too, when the main account is in `autopilot.accounts`), evenly: at most the rest x 5 h /
   the hours left at a time, so it ends near 100 % about an hour before the reset with no burst that would block the owner.
-- **The mode** (`pacing.mode`, `tutti owner mode <m>`, or the dashboard): `auto` (the profile; away for the rest of the
-  day when the last `away_after_hours` of today's owner hours rose under a quarter of the expected burn above the workers'
-  baseline), `active` (always keep the reserve), `away` (nothing kept for the rest of today), `vacation-until-YYYY-MM-DD`
+- **The mode** (`pacing.mode`, `tutti owner mode <m>`, or the dashboard): `auto` (the profile; once it is learned, away
+  for the rest of the day when the last `away_after_hours` of today's owner hours rose under a quarter of the expected burn
+  above the workers' baseline; a seeded window says nothing about when the owner starts, so it never infers away), `active` (always keep the reserve), `away` (nothing kept for the rest of today), `vacation-until-YYYY-MM-DD`
   (nothing kept until that local date). Kept in `<state>/owner.json` with the dashboard's edits of the working days.
 - **The check.** `tests/test_owner.py` simulates a week hour by hour (five owner days and a weekend, resets on Monday,
   Saturday and Wednesday, a day away, a two-week vacation, the owner prompting an hour a day): every window ends at 95 % or

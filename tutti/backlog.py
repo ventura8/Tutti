@@ -132,15 +132,23 @@ def feedback_items(text):
     return out
 
 
+def in_quotes(before):
+    """Whether text ends inside a backtick or an open string: closed '...' and "..." spans are dropped, then a quote that
+    starts a string (after a space, a bracket or an operator) is open; an apostrophe in a word (don't) is not."""
+    if before.endswith('`') or before.count('`') % 2:
+        return True
+    rest = re.sub(r'"[^"]*"|\'[^\']*\'', '', before)
+    return re.search(r'(^|[\s(=,\[{:+])[\'"]', rest) is not None
+
+
 def todo_items(lines):
     """(title, path) of every `TODO(owner):` or `FIXME(owner):` in `git grep -n` output lines (<path>:<line>:<text>)."""
     out = []
     for line in lines:
         parts = line.split(':', 2)
         m = re.search(TODO_RX, parts[2]) if len(parts) == 3 and not parts[0].lower().endswith(PROSE) else None
-        before = parts[2][:m.start()] if m else ''
         # a quoted `TODO(owner)` names the syntax (docs, help text, test fixtures), never a task
-        if m and not is_test(parts[0]) and not before.endswith('`') and before.count("'") % 2 == 0 and before.count('"') % 2 == 0:
+        if m and not is_test(parts[0]) and not in_quotes(parts[2][:m.start()]):
             out.append((f'{m.group(1)}({m.group(2)}) in {parts[0]}:{parts[1]}: {m.group(3).strip()[:200]}', parts[0]))
     return out
 
@@ -174,7 +182,7 @@ def gap_items(lines):
 
 SOURCE_EXT = ('.py', '.ts', '.tsx', '.js', '.mjs', '.sh')
 PROSE = ('.md', '.txt', '.rst')   # a TODO in prose is about TODOs (a changelog, a README), never a task
-BUILT = {'dist', 'build', 'cdn', 'vendor', 'third_party', 'node_modules', 'generated', 'out', 'coverage', 'site-packages'}
+BUILT = ('dist', 'build', 'cdn', 'vendor', 'third_party', 'node_modules', 'generated', 'coverage', 'site-packages')   # repos.<r>.built
 HASHED = re.compile(r'-([A-Za-z0-9_-]{8})\.m?js$')   # a bundler's content hash (vite: compare-CNW-vnBa.js)
 
 
@@ -199,7 +207,10 @@ def test_stem(path):
 
 
 def mentioned(stem, text):
-    return bool(text) and re.search(r'(?<![\w-])' + re.escape(stem) + r'(?![\w-])', text) is not None
+    """Whether a test imports the unit: `stem` as a whole word on an import, from or require line (a bare word anywhere
+    would make `config` or `state` tested by every test)."""
+    word = r'(?<![\w-])' + re.escape(stem) + r'(?![\w-])'
+    return bool(text) and re.search(r'^.*\b(import|from|require)\b.*' + word, text, re.M) is not None
 
 
 def test_text(path, files, limit=4_000_000):
@@ -218,7 +229,7 @@ def test_text(path, files, limit=4_000_000):
     return '\n'.join(out)
 
 
-def untested_items(files, tests_text=''):
+def untested_items(files, tests_text='', built_dirs=BUILT):
     """(title, path) of every tracked source file (`git ls-files` lines) whose name no test file mentions: a missing test is
     a bounded task with an obvious check. Config files, type declarations, package entry points and the tests are skipped."""
     tests = {test_stem(f) for f in files if is_test(f)}
@@ -227,7 +238,7 @@ def untested_items(files, tests_text=''):
         base = os.path.basename(f)
         stem, ext = os.path.splitext(base)
         if ext not in SOURCE_EXT or is_test(f) or stem in NOT_UNITS or '.config' in base or base.endswith('.d.ts') \
-                or BUILT & set(f.lower().split('/')[:-1]) or built(base) \
+                or set(built_dirs) & set(f.lower().split('/')[:-1]) or built(base) \
                 or stem.lower() in tests or mentioned(stem, tests_text):   # an exact unit name: `a` is not tested by test_data.py
             continue
         out.append((f'Add unit tests for {f}: no test file names it; cover its behaviour, a good case and a bad one', f))
@@ -261,7 +272,7 @@ def sources(repo, run=subprocess.run, untested=False):
         found += [(t, [p] if p else [], 'gaps') for t, p in gap_items(res.splitlines())]
     if untested and repo.get('untested', True):   # off for a repo whose coverage gate already proves every file tested
         files = _out(run, [worktree.git_bin(), '-C', path, 'ls-files']).splitlines()
-        found += [(t, [p], 'untested') for t, p in untested_items(files, test_text(path, files))]
+        found += [(t, [p], 'untested') for t, p in untested_items(files, test_text(path, files), repo.get('built', BUILT))]
     return found
 
 

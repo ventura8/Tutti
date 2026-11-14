@@ -417,8 +417,9 @@ function heatmap(o) {
 
 function ownerPanel(o) {
     const until = o.until ? ` until ${new Date(o.until).toLocaleString()}` : '';
+    const t = new Date(Date.now() + 86400000);   // tomorrow, local: the server reads the date as the owner's local midnight
     const date = el('input', { type: 'date', class: 'field', 'aria-label': 'Away until (date)',
-        value: new Date(Date.now() + 86400000).toISOString().slice(0, 10) });
+        value: `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}` });
     const learned = o.learned ? `learned from ${o.hours_seen} h of readings` : `seeded from pacing.schedule (${o.schedule.window}, ${o.schedule.hours} h)`;
     return [
         el('h3', { class: 'card__sub', text: 'You and the main agent' }),

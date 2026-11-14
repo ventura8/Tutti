@@ -73,6 +73,9 @@ class SimulationTest(unittest.TestCase):
         end, log = simulate(reset, lambda t: 0.0, mode=f'vacation-until-{(reset + timedelta(days=7)).date()}')
         self.check(end, log)
 
+    def test_an_owner_who_starts_late_in_the_seeded_window(self):
+        self.check(*simulate(datetime(2026, 11, 21, 2, tzinfo=UTC), present_weekdays(hours=range(6, 14))))
+
     def test_mostly_agents_an_hour_a_day(self):
         self.check(*simulate(datetime(2026, 11, 21, 2, tzinfo=UTC), present_weekdays(hours=range(9, 10), rate=3.0)))
 
@@ -103,6 +106,22 @@ class ProfileTest(unittest.TestCase):
         self.assertTrue(p['learned'])
         self.assertAlmostEqual(p['reserve'][1][4], 2.0, places=1)   # Tuesday 04:00: the owner's 2, not the workers' 0.5
         self.assertEqual(p['reserve'][1][12], 0.0)
+
+    def test_a_scattered_peak_keeps_the_stretch_that_holds_most(self):
+        row = [0.0] * 24
+        row[2], row[3], row[4], row[20] = 1.0, 1.0, 1.0, 2.5
+        self.assertEqual(owner.busiest(row, 3), {2, 3, 4})
+
+    def test_an_impossible_vacation_date_is_refused_and_a_bad_saved_mode_is_auto(self):
+        self.assertFalse(owner.valid_mode('vacation-until-2026-13-45'))
+        reserve = [[0.0] * 24 for _ in range(7)]
+        self.assertEqual(owner.effective('vacation-until-2026-13-45', reserve, [], datetime(2026, 11, 16, tzinfo=UTC), 0, 3)[0], 'auto')
+
+    def test_a_seeded_window_never_infers_away(self):
+        reserve = [[1.0 if d < 5 and 1 <= h < 9 else 0.0 for h in range(24)] for d in range(7)]
+        mon = datetime(2026, 11, 16, 5, tzinfo=UTC)
+        flat = [{'at': (mon - timedelta(hours=i)).isoformat(), 'used': 10.0} for i in range(30)]
+        self.assertEqual(owner.effective('auto', reserve, flat, mon, 0, 3, learned=False)[0], 'auto')
 
     def test_auto_goes_away_after_quiet_owner_hours_and_vacation_ends(self):
         reserve = [[1.0 if d < 5 and 1 <= h < 9 else 0.0 for h in range(24)] for d in range(7)]

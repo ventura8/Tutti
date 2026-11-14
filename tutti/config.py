@@ -332,6 +332,8 @@ def _autopilot_repo_errors(n, r):
         errs.append(f'autopilot.repos.{n}.where is {r["where"]!r}: use local (the check runs here) or route (a routed machine)')
     if r.get('pr', False) not in (False, 'draft'):
         errs.append(f'autopilot.repos.{n}.pr is {r["pr"]!r}: use false (a branch to review) or draft (also a draft pull request)')
+    if not isinstance(r.get('built', []), list):
+        errs.append(f'autopilot.repos.{n}.built is {r["built"]!r}: a list of folder names whose files are built, never tested')
     if not isinstance(r.get('untested', True), bool):
         errs.append(f'autopilot.repos.{n}.untested is {r["untested"]!r}: true (fill_room queues tests for files no test names) or false')
     if r.get('land', 'pr') not in ('merge', 'pr', 'branch'):

@@ -28,6 +28,8 @@ def ask(cfg, a, gh_fn=gh, post_fn=scouts.post, stdin=None):
     sc = scouts.settings(cfg, a.scout)
     if a.skill and a.skill not in scouts.SKILLS:
         raise scouts.ScoutError(f'--skill {a.skill}: use one of {", ".join(scouts.SKILLS)}')
+    if not a.queue:
+        scouts.guard(cfg, sc)
     with scouts.locked(cfg) as data:
         r = scouts.new_request(data, sc, a.task, repo=a.repo, skill=a.skill)
         if a.queue:
@@ -74,6 +76,7 @@ def watch(cfg, a, gh_fn=gh, post_fn=scouts.post):
     if not a.watch or a.watch not in sc['watches']:
         raise scouts.ScoutError(f'scout {a.what} has no watch "{a.watch}" (its watches: {", ".join(sc["watches"]) or "none"})')
     w = sc['watches'][a.watch]
+    scouts.guard(cfg, sc)
     url, key = scouts.secrets(sc)
     with scouts.locked(cfg) as data:
         r = scouts.new_request(data, sc, w['task'], 'watch', a.watch, w.get('repo'), w.get('skill'))

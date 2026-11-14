@@ -104,15 +104,17 @@ def find_pr(e, key):
     raise TrialError(f'{key} is not in the trial: `tutti scout trial` lists its pull requests')
 
 
+def eligible(cfg, data, name, repo):
+    """The scout's trial still takes pull requests of `repo` (read from `data`, the trial file)."""
+    t = settings(cfg, name)
+    e = data['scouts'].get(name) or {'prs': [], 'verdict': None}
+    return bool(t) and repo in t['repos'] and not e['verdict'] and len(e['prs']) < t['prs']
+
+
 def trial_scout(cfg, repo):
     """The scout whose trial still takes pull requests of `repo`, or None."""
     data = load(cfg)
-    for name in cfg.get('scouts') or {}:
-        t = settings(cfg, name)
-        e = data['scouts'].get(name) or {'prs': [], 'verdict': None}
-        if t and repo in t['repos'] and not e['verdict'] and len(e['prs']) < t['prs']:
-            return name
-    return None
+    return next((n for n in cfg.get('scouts') or {} if eligible(cfg, data, n, repo)), None)
 
 
 def may_review(cfg, name):
@@ -128,25 +130,66 @@ def may_review(cfg, name):
             if e.get('verdict') else f'scout {name} has no review skill: add review to scouts.{name}.skills, or a review_trial')
 
 
-def ask_review(cfg, name, repo, number, url, gh_fn=gh, post_fn=scouts.post, env=None):
-    """Sends the scout a review of one pull request (it answers on the pull request) and returns the request."""
+def reserve(cfg, name, repo, number):
+    """Under the trial lock, before anything is sent: (the pull request's trial record or None, whether this call added it).
+    A slot is taken here, so two reviews at once never both take the last one."""
+    k = key_of(repo, number)
+    with locked(cfg) as data:
+        e = entry(data, name)
+        p = next((x for x in e['prs'] if x['key'] == k), None)
+        if p is None and eligible(cfg, data, name, repo):
+            p = {'key': k, 'repo': repo, 'number': number, 'request': None, 'added': time.time(), 'findings': [], 'closed': False}
+            e['prs'].append(p)
+            return p, True
+        return p, False
+
+
+def settle(cfg, name, key, r, new):
+    """After the send: a review that went out is linked to its trial record; a failed one frees the slot it took."""
+    with locked(cfg) as data:
+        e = entry(data, name)
+        p = next((x for x in e['prs'] if x['key'] == key), None)
+        if p is None:
+            return
+        if r['status'] == 'waiting':
+            p['request'] = r['id']
+        elif new and not p.get('request'):
+            e['prs'].remove(p)
+
+
+def active(cfg, rid):
+    """The trial's request when it is still waiting or answered (sent once, never again), else None."""
+    if not rid:
+        return None
+    with contextlib.suppress(scouts.ScoutError):
+        r = scouts.find(scouts.load(cfg), rid)
+        return r if r['status'] in ('waiting', 'answered') else None
+    return None
+
+
+def ask_review(cfg, name, repo, number, url, gh_fn=gh, post_fn=scouts.post, env=None, accounts=None):
+    """Sends the scout a review of one pull request (it answers on the pull request) and returns the request. A pull request
+    of the trial whose review already went out is not sent again."""
     why = may_review(cfg, name)
     if why:
         raise TrialError(why)
     sc = scouts.settings(cfg, name)
+    scouts.guard(cfg, sc, accounts)
     target, key = scouts.secrets(sc, env)
+    p, new = reserve(cfg, name, repo, number)
+    sent = active(cfg, (p or {}).get('request'))
+    if sent:
+        return sent
     task = TASK.format(repo=repo, number=number, url=url, marker=scouts.REVIEW_MARKER)
-    with scouts.locked(cfg) as data:
-        r = scouts.new_request(data, sc, task, 'review', repo=repo, skill='review')
-        r.update(issue=number, url=url)
-        scouts.send(sc, r, target, key, gh_fn, post_fn)
-    with locked(cfg) as data:
-        e = entry(data, name)
-        k = key_of(repo, number)
-        # only a review that went out counts toward the trial: a refused key must not use up one of its pull requests
-        if r['status'] == 'waiting' and trial_scout(cfg, repo) == name and not any(p['key'] == k for p in e['prs']):
-            e['prs'].append({'key': k, 'repo': repo, 'number': number, 'request': r['id'], 'added': time.time(),
-                             'findings': [], 'closed': False})
+    try:
+        with scouts.locked(cfg) as data:
+            r = scouts.new_request(data, sc, task, 'review', repo=repo, skill='review')
+            r.update(issue=number, url=url)
+            scouts.send(sc, r, target, key, gh_fn, post_fn)
+    except BaseException:
+        settle(cfg, name, key_of(repo, number), {'status': 'failed'}, new)
+        raise
+    settle(cfg, name, key_of(repo, number), r, new)
     return r
 
 
@@ -161,6 +204,10 @@ def in_trial(cfg, repo, number, say, gh_fn=gh, post_fn=scouts.post, env=None):
                        gh_fn, post_fn, env)
     except scouts.ScoutError as e:
         say(f'review: the {name} scout\'s trial review was not sent ({e}); the review goes on without it')
+        return None
+    except (ValueError, OSError) as e:   # a broken state file or address: named by its kind only, never its text
+        say(f'review: the {name} scout\'s trial review was not sent ({type(e).__name__} while preparing it: check '
+            f'`tutti scout list` and the state folder); the review goes on without it')
         return None
     say(f'review: also asked the {name} scout (trial, advisory only): {r["status"]}'
         + (f' ({r.get("why")})' if r['status'] == 'failed' else ''))
@@ -246,6 +293,9 @@ def close(cfg, name, key):
     with locked(cfg) as data:
         e = entry(data, name)
         p = find_pr(e, key)
+        if p.get('scout_status') in (None, 'waiting', 'unknown'):
+            raise TrialError(f'{key}: the scout\'s review is not in yet ({p.get("scout_status") or "not collected"}): run '
+                             f'`tutti scout trial collect {key}` once its comment is there (or it timed out)')
         open_ids = [f['id'] for f in p['findings'] if not f.get('verdict')]
         if open_ids:
             raise TrialError(f'{key}: mark {", ".join(open_ids)} first (tutti scout trial mark {key} <id> real|noise)')

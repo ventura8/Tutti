@@ -7,10 +7,11 @@ import tempfile
 import threading
 import unittest
 from contextlib import redirect_stdout
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
-from tutti import cli, config, dashboard, routing, scoutcmd, scouts, trial
+from tutti import cli, config, dashboard, pacing, routing, scoutcmd, scouts, state, trial
 
 KEY = 'test-key-not-real'
 REPO = 'octo/app'
@@ -125,6 +126,14 @@ class ConfigTest(unittest.TestCase):
             self.assertIn(key, text)
         self.assertIn('never on-demand', text)
 
+    def test_a_pasted_value_is_never_echoed(self):
+        cfg = config.normalise({'scouts': {'g': {'kind': 'grok-bot-webhook', 'url_env': 'https://hooks.example/secret-path',
+                                                 'key_env': 'sk-pasted-value', 'reply': {'github_repo': REPO}}}})
+        text = '\n'.join(config.validate(cfg))
+        self.assertIn('scouts.g.url_env is not an environment variable name', text)
+        self.assertNotIn('secret-path', text)
+        self.assertNotIn('sk-pasted-value', text)
+
     def test_an_unknown_kind_is_refused(self):
         errs = config.validate(config.normalise({'scouts': {'x': {'kind': 'worker'}}}))
         self.assertEqual(errs, ["scouts.x.kind is 'worker': use grok-bot-webhook"])
@@ -192,6 +201,24 @@ class AskTest(Base):
         self.assertNotIn(KEY, out)
         self.assertEqual(self.gh.closed, [1])
 
+    def spend(self, cfg, used=100):
+        pacing.append_log(state.usage_log_path(cfg), 'grok-bot', used, datetime.now(timezone.utc))
+
+    def test_a_used_allowance_refuses_a_direct_ask_but_queues(self):
+        cfg = self.cfg()
+        self.spend(cfg)
+        with self.assertRaises(scouts.ScoutError) as e:
+            self.ask(cfg)
+        self.assertIn('--queue', str(e.exception))
+        self.assertEqual(self.hook.calls, [])
+
+    def test_a_redirect_is_never_followed(self):
+        self.hook.status = 307
+        rc, out = self.ask(self.cfg())
+        self.assertEqual(rc, 1)
+        self.assertIn('redirect', out)
+        self.assertEqual(len(self.hook.calls), 1)
+
     def test_queue_sends_nothing_now(self):
         a = SimpleNamespace(scout='grok', task='later', repo=None, skill=None, queue=True, key_stdin=False, no_wait=False, timeout=0)
         with redirect_stdout(io.StringIO()):
@@ -247,6 +274,18 @@ class TickTest(Base):
         self.assertIn('s1 answered', events[0])
         self.assertEqual(self.gh.closed, [])   # a watch's issue stays open for the orchestrator
         self.assertEqual(len(self.hook.calls), 1)   # not due again for 7 days
+
+    def test_an_unreadable_issue_never_stops_the_round(self):
+        cfg = self.cfg(watches={'deps': {'every': '7d', 'task': 't'}})
+        with scouts.locked(cfg) as data:
+            r = scouts.new_request(data, scouts.settings(cfg, 'grok'), 'old question')
+            r.update(status='waiting', issue=99, url='u', sent=1.0)
+        def broken_gh(args):   # the old request's issue is gone; everything else works
+            return (1, '', 'Not Found') if args[0] == 'api' and '/99/' in args[-1] else self.gh(args)
+
+        events = scouts.tick(cfg, {'grok-bot': acc()}, env=self.env, gh_fn=broken_gh)
+        self.assertEqual(scouts.load(cfg)['requests'][0]['status'], 'timeout')   # past give_up_hours: expired, not retried forever
+        self.assertTrue(any('waiting' in e for e in events))   # the due watch still went out
 
     def test_no_round_without_the_variables_or_with_auto_off(self):
         cfg = self.cfg(watches={'deps': {'every': '7d', 'task': 't'}})
@@ -306,6 +345,35 @@ class TrialTest(Base):
         self.assertEqual(self.review(cfg, 7)['status'], 'failed')
         self.assertEqual(trial.load(cfg)['scouts']['grok']['prs'], [])
         self.assertEqual(self.gh.closed, [])   # the pull request is never closed
+
+    def test_a_pull_request_already_sent_is_not_sent_again(self):
+        cfg = self.cfg()
+        first = self.review(cfg, 7)
+        self.assertEqual(self.review(cfg, 7)['id'], first['id'])
+        self.assertEqual(len(self.hook.calls), 1)
+
+    def test_a_spent_allowance_never_blocks_the_review(self):
+        said = []
+        cfg = self.cfg()
+        pacing.append_log(state.usage_log_path(cfg), 'grok-bot', 100, datetime.now(timezone.utc))
+        self.assertIsNone(trial.in_trial(cfg, REPO, 7, said.append, gh_fn=self.gh, env=self.env))
+        self.assertIn('never on-demand', said[0])
+        self.assertEqual(self.hook.calls, [])
+
+    def test_a_broken_state_folder_never_blocks_the_review_and_frees_the_slot(self):
+        said = []
+        cfg = self.cfg()
+        os.makedirs(scouts.path_of(cfg) + '.lock')   # the scouts' lock cannot be opened: an OSError
+        self.assertIsNone(trial.in_trial(cfg, REPO, 7, said.append, gh_fn=self.gh, env=self.env))
+        self.assertIn('IsADirectoryError', said[0])
+        self.assertEqual(trial.load(cfg)['scouts']['grok']['prs'], [])
+
+    def test_done_waits_for_the_scouts_review(self):
+        cfg = self.cfg()
+        self.review(cfg, 7)
+        with self.assertRaises(trial.TrialError) as e:
+            trial.close(cfg, 'grok', f'{REPO}#7')
+        self.assertIn('trial collect', str(e.exception))
 
     def test_another_repository_is_not_in_the_trial(self):
         self.assertIsNone(trial.in_trial(self.cfg(), 'octo/other', 1, print, gh_fn=self.gh, env=self.env))

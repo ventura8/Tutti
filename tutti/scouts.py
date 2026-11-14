@@ -92,7 +92,8 @@ def is_repo(v):
 
 
 def _env_errors(key, sc):
-    return [f'{key}.{k} is {sc.get(k)!r}: the NAME of an environment variable (e.g. TUTTI_GROK_{k[:-4].upper()}), never the value'
+    # the value is never echoed: a pasted URL or key here is exactly the mistake this catches
+    return [f'{key}.{k} is not an environment variable name: write the NAME (e.g. TUTTI_GROK_{k[:-4].upper()}), never the value'
             for k in ('url_env', 'key_env') if not (isinstance(sc.get(k), str) and re.fullmatch(ENV_RX, sc[k]))]
 
 
@@ -160,15 +161,31 @@ def secrets(sc, env=None, key_stdin=None):
 
 
 def check_url(url, sc):
-    u = urlparse(url)
-    if u.scheme == 'https' and u.hostname:
+    try:
+        u = urlparse(url)
+        host = u.hostname
+    except ValueError:
+        u, host = None, None
+    if u is None:
+        raise ScoutError(f'{sc["url_env"]} does not hold a web address: copy the routine\'s "POST to" URL into it again')
+    if u.scheme == 'https' and host:
         return
-    if u.scheme == 'http' and u.hostname in LOOPBACK:   # a local fake for tests and dry runs
+    if u.scheme == 'http' and host in LOOPBACK:   # a local fake for tests and dry runs
         return
     raise ScoutError(f'{sc["url_env"]} does not hold an https:// address: copy the routine\'s "POST to" URL into it again')
 
 
 # ---- the webhook
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is never followed: it would carry the Authorization header to an address check_url never saw."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+OPENER = urllib.request.build_opener(NoRedirect)
+
 
 def post(url, key, body, timeout=30):
     """POSTs one task; returns the HTTP status (200: a run started). The key goes only into the Authorization header."""
@@ -176,7 +193,7 @@ def post(url, key, body, timeout=30):
                                  headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json',
                                           'User-Agent': 'tutti-scout'})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:   # the URL is the owner's own routine, checked by check_url
+        with OPENER.open(req, timeout=timeout) as r:   # the URL is the owner's own routine, checked by check_url
             return r.status
     except urllib.error.HTTPError as e:
         e.close()
@@ -190,6 +207,8 @@ def refused(status, sc):
         why = f'no routine at that URL: copy the "POST to" URL into {sc["url_env"]} again'
     elif status == 429:
         why = 'Grok Bot\'s rate limit (200 runs an hour per routine): wait and send it again'
+    elif 300 <= status < 400:
+        why = f'it answered with a redirect, which is never followed (the key would go elsewhere): check {sc["url_env"]}'
     else:
         why = 'confirm the routine is not paused (Grok Bot: the bot\'s Details tab) and the key is current'
     return f'the scout\'s webhook answered {status}, so no run started: {why}'
@@ -373,6 +392,19 @@ def allowance(acc):
     return True, acc.get('verdict') or 'unknown'
 
 
+def guard(cfg, sc, accounts=None, now=None):
+    """Refuses a direct send (ask, a watch now, a review) while the scout's allowance is used: never on-demand spend."""
+    if not sc.get('account'):
+        return
+    if accounts is None:
+        from . import state  # state imports config, which imports this module
+        now_dt = datetime.fromtimestamp(now or time.time(), timezone.utc)
+        accounts = {a['name']: a for a in state.usage_state(cfg, now_dt)['accounts']}
+    ok, why = allowance(accounts.get(sc['account']))
+    if not ok:
+        raise ScoutError(f'scout {sc["name"]} sends nothing now: {why}. `tutti scout ask --queue` keeps a question for after the reset')
+
+
 def behind(acc):
     return bool(acc) and acc.get('verdict') in ('behind', 'late') and (acc.get('room_tasks') or 0) > 0
 
@@ -409,7 +441,15 @@ def tick(cfg, accounts, env=None, gh_fn=gh, post_fn=post, now=None):
 def _round(sc, data, acc, url, key, gh_fn, post_fn, now):
     events = []
     for r in [r for r in data['requests'] if r['scout'] == sc['name'] and r['status'] == 'waiting']:
-        if collect(sc, r, gh_fn, now)['status'] != 'waiting':
+        try:   # one unreadable issue (deleted, no access) never stops the round
+            collect(sc, r, gh_fn, now)
+        except ScoutError as e:
+            if now - r['sent'] > float(sc['give_up_hours']) * 3600:
+                r.update(status='timeout', why=f'its issue could not be read for {sc["give_up_hours"]} h ({e})')
+            else:
+                events.append(f'{r["id"]} not read this round: {e}')
+                continue
+        if r['status'] != 'waiting':
             events.append(f'{r["id"]} {r["status"]}: {r.get("url")}')
     for what, ref in plan(sc, data['requests'], acc, now)['send']:
         if what == 'watch':

@@ -4,7 +4,8 @@ import shutil
 import subprocess
 
 # what the dynamic loader prints when a program's libraries do not match (a git bundled with another tool, say)
-LOADER_ERRORS = ('error while loading shared libraries', 'symbol lookup error', 'version `', 'cannot open shared object', 'dlopen')
+LOADER_ERRORS = ('error while loading shared libraries', 'symbol lookup error', 'version `', 'cannot open shared object', 'dlopen',
+                 'Error loading shared library', 'Error relocating')  # the last two: musl (Alpine)
 
 
 def loader_error(text):
@@ -24,7 +25,7 @@ def git_candidates(path):
 
 def git_https_problem(git, ok, output):
     """The message for a git whose HTTPS helper does not run, or None when it does."""
-    if ok or not loader_error(output):
+    if ok:
         return None
     first = (output or '').strip().splitlines()[0][:160]
     return (f'{git} cannot do HTTPS ("{first}"), so `git clone https://...` fails: put a working git first in PATH '
@@ -32,16 +33,19 @@ def git_https_problem(git, ok, output):
 
 
 def probe_https(git):
-    """Run the git's HTTPS helper without arguments: it prints usage when sound, a loader error when not. Returns (ok, output)."""
+    """Run `git remote-https` through the git itself (same launch environment as a clone): a sound helper exits 1 with
+    its usage line; a loader error, a missing helper or a crash is a problem. Returns (ok, output)."""
     try:
-        exec_path = subprocess.run([git, '--exec-path'], capture_output=True, text=True, timeout=20, check=False).stdout.strip()
-        helper = os.path.join(exec_path, 'git-remote-https')
-        if not os.path.isfile(helper):
-            return False, f'{helper}: no such file (error while loading shared libraries: the HTTPS helper is missing)'
-        r = subprocess.run([helper], capture_output=True, text=True, timeout=20, check=False)
-        return not loader_error(r.stderr), r.stderr
+        r = subprocess.run([git, 'remote-https'], capture_output=True, text=True, timeout=20, check=False)
     except (OSError, subprocess.SubprocessError) as e:
         return False, f'error while loading shared libraries: {e}'
+    out = r.stderr or r.stdout or f'exit code {r.returncode}'
+    return healthy(r.returncode, out), out
+
+
+def healthy(code, out):
+    """True only for the helper's usage answer: a normal exit, no loader error, and `usage` in the output."""
+    return code >= 0 and code != 127 and not loader_error(out) and 'usage' in (out or '').lower()
 
 
 def check_git(path=None, probe=probe_https):

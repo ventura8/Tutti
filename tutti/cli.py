@@ -929,6 +929,8 @@ def parser():
 
 def main(argv=None):
     a = parser().parse_args(argv)
+    if a.fn is cmd_doctor:  # a machine check: it must work before any project config exists
+        return cmd_doctor(None, a)
     try:
         cfg = config.load(a.config)
         os.environ['TUTTI_CONFIG'] = cfg['_path']

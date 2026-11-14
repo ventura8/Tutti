@@ -15,7 +15,19 @@ class DoctorTest(unittest.TestCase):
 
     def test_usage_output_is_fine(self):
         self.assertIsNone(doctor.git_https_problem('/usr/bin/git', True, 'usage: git remote-curl'))
-        self.assertIsNone(doctor.git_https_problem('/usr/bin/git', False, 'some other failure'))
+
+    def test_healthy_needs_the_usage_answer(self):
+        self.assertTrue(doctor.healthy(1, 'error: remote-curl: usage: git remote-curl <remote> [<url>]'))
+        self.assertFalse(doctor.healthy(-11, ''))
+        self.assertFalse(doctor.healthy(127, 'Error loading shared library libcurl.so.4: No such file'))
+        self.assertFalse(doctor.healthy(1, 'Error relocating /usr/libexec/git-core/git-remote-https: curl_x: symbol not found'))
+        self.assertFalse(doctor.healthy(1, "git: 'remote-https' is not a git command"))
+
+    def test_real_git_probe(self):
+        if os.path.exists('/usr/bin/git'):
+            ok, out = doctor.probe_https('/usr/bin/git')
+            self.assertTrue(ok, out)
+        self.assertFalse(doctor.probe_https('/nonexistent/git')[0])
 
     def test_check_names_a_working_git(self):
         with tempfile.TemporaryDirectory() as t:

@@ -58,7 +58,7 @@ dashboard's **Set up** card lists each default with a **Change** link. `--ask` a
 
 **What it does:**
 
-- connects every agent it found to Tutti's MCP server (`tutti connect --all`, docs/CONNECT.md; `--no-connect` skips it);
+- connects every agent it found to Tutti's MCP server (`tutti connect --all`, docs/CONNECT.md; `--no-connect` skips it; the restarts an agent needs join the one list at the end);
 - writes `~/.config/tutti/config.yaml` (or the config Tutti already finds) with the found entries and sensible defaults:
   the main agent (Claude first, then Cursor, Antigravity, Copilot), `machines.here`, the workers, accounts with an
   estimated reset, the projects with their priorities, `self_update: {enabled: true}`. An existing config keeps every

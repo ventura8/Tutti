@@ -1323,6 +1323,8 @@ def parser():
                                   '`tutti connect` wires it in (docs/CONNECT.md)')
     s.add_argument('--http', type=int, nargs='?', const=0, default=None, metavar='PORT',
                    help='serve on http://127.0.0.1:PORT/mcp with a bearer token instead of stdio (default port: mcp.http_port, 4779)')
+    s.add_argument('--bind', help='with --http: a loopback, LAN or VPN address to listen on (default 127.0.0.1, or mcp.bind); '
+                                  'a public address is refused: Tutti is never exposed to the internet')
     s = add('connect', connect.cmd, 'wire Tutti into your main agents (Claude Code, Claude Desktop, Codex, Antigravity, Cursor, '
                                     'Copilot, VS Code, Gemini): the MCP server plus a short instruction; --undo takes it out')
     s.add_argument('agent', nargs='?', help=f'one agent: {", ".join(connect.AGENTS)} (default: every installed one)')

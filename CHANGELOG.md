@@ -2,6 +2,21 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.43 (2026-11-14)
+
+### Security
+
+- Tutti is never exposed to the internet: `tutti mcp --http` listens on 127.0.0.1, or with `--bind` (`mcp.bind`) on a
+  LAN or VPN address only (loopback, 10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7); a public address and `0.0.0.0`
+  are refused with the reason and the fix. Other people reach it only over a VPN. The rule is `tutti/netpolicy.py`, shared
+  with the household's coordinator and dashboard (WireGuard and Tailscale interfaces count as VPN whatever their range).
+- The ChatGPT row no longer suggests an HTTPS tunnel: ChatGPT's app cannot connect; use Codex (`tutti connect codex`).
+
+### Changed
+
+- The restarts and refreshes `tutti connect` asks for are guided steps (`connect.human_steps`, `guided.render`): `tutti
+  setup` lists them once in its end-of-setup list, and `tutti connect` prints the same list.
+
 ## 0.1.42 (2026-11-14)
 
 ### Added

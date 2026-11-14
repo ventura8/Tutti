@@ -9,12 +9,13 @@ of the dashboard's sign-in: pending, viewer, admin).
 import json
 import os
 import secrets
+import socket
 import subprocess
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import __version__, config
+from . import __version__, config, netpolicy
 
 PROTOCOL = '2025-06-18'
 ROLES = ('pending', 'viewer', 'admin')   # the same order as the dashboard sign-in's (a higher index may do more)
@@ -263,7 +264,7 @@ def http_token(cfg):
         return f.read().strip()
 
 
-def http_server(cfg, port, env=None):
+def http_server(cfg, port, env=None, host='127.0.0.1'):
     token, role = http_token(cfg), role_of(cfg, env)
 
     class Handler(BaseHTTPRequestHandler):
@@ -299,15 +300,30 @@ def http_server(cfg, port, env=None):
                 return None
             return self.reply(200, out)
 
-    return ThreadingHTTPServer(('127.0.0.1', port), Handler)
+    # never on the internet: a public address or a wildcard is refused (auto: loopback here)
+    host = '127.0.0.1' if host in (None, 'auto') else netpolicy.check(host, 'mcp.http')[0]
+
+    class Server(ThreadingHTTPServer):
+        address_family = socket.AF_INET6 if ':' in host else socket.AF_INET
+
+    return Server((host, port), Handler)
 
 
 def cmd(cfg, a):
     if a.http is None:
         return serve_stdio(cfg)
     port = a.http or ((cfg.get('mcp') or {}).get('http_port') or HTTP_PORT)
-    httpd = http_server(cfg, port)
-    sys.stderr.write(f'tutti: MCP over HTTP on http://127.0.0.1:{httpd.server_address[1]}/mcp '
+    try:
+        httpd = http_server(cfg, port, host=a.bind or (cfg.get('mcp') or {}).get('bind') or '127.0.0.1')
+    except netpolicy.PublicAddress as e:
+        sys.stderr.write(f'tutti: {e}\n')
+        return 2
+    except OSError as e:   # not this computer's address, or the port is taken
+        sys.stderr.write(f'tutti: MCP over HTTP cannot listen on {a.bind or "127.0.0.1"}:{port} ({e.strerror}): give an address '
+                         'this computer has (`ip addr`) and a free port (--http PORT)\n')
+        return 2
+    shown = f'[{httpd.server_address[0]}]' if ':' in httpd.server_address[0] else httpd.server_address[0]
+    sys.stderr.write(f'tutti: MCP over HTTP on http://{shown}:{httpd.server_address[1]}/mcp '
                      f'(bearer token in {token_path(cfg)})\n')
     try:
         httpd.serve_forever()

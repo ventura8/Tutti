@@ -62,9 +62,8 @@ AGENTS = {
         'restart': 'Start a new Codex session.'},
     'chatgpt': {
         'label': 'ChatGPT app (desktop and web)', 'bins': [], 'dirs': [], 'procs': [],
-        'cannot': 'ChatGPT\'s connectors (developer mode) only reach a public HTTPS MCP server, never one on this computer. '
-                  'Use Codex (it reads the same OpenAI account), or run `tutti mcp --http` behind your own HTTPS tunnel and '
-                  'add its URL in ChatGPT: Settings, Apps & Connectors, Advanced, Developer mode, Create.'},
+        'cannot': 'ChatGPT\'s app cannot connect: its connectors only reach servers on the internet, and Tutti is never '
+                  'exposed to the internet. Use Codex instead (the same OpenAI account): `tutti connect codex`.'},
     'antigravity': {
         'label': 'Antigravity (IDE and agy)', 'bins': ['agy', 'antigravity'], 'dirs': ['.gemini/antigravity', '.gemini/antigravity-cli'],
         'mcp': ('json', '.gemini/config/mcp_config.json', 'mcpServers', 'agy'),
@@ -471,6 +470,13 @@ def print_result(r, out):
         out.write(f'  {r["note"]}\n')
 
 
+def human_steps(results):
+    """The restarts and refreshes only the person can do, as guided steps for setup's one list at the end (docs/INSTALL.md)."""
+    from . import guided
+    return [guided.step('other', f'Restart {AGENTS.get(r["agent"], {}).get("label", r["agent"])}', None, r['note'])
+            for r in results if r['status'] == 'needs-restart' and r.get('note')]
+
+
 def status_line(r):
     t = r.get('test')
     line = f'{r["label"]}: {r["status"]}' + (f' (test: {"ok" if t["ok"] else "failed"}, {t["text"]})' if t else '')
@@ -494,4 +500,7 @@ def cmd(cfg, a, out=None):
     else:
         for r in results:
             print_result(r, out)
+        if not a.undo:
+            from . import guided
+            out.write(guided.render(human_steps(results)) + '\n')
     return 1 if any(r['status'] == 'error' for r in results) else 0

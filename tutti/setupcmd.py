@@ -344,11 +344,14 @@ def updates_row(cfg):
     return 'info', 'off (self_update.enabled: false)'
 
 
-def connect_rows(path):
-    """Every installed agent gets Tutti's MCP server (`tutti connect --all`, docs/CONNECT.md): one row each."""
+def connect_rows(path, steps=None):
+    """Every installed agent gets Tutti's MCP server (`tutti connect --all`, docs/CONNECT.md): one row each. The restarts and
+    refreshes it needs join `steps`, the one list at the end."""
     from . import connect  # connect imports config only; imported here so setup stays light
-    rows = []
-    for r in connect.connect_all(path):
+    rows, results = [], connect.connect_all(path)
+    if steps is not None:
+        steps.extend(connect.human_steps(results))
+    for r in results:
         if r['status'] in ('not-installed', 'cannot'):
             continue
         ok = r['status'] in ('connected', 'needs-restart')
@@ -384,8 +387,9 @@ def run(a, probe=None, asker=None, platform=None, home_dir=None, runner=subproce
     if a.service:
         svc = service(platform or install.platform_name(), home_dir or install.home(), runner, start=not a.from_dashboard)
     rows = report_items(found, {}, svc, updates_row(cfg), fix_git(doctor.check_git()), stuck)
-    rows += connect_rows(path) if a.connect else []
-    steps = human_steps(rows, found)
+    restarts = []
+    rows += connect_rows(path, restarts) if a.connect else []
+    steps = human_steps(rows, found) + restarts
     finish(cfg, rows, choices, steps, path, out)
     interactive = sys.stdin.isatty() and not a.from_dashboard
     if interactive and steps:

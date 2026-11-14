@@ -29,6 +29,8 @@ run on the machines. There is no daemon and no server; state is files.
 | `tutti/translate.py` | Translation with mandatory QA and the import gate. |
 | `tutti/ship.py` | The ship sequence and its refusals (wrong worktree, protected branch). |
 | `tutti/waiting.py` | Waits on a pid, a file or a log line, always under a timeout. |
+| `tutti/state.py` | The dashboard's state as plain data: accounts and pacing, machines, workers, jobs, the summary. Probes are passed in. |
+| `tutti/dashboard.py`, `tutti/web/` | `tutti dashboard`: the 127.0.0.1 HTTP server, background probes, `/api/state` and the PWA shell. |
 | `scripts/slot.sh` | The slot queue, copied to each machine on every run. |
 | `scripts/memguard.sh`, `quiet.sh`, `tunnel.sh`, `wsl-run64.sh` | The memory guard, quiet runs, the tunnel loop, the WSL shim. |
 
@@ -47,7 +49,8 @@ run on the machines. There is no daemon and no server; state is files.
 
 - `<project.state>/usage.jsonl` (or `usage.log`): one line per usage reading.
 - `<project.state>/llm-busy-<pid>`: a live local-model job; low-priority jobs wait for these to go.
-- `<project.state>/tunnel-<worker>.pid|.log`, `quiet/*.log`, `ship-*.log`.
+- `<project.state>/tunnel-<worker>.pid|.log`, `quiet/*.log`, `ship-*.log`, each run log with its result `<log>.rc` and
+  command `<log>.cmd`; `waits/<pid>.json` while a `tutti wait` runs. `tutti dashboard` reads all of these.
 - On each machine: `<root>/<track>/` (the copy), `<root>/repo.git`, `<root>/tutti-slot.sh`, the slot lock files and the
   yield flag file.
 

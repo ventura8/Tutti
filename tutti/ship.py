@@ -83,6 +83,8 @@ def run_check(cfg, top, check, env, track):
 def quiet_check(cfg, top, check, env, track):
     """The same, with the output kept in a log; only the verdict line (check.verdict, a regex) reaches the screen."""
     log = os.path.join(config.state_dir(cfg), f'ship-{int(time.time())}-{os.getpid()}.log')
+    with open(log + '.cmd', 'w', encoding='utf8') as f:   # what ran, for the dashboard
+        f.write(check['run'] + '\n')
     with open(log, 'w', encoding='utf8') as f:
         sys.stdout.flush()
         saved = os.dup(1), os.dup(2)
@@ -94,6 +96,8 @@ def quiet_check(cfg, top, check, env, track):
             sys.stdout.flush()
             os.dup2(saved[0], 1)
             os.dup2(saved[1], 2)
+    with open(log + '.rc', 'w', encoding='utf8') as f:   # the dashboard reads the result beside the log
+        f.write(f'{rc}\n')
     with open(log, encoding='utf8', errors='replace') as f:
         lines = f.read().splitlines()
     rx = re.compile(check.get('verdict') or r'$^')

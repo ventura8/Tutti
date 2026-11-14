@@ -1,0 +1,376 @@
+// Tutti dashboard: polls /api/state and renders it with DOM nodes and textContent only (no HTML from data).
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+const FILTERS = [['all', 'All'], ['running', 'Running'], ['stalled', 'Stalled'], ['failed', 'Failed'], ['done', 'Done']];
+const VERDICT_TONE = { 'on pace': 'ok', ahead: 'warn', behind: 'warn', late: 'bad', spent: 'bad', 'no reading': 'idle', unknown: 'idle' };
+const MACHINE_TONE = { free: 'ok', loaded: 'warn', busy: 'accent', paused: 'warn', offline: 'bad' };
+const JOB_TONE = { running: 'accent', stalled: 'warn', failed: 'bad', done: 'ok', ended: 'idle' };
+const ui = { filter: 'all', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false };
+
+function el(tag, props, ...kids) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+        if (v === undefined || v === null || v === false) continue;
+        if (k === 'text') node.textContent = v;
+        else if (k === 'class') node.className = v;
+        else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+        else node.setAttribute(k, v === true ? '' : String(v));
+    }
+    for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) node.append(kid);
+    return node;
+}
+
+function svg(tag, attrs) {
+    const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, String(v));
+    return node;
+}
+
+const chip = (text, tone) => el('span', { class: 'chip', 'data-tone': tone || 'idle', text });
+const fmtTime = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto', style: 'short' });
+
+function relative(iso, now = Date.now()) {
+    if (!iso) return '';
+    const s = (Date.parse(iso) - now) / 1000;
+    const a = Math.abs(s);
+    if (a < 45) return rtf.format(Math.round(s), 'second');
+    if (a < 2700) return rtf.format(Math.round(s / 60), 'minute');
+    if (a < 64800) return rtf.format(Math.round(s / 3600), 'hour');
+    return rtf.format(Math.round(s / 86400), 'day');
+}
+
+function duration(seconds) {
+    if (seconds === null || seconds === undefined) return '';
+    const m = Math.round(seconds / 60);
+    if (m < 1) return `${Math.round(seconds)} s`;
+    if (m < 90) return `${m} min`;
+    const h = Math.floor(m / 60);
+    return h < 48 ? `${h} h ${m % 60} min` : `${Math.floor(h / 24)} d ${h % 24} h`;
+}
+
+const when = (iso) => (iso ? `${fmtTime.format(new Date(iso))} (${relative(iso)})` : 'not known');
+
+function empty(title, text) {
+    return el('div', { class: 'empty' }, el('strong', { text: title }), text);
+}
+
+function codeText(before, code, after) {
+    return el('span', {}, before, el('code', { text: code }), after || '');
+}
+
+// ---- tiles
+
+function tile(label, value, note, tone) {
+    return el('div', { class: 'tile', 'data-tone': tone }, el('p', { class: 'tile__label', text: label }),
+        el('p', { class: 'tile__value', text: value }), el('p', { class: 'tile__note', text: note }));
+}
+
+function quotaTile(s) {
+    const t = s.summary;
+    const read = s.usage.accounts.filter((a) => a.state === 'ok').length;
+    const missing = s.usage.accounts.length - read;
+    if (t.panic.length) return tile('Quota', `Panic: ${t.panic.join(', ')}`, 'Nothing new on these accounts until the reset', 'bad');
+    if (t.behind.length) return tile('Quota', `Behind: ${t.behind.join(', ')}`, 'Start more parallel work from the backlog', 'warn');
+    if (!read) return tile('Quota', 'No readings', 'Log one: tutti usage log <account> <percent>', 'warn');
+    return tile('Quota', 'On pace', missing ? `${read} paced · ${missing} without a reading` : `${read} accounts paced`);
+}
+
+function renderTiles(s) {
+    const t = s.summary;
+    $('tiles').replaceChildren(
+        quotaTile(s),
+        tile('Free slots', `${t.free_slots} / ${t.slots}`,
+            t.machines_offline.length ? `Offline: ${t.machines_offline.join(', ')}` : `${s.machines.items.length} machine${s.machines.items.length === 1 ? '' : 's'}`,
+            t.machines_offline.length ? 'warn' : undefined),
+        tile('Jobs', `${t.running} running`, t.stalled ? `${t.stalled} stalled: open its log` : 'none stalled', t.stalled ? 'warn' : undefined),
+        tile('Workers', `${t.workers_ready} / ${t.workers} ready`, t.workers_ready < t.workers ? 'Some are down: see Workers' : 'all ready',
+            t.workers_ready < t.workers ? 'warn' : undefined),
+    );
+}
+
+// ---- usage
+
+function meter(a) {
+    const used = Math.min(100, a.used ?? 0);
+    const tone = a.panic ? 'bad' : (a.verdict === 'ahead' ? 'warn' : undefined);
+    const m = el('div', {
+        class: 'meter', 'data-tone': tone, role: 'meter', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': used,
+        'aria-label': `${a.name}: ${used} % used`,
+    });
+    const fill = el('div', { class: 'meter__fill' });
+    fill.style.width = `${used}%`;
+    m.append(fill);
+    if (a.expected !== null) {
+        const mark = el('div', { class: 'meter__mark', title: `By now: ${a.expected} %` });
+        mark.style.left = `${Math.min(100, a.expected)}%`;
+        m.append(mark);
+    }
+    const p = el('div', { class: 'meter__mark meter__mark--panic', title: `Panic at ${a.panic_at} %` });
+    p.style.left = `${a.panic_at}%`;
+    m.append(p);
+    return m;
+}
+
+function sparkline(a, now) {
+    const t0 = Date.parse(a.window_start);
+    const t1 = Date.parse(a.reset);
+    const tt = Date.parse(a.target);
+    const W = 300;
+    const H = 72;
+    const x = (t) => ((t - t0) / (t1 - t0)) * W;
+    const y = (p) => H - 4 - (Math.min(100, p) / 100) * (H - 8);
+    const g = svg('svg', { class: 'spark', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img' });
+    const pts = a.readings.map((r) => [x(Date.parse(r.at)), y(r.used)]);
+    g.setAttribute('aria-label', `${a.name}: ${a.readings.length} readings this window; the dashed line is the even pace to 100 % by the target time`);
+    g.append(svg('line', { class: 's-grid', x1: 0, x2: W, y1: y(0), y2: y(0) }));
+    g.append(svg('line', { class: 's-panic', x1: 0, x2: W, y1: y(a.panic_at), y2: y(a.panic_at) }));
+    g.append(svg('polyline', { class: 's-target', points: `0,${y(0)} ${x(tt)},${y(100)} ${W},${y(100)}` }));
+    const nx = x(now);
+    if (nx >= 0 && nx <= W) g.append(svg('line', { class: 's-now', x1: nx, x2: nx, y1: 0, y2: H }));
+    if (pts.length) {
+        g.append(svg('polyline', { class: 's-line', points: [[0, y(0)], ...pts].map((p) => p.join(',')).join(' ') }));
+    }
+    return g;
+}
+
+function facts(pairs) {
+    return el('dl', { class: 'account__facts' }, pairs.filter(([, v]) => v).flatMap(([k, v]) => [el('dt', { text: k }), el('dd', { text: v })]));
+}
+
+function account(a, now) {
+    const verdict = a.panic ? 'panic' : a.verdict;
+    const card = el('article', { class: 'account', 'data-panic': String(a.panic), 'aria-label': `${a.name}: ${verdict}` },
+        el('div', { class: 'account__top' }, el('h3', { class: 'account__name', text: a.name }),
+            chip(verdict, a.panic ? 'bad' : VERDICT_TONE[a.verdict])));
+    if (a.state === 'ok') {
+        card.append(el('div', { class: 'account__big' }, el('span', { class: 'account__pct', text: `${a.used} %` }),
+            el('span', { class: 'account__by', text: `used · ${a.expected} % by now on an even pace` })));
+        card.append(meter(a));
+        card.append(el('div', { class: 'legend' }, el('span', {}, el('i', { class: 'l-used' }), 'used'),
+            el('span', {}, el('i'), 'pace line (by now)'), el('span', {}, el('i', { class: 'l-panic' }), `panic at ${a.panic_at} %`)));
+    } else {
+        card.append(el('p', { class: 'account__by', text: a.state === 'no reset' ? 'No reset time in the config yet.' : 'No reading in this window yet.' }));
+    }
+    if (a.reset) card.append(sparkline(a, now));
+    card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
+    card.append(facts([
+        ['Resets', a.reset && when(a.reset)], ['Spend by', a.target && when(a.target)],
+        ['Last reading', a.reading_at && when(a.reading_at)], ['Window', a.window],
+        ['Share', a.share < 1 ? `${Math.round(a.share * 100)} % of the quota is this session's` : null], ['Read at', a.source],
+    ]));
+    return card;
+}
+
+function renderUsage(s, now) {
+    const u = s.usage;
+    $('usage-meta').textContent = u.problem || `Readings from ${u.log}`;
+    $('usage').replaceChildren(...(u.accounts.length ? u.accounts.map((a) => account(a, now))
+        : [empty('No accounts yet', codeText('Add an accounts: section to the config (see ', 'tutti.config.example.yaml', ').'))]));
+}
+
+// ---- machines
+
+function pips(m) {
+    return el('span', { class: 'pips', 'aria-label': m.free === null ? `${m.slots} slots, not reachable` : `${m.busy} of ${m.slots} slots busy` },
+        Array.from({ length: m.slots }, (_, i) => el('span', { class: 'pip', 'data-busy': String(m.free !== null && i < m.busy), 'data-off': String(m.free === null) })));
+}
+
+function machine(m) {
+    const stats = el('div', { class: 'row__stats' }, pips(m),
+        el('span', { text: m.free === null ? `${m.slots} slots` : `${m.free} of ${m.slots} slots free` }));
+    if (m.load !== null) {
+        const bar = el('span');
+        bar.style.width = `${Math.min(100, (m.load / m.cores) * 100)}%`;
+        stats.append(el('span', { class: 'load' }, el('span', { class: 'load__bar', 'aria-hidden': 'true' }, bar), `load ${m.load} / ${m.cores} cores`));
+    }
+    if (m.rank) stats.append(el('span', { text: `#${m.rank} in routing` }));
+    return el('li', { class: 'row' },
+        el('div', { class: 'row__name' }, m.name, el('span', { class: 'row__kind', text: `${m.transport} · ${m.host}` })),
+        chip(m.status, MACHINE_TONE[m.status]),
+        stats,
+        el('p', { class: 'row__note', text: m.status === 'paused' ? 'Yield flag is up: Tutti sends it nothing new until it is lowered.' : m.reason }));
+}
+
+function renderMachines(s) {
+    const ms = s.machines;
+    $('machines-meta').textContent = ms.probed_at ? `Probed ${relative(ms.probed_at)}` : 'Probing…';
+    $('machines').replaceChildren(...(ms.items.length ? ms.items.map(machine)
+        : [el('li', {}, ms.probed_at ? empty('No machines', 'Add machines: to the config to route heavy runs.') : empty('Probing machines…', 'ssh answers can take a few seconds.'))]));
+}
+
+// ---- workers
+
+function worker(w, accounts) {
+    const acc = accounts.find((a) => a.name === (w.account || ''));
+    return el('li', { class: 'row' },
+        el('div', { class: 'row__name' }, w.name, el('span', { class: 'row__kind', text: w.kind === 'ollama' ? `local model · ${w.model}` : `cli · ${w.command}` })),
+        chip(w.ready ? 'ready' : 'down', w.ready ? 'ok' : 'bad'),
+        el('p', { class: 'row__note', text: w.note }),
+        acc ? el('div', { class: 'row__stats' }, chip(`account: ${acc.panic ? 'panic' : acc.state === 'no reset' ? 'reset not set' : acc.verdict}`, acc.panic ? 'bad' : VERDICT_TONE[acc.verdict])) : null);
+}
+
+function agent(a) {
+    const state = a.installed ? (a.configured ? 'installed · a worker' : 'installed · not in the config') : 'not installed here';
+    return el('li', { class: 'agent', 'data-tone': a.installed ? 'ok' : undefined }, el('b', { text: a.label }), el('span', { text: state }));
+}
+
+function renderWorkers(s) {
+    const w = s.workers;
+    $('workers-meta').textContent = w.probed_at ? `Checked ${relative(w.probed_at)}` : 'Checking…';
+    $('workers').replaceChildren(...(w.items.length ? w.items.map((x) => worker(x, s.usage.accounts))
+        : [el('li', {}, w.probed_at ? empty('No workers', 'Add workers: to the config (cursor, agy, local models).') : empty('Checking workers…', ''))]));
+    $('agents').replaceChildren(...w.agents.map(agent));
+}
+
+// ---- jobs
+
+function job(j) {
+    const d = el('details', { class: 'job', 'data-status': j.status, 'data-id': j.id, open: ui.open.has(j.id) });
+    d.addEventListener('toggle', () => {
+        if (d.open) {
+            ui.open.add(j.id);
+            const pre = d.querySelector('pre');
+            if (pre) pre.scrollTop = pre.scrollHeight;
+        } else {
+            ui.open.delete(j.id);
+        }
+    });
+    const idle = j.status === 'stalled' ? `no output for ${duration(j.idle_seconds)}` : (j.updated ? `updated ${relative(j.updated)}` : '');
+    d.append(el('summary', {},
+        chip(j.status === 'failed' && j.rc !== null ? `failed · ${j.rc}` : j.status, JOB_TONE[j.status]),
+        el('span', { class: 'job__title' }, j.title, el('small', { text: `${j.kind}${j.pid ? ` · pid ${j.pid}` : ''}` })),
+        el('span', { class: 'job__when', text: idle })));
+    const body = el('div', { class: 'job__body' });
+    if (j.status === 'stalled') body.append(el('p', { text: 'Its log has not changed for a while. Read the end of the log: stop or restart the job rather than wait on it again.' }));
+    if (j.status === 'ended') body.append(el('p', { text: 'Ended; the result was not recorded (a run from before Tutti 0.1.4).' }));
+    if (j.started) body.append(el('p', { class: 'job__path', text: `started ${when(j.started)}` }));
+    if (j.log) body.append(el('p', { class: 'job__path', text: j.log }));
+    body.append(j.tail.length ? el('pre', { class: 'log', tabindex: 0, 'aria-label': `End of the log of ${j.title}`, text: j.tail.join('\n') })
+        : el('p', { class: 'job__path', text: 'No log output.' }));
+    d.append(body);
+    return d;
+}
+
+function renderJobs(s) {
+    const items = s.jobs.items;
+    const count = (f) => (f === 'all' ? items.length : items.filter((j) => j.status === f || (f === 'done' && j.status === 'ended')).length);
+    const filterFocus = document.activeElement?.closest?.('#job-filter') ? document.activeElement.dataset.f : null;
+    $('job-filter').replaceChildren(...FILTERS.map(([f, label], i) => el('button', {
+        type: 'button', 'data-f': f, 'aria-pressed': String(ui.filter === f), title: `Show ${label.toLowerCase()} jobs (${i + 1})`, text: `${label} ${count(f)}`,
+        onclick: () => { ui.filter = f; render(); },
+    })));
+    if (filterFocus) $('job-filter').querySelector(`[data-f="${filterFocus}"]`)?.focus();
+    const shown = items.filter((j) => ui.filter === 'all' || j.status === ui.filter || (ui.filter === 'done' && j.status === 'ended'));
+    if (shown.length) {
+        const focused = document.activeElement?.closest?.('.job')?.dataset.id;
+        $('jobs').replaceChildren(...shown.map(job));
+        for (const pre of $('jobs').querySelectorAll('details[open] pre')) pre.scrollTop = pre.scrollHeight;
+        if (focused) $('jobs').querySelector(`[data-id="${CSS.escape(focused)}"] > summary`)?.focus();
+    } else if (items.length) {
+        $('jobs').replaceChildren(empty(`No ${ui.filter} jobs`, 'Choose All to see every recent job.'));
+    } else {
+        $('jobs').replaceChildren(empty('No jobs yet', codeText('Runs from ', 'tutti quiet', ', ship checks and tutti wait show up here with the end of their log.')));
+    }
+}
+
+// ---- the loop
+
+function render() {
+    const s = ui.last;
+    if (!s) return;
+    const now = Date.now();
+    $('config-path').textContent = s.config;
+    $('config-path').title = s.config;
+    $('foot-version').textContent = `Tutti ${s.version}`;
+    renderTiles(s);
+    renderUsage(s, now);
+    renderMachines(s);
+    renderWorkers(s);
+    renderJobs(s);
+    if (s.probe_error) showBanner(s.probe_error);
+    else if (!ui.failing) $('banner').hidden = true;
+}
+
+function showBanner(...parts) {
+    const b = $('banner');
+    b.replaceChildren(...parts);
+    b.hidden = false;
+}
+
+function live() {
+    const l = $('live');
+    if (ui.failing) {
+        l.dataset.state = 'down';
+        $('live-text').textContent = 'Service not answering';
+    } else if (ui.fetchedAt) {
+        l.dataset.state = 'ok';
+        const s = Math.round((Date.now() - ui.fetchedAt) / 1000);
+        $('live-text').textContent = s < 2 ? 'Live · just now' : `Live · ${s} s ago`;
+    }
+}
+
+async function refresh() {
+    clearTimeout(ui.timer);
+    try {
+        const res = await fetch('/api/state', { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        ui.last = await res.json();
+        ui.fetchedAt = Date.now();
+        ui.failing = false;
+        render();
+    } catch {
+        ui.failing = true;
+        showBanner(el('strong', { text: 'The Tutti service on this computer is not answering. ' }),
+            codeText('Start it again with ', 'tutti dashboard', ' and this page reconnects by itself.'),
+            ui.last ? ' The data below is from the last good answer.' : '');
+    }
+    live();
+    const every = (ui.last?.refresh_seconds || 10) * 1000;
+    if (!document.hidden) ui.timer = setTimeout(refresh, ui.failing ? Math.min(every, 5000) : every);
+}
+
+function accentNote() {
+    const shared = window.CSS && CSS.supports('color', 'AccentColor');
+    $('foot-accent').textContent = shared ? 'Accent colour: from your system.'
+        : "Accent colour: Tutti's indigo (this browser does not share the system accent colour).";
+}
+
+function keys(e) {
+    if (e.target.closest('input, textarea, select') || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'r' || e.key === 'R') refresh();
+    const i = Number(e.key);
+    if (i >= 1 && i <= FILTERS.length) {
+        ui.filter = FILTERS[i - 1][0];
+        render();
+    }
+}
+
+function install() {
+    let prompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        prompt = e;
+        $('install').hidden = false;
+    });
+    $('install').addEventListener('click', async () => {
+        if (!prompt) return;
+        prompt.prompt();
+        await prompt.userChoice;
+        prompt = null;
+        $('install').hidden = true;
+    });
+    window.addEventListener('appinstalled', () => { $('install').hidden = true; });
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    $('refresh').addEventListener('click', refresh);
+    document.addEventListener('keydown', keys);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+    setInterval(live, 1000);
+    accentNote();
+    install();
+    refresh();
+});

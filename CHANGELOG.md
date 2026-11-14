@@ -2,6 +2,25 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.4 (2026-11-14)
+
+The dashboard.
+
+### Added
+
+- `tutti dashboard [--port 4777]`: a local web dashboard served on 127.0.0.1 only (standard library, no build step, no
+  CDN), installable as an app (manifest, icons, service worker). Material 3 look that follows the OS light/dark scheme
+  and, where the browser shares it, the OS accent colour (`AccentColor`; the footer says when it falls back). Panels:
+  usage and pacing per account (used, the even-pace mark, the panic threshold, reset and target times, readings this
+  window), machines (slots free and busy, load, paused by the yield flag, offline), workers (ready or down, and the known
+  agents installed on this computer), jobs (running, stalled, failed, done, with the end of each log). `/api/state`
+  serves the same data as JSON; `--once` prints it. See docs/DASHBOARD.md.
+- Quota panic: `accounts.<name>.panic_at` (default 95 %). At or over it before the target time, `tutti usage` and the
+  dashboard say panic and what to do.
+- `tutti quiet` and quiet ship checks keep the result (`<log>.rc`) and the command (`<log>.cmd`) beside the log;
+  `tutti wait` records itself under `<state>/waits/` while it runs. The dashboard reads both.
+- Config: `dashboard: {port, refresh_seconds, probe_seconds, stall_minutes}`.
+
 ## 0.1.3 (2026-11-14)
 
 Fixes for the pains agents hit shipping from linked worktrees.

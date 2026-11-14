@@ -1,0 +1,263 @@
+"""The dashboard's state: usage and pacing, machines, workers and jobs, assembled as plain JSON-ready data.
+Pure assembly over what Tutti already keeps (the config, the usage log, the state folder); the probes are passed in."""
+import glob
+import json
+import os
+import re
+import shutil
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+
+from . import __version__, config, pacing, routing, waiting
+
+# CLI agents worth knowing about even when the config does not name them yet: the command and how people call it.
+KNOWN_AGENTS = (('claude', 'Claude Code'), ('cursor-agent', 'Cursor'), ('agy', 'Antigravity'), ('copilot', 'GitHub Copilot CLI'),
+                ('gemini', 'Gemini CLI'), ('ollama', 'Ollama'))
+TAIL_LINES = 40
+TAIL_WIDTH = 400
+MAX_JOBS = 40
+ANSI = re.compile(r'\x1b\[[0-9;?]*[ -/]*[@-~]')
+LOG_NAME = re.compile(r'^(?:ship-)?(\d+)-(\d+)\.log$')
+
+
+def iso(ts):
+    return datetime.fromtimestamp(ts, timezone.utc).isoformat() if ts else None
+
+
+def usage_log_path(cfg):
+    return config.expand((cfg.get('usage') or {}).get('log') or os.path.join(cfg['project']['state'], 'usage.jsonl'))
+
+
+def usage_state(cfg, now):
+    path = usage_log_path(cfg)
+    try:
+        entries = pacing.read_log(path)
+        problem = None
+    except (OSError, ValueError) as e:
+        entries, problem = [], f'{path} could not be read ({e}): fix or move the broken line, then `tutti usage` to check'
+    accounts = [pacing.account_state(n, a, entries, now) for n, a in cfg['accounts'].items()]
+    return {'log': path, 'problem': problem, 'accounts': accounts}
+
+
+# ---- machines
+
+
+def machine_state(m, p, rank):
+    """One machine as the dashboard shows it, from its config and a probe (routing.Probe)."""
+    reason = routing.unfit(m, p)
+    if not p.reachable:
+        status = 'offline'
+    elif p.yielding:
+        status = 'paused'
+    elif p.free < 1:
+        status = 'busy'
+    else:
+        status = 'free' if not reason else 'loaded'
+    slots = int(m['slots'])
+    free = min(p.free, slots) if p.reachable else None
+    return {'name': m['name'], 'transport': m['transport'], 'host': m.get('host', 'local'), 'slots': slots, 'free': free,
+            'busy': None if free is None else slots - free, 'load': p.load if p.reachable else None,
+            'cores': p.cores if p.reachable else None,
+            'reachable': p.reachable, 'paused': p.yielding, 'status': status, 'reason': reason or 'fit: takes the next run', 'rank': rank,
+            'min_free_gb': m['min_free_gb']}
+
+
+def machines_state(cfg, probe_fn):
+    """Every machine probed at once (a slow ssh answer does not hold up the others)."""
+    order = cfg['routing']['order']
+    names = list(cfg['machines'])
+    if not names:
+        return []
+    with ThreadPoolExecutor(max_workers=min(8, len(names))) as pool:
+        probes = dict(zip(names, pool.map(lambda n: probe_fn(cfg['machines'][n]), names), strict=True))
+    return [machine_state(cfg['machines'][n], probes[n], order.index(n) + 1 if n in order else None) for n in names]
+
+
+# ---- workers
+
+
+def agents_state(cfg, which=shutil.which, serving=False):
+    """The known CLI agents: installed here or not, and whether a worker in the config uses them. Ollama also counts as
+    there when a configured model server answers (it may run in a container or on another machine behind a tunnel)."""
+    used = {w['command'][0] for w in cfg['workers'].values() if w.get('kind') == 'cli'}
+    used |= {'ollama'} if any(w.get('kind') == 'ollama' for w in cfg['workers'].values()) else set()
+    return [{'command': c, 'label': label, 'installed': bool(which(c)) or (c == 'ollama' and serving), 'configured': c in used}
+            for c, label in KNOWN_AGENTS]
+
+
+def workers_state(cfg, available_fn, which=shutil.which):
+    names = list(cfg['workers'])
+    with ThreadPoolExecutor(max_workers=max(1, min(8, len(names)))) as pool:
+        checks = dict(zip(names, pool.map(lambda n: available_fn(cfg['workers'][n]), names), strict=True))
+    items = []
+    for name, w in cfg['workers'].items():
+        ok, note = checks[name]
+        items.append({'name': name, 'kind': w['kind'], 'ready': bool(ok), 'note': note, 'model': w.get('model'),
+                      'command': (w.get('command') or [None])[0], 'machine': w.get('machine'),
+                      'account': name if name in cfg['accounts'] else None})
+    serving = any(w['ready'] for w in items if w['kind'] == 'ollama')
+    return {'items': items, 'agents': agents_state(cfg, which, serving)}
+
+
+# ---- jobs
+
+
+def tail(path, lines=TAIL_LINES):
+    """The last lines of a log, without terminal colour codes and with very long lines cut."""
+    try:
+        with open(path, 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 64 * 1024))
+            text = f.read().decode('utf8', errors='replace')
+    except OSError:
+        return []
+    out = [ANSI.sub('', line).replace('\r', '')[:TAIL_WIDTH] for line in text.splitlines()[-lines:]]
+    return out
+
+
+def alive(pid):
+    try:
+        return not waiting.pid_gone(int(pid))()
+    except (ValueError, OSError):
+        return False
+
+
+def read_rc(path):
+    try:
+        with open(path, encoding='utf8') as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def read_first_line(path):
+    try:
+        with open(path, encoding='utf8', errors='replace') as f:
+            return f.readline().strip()[:200]
+    except OSError:
+        return ''
+
+
+def mtime(path):
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
+
+
+def status_of(running, updated, rc, now, stall):
+    if running:
+        return 'stalled' if updated and now - updated >= stall else 'running'
+    if rc is None:
+        return 'ended'
+    return 'done' if rc == 0 else 'failed'
+
+
+def log_job(path, kind, now, stall, is_alive):
+    m = LOG_NAME.match(os.path.basename(path))
+    started, pid = (int(m.group(1)), int(m.group(2))) if m else (None, None)
+    updated = mtime(path)
+    running = bool(pid) and is_alive(pid)
+    rc = None if running else read_rc(path + '.rc')
+    title = read_first_line(path + '.cmd') or {'quiet': 'quiet run', 'ship': 'ship check'}[kind]
+    return {'id': f'{kind}:{os.path.basename(path)}', 'kind': kind, 'title': title, 'pid': pid, 'log': path, 'started': iso(started),
+            'updated': iso(updated), 'idle_seconds': round(now - updated) if updated else None, 'rc': rc,
+            'status': status_of(running, updated, rc, now, stall), 'tail': tail(path)}
+
+
+def wait_jobs(folder, now, stall, is_alive):
+    out = []
+    for path in glob.glob(os.path.join(folder, '*.json')):
+        pid = os.path.splitext(os.path.basename(path))[0]
+        try:
+            with open(path, encoding='utf8') as f:
+                info = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not is_alive(pid):
+            continue
+        watch = info.get('watch') or info.get('target', '')
+        updated = mtime(watch) if os.path.exists(watch) else None
+        limit = info.get('stall') or stall
+        target = f'{info.get("kind", "?")} {info.get("target", "")} {info.get("pattern", "")}'.strip()
+        out.append({'id': f'wait:{pid}', 'kind': 'wait', 'title': f'wait {target}', 'pid': int(pid), 'log': watch if updated else None,
+                    'started': iso(info.get('started')), 'updated': iso(updated), 'idle_seconds': round(now - updated) if updated else None,
+                    'rc': None, 'status': status_of(True, updated, None, now, limit), 'tail': tail(watch, 12) if updated else []})
+    return out
+
+
+def pid_jobs(folder, now, is_alive):
+    """Local-model jobs (llm-busy-<pid>) and tunnels (tunnel-<worker>.pid) that are running now."""
+    out = []
+    for path in glob.glob(os.path.join(folder, 'llm-busy-*')):
+        pid = path.rsplit('-', 1)[-1]
+        if pid.isdigit() and is_alive(pid):
+            out.append({'id': f'llm:{pid}', 'kind': 'local model', 'title': 'local-model job', 'pid': int(pid), 'log': None,
+                        'started': iso(mtime(path)), 'updated': iso(mtime(path)), 'idle_seconds': None, 'rc': None, 'status': 'running',
+                        'tail': []})
+    for path in glob.glob(os.path.join(folder, 'tunnel-*.pid')):
+        name = os.path.basename(path)[len('tunnel-'):-len('.pid')]
+        try:
+            with open(path, encoding='utf8') as f:
+                pid = f.read().strip()
+        except OSError:
+            continue
+        if pid.isdigit() and is_alive(pid):
+            log = path[:-4] + '.log'
+            out.append({'id': f'tunnel:{name}', 'kind': 'tunnel', 'title': f'tunnel to {name}', 'pid': int(pid), 'log': log,
+                        'started': iso(mtime(path)), 'updated': iso(mtime(log)), 'idle_seconds': None, 'rc': None, 'status': 'running',
+                        'tail': tail(log, 8)})
+    return out
+
+
+ORDER = {'stalled': 0, 'running': 1, 'failed': 2, 'ended': 3, 'done': 4}
+
+
+def jobs_state(cfg, now, is_alive=alive):
+    """Running, stalled and recent jobs from the state folder: quiet runs, ship checks, waits, local-model jobs, tunnels."""
+    folder = config.expand(cfg['project']['state'])
+    stall = float(cfg['dashboard']['stall_minutes']) * 60
+    items = [log_job(p, 'quiet', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'quiet', '*.log'))]
+    items += [log_job(p, 'ship', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'ship-*.log'))]
+    items += wait_jobs(os.path.join(folder, 'waits'), now, stall, is_alive)
+    items += pid_jobs(folder, now, is_alive)
+    items.sort(key=lambda j: (ORDER.get(j['status'], 9), -(datetime.fromisoformat(j['updated']).timestamp() if j['updated'] else 0)))
+    return {'folder': folder, 'stall_seconds': stall, 'items': items[:MAX_JOBS], 'total': len(items)}
+
+
+# ---- the whole state
+
+
+def summary(usage, machines, workers, jobs):
+    accounts = usage['accounts']
+    return {'panic': [a['name'] for a in accounts if a['panic']],
+            'behind': [a['name'] for a in accounts if a['verdict'] in ('behind', 'late')],
+            'free_slots': sum(m['free'] or 0 for m in machines), 'slots': sum(m['slots'] for m in machines),
+            'machines_offline': [m['name'] for m in machines if m['status'] == 'offline'],
+            'workers_ready': sum(1 for w in workers['items'] if w['ready']), 'workers': len(workers['items']),
+            'running': sum(1 for j in jobs['items'] if j['status'] == 'running'),
+            'stalled': sum(1 for j in jobs['items'] if j['status'] == 'stalled')}
+
+
+def assemble(cfg, probes, now=None, is_alive=alive):
+    """The full /api/state answer. `probes` holds the last machines and workers results with their times (the slow parts,
+    refreshed in the background): {'machines': [...], 'machines_at': ts, 'workers': {...}, 'workers_at': ts}."""
+    now_dt = now or datetime.now(timezone.utc)
+    now_ts = now_dt.timestamp()
+    usage = usage_state(cfg, now_dt)
+    machines = probes.get('machines') or []
+    workers = probes.get('workers') or {'items': [], 'agents': []}
+    jobs = jobs_state(cfg, now_ts, is_alive)
+    return {'version': __version__, 'generated_at': now_dt.isoformat(), 'config': cfg['_path'],
+            'refresh_seconds': cfg['dashboard']['refresh_seconds'], 'usage': usage,
+            'machines': {'probed_at': iso(probes.get('machines_at')), 'items': machines},
+            'workers': {'probed_at': iso(probes.get('workers_at')), **workers}, 'jobs': jobs,
+            'summary': summary(usage, machines, workers, jobs)}
+
+
+def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time):
+    """The slow part, run off the request path: every machine and every worker."""
+    return {'machines': machines_state(cfg, probe_fn), 'machines_at': clock(),
+            'workers': workers_state(cfg, available_fn, which), 'workers_at': clock()}

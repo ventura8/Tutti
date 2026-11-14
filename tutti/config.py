@@ -23,6 +23,7 @@ DEFAULTS = {
     'brief': {'rules': []},
     'accounts': {},
     'ship': {'protected': ['main', 'master'], 'add': ['.'], 'checks': [], 'full_checks': []},
+    'dashboard': {'port': 4777, 'refresh_seconds': 10, 'probe_seconds': 30, 'stall_minutes': 10},
 }
 MACHINE_DEFAULTS = {'transport': 'ssh', 'root': 'tutti-wt', 'slots': 2, 'min_free_gb': 6, 'lock_prefix': '/tmp/tutti-slot-',
                     'yield_file': '~/.tutti/yield'}
@@ -148,6 +149,21 @@ def validate(cfg):
         share = (a or {}).get('share', 1)
         if not isinstance(share, (int, float)) or not 0 < share <= 1:
             errs.append(f'accounts.{name}.share is {share!r}: use a fraction above 0 and up to 1 (0.5 = half)')
+        panic_at = (a or {}).get('panic_at', 95)
+        if not isinstance(panic_at, (int, float)) or not 0 < panic_at <= 100:
+            errs.append(f'accounts.{name}.panic_at is {panic_at!r}: use a percentage above 0 and up to 100 (95 = panic at 95 % used)')
+    return errs + _dashboard_errors(cfg['dashboard'])
+
+
+def _dashboard_errors(d):
+    errs = []
+    port = d.get('port')
+    if not isinstance(port, int) or not 0 <= port <= 65535:
+        errs.append(f'dashboard.port is {port!r}: use a port number such as 4777')
+    for key in ('refresh_seconds', 'probe_seconds', 'stall_minutes'):
+        v = d.get(key)
+        if not isinstance(v, (int, float)) or v <= 0:
+            errs.append(f'dashboard.{key} is {v!r}: use a number above 0')
     return errs
 
 

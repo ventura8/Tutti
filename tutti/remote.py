@@ -487,3 +487,13 @@ def yield_note(machine):
         return None
     out = r.stdout.strip()
     return out[2:].strip() if out.startswith('UP') else None
+
+
+def power_readings(machine, ollama='', timeout=40):
+    """The machine's GPU and CPU power, read-only (tutti/energy.py, power_script); None when it does not answer."""
+    from . import energy
+    try:
+        r = sh(machine, energy.power_script(ollama), capture=True, timeout=timeout, ssh_opts=QUICK)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return energy.parse_power(r.stdout) if '== end' in r.stdout else None

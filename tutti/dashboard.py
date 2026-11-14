@@ -27,9 +27,11 @@ from . import (
     connect,
     controls,
     dashtelemetry,
+    energy,
     fill,
     handover,
     helper,
+    local,
     owner,
     pacing,
     projects,
@@ -73,8 +75,10 @@ class Collector:
     """Holds the latest probes and refreshes them every `probe_seconds` in a daemon thread."""
 
     def __init__(self, cfg, probe_fn=remote.probe, available_fn=workers.available, clock=time.time, reader=None, stored_fn=None,
-                 activity_fn=projects.probe_activity, prs_fn=releases.all_prs, readings_fn=remote.device_readings):
+                 activity_fn=projects.probe_activity, prs_fn=releases.all_prs, readings_fn=remote.device_readings,
+                 power_fn=remote.power_readings, ollama_fn=local.ollama_get):
         self.cfg, self.probe_fn, self.available_fn, self.clock = cfg, probe_fn, available_fn, clock
+        self.power_fn, self.ollama_fn = power_fn, ollama_fn
         self.readings_fn = readings_fn
         self.activity_fn, self.prs_fn = activity_fn, prs_fn
         self.stored_fn = stored_fn or (lambda m: transfer.stored(cfg, m))
@@ -109,6 +113,11 @@ class Collector:
                                 readings_fn=self.readings_fn)
         fresh['activity'] = projects.probe_all(self.cfg, self.activity_fn)
         fresh['prs'] = self.prs_fn(self.cfg)
+        try:   # local models: power and models read, energy added to the day's buckets (tutti/energy.py)
+            fresh['energy'] = energy.probe_all(self.cfg, self.power_fn, self.ollama_fn)
+            energy.sample(self.cfg, fresh['energy'], self.clock(), 2 * self.cfg['dashboard']['probe_seconds'])
+        except (OSError, ValueError) as e:
+            fresh['energy_error'] = f'local models\' power readings failed ({e}): the next probe tries again'
         try:
             fresh['readers'] = self.read_usage()
         except (OSError, ValueError) as e:   # a broken usage log must not hide machines and workers
@@ -194,6 +203,8 @@ class Collector:
                                                   out['main']['running'], out['generated_at'])
         releases.attach(out['projects'], probes.get('prs'))
         out['probe_error'] = probes.get('error')
+        out['local_models'] = {**energy.view(self.cfg, probes.get('energy'), out['machines']['items'], self.clock()),
+                               'error': probes.get('energy_error')}
         out['autopilot'] = autopilot.view(self.cfg)
         accounts = {a['name']: a for a in out['usage']['accounts']}
         out['scouts'] = {**scouts.view(self.cfg, accounts, self.env), 'error': probes.get('scout_error'), 'trial': trial.view(self.cfg)}

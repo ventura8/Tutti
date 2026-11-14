@@ -299,6 +299,26 @@ function addButton(a) {
     });
 }
 
+// Free room on an account: what the autopilot does with it when it fills the room by itself (autopilot.fill_room), else a
+// short hint and a button that turns it on. Never a command to type.
+function roomLine(a) {
+    const ap = ui.autopilot;
+    const trigger = ap?.accounts?.includes(a.name);
+    if (ap?.enabled && ap.fill_room && trigger) {
+        const running = ap.running.filter((t) => t.step === a.name).length;
+        const note = ap.fill?.note ? ` · ${ap.fill.note}` : '';
+        return el('p', { class: 'account__nudge', 'data-tone': 'ok',
+            text: `Autopilot: filling ${plural(a.room_tasks, 'slot')} — ${running} running here, ${ap.queue.length} queued${note}` });
+    }
+    const hint = ap?.enabled && !trigger ? ' (not in autopilot.accounts: it takes retries only)' : '';
+    return el('p', { class: 'account__nudge', 'data-tone': 'ok' }, `${plural(a.room_tasks, 'bounded task')} fit here now${hint}. `,
+        hint ? '' : el('button', { class: 'btn btn--tonal', type: 'button', 'data-fill': a.name, onclick: fillRoom, text: 'Let autopilot fill it' }));
+}
+
+async function fillRoom() {
+    await switchAutopilot({ enabled: true, fill_room: true }, 'The autopilot was not switched on.');
+}
+
 function account(a, now) {
     const verdict = a.panic ? 'panic' : a.verdict;
     const card = el('article', { class: 'account', 'data-panic': String(a.panic), 'aria-label': `${a.name}: ${verdict}` },
@@ -318,7 +338,7 @@ function account(a, now) {
     if (a.reset) card.append(sparkline(a, now));
     card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
     if (a.quota_plan?.why) card.append(el('p', { class: 'account__plan', text: `Planner: ${a.quota_plan.why}` }));
-    if (a.room_tasks) card.append(el('p', { class: 'account__nudge', 'data-tone': 'ok', text: `Use it: ${a.room_tasks} bounded task(s) can go here now (tutti run auto "<task>" --repo <repo>)` }));
+    if (a.room_tasks) card.append(roomLine(a));
     if (a.credits_used !== undefined) card.append(el('p', { class: 'account__auto', text: `${a.credits_used} AI credits in this window from Tutti's runs` }));
     if (a.stale) card.append(el('p', { class: 'account__remind', 'data-tone': 'warn', role: 'note', text: `Reminder: ${a.remind}` }));
     card.append(factsToggle(a), autoLine(a) || '');
@@ -571,6 +591,7 @@ function taskNote(t) {
         return `run ${t.run} on ${t.step} · ${duration(t.elapsed)}${credits} · ${t.last_line || 'started'}`;
     }
     if (t.status === 'needs-person') return `Needs a person: ${t.parked}`;
+    if (t.status === 'review' && t.landing) return `The reviewer is reading it (since ${relative(new Date(t.landing.at * 1000).toISOString())})`;
     if (t.status === 'review') return t.publish_note || `branch ${t.branch}`;
     return `${t.source} · size ${t.size}`;
 }
@@ -590,7 +611,8 @@ function renderAutopilot(s) {
     const toggle = $('autopilot-toggle');
     toggle.textContent = ap.enabled ? 'Turn off' : 'Turn on';
     toggle.setAttribute('aria-pressed', String(ap.enabled));
-    $('autopilot-meta').textContent = `${ap.enabled ? 'on' : 'off'} · ${ap.ladder.join(' → ') || 'no ladder'} · at most ${ap.max_parallel} at once`;
+    $('autopilot-meta').textContent = `${ap.enabled ? 'on' : 'off'} · ${ap.ladder.join(' → ') || 'no ladder'} · at most ${ap.max_parallel} at once`
+        + ` · fills free room: ${ap.fill_room ? 'on' : 'off'} · reviews results: ${ap.auto_review ? 'on' : 'off'}`;
     const last = ap.last;
     let stateText = 'Not set up: add autopilot.repos to the config.';
     if (last) stateText = `${last.state}: ${last.reason} (${relative(new Date(last.at * 1000).toISOString())})`;
@@ -611,18 +633,22 @@ function renderAutopilot(s) {
         'tutti backlog add <repo> "<title>" --check "<command>", or tutti backlog seed <repo>.')]));
 }
 
-async function toggleAutopilot() {
-    const on = $('autopilot-toggle').getAttribute('aria-pressed') !== 'true';
+async function switchAutopilot(body, failText) {
     try {
         const res = await fetch('/api/autopilot', {
-            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify({ enabled: on }),
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify(body),
         });
         const answer = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(answer.error || `the dashboard answered ${res.status}`);
         await refresh();
     } catch (err) {
-        showBanner(el('strong', { text: 'The autopilot was not switched. ' }), err.message);
+        showBanner(el('strong', { text: `${failText} ` }), err.message);
     }
+}
+
+async function toggleAutopilot() {
+    const on = $('autopilot-toggle').getAttribute('aria-pressed') !== 'true';
+    await switchAutopilot({ enabled: on }, 'The autopilot was not switched.');
 }
 
 // ---- scouts: helpers that answer on a GitHub issue (Grok Bot), with their weekly meter and the review trial
@@ -887,6 +913,7 @@ function render() {
     $('config-path').title = s.config;
     $('foot-version').textContent = `Tutti ${s.version}`;
     renderTiles(s);
+    ui.autopilot = s.autopilot;   // the accounts' room lines say what the autopilot does with the room
     renderUsage(s, now);
     renderAttention(s);
     renderControls(s);   // controls.js: devices, pause and resume, opt-in switches

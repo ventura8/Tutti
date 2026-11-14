@@ -175,8 +175,10 @@ def candidates(cfg, t):
         return [n for n in steps if n in trig] + [n for n in trig if n not in steps]
     last = t['attempts'][-1]
     at = steps.index(last['step']) if last['step'] in steps else -1
-    start = min(at + (0 if last['ok'] else 1), len(steps) - 1)
-    out = steps[max(start, 0):]
+    start = max(min(at + (0 if last['ok'] else 1), len(steps) - 1), 0)
+    # the steps above first; then the ones below, strongest first, so a retry never waits while only a weaker step has room
+    # (agy's accounts sat idle behind a paced cursor and a yielding PC, 2026-11-14)
+    out = steps[start:] + steps[:start][::-1]
     return [n for n in out if (step_of(cfg, n) or {}).get('kind') != 'ollama' or has_files(t)]
 
 
@@ -215,6 +217,16 @@ def _ts(iso):
     return pacing.parse_time(iso).timestamp()
 
 
+def room_reason(name, room, queued):
+    """Every step named in the stopped line: why it takes nothing, or, with room, why no queued task fits it."""
+    units_free, why = room
+    if why or units_free <= 0:
+        return why or f'{name}: no room'
+    big = max((units(t) for t in queued), default=0)
+    return f'{name}: room for {units_free}, but ' + (f'the queued tasks need {big}' if big > units_free else
+                                                      'no queued task may go there (a fresh task goes only to autopilot.accounts)')
+
+
 def plan(cfg, tasks, states, machines, on, now=None):
     """What to do now, pure. {state, reason, dispatch: [(task id, step name)], waiting: {task id: why}}. `now` (a datetime):
     nothing new starts in `autopilot.quiet_hours`; finished runs are still collected."""
@@ -248,7 +260,7 @@ def plan(cfg, tasks, states, machines, on, now=None):
     if out['dispatch']:
         return {**out, 'state': 'dispatching', 'reason': f'{len(out["dispatch"])} task(s) sent to ' +
                 ', '.join(sorted({n for _, n in out['dispatch']}))}
-    reasons = '; '.join(r[1] for r in rooms.values() if r[1]) or 'no ladder step (autopilot.ladder or autopilot.accounts)'
+    reasons = '; '.join(room_reason(n, r, queued) for n, r in rooms.items()) or 'no ladder step (autopilot.ladder or autopilot.accounts)'
     return {**out, 'state': 'stopped', 'reason': f'no worker takes a task now: {reasons}'}
 
 
@@ -545,8 +557,14 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     now = now or time.time()
     is_alive = is_alive or state_mod.alive
     on = enabled(cfg)
+    from . import fill   # fill imports this module
+    filled = None
     with backlog.locked(cfg) as data:
         events = collect(cfg, data, now, is_alive, publish_fn)
+        if on:
+            filled = fill.fill(cfg, data, states, machines, now)
+            events += [f'fill_room: {filled["note"]}'] if filled['added'] else []
+            events += fill.review_round(cfg, data, now, is_alive, spawn)
         p = plan(cfg, data['tasks'], states, machines, on, datetime.fromtimestamp(now, timezone.utc))
         telemetry.record('feature', 'autopilot.plan', state=p['state'], dispatch=len(p['dispatch']), waiting=len(p['waiting']),
                          collected=len(events))
@@ -562,6 +580,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
             events.append(f'{task_id} sent to {step} (run {run_id}, attempt {len(t["attempts"]) + 1})')
     with state_locked(cfg) as st:
         st['last'] = {'at': now, 'state': p['state'], 'reason': p['reason'], 'waiting': p['waiting']}
+        st['fill'] = filled or st.get('fill')
         st['events'] = ([{'at': now, 'text': e} for e in events] + st.get('events', []))[:50]
     return p, events
 
@@ -587,7 +606,7 @@ def last_line(path):
 
 def task_view(cfg, t, now):
     v = {k: t.get(k) for k in ('id', 'repo', 'title', 'status', 'size', 'source', 'step', 'run', 'branch', 'pr', 'publish_note',
-                               'parked', 'diff', 'worktree')}
+                               'parked', 'diff', 'worktree', 'landing')}
     v['attempt_count'] = len(t['attempts'])
     v['history'] = [{'step': a['step'], 'ok': a['ok'], 'why': a['why'][:200], 'signature': a['signature'], 'run': a['run']}
                     for a in t['attempts']]
@@ -605,7 +624,9 @@ def view(cfg, now=None):
     st = read_state(cfg)
     tasks = [task_view(cfg, t, now) for t in data['tasks'] if t['status'] not in ('done', 'dropped')]
     s = settings(cfg)
-    return {'enabled': enabled(cfg), 'configured': bool(s['repos']), 'accounts': s['accounts'], 'ladder': ladder(cfg),
+    from . import fill
+    return {'enabled': enabled(cfg), 'fill_room': fill.fill_on(cfg), 'fill': st.get('fill'), 'auto_review': fill.review_on(cfg),
+            'configured': bool(s['repos']), 'accounts': s['accounts'], 'ladder': ladder(cfg),
             'max_parallel': s['max_parallel'], 'last': st.get('last'), 'events': st.get('events', [])[:10],
             'queue': [t for t in tasks if t['status'] == 'queued'], 'running': [t for t in tasks if t['status'] == 'running'],
             'review': [t for t in tasks if t['status'] == 'review'], 'parked': [t for t in tasks if t['status'] == 'needs-person']}
@@ -613,7 +634,11 @@ def view(cfg, now=None):
 
 def describe(v):
     last = v.get('last') or {}
+    fl = v.get('fill') or {}
+    filling = f'fill_room {"on" if v.get("fill_room") else "off"}' + (f': room {fl["room"]}, {fl["queued"]} fresh queued; {fl["note"]}'
+                                                                     if fl and v.get('fill_room') else '')
     lines = [f'autopilot: {"on" if v["enabled"] else "off"}; {last.get("state", "not run yet")}: {last.get("reason", "")}'.rstrip(': '),
+             filling.rstrip('; '),
              f'ladder: {" -> ".join(v["ladder"]) or "(none)"}; max_parallel {v["max_parallel"]}']
     for title, items in (('running', v['running']), ('to review', v['review']), ('needs a person', v['parked']), ('queued', v['queue'])):
         for t in items:

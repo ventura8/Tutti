@@ -232,3 +232,12 @@ gates for the changed files, not only its tests.
 planner's dict with `None`.
 
 **Rule.** The planner's field is `quota_plan`. Before adding a key to a shared state dict, grep for every writer of it.
+
+## An escalation ladder that only climbs strands its retries (2026-11-14)
+
+**What happened.** t13 to t15 had failed on agy-gemini and agy-claude. Retries start one step up, so only cursor (ahead of
+its pace) and the PC (yield flag up) could take them; both agy accounts had room and sat idle, and the stopped line named
+only cursor and the PC, so it looked as if agy had been forgotten.
+
+**Rule.** A rule that narrows where work may go needs a fallback for when the narrowed set has no room, and a "why nothing
+happened" line names every candidate, the ones with room too, with the reason they took nothing.

@@ -58,7 +58,8 @@ class Base(unittest.TestCase):
                             'cursor': {'worker': 'cursor'}},
                'autopilot': {'enabled': True, 'accounts': ['agy-gemini', 'agy-claude'],
                              'ladder': ['agy-gemini', 'agy-claude', 'cursor', 'pc'],
-                             'max_parallel': 2, 'repos': {'app': {'path': os.path.join(self.tmp.name, 'repo'), 'check': 'true'}}, **ap}}
+                             'max_parallel': 2, 'repos': {'app': {'path': os.path.join(self.tmp.name, 'repo'), 'check': 'true'}},
+                             'fill_room': False, 'auto_review': False, **ap}}
         cfg = config.normalise(raw)
         cfg['_path'] = os.path.join(self.tmp.name, 'tutti.config.yaml')
         return cfg
@@ -87,7 +88,7 @@ class BacklogTest(Base):
         text = ('| # | Date | Command | What happened | Expected | Status |\n| --- | --- | --- | --- | --- | --- |\n'
                 '| 3 | 2026-11-14 | `t` | Only the probe ran. | A full run. | Open (roadmap). |\n'
                 '| 4 | 2026-11-14 | `t` | Broke. | Works. | Fixed in 0.1.8. |\n\n- 2026-11-14 (x): doctor should detect a broken git.\n'
-                '- not a dated note\n')
+                '- not a dated note\n- 2026-11-14 (y): a closed one. Fixed in 0.1.9.\n')
         items = backlog.feedback_items(text)
         self.assertEqual(len(items), 2)
         self.assertIn('FEEDBACK #3: Only the probe ran.', items[0])
@@ -163,7 +164,7 @@ class PlanTest(Base):
         p = autopilot.plan(self.cfg(), [scoped], states, FREE, True)
         self.assertEqual(p['dispatch'], [('t1', 'pc')])   # cursor is ahead: the local model, the strongest step, takes it
         unscoped = autopilot.plan(self.cfg(), [task('t3', attempts=tries)], states, FREE, True)
-        self.assertEqual(unscoped['dispatch'], [])        # a local model needs files to edit
+        self.assertEqual(unscoped['dispatch'], [('t3', 'agy-claude')])   # pc needs files, cursor is ahead: back down to agy
         one = autopilot.plan(self.cfg(), [task('t2', attempts=tries[:1])], states, FREE, True)
         self.assertEqual(one['dispatch'], [('t2', 'agy-claude')])
 

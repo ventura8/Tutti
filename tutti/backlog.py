@@ -127,7 +127,7 @@ def feedback_items(text):
         cells = [c.strip() for c in line.strip().strip('|').split('|')] if line.lstrip().startswith('|') else []
         if len(cells) >= 4 and cells[0].isdigit() and cells[-1].lower().startswith('open'):
             out.append(f'FEEDBACK #{cells[0]}: {cells[3]} Expected: {cells[-2]}')
-        elif re.match(r'^- \d{4}-\d{2}-\d{2}\b', line.strip()):
+        elif re.match(r'^- \d{4}-\d{2}-\d{2}\b', line.strip()) and not re.search(r'\bFixed in\b', line):   # a closed note
             out.append('FEEDBACK: ' + line.strip()[2:])
     return out
 
@@ -170,10 +170,37 @@ def gap_items(lines):
     return out
 
 
-def seed(data, name, repo, run=subprocess.run):
-    """Adds the tasks the repo's safe sources name. Returns the added tasks."""
+SOURCE_EXT = ('.py', '.ts', '.tsx', '.js', '.mjs', '.sh')
+NOT_UNITS = ('__init__', 'index', 'main', 'conftest', 'setup')
+
+
+def is_test(path):
+    parts = path.lower().split('/')
+    name = parts[-1]
+    return any(p in ('test', 'tests', '__tests__', 'e2e', 'spec') for p in parts[:-1]) or name.startswith('test_') or \
+        '.test.' in name or '.spec.' in name or name.endswith('_test.py')
+
+
+def untested_items(files):
+    """(title, path) of every tracked source file (`git ls-files` lines) whose name no test file mentions: a missing test is
+    a bounded task with an obvious check. Config files, type declarations, package entry points and the tests are skipped."""
+    tests = ' '.join(os.path.basename(f).lower() for f in files if is_test(f))
+    out = []
+    for f in files:
+        base = os.path.basename(f)
+        stem, ext = os.path.splitext(base)
+        if ext not in SOURCE_EXT or is_test(f) or stem in NOT_UNITS or '.config' in base or base.endswith('.d.ts') \
+                or stem.lower() in tests:
+            continue
+        out.append((f'Add unit tests for {f}: no test file names it; cover its behaviour, a good case and a bad one', f))
+    return out
+
+
+def sources(name, repo, run=subprocess.run, untested=False):
+    """(title, scope, source) of every task the repo's safe sources name: FEEDBACK.md's open items, owner-tagged TODO/FIXME,
+    the repo's `gaps` command (lint findings, coverage gaps: one per line), and with `untested` the source files without a
+    test (autopilot.fill_room)."""
     path = config.expand(repo['path'])
-    check = repo.get('check') or ''
     found = []
     fb = os.path.join(path, repo.get('feedback', 'docs/FEEDBACK.md'))
     if os.path.isfile(fb):
@@ -185,8 +212,17 @@ def seed(data, name, repo, run=subprocess.run):
     if repo.get('gaps'):
         res = run(['bash', '-c', repo['gaps']], cwd=path, capture_output=True, text=True)
         found += [(t, [p] if p else [], 'gaps') for t, p in gap_items(res.stdout.splitlines())]
+    if untested:
+        files = run([worktree.git_bin(), '-C', path, 'ls-files'], capture_output=True, text=True)
+        found += [(t, [p], 'untested') for t, p in untested_items(files.stdout.splitlines())]
+    return found
+
+
+def seed(data, name, repo, run=subprocess.run):
+    """Adds the tasks the repo's safe sources name. Returns the added tasks."""
+    check = repo.get('check') or ''
     added = []
-    for title, scope, source in found:
+    for title, scope, source in sources(name, repo, run):
         task, new = add(data, new_task(name, title, scope, check, 'S', source))
         if new:
             added.append(task)

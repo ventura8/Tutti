@@ -3,6 +3,7 @@ import copy
 import json
 import math
 import os
+import re
 
 PROJECT_NAME = 'tutti.config.yaml'
 NAMES = (PROJECT_NAME, 'tutti.config.yml', 'tutti.config.json')
@@ -147,6 +148,7 @@ def validate(cfg):
         if (w or {}).get('machine') and w['machine'] not in cfg['machines']:
             errs.append(f'workers.{name}.machine names "{w["machine"]}", which is not under machines:')
     for name, a in cfg['accounts'].items():
+        errs += _account_source_errors(name, a or {})
         share = (a or {}).get('share', 1)
         if not isinstance(share, (int, float)) or not 0 < share <= 1:
             errs.append(f'accounts.{name}.share is {share!r}: use a fraction above 0 and up to 1 (0.5 = half)')
@@ -154,6 +156,49 @@ def validate(cfg):
         if not isinstance(panic_at, (int, float)) or not 0 < panic_at <= 100:
             errs.append(f'accounts.{name}.panic_at is {panic_at!r}: use a percentage above 0 and up to 100 (95 = panic at 95 % used)')
     return errs + _dashboard_errors(cfg['dashboard'])
+
+
+def _command_errors(key, spec, needs):
+    if not isinstance(spec, dict):
+        return [f'{key} is {spec!r}: write it as a mapping with command: [...] and {needs}:']
+    errs = []
+    cmd = spec.get('command')
+    if not isinstance(cmd, list) or not cmd or not all(isinstance(c, str) for c in cmd):
+        errs.append(f'{key}.command is missing: a list such as [agy, -p, /usage, --output-format, json]')
+    if not isinstance(spec.get(needs), str) or not spec.get(needs):
+        errs.append(f'{key}.{needs} is missing (docs/USAGE-PACING.md: Automatic readings)')
+    every = spec.get('every_minutes', 10)
+    if isinstance(every, bool) or not isinstance(every, (int, float)) or not math.isfinite(every) or every <= 0:
+        errs.append(f'{key}.every_minutes is {every!r}: use a number of minutes above 0')
+    return errs
+
+
+def _regex_errors(key, value):
+    try:
+        re.compile(value)
+    except (re.error, TypeError) as e:
+        return [f'{key} is {value!r}, not a regular expression ({e}): write a pattern such as "cursor-agent"']
+    return []
+
+
+def _account_source_errors(name, a):
+    """usage_url, reader, plan and match: where readings come from without the owner's input."""
+    key = f'accounts.{name}'
+    errs = []
+    url = a.get('usage_url')
+    if url is not None and (not isinstance(url, str) or not url.startswith('https://')):
+        errs.append(f'{key}.usage_url is {url!r}: give the https:// address of the provider\'s usage page')
+    if 'reader' in a:
+        errs += _command_errors(f'{key}.reader', a['reader'], 'bucket')
+    if 'plan' in a:
+        errs += _command_errors(f'{key}.plan', a['plan'], 'field')
+    m = a.get('match')
+    if m is not None:
+        if not isinstance(m, dict) or not m.get('command'):
+            return errs + [f'{key}.match needs command: a pattern for the job command lines of this account (e.g. "\\bagy\\b")']
+        errs += _regex_errors(f'{key}.match.command', m['command'])
+        errs += _regex_errors(f'{key}.match.model', m['model']) if 'model' in m else []
+    return errs
 
 
 def _dashboard_errors(d):

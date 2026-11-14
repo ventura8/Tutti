@@ -6,7 +6,7 @@ rules that keep them from stepping on each other.
 Tutti is a small toolkit for AI-assisted work on a software project when you have more than one model subscription and
 more than one computer. It grew out of one project's working day and keeps only what proved useful.
 
-> **Status: v0.1.4.** Linux only. The npm package `tutti-agents` is marked `private` until the first
+> **Status: v0.1.5.** Linux only. The npm package `tutti-agents` is marked `private` until the first
 > publish. **Licence:** MIT (see `LICENSE`).
 
 ## The ideas
@@ -70,7 +70,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | --- | --- |
 | `tutti test <track> '<cmd>'` | Copies the track's worktree to the first fit machine and runs the command there behind the slot queue, in a memory-capped container or plain bash. `--on <machine>` skips routing; `--dir` names the tree. Returns the command's exit code. |
 | `tutti ship "<message>"` | In the worktree you stand in: format, commit (with your trailer), run the targeted checks, push, deploy. `--full` runs the full checks; `--dry-run` prints the plan; `--track <t>` refuses any other worktree. |
-| `tutti usage` | Every account against its pace. `tutti usage log <account> <percent>` records a reading. |
+| `tutti usage` | Every account against its pace. `tutti usage log <account> <percent> [--resets <time>]` records a reading; `tutti usage read` runs the automatic readers now (Antigravity `agy /usage`, the Cursor plan, limit messages in job logs). See [docs/USAGE-PACING.md](docs/USAGE-PACING.md). |
 | `tutti workers` | The workers and whether each is ready. |
 | `tutti run <worker> "<task>" [files]` | Briefs a CLI worker in a worktree (`--dir`); `--show` prints the brief. |
 | `tutti ask <worker> "<question>" [files]` | A short answer from a local model about files or stdin. |

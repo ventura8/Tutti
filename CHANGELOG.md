@@ -2,6 +2,32 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.5 (2026-11-14)
+
+Usage readings with minimum input.
+
+### Added
+
+- Automatic readers per account: `reader` runs a command that prints usage without spending quota (Antigravity:
+  `agy -p /usage --output-format json`, its two rolling 5-hour windows `3p-5h` and `gemini-5h` and the weekly ones);
+  `plan` reads a label such as Cursor's tier from `cursor-agent about --format json`. The dashboard runs them with its
+  probes (`every_minutes`, default 10); `tutti usage read` runs them now.
+- Limit messages: a "usage limit reached, try again in 3 h" line in the output of `tutti run` or of a `tutti quiet`
+  job of an agent CLI logs the account as spent until the reset it names (`match: {command, model, fallback}`).
+- A reading may carry its reset time (`tutti usage log ... --resets`, readers, limit messages, the form); the newest one
+  anchors the account's window and beats the config's `resets`. `resets_estimated: true` marks a guess.
+- Dashboard: **Add a reading** on every account card opens the provider's usage page (`usage_url`) and a form (percent
+  slider, reset time prefilled from the window rule); it saves through `POST /api/reading` (loopback host, same origin,
+  JSON, the page's per-start token). Cards show the plan, how often the account is read automatically and where its
+  reset comes from.
+- Config: `accounts.<name>.usage_url`, `reader`, `plan`, `match`, `worker`, `resets_estimated`, each checked with a
+  message that names the key and the fix.
+
+### Changed
+
+- `tutti run` passes the worker's output through line by line (stderr merged into stdout) so limit messages can be read.
+- The service worker fetches the page network-first (the cache is the offline fallback), so the page's token is fresh.
+
 ## 0.1.4 (2026-11-14)
 
 The dashboard.

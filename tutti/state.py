@@ -86,6 +86,21 @@ def agents_state(cfg, which=shutil.which, serving=False):
             for c, label in KNOWN_AGENTS]
 
 
+def account_of_worker(cfg, name):
+    """The account a worker spends: the one of the same name, else the first that says `worker: <name>`."""
+    if name in cfg['accounts']:
+        return name
+    return next((n for n, a in cfg['accounts'].items() if (a or {}).get('worker') == name), None)
+
+
+def with_readers(usage, readers):
+    """The accounts with what their automatic readers said: the plan label, how often they are read, and a problem if any."""
+    for a in usage['accounts']:
+        r = (readers or {}).get(a['name']) or {}
+        a.update(plan=r.get('plan'), auto_every_minutes=r.get('every_minutes'), reader_problem=r.get('problem'))
+    return usage
+
+
 def workers_state(cfg, available_fn, which=shutil.which):
     names = list(cfg['workers'])
     with ThreadPoolExecutor(max_workers=max(1, min(8, len(names)))) as pool:
@@ -95,7 +110,7 @@ def workers_state(cfg, available_fn, which=shutil.which):
         ok, note = checks[name]
         items.append({'name': name, 'kind': w['kind'], 'ready': bool(ok), 'note': note, 'model': w.get('model'),
                       'command': (w.get('command') or [None])[0], 'machine': w.get('machine'),
-                      'account': name if name in cfg['accounts'] else None})
+                      'account': account_of_worker(cfg, name)})
     serving = any(w['ready'] for w in items if w['kind'] == 'ollama')
     return {'items': items, 'agents': agents_state(cfg, which, serving)}
 

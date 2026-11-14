@@ -301,6 +301,21 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
     border: 1px solid var(--outline-2);
 }
 
+.account__auto { font-size: 0.8125rem; color: var(--on-surface-2); }
+.account__auto[data-tone='bad'] { color: var(--bad); }
+.reading { display: grid; gap: 10px; padding: 12px; border-radius: var(--r-s); background: var(--surface-2); border: 1px solid var(--outline-2); }
+.reading label { display: grid; gap: 4px; font-size: 0.8125rem; color: var(--on-surface-2); }
+.reading input { font: inherit; color: var(--on-surface); }
+.reading input[type='range'] { accent-color: var(--accent); width: 100%; min-height: 32px; }
+.reading input[type='datetime-local'], .reading input[type='text'] {
+    min-height: 40px; padding: 0 10px; border-radius: var(--r-s); border: 1px solid var(--outline); background: var(--surface-1);
+}
+.reading__pct { font-weight: 600; color: var(--on-surface); }
+.reading__row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.reading__msg { font-size: 0.8125rem; }
+.reading__msg[data-tone='bad'] { color: var(--bad); }
+.account__add { justify-self: start; }
+
 .account[data-panic='true'] { border-color: var(--bad); box-shadow: inset 0 0 0 1px var(--bad); }
 .account__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .account__name { font-size: 1rem; font-weight: 600; }

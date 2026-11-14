@@ -1,0 +1,311 @@
+"""Automatic usage readings: CLI readers, limit messages in job output, the reset anchor and the dashboard's reading form."""
+import http.client
+import io
+import json
+import os
+import sys
+import tempfile
+import threading
+import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from datetime import timedelta
+
+from tutti import cli, config, dashboard, pacing, readers, routing, state, workers
+
+T = pacing.parse_time
+NOW = T('2026-01-06T12:00Z')
+
+
+def bucket(id_, left, reset):
+    return {'id': id_, 'remaining_fraction': left, 'reset_time': reset}
+
+
+AGY = {'command': {'name': 'usage', 'data': {'groups': [
+    {'name': 'Gemini Models', 'buckets': [bucket('gemini-5h', 0.75, '2026-01-06T15:00:00Z'),
+                                          bucket('gemini-weekly', 1, '2026-01-12T00:00:00Z')]},
+    {'name': 'Claude and GPT models', 'buckets': [bucket('3p-5h', 0.1, '2026-01-06T14:30:00Z')]},
+]}}}
+AGY_CMD = ['agy', '-p', '/usage', '--output-format', 'json']
+ACCOUNTS = {
+    'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z', 'resets_estimated': True, 'match': {'command': 'cursor-agent'},
+               'plan': {'command': ['cursor-agent', 'about', '--format', 'json'], 'field': 'subscriptionTier'}},
+    'agy-claude': {'window': '5h', 'match': {'command': r'\bagy\b', 'model': 'claude|sonnet|opus'},
+                   'reader': {'command': AGY_CMD, 'bucket': '3p-5h'}},
+    'agy-gemini': {'window': '5h', 'match': {'command': r'\bagy\b', 'model': 'gemini', 'fallback': True},
+                   'reader': {'command': AGY_CMD, 'bucket': 'gemini-5h'}},
+}
+
+
+def cfg_of(folder, accounts=None, workers_=None):
+    raw = {'project': {'worktrees': folder, 'state': os.path.join(folder, 'state')}, 'accounts': accounts or ACCOUNTS,
+           'workers': workers_ or {}, 'usage': {'log': os.path.join(folder, 'usage.jsonl')}}
+    cfg = config.normalise(raw)
+    cfg['_path'] = os.path.join(folder, 'tutti.config.yaml')
+    return cfg
+
+
+class ParseTest(unittest.TestCase):
+    def test_reset_times_in_limit_messages(self):
+        self.assertEqual(readers.parse_reset('quota resets at 2026-01-06T15:30:00Z', NOW), T('2026-01-06T15:30Z'))
+        self.assertEqual(readers.parse_reset('try again in 3h 12m', NOW), NOW + timedelta(hours=3, minutes=12))
+        self.assertEqual(readers.parse_reset('it refreshes in 6 days, 12 hours', NOW), NOW + timedelta(days=6, hours=12))
+        self.assertEqual(readers.parse_reset('resume in 45 minutes', NOW), NOW + timedelta(minutes=45))
+        self.assertIsNone(readers.parse_reset('you have reached your usage limit', NOW))
+
+    def test_only_limit_lines_are_hits(self):
+        lines = ['working', "You've hit your usage limit for this month.", 'It resets in 2 days.', 'Error: 429 is a test name']
+        hits = readers.limit_hits(lines, NOW)
+        self.assertEqual([(i, r) for i, r, _ in hits], [(1, NOW + timedelta(days=2))])
+        self.assertEqual(readers.limit_hits(['all tests passed', 'Nominatim 429 handled'], NOW), [])
+
+    def test_a_limit_message_goes_to_the_right_account(self):
+        m = readers.match_account
+        self.assertEqual(m(ACCOUNTS, 'cursor-agent -p task', 'usage limit'), 'cursor')
+        self.assertEqual(m(ACCOUNTS, 'agy -p task --model claude-opus-5-5-high', 'quota exhausted'), 'agy-claude')
+        self.assertEqual(m(ACCOUNTS, 'agy -p task', 'Claude Sonnet quota exhausted'), 'agy-claude')
+        self.assertEqual(m(ACCOUNTS, 'agy -p task', 'quota exhausted'), 'agy-gemini')   # no model named: the fallback
+        self.assertIsNone(m(ACCOUNTS, 'npm test', 'rate limit'))
+        no_fallback = {k: {**v, 'match': {**v['match'], 'fallback': False}} for k, v in ACCOUNTS.items()}
+        self.assertIsNone(m(no_fallback, 'agy -p task', 'quota exhausted'))
+
+    def test_agy_usage_buckets(self):
+        self.assertEqual(readers.agy_usage(AGY, '3p-5h'), (90.0, T('2026-01-06T14:30Z')))
+        self.assertEqual(readers.agy_usage(AGY, 'gemini-5h')[0], 25.0)
+        with self.assertRaisesRegex(ValueError, 'gemini-weekly'):
+            readers.agy_usage(AGY, 'nope')
+        with self.assertRaisesRegex(ValueError, 'command.data.groups'):
+            readers.agy_usage({'response': 'text'}, '3p-5h')
+
+    def test_a_window_not_started_yet_starts_now(self):
+        self.assertEqual(readers.not_started(NOW + timedelta(hours=5, seconds=4), '5h', NOW), NOW + timedelta(hours=5))
+        self.assertEqual(readers.not_started(NOW + timedelta(hours=2), '5h', NOW), NOW + timedelta(hours=2))
+        self.assertEqual(readers.not_started(NOW + timedelta(hours=9), None, NOW), NOW + timedelta(hours=9))
+
+    def test_json_field(self):
+        self.assertEqual(readers.json_field({'subscriptionTier': 'Pro'}, 'subscriptionTier'), 'Pro')
+        with self.assertRaises(ValueError):
+            readers.json_field({}, 'subscriptionTier')
+
+
+class ReadersTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = cfg_of(self.tmp.name)
+        self.calls = []
+        self.t = [NOW.timestamp()]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def fake(self, answers):
+        def run(cmd):
+            self.calls.append(cmd[0])
+            return answers[cmd[0]]
+        return readers.Readers(self.cfg, run=run, clock=lambda: self.t[0])
+
+    def test_one_command_serves_both_agy_windows_and_is_cached(self):
+        r = self.fake({'agy': (AGY, None), 'cursor-agent': ({'subscriptionTier': 'Pro'}, None)})
+        out = r.read_all()
+        self.assertEqual(out['agy-claude']['used'], 90.0)
+        self.assertEqual(out['agy-gemini']['resets'], T('2026-01-06T15:00Z'))
+        self.assertEqual(out['cursor']['plan'], 'Pro')
+        self.assertEqual(sorted(self.calls), ['agy', 'cursor-agent'])
+        r.read_all()
+        self.assertEqual(len(self.calls), 2)   # within every_minutes: no new run
+        self.t[0] += 11 * 60
+        r.read_all()
+        self.assertEqual(len(self.calls), 4)
+
+    def test_problems_are_named_per_account(self):
+        r = self.fake({'agy': (None, 'agy is not on PATH: install it and sign in once'), 'cursor-agent': ({}, None)})
+        out = r.read_all()
+        self.assertIn('not on PATH', out['agy-claude']['problem'])
+        self.assertIn('accounts.cursor.plan', out['cursor']['problem'])
+        r2 = self.fake({'agy': ({'command': {'data': {'groups': []}}}, None), 'cursor-agent': ({'subscriptionTier': 'Pro'}, None)})
+        self.assertIn('accounts.agy-claude.reader: no bucket', r2.read_all()['agy-claude']['problem'])
+
+    def test_record_keeps_only_readings_that_say_something_new_and_each_limit_once(self):
+        path = self.cfg['usage']['log']
+        reading = {'agy-claude': {'used': 90.0, 'resets': T('2026-01-06T14:30Z')}, 'cursor': {'used': None}}
+        self.assertEqual(len(readers.record(path, reading, [], NOW)), 1)
+        self.assertEqual(readers.record(path, reading, [], NOW + timedelta(minutes=10)), [])
+        self.assertEqual(len(readers.record(path, reading, [], NOW + timedelta(hours=1))), 1)
+        moved = {'agy-claude': {'used': 90.4, 'resets': T('2026-01-06T15:30Z')}}
+        self.assertEqual(len(readers.record(path, moved, [], NOW + timedelta(hours=1, minutes=5))), 1)
+        hit = [('cursor', None, 'job.log:3', 'usage limit')]
+        self.assertEqual(readers.record(path, {}, hit, NOW)[0]['used'], 100)
+        self.assertEqual(readers.record(path, {}, hit, NOW), [])
+        entries = pacing.read_log(path)
+        self.assertEqual(entries[-1]['source'], 'limit message')
+        self.assertIn('window rule', entries[-1]['note'])
+
+    def test_quiet_logs_of_agent_jobs_are_scanned_once(self):
+        quiet = os.path.join(self.cfg['project']['state'], 'quiet')
+        os.makedirs(quiet)
+        for name, cmd, text in (('1-1.log', 'agy -p fix --model claude-sonnet-5-5', 'Quota exhausted. Resets in 2h.'),
+                                ('2-2.log', 'bash scripts/ci/run-all-checks.sh', 'rate limit test passed'),
+                                ('3-3.log', 'cursor-agent -p fix', 'done')):
+            with open(os.path.join(quiet, name), 'w', encoding='utf8') as f:
+                f.write(text + '\n')
+            with open(os.path.join(quiet, name + '.cmd'), 'w', encoding='utf8') as f:
+                f.write(cmd + '\n')
+        now = pacing.parse_time(readers.utcnow())
+        r = self.fake({})
+        hits = r.scan_jobs(now)
+        self.assertEqual([(h[0], h[2]) for h in hits], [('agy-claude', '1-1.log:1')])
+        self.assertAlmostEqual((hits[0][1] - now).total_seconds(), 7200, delta=1)
+        self.assertEqual(r.scan_jobs(now), [])
+
+
+class AnchorTest(unittest.TestCase):
+    def test_a_reading_with_a_reset_beats_the_config(self):
+        acc = {'window': '5h', 'resets': '2026-01-06T10:00Z', 'resets_estimated': True}
+        s = pacing.account_state('agy', acc, [], NOW)
+        self.assertEqual((s['reset'], s['reset_from']), (T('2026-01-06T15:00Z').isoformat(), 'estimate'))
+        entries = [{'at': '2026-01-06T11:00:00+00:00', 'account': 'agy', 'used': 40, 'resets': '2026-01-06T14:30:00+00:00'}]
+        s = pacing.account_state('agy', acc, entries, NOW)
+        self.assertEqual((s['reset'], s['reset_from'], s['used']), (T('2026-01-06T14:30Z').isoformat(), 'reading', 40.0))
+        s = pacing.account_state('agy', {'window': '5h'}, entries, NOW)   # no reset in the config at all
+        self.assertEqual(s['state'], 'ok')
+        self.assertEqual(pacing.account_state('agy', {}, entries, NOW)['state'], 'no reset')   # a window is still needed
+
+    def test_config_checks_the_new_keys(self):
+        self.assertEqual(config.validate(config.normalise({'accounts': ACCOUNTS})), [])
+        bad = {'a': {'usage_url': 'http://x', 'reader': {'command': [], 'every_minutes': 0}, 'plan': 'x', 'match': {'command': '('}},
+               'b': {'match': {'model': 'x'}}, 'c': {'match': {'command': 'x', 'model': '['}}}
+        errs = '\n'.join(config.validate(config.normalise({'accounts': bad})))
+        for key in ('a.usage_url', 'a.reader.command', 'a.reader.bucket', 'a.reader.every_minutes', 'a.plan is', 'a.match.command',
+                    'b.match needs command', 'c.match.model'):
+            self.assertIn(f'accounts.{key}', errs)
+
+
+class ReadingPostTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        acc = {**ACCOUNTS, 'cursor': {**ACCOUNTS['cursor'], 'usage_url': 'https://provider.example/usage'}}
+        cls.cfg = cfg_of(cls.tmp.name, acc)
+        collector = dashboard.Collector(cls.cfg, probe_fn=lambda m: routing.Probe(True, 1, 0.5, 4, False),
+                                        available_fn=lambda w: (True, 'ok'),
+                                        reader=readers.Readers(cls.cfg, run=lambda cmd: ({'subscriptionTier': 'Pro'}, None)
+                                                               if cmd[0] == 'cursor-agent' else (AGY, None)))
+        collector.refresh()
+        cls.httpd = dashboard.server(cls.cfg, 0, collector)
+        cls.port = cls.httpd.server_address[1]
+        cls.host = f'127.0.0.1:{cls.port}'
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+        cls.tmp.cleanup()
+
+    def request(self, method, path, body=None, **headers):
+        c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=5)
+        c.request(method, path, body=body, headers={'Host': self.host, **headers})
+        r = c.getresponse()
+        data = r.read()
+        c.close()
+        return r.status, data
+
+    def post(self, data, **over):
+        headers = {'Origin': f'http://{self.host}', 'Content-Type': 'application/json', 'X-Tutti-Token': self.httpd.token}
+        headers.update({k.replace('_', '-'): v for k, v in over.items()})
+        headers = {k: v for k, v in headers.items() if v is not None}
+        code, body = self.request('POST', '/api/reading', json.dumps(data).encode(), **headers)
+        return code, json.loads(body)
+
+    def test_the_page_carries_the_token_and_the_state_the_readers(self):
+        code, body = self.request('GET', '/')
+        self.assertIn(f'content="{self.httpd.token}"'.encode(), body)
+        s = json.loads(self.request('GET', '/api/state')[1])
+        acc = {a['name']: a for a in s['usage']['accounts']}
+        self.assertEqual(acc['cursor']['plan'], 'Pro')
+        self.assertEqual(acc['cursor']['usage_url'], 'https://provider.example/usage')
+        self.assertEqual((acc['agy-claude']['used'], acc['agy-claude']['reset_from']), (90.0, 'reading'))
+        self.assertEqual(acc['agy-gemini']['auto_every_minutes'], 10)
+
+    def test_a_reading_from_the_page_is_saved(self):
+        resets = (readers.utcnow() + timedelta(days=20)).isoformat()
+        code, answer = self.post({'account': 'cursor', 'used': 37, 'resets': resets, 'note': 'from the usage page'})
+        self.assertEqual((code, answer['ok']), (200, True))
+        last = pacing.read_log(self.cfg['usage']['log'])[-1]
+        self.assertEqual((last['account'], last['used'], last['source']), ('cursor', 37.0, 'dashboard'))
+        self.assertEqual(T(last['resets']), T(resets))
+
+    def test_cross_site_and_bad_readings_are_refused(self):
+        self.assertEqual(self.post({'account': 'cursor', 'used': 1}, Origin='https://evil.example')[0], 403)
+        self.assertEqual(self.post({'account': 'cursor', 'used': 1}, Origin=None)[0], 403)
+        self.assertEqual(self.post({'account': 'cursor', 'used': 1}, Sec_Fetch_Site='cross-site')[0], 403)
+        code, answer = self.post({'account': 'cursor', 'used': 1}, X_Tutti_Token='stale')
+        self.assertEqual(code, 403)
+        self.assertIn('reload the page', answer['error'])
+        self.assertEqual(self.post({'account': 'cursor', 'used': 1}, Content_Type='text/plain')[0], 415)
+        self.assertEqual(self.post({'account': 'nope', 'used': 1})[0], 400)
+        self.assertEqual(self.post({'account': 'cursor', 'used': 120})[0], 400)
+        self.assertEqual(self.post({'account': 'cursor', 'used': True})[0], 400)
+        self.assertEqual(self.post({'account': 'cursor', 'used': 5, 'resets': 'soon'})[0], 400)
+        self.assertEqual(self.post({'account': 'cursor', 'used': 5, 'resets': '2020-01-01T00:00Z'})[0], 400)
+        self.assertEqual(self.post({'account': 'cursor', 'used': 5, 'note': 'x' * 300})[0], 400)
+        self.assertEqual(self.post([1, 2])[0], 400)
+        self.assertEqual(self.post({'account': 'cursor', 'used': 5, 'note': 'x' * 5000})[0], 413)
+        code, _ = self.request('POST', '/api/state', b'{}', Origin=f'http://{self.host}')
+        self.assertEqual(code, 404)
+        code, _ = self.request('POST', '/api/reading', b'{}', Host='attacker.example')
+        self.assertEqual(code, 403)
+
+
+class CliTest(unittest.TestCase):
+    def test_usage_log_with_a_reset_anchors_the_window(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'tutti.config.json')
+            with open(path, 'w', encoding='utf8') as f:
+                json.dump({'project': {'state': folder}, 'usage': {'log': os.path.join(folder, 'u.jsonl')},
+                           'accounts': {'cursor': {'window': 'monthly'}}}, f)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                rc = cli.main(['--config', path, 'usage', 'log', 'cursor', '40', '--resets', '2026-01-20T00:00Z',
+                               '--at', '2026-01-06T00:00Z'])
+            self.assertEqual(rc, 0)
+            self.assertIn('2026-01-20 00:00', out.getvalue())
+            err = io.StringIO()
+            with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                self.assertEqual(cli.main(['--config', path, 'usage', 'log', 'cursor']), 2)
+            self.assertIn('tutti usage log <account> <percent>', err.getvalue())
+            with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                self.assertEqual(cli.main(['--config', path, 'usage', 'read']), 0)
+            self.assertIn('0 account(s) with a reader', err.getvalue())
+
+    def test_a_worker_that_hits_its_limit_is_logged_as_spent(self):
+        with tempfile.TemporaryDirectory() as folder:
+            script = os.path.join(folder, 'fake-cursor-agent')
+            with open(script, 'w', encoding='utf8') as f:
+                f.write("import sys\nprint('working')\nprint('You have hit your usage limit. Try again in 3 hours.')\nsys.exit(1)\n")
+            accounts = {'cursor': {'window': 'monthly', 'match': {'command': 'fake-cursor-agent'}}}
+            cfg = cfg_of(folder, accounts, {'cursor': {'kind': 'cli', 'command': [sys.executable, script, '{prompt}']}})
+            out = io.StringIO()
+            rc, lines = workers.run(cfg, 'cursor', 'task', out=out)
+            self.assertEqual(rc, 1)
+            self.assertIn('usage limit', out.getvalue())
+            self.assertEqual(lines[0], 'working')
+            hits = readers.scan_text(cfg['accounts'], ' '.join(cfg['workers']['cursor']['command']), lines, NOW, 'run')
+            self.assertEqual([(h[0], h[1]) for h in hits], [('cursor', NOW + timedelta(hours=3))])
+            path = os.path.join(folder, 'tutti.config.json')
+            with open(path, 'w', encoding='utf8') as f:
+                json.dump({k: cfg[k] for k in ('project', 'accounts', 'workers', 'usage')}, f)
+            err = io.StringIO()
+            with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                self.assertEqual(cli.main(['--config', path, 'run', 'cursor', 'task']), 1)
+            self.assertIn('cursor is logged as spent until', err.getvalue())
+            self.assertEqual(pacing.read_log(cfg['usage']['log'])[-1]['source'], 'limit message')
+
+    def test_workers_find_their_account_by_worker_key(self):
+        cfg = config.normalise({'accounts': {'agy-claude': {'worker': 'agy'}, 'cursor': {}}})
+        self.assertEqual(state.account_of_worker(cfg, 'agy'), 'agy-claude')
+        self.assertEqual(state.account_of_worker(cfg, 'cursor'), 'cursor')
+        self.assertIsNone(state.account_of_worker(cfg, 'pc'))
+
+
+if __name__ == '__main__':
+    unittest.main()

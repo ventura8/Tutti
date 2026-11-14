@@ -6,7 +6,9 @@ const FILTERS = [['all', 'All'], ['running', 'Running'], ['stalled', 'Stalled'],
 const VERDICT_TONE = { 'on pace': 'ok', ahead: 'warn', behind: 'warn', late: 'bad', spent: 'bad', 'no reading': 'idle', unknown: 'idle' };
 const MACHINE_TONE = { free: 'ok', loaded: 'warn', busy: 'accent', paused: 'warn', offline: 'bad' };
 const JOB_TONE = { running: 'accent', stalled: 'warn', failed: 'bad', done: 'ok', ended: 'idle' };
-const ui = { filter: 'all', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0 };
+const ui = { filter: 'all', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0, editing: new Map() };
+const TOKEN = document.querySelector('meta[name="tutti-token"]')?.content || '';
+const RESET_FROM = { reading: 'from the latest reading', estimate: 'an estimate from the config: add a reading to set it', config: 'from the config' };
 
 function el(tag, props, ...kids) {
     const node = document.createElement(tag);
@@ -143,6 +145,77 @@ function facts(pairs) {
     return el('dl', { class: 'account__facts' }, pairs.filter(([, v]) => v).flatMap(([k, v]) => [el('dt', { text: k }), el('dd', { text: v })]));
 }
 
+// ---- add a reading: opens the provider's usage page and a small form; saves through POST /api/reading
+
+const pad = (n) => String(n).padStart(2, '0');
+
+function localInput(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function openReading(a) {
+    if (a.usage_url) window.open(a.usage_url, '_blank', 'noopener,noreferrer');
+    ui.editing.set(a.name, { used: Math.round(a.used ?? 0), resets: localInput(a.reset), note: '', msg: '', tone: '' });
+    renderUsage(ui.last, Date.now(), true);
+    document.getElementById(`reading-${a.name}-used`)?.focus();
+}
+
+function closeReading(name) {
+    ui.editing.delete(name);
+    renderUsage(ui.last, Date.now(), true);
+    document.querySelector(`[data-add="${CSS.escape(name)}"]`)?.focus();
+}
+
+async function saveReading(name, form) {
+    const f = ui.editing.get(name);
+    const body = { account: name, used: Number(f.used), note: f.note };
+    if (f.resets) body.resets = new Date(f.resets).toISOString();
+    try {
+        const res = await fetch('/api/reading', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify(body),
+        });
+        const answer = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(answer.error || `the dashboard answered ${res.status}`);
+        ui.editing.delete(name);
+        await refresh();
+    } catch (e) {
+        f.msg = `Not saved: ${e.message}`;
+        f.tone = 'bad';
+        form.querySelector('.reading__msg').textContent = f.msg;
+        form.querySelector('.reading__msg').dataset.tone = 'bad';
+    }
+}
+
+function readingForm(a) {
+    const f = ui.editing.get(a.name);
+    const id = (k) => `reading-${a.name}-${k}`;
+    const pct = el('output', { class: 'reading__pct', for: id('used'), text: `${f.used} %` });
+    const form = el('form', { class: 'reading', 'aria-label': `New reading for ${a.name}` },
+        el('label', { for: id('used') }, el('span', {}, 'Used now: ', pct),
+            el('input', { id: id('used'), type: 'range', min: 0, max: 100, step: 1, value: f.used,
+                oninput: (e) => { f.used = e.target.value; pct.textContent = `${f.used} %`; } })),
+        el('label', { for: id('resets') }, 'Resets at (your time; prefilled from the window rule)',
+            el('input', { id: id('resets'), type: 'datetime-local', value: f.resets, oninput: (e) => { f.resets = e.target.value; } })),
+        el('label', { for: id('note') }, 'Note (optional)',
+            el('input', { id: id('note'), type: 'text', maxlength: 200, value: f.note, oninput: (e) => { f.note = e.target.value; } })),
+        el('div', { class: 'reading__row' }, el('button', { class: 'btn btn--filled', type: 'submit', text: 'Save reading' }),
+            el('button', { class: 'btn btn--tonal', type: 'button', text: 'Cancel', onclick: () => closeReading(a.name) }),
+            a.usage_url ? el('a', { href: a.usage_url, target: '_blank', rel: 'noopener noreferrer', text: 'Open the usage page again' }) : null),
+        el('p', { class: 'reading__msg', 'data-tone': f.tone || undefined, role: 'status', text: f.msg }));
+    form.addEventListener('submit', (e) => { e.preventDefault(); void saveReading(a.name, form); });
+    return form;
+}
+
+function autoLine(a) {
+    if (a.reader_problem) return el('p', { class: 'account__auto', 'data-tone': 'bad', text: `Automatic reading failed: ${a.reader_problem}` });
+    const parts = [];
+    if (a.auto_every_minutes) parts.push(`Read automatically every ${a.auto_every_minutes} min, no input needed`);
+    if (a.plan) parts.push(`plan: ${a.plan}`);
+    return parts.length ? el('p', { class: 'account__auto', text: parts.join(' · ') }) : null;
+}
+
 function account(a, now) {
     const verdict = a.panic ? 'panic' : a.verdict;
     const card = el('article', { class: 'account', 'data-panic': String(a.panic), 'aria-label': `${a.name}: ${verdict}` },
@@ -160,15 +233,29 @@ function account(a, now) {
     if (a.reset) card.append(sparkline(a, now));
     card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
     card.append(facts([
-        ['Resets', a.reset && when(a.reset)], ['Spend by', a.target && when(a.target)],
+        ['Resets', a.reset && `${when(a.reset)}${a.reset_from ? `, ${RESET_FROM[a.reset_from]}` : ''}`], ['Spend by', a.target && when(a.target)],
         ['Last reading', a.reading_at && when(a.reading_at)], ['Window', a.window],
         ['Share', a.share < 1 ? `${Math.round(a.share * 100)} % of the quota is this session's` : null], ['Read at', a.source],
     ]));
+    card.append(autoLine(a) || '');
+    if (ui.editing.has(a.name)) {
+        card.append(readingForm(a));
+    } else {
+        card.append(el('button', {
+            class: 'btn btn--tonal account__add', type: 'button', 'data-add': a.name, text: 'Add a reading',
+            title: a.usage_url ? `Opens ${a.usage_url} and a short form` : 'Opens a short form', onclick: () => openReading(a),
+        }));
+    }
     return card;
 }
 
-function renderUsage(s, now) {
+function renderUsage(s, now, force) {
     const u = s.usage;
+    // While a reading is being typed, the cards stay as they are: a poll must not wipe the form or move the focus.
+    if (ui.editing.size && !force) {
+        $('usage-meta').textContent = 'Paused while you add a reading';
+        return;
+    }
     $('usage-meta').textContent = u.problem || `Readings from ${u.log}`;
     $('usage').replaceChildren(...(u.accounts.length ? u.accounts.map((a) => account(a, now))
         : [empty('No accounts yet', codeText('Add an accounts: section to the config (see ', 'tutti.config.example.yaml', ').'))]));

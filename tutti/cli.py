@@ -7,7 +7,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
-from . import __version__, config, dashboard, local, pacing, remote, routing, ship, translate, waiting, workers
+from . import __version__, config, dashboard, local, pacing, readers, remote, routing, ship, translate, waiting, workers
 
 SCRIPTS = os.path.join(remote.ROOT, 'scripts')
 SUMMARY = 'In at most 5 short lines: which check failed, the file:line and the exact error. No advice.'
@@ -84,14 +84,28 @@ def usage_log_path(cfg):
     return config.expand((cfg.get('usage') or {}).get('log') or os.path.join(config.state_dir(cfg), 'usage.jsonl'))
 
 
+def read_now(cfg, path, now):
+    """`tutti usage read`: every automatic reader once and the recent job logs; prints what was found and any problem."""
+    r = readers.Readers(cfg)
+    found = r.read_all(now)
+    written = readers.record(path, found, r.scan_jobs(now), now)
+    for name, x in found.items():
+        if x['problem']:
+            say(f'{name}: {x["problem"]}')
+    say(f'usage read: {len(found)} account(s) with a reader, {len(written)} new reading(s) in {path}')
+
+
 def cmd_usage(cfg, a):
     path = usage_log_path(cfg)
     now = pacing.parse_time(a.at) if a.at else datetime.now(timezone.utc)
+    if a.action == 'read':
+        read_now(cfg, path, now)
     if a.action == 'log':
-        if a.account not in cfg['accounts']:
-            say(f'no account "{a.account}" in the config: the accounts are {", ".join(cfg["accounts"]) or "(none)"}')
+        if a.account not in cfg['accounts'] or a.percent is None:
+            names = ', '.join(cfg['accounts']) or '(none)'
+            say(f'usage: tutti usage log <account> <percent> [--resets <ISO time>]; the accounts are {names}')
             return 2
-        pacing.append_log(path, a.account, float(a.percent), now, a.note)
+        pacing.append_log(path, a.account, float(a.percent), now, a.note, resets=a.resets)
     print(pacing.report(cfg['accounts'], pacing.read_log(path), now))
     return 0
 
@@ -106,7 +120,16 @@ def cmd_run(cfg, a):
     if a.show:
         print(workers.brief(cfg, a.task, a.files))
         return 0
-    return workers.run(cfg, a.worker, a.task, a.files, cwd=a.dir)
+    rc, lines = workers.run(cfg, a.worker, a.task, a.files, cwd=a.dir)
+    now = datetime.now(timezone.utc)
+    cmd_text = ' '.join(cfg['workers'][a.worker]['command'])
+    hits = readers.scan_text(cfg['accounts'], cmd_text, lines, now, f'run-{a.worker}-{int(now.timestamp())}')
+    if hits:
+        readers.record(usage_log_path(cfg), {}, hits, now)
+        for name, reset, _ref, _text in hits[:1]:
+            say(f'{a.worker} hit a usage limit: {name} is logged as spent'
+                + (f' until {reset.isoformat()}' if reset else ' (no reset time in its message)') + '; send new work to other workers')
+    return rc
 
 
 def cmd_ask(cfg, a):
@@ -274,12 +297,14 @@ def parser():
     s.add_argument('--allow-protected', action='store_true')
     s.add_argument('--dry-run', action='store_true', help='print the plan; change nothing')
     s.add_argument('--dir', default='.')
-    s = add('usage', cmd_usage, 'show every account against its pace; `usage log <account> <percent>` records a reading')
-    s.add_argument('action', nargs='?', choices=['log'])
+    s = add('usage', cmd_usage, 'show every account against its pace; `usage log <account> <percent>` records a reading, '
+                                '`usage read` runs the automatic readers now')
+    s.add_argument('action', nargs='?', choices=['log', 'read'])
     s.add_argument('account', nargs='?')
     s.add_argument('percent', nargs='?')
     s.add_argument('--at', help='the time of the reading or of the report (ISO 8601, UTC by default)')
     s.add_argument('--note', default='')
+    s.add_argument('--resets', help='usage log: the reset time the usage page shows (ISO 8601); it anchors the window from then on')
     add('workers', cmd_workers, 'list the workers and whether each is ready')
     s = add('run', cmd_run, 'brief a CLI worker (cursor, agy, claude) in a worktree; it must not commit')
     s.add_argument('worker')

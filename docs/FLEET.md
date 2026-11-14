@@ -85,3 +85,38 @@ click, or `tutti autopilot allow <account>`; otherwise the card says how to name
 
 An account in `autopilot.accounts` without a `worker:` uses the worker of the same name: `claude` runs `workers.claude`. A step
 that cannot be used names the real reason.
+
+## The machine's share
+
+`machines.<m>.use_pct` (default 100, in Settings) caps how much of a machine Tutti's work uses: its free slots (so also the
+autopilot's gate slots), this computer's cores in the adaptive limit (`tutti/parallel.py`) and a local model's threads. The
+share drops by itself, to the lowest that applies:
+
+- `in_use_pct` (30) while someone uses the machine: its keyboard or mouse within `in_use_minutes` (5), read with
+  `xprintidle` or the login session's idle hint. This is read on this computer only.
+- `quiet_pct` (50) in its quiet hours (`machines.<m>.quiet_hours`, else `autopilot.quiet_hours`): fans and noise at night.
+- `hot_pct` (50) while it is hot (its `heat` cap reached).
+
+The yield flag still takes the machine out entirely (the PC is RoRadio's), and so does the governor's memory floor. The
+machine card shows "Tutti's share N %" and why. GPU power limits need root, so Tutti does not change them.
+
+## Model servers kept alive
+
+At every probe, which also follows a reboot (the dashboard starts at login) and sleep:
+
+- Every local worker's tunnel is started again when its server does not answer.
+- A machine whose Ollama had models and went quiet, while the machine itself answers, gets a restart (at most every 10
+  minutes): its user service (`systemctl --user restart ollama`), else `ollama serve` in the background.
+- When Tutti cannot do it, `tutti fleet` and `fleet.json` say the one-step fix:
+  - a system service: `sudo systemctl restart ollama` on that machine;
+  - Windows: start the Ollama app.
+
+## Household use
+
+Each probe samples every machine:
+
+- **Available capacity:** its slots at its share, plus one for a model server.
+- **Busy:** its slots taken and a model run going.
+
+A paused, offline or yielding machine has nothing available. The Usage card's headline reads "Household use: X % of
+available capacity (last hour)". Each machine card shows its use over the last hour and today, and why it is idle when it is.

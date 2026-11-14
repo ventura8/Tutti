@@ -290,7 +290,10 @@ def termux_readings(machine):
 SMI = '--query-gpu=temperature.gpu --format=csv,noheader,nounits'
 GPU_TEMP = ('g=$( { nvidia-smi ' + SMI + ' 2>/dev/null || /usr/lib/wsl/lib/nvidia-smi ' + SMI + ' 2>/dev/null; '
             'for h in /sys/class/hwmon/hwmon*; do case "$(cat "$h/name" 2>/dev/null)" in amdgpu|xe|i915) '
-            'awk \'{print $1/1000}\' "$h/temp1_input" 2>/dev/null;; esac; done; } | sort -n | tail -n 1); ')
+            'awk \'{print $1/1000}\' "$h/temp1_input" 2>/dev/null;; esac; done; } '
+            # only numbers: an nvidia-smi without its driver prints its error on stdout, which broke the summary line (the
+            # NUC read as unreachable, 2026-11-14)
+            '| grep -E \'^[0-9]+([.][0-9]+)?$\' | sort -n | tail -n 1); ')
 
 # A WSL machine has no /sys thermal zones: its CPU temperature is Windows', read over the machine's plain ssh with PowerShell
 # (read-only): LibreHardwareMonitor's or OpenHardwareMonitor's "CPU Package" sensor when one of them runs, else the hottest

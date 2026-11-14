@@ -501,12 +501,17 @@ function machine(m) {
     }
     if (m.temp_note && (m.temp_c === null || m.temp_c === undefined)) stats.append(el('span', { class: 'temp', title: m.temp_note, text: 'CPU temperature not readable' }));
     if (m.rank) stats.append(el('span', { text: `#${m.rank} in routing` }));
+    if (m.use_pct !== undefined && m.use_pct !== null) stats.append(el('span', { title: 'machines.<m>.use_pct (Settings)',
+        text: `Tutti's share ${m.use_pct} %${m.use_why ? ` (${m.use_why})` : ''}` }));
+    const use = (ui.last?.household_use?.machines || []).find((u) => u.name === m.name);
+    if (use && use.hour !== null) stats.append(el('span', { text: `used ${use.hour} % last hour · ${use.day ?? '–'} % today` }));
     return el('li', { class: 'row' },
         el('div', { class: 'row__name' }, m.name, el('span', { class: 'row__kind', text: `${m.transport} · ${m.host}` })),
         chip(m.status, MACHINE_TONE[m.status]),
         stats,
         presenceBits(m.presence),   // controls.js: Here / Away since 18:40 (left with its owner), today's strip
         el('p', { class: 'row__note', text: m.status === 'paused' ? 'Yield flag is up: Tutti sends it nothing new until it is lowered.' : m.reason }),
+        use && use.idle_why ? el('p', { class: 'row__note', text: `Idle: ${use.idle_why}` }) : null,
         m.household_use ? el('p', { class: 'row__note household-only', text: busyFor(m) }) : null,
         storedFiles(m.name, m.stored));
 }
@@ -1114,6 +1119,7 @@ function render() {
     ui.scouts = s.scouts;         // a scout's account card shows its scout facts, not task room
     renderUsage(s, now);
     if (typeof renderLocalModels === 'function') renderLocalModels(s);   // energy.js: the Local models category
+    if (s.household_use) $('household-use').textContent = s.household_use.headline;   // docs/FLEET.md, Household use
     renderAttention(s);
     renderControls(s);   // controls.js: devices, pause and resume, opt-in switches
     renderJobs(s);

@@ -175,7 +175,7 @@ def machine_state(m, p, rank, now=None, idle_s=None, quiet_hours=None):
     if p.reachable and status == 'free' and not free:
         status, reason = 'busy', f'its share for Tutti is {pct} %' + (f' ({pct_why})' if pct_why else '') + ': no slot left at it'
     return {'name': m['name'], 'transport': m['transport'], 'host': m.get('host', 'local'), 'slots': slots, 'free': free,
-            'busy': None if free is None else slots - free, 'load': p.load if p.reachable else None,
+            'busy': None if free is None else slots - min(p.free, slots), 'load': p.load if p.reachable else None,
             'cores': p.cores if p.reachable else None,
             'reachable': p.reachable, 'paused': p.yielding, 'status': status, 'reason': reason or 'fit: takes the next run', 'rank': rank,
             'min_free_gb': m['min_free_gb'], 'temp_c': p.temp if p.reachable else None, 'heat': m.get('heat'),

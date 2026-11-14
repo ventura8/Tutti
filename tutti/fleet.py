@@ -412,12 +412,74 @@ def ensure_tunnels(cfg, machines, answers, run=subprocess.run):
     return started
 
 
-def after_probe(cfg, fresh, now, run=subprocess.run):
-    """The dashboard's probe round: the machines' models stored, the workers following them, and every local worker's tunnel
-    started when its server does not answer and its machine is up. Returns the workers whose tunnel was started."""
+RESTART_EVERY = 600   # seconds between two restarts of one machine's Ollama
+# Ollama again on a machine: its user service, else `ollama serve` in the background; a system service needs the owner's sudo
+RESTART_SCRIPT = ('if systemctl --user restart ollama 2>/dev/null; then echo user-service; '
+                  'elif systemctl is-enabled ollama >/dev/null 2>&1; then echo system-service; '
+                  'elif command -v ollama >/dev/null; then (setsid nohup ollama serve >/dev/null 2>&1 &); echo serve; '
+                  'else echo none; fi')
+
+
+def server_down(e, row):
+    """A machine whose Ollama had models and now does not answer while the machine itself does."""
+    return bool(e.get('stale') and e.get('models')) and (row or {}).get('status') not in (*BLOCKING, None)
+
+
+def restart_fix(machine, how):
+    """The one-step fix the owner sees when Tutti could not restart a machine's Ollama itself."""
+    if machine.get('transport') == 'wsl':
+        return 'start the Ollama app on Windows (Start menu: Ollama); Tutti cannot start a Windows program from WSL'
+    if how == 'system-service':
+        return f'run `sudo systemctl restart ollama` on {machine.get("name")} (a system service needs your password)'
+    return f'install Ollama on {machine.get("name")} (https://ollama.com/download), or start it: `ollama serve`'
+
+
+def keep_servers(cfg, machines, now, sh=None):
+    """Every machine whose Ollama went quiet gets a restart (its user service, else `ollama serve`), at most every
+    RESTART_EVERY seconds; one that cannot be restarted by Tutti gets the exact fix. Returns the servers' state, kept in
+    fleet.json: {machine: {up, since, restarted_at, how, fix}}."""
+    from . import remote
+    sh = sh or remote.sh
+    data = read_state(cfg)
+    servers = data.get('servers') or {}
+    rows = {m.get('name'): m for m in machines or ()}
+    for name, e in (data.get('machines') or {}).items():
+        s = servers.setdefault(name, {'up': True, 'since': now})
+        down = server_down(e, rows.get(name))
+        if not down:
+            if not s.get('up'):
+                s.update(up=True, since=now, fix='')
+            continue
+        if s.get('up'):
+            s.update(up=False, since=now)
+        m = cfg['machines'].get(name)
+        if not m or (s.get('restarted_at') is not None and now - s['restarted_at'] < RESTART_EVERY):
+            continue
+        how = 'wsl' if m.get('transport') == 'wsl' else _restart(sh, m)
+        s.update(restarted_at=now, how=how, fix='' if how in ('user-service', 'serve') else restart_fix(m, how))
+    data['servers'] = servers
+    save(cfg, data)
+    return servers
+
+
+def _restart(sh, machine):
+    try:
+        r = sh(machine, RESTART_SCRIPT, capture=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return 'unreachable'
+    return (r.stdout or '').strip().splitlines()[-1] if (r.stdout or '').strip() else 'none'
+
+
+def after_probe(cfg, fresh, now, run=subprocess.run, sh=None):
+    """The dashboard's probe round: the machines' models stored, the workers following them, a quiet Ollama restarted, every
+    local worker's tunnel started when its server does not answer and its machine is up (after a drop, a reboot or sleep:
+    the next probe). The household's use recorded. Returns the workers whose tunnel was started."""
     refresh(cfg, fresh.get('energy'), now)
     apply(cfg)
+    keep_servers(cfg, fresh.get('machines') or [], now, sh)
     ready = {w['name']: w['ready'] for w in (fresh.get('workers') or {}).get('items') or []}
+    from . import householduse
+    householduse.record(cfg, fresh.get('machines') or [], now)
     return ensure_tunnels(cfg, fresh.get('machines') or [], ready, run)
 
 
@@ -431,13 +493,16 @@ def view(cfg, now=None):
                      'host': w.get('host'), 'num_ctx': w.get('num_ctx'), 'hardware': w.get('hardware') or {},
                      'models': [{k: m.get(k) for k in ('name', 'tier', 'kinds', 'params_b', 'tokens_s')}
                                 for m in w.get('models') or [] if m]})
-    return {'workers': rows, 'machines': data.get('machines') or {}}
+    return {'workers': rows, 'machines': data.get('machines') or {}, 'servers': data.get('servers') or {}}
 
 
 def describe(v):
     if not v['workers']:
         return 'no local model worker: no machine\'s Ollama answered yet (the dashboard reads them at every probe)'
     lines = []
+    for name, s in sorted((v.get('servers') or {}).items()):
+        if not s.get('up'):
+            lines.append(f'{name}: its Ollama is down' + (f'; {s["fix"]}' if s.get('fix') else '; Tutti restarted it'))
     for r in v['workers']:
         hw = r['hardware']
         where = ', '.join(x for x in (hw.get('gpu'), hw.get('npu') and f'NPU {hw["npu"]}', hw.get('cpu')) if x) or 'hardware not read'

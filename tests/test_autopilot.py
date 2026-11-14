@@ -167,6 +167,15 @@ class PlanTest(Base):
         one = autopilot.plan(self.cfg(), [task('t2', attempts=tries[:1])], states, FREE, True)
         self.assertEqual(one['dispatch'], [('t2', 'agy-claude')])
 
+    def test_a_local_model_on_a_yielding_machine_takes_nothing(self):
+        cfg = self.cfg()
+        cfg['workers']['pc']['machine'] = 'nuc'
+        paused = [{'name': 'nuc', 'status': 'paused', 'free': 2, 'reason': 'yield flag is up'}]
+        room, why = autopilot.step_room(cfg, 'pc', {}, {}, paused)
+        self.assertEqual(room, 0)
+        self.assertIn('yield flag is up', why)
+        self.assertEqual(autopilot.step_room(cfg, 'pc', {}, {}, FREE)[0], 1)
+
     def test_a_fresh_task_goes_only_to_a_trigger_account_behind_its_line(self):
         states = self.states(**{'agy-gemini': account('agy-gemini', 'on pace'), 'agy-claude': account('agy-claude', 'on pace')})
         p = autopilot.plan(self.cfg(), [task('t1')], states, FREE, True)

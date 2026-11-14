@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-from . import autopilot, conduct, config, helper, pacing, projects, readers, releases, remote, state, transfer, workers
+from . import __version__, autopilot, conduct, config, helper, pacing, projects, readers, releases, remote, state, transfer, workers
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 BIND = '127.0.0.1'
@@ -24,6 +24,8 @@ TYPES = {'.webmanifest': 'application/manifest+json', '.js': 'text/javascript; c
 # Never echoes the request path back: nothing the browser sent is reflected into a response.
 NOT_FOUND = b'{"error": "this path is not part of the dashboard: open / instead"}'
 TOKEN_SLOT = b'__TUTTI_TOKEN__'   # index.html carries this server's token in <meta name="tutti-token">
+INDEX = 'index.html'
+VERSION_SLOT = b'__TUTTI_VERSION__'   # index.html's <meta name="tutti-version"> and sw.js's cache name: the running version
 MAX_BODY = 4096
 NOTE_MAX = 200
 RESET_PAST = timedelta(days=1)
@@ -120,7 +122,7 @@ def allowed_host(host, port):
 
 def static_path(url_path):
     """The file under tutti/web for a request path, or None when it is outside it or missing."""
-    rel = url_path.split('?', 1)[0].lstrip('/') or 'index.html'
+    rel = url_path.split('?', 1)[0].lstrip('/') or INDEX
     full = os.path.realpath(os.path.join(WEB, rel))
     if not full.startswith(os.path.realpath(WEB) + os.sep) or not os.path.isfile(full):
         return None
@@ -279,8 +281,12 @@ def route(collector, path, token=''):
         return 404, NOT_FOUND, JSON_TYPE, 'no-store'
     with open(full, 'rb') as f:
         body = f.read()
-    if full.endswith('index.html'):
+    if full.endswith(INDEX):
         body = body.replace(TOKEN_SLOT, token.encode())
+    if full.endswith((INDEX, 'sw.js')):
+        # a new release changes sw.js byte for byte, so the browser installs the new worker; the page compares its version
+        # with /api/state's and reloads itself once (web/update.js)
+        body = body.replace(VERSION_SLOT, __version__.encode())
     # no-cache: revalidated every time, so a new version reaches the service worker and the page at once.
     return 200, body, TYPES.get(os.path.splitext(full)[1]) or mimetypes.guess_type(full)[0] or 'application/octet-stream', 'no-cache'
 

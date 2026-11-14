@@ -200,3 +200,15 @@ from history or a labelled rough estimate.
 A watched script's job disappears when its process ends; it is never "done", so no duration was ever learned. The
 history now remembers running jobs (`durations.json`) and counts one that is gone as finished; a test container only when
 its machine was probed, so a failed probe does not record every container as ended.
+
+## A narrow allow list costs the autopilot one attempt per task (2026-11-14)
+
+The first autopilot runs sent tasks to agy-gemini, whose `--settings` allowed a list of read-only commands; any task that
+had to run a command (a test, a check) was soft-denied, changed nothing and moved up to agy-claude on the retry. The ladder
+recovered, but each such task spent an attempt for nothing. Every account the autopilot uses gets the same `command(*)`
+allow as agy-claude (the worktree, the brief and ship's guard are the limits).
+
+## `pkill -f <pattern>` can match the shell that runs it (2026-11-14)
+
+`pkill -f "dashboard --port N"` inside a `bash -c '...'` matched that shell's own command line and killed it mid-command.
+Stop a dashboard by its pid (`ps`, then `kill <pid>`), never by a pattern.

@@ -9,6 +9,8 @@ const JOB_TONE = { running: 'accent', stalled: 'warn', failed: 'bad', done: 'ok'
 const storedOpen = new Set();   // machines whose stored-files list is open: kept across re-renders
 const ui = { filter: 'all', project: '', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0, editing: new Map(), accounts: new Map() };
 const TOKEN = document.querySelector('meta[name="tutti-token"]')?.content || '';
+const PAGE_VERSION = document.querySelector('meta[name="tutti-version"]')?.content || '';
+const RELOADED_FOR = 'tutti-reloaded-for';   // sessionStorage: the version this tab already reloaded for (never a loop)
 const RESET_FROM = { reading: 'from the latest reading', estimate: 'an estimate from the config: add a reading to set it', config: 'from the config' };
 
 function el(tag, props, ...kids) {
@@ -775,6 +777,7 @@ async function refresh() {
         ui.fetchedAt = Date.now();
         ui.failing = false;
         render();
+        void selfUpdate(data.version);
     } catch {
         if (seq !== ui.seq) return;
         ui.failing = true;
@@ -809,6 +812,70 @@ async function refreshReadings() {
     } finally {
         b.disabled = false;
         b.textContent = 'Refresh readings';
+    }
+}
+
+// ---- updating itself: a restarted dashboard on a new release is picked up with no click
+
+function marker() {
+    try {
+        return { value: sessionStorage.getItem(RELOADED_FOR), ok: true };
+    } catch {
+        return { value: null, ok: false };   // storage blocked: the page cannot remember a reload, so it never reloads by itself
+    }
+}
+
+function newWorker(reg) {
+    const waiting = reg.waiting || reg.installing;
+    if (!waiting) return Promise.resolve();
+    return new Promise((resolve) => {
+        const timer = setTimeout(resolve, 5000);
+        navigator.serviceWorker.addEventListener('controllerchange', () => { clearTimeout(timer); resolve(); }, { once: true });
+        waiting.postMessage({ type: 'skip-waiting' });
+    });
+}
+
+function busyEditing() {
+    return ui.editing.size > 0 || Boolean(ui.formPending);   // a reading being typed or saved is never thrown away
+}
+
+function writeMarker(version) {
+    try {
+        sessionStorage.setItem(RELOADED_FOR, version);
+        return true;
+    } catch {
+        return false;   // full or blocked storage: the reload could not be remembered, so it does not happen
+    }
+}
+
+function manualReload(version) {
+    ui.notice = `Tutti ${version} is running but this page is still ${PAGE_VERSION}: reload it with Ctrl+Shift+R.`;
+}
+
+async function selfUpdate(version) {
+    const m = marker();
+    const what = tuttiUpdateDecision(PAGE_VERSION, version, m.value, m.ok);
+    if (what === 'none' || ui.updating) return;
+    if (what === 'stuck') {
+        manualReload(version);
+        return;
+    }
+    if (busyEditing()) return;   // the next poll tries again
+    ui.updating = true;
+    try {
+        const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration().catch(() => null) : null;
+        if (reg) {
+            await reg.update().catch(() => {});
+            await newWorker(reg);
+        }
+        if (busyEditing()) return;   // an edit started while the worker updated: after it is saved or closed
+        if (!writeMarker(version)) {
+            manualReload(version);
+            return;
+        }
+        location.reload();
+    } finally {
+        ui.updating = false;
     }
 }
 

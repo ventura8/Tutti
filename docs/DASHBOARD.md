@@ -20,6 +20,14 @@ Open the page in Chrome or Edge and choose **Install app** (the button in the ba
 opens in its own window and its shell works offline; when the service is not running the page says so and reconnects
 by itself once `tutti dashboard` runs again.
 
+It updates itself. The server writes its version into the page (`<meta name="tutti-version">`) and into the service
+worker's cache name, so a dashboard restarted on a new release serves a new `sw.js`. When `/api/state` names another
+version than the open page, the page calls `registration.update()`, asks the waiting worker to `skipWaiting()` (it then
+`clients.claim()`s) and reloads once, never while a reading is being typed or saved (it waits for the next poll). The page
+loads its code as `app.js?v=<version>` and the worker matches those exactly, so an old worker never serves old code to a
+new page. It remembers that reload per tab (`sessionStorage`): if the page is still old after
+it, or the browser blocks storage, it never reloads again and says how to reload by hand (`web/update.js`).
+
 ## What it shows, and where each part comes from
 
 | Panel | Source |

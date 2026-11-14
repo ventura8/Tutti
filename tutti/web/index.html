@@ -8,12 +8,14 @@
     <meta name="theme-color" content="#111318" media="(prefers-color-scheme: dark)">
     <meta name="description" content="Usage and pacing, machines, workers and jobs of your Tutti setup, on this computer.">
     <meta name="tutti-token" content="__TUTTI_TOKEN__">
+    <meta name="tutti-version" content="__TUTTI_VERSION__">
     <title>Tutti</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-    <link rel="stylesheet" href="app.css">
-    <script src="app.js" defer></script>
+    <link rel="stylesheet" href="app.css?v=__TUTTI_VERSION__">
+    <script src="update.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="app.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
     <a class="skip" href="#main">Skip to the dashboard</a>

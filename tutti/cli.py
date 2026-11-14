@@ -1266,6 +1266,10 @@ def cmd_needs(cfg, a):
     """`tutti needs [list|answer <id> [choice]]` (docs/NEEDS.md): the questions waiting for you, and your answer."""
     from . import mcpserver, needs
     role = mcpserver.role_of(cfg)
+    if a.action == 'backfill':
+        for line in needs.backfill(cfg) or ['every parked task already has its question']:
+            print(line)
+        return 0
     if a.action == 'answer':
         ok, why = needs.answer(cfg, a.id or '', a.choice, role, needs.OWNER)
         print(why) if ok else say(why)
@@ -1660,8 +1664,9 @@ def parser():
                                             'allows it merges and patch releases: status, on, off, tick (one round now)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])
     s = add('needs', cmd_needs, 'the questions only you can answer (a parked task\'s next step, a worker\'s question): list, '
-                                 'answer <id> [choice] (empty: the default); the task resumes (docs/NEEDS.md)')
-    s.add_argument('action', nargs='?', default='list', choices=['list', 'answer'])
+                                 'answer <id> [choice] (empty: the default); the task resumes; backfill (tasks parked before the queue get '
+                                 'their question; also at the dashboard\'s start) (docs/NEEDS.md)')
+    s.add_argument('action', nargs='?', default='list', choices=['list', 'answer', 'backfill'])
     s.add_argument('id', nargs='?', help='answer: the question id (q1, q2, ...)')
     s.add_argument('choice', nargs='?', help='answer: one of its options, or your own words')
     s = add('welcome', cmd_welcome, 'welcome back: what happened while you were away (shipped, running, failed, usage, what '

@@ -26,6 +26,10 @@ work goes on.
   line the brief itself carries is ignored). A run that passes is published for review anyway, with its question as a
   note for the reviewer.
 
+Tasks parked before the queue existed get their question at the dashboard's start, or with `tutti needs backfill`: a
+local model words it from the task's last failure when AI assist allows local models (docs/TELEMETRY.md), the template
+above otherwise.
+
 An answer to a task that no longer waits for it (retried by hand, dropped, done) is kept and changes nothing.
 
 Answer in the Chat (`q3 retry`, or `q3` for the default), on the **My questions** card, with `tutti needs answer q3 retry`,

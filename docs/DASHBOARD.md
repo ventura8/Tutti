@@ -122,16 +122,57 @@ busy or ready and why), and the owner's switches.
   model the owner wants off unless chosen, e.g. Fable), and each Termux machine's lint and unit runs. The autopilot has
   its own switch on its card.
 
-- **Settings**: the percentage of a worker's context window at which it is compacted (`autocompact.threshold_pct`, 60
-  by default; 10 to 95). **Save** keeps the new value in `controls.json` (settings.autocompact_pct), **Use the config's**
-  takes it back. The row lists each worker and how it compacts: by itself (Claude Code), by Tutti (a local model in
+- **Autocompact**: the percentage of a worker's context window at which it is compacted (`autocompact.threshold_pct`, 60
+  by default; 10 to 95). **Save** writes it into the config file (the Settings tab's key), **Use the config's** takes the
+  key out. The row lists each worker and how it compacts: by itself (Claude Code), by Tutti (a local model in
   `tutti conduct`) or restarted with a handoff (docs/WORKERS.md, *Automatic compaction*). `POST /api/autocompact`
   `{"threshold_pct": 45}` (or `null`), with the same checks as every other switch.
 
 The switches are `POST /api/control` (same origin, the page's token, as for readings): `{"action": "pause" | "resume" |
-"optin", "kind": "machine" | "device" | "worker" | "account", "name": ..., "on": bool, "stop": bool, "note": "..."}`. They
-are kept in `<project.state>/controls.json`, never written into your config file, and applied every time the config is
-read; the dashboard reads its config again after each switch. `tutti pause|resume|optin` do the same from a terminal.
+"optin", "kind": "machine" | "device" | "worker" | "account", "name": ..., "on": bool, "stop": bool, "note": "..."}`.
+**Pause and resume** are a state, not a setting: they are kept in `<project.state>/controls.json` and applied every time
+the config is read. **Opt-in**, the autopilot's switches (on/off, `fill_room`), autocompact and the working days and
+hours of the Usage card are settings: since 0.1.38 the dashboard writes them into the config file, the same keys the
+Settings tab shows (each card links to its row), so a value lives in one place. A config the dashboard cannot write (JSON,
+read-only) keeps them in the state folder as before. `tutti pause|resume|optin` and `tutti autopilot on|off` still use the
+state folder; the Settings tab shows such a value as *in effect* over the file's, and saving the key there moves it into
+the file.
+
+## Settings
+
+The **Settings** tab (beside *Dashboard* in the app bar; at the bottom of the screen on a phone; `#settings`, or
+`#settings/<section or key>` to open at one) holds every key of `tutti.config.yaml`, grouped like the file: accounts and
+readings, workers, main agent, machines, devices, autopilot, pacing, autocompact, review, scouts, telemetry and
+self-improvement, projects and repos, opt-ins, dashboard, you and your household, and *Other*.
+
+- Each setting has a plain label, a one-line help, the key, its control (a switch, a number with its unit, a choice, day
+  and hour pickers, a list editor, YAML for a structured value), its value and its default, a *changed* mark and
+  **Reset to default** (the key is taken out of the file, so the default applies). Named entries (each machine, worker,
+  account, device, project, scout, autopilot repo) are their own folding groups, with **Paused** (the pause switch above)
+  on those that can pause.
+- **Project priority** is an ordered list: the most important project first. It writes `projects.<name>.priority` (0, 1,
+  2…); the autopilot's dispatch, its retries and `fill_room` share the work out by it (docs/AUTOPILOT.md, *Priority*).
+- One schema drives it (`tutti/settings_schema.py`). A key in `config.DEFAULTS` without a line there still shows, with a
+  label made from its name; a key in your file that Tutti does not know shows under *Other* (or in its section) as YAML.
+  A test checks that every key of `tutti.config.example.yaml` has a schema line.
+- **Search** finds a setting by its label, help, key or entry name; **Changed from default** shows only what differs.
+- **Saving**: one key per save, `POST /api/settings` `{"path": [...], "value": ...}` (or `"yaml": text`, `"reset": true`,
+  for project priority `{"path": ["projects"], "order": [...]}`), with the page's `etag` (a file changed since the page
+  loaded it is refused: reload and save again). The server checks the value and then the whole config by its own rules
+  before anything is written, copies the file to `<project.state>/config-backups/` (the newest 20 kept), and changes only
+  that key's value in place: comments, blank lines and the order of keys stay (a change it cannot make safely, such as
+  a key under a YAML alias, is refused and names the key to edit by hand). The dashboard reads the config again, so the
+  change applies at once; `dashboard.port`, `project.state`, `household.port|bind` and `telemetry.endpoint|environment`
+  say *takes effect on restart* with a **Restart** button (`POST /api/restart`: the dashboard starts again with the same
+  command, by its own pid).
+- **Secrets are never shown or edited here.** A DSN, token, password or key (in the file or in `~/.config/tutti/*.env`)
+  shows only *set* or *not set*, with **How to set it** naming its command (`tutti telemetry setup`,
+  `tutti scout setup grok`, `tutti household join`); their values never reach the page, and a save that names one is
+  refused.
+- The same origin, token and loopback checks as every other POST; `GET /api/settings` and the Settings POSTs also pass one
+  function, `dashboard.authorize`, which a sign-in with roles can replace (Settings for admins only). The server stays
+  bound to 127.0.0.1.
+- Sections carry a `scope` (`file` today), so per-user and household sections can join later without a new page.
 
 ## Add a reading
 

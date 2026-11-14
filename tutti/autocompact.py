@@ -11,8 +11,9 @@ Each worker kind gets its own way, the native one where its CLI has it:
   note (the changes, the last output): the path the dashboard's "stop now" hand-over takes. A CLI that never prints its
   token counts cannot be measured, so it runs as before.
 
-The threshold is the config's `autocompact.threshold_pct`, or the dashboard's value when the owner changed it there
-(`controls.json`, settings.autocompact_pct). Pure, apart from reading that file."""
+The threshold is the config's `autocompact.threshold_pct`; the dashboard and its Settings tab write that key into the
+config file. A value kept by an older dashboard, or for a config it cannot write, in `controls.json`
+(settings.autocompact_pct) wins until the key is saved. Pure, apart from reading that file."""
 import os
 import re
 

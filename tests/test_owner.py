@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from tutti import config, dashboard, owner, planner
 
@@ -173,15 +174,15 @@ class ModeTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_the_dashboard_sets_the_mode_and_the_schedule_and_refuses_bad_ones(self):
-        self.assertEqual(dashboard.save_owner(self.cfg, b'{"mode": "vacation-until-2026-12-01"}')[0], 200)
-        self.assertEqual(dashboard.save_owner(self.cfg, b'{"days": ["sat"], "window": "08-16"}')[0], 200)
+        self.assertEqual(dashboard.save_owner(SimpleNamespace(cfg=self.cfg), b'{"mode": "vacation-until-2026-12-01"}')[0], 200)
+        self.assertEqual(dashboard.save_owner(SimpleNamespace(cfg=self.cfg), b'{"days": ["sat"], "window": "08-16"}')[0], 200)
         o = owner.owner_of(self.cfg, config.state_dir(self.cfg))
         self.assertEqual((o['mode'], o['schedule']['days'], o['schedule']['window'], o['accounts']),
                          ('vacation-until-2026-12-01', ['sat'], '08-16', ['claude']))
-        self.assertEqual(dashboard.save_owner(self.cfg, b'{"mode": "sleeping"}')[0], 400)
-        self.assertEqual(dashboard.save_owner(self.cfg, b'{"window": "99"}')[0], 400)
-        self.assertEqual(dashboard.save_owner(self.cfg, b'nope')[0], 400)
-        self.assertEqual(dashboard.save_owner(self.cfg, b'{"mode": null}')[0], 200)
+        self.assertEqual(dashboard.save_owner(SimpleNamespace(cfg=self.cfg), b'{"mode": "sleeping"}')[0], 400)
+        self.assertEqual(dashboard.save_owner(SimpleNamespace(cfg=self.cfg), b'{"window": "99"}')[0], 400)
+        self.assertEqual(dashboard.save_owner(SimpleNamespace(cfg=self.cfg), b'nope')[0], 400)
+        self.assertEqual(dashboard.save_owner(SimpleNamespace(cfg=self.cfg), b'{"mode": null}')[0], 200)
         self.assertEqual(owner.owner_of(self.cfg, config.state_dir(self.cfg))['mode'], 'auto')
 
 

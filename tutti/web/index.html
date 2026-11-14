@@ -20,6 +20,7 @@
     <script src="app.js?v=__TUTTI_VERSION__" defer></script>
     <script src="controls.js?v=__TUTTI_VERSION__" defer></script>
     <script src="connect.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="settings.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
     <a class="skip" href="#main">Skip to the dashboard</a>
@@ -34,11 +35,17 @@
             <button class="btn btn--tonal" id="refresh" type="button" title="Refresh now (R)">Refresh</button>
             <button class="btn btn--filled" id="install" type="button" hidden>Install app</button>
         </div>
+        <!-- The views: the dashboard and Settings. On a phone the bar sits at the bottom of the screen (app.css). -->
+        <nav class="tabs" aria-label="Views">
+            <a class="tabs__tab" href="#" data-view="dashboard" aria-current="page">Dashboard</a>
+            <a class="tabs__tab" href="#settings" data-view="settings">Settings</a>
+        </nav>
     </header>
 
     <div class="banner" id="banner" role="alert" hidden></div>
 
     <main id="main" tabindex="-1">
+      <div id="dashboard-view">
         <section class="tiles" aria-label="At a glance" id="tiles"></section>
 
         <!-- Ordered by importance, top to bottom: quota, what needs the owner, what runs now, the autopilot, projects, history. -->
@@ -82,6 +89,7 @@
                 <header class="card__head">
                     <h2 id="autopilot-h">Autopilot</h2>
                     <p class="card__meta" id="autopilot-meta"></p>
+                    <a class="link" href="#settings/autopilot">Settings</a>
                     <button class="btn btn--tonal" id="autopilot-toggle" type="button" aria-pressed="false">Turn on</button>
                 </header>
                 <p class="row__note" id="autopilot-state"></p>
@@ -155,9 +163,9 @@
                 <ul id="devices" class="list" aria-label="Android devices"></ul>
                 <h3 class="card__sub">Pause or resume</h3>
                 <div id="pausable" aria-label="Machines, devices and agents to pause or resume, by category"></div>
-                <h3 class="card__sub">Opt-in</h3>
+                <h3 class="card__sub">Opt-in <a class="link" href="#settings/optins">In Settings</a></h3>
                 <ul id="optin" class="list" aria-label="Opt-in items"></ul>
-                <h3 class="card__sub" id="autocompact-h">Settings</h3>
+                <h3 class="card__sub" id="autocompact-h">Autocompact <a class="link" href="#settings/autocompact.threshold_pct">In Settings</a></h3>
                 <form id="autocompact-form" class="row" aria-labelledby="autocompact-h">
                     <label class="row__name" for="autocompact-pct">Compact a worker's context at
                         <span class="row__kind" id="autocompact-from"></span></label>
@@ -197,13 +205,27 @@
                 <div id="jobs" class="jobs jobs--history"></div>
             </section>
         </div>
+      </div>
+
+      <!-- Every setting of tutti.config.yaml, drawn by settings.js from GET /api/settings; sections may later be per user. -->
+      <div id="settings-view" class="settings" hidden>
+        <header class="settings__head">
+            <h2 id="view-settings-title">Settings</h2>
+            <div class="settings__filters">
+                <label class="sr-only" for="settings-search">Search the settings</label>
+                <input id="settings-search" class="setting__input settings__search" type="search" placeholder="Search settings" autocomplete="off">
+                <label class="settings__changed"><input id="settings-changed" type="checkbox"> Changed from default</label>
+            </div>
+        </header>
+        <div id="settings-body" class="settings__body"></div>
+      </div>
     </main>
 
     <footer class="foot">
         <p id="foot-version">Tutti</p>
         <p id="foot-accent"></p>
         <p><a href="/helper">Reading helper</a>: read a provider's usage page in one click</p>
-        <p>Served on this computer only (127.0.0.1). Keys: <kbd>R</kbd> refresh, <kbd>1</kbd>–<kbd>3</kbd> finished-jobs filter.</p>
+        <p>Served on this computer only (127.0.0.1). Keys: <kbd>R</kbd> refresh, <kbd>1</kbd>–<kbd>3</kbd> finished-jobs filter. <a href="#settings">Settings</a></p>
     </footer>
 </body>
 </html>

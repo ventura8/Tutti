@@ -2,6 +2,32 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.38 (2026-11-14)
+
+### Added
+
+- The dashboard's **Settings** tab (docs/DASHBOARD.md, *Settings*): every key of `tutti.config.yaml`, grouped like the
+  file, each with a plain label, a one-line help, its control (switch, number with unit, choice, day and hour pickers, list
+  editor, YAML), its value, its default and **Reset to default**; search and a *Changed from default* filter; a phone
+  layout with the views' bar at the bottom. One schema (`tutti/settings_schema.py`) drives it; a key in the defaults
+  without a line still shows, an unknown key of the file shows under *Other* as YAML.
+- Saving one key at a time: checked by the server and by the config's own rules, the file backed up to
+  `<state>/config-backups/`, the value changed in place with comments and order kept (`tutti/yamledit.py`, no new
+  dependency; every edit is parsed back and compared), applied at once or *on restart* with a **Restart** button. The
+  same origin, token and loopback checks as every POST, plus one `dashboard.authorize` hook for a later sign-in.
+- Secrets are never shown or edited there: set or not set, and the `tutti … setup` command that sets each.
+- Project priority in Settings: an ordered list that writes `projects.<name>.priority` (0 is the most important). The
+  autopilot's dispatch, its retries and `fill_room` now share the work out by it too, through the same helpers Keep busy
+  uses (`config.project_priority`, `tutti/priority.py`), so a less important project still gets its turn
+  (docs/AUTOPILOT.md, *Priority*).
+- Settings sections for Keep busy (`dispatch`) and Updates (`update`).
+
+### Changed
+
+- The dashboard's opt-in switches, the autopilot's on/off and `fill_room`, autocompact and the Usage card's working days
+  and hours now write the config file (the same keys as Settings, each card links to its row); a JSON or read-only config
+  keeps them in the state folder as before. Pause and resume stay a state in `controls.json`.
+
 ## 0.1.37 (2026-11-14)
 
 ### Added

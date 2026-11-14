@@ -441,7 +441,7 @@ function ownerPanel(o) {
         value: `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}` });
     const learned = o.learned ? `learned from ${o.hours_seen} h of readings` : `seeded from pacing.schedule (${o.schedule.window}, ${o.schedule.hours} h)`;
     return [
-        el('h3', { class: 'card__sub', text: 'You and the main agent' }),
+        el('h3', { class: 'card__sub', text: 'You and the main agent ' }, el('a', { class: 'link', href: '#settings/pacing', text: 'In Settings' })),
         el('p', { class: 'row__note', text: `Mode: ${MODE_TEXT[o.effective] || o.effective}${until} (set: ${o.mode}) · ${o.accounts.join(', ') || 'no account'} · ${learned}` }),
         el('div', { class: 'row__stats' },
             date,

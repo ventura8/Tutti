@@ -398,10 +398,10 @@ class SurfaceTest(Base):
     def test_the_dashboard_toggle_and_its_bad_body(self):
         cfg = self.cfg(enabled=False)
         self.assertFalse(autopilot.enabled(cfg))
-        self.assertEqual(dashboard.save_autopilot(cfg, b'{"enabled": true}')[0], 200)
+        self.assertEqual(dashboard.save_autopilot(SimpleNamespace(cfg=cfg), b'{"enabled": true}')[0], 200)
         self.assertTrue(autopilot.enabled(cfg))
-        self.assertEqual(dashboard.save_autopilot(cfg, b'{"enabled": "yes"}')[0], 400)
-        self.assertEqual(dashboard.save_autopilot(cfg, b'not json')[0], 400)
+        self.assertEqual(dashboard.save_autopilot(SimpleNamespace(cfg=cfg), b'{"enabled": "yes"}')[0], 400)
+        self.assertEqual(dashboard.save_autopilot(SimpleNamespace(cfg=cfg), b'not json')[0], 400)
 
     def test_the_collector_ticks_only_while_on(self):
         cfg = self.cfg(enabled=False)

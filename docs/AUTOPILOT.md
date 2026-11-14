@@ -189,3 +189,15 @@ before it expires, as far as the weekly allows. `autopilot.quiet_hours` lists UT
 going (step, elapsed time, credits when the CLI prints them, the last log line), the queue and the latest decisions (four,
 then **Show N more**, in a box that scrolls). Results to review and tasks that need a person are in **Needs you**. Every task
 shows its attempt count and its failure history (step, why, run, signature).
+
+## Priority
+
+`projects.<name>.priority` ranks the projects: 0 is the most important (the Settings tab's *Project priority* list writes
+it). An autopilot repo belongs to the project whose `self_improve.autopilot_repo` names it, else to the one whose `match`
+finds the repo's name or folder; a repo no project claims ranks last. Queued tasks (fresh ones and retries) and the tasks
+`fill_room` adds are shared out by weighted fair share: a project of priority p weighs 1 / (p + 1), so priorities 0, 1
+and 2 get the work about 6 : 3 : 2, the runs going count as served, and the next task goes to the project with the least
+work per weight. A more important project goes first and more often; a less important one still gets its turn, so it
+never starves. One helper, `config.project_priority(cfg, name)` (with `config.repo_priority` and `tutti/priority.py`'s
+`fair_order`), is what every scheduler uses.
+

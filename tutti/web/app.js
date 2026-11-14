@@ -505,6 +505,72 @@ async function switchMain(e) {
     }
 }
 
+// ---- the autopilot
+
+const TASK_TONE = { queued: 'idle', running: 'accent', review: 'ok', 'needs-person': 'bad' };
+const AP_GROUPS = [['running', 'Running'], ['review', 'Results to review'], ['parked', 'Needs a person'], ['queue', 'Queue']];
+
+function attemptHistory(t) {
+    if (!t.history.length) return null;
+    return el('details', {},
+        el('summary', { text: `${t.attempt_count} attempt(s): failure history` }),
+        el('ol', { class: 'list' }, ...t.history.map((h) => el('li', {
+            text: `${h.step}: ${h.ok ? 'passed' : h.why} (run ${h.run}, signature ${h.signature})`,
+        }))));
+}
+
+function taskNote(t) {
+    if (t.status === 'running') {
+        const credits = t.credits ? ` · ${t.credits} credits` : '';
+        return `run ${t.run} on ${t.step} · ${duration(t.elapsed)}${credits} · ${t.last_line || 'started'}`;
+    }
+    if (t.status === 'needs-person') return `Needs a person: ${t.parked}`;
+    if (t.status === 'review') return t.publish_note || `branch ${t.branch}`;
+    return `${t.source} · size ${t.size}`;
+}
+
+function apTask(t) {
+    return el('li', { class: 'row' },
+        el('div', { class: 'row__name', title: t.title }, t.title.length > 110 ? `${t.title.slice(0, 110)}…` : t.title,
+            el('span', { class: 'row__kind', text: `${t.id} · ${t.repo}` })),
+        chip(`${t.status} · ${t.attempt_count} attempt(s)`, TASK_TONE[t.status] || 'idle'),
+        el('p', { class: 'row__note', text: taskNote(t) }),
+        attemptHistory(t));
+}
+
+function renderAutopilot(s) {
+    const ap = s.autopilot;
+    if (!ap) return;
+    const toggle = $('autopilot-toggle');
+    toggle.textContent = ap.enabled ? 'Turn off' : 'Turn on';
+    toggle.setAttribute('aria-pressed', String(ap.enabled));
+    $('autopilot-meta').textContent = `${ap.enabled ? 'on' : 'off'} · ${ap.ladder.join(' → ') || 'no ladder'} · at most ${ap.max_parallel} at once`;
+    const last = ap.last;
+    let stateText = 'Not set up: add autopilot.repos to the config.';
+    if (last) stateText = `${last.state}: ${last.reason} (${relative(new Date(last.at * 1000).toISOString())})`;
+    else if (ap.configured) stateText = 'Not run yet: turn it on; it checks after every probe.';
+    $('autopilot-state').textContent = stateText;
+    const groups = AP_GROUPS.filter(([key]) => ap[key].length).map(([key, title]) => el('div', {},
+        el('h3', { class: 'card__sub', text: `${title} (${ap[key].length})` }),
+        el('ul', { class: 'list' }, ...ap[key].slice(0, 20).map(apTask))));
+    $('autopilot').replaceChildren(...(groups.length ? groups : [empty('Backlog empty — add tasks',
+        'tutti backlog add <repo> "<title>" --check "<command>", or tutti backlog seed <repo>.')]));
+}
+
+async function toggleAutopilot() {
+    const on = $('autopilot-toggle').getAttribute('aria-pressed') !== 'true';
+    try {
+        const res = await fetch('/api/autopilot', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify({ enabled: on }),
+        });
+        const answer = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(answer.error || `the dashboard answered ${res.status}`);
+        await refresh();
+    } catch (err) {
+        showBanner(el('strong', { text: 'The autopilot was not switched. ' }), err.message);
+    }
+}
+
 // ---- jobs
 
 const LAYER = { exact: 'exact', shape: 'known phases', estimate: 'estimated from earlier runs', agent: 'agent estimate', elapsed: 'elapsed, no estimate yet' };
@@ -667,6 +733,7 @@ function render() {
     renderTiles(s);
     renderProjects(s);
     renderMain(s);
+    renderAutopilot(s);
     renderUsage(s, now);
     renderMachines(s);
     renderWorkers(s);
@@ -829,6 +896,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('refresh').addEventListener('click', refresh);
     $('refresh-readings').addEventListener('click', refreshReadings);
     $('main-form').addEventListener('submit', switchMain);
+    $('autopilot-toggle').addEventListener('click', toggleAutopilot);
     $('job-project').addEventListener('change', (e) => { ui.project = e.target.value; render(); });
     document.addEventListener('keydown', keys);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });

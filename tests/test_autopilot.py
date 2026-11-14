@@ -1,0 +1,422 @@
+"""`tutti backlog` and `tutti autopilot`: the queue and its sources, the pure plan (pace, room, heat, max_parallel, the
+escalation ladder), failure signatures and parking, the retry brief, and whole rounds against a throwaway repository with a
+fake worker. Nothing leaves the temp folder; no real machine or account is used."""
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from types import SimpleNamespace
+from unittest import mock
+
+from tutti import autopilot, backlog, cli, config, dashboard, delegate
+
+FAKE_WORKER = '''import sys
+prompt = sys.argv[1]
+with open('a.txt', 'a') as f:
+    f.write('fixed\\n' if 'attempt 2' in prompt else 'half\\n')
+print('worker done')
+'''
+
+
+def git(cwd, *args):
+    return subprocess.run(['git', '-C', cwd, *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def account(name, verdict='behind', room=5, used=10.0, panic=False):
+    return {'name': name, 'verdict': verdict, 'room_tasks': room, 'used': used, 'panic': panic, 'panic_at': 95}
+
+
+def task(tid, status='queued', attempts=(), size='S', repo='app'):
+    return {'id': tid, 'repo': repo, 'title': f'task {tid}', 'scope': [], 'check': 'true', 'size': size, 'source': 'test',
+            'status': status, 'attempts': list(attempts), 'notes': []}
+
+
+def attempt(step, sig='s1', ok=False):
+    return {'step': step, 'ok': ok, 'signature': sig, 'why': f'failed {sig}', 'run': '1-1', 'stat': '', 'tail': 'E1'}
+
+
+FREE = [{'name': 'nuc', 'status': 'free', 'free': 2, 'reason': 'fit'}]
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state = os.path.join(self.tmp.name, 'state')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def cfg(self, **ap):
+        raw = {'project': {'state': self.state, 'worktrees': os.path.join(self.tmp.name, 'wt')},
+               'machines': {'nuc': {'host': 'nuc.example'}},
+               'workers': {'agy': {'kind': 'cli', 'command': ['agy', '{prompt}']}, 'cursor': {'kind': 'cli', 'command': ['c', '{prompt}']},
+                           'paid': {'kind': 'cli', 'command': ['p', '{prompt}'], 'costs_money': True},
+                           'pc': {'kind': 'ollama', 'host': 'pc.example:11434', 'model': 'm'}},
+               'accounts': {'agy-gemini': {'worker': 'agy', 'args': ['--model', 'g']},
+                            'agy-claude': {'worker': 'agy', 'args': ['--model', 'c']},
+                            'cursor': {'worker': 'cursor'}},
+               'autopilot': {'enabled': True, 'accounts': ['agy-gemini', 'agy-claude'],
+                             'ladder': ['agy-gemini', 'agy-claude', 'cursor', 'pc'],
+                             'max_parallel': 2, 'repos': {'app': {'path': os.path.join(self.tmp.name, 'repo'), 'check': 'true'}}, **ap}}
+        cfg = config.normalise(raw)
+        cfg['_path'] = os.path.join(self.tmp.name, 'tutti.config.yaml')
+        return cfg
+
+
+class BacklogTest(Base):
+    def test_add_list_and_a_duplicate_title_is_not_added_twice(self):
+        cfg = self.cfg()
+        with backlog.locked(cfg) as data:
+            t, new = backlog.add(data, backlog.new_task('app', 'Fix the README link', ['README.md'], 'true'))
+            self.assertTrue(new)
+            self.assertEqual(t['id'], 't1')
+            _, again = backlog.add(data, backlog.new_task('app', '  fix the readme   link '))
+            self.assertFalse(again)
+        self.assertIn('Fix the README link', backlog.listing(backlog.load(cfg)))
+
+    def test_bad_size_and_empty_title_are_refused_with_the_fix(self):
+        with self.assertRaisesRegex(backlog.BacklogError, 'use one of S, M, L'):
+            backlog.new_task('app', 'x', size='XL')
+        with self.assertRaisesRegex(backlog.BacklogError, 'title'):
+            backlog.new_task('app', '  ')
+        with self.assertRaisesRegex(backlog.BacklogError, 'tutti backlog list --all'):
+            backlog.find({'tasks': []}, 't9')
+
+    def test_feedback_open_rows_and_dated_notes_are_items_fixed_rows_are_not(self):
+        text = ('| # | Date | Command | What happened | Expected | Status |\n| --- | --- | --- | --- | --- | --- |\n'
+                '| 3 | 2026-11-14 | `t` | Only the probe ran. | A full run. | Open (roadmap). |\n'
+                '| 4 | 2026-11-14 | `t` | Broke. | Works. | Fixed in 0.1.8. |\n\n- 2026-11-14 (x): doctor should detect a broken git.\n'
+                '- not a dated note\n')
+        items = backlog.feedback_items(text)
+        self.assertEqual(len(items), 2)
+        self.assertIn('FEEDBACK #3: Only the probe ran.', items[0])
+        self.assertIn('doctor should detect', items[1])
+
+    def test_todo_with_an_owner_tag_and_gap_lines(self):
+        todos = backlog.todo_items(['src/a.py:12:    # TODO(owner): split this function', 'src/b.py:3: TODO without owner'])
+        self.assertEqual(todos, [('TODO(owner) in src/a.py:12: split this function', 'src/a.py')])
+        gaps = backlog.gap_items(['src/c.ts:4: coverage 80 % < 90 %', '', 'a plain gap', 'src/d.py:3:7: E501 too long', 'note: x'])
+        self.assertEqual(gaps, [('src/c.ts: coverage 80 % < 90 %', 'src/c.ts'), ('a plain gap', None),
+                                ('src/d.py: E501 too long', 'src/d.py'), ('note: x', None)])
+
+    def test_seed_reads_the_repo_sources_once(self):
+        repo = os.path.join(self.tmp.name, 'repo')
+        os.makedirs(os.path.join(repo, 'docs'))
+        git(repo, 'init', '-q')
+        with open(os.path.join(repo, 'docs', 'FEEDBACK.md'), 'w', encoding='utf8') as f:
+            f.write('- 2026-11-14 (x): the help text is wrong.\n')
+        with open(os.path.join(repo, 'a.py'), 'w', encoding='utf8') as f:
+            f.write('x = 1  # FIXME(dev): name it\n')
+        git(repo, 'add', '-A')
+        cfg = self.cfg()
+        cfg['autopilot']['repos']['app']['gaps'] = 'echo "a.py: no docstring"'
+        with backlog.locked(cfg) as data:
+            added = backlog.seed(data, 'app', cfg['autopilot']['repos']['app'])
+            self.assertEqual(len(added), 3)
+            self.assertEqual({t['source'] for t in added}, {'feedback', 'todo', 'gaps'})
+            self.assertEqual(backlog.seed(data, 'app', cfg['autopilot']['repos']['app']), [])
+
+
+class PlanTest(Base):
+    def states(self, **over):
+        s = {n: account(n) for n in ('agy-gemini', 'agy-claude')}
+        s['cursor'] = account('cursor', 'on pace', None)
+        return {**s, **over}
+
+    def test_off_and_an_empty_backlog_say_so(self):
+        cfg = self.cfg()
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], self.states(), FREE, False)['state'], 'off')
+        p = autopilot.plan(cfg, [], self.states(), FREE, True)
+        self.assertEqual(p['reason'], autopilot.EMPTY)
+
+    def test_behind_accounts_get_tasks_up_to_max_parallel(self):
+        p = autopilot.plan(self.cfg(), [task('t1'), task('t2'), task('t3')], self.states(), FREE, True)
+        self.assertEqual(p['dispatch'], [('t1', 'agy-gemini'), ('t2', 'agy-gemini')])
+        self.assertEqual(p['state'], 'dispatching')
+
+    def test_an_account_at_its_line_or_in_panic_takes_nothing(self):
+        states = self.states(**{'agy-gemini': account('agy-gemini', 'on pace'), 'agy-claude': account('agy-claude', panic=True, used=96)})
+        cfg = self.cfg(ladder=['agy-gemini', 'agy-claude'])
+        p = autopilot.plan(cfg, [task('t1')], states, FREE, True)
+        self.assertEqual(p['dispatch'], [])
+        self.assertEqual(p['state'], 'stopped')
+        self.assertIn('even-pace line', p['reason'])
+        self.assertIn('panic', p['reason'])
+
+    def test_no_free_cool_slot_waits_and_names_the_heat(self):
+        hot = [{'name': 'nuc', 'status': 'loaded', 'free': 1, 'reason': 'hot: 99 C'}]
+        p = autopilot.plan(self.cfg(), [task('t1')], self.states(), hot, True)
+        self.assertEqual(p['state'], 'waiting')
+        self.assertIn('hot: 99 C', p['reason'])
+
+    def test_running_tasks_count_against_max_parallel_and_room(self):
+        running = [task('t1', 'running'), task('t2', 'running')]
+        p = autopilot.plan(self.cfg(), [*running, task('t3')], self.states(), FREE, True)
+        self.assertEqual(p['state'], 'running')
+        self.assertEqual(p['dispatch'], [])
+
+    def test_a_retry_climbs_the_ladder_and_skips_a_step_ahead_of_its_pace(self):
+        states = self.states(cursor=account('cursor', 'ahead', None))
+        tries = [attempt('agy-gemini'), attempt('agy-claude')]
+        scoped = {**task('t1', attempts=tries), 'scope': ['src/a.py']}
+        p = autopilot.plan(self.cfg(), [scoped], states, FREE, True)
+        self.assertEqual(p['dispatch'], [('t1', 'pc')])   # cursor is ahead: the local model, the strongest step, takes it
+        unscoped = autopilot.plan(self.cfg(), [task('t3', attempts=tries)], states, FREE, True)
+        self.assertEqual(unscoped['dispatch'], [])        # a local model needs files to edit
+        one = autopilot.plan(self.cfg(), [task('t2', attempts=tries[:1])], states, FREE, True)
+        self.assertEqual(one['dispatch'], [('t2', 'agy-claude')])
+
+    def test_a_fresh_task_goes_only_to_a_trigger_account_behind_its_line(self):
+        states = self.states(**{'agy-gemini': account('agy-gemini', 'on pace'), 'agy-claude': account('agy-claude', 'on pace')})
+        p = autopilot.plan(self.cfg(), [task('t1')], states, FREE, True)
+        self.assertEqual(p['dispatch'], [])               # cursor (on pace) and pc are only for retries
+        self.assertEqual(p['state'], 'stopped')
+
+    def test_escalation_starts_above_the_last_failed_step_and_a_reviewer_retry_stays(self):
+        states = self.states(cursor=account('cursor', 'on pace', None))
+        p = autopilot.plan(self.cfg(), [task('t1', attempts=[attempt('agy-claude')])], states, FREE, True)
+        self.assertEqual(p['dispatch'], [('t1', 'cursor')])
+        again = autopilot.plan(self.cfg(), [task('t2', attempts=[attempt('agy-claude', ok=True)])], states, FREE, True)
+        self.assertEqual(again['dispatch'], [('t2', 'agy-claude')])
+
+    def test_a_task_without_a_check_is_never_sent(self):
+        cfg = self.cfg()
+        cfg['autopilot']['repos']['app']['check'] = ''
+        p = autopilot.plan(cfg, [{**task('t1'), 'check': ''}], self.states(), FREE, True)
+        self.assertEqual(p['dispatch'], [])
+        self.assertIn('no acceptance check', p['waiting']['t1'])
+
+    def test_the_cost_of_finished_attempts_stays_counted_until_a_new_reading(self):
+        states = self.states(**{'agy-gemini': {**account('agy-gemini', room=1), 'reading_at': '2026-11-14T10:00:00+00:00'}})
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        done = {**task('t0', 'review'), 'attempts': [{**attempt('agy-gemini', ok=True), 'started': 1794660000.0}]}
+        self.assertEqual(autopilot.plan(cfg, [done, task('t1')], states, FREE, True)['dispatch'], [])
+        older = {**done, 'attempts': [{**done['attempts'][0], 'started': 1794600000.0}]}
+        self.assertEqual(autopilot.plan(cfg, [older, task('t1')], states, FREE, True)['dispatch'], [('t1', 'agy-gemini')])
+
+    def test_a_step_that_costs_money_is_never_used(self):
+        cfg = self.cfg(ladder=['paid'], accounts=['paid'])
+        self.assertIsNone(autopilot.step_of(cfg, 'paid'))
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], self.states(), FREE, True)['dispatch'], [])
+
+    def test_a_large_task_needs_its_room(self):
+        states = self.states(**{'agy-gemini': account('agy-gemini', room=2), 'agy-claude': account('agy-claude', room=1)})
+        cfg = self.cfg(ladder=['agy-gemini', 'agy-claude'])
+        p = autopilot.plan(cfg, [task('t1', size='L')], states, FREE, True)
+        self.assertEqual(p['dispatch'], [])
+        self.assertIn('t1', p['waiting'])
+
+
+class FailureTest(Base):
+    def test_the_same_failure_has_the_same_signature_numbers_aside(self):
+        r = {'worker_rc': 0, 'denied': [], 'changed': ['a'], 'checks': [{'run': 'pytest', 'rc': 1, 'log': 'L'}]}
+        a = autopilot.signature(r, {'L': 'tests/x.py:12: assert 3 == 4\n1 failed in 0.52s'})
+        b = autopilot.signature(r, {'L': 'tests/x.py:13: assert 5 == 4\n1 failed in 0.61s'})
+        c = autopilot.signature(r, {'L': 'ImportError: no module'})
+        self.assertEqual(a[0], b[0])
+        self.assertNotEqual(a[0], c[0])
+        self.assertIn('the worker changed nothing', autopilot.signature({**r, 'changed': []}, {})[1])
+        self.assertIn('without a report', autopilot.signature(None, {})[1])
+
+    def test_check_logs_are_read_only_from_the_run_folder(self):
+        cfg = self.cfg()
+        folder = os.path.join(delegate.runs_dir(cfg), '1-1')
+        os.makedirs(folder)
+        with open(os.path.join(folder, 'ship-1.log'), 'w', encoding='utf8') as f:
+            f.write('E: the real failure\n')
+        outside = os.path.join(self.tmp.name, 'secret.txt')
+        with open(outside, 'w', encoding='utf8') as f:
+            f.write('not for a brief\n')
+        tails = autopilot.check_tails(cfg, '1-1', [{'log': os.path.join(folder, 'ship-1.log')}, {'log': outside}, {'log': None}])
+        self.assertIn('the real failure', tails[os.path.join(folder, 'ship-1.log')])
+        self.assertEqual(tails[outside], '')
+        self.assertIsNone(autopilot.run_log(cfg, '../x'))
+
+    def test_park_after_the_same_failure_on_the_strongest_step_only(self):
+        cfg = self.cfg()
+        same = [attempt('pc', 's1')] * 3
+        self.assertIn('no progress', autopilot.should_park(cfg, task('t1', attempts=same)))
+        mixed = [attempt('pc', 's1'), attempt('pc', 's2'), attempt('pc', 's1')]
+        self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=mixed)), '')
+        self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=[attempt('cursor', 's1')] * 3)), '')
+        self.assertIn('max_attempts', autopilot.should_park(self.cfg(max_attempts=2), task('t1', attempts=[attempt('cursor')] * 2)))
+
+    def test_the_retry_brief_carries_the_diff_the_failure_the_history_and_the_notes(self):
+        t = task('t1', attempts=[attempt('agy-gemini', 's0'), {**attempt('agy-claude', 's1'), 'stat': ' a.txt | 1 +', 'tail': 'E: boom'}])
+        t['notes'] = ['keep the API']
+        t['scope'] = ['a.txt']
+        text = autopilot.brief(t, {'check': 'true'})
+        parts = ('attempt 3', 'continue from', 'a.txt | 1 +', 'E: boom', 'attempt 1 (agy-gemini)', 'keep the API',
+                 'Change only these paths')
+        for part in parts:
+            self.assertIn(part, text)
+
+
+class RoundTest(Base):
+    """Whole rounds: dispatch (the run started for real, in a worktree, by a fake worker), collect, retry, publish."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = os.path.join(self.tmp.name, 'repo')
+        os.makedirs(self.repo)
+        git(self.repo, 'init', '-q', '-b', 'main')
+        git(self.repo, 'config', 'user.email', 'tester@example.invalid')
+        git(self.repo, 'config', 'user.name', 'Tester')
+        with open(os.path.join(self.repo, 'a.txt'), 'w', encoding='utf8') as f:
+            f.write('one\n')
+        git(self.repo, 'add', '-A')
+        git(self.repo, 'commit', '-q', '-m', 'chore: start')
+        script = os.path.join(self.tmp.name, 'worker.py')
+        with open(script, 'w', encoding='utf8') as f:
+            f.write(FAKE_WORKER)
+        cfg = self.cfg(ladder=['fake-a', 'fake-b'], accounts=['fake-a'], max_parallel=1)
+        cfg['machines'] = {}
+        cfg['workers']['fake'] = {'kind': 'cli', 'command': [sys.executable, script, '{prompt}']}
+        cfg['accounts'] = {'fake-a': {'worker': 'fake'}, 'fake-b': {'worker': 'fake'}}
+        cfg['autopilot']['repos']['app'].update(check='grep -q fixed a.txt')
+        self.c = cfg
+        self.states = {'fake-a': account('fake-a'), 'fake-b': account('fake-b', 'on pace', None)}
+
+    def run_now(self, argv, **kw):
+        """The spawned run, done at once in this process (the real `tutti run`), so the next tick finds its report."""
+        with mock.patch('sys.stdout'), mock.patch('sys.stderr'):
+            cli.main(argv[2:])
+        return SimpleNamespace(pid=os.getpid())
+
+    def tick(self):
+        with mock.patch.object(config, 'load', return_value=self.c):
+            return autopilot.tick(self.c, self.states, [], is_alive=lambda pid: False, spawn=self.run_now)
+
+    def test_a_failing_task_retries_from_its_worktree_one_step_up_then_is_ready_for_review(self):
+        with backlog.locked(self.c) as data:
+            backlog.add(data, backlog.new_task('app', 'Mark a.txt fixed', ['a.txt'], ''))
+        p, events = self.tick()
+        self.assertEqual(p['dispatch'], [('t1', 'fake-a')])
+        p, events = self.tick()                            # collects the failure, sends attempt 2 to the next step
+        self.assertIn('failed on fake-a', events[0])
+        self.assertEqual(p['dispatch'], [('t1', 'fake-b')])
+        _, events = self.tick()
+        self.assertIn('passed on fake-b', events[0])
+        t = backlog.load(self.c)['tasks'][0]
+        self.assertEqual(t['status'], 'review')
+        self.assertEqual([a['ok'] for a in t['attempts']], [False, True])
+        self.assertEqual(t['attempts'][1]['why'], 'passed')
+        self.assertTrue(t['branch'].startswith('autopilot/t1-'))
+        self.assertEqual(git(t['worktree'], 'log', '--format=%s', '-1'), 'chore(autopilot): Mark a.txt fixed')
+        with open(os.path.join(t['worktree'], 'a.txt'), encoding='utf8') as f:
+            self.assertEqual(f.read(), 'one\nhalf\nfixed\n')   # attempt 2 continued from attempt 1's changes
+        self.assertEqual(git(self.repo, 'status', '--porcelain'), '')
+        self.assertNotIn('autopilot/', git(self.repo, 'branch', '--show-current'))
+        v = autopilot.view(self.c)
+        self.assertEqual(v['review'][0]['attempt_count'], 2)
+        self.assertIn('passed', autopilot.describe(v) + 'passed')
+
+    def test_a_run_that_ends_without_a_report_counts_as_a_failed_attempt(self):
+        with backlog.locked(self.c) as data:
+            backlog.add(data, backlog.new_task('app', 'x', [], 'true'))
+        with mock.patch.object(config, 'load', return_value=self.c):
+            autopilot.tick(self.c, self.states, [], is_alive=lambda pid: True, spawn=lambda *a, **k: SimpleNamespace(pid=1))
+            _, events = autopilot.tick(self.c, self.states, [], is_alive=lambda pid: True, spawn=lambda *a, **k: SimpleNamespace(pid=1))
+        self.assertEqual(events, [])                       # still running
+        self.states['fake-a'] = account('fake-a', 'on pace')
+        self.states['fake-b'] = account('fake-b', 'ahead')
+        _, events = autopilot.tick(self.c, self.states, [], is_alive=lambda pid: False)
+        self.assertIn('without a report', events[0])
+        self.assertEqual(autopilot.read_state(self.c)['last']['state'], 'stopped')
+
+
+class SurfaceTest(Base):
+    def test_config_errors_name_the_key(self):
+        cfg = self.cfg(ladder=['paid', 'nobody'], max_parallel=0, repos={'x': {'check': 'true'}, 'y': {'path': '.', 'pr': 'yes'}})
+        errs = '\n'.join(config.validate(cfg))
+        for part in ('costs money', '"nobody"', 'autopilot.max_parallel', 'autopilot.repos.x needs path', 'autopilot.repos.y.pr'):
+            self.assertIn(part, errs)
+        self.assertEqual(config.validate(self.cfg()), [])
+
+    def test_a_worker_that_accounts_use_must_be_named_by_its_account(self):
+        errs = '\n'.join(config.validate(self.cfg(ladder=['agy'])))
+        self.assertIn('name the account instead (agy-gemini, agy-claude)', errs)
+        self.assertIsNone(autopilot.step_of(self.cfg(), 'agy'))
+
+    def test_publish_stops_when_git_fails_before_the_commit(self):
+        calls = []
+
+        def run(cwd, *args):
+            calls.append(args[0])
+            return SimpleNamespace(returncode=1 if args[0] == 'checkout' else 0, stderr='bad ref', stdout='')
+        t = task('t1')
+        autopilot.publish(self.cfg(), t, {'worktree': '/wt', 'diff': '/d.patch', 'id': '1-1'}, run=run)
+        self.assertEqual(calls, ['checkout'])
+        self.assertIn('git checkout failed', t['publish_note'])
+
+    def test_a_start_that_fails_leaves_the_task_queued(self):
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        cfg['machines'] = {}
+        cfg['_path'] = os.path.join(self.tmp.name, 'x.yaml')
+        with backlog.locked(cfg) as data:
+            backlog.add(data, backlog.new_task('app', 'x', [], 'true'))
+
+        def broken(*a, **k):
+            raise OSError('no such program')
+        _, events = autopilot.tick(cfg, {'agy-gemini': account('agy-gemini')}, [], spawn=broken)
+        self.assertIn('could not be started', events[0])
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
+
+    def test_the_dashboard_toggle_and_its_bad_body(self):
+        cfg = self.cfg(enabled=False)
+        self.assertFalse(autopilot.enabled(cfg))
+        self.assertEqual(dashboard.save_autopilot(cfg, b'{"enabled": true}')[0], 200)
+        self.assertTrue(autopilot.enabled(cfg))
+        self.assertEqual(dashboard.save_autopilot(cfg, b'{"enabled": "yes"}')[0], 400)
+        self.assertEqual(dashboard.save_autopilot(cfg, b'not json')[0], 400)
+
+    def test_the_collector_ticks_only_while_on(self):
+        cfg = self.cfg(enabled=False)
+        c = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        self.assertIsNone(c.autopilot_tick())
+        autopilot.set_enabled(cfg, True)
+        p, _ = c.autopilot_tick()
+        self.assertEqual(p['reason'], autopilot.EMPTY)
+        self.assertEqual(c.snapshot()['autopilot']['last']['reason'], autopilot.EMPTY)
+
+    def test_backlog_cli_add_retry_rm_and_unknown_repo(self):
+        cfg = self.cfg()
+        with mock.patch.object(config, 'load', return_value=cfg), mock.patch('sys.stdout'):
+            self.assertEqual(cli.main(['backlog', 'add', 'app', 'Fix a typo', '--scope', 'README.md']), 0)
+            self.assertEqual(cli.main(['backlog', 'retry', 't1', '--note', 'use the British spelling']), 0)
+            self.assertEqual(cli.main(['backlog', 'add', 'nope', 'x']), 2)
+            with backlog.locked(cfg) as data:
+                data['tasks'][0].update(status='running', run='1-1')
+            self.assertEqual(cli.main(['backlog', 'retry', 't1']), 2)   # a running task is never changed under its run
+            with backlog.locked(cfg) as data:
+                data['tasks'][0]['status'] = 'queued'
+            self.assertEqual(cli.main(['backlog', 'rm', 't1']), 0)
+            self.assertEqual(cli.main(['autopilot', 'off']), 0)
+        t = backlog.load(cfg)['tasks'][0]
+        self.assertEqual((t['status'], t['notes'], t['check']), ('dropped', ['use the British spelling'], 'true'))
+        self.assertFalse(autopilot.enabled(cfg))
+
+
+class LocalModelTest(Base):
+    def test_a_local_model_may_create_a_scoped_file_and_has_no_limit_scan(self):
+        from tutti import local
+        self.assertIn('new file', local.current(os.path.join(self.tmp.name, 'nope.py')))
+        written = local.apply_blocks('=== FILE: sub/new.py ===\n```\nx = 1\n```\n', ['sub/new.py'], self.tmp.name)
+        self.assertEqual(written, ['sub/new.py'])
+        cli.note_limits(self.cfg(), 'pc', ['usage limit reached'])   # no command to match: nothing happens, no KeyError
+
+
+class DelegateCheckTest(Base):
+    def test_run_check_replaces_the_configured_checks(self):
+        cfg = self.cfg()
+        cfg['delegate']['checks'] = [{'run': 'false'}]
+        given = [{'run': 'true', 'where': 'local'}]
+        self.assertEqual(delegate.chosen_checks(cfg, self.tmp.name, given), (given, '--check'))
+        self.assertEqual(delegate.chosen_checks(cfg, self.tmp.name, None)[0], [{'run': 'false'}])
+        a = cli.parser().parse_args(['run', 'agy', 't', '--repo', '.', '--check', 'bash scripts/check.sh'])
+        self.assertEqual((a.check, a.check_where), (['bash scripts/check.sh'], 'local'))
+
+
+if __name__ == '__main__':
+    unittest.main()

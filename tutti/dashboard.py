@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-from . import conduct, config, helper, pacing, projects, readers, releases, remote, state, transfer, workers
+from . import autopilot, conduct, config, helper, pacing, projects, readers, releases, remote, state, transfer, workers
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 BIND = '127.0.0.1'
@@ -76,10 +76,19 @@ class Collector:
             self.probes = fresh
         return fresh
 
+    def autopilot_tick(self):
+        """One autopilot round after each probe while it is on: the probes just taken decide (pace, slots, heat)."""
+        if not autopilot.enabled(self.cfg):
+            return None
+        snap = self.snapshot()
+        states = {a['name']: a for a in snap['usage']['accounts']}
+        return autopilot.tick(self.cfg, states, snap['machines']['items'])
+
     def loop(self):
         while not self.stop.is_set():
             try:
                 self.refresh()
+                self.autopilot_tick()
             except Exception as e:  # a probe bug must not end the loop; the page shows the last good data and its age
                 state_error = f'probing failed ({type(e).__name__}: {e}); the dashboard keeps the last results'
                 with self.lock:
@@ -100,6 +109,7 @@ class Collector:
                                                   out['main']['running'], out['generated_at'])
         releases.attach(out['projects'], probes.get('prs'))
         out['probe_error'] = probes.get('error')
+        out['autopilot'] = autopilot.view(self.cfg)
         return out
 
 
@@ -201,7 +211,19 @@ def save_main(cfg, raw):
     return 200, {'ok': True, 'agent': agent}
 
 
-POSTS = ('/api/reading', '/api/refresh', '/api/main')
+def save_autopilot(cfg, raw):
+    """(status, answer) for POST /api/autopilot {"enabled": true|false}: the dashboard's toggle."""
+    try:
+        data = json.loads(raw or b'null')
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get('enabled'), bool):
+        return 400, {'error': 'send {"enabled": true} or {"enabled": false} as JSON'}
+    autopilot.set_enabled(cfg, data['enabled'])
+    return 200, {'ok': True, 'enabled': data['enabled']}
+
+
+POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot')
 
 
 def post(collector, headers, path, port, token, read):
@@ -211,7 +233,8 @@ def post(collector, headers, path, port, token, read):
         return 403, {'error': 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)'}
     path = path.split('?', 1)[0]
     if path not in POSTS:
-        return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, or {"agent": ...} to /api/main'}
+        return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, {"agent": ...} to /api/main, '
+                          'or {"enabled": ...} to /api/autopilot'}
     refused = check_post(headers, host, token)
     if refused:
         return refused[0], {'error': refused[1]}
@@ -224,6 +247,8 @@ def post(collector, headers, path, port, token, read):
     body = read(size)
     if path == '/api/main':
         return save_main(collector.cfg, body)
+    if path == '/api/autopilot':
+        return save_autopilot(collector.cfg, body)
     if path == '/api/refresh':
         try:
             found = collector.refresh_readings()

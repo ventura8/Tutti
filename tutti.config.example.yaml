@@ -183,6 +183,15 @@ delegate:
     - {run: 'F={changed:py}; [ -z "$F" ] || python3 -m pytest -q --no-cov $F', where: route, verdict: 'passed|failed|error'}
 
 # `tutti pr review <n>`: who to ask, how long to wait, and the cheap workers that review when no one answers.
+# `tutti autopilot` (docs/AUTOPILOT.md): backlog tasks to accounts that are behind their pace; retries climb the ladder.
+autopilot:
+  enabled: false
+  accounts: [cursor]
+  ladder: [cursor]
+  max_parallel: 1
+  repos:
+    app: {path: ~/src/app, check: 'python3 -m pytest -q', where: local, pr: false}
+
 review:
   reviewers: [copilot, coderabbit]
   timeout_minutes: 15

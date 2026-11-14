@@ -93,7 +93,8 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
    and a note: *first add a regression test that reproduces it and fails, then fix it*. The acceptance check is always
    the repository's configured one: a command suggested in a scout's answer (which read attacker-influenced Sentry
    events) is passed to the worker as a hint and never run. One task per Sentry issue or
-   insight; at most `max_new_per_day` (3) new ones a day. Local insights go to `self_improve.home`, the project Tutti's
+   insight; at most `max_new_per_day` (3) new ones a day. They are queued by themselves (`auto_accept`, default
+   `true`); with `auto_accept: false` they wait as `candidate` until `tutti backlog accept <id>`. Local insights go to `self_improve.home`, the project Tutti's
    own fixes belong to.
 3. **Fix.** The autopilot works on them like any task: retries up its ladder, parked after the no-progress guard.
 4. **Pull request.** A passed task becomes a ready pull request, to `self_improve.base` for a project that may not merge
@@ -124,7 +125,7 @@ projects:
     self_improve: {tasks: true, autopilot_repo: app, base: develop}
   Other:                         # read-only for Tutti: the triage goes on an issue only, never a task
     sentry: {org: octo, project: other}
-self_improve: {enabled: true, home: Tutti, every_hours: 6, max_new_per_day: 3, min_count: 3}
+self_improve: {enabled: true, auto_accept: true, home: Tutti, every_hours: 6, max_new_per_day: 3, min_count: 3}
 ```
 
 The dashboard's **Self-improvement** card shows each item's way: the Sentry issue or insight, the task, its pull request,

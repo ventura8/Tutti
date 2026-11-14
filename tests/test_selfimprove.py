@@ -319,6 +319,29 @@ class Triage(Base):
         with backlog.locked(cfg) as data, self.assertRaises(backlog.BacklogError):
             cli.task_change(backlog.find(data, t['id']), SimpleNamespace(action='accept', note=None))
 
+    def test_a_waiting_candidate_is_accepted_by_itself_when_self_improvement_is_on(self):
+        cfg = self.cfg()
+        triage.feed_answered(cfg, {'requests': [self.request('App')]}, False)
+        triage.feed_answered(cfg, {'requests': [self.request('Radio')]}, False)   # read-only: the issue only, no task
+        selfimprove.set_enabled(cfg, False)
+        self.assertEqual(selfimprove.accept_waiting(cfg), [])
+        self.assertEqual({t['status'] for t in backlog.load(cfg)['tasks']}, {'candidate'})
+        selfimprove.set_enabled(cfg, True)
+        cfg['self_improve']['auto_accept'] = False
+        self.assertFalse(selfimprove.auto_accept(cfg))
+        self.assertEqual(selfimprove.accept_waiting(cfg), [])
+        cfg['self_improve']['auto_accept'] = True
+        events = selfimprove.accept_waiting(cfg)
+        tasks = backlog.load(cfg)['tasks']
+        self.assertEqual(len(events), len(tasks))
+        self.assertEqual({(t['project'], t['status']) for t in tasks}, {('App', 'queued')})
+        self.assertEqual(selfimprove.accept_waiting(cfg), [])   # nothing twice, nothing added
+
+    def test_auto_accept_is_a_true_or_false(self):
+        cfg = self.cfg()
+        cfg['self_improve']['auto_accept'] = 'yes'
+        self.assertIn('self_improve.auto_accept', '\n'.join(config.validate(cfg)))
+
     def test_sentry_config_errors(self):
         cfg = self.cfg()
         cfg['projects']['App']['sentry'] = {'org': 'Bad Org', 'project': 'app', 'reply_repo': 'nope', 'every': 'daily'}

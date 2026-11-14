@@ -240,7 +240,9 @@ older than `stale_hours` (default 2), and the Usage header counts such accounts.
 when ("read automatically · 3 minutes ago", "written by the orchestrator", "read by the helper"). An account behind its
 line has room, and its card says what happens to it. With the autopilot and `fill_room` on, a trigger account
 (`autopilot.accounts`) shows **Autopilot: filling N slots — R running here, Q queued** and what the last fill did; otherwise
-"N bounded tasks fit here now" and **Let autopilot fill it**, which turns both on (docs/AUTOPILOT.md). Machines show
+"N bounded tasks fit here now" and **Let autopilot fill it**, which turns both on (docs/AUTOPILOT.md). A scout's account
+(Grok Bot: it answers questions and takes no bounded tasks) shows its scout facts instead: the allowance used and left,
+the next watch and the last answer. Machines show
 their temperature, highlighted at or over `heat.cap_c`.
 
 ## Automatic readings

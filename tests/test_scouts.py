@@ -306,6 +306,21 @@ class ViewTest(Base):
         v = scouts.view(self.cfg(), {'grok-bot': acc(used=12)}, env=self.env)
         self.assertEqual((v['setup'], v['items'][0]['meter']['used']), ([], 12))
 
+    def test_the_scout_card_shows_allowance_next_watch_and_last_answer_not_task_room(self):
+        watches = [{'name': 'deps', 'next': '2026-01-09T00:00:00+00:00'}, {'name': 'site', 'next': '2026-01-05T00:00:00+00:00'}]
+        mine = [{'id': 's1', 'status': 'answered', 'added': 10, 'sent': 10, 'answered': 20, 'answer': 'old'},
+                {'id': 's2', 'status': 'answered', 'added': 30, 'sent': 30, 'answered': 40, 'answer': 'new', 'url': 'https://x'},
+                {'id': 's3', 'status': 'waiting', 'added': 50, 'sent': 50}]
+        f = scouts.scout_facts({'used': 42.5}, watches, mine)
+        self.assertEqual((f['used'], f['left']), (42.5, 57.5))
+        self.assertEqual(f['next_watch']['name'], 'site')
+        self.assertEqual((f['last_answer']['id'], f['last_answer']['text']), ('s2', 'new'))
+        self.assertNotIn('room', json.dumps(f))
+        empty = scouts.scout_facts(None, [], [])
+        self.assertEqual((empty['used'], empty['left'], empty['next_watch'], empty['last_answer']), (None, None, None, None))
+        v = scouts.view(self.cfg(), {'grok-bot': acc(used=12)}, env=self.env)
+        self.assertEqual(v['items'][0]['facts']['left'], 88)
+
     def test_the_dashboard_state_carries_the_scouts_card(self):
         cfg = self.cfg(review_trial={'repos': [REPO], 'prs': 2})
         c = dashboard.Collector(cfg, probe_fn=lambda m: routing.Probe(True, 1, 0.5, 4, False), available_fn=lambda w: (True, ''),

@@ -251,6 +251,15 @@ quoted in a changelog and a README; in the map repo 495 of its files had no test
 **Rule.** A task source is checked against the real repositories before it runs unattended: built output, prose and
 quotes are not tasks, a test that imports a file tests it, and a repo can turn a heuristic source off.
 
+## A test's empty env dict fell back to the owner's real telemetry DSN (2026-11-14)
+
+**What happened.** The telemetry *Sending* tests passed `env={}` to keep the environment out; `env_file()` then fell back
+to the real `~/.config/tutti/telemetry.env`, whose DSN (env, then file, then config) beat the fake Sentry's. Once the
+owner saved a DSN, four tests posted to the real Sentry and failed (403) on the laptop only; CI has no such file.
+
+**Rule.** A test that isolates the environment passes a dict that names its own temporary `XDG_CONFIG_HOME` (never `{}`)
+and patches `os.environ` to drop every `TUTTI_*` variable, so nothing on the machine can make it send or fail.
+
 ## GitHub answers 201 to a review request it drops (2026-11-14)
 
 **What happened.** `tutti pr review` asked Copilot through `POST .../requested_reviewers`; GitHub answered `201 Created`

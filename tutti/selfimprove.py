@@ -24,7 +24,7 @@ from . import backlog, config, insights, remote, telemetry
 
 FILE = 'self-improve.json'
 SOURCES = ('sentry', 'insight')
-DEFAULTS = {'enabled': True, 'every_hours': 6, 'max_new_per_day': 3, 'min_count': 3, 'home': ''}
+DEFAULTS = {'enabled': True, 'auto_accept': True, 'every_hours': 6, 'max_new_per_day': 3, 'min_count': 3, 'home': ''}
 POLICY = {'tasks': False, 'autopilot_repo': '', 'merge': False, 'release': False, 'release_every_hours': 24, 'release_command': '',
           'base': ''}
 DAY = 86400
@@ -50,6 +50,27 @@ def enabled(cfg):
     """The dashboard's switch when set, else self_improve.enabled (on by default)."""
     on = read_state(cfg).get('enabled')
     return settings(cfg)['enabled'] if on is None else bool(on)
+
+
+def auto_accept(cfg):
+    """A Sentry or scout triage task joins the queue by itself (no `tutti backlog accept`): self-improvement is on and
+    self_improve.auto_accept (on by default) is not turned off."""
+    return enabled(cfg) and bool(settings(cfg)['auto_accept'])
+
+
+def accept_waiting(cfg):
+    """Queues every self-improvement candidate (one suggested while self-improvement or auto_accept was off) of a project that
+    may take tasks, so fill_room and the autopilot pick it up. No task is added: the day's cap and the dedupe held when it was
+    suggested. Returns event lines."""
+    if not auto_accept(cfg):
+        return []
+    events = []
+    with backlog.locked(cfg) as data:
+        for t in [t for t in data['tasks'] if t['status'] == 'candidate' and t.get('source') in SOURCES]:
+            if may_add(policy(cfg, t.get('project')), cfg)[0]:
+                t['status'] = 'queued'
+                events.append(f'self-improvement: {t["id"]} accepted by itself into the {t["repo"]} queue ({t["title"][:60]})')
+    return events
 
 
 def set_enabled(cfg, on):
@@ -380,7 +401,7 @@ def tick(cfg, now=None, run=subprocess.run, spawn=subprocess.Popen):
     now = now or time.time()
     if not enabled(cfg):
         return []
-    events = analyse(cfg, now)
+    events = analyse(cfg, now) + accept_waiting(cfg)
     st = read_state(cfg)
     with backlog.locked(cfg) as data:
         for t in [t for t in data['tasks'] if t.get('source') in SOURCES and t['status'] == 'review' and t.get('pr')]:
@@ -415,8 +436,9 @@ def errors(cfg):
     s = cfg.get('self_improve') or {}
     if not isinstance(s, dict):
         return [f'self_improve is {s!r}: a mapping such as {{enabled: true, home: Tutti}}']
-    if 'enabled' in s and not isinstance(s['enabled'], bool):
-        errs.append(f'self_improve.enabled is {s["enabled"]!r}: true or false')
+    for k in ('enabled', 'auto_accept'):
+        if k in s and not isinstance(s[k], bool):
+            errs.append(f'self_improve.{k} is {s[k]!r}: true or false')
     for k in ('every_hours', 'max_new_per_day', 'min_count'):
         v = s.get(k, DEFAULTS[k])
         if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:

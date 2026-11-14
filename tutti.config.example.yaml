@@ -307,6 +307,7 @@ telemetry:
 # merges and patch releases. home: the project Tutti's own fixes go to.
 self_improve:
   enabled: true
+  auto_accept: true   # a Sentry or scout triage task joins the queue by itself (no `tutti backlog accept`)
   every_hours: 6
   max_new_per_day: 3
   # home: tool

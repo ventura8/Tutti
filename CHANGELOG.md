@@ -2,6 +2,22 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.28 (2026-11-14)
+
+### Changed
+
+- The dashboard's Grok Bot card (a scout's account) shows its scout facts, the allowance used and left, the next watch
+  and the last answer, instead of "N bounded tasks fit here now": a scout takes no tasks.
+- Sentry and scout triage tasks join the backlog queue by themselves when self-improvement is on
+  (`self_improve.auto_accept`, default `true`), so `fill_room` and the autopilot pick them up; a waiting candidate is
+  queued at the next self-improvement round. The 3-a-day cap and the dedupe hold; a read-only project (RoRadio) still
+  gets the issue only.
+
+### Fixed
+
+- The telemetry *Sending* tests are hermetic: a real DSN in `~/.config/tutti/telemetry.env` or a `TUTTI_*` variable on
+  the machine can no longer make a test send to Sentry or fail.
+
 ## 0.1.27 (2026-11-14)
 
 Token and runtime savings (measured on the owner's setup, before → after).

@@ -18,7 +18,7 @@ One queue in `<state>/backlog.json`, a task per line of work:
 | `check` | The acceptance check, run from the repository root; default the repo's `check`. |
 | `size` | `S`, `M` or `L`: 1, 2 or 3 bounded-task units of an account's room. |
 | `source` | `feedback`, `todo`, `gaps`, `orchestrator`, `sentry` (a scout's Sentry triage) or `insight` (self-improvement's local analysis). |
-| `status` | `candidate` (suggested; waits for `tutti backlog accept <id>`), `queued`, `running`, `review`, `needs-person`, `done` or `dropped`. |
+| `status` | `candidate` (suggested; waits for `tutti backlog accept <id>` only while `self_improve.auto_accept` or self-improvement is off), `queued`, `running`, `review`, `needs-person`, `done` or `dropped`. |
 | `attempts` | Every run: the step (account or worker), pass or fail, the failure's signature and words, its diff stat and output tail. |
 | `notes` | The reviewer's notes; every later attempt gets them. |
 

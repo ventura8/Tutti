@@ -471,7 +471,7 @@ def tick(cfg, accounts, env=None, gh_fn=gh, post_fn=post, now=None):
         with locked(cfg) as data:
             events += _round(sc, data, accounts.get(sc.get('account')), url, key, gh_fn, post_fn, now)
             from . import selfimprove, triage
-            events += triage.feed_answered(cfg, data, selfimprove.enabled(cfg))
+            events += triage.feed_answered(cfg, data, selfimprove.auto_accept(cfg))
     return events
 
 
@@ -530,7 +530,21 @@ def scout_view(sc, requests, acc, env, now):
             'skills': sc['skills'], 'repo': sc['reply']['github_repo'], 'account': sc.get('account'), 'meter': meter,
             'plan': p['why'], 'watches': watches, 'waiting': sum(1 for r in mine if r['status'] == 'waiting'),
             'queued': sum(1 for r in mine if r['status'] == 'queued'),
-            'recent': [request_view(r) for r in sorted(mine, key=lambda r: r['added'], reverse=True)[:6]]}
+            'recent': [request_view(r) for r in sorted(mine, key=lambda r: r['added'], reverse=True)[:6]],
+            'facts': scout_facts(meter, watches, mine)}
+
+
+def scout_facts(meter, watches, mine):
+    """What the scout's account card shows instead of task room (a scout answers questions, it takes no bounded tasks): the
+    allowance used and left, the next watch, the last answer."""
+    used = meter.get('used') if meter else None
+    nxt = min((w for w in watches if w['next']), key=lambda w: w['next'], default=None)
+    answered = [r for r in mine if r['status'] == 'answered']
+    last = max(answered, key=lambda r: r.get('answered') or r.get('sent') or r['added'], default=None)
+    return {'used': used, 'left': None if used is None else max(0, round(100 - used, 1)),
+            'next_watch': {'name': nxt['name'], 'at': nxt['next']} if nxt else None,
+            'last_answer': {'at': _iso(last.get('answered') or last.get('sent') or last['added']), 'id': last['id'],
+                            'text': (last.get('answer') or '')[:200], 'url': last.get('url')} if last else None}
 
 
 def view(cfg, accounts, env=None, now=None):

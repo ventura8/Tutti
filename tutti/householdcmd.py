@@ -43,7 +43,7 @@ def cmd_household(cfg, a, out=sys.stdout):
     v = users.view(cfg)
     if v['role'] == 'alone':
         print(f'household of one: {v["name"]}. Nothing is shared: to share machines and projects with others in your home, '
-              'run `tutti household init` on an always-on computer (docs/HOUSEHOLD.md)', file=out)
+              'see docs/HOUSEHOLD.md (`tutti household init` and `join` come in the next release)', file=out)
         return 0
     print(f'household {v["household"]}: {v["name"]} is a {v["role"]}', file=out)
     return 0

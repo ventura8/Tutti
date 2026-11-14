@@ -144,6 +144,9 @@ before its reset.
 
 ## Setup: minimum input
 
+What ships when is under *Increments* below: `tutti user` and `tutti household status` first, then `init`, `join`,
+`leave`, `code` and `project share`, then `machine share|use`.
+
 The coordinator (once, on the always-on computer):
 
 ```bash
@@ -173,7 +176,7 @@ tutti household project share tutti    # autopilot.repos.tutti becomes shared (h
 leases; `tutti household leave` ends the membership (the member's own setup is untouched).
 
 `tutti user` shows who this Tutti works for (name, a hashed id, main agent, config and state folders, household role);
-`tutti user name <name>`, `tutti user main <agent>` and `tutti user share <account> on|off` change it.
+`tutti user name <name>` and `tutti user share <account> on|off` change it; the main agent is `tutti main <agent>`'s.
 
 ## Telemetry
 

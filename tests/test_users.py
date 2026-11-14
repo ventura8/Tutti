@@ -94,6 +94,9 @@ class ShareTest(unittest.TestCase):
                 users.set_share(cfg, 'api', True)
             with self.assertRaisesRegex(users.UserError, 'no account "nope"'):
                 users.set_share(cfg, 'nope', True)
+            cfg['accounts']['api']['share_spare'] = True   # written in the config by hand: still never shared, and named
+            self.assertEqual(users.identity(cfg, {'XDG_CONFIG_HOME': d})['shares'], [])
+            self.assertIn('accounts.api.share_spare is true but it costs money', '\n'.join(users.errors(cfg)))
 
 
 class MembershipFileTest(unittest.TestCase):

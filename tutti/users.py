@@ -135,7 +135,8 @@ def name_of(cfg, saved):
 def shares(cfg, saved):
     """The accounts whose spare room the user shares with the household: user.json's switch over the config's key."""
     over = saved.get('share') or {}
-    return sorted(n for n, a in cfg['accounts'].items() if over.get(n, bool((a or {}).get('share_spare'))))
+    return sorted(n for n, a in cfg['accounts'].items()
+                  if over.get(n, bool((a or {}).get('share_spare'))) and not (a or {}).get('costs_money'))
 
 
 def role(membership):
@@ -212,4 +213,6 @@ def errors(cfg):
         v = (a or {}).get('share_spare', False)
         if not isinstance(v, bool):
             errs.append(f'accounts.{n}.share_spare is {v!r}: true or false (default false: its room is never shared)')
+        elif v and (a or {}).get('costs_money'):
+            errs.append(f'accounts.{n}.share_spare is true but it costs money per use: its room is never shared; remove share_spare')
     return errs

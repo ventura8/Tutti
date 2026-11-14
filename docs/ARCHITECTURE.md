@@ -12,6 +12,8 @@ run on the machines. There is no daemon and no server; state is files.
                             +-- ship     ship.py: format, commit, checks (local or routed), push, deploy
                             +-- usage    pacing.py: windows, targets, verdicts; a JSON-lines log
                             +-- run      workers.py: the brief, then cursor-agent / agy / claude
+                            |            delegate.py (--repo): worktree, headless worker, diff, routed checks, report
+                            +-- pr       review.py: request reviewers, detect none coming, local fallback review via gh
                             +-- ask, code, agent, translate    local.py, translate.py: Ollama's HTTP API
                             +-- yield, machines, guard, tunnel, quiet, wait
 ```
@@ -32,6 +34,9 @@ run on the machines. There is no daemon and no server; state is files.
 | `tutti/files.py` | Files for other machines, the pure part: the secret check, item manifests (SHA-256), the cache's least-recently-used eviction, progress lines. |
 | `tutti/transfer.py` | `tutti files` and `--input`: copies items over the machine's transport (rsync, else a resumable stream), verifies them with `sha256sum` there, records them in the machine's cache and keeps it within its budget. |
 | `tutti/state.py` | The dashboard's state as plain data: accounts and pacing, machines, workers, jobs, the summary. Probes are passed in. |
+| `tutti/delegate.py` | `tutti run --repo` and `tutti runs`: the worktree, the headless worker, the diff, the checks (never stopping at the first failure), DENIED tool calls, the coverage note and the report. |
+| `tutti/review.py` | `tutti pr review`: asking Copilot and CodeRabbit through `gh`, reading their answers and limits, the local fallback review posted as a comment. `gh` is passed in for tests. |
+| `tutti/helper.py` | The reading helper: the per-install key and the bookmarklet page (`/helper`); the script itself is `tutti/web/helper-bookmarklet.js`. |
 | `tutti/dashboard.py`, `tutti/web/` | `tutti dashboard`: the 127.0.0.1 HTTP server, background probes, `/api/state` and the PWA shell. |
 | `scripts/slot.sh` | The slot queue, copied to each machine on every run. |
 | `scripts/memguard.sh`, `quiet.sh`, `tunnel.sh`, `wsl-run64.sh` | The memory guard, quiet runs, the tunnel loop, the WSL shim. |

@@ -74,14 +74,32 @@ def file_matches(path, pattern):
     return check
 
 
+def newest_mtime(path):
+    """The file's mtime; for a folder, the newest of its files (a job writing several logs is alive while any one grows)."""
+    if os.path.isdir(path):
+        times = [os.path.getmtime(path)]
+        for name in os.listdir(path):
+            try:
+                times.append(os.path.getmtime(os.path.join(path, name)))
+            except OSError:
+                continue
+        return max(times)
+    return os.path.getmtime(path)
+
+
 def stalled(path, seconds, clock=time.time):
-    """True once `path` has not changed for `seconds` (a background job that hangs). Agents waiting on a job end their wait
-    here instead of polling and re-announcing "still waiting" forever."""
+    """True once `path` (or every one of several paths; a folder counts by its newest file) has not changed for `seconds`
+    (a background job that hangs). Agents waiting on a job end their wait here instead of re-announcing "still waiting"."""
+    paths = path if isinstance(path, (list, tuple)) else [path]
+
     def check():
-        try:
-            return clock() - os.path.getmtime(path) >= seconds
-        except OSError:
-            return False
+        times = []
+        for p in paths:
+            try:
+                times.append(newest_mtime(p))
+            except OSError:
+                continue
+        return bool(times) and clock() - max(times) >= seconds
     return check
 
 

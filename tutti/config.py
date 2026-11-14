@@ -27,7 +27,17 @@ DEFAULTS = {
     'brief': {'rules': []},
     'accounts': {},
     'ship': {'protected': ['main', 'master'], 'add': ['.'], 'checks': [], 'full_checks': []},
-    'dashboard': {'port': 4777, 'refresh_seconds': 10, 'probe_seconds': 30, 'stall_minutes': 10},
+    # watch_scripts: script names whose running processes are jobs; watch_agents: agent CLIs shown by process; task_globs:
+    # an agent session's background task outputs (shown by time only)
+    'dashboard': {'port': 4777, 'refresh_seconds': 10, 'probe_seconds': 30, 'stall_minutes': 10, 'watch_scripts': [],
+                  'watch_agents': [], 'task_globs': []},
+    # test.prepare: steps a command needs first ({when: regex, run: cmd}); test.no_coverage: how a run with coverage off looks
+    'test': {'prepare': [], 'no_coverage': ''},
+    # delegate: `tutti run --repo`; checks default to ship.checks, worktrees go under project.worktrees/<prefix><id>
+    # remote_track: the folder on the test machine that routed checks copy the worktree into (one copy, kept in sync by rsync)
+    'delegate': {'checks': None, 'prefix': 'tutti-run-', 'remote_track': 'tutti-run'},
+    # review: `tutti pr review`; who to ask, how long to wait for them, and which cheap workers review when none answers
+    'review': {'reviewers': [], 'timeout_minutes': 20, 'poll_seconds': 30, 'fallback': []},
 }
 MACHINE_DEFAULTS = {'transport': 'ssh', 'root': 'tutti-wt', 'slots': 2, 'min_free_gb': 6, 'lock_prefix': '/tmp/tutti-slot-',
                     'yield_file': '~/.tutti/yield'}
@@ -109,6 +119,10 @@ def normalise(raw):
         cfg['machines'][name] = m
     if not cfg['routing']['order']:
         cfg['routing']['order'] = list(cfg['machines'])
+    # enabled: false keeps an account out of pacing, panic, routing and the dashboard (an opt-in model such as a premium one);
+    # its readings stay in the log, unused
+    cfg['disabled_accounts'] = sorted(n for n, a in cfg['accounts'].items() if (a or {}).get('enabled', True) is False)
+    cfg['accounts'] = {n: a for n, a in cfg['accounts'].items() if n not in cfg['disabled_accounts']}
     return cfg
 
 
@@ -126,6 +140,49 @@ def _machine_errors(name, m):
         errs.append(f'machines.{name}.runner.kind is "{m["runner"]["kind"]}": use docker or shell')
     if m['runner']['kind'] == 'docker' and not m['runner'].get('image'):
         errs.append(f'machines.{name}.runner.image is missing: a docker runner needs the image to run')
+    c = m.get('containers')
+    if c is not None and (not isinstance(c, list) or not all(isinstance(x, str) and x for x in c)):
+        errs.append(f'machines.{name}.containers is {c!r}: a list of container name prefixes, e.g. [tutti-, myproj-test-]')
+    return errs + _heat_errors(name, m.get('heat'))
+
+
+def _heat_errors(name, heat):
+    if heat is None:
+        return []
+    if not isinstance(heat, dict):
+        return [f'machines.{name}.heat is {heat!r}: write it as {{cap_c: 85, stop_c: 95, hot_slots: 1}}, or remove the key']
+    errs = []
+    for k in ('cap_c', 'stop_c'):
+        v = heat.get(k)
+        if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 < v < 150):
+            errs.append(f'machines.{name}.heat.{k} is {v!r}: use degrees C, for example 85')
+    slots = heat.get('hot_slots', 1)
+    if isinstance(slots, bool) or not isinstance(slots, int) or slots < 1:
+        errs.append(f'machines.{name}.heat.hot_slots is {slots!r}: use a whole number, 1 or more')
+    return errs
+
+
+def _test_errors(cfg):
+    errs = []
+    for i, r in enumerate(cfg['test'].get('prepare') or []):
+        if not isinstance(r, dict) or not isinstance(r.get('run'), str) or not r.get('run'):
+            errs.append(f'test.prepare[{i}] needs run: the command to run first, e.g. python3 scripts/ci/e2e_build.py')
+            continue
+        errs += _regex_errors(f'test.prepare[{i}].when', r.get('when'))
+    if cfg['test'].get('no_coverage'):
+        errs += _regex_errors('test.no_coverage', cfg['test']['no_coverage'])
+    return errs
+
+
+def _review_errors(cfg):
+    r = cfg['review']
+    errs = [f'review.fallback names "{n}", which is not a cli worker under workers:' for n in r.get('fallback') or []
+            if (cfg['workers'].get(n) or {}).get('kind') != 'cli']
+    errs += [f'review.reviewers has "{n}": use copilot or coderabbit' for n in r.get('reviewers') or []
+             if n not in ('copilot', 'coderabbit')]
+    v = r.get('timeout_minutes')
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+        errs.append(f'review.timeout_minutes is {v!r}: use minutes, 0 or more (0: do not wait, fall back at once)')
     return errs
 
 
@@ -153,7 +210,7 @@ def validate(cfg):
              if n not in cfg['workers']]
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
-    return errs + _dashboard_errors(cfg['dashboard']) + files.errors(cfg)
+    return errs + _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
 
 
 def _account_pace_errors(name, a):
@@ -164,6 +221,13 @@ def _account_pace_errors(name, a):
     panic_at = a.get('panic_at', 95)
     if not isinstance(panic_at, (int, float)) or not 0 < panic_at <= 100:
         errs.append(f'accounts.{name}.panic_at is {panic_at!r}: use a percentage above 0 and up to 100 (95 = panic at 95 % used)')
+    for key, hint in (('stale_hours', 'hours after which a hand reading is old (0: never remind)'),
+                      ('task_pct', 'the points of quota one bounded task costs, e.g. 2')):
+        v = a.get(key, 1)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+            errs.append(f'accounts.{name}.{key} is {v!r}: use a number, 0 or more: {hint}')
+    if 'reading_file' in a and (not isinstance(a['reading_file'], str) or not a['reading_file']):
+        errs.append(f'accounts.{name}.reading_file is {a["reading_file"]!r}: give the path of the file an orchestrator writes its % to')
     return errs
 
 
@@ -174,7 +238,8 @@ def _command_errors(key, spec, needs):
     cmd = spec.get('command')
     if not isinstance(cmd, list) or not cmd or not all(isinstance(c, str) for c in cmd):
         errs.append(f'{key}.command is missing: a list such as [agy, -p, /usage, --output-format, json]')
-    if not isinstance(spec.get(needs), str) or not spec.get(needs):
+    want = (int, float) if needs == 'allowance' else str
+    if isinstance(spec.get(needs), bool) or not isinstance(spec.get(needs), want) or not spec.get(needs):
         errs.append(f'{key}.{needs} is missing (docs/USAGE-PACING.md: Automatic readings)')
     every = spec.get('every_minutes', 1)
     if isinstance(every, bool) or not isinstance(every, (int, float)) or not math.isfinite(every) or every <= 0:
@@ -198,7 +263,8 @@ def _account_source_errors(name, a):
     if url is not None and (not isinstance(url, str) or not url.startswith('https://')):
         errs.append(f'{key}.usage_url is {url!r}: give the https:// address of the provider\'s usage page')
     if 'reader' in a:
-        errs += _command_errors(f'{key}.reader', a['reader'], 'bucket')
+        github = isinstance(a['reader'], dict) and a['reader'].get('format') == 'github-premium'
+        errs += _command_errors(f'{key}.reader', a['reader'], 'allowance' if github else 'bucket')
     if 'plan' in a:
         errs += _command_errors(f'{key}.plan', a['plan'], 'field')
     return errs + _match_errors(key, a.get('match'))

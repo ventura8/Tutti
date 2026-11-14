@@ -26,12 +26,17 @@ Docker. A machine may override any runner field.
 
 `routing.order` lists machines by preference. For `tutti test`:
 
-1. A machine is **fit** when it answers, its yield flag is down, a slot is free and, if `max_load_ratio` is set, its
-   1-minute load is under that share of its cores.
+1. A machine is **fit** when it answers, its yield flag is down, a slot is free, if `max_load_ratio` is set its
+   1-minute load is under that share of its cores, and if `heat` is set it is not too hot (below).
 2. The first fit machine wins. Later machines are not even asked.
 3. If none is fit, the run queues on the first reachable machine whose flag is down.
 
 Put the dedicated build box first and shared machines after it, each with a `max_load_ratio`.
+
+`test.prepare` lists steps a command needs first: `{when: <regex>, run: <command>}`. When the command matches and does
+not already contain the step, `tutti test` and routed checks run `{ <step>; } && { <command>; }` (grouped, so a failed
+step stops a compound command too). Example: Playwright's webServer
+times out unless the stamped e2e build ran, so `{when: 'playwright|e2e/', run: 'python3 scripts/ci/e2e_build.py'}`.
 
 ## Transports
 
@@ -93,6 +98,12 @@ A machine may override any of these with its own `files:` (for example a larger 
 
 ## Heat and memory guards
 
+- **Heat.** The probe also reads the hottest `/sys/class/thermal/thermal_zone*/temp` (`tutti machines` and the dashboard
+  show it). `heat: {cap_c: 85, stop_c: 98, hot_slots: 1}`: at `cap_c` or more the machine takes a run only while fewer
+  than `hot_slots` run there; at `stop_c` or more it takes nothing new. Routing then falls over to the next machine in
+  `routing.order`, so put a `local` machine with one capped slot last as the fallback. A machine refused for heat is never
+  the queue of last resort either. A machine without readable thermal
+  zones (WSL) is never refused for heat.
 - **Memory guard.** `tutti guard` watches available memory. Under `guard.low_gb` it pauses (never kills) the runner
   image's containers; over `guard.high_gb` it resumes them.
 - **One heavy local job at a time.** A `local` machine with one slot is the only way agents run heavy commands on the

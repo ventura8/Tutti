@@ -2,6 +2,7 @@
 reviews their diff, then gates it; a worker never commits."""
 import collections
 import json
+import re
 import shlex
 import shutil
 import subprocess
@@ -23,8 +24,21 @@ def brief(cfg, task, files=()):
     return '\n'.join(lines)
 
 
-def command(worker, prompt):
-    return [prompt if a == '{prompt}' else a.replace('{prompt}', prompt) for a in worker['command']]
+PLACEHOLDER = re.compile(r'\{(prompt|log)\}')
+
+
+def command(worker, prompt, log=None):
+    """The worker's argv: `{prompt}` is the brief, `{log}` a log file of this run (agy --log-file {log}, where its
+    permission denials are written). Without a log path an argument pair ending in `{log}` is dropped."""
+    out = []
+    for a in worker['command']:
+        if '{log}' in a and not log:
+            if out and out[-1].startswith('-'):
+                out.pop()
+            continue
+        # one pass over the template: a prompt that mentions {log} keeps it as written
+        out.append(PLACEHOLDER.sub(lambda m: {'prompt': prompt, 'log': log or ''}[m.group(1)], a))
+    return out
 
 
 def _tagged(name):
@@ -70,13 +84,14 @@ def listing(cfg):
 KEEP_LINES = 2000
 
 
-def run(cfg, name, task, files=(), cwd=None, out=None, extra=()):
+def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
     """Runs a CLI worker on a brief in `cwd` (give each worker its own worktree). Its output is passed through as it comes and
     the last lines are kept, so a limit message in them can be read. Returns (exit code, the last lines)."""
     worker = cfg['workers'][name]
     out = out or sys.stdout
     kept = collections.deque(maxlen=KEEP_LINES)
-    with subprocess.Popen(command(worker, brief(cfg, task, files)) + list(extra), cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    argv = command(worker, brief(cfg, task, files), log) + list(extra)
+    with subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           text=True, errors='replace', bufsize=1) as p:
         for line in p.stdout:
             out.write(line)

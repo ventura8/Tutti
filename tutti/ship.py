@@ -108,19 +108,40 @@ def shell(top, command, env):
     return subprocess.run(remote.argv({'transport': 'local'}, command), cwd=top, env={**os.environ, **env})
 
 
+CHANGED = re.compile(r'\{changed(?::([\w,]+))?\}')
+
+
+def expand_changed(command, changed):
+    """`{changed}` becomes the changed paths, quoted and space-separated; `{changed:ts,js}` only those with these extensions.
+    A routed check runs on another machine, where $TUTTI_CHANGED is not set: the placeholder carries the list there.
+    Write `F={changed:ts}; ${F:+npx eslint $F &&} true` so an empty list skips the tool instead of running it on everything."""
+    def one(m):
+        exts = tuple(f'.{e}' for e in m.group(1).split(',')) if m.group(1) else None
+        names = [n for n in changed if exts is None or n.endswith(exts)]
+        return shlex.quote(' '.join(names))
+    return CHANGED.sub(one, command)
+
+
 def run_check(cfg, top, check, env, track):
     """One check: here, or on a routed machine behind its slot queue. Returns (exit code, the machine or 'local')."""
+    run = expand_changed(check['run'], (env.get('TUTTI_CHANGED') or '').split())
     if check.get('where', 'local') != 'route':
-        return shell(top, check['run'], env).returncode, 'local'
+        return shell(top, run, env).returncode, 'local'
     machines = {n: config.merge(m, {'runner': check.get('runner') or {}}) for n, m in cfg['machines'].items()}
     choice = routing.choose(cfg['routing']['order'], machines, lambda n: remote.probe(machines[n]))
-    return remote.run(cfg, machines[choice.machine], track, top, check['run']), choice.machine
+    say_route(choice)
+    return remote.run(cfg, machines[choice.machine], track, top, run), choice.machine
 
 
-def quiet_check(cfg, top, check, env, track):
-    """The same, with the output kept in a log; only the verdict line (check.verdict, a regex) reaches the screen."""
+def say_route(choice):
+    sys.stderr.write(f'tutti: check routed to {choice.machine}{" (queued)" if choice.queued else ""}: {choice.reason}\n')
+
+
+def quiet_check(cfg, top, check, env, track, folder=None):
+    """The same, with the output kept in a log (in `folder`, default the state folder); only the verdict line (check.verdict,
+    a regex) reaches the screen."""
     # <time>-<pid>-<n>: two checks started in the same second by one ship each keep their own log, result and command.
-    log = os.path.join(config.state_dir(cfg), f'ship-{int(time.time())}-{os.getpid()}-{next(_CHECK_NUMBER)}.log')
+    log = os.path.join(folder or config.state_dir(cfg), f'ship-{int(time.time())}-{os.getpid()}-{next(_CHECK_NUMBER)}.log')
     with open(log + '.cmd', 'w', encoding='utf8') as f:   # what ran, for the dashboard
         f.write(check['run'] + '\n')
     with open(log, 'w', encoding='utf8') as f:
@@ -143,6 +164,26 @@ def quiet_check(cfg, top, check, env, track):
     return rc, where, log, (hits[-1] if hits else '')
 
 
+def script_text(command, top):
+    """The text of the command and of any script file it names (`bash x.sh`): enough to see whether it turns coverage off."""
+    texts = [command]
+    for word in command.split():
+        path = word if os.path.isabs(word) else os.path.join(top, word)
+        if word.endswith(('.sh', '.py')) and os.path.isfile(path):
+            with open(path, encoding='utf8', errors='replace') as f:
+                texts.append(f.read())
+    return '\n'.join(texts)
+
+
+def check_coverage(cfg, check, top):
+    """'' when the check measures coverage, else the warning line. `coverage: false` on a check says it outright."""
+    if check.get('coverage') is True:
+        return ''
+    if check.get('coverage') is False:
+        return routing.coverage_note('COVERAGE=0')
+    return routing.coverage_note(script_text(check['run'], top), cfg['test'].get('no_coverage') or routing.NO_COVERAGE)
+
+
 def run_checks(cfg, top, checks, env, track, say):
     for check in checks:
         if check.get('quiet'):
@@ -151,6 +192,9 @@ def run_checks(cfg, top, checks, env, track, say):
         else:
             rc, where = run_check(cfg, top, check, env, track)
             say(f'check [{where}] rc={rc}: {check["run"][:80]}')
+        note = check_coverage(cfg, check, top)
+        if note:
+            say(f'check: {note}')
         if rc != 0:
             raise ShipError(f'the check `{check["run"][:120]}` failed (exit {rc}). The commit is kept locally and was NOT pushed: '
                             'fix the finding, then run ship again')

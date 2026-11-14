@@ -1,0 +1,186 @@
+"""`tutti pr review <number>`: ask the automated reviewers, find out when none will come, and fall back to a cheap local
+review that is posted to the pull request. Reviewers are GitHub's Copilot code review and CodeRabbit; both may be absent,
+rate-limited (CodeRabbit's free plan says "Review limit reached") or simply never answer. Everything goes through `gh`."""
+import json
+import os
+import subprocess
+import tempfile
+import time
+from datetime import datetime, timezone
+
+from . import pacing, routing, state, workers
+
+COPILOT_LOGINS = ('copilot-pull-request-reviewer[bot]', 'copilot-pull-request-reviewer', 'Copilot')
+COPILOT_REQUEST_AS = ('copilot-pull-request-reviewer[bot]', 'Copilot')   # the names the REST API has accepted
+CODERABBIT_LOGIN = 'coderabbitai[bot]'
+CODERABBIT_LIMITED = ('rate limited by coderabbit.ai', 'review limit reached', 'review rate limited', 'reviews paused',
+                      'rate limit exceeded')
+PROMPT = ('You are reviewing a pull request. The full diff is in the file pr.diff in the current directory; read it. Report only real '
+          'problems: bugs, wrong behaviour, missing error handling, security issues, tests that do not test what they claim, docs that '
+          'contradict the code. For each finding write one Markdown bullet: `path:line` - what is wrong - the fix. At most 15 bullets, '
+          'most serious first. If there is nothing worth fixing, write exactly: No findings. Do not edit any file.')
+
+
+def gh(args, run=subprocess.run):
+    """(exit code, stdout, stderr) of one `gh` call."""
+    r = run(['gh', *args], capture_output=True, text=True)
+    return r.returncode, r.stdout, r.stderr.strip()
+
+
+def repo_of(pr_repo, gh_fn=gh):
+    if pr_repo:
+        return pr_repo
+    rc, out, err = gh_fn(['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'])
+    if rc != 0 or not out.strip():
+        raise RuntimeError(f'cannot tell which GitHub repository this is ({err}): pass --repo <owner/name> or cd into its checkout')
+    return out.strip()
+
+
+def request(repo, number, who, gh_fn=gh):
+    """Asks one reviewer. Returns '' when the request went out, else why it cannot (the reviewer then counts as absent)."""
+    if who == 'coderabbit':
+        rc, _out, err = gh_fn(['pr', 'comment', str(number), '--repo', repo, '--body', '@coderabbitai review'])
+        return '' if rc == 0 else f'could not comment on the pull request ({err})'
+    errors = []
+    for login in COPILOT_REQUEST_AS:
+        rc, _out, err = gh_fn(['api', '-X', 'POST', f'repos/{repo}/pulls/{number}/requested_reviewers', '-f', f'reviewers[]={login}'])
+        if rc == 0:
+            return ''
+        errors.append(err)
+    return f'GitHub refused the Copilot review request ({errors[-1]}): Copilot code review may not be enabled for this repository'
+
+
+def events(repo, number, gh_fn=gh):
+    """[(login, time, text, kind)] of the pull request's reviews (kind 'review') and comments ('comment'). The time is the
+    latest of created and updated: CodeRabbit edits its summary comment in place to say "Review limit reached"."""
+    out = []
+    for path, when, kind in ((f'repos/{repo}/pulls/{number}/reviews', 'submitted_at', 'review'),
+                             (f'repos/{repo}/issues/{number}/comments', 'created_at', 'comment')):
+        # --slurp: every page in one JSON array; without it --paginate prints one document per page
+        rc, text, err = gh_fn(['api', '--paginate', '--slurp', path])
+        if rc != 0:
+            raise RuntimeError(f'reading {path} failed ({err}): check `gh auth status`')
+        pages = json.loads(text or '[]')
+        for item in (x for page in pages for x in (page if isinstance(page, list) else [page])):
+            times = [pacing.parse_time(item[k]) for k in (when, 'updated_at') if item.get(k)]
+            if times:
+                out.append(((item.get('user') or {}).get('login', ''), max(times), item.get('body') or '', kind))
+    return out
+
+
+def status(who, evs, since):
+    """'reviewed' (a pull request review after `since`), 'limited' (it answered that it will not review now) or 'pending'.
+    A comment is never a review: CodeRabbit acknowledges a request ("Action not completed", "Review triggered") in one."""
+    logins = COPILOT_LOGINS if who == 'copilot' else (CODERABBIT_LOGIN,)
+    mine = [(body, kind) for login, t, body, kind in evs if login in logins and t >= since]
+    if any(kind == 'review' for _b, kind in mine):
+        return 'reviewed'
+    if who == 'coderabbit' and any(any(k in body.lower() for k in CODERABBIT_LIMITED) for body, _k in mine):
+        return 'limited'
+    return 'pending'
+
+
+def wait_for(repo, number, asked, since, timeout_s, poll_s, gh_fn=gh, clock=time.monotonic, sleep=time.sleep):
+    """Polls until a reviewer reviewed, or every asked reviewer is limited, or the time is up. Returns {who: status}."""
+    end = clock() + timeout_s
+    while True:
+        evs = events(repo, number, gh_fn)
+        found = {w: status(w, evs, since) for w in asked}
+        if any(s == 'reviewed' for s in found.values()) or all(s == 'limited' for s in found.values()) or clock() >= end:
+            return found
+        sleep(poll_s)
+
+
+def pick_fallback(cfg, now=None, available=None):
+    """The first fallback worker that is installed and whose account is not in panic or spent; (name, args) or (None, why)."""
+    now = now or datetime.now(timezone.utc)
+    available = available or workers.available
+    entries = pacing.read_log(state.usage_log_path(cfg))
+    why = []
+    for name in cfg['review']['fallback']:
+        ok, note = available(cfg['workers'][name])
+        args, reason = worker_room(cfg, name, entries, now) if ok else (None, note)
+        if args is not None:
+            return name, args
+        why.append(f'{name}: {reason}')
+    return None, '; '.join(why) or 'review.fallback names no worker'
+
+
+def worker_room(cfg, name, entries, now):
+    """(the args of the worker's account with room, '') or (None, why). A worker no account names always has room."""
+    accounts = [n for n, a in cfg['accounts'].items() if n == name or (a or {}).get('worker') == name]
+    if not accounts:
+        return [], ''
+    best, reason = routing.pick_account([pacing.account_state(n, cfg['accounts'][n], entries, now) for n in accounts])
+    if not best:
+        return None, reason
+    return list((cfg['accounts'][best['name']] or {}).get('args') or []), ''
+
+
+def local_review(cfg, repo, number, name, args, gh_fn=gh, run_worker=None):
+    """The fallback: the pull request's diff in an empty folder, the worker asked to review it. Returns the review text."""
+    rc, diff, err = gh_fn(['pr', 'diff', str(number), '--repo', repo])
+    if rc != 0:
+        raise RuntimeError(f'gh pr diff {number} failed ({err})')
+    with tempfile.TemporaryDirectory(prefix='tutti-review-') as d:
+        with open(os.path.join(d, 'pr.diff'), 'w', encoding='utf8') as f:
+            f.write(diff)
+        argv = workers.command(cfg['workers'][name], PROMPT) + list(args)
+        run_worker = run_worker or (lambda a, cwd: subprocess.run(a, cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                                                    timeout=1800))
+        r = run_worker(argv, d)
+    text = (r.stdout or '').strip()
+    if r.returncode != 0 or not text:
+        raise RuntimeError(f'{name} did not finish the review (exit {r.returncode}): {(r.stderr or "")[-300:]}')
+    return text
+
+
+def comment(repo, number, body, gh_fn=gh):
+    with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False, encoding='utf8') as f:
+        f.write(body)
+    try:
+        rc, _out, err = gh_fn(['pr', 'comment', str(number), '--repo', repo, '--body-file', f.name])
+    finally:
+        os.unlink(f.name)
+    if rc != 0:
+        raise RuntimeError(f'posting the review to pull request {number} failed ({err})')
+
+
+def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh, say=print, **kw):
+    """The whole flow. Returns 0 when a reviewer answered or the fallback review was posted, 1 otherwise."""
+    r = cfg['review']
+    repo = repo_of(pr_repo, gh_fn)
+    since = datetime.now(timezone.utc).replace(microsecond=0)
+    asked, absent = [], {}
+    for who in r['reviewers']:
+        why = request(repo, number, who, gh_fn)
+        if why:
+            absent[who] = why
+            say(f'review: {who} will not come: {why}')
+        else:
+            asked.append(who)
+            say(f'review: asked {who}')
+    timeout = float(r['timeout_minutes'] if timeout_minutes is None else timeout_minutes) * 60
+    found = wait_for(repo, number, asked, since, timeout, float(r['poll_seconds']), gh_fn, **kw) if asked else {}
+    if any(s == 'reviewed' for s in found.values()):
+        say(f'review: {", ".join(w for w, s in found.items() if s == "reviewed")} reviewed pull request {number}: '
+            'read and resolve its threads')
+        return 0
+    lines = [f'{w}: {"said it will not review now (limit reached)" if s == "limited" else f"no review within {timeout / 60:g} min"}'
+             for w, s in found.items()] + [f'{w}: {why}' for w, why in absent.items()]
+    say('review: no automated review will come: ' + '; '.join(lines or ['no reviewer configured (review.reviewers)']))
+    name, args = pick_fallback(cfg)
+    if not name:
+        say(f'review: no fallback worker can review either ({args}): review the diff yourself')
+        return 1
+    say(f'review: a local review by {name} {" ".join(args)}'.rstrip())
+    text = local_review(cfg, repo, number, name, args, gh_fn)
+    body = (f'### Local review by {name}\n\nNo automated review arrived ({"; ".join(lines) or "none configured"}), so Tutti asked a '
+            f'local worker. Findings are suggestions to verify, not a verdict.\n\n{text}\n')
+    if post:
+        comment(repo, number, body, gh_fn)
+        say(f'review: posted {name}\'s review to {repo}#{number}')
+    else:
+        say(body)
+    return 0
+

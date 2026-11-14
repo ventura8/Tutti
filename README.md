@@ -6,7 +6,7 @@ rules that keep them from stepping on each other.
 Tutti is a small toolkit for AI-assisted work on a software project when you have more than one model subscription and
 more than one computer. It grew out of one project's working day and keeps only what proved useful.
 
-> **Status: v0.1.7.** Linux only. The npm package `tutti-agents` is marked `private` until the first
+> **Status: v0.1.8.** Linux only. The npm package `tutti-agents` is marked `private` until the first
 > publish. **Licence:** MIT (see `LICENSE`).
 
 ## The ideas
@@ -68,12 +68,15 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 
 | Command | What it does |
 | --- | --- |
-| `tutti test <track> '<cmd>'` | Copies the track's worktree to the first fit machine and runs the command there behind the slot queue, in a memory-capped container or plain bash. `--on <machine>` skips routing; `--dir` names the tree; `--input <path>` (repeatable) copies a file or folder the job needs to that machine's cache first and hands its folder to the command as `$TUTTI_INPUTS` (read-only in a container). Returns the command's exit code. |
+| `tutti test <track> '<cmd>'` | Copies the track's worktree to the first fit machine and runs the command there behind the slot queue, in a memory-capped container or plain bash. `--on <machine>` skips routing; `--dir` names the tree; `--input <path>` (repeatable) copies a file or folder the job needs to that machine's cache first and hands its folder to the command as `$TUTTI_INPUTS` (read-only in a container). Returns the command's exit code. Steps a command needs first (`test.prepare`, e.g. the e2e build before Playwright) are put in front; a hot machine (`heat`) takes one run, a very hot one none. |
 | `tutti files send <path>... --to <machine\|all>` | Gives files and folders (a big archive, a dataset, build inputs) to other machines over their own transport: rsync when both ends have it (resumable, skips what is there), else a resumable stream; each item is checked with `sha256sum` there. Lands in the machine's cache (`files.cache`, size budget `files.budget_gb`, least recently used items leave first) or `--dest <folder>`; `--bwlimit <KB/s>`. Refuses secrets (`.env*`, `*token*`, keys, service-account JSON, `.ssh/`). `tutti files list [--on <m>]` shows what each machine stores; `tutti files clean --on <m> [name...] [--all]` trims or empties a cache. See [docs/MACHINES.md](docs/MACHINES.md#files-for-machines). |
 | `tutti ship "<message>"` | In the worktree you stand in: format, commit (with your trailer), run the targeted checks, push, deploy. `--full` runs the full checks; `--dry-run` prints the plan; `--track <t>` refuses any other worktree. Refuses to commit or push mid-rebase or mid-merge, or with conflict markers left in files (it names them). |
 | `tutti usage` | Every account against its pace. `tutti usage log <account> <percent> [--resets <time>]` records a reading; `tutti usage read` runs the automatic readers now (Antigravity `agy /usage`, the Cursor plan, limit messages in job logs). See [docs/USAGE-PACING.md](docs/USAGE-PACING.md). |
 | `tutti workers` | The workers and whether each is ready. |
-| `tutti run <worker> "<task>" [files]` | Briefs a CLI worker in a worktree (`--dir`); `--show` prints the brief; `--input <path> --on <machine>` copies inputs to that machine first and tells the worker where they are. `tutti run auto` picks the worker from the latest readings: never an account in panic or spent, first one whose quota would be lost at the reset (`routing.workers`, `accounts.<name>.worker` and `args`). A limit message in its output logs the account as spent. |
+| `tutti run <worker> "<task>" [files]` | Briefs a CLI worker in a worktree (`--dir`); `--show` prints the brief; `--input <path> --on <machine>` copies inputs to that machine first and tells the worker where they are. `tutti run auto` picks the worker from the latest readings: never an account in panic or spent, first one whose quota would be lost at the reset (`routing.workers`, `accounts.<name>.worker` and `args`). A limit message in its output logs the account as spent. With `--repo <repo>` the task is handed off end to end: a worktree of the repo (new, or `--track <name>` reused), the worker headless, the diff captured, the targeted checks routed (`delegate.checks`, default `ship.checks`) and a report that says what changed, the diff's path, each check's verdict, whether coverage was checked and any tool call the CLI denied. `--bg` returns at once with the id; `--discard` removes a new worktree after the report. Every run is logged with the account it spent. |
+| `tutti runs [show\|discard <id>]` | The delegated runs, a run's report, or removing its worktree. |
+| `tutti pr review <n>` | Asks the reviewers (`review.reviewers`: Copilot, CodeRabbit), detects when none will come (a refused request, CodeRabbit's "Review limit reached", or `review.timeout_minutes`) and says so, then has a cheap worker (`review.fallback`) review the diff and posts its findings to the pull request (`--no-post` prints them). |
+| `tutti job register\|done` | A script outside Tutti shows on the dashboard with its log, progress and result. |
 | `tutti ask <worker> "<question>" [files]` | A short answer from a local model about files or stdin. |
 | `tutti code <worker> <file> "<instruction>"` | A local model rewrites one file; you review `git diff`. |
 | `tutti agent <worker> "<task>" "<check>" files...` | A local model edits, runs the check, reads the failure, retries. |
@@ -83,7 +86,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | `tutti progress <done>/<total> [--job <log>]` | Reports how far a job is for the dashboard's progress bar (inside `tutti quiet` it finds its job through `TUTTI_PROGRESS_FILE`). |
 | `tutti guard` | Pauses test containers when memory runs low; resumes them later. |
 | `tutti tunnel start\|stop\|status <worker>` | The self-healing ssh tunnel to a worker's model server. |
-| `tutti wait pid\|file\|grep <target> [regex]` | Waits that end: always with `--timeout`. |
+| `tutti wait pid\|file\|grep\|run <target> [regex]` | Waits that end: always with `--timeout`, never by matching command lines; `--stall <s>` gives up (exit 125) when the watched log stops changing. Ends with one line: `done: ...`, or for `run <id>` the run's verdict and report. |
 | `tutti dashboard [--port 4777]` | A local web dashboard on `127.0.0.1` (installable as an app): usage and pacing with the panic threshold, machines and their slots, workers and the agents installed here, running, stalled and recent jobs with the end of their logs. `--once` prints the same state as JSON. See [docs/DASHBOARD.md](docs/DASHBOARD.md). |
 | `tutti translate <source.json> <locale>` | Translation with mandatory QA; `--check <out.json>` is the import gate. |
 

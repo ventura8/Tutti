@@ -49,6 +49,46 @@ cannot read the token, and its requests carry its own `Origin`. After a restart 
 Body: `{"account": "cursor", "used": 37, "resets": "2026-12-03T00:00Z", "note": "..."}`; `resets` and `note` are
 optional; `used` is 0 to 100; `resets` lies from a day ago to two months ahead.
 
+## The reading helper
+
+For an account no CLI reads (Cursor), `/helper` (the footer's **Reading helper** link) offers one button per account
+with a `usage_url` and no `reader`. Drag it to the browser's bookmarks bar once. Then, on the provider's usage page,
+signed in as usual (`https://cursor.com/dashboard/spending`), click the bookmark. It reads the page's **visible text**
+only: "N% used", else "$spent of $limit"; the reset from "Resets <date>" or the end of a "billing period <a> - <b>". It
+opens the dashboard at `/#reading=<json>`; the page posts that reading through `POST /api/reading` with its own token,
+and the reading is saved with `source: helper`.
+
+What it never does: read cookies, storage or tokens, call the provider's API, or send the reading anywhere but this
+computer. The fragment carries this install's helper key (`<state>/helper.key`, 0600): the server refuses a reading whose
+key is wrong (403), so a site that opens the dashboard with a made-up reading only fills the form for the owner to check.
+**The patterns are not a stable API.** When the page's text changes and nothing matches, the bookmarklet says so and the
+dashboard opens the form instead. The parser is tested on sample texts, not on the live page; check the first reading.
+
+## Jobs found by themselves
+
+Besides `tutti quiet` runs, ship checks, waits and delegated runs, the Jobs card shows:
+
+- **registered jobs**: a script calls `tutti job register --title "<what>"` (the log defaults to where its output goes)
+  and `tutti job done --rc $?` at its end;
+- **watched scripts** (`dashboard.watch_scripts: [nuc-test.sh, ship.sh]`): every running process of these scripts, matched
+  by its program name (never by searching command lines), with the log its standard output goes to, the tail and the
+  progress line (`[150/177]`). A script that runs itself again is one job;
+- **agents** (`dashboard.watch_agents: [cursor-agent, agy, copilot]`): the program and its folder, never its arguments.
+  One working outside a Tutti run worktree or review folder is marked "started outside Tutti: use tutti run auto", and
+  the Workers tile counts them beside the runs per worker today (`<state>/runs.jsonl`);
+- **background tasks** (`dashboard.task_globs`): an agent session's task output files, active when written in the last
+  two minutes; only the time and a progress line are read, never shown;
+- **remote containers**: the test containers holding each machine's slots (`machines.<m>.containers: [prefix-]`, read
+  by the probe with `docker ps`).
+
+## Reminders and nudges
+
+A card whose account is read by hand shows **Reminder: ... tutti usage log <account> <percent>** once its reading is
+older than `stale_hours` (default 2), and the Usage header counts such accounts. A card read automatically says how and
+when ("read automatically · 3 minutes ago", "written by the orchestrator", "read by the helper"). An account behind its
+line shows **Use it: N bounded task(s) can go here now**: 0 % used and "behind" means quota going unused. Machines show
+their temperature, highlighted at or over `heat.cap_c`.
+
 ## Automatic readings
 
 **Refresh readings** (beside the Usage title) posts to `POST /api/refresh` (the same same-origin and token checks) and

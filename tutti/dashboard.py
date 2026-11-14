@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-from . import pacing, readers, remote, state, transfer, workers
+from . import config, helper, pacing, readers, remote, state, transfer, workers
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 BIND = '127.0.0.1'
@@ -50,6 +50,7 @@ class Collector:
             now = datetime.fromtimestamp(self.clock(), timezone.utc)
             found = self.reader.read_all(now, force)
             readers.record(state.usage_log_path(self.cfg), found, self.reader.scan_jobs(now), now)
+            readers.record_files(state.usage_log_path(self.cfg), self.cfg['accounts'])
             return found
 
     def refresh_readings(self):
@@ -130,6 +131,19 @@ def _number(v):
     return v if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else None
 
 
+def parse_resets(resets, now):
+    """None, or the posted reset time when it is a time from a day ago to two months ahead; else a ValueError."""
+    if resets is None:
+        return None
+    try:
+        resets = pacing.parse_time(resets)
+    except (TypeError, ValueError) as e:
+        raise ValueError('resets must be a date and time such as 2026-12-01T00:00Z') from e
+    if not now - RESET_PAST <= resets <= now + RESET_AHEAD:
+        raise ValueError('resets must be the next reset: from a day ago to two months ahead')
+    return resets
+
+
 def parse_reading(cfg, data, now):
     """(account, used, resets or None, note) from a posted reading, or a ValueError that says what to fix."""
     if not isinstance(data, dict):
@@ -140,17 +154,12 @@ def parse_reading(cfg, data, now):
     used = _number(data.get('used'))
     if used is None or not 0 <= used <= 100:
         raise ValueError('used must be a percentage from 0 to 100')
-    resets = data.get('resets') or None
-    if resets is not None:
-        try:
-            resets = pacing.parse_time(resets)
-        except (TypeError, ValueError) as e:
-            raise ValueError('resets must be a date and time such as 2026-12-01T00:00Z') from e
-        if not now - RESET_PAST <= resets <= now + RESET_AHEAD:
-            raise ValueError('resets must be the next reset: from a day ago to two months ahead')
+    resets = parse_resets(data.get('resets') or None, now)
     note = data.get('note') or ''
     if not isinstance(note, str) or len(note) > NOTE_MAX:
         raise ValueError(f'note must be text of at most {NOTE_MAX} characters')
+    if 'key' in data and not helper.key_ok(config.state_dir(cfg), data['key']):
+        raise PermissionError('this reading helper is from another install or an old key: drag the button from /helper again')
     return account, float(used), resets, note
 
 
@@ -158,11 +167,14 @@ def save_reading(cfg, raw, now=None):
     """(status, answer) for a POST /api/reading body that passed check_post. Writes the same usage log as `tutti usage log`."""
     now = now or datetime.now(timezone.utc)
     try:
-        account, used, resets, note = parse_reading(cfg, json.loads(raw or b'null'), now)
+        data = json.loads(raw or b'null')
+        account, used, resets, note = parse_reading(cfg, data, now)
+    except PermissionError as e:
+        return 403, {'error': str(e)}
     except ValueError as e:
         return 400, {'error': str(e)}
-    entry = pacing.append_log(state.usage_log_path(cfg), account, used, now, note or 'from the dashboard', resets=resets,
-                              source='dashboard')
+    source = 'helper' if isinstance(data, dict) and 'key' in data else 'dashboard'
+    entry = pacing.append_log(state.usage_log_path(cfg), account, used, now, note or f'from the {source}', resets=resets, source=source)
     return 200, {'ok': True, 'reading': entry}
 
 
@@ -202,6 +214,9 @@ def route(collector, path, token=''):
         return 200, json.dumps(collector.snapshot()).encode(), JSON_TYPE, 'no-store'
     if path == '/api/health':
         return 200, b'{"ok": true}', JSON_TYPE, 'no-store'
+    if path in ('/helper', '/helper.html'):
+        port = getattr(collector, 'port', None) or collector.cfg['dashboard']['port']
+        return 200, helper.page(collector.cfg, config.state_dir(collector.cfg), port), 'text/html; charset=utf-8', 'no-store'
     full = static_path(path)
     if not full:
         return 404, NOT_FOUND, JSON_TYPE, 'no-store'
@@ -259,4 +274,5 @@ def server(cfg, port, collector=None):
     httpd.token = token
     httpd.daemon_threads = True
     httpd.collector = collector
+    collector.port = httpd.server_address[1]   # the reading helper's bookmarklets open this exact address
     return httpd

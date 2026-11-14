@@ -120,12 +120,14 @@ def events(repo, number, gh_fn=gh):
 SCOUT_MARKER = 'grok-scout'   # the first line of a scout's review comment (tutti/scouts.py REVIEW_MARKER)
 
 
-def status(who, evs, since):
+def status(who, evs, since, author=None):
     """'reviewed' (a pull request review after `since`), 'limited' (it answered that it will not review now) or 'pending'.
     A comment is never a review: CodeRabbit acknowledges a request ("Action not completed", "Review triggered") in one.
-    A scout (any other name) posts as the owner's GitHub account: its review is a comment whose first line is the marker."""
+    A scout (any other name) posts as the GitHub account connected to it (`author`: the owner's, or scouts.<name>.github_login):
+    its review is a comment by that account whose first line is the marker; anyone else's marker counts for nothing."""
     if who not in ('copilot', 'coderabbit'):
-        found = any(t >= since and body.lstrip().lower().startswith(SCOUT_MARKER) for _l, t, body, _k in evs)
+        found = any(t >= since and body.lstrip().lower().startswith(SCOUT_MARKER) and (author is None or login == author)
+                    for login, t, body, _k in evs)
         return 'reviewed' if found else 'pending'
     logins = COPILOT_LOGINS if who == 'copilot' else (CODERABBIT_LOGIN,)
     mine = [(body, kind) for login, t, body, kind in evs if login in logins and t >= since]
@@ -136,12 +138,12 @@ def status(who, evs, since):
     return 'pending'
 
 
-def wait_for(repo, number, asked, since, timeout_s, poll_s, gh_fn=gh, clock=time.monotonic, sleep=time.sleep):
+def wait_for(repo, number, asked, since, timeout_s, poll_s, gh_fn=gh, clock=time.monotonic, sleep=time.sleep, authors=None):
     """Polls until a reviewer reviewed, or every asked reviewer is limited, or the time is up. Returns {who: status}."""
     end = clock() + timeout_s
     while True:
         evs = events(repo, number, gh_fn)
-        found = {w: status(w, evs, since) for w in asked}
+        found = {w: status(w, evs, since, (authors or {}).get(w)) for w in asked}
         if any(s == 'reviewed' for s in found.values()) or all(s == 'limited' for s in found.values()) or clock() >= end:
             return found
         sleep(poll_s)
@@ -250,6 +252,16 @@ def ask_scout(cfg, repo, number, who, gh_fn=gh):
     return '' if r['status'] in ('waiting', 'answered') else (r.get('why') or f'its request {r["id"]} {r["status"]}')
 
 
+def scout_author(cfg, who, gh_fn=gh):
+    """The GitHub login a scout posts as: scouts.<name>.github_login, else the account `gh` is signed in with (Grok Bot posts
+    through the owner's GitHub connection). An empty answer means none is known: then no comment counts as its review."""
+    given = ((cfg.get('scouts') or {}).get(who) or {}).get('github_login')
+    if given:
+        return given
+    rc, out, _ = gh_fn(['api', 'user', '--jq', '.login'])
+    return out.strip() if rc == 0 and out.strip() else ''
+
+
 def request_any(cfg, repo, number, who, gh_fn=gh):
     return ask_scout(cfg, repo, number, who, gh_fn) if who in (cfg.get('scouts') or {}) else request(repo, number, who, gh_fn)
 
@@ -275,7 +287,8 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
             asked.append(who)
             say(f'review: asked {who}')
     timeout = float(r['timeout_minutes'] if timeout_minutes is None else timeout_minutes) * 60
-    found = wait_for(repo, number, asked, since, timeout, float(r['poll_seconds']), gh_fn, **kw) if asked else {}
+    authors = {w: scout_author(cfg, w, gh_fn) for w in asked if w in (cfg.get('scouts') or {})}
+    found = wait_for(repo, number, asked, since, timeout, float(r['poll_seconds']), gh_fn, authors=authors, **kw) if asked else {}
     limited = [w for w, s in found.items() if s == 'limited']
     if limited:
         evs, now = events(repo, number, gh_fn), datetime.now(timezone.utc)

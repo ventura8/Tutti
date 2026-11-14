@@ -492,8 +492,9 @@ def tick(cfg, accounts, env=None, gh_fn=gh, post_fn=post, now=None):
             extra, n = spendrest.round_(cfg, sc, data, acc, url, key, sent, gh_fn, post_fn, now) if acc else ([], 0)
             events += extra
             events += triage.feed_answered(cfg, data, selfimprove.auto_accept(cfg))
-            events += spendrest.feed_seconds(cfg, data)
+            answers = spendrest.second_answers(data)
             left = spendrest.room(sc, data, acc, sent + n, now) if acc else 0
+        events += spendrest.feed_seconds(cfg, answers)   # the backlog's lock: never inside the scouts' lock
         events += spendrest.reviews(cfg, name, acc, left, gh_fn, post_fn, env, now) if acc else []   # GitHub: outside the lock
     return events
 

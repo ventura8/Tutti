@@ -220,21 +220,32 @@ def mark_asked(cfg, task_id, name, r):
         t['notes'] = [*t.get('notes', []), f'asked scout {name} ({r["id"]}): {r.get("url")}']
 
 
-def feed_seconds(cfg, data):
-    """Answered second opinions join their task's notes (the next attempt's brief carries them). Returns event lines."""
-    events = []
+def second_answers(data):
+    """Under the scouts lock: [(request id, task id, note)] of answered second opinions not fed yet (nothing is changed)."""
+    out = []
     for r in data['requests']:
         so = r.get('second_opinion')
-        if not so or r.get('status') not in ('answered', 'timeout') or so.get('fed'):
-            continue
-        so['fed'] = True
-        if r['status'] != 'answered':
-            continue
+        if so and r.get('status') == 'answered' and not so.get('fed'):
+            out.append((r['id'], so['task'], f'second opinion ({r["id"]}, {r.get("url")}): {(r.get("answer") or "")[:1200]}'))
+    return out
+
+
+def feed_seconds(cfg, answers):
+    """After the scouts lock is released (the backlog lock is never taken inside it): each answer joins its task's notes
+    (the next attempt's brief carries them), and only then is it marked fed. Returns event lines."""
+    events, done = [], []
+    for rid, task_id, note in answers:
         with backlog.locked(cfg) as b:
-            t = next((x for x in b['tasks'] if x['id'] == so['task']), None)
+            t = next((x for x in b['tasks'] if x['id'] == task_id), None)
             if t is not None:
-                t['notes'] = [*t.get('notes', []), f'second opinion ({r["id"]}, {r.get("url")}): {(r.get("answer") or "")[:1200]}']
-        events.append(f'{r["id"]} second opinion on {so["task"]}: added to its notes')
+                t['notes'] = [*t.get('notes', []), note]
+        done.append(rid)
+        events.append(f'{rid} second opinion on {task_id}: added to its notes')
+    if done:
+        with scouts.locked(cfg) as data:
+            for r in data['requests']:
+                if r['id'] in done:
+                    r['second_opinion']['fed'] = True
     return events
 
 
@@ -256,11 +267,10 @@ def waiting_seconds(cfg, now=None):
 
 
 def open_prs(repo, gh_fn=scouts.gh):
-    """[(number, url, updated epoch seconds)] of the repository's open pull requests, or [] when GitHub cannot be asked."""
-    rc, out, _ = gh_fn(['pr', 'list', '--repo', repo, '--state', 'open', '--json', 'number,url,updatedAt', '--limit', '30'])
+    """[(number, url, head commit)] of the repository's open pull requests, or [] when GitHub cannot be asked."""
+    rc, out, _ = gh_fn(['pr', 'list', '--repo', repo, '--state', 'open', '--json', 'number,url,headRefOid', '--limit', '30'])
     try:
-        return [(int(p['number']), p['url'], pacing.parse_time(p['updatedAt']).timestamp() if p.get('updatedAt') else 0.0)
-                for p in json.loads(out or '[]')] if rc == 0 else []
+        return [(int(p['number']), p['url'], p.get('headRefOid') or '') for p in json.loads(out or '[]')] if rc == 0 else []
     except (ValueError, KeyError, TypeError):
         return []
 
@@ -278,9 +288,18 @@ def review_repos(cfg, name):
     return list(dict.fromkeys(repos + list((trial.settings(cfg, name) or {}).get('repos') or [])))
 
 
-def reviewed_since(requests, name, repo, number, updated):
+def reviewed(requests, name, repo, number, head):
+    """The scout already reviewed this head commit (a request from before heads were kept counts for any head: no repeat).
+    Only a new commit asks again; comments, labels and CI runs do not."""
     return any(r['scout'] == name and r.get('kind') == 'review' and r.get('repo') == repo and r.get('issue') == number
-               and r['status'] in ('waiting', 'answered') and (r.get('sent') or 0) >= updated for r in requests)
+               and r['status'] in ('waiting', 'answered') and r.get('head', head) == head for r in requests)
+
+
+def keep_head(cfg, rid, head):
+    with scouts.locked(cfg) as data:
+        for r in data['requests']:
+            if r['id'] == rid:
+                r['head'] = head
 
 
 def reviews(cfg, name, acc, left, gh_fn=scouts.gh, post_fn=scouts.post, env=None, now=None):
@@ -295,8 +314,8 @@ def reviews(cfg, name, acc, left, gh_fn=scouts.gh, post_fn=scouts.post, env=None
         return []
     events, requests = [], scouts.load(cfg)['requests']
     for repo in review_repos(cfg, name):
-        for number, url, updated in open_prs(repo, gh_fn):
-            if left <= 0 or reviewed_since(requests, name, repo, number, updated):
+        for number, url, head in open_prs(repo, gh_fn):
+            if left <= 0 or reviewed(requests, name, repo, number, head):
                 continue
             try:
                 r = trial.ask_review(cfg, name, repo, number, url, gh_fn, post_fn, env, {acc['name']: acc}, listed=listed)
@@ -304,5 +323,6 @@ def reviews(cfg, name, acc, left, gh_fn=scouts.gh, post_fn=scouts.post, env=None
                 events.append(f'scout week: review of {repo}#{number} not sent: {e}')
                 continue
             left -= 1
+            keep_head(cfg, r['id'], head)
             events.append(f'scout week: review {r["id"]} {r["status"]}: {url}')
     return events

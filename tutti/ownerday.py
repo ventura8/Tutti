@@ -81,7 +81,7 @@ def today(reserve, readings, now, offset, stop_minutes=STOP_MINUTES):
         row = [x if h < stop else 0.0 for h, x in enumerate(row)]   # released after the real stop
     end = max((h + 1 for h in range(24) if row[h] > 0), default=0)
     if not quiet and last is not None and (now - last).total_seconds() / 60 < stop_minutes and lnow.hour >= end:
-        for h in (lnow.hour, (lnow.hour + 1) % 24):   # a late stop: still at work after the plan, protected an hour at a time
+        for h in range(lnow.hour, min(24, lnow.hour + 2)):   # a late stop: protected an hour at a time (today's row only)
             row[h] = max(row[h], rate)
         out['late'] = True
     recent = [x for k, x in rates.items() if k >= lnow.replace(tzinfo=None) - timedelta(hours=BURN_HOURS)]

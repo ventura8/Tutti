@@ -286,9 +286,9 @@ def capacity_now(cfg, running, machines, now, room=None):
     stop = quiet_stop(cfg, now)
     if stop:
         return 0, stop
+    if cfg['machines'] and not machines:
+        return 0, {'state': 'waiting', 'reason': 'machines not probed yet'}
     slots, why = machine_capacity(cfg, machines)
-    if slots == 0 and why == 'machines not probed yet':
-        return 0, {'state': 'waiting', 'reason': why}
     lim = parallel.limit(cfg, len(running), room, cfg.get('_host'), slots)
     cfg['_parallel'], cfg['_parallel_limit'] = lim, lim['limit']
     free = lim['others'] - len(running)   # the accounts' room is the ladder's own business (assign): it names each step

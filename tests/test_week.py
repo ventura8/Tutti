@@ -72,6 +72,8 @@ class ScoutReviewer(unittest.TestCase):
             def gh(args):
                 if args[:2] == ['pr', 'comment']:
                     return 0, '', ''
+                if args[:2] == ['api', 'user']:
+                    return 0, 'owner\n', ''                     # the account Grok Bot posts through
                 return 0, json.dumps(comments if 'comments' in args[-1] else []), ''
             asked, said = [], []
             orig = trial.ask_review
@@ -85,9 +87,18 @@ class ScoutReviewer(unittest.TestCase):
         self.assertTrue(any('grok reviewed' in s for s in said), said)
         self.assertTrue(any('copilot will not come' in s for s in said))
 
-    def test_a_scout_without_its_marker_has_not_reviewed(self):
+    def test_a_scout_without_its_marker_or_from_another_account_has_not_reviewed(self):
         t = datetime.now(UTC)
-        self.assertEqual(review.status('grok', [('owner', t, 'just a comment', 'comment')], t - timedelta(1)), 'pending')
+        self.assertEqual(review.status('grok', [('owner', t, 'just a comment', 'comment')], t - timedelta(1), 'owner'), 'pending')
+        fake = [('someone', t, 'grok-scout\n- looks fine', 'comment')]
+        self.assertEqual(review.status('grok', fake, t - timedelta(1), 'owner'), 'pending')   # anyone else's marker counts for nothing
+        self.assertEqual(review.status('grok', fake, t - timedelta(1), 'someone'), 'reviewed')
+
+    def test_a_pull_request_is_reviewed_again_only_after_a_new_commit(self):
+        from tutti import spendrest
+        reqs = [{'scout': 'grok', 'kind': 'review', 'repo': 'o/a', 'issue': 3, 'status': 'answered', 'head': 'abc'}]
+        self.assertTrue(spendrest.reviewed(reqs, 'grok', 'o/a', 3, 'abc'))       # its own comment, CI, labels: no repeat
+        self.assertFalse(spendrest.reviewed(reqs, 'grok', 'o/a', 3, 'def'))      # a new commit: reviewed again
 
 
 class Parallel(unittest.TestCase):
@@ -182,3 +193,29 @@ class Targets(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SecondOpinions(unittest.TestCase):
+    def test_a_task_failing_twice_gets_one_question_and_its_answer_joins_the_notes(self):
+        import sys
+        sys.path.insert(0, os.path.dirname(__file__))
+        from test_scouts import cfg_of
+
+        from tutti import backlog, scouts, spendrest
+        with tempfile.TemporaryDirectory() as d:
+            cfg = cfg_of(d)
+            with backlog.locked(cfg) as data:
+                t, _ = backlog.add(data, backlog.new_task('app', 'Fix the probe'))
+                t['attempts'] = [{'ok': False, 'why': 'check failed', 'tail': 'E1'}, {'ok': False, 'why': 'check failed', 'tail': 'E2'}]
+            items = spendrest.seconds(cfg, [], 'grok')
+            self.assertEqual([(i['ref'], i['key']) for i in items], [('t1', 't1#2')])
+            self.assertIn('E2', items[0]['task'])
+            asked = [{'scout': 'grok', 'second_opinion': {'key': 't1#2'}}]
+            self.assertEqual(spendrest.seconds(cfg, asked, 'grok'), [])                 # asked once per failure count
+            with scouts.locked(cfg) as data:
+                data['requests'] = [{'id': 's1', 'scout': 'grok', 'status': 'answered', 'answer': 'look at probe.py', 'url': 'u',
+                                     'second_opinion': {'key': 't1#2', 'task': 't1'}}]
+                answers = spendrest.second_answers(data)
+            self.assertEqual(spendrest.feed_seconds(cfg, answers), ['s1 second opinion on t1: added to its notes'])
+            self.assertIn('look at probe.py', backlog.find(backlog.load(cfg), 't1')['notes'][-1])
+            self.assertTrue(scouts.load(cfg)['requests'][0]['second_opinion']['fed'])

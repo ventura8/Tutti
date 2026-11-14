@@ -87,8 +87,10 @@ def kind_of_request(r):
 
 
 def today(requests, scout, now):
-    """{kind: runs sent} since the start of today (the day of the epoch clock, as the meter counts it)."""
-    day = now - now % 86400
+    """{kind: runs sent} since the owner's local midnight today."""
+    from . import tz
+    lt = tz.local_now(now)
+    day = now - (lt.hour * 3600 + lt.minute * 60 + lt.second)   # the owner's local midnight
     out = {}
     for r in requests:
         t = _sent_at(r) if r['scout'] == scout else None

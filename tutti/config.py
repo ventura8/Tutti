@@ -504,12 +504,11 @@ def _main_errors(cfg):
     m = cfg['main']
     if not isinstance(m, dict):
         return [f'main is {m!r}: write it as a mapping, e.g. main: {{agent: cursor, fallback: [agy, local]}}']
-    if m.get('target_pct') is not None and target_errors('main.target_pct', m['target_pct']):
-        return target_errors('main.target_pct', m['target_pct'])
     fallback = m.get('fallback')
     if not isinstance(fallback, list):
         return [f'main.fallback is {fallback!r}: a list of workers, e.g. [agy, cursor]']
     errs = [f'main.fallback names "{n}", which is not under workers:' for n in fallback if n not in cfg['workers']]
+    errs += target_errors('main.target_pct', m.get('target_pct'))
     commands = m.get('commands') if isinstance(m.get('commands'), dict) else {}
     errs += [f'main.commands.{n}: "{n}" is not under workers:' for n in commands if n not in cfg['workers']]
     errs += [f'main.commands.{n} is {c!r}: a list such as [claude, -p, "{{prompt}}"]' for n, c in commands.items()

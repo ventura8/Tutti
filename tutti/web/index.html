@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#F7F7FB" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#111318" media="(prefers-color-scheme: dark)">
@@ -32,9 +32,10 @@
     <script src="qr.js?v=__TUTTI_VERSION__" defer></script>
     <script src="users.js?v=__TUTTI_VERSION__" defer></script>
     <script src="report.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="chat.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
-    <a class="skip" href="#main">Skip to the dashboard</a>
+    <a class="skip" href="#main">Skip to the content</a>
     <header class="appbar">
         <img class="appbar__logo" src="icons/icon.svg" alt="" width="40" height="40">
         <div class="appbar__title">
@@ -57,9 +58,10 @@
             <button class="btn btn--text view-ok" id="report-open" type="button" title="Tell Tutti's maintainers what went wrong">Report a problem</button>
             <button class="btn btn--text" id="signout" type="button" hidden>Sign out</button>
         </div>
-        <!-- The views: the dashboard and Settings. On a phone the bar sits at the bottom of the screen (app.css). -->
+        <!-- The views: the Chat (the default), the dashboard and Settings. On a phone the bar sits at the bottom of the screen (app.css). -->
         <nav class="tabs" aria-label="Views">
-            <a class="tabs__tab" href="#" data-view="dashboard" aria-current="page">Dashboard</a>
+            <a class="tabs__tab" href="#chat" data-view="chat" aria-current="page">Chat</a>
+            <a class="tabs__tab" href="#dashboard" data-view="dashboard">Dashboard</a>
             <a class="tabs__tab" href="#settings" data-view="settings">Settings</a>
             <a class="tabs__tab" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
         </nav>
@@ -98,7 +100,68 @@
     </dialog>
 
     <main id="main" tabindex="-1">
-      <div id="dashboard-view">
+      <!-- The Chat (chat.js, docs/CHAT.md): the default view, for every signed-in user. view-ok: viewers use it too; the
+           server checks every action it takes. -->
+      <div id="chat-view" class="chat view-ok">
+        <aside class="chat__side" aria-labelledby="chat-side-title">
+          <h2 class="sr-only" id="chat-side-title">Your conversations</h2>
+          <div class="chat__sidehead">
+            <button class="btn btn--filled" id="chat-new" type="button">New chat</button>
+            <label class="sr-only" for="chat-search">Search your conversations</label>
+            <input class="chat__search" id="chat-search" type="search" placeholder="Search conversations" autocomplete="off" enterkeyhint="search">
+          </div>
+          <p class="chat__listnote" id="chat-list-note" aria-live="polite">Loading your conversations…</p>
+          <ul class="chat__list" id="chat-list"></ul>
+          <div class="chat__sidefoot">
+            <details class="chat__privacy">
+              <summary>What is stored, and where</summary>
+              <p id="chat-privacy"></p>
+              <button class="btn btn--text" id="chat-clear" type="button">Clear my chat history</button>
+            </details>
+            <button class="btn btn--text" id="chat-activity-open" type="button" hidden>Household activity</button>
+          </div>
+        </aside>
+        <section class="chat__main" id="chat-main" aria-labelledby="chat-title">
+          <header class="chat__head">
+            <button class="btn btn--text chat__back" id="chat-back" type="button" title="Back to your conversations"><span aria-hidden="true">‹ </span>Chats</button>
+            <h2 class="chat__title" id="chat-title">New chat</h2>
+            <label class="sr-only" for="chat-model">Who answers</label>
+            <select class="chat__model" id="chat-model" title="Who answers: Auto uses the household's local models first, then online agents">
+              <option value="auto">Auto: local first, then online</option>
+            </select>
+            <div class="chat__convacts" id="chat-conv-actions" hidden>
+              <button class="btn btn--text" id="chat-rename-btn" type="button">Rename</button>
+              <button class="btn btn--text" id="chat-delete-btn" type="button">Delete</button>
+            </div>
+          </header>
+          <div class="chat__log" id="chat-log" role="log" aria-live="off" aria-label="Messages" tabindex="0"></div>
+          <button class="btn btn--tonal chat__jump" id="chat-jump" type="button" hidden>Jump to latest ↓</button>
+          <output class="sr-only" id="chat-announce" aria-live="polite"></output>
+          <form class="chat__composer" id="chat-form">
+            <p class="chat__editing" id="chat-editing" hidden>Editing your last message: sending replaces it and its answer.
+              <button class="btn btn--text" id="chat-edit-cancel" type="button">Cancel edit</button></p>
+            <div class="chat__chips" id="chat-attachments" aria-live="polite"></div>
+            <p class="chat__error" id="chat-file-error" role="alert"></p>
+            <div class="chat__row">
+              <button class="btn btn--text chat__attach" id="chat-attach" type="button" aria-label="Attach a text or log file (up to 3, 32 KB each)" title="Attach a text or log file">
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path fill="currentColor" d="M16.5 6.5v10a4.5 4.5 0 0 1-9 0V5a3 3 0 0 1 6 0v10.5a1.5 1.5 0 0 1-3 0V6.5H9v9a3 3 0 0 0 6 0V5a4.5 4.5 0 0 0-9 0v11.5a6 6 0 0 0 12 0v-10z"/></svg>
+              </button>
+              <input id="chat-file" type="file" multiple hidden aria-label="Text or log files to attach" accept=".txt,.log,.md,.json,.yaml,.yml,.csv,.toml,.ini,.py,.js,.ts,.sh,.diff,.patch,text/*">
+              <label class="sr-only" for="chat-input">Message</label>
+              <textarea class="chat__input" id="chat-input" rows="1" placeholder="Ask, or queue work…" aria-describedby="chat-hint" enterkeyhint="send" maxlength="8000"></textarea>
+              <button class="btn btn--filled chat__send" id="chat-send" type="submit">Send</button>
+              <button class="btn btn--tonal chat__send" id="chat-stop" type="button" hidden>Stop</button>
+            </div>
+            <p class="chat__hint" id="chat-hint">Enter sends · Shift+Enter adds a line · Esc stops an answer · ↑ edits your last message</p>
+          </form>
+        </section>
+        <dialog class="chat__dialog" id="chat-dialog" aria-labelledby="chat-dialog-title">
+          <h2 id="chat-dialog-title">Chat</h2>
+          <div id="chat-dialog-body"></div>
+          <div class="chat__dialogacts" id="chat-dialog-actions"></div>
+        </dialog>
+      </div>
+      <div id="dashboard-view" hidden>
         <section class="tiles" aria-label="At a glance" id="tiles"></section>
 
         <!-- Ordered by importance, top to bottom: quota, what needs the owner, what runs now, the autopilot, projects, history. -->

@@ -177,6 +177,13 @@ accounts:
 # Each account may set panic_at (default 95): at or over that % before the target time, it is in quota panic.
 
 # `tutti dashboard`: the local web dashboard on 127.0.0.1 (stall_minutes: a running job whose log is quiet that long is stalled)
+# The dashboard's Chat tab (docs/CHAT.md): viewers ask, and create work for these projects (empty: every one) up to a daily
+# limit; pausing and settings stay with admins. A model sees this many earlier messages of a conversation.
+chat:
+  viewer_tasks_per_day: 5
+  viewer_projects: []
+  history_turns: 10
+
 dashboard:
   port: 4777
   refresh_seconds: 10

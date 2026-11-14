@@ -53,9 +53,16 @@ answers) and, on each shared machine in **Machines**, who else it is busy for ("
 names and counts are shown: never their jobs, prompts, accounts or readings. The card reads the last answer this computer
 had from the coordinator (`<state>/household/grants.json`), so the page never waits on the network (docs/HOUSEHOLD.md).
 
+## Chat
+
+The dashboard opens on the **Chat** tab (`#chat`, the default; the cards below are the **Dashboard** tab, `#dashboard`).
+Every signed-in user, viewers too, asks about the household and queues work there; it runs on the household host, so it
+works while their own computer is off. Each action is a card with Undo and goes into the audit log; viewers' work has
+admin-set limits, and pausing stays with admins. See [CHAT.md](CHAT.md).
+
 ## Layout
 
-The cards go by importance, top to bottom, on a 12-column grid whose rows fill their width, so no card stands tall and
+The **Dashboard** tab's cards go by importance, top to bottom, on a 12-column grid whose rows fill their width, so no card stands tall and
 narrow with nothing beside it; one column on a phone. Phone (375 px) to 4K (2560 px), light and dark:
 
 1. **At a glance** (the tiles) and **Usage & pacing**, full width: the accounts as one row of compact cards (on a phone,

@@ -388,11 +388,12 @@ def validate(cfg):
     errs += _dashboard_errors(cfg['dashboard']) + _auth_errors(cfg.get('auth'))
     errs += files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
     # they import modules that import this one
-    from . import autocompact, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
+    from . import autocompact, chat, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
     errs += dispatch.errors(cfg) + tiers.errors(cfg) + tz.errors(cfg) + presence.errors(cfg)
     errs += selfimprove.errors(cfg) + sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
-        owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update']) + energy.errors(cfg)
+        owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update']) + energy.errors(cfg) + \
+        chat.errors(cfg)
 
 
 PACKAGE_NAME = re.compile(r'^[a-z0-9][a-z0-9+.-]*$')

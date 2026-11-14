@@ -1333,7 +1333,8 @@ function openHelperForm(account, used, resets) {
 async function fromHelper() {
     const h = location.hash;
     if (!h.startsWith('#reading=')) return;
-    history.replaceState(null, '', location.pathname);
+    history.replaceState(null, '', `${location.pathname}#dashboard`);   // the reading helper's result shows on the dashboard
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
     let r;
     try { r = JSON.parse(decodeURIComponent(h.slice('#reading='.length))); } catch { return; }
     if (!r || typeof r.account !== 'string') return;

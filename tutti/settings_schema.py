@@ -48,6 +48,8 @@ SECTIONS = [
      ['self_update', 'update']),
     ('dashboard', 'Dashboard', 'This page: its port, how often it refreshes, and which processes it shows as jobs.',
      ['dashboard', 'project']),
+    ('chat', 'Chat', 'The Chat tab: what viewers may ask it to do, and how much of a conversation a model sees (docs/CHAT.md).',
+     ['chat']),
     ('auth', 'Sign-in', 'Sign-in with Google and how long a session lasts (docs/AUTH.md; `tutti auth setup` sets the clients).',
      ['auth']),
     ('host', 'Where Tutti runs', 'This computer as Tutti\'s host, and where it moved (docs/MOVE.md).', ['host']),
@@ -373,6 +375,13 @@ FIELDS = {
     'translate.languages': field('Into', 'code: language name.', **YAML),
     'translate.keep': field('Never translated', 'Names kept as they are.', 'list', item='name'),
     'translate.retries': field('Retries', 'Tries after a failed check.', 'number', min=0),
+    # chat
+    'chat.viewer_tasks_per_day': field('Work a viewer may create a day', 'Tasks, hand-offs and scout questions from the chat, per '
+                                       'viewer; 0: viewers only ask. Admins have no limit.', 'number', min=0, max=1000, unit='a day'),
+    'chat.viewer_projects': field('Viewers\' projects', 'The projects viewers may queue work for; empty: every project.', 'list',
+                                  item='project'),
+    'chat.history_turns': field('Messages a model sees', 'The earlier messages of a conversation sent with each question.', 'number',
+                                min=0, max=50),
     # dashboard
     'dashboard.port': field('Port', 'The dashboard\'s port on 127.0.0.1.', 'number', min=1, max=65535),
     'dashboard.bind': field('Address', 'Where the dashboard listens: 127.0.0.1, or this computer\'s LAN or VPN address (sign-in '

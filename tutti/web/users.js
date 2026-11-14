@@ -144,6 +144,7 @@ function showUsersView() {
     if (on) {
         $('dashboard-view').hidden = true;
         $('settings-view').hidden = true;
+        $('chat-view').hidden = true;
     }
     for (const a of document.querySelectorAll('.tabs__tab[data-view]')) {
         const current = on ? a.dataset.view === 'users' : a.dataset.view !== 'users' && a.getAttribute('aria-current') === 'page';

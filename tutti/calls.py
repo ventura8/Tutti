@@ -21,7 +21,9 @@ def hold_for(cfg, st, d, now, leased):
     delay = float(s.get('resume_after_call_seconds', 30))
     calls = st.setdefault('calls', {})
     name = d['name']
-    if devices.on_call(d):
+    conf = (cfg.get('devices') or {}).get(name) or {}
+    checks_calls = conf.get('calls', True) is not False and conf.get('kind') != 'tv'   # a TV has no call state
+    if checks_calls and devices.on_call(d):
         calls[name] = {'active': True, 'since': (calls.get(name) or {}).get('since') or now}
         return f'{CALL} ({devices.CALL_WORDS[d["call"]]})'
     c = calls.get(name) or {}

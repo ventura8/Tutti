@@ -693,7 +693,9 @@ def supervise(cfg, lease, s, child, beat, look=calls.look, sleep=time.sleep, log
     phone = lease['kind'] == 'android' and (cfg['devices'].get(lease['name']) or {}).get('calls', True) is not False
     poll = float(d.get('call_poll_seconds', 3)) if phone else 5.0 if (s.get('started') or android) else 30.0
     began = clock()
-    ready_at = None
+    conf = cfg['devices'].get(lease['name']) or {} if android else {}
+    # the ready marker comes from the device session (an external lock or a prep); without either, the clock starts now
+    ready_at = None if (conf.get('external_lock') or conf.get('prep')) else began
     while True:
         os.utime(beat)
         try:

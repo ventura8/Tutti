@@ -170,6 +170,25 @@ class JudgeTest(Base):
         self.assertIsNotNone(child.poll())
 
 
+    def test_without_a_device_session_the_started_clock_runs_from_the_spawn(self):
+        cfg = self.cfg({'started': {'pattern': 'Unlocked', 'within_seconds': 0.2}})
+        log = os.path.join(self.tmp.name, 'run2.log')
+        beat = os.path.join(self.tmp.name, 'beat2')
+        open(log, 'w').close()
+        open(beat, 'w').close()
+        cfg['dispatch']['call_poll_seconds'] = 0.05
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        rc = dispatch.supervise(cfg, {'kind': 'android', 'name': 'phone'}, dispatch.suites(cfg)[0], child, beat,
+                                look=lambda c, d: 0, log=log)
+        self.assertTrue(rc.startswith(shards.REQUEUE))
+
+    def test_a_device_with_calls_off_or_a_tv_is_never_held_for_a_call(self):
+        from tutti import calls
+        cfg = {'devices': {'tab': {'calls': False}, 'tv': {'kind': 'tv'}, 'ph': {}}, 'dispatch': {}}
+        rows = [{'name': n, 'call': 1} for n in ('tab', 'tv', 'ph')]
+        self.assertEqual(list(calls.holds(cfg, {'leases': {}}, rows, NOW)), ['ph'])
+
+
 class ExternalLockTest(Base):
     def run_wrapped(self, lock, command, timeout=10):
         d = {'serial': 'S1', 'external_lock': lock.replace('S1', '{serial}')}

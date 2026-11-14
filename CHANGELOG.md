@@ -2,6 +2,13 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.60 (2026-11-14)
+
+### Fixed
+
+- `tutti move` never gives the target ssh access to itself (it copied the old computer's key for the target onto the
+  target), and the plan names as "probed through this computer" only the machines whose access could not be carried.
+
 ## 0.1.59 (2026-11-14)
 
 ### Added

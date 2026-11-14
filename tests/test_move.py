@@ -86,6 +86,7 @@ class Base(unittest.TestCase):
         self.addCleanup(nets.stop)
         carry = mock.patch.object(move, 'carried', return_value=CARRY)
         carry.start()
+        self.carry_stop = carry.stop
         self.addCleanup(carry.stop)
 
 
@@ -582,3 +583,22 @@ class FinalSyncTest(Base):
             os.makedirs(os.path.join(self.home, 'wt', n))
         got = move.final_paths(cfg, {'repos': {repo: []}}, self.home)
         self.assertEqual(got, ['repo/.git', 'wt/tutti-run-ap-t1'])   # a feature worktree was copied while Tutti ran
+
+
+class TargetSshTest(Base):
+    def test_the_target_is_never_given_ssh_access_to_itself(self):
+        seen = []
+        self.carry_stop()
+        with mock.patch.object(movetools, 'ssh_carry', side_effect=lambda aliases, home: seen.extend(aliases) or {}), \
+                mock.patch.object(movetools, 'repo_set', return_value={'paths': [], 'repos': {}}), \
+                mock.patch.object(movetools, 'tools_plan', return_value=[]), mock.patch.object(movetools, 'login_tools', return_value=[]):
+            plan = move.make_plan(self.cfg, 'nuc', facts(reach_pc='no'))
+        self.assertEqual(seen, ['pc'])
+        self.assertEqual(plan['unreachable'], ['pc'])   # no entry for pc here: it stays probed through this computer
+
+
+class VanishedTest(unittest.TestCase):
+    def test_a_file_that_vanished_during_rsync_is_not_a_failure(self):
+        self.assertEqual(move.must(subprocess.CompletedProcess(['rsync'], 24, '', 'vanished'), 'x').returncode, 24)
+        with self.assertRaisesRegex(move.MoveError, 'x failed'):
+            move.must(subprocess.CompletedProcess(['rsync'], 23, '', 'partial'), 'x')

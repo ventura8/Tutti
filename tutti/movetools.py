@@ -37,6 +37,7 @@ LOGINS = {
 }
 # a tool's history, caches and conversations stay where they were made: only what its login and settings need moves
 LOGIN_EXCLUDE = ['brain/', 'conversations/', 'cache/', 'annotations/', 'cli.log', '*.db', 'logs/', 'tmp/']
+TOOL_EXCLUDE = ['.running/']   # a CLI's own markers of its running processes
 NODE_ARCH = {'x86_64': 'x64', 'aarch64': 'arm64', 'arm64': 'arm64'}
 TARGET_PATH = 'PATH="$HOME/.local/bin:$PATH"'
 

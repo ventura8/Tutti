@@ -370,7 +370,8 @@ def carried(cfg, facts):
     if any(t['node'] for t in tools) and not facts.get('ver_node'):
         node = movetools.version_of('node')
     repos = movetools.repo_set(cfg, home, config.expand)
-    hosts = {n: m['host'] for n, m in cfg['machines'].items() if m['transport'] in ('ssh', 'wsl') and not m.get('via')}
+    target = facts.get('_target')
+    hosts = {n: m['host'] for n, m in cfg['machines'].items() if m['transport'] in ('ssh', 'wsl') and not m.get('via') and n != target}
     unreachable = [n for n in hosts if facts.get(f'reach_{n}') != 'yes']
     ssh = movetools.ssh_carry([hosts[n] for n in unreachable], home)
     facts['_ssh_carried'] = [n for n in unreachable if hosts[n] in ssh]
@@ -381,6 +382,7 @@ def carried(cfg, facts):
 
 def make_plan(cfg, target, facts, carry=None):
     """Everything --dry-run shows and the move does: blockers, warnings, owner steps, what moves, the configs, the origins."""
+    facts['_target'] = target   # never itself among the machines it is given ssh access to
     carry = carry if carry is not None else carried(cfg, facts)
     need = round(state_size_gb(cfg) * 2 + carry['repos_gb'] + FREE_MARGIN_GB, 1)
     blockers, warnings, owner = judge(facts, need)
@@ -409,7 +411,8 @@ def make_plan(cfg, target, facts, carry=None):
             'origins': {'before': before, 'after': after, 'add': [o for o in after if o not in before],
                         'remove': [o for o in before if o not in after]},
             'carry': carry, 'logins': [], 'choices': choices, 'need_gb': need,
-            'unreachable': [n for n, _h in ssh_machines(cfg, target) if facts.get(f'reach_{n}') != 'yes'],
+            'unreachable': [n for n, _h in ssh_machines(cfg, target)
+                            if facts.get(f'reach_{n}') != 'yes' and n not in (facts.get('_ssh_carried') or ())],
             'install': not facts.get('tutti') or version_tuple(facts.get('tutti_version')) < version_tuple(__version__)}
 
 
@@ -527,7 +530,12 @@ class Ops:
         return None
 
 
+VANISHED = 24   # rsync: a file disappeared while it copied (a live folder: a lock, a pid file); what remained was copied
+
+
 def must(r, what):
+    if r.returncode == VANISHED and (r.args or [''])[0] == 'rsync':
+        return r
     if r.returncode != 0:
         raise MoveError(f'{what} failed (exit {r.returncode}): {(r.stderr or r.stdout or "").strip()[-400:]}')
     return r
@@ -731,7 +739,7 @@ class Move:
             must(self.ops.target(movetools.node_script(c['node'], self.j['plan']['facts'].get('arch', 'x86_64')), timeout=900),
                  f'installing node {c["node"]} on {self.target}')
         if c['tools']:
-            must(self.ops.rsync_home([p for t in c['tools'] for p in t['copy']]), 'copying the CLIs')
+            must(self.ops.rsync_home([p for t in c['tools'] for p in t['copy']], movetools.TOOL_EXCLUDE), 'copying the CLIs')
             must(self.ops.target(movetools.link_script(c['tools'])), 'linking the CLIs')
         self.note('CLIs there at the same versions: ' + (', '.join(f'{t["name"]} {t["version"]}' for t in c['tools']) or 'nothing to copy'))
 

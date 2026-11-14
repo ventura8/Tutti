@@ -164,3 +164,17 @@ The probe reads, on each kind of machine:
 - **This computer:** `xprintidle`, else the same logind hint.
 
 Each machine's share uses its own reading.
+
+## Limited hours
+
+An admin can give any machine a daily window when Tutti uses at most `pct` % of it, for example a NUC that also hosts Plex in
+the evening. Set it with `tutti machine limit nuc 18-01 60` (`off` removes it), the machine card's **Limited hours**, or
+Settings (`machines.<m>.limit: {window: "18-01", pct: 60, days: [mon, ...]}`). It is stored in the config.
+
+- **The window:** its hours are in Tutti's time zone (`time.zone`). A window past midnight belongs to the day it starts on. Without `days` it runs every day. When a window is
+  set without a share, `pct` defaults to 60 (1 to 100; to stop Tutti there, pause the machine).
+- **Inside it:** the machine's share is capped at `pct`, which means fewer slots, fewer model threads and a lower adaptive
+  limit. Its work-queue jobs marked `heavy` go elsewhere. Running jobs finish, but none is replaced while the machine is
+  over the cap.
+- **On a move:** `main: true` marks the main machine's own window, and `tutti move` carries it to the new main machine.
+- **Default:** a new household has no window.

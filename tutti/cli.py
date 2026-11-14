@@ -1097,8 +1097,13 @@ def cmd_owner(cfg, a):
     """`tutti owner [status|mode <mode>]`: the owner's mode and the profile the planner keeps a reserve by (docs/USAGE-PACING.md)."""
     from . import owner
     folder = config.state_dir(cfg)
-    if a.action == 'mode':
-        code, answer = owner.change(cfg, folder, {'mode': None if a.mode in (None, 'config') else a.mode})
+    if a.action in ('mode', 'window'):
+        if a.action == 'window' and not a.window:
+            say('owner window: name the day and its hours: tutti owner window 2026-11-16 20-24 (or off, or config to take it back)')
+            return 2
+        body = {'mode': None if a.mode in (None, 'config') else a.mode} if a.action == 'mode' else \
+            {'date': a.mode, 'window': None if a.window == 'config' else a.window}
+        code, answer = owner.change(cfg, folder, body)
         if code != 200:
             say(answer['error'])
             return 2
@@ -1112,6 +1117,8 @@ def cmd_owner(cfg, a):
     where = f'{v["zone"]}, now {tz.label(v["utc_offset"])}'
     print(f'schedule: {", ".join(s["days"])}, {s["hours"]} h in {s["window"]} ({where}); reserve per day: ' +
           ', '.join(f'{d} {sum(r):g}' for d, r in zip(v['days'], v['reserve'], strict=True)))
+    if v.get('dates'):
+        print('dated windows: ' + ', '.join(f'{d} {w}' for d, w in v['dates'].items()))
     return 0
 
 
@@ -1217,8 +1224,20 @@ def cmd_jobmove(cfg, a):
 
 
 def cmd_machine(cfg, a):
-    """`tutti machine evacuate <machine>`: every job waiting on it moved to the best available target."""
+    """`tutti machine evacuate <machine>`: every job waiting on it moved to the best available target; `tutti machine limit
+    <machine> <HH-HH> [pct] | off`: its limited-usage window, saved in the config."""
     from . import handover, jobmove
+    if a.action == 'limit':
+        from . import settings, share
+        try:
+            changes = share.limit_change(cfg, a.name, a.window or '', a.pct)
+            settings.store(cfg, changes)
+        except (ValueError, settings.SettingsError) as e:
+            say(f'machine limit: {e}')
+            return 2
+        saved = changes[0][1]
+        say(f'{a.name}: ' + ('no limited hours' if a.window == 'off' else f'limited {saved["window"]} at {saved["pct"]} %'))
+        return 0
     try:
         for line in jobmove.evacuate(cfg, a.name, kill=handover.end_tree, stop=dispatch.stop_pid):
             print(line)
@@ -1557,9 +1576,12 @@ def parser():
     s.add_argument('--source', default='orchestrator')
     s.add_argument('--note', action='append', help='a note for the worker (retry: the reviewer\'s notes)')
     s.add_argument('--all', action='store_true', help='list: also done and dropped tasks')
-    s = add('owner', cmd_owner, 'the owner\'s own prompting: status, or mode auto|active|away|vacation-until-YYYY-MM-DD|config')
-    s.add_argument('action', nargs='?', default='status', choices=['status', 'mode'])
-    s.add_argument('mode', nargs='?', help='mode: auto, active, away (the rest of today), vacation-until-YYYY-MM-DD, or config')
+    s = add('owner', cmd_owner, 'the owner\'s own prompting: status, mode auto|active|away|vacation-until-YYYY-MM-DD|config, or '
+                                'window <YYYY-MM-DD> <HH-HH|off|config> (one day\'s own owner hours)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'mode', 'window'])
+    s.add_argument('mode', nargs='?', help='mode: auto, active, away (the rest of today), vacation-until-YYYY-MM-DD, or config; '
+                                           'window: the date (YYYY-MM-DD)')
+    s.add_argument('window', nargs='?', help='window: that day\'s owner hours HH-HH (e.g. 20-24), off, or config (its weekday\'s)')
     s = add('autopilot', cmd_autopilot, 'send backlog tasks to accounts that are behind their pace, by itself: status, on, off, '
                                         'tick (one round now; the dashboard ticks while it runs), fill on|off (fill free room from '
                                         'the repos\' sources), land <id> (review a result and land it)')
@@ -1606,9 +1628,12 @@ def parser():
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'now', 'run', 'build'])
     s.add_argument('lease', nargs='?', help='run: the lease id; build: the project')
     s.add_argument('rest', nargs='*', help='build: the suite and the rc file')
-    s = add('machine', cmd_machine, 'evacuate <machine>: move every job waiting on it to the best available target')
-    s.add_argument('action', choices=['evacuate'])
+    s = add('machine', cmd_machine, 'evacuate <machine>: move every job waiting on it to the best available target; '
+                                    'limit <machine> <HH-HH> [pct] | off: its daily limited-usage window')
+    s.add_argument('action', choices=['evacuate', 'limit'])
     s.add_argument('name')
+    s.add_argument('window', nargs='?', help='limit: local hours HH-HH (18-01 wraps past midnight), or off')
+    s.add_argument('pct', nargs='?', type=int, help='limit: the most Tutti uses then, in percent (default 60)')
     add('presence', cmd_presence, 'each device, machine, member and model server: here, away, asleep or unknown, and its profile')
     s = add('selfimprove', cmd_selfimprove, 'crashes and insights become autopilot tasks, pull requests, and where a project '
                                             'allows it merges and patch releases: status, on, off, tick (one round now)')

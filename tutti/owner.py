@@ -69,6 +69,7 @@ def schedule_errors(p):
     stop = p.get('stop_after_minutes', 60)
     if isinstance(stop, bool) or not isinstance(stop, (int, float)) or stop < 10:
         errs.append(f'pacing.stop_after_minutes is {stop!r}: minutes with no rise before today\'s reserve is released, 10 or more')
+    errs += date_errors(p.get('dates'))
     if not valid_mode(p.get('mode', 'auto')):
         errs.append(f'pacing.mode is {p.get("mode")!r}: auto, active, away or vacation-until-YYYY-MM-DD')
     return errs
@@ -204,6 +205,48 @@ def effective(mode, reserve, readings, now, offset, away_after, learned=True):
     return ('away', midnight) if spent < AWAY_SHARE * expected else ('auto', None)
 
 
+DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
+
+
+def date_errors(dates):
+    """Errors of dated windows {YYYY-MM-DD: HH-HH or off}: one day's owner window that replaces its weekday's."""
+    errs = []
+    for d, w in (dates or {}).items():
+        try:
+            ok = bool(DATE.fullmatch(str(d))) and datetime.strptime(str(d), '%Y-%m-%d')
+        except ValueError:
+            ok = False
+        if not ok:
+            errs.append(f'pacing.dates has {d!r}: a date such as 2026-11-16')
+        elif w is None:
+            continue   # a day taken back from the dashboard over the config's (owner.json)
+        elif w != 'off' and not WINDOW.fullmatch(str(w)):
+            errs.append(f'pacing.dates.{d} is {w!r}: local hours HH-HH such as 20-24, or off (no owner hours that day)')
+        elif w != 'off' and int(str(w)[:2]) >= int(str(w)[3:]):
+            errs.append(f'pacing.dates.{d} is {w!r}: a day\'s window ends by 24 (20-24); past midnight, give the next day its '
+                        'own window too (00-02)')
+    return errs
+
+
+def window_hours(window):
+    a, b = (int(x) for x in window.split('-'))
+    return {h for h in range(24) if (a <= h < b if a <= b else h >= a or h < b)}
+
+
+def dated_row(window, rate):
+    """One day's reserve row from a dated window: `rate` points in its hours, none for `off`."""
+    hours = set() if window == 'off' else window_hours(window)
+    return [float(rate) if h in hours else 0.0 for h in range(24)]
+
+
+def rate_at(ctx, lt):
+    """The reserve (points per hour) at local time `lt`: a dated window for that day wins over its weekday's row."""
+    w = (ctx.get('dates') or {}).get(lt.date().isoformat())
+    if w is None:
+        return ctx['reserve'][lt.weekday()][lt.hour]
+    return dated_row(w, ctx.get('rate', DEFAULT['rate']))[lt.hour]
+
+
 def reserve_until(ctx, now, end):
     """The owner's expected burn (points) from `now` to `end` on the reserve profile, none while away or on vacation."""
     t, total = now, 0.0
@@ -212,7 +255,7 @@ def reserve_until(ctx, now, end):
         step = min(end, t.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)) - t
         if not (skip and t < skip):
             lt = local(t, ctx['offset'])
-            total += ctx['reserve'][lt.weekday()][lt.hour] * step.total_seconds() / 3600
+            total += rate_at(ctx, lt) * step.total_seconds() / 3600
         t += step
     return total
 
@@ -225,7 +268,7 @@ def reserve_days(ctx, now, end):
     while t < end:
         lt = local(t, ctx['offset'])
         name = f'{DAYS[lt.weekday()].title()} {lt.day}'
-        if not (skip and t < skip) and ctx['reserve'][lt.weekday()][lt.hour] > 0 and name not in out:
+        if not (skip and t < skip) and rate_at(ctx, lt) > 0 and name not in out:
             out.append(name)
         t = min(end, t.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
     return out
@@ -238,6 +281,12 @@ def context(owner, readings, now):
     sched = owner['schedule']
     offset = zone_of(sched, owner.get('zone'))
     prof = profile_of(sched, readings, offset)
+    dates = owner.get('dates') or {}
+    today = local(now, offset).date().isoformat()
+    if today in dates:   # a dated window today (pacing.dates): today's row is that window, for the away check and the shift
+        wd = local(now, offset).weekday()
+        row = dated_row(dates[today], sched.get('rate', DEFAULT['rate']))
+        prof = {**prof, 'reserve': [row if d == wd else r for d, r in enumerate(prof['reserve'])]}
     mode, until = effective(owner['mode'], prof['reserve'], readings, now, offset, owner.get('away_after_hours', 3), prof['learned'])
     if mode == 'auto' and owner.get('laptop_away'):   # the owner's laptop is away or asleep (presence.owner_laptop): away
         mode, until = 'away', now + timedelta(hours=1)  # for the next hour, looked at again each round
@@ -245,7 +294,8 @@ def context(owner, readings, now):
     day = ownerday.today(prof['reserve'], readings, now, offset, owner.get('stop_after_minutes', ownerday.STOP_MINUTES))
     if mode not in ('away', 'vacation'):
         prof = {**prof, 'planned_reserve': prof['reserve'], 'reserve': ownerday.shifted(prof['reserve'], day, now, offset)}
-    return {**prof, 'offset': offset, 'zone': offset if isinstance(offset, str) else tz.label(offset),
+    return {**prof, 'dates': dates, 'rate': sched.get('rate', DEFAULT['rate']),
+            'offset': offset, 'zone': offset if isinstance(offset, str) else tz.label(offset),
             'utc_offset': tz.offset_hours(offset, now), 'mode': mode, 'set_mode': owner['mode'], 'until': until, 'today': day,
             'today_line': ownerday.line(day)}
 
@@ -296,6 +346,24 @@ def write(folder, **changes):
     return data
 
 
+def change_date(folder, data, config_dates=None):
+    """(status, answer) of {"date": "YYYY-MM-DD", "window": "HH-HH" | "off" | null}: null takes the day back to its weekday,
+    a day the config sets too included (kept as null in owner.json, which wins over the config)."""
+    d, w = str(data.get('date')), data.get('window')
+    errs = date_errors({d: w if w is not None else 'off'})
+    if errs:
+        return 400, {'error': '; '.join(errs)}
+    dates = dict(read(folder).get('dates') or {})
+    if w is None and d in {str(k) for k in (config_dates or {})}:
+        dates[d] = None
+    elif w is None:
+        dates.pop(d, None)
+    else:
+        dates[d] = w
+    write(folder, dates=dates or None)
+    return 200, {'ok': True, 'date': d, 'window': w}
+
+
 def owner_of(cfg, folder):
     """The planner's owner input from the config and owner.json: {accounts, schedule, mode, away_after_hours}."""
     p = cfg.get('pacing') or {}
@@ -306,7 +374,10 @@ def owner_of(cfg, folder):
     if accounts is None:   # no main agent: no account is the owner's
         accounts = [n for n, a in cfg['accounts'].items() if agent and (n == agent or (a or {}).get('worker') == agent)]
     from . import presence  # imported here: config loads this module before presence exists
-    return {'accounts': list(accounts), 'schedule': sched, 'mode': saved.get('mode') or p.get('mode', 'auto'),
+    # keys as text: YAML reads an unquoted 2026-11-16 as a date. A dashboard null takes a config day back.
+    dates = {**{str(d): w for d, w in (p.get('dates') or {}).items()}, **{str(d): w for d, w in (saved.get('dates') or {}).items()}}
+    dates = {d: w for d, w in dates.items() if w is not None}
+    return {'accounts': list(accounts), 'schedule': sched, 'mode': saved.get('mode') or p.get('mode', 'auto'), 'dates': dates,
             'away_after_hours': p.get('away_after_hours', 3), 'zone': tz.zone_name(cfg, saved.get('browser_zone') or ''),
             'laptop_away': presence.owner_away(cfg),
             'stop_after_minutes': p.get('stop_after_minutes', 60), 'target_pct': (cfg.get('main') or {}).get('target_pct')}
@@ -322,7 +393,8 @@ def view(cfg, folder, entries, now):
     return {'accounts': o['accounts'], 'mode': o['mode'], 'effective': ctx['mode'], 'until': until, 'schedule': o['schedule'],
             'profile': ctx['profile'], 'reserve': ctx['reserve'], 'learned': ctx['learned'], 'hours_seen': ctx['hours_seen'],
             'utc_offset': ctx['utc_offset'], 'zone': ctx['zone'], 'browser_zone': read(folder).get('browser_zone') or '',
-            'days': list(DAYS), 'today': ctx.get('today_line')}
+            'days': list(DAYS), 'today': ctx.get('today_line'),
+            'dates': {d: w for d, w in sorted(o['dates'].items()) if d >= local(now, ctx['offset']).date().isoformat()}}
 
 
 def change(cfg, folder, data):
@@ -333,6 +405,8 @@ def change(cfg, folder, data):
             return 400, {'error': f'browser_zone is {data["browser_zone"]!r}: an IANA zone such as Europe/Bucharest'}
         write(folder, browser_zone=data['browser_zone'])
         return 200, {'ok': True, 'browser_zone': data['browser_zone']}
+    if isinstance(data, dict) and 'date' in data:   # one day's own window (pacing.dates): {"date": d, "window": "20-24"|"off"|null}
+        return change_date(folder, data, (cfg.get('pacing') or {}).get('dates'))
     keys = [k for k in ('mode', 'days', 'window', 'hours') if isinstance(data, dict) and k in data]
     if not keys:
         return 400, {'error': 'send {"mode": "auto|active|away|vacation-until-YYYY-MM-DD"} or {"days": [...], "window": "HH-HH", '

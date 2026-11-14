@@ -247,6 +247,10 @@ def machine_edits(cfg, target, facts, src):
     """The target becomes local; this computer an ssh machine reached through its own bridge; a machine the target cannot ssh
     to is probed through this computer too."""
     edits = [(['machines', target, 'host'], 'local'), (['machines', target, 'transport'], yamledit.DELETE)]
+    # the main machine's limited-usage window (machines.<m>.limit with main: true) follows Tutti to its new main machine
+    lim = (cfg['machines'].get(src['name']) or {}).get('limit')
+    if isinstance(lim, dict) and lim.get('main'):
+        edits += [(['machines', target, 'limit'], lim), (['machines', src['name'], 'limit'], yamledit.DELETE)]
     me = {'host': src['address'], 'user': src['user'], 'via': src['name']}
     if src['name'] in cfg['machines']:
         edits += [(['machines', src['name'], k], v) for k, v in me.items()]

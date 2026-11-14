@@ -343,7 +343,9 @@ API_PAIR, API_MOVE = '/api/devices/pair', '/api/devices/move'
 API_QUEUE = '/api/queue'   # the Queued list's actions: an admin's (Run now, Move to, Cancel, Priority up or down)
 API_TUTTI_MOVE = '/api/move'   # Tutti itself to another machine (docs/MOVE.md); API_MOVE moves a device
 # these change the config or the queue: an admin's
-ADMIN_PATHS = (API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE, '/api/ai-assist')
+API_LIMIT = '/api/machine-limit'   # a machine's limited-usage window (tutti/share.py), from its card
+ADMIN_PATHS = (API_LIMIT, API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE,
+               '/api/ai-assist')
 API_REPORT = '/api/report'   # Report a problem (docs/REPORT.md): every signed-in user, viewers included
 API_WORK_MOVE = '/api/work/move'   # work waiting on an away or asleep target moved now (docs/PRESENCE.md)
 ADMIN_PATHS += (API_WORK_MOVE,)   # takes work off a member's computer: an admin's (a viewer gets 403 from the auth hook)
@@ -512,6 +514,25 @@ def stored(collector, changes, answer, in_state):
     return 200, {'ok': True, **answer, 'backup': done['backup']}
 
 
+def save_limit(collector, raw):
+    """(status, answer) for POST /api/machine-limit {"machine": m, "window": "18-01" | "off", "pct": 60}: saved in the config."""
+    from . import share
+    try:
+        data = json.loads(raw or b'null')
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get('machine'), str) or not isinstance(data.get('window'), str):
+        return 400, {'error': 'send {"machine": "<name>", "window": "18-01" or "off", "pct": 60} as JSON'}
+    pct = data.get('pct')
+    if pct is not None and (isinstance(pct, bool) or not isinstance(pct, (int, float))):
+        return 400, {'error': 'pct is a number from 0 to 100'}
+    try:
+        changes = share.limit_change(collector.cfg, data['machine'], data['window'], pct)
+    except ValueError as e:
+        return 400, {'error': str(e)}
+    return stored(collector, changes, {'machine': data['machine'], 'window': data['window']}, lambda: None)
+
+
 def save_control(collector, raw, stop_fn=handover.stop_now):
     """(status, answer) for POST /api/control {"action": "pause"|"resume"|"optin", "kind": "machine"|"device"|"worker"|"account",
     "name": ..., "on": bool (optin), "stop": bool (pause: hand running jobs over, then stop them), "note": str}."""
@@ -579,7 +600,7 @@ def save_dispatch(collector, raw):
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
          '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, API_SETUP,
          API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn',
-         API_WORK_MOVE, API_QUEUE, API_REPORT, '/api/ai-assist')
+         API_WORK_MOVE, API_QUEUE, API_REPORT, '/api/ai-assist', API_LIMIT)
 BODY_LIMITS[chatrun.API] = chatrun.BODY_LIMIT
 
 
@@ -774,6 +795,7 @@ HANDLERS = {
     '/api/dispatch': save_dispatch,
     '/api/connect': save_connect,
     '/api/vpn': lambda c, b: vpncmd.api(c.cfg, b),
+    API_LIMIT: lambda c, b: save_limit(c, b),
     '/api/refresh': refresh_now,
     '/api/reading': lambda c, b: save_reading(c.cfg, b),
     '/api/telemetry': dashtelemetry.save,

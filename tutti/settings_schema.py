@@ -163,6 +163,8 @@ FIELDS = {
                                    'minutes).', 'number', min=0, max=100, step=5),
     'machines.*.quiet_pct': field('Share in quiet hours (%)', 'Fans and noise at night: the share in its quiet hours.', 'number',
                                   min=0, max=100, step=5),
+    'machines.*.limit': field('Limited hours', 'A daily window when Tutti uses at most pct % of it: {window: "18-01", pct: 60, '
+                              'days: [mon, ...]} (every day unless listed; main: true follows the main machine on a move).', **YAML),
     'machines.*.quiet_hours': field('Quiet hours', 'Local-time spans such as ["23:00-07:00"] (else autopilot.quiet_hours).', **YAML),
     'machines.*.heat': field('Heat', 'cap_c: one run at this temperature; stop_c: none; hot_slots: runs while hot.', **YAML),
     'machines.*.yield_file': field('Yield flag', 'While this file exists, the machine gets nothing new.', 'text'),
@@ -286,6 +288,7 @@ FIELDS = {
     'time.zone': field('Time zone', 'auto: this computer\'s, found by itself (daylight saving included); or an IANA name.', 'text',
                        suggest=['auto', 'Europe/Bucharest', 'Europe/London', 'America/New_York']),
     # pacing
+    'pacing.dates': field('Days with other hours', 'One day\'s own owner hours: {"2026-11-16": "20-24"} or "off".', **YAML),
     'pacing.schedule.days': field('Working days', 'The days you prompt yourself.', 'days'),
     'pacing.schedule.hours': field('Hours kept for you', 'The reserve kept on those days.', **HRS),
     'pacing.schedule.window': field('Your hours', 'Local hours, from-to.', 'hours'),

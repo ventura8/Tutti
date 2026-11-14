@@ -34,6 +34,15 @@ def others_busy(cfg):
     return any(pid != mine and pid.isdigit() and not waiting.pid_gone(int(pid))() for pid in pids)
 
 
+def ollama_get(host, path, timeout=3):
+    """An Ollama GET (/api/ps, /api/tags) as JSON, or None when the server does not answer."""
+    try:
+        with urllib.request.urlopen(config.ollama_url(host, path), timeout=timeout) as r:
+            return json.loads(r.read())
+    except (OSError, ValueError):
+        return None
+
+
 def post(host, payload, timeout):
     req = urllib.request.Request(config.ollama_url(host, '/api/generate'), json.dumps(payload).encode(),
                                  {'Content-Type': 'application/json'})
@@ -82,7 +91,7 @@ def generate(cfg, worker, prompt, wait=False, low_priority=False, timeout=1800):
     tries = 0
     while True:
         try:
-            return post(worker['host'], payload, timeout)['response'].strip()
+            return _timed(cfg, worker, lambda: post(worker['host'], payload, timeout))['response'].strip()
         except OSError as e:
             if not wait:
                 raise RuntimeError(f'the model server {worker["host"]} ({worker["model"]}) did not answer: {e}. Start it, or its '
@@ -90,6 +99,27 @@ def generate(cfg, worker, prompt, wait=False, low_priority=False, timeout=1800):
             tries += 1
             log(f'{worker["host"]} unreachable, waiting ({e}); try {tries}')
             time.sleep(min(60, 10 * tries))
+
+
+def _timed(cfg, worker, call):
+    """The call, with a marker while it runs (the dashboard counts the machine busy) and its tokens logged after
+    (tutti/energy.py): the energy card's busy time, jobs and tokens."""
+    from . import energy
+    name = next((n for n, w in cfg['workers'].items() if w is worker), worker.get('host', ''))
+    marker = os.path.join(config.state_dir(cfg), f'local-run-{os.getpid()}-{time.monotonic_ns()}')
+    start = time.time()
+    try:
+        with open(marker, 'w', encoding='utf8') as f:
+            f.write(f'{name} {start}')
+    except OSError:
+        marker = None
+    try:
+        answer = call()
+        energy.log_run(cfg, name, start, time.time(), answer)
+        return answer
+    finally:
+        if marker and os.path.exists(marker):
+            os.remove(marker)
 
 
 def read(path):

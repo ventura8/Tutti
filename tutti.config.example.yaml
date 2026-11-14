@@ -205,6 +205,21 @@ update: {auto: true, every_hours: 24, packages: [cursor], programs: [gemini]}
 usage:
   log: ~/.local/state/tutti/usage.jsonl
 
+# Local models' estimated energy cost (docs/ENERGY.md), shown under Usage & pacing. Everything is optional: the country and
+# currency are detected (time zone, then locale) and the price starts from a typical household tariff, marked estimated.
+energy:
+  # country: RO                        # override the detected country (ISO code)
+  # currency: RON                      # override the currency
+  # price_per_kwh: 1.35                # your bill's price per kWh, in your currency: the card stops saying "estimated"
+  tariff: []                           # time-of-day prices, local hours: [{hours: '23-07', price: 0.9}]
+  prefer_cheap_hours: false            # with a tariff: local-model autopilot runs wait for its cheapest hours
+  include_idle: true                   # count the draw while Tutti keeps a model loaded (keep_alive_minutes after its run)
+  keep_alive_minutes: 5
+  compare_with: claude-sonnet          # the cloud API priced for the same tokens: claude-sonnet, claude-haiku, gemini-flash, gpt-mini
+  machines:                            # per machine: the base draw (board, RAM, disks, PSU loss), the GPU when nothing reads it
+    gpu-box: {base_w: 40, gpu_tdp_w: 450, cpu_tdp_w: 125}
+    # nas: {ollama: '127.0.0.1:11434', gpu: Intel Arc}   # a machine whose Ollama no worker names: read over its own ssh
+
 guard: {low_gb: 3, high_gb: 6}        # `tutti guard`: pause the runner image's containers under 3 GB, resume over 6 GB
 
 ship:

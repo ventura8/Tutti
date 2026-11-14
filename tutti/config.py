@@ -92,6 +92,13 @@ DEFAULTS = {
     # again resume_after_call_seconds after the call; pause_on_owner_use (opt-in): a screen a person turned on holds it too.
     'dispatch': {'enabled': True, 'idle_minutes': 5, 'lease_minutes': 10, 'retries': 2, 'quiet_hours': [],
                  'call_poll_seconds': 3, 'resume_after_call_seconds': 30, 'pause_on_owner_use': False},
+    # energy: local models' estimated energy cost (docs/ENERGY.md). country and currency: '' detects them (time zone, then
+    # locale); price_per_kwh: None uses the bundled typical tariff (shown as estimated); tariff: time-of-day prices
+    # [{hours: '23-07', price: 0.9}] (local hours); prefer_cheap_hours: local-model autopilot runs wait for the cheap ones;
+    # include_idle: count the draw while Tutti keeps a model loaded (keep_alive_minutes after its last run); compare_with:
+    # the cloud API priced for the same tokens; machines: per machine {base_w, gpu, gpu_tdp_w, cpu_tdp_w, ollama}
+    'energy': {'country': '', 'currency': '', 'price_per_kwh': None, 'tariff': [], 'prefer_cheap_hours': False, 'include_idle': True,
+               'keep_alive_minutes': 5, 'compare_with': 'claude-sonnet', 'machines': {}},
     'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
              'command_timeout': 3600},
 }
@@ -326,11 +333,12 @@ def validate(cfg):
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
     errs += _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
-    from . import autocompact, dispatch, owner, scouts, selfimprove, sentry, tiers, users  # they import modules that import this one
+    # they import modules that import this one
+    from . import autocompact, dispatch, energy, owner, scouts, selfimprove, sentry, tiers, users
     errs += dispatch.errors(cfg) + tiers.errors(cfg)
     errs += selfimprove.errors(cfg) + sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
-        owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update'])
+        owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update']) + energy.errors(cfg)
 
 
 PACKAGE_NAME = re.compile(r'^[a-z0-9][a-z0-9+.-]*$')

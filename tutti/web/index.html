@@ -22,6 +22,7 @@
     <script src="connect.js?v=__TUTTI_VERSION__" defer></script>
     <script src="settings.js?v=__TUTTI_VERSION__" defer></script>
     <script src="setup.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="energy.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
     <a class="skip" href="#main">Skip to the dashboard</a>
@@ -59,6 +60,11 @@
                 </header>
                 <div id="usage" class="accounts" tabindex="0" role="group" aria-label="Accounts: scroll sideways for more on a small screen"></div>
                 <div id="owner" class="owner"></div>
+                <div class="local-models" aria-labelledby="local-h">
+                    <h3 id="local-h" class="local-models__head">Local models</h3>
+                    <p class="card__meta" id="local-meta">All figures are estimates; open "how they are made" on a card.</p>
+                    <div id="local-models" class="accounts" tabindex="0" role="group" aria-label="Local models: scroll sideways for more on a small screen"></div>
+                </div>
             </section>
 
             <section class="card card--attention span-full" aria-labelledby="attention-h">

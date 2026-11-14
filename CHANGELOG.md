@@ -2,6 +2,25 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.42 (2026-11-14)
+
+### Added
+
+- Local models under Usage & pacing, in a category of their own (docs/ENERGY.md): one card per machine running local
+  models (each Ollama worker's machine, else this computer, and `energy.machines.<m>.ollama`) with the models installed
+  and loaded, busy time, jobs and tokens (Ollama's `eval_count`) today, this week and this month, live GPU power and use
+  (nvidia-smi, rocm-smi, xpu-smi, intel_gpu_top, hwmon energy counters; RAPL for the CPU) over the existing ssh, a TDP x
+  utilisation estimate where nothing is readable, the whole-system estimate, and availability (paused, yielding, thermal).
+- Estimated energy and cost: kWh sampled at each probe while a Tutti run is on the machine, plus the idle draw while Tutti
+  keeps a model loaded; cost in the user's currency, detected from the time zone, then the locale (RON for a computer in
+  Romania with an English locale), at a bundled typical household price per country (sources and date in docs/ENERGY.md),
+  marked estimated until `energy.price_per_kwh` is set; per job, per busy hour, per day, week and month, and what the same
+  tokens would cost on a cloud API.
+- `energy:` settings (the Settings tab's Energy section): country, currency, price per kWh, a time-of-day tariff, `prefer_cheap_hours` (local-model autopilot
+  runs wait for the cheap hours), `include_idle`, and per machine the base draw and the GPU's TDP.
+- Every local-model call through `tutti ask`, `code`, `loop` and translation is logged in `<state>/local-runs.jsonl`
+  (worker, start, end, tokens); a local `tutti conduct` is not yet (docs/ENERGY.md, *Limits*).
+
 ## 0.1.41 (2026-11-14)
 
 ### Fixed

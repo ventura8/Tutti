@@ -118,6 +118,11 @@ def local_room(cfg, name, step, used, machines):
     m = next((x for x in machines if x.get('name') == home), None)
     if m and m.get('status') in ('paused', 'offline'):
         return 0, f'{name}: its machine {home} is {m["status"]} ({m.get("reason")})'   # a yielding PC is its owner's
+    if (cfg.get('energy') or {}).get('prefer_cheap_hours'):   # a time-of-day tariff: local runs wait for the cheap hours
+        from . import energy
+        wait = energy.cheap_now(cfg, energy.tariff(cfg), time.localtime().tm_hour)
+        if wait:
+            return 0, f'{name}: {wait}'
     return (0, f'{name}: busy with a task') if used else (1, '')
 
 

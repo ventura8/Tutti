@@ -1051,6 +1051,7 @@ function render() {
     ui.autopilot = s.autopilot;   // the accounts' room lines say what the autopilot does with the room
     ui.scouts = s.scouts;         // a scout's account card shows its scout facts, not task room
     renderUsage(s, now);
+    if (typeof renderLocalModels === 'function') renderLocalModels(s);   // energy.js: the Local models category
     renderAttention(s);
     renderControls(s);   // controls.js: devices, pause and resume, opt-in switches
     renderJobs(s);

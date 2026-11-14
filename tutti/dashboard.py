@@ -10,6 +10,7 @@ import math
 import mimetypes
 import os
 import secrets
+import socket
 import subprocess
 import sys
 import threading
@@ -22,6 +23,7 @@ from . import (
     __version__,
     autocompact,
     autopilot,
+    bridge,
     conduct,
     config,
     connect,
@@ -33,6 +35,7 @@ from . import (
     handover,
     helper,
     local,
+    move,
     owner,
     pacing,
     projects,
@@ -99,7 +102,7 @@ class Collector:
             now = datetime.fromtimestamp(self.clock(), timezone.utc)
             found = self.reader.read_all(now, force)
             readers.record(state.usage_log_path(self.cfg), found, self.reader.scan_jobs(now), now)
-            readers.record_files(state.usage_log_path(self.cfg), self.cfg['accounts'])
+            readers.record_files(state.usage_log_path(self.cfg), self.cfg['accounts'], self.cfg)
             return found
 
     def refresh_readings(self):
@@ -222,6 +225,11 @@ class Collector:
         out['controls']['opt_in'].append({'kind': 'dispatch', 'name': 'keep_busy', 'on': out['dispatch']['enabled'],
                                           'why': 'idle devices and machines pull pending test shards by themselves; idle ones warn'})
         autocompact.tag_jobs(self.cfg, out['jobs']['items'])
+        out['where'] = move.view(self.cfg, started=STARTED)
+        theirs = bridge.client_jobs(self.cfg) if out['where']['clients'] else []
+        if theirs:   # a client's own jobs (its scripts, ship checks) after a move: docs/MOVE.md
+            out['jobs']['items'] = theirs + out['jobs']['items']
+            out['jobs']['total'] += len(theirs)
         last = update.load(self.cfg)
         out['updates'] = {**update.view(self.cfg, last), 'running': self.updating.locked(), 'error': (last or {}).get('error')}
         return out
@@ -251,9 +259,10 @@ def static_path(url_path):
     return full
 
 
-API_SETTINGS, API_RESTART = '/api/settings', '/api/restart'
+API_SETTINGS, API_RESTART, API_SETUP = '/api/settings', '/api/restart', '/api/setup'
 API_PAIR, API_MOVE = '/api/devices/pair', '/api/devices/move'
-ADMIN_PATHS = (API_SETTINGS, API_RESTART, '/api/setup', API_PAIR, API_MOVE)   # these change the config: an admin's
+API_TUTTI_MOVE = '/api/move'   # Tutti itself to another machine (docs/MOVE.md); API_MOVE moves a device
+ADMIN_PATHS = (API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE)   # these change the config: an admin's
 BODY_LIMITS[API_SETTINGS] = 65536
 
 
@@ -475,8 +484,8 @@ def save_dispatch(collector, raw):
 
 
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
-         '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, '/api/setup',
-         API_PAIR, API_MOVE)
+         '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, API_SETUP,
+         API_PAIR, API_MOVE, API_TUTTI_MOVE)
 
 
 def save_connect(collector, body, home=None):
@@ -556,6 +565,32 @@ def without_port(argv):
     return out
 
 
+def move_now(collector, body, popen=subprocess.Popen):
+    """POST /api/move (admin, docs/MOVE.md): {"action": "plan", "to": m} answers the dry run's plan; {"action": "move", "to": m,
+    "jobs": "wait"|"handover"} starts the move detached (this dashboard stops during it; the page reconnects to the new host
+    through the client); {"action": "rollback"} brings Tutti back here."""
+    try:
+        data = json.loads(body or b'{}')
+    except ValueError:
+        data = None
+    data = data if isinstance(data, dict) else {}
+    cfg, to, action = collector.cfg, data.get('to'), data.get('action')
+    targets = move.view(cfg)['targets']
+    if action in ('plan', 'move') and to not in targets:
+        return 400, {'error': f'"to" must be one of {", ".join(targets) or "(no other ssh machine in the config)"}'}
+    if action == 'plan':
+        plan = move.make_plan(cfg, to, move.Move(cfg, to).facts())
+        return 200, {'plan': move.describe(plan), 'blocked': bool(plan['blockers'])}
+    if action not in ('move', 'rollback'):
+        return 400, {'error': 'send {"action": "plan"|"move", "to": <machine>, "jobs": "wait"|"handover"} or {"action": "rollback"}'}
+    argv = [sys.executable, os.path.join(config.ROOT, 'bin', 'tutti'), '--config', cfg['_path'], 'move']
+    jobs = 'handover' if data.get('jobs') == 'handover' else 'wait'
+    argv += ['--rollback'] if action == 'rollback' else ['--to', to, '--jobs', jobs]
+    with open(os.path.join(move.move_dir(cfg), 'move.log'), 'a', encoding='utf8') as f:
+        popen(argv, stdout=f, stderr=f, stdin=subprocess.DEVNULL, start_new_session=True)
+    return 202, {'ok': True, 'started': action}
+
+
 def restart_now(collector, _body, execv=os.execv, timer=threading.Timer):
     """POST /api/restart: the dashboard starts again with the same command, so a setting that needs a restart applies. The
     page waits for /api/health and reloads."""
@@ -587,13 +622,14 @@ def run_setup(collector, body, popen=subprocess.Popen):
 
 
 HANDLERS = {
-    '/api/setup': run_setup,
+    API_SETUP: run_setup,
     API_PAIR: lambda c, b: devicesweb.pair_post(c, b),
     API_MOVE: lambda c, b: devicesweb.move_post(c, b),
     '/api/main': lambda c, b: save_main(c.cfg, b),
     '/api/autopilot': save_autopilot,
     API_SETTINGS: settings.save,
     API_RESTART: restart_now,
+    API_TUTTI_MOVE: move_now,
     '/api/owner': save_owner,
     '/api/control': save_control,
     '/api/autocompact': save_autocompact,
@@ -691,7 +727,8 @@ def route(collector, path, token=''):
     if path == '/api/state':
         return 200, safe_json(collector.snapshot()), JSON_TYPE, 'no-store'
     if path == '/api/health':   # `started` changes when the process starts again (Settings' Restart waits for it)
-        return 200, json.dumps({'ok': True, 'started': STARTED}).encode(), JSON_TYPE, 'no-store'
+        return 200, json.dumps({'ok': True, 'started': STARTED, 'host': socket.gethostname(), 'version': __version__}).encode(), \
+            JSON_TYPE, 'no-store'
     if path == API_SETTINGS:
         return 200, safe_json(settings.view(collector.cfg, getattr(collector, 'env', None))), JSON_TYPE, 'no-store'
     if path in ('/helper', '/helper.html'):

@@ -102,6 +102,11 @@ DEFAULTS = {
                'keep_alive_minutes': 5, 'compare_with': 'claude-sonnet', 'machines': {}},
     'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
              'command_timeout': 3600},
+    # host: where Tutti runs (docs/MOVE.md), written by `tutti move`: the machine that serves the dashboard and keeps the
+    # state, this computer's own name (me), and on a client how to reach the host (ssh, config, tutti, state, usage_log),
+    # the stable name members use (address) and its port; on the host, jobs: the client whose repositories and sign-ins
+    # run the worker jobs through its bridge. Empty: Tutti runs here, as it always did.
+    'host': {},
 }
 MACHINE_DEFAULTS = {'transport': 'ssh', 'root': 'tutti-wt', 'slots': 2, 'min_free_gb': 6, 'lock_prefix': '/tmp/tutti-slot-',
                     'yield_file': '~/.tutti/yield'}
@@ -189,6 +194,8 @@ def normalise(raw):
     cfg = merge(DEFAULTS, raw)
     for name, m in list(cfg['machines'].items()):
         cfg['machines'][name] = machine_of(cfg, name, m or {})
+        if cfg['machines'][name].get('via'):   # probed through that client's bridge (tutti/bridge.py)
+            cfg['machines'][name]['_state'] = expand(cfg['project']['state'])
     if not cfg['routing']['order']:
         cfg['routing']['order'] = list(cfg['machines'])
     # an Android device always routes last: it is the slowest and the one a person may pick up
@@ -323,6 +330,10 @@ def validate(cfg):
     for name, m in cfg['machines'].items():
         errs += _machine_errors(name, m)
     errs += [f'routing.order names "{n}", which is not under machines:' for n in cfg['routing']['order'] if n not in cfg['machines']]
+    errs += [f'machines.{n}.via names "{m["via"]}", which is not under machines: (the client this machine is reached through)'
+             for n, m in cfg['machines'].items() if m.get('via') and m['via'] not in cfg['machines']]
+    from . import move
+    errs += move.errors(cfg)
     from . import devices
     errs += devices.errors(cfg)
     for name, w in cfg['workers'].items():

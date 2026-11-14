@@ -2,6 +2,23 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.48 (2026-11-14)
+
+### Added
+
+- `tutti move --to <machine>` and the dashboard's **Where Tutti runs** card with **Move Tutti to…** (docs/MOVE.md): one
+  guided, resumable move of the dashboard, the state and the loops to another machine: preflight (ssh, OS, disk, Tutti,
+  LAN and VPN addresses, lingering, suspend), the one-line install there, copy, freeze, running jobs waited for or handed
+  over, final sync, the config from the target's point of view (comments kept), secrets with mode 600 over stdin, the
+  login service started there, a health check that rolls back by itself, and this computer turned into a client.
+  `--dry-run` prints the plan, `--rollback` undoes it, `--status` says where Tutti runs.
+- Clients: commands that read or change the state run on the host over ssh (so every connected agent follows); with the
+  host down, reads use a read-only copy and say so, `tutti run` works alone, changes are refused with the fix.
+- The bridge (`tutti client`, `tutti bridge`): the client's one ssh to the host carries the dashboard's port and lets the
+  host run jobs, readers and reading files that need the client's repositories and sign-ins, from the client's own config
+  only (`host.jobs`, `accounts.<n>.read_on`, `accounts.<n>.reading_from`, `machines.<m>.via`).
+- `/api/health` names the host and the version.
+
 ## 0.1.47 (2026-11-14)
 
 ### Added

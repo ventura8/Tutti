@@ -12,7 +12,7 @@ from . import config, scouts
 MISSING = object()
 DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 # Settings that change only when the dashboard starts again (the page then offers a Restart button)
-RESTART = {'dashboard.port', 'project.state', 'household.port', 'household.bind', 'telemetry.endpoint', 'telemetry.environment'}
+RESTART = {'host', 'dashboard.port', 'project.state', 'household.port', 'household.bind', 'telemetry.endpoint', 'telemetry.environment'}
 # Named entries: each one is drawn as its own group of fields
 ENTRIES = ('machines', 'devices', 'workers', 'accounts', 'projects', 'scouts', 'autopilot.repos', 'scouts.*.watches')
 SECTIONS = [
@@ -41,7 +41,7 @@ SECTIONS = [
     ('dashboard', 'Dashboard', 'This page: its port, how often it refreshes, and which processes it shows as jobs.',
      ['dashboard', 'project']),
     ('household', 'You and your household', 'Who this Tutti works for, and the household it shares machines with.',
-     ['user', 'household']),
+     ['user', 'household', 'host']),
 ]
 
 
@@ -337,6 +337,8 @@ FIELDS = {
     # you and your household
     'user.name': field('Your name', 'Empty: the login\'s.', 'text'),
     'user.weight': field('Your share', 'Your weight in the household\'s shared machines.', 'number', min=0, step=0.5),
+    'host': field('Where Tutti runs', 'Written by `tutti move` (docs/MOVE.md): the machine that serves the dashboard and keeps '
+                  'the state, and on a client how to reach it. Change it with `tutti move`, not by hand.', **YAML),
     'household.port': field('Coordinator port', 'Where the household\'s coordinator listens.', 'number', min=1, max=65535),
     'household.bind': field('Coordinator address', 'The address it binds to.', 'text'),
     'household.lease_minutes': field('Lease', 'A task\'s lease without a heartbeat.', **MIN),

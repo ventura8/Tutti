@@ -268,8 +268,24 @@ class Readers:
         """The interval a reader is asked at now: its own, times the back-off while its answer stays the same."""
         return round(float(self.every_minutes(spec)) * self.backoff.get(key_of(spec), 1), 2)
 
+    def read_there(self, name, a, force=False):
+        """An account read by the computer that holds its sign-in (accounts.<n>.read_on, set by `tutti move`), through that
+        computer's bridge; asked at the reader's own interval like a reader run here."""
+        from . import bridge
+        spec = a.get('reader') or a.get('plan') or {}
+        key = ('bridge', name)
+        hit = self.cache.get(key)
+        if hit and not force and self.clock() - hit[0] < float(self.every_minutes(spec)) * 60 * 0.9:
+            return hit[1]
+        out = bridge.read_account(self.cfg, a['read_on'], name, force)
+        self.runs += 1
+        self.cache[key] = (self.clock(), out, None)
+        return out
+
     def read(self, name, a, now=None, force=False):
         """{'plan', 'used', 'resets', 'problem', 'every_minutes'} for one account from its `reader` and `plan` commands."""
+        if a.get('read_on'):
+            return self.read_there(name, a, force)
         out = {'plan': None, 'used': None, 'resets': None, 'problem': None, 'every_minutes': None}
         if a.get('plan'):
             data, problem = self._answer(a['plan'], force)
@@ -409,21 +425,36 @@ def parse_reading_file(text, account=None):
     return used, pacing.parse_time(resets) if resets else None, pacing.parse_time(at) if at else None
 
 
-def record_files(path, accounts):
+def read_file_of(cfg, name, a):
+    """(path, mtime, text reader) of an account's reading file: here, or on the computer named by accounts.<n>.reading_from
+    (its orchestrator writes it there; `tutti move` sets the key), read through that computer's bridge."""
+    f = config.expand(a.get('reading_file') or '') if a.get('reading_file') else None
+    if not f:
+        return None, None, None
+    if a.get('reading_from') and cfg is not None:
+        from . import bridge
+        text, seen = bridge.reading_file(cfg, a['reading_from'], name)
+        return f, seen, (lambda: text)
+
+    def text():
+        with open(f, encoding='utf8') as fh:
+            return fh.read()
+    return f, mtime(f), text
+
+
+def record_files(path, accounts, cfg=None):
     """Readings an orchestrator wrote to accounts.<name>.reading_file (it gets the plan's % from its own tool, which no CLI
     prints). Each version of the file is logged once (its ref holds the file's mtime). Returns (lines written, problems)."""
     entries = pacing.read_log(path)
     refs = {e.get('ref') for e in entries if e.get('ref')}
     written, problems = [], []
     for name, a in accounts.items():
-        f = config.expand((a or {}).get('reading_file') or '') if (a or {}).get('reading_file') else None
-        seen = mtime(f) if f else None
+        f, seen, text = read_file_of(cfg, name, a or {})
         ref = f'file:{f}:{name}:{seen}'   # one file may hold several accounts: each is logged once per version
         if seen is None or ref in refs:
             continue
         try:
-            with open(f, encoding='utf8') as fh:
-                used, resets, at = parse_reading_file(fh.read(), name)
+            used, resets, at = parse_reading_file(text(), name)
         except (OSError, ValueError, TypeError) as e:
             problems.append(f'accounts.{name}.reading_file {f}: {e}: write a percentage such as 42, or {{"used": 42}}')
             continue

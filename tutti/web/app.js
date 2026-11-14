@@ -835,22 +835,48 @@ function newWorker(reg) {
     });
 }
 
+function busyEditing() {
+    return ui.editing.size > 0 || Boolean(ui.formPending);   // a reading being typed or saved is never thrown away
+}
+
+function writeMarker(version) {
+    try {
+        sessionStorage.setItem(RELOADED_FOR, version);
+        return true;
+    } catch {
+        return false;   // full or blocked storage: the reload could not be remembered, so it does not happen
+    }
+}
+
+function manualReload(version) {
+    ui.notice = `Tutti ${version} is running but this page is still ${PAGE_VERSION}: reload it with Ctrl+Shift+R.`;
+}
+
 async function selfUpdate(version) {
     const m = marker();
     const what = tuttiUpdateDecision(PAGE_VERSION, version, m.value, m.ok);
     if (what === 'none' || ui.updating) return;
     if (what === 'stuck') {
-        ui.notice = `Tutti ${version} is running but this page is still ${PAGE_VERSION}: reload it with Ctrl+Shift+R.`;
+        manualReload(version);
         return;
     }
+    if (busyEditing()) return;   // the next poll tries again
     ui.updating = true;
-    sessionStorage.setItem(RELOADED_FOR, version);
-    const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration().catch(() => null) : null;
-    if (reg) {
-        await reg.update().catch(() => {});
-        await newWorker(reg);
+    try {
+        const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration().catch(() => null) : null;
+        if (reg) {
+            await reg.update().catch(() => {});
+            await newWorker(reg);
+        }
+        if (busyEditing()) return;   // an edit started while the worker updated: after it is saved or closed
+        if (!writeMarker(version)) {
+            manualReload(version);
+            return;
+        }
+        location.reload();
+    } finally {
+        ui.updating = false;
     }
-    location.reload();
 }
 
 function keys(e) {

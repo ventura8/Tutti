@@ -3,7 +3,8 @@
 // it carries the running server's token for saving readings, so a cached copy is only the offline fallback.
 // The server writes its version here: a new release is a new worker, its own cache, and the old cache is dropped.
 const CACHE = 'tutti-shell-__TUTTI_VERSION__';
-const SHELL = ['./', 'index.html', 'app.css', 'update.js', 'app.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
+const V = '?v=__TUTTI_VERSION__';   // the page loads its code with the release in the URL (index.html)
+const SHELL = ['./', 'index.html', `app.css${V}`, `update.js${V}`, `app.js${V}`, 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
     'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {
@@ -12,7 +13,8 @@ self.addEventListener('install', (event) => {
 
 // The page asks a waiting worker to take over at once when it sees a new version in /api/state.
 self.addEventListener('message', (event) => {
-    if (event.data && event.data.type === 'skip-waiting') self.skipWaiting();
+    if (new URL(event.origin || 'null', self.location.href).origin !== self.location.origin) return;   // our own pages only
+    if (event.data?.type === 'skip-waiting') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
@@ -34,7 +36,8 @@ self.addEventListener('fetch', (event) => {
         return;
     }
     event.respondWith(caches.open(CACHE).then(async (cache) => {
-        const cached = await cache.match(event.request, { ignoreSearch: true });
+        // a versioned asset matches only its own release: an old worker fetches a new page's code from the network
+        const cached = await cache.match(event.request, { ignoreSearch: !url.searchParams.has('v') });
         const fresh = fetch(event.request).then(async (res) => {
             if (res.ok) {
                 await cache.put(event.request, res.clone());

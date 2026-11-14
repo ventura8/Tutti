@@ -111,6 +111,15 @@ def units(task):
     return backlog.SIZES.get(task.get('size'), 1)
 
 
+def local_room(cfg, name, step, used, machines):
+    """A worker without an account (a local model): one task at a time, none while its machine is paused or offline."""
+    home = cfg['workers'][step['worker']].get('machine')
+    m = next((x for x in machines if x.get('name') == home), None)
+    if m and m.get('status') in ('paused', 'offline'):
+        return 0, f'{name}: its machine {home} is {m["status"]} ({m.get("reason")})'   # a yielding PC is its owner's
+    return (0, f'{name}: busy with a task') if used else (1, '')
+
+
 def step_room(cfg, name, states, running_units, machines=()):
     """(units of room, why not) for one ladder step now. A trigger account (autopilot.accounts) has room only while it is
     behind its line (or late), as much as its readings say; any other account only while it is not ahead of its pace, one task
@@ -120,11 +129,7 @@ def step_room(cfg, name, states, running_units, machines=()):
         return 0, f'{name}: not usable (unknown, turned off, or it costs money)'
     used = running_units.get(name, 0)
     if not step['account']:
-        home = cfg['workers'][step['worker']].get('machine')
-        m = next((x for x in machines if x.get('name') == home), None)
-        if m and m.get('status') in ('paused', 'offline'):
-            return 0, f'{name}: its machine {home} is {m["status"]} ({m.get("reason")})'   # a yielding PC is its owner's
-        return (1 - used, f'{name}: busy with a task') if used else (1, '')
+        return local_room(cfg, name, step, used, machines)
     s = states.get(name)
     if not s:
         return 0, f'{name}: no pacing state yet'

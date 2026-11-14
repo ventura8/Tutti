@@ -29,7 +29,9 @@ class ServedVersion(unittest.TestCase):
         self.assertIn(f"'tutti-shell-{__version__}'".encode(), worker)
         self.assertNotIn(b'__TUTTI_VERSION__', page + worker)
         self.assertEqual(cache, 'no-cache')   # revalidated: a new release reaches the browser at once
-        self.assertIn(b'update.js', page)
+        self.assertIn(f'app.js?v={__version__}'.encode(), page)          # a new page never runs an old worker's cached code
+        self.assertIn(f"'?v={__version__}'".encode(), worker)
+        self.assertEqual(dashboard.route(self.c, f'/app.js?v={__version__}')[0], 200)
 
 
 @unittest.skipUnless(shutil.which('node'), 'node is not installed: the decision test runs where node is (CI has it)')

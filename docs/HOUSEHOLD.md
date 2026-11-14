@@ -86,8 +86,8 @@ The dashboard says "household coordinator not reachable since 14:02: working alo
   `HMAC-SHA256(secret, user id | both nonces)`; it never travels. The member keeps it in `~/.config/tutti/household.json`
   and the coordinator in `household/members.json`, both mode 600.
 - **Every request signed.** `X-Tutti-User`, `X-Tutti-Time` and `X-Tutti-Sign = HMAC(token, method | path | time | nonce |
-  SHA-256 of the body)`; the coordinator refuses a time more than 120 s off, a nonce it saw, a body over 64 KB, and a user
-  that left or was removed. A wrong join code is refused, and after 10 wrong tries in 10 minutes from one address the
+  SHA-256 of the body)`; the coordinator refuses a time more than 120 s off, a nonce it saw (kept in its state file, so a
+  restart does not forget them), a body over 64 KB, and a user that left or was removed. A wrong join code is refused, and after 10 wrong tries in 10 minutes from one address the
   join is closed for that address for an hour.
 - **What crosses the network.** Bodies are not encrypted (standard library only), so they carry nothing private: a user's
   name, main agent's *kind*, active or not, a 7 x 24 activity profile (0 to 1 per hour, not prompts), running jobs as
@@ -100,7 +100,7 @@ The dashboard says "household coordinator not reachable since 14:02: working alo
   aggregates, nothing more.
 - **Who may pause what.** A shared machine's owner (the member whose config it came from) may pause it for everyone or
   take it back out (`household machine unshare`); the coordinator's admin (the member who ran `init`) may pause any shared
-  machine and remove a member. Every member can stop their own use of any machine, and the yield, pause and heat flags
+  machine and remove a member. When the admin leaves, the longest-standing member who stays becomes the admin. Every member can stop their own use of any machine, and the yield, pause and heat flags
   of a machine are respected by everyone's routing as today.
 
 ## Same project, several users
@@ -113,10 +113,12 @@ A repo in `autopilot.repos` with `household: true` is a **shared project**. Its 
   `household`), so the queue, retries and the ladder work as before.
 - **Dedupe.** A task's key is its title, folded (case, spaces, punctuation). A key the shared backlog has, in any status
   (done and dropped too), is never added again, and a task one member finished is closed for all.
-- **Leases.** Before a shared task starts, its autopilot claims the lease `task:<project>:<key>` for 30 minutes; every round
-  renews the leases of its running tasks (the heartbeat). A lease held by another member makes the task wait ("leased by
-  Bo"); one whose heartbeat stopped expires and the task may be taken again, continuing from its branch when that member
-  pushed it. A worktree name and a branch carry the task id; the lease on the task covers both.
+- **Leases.** A shared task starts only under its lease `task:<project>:<key>`: the round's call reserves the next ones
+  for 5 minutes, and a task that starts gets the full 30 minutes in a second call right away; every round renews the
+  leases of its running and in-review tasks (the heartbeat). A lease held by another member makes the task wait ("leased by
+  Bo"); one whose heartbeat stopped expires and the task may be taken again (it starts over in the new holder's worktree). A
+  task mirrored from the household is reserved at the member's next round. Only the member that published a task or holds
+  its lease may close it for everyone. A worktree name and a branch carry the task id; the lease on the task covers both.
 - **`fill_room` under each user's own accounts.** Each member fills its own accounts' room from the shared backlog first,
   then from the repo's sources; whose account does the task is only the member that holds its lease.
 
@@ -144,8 +146,8 @@ before its reset.
 
 ## Setup: minimum input
 
-What ships when is under *Increments* below: `tutti user` and `tutti household status` first, then `init`, `join`,
-`leave`, `code` and `project share`, then `machine share|use`.
+What ships when is under *Increments* below: `tutti user` and `tutti household status` (0.1.29), `init`, `join`,
+`leave`, `code`, `serve` and `project share` (0.1.31), then `machine share|use`.
 
 The coordinator (once, on the always-on computer):
 
@@ -169,18 +171,32 @@ tutti household machine use pc          # a member: adds pc to their config (the
 A shared project:
 
 ```bash
-tutti household project share tutti    # autopilot.repos.tutti becomes shared (household: true)
+tutti household project share tutti    # autopilot.repos.tutti becomes shared (or write household: true under it)
 ```
 
 `tutti household status` shows the members, who is active, the shared machines' use per member, the fairness, and the
-leases; `tutti household leave` ends the membership (the member's own setup is untouched).
+leases; `tutti household leave` ends the membership (the member's own setup is untouched; its shared repos turn private,
+so a later join starts with nothing shared). `tutti household serve --port <n>` moves the coordinator: new join codes
+name the new port. `init` always starts a fresh household: an older coordinator file's members and tokens are gone.
 
 `tutti user` shows who this Tutti works for (name, a hashed id, main agent, config and state folders, household role);
 `tutti user name <name>` and `tutti user share <account> on|off` change it; the main agent is `tutti main <agent>`'s.
 
+## Files
+
+| Where | What |
+| --- | --- |
+| member: `~/.config/tutti/household.json` (600) | the household, the coordinator's address, the user id, the derived token, the role |
+| member: `<state>/user.json` | the name, the `share_spare` switches, the repos shared by `household project share` |
+| coordinator: `<state>/household/coordinator.json` (600) | members (name, hash, agent kind, token, last heartbeat, totals), the join code's secret and expiry, leases, the shared backlogs |
+
+The coordinator's API: `POST /hh/join` (signed with the join code), `/hh/sync` (the heartbeat and every shared
+project in one call per round), `/hh/status`, `/hh/leave`, `/hh/code` (the admin only); `GET /hh/health`.
+
 ## Telemetry
 
-New events (`household.join`, `household.lease`, `household.sync`, `household.grant`) carry categories and counts only;
+New events (`household.init`, `household.join`, `household.sync` with its outcome `ok`, `offline` or `refused`, and from
+increment 3 `household.grant`) carry categories and counts only;
 a user is named by `user` = the first 12 hex digits of `SHA-256("tutti-user:" + user id)`, never a name.
 
 ## Migration
@@ -194,7 +210,7 @@ a user is named by `user` = the first 12 hex digits of `SHA-256("tutti-user:" + 
 
 | Release | What |
 | --- | --- |
-| 1 | the user model (`tutti user`, the hashed id, `share_spare`), per-user state, the single-user migration, this design |
-| 2 | the coordinator, `household init\|join\|status\|leave\|code`, signed requests, leases with heartbeats, shared backlogs and dedupe |
+| 1 (0.1.29) | the user model (`tutti user`, the hashed id, `share_spare`), per-user state, the single-user migration, this design |
+| 2 (0.1.31) | the coordinator, `household init\|join\|status\|leave\|code`, signed requests, leases with heartbeats, shared backlogs and dedupe |
 | 3 | fair shares of shared machines in routing and the autopilot, the household plan from every member's profile, `share_spare` |
 | 4 | the dashboard: **Me / Household**, the household card, others' jobs as "busy for <user>" |

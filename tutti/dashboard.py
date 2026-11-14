@@ -112,7 +112,9 @@ class Collector:
             return None
         snap = self.snapshot()
         states = {a['name']: a for a in snap['usage']['accounts']}
-        return autopilot.tick(self.cfg, states, snap['machines']['items'])
+        from . import sharing  # a household member's heartbeat rides on the round (docs/HOUSEHOLD.md)
+        beat = sharing.beat(self.cfg, datetime.fromtimestamp(self.clock(), timezone.utc))
+        return autopilot.tick(self.cfg, states, snap['machines']['items'], beat=beat)
 
     def scouts_tick(self):
         """One scouts round after each probe: answers collected, due watches and queued questions sent within the allowance."""

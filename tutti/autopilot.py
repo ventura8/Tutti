@@ -227,32 +227,50 @@ def room_reason(name, room, queued):
                                                       'no queued task may go there (a fresh task goes only to autopilot.accounts)')
 
 
-def plan(cfg, tasks, states, machines, on, now=None):
+def waiting_of(tasks, unchecked, hold):
+    """Why each task that cannot go now waits: no acceptance check, or held by the household (tutti/sharing.py)."""
+    out = {t['id']: f'no acceptance check: give it one (tutti backlog rm {t["id"]}, then add it with --check) or set '
+                    f'autopilot.repos.{t["repo"]}.check' for t in unchecked}
+    queued = {t['id'] for t in tasks if t['status'] == 'queued'}
+    out.update({i: why for i, why in hold.items() if i in queued})
+    return out
+
+
+def capacity_now(cfg, running, machines, now):
+    """(how many may start now, None) or (0, {state, reason}) when nothing may: quiet hours, max_parallel, no machine slot."""
+    hours = cfg['autopilot'].get('quiet_hours')
+    if now is not None and planner.quiet(now, hours):
+        return 0, {'state': 'waiting', 'reason': f'quiet hours ({", ".join(hours)} UTC, autopilot.quiet_hours): nothing new starts'}
+    free = settings(cfg)['max_parallel'] - len(running)
+    if free <= 0:
+        return 0, {'state': 'running', 'reason': f'{len(running)} run(s) going: max_parallel is {settings(cfg)["max_parallel"]}'}
+    slots, why = machine_capacity(cfg, machines)
+    if slots is not None:
+        free = min(free, slots)
+        if free <= 0:
+            return 0, {'state': 'waiting', 'reason': why}
+    return free, None
+
+
+def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     """What to do now, pure. {state, reason, dispatch: [(task id, step name)], waiting: {task id: why}}. `now` (a datetime):
-    nothing new starts in `autopilot.quiet_hours`; finished runs are still collected."""
-    queued = [t for t in tasks if t['status'] == 'queued' and t['repo'] in settings(cfg)['repos']]
+    nothing new starts in `autopilot.quiet_hours`; finished runs are still collected. `hold`: {task id: why} of shared
+    tasks this member may not start now (tutti/sharing.py: leased by another member, or the coordinator unreachable)."""
+    hold = hold or {}
+    queued = [t for t in tasks if t['status'] == 'queued' and t['repo'] in settings(cfg)['repos'] and t['id'] not in hold]
     unchecked = [t for t in queued if not (t.get('check') or settings(cfg)['repos'][t['repo']].get('check'))]
     queued = [t for t in queued if t not in unchecked]
     running = [t for t in tasks if t['status'] == 'running']
     out = {'state': 'off', 'reason': 'turned off: the dashboard\'s toggle or `tutti autopilot on` starts it', 'dispatch': [],
-           'waiting': {t['id']: f'no acceptance check: give it one (tutti backlog rm {t["id"]}, then add it with --check) or set '
-                                f'autopilot.repos.{t["repo"]}.check' for t in unchecked}}
+           'waiting': waiting_of(tasks, unchecked, hold)}
     if not on:
         return out
     if not queued:
         busy = f'{len(running)} run(s) going; ' if running else ''
         return {**out, 'state': 'idle' if not running else 'running', 'reason': busy + EMPTY}
-    hours = cfg['autopilot'].get('quiet_hours')
-    if now is not None and planner.quiet(now, hours):
-        return {**out, 'state': 'waiting', 'reason': f'quiet hours ({", ".join(hours)} UTC, autopilot.quiet_hours): nothing new starts'}
-    free = settings(cfg)['max_parallel'] - len(running)
-    if free <= 0:
-        return {**out, 'state': 'running', 'reason': f'{len(running)} run(s) going: max_parallel is {settings(cfg)["max_parallel"]}'}
-    slots, why = machine_capacity(cfg, machines)
-    if slots is not None:
-        free = min(free, slots)
-        if free <= 0:
-            return {**out, 'state': 'waiting', 'reason': why}
+    free, stop = capacity_now(cfg, running, machines, now)
+    if stop:
+        return {**out, **stop}
     used = spent_units(tasks, states)
     names = list(dict.fromkeys([*ladder(cfg), *settings(cfg)['accounts']]))
     rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}
@@ -558,8 +576,9 @@ def record_attempt(cfg, t, a, now):
                      minutes=round((now - float(a.get('started') or now)) / 60, 2))
 
 
-def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen, publish_fn=publish):
-    """One round: collect, plan, dispatch. `states`: {account: pacing.account_state}; `machines`: state.machines_state items."""
+def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen, publish_fn=publish, beat=None):
+    """One round: collect, plan, dispatch. `states`: {account: pacing.account_state}; `machines`: state.machines_state items;
+    `beat`: this member's heartbeat for the household coordinator (shared projects only; docs/HOUSEHOLD.md)."""
     from . import state as state_mod
     now = now or time.time()
     is_alive = is_alive or state_mod.alive
@@ -567,13 +586,18 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     from . import fill  # fill imports this module
     filled = None
     found = fill.gather(cfg, backlog.load(cfg), states, machines, now) if on else None   # the repos' commands: never under the lock
+    from . import sharing  # sharing imports backlog and coordinator; a household of one makes no call
+    shared = sharing.sync(cfg, backlog.load(cfg), beat, now=now)   # the coordinator's call: never under the lock either
     with backlog.locked(cfg) as data:
         events = collect(cfg, data, now, is_alive, publish_fn)
+        hold, mirrored = sharing.under_lock(shared, data, now)
+        events += mirrored
+        started = []
         if on:
             filled = fill.fill(cfg, data, states, machines, now, found)
             events += [f'fill_room: {filled["note"]}'] if filled['added'] else []
             events += fill.review_round(cfg, data, now, is_alive, spawn)
-        p = plan(cfg, data['tasks'], states, machines, on, datetime.fromtimestamp(now, timezone.utc))
+        p = plan(cfg, data['tasks'], states, machines, on, datetime.fromtimestamp(now, timezone.utc), hold)
         telemetry.record('feature', 'autopilot.plan', state=p['state'], dispatch=len(p['dispatch']), waiting=len(p['waiting']),
                          collected=len(events))
         backlog.save(cfg, data)   # what was collected is kept even if a start below fails
@@ -586,10 +610,15 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
                 continue
             backlog.save(cfg, data)
             events.append(f'{task_id} sent to {step} (run {run_id}, attempt {len(t["attempts"]) + 1})')
+            if t['repo'] in shared['keys']:
+                started.append(task_id)
+    if started:   # shared tasks just started: their leases at full length now, not at the next round
+        sharing.renew(cfg, backlog.load(cfg), started)
     with state_locked(cfg) as st:
         st['last'] = {'at': now, 'state': p['state'], 'reason': p['reason'], 'waiting': p['waiting']}
         st['fill'] = filled or st.get('fill')
         st['events'] = ([{'at': now, 'text': e} for e in events] + st.get('events', []))[:50]
+        st['household'] = {'error': shared['error'], 'shared': sorted(shared['keys']), 'held': len(hold)} if shared['keys'] else None
     return p, events
 
 

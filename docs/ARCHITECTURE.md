@@ -1,7 +1,8 @@
 # Architecture
 
 Tutti is a thin layer: a Python package (standard library plus PyYAML) behind one command, and a few bash scripts that
-run on the machines. There is no daemon and no server; state is files.
+run on the machines. There is no daemon; state is files. The one server besides the local dashboard is a household's
+coordinator (docs/HOUSEHOLD.md), and only when several people share machines and projects.
 
 ```text
                          tutti.config.yaml  (machines, workers, accounts, ship steps)
@@ -49,6 +50,7 @@ run on the machines. There is no daemon and no server; state is files.
 | `tutti/insights.py` | The local events summarised, pure: most used, slowest, most failing, wasted quota, stall and park causes, crashes. |
 | `tutti/triage.py`, `tutti/selfimprove.py` | Sentry triage watches per project and their `TUTTI-TASK` lines; self-improvement's pure gates (tasks, pull request base, merge, release, daily room), the local analysis, the review/merge/release round and the dashboard lane. |
 | `tutti/users.py`, `tutti/householdcmd.py` | Who this Tutti works for (docs/HOUSEHOLD.md): the name, the random id in `<state>/user.json` and its hash (the only way telemetry names a user), the accounts whose spare room is shared, the membership in `~/.config/tutti/household.json` (600); `householdcmd.py` is `tutti user` and `tutti household`. |
+| `tutti/household.py`, `tutti/coordinator.py`, `tutti/sharing.py` | The household (docs/HOUSEHOLD.md): the pure core (the join code, the derived token, signed requests, members, leases, shared backlogs and their dedupe); the coordinator's HTTP service and state file and the members' signed client (no proxy, a 3 s timeout, `Unreachable` means work alone); a member's round on its shared repos (one `/hh/sync` per autopilot round outside the backlog's lock, the shared tasks mirrored in, the ones it may not start held: leased by another member, or all of them while the coordinator is unreachable). |
 | `tutti/dashboard.py`, `tutti/dashtelemetry.py`, `tutti/web/` | `tutti dashboard`: the 127.0.0.1 HTTP server, background probes, `/api/state` and the PWA shell. |
 | `scripts/slot.sh` | The slot queue, copied to each machine on every run. |
 | `scripts/memguard.sh`, `quiet.sh`, `tunnel.sh`, `wsl-run64.sh` | The memory guard, quiet runs, the tunnel loop, the WSL shim. |

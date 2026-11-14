@@ -106,6 +106,17 @@ The panel and each trigger account's card say what it did: "Autopilot: filling 4
 new task(s) from the repos' sources". With the autopilot or `fill_room` off, the card shows "46 bounded tasks fit here now"
 and **Let autopilot fill it**, which turns both on.
 
+## Shared projects (a household)
+
+A repo with `household: true` (or `tutti household project share <repo>`) is shared with the household's other members
+(docs/HOUSEHOLD.md). Each round first makes one call to the coordinator, outside the backlog's lock: this member's new
+tasks of the repo are published to the project's shared backlog (a title it already has, in any status, is not added
+again), its finished ones are closed for everyone, the leases of its running and in-review tasks are renewed, and the
+queued ones it may start next are reserved. The answer mirrors the other members' tasks into the backlog (source
+`household`), closes a queued task another member finished ("done by Bo"), and holds every queued task whose lease
+another member has ("leased by Bo"). The plan then works as usual, under this member's own accounts only. While the
+coordinator cannot be reached, the shared repos' queued tasks wait and the private repos go on.
+
 ## Results land by themselves (`auto_review`)
 
 On by default. One result at a time, `tutti autopilot land <id>` runs in the background:
@@ -152,6 +163,7 @@ autopilot:
       gaps: ''                         # a command printing one gap per line, read by `tutti backlog seed` and fill_room
       land: pr                         # after a clean review: pr (a person merges; the default), merge (this toolkit's own repo only) or branch
       base: main                       # the branch it lands on (default: the branch the repo's checkout is on)
+      household: false                 # true: its backlog is shared with the household (docs/HOUSEHOLD.md)
 ```
 
 `tutti config` names every wrong key: an unknown account or worker, one that costs money, a repo without `path`.

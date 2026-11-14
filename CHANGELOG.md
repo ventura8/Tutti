@@ -2,6 +2,28 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.34 (2026-11-14)
+
+### Added
+
+- Sign-in with Google for the dashboard (docs/AUTH.md). `tutti auth setup` prints the Google Cloud console page and the
+  exact fields (consent screen: External, Testing, test users; OAuth client: Web application, the JavaScript origins),
+  then saves the client ID (`--client-id <id>`, public; no client secret). The server checks the ID token's RS256
+  signature against Google's JWKS (cached), `iss`, `aud`, `exp`, `iat`, a nonce bound to this browser and the verified
+  e-mail, with no new dependency.
+- Roles: the first user to sign in becomes admin (atomic under a file lock); later users wait for approval as pending,
+  then viewer; an admin can Make admin, Make viewer or Remove; the last admin can be neither. Viewers see the dashboard
+  read-only; every POST is admin-only on the server unless listed, and Settings, the reading helper and the Users list
+  are admin-only GETs.
+- Invites: **Invite someone** creates a single-use, 7-day, revocable link with a QR code and a role (viewer by default);
+  signing in through it approves at once. Only the token's hash is stored. The same invite lets the person's Tutti join
+  the household (`tutti household join <invite-url>`; `tutti/invites.py` is the shared interface).
+- Sessions: HttpOnly, SameSite=Strict cookie with a random id, stored server-side as a hash with an expiry
+  (`auth.session_hours`, 72) and a CSRF token checked on every POST; Sign out. Signed-in answers are `no-store` and the
+  service worker never keeps them.
+- `dashboard.bind` and `dashboard.origins`: reaching the dashboard from other computers requires sign-in. Recovery from a
+  shell: `tutti auth users|promote <email>|reset-admin --yes`.
+
 ## 0.1.33 (2026-11-14)
 
 ### Added

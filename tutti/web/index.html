@@ -19,6 +19,8 @@
     <script src="attention.js?v=__TUTTI_VERSION__" defer></script>
     <script src="app.js?v=__TUTTI_VERSION__" defer></script>
     <script src="controls.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="qr.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="users.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
     <a class="skip" href="#main">Skip to the dashboard</a>
@@ -32,10 +34,13 @@
             <output class="live" id="live" aria-live="polite"><span class="live__dot" aria-hidden="true"></span><span id="live-text">Loading</span></output>
             <button class="btn btn--tonal" id="refresh" type="button" title="Refresh now (R)">Refresh</button>
             <button class="btn btn--filled" id="install" type="button" hidden>Install app</button>
+            <span class="me" id="me" hidden></span>
+            <button class="btn btn--text" id="signout" type="button" hidden>Sign out</button>
         </div>
     </header>
 
     <div class="banner" id="banner" role="alert" hidden></div>
+    <div class="banner" id="auth-banner" role="status" hidden></div>
 
     <main id="main" tabindex="-1">
         <section class="tiles" aria-label="At a glance" id="tiles"></section>
@@ -46,7 +51,7 @@
                 <header class="card__head">
                     <h2 id="usage-h">Usage &amp; pacing</h2>
                     <p class="card__meta" id="usage-meta"></p>
-                    <button class="btn btn--tonal" id="refresh-readings" type="button" title="Run the automatic usage readers now">Refresh readings</button>
+                    <button class="btn btn--tonal" id="refresh-readings" data-admin type="button" title="Run the automatic usage readers now">Refresh readings</button>
                 </header>
                 <div id="usage" class="accounts" tabindex="0" role="group" aria-label="Accounts: scroll sideways for more on a small screen"></div>
                 <div id="owner" class="owner"></div>
@@ -81,7 +86,7 @@
                 <header class="card__head">
                     <h2 id="autopilot-h">Autopilot</h2>
                     <p class="card__meta" id="autopilot-meta"></p>
-                    <button class="btn btn--tonal" id="autopilot-toggle" type="button" aria-pressed="false">Turn on</button>
+                    <button class="btn btn--tonal" id="autopilot-toggle" data-admin type="button" aria-pressed="false">Turn on</button>
                 </header>
                 <p class="row__note" id="autopilot-state"></p>
                 <div id="autopilot" class="autopilot"></div>
@@ -146,7 +151,7 @@
                 <div id="pausable" aria-label="Machines, devices and agents to pause or resume, by category"></div>
                 <h3 class="card__sub">Opt-in</h3>
                 <ul id="optin" class="list" aria-label="Opt-in items"></ul>
-                <h3 class="card__sub" id="autocompact-h">Settings</h3>
+                <h3 class="card__sub" data-admin id="autocompact-h">Settings</h3>
                 <form id="autocompact-form" class="row" aria-labelledby="autocompact-h">
                     <label class="row__name" for="autocompact-pct">Compact a worker's context at
                         <span class="row__kind" id="autocompact-from"></span></label>
@@ -162,7 +167,7 @@
                 <header class="card__head">
                     <h2 id="selfimprove-h">Self-improvement</h2>
                     <p class="card__meta" id="selfimprove-meta"></p>
-                    <button class="btn btn--tonal" id="selfimprove-toggle" type="button" aria-pressed="true" title="Crashes and insights become tasks, pull requests and, where a project allows, merges and releases">Turn off</button>
+                    <button class="btn btn--tonal" id="selfimprove-toggle" data-admin type="button" aria-pressed="true" title="Crashes and insights become tasks, pull requests and, where a project allows, merges and releases">Turn off</button>
                 </header>
                 <ul id="selfimprove" class="list" aria-label="Sentry issues and insights: task, pull request, merge, release"></ul>
             </section>
@@ -171,10 +176,24 @@
                 <header class="card__head">
                     <h2 id="insights-h">Insights</h2>
                     <p class="card__meta" id="insights-meta"></p>
-                    <button class="btn btn--tonal" id="telemetry-toggle" type="button" aria-pressed="false" title="Send anonymous crash reports and usage statistics (docs/TELEMETRY.md)">Send reports</button>
+                    <button class="btn btn--tonal" id="telemetry-toggle" data-admin type="button" aria-pressed="false" title="Send anonymous crash reports and usage statistics (docs/TELEMETRY.md)">Send reports</button>
                 </header>
                 <p class="row__note" id="telemetry-state"></p>
                 <div id="insights" class="autopilot"></div>
+            </section>
+
+            <section class="card span-full" id="users-card" aria-labelledby="users-h" hidden>
+                <header class="card__head">
+                    <h2 id="users-h">Users</h2>
+                    <p class="card__meta" id="users-meta"></p>
+                    <label class="sr-only" for="invite-role">Invite as</label>
+                    <select class="pick" id="invite-role"><option value="viewer" selected>as viewer</option><option value="admin">as admin</option></select>
+                    <button class="btn btn--filled" id="invite-create" type="button">Invite someone</button>
+                </header>
+                <div id="invite-new" class="invite" hidden></div>
+                <ul id="users" class="list" aria-label="People who signed in"></ul>
+                <h3 class="card__sub">Invites</h3>
+                <ul id="invites" class="list" aria-label="Invite links"></ul>
             </section>
 
             <section class="card card--jobs span-full" aria-labelledby="jobs-h">
@@ -191,8 +210,8 @@
     <footer class="foot">
         <p id="foot-version">Tutti</p>
         <p id="foot-accent"></p>
-        <p><a href="/helper">Reading helper</a>: read a provider's usage page in one click</p>
-        <p>Served on this computer only (127.0.0.1). Keys: <kbd>R</kbd> refresh, <kbd>1</kbd>–<kbd>3</kbd> finished-jobs filter.</p>
+        <p data-admin><a href="/helper">Reading helper</a>: read a provider's usage page in one click</p>
+        <p>Served on this computer (127.0.0.1), or to signed-in users. Keys: <kbd>R</kbd> refresh, <kbd>1</kbd>–<kbd>3</kbd> finished-jobs filter.</p>
     </footer>
 </body>
 </html>

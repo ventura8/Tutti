@@ -4,7 +4,8 @@
 // The server writes its version here: a new release is a new worker, its own cache, and the old cache is dropped.
 const CACHE = 'tutti-shell-__TUTTI_VERSION__';
 const V = '?v=__TUTTI_VERSION__';   // the page loads its code with the release in the URL (index.html)
-const SHELL = ['./', 'index.html', `app.css${V}`, `telemetry.js${V}`, `update.js${V}`, `attention.js${V}`, `app.js${V}`, `controls.js${V}`, 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
+// the page itself is not precached: with sign-in on it carries the session's CSRF token (it is kept only when not no-store)
+const SHELL = [`app.css${V}`, `telemetry.js${V}`, `update.js${V}`, `attention.js${V}`, `app.js${V}`, `controls.js${V}`, `qr.js${V}`, `users.js${V}`, 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
     'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {
@@ -30,7 +31,8 @@ self.addEventListener('fetch', (event) => {
     }
     if (event.request.mode === 'navigate') {
         event.respondWith(fetch(event.request).then(async (res) => {
-            if (res.ok) await (await caches.open(CACHE)).put('index.html', res.clone());
+            // a signed-in page (no-store: it carries the session's CSRF token) or the sign-in page is never kept
+            if (res.ok && !(res.headers.get('Cache-Control') || '').includes('no-store')) await (await caches.open(CACHE)).put('index.html', res.clone());
             return res;
         }).catch(async () => (await caches.match('index.html')) || Response.error()));
         return;
@@ -39,7 +41,7 @@ self.addEventListener('fetch', (event) => {
         // a versioned asset matches only its own release: an old worker fetches a new page's code from the network
         const cached = await cache.match(event.request, { ignoreSearch: !url.searchParams.has('v') });
         const fresh = fetch(event.request).then(async (res) => {
-            if (res.ok) {
+            if (res.ok && !(res.headers.get('Cache-Control') || '').includes('no-store')) {
                 await cache.put(event.request, res.clone());
             }
             return res;

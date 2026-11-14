@@ -531,7 +531,8 @@ function taskNote(t) {
 
 function apTask(t) {
     return el('li', { class: 'row' },
-        el('div', { class: 'row__name' }, t.title, el('span', { class: 'row__kind', text: `${t.id} · ${t.repo}` })),
+        el('div', { class: 'row__name', title: t.title }, t.title.length > 110 ? `${t.title.slice(0, 110)}…` : t.title,
+            el('span', { class: 'row__kind', text: `${t.id} · ${t.repo}` })),
         chip(`${t.status} · ${t.attempt_count} attempt(s)`, TASK_TONE[t.status] || 'idle'),
         el('p', { class: 'row__note', text: taskNote(t) }),
         attemptHistory(t));

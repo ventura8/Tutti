@@ -236,7 +236,7 @@ class ComputeTest(unittest.TestCase):
             t.addfile(info)
             info2 = tarfile.TarInfo('evil/x')
             t.addfile(info2, io.BytesIO(b''))
-        with self.assertRaises(Exception):
+        with self.assertRaises(hhjobs.JobError):
             hhjobs.extract(tb, os.path.join(d, 'tree'))
         self.assertFalse(os.path.exists('/etc/passwd/x'))
 

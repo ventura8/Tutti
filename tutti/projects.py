@@ -185,7 +185,8 @@ def activity_script():
     `R\\t<cwd>\\t<top>\\t<branch>\\t<remote url>` for each such folder in a git work tree, then `G <util %> <MiB used> <MiB total>`
     when an NVIDIA GPU answers. It only reads."""
     # a private folder of its own (mode 700, mktemp): never a predictable /tmp name another login could read or plant
-    return ('export PATH="$PATH:/usr/lib/wsl/lib"; T=$(umask 077; mktemp -d 2>/dev/null) || exit 0; trap \'rm -f "$T/cwd" "$T/activity"; rmdir "$T"\' EXIT; '
+    return ('export PATH="$PATH:/usr/lib/wsl/lib"; T=$(umask 077; mktemp -d 2>/dev/null) || exit 0; '
+            'trap \'rm -f "$T/cwd" "$T/activity"; rmdir "$T"\' EXIT; '
             # two processes for all of them (find for the folders, ps for the programs), joined by pid in awk: a fork
             # or three per process took 14 s on a computer with 800 processes (2026-11-14), now 0.2 s
             'if find /proc/self/cwd -maxdepth 0 -printf "" 2>/dev/null && ps -o pid=,args= -p $$ > /dev/null 2>&1; then '

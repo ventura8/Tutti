@@ -171,9 +171,20 @@ AUTO_SOURCES = ('reader', 'file', 'helper')
 
 def freshness(name, a, newest, now):
     """How the account's newest reading came in and whether it needs a reminder: {stale, remind, auto, reading_source}."""
-    stale, remind = staleness(name, a, parse_time(newest['at']) if newest else None, now)
+    at = parse_time(newest['at']) if newest else None
+    stale, remind = staleness(name, a, at, now)
     source = newest.get('source') if newest else None
-    return {'stale': stale, 'remind': remind, 'auto': bool(a.get('reader')) or source in AUTO_SOURCES, 'reading_source': source}
+    return {'stale': stale, 'remind': remind, 'auto': bool(a.get('reader')) or source in AUTO_SOURCES, 'reading_source': source,
+            'needs_reading': needs_reading(a, at, now)}
+
+
+def needs_reading(a, reading_at, now):
+    """True when the dashboard offers Add a reading: nothing reads the account on its own (no reader command and no
+    reading_file an orchestrator writes), or its newest reading is older than stale_hours (default 2) or missing."""
+    if not (a.get('reader') or a.get('reading_file')):
+        return True
+    hours = float(a.get('stale_hours') or STALE_HOURS)
+    return reading_at is None or (now - reading_at).total_seconds() >= hours * 3600
 
 
 def account_action(name, a, p, used, is_panic, room):
@@ -195,7 +206,8 @@ def account_state(name, a, entries, now):
            'reset_from': None,
            'lead_hours': a.get('lead_hours', 1), 'panic_at': a.get('panic_at', PANIC_AT), 'used': None, 'expected': None,
            'verdict': 'unknown', 'panic': False, 'reset': None, 'target': None, 'window_start': None, 'reading_at': None, 'readings': [],
-           'stale': False, 'remind': '', 'auto': False, 'reading_source': None, 'room_tasks': None, 'note': a.get('note')}
+           'stale': False, 'remind': '', 'auto': False, 'reading_source': None, 'room_tasks': None, 'note': a.get('note'),
+           'needs_reading': True}
     anchor = reading_anchor(entries, name)
     if anchor:
         out['reset_from'] = 'reading'

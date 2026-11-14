@@ -29,14 +29,17 @@ by itself once `tutti dashboard` runs again.
 | Usage & pacing | `accounts:` in the config and the usage log (`tutti usage log`, the automatic readers, the Add a reading form). Per account: % used, the even-pace mark (what should be spent by now), the panic threshold (`panic_at`, default 95 %), the reset and target times and where the reset comes from (a reading, the config, an estimate), the readings of this window against the pace line, the plan and how often it is read automatically, and what to do. |
 | Machines | The same probe as `tutti machines`: free and busy slots, load against cores, routing rank, paused (yield flag up), offline. Under each reachable machine, **Stored files**: what `tutti files send` keeps in its cache, the size against `files.budget_gb` and when each item was last used. |
 | Workers | The same check as `tutti workers`, plus the known CLI agents on this computer (Claude Code, Cursor, Antigravity, GitHub Copilot CLI, Gemini CLI, Ollama): installed or not, and whether a worker uses them. |
-| Jobs | Each job shows a progress bar and its percentage when something says how far it is: `tutti progress <done>/<total>` (written beside the log), else the last progress line in its log (`[150/177]`, pytest's `[ 13%]`, `stage 2 of 4`, `12/40 tests`); a finished job is 100 %. Otherwise a dash: never a guessed number. `<project.state>`: `quiet/*.log` (`tutti quiet`), `ship-*.log` (quiet ship checks), `files/*.log` (`tutti files send` and `--input`, with the bytes copied in MB), `waits/*.json` (`tutti wait`), `llm-busy-*` (local-model jobs) and `tunnel-*.pid`. Running, **stalled** (its log has not changed for `dashboard.stall_minutes`), failed (with its exit code), done, or ended (a run from before 0.1.4, whose result was not recorded). Each opens to the end of its log. |
+| Jobs | A running job shows its progress (see *Progress* below: a bar with its percentage and where the number comes from, or its elapsed time when nothing can say) and, under it, what it has done so far: the step, tokens and tool calls, AI credits, the account it spends with that account's % used, tests passed and failed, files changed (+/−), bytes copied. A finished job shows no bar: its result (passed, failed with the exit code, or ended), how long it took and the same facts, with the report's path. `<project.state>`: `quiet/*.log` (`tutti quiet`), `ship-*.log` (quiet ship checks), `files/*.log` (`tutti files send` and `--input`, with the bytes copied in MB), `runs/*.log` (`tutti run --repo`), `waits/*.json` (`tutti wait`), `conduct/current.json` (a running `tutti conduct`), `llm-busy-*` (local-model jobs) and `tunnel-*.pid`. Running, **stalled** (its log has not changed for `dashboard.stall_minutes`), failed (with its exit code), done, or ended (a run from before 0.1.4, whose result was not recorded). Each opens to the end of its log. |
 
 Machines and workers are probed in the background every `dashboard.probe_seconds` (ssh answers can be slow); the
 rest is read on each request. The page polls `/api/state` every `dashboard.refresh_seconds` and pauses while hidden.
 
 ## Add a reading
 
-Every account card has **Add a reading**. One tap opens the provider's usage page (`usage_url`, in a new tab) and a
+An account card has **Add a reading** only where a reading is needed: nothing reads the account on its own (no
+`reader` command and no `reading_file`; Cursor), or its newest reading is older than `stale_hours` (default 2) or
+missing. An account read automatically and recently (Antigravity) has none. An account's `note` is a warning callout
+(an icon and the word "Note", not colour alone) right above the button. One tap opens the provider's usage page (`usage_url`, in a new tab) and a
 short form on the card: a slider for the percent used and the reset time, prefilled from the window rule, plus an
 optional note. **Save reading** posts it to `POST /api/reading`, which appends the same line as `tutti usage log`
 (with `source: dashboard` and the reset). While the form is open the usage cards stop refreshing, so a poll never wipes
@@ -80,6 +83,34 @@ with browser tools does it instead: `tutti usage page-script [cursor]` prints th
 expression; it runs it in the owner's open, signed-in tab (claude-in-chrome's `javascript_tool`, read-only) and passes the
 JSON string it evaluates to to `tutti usage page-reading '<json>'`, which checks each reading as the dashboard does and
 logs it with `source: page script`. A label not found exits 1 and says to read that one by eye.
+
+## Progress
+
+Every running job gets a number, never a fake precise one; each says where it comes from (hover the bar, or open the job):
+
+| Layer | Source | Shown |
+| --- | --- | --- |
+| 1 exact | `tutti progress n/m`; a counter in the log: `[150/177]`, pytest's `[ 13%]`, `stage 2 of 4`, `12/40 tests`, a pipeline's `static 3/51 eslint`, docker's `Step 3/12`, rsync's `45%`, a file transfer's MB; `slot.sh: waiting for a free slot (all 3 busy)` (0 %, "waiting for a slot") until `slot.sh: got a slot` | bar, %, ETA at this pace |
+| 2 known phases | `dashboard.shapes` (configured ones first, then the built-in; the whole log is read, a little more at each look, so no phase or count is lost however long it grows): `phases` (the furthest phase whose `when` regex is in the log: phase k of n), or `count` lines against `total` / `total_command` (a shell command run in the job's folder, `{1}` = the title's first `match` group, used only when it exits 0, cached for an hour); built in: `tutti run --repo` (worktree, the worker works, checks); a shape with neither only names a kind (and `machine`) for layer 3 | bar, %, step |
+| 3 estimated | elapsed time against the median duration (a finished job's end is the time of its result, never its last output; each job is learned from once) of at least 2 earlier finished jobs of the same kind (the shape and its group, else the kind and program) on the same machine, from `<state>/durations.json` (a job that was running and is gone counts as finished; a container only when its machine was probed); capped at 95 %; past the median "taking longer than usual" | bar, ~%, time left |
+| 4 agents | a conductor's handoff notes (done of done + next); else layer 3; else `dashboard.typical_minutes` (agent 20, agent task 15, conduct 30) as a rough estimate said as such | bar, ~% |
+| elapsed | everything else (a tunnel, a local-model server, a script of a kind not yet finished once) | the elapsed time, no bar |
+
+Which job kinds get which layer: quiet runs, ship checks, registered jobs and watched scripts get layer 1 from their log,
+else 2 when a shape matches their title, else 3 once two runs of that kind finished, else elapsed time. File transfers
+get layer 1 (bytes). Delegated runs get layer 2 (built-in phases), then 3. Waits get layer 1 from the log they watch,
+else 3. Remote test containers get layer 3 (their start from `docker ps`'s age). An agent session's background tasks:
+a command's output gets layer 1 from its counters; an agent's transcript gets layer 3, else 4 (a counter in a
+transcript is text the agent read, never progress). Agent CLIs found by process and a running `tutti conduct`: layer 4.
+Tunnels and local-model servers: elapsed ("a service: it has no end").
+
+Facts, running or finished: an agent's transcript (a Claude Code subagent's task output) gives tokens in (input and
+cache) and out, counted once per message, and its tool calls; an agent CLI's text output gives tokens when it prints
+them ("12,345 input tokens", "Tokens: 12.3k in, 4.1k out", `"output_tokens": 45`) and Copilot's AI credits; test runners'
+summaries give passed and failed (pytest, vitest, Playwright, unittest); git's "N files changed" gives files and +/−; a
+delegated run's report gives its account (`runs.jsonl`), checks, files and report path, and while it runs `git diff
+--shortstat` of its worktree plus the files the worker added (at most every 30 s, only in a Tutti run worktree). Only counts are read; no text of a log or transcript is shown that is
+not already in the log view.
 
 ## Jobs found by themselves
 

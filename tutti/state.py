@@ -25,7 +25,12 @@ PROGRESS = (
     ('stage', re.compile(r'\b(?:stage|step|gate|phase|chunk)\s+(\d+)\s*(?:/|of)\s*(\d+)\b', re.I)),
     ('percent', re.compile(r'\[\s*(\d{1,3})\s*%\s*\]')),                            # pytest [ 13%]
     ('tests', re.compile(r'\b(\d+)\s*/\s*(\d+)\s+(?:tests?|files?|specs?|passed|done)\b', re.I)),
+    ('gates', re.compile(r'^\s*[a-z][\w-]*\s+(\d+)/(\d+)\s+[\w.:-]+\s*$')),     # a pipeline's gate: "static 3/51 eslint"
+    # rsync's progress2 line: bytes, percent, speed
+    ('percent', re.compile(r'^ *[\d,]+ +(\d{1,3})% +[\d.]+[kMG]?B/s')),
+    ('queue', re.compile(r'slot\.sh: waiting for a free slot \(all (\d+) busy\)')),
 )
+SLOT_START = re.compile(r'slot\.sh: (?:got|started in) a slot')
 LOG_NAME = re.compile(r'^(?:ship-)?(\d+)-(\d+)(?:-\d+)?\.log$')
 
 
@@ -185,6 +190,8 @@ def progress_of_line(line):
         m = pattern.search(line)
         if not m:
             continue
+        if source == 'queue':
+            return {'done': 0, 'total': int(m.group(1)), 'pct': 0, 'source': 'queue'}
         if source == 'percent':
             pct = int(m.group(1))
             return {'done': pct, 'total': 100, 'pct': pct, 'source': 'log'} if pct <= 100 else None
@@ -217,6 +224,8 @@ def progress(log_path, lines):
     if reported:
         return reported
     for line in reversed(lines):
+        if SLOT_START.search(line):
+            return None   # out of the queue and nothing counted since
         p = progress_of_line(line)
         if p:
             return p
@@ -282,6 +291,7 @@ def log_job(path, kind, now, stall, is_alive):
         prog = {'done': 1, 'total': 1, 'pct': 100, 'source': 'finished'}
     return {'id': f'{kind}:{os.path.basename(path)}', 'kind': kind, 'title': title, 'pid': pid, 'log': path, 'started': iso(started),
             'updated': iso(updated), 'idle_seconds': round(now - updated) if updated else None, 'rc': rc,
+            'ended': iso(mtime(path + '.rc')) if rc is not None else None,   # the result file is written when it ends
             'status': status, 'tail': lines, 'progress': prog}
 
 
@@ -362,6 +372,7 @@ def remote_jobs(machines):
         for c in m.get('containers') or []:
             name, _, age = c.partition(' ')
             out.append({'id': f'remote:{m["name"]}:{name}', 'kind': 'remote', 'title': f'{name} on {m["name"]} (started {age})',
+                        'machine': m['name'],
                         'pid': None, 'log': None, 'started': None, 'updated': None, 'idle_seconds': None, 'rc': None,
                         'status': 'running', 'tail': [], 'progress': None})
     return out
@@ -409,9 +420,12 @@ def assemble(cfg, probes, now=None, is_alive=alive):
     machines = probes.get('machines') or []
     workers = probes.get('workers') or {'items': [], 'agents': []}
     jobs = jobs_state(cfg, now_ts, is_alive)
-    remote = remote_jobs(machines)
-    jobs['items'] = remote + jobs['items']
-    jobs['total'] += len(remote)
+    from . import jobprogress  # it imports jobfacts, which this module's callers import
+    extra = remote_jobs(machines) + [j for j in [jobprogress.conduct_job(cfg, is_alive)] if j]
+    jobs['items'] = extra + jobs['items']
+    jobs['total'] += len(extra)
+    jobprogress.annotate(cfg, jobs['items'], now_ts, lambda w: account_of_worker(cfg, w) if w else None,
+                         machines if probes.get('machines_at') else None)
     return {'version': __version__, 'generated_at': now_dt.isoformat(), 'config': cfg['_path'],
             'refresh_seconds': cfg['dashboard']['refresh_seconds'], 'usage': usage,
             'machines': {'probed_at': iso(probes.get('machines_at')), 'items': machines},

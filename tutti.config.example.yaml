@@ -126,6 +126,22 @@ dashboard:
   watch_scripts: [test.sh, ship.sh]             # running scripts shown as jobs, with the log their output goes to
   watch_agents: [cursor-agent, agy, copilot]    # agent CLIs by process (program and folder only)
   task_globs: []                                # an agent session's background task outputs, e.g. ['/tmp/agent-*/tasks/*.output']
+  # Progress (docs/DASHBOARD.md, *Progress*): a job kind's known phases, or lines counted against a total. `match` is a
+  # regex on the job's title; its first group joins the kind's name for the history of durations.
+  shapes:
+    ship:
+      match: '^ship\.sh\b'
+      phases:
+        - {name: commit}
+        - {name: checks, when: '^\[targeted\]|check \['}
+        - {name: push, when: '^To |^pushed '}
+        - {name: deploy, when: '^deployed'}
+    pipeline:
+      match: 'PIPELINE_STAGE=(\w+)'
+      count: '^\[gate\] .* passed'
+      total_command: 'python3 scripts/ci/pipeline.py --list | awk -v s={1} ''$1 == s {print NF - 1}'''
+      machine: build-box
+  typical_minutes: {agent: 20, agent task: 15, conduct: 30}   # the rough estimate for an agent before any run of it finished
 
 usage:
   log: ~/.local/state/tutti/usage.jsonl
@@ -162,6 +178,7 @@ test:
 # `tutti run <worker> "<task>" --repo <repo>`: the checks of the worker's diff (default: ship.checks). A routed check gets the
 # changed files through {changed} or {changed:ts,js}; the report says when a check turns coverage off.
 delegate:
+  project: my-app                     # the default checks below are for this project only; another repo's run uses its own
   checks:
     - {run: 'F={changed:py}; [ -z "$F" ] || python3 -m pytest -q --no-cov $F', where: route, verdict: 'passed|failed|error'}
 
@@ -183,4 +200,5 @@ main:
 # Windows folder (a WSL machine's Windows processes, read over its plain ssh). Read-only: nothing is started or stopped.
 projects:
   my-app: {match: 'my-app', containers: [my-app-], repo: octo/my-app}   # repo: its open pull requests (a release), CI and reviews
+  tool: {match: '/tool(\.git)?\b', checks: [{run: bash scripts/check.sh}]}   # `tutti run --repo` in this repo runs these checks
   # other-app: {match: other-app, machines: [win-box], windows: {win-box: 'C:\Users\me\Projects\other-app'}}

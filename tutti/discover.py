@@ -161,6 +161,7 @@ def registered_job(path, now, stall, is_alive):
     return {'id': f'job:{pid}', 'kind': 'job', 'title': info.get('title') or f'job {pid}', 'pid': pid, 'log': log,
             'started': state.iso(info.get('started')), 'updated': state.iso(updated),
             'idle_seconds': round(now - updated) if updated else None, 'rc': info.get('rc'), 'status': status,
+            'ended': state.iso(state.mtime(path)) if info.get('rc') is not None else None,   # `tutti job done` rewrites the record
             'tail': lines[-12:], 'progress': state.progress(log, lines) if log else None}
 
 

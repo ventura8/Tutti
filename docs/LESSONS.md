@@ -188,3 +188,15 @@ names: `my file.ts` reached a check as two paths. Names are read with `-z` and p
 The PC showed no temperature: WSL has no `/sys/class/thermal` zones and `nvidia-smi` is not on WSL's PATH (it lives in
 `/usr/lib/wsl/lib`). Windows' `MSAcpi_ThermalZoneTemperature` answered 2900 (16.9 C), a fixed placeholder on that board.
 The GPU now comes from `nvidia-smi` there, the CPU from Windows only when the value is plausible, else "not readable".
+
+## A counter in a transcript is not progress (2026-11-14)
+
+An agent's background task output is its JSONL transcript; a "[37/37]" in a file it read showed the agent at 100 % while
+it worked. Counters are read only from command output; a transcript gives tokens and tool calls, and its progress comes
+from history or a labelled rough estimate.
+
+## Scripts never finish where the dashboard can see it (2026-11-14)
+
+A watched script's job disappears when its process ends; it is never "done", so no duration was ever learned. The
+history now remembers running jobs (`durations.json`) and counts one that is gone as finished; a test container only when
+its machine was probed, so a failed probe does not record every container as ended.

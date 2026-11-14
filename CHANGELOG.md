@@ -2,6 +2,31 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.12 (2026-11-14)
+
+### Added
+
+- Every running job on the dashboard has trackable progress, in layers, each labelled with its source (docs/DASHBOARD.md,
+  *Progress*): exact counters (now also a pipeline's `static 3/51 eslint`, rsync's `45%` and `slot.sh`'s queue), known
+  phases (`dashboard.shapes`: phases or counted lines with `total_command`; built in for `tutti run --repo`), estimates
+  from the history of finished durations per kind and machine (`<state>/durations.json`, capped at 95 %, "taking longer
+  than usual"), and agents (a conductor's handoff notes, else history, else `dashboard.typical_minutes`). The rest shows
+  its elapsed time: no active job shows "—" any more. ETA when it can be estimated.
+- Job facts, live and after the end: tokens and tool calls (an agent's transcript, or the token lines an agent CLI
+  prints), AI credits, the account spent with its % used, tests passed and failed, files changed (+/−), bytes copied,
+  the current step. A finished job shows no bar: its result, exit code, duration and the report.
+- A running `tutti conduct` is a job; `slot.sh` says when a run waits for a slot and when it gets one.
+- Usage cards: **Add a reading** shows only where it is needed (no automatic reading, or one older than `stale_hours`);
+  an account's `note` is a warning callout with an icon, right above it.
+
+### Fixed
+
+- `tutti run --repo <another repo>` ran the config's default check in the other repository. The checks now belong to the
+  target: `projects.<name>.checks`, else a `tutti.config.*` inside it, else the default only for `delegate.project`
+  (or for any repository when it is unset); otherwise none, and the report says how to add them.
+- `tutti pr review` called `gh api --slurp`, which gh before 2.62 lacks; it now reads the pages `--paginate` prints back
+  to back.
+
 ## 0.1.11 (2026-11-14)
 
 - The pacing advice when spending too fast now reads "shift work to other workers and local models" (CLI, dashboard, docs).

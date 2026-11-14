@@ -7,7 +7,7 @@ const VERDICT_TONE = { 'on pace': 'ok', ahead: 'warn', behind: 'warn', late: 'ba
 const MACHINE_TONE = { free: 'ok', loaded: 'warn', busy: 'accent', paused: 'warn', offline: 'bad' };
 const JOB_TONE = { running: 'accent', stalled: 'warn', failed: 'bad', done: 'ok', ended: 'idle' };
 const storedOpen = new Set();   // machines whose stored-files list is open: kept across re-renders
-const ui = { filter: 'all', project: '', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0, editing: new Map() };
+const ui = { filter: 'all', project: '', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0, editing: new Map(), accounts: new Map() };
 const TOKEN = document.querySelector('meta[name="tutti-token"]')?.content || '';
 const RESET_FROM = { reading: 'from the latest reading', estimate: 'an estimate from the config: add a reading to set it', config: 'from the config' };
 
@@ -279,10 +279,18 @@ function account(a, now) {
     if (a.reset) card.append(sparkline(a, now));
     card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
     if (a.room_tasks) card.append(el('p', { class: 'account__nudge', 'data-tone': 'ok', text: `Use it: ${a.room_tasks} bounded task(s) can go here now (tutti run auto "<task>" --repo <repo>)` }));
-    if (a.note) card.append(el('p', { class: 'account__note', text: a.note }));
     if (a.credits_used !== undefined) card.append(el('p', { class: 'account__auto', text: `${a.credits_used} AI credits in this window from Tutti's runs` }));
     if (a.stale) card.append(el('p', { class: 'account__remind', 'data-tone': 'warn', role: 'note', text: `Reminder: ${a.remind}` }));
-    card.append(accountFacts(a), autoLine(a) || '', ui.editing.has(a.name) ? readingForm(a) : addButton(a));
+    card.append(accountFacts(a), autoLine(a) || '');
+    // The account's note is a warning callout right above Add a reading (icon and the word "Note", never colour alone).
+    if (a.note) {
+        card.append(el('div', { class: 'account__callout', role: 'note', 'data-tone': 'warn' },
+            el('span', { class: 'account__callout-icon', 'aria-hidden': 'true', text: '⚠' }),
+            el('p', {}, el('strong', { text: 'Note: ' }), a.note)));
+    }
+    // Add a reading only where it is needed: nothing reads the account on its own, or its reading is old (a form being typed stays).
+    if (ui.editing.has(a.name)) card.append(readingForm(a));
+    else if (a.needs_reading !== false) card.append(addButton(a));
     return card;
 }
 
@@ -499,18 +507,73 @@ async function switchMain(e) {
 
 // ---- jobs
 
+const LAYER = { exact: 'exact', shape: 'known phases', estimate: 'estimated from earlier runs', agent: 'agent estimate', elapsed: 'elapsed, no estimate yet' };
+
+function compact(n) {
+    if (n === null || n === undefined) return '?';
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1)} M`;
+    if (n >= 1e4) return `${Math.round(n / 1e3)} k`;
+    return String(n);
+}
+
+// A finished job: its result, exit code (when not 0) and how long it took.
+function finishedText(f) {
+    const parts = [f.result || 'finished'];
+    if (f.rc !== undefined && f.rc !== 0) parts.push(`exit ${f.rc}`);
+    if (f.seconds !== undefined) parts.push(`took ${duration(f.seconds)}`);
+    return parts.join(' · ');
+}
+
+// Running jobs: a bar for layers 1 to 3 (and an agent's rough estimate), labelled with where the number comes from; an
+// elapsed time with no bar when nothing can say how far it is. Finished jobs: no bar, their result and duration.
 function progressBar(j) {
     const p = j.progress;
-    if (!p) return el('span', { class: 'job__progress', title: 'Nothing in its log says how far it is', text: '—' });
+    if (!p) return el('span', { class: 'job__progress', 'data-layer': 'finished', text: finishedText(j.facts || {}) });
+    if (!p.determinate) return el('span', { class: 'job__progress', 'data-layer': p.layer, title: p.label, text: duration(p.elapsed_seconds) });
     const bar = el('span', { class: 'job__bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': p.pct,
-        'aria-label': `${j.title}: ${p.pct} %` });
+        'aria-valuetext': p.label, 'aria-label': `${j.title}: ${p.label}`, 'data-late': p.late ? 'true' : null });
     const fill = el('span');
     fill.style.width = `${p.pct}%`;
     bar.append(fill);
-    let label = p.total === 100 || p.source === 'finished' ? `${p.pct} %` : `${p.pct} % · ${p.done}/${p.total}`;
-    if (p.unit) label = `${p.pct} % · ${p.done}/${p.total} ${p.unit}`;
-    return el('span', { class: 'job__progress', title: p.source === 'reported' ? 'reported with tutti progress' : 'read from its log' },
-        bar, el('span', { text: label }));
+    const rough = p.layer === 'estimate' || (p.layer === 'agent' && p.total === undefined);
+    return el('span', { class: 'job__progress', 'data-layer': p.layer, title: p.label }, bar, el('span', { text: (rough ? '~' : '') + `${p.pct} %` }));
+}
+
+function layerText(p) {
+    const parts = [LAYER[p.layer] || p.layer];
+    if (p.eta_seconds) parts.push(`~${duration(p.eta_seconds)} left`);
+    if (p.late) parts.push('longer than usual');
+    return parts.join(' · ');
+}
+
+function tokenText(t) {
+    const calls = t.calls ? ` · ${t.calls} tool calls` : '';
+    return `tokens ${compact(t.in)} in · ${compact(t.out)} out` + calls;
+}
+
+function accountText(name) {
+    const used = ui.accounts.get(name)?.used;
+    return `account ${name}` + (used === null || used === undefined ? '' : ` (${Math.round(used)} % used)`);
+}
+
+const PASSFAIL = (label, c) => `${label} ${c.passed} passed · ${c.failed} failed`;
+
+// What a job did or has done so far: tokens, credits, the account it spends, tests, files changed, bytes copied, the step.
+function factList(j) {
+    const f = j.facts || {};
+    const rows = [
+        [j.progress, () => layerText(j.progress)],
+        [f.step, () => `step: ${f.step}`],
+        [f.tokens, () => tokenText(f.tokens)],
+        [f.credits, () => `${f.credits} AI credits`],
+        [f.worker && !f.account, () => `worker ${f.worker}`],
+        [f.account, () => accountText(f.account)],
+        [f.tests, () => PASSFAIL('tests', f.tests)],
+        [f.checks, () => PASSFAIL('checks', f.checks)],
+        [f.files, () => `${f.files.files} file(s) +${f.files.plus} −${f.files.minus}`],
+        [f.copied, () => `copied ${f.copied.done}/${f.copied.total} ${f.copied.unit}`],
+    ];
+    return rows.filter(([on]) => on).map(([, text]) => text());
 }
 
 function job(j) {
@@ -527,15 +590,19 @@ function job(j) {
     let idle = j.updated ? `updated ${relative(j.updated)}` : '';
     if (j.status === 'stalled') idle = `no output for ${duration(j.idle_seconds)}`;
     const meta = j.pid ? `${j.kind} · pid ${j.pid}` : j.kind;
+    const facts = factList(j);
     d.append(el('summary', {},
         chip(j.status === 'failed' && j.rc !== null ? `failed · ${j.rc}` : j.status, JOB_TONE[j.status]),
         el('span', { class: 'job__title' }, j.title, el('small', { text: meta })),
         progressBar(j),
-        el('span', { class: 'job__when', text: idle })));
+        el('span', { class: 'job__when', text: idle }),
+        ...(facts.length ? [el('span', { class: 'job__facts', text: facts.join(' · ') })] : [])));
     const body = el('div', { class: 'job__body' });
     if (j.status === 'stalled') body.append(el('p', { text: 'Its log has not changed for a while. Read the end of the log: stop or restart the job rather than wait on it again.' }));
     if (j.status === 'ended') body.append(el('p', { text: 'Ended; the result was not recorded (a run from before Tutti 0.1.4).' }));
+    if (j.progress) body.append(el('p', { class: 'job__path', text: `progress: ${j.progress.label}` }));
     if (j.started) body.append(el('p', { class: 'job__path', text: `started ${when(j.started)}` }));
+    if (j.facts?.report) body.append(el('p', { class: 'job__path', text: `report ${j.facts.report}` }));
     if (j.log) body.append(el('p', { class: 'job__path', text: j.log }));
     body.append(j.tail.length ? el('pre', { class: 'log', tabindex: 0, 'aria-label': `End of the log of ${j.title}`, text: j.tail.join('\n') })
         : el('p', { class: 'job__path', text: 'No log output.' }));
@@ -554,6 +621,7 @@ function renderProjectPick(s) {
 }
 
 function renderJobs(s) {
+    ui.accounts = new Map((s.usage?.accounts || []).map((a) => [a.name, a]));
     renderProjectPick(s);
     const items = s.jobs.items.filter((j) => !ui.project || (ui.project === '-' ? !j.project : j.project === ui.project));
     const count = (f) => (f === 'all' ? items.length : items.filter((j) => j.status === f || (f === 'done' && j.status === 'ended')).length);

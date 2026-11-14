@@ -55,6 +55,19 @@ class BriefTest(unittest.TestCase):
         self.assertIn('model missing: coder:9b', note)
         self.assertIn('ollama pull coder:9b', note)
 
+    def test_ollama_url_keeps_a_written_scheme(self):
+        self.assertEqual(config.ollama_url('127.0.0.1:11434', '/api/tags'), 'http://127.0.0.1:11434/api/tags')
+        self.assertEqual(config.ollama_url('https://gpu.lan/', '/api/tags'), 'https://gpu.lan/api/tags')
+
+    def test_ollama_worker_says_when_the_answer_is_not_json(self):
+        worker = {'kind': 'ollama', 'host': '127.0.0.1:11434', 'model': 'coder:9b'}
+        cm = self._tags_response([])
+        cm.__enter__.return_value = io.BytesIO(b'<html>')
+        with mock.patch('tutti.workers.urllib.request.urlopen', return_value=cm):
+            ok, note = workers.available(worker)
+        self.assertFalse(ok)
+        self.assertIn('not JSON', note)
+
     def test_ollama_worker_down_when_the_server_does_not_answer(self):
         worker = {'kind': 'ollama', 'host': '127.0.0.1:9', 'model': 'coder:9b'}
         with mock.patch('tutti.workers.urllib.request.urlopen', side_effect=OSError('refused')):

@@ -35,7 +35,8 @@ def others_busy(cfg):
 
 
 def post(host, payload, timeout):
-    req = urllib.request.Request(f'http://{host}/api/generate', json.dumps(payload).encode(), {'Content-Type': 'application/json'})
+    req = urllib.request.Request(config.ollama_url(host, '/api/generate'), json.dumps(payload).encode(),
+                                 {'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
 

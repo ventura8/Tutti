@@ -3,10 +3,14 @@ import copy
 import json
 import os
 
-NAMES = ('tutti.config.yaml', 'tutti.config.yml', 'tutti.config.json')
+PROJECT_NAME = 'tutti.config.yaml'
+NAMES = (PROJECT_NAME, 'tutti.config.yml', 'tutti.config.json')
 # Under XDG: the canonical name first, then the project-style name as a fallback.
-XDG_NAMES = ('config.yaml', 'tutti.config.yaml')
+XDG_NAMES = ('config.yaml', PROJECT_NAME)
 TRANSPORTS = ('local', 'ssh', 'wsl')
+# Ollama serves plain HTTP on localhost or through an ssh tunnel; a host written with its own scheme
+# (https://proxy:443) keeps it.
+OLLAMA_SCHEME = 'http'
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXAMPLE = os.path.join(ROOT, 'tutti.config.example.yaml')
 DEFAULTS = {
@@ -26,6 +30,12 @@ MACHINE_DEFAULTS = {'transport': 'ssh', 'root': 'tutti-wt', 'slots': 2, 'min_fre
 
 class ConfigError(Exception):
     """The config file is missing or wrong; the message says which key and what to write instead."""
+
+
+def ollama_url(host, path):
+    """The URL of an Ollama API path on `host` (`name:port`, or a full `scheme://name:port`)."""
+    base = host if '://' in host else f'{OLLAMA_SCHEME}://{host}'
+    return base.rstrip('/') + path
 
 
 def xdg_tutti_dir(env=None):
@@ -61,7 +71,7 @@ def find(start=None, env=None):
     return None
 
 
-def parse(text, path='tutti.config.yaml'):
+def parse(text, path=PROJECT_NAME):
     if path.endswith('.json'):
         return json.loads(text) or {}
     try:

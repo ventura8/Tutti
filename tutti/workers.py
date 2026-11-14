@@ -5,6 +5,8 @@ import shutil
 import subprocess
 import urllib.request
 
+from . import config
+
 STANDING = ['Work only inside the current directory.', 'Do not commit, push or deploy: leave your edits uncommitted for review.',
             'Do not read or print secrets (.env files, tokens, keys).']
 
@@ -39,7 +41,7 @@ def available(worker, timeout=3):
         return (True, exe) if exe else (False, f'{worker["command"][0]} is not on PATH: install it and sign in once')
     model = worker['model']
     try:
-        with urllib.request.urlopen(f'http://{worker["host"]}/api/tags', timeout=timeout) as r:
+        with urllib.request.urlopen(config.ollama_url(worker['host'], '/api/tags'), timeout=timeout) as r:
             names = _ollama_model_names(json.loads(r.read().decode()))
     except ValueError as e:
         return False, f'{worker["host"]} answered /api/tags with something that is not JSON ({e}): is it an ollama server?'

@@ -16,6 +16,9 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 - Each question a scout sends logs a spend estimate on its account (the newest reading plus `task_pct`, source
   `estimate`), so the meter moves between readings; an estimate never counts as a fresh reading.
 
+- The dashboard's pause and resume section is grouped with headings: Work machines, Android devices, Local agents
+  (Ollama, llama.cpp), Online agents (CLI workers, accounts and scouts), then Opt-in; an empty group says so.
+
 ### Fixed
 
 - The reading helper reports a usage page still on its spinner (no "N% used" shown) and saves nothing, never a 0: the

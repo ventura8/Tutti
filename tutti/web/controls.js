@@ -75,6 +75,13 @@ function optIn(o) {
         o.on ? 'Turn off' : 'Turn on')));
 }
 
+// A scout (Grok Bot) is listed with the online agents; it pauses through its config's auto: and its account, so no button.
+function scoutRow(sc) {
+    return el('li', { class: 'row' },
+        el('div', { class: 'row__name' }, sc.name, el('span', { class: 'row__kind', text: `scout · ${sc.kind}` })),
+        chip(sc.ready ? (sc.auto ? 'ready · rounds on' : 'ready') : 'not set up: tutti scout setup grok', sc.ready ? 'ok' : 'bad'));
+}
+
 function renderControls(s) {
     const devices = s.devices?.items || [];
     const c = s.controls || { opt_in: [], paused: [] };
@@ -89,15 +96,27 @@ function renderControls(s) {
         seen.add(k);
         return pausable(kind, name, paused.get(k), state);
     };
-    const rows = [
-        ...s.machines.items.map((m) => row('machine', m.name, m.status)),
-        ...devices.map((d) => row('device', d.name, d.status)),
-        ...s.workers.items.map((w) => row('worker', w.name, w.ready ? 'ready' : 'down')),
-        ...(s.usage?.accounts || []).map((a) => row('account', a.name, a.verdict)),
-        // a paused worker or account is out of the config's lists until resumed: list it from the switches
-        ...c.paused.map((p) => row(p.kind, p.name)),
-    ].filter(Boolean);
-    $('pausable').replaceChildren(...rows);
+    const workers = s.workers.items;
+    const local = (w) => w.kind !== 'cli';
+    const leftover = (kinds) => c.paused.filter((p) => kinds.includes(p.kind)).map((p) => row(p.kind, p.name));
+    // a paused worker or account is out of the config's lists until resumed: listed from the switches, in its group
+    const groups = [
+        ['Work machines', 'No work machines in the config.', [
+            ...s.machines.items.filter((m) => m.transport !== 'android').map((m) => row('machine', m.name, m.status))]],
+        ['Android devices', 'No Android devices or Termux machines.', [
+            ...devices.map((d) => row('device', d.name, d.status)),
+            ...s.machines.items.filter((m) => m.transport === 'android').map((m) => row('machine', m.name, m.status)), ...leftover(['device'])]],
+        ['Local agents', 'No local models (Ollama, llama.cpp) configured.', workers.filter(local).map((w) => row('worker', w.name, w.ready ? 'ready' : 'down'))],
+        ['Online agents', 'No online agents configured.', [
+            ...workers.filter((w) => !local(w)).map((w) => row('worker', w.name, w.ready ? 'ready' : 'down')),
+            ...(s.usage?.accounts || []).map((a) => row('account', a.name, a.verdict)),
+            ...(s.scouts?.items || []).map(scoutRow), ...leftover(['worker', 'account'])]],
+    ];
+    $('pausable').replaceChildren(...groups.flatMap(([title, none, items]) => {
+        const list = items.filter(Boolean);
+        return [el('h4', { class: 'card__sub', text: title }),
+            el('ul', { class: 'list', 'aria-label': title }, ...(list.length ? list : [el('li', { class: 'row__note', text: none })]))];
+    }));
     $('optin').replaceChildren(...(c.opt_in.length ? c.opt_in.map(optIn)
         : [el('li', {}, empty('Nothing opt-in', 'Workers or accounts marked costs_money or opt_in, and Android lint runs, appear here.'))]));
 }

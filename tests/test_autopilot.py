@@ -96,8 +96,9 @@ class BacklogTest(Base):
     def test_todo_with_an_owner_tag_and_gap_lines(self):
         todos = backlog.todo_items(['src/a.py:12:    # TODO(owner): split this function', 'src/b.py:3: TODO without owner'])
         self.assertEqual(todos, [('TODO(owner) in src/a.py:12: split this function', 'src/a.py')])
-        gaps = backlog.gap_items(['src/c.ts:4: coverage 80 % < 90 %', '', 'a plain gap'])
-        self.assertEqual(gaps, [('src/c.ts: coverage 80 % < 90 %', 'src/c.ts'), ('a plain gap', None)])
+        gaps = backlog.gap_items(['src/c.ts:4: coverage 80 % < 90 %', '', 'a plain gap', 'src/d.py:3:7: E501 too long', 'note: x'])
+        self.assertEqual(gaps, [('src/c.ts: coverage 80 % < 90 %', 'src/c.ts'), ('a plain gap', None),
+                                ('src/d.py: E501 too long', 'src/d.py'), ('note: x', None)])
 
     def test_seed_reads_the_repo_sources_once(self):
         repo = os.path.join(self.tmp.name, 'repo')
@@ -111,10 +112,10 @@ class BacklogTest(Base):
         cfg = self.cfg()
         cfg['autopilot']['repos']['app']['gaps'] = 'echo "a.py: no docstring"'
         with backlog.locked(cfg) as data:
-            added = backlog.seed(cfg, data, 'app', cfg['autopilot']['repos']['app'])
+            added = backlog.seed(data, 'app', cfg['autopilot']['repos']['app'])
             self.assertEqual(len(added), 3)
             self.assertEqual({t['source'] for t in added}, {'feedback', 'todo', 'gaps'})
-            self.assertEqual(backlog.seed(cfg, data, 'app', cfg['autopilot']['repos']['app']), [])
+            self.assertEqual(backlog.seed(data, 'app', cfg['autopilot']['repos']['app']), [])
 
 
 class PlanTest(Base):

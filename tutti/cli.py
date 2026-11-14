@@ -35,6 +35,7 @@ from . import (
 )
 
 SCRIPTS = os.path.join(remote.ROOT, 'scripts')
+NONE = '(none)'
 SUMMARY = 'In at most 5 short lines: which check failed, the file:line and the exact error. No advice.'
 
 
@@ -56,7 +57,7 @@ def worker_of(cfg, name, kind):
         raise config.ConfigError(f'"{name}" is turned off in {cfg["_path"]} ({why}): set workers.{name}.enabled: true to use it')
     if not w or w['kind'] != kind:
         names = [n for n, x in cfg['workers'].items() if x['kind'] == kind]
-        have = ', '.join(names) or '(none)'
+        have = ', '.join(names) or NONE
         raise config.ConfigError(f'"{name}" is not a {kind} worker in {cfg["_path"]}: the {kind} workers are {have}')
     return w
 
@@ -208,7 +209,7 @@ def cmd_usage(cfg, a):
             say(f'{a.account} is turned off (enabled: false in {cfg["_path"]}): the reading is kept in the log but not used')
             return 0
         if a.account not in cfg['accounts'] or a.percent is None:
-            names = ', '.join(cfg['accounts']) or '(none)'
+            names = ', '.join(cfg['accounts']) or NONE
             say(f'usage: tutti usage log <account> <percent> [--resets <ISO time>]; the accounts are {names}')
             return 2
         pacing.append_log(path, a.account, float(a.percent), now, a.note, resets=a.resets)
@@ -678,7 +679,7 @@ def cmd_handoff(cfg, a):
 def repo_of(cfg, name):
     repos = cfg['autopilot']['repos']
     if name not in repos:
-        have = ', '.join(repos) or '(none)'
+        have = ', '.join(repos) or NONE
         raise backlog.BacklogError(f'no repo "{name}" under autopilot.repos in {cfg["_path"]}: the repos are {have}')
     return repos[name]
 
@@ -703,22 +704,24 @@ def backlog_change(cfg, a, data):
                                                        a.source, a.note or []))
         print(f'{task["id"]}: {"added" if new else "already in the backlog"}: {task["title"][:90]}')
     elif a.action == 'seed':
-        added = backlog.seed(cfg, data, a.repo, repo_of(cfg, a.repo))
+        added = backlog.seed(data, a.repo, repo_of(cfg, a.repo))
         print('\n'.join(f'{t["id"]}: {t["title"][:100]}' for t in added) or f'seed: nothing new found in {a.repo}')
     else:
-        task = backlog.find(data, a.repo)   # rm, retry and done take the task id in the first argument
-        if task['status'] == 'running':
-            raise backlog.BacklogError(f'{task["id"]} is running (run {task.get("run")}): wait for it '
-                                       f'(tutti wait run {task.get("run")}), then {a.action} it')
-        if a.action == 'rm':
-            task['status'] = 'dropped'
-        elif a.action == 'done':
-            task['status'] = 'done'
-        else:
-            task['notes'] = [*task.get('notes', []), *(a.note or [])]
-            task.update(status='queued', parked=None)
-        print(f'{task["id"]}: {task["status"]}')
+        task_change(backlog.find(data, a.repo), a)   # rm, retry and done take the task id in the first argument
     return 0
+
+
+def task_change(task, a):
+    """rm, retry or done of one task; never while its run is going."""
+    if task['status'] == 'running':
+        raise backlog.BacklogError(f'{task["id"]} is running (run {task.get("run")}): wait for it '
+                                   f'(tutti wait run {task.get("run")}), then {a.action} it')
+    if a.action == 'retry':
+        task['notes'] = [*task.get('notes', []), *(a.note or [])]
+        task.update(status='queued', parked=None)
+    else:
+        task['status'] = 'dropped' if a.action == 'rm' else 'done'
+    print(f'{task["id"]}: {task["status"]}')
 
 
 def cmd_autopilot(cfg, a):

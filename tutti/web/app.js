@@ -546,8 +546,10 @@ function renderAutopilot(s) {
     toggle.setAttribute('aria-pressed', String(ap.enabled));
     $('autopilot-meta').textContent = `${ap.enabled ? 'on' : 'off'} · ${ap.ladder.join(' → ') || 'no ladder'} · at most ${ap.max_parallel} at once`;
     const last = ap.last;
-    $('autopilot-state').textContent = last ? `${last.state}: ${last.reason} (${relative(new Date(last.at * 1000).toISOString())})`
-        : (ap.configured ? 'Not run yet: turn it on; it checks after every probe.' : 'Not set up: add autopilot.repos to the config.');
+    let stateText = 'Not set up: add autopilot.repos to the config.';
+    if (last) stateText = `${last.state}: ${last.reason} (${relative(new Date(last.at * 1000).toISOString())})`;
+    else if (ap.configured) stateText = 'Not run yet: turn it on; it checks after every probe.';
+    $('autopilot-state').textContent = stateText;
     const groups = AP_GROUPS.filter(([key]) => ap[key].length).map(([key, title]) => el('div', {},
         el('h3', { class: 'card__sub', text: `${title} (${ap[key].length})` }),
         el('ul', { class: 'list' }, ...ap[key].slice(0, 20).map(apTask))));

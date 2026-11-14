@@ -332,7 +332,24 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen):
     return run_id
 
 
+def own_log(cfg, path):
+    """`path` when it lies inside this state's runs folder (a report names its check logs there), else None: a report that was
+    edited to name another file never gets that file read into a brief."""
+    if not isinstance(path, str):
+        return None
+    root = os.path.realpath(delegate.runs_dir(cfg)) + os.sep
+    real = os.path.realpath(path)
+    return real if real.startswith(root) else None
+
+
+def run_log(cfg, run_id):
+    """The log of a run named in the backlog, or None when the id is not a run id (never a path)."""
+    return delegate.paths(cfg, run_id)['log'] if delegate.valid_id(run_id) else None
+
+
 def tail_of(path, chars=TAIL_CHARS):
+    if not path:
+        return ''
     try:
         with open(path, encoding='utf8', errors='replace') as f:
             return f.read()[-chars:]
@@ -341,11 +358,11 @@ def tail_of(path, chars=TAIL_CHARS):
 
 
 def attempt_of(cfg, task, report, now):
-    tails = {c['log']: tail_of(c['log']) for c in (report or {}).get('checks') or []}
+    tails = {c['log']: tail_of(own_log(cfg, c['log'])) for c in (report or {}).get('checks') or []}
     sig, why = signature(report, tails)
     failing = [tails[c['log']] for c in (report or {}).get('checks') or [] if c['rc'] != 0]
     if report is None or report.get('worker_rc') or not failing:
-        failing = [tail_of(delegate.paths(cfg, task['run'])['log'])]
+        failing = [tail_of(run_log(cfg, task['run']))]
     ok = bool(report) and report['rc'] == 0
     if ok:
         sig, why = '', 'passed'
@@ -401,6 +418,8 @@ def publish(cfg, task, report, run=git, gh=subprocess.run):
 
 def finished(cfg, task, is_alive):
     """(ended?, report or None) of a running task's run."""
+    if not delegate.valid_id(task.get('run')):
+        return True, None   # a hand-edited backlog: the attempt counts as ended without a report
     report = delegate.load_report(cfg, task['run'])
     if report:
         return True, report
@@ -485,7 +504,7 @@ def task_view(cfg, t, now):
                     for a in t['attempts']]
     if t['status'] == 'running':
         v['elapsed'] = now - (t.get('started') or now)
-        v['last_line'] = last_line(delegate.paths(cfg, t['run'])['log'])
+        v['last_line'] = last_line(run_log(cfg, t['run']))
         v['credits'] = credits_of(cfg, t['run'])
     return v
 

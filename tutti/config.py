@@ -249,21 +249,22 @@ def validate(cfg):
     return errs + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg)
 
 
+def _autopilot_name_error(cfg, key, n):
+    a, w = cfg['accounts'].get(n), cfg['workers'].get(n)
+    paid = any(o['name'] == n and o['costs_money'] for o in cfg.get('off') or [])
+    if paid or (a or {}).get('costs_money') or (w or {}).get('costs_money'):
+        return f'autopilot.{key} names "{n}", which costs money per use: the autopilot never spends money; remove it'
+    if a is None and w is None:
+        return f'autopilot.{key} names "{n}", which is neither under accounts: nor under workers: (or it is turned off)'
+    users = [x for x, acc in cfg['accounts'].items() if (acc or {}).get('worker') == n] if a is None else []
+    if users:
+        return (f'autopilot.{key} names the worker "{n}", which accounts use: name the account instead ({", ".join(users)}), '
+                'so its pace, panic and model apply')
+    return None
+
+
 def _autopilot_name_errors(cfg, key, names):
-    errs = []
-    for n in names or []:
-        a, w = cfg['accounts'].get(n), cfg['workers'].get(n)
-        paid = any(o['name'] == n and o['costs_money'] for o in cfg.get('off') or [])
-        if paid or (a or {}).get('costs_money') or (w or {}).get('costs_money'):
-            errs.append(f'autopilot.{key} names "{n}", which costs money per use: the autopilot never spends money; remove it')
-        elif a is None and w is None:
-            errs.append(f'autopilot.{key} names "{n}", which is neither under accounts: nor under workers: (or it is turned off)')
-        elif a is None:
-            users = [x for x, acc in cfg['accounts'].items() if (acc or {}).get('worker') == n]
-            if users:
-                errs.append(f'autopilot.{key} names the worker "{n}", which accounts use: name the account instead '
-                            f'({", ".join(users)}), so its pace, panic and model apply')
-    return errs
+    return [e for e in (_autopilot_name_error(cfg, key, n) for n in names or []) if e]
 
 
 def _autopilot_repo_errors(n, r):

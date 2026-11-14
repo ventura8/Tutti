@@ -142,6 +142,22 @@ def todo_items(lines):
     return out
 
 
+def gap_of(line):
+    """(title, path or None) of one gap line: `<path>[:<line>[:<col>]]: <what>`, or plain text."""
+    parts = [p.strip() for p in line.split(':')]
+    path = parts[0]
+    rest = parts[1:]
+    while rest and rest[0].isdigit():
+        rest = rest[1:]
+    what = ':'.join(rest).strip()
+    if what and PATH_RX.fullmatch(path) and '.' in os.path.basename(path):
+        return f'{path}: {what}', path
+    return line, None
+
+
+PATH_RX = re.compile(r'[\w./-]+')
+
+
 def gap_items(lines):
     """(title, path or None) of a repo's `gaps` command output: one gap per line, `<path>: <what is missing>` or plain text."""
     out = []
@@ -149,12 +165,11 @@ def gap_items(lines):
         line = line.strip()
         if not line:
             continue
-        m = re.match(r'^([\w./-]+\.\w+)(?::\d+)*:\s*(.+)$', line)
-        out.append((f'{m.group(1)}: {m.group(2)}', m.group(1)) if m else (line, None))
+        out.append(gap_of(line))
     return out
 
 
-def seed(cfg, data, name, repo, run=subprocess.run):
+def seed(data, name, repo, run=subprocess.run):
     """Adds the tasks the repo's safe sources name. Returns the added tasks."""
     path = config.expand(repo['path'])
     check = repo.get('check') or ''

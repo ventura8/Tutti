@@ -10,9 +10,9 @@ import os
 import re
 import shlex
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-from . import config
+from . import config, tz
 
 # Typical household electricity price by country: local currency per kWh, all taxes included, rounded. A starting point only:
 # set your own in Settings (energy.price_per_kwh), and the card stops saying "estimated".
@@ -231,14 +231,8 @@ def tariff(cfg, env=None, zone=None, zone_tab=None):
 @functools.lru_cache(maxsize=1)
 def system_zone():
     """(this computer's time zone name, zone.tab's text); empty strings where they cannot be read."""
-    zone = os.environ.get('TZ', '').lstrip(':')
-    if not zone:
-        try:
-            with open('/etc/timezone', encoding='utf8') as f:
-                zone = f.read().strip()
-        except OSError:
-            link = os.path.realpath('/etc/localtime')
-            zone = link.split('zoneinfo/', 1)[1] if 'zoneinfo/' in link else ''
+    zone = tz.zone_name()   # time.zone, else the detected one (tutti/tz.py: Linux, Windows and macOS)
+    zone = '' if zone == 'UTC' else zone
     try:
         with open('/usr/share/zoneinfo/zone.tab', encoding='utf8') as f:
             return zone, f.read()
@@ -347,7 +341,7 @@ def _bucket(store, machine, day):
     return days.setdefault(day, {'busy_s': 0.0, 'idle_s': 0.0, 'busy_wh': [0.0] * 24, 'idle_wh': [0.0] * 24})
 
 
-def record(store, machine, now, w, state, max_gap, local=time.localtime):
+def record(store, machine, now, w, state, max_gap, local=None):
     """Adds the time since the machine's last sample (at most max_gap) at `w` watts to today's bucket as busy (a Tutti run is
     on it) or idle (Tutti keeps a model loaded), or nothing ('off'). Drops buckets older than KEEP days."""
     entry = store.setdefault(machine, {'last': None, 'days': {}})
@@ -355,6 +349,7 @@ def record(store, machine, now, w, state, max_gap, local=time.localtime):
     if last is None or state == 'off' or now <= last:
         return store
     dt = min(now - last, max_gap)
+    local = local or tz.localtime   # the owner's local day and hour (time.zone), daylight saving included
     lt = local(now)
     b = _bucket(store, machine, time.strftime('%Y-%m-%d', lt))
     b[f'{state}_s'] += dt
@@ -477,7 +472,7 @@ def _period_sums(store_days, t, days):
 
 def periods(now):
     """{today, week (the last 7 days), month (this calendar month)}: the local dates each covers."""
-    d = datetime.fromtimestamp(now).date()
+    d = tz.local_now(now).date()
     return {'today': [d.isoformat()], 'week': [(d - timedelta(days=i)).isoformat() for i in range(7)],
             'month': [(d - timedelta(days=i)).isoformat() for i in range(d.day)]}
 
@@ -503,15 +498,16 @@ def card(cfg, name, host, reading, item, store, runs, now, t, busy_now):
     busy_w = busy_wh * 3600 / busy_s if busy_s >= 60 else watts({'gpu': r.get('gpu')}, mcfg, True, on_gpu)[0]
     per = {k: _period_sums(days, t, v) for k, v in periods(now).items()}
     mine = [x for x in runs if x.get('worker') in host['workers']]
-    midnight = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0)
-    for k, since in (('today', midnight.timestamp()), ('week', (midnight - timedelta(days=6)).timestamp()),
-                     ('month', midnight.replace(day=1).timestamp())):
+    midnight = tz.local_now(now).replace(hour=0, minute=0, second=0, microsecond=0)
+    for k, since in (('today', tz.to_utc(midnight, tz.zone()).timestamp()),
+                     ('week', tz.to_utc(midnight - timedelta(days=6), tz.zone()).timestamp()),
+                     ('month', tz.to_utc(midnight.replace(day=1), tz.zone()).timestamp())):
         rs = [x for x in mine if x.get('end', 0) >= since]
         per[k].update({'jobs': len(rs), 'tokens': sum(x.get('out') or 0 for x in rs),
                        'run_s': round(sum(x['end'] - x['start'] for x in rs)),
                        'cloud': cloud_cost(cfg, t, sum(x.get('in') or 0 for x in rs), sum(x.get('out') or 0 for x in rs))})
     m = per['month']
-    hour_price = price_at(t, time.localtime(now).tm_hour)
+    hour_price = price_at(t, tz.localtime(now).tm_hour)
     status, why = availability(item)
     if reading is None and status == 'available':
         status, why = 'offline', 'its power and models were not read: the machine did not answer over ssh (`tutti machines`)'
@@ -535,7 +531,7 @@ def view(cfg, readings, machine_items, now, t=None, store=None, runs=None):
     for name, h in hosts(cfg).items():
         busy = any(w in live for w in h['workers'])
         cards.append(card(cfg, name, h, (readings or {}).get(name), items.get(name), store, runs, now, t, busy))
-    wait = cheap_now(cfg, t, time.localtime(now).tm_hour)
+    wait = cheap_now(cfg, t, tz.localtime(now).tm_hour)
     return {'cards': cards, 'tariff': t, 'cheap_wait': wait, 'include_idle': (cfg.get('energy') or {}).get('include_idle', True),
             'method': 'docs/ENERGY.md'}
 

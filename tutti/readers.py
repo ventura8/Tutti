@@ -41,6 +41,7 @@ UNIT = r'(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b'
 RELATIVE = re.compile(r'\b(?:in|after|within)\s+((?:\d+(?:\.\d+)?\s*' + UNIT + r'[\s,]*(?:and\s+)?)+)', re.I)
 PART = re.compile(r'(\d+(?:\.\d+)?)\s*' + UNIT, re.I)
 SECONDS = {'d': 86400, 'h': 3600, 'm': 60, 's': 1}
+ZONE = re.compile(r'\(?\b(UTC|GMT|[A-Z][A-Za-z_]+/[A-Za-z_]+(?:/[A-Za-z_]+)?)\b\)?')   # "resets 3pm (Europe/Bucharest)"
 CLOCK = re.compile(r'\b(?:resets?|refresh(?:es)?|available|again)\b\D{0,12}?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b', re.I)
 
 
@@ -64,7 +65,8 @@ def parse_reset(text, now):
 
 
 def clock_reset(text, now):
-    """`resets 3pm` / `resets at 15:30`: the next such time of day, in this computer's time zone."""
+    """`resets 3pm` / `resets at 15:30`: the next such time of day, in the zone the text names ("(Europe/Bucharest)", "UTC"),
+    else in this computer's (time.zone), daylight saving included."""
     m = CLOCK.search(text)
     if not m:
         return None
@@ -75,9 +77,14 @@ def clock_reset(text, now):
         hour = hour % 12 + (12 if half == 'pm' else 0)
     if hour > 23 or minute > 59:
         return None
-    local = now.astimezone()
-    at = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    return (at if at > local else at + timedelta(days=1)).astimezone(timezone.utc)
+    from tutti import tz
+    named = ZONE.search(text[m.end():m.end() + 40])
+    z = tz.zone('UTC' if named and named.group(1) == 'GMT' else named.group(1)) if named else tz.zone()
+    local = tz.local(now, z)
+    at = local.replace(hour=hour, minute=minute, second=0, microsecond=0, tzinfo=None)
+    if at <= local.replace(tzinfo=None):
+        at += timedelta(days=1)
+    return tz.to_utc(at, z)
 
 
 def limit_hits(lines, now):
@@ -122,7 +129,7 @@ def agy_usage(data, bucket):
 
 def github_premium(data, allowance, now):
     """(used %, reset) from GitHub's premium-request usage report (GET /users/<login>/settings/billing/premium_request/usage):
-    the Copilot premium requests of this month against the plan's `allowance`; the month resets on the 1st, 00:00 UTC."""
+    the Copilot premium requests of this month against the plan's `allowance`; the month resets at midnight UTC on the 1st."""
     items = (data or {}).get('usageItems') if isinstance(data, dict) else None
     if not isinstance(items, list):
         raise ValueError('no usageItems in the answer: is this the premium_request/usage report?')

@@ -24,6 +24,9 @@ EXAMPLE = os.path.join(ROOT, 'tutti.config.example.yaml')
 DEFAULTS = {
     'project': {'worktrees': '.', 'state': '~/.local/state/tutti'},
     'machines': {},
+    # time.zone: what local time means (owner hours, quiet hours, tariffs, what the CLI prints): auto detects this
+    # computer's IANA zone (tutti/tz.py), daylight saving included; an IANA name such as Europe/Bucharest overrides it
+    'time': {'zone': 'auto'},
     'runner': {'kind': 'shell', 'memory_gb': 12, 'cpus': 8, 'env': {}, 'args': [], 'prelude': ''},
     'routing': {'order': []},
     'sync': {'exclude': ['/.git', '.env', '.env.*', '*.key', '*.pem'], 'ensure_dirs': []},
@@ -349,8 +352,8 @@ def validate(cfg):
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
     errs += _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
     # they import modules that import this one
-    from . import autocompact, dispatch, energy, owner, scouts, selfimprove, sentry, tiers, users
-    errs += dispatch.errors(cfg) + tiers.errors(cfg)
+    from . import autocompact, dispatch, energy, owner, scouts, selfimprove, sentry, tiers, tz, users
+    errs += dispatch.errors(cfg) + tiers.errors(cfg) + tz.errors(cfg)
     errs += selfimprove.errors(cfg) + sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
         owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update']) + energy.errors(cfg)
@@ -420,11 +423,12 @@ QUIET = re.compile(r'([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d')
 
 
 def quiet_hours_errors(hours):
-    """autopilot.quiet_hours: UTC spans when the autopilot must not run, e.g. ['22:00-06:00'] (the planner gives them nothing)."""
+    """autopilot.quiet_hours: local-time spans (time.zone) when the autopilot must not run, e.g. ['22:00-06:00'] (the
+    planner gives them nothing)."""
     if hours is None:
         return []
     if not isinstance(hours, list) or not all(isinstance(h, str) and QUIET.fullmatch(h) for h in hours):
-        return [f'autopilot.quiet_hours is {hours!r}: a list of UTC spans HH:MM-HH:MM, e.g. ["22:00-06:00"] (past midnight wraps)']
+        return [f'autopilot.quiet_hours is {hours!r}: a list of local-time spans HH:MM-HH:MM, e.g. ["22:00-06:00"] (past midnight wraps)']
     return []
 
 
@@ -710,6 +714,8 @@ def load(path=None, start=None, env=None):
     for w in cfg['_warnings']:
         sys.stderr.write(f'tutti: warning: {path}: {w}\n')
     cfg['_path'] = os.path.abspath(path)
+    from . import tz
+    tz.use(cfg)
     return cfg
 
 

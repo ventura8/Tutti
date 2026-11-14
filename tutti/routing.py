@@ -18,6 +18,7 @@ class Probe:
     gpu_temp: float | None = None  # the hottest GPU in degrees C (nvidia-smi, or an amdgpu/xe/i915 sensor), None when none
     temp_note: str = ''            # why the CPU temperature is not readable (a WSL machine whose Windows side has no sensor)
     readings: dict | None = None   # a Termux machine's battery, charging, battery_c and wifi (tutti/devices.py), else None
+    zone: str = ''                 # the machine's own IANA zone, read over its ssh (tutti/tz.py): its quiet hours are its local time
 
     def hottest(self):
         """(degrees C, 'CPU' or 'GPU') of the hotter of the two, or (None, '') when neither is readable."""

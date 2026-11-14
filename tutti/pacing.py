@@ -16,11 +16,18 @@ def tolerance(expected):
 
 
 def parse_time(s):
-    """ISO 8601; a bare time is UTC. Accepts a trailing Z and `2026-01-31 10:00`."""
+    """ISO 8601; a bare time is UTC. Accepts a trailing Z, an offset, `2026-01-31 10:00` and a stated IANA zone,
+    `2026-01-31 10:00 Europe/Bucharest` (that zone's wall time, daylight saving included)."""
     if isinstance(s, datetime):
-        dt = s
-    else:
-        dt = datetime.fromisoformat(str(s).strip().replace('Z', '+00:00'))
+        return s if s.tzinfo else s.replace(tzinfo=timezone.utc)
+    text, zone = str(s).strip(), None
+    head, _, last = text.rpartition(' ')
+    if head and '/' in last:
+        from zoneinfo import ZoneInfo
+        text, zone = head.strip(), ZoneInfo(last)
+    dt = datetime.fromisoformat(text.replace('Z', '+00:00'))
+    if zone is not None and not dt.tzinfo:
+        return dt.replace(tzinfo=zone).astimezone(timezone.utc)
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
@@ -118,7 +125,8 @@ PANIC_AT = 95  # percent of the whole quota: at or over it before the target tim
 
 
 def _fmt(dt):
-    return dt.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M')
+    from tutti import tz  # local time with its offset: 'Sun 15 Nov 02:00 (UTC+2)' (stored times stay UTC)
+    return tz.show(dt)
 
 
 def panic(used, now, target, threshold=PANIC_AT):
@@ -263,10 +271,10 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
 
 
 def report(accounts, entries, now, quiet_hours=None, states=None):
-    """One row per account: used, reset, target, verdict and what to do. Times in UTC. `states`: the accounts' states as the
+    """One row per account: used, reset, target, verdict and what to do. Local times with the offset. `states`: the accounts' states as the
     dashboard has them (tutti/state.py: the owner's reserve, scouts), else computed here."""
     by_name = {s['name']: s for s in states or []}
-    rows = [('account', 'used', 'by now', 'resets (UTC)', 'spend by (UTC)', 'verdict', 'do')]
+    rows = [('account', 'used', 'by now', 'resets', 'spend by', 'verdict', 'do')]
     # A reading is the whole account's use, whoever spent it, so the pace is judged against the whole quota; an account shared
     # with a peer session shows this session's part beside the verdict.
     for name, a in accounts.items():

@@ -16,8 +16,9 @@ dashboard can write the file, else kept in owner.json, which wins until the key 
 import json
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
+from tutti import tz
 from tutti.pacing import parse_time
 
 FILE = 'owner.json'
@@ -68,15 +69,22 @@ def schedule_errors(p):
     return errs
 
 
-def offset_of(schedule, now=None):
-    """The owner's UTC offset in hours: schedule.utc_offset, else this computer's."""
+def zone_of(schedule, name=None):
+    """The owner's zone: a fixed schedule.utc_offset (hours) when one is set, else the IANA name (time.zone, detected on
+    the owner's own Tutti host), daylight saving included."""
     if schedule.get('utc_offset') is not None:
         return float(schedule['utc_offset'])
-    return ((now or datetime.now(timezone.utc)).astimezone().utcoffset() or timedelta()).total_seconds() / 3600
+    return name or tz.zone_name()
 
 
-def local(at, offset):
-    return at + timedelta(hours=offset)
+def offset_of(schedule, now=None, name=None):
+    """The owner's UTC offset in hours at `now`: 2 for Bucharest in winter, 3 in summer."""
+    return tz.offset_hours(zone_of(schedule, name), now)
+
+
+def local(at, zone):
+    """`at` (UTC) in the owner's local time; `zone` is an IANA name, a tzinfo or fixed hours."""
+    return tz.local(at, zone)
 
 
 def seed(schedule):
@@ -172,12 +180,12 @@ def effective(mode, reserve, readings, now, offset, away_after, learned=True):
     AWAY_SHARE of their expected burn; vacation-until-<date> is away until that local date's midnight."""
     day = vacation_day(mode)
     if day:
-        until = day.replace(tzinfo=timezone.utc) - timedelta(hours=offset)
+        until = tz.to_utc(day, offset)
         return ('vacation', until) if now < until else ('auto', None)
     if not valid_mode(mode):
         mode = 'auto'   # a hand-edited owner.json with a bad mode: the profile decides, nothing breaks
     lt = local(now, offset)
-    midnight = lt.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1) - timedelta(hours=offset)
+    midnight = tz.to_utc(lt.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None) + timedelta(days=1), offset)
     if mode == 'away':
         return 'away', midnight
     if mode != 'auto' or not learned:
@@ -223,10 +231,11 @@ def context(owner, readings, now):
     if not owner:
         return None
     sched = owner['schedule']
-    offset = offset_of(sched, now)
+    offset = zone_of(sched, owner.get('zone'))
     prof = profile_of(sched, readings, offset)
     mode, until = effective(owner['mode'], prof['reserve'], readings, now, offset, owner.get('away_after_hours', 3), prof['learned'])
-    return {**prof, 'offset': offset, 'mode': mode, 'set_mode': owner['mode'], 'until': until}
+    return {**prof, 'offset': offset, 'zone': offset if isinstance(offset, str) else tz.label(offset),
+            'utc_offset': tz.offset_hours(offset, now), 'mode': mode, 'set_mode': owner['mode'], 'until': until}
 
 
 def spendable(left, now, target):
@@ -288,7 +297,7 @@ def owner_of(cfg, folder):
     if accounts is None:   # no main agent: no account is the owner's
         accounts = [n for n, a in cfg['accounts'].items() if agent and (n == agent or (a or {}).get('worker') == agent)]
     return {'accounts': list(accounts), 'schedule': sched, 'mode': saved.get('mode') or p.get('mode', 'auto'),
-            'away_after_hours': p.get('away_after_hours', 3)}
+            'away_after_hours': p.get('away_after_hours', 3), 'zone': tz.zone_name(cfg, saved.get('browser_zone') or '')}
 
 
 def view(cfg, folder, entries, now):
@@ -300,12 +309,18 @@ def view(cfg, folder, entries, now):
     until = ctx['until'].isoformat() if ctx['until'] else None
     return {'accounts': o['accounts'], 'mode': o['mode'], 'effective': ctx['mode'], 'until': until, 'schedule': o['schedule'],
             'profile': ctx['profile'], 'reserve': ctx['reserve'], 'learned': ctx['learned'], 'hours_seen': ctx['hours_seen'],
-            'utc_offset': ctx['offset'], 'days': list(DAYS)}
+            'utc_offset': ctx['utc_offset'], 'zone': ctx['zone'], 'browser_zone': read(folder).get('browser_zone') or '',
+            'days': list(DAYS)}
 
 
 def change(cfg, folder, data):
     """(status, answer) of a change from the dashboard or the CLI: {mode, days, window, hours}; null takes one back to the
     config's. Checked with the config's own rules before anything is saved."""
+    if isinstance(data, dict) and 'browser_zone' in data:   # the dashboard's browser zone: used when the host's is unknown
+        if not tz.valid(data['browser_zone']):
+            return 400, {'error': f'browser_zone is {data["browser_zone"]!r}: an IANA zone such as Europe/Bucharest'}
+        write(folder, browser_zone=data['browser_zone'])
+        return 200, {'ok': True, 'browser_zone': data['browser_zone']}
     keys = [k for k in ('mode', 'days', 'window', 'hours') if isinstance(data, dict) and k in data]
     if not keys:
         return 400, {'error': 'send {"mode": "auto|active|away|vacation-until-YYYY-MM-DD"} or {"days": [...], "window": "HH-HH", '

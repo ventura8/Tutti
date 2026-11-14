@@ -155,7 +155,7 @@ def machine_state(m, p, rank):
             'min_free_gb': m['min_free_gb'], 'temp_c': p.temp if p.reachable else None, 'heat': m.get('heat'),
             'gpu_temp_c': p.gpu_temp if p.reachable else None, 'temp_note': p.temp_note if p.reachable else '',
             'containers': list(getattr(p, 'containers', []) or []), 'readings': getattr(p, 'readings', None),
-            'owner_paused': m.get('paused')}
+            'owner_paused': m.get('paused'), 'zone': getattr(p, 'zone', '') if p.reachable else ''}
 
 
 def machines_state(cfg, probe_fn, stored_fn=None):

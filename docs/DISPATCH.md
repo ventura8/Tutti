@@ -48,7 +48,7 @@ On each round, every free target pulls one compatible shard. It respects:
 
 - **pause**: a paused device or machine, or a device's paused machine;
 - **yield** and **thermal** limits: a machine's yield flag, heat or load, and a device's battery, charging and temperature policy;
-- `dispatch.quiet_hours`;
+- `dispatch.quiet_hours`, in local time; a remote machine's in its own zone, read over its ssh;
 - **opt-ins**: lint and unit suites on an Android device are opt-in per device (`tutti optin device <d> on`, or the Controls switch).
 
 Projects take turns by a **weighted fair share**: `tutti/priority.py` with `config.project_priority`, the same helper the

@@ -10,12 +10,17 @@ An account without limits has one window: its room until its target. Re-planned 
 Pure: datetimes in, plain dicts out. Points are percentages of the limit's quota unless named `own`."""
 from datetime import timedelta
 
+from tutti import tz
 from tutti.pacing import TASK_PCT, parse_time
 
 
-def quiet(at, hours):
-    """Whether `at` (UTC) falls in one of `hours`, e.g. ['22:00-06:00'] (a span past midnight wraps)."""
-    minute = at.hour * 60 + at.minute
+def quiet(at, hours, zone=None):
+    """Whether `at` (UTC) falls in one of `hours`, local-time spans (time.zone, daylight saving included) such as
+    ['22:00-06:00'] (a span past midnight wraps)."""
+    if not hours:
+        return False
+    lt = tz.local(at, zone if zone is not None else tz.zone())
+    minute = lt.hour * 60 + lt.minute
     for span in hours or []:
         a, b = (int(x[:2]) * 60 + int(x[3:5]) for x in span.split('-'))
         if (a <= minute < b) if a <= b else (minute >= a or minute < b):
@@ -177,7 +182,7 @@ def single_tasks(s, left, task, owner, now, target):
 
 def _at(t, now):
     hours = max(0.0, (t - now).total_seconds() / 3600)
-    return f'{t:%H:%M} UTC (in {hours:.1f} h)' if hours < 24 else f'{t:%a %d %b %H:%M} UTC'
+    return tz.show(t, now=now, date=hours >= 24)
 
 
 def explain_limited(name, p, when):

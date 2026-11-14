@@ -37,6 +37,10 @@ const chip = (text, tone) => el('span', { class: 'chip', 'data-tone': tone || 'i
 const fmtTime = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto', style: 'short' });
 
+// A time in the viewer's own zone, and the same moment in UTC for the tooltip (the server stores and sends UTC only).
+const utcTitle = (iso) => (iso ? `${new Date(iso).toISOString().slice(0, 16).replace('T', ' ')} UTC` : '');
+const localTime = (iso) => (iso ? `${fmtTime.format(new Date(iso))} (${Intl.DateTimeFormat().resolvedOptions().timeZone})` : '');
+
 function relative(iso, now = Date.now()) {
     if (!iso) return '';
     const s = (Date.parse(iso) - now) / 1000;
@@ -430,19 +434,30 @@ function heatmap(o) {
         ...row.map((v, h) => heatCell(v / top, o.reserve[d][h] > 0, `${o.days[d]} ${String(h).padStart(2, '0')}:00 · ${v} points/h${o.reserve[d][h] > 0 ? ' · kept for you' : ''}`))));
     const hours = el('div', { class: 'heat__row heat__hours', 'aria-hidden': 'true' }, el('span', { class: 'heat__day' }),
         ...Array.from({ length: 24 }, (_, h) => el('span', { class: 'heat__cell heat__label', text: h % 6 === 0 ? String(h) : '' })));
-    return el('div', { class: 'heat', role: 'table', 'aria-label': 'Your week: points per hour by weekday and hour (local time); outlined hours are kept for you' },
+    return el('div', { class: 'heat', role: 'table', 'aria-label': `Your week: points per hour by weekday and hour (your local time, ${o.zone || 'this computer\'s zone'}); outlined hours are kept for you` },
         ...rows, hours);
 }
 
+// The browser's zone, sent once when the dashboard has another one: Tutti uses it only when it cannot detect the host's
+let zoneSent = false;
+function sendBrowserZone(o) {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (zoneSent || !zone || o.browser_zone === zone) return;
+    zoneSent = true;
+    fetch('/api/owner', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN },
+        body: JSON.stringify({ browser_zone: zone }) }).catch(() => {});
+}
+
 function ownerPanel(o) {
-    const until = o.until ? ` until ${new Date(o.until).toLocaleString()}` : '';
+    sendBrowserZone(o);
+    const until = o.until ? ` until ${localTime(o.until)}` : '';
     const t = new Date(Date.now() + 86400000);   // tomorrow, local: the server reads the date as the owner's local midnight
     const date = el('input', { type: 'date', class: 'field', 'aria-label': 'Away until (date)',
         value: `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}` });
     const learned = o.learned ? `learned from ${o.hours_seen} h of readings` : `seeded from pacing.schedule (${o.schedule.window}, ${o.schedule.hours} h)`;
     return [
         el('h3', { class: 'card__sub', text: 'You and the main agent ' }, el('a', { class: 'link', href: '#settings/pacing', text: 'In Settings' })),
-        el('p', { class: 'row__note', text: `Mode: ${MODE_TEXT[o.effective] || o.effective}${until} (set: ${o.mode}) · ${o.accounts.join(', ') || 'no account'} · ${learned}` }),
+        el('p', { class: 'row__note', title: utcTitle(o.until), text: `Mode: ${MODE_TEXT[o.effective] || o.effective}${until} (set: ${o.mode}) · ${o.accounts.join(', ') || 'no account'} · ${learned}` }),
         el('div', { class: 'row__stats' },
             date,
             el('button', { class: 'btn btn--tonal', type: 'button', text: 'I\'m away until…',
@@ -762,7 +777,7 @@ function renderAutopilot(s) {
         groups.push(el('section', { class: 'autopilot__group autopilot__group--wide' }, el('h3', { class: 'card__sub', text: `Decisions (${ap.events.length})` }),
             el('ol', { class: 'decisions', tabindex: 0, 'aria-label': 'The autopilot\'s latest decisions, newest first' },
                 ...more('ap:events', ap.events.map((e) => el('li', {},
-                    el('time', { datetime: new Date(e.at * 1000).toISOString(), text: relative(new Date(e.at * 1000).toISOString()) }), ' ', e.text)), 4))));
+                    el('time', { datetime: new Date(e.at * 1000).toISOString(), title: utcTitle(new Date(e.at * 1000).toISOString()), text: relative(new Date(e.at * 1000).toISOString()) }), ' ', e.text)), 4))));
     }
     $('autopilot').replaceChildren(...(groups.length ? groups : [empty('Backlog empty — add tasks',
         'tutti backlog add <repo> "<title>" --check "<command>", or tutti backlog seed <repo>.')]));

@@ -156,6 +156,10 @@ def heartbeat(state, user_id, beat, now):
     off = beat.get('utc_offset')
     if isinstance(off, (int, float)) and not isinstance(off, bool) and -14 <= off <= 14:
         m['utc_offset'] = off
+    from tutti import tz
+    zone = beat.get('zone')   # the member's own IANA zone (their Tutti host's time.zone): their hours keep daylight saving
+    if isinstance(zone, str) and tz.valid(zone):
+        m['zone'] = zone
 
 
 # ---- leases

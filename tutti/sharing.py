@@ -240,7 +240,7 @@ def beat(cfg, now, machines=None):
     away = v['effective'] not in ('active', 'auto', 'present')
     return {'agent': agent, 'prompting': active, 'totals': {'runs_today': state.runs_today(cfg)},
             'weight': (cfg.get('user') or {}).get('weight', 1), 'profile': [] if away else v['profile'],
-            'utc_offset': v['utc_offset'], 'machines': demand(cfg, active, machines or [])}
+            'utc_offset': v['utc_offset'], 'zone': v['zone'], 'machines': demand(cfg, active, machines or [])}
 
 
 def running_on(folder, name):

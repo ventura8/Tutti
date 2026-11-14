@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import backlog, compact, config, delegate, planner, priority, remote, routing, telemetry, tiers, worktree
+from . import backlog, compact, config, delegate, planner, priority, remote, routing, telemetry, tiers, tz, worktree
 
 try:
     import fcntl
@@ -120,7 +120,7 @@ def local_room(cfg, name, step, used, machines):
         return 0, f'{name}: its machine {home} is {m["status"]} ({m.get("reason")})'   # a yielding PC is its owner's
     if (cfg.get('energy') or {}).get('prefer_cheap_hours'):   # a time-of-day tariff: local runs wait for the cheap hours
         from . import energy
-        wait = energy.cheap_now(cfg, energy.tariff(cfg), time.localtime().tm_hour)
+        wait = energy.cheap_now(cfg, energy.tariff(cfg), tz.localtime().tm_hour)
         if wait:
             return 0, f'{name}: {wait}'
     return (0, f'{name}: busy with a task') if used else (1, '')
@@ -257,7 +257,8 @@ def capacity_now(cfg, running, machines, now):
     """(how many may start now, None) or (0, {state, reason}) when nothing may: quiet hours, max_parallel, no machine slot."""
     hours = cfg['autopilot'].get('quiet_hours')
     if now is not None and planner.quiet(now, hours):
-        return 0, {'state': 'waiting', 'reason': f'quiet hours ({", ".join(hours)} UTC, autopilot.quiet_hours): nothing new starts'}
+        where = f'{tz.zone_name()}, {tz.label(tz.offset_hours(tz.zone(), now))}'
+        return 0, {'state': 'waiting', 'reason': f'quiet hours ({", ".join(hours)} {where}, autopilot.quiet_hours): nothing new starts'}
     free = settings(cfg)['max_parallel'] - len(running)
     if free <= 0:
         return 0, {'state': 'running', 'reason': f'{len(running)} run(s) going: max_parallel is {settings(cfg)["max_parallel"]}'}

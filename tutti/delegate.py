@@ -353,9 +353,10 @@ def log_run(cfg, worker, account, rc, run_id=None, lines=(), now=None):
 
 
 def runs_today(cfg, now=None):
-    """{worker: number of runs since 00:00 UTC today}."""
+    """{worker: number of runs since local midnight today (time.zone, daylight saving included)}."""
+    from . import tz
     now = now or time.time()
-    day = now - now % 86400
+    day = tz.to_utc(tz.local_now(now).replace(hour=0, minute=0, second=0, microsecond=0), tz.zone()).timestamp()
     out = {}
     try:
         with open(os.path.join(config.state_dir(cfg), RUN_LOG), encoding='utf8') as f:

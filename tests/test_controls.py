@@ -79,7 +79,7 @@ class SwitchTest(Base):
         controls.set_paused(self.state, 'worker', 'gone', True)
         self.assertNotIn('gone', config.load(self.path)['workers'])   # ignored, no crash
         write(controls.path(self.state), 'not json')
-        self.assertEqual(controls.read(self.state), {'enabled': {}, 'paused': {}})
+        self.assertEqual(controls.read(self.state), {'enabled': {}, 'paused': {}, 'settings': {}})
 
     def test_the_view_lists_opt_in_items_and_who_paused_what(self):
         controls.set_paused(self.state, 'machine', 'pc', True, note='gaming')

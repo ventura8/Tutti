@@ -19,7 +19,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from . import config, delegate, local, pacing, readers, remote, routing, workers
+from . import autocompact, compact, config, delegate, local, pacing, readers, remote, routing, workers
 
 # The commands a main agent is told about, in the order of the instruction file: (subcommand, the line it calls, what for).
 TOOLS = (
@@ -338,6 +338,8 @@ def shim(folder, cfg_path):
 def agent_env(cfg, run, agent):
     env = dict(os.environ, TUTTI_CONFIG=cfg['_path'], TUTTI_CONDUCT=run['dir'], TUTTI_MAIN=agent)
     env['PATH'] = run['bin'] + os.pathsep + env.get('PATH', '')
+    if (cfg['workers'].get(agent) or {}).get('kind') == 'cli':   # Claude Code compacts by itself at autocompact.threshold_pct
+        env.update(autocompact.env_for(cfg, {'kind': 'cli', 'command': cli_argv(cfg, agent, '', None)}))
     return env
 
 
@@ -464,7 +466,7 @@ def run_tutti(cfg, args, run, agent, watch=None):
                 break
             time.sleep(min(1.0, watch.every if watch else 1.0))
         text = reader.result().strip()
-    return f'exit {p.returncode}\n{text[-OUTPUT_MAX:]}'
+    return f'exit {p.returncode}\n{compact.compact(text, OUTPUT_MAX)}'
 
 
 def local_step(cfg, agent, reply, run, watch=None):
@@ -499,6 +501,8 @@ def run_local(cfg, agent, text, run, watch, out=None, reply_fn=local_reply):
     local.busy_marker(cfg)   # low-priority local jobs wait while the conductor's model works
     pool = ThreadPoolExecutor(max_workers=1)
     for _ in range(settings(cfg)['rounds']):
+        # Tutti holds this conversation, so it compacts it itself at autocompact.threshold_pct of the model's window
+        messages = autocompact.compact_messages(cfg, cfg['workers'][agent], messages)
         reply = None if stopped(watch) else wait_reply(pool, reply_fn, cfg['workers'][agent], messages, watch)
         if reply is None:
             return 1, kept
@@ -555,7 +559,8 @@ def read_text(path):
 
 
 def hand_over(run, frm, to, why, tail):
-    note = handoff_note(run['goal'], frm, to, why, read_text(run['progress']), tree_changes(run['cwd']), tail[-20:])
+    last = compact.compact('\n'.join(tail), 2000).splitlines()[-20:]   # its last output, without the noise
+    note = handoff_note(run['goal'], frm, to, why, read_text(run['progress']), tree_changes(run['cwd']), last)
     path = os.path.join(run['dir'], f'handoff-{len(run["agents"])}.md')
     with open(path, 'w', encoding='utf8') as f:
         f.write(note)

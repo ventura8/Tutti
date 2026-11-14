@@ -185,10 +185,13 @@ def activity_script():
     `R\\t<cwd>\\t<top>\\t<branch>\\t<remote url>` for each such folder in a git work tree, then `G <util %> <MiB used> <MiB total>`
     when an NVIDIA GPU answers. It only reads."""
     return ('export PATH="$PATH:/usr/lib/wsl/lib"; '
-            'for p in /proc/[0-9]*; do [ -O "$p" ] || continue; c=$(readlink "$p/cwd" 2>/dev/null) || continue; '
-            'case "$c" in "$HOME"/*) ;; *) continue ;; esac; '
-            'n=$(tr "\\0" "\\n" < "$p/cmdline" 2>/dev/null | head -n 1); n=${n%% *}; [ -n "$n" ] || continue; '
-            'printf "W\\t%s\\t%s\\n" "$c" "${n##*/}"; done > /tmp/tutti-activity.$$; '
+            # two processes for all of them (find for the folders, ps for the programs), joined by pid in awk: a fork
+            # or three per process took 14 s on a computer with 800 processes (2026-11-14), now 0.2 s
+            'find /proc/[0-9]*/cwd -maxdepth 0 -user "$(id -u)" -printf "%h\\t%l\\n" 2>/dev/null > /tmp/tutti-cwd.$$; '
+            'ps -u "$(id -u)" -o pid=,args= 2>/dev/null | awk -v H="$HOME/" -v F=/tmp/tutti-cwd.$$ '
+            "'BEGIN { while ((getline l < F) > 0) { split(l, a, \"\\t\"); sub(\"/proc/\", \"\", a[1]); c[a[1]] = a[2] } } "
+            "{ d = c[$1]; if (d == \"\" || index(d, H) != 1) next; n = $2; sub(/.*\\//, \"\", n); "
+            "if (n != \"\") printf \"W\\t%s\\t%s\\n\", d, n }' > /tmp/tutti-activity.$$; rm -f /tmp/tutti-cwd.$$; "
             'cat /tmp/tutti-activity.$$; '
             'cut -f2 /tmp/tutti-activity.$$ | sort -u | while IFS= read -r c; do '
             't=$(git -C "$c" rev-parse --show-toplevel 2>/dev/null) || continue; '
@@ -276,7 +279,7 @@ def parse_windows(text):
 def probe_windows(machine, folders, timeout=40):
     """The Windows side of a WSL machine, over its plain ssh (the Windows host), or {'error': why}. Read-only."""
     script = base64.b64encode(windows_script(folders).encode('utf-16le')).decode()
-    argv = [*remote.SSH, '-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes', machine['host'],
+    argv = [*remote.SSH, *remote.mux_opts(machine), '-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes', machine['host'],
             f'powershell -NoProfile -NonInteractive -EncodedCommand {script}']
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)

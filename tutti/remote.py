@@ -1,10 +1,12 @@
 """Runs commands on machines (this computer, ssh, or WSL behind a Windows ssh) and copies a work tree to them."""
 import base64
+import hashlib
 import os
 import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import time
 
 from . import routing, worktree
@@ -15,6 +17,12 @@ BIN = os.path.join(ROOT, 'bin', 'tutti')
 SSH = ['ssh', '-o', 'LogLevel=ERROR']
 BATCH = 'BatchMode=yes'                        # never a password prompt: a key works, or the machine counts as down
 QUICK = ('-o', 'ConnectTimeout=5', '-o', BATCH)
+# One ssh connection per machine, shared: the dashboard's probes, `tutti test`, rsync and git reuse it instead of a new
+# handshake each (nuc 0.18 s -> 0.02 s a call, 2026-11-14). The master is its own background process (-N -f, no captured
+# pipes: a ControlPersist master started by a captured call keeps the pipe open and the caller hangs); calls join it with
+# ControlMaster=no, and connect on their own while it is missing. Off with machines.<m>.ssh_reuse: false; never on Windows.
+MUX_PERSIST = 600
+MUX_RETRY = 60   # seconds before another master is tried for the same machine (a lock file per machine, across processes)
 
 
 _BASH_PATHS = {}
@@ -62,12 +70,54 @@ def argv(machine, script, ssh_opts=()):
             packed = base64.b64encode(script.encode()).decode()
             return ['bash', '-c', f'source <(echo {packed} | base64 -d)']
         return ['bash', '-c', script]
+    mux = mux_opts(machine)
     if t == 'ssh':
-        return [*SSH, *ssh_opts, machine['host'], script]
+        return [*SSH, *mux, *ssh_opts, machine['host'], script]
     if t == 'android':
-        return [*SSH, *port_opts(machine), *ssh_opts, dest(machine), script]
+        return [*SSH, *port_opts(machine), *mux, *ssh_opts, dest(machine), script]
     packed = base64.b64encode(f'cd ~ && {script}'.encode()).decode()
-    return [*SSH, *ssh_opts, machine['host'], f'wsl -e {machine["wsl_helper"]} {packed}']
+    return [*SSH, *mux, *ssh_opts, machine['host'], f'wsl -e {machine["wsl_helper"]} {packed}']
+
+
+def mux_path(machine):
+    """The control socket of a machine's shared connection: short (a socket path has ~100 bytes) and private to this user."""
+    key = hashlib.sha256(f'{dest(machine)}:{machine.get("port") or ""}:{machine.get("transport")}'.encode()).hexdigest()[:16]
+    return os.path.join(tempfile.gettempdir(), f'tutti-ssh-{os.getuid()}', key)
+
+
+def reuses(machine):
+    return os.name != 'nt' and machine.get('transport') in ('ssh', 'wsl', 'android') and machine.get('ssh_reuse', True) is not False
+
+
+def mux_opts(machine):
+    """The options that join the machine's shared connection, or none while there is no master (a call then connects itself)."""
+    if not reuses(machine):
+        return []
+    p = mux_path(machine)
+    return ['-o', 'ControlMaster=no', '-o', f'ControlPath={p}'] if os.path.exists(p) else []
+
+
+def ensure_master(machine, spawn=subprocess.Popen, clock=time.time):
+    """Starts the machine's shared connection in the background when it has none; at most once a MUX_RETRY per machine
+    (a lock file), so a host that is down is not dialled twice per probe. Returns True when it started one."""
+    if not reuses(machine):
+        return False
+    p = mux_path(machine)
+    if os.path.exists(p):
+        return False
+    os.makedirs(os.path.dirname(p), mode=0o700, exist_ok=True)
+    lock = p + '.try'
+    try:
+        if clock() - os.path.getmtime(lock) < MUX_RETRY:
+            return False
+    except OSError:
+        pass
+    with open(lock, 'w', encoding='utf8') as f:
+        f.write(f'{os.getpid()}\n')
+    spawn([*SSH, *port_opts(machine), '-o', BATCH, '-o', 'ConnectTimeout=5', '-o', 'ControlMaster=yes', '-o', f'ControlPath={p}',
+           '-o', f'ControlPersist={MUX_PERSIST}', '-N', '-f', dest(machine)],
+          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    return True
 
 
 def dest(machine):
@@ -81,6 +131,8 @@ def port_opts(machine):
 
 
 def sh(machine, script, capture=False, timeout=None, stdin=None, ssh_opts=()):
+    if machine['transport'] != 'local':
+        ensure_master(machine)
     return subprocess.run(argv(machine, script, ssh_opts), capture_output=capture, text=True, timeout=timeout, input=stdin)
 
 
@@ -100,7 +152,7 @@ def rsh(cfg, machine):
     if machine['transport'] == 'android':
         return f'ssh -p {int(machine.get("port") or 8022)}'
     if machine['transport'] != 'wsl':
-        return 'ssh'
+        return ' '.join(['ssh', *mux_opts(machine)])
     return f'{shlex.quote(sys.executable)} {shlex.quote(BIN)} --config {shlex.quote(cfg["_path"])} rsh {shlex.quote(machine["name"])}'
 
 

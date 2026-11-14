@@ -838,6 +838,7 @@ function factList(j) {
         [j.progress, () => layerText(j.progress)],
         [f.step, () => `step: ${f.step}`],
         [f.tokens, () => tokenText(f.tokens)],
+        [f.context_pct !== undefined && f.context_pct !== null, () => `context ${Math.round(f.context_pct)} %`],
         [f.credits, () => `${f.credits} AI credits`],
         [f.worker && !f.account, () => `worker ${f.worker}`],
         [f.account, () => accountText(f.account)],
@@ -1019,14 +1020,21 @@ async function refresh() {
     // request must not start a second polling loop or let the older answer overwrite the newer one.
     const seq = ++ui.seq;
     try {
-        const res = await fetch('/api/state', { cache: 'no-store' });
+        // no-cache: the browser asks with the ETag it kept; an unchanged answer comes back as a 304 (no body sent)
+        // and is neither parsed nor rendered again
+        const res = await fetch('/api/state', { cache: 'no-cache' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const etag = res.headers.get('ETag');
+        const same = etag && etag === ui.etag && ui.last && !ui.failing;
+        const data = same ? ui.last : await res.json();
         if (seq !== ui.seq) return;
-        ui.last = data;
         ui.fetchedAt = Date.now();
-        ui.failing = false;
-        render();
+        if (!same) {
+            ui.last = data;
+            ui.etag = etag;
+            ui.failing = false;
+            render();
+        }
         void selfUpdate(data.version);
     } catch {
         if (seq !== ui.seq) return;

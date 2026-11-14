@@ -1,6 +1,8 @@
 """`tutti dashboard`: a local web dashboard (an installable PWA) over the state Tutti already keeps.
 Standard library only: a threaded HTTP server bound to 127.0.0.1, static files from tutti/web, and /api/state as JSON.
 Machines and workers are probed in a background thread (ssh and model servers can be slow); the rest is read per request."""
+import gzip
+import hashlib
 import hmac
 import html
 import json
@@ -16,6 +18,7 @@ from urllib.parse import urlsplit
 
 from . import (
     __version__,
+    autocompact,
     autopilot,
     conduct,
     config,
@@ -159,6 +162,8 @@ class Collector:
         out['telemetry'] = dashtelemetry.view(self.cfg)
         out['controls']['opt_in'].append({'kind': 'autopilot', 'name': 'fill_room', 'on': out['autopilot']['fill_room'],
                                           'why': 'free room on the trigger accounts is filled from the repos\' sources by itself'})
+        out['controls']['autocompact'] = autocompact.view(self.cfg)
+        autocompact.tag_jobs(self.cfg, out['jobs']['items'])
         return out
 
     def reload(self):
@@ -324,8 +329,22 @@ def save_control(collector, raw, stop_fn=handover.stop_now):
     return 200, {'ok': True, 'handed': [{'log': log, 'to': to} for log, to in handed]}
 
 
+def save_autocompact(collector, raw):
+    """(status, answer) for POST /api/autocompact {"threshold_pct": 10-95, or null for the config's value}."""
+    try:
+        data = json.loads(raw or b'null')
+    except ValueError:
+        data = None
+    pct = data.get('threshold_pct', 'missing') if isinstance(data, dict) else 'missing'
+    if pct is not None and not autocompact.valid_pct(pct):
+        return 400, {'error': f'send {{"threshold_pct": <a whole number from {autocompact.MIN_PCT} to {autocompact.MAX_PCT}>}}, '
+                              'or {"threshold_pct": null} for the config\'s value'}
+    controls.set_setting(config.state_dir(collector.cfg), 'autocompact_pct', pct)
+    return 200, {'ok': True, 'threshold_pct': autocompact.threshold(collector.cfg)}
+
+
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
-         '/api/owner')
+         '/api/owner', '/api/autocompact')
 
 
 def post(collector, headers, path, port, token, read):
@@ -337,7 +356,7 @@ def post(collector, headers, path, port, token, read):
     if path not in POSTS:
         return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, {"agent": ...} to /api/main, '
                           '{"enabled": ...} to /api/autopilot or /api/self-improve, {"action": ...} to /api/control, '
-                          '{"mode": ...} to /api/owner, or '
+                          '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, or '
                           '{"consent"|"error"|"use": ...} to /api/telemetry'}
     refused = check_post(headers, host, token)
     if refused:
@@ -364,6 +383,7 @@ HANDLERS = {
     '/api/autopilot': lambda c, b: save_autopilot(c.cfg, b),
     '/api/owner': lambda c, b: save_owner(c.cfg, b),
     '/api/control': save_control,
+    '/api/autocompact': save_autocompact,
     '/api/refresh': refresh_now,
     '/api/reading': lambda c, b: save_reading(c.cfg, b),
     '/api/telemetry': dashtelemetry.save,
@@ -380,6 +400,50 @@ def safe_json(data):
     a job's title) can ever form markup; html.escape then finds nothing left to change and only states that."""
     text = json.dumps(data).replace('&', '\\u0026').replace('<', '\\u003c').replace('>', '\\u003e')
     return html.escape(text, quote=False).encode()
+
+
+STATE_FRESH = 1.0   # seconds one assembled /api/state serves every tab that asks (a phone and a laptop polling together)
+GZIP_FROM = 1024    # bytes: a smaller answer goes as it is
+
+
+class StateCache:
+    """The last /api/state body with its ETag, shared for STATE_FRESH seconds. Counts what it served, for measurements."""
+
+    def __init__(self, clock=time.monotonic):
+        self.clock, self.lock = clock, threading.Lock()
+        self.at, self.body, self.etag, self.zipped = None, b'', '', None
+        self.stats = {'built': 0, 'served': 0, 'not_modified': 0, 'gzip': 0}
+
+    def get(self, collector):
+        with self.lock:
+            if self.at is None or self.clock() - self.at >= STATE_FRESH:
+                self.body = safe_json(collector.snapshot())
+                self.etag = 'W/"' + hashlib.sha256(self.body).hexdigest()[:20] + '"'
+                self.zipped, self.at = None, self.clock()
+                self.stats['built'] += 1
+            return self.body, self.etag
+
+    def gzipped(self):
+        with self.lock:
+            if self.zipped is None:
+                self.zipped = gzip.compress(self.body, compresslevel=6, mtime=0)
+            return self.zipped
+
+
+def state_response(collector, headers):
+    """(status, body, extra headers) for GET /api/state: 304 when the page already has this answer (If-None-Match), the
+    body gzipped when the browser takes it. The page then only parses and renders an answer that changed."""
+    cache = collector.__dict__.setdefault('state_cache', StateCache())
+    body, etag = cache.get(collector)
+    cache.stats['served'] += 1
+    extra = {'ETag': etag, 'Vary': 'Accept-Encoding'}
+    if etag in [t.strip() for t in (headers.get('If-None-Match') or '').split(',')]:
+        cache.stats['not_modified'] += 1
+        return 304, b'', extra
+    if len(body) >= GZIP_FROM and 'gzip' in (headers.get('Accept-Encoding') or ''):
+        cache.stats['gzip'] += 1
+        return 200, cache.gzipped(), {**extra, 'Content-Encoding': 'gzip'}
+    return 200, body, extra
 
 
 def route(collector, path, token=''):
@@ -415,6 +479,15 @@ def reported(where, fn, *args):
         raise
 
 
+def get(collector, path, token, headers):
+    """(status, body, content type, cache control, extra headers) for a GET. /api/state is no-cache: the browser keeps it and
+    asks with If-None-Match, and an unchanged answer is a 304."""
+    if path == '/api/state':
+        code, body, extra = state_response(collector, headers)
+        return code, body, JSON_TYPE, 'no-cache', extra
+    return (*route(collector, path, token), None)
+
+
 def make_handler(collector, token):
     class Handler(BaseHTTPRequestHandler):
         server_version = 'tutti'
@@ -423,8 +496,10 @@ def make_handler(collector, token):
         def log_message(self, fmt, *args):  # quiet: the dashboard polls every few seconds
             return
 
-        def send(self, code, body, ctype, cache='no-store'):
+        def send(self, code, body, ctype, cache='no-store', extra=None):
             self.send_response(code)
+            for k, v in (extra or {}).items():
+                self.send_header(k, v)
             self.send_header('Content-Type', ctype)
             self.send_header('Content-Length', str(len(body)))
             self.send_header('Cache-Control', cache)
@@ -444,7 +519,7 @@ def make_handler(collector, token):
         def do_GET(self):
             if not allowed_host(self.headers.get('Host', ''), self.server.server_address[1]):
                 return self.fail(403, 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)')
-            self.send(*reported('dashboard-get', route, collector, self.path.split('?', 1)[0], token))
+            self.send(*reported('dashboard-get', get, collector, self.path.split('?', 1)[0], token, self.headers))
 
         def do_POST(self):
             code, answer = reported('dashboard-post', post, collector, self.headers, self.path, self.server.server_address[1], token,

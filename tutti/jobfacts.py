@@ -134,7 +134,9 @@ def transcript_tokens(path):
     if usage:
         keys = ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens')
         tin = sum(int(u.get(k) or 0) for u in usage.values() for k in keys)
-        out = {'in': tin, 'out': sum(int(u.get('output_tokens') or 0) for u in usage.values()), 'calls': calls}
+        last = list(usage.values())[-1]   # the newest message's prompt is the context the agent holds now
+        out = {'in': tin, 'out': sum(int(u.get('output_tokens') or 0) for u in usage.values()), 'calls': calls,
+               'context': sum(int(last.get(k) or 0) for k in keys)}
     _cache[key] = ((st.st_size, st.st_mtime), out)
     return out
 

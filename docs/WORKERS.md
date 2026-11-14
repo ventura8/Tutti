@@ -98,6 +98,26 @@ apply the patch in your tree (`git apply --index <diff>`), then `tutti ship`.
 Also say where heavy commands run: a worker that starts its own lint or test run beside three others is how a laptop
 runs out of memory. Workers edit; the orchestrator runs `tutti test`.
 
+A retry's brief (the autopilot's next attempt) carries the end of the failing output compacted (`tutti/compact.py`):
+colour codes, progress redraws, Tutti's own echo lines and runs of the same line go (a line repeated 40 times is kept
+once with `(x40)`); when it is still too long, the error-looking lines are kept before the end. The reasons of earlier
+attempts are one line each. The same compaction shortens a command's answer to a local main agent and the last output
+in a handoff note.
+
+## Automatic compaction
+
+A worker's context is compacted once it reaches `autocompact.threshold_pct` of its window (60 % by default; the
+dashboard's *Settings* row changes it without editing the config). Each kind uses its own way:
+
+| Worker | How | Why |
+| --- | --- | --- |
+| Claude Code (`claude`) | native: the run gets `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=<pct>` | Claude Code compacts by itself at that share of its window (also as the main agent of `tutti conduct`). |
+| A local model as the main agent (kind `ollama`) | Tutti: the older exchanges become one summary line each; the goal and the two newest exchanges stay | Tutti holds the conversation. |
+| cursor-agent, agy, copilot | hand-over: at the threshold the run is stopped and started again in the same worktree with a handoff note (its changes, its last output), at most three times | Their `/compact` is interactive only; no headless flag. Needs the CLI to print its context use (`context 61 %`, `context: 120k tokens`); a CLI that prints none is not measured. |
+
+`workers.<name>.context_tokens` is a worker's window (default `autocompact.context_tokens`, 200000);
+`autocompact.enabled: false` turns it off. The dashboard shows `context N %` on a running job when it is known.
+
 ## Review the diff, then gate
 
 A worker's output is a proposal, whoever wrote it.

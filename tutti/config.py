@@ -67,6 +67,9 @@ DEFAULTS = {
     # self_improve: crashes and insights become autopilot tasks, PRs and (where a project allows) merges and patch releases;
     # home: the project Tutti's own fixes go to (docs/TELEMETRY.md, *Self-improvement*)
     'self_improve': {'enabled': True, 'every_hours': 6, 'max_new_per_day': 3, 'min_count': 3, 'home': ''},
+    # autocompact: a worker agent's context is compacted at threshold_pct of its window (tutti/autocompact.py); the
+    # dashboard can change the percentage; context_tokens is the window when workers.<w>.context_tokens does not say
+    'autocompact': {'enabled': True, 'threshold_pct': 60, 'context_tokens': 200000},
     'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
              'command_timeout': 3600},
 }
@@ -300,9 +303,9 @@ def validate(cfg):
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
     errs += _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
-    from . import owner, scouts, selfimprove, sentry  # they import modules that import this one
+    from . import autocompact, owner, scouts, selfimprove, sentry  # they import modules that import this one
     errs += selfimprove.errors(cfg) + sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
-    return errs + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
+    return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
         owner.schedule_errors(cfg['pacing'])
 
 

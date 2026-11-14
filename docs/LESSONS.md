@@ -250,3 +250,21 @@ quoted in a changelog and a README; in the map repo 495 of its files had no test
 
 **Rule.** A task source is checked against the real repositories before it runs unattended: built output, prose and
 quotes are not tasks, a test that imports a file tests it, and a repo can turn a heuristic source off.
+
+## GitHub answers 201 to a review request it drops (2026-11-14)
+
+**What happened.** `tutti pr review` asked Copilot through `POST .../requested_reviewers`; GitHub answered `201 Created`
+with an empty `requested_reviewers` list, so Tutti counted Copilot as asked and waited for a review that never came. The
+bare login `copilot-pull-request-reviewer` is refused with 422 "not a collaborator".
+
+**Rule.** A request's status is not its result: read the answer back (is the reviewer listed?) and fall back (GraphQL
+`requestReviewsByLogin` with `botLogins`), else say where the switch is.
+
+## A probe that forks per process costs more than the work it watches (2026-11-14)
+
+**What happened.** The dashboard's activity scan ran `readlink`, `tr` and `head` for each of ~800 processes every 30 s:
+12 s a probe and ~10 % of a core, most of the dashboard's cost. agy's `/usage` reader ran 120 times an hour with an
+answer that did not change, and each ssh call paid a new handshake.
+
+**Rule.** Measure a probe's wall time, CPU and spawns before adding to it (`time`, a Popen counter). One process for a
+list (find, ps, awk), shared connections, and back-off when an answer repeats.

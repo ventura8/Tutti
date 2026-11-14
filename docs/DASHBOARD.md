@@ -120,6 +120,12 @@ busy or ready and why), and the owner's switches.
   model the owner wants off unless chosen, e.g. Fable), and each Termux machine's lint and unit runs. The autopilot has
   its own switch on its card.
 
+- **Settings**: the percentage of a worker's context window at which it is compacted (`autocompact.threshold_pct`, 60
+  by default; 10 to 95). **Save** keeps the new value in `controls.json` (settings.autocompact_pct), **Use the config's**
+  takes it back. The row lists each worker and how it compacts: by itself (Claude Code), by Tutti (a local model in
+  `tutti conduct`) or restarted with a handoff (docs/WORKERS.md, *Automatic compaction*). `POST /api/autocompact`
+  `{"threshold_pct": 45}` (or `null`), with the same checks as every other switch.
+
 The switches are `POST /api/control` (same origin, the page's token, as for readings): `{"action": "pause" | "resume" |
 "optin", "kind": "machine" | "device" | "worker" | "account", "name": ..., "on": bool, "stop": bool, "note": "..."}`. They
 are kept in `<project.state>/controls.json`, never written into your config file, and applied every time the config is
@@ -242,7 +248,9 @@ their temperature, highlighted at or over `heat.cap_c`.
 **Refresh readings** (beside the Usage title) posts to `POST /api/refresh` (the same same-origin and token checks) and
 runs every reader at once, without waiting for the next probe; `tutti usage refresh` does the same from a terminal. The
 page then updates in place. The background probe also runs each account's `reader` and `plan` command (at most every `every_minutes`) and scans
-recent `tutti quiet` logs of agent jobs for limit messages (docs/USAGE-PACING.md, *Automatic readings*).
+recent `tutti quiet` logs of agent jobs for limit messages (docs/USAGE-PACING.md, *Automatic readings*). A reader whose answer did not change is asked half as often the next
+time, down to once every eight intervals; a change or **Refresh readings** brings it back to its own interval. The
+account's `auto_every_minutes` shows the interval in use now.
 
 ## Quota panic
 
@@ -263,3 +271,9 @@ backgrounds; text stays on the neutral colours, so any accent keeps its contrast
 `auto_every_minutes`, `reader_problem`, `usage_url` and `reset_from`), `machines`
 (`probed_at`, `items[]`), `workers` (`probed_at`, `items[]`, `agents[]`), `jobs` (`folder`, `stall_seconds`, `items[]`,
 `total`), `summary` and `probe_error`. `GET /api/health` answers `{"ok": true}`.
+
+The answer carries an `ETag` and `Cache-Control: no-cache`: the page asks again with `If-None-Match`, an unchanged
+answer is a `304` with no body, and the page neither parses nor renders it again. A browser that sends
+`Accept-Encoding: gzip` gets it gzipped. One assembled answer serves every tab that asks within a second. A running
+job's `facts.context_pct` is its context use in % of its window, where it is known (an agent's transcript, or what a
+CLI printed about its context).

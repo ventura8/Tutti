@@ -333,7 +333,8 @@ def validate(cfg):
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
     errs += _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
-    from . import autocompact, dispatch, energy, owner, scouts, selfimprove, sentry, tiers, users  # they import modules that import this one
+    # they import modules that import this one
+    from . import autocompact, dispatch, energy, owner, scouts, selfimprove, sentry, tiers, users
     errs += dispatch.errors(cfg) + tiers.errors(cfg)
     errs += selfimprove.errors(cfg) + sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \

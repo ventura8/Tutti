@@ -646,13 +646,16 @@ function scoutRequest(r) {
 }
 
 function scoutBlock(sc) {
-    const state = sc.ready ? chip(sc.auto ? 'ready · rounds on' : 'ready', 'ok') : chip(`not set up: ${sc.missing.join(', ')} missing`, 'bad');
+    const state = sc.ready ? chip(sc.auto ? 'ready · rounds on' : 'ready', 'ok') : chip(`not set up: run tutti scout setup grok in a terminal (${sc.missing.join(', ')} missing)`, 'bad');
     const watches = sc.watches.map((w) => el('li', { class: 'row' },
         el('div', { class: 'row__name', text: `${w.name} · every ${w.every}` }),
         el('p', { class: 'row__note', text: `last ${w.last ? relative(w.last) : 'never'} · next ${w.next ? when(w.next) : 'at the next round'}` })));
     return el('div', {},
         el('h3', { class: 'card__sub', text: `${sc.name} · ${sc.kind}` }), state,
         el('p', { class: 'row__note', text: `${scoutMeter(sc.meter)} · ${sc.waiting} waiting, ${sc.queued} queued · plan: ${sc.plan}` }),
+        sc.meter?.usage_url && (sc.meter.stale || sc.meter.used === null || sc.meter.used === undefined)
+            ? el('a', { class: 'btn btn--tonal', href: sc.meter.usage_url, target: '_blank', rel: 'noopener noreferrer', text: 'Add a reading',
+                title: `Opens ${sc.meter.usage_url}: click the reading helper there (it reads Grok Bot with Cursor)` }) : null,
         el('p', { class: 'row__note', text: `Skills: ${sc.skills.join(', ')} · answers in ${sc.repo}` }),
         watches.length ? el('ul', { class: 'list', 'aria-label': `${sc.name} watches` }, ...watches) : null,
         sc.recent.length ? el('ul', { class: 'list', 'aria-label': `${sc.name} recent questions` }, ...sc.recent.map(scoutRequest)) : null);
@@ -680,7 +683,7 @@ function renderScouts(s) {
             el('summary', { text: 'Set up Grok Bot as a scout (owner, once)' }),
             el('ol', { class: 'list' }, ...sc.setup.map((step) => el('li', { text: step })))));
     }
-    if (!sc.configured) parts.unshift(empty('No scouts yet', 'Add scouts: to the config (docs/SCOUTS.md), then follow the steps below.'));
+    if (!sc.configured) parts.unshift(empty('No scouts yet', 'Run tutti scout setup grok in a terminal: it asks for what it needs and tests it.'));
     $('scouts').replaceChildren(...parts);
 }
 
@@ -1103,7 +1106,18 @@ async function fromHelper() {
         }
         saved.push(`${x.account} ${x.used} %`);
     }
-    banner(`Saved, read by the helper: ${saved.join(', ')}.`);
+    banner(`Saved, read by the helper: ${saved.join(', ')}.${await notRead(valid, r.page)}`);
+}
+
+// An account on the same usage page that the click did not carry: the button was dragged before that account was configured.
+async function notRead(valid, page) {
+    const where = page || (String(valid[0].note || '').split(' ')[2] || '');
+    const res = await fetch('/api/state', { cache: 'no-store' }).catch(() => null);
+    const snap = res?.ok ? await res.json().catch(() => null) : null;
+    const got = new Set(valid.map((x) => x.account));
+    const left = (snap?.usage?.accounts || []).filter((a) => a.usage_url && where && a.usage_url.includes(where) && !got.has(a.name));
+    return left.length ? ` Not read: ${left.map((a) => a.name).join(', ')}, because this helper button is older than the config; ` +
+        'drag it from the helper page again (Usage, helper) and click it once more on the page.' : '';
 }
 
 function banner(text) {

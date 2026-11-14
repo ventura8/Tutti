@@ -22,6 +22,7 @@ from . import (
     discover,
     doctor,
     files,
+    groksetup,
     handover,
     helper,
     local,
@@ -298,6 +299,10 @@ def page_reading(cfg, path, text, now):
     except (ValueError, TypeError, KeyError, AttributeError) as e:
         say(f'usage page-reading: the text is not what `tutti usage page-script` returns ({e}): pass the JSON string it evaluated to')
         return 2
+    if data.get('loading') and not readings:
+        say('usage page-reading: the page was still loading (no meter shown, e.g. its spinner), so nothing was saved: wait until '
+            'the meters show and run the page script again')
+        return 3
     for m in missing:
         say(f'usage page-reading: "{m}" was not found on the page (its layout may have changed): read it by eye and '
             f'`tutti usage log <account> <percent>`')
@@ -1084,7 +1089,9 @@ def parser():
                                 'issue), answer <id>, watch [<scout> <watch>], tick (send what is due within the allowance), '
                                 'review <pr> (advisory), trial (the review trial), list, setup')
     s.add_argument('action', choices=['list', 'setup', 'ask', 'answer', 'watch', 'tick', 'review', 'trial'])
-    s.add_argument('scout', nargs='?', help='ask, setup, watch: the scout; answer: the request id; review: the pull request number; '
+    s.add_argument('scout', nargs='?', help='ask, setup, watch: the scout (setup grok: the guided setup in a terminal); '
+                                            'answer: the request id; '
+                                            'review: the pull request number; '
                                             'trial: status, collect, show, mark or done')
     s.add_argument('task', nargs='?', help='ask: the question or task; watch: the watch to run now; trial: owner/name#number')
     s.add_argument('rest', nargs='*', help='trial mark: the finding id and real or noise')
@@ -1104,6 +1111,7 @@ def main(argv=None):
     a = parser().parse_args(argv)
     if a.fn is cmd_doctor:  # a machine check: it must work before any project config exists
         return cmd_doctor(None, a)
+    groksetup.load_env()   # the scout's webhook variables from ~/.config/tutti/grok.env, when the shell lacks them
     try:
         cfg = config.load(a.config)
         os.environ['TUTTI_CONFIG'] = cfg['_path']

@@ -37,6 +37,16 @@ class HelperParse(unittest.TestCase):
         r = self.parse([{'account': 'grok', 'label': 'Weekly usage'}])
         self.assertEqual((r['readings'][0]['used'], r['readings'][0]['resets']), (0, '2026-11-15T00:00:00.000Z'))
 
+    def test_grok_bot_is_read_with_cursor_and_its_own_reset(self):
+        r = self.parse(CURSOR + [{'account': 'grok-bot', 'label': 'Grok Bot'}])
+        got = {x['account']: (x['used'], x['resets']) for x in r['readings']}
+        self.assertEqual(got['grok-bot'], (0, '2026-11-15T00:00:00.000Z'))
+        self.assertFalse(r['loading'])
+
+    def test_a_page_on_its_spinner_is_loading_and_reads_nothing(self):
+        r = self.parse(CURSOR, text='Spending\nLoading...\n')
+        self.assertEqual((r['readings'], r['loading']), ([], True))
+
     def test_a_meter_stops_at_the_next_label(self):
         r = self.parse(CURSOR, text='Cursor Models\n25%\nOther Models\n14% used\n')
         self.assertEqual([x['used'] for x in r['readings']], [25, 14])

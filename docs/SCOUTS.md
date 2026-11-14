@@ -71,6 +71,7 @@ and the dashboard name only the variables. The URL must be `https://` (plain `ht
 | `tutti scout review <pr>` | The scout reviews a pull request: it posts one comment there whose first line is `grok-scout`, one bullet per finding. Advisory: never blocking, never applied by Tutti. Allowed when `review` is among its skills, during its review trial, or after a trial it passed. |
 | `tutti scout trial [status\|collect\|show\|mark\|done]` | The review trial (below). |
 | `tutti scout list`, `tutti scout setup` | The scouts and their state; the owner's setup steps. |
+| `tutti scout setup grok` | The guided setup in a real terminal: steps, URL and hidden key, saved to `~/.config/tutti/grok.env`, a test question. |
 
 ## Pacing: use the allowance, never on-demand
 
@@ -87,6 +88,11 @@ The scout's `account` is paced like any other (docs/USAGE-PACING.md). The plan o
 
 Read the meter in one click: the reading helper's bookmarklet for the Cursor spending page reads every account on that
 page, Grok Bot's weekly meter included (`helper_label: Grok Bot`).
+
+Between readings, each question sent logs an estimate on the scout's account (newest reading + `task_pct`, source
+`estimate`; from 0 after a reset), so the meter and the pacing move; the account still asks for a real reading when it is
+stale (the Scouts card's **Add a reading** opens the usage page). The reading helper reads Grok Bot's weekly meter in the
+same click as Cursor's (`helper_label: Grok Bot`); a page still on its spinner is reported, never saved as 0.
 
 ## The review trial
 
@@ -105,7 +111,23 @@ theirs on the same file within 5 lines), `review` joins its skills; otherwise it
 
 ## Set up Grok Bot (the owner, once)
 
-`tutti scout setup` and the dashboard's Scouts card show the same steps:
+The easy way: run **`tutti scout setup grok`** in a real terminal (the dashboard's Scouts card shows the same command
+while the scout is not set up). It:
+
+1. prints the in-app steps, with the routine's text ready to copy and the configured repositories filled in, and waits
+   for Enter;
+2. asks for the webhook's **POST to** address (checked: `https://`, Grok Bot's host `…cursor.sh`) and the key with
+   hidden input (never echoed, printed or logged; a pasted `Bearer ` prefix is dropped);
+3. saves both to `~/.config/tutti/grok.env` (mode 600, `export TUTTI_GROK_URL=…` and `export TUTTI_GROK_KEY=…`,
+   shell-quoted) and adds `[ -f ~/.config/tutti/grok.env ] && . ~/.config/tutti/grok.env` to `~/.profile` once;
+4. adds the `grok` scout to the config when it is missing, restarts a running dashboard (by its pid, same command and
+   folder, with the variables loaded) and sends the test question "Say hello and name today's date", printing the answer.
+
+Tutti reads `~/.config/tutti/grok.env` itself (`$XDG_CONFIG_HOME/tutti/grok.env`) whenever the two variables are missing,
+so a dashboard restarted from any shell still has them; a variable already set in the shell wins. Without a terminal
+(from an agent's tool) the command explains it needs one and prints the line to run.
+
+By hand, `tutti scout setup` and the dashboard's Scouts card show the same steps:
 
 1. Open the Grok Bot app (Cursor Pro includes it).
 2. Create a bot named "Tutti scout" (Only me).

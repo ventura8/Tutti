@@ -235,7 +235,7 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None):
     out.update(reset=reset.isoformat(), target=target.isoformat(), window_start=start.isoformat(),
                readings=readings(entries, name, start))
     e = latest(entries, name, start)
-    out.update(freshness(name, a, latest(entries, name), now))
+    out.update(freshness(name, a, latest([x for x in entries if x.get('source') != 'estimate'], name), now))
     if not e:
         return {**out, 'state': NO_READING, 'verdict': NO_READING, 'action': no_reading_action(name, a, src)}
     used = float(e['used'])

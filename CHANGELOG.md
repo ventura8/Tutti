@@ -2,6 +2,31 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.20 (2026-11-14)
+
+### Added
+
+- `tutti scout setup grok`: the guided Grok Bot scout setup in a real terminal: the in-app steps with the routine's text
+  ready to copy, the webhook URL (checked) and key (hidden input, never echoed or logged), saved to
+  `~/.config/tutti/grok.env` with mode 600 and sourced once from `~/.profile`, the scout added to the config when
+  missing, a running dashboard restarted by pid, and a test question. Without a TTY it prints the command to run.
+- Tutti loads `~/.config/tutti/grok.env` when the scout's variables are missing, so restarts never depend on the shell.
+- The dashboard's Scouts card shows `tutti scout setup grok` as the one thing to run while a scout is not set up, and
+  **Add a reading** (opens the account's usage page) while its meter has no reading or a stale one.
+- Each question a scout sends logs a spend estimate on its account (the newest reading plus `task_pct`, source
+  `estimate`), so the meter moves between readings; an estimate never counts as a fresh reading.
+
+- The dashboard's pause and resume section is grouped with headings: Work machines, Android devices, Local agents
+  (Ollama, llama.cpp), Online agents (CLI workers, accounts and scouts), then Opt-in; an empty group says so.
+
+### Fixed
+
+- The reading helper reports a usage page still on its spinner (no "N% used" shown) and saves nothing, never a 0: the
+  bookmarklet says so, `tutti usage page-reading` exits 3. Grok Bot's weekly meter ("Grok Bot", "Resets Nov 15") is read
+  in the same click as Cursor's (test on the real page's text).
+- After a helper click, the dashboard names the accounts on that page the click did not carry (a button dragged before
+  the account was configured) and says to drag the button again.
+
 ## 0.1.19 (2026-11-14)
 
 ### Added

@@ -46,7 +46,7 @@ narrow with nothing beside it; one column on a phone. Phone (375 px) to 4K (2560
 4. **Autopilot** (its state, runs, queue and latest decisions, each list folded) beside **Main agent** and **Workers**.
 5. **Projects**, full width, in columns.
 6. **Scouts**, full width: each scout, its meter, watches, recent questions and the review trial (*Scouts* below).
-7. **Devices and controls**, full width: the Android devices, pause or resume, the opt-in switches (*Controls* below).
+7. **Devices and controls**, full width: the Android devices, pause or resume grouped as Work machines, Android devices, Local agents, Online agents (workers, accounts, scouts), then the opt-in switches (*Controls* below).
 8. **Finished jobs** at the bottom: All, Failed, Done (keys 1 to 3); two columns from 1800 px.
 
 Long lists fold after a few items with **Show N more** (and **Show fewer**); what is open stays open across polls, and the

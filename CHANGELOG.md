@@ -19,6 +19,8 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 - A machine with `nvidia-smi` but no NVIDIA driver (the NUC) read as unreachable: the driver's error on stdout broke the
   probe's summary line, so its local model and its slots were never used.
 
+## 0.1.65 (2026-11-14)
+
 ### Fixed
 
 - With sign-in on, the Users tab's household part and **My main machine** answered "this path is not part of the

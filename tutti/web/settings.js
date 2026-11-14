@@ -362,11 +362,13 @@ function goTo(target) {
 
 async function showView() {
     const hash = location.hash || '';
-    const settings = hash.startsWith('#settings');
-    document.getElementById('dashboard-view').hidden = settings;
+    // the views by hash: #settings, #users (users.js), #dashboard; anything else is the Chat (chat.js), the default
+    const view = hash.startsWith('#settings') ? 'settings' : hash.startsWith('#dashboard') ? 'dashboard' : hash.startsWith('#users') && document.body.dataset.role === 'admin' ? 'users' : 'chat';
+    const settings = view === 'settings';
+    document.getElementById('dashboard-view').hidden = view !== 'dashboard';
     document.getElementById('settings-view').hidden = !settings;
     for (const a of document.querySelectorAll('[data-view]')) {
-        if ((a.dataset.view === 'settings') === settings) a.setAttribute('aria-current', 'page');
+        if (a.dataset.view === view) a.setAttribute('aria-current', 'page');
         else a.removeAttribute('aria-current');
     }
     if (!settings) return;

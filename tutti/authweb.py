@@ -25,7 +25,9 @@ DEVICE_START, DEVICE_POLL = '/api/auth/device/start', '/api/auth/device/poll'
 SCHEDULE = '/api/me/schedule'   # every user's own schedule (viewers included); anyone's for an admin
 ADMIN_GET = ('/api/settings', '/settings', '/helper', USERS)
 # a viewer may POST these; each handler checks its own target (auth.may_act_for: one's own, or an admin for anyone)
-VIEWER_POST = (LOGOUT, '/api/telemetry', '/api/report', SCHEDULE, '/api/user/main-machine', '/api/users/manage')
+# /api/chat: every user's own conversations; each action has its own role checks (tutti/chat.py)
+VIEWER_POST = (LOGOUT, '/api/telemetry', '/api/report', SCHEDULE, '/api/user/main-machine', '/api/users/manage',
+               '/api/chat')
 AUTH_POSTS = (LOGIN, LOGOUT, USERS, INVITES, DEVICE_START, DEVICE_POLL, SCHEDULE)
 LOCAL_SCHEME = 'http'   # the loopback dashboard's own scheme (other origins are https, dashboard.origins)
 MAX_BODY = 8192

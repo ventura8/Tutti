@@ -2,6 +2,35 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.69 (2026-11-15)
+
+### Added
+
+- **Chat**, the dashboard's first tab and default view, for every signed-in user, viewers too (docs/CHAT.md). It runs on the
+  household host inside `tutti dashboard`, so it answers while your own computer is off.
+  - Answers questions from the dashboard's state: what is running, quota left, why a machine is idle, what waits.
+  - Turns requests into work through the MCP tools' own calls: `add task in <project>: …`, `queue tests for <project>`,
+    `delegate in <project>: …`, `ask <scout>: …`, and (admins) `pause|resume <name>`. Each action is a card with its live
+    status, Undo where possible, and a line in the audit log.
+  - Model order: the household's local models on machines that are here (never the asker's own computer), then accounts
+    with room that the asker owns or that are shared (`share_spare`); never another member's private quota; a built-in
+    answer from the state when none answers. Each answer names its model.
+  - Roles enforced on the server (`auth.act_for`): viewers ask and create work for `chat.viewer_projects` up to
+    `chat.viewer_tasks_per_day`; pausing is for admins; conversations are private; admins see Household activity (actions
+    only, never messages).
+  - The page: streamed answers, Stop (Esc), Retry, Edit (↑), Not sent with Send again; safe Markdown (a parsed tree drawn
+    with `textContent`, code blocks with Copy); follow-the-end scrolling with Jump to latest; suggestions from the state;
+    text attachments (3 × 32 KB); New, Rename, Delete, search; live-region announcements, reduced motion; a phone layout
+    with the composer above the keyboard; light and dark.
+  - A model picker per conversation (the last choice is the user's default): Auto (local first, then online), Local only,
+    Online only, or one model; each answer says why it fell back.
+  - A tool loop for every model: local models through Ollama's native function calling (the most capable first, 7B and
+    up get the tools), online agents through `ACTION` lines. Read-only tools (usage, machines, devices, backlog, job
+    status) run at once; work (tasks, runs, scout questions, device test runs, pause and resume) is validated against
+    its schema and the names here, then proposed as a card that runs only on Confirm.
+  - Stored per user in `<state>/chat/` (mode 600), carried by `tutti move`; Clear my chat history.
+  - `chat:` settings (Settings, Chat): `viewer_tasks_per_day`, `viewer_projects`, `history_turns`.
+
 ## 0.1.68 (2026-11-14)
 
 ### Added

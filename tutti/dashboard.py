@@ -25,6 +25,7 @@ from . import (
     autocompact,
     autopilot,
     bridge,
+    chatrun,
     conduct,
     config,
     connect,
@@ -568,6 +569,7 @@ POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/co
          '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, API_SETUP,
          API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn',
          API_WORK_MOVE, API_QUEUE, API_REPORT)
+BODY_LIMITS[chatrun.API] = chatrun.BODY_LIMIT
 
 
 def save_connect(collector, body, home=None):
@@ -617,8 +619,9 @@ def post(collector, headers, path, port, token, read):
             size = int(headers.get('Content-Length') or 0)
         except ValueError:
             size = -1
-        if not 0 < size <= MAX_BODY:
-            return 413, {'error': f'send a small JSON object (at most {MAX_BODY} bytes)'}
+        limit = BODY_LIMITS.get(path, MAX_BODY)
+        if not 0 < size <= limit:
+            return 413, {'error': f'That is too large to send (over {limit // 1024} KB): send less, a shorter part of a log.'}
         return SELF_POSTS[path](collector, headers, read(size))
     try:
         size = int(headers.get('Content-Length') or 0)
@@ -735,7 +738,8 @@ def save_work_move(collector, body):
 
 def _self_posts():
     from . import mainmachine, manage
-    return {mainmachine.API: lambda c, h, b: mainmachine.post(c, h, b), manage.API: lambda c, h, b: manage.act_post(c, h, b)}
+    return {mainmachine.API: lambda c, h, b: mainmachine.post(c, h, b), manage.API: lambda c, h, b: manage.act_post(c, h, b),
+            chatrun.API: chatrun.handle}   # the Chat: every user's own conversations, each action with its own role check
 
 
 SELF_POSTS = _self_posts()
@@ -939,6 +943,30 @@ class AuthRequired(Exception):
     """The dashboard would be reachable by others without sign-in."""
 
 
+def write_stream(handler, code, answer, extra):
+    """A chat answer as it is written: one JSON line per event, flushed at once; the connection closes at the end (HTTP/1.0).
+    A page that goes away stops the writing, never the answer (it is kept and can be followed again)."""
+    handler.send_response(code)
+    for k, v in response_headers(code, b'', 'application/x-ndjson', 'no-store', extra):
+        if k != 'Content-Length':
+            handler.send_header(k, v)
+    handler.send_header('X-Accel-Buffering', 'no')
+    handler.end_headers()
+    try:
+        for line in answer.lines():
+            handler.wfile.write(line)
+            handler.wfile.flush()
+    except (BrokenPipeError, ConnectionResetError):
+        return
+
+
+def answer_post(handler, code, answer, extra):
+    """A POST's answer: JSON, or a chat answer streamed as it is written."""
+    if isinstance(answer, chatrun.Stream):
+        return write_stream(handler, code, answer, extra)
+    return handler.send(code, json.dumps(answer).encode(), JSON_TYPE, extra=extra)
+
+
 def make_handler(collector, token):
     class Handler(BaseHTTPRequestHandler):
         server_version = 'tutti'
@@ -971,7 +999,7 @@ def make_handler(collector, token):
         def do_POST(self):
             code, answer, extra = reported('dashboard-post', any_post, getattr(self.server, 'auth', None), collector, self.headers,
                                            self.path, self.server.server_address[1], token, self.rfile.read)
-            self.send(code, json.dumps(answer).encode(), JSON_TYPE, extra=extra)
+            answer_post(self, code, answer, extra)
 
     return Handler
 
@@ -995,5 +1023,6 @@ def server(cfg, port, collector=None):
     collector.who = lambda headers: authweb.who(httpd.auth, headers)   # the household's handlers ask who is asking
     httpd.daemon_threads = True
     httpd.collector = collector
+    collector.httpd = httpd   # the chat asks the sign-in who owns this host
     collector.port = httpd.server_address[1]   # the reading helper's bookmarklets open this exact address
     return httpd

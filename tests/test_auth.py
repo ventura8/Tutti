@@ -431,6 +431,9 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.post('/api/telemetry', {'consent': True}, self.viewer)[0].status, 403)
         self.assertEqual(self.post('/api/telemetry', {'use': {'panel': 'usage'}}, self.viewer)[0].status, 200)
         self.assertEqual(self.post('/api/report', {'what': ''}, self.viewer)[0].status, 400)   # reached, then refused as empty
+        self.assertEqual(self.post('/api/chat', {'action': 'list'}, self.viewer)[0].status, 200)   # the Chat is every user's
+        self.assertEqual(self.post('/api/chat', {'action': 'activity'}, self.viewer)[0].status, 403)   # household activity: admins
+        self.assertEqual(self.post('/api/chat', {'action': 'list'}, self.pending)[0].status, 403)
 
     def test_csrf_and_origin_are_checked_on_every_post(self):
         body = {'mode': 'auto'}

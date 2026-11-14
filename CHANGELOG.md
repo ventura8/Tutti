@@ -2,7 +2,25 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
-## 0.1.0 (unreleased)
+## 0.1.1 (2026-11-14)
+
+QA round 1 on Windows and Linux. The first tagged release.
+
+### Fixed
+
+- Windows: local runs keep the caller's stdin (the script travels base64-encoded to a temporary file, not piped into
+  bash); `wslpath`/`cygpath` output is decoded as UTF-8.
+- Windows: `tutti wait pid` reads the exit code (`GetExitCodeProcess`), so a retained handle no longer looks alive, and a
+  denied `OpenProcess` counts as a live process.
+- Windows installers: config paths are literal (`-LiteralPath`), so brackets in `XDG_CONFIG_HOME` work.
+- Config discovery honours `$XDG_CONFIG_HOME/tutti/config.yaml` (then `tutti.config.yaml` there); a missing config
+  names the exact path and the `cp` from the example. Installers say when `TUTTI_CONFIG` or a project config wins.
+- Usage pacing: the default lead is 1 hour before the reset (`lead_hours` still overrides).
+- `tutti workers`: an ollama worker is ready only when `/api/tags` lists its model (untagged means `:latest`); otherwise
+  it says `OLLAMA_HOST=<host> ollama pull <model>`. A malformed answer is a DOWN row, not a crash.
+- Ollama hosts may carry their own scheme (`https://proxy:443`).
+
+## 0.1.0 (not tagged)
 
 The first extraction of the toolkit from the project it grew in.
 

@@ -219,6 +219,20 @@ class FailureTest(Base):
         self.assertIn('the worker changed nothing', autopilot.signature({**r, 'changed': []}, {})[1])
         self.assertIn('without a report', autopilot.signature(None, {})[1])
 
+    def test_check_logs_are_read_only_from_the_run_folder(self):
+        cfg = self.cfg()
+        folder = os.path.join(delegate.runs_dir(cfg), '1-1')
+        os.makedirs(folder)
+        with open(os.path.join(folder, 'ship-1.log'), 'w', encoding='utf8') as f:
+            f.write('E: the real failure\n')
+        outside = os.path.join(self.tmp.name, 'secret.txt')
+        with open(outside, 'w', encoding='utf8') as f:
+            f.write('not for a brief\n')
+        tails = autopilot.check_tails(cfg, '1-1', [{'log': os.path.join(folder, 'ship-1.log')}, {'log': outside}, {'log': None}])
+        self.assertIn('the real failure', tails[os.path.join(folder, 'ship-1.log')])
+        self.assertEqual(tails[outside], '')
+        self.assertEqual(autopilot.run_log(cfg, '../x'), None)
+
     def test_park_after_the_same_failure_on_the_strongest_step_only(self):
         cfg = self.cfg()
         same = [attempt('pc', 's1')] * 3

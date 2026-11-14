@@ -332,19 +332,29 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen):
     return run_id
 
 
-def own_log(cfg, path):
-    """`path` when it lies inside this state's runs folder (a report names its check logs there), else None: a report that was
-    edited to name another file never gets that file read into a brief."""
-    if not isinstance(path, str):
+def listed(folder, wanted):
+    """The entry of `folder` whose name is `wanted`, as a path built from the folder's own listing (never from a name read
+    in a file), or None."""
+    try:
+        names = os.listdir(folder)
+    except OSError:
         return None
-    root = os.path.realpath(delegate.runs_dir(cfg)) + os.sep
-    real = os.path.realpath(path)
-    return real if real.startswith(root) else None
+    return next((os.path.join(folder, n) for n in names if n == wanted), None)
 
 
 def run_log(cfg, run_id):
-    """The log of a run named in the backlog, or None when the id is not a run id (never a path)."""
-    return delegate.paths(cfg, run_id)['log'] if delegate.valid_id(run_id) else None
+    """The log of a run named in the backlog, found in the runs folder, or None."""
+    return listed(delegate.runs_dir(cfg), f'{run_id}.log') if isinstance(run_id, str) else None
+
+
+def check_tails(cfg, run_id, checks):
+    """{a check's log as the report names it: the end of that log}, each log found in the run's own folder by its name."""
+    folder = listed(delegate.runs_dir(cfg), run_id) if isinstance(run_id, str) else None
+    out = {}
+    for c in checks:
+        name = os.path.basename(c['log']) if isinstance(c.get('log'), str) else ''
+        out[c.get('log')] = tail_of(listed(folder, name)) if folder and name else ''
+    return out
 
 
 def tail_of(path, chars=TAIL_CHARS):
@@ -358,7 +368,7 @@ def tail_of(path, chars=TAIL_CHARS):
 
 
 def attempt_of(cfg, task, report, now):
-    tails = {c['log']: tail_of(own_log(cfg, c['log'])) for c in (report or {}).get('checks') or []}
+    tails = check_tails(cfg, task['run'], (report or {}).get('checks') or [])
     sig, why = signature(report, tails)
     failing = [tails[c['log']] for c in (report or {}).get('checks') or [] if c['rc'] != 0]
     if report is None or report.get('worker_rc') or not failing:

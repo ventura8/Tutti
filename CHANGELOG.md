@@ -2,6 +2,17 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.29 (2026-11-14)
+
+### Added
+
+- Several users in one household, increment 1 of 4 (docs/HOUSEHOLD.md: the design, the threat model and the migration).
+  The user model: `tutti user` shows who this Tutti works for (the name, default the login's; a random id kept in
+  `<state>/user.json`, shown and sent only as a 12-digit hash; the main agent; the config and state folders; the household
+  role). `tutti user name <n>` and `tutti user share <account> on|off` (`accounts.<n>.share_spare`, off by default; never
+  an account that costs money) set it. `user:` and `household:` config keys, both optional; `tutti household status`.
+- A single user is a household of one: no new key, no file moved, every command as before (tested on the example config).
+
 ## 0.1.27 (2026-11-14)
 
 Token and runtime savings (measured on the owner's setup, before → after).

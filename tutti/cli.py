@@ -25,6 +25,7 @@ from . import (
     groksetup,
     handover,
     helper,
+    householdcmd,
     local,
     pacing,
     readers,
@@ -1194,6 +1195,14 @@ def parser():
     s = add('selfimprove', cmd_selfimprove, 'crashes and insights become autopilot tasks, pull requests, and where a project '
                                             'allows it merges and patch releases: status, on, off, tick (one round now)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])
+    s = add('user', householdcmd.cmd_user, 'who this Tutti works for: show, name <name> (config: back to the config\'s), '
+                                           'share <account> on|off (room it would lose at its reset may do the household\'s '
+                                           'shared tasks; docs/HOUSEHOLD.md)')
+    s.add_argument('action', nargs='?', default='show', choices=['show', 'name', 'share'])
+    s.add_argument('arg', nargs='?', help='name: the name; share: the account')
+    s.add_argument('value', nargs='?', help='share: on or off')
+    s = add('household', householdcmd.cmd_household, 'several people, one set of machines: status (docs/HOUSEHOLD.md)')
+    s.add_argument('action', nargs='?', default='status', choices=['status'])
     s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it')
     s.add_argument('agent', nargs='?')
     return p

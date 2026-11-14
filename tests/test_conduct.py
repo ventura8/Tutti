@@ -8,7 +8,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
-from tutti import cli, conduct, config, dashboard
+from tutti import cli, conduct, config, dashboard, workers
 
 SH = ['sh', '-c']
 ALLOW = '{"permissions":{"allow":["command(ls)"]}}'
@@ -309,8 +309,12 @@ class RunCliTest(Folder):
         spent = [{'name': 'agy-claude', 'verdict': 'spent'}, {'name': 'agy-gemini', 'verdict': 'behind'}]
         self.assertEqual(conduct.account_args(self.cfg, 'agy', spent), ['--model', 'g'])
         self.assertEqual(conduct.account_args(self.cfg, 'local', spent), [])
+        # a pinned command gets the account's model too: the flag is replaced, not doubled
         self.cfg['main']['commands'] = {'agy': ['agy', '-p', '{prompt}', '--model', 'g']}
-        self.assertEqual(conduct.account_args(self.cfg, 'agy', spent), [])
+        room = [{'name': 'agy-claude', 'verdict': 'behind'}, {'name': 'agy-gemini', 'verdict': 'behind'}]
+        self.assertEqual(conduct.account_args(self.cfg, 'agy', room), ['--model', 'c'])
+        argv = workers.with_args(conduct.cli_argv(self.cfg, 'agy', 'p', None), ['--model', 'c'])
+        self.assertEqual(argv, ['agy', '-p', 'p', '--model', 'c'])
 
     def test_switching_back_to_the_earlier_choice_counts(self):
         conduct.choose(self.cfg, 'agy')

@@ -17,6 +17,7 @@ from . import (
     delegate,
     discover,
     files,
+    helper,
     local,
     pacing,
     readers,
@@ -47,6 +48,10 @@ def machine_of(cfg, name):
 
 def worker_of(cfg, name, kind):
     w = cfg['workers'].get(name)
+    if not w and name in cfg.get('disabled_workers', []):
+        paid = any(o['name'] == name and o['costs_money'] for o in cfg['off'])
+        why = 'it costs money per use and is opt-in' if paid else 'enabled: false'
+        raise config.ConfigError(f'"{name}" is turned off in {cfg["_path"]} ({why}): set workers.{name}.enabled: true to use it')
     if not w or w['kind'] != kind:
         names = [n for n, x in cfg['workers'].items() if x['kind'] == kind]
         have = ', '.join(names) or '(none)'
@@ -76,7 +81,8 @@ def cmd_machines(cfg, a):
     for name, m in cfg['machines'].items():
         p = remote.probe(m)
         state = routing.unfit(m, p) or 'fit'
-        heat = f'  {p.temp:.0f} C' if p.temp is not None else ''
+        heat = ''.join(f'  {w} {t:.0f} C' for t, w in ((p.temp, 'CPU'), (p.gpu_temp, 'GPU')) if t is not None)
+        heat += '  CPU not readable' if p.temp is None and p.temp_note else ''
         print(f'{name:12} {m["transport"]:5} slots {p.free}/{m["slots"]}  load {p.load:g}/{p.cores}{heat}  {state}')
     return 0
 
@@ -142,11 +148,56 @@ def read_now(cfg, path, now):
     say(f'usage read: {len(found)} account(s) with a reader, {len(written)} new reading(s) in {path}')
 
 
+def page_scripts(cfg, match=None):
+    """`tutti usage page-script [<url part>]`: for each usage page the reading helper knows, the JavaScript an orchestrator runs
+    in the owner's open, signed-in tab (its browser tool), then `tutti usage page-reading '<the JSON it returned>'`."""
+    pages = {u: t for u, t in helper.helper_pages(cfg).items() if not match or match in u}
+    if not pages:
+        say('usage page-script: no account has a usage_url without its own reader' + (f' matching "{match}"' if match else ''))
+        return 2
+    for url, targets in pages.items():
+        names = ', '.join(t['account'] for t in targets)
+        print(f"// {url} ({names}): open it signed in, run this, then tutti usage page-reading '<result>'")
+        print(helper.page_script(targets))
+    return 0
+
+
+def page_reading(cfg, path, text, now):
+    """`tutti usage page-reading '<json>'` (or `-` for stdin): records what a page script returned, each reading checked as the
+    dashboard checks a posted one."""
+    try:
+        data = json.loads(sys.stdin.read() if text in (None, '-') else text)
+        readings, missing = data['readings'], data.get('missing') or []
+        if not (isinstance(readings, list) and all(isinstance(r, dict) for r in readings)
+                and isinstance(missing, list) and all(isinstance(m, str) for m in missing)):
+            raise TypeError('readings must be a list of objects and missing a list of labels')
+    except (ValueError, TypeError, KeyError, AttributeError) as e:
+        say(f'usage page-reading: the text is not what `tutti usage page-script` returns ({e}): pass the JSON string it evaluated to')
+        return 2
+    for m in missing:
+        say(f'usage page-reading: "{m}" was not found on the page (its layout may have changed): read it by eye and '
+            f'`tutti usage log <account> <percent>`')
+    for r in readings:
+        try:
+            account, used, resets, _ = dashboard.parse_reading(cfg, {k: r.get(k) for k in ('account', 'used', 'resets')}, now)
+        except ValueError as e:
+            say(f'usage page-reading: {r.get("account")}: {e}')
+            return 2
+        pacing.append_log(path, account, used, now, f'read from the page by the orchestrator ({r.get("how") or "page"})',
+                          resets=resets, source='page script')
+        say(f'usage page-reading: {account} {used:g} %' + (f', resets {resets}' if resets else ''))
+    return 1 if missing else 0
+
+
 def cmd_usage(cfg, a):
     path = usage_log_path(cfg)
     now = pacing.parse_time(a.at) if a.at else datetime.now(timezone.utc)
     if a.action in ('read', 'refresh'):
         read_now(cfg, path, now)
+    if a.action == 'page-script':
+        return page_scripts(cfg, a.account)
+    if a.action == 'page-reading':
+        return page_reading(cfg, path, a.account, now)
     for problem in readers.record_files(path, cfg['accounts'])[1]:
         say(problem)
     if a.action == 'log':
@@ -652,7 +703,7 @@ def parser():
     s.add_argument('--dir', default='.')
     s = add('usage', cmd_usage, 'show every account against its pace; `usage log <account> <percent>` records a reading, '
                                 '`usage refresh` (or read) runs the automatic readers now')
-    s.add_argument('action', nargs='?', choices=['log', 'read', 'refresh'])
+    s.add_argument('action', nargs='?', choices=['log', 'read', 'refresh', 'page-script', 'page-reading'])
     s.add_argument('account', nargs='?')
     s.add_argument('percent', nargs='?')
     s.add_argument('--at', help='the time of the reading or of the report (ISO 8601, UTC by default)')

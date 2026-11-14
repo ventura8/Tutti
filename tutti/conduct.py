@@ -162,11 +162,9 @@ def out_reason(cfg, agent, states):
 
 
 def account_args(cfg, agent, states):
-    """The extra arguments of the first account of the agent with room (its model, as `tutti run auto` adds them). None
-    when main.commands names the agent's command: the owner pinned it (agy's Claude models use a Bash tool its headless
-    permission list does not cover, so a pinned Gemini model is how agy conducts today)."""
-    if agent in settings(cfg)['commands']:
-        return []
+    """The extra arguments of the first account of the agent with room (its model and settings, as `tutti run auto` adds
+    them). They replace the same flags of the agent's command (main.commands too): agy conducts on agy-claude's Claude model
+    with its `--settings` while that window has room, on agy-gemini's after."""
     by_name = {x['name']: x for x in states}
     for n in accounts_of(cfg, agent):
         if n in by_name and not routing.account_unfit(by_name[n]):
@@ -392,7 +390,7 @@ def run_cli(cfg, agent, text, run, watch, out=None, extra=()):
     """Runs a CLI agent headless in the project, its output passed through and kept; (rc, last lines)."""
     out = out or sys.stdout
     log = os.path.join(run['dir'], f'{agent}-{len(run["agents"])}.agent.log')
-    argv = cli_argv(cfg, agent, text, log) + list(extra)
+    argv = allow_tutti(workers.with_args(cli_argv(cfg, agent, text, log), extra))
     kept = []
     with subprocess.Popen(argv, cwd=run['cwd'], env=agent_env(cfg, run, agent), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, text=True, errors='replace', bufsize=1, start_new_session=True) as p:

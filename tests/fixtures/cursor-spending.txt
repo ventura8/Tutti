@@ -1,0 +1,44 @@
+Back
+A. Person
+Pro
+Overview
+Settings
+Usage
+Spending
+Billing & Invoices
+Spending
+CURRENT PLAN
+
+Pro
+
+$20/mo
+
+Usage limits reset on Dec 10 (26 days left)
+
+Adjust Plan
+UPGRADE AVAILABLE
+
+Pro+
+
+$60/mo
+
+Unlock 3x more usage on Agent & more
+
+Upgrade
+Included in Pro
+Cursor Models · Includes Cursor Grok and Composer
+25% used
+Additional usage beyond limits consumes Other Models quota or on-demand spend.
+Other Models
+14% used
+Additional usage beyond limits consumes on-demand spend.
+Grok Bot
+Included in Pro. Learn more
+Weekly usage
+0% used
+Resets Nov 15 (2 days left)
+Grok Bot pauses at the limit until it resets. Set an on-demand limit to keep going.
+On-Demand Usage
+On-Demand Spending
+On-demand spending is currently disabled
+Disabled

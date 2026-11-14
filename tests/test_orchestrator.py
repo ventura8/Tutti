@@ -95,12 +95,39 @@ class PrepareAndCoverageTest(unittest.TestCase):
 class ChangedPlaceholderTest(unittest.TestCase):
     def test_all_and_by_extension(self):
         changed = ['a.ts', 'b.py', 'c d.js']
-        self.assertEqual(ship.expand_changed('x {changed}', changed), "x 'a.ts b.py c d.js'")
-        self.assertEqual(ship.expand_changed('F={changed:ts,js}', changed), "F='a.ts c d.js'")
+        self.assertEqual(ship.expand_changed('x {changed}', changed), "x 'a.ts\nb.py\nc d.js'")
+        self.assertEqual(ship.expand_changed('F={changed:ts,js}', changed), "F='a.ts\nc d.js'")
         self.assertEqual(ship.expand_changed('P={changed:rs}', changed), "P=''")
+
+    def test_a_path_with_a_space_reaches_a_check_whole(self):
+        with tempfile.TemporaryDirectory() as d:
+            ship.git(d, 'init', '-q')
+            for name in ('my file.ts', 'plain.ts', 'é.ts'):
+                with open(os.path.join(d, name), 'w', encoding='utf8') as f:
+                    f.write('x\n')
+            found = ship.pending(d)
+            self.assertEqual(found, ['my file.ts', 'plain.ts', 'é.ts'])
+            env = {'TUTTI_CHANGED': ship.join_changed(found)}
+            self.assertEqual(ship.split_changed(env['TUTTI_CHANGED']), found)
+            cmd = ship.expand_changed('F={changed:ts}; printf "%s\\n" "$F" | xargs -d "\\n" ls -1 > out.txt', found)
+            self.assertEqual(ship.shell(d, cmd, {}).returncode, 0)
+            with open(os.path.join(d, 'out.txt'), encoding='utf8') as f:
+                self.assertEqual(sorted(f.read().splitlines()), found)
+            self.assertEqual(ship.split_changed(''), [])
+            with self.assertRaises(ship.ShipError):          # a missing base is an error, not "nothing changed"
+                ship.changed_since(d, 'origin/no-such-branch')
 
 
 class WorkerCommandTest(unittest.TestCase):
+    def test_an_account_replaces_the_flags_the_worker_has(self):
+        argv = ['agy', '-p', 'brief', '--mode', 'accept-edits', '--settings', '{"permissions":{"allow":["command(git)"]}}']
+        claude = ['--model', 'claude-sonnet-5-5-medium', '--settings', '{"permissions":{"allow":["command(*)"]}}']
+        self.assertEqual(workers.with_args(argv, claude), ['agy', '-p', 'brief', '--mode', 'accept-edits', '--settings', claude[3],
+                                                           '--model', 'claude-sonnet-5-5-medium'])
+        # a bare flag and a flag the worker lacks are added; the worker's own words stay
+        self.assertEqual(workers.with_args(['x', '--quiet'], ['--trust', '--n', '2']), ['x', '--quiet', '--trust', '--n', '2'])
+        self.assertEqual(workers.with_args(['x', '-p', 'brief'], []), ['x', '-p', 'brief'])
+
     def test_log_placeholder_filled_or_dropped_with_its_flag(self):
         w = {'command': ['agy', '-p', '{prompt}', '--log-file', '{log}']}
         self.assertEqual(workers.command(w, 'do it', '/tmp/x.log'), ['agy', '-p', 'do it', '--log-file', '/tmp/x.log'])
@@ -154,7 +181,7 @@ class DelegateTest(unittest.TestCase):
             return delegate.delegate(cfg, 'fake', task, [], self.repo, say=self.said.append, **kw)
 
     def test_happy_path_diff_checks_and_report(self):
-        cfg = self.cfg([{'run': 'echo "[SUCCESS] $TUTTI_CHANGED"', 'coverage': False}])
+        cfg = self.cfg([{'run': 'echo "[SUCCESS]" $TUTTI_CHANGED', 'coverage': False}])
         r = self.run_task(cfg)
         self.assertEqual(r['rc'], 0)
         self.assertEqual(r['changed'], ['a.txt', 'new.txt'])
@@ -304,6 +331,23 @@ class HelperTest(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_page_reading_records_good_json_and_refuses_bad_shapes(self):
+        log = os.path.join(self.tmp.name, 'usage.jsonl')
+        now = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
+        good = json.dumps({'readings': [{'account': 'cursor', 'used': 25, 'resets': '2026-12-10T00:00Z', 'how': 'Cursor Models'}],
+                           'missing': []})
+        self.assertEqual(cli.page_reading(self.cfg, log, good, now), 0)
+        with open(log, encoding='utf8') as f:
+            entry = json.loads(f.readline())
+        self.assertEqual((entry['account'], entry['used'], entry['source']), ('cursor', 25.0, 'page script'))
+        for bad in ('not json', '{"readings": null}', '{"readings": [null]}', '{"readings": [], "missing": [1]}', '[]'):
+            self.assertEqual(cli.page_reading(self.cfg, log, bad, now), 2, bad)
+        self.assertEqual(cli.page_reading(self.cfg, log, json.dumps({'readings': [], 'missing': ['Other Models']}), now), 1)
+        self.assertEqual(cli.page_reading(self.cfg, log, json.dumps({'readings': [{'account': 'ghost', 'used': 5}]}), now), 2)
+
+    def test_the_page_script_lists_hand_read_pages_only(self):
+        self.assertEqual(cli.page_scripts(self.cfg, 'nothing-matches'), 2)
 
     def test_the_key_is_kept_and_checked(self):
         k = helper.key(self.tmp.name)

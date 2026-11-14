@@ -11,8 +11,15 @@ class Probe:
     load: float = 0.0
     cores: int = 1
     yielding: bool = False
-    temp: float | None = None     # the hottest thermal zone in degrees C, None when the machine has none readable
+    temp: float | None = None     # the CPU: the hottest thermal zone in degrees C (a WSL machine: Windows' own reading), or None
     containers: list = field(default_factory=list)   # `<name> <running for>` of its running test containers
+    gpu_temp: float | None = None  # the hottest GPU in degrees C (nvidia-smi, or an amdgpu/xe/i915 sensor), None when none
+    temp_note: str = ''            # why the CPU temperature is not readable (a WSL machine whose Windows side has no sensor)
+
+    def hottest(self):
+        """(degrees C, 'CPU' or 'GPU') of the hotter of the two, or (None, '') when neither is readable."""
+        found = [(t, w) for t, w in ((self.temp, 'CPU'), (self.gpu_temp, 'GPU')) if t is not None]
+        return max(found) if found else (None, '')
 
 
 @dataclass
@@ -31,13 +38,23 @@ def parse_temp(word):
     return t if t > 0 else None
 
 
+def parse_gpu_temp(word):
+    """Degrees C of the hottest GPU (`43` or `43.20` from nvidia-smi), or None for `-`, missing or nonsense."""
+    try:
+        t = float(word)
+    except (TypeError, ValueError):
+        return None
+    return t if 0 < t < 150 else None
+
+
 def parse_probe(text):
-    """The probe script prints `<free> <load> <cores> <yield 0|1> [<millidegrees>]`; anything else means the machine did not
-    answer. The temperature is optional: an older probe (or a machine without thermal zones) leaves it out."""
+    """The probe script prints `<free> <load> <cores> <yield 0|1> [<millidegrees> [<GPU degrees or ->]]`; anything else means
+    the machine did not answer. The temperatures are optional: an older probe (or a machine without sensors) leaves them out."""
     parts = (text or '').split()
     try:
         temp = parse_temp(parts[4] if len(parts) > 4 else None)
-        return Probe(True, int(parts[0]), float(parts[1]), max(1, int(parts[2])), parts[3] == '1', temp)
+        gpu = parse_gpu_temp(parts[5] if len(parts) > 5 else None)
+        return Probe(True, int(parts[0]), float(parts[1]), max(1, int(parts[2])), parts[3] == '1', temp, gpu_temp=gpu)
     except (IndexError, ValueError):
         return Probe()
 
@@ -46,15 +63,15 @@ def heat_unfit(machine, probe):
     """Why the machine's temperature refuses a run, or ''. `heat.stop_c`: nothing new at or above it; `heat.cap_c`: at or above
     it only `heat.hot_slots` (default 1) runs at a time, so a hot machine cools down instead of throttling every run."""
     heat = machine.get('heat') or {}
-    t = probe.temp
+    t, which = probe.hottest()
     if t is None or not heat:
         return ''
     if heat.get('stop_c') is not None and t >= heat['stop_c']:
-        return f'too hot: {t:.0f} C (nothing new at {heat["stop_c"]:g} C or more)'
+        return f'too hot: {which} {t:.0f} C (nothing new at {heat["stop_c"]:g} C or more)'
     busy = int(machine.get('slots', 1)) - probe.free
     hot_slots = int(heat.get('hot_slots', 1))
     if heat.get('cap_c') is not None and t >= heat['cap_c'] and busy >= hot_slots:
-        return f'hot: {t:.0f} C, slots capped to {hot_slots} at {heat["cap_c"]:g} C or more ({busy} running)'
+        return f'hot: {which} {t:.0f} C, slots capped to {hot_slots} at {heat["cap_c"]:g} C or more ({busy} running)'
     return ''
 
 
@@ -114,7 +131,7 @@ def choose(order, machines, probe_fn):
     if patient:
         return Choice(patient[0], True, '; '.join(why))
     # every machine refused for heat (or unreachable): queue on the coolest reachable one, and say so
-    hot = sorted((n for n in order if seen[n].reachable and not seen[n].yielding), key=lambda n: seen[n].temp or 0)
+    hot = sorted((n for n in order if seen[n].reachable and not seen[n].yielding), key=lambda n: seen[n].hottest()[0] or 0)
     if hot:
         return Choice(hot[0], True, '; '.join(why) + f'; every machine is hot: queued on the coolest, {hot[0]}')
     return Choice(order[0], True, '; '.join(why))

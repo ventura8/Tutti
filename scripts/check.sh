@@ -9,6 +9,7 @@ python3 -m unittest discover -s tests
 t="python3 bin/tutti --config tutti.config.example.yaml"
 $t config
 $t usage --at 2026-01-08T00:00Z > /dev/null
+$t usage page-script cursor > /dev/null
 $t run cursor "smoke" --show > /dev/null
 $t wait file "$0" --timeout 1
 $t ship "chore: smoke" --dry-run --allow-protected > /dev/null

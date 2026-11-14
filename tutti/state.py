@@ -80,6 +80,7 @@ def machine_state(m, p, rank):
             'cores': p.cores if p.reachable else None,
             'reachable': p.reachable, 'paused': p.yielding, 'status': status, 'reason': reason or 'fit: takes the next run', 'rank': rank,
             'min_free_gb': m['min_free_gb'], 'temp_c': p.temp if p.reachable else None, 'heat': m.get('heat'),
+            'gpu_temp_c': p.gpu_temp if p.reachable else None, 'temp_note': p.temp_note if p.reachable else '',
             'containers': list(getattr(p, 'containers', []) or [])}
 
 
@@ -414,8 +415,18 @@ def assemble(cfg, probes, now=None, is_alive=alive):
     return {'version': __version__, 'generated_at': now_dt.isoformat(), 'config': cfg['_path'],
             'refresh_seconds': cfg['dashboard']['refresh_seconds'], 'usage': usage,
             'machines': {'probed_at': iso(probes.get('machines_at')), 'items': machines},
-            'workers': {'probed_at': iso(probes.get('workers_at')), **workers}, 'jobs': jobs,
+            'workers': {'probed_at': iso(probes.get('workers_at')), **workers, 'off': off_notes(cfg)}, 'jobs': jobs,
             'summary': {**summary(usage, machines, workers, jobs, next_worker(cfg, usage['accounts'])), 'runs_today': runs_today(cfg)}}
+
+
+def off_notes(cfg):
+    """One line per worker or account that is off, for the dashboard: why, and the line that turns it on."""
+    out = []
+    for o in cfg.get('off') or []:
+        section = 'workers' if o['kind'] == 'worker' else 'accounts'
+        why = 'costs money per use, so it is opt-in' if o['costs_money'] else 'turned off'
+        out.append(f'{o["name"]} ({o["kind"]}): {why}; {section}.{o["name"]}.enabled: true in the config turns it on')
+    return out
 
 
 def runs_today(cfg):

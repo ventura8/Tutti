@@ -315,10 +315,12 @@ function machine(m) {
         bar.style.width = `${Math.min(100, (m.load / m.cores) * 100)}%`;
         stats.append(el('span', { class: 'load' }, el('span', { class: 'load__bar', 'aria-hidden': 'true' }, bar), `load ${m.load} / ${m.cores} cores`));
     }
-    if (m.temp_c !== null && m.temp_c !== undefined) {
-        const hot = m.heat?.cap_c !== undefined && m.temp_c >= m.heat.cap_c;
-        stats.append(el('span', { class: 'temp', 'data-tone': hot ? 'warn' : undefined, text: `${Math.round(m.temp_c)} °C` }));
+    for (const [label, t] of [['CPU', m.temp_c], ['GPU', m.gpu_temp_c]]) {
+        if (t === null || t === undefined) continue;
+        const hot = m.heat?.cap_c !== undefined && t >= m.heat.cap_c;
+        stats.append(el('span', { class: 'temp', 'data-tone': hot ? 'warn' : undefined, text: `${label} ${Math.round(t)} °C` }));
     }
+    if (m.temp_note && (m.temp_c === null || m.temp_c === undefined)) stats.append(el('span', { class: 'temp', title: m.temp_note, text: 'CPU temperature not readable' }));
     if (m.rank) stats.append(el('span', { text: `#${m.rank} in routing` }));
     return el('li', { class: 'row' },
         el('div', { class: 'row__name' }, m.name, el('span', { class: 'row__kind', text: `${m.transport} · ${m.host}` })),
@@ -388,6 +390,8 @@ function renderWorkers(s) {
     $('workers').replaceChildren(...(w.items.length ? w.items.map((x) => worker(x, s.usage.accounts))
         : [el('li', {}, w.probed_at ? empty('No workers', 'Add workers: to the config (cursor, agy, local models).') : empty('Checking workers…', ''))]));
     $('agents').replaceChildren(...w.agents.map(agent));
+    const off = $('workers-off');
+    if (off) off.replaceChildren(...(w.off || []).map((t) => el('li', { class: 'row__note', text: `Off: ${t}` })));
 }
 
 // ---- projects
@@ -405,6 +409,21 @@ function machineLine(m) {
     return parts.join(' · ');
 }
 
+function prLine(pr) {
+    const what = pr.release ? `Release ${pr.release} in progress` : (pr.draft ? 'Draft pull request' : 'Pull request');
+    const ci = { failing: 'CI failing', pending: 'CI running', passing: 'CI passing', none: 'no CI' }[pr.ci] || pr.ci;
+    return el('p', { class: 'row__note' },
+        el('a', { href: pr.url, target: '_blank', rel: 'noopener noreferrer', text: `${what}: #${pr.number} ${pr.title}` }),
+        ` · ${ci} (${pr.ci_detail}) · review: ${pr.review}`);
+}
+
+function prLines(prs) {
+    if (!prs) return [];
+    const lines = prs.items.map(prLine);
+    if (prs.error) lines.push(el('p', { class: 'row__note', text: `Pull requests of ${prs.repo} not read: ${prs.error}` }));
+    return lines;
+}
+
 function project(p) {
     const busy = p.running + p.machines.reduce((n, m) => n + m.processes, 0);
     const repos = p.repos.map((r) => [`${r.machine}: ${r.path}`, r.branch && `(${r.branch})`].filter(Boolean).join(' '));
@@ -415,6 +434,7 @@ function project(p) {
         el('div', { class: 'row__name' }, p.name, el('span', { class: 'row__kind', text: counts })),
         chip(busy ? 'active' : 'idle', busy ? 'accent' : 'idle'),
         el('p', { class: 'row__note', text: p.last_activity ? `Last activity ${relative(p.last_activity)}` : 'No activity seen' }),
+        ...prLines(p.prs),
         ...repos.map((r) => el('p', { class: 'row__note', text: r })),
         ...p.machines.map((m) => el('p', { class: 'row__note', text: machineLine(m) })),
         el('div', { class: 'row__stats' }, el('button', {

@@ -19,6 +19,8 @@ from . import (
     autopilot,
     conduct,
     config,
+    controls,
+    handover,
     helper,
     pacing,
     projects,
@@ -54,8 +56,9 @@ class Collector:
     """Holds the latest probes and refreshes them every `probe_seconds` in a daemon thread."""
 
     def __init__(self, cfg, probe_fn=remote.probe, available_fn=workers.available, clock=time.time, reader=None, stored_fn=None,
-                 activity_fn=projects.probe_activity, prs_fn=releases.all_prs):
+                 activity_fn=projects.probe_activity, prs_fn=releases.all_prs, readings_fn=remote.device_readings):
         self.cfg, self.probe_fn, self.available_fn, self.clock = cfg, probe_fn, available_fn, clock
+        self.readings_fn = readings_fn
         self.activity_fn, self.prs_fn = activity_fn, prs_fn
         self.stored_fn = stored_fn or (lambda m: transfer.stored(cfg, m))
         self.reader = reader or readers.Readers(cfg, clock=clock)
@@ -83,7 +86,8 @@ class Collector:
         return found
 
     def refresh(self):
-        fresh = state.probe_all(self.cfg, self.probe_fn, self.available_fn, clock=self.clock, stored_fn=self.stored_fn)
+        fresh = state.probe_all(self.cfg, self.probe_fn, self.available_fn, clock=self.clock, stored_fn=self.stored_fn,
+                                readings_fn=self.readings_fn)
         fresh['activity'] = projects.probe_all(self.cfg, self.activity_fn)
         fresh['prs'] = self.prs_fn(self.cfg)
         try:
@@ -145,7 +149,18 @@ class Collector:
         out['autopilot'] = autopilot.view(self.cfg)
         accounts = {a['name']: a for a in out['usage']['accounts']}
         out['scouts'] = {**scouts.view(self.cfg, accounts, self.env), 'error': probes.get('scout_error'), 'trial': trial.view(self.cfg)}
+        out['controls'] = controls.view(self.cfg, controls.read(config.state_dir(self.cfg)))
         return out
+
+    def reload(self):
+        """The config read again after a switch, so routing, workers and the page see it at once."""
+        if self.cfg.get('_path'):
+            fresh = config.load(self.cfg['_path'])
+            with self.read_lock:   # the usage readers follow the switch too: a resumed account is read, a paused one not
+                self.cfg = fresh
+                if hasattr(self.reader, 'cfg'):
+                    self.reader.cfg = fresh
+        return self.cfg
 
 
 def allowed_host(host, port):
@@ -258,7 +273,35 @@ def save_autopilot(cfg, raw):
     return 200, {'ok': True, 'enabled': data['enabled']}
 
 
-POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot')
+def save_control(collector, raw, stop_fn=handover.stop_now):
+    """(status, answer) for POST /api/control {"action": "pause"|"resume"|"optin", "kind": "machine"|"device"|"worker"|"account",
+    "name": ..., "on": bool (optin), "stop": bool (pause: hand running jobs over, then stop them), "note": str}."""
+    try:
+        data = json.loads(raw or b'null')
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or data.get('action') not in ('pause', 'resume', 'optin') or data.get('kind') not in controls.SECTIONS:
+        return 400, {'error': 'send {"action": "pause"|"resume"|"optin", "kind": "machine"|"device"|"worker"|"account", "name": ...}'}
+    cfg, kind, name = collector.cfg, data['kind'], data.get('name')
+    section = controls.SECTIONS[kind]
+    if name not in ((cfg.get('raw_entries') or {}).get(section) or cfg.get(section) or {}):
+        return 404, {'error': f'no {kind} "{name}" in the config: reload the page, the config may have changed'}
+    folder = config.state_dir(cfg)
+    if data['action'] == 'optin':
+        if not isinstance(data.get('on'), bool):
+            return 400, {'error': 'send "on": true or false with an optin'}
+        controls.set_enabled(folder, kind, name, data['on'])
+    else:
+        controls.set_paused(folder, kind, name, data['action'] == 'pause', note=str(data.get('note') or '')[:200])
+    try:
+        cfg = collector.reload()
+    except config.ConfigError as e:
+        return 500, {'error': f'saved, but the config no longer loads: {e}'}
+    handed = stop_fn(cfg, kind, name) if data['action'] == 'pause' and data.get('stop') is True else []
+    return 200, {'ok': True, 'handed': [{'log': log, 'to': to} for log, to in handed]}
+
+
+POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control')
 
 
 def post(collector, headers, path, port, token, read):
@@ -269,7 +312,7 @@ def post(collector, headers, path, port, token, read):
     path = path.split('?', 1)[0]
     if path not in POSTS:
         return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, {"agent": ...} to /api/main, '
-                          'or {"enabled": ...} to /api/autopilot'}
+                          '{"enabled": ...} to /api/autopilot, or {"action": ...} to /api/control'}
     refused = check_post(headers, host, token)
     if refused:
         return refused[0], {'error': refused[1]}
@@ -279,18 +322,28 @@ def post(collector, headers, path, port, token, read):
         size = -1
     if not 0 < size <= MAX_BODY:
         return 413, {'error': f'a reading is a small JSON object (at most {MAX_BODY} bytes)'}
-    body = read(size)
-    if path == '/api/main':
-        return save_main(collector.cfg, body)
-    if path == '/api/autopilot':
-        return save_autopilot(collector.cfg, body)
-    if path == '/api/refresh':
-        try:
-            found = collector.refresh_readings()
-        except (OSError, ValueError) as e:
-            return 500, {'error': f'reading usage failed ({e}): fix the usage log, then refresh again'}
-        return 200, {'ok': True, 'read': sorted(found), 'problems': {n: r['problem'] for n, r in found.items() if r['problem']}}
-    return save_reading(collector.cfg, body)
+    return dispatch(collector, path, read(size))
+
+
+def refresh_now(collector, _body):
+    try:
+        found = collector.refresh_readings()
+    except (OSError, ValueError) as e:
+        return 500, {'error': f'reading usage failed ({e}): fix the usage log, then refresh again'}
+    return 200, {'ok': True, 'read': sorted(found), 'problems': {n: r['problem'] for n, r in found.items() if r['problem']}}
+
+
+HANDLERS = {
+    '/api/main': lambda c, b: save_main(c.cfg, b),
+    '/api/autopilot': lambda c, b: save_autopilot(c.cfg, b),
+    '/api/control': save_control,
+    '/api/refresh': refresh_now,
+    '/api/reading': lambda c, b: save_reading(c.cfg, b),
+}
+
+
+def dispatch(collector, path, body):
+    return HANDLERS[path](collector, body)
 
 
 def safe_json(data):

@@ -40,19 +40,23 @@ def rsync_target(machine, base):
     if machine['transport'] == 'local':
         return os.path.expanduser(base).rstrip('/') + '/'
     rel = base[2:] if base.startswith('~/') else ('.' if base == '~' else base)
-    return f'{machine["host"]}:{rel.rstrip("/")}/'
+    return f'{remote.dest(machine)}:{rel.rstrip("/")}/'
 
 
 # ---- the job record the dashboard reads (state/files/<started>-<pid>.log, .cmd, .progress, .rc)
 
 
 class Job:
-    def __init__(self, cfg, title):
-        folder = os.path.join(config.state_dir(cfg), 'files')
+    def __init__(self, cfg, title, folder='files', target='', spec=None):
+        folder = os.path.join(config.state_dir(cfg), folder)
         os.makedirs(folder, exist_ok=True)
         self.log_path = os.path.join(folder, f'{int(time.time())}-{os.getpid()}-{time.monotonic_ns() % 100000}.log')
         with open(self.log_path + '.cmd', 'w', encoding='utf8') as f:
             f.write(title + '\n')
+        if target:   # what a "pause, stop now" of a machine, device or worker stops (tutti/controls.py), and how to hand it over
+            for ext, text in (('.target', target), ('.pid', str(os.getpid())), ('.job', json.dumps(spec or {}))):
+                with open(self.log_path + ext, 'w', encoding='utf8') as f:
+                    f.write(text + '\n')
         self.log = open(self.log_path, 'a', encoding='utf8')   # closed by end()
         self.total = 0
         self.base = 0
@@ -404,7 +408,8 @@ def send(cfg, machine, paths, dest=None, bwlimit=None, use_rsync=None, pin_token
     base = base_of(cfg, machine, dest)
     bw = s['bwlimit_kbps'] if bwlimit is None else bwlimit
     items = prepare(cfg, paths, s)
-    job = Job(cfg, f'files send {", ".join(i.name for i in items)} -> {machine["name"]}:{base}')
+    job = Job(cfg, f'files send {", ".join(i.name for i in items)} -> {machine["name"]}:{base}', target=f'machine:{machine["name"]}',
+              spec={'kind': 'files', 'machine': machine['name'], 'paths': [i.path for i in items]})
     try:
         with machine_lock(machine, base):
             result = _send(cfg, machine, items, base, s, bw, use_rsync, dest is None, job)

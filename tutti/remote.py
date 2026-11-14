@@ -13,6 +13,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SLOT_SCRIPT = os.path.join(ROOT, 'scripts', 'slot.sh')
 BIN = os.path.join(ROOT, 'bin', 'tutti')
 SSH = ['ssh', '-o', 'LogLevel=ERROR']
+BATCH = 'BatchMode=yes'                        # never a password prompt: a key works, or the machine counts as down
+QUICK = ('-o', 'ConnectTimeout=5', '-o', BATCH)
 
 
 _BASH_PATHS = {}
@@ -62,16 +64,41 @@ def argv(machine, script, ssh_opts=()):
         return ['bash', '-c', script]
     if t == 'ssh':
         return [*SSH, *ssh_opts, machine['host'], script]
+    if t == 'android':
+        return [*SSH, *port_opts(machine), *ssh_opts, dest(machine), script]
     packed = base64.b64encode(f'cd ~ && {script}'.encode()).decode()
     return [*SSH, *ssh_opts, machine['host'], f'wsl -e {machine["wsl_helper"]} {packed}']
+
+
+def dest(machine):
+    """The ssh destination: [user@]host (a Termux machine's user is like u0_a123)."""
+    return f'{machine["user"]}@{machine["host"]}' if machine.get('user') else machine['host']
+
+
+def port_opts(machine):
+    """`-p <port>` for a Termux machine (its sshd listens on 8022), else nothing."""
+    return ['-p', str(machine.get('port') or 8022)] if machine.get('transport') == 'android' else []
 
 
 def sh(machine, script, capture=False, timeout=None, stdin=None, ssh_opts=()):
     return subprocess.run(argv(machine, script, ssh_opts), capture_output=capture, text=True, timeout=timeout, input=stdin)
 
 
+def tee(machine, script, out):
+    """Runs the script with its output (stdout and stderr) both on this terminal and in `out`, a job log. Returns the exit code."""
+    p = subprocess.Popen(argv(machine, script), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace')
+    for line in p.stdout:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        out.write(line)
+        out.flush()
+    return p.wait()
+
+
 def rsh(cfg, machine):
     """What git (GIT_SSH_COMMAND) and rsync (-e) use to reach the machine: plain ssh, or `tutti rsh` for WSL."""
+    if machine['transport'] == 'android':
+        return f'ssh -p {int(machine.get("port") or 8022)}'
     if machine['transport'] != 'wsl':
         return 'ssh'
     return f'{shlex.quote(sys.executable)} {shlex.quote(BIN)} --config {shlex.quote(cfg["_path"])} rsh {shlex.quote(machine["name"])}'
@@ -103,7 +130,17 @@ def probe_script(machine):
             't=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -n 1); '
             f'{GPU_TEMP}'
             f'{containers_script(machine)}'
-            f'echo "$n $(cut -d" " -f1 /proc/loadavg) $(nproc) $y ${{t:-0}} ${{g:--}}"')
+            f'{termux_readings(machine)}'
+            # Android may refuse /proc/loadavg (SELinux): the load is then 0, not a broken line
+            f'echo "$n $(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo 0) $(nproc) $y ${{t:-0}} ${{g:--}}"')
+
+
+def termux_readings(machine):
+    """A Termux machine's battery, charging, heat and Wi-Fi lines (`R key=value`), before the summary line."""
+    if machine.get('transport') != 'android':
+        return ''
+    from . import devices
+    return devices.TERMUX_READINGS
 
 
 # The hottest GPU in degrees C, `-` when none is readable: nvidia-smi (in WSL it lives in /usr/lib/wsl/lib, not on PATH),
@@ -155,7 +192,7 @@ def windows_temp(machine, clock=time.time, timeout=30):
         return hit[1]
     packed = base64.b64encode(WIN_TEMP.encode('utf-16le')).decode()
     try:
-        r = subprocess.run([*SSH, '-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes', machine['host'],
+        r = subprocess.run([*SSH, *QUICK, machine['host'],
                             f'powershell -NoProfile -NonInteractive -EncodedCommand {packed}'],
                            capture_output=True, text=True, timeout=timeout, check=False)
         value = parse_win_temp(r.stdout) if r.returncode == 0 else (None, f'CPU not read: the Windows side answered exit {r.returncode}')
@@ -176,13 +213,16 @@ def containers_script(machine):
 
 def probe(machine, timeout=20, windows_fn=None):
     try:
-        r = sh(machine, probe_script(machine), capture=True, timeout=timeout, ssh_opts=('-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes'))
+        r = sh(machine, probe_script(machine), capture=True, timeout=timeout, ssh_opts=QUICK)
     except (OSError, subprocess.SubprocessError):
         return routing.Probe()
     windows_fn = windows_fn or windows_temp
     lines = r.stdout.strip().splitlines() if r.returncode == 0 else []
     p = routing.parse_probe(lines[-1] if lines else '')
     p.containers = [line[2:].strip() for line in lines[:-1] if line.startswith('C ')]
+    if machine['transport'] == 'android':
+        from . import devices
+        p.readings = devices.parse_readings('\n'.join(lines[:-1]), prefix='R ')
     if p.reachable and p.temp is None and machine['transport'] == 'wsl':
         p.temp, p.temp_note = windows_fn(machine)
     return p
@@ -204,6 +244,8 @@ def runner_command(machine, track, command, mount=''):
     inner = f'{r["prelude"]} && {command}' if r.get('prelude') else command
     if r['kind'] == 'shell':
         return f'bash -c {shlex.quote(inner)}'
+    if r['kind'] == 'native':   # Android (Termux): no Docker; niced so the phone stays responsive
+        return f'nice -n 10 bash -c {shlex.quote(inner)}'
     env = ' '.join(f'-e {shlex.quote(f"{k}={v}")}' for k, v in r.get('env', {}).items())
     extra = ' '.join(shlex.quote(str(a)) for a in r.get('args', []))
     return (f'docker run --rm --memory={r["memory_gb"]}g --memory-swap={r["memory_gb"]}g --cpus={r["cpus"]} {env} {extra} '
@@ -231,15 +273,15 @@ def sync(cfg, machine, track, src):
     """Copies the tree (incremental rsync, the config's excludes) and gives the copy a shallow git repository at the tree's
     commit: a worktree's `.git` is a file that points at this computer, so tests that ask git would fail on the copy."""
     name, root, rs = machine['name'], root_path(machine), rsh(cfg, machine)
-    dest = f'{machine["host"]}:{machine["root"]}'
+    to = f'{dest(machine)}:{machine["root"]}'
     is_git = subprocess.run([worktree.git_bin(), '-C', src, 'rev-parse', '--git-dir'], capture_output=True).returncode == 0
     _check(sh(machine, f'mkdir -p {root}/{track} && {{ [ -d {root}/repo.git ] || git init -q --bare {root}/repo.git; }}'),
            f'preparing {name}')
     if is_git:
-        _check(subprocess.run([worktree.git_bin(), '-C', src, 'push', '-q', '-f', f'{dest}/repo.git', f'HEAD:refs/heads/tutti/{track}'],
+        _check(subprocess.run([worktree.git_bin(), '-C', src, 'push', '-q', '-f', f'{to}/repo.git', f'HEAD:refs/heads/tutti/{track}'],
                               env={**os.environ, 'GIT_SSH_COMMAND': rs}), f'pushing HEAD to {name}')
     excludes = [a for e in cfg['sync']['exclude'] for a in ('--exclude', e)]
-    _check(subprocess.run(['rsync', '-a', '--delete', '-e', rs, *excludes, f'{src}/', f'{dest}/{track}/']), f'copying the tree to {name}')
+    _check(subprocess.run(['rsync', '-a', '--delete', '-e', rs, *excludes, f'{src}/', f'{to}/{track}/']), f'copying the tree to {name}')
     with open(SLOT_SCRIPT, encoding='utf8') as f:
         _check(sh(machine, f'cat > {root}/tutti-slot.sh', stdin=f.read()), f'installing slot.sh on {name}')
     return is_git
@@ -253,25 +295,80 @@ def inputs_env(inputs):
     return f'export TUTTI_INPUTS={inputs} && ', '-e TUTTI_INPUTS -v "$TUTTI_INPUTS:$TUTTI_INPUTS:ro"'
 
 
-def run(cfg, machine, track, src, command, inputs=None):
+def merge_runner(base, over):
+    """A runner with another's keys on top (env merged, args added after the machine's own)."""
+    over = over or {}
+    out = {**base, **{k: v for k, v in over.items() if k not in ('env', 'args')}}
+    out['env'] = {**base.get('env', {}), **over.get('env', {})}
+    out['args'] = [*base.get('args', []), *over.get('args', [])]
+    return out
+
+
+def device_wrap(device, command):
+    """A device run: ANDROID_SERIAL set (adb, Gradle and Playwright pick the device from it) and the device's lock held, so one
+    run at a time uses it; a second run waits in the same queue as a machine's slots (slot.sh, memory floor off)."""
+    if not device:
+        return command
+    serial, lock = shlex.quote(str(device['serial'])), home_path(device['lock'])
+    return f'mkdir -p "$(dirname {lock})" && env ANDROID_SERIAL={serial} SLOT_LOCKS={lock} MIN_FREE_GB=0 bash {{slot}} env {command}'
+
+
+def run(cfg, machine, track, src, command, inputs=None, device=None, out=None):
     """Runs `command` over the tree on the machine, behind its slot queue, after the steps it needs first (test.prepare).
-    Returns the command's exit code."""
+    With `device` the command also holds that Android device's lock and gets ANDROID_SERIAL. With `out` (a job log) the
+    output goes there too. Returns the command's exit code."""
     command = routing.prepare(command, (cfg.get('test') or {}).get('prepare'))
     slot = slot_prefix(machine)
     export, mount = inputs_env(inputs)
+    if device:
+        export += f'export ANDROID_SERIAL={shlex.quote(str(device["serial"]))} && '
+        runner = merge_runner(machine['runner'], device.get('runner'))   # a device's own runner (shell for Gradle, host network)
+        machine = {**machine, 'runner': {**runner, 'env': {**runner.get('env', {}), 'ANDROID_SERIAL': str(device['serial'])}}}
     if machine['transport'] == 'local':
         mount = ' '.join(x for x in (worktree.docker_mount(src), mount) if x)
-        script = (f'cd {shlex.quote(bash_path(src))} && {export}{slot} bash {shlex.quote(bash_path(SLOT_SCRIPT))} '
-                  f'{runner_command(machine, track, command, mount)}')
-        return sh(machine, script).returncode
+        slot_sh = shlex.quote(bash_path(SLOT_SCRIPT))
+        inner = device_wrap(device, f'{slot} bash {slot_sh} {runner_command(machine, track, command, mount)}').replace('{slot}', slot_sh)
+        script = f'cd {shlex.quote(bash_path(src))} && {export}{inner}'
+        return tee(machine, script, out) if out else sh(machine, script).returncode
     is_git = sync(cfg, machine, track, src)
     root = root_path(machine)
     git = (f'{{ [ -d .git ] || {{ rm -f .git; git init -q; }}; }} && git fetch -q --depth 1 {root}/repo.git tutti/{track} && '
            'git update-ref --no-deref HEAD FETCH_HEAD && git reset -q && ') if is_git else ''
     dirs = ' '.join(shlex.quote(d) for d in cfg['sync']['ensure_dirs'])
     mk = f'mkdir -p {dirs} && ' if dirs else ''
-    script = f'cd {root}/{track} && {git}{mk}{export}{slot} bash {root}/tutti-slot.sh {runner_command(machine, track, command, mount)}'
-    return sh(machine, script).returncode
+    inner = device_wrap(device, f'{slot} bash {root}/tutti-slot.sh {runner_command(machine, track, command, mount)}')
+    script = f'cd {root}/{track} && {git}{mk}{export}{inner.replace("{slot}", f"{root}/tutti-slot.sh")}'
+    return tee(machine, script, out) if out else sh(machine, script).returncode
+
+
+def fetch(cfg, machine, track, src, path):
+    """Copies a result folder or file (screenshots, videos, reports) from the machine's copy of the tree back into `src`.
+    Nothing to do for this computer, where the tree is used in place."""
+    if machine['transport'] == 'local':
+        return 0
+    rel = path.strip('/')
+    os.makedirs(os.path.dirname(os.path.join(src, rel)) or src, exist_ok=True)
+    return subprocess.run(['rsync', '-a', '-e', rsh(cfg, machine), f'{dest(machine)}:{machine["root"]}/{track}/{rel}',
+                           os.path.dirname(os.path.join(src, rel)) + '/']).returncode
+
+
+def device_readings(machine, device, wake=False, timeout=90):
+    """The device's readings (a dict, tutti/devices.py) from its machine; {'state': 'unreachable'} when the machine does not answer."""
+    from . import devices
+    try:
+        if machine['transport'] == 'local':
+            scripts = shlex.quote(bash_path(os.path.join(ROOT, 'scripts')))
+        else:
+            scripts = root_path(machine)
+            with open(os.path.join(ROOT, 'scripts', devices.READINGS_SCRIPT), encoding='utf8') as f:
+                up = sh(machine, f'mkdir -p {scripts} && cat > {scripts}/{devices.READINGS_SCRIPT}', stdin=f.read(), timeout=timeout,
+                        ssh_opts=QUICK)
+            if up.returncode != 0:
+                return {'state': 'unreachable'}
+        r = sh(machine, devices.readings_command(device, scripts, wake), capture=True, timeout=timeout, ssh_opts=QUICK)
+    except (OSError, subprocess.SubprocessError):
+        return {'state': 'unreachable'}
+    return devices.parse_readings(r.stdout) if r.returncode == 0 else {'state': 'unreachable'}
 
 
 def set_yield(machine, on, note=''):
@@ -285,7 +382,7 @@ def yield_note(machine):
     y = home_path(machine['yield_file'])
     try:
         r = sh(machine, f'[ -e {y} ] && {{ echo UP; cat {y}; }} || echo DOWN', capture=True, timeout=40,
-               ssh_opts=('-o', 'ConnectTimeout=15', '-o', 'BatchMode=yes'))
+               ssh_opts=('-o', 'ConnectTimeout=15', '-o', BATCH))
     except (OSError, subprocess.SubprocessError):
         return None
     out = r.stdout.strip()

@@ -46,7 +46,8 @@ narrow with nothing beside it; one column on a phone. Phone (375 px) to 4K (2560
 4. **Autopilot** (its state, runs, queue and latest decisions, each list folded) beside **Main agent** and **Workers**.
 5. **Projects**, full width, in columns.
 6. **Scouts**, full width: each scout, its meter, watches, recent questions and the review trial (*Scouts* below).
-7. **Finished jobs** at the bottom: All, Failed, Done (keys 1 to 3); two columns from 1800 px.
+7. **Devices and controls**, full width: the Android devices, pause or resume, the opt-in switches (*Controls* below).
+8. **Finished jobs** at the bottom: All, Failed, Done (keys 1 to 3); two columns from 1800 px.
 
 Long lists fold after a few items with **Show N more** (and **Show fewer**); what is open stays open across polls, and the
 button keeps the keyboard focus. Cards in a row stretch to the same height.
@@ -81,6 +82,38 @@ questions with their status and the start of each answer. With the review trial 
 real, noise, to mark) and the verdict. When a scout is not set up, or none is configured, the owner's setup steps are
 shown. After every probe the dashboard runs one scouts round (`tutti scout tick`), so start it from a shell that has the
 scout's variables.
+
+## Controls
+
+The *Devices and controls* card: the Android devices (connected, battery, charging, battery temperature, screen, Wi-Fi,
+busy or ready and why), and the owner's switches.
+
+- **Pause or resume** any machine, Android device, worker (a local model or a CLI agent: agy, cursor, claude, copilot) or
+  account. A paused item takes nothing new: routing, the autopilot, `tutti run auto`, conduct's fallbacks and
+  `tutti test --device` skip it. What already runs finishes. The row says who paused it and when.
+- **Pause, stop now** ends the running jobs bound to the item (their whole process tree, then waits for them to exit, so
+  nothing writes to the tree during the hand-over), marks them ended, and hands each one over:
+  - an agent run: a handoff note from its worktree (the changes, the end of its log) beside the run's log, the partial
+    work snapshotted on `tutti/handoff/<track>` without moving HEAD (the files stay, so the next worker's diff still holds
+    them), then the task goes to the next worker with room (`tutti run auto`'s choice), which continues in the same
+    worktree from the handoff, with the same files and checks (routed checks stay routed). Pausing an account stops the
+    runs that spend it. The worktree is rebuilt from the config and the track name, never a path read from a file;
+  - a test or check run (`tutti test`): started again from the start, in the same tree, on the machine routing picks now,
+    or on a ready device (`--device any` when none is ready);
+  - a file transfer: stopped; its partial file is kept, so sending it again resumes.
+  The job then shows "Stopped from the dashboard: handed over to ...". A remote command whose ssh link is cut may still
+  finish on its own; its slot is released when it ends. Only processes that still run tutti are stopped: a pid the system
+  gave to another program is never taken for the job.
+- A device whose machine is paused is held too. When every machine is paused, off or refused by its power policy, a run
+  is not queued anywhere: `tutti test` and routed checks say so and stop (exit 3).
+- **Opt-in** switches: every worker or account marked `costs_money: true` (Copilot, an API key) or `opt_in: true` (a
+  model the owner wants off unless chosen, e.g. Fable), and each Termux machine's lint and unit runs. The autopilot has
+  its own switch on its card.
+
+The switches are `POST /api/control` (same origin, the page's token, as for readings): `{"action": "pause" | "resume" |
+"optin", "kind": "machine" | "device" | "worker" | "account", "name": ..., "on": bool, "stop": bool, "note": "..."}`. They
+are kept in `<project.state>/controls.json`, never written into your config file, and applied every time the config is
+read; the dashboard reads its config again after each switch. `tutti pause|resume|optin` do the same from a terminal.
 
 ## Add a reading
 

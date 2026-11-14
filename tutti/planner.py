@@ -99,7 +99,8 @@ def plan_limited(own, lim, a, lim_cfg, hours):
     left_own = own_left if per is None else min(own_left, left * 100 / per) if per else 0.0
     task = float(a.get('task_pct', TASK_PCT))
     tasks = max(0, int(left_own // task)) if left > 0 and task > 0 else 0
-    return {'limit': lim['name'], 'expires': own['target'], 'windows': len(windows), 'runnable': sum(1 for *_, c in windows if c != 0),
+    return {'limit': lim['name'], 'expires': own['target'], 'resets': own.get('reset'),
+            'windows': len(windows), 'runnable': sum(1 for *_, c in windows if c != 0),
             'per_window': round(room / max(1, len(windows)), 1), 'allowance': round(give, 1), 'this_window': round(spent, 1),
             'left': round(left, 1), 'tasks': tasks, 'lose': round(max(0.0, left_own), 1), 'window_points': per}
 
@@ -128,23 +129,29 @@ def plan_single(s, a, now, rate=None):
     task = float(a.get('task_pct', TASK_PCT))
     room = s.get('room_tasks') or 0   # the pace's own room (behind its line); never more than the left points hold
     tasks = min(room, int(left // task)) if task > 0 else 0
-    return {'limit': None, 'expires': s['target'], 'left': round(left, 1), 'lose': round(left, 1), 'tasks': tasks,
+    return {'limit': None, 'expires': s['target'], 'resets': s.get('reset'), 'left': round(left, 1), 'lose': round(left, 1), 'tasks': tasks,
             'allowance': round(left, 1), 'this_window': None, 'windows': 1, 'runnable': 1,
             'background': None if rate is None else round(background, 1)}
 
 
+def _at(t, now):
+    hours = max(0.0, (t - now).total_seconds() / 3600)
+    return f'{t:%H:%M} UTC (in {hours:.1f} h)' if hours < 24 else f'{t:%a %d %b %H:%M} UTC'
+
+
 def explain(name, p, now):
-    """One line for the dashboard: when the window ends, what it may still spend, what would be lost and what Tutti does."""
-    ends = parse_time(p['expires'])
-    hours = max(0.0, (ends - now).total_seconds() / 3600)
-    when = f'{ends:%H:%M} UTC (in {hours:.1f} h)' if hours < 24 else f'{ends:%a %d %b %H:%M} UTC'
+    """One line for the dashboard: the spend-by time (the reset minus the lead: what `expires` is), the reset itself (as the
+    meter says it), what it may still spend, what would be lost and what Tutti does."""
+    when = _at(parse_time(p['expires']), now)
+    if p.get('resets'):
+        when += f', resets {_at(parse_time(p["resets"]), now)}'
     if p['limit']:
-        head = (f'{name}: window ends {when}; this window: {p["this_window"]:g} of {p["allowance"]:g} weekly points '
+        head = (f'{name}: spend by {when}; this window: {p["this_window"]:g} of {p["allowance"]:g} weekly points '
                 f'({p["runnable"]} of {p["windows"]} windows left can run)')
         if p['tasks']:
             return f'{head}; {p["lose"]:g} % would be lost at its end → {p["tasks"]} task(s) now'
         return f'{head} → nothing more this window'
-    head = f'{name}: {p["left"]:g} points left until {when}'
+    head = f'{name}: {p["left"]:g} points left, spend by {when}'
     if p.get('background'):
         head += f', after {p["background"]:g} expected outside Tutti'
     return f'{head} → {p["tasks"]} task(s) now, behind its pace' if p['tasks'] else f'{head} → no extra tasks (not behind its pace)'

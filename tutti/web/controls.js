@@ -1,0 +1,103 @@
+// Tutti dashboard: Android devices, pause and resume, opt-in switches. Uses app.js's helpers (el, $, chip, relative,
+// refresh, showBanner, TOKEN). Every switch is a POST to /api/control, saved in the state folder (never in the config file).
+'use strict';
+
+const DEVICE_TONE = { ready: 'ok', busy: 'accent', waiting: 'warn', offline: 'bad', held: 'warn' };
+
+async function control(body, failText) {
+    try {
+        const res = await fetch('/api/control', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify(body),
+        });
+        const answer = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(answer.error || `the dashboard answered ${res.status}`);
+        if (answer.handed?.length) ui.notice = `Handed over: ${answer.handed.map((h) => h.to).join('; ')}`;
+        await refresh();
+    } catch (err) {
+        showBanner(el('strong', { text: `${failText} ` }), err.message);
+    }
+}
+
+function deviceStats(d) {
+    const parts = [];
+    if (d.battery !== null && d.battery !== undefined) parts.push(`battery ${d.battery} %`);
+    if (d.charging === 1) parts.push('charging');
+    else if (d.charging === 0) parts.push('on battery');
+    if (d.battery_c !== null && d.battery_c !== undefined) parts.push(`${d.battery_c} °C`);
+    if (d.screen === 1) parts.push('screen on');
+    else if (d.screen === 0) parts.push('screen off');
+    if (d.wifi === 1) parts.push('Wi-Fi');
+    else if (d.wifi === 0) parts.push('no Wi-Fi');
+    return el('div', { class: 'row__stats' }, ...parts.map((t) => el('span', { text: t })));
+}
+
+function device(d) {
+    return el('li', { class: 'row' },
+        el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `adb ${d.serial} · on ${d.machine}` })),
+        chip(d.status === 'held' ? 'paused' : d.status, DEVICE_TONE[d.status]),
+        deviceStats(d),
+        el('p', { class: 'row__note', text: d.reason }));
+}
+
+function pausedBy(p) {
+    if (!p) return '';
+    const at = p.at ? relative(new Date(p.at * 1000).toISOString()) : '';
+    const note = p.note ? `: ${p.note}` : '';
+    return `Paused by ${p.by || 'the owner'} ${at}${note}`;
+}
+
+function pausable(kind, name, paused, state) {
+    const label = `${kind} ${name}`;
+    const buttons = paused
+        ? [el('button', { class: 'btn btn--tonal', type: 'button', onclick: async () => { await control({ action: 'resume', kind, name }, `${label} was not resumed.`); } }, 'Resume')]
+        : [el('button', { class: 'btn btn--tonal', type: 'button', title: 'It takes nothing new; what runs now finishes',
+            onclick: async () => { await control({ action: 'pause', kind, name }, `${label} was not paused.`); } }, 'Pause'),
+        el('button', { class: 'btn', type: 'button', title: 'Hands its running jobs over to the next machine, device or worker, then stops them',
+            onclick: async () => {
+                if (window.confirm(`Pause ${label} and hand its running jobs over now?`)) {
+                    await control({ action: 'pause', kind, name, stop: true }, `${label} was not paused.`);
+                }
+            } }, 'Pause, stop now')];
+    return el('li', { class: 'row' },
+        el('div', { class: 'row__name' }, name, el('span', { class: 'row__kind', text: kind })),
+        chip(paused ? 'paused' : state || 'on', paused ? 'warn' : 'ok'),
+        el('div', { class: 'row__stats' }, ...buttons),
+        paused ? el('p', { class: 'row__note', text: pausedBy(paused) }) : null);
+}
+
+function optIn(o) {
+    const label = `${o.kind} ${o.name}`;
+    return el('li', { class: 'row' },
+        el('div', { class: 'row__name' }, o.name, el('span', { class: 'row__kind', text: `${o.kind} · ${o.why}` })),
+        chip(o.on ? 'on' : 'off', o.on ? 'ok' : 'idle'),
+        el('div', { class: 'row__stats' }, el('button', { class: 'btn btn--tonal', type: 'button', 'aria-pressed': String(o.on),
+            onclick: async () => { await control({ action: 'optin', kind: o.kind, name: o.name, on: !o.on }, `${label} was not switched.`); } },
+        o.on ? 'Turn off' : 'Turn on')));
+}
+
+function renderControls(s) {
+    const devices = s.devices?.items || [];
+    const c = s.controls || { opt_in: [], paused: [] };
+    const paused = new Map(c.paused.map((p) => [`${p.kind}:${p.name}`, p]));
+    $('controls-meta').textContent = `${devices.length} device${devices.length === 1 ? '' : 's'} · ${c.paused.length} paused`;
+    $('devices').replaceChildren(...(devices.length ? devices.map(device)
+        : [el('li', {}, empty('No Android devices', codeText('Run ', 'tutti devices add', ' for the one-time setup and the config lines.')))]));
+    const seen = new Set();
+    const row = (kind, name, state) => {
+        const k = `${kind}:${name}`;
+        if (seen.has(k)) return null;
+        seen.add(k);
+        return pausable(kind, name, paused.get(k), state);
+    };
+    const rows = [
+        ...s.machines.items.map((m) => row('machine', m.name, m.status)),
+        ...devices.map((d) => row('device', d.name, d.status)),
+        ...s.workers.items.map((w) => row('worker', w.name, w.ready ? 'ready' : 'down')),
+        ...(s.usage?.accounts || []).map((a) => row('account', a.name, a.verdict)),
+        // a paused worker or account is out of the config's lists until resumed: list it from the switches
+        ...c.paused.map((p) => row(p.kind, p.name)),
+    ].filter(Boolean);
+    $('pausable').replaceChildren(...rows);
+    $('optin').replaceChildren(...(c.opt_in.length ? c.opt_in.map(optIn)
+        : [el('li', {}, empty('Nothing opt-in', 'Workers or accounts marked costs_money or opt_in, and Android lint runs, appear here.'))]));
+}

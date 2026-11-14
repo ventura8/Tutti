@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const FILTERS = [['all', 'All'], ['failed', 'Failed'], ['done', 'Done']];   // finished jobs; running and stalled ones have their own card
 const LIVE = new Set(['running', 'stalled']);
 const VERDICT_TONE = { 'on pace': 'ok', ahead: 'warn', behind: 'warn', late: 'bad', spent: 'bad', 'no reading': 'idle', unknown: 'idle' };
-const MACHINE_TONE = { free: 'ok', loaded: 'warn', busy: 'accent', paused: 'warn', offline: 'bad' };
+const MACHINE_TONE = { free: 'ok', loaded: 'warn', busy: 'accent', paused: 'warn', offline: 'bad', held: 'warn', off: 'idle' };
 const JOB_TONE = { running: 'accent', stalled: 'warn', failed: 'bad', done: 'ok', ended: 'idle' };
 const storedOpen = new Set();   // machines whose stored-files list is open: kept across re-renders
 const ui = { filter: 'all', project: '', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0, editing: new Map(), accounts: new Map(), expanded: new Set() };
@@ -779,6 +779,7 @@ function job(j) {
     const body = el('div', { class: 'job__body' });
     if (j.status === 'stalled') body.append(el('p', { text: 'Its log has not changed for a while. Read the end of the log: stop or restart the job rather than wait on it again.' }));
     if (j.status === 'ended') body.append(el('p', { text: 'Ended; the result was not recorded (a run from before Tutti 0.1.4).' }));
+    if (j.handoff) body.append(el('p', { class: 'job__handoff', text: `Stopped from the dashboard: ${j.handoff}` }));
     if (j.progress) body.append(el('p', { class: 'job__path', text: `progress: ${j.progress.label}` }));
     if (j.started) body.append(el('p', { class: 'job__path', text: `started ${when(j.started)}` }));
     if (j.facts?.report) body.append(el('p', { class: 'job__path', text: `report ${j.facts.report}` }));
@@ -885,6 +886,7 @@ function render() {
     renderTiles(s);
     renderUsage(s, now);
     renderAttention(s);
+    renderControls(s);   // controls.js: devices, pause and resume, opt-in switches
     renderJobs(s);
     renderMachines(s);
     renderAutopilot(s);

@@ -265,6 +265,16 @@ def chosen_checks(cfg, repo, check_list):
     return checks_for(cfg, repo)
 
 
+def accounts_of_run(cfg, name, extra=()):
+    """The accounts a run of worker `name` spends: the account of that name, else those naming the worker; of several (agy's
+    Claude and Gemini buckets) the ones whose `args` the run was given (`extra`), else all of them."""
+    if name in cfg['accounts']:
+        return [name]
+    found = [n for n, a in cfg['accounts'].items() if (a or {}).get('worker') == name]
+    given = [n for n in found if (cfg['accounts'][n] or {}).get('args') and all(x in extra for x in cfg['accounts'][n]['args'])]
+    return given or found
+
+
 def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list=None, remote_track=None):
     if run_id and not valid_id(run_id):
         raise ship.ShipError(f'refused: run id "{run_id}" is not <time>-<pid>: let tutti choose it (nothing was changed)')
@@ -273,10 +283,16 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
     os.makedirs(p['dir'], exist_ok=True)
     write(p['cmd'], f'run {name}: {task.splitlines()[0][:150]}\n')
     write(p['pid'], f'{os.getpid()}\n')
+    # what a dashboard "pause, stop now" of this worker, or of the account it spends, stops
+    write(p['log'] + '.target', ' '.join([f'worker:{name}', *[f'account:{n}' for n in accounts_of_run(cfg, name, extra)]]) + '\n')
     log = open(p['log'], 'a', encoding='utf8')   # closed in finally: the log outlives the say() closure
     say = say or (lambda m: (sys.stderr.write(f'tutti: {m}\n'), log.write(m + '\n'), log.flush()))
     try:
         wt, created = tree_for(cfg, repo, run_id, track, say)
+        # how a "pause, stop now" hands this run over (tutti/handover.py): the same task, worktree and checks
+        write(p['log'] + '.job', json.dumps({'kind': 'run', 'worker': name, 'task': task, 'repo': os.path.abspath(repo),
+                                             'track': track or run_id, 'run_id': run_id, 'files': list(files or []),
+                                             'checks': [c for c in check_list or [] if c.get('run')]}) + '\n')
         # what the run works on, for the dashboard's projects while it runs
         write(os.path.join(p['dir'], 'meta.json'), json.dumps({'repo': os.path.abspath(repo), 'worktree': wt}) + '\n')
         worktree.share(wt, cfg['ship'].get('share', []), say)

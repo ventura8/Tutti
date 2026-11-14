@@ -22,10 +22,23 @@ machines:
   #   host: win-box.example
   #   transport: wsl
   #   wsl_helper: /home/me/tutti-wt/wsl-run64.sh   # scripts/wsl-run64.sh, copied into WSL once
+  # phone:                            # Android with Termux: light runs only, opt-in (dashboard or `tutti optin machine phone on`)
+  #   transport: android                # ssh -p 8022; `tutti machines add-android` prints the setup
+  #   host: phone.example
+  #   user: u0_a123
+  #   policy: {min_battery: 50, require_charging: true, max_battery_c: 40, wifi_only: true, screen: 'off'}
   here:                               # this computer: one heavy job at a time, capped, first to die when memory runs out
     host: local
     slots: 1
     runner: {memory_gb: 8, cpus: 6, args: [--oom-score-adj=900]}
+
+# Android devices for e2e runs (`tutti test --device <name> -- <cmd>`), reached over adb from the machine they are plugged into
+# or paired with. `tutti devices add` prints the one-time setup. A run starts only while the policy allows it.
+devices:
+  pixel:
+    serial: R58M00TEST00              # `adb devices`, or ip:port for wireless debugging
+    machine: here
+    policy: {min_battery: 30, require_charging: false, max_battery_c: 42, wifi_only: false, screen: wake}
 
 # How a command runs at the tree root. kind: shell (plain bash) or docker (a capped container of `image`).
 runner:

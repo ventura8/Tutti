@@ -11,7 +11,10 @@ PROJECT_NAME = 'tutti.config.yaml'
 NAMES = (PROJECT_NAME, 'tutti.config.yml', 'tutti.config.json')
 # Under XDG: the canonical name first, then the project-style name as a fallback.
 XDG_NAMES = ('config.yaml', PROJECT_NAME)
-TRANSPORTS = ('local', 'ssh', 'wsl')
+TRANSPORTS = ('local', 'ssh', 'wsl', 'android')
+RUNNERS = ('docker', 'shell', 'native')
+# A Termux machine (transport android): one light run at a time, little memory, locks in Termux's own tmp (Android has no /tmp)
+ANDROID_DEFAULTS = {'port': 8022, 'slots': 1, 'min_free_gb': 2, 'lock_prefix': '/data/data/com.termux/files/usr/tmp/tutti-slot-'}
 # Ollama serves plain HTTP on localhost or through an ssh tunnel; a host written with its own scheme
 # (https://proxy:443) keeps it.
 OLLAMA_SCHEME = 'http'
@@ -24,6 +27,7 @@ DEFAULTS = {
     'routing': {'order': []},
     'sync': {'exclude': ['/.git', '.env', '.env.*', '*.key', '*.pem'], 'ensure_dirs': []},
     'workers': {},
+    'devices': {},
     'brief': {'rules': []},
     'accounts': {},
     'ship': {'protected': ['main', 'master'], 'add': ['.'], 'checks': [], 'full_checks': []},
@@ -114,22 +118,34 @@ def merge(base, over):
     return out
 
 
+def machine_of(cfg, name, own):
+    """One machine with its defaults (a Termux machine's own), its name and its runner merged over the shared one."""
+    android = own.get('transport') == 'android'
+    m = merge(merge(MACHINE_DEFAULTS, ANDROID_DEFAULTS) if android else MACHINE_DEFAULTS, own)
+    if m.get('host') == 'local':
+        m['transport'] = 'local'
+    if m.get('locks'):
+        m['slots'] = len(m['locks'])
+    m['name'] = name
+    m['runner'] = merge(cfg['runner'], own.get('runner') or {})
+    if android and 'kind' not in (own.get('runner') or {}):
+        m['runner']['kind'] = 'native'   # Android has no Docker: a Termux machine runs commands natively, niced
+    return m
+
+
 def normalise(raw):
     """Defaults filled in; every machine gets its name, the machine defaults and its own merged runner."""
     if not isinstance(raw, dict):
         raise ConfigError('the config must be a mapping at the top level (machines:, workers:, accounts:, ...)')
     cfg = merge(DEFAULTS, raw)
     for name, m in list(cfg['machines'].items()):
-        m = merge(MACHINE_DEFAULTS, m or {})
-        if m.get('host') == 'local':
-            m['transport'] = 'local'
-        if m.get('locks'):
-            m['slots'] = len(m['locks'])
-        m['name'] = name
-        m['runner'] = merge(cfg['runner'], m.get('runner'))
-        cfg['machines'][name] = m
+        cfg['machines'][name] = machine_of(cfg, name, m or {})
     if not cfg['routing']['order']:
         cfg['routing']['order'] = list(cfg['machines'])
+    # an Android device always routes last: it is the slowest and the one a person may pick up
+    cfg['routing']['order'] = sorted(cfg['routing']['order'], key=lambda n: (cfg['machines'].get(n) or {}).get('transport') == 'android')
+    from . import devices  # devices imports this module
+    devices.normalise(cfg)
     opt_out(cfg)
     return cfg
 
@@ -138,9 +154,11 @@ def is_on(entry):
     """An account or worker is on unless `enabled: false`; one marked `costs_money: true` (pay per use: API keys, premium
     requests) is off unless `enabled: true`, so nothing that can cost extra money runs by default."""
     entry = entry or {}
+    if entry.get('paused'):
+        return False   # paused by the owner (dashboard or `tutti pause`): skipped until resumed
     if 'enabled' in entry:
         return entry['enabled'] is not False
-    return not entry.get('costs_money')
+    return not (entry.get('costs_money') or entry.get('opt_in'))
 
 
 def opt_out(cfg):
@@ -150,7 +168,9 @@ def opt_out(cfg):
     off_workers = sorted(n for n, w in cfg['workers'].items() if not is_on(w))
     off_accounts = sorted(n for n, a in cfg['accounts'].items() if not is_on(a) or (a or {}).get('worker') in off_workers)
     def entry(kind, n, section):
-        return {'name': n, 'kind': kind, 'costs_money': bool((cfg[section][n] or {}).get('costs_money'))}
+        e = cfg[section][n] or {}
+        out = {'name': n, 'kind': kind, 'costs_money': bool(e.get('costs_money'))}
+        return {**out, 'paused': e['paused']} if e.get('paused') else out
     cfg['off'] = [entry('worker', n, 'workers') for n in off_workers] + [entry('account', n, 'accounts') for n in off_accounts]
     cfg['disabled_accounts'], cfg['disabled_workers'] = off_accounts, off_workers
     cfg['accounts'] = {n: a for n, a in cfg['accounts'].items() if n not in off_accounts}
@@ -174,14 +194,27 @@ def _machine_errors(name, m):
         errs.append(f'machines.{name}.wsl_helper is missing: the path, inside WSL, of the base64 runner (docs/MACHINES.md)')
     if not isinstance(m['slots'], int) or m['slots'] < 1:
         errs.append(f'machines.{name}.slots is {m["slots"]!r}: use a whole number, 1 or more')
-    if m['runner']['kind'] not in ('docker', 'shell'):
-        errs.append(f'machines.{name}.runner.kind is "{m["runner"]["kind"]}": use docker or shell')
+    if m['runner']['kind'] not in RUNNERS:
+        errs.append(f'machines.{name}.runner.kind is "{m["runner"]["kind"]}": use docker, shell or native')
+    if m['transport'] == 'android':
+        errs += _android_errors(name, m)
     if m['runner']['kind'] == 'docker' and not m['runner'].get('image'):
         errs.append(f'machines.{name}.runner.image is missing: a docker runner needs the image to run')
     c = m.get('containers')
     if c is not None and (not isinstance(c, list) or not all(isinstance(x, str) and x for x in c)):
         errs.append(f'machines.{name}.containers is {c!r}: a list of container name prefixes, e.g. [tutti-, myproj-test-]')
     return errs + _heat_errors(name, m.get('heat'))
+
+
+def _android_errors(name, m):
+    from . import devices
+    errs = devices.policy_errors(f'machines.{name}', m.get('policy'))
+    if m['runner']['kind'] == 'docker':
+        errs.append(f'machines.{name}.runner.kind is docker: Android has no Docker; remove the key (a Termux machine runs natively)')
+    p = m.get('port')
+    if isinstance(p, bool) or not isinstance(p, int) or not 0 < p < 65536:
+        errs.append(f'machines.{name}.port is {p!r}: the port of Termux\'s sshd, 8022 unless you changed it')
+    return errs
 
 
 def _heat_errors(name, heat):
@@ -240,6 +273,8 @@ def validate(cfg):
     for name, m in cfg['machines'].items():
         errs += _machine_errors(name, m)
     errs += [f'routing.order names "{n}", which is not under machines:' for n in cfg['routing']['order'] if n not in cfg['machines']]
+    from . import devices
+    errs += devices.errors(cfg)
     for name, w in cfg['workers'].items():
         errs += _worker_errors(name, w)
         if (w or {}).get('machine') and w['machine'] not in cfg['machines']:
@@ -508,7 +543,12 @@ def load(path=None, start=None, env=None):
             f'no config found here, in a parent folder or at {dest}: '
             f'copy with `cp {EXAMPLE} {dest}` and edit it, or set TUTTI_CONFIG to its path')
     with open(path, encoding='utf8') as f:
-        cfg = normalise(parse(f.read(), path))
+        raw = parse(f.read(), path)
+    from . import controls  # the owner's switches from the dashboard, kept in the state folder
+    state = ((raw or {}).get('project') or {}).get('state') if isinstance(raw, dict) else None
+    raw = controls.apply(raw, controls.read(state or DEFAULTS['project']['state']))
+    cfg = normalise(raw)
+    cfg['raw_entries'] = {k: copy.deepcopy((raw or {}).get(k) or {}) for k in ('workers', 'accounts', 'machines')}
     errs = validate(cfg)
     if errs:
         raise ConfigError(f'{path} has {len(errs)} problem(s):\n  - ' + '\n  - '.join(errs))

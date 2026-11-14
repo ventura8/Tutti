@@ -2,6 +2,30 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.19 (2026-11-14)
+
+### Added
+
+- Android devices as e2e targets: `devices:` in the config (serial, the machine its adb sees it on, a safe-use policy),
+  `tutti devices [add]` with battery, charging, battery temperature, screen, Wi-Fi and lock readings over adb
+  (`scripts/device-readings.sh`, read-only), and `tutti test --device <name|any> -- <cmd>`: `ANDROID_SERIAL` set, one run
+  at a time per device behind its lock, the policy checked first, the screen woken, `--fetch` for results. Recipes for
+  Gradle instrumentation and Playwright's Android Chrome.
+- Termux machines (`transport: android`, `ssh -p 8022`): a native runner, Termux:API power readings in the probe, the same
+  policy (charging, 50 % or more, under 40 C, Wi-Fi), always last in routing; opt-in, off by default.
+  `tutti machines add-android` prints the owner's setup.
+- Controls on the dashboard and `tutti pause|resume|optin`: pause or resume any machine, device, worker or account and
+  switch opt-in items (`costs_money`, `opt_in`, Termux lint runs), kept in `<state>/controls.json`. "Pause, stop now"
+  hands running jobs over first: an agent run's work is committed and continued by the next worker from a handoff, a test
+  run starts again elsewhere, a transfer keeps its partial file.
+- `tutti test` runs are dashboard jobs with their output; `tunnel.machine` reaches a model server on a machine of the
+  config (its user and port).
+
+### Fixed
+
+- The planner's line on an agy card said "window ends HH:MM" for the spend-by time (one hour before the reset); it now says
+  "spend by HH:MM …, resets HH:MM …", the reset as the meter shows it.
+
 ## 0.1.18 (2026-11-14)
 
 ### Added

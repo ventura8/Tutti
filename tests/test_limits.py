@@ -48,7 +48,8 @@ class Allowance(unittest.TestCase):
         p = s['quota_plan']
         self.assertEqual((p['left'], p['tasks']), (1.0, 5))               # 1 weekly point = 10 points of the 5 h window = 5 tasks
         self.assertEqual(routing.account_unfit(s), '')
-        self.assertIn('agy: window ends 04:00 UTC', p['why'])
+        self.assertIn('agy: spend by 04:00 UTC', p['why'])
+        self.assertIn('resets 05:00 UTC', p['why'])
         self.assertIn('this window: 1 of 2 weekly points', p['why'])
         self.assertIn('would be lost at its end → 5 task(s) now', p['why'])
         spent = state([('2026-01-05T23:00Z', 80), ('2026-01-06T02:00Z', 84)])['quota_plan']['why']

@@ -2,6 +2,8 @@
 import re
 from dataclasses import dataclass, field
 
+from . import controls, devices
+
 
 @dataclass
 class Probe:
@@ -15,11 +17,16 @@ class Probe:
     containers: list = field(default_factory=list)   # `<name> <running for>` of its running test containers
     gpu_temp: float | None = None  # the hottest GPU in degrees C (nvidia-smi, or an amdgpu/xe/i915 sensor), None when none
     temp_note: str = ''            # why the CPU temperature is not readable (a WSL machine whose Windows side has no sensor)
+    readings: dict | None = None   # a Termux machine's battery, charging, battery_c and wifi (tutti/devices.py), else None
 
     def hottest(self):
         """(degrees C, 'CPU' or 'GPU') of the hotter of the two, or (None, '') when neither is readable."""
         found = [(t, w) for t, w in ((self.temp, 'CPU'), (self.gpu_temp, 'GPU')) if t is not None]
         return max(found) if found else (None, '')
+
+
+class NoMachine(ValueError):
+    """Every machine is paused, off or refuses runs by its power policy: nothing may be queued anywhere."""
 
 
 @dataclass
@@ -75,8 +82,27 @@ def heat_unfit(machine, probe):
     return ''
 
 
+def power_unfit(machine, probe):
+    """Why a Termux machine's battery, charging, heat or Wi-Fi refuses a run (its policy), or ''. Other machines: ''."""
+    if machine.get('transport') != 'android':
+        return ''
+    return devices.unfit(devices.policy(machine, termux=True), probe.readings or {})
+
+
+def owner_unfit(machine):
+    """Paused by the owner (dashboard or `tutti pause`), or an Android machine whose lint and unit runs are not opted in."""
+    if machine.get('paused'):
+        return controls.paused_note(machine)
+    if machine.get('transport') == 'android' and machine.get('enabled') is not True:
+        return 'off: Android lint and unit runs are opt-in; turn them on from the dashboard or with `tutti optin machine <name> on`'
+    return ''
+
+
 def unfit(machine, probe):
     """Why this machine cannot take a run right now, or '' when it can."""
+    owner = owner_unfit(machine)
+    if owner:
+        return owner
     if not probe.reachable:
         return 'unreachable'
     if probe.yielding:
@@ -86,7 +112,7 @@ def unfit(machine, probe):
     ratio = machine.get('max_load_ratio')
     if ratio is not None and probe.load >= ratio * probe.cores:
         return f'load {probe.load:g} is over {ratio:g} x {probe.cores} cores'
-    return heat_unfit(machine, probe)
+    return heat_unfit(machine, probe) or power_unfit(machine, probe)
 
 
 def prepare(command, rules):
@@ -113,6 +139,11 @@ def coverage_note(command, pattern=NO_COVERAGE):
     return ''
 
 
+def refused(machine, probe):
+    """A machine never to queue on: paused, off, too hot, or a phone whose battery or charging refuses it."""
+    return owner_unfit(machine) or heat_unfit(machine, probe) or power_unfit(machine, probe)
+
+
 def choose(order, machines, probe_fn):
     """The first fit machine in `order`, probed lazily (a later machine is asked only when the earlier ones are not fit).
     When none is fit the run queues on the first reachable machine whose yield flag is down, else on the first one."""
@@ -127,14 +158,18 @@ def choose(order, machines, probe_fn):
             return Choice(name, False, note)
         why.append(f'{name}: {reason}')
     # never queue on a machine refused for heat: slot.sh would start the run there as soon as a lock is free
-    patient = [n for n in order if seen[n].reachable and not seen[n].yielding and not heat_unfit(machines[n], seen[n])]
+    patient = [n for n in order if seen[n].reachable and not seen[n].yielding and not refused(machines[n], seen[n])]
     if patient:
         return Choice(patient[0], True, '; '.join(why))
     # every machine refused for heat (or unreachable): queue on the coolest reachable one, and say so
-    hot = sorted((n for n in order if seen[n].reachable and not seen[n].yielding), key=lambda n: seen[n].hottest()[0] or 0)
+    hot = sorted((n for n in order if seen[n].reachable and not seen[n].yielding and not owner_unfit(machines[n])
+                  and not power_unfit(machines[n], seen[n])), key=lambda n: seen[n].hottest()[0] or 0)
     if hot:
         return Choice(hot[0], True, '; '.join(why) + f'; every machine is hot: queued on the coolest, {hot[0]}')
-    return Choice(order[0], True, '; '.join(why))
+    usable = [n for n in order if not owner_unfit(machines[n]) and not power_unfit(machines[n], seen[n])]
+    if not usable:
+        raise NoMachine(f'no machine may take a run: {"; ".join(why)}; resume one from the dashboard or `tutti resume machine <name>`')
+    return Choice(usable[0], True, '; '.join(why))
 
 
 # ---- which agent account takes the next job, from the latest readings

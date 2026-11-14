@@ -189,14 +189,14 @@ class PlanTest(Base):
     def test_a_window_under_a_weekly_limit_spends_its_planned_share(self):
         cfg = self.cfg()
         plan = {'limit': 'agy-claude-weekly', 'tasks': 3, 'left': 6, 'allowance': 8, 'this_window': 2,
-                'why': 'agy-claude: window ends 16:00 UTC'}
+                'why': 'agy-claude: spend by 16:00 UTC'}
         s = {**account('agy-claude', 'on pace', None), 'quota_plan': plan}
         room = autopilot.step_room(cfg, 'agy-claude', {'agy-claude': s}, {'agy-claude': 1}, FREE)
         self.assertEqual(room, (2, ''))
         none = {**s, 'quota_plan': {**plan, 'tasks': 0}}
         room, why = autopilot.step_room(cfg, 'agy-claude', {'agy-claude': none}, {}, FREE)
         self.assertEqual(room, 0)
-        self.assertIn('window ends 16:00', why)                # the planner's reason, said as such
+        self.assertIn('spend by 16:00', why)                # the planner's reason, said as such
 
     def test_a_fresh_task_goes_only_to_a_trigger_account_behind_its_line(self):
         states = self.states(**{'agy-gemini': account('agy-gemini', 'on pace'), 'agy-claude': account('agy-claude', 'on pace')})

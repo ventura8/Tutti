@@ -15,11 +15,14 @@ from . import (
     backlog,
     conduct,
     config,
+    controls,
     dashboard,
     delegate,
+    devices,
     discover,
     doctor,
     files,
+    handover,
     helper,
     local,
     pacing,
@@ -93,31 +96,137 @@ def cmd_doctor(cfg, a):
 
 
 def cmd_machines(cfg, a):
+    """Exit 1 when a machine does not answer, so a script can tell."""
+    if a.action == 'add-android':
+        print(devices.TERMUX_STEPS.format(name=a.name or 'phone', host=a.host or '<the device IP>', user=a.user or '<whoami>',
+                                          port=a.port))
+        return 0
+    down = 0
     for name, m in cfg['machines'].items():
         p = remote.probe(m)
+        down += not p.reachable
         state = routing.unfit(m, p) or 'fit'
-        heat = ''.join(f'  {w} {t:.0f} C' for t, w in ((p.temp, 'CPU'), (p.gpu_temp, 'GPU')) if t is not None)
-        heat += '  CPU not readable' if p.temp is None and p.temp_note else ''
-        print(f'{name:12} {m["transport"]:5} slots {p.free}/{m["slots"]}  load {p.load:g}/{p.cores}{heat}  {state}')
+        print(f'{name:12} {m["transport"]:7} slots {p.free}/{m["slots"]}  load {p.load:g}/{p.cores}{heat_text(p)}  {state}')
+    return 1 if down else 0
+
+
+def heat_text(p):
+    out = ''.join(f'  {w} {t:.0f} C' for t, w in ((p.temp, 'CPU'), (p.gpu_temp, 'GPU')) if t is not None)
+    out += '  CPU not readable' if p.temp is None and p.temp_note else ''
+    return out + (power_text(p.readings) if p.readings is not None else '')
+
+
+def power_text(r):
+    """`  battery 80 % charging 31 C wifi` from a device's readings."""
+    parts = [f'battery {r["battery"]:g} %' if r.get('battery') is not None else 'battery ?',
+             {1: 'charging', 0: 'on battery'}.get(r.get('charging'), ''),
+             f'{r["battery_c"]:g} C' if r.get('battery_c') is not None else '',
+             {1: 'wifi', 0: 'no wifi'}.get(r.get('wifi'), ''), {1: 'screen on', 0: 'screen off'}.get(r.get('screen'), '')]
+    return '  ' + ' '.join(x for x in parts if x)
+
+
+def cmd_devices(cfg, a):
+    """Exit 1 when a device is offline (not connected, not authorised, or its machine does not answer)."""
+    if a.action == 'add':
+        print(devices.ADB_STEPS.format(name=a.name or 'phone', serial=a.serial or '<serial from adb devices>',
+                                       machine=a.machine or next(iter(cfg['machines']), 'here')))
+        return 0
+    if not cfg['devices']:
+        say('no devices: `tutti devices add` prints the one-time setup and the config lines')
+        return 0
+    offline = 0
+    for row in devices.devices_state(cfg, remote.device_readings):
+        offline += row['status'] == 'offline'
+        print(f'{row["name"]:12} {row["serial"]:22} on {row["machine"]:10} {row["status"]:8}{power_text(row)}  {row["reason"]}')
+    return 1 if offline else 0
+
+
+def cmd_control(cfg, a):
+    """`tutti pause|resume <kind> <name> [--stop-now]` and `tutti optin <kind> <name> on|off`: the dashboard's switches."""
+    section = controls.SECTIONS[a.kind]
+    names = cfg['raw_entries'].get(section) or cfg.get(section) or {}
+    if a.name not in names:
+        say(f'no {a.kind} "{a.name}" in {cfg["_path"]}: the {section} are {", ".join(names) or NONE}')
+        return 2
+    if a.cmd == 'optin':
+        controls.set_enabled(config.state_dir(cfg), a.kind, a.name, a.state == 'on', source='cli')
+        print(f'{a.kind} {a.name}: {a.state}')
+        return 0
+    pause = a.cmd == 'pause'
+    controls.set_paused(config.state_dir(cfg), a.kind, a.name, pause, source='cli', note=getattr(a, 'note', None) or '')
+    print(f'{a.kind} {a.name}: {"paused" if pause else "resumed"}')
+    handed = handover.stop_now(config.load(cfg['_path']), a.kind, a.name) if pause and a.stop_now else []
+    for log, to in handed:
+        print(f'  {os.path.basename(log)}: {to}')
     return 0
 
 
-def cmd_test(cfg, a):
-    if not a.command:
-        say('name the command: tutti test <track> <command ...> (or one quoted string)')
-        return 2
+def tree_and_command(cfg, a):
+    """(the tree, the command words) of a `tutti test`. `tutti test --device pixel -- ./gradlew connectedAndroidTest`
+    names no track: the current folder is the tree and every word is the command."""
     src = config.expand(a.dir) if a.dir else os.path.join(config.expand(cfg['project']['worktrees']), a.track)
+    if a.device and not a.dir and not os.path.isdir(src):
+        src, command = os.getcwd(), [a.track, *a.command]
+        a.track = os.path.basename(src) or 'here'
+        return src, command
+    return src, a.command
+
+
+def test_choice(cfg, a):
+    """(routing.Choice, device or None) for a `tutti test`; raises ConfigError when no device gets ready."""
+    if a.device:
+        device = devices.wait_ready(cfg, a.device, remote.device_readings, say=lambda m: say(f'test: {m}'), wait_minutes=a.wait_minutes)
+        return routing.Choice(device['machine'], False, f'the machine device {device["name"]} is on'), device
+    if a.on:
+        return routing.Choice(machine_of(cfg, a.on)['name'], False, 'chosen with --on'), None
+    try:
+        return routing.choose(cfg['routing']['order'], cfg['machines'], lambda n: remote.probe(cfg['machines'][n])), None
+    except routing.NoMachine as e:
+        raise config.ConfigError(str(e)) from e
+
+
+def test_job(cfg, a, machine, device, src, command):
+    """The run's job record: the dashboard shows it, and a "pause, stop now" knows how to start it again elsewhere."""
+    args = ['--dir', src, *[f'--input={p}' for p in a.input or []],
+            *[f'--fetch={p}' for p in a.fetch or []], a.track, *command]
+    on = machine['name'] + (f' / {device["name"]}' if device else '')
+    target = f'machine:{machine["name"]}' + (f' device:{device["name"]}' if device else '')
+    return transfer.Job(cfg, f'test {a.track} on {on}: {" ".join(command)}'[:200], folder='devices' if device else 'tests',
+                        target=target, spec={'kind': 'test', 'track': a.track, 'device': bool(device), 'args': args})
+
+
+def cmd_test(cfg, a):
+    if not a.command and not (a.device and a.track):
+        say('name the command: tutti test <track> <command ...> (or one quoted string); '
+            'with a device: tutti test --device <name> -- <command>')
+        return 2
+    src, command = tree_and_command(cfg, a)
     if not os.path.isdir(src):
         say(f'no work tree at {src}: create the worktree for track "{a.track}" there, or pass --dir <path>')
         return 2
-    if a.on:
-        choice = routing.Choice(machine_of(cfg, a.on)['name'], False, 'chosen with --on')
-    else:
-        choice = routing.choose(cfg['routing']['order'], cfg['machines'], lambda n: remote.probe(cfg['machines'][n]))
-    say(f'test: {choice.machine}{", queued" if choice.queued else ""} ({choice.reason})')
+    try:
+        choice, device = test_choice(cfg, a)
+    except config.ConfigError as e:
+        say(f'test: {e}')
+        return 3
+    say(f'test: {choice.machine}{", queued" if choice.queued else ""} ({choice.reason})' + (f', device {device["name"]}' if device else ''))
     machine = cfg['machines'][choice.machine]
-    with job_inputs(cfg, machine, a.input) as base:
-        return remote.run(cfg, machine, a.track, src, ' '.join(a.command), inputs=base and transfer.shell_path(base))
+    job = test_job(cfg, a, machine, device, src, command)
+    rc = 1
+    try:
+        with job_inputs(cfg, machine, a.input) as base:
+            rc = remote.run(cfg, machine, a.track, src, ' '.join(command), inputs=base and transfer.shell_path(base), device=device,
+                            out=job.log)
+        fetch_results(cfg, machine, a.track, src, a.fetch)
+        return rc
+    finally:
+        job.end(rc)
+
+
+def fetch_results(cfg, machine, track, src, paths):
+    for p in paths or []:
+        if remote.fetch(cfg, machine, track, src, p) != 0:
+            say(f'test: could not copy {p} back from {machine["name"]}: it may not exist when the run made none')
 
 
 @contextmanager
@@ -469,7 +578,16 @@ def cmd_tunnel(cfg, a):
         say(f'workers.{a.worker} has no tunnel: add tunnel: {{ssh: <host>, remote: 127.0.0.1:11434}} to reach its model server')
         return 2
     env = dict(os.environ, TUTTI_STATE=config.state_dir(cfg))
-    return subprocess.run([os.path.join(SCRIPTS, 'tunnel.sh'), a.action, a.worker, w['host'], t['ssh'], t['remote']], env=env).returncode
+    ssh = t.get('ssh')
+    if t.get('machine'):   # a model server on a machine of the config, e.g. ollama in Termux: its user, host and port
+        m = machine_of(cfg, t['machine'])
+        ssh = remote.dest(m)
+        if m['transport'] == 'android':
+            env['TUNNEL_SSH_PORT'] = str(m.get('port') or 8022)
+    if not ssh:
+        say(f'workers.{a.worker}.tunnel needs ssh: <host> or machine: <a machine name>')
+        return 2
+    return subprocess.run([os.path.join(SCRIPTS, 'tunnel.sh'), a.action, a.worker, w['host'], ssh, t['remote']], env=env).returncode
 
 
 def wait_run_args(cfg, a):
@@ -780,10 +898,36 @@ def parser():
 
     add('config', cmd_config, 'check the config and print its path')
     add('doctor', cmd_doctor, 'check this machine: a git that cannot do HTTPS comes first in PATH')
-    add('machines', cmd_machines, 'probe every machine: free slots, load, yield flag')
+    s = add('machines', cmd_machines, 'probe every machine: free slots, load, yield flag (add-android: set up a Termux machine)')
+    s.add_argument('action', nargs='?', choices=['add-android'], help='print the one-time Termux setup and the config lines')
+    s.add_argument('--name', help='add-android: the machine name')
+    s.add_argument('--host', help='add-android: the device IP address')
+    s.add_argument('--user', help='add-android: the Termux user (whoami)')
+    s.add_argument('--port', type=int, default=8022, help='add-android: Termux sshd port (8022)')
+    s = add('devices', cmd_devices, 'Android devices for e2e: connection, battery, charging, heat, screen, Wi-Fi and lock')
+    s.add_argument('action', nargs='?', choices=['add'], help='print the one-time adb setup and the config lines')
+    s.add_argument('--name', help='add: the device name')
+    s.add_argument('--serial', help='add: its serial from `adb devices` (or ip:port)')
+    s.add_argument('--machine', help='add: the machine its adb sees it on')
+    for verb, text in (('pause', 'pause a machine, device, worker or account: it takes nothing new (--stop-now hands running jobs over)'),
+                       ('resume', 'resume a paused machine, device, worker or account')):
+        s = add(verb, cmd_control, text)
+        s.add_argument('kind', choices=list(controls.SECTIONS))
+        s.add_argument('name')
+        if verb == 'pause':
+            s.add_argument('--stop-now', action='store_true',
+                           help='hand running jobs over to the next machine, device or worker, then stop them')
+            s.add_argument('--note', help='why, shown on the dashboard')
+    s = add('optin', cmd_control, 'turn an opt-in item on or off (a costs_money or opt_in worker or account, Android lint and unit runs)')
+    s.add_argument('kind', choices=list(controls.SECTIONS))
+    s.add_argument('name')
+    s.add_argument('state', choices=['on', 'off'])
     s = add('test', cmd_test, 'run a command over a track\'s work tree on the first fit machine, behind its slot queue')
     s.add_argument('--dir', help='the work tree (default: <project.worktrees>/<track>)')
     s.add_argument('--on', help='skip routing and use this machine')
+    s.add_argument('--device', help='an Android device (or `any`): ANDROID_SERIAL set, its lock held, on the machine it is plugged into')
+    s.add_argument('--wait-minutes', type=int, default=30, help='with --device: how long to wait for it to get ready (charge, heat)')
+    s.add_argument('--fetch', action='append', metavar='PATH', help='a result folder or file to copy back from the machine (repeat it)')
     s.add_argument('--input', action='append', metavar='PATH',
                    help='a file or folder the job needs: copied to the machine\'s cache first, its folder in $TUTTI_INPUTS (repeat it)')
     s.add_argument('track')

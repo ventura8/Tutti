@@ -9,7 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from . import __version__, config, pacing, routing, waiting
+from . import __version__, config, controls, devices, pacing, routing, waiting
 
 # CLI agents worth knowing about even when the config does not name them yet: the command and how people call it.
 KNOWN_AGENTS = (('claude', 'Claude Code'), ('cursor-agent', 'Cursor'), ('agy', 'Antigravity'), ('copilot', 'GitHub Copilot CLI'),
@@ -83,17 +83,23 @@ def with_credits(cfg, s, a):
 # ---- machines
 
 
+def machine_status(m, p, reason):
+    """held (paused by the owner), off (opt-in, not on), offline, paused (its yield flag), busy, free or loaded."""
+    if routing.owner_unfit(m):
+        return 'held' if m.get('paused') else 'off'
+    if not p.reachable:
+        return 'offline'
+    if p.yielding:
+        return 'paused'
+    if p.free < 1:
+        return 'busy'
+    return 'free' if not reason else 'loaded'
+
+
 def machine_state(m, p, rank):
     """One machine as the dashboard shows it, from its config and a probe (routing.Probe)."""
     reason = routing.unfit(m, p)
-    if not p.reachable:
-        status = 'offline'
-    elif p.yielding:
-        status = 'paused'
-    elif p.free < 1:
-        status = 'busy'
-    else:
-        status = 'free' if not reason else 'loaded'
+    status = machine_status(m, p, reason)
     slots = int(m['slots'])
     free = min(p.free, slots) if p.reachable else None
     return {'name': m['name'], 'transport': m['transport'], 'host': m.get('host', 'local'), 'slots': slots, 'free': free,
@@ -102,7 +108,8 @@ def machine_state(m, p, rank):
             'reachable': p.reachable, 'paused': p.yielding, 'status': status, 'reason': reason or 'fit: takes the next run', 'rank': rank,
             'min_free_gb': m['min_free_gb'], 'temp_c': p.temp if p.reachable else None, 'heat': m.get('heat'),
             'gpu_temp_c': p.gpu_temp if p.reachable else None, 'temp_note': p.temp_note if p.reachable else '',
-            'containers': list(getattr(p, 'containers', []) or [])}
+            'containers': list(getattr(p, 'containers', []) or []), 'readings': getattr(p, 'readings', None),
+            'owner_paused': m.get('paused')}
 
 
 def machines_state(cfg, probe_fn, stored_fn=None):
@@ -287,7 +294,8 @@ def status_of(running, updated, rc, now, stall):
 
 
 LOGS = '*.log'
-JOB_TITLES = {'quiet': 'quiet run', 'ship': 'ship check', 'files': 'file transfer', 'run': 'delegated run'}
+JOB_TITLES = {'quiet': 'quiet run', 'ship': 'ship check', 'files': 'file transfer', 'run': 'delegated run', 'test': 'test run',
+              'device': 'device run'}
 
 
 def log_job(path, kind, now, stall, is_alive):
@@ -308,7 +316,7 @@ def log_job(path, kind, now, stall, is_alive):
     return {'id': f'{kind}:{os.path.basename(path)}', 'kind': kind, 'title': title, 'pid': pid, 'log': path, 'started': iso(started),
             'updated': iso(updated), 'idle_seconds': round(now - updated) if updated else None, 'rc': rc,
             'ended': iso(mtime(path + '.rc')) if rc is not None else None,   # the result file is written when it ends
-            'status': status, 'tail': lines, 'progress': prog}
+            'status': status, 'tail': lines, 'progress': prog, 'handoff': read_first_line(path + '.handoff')}
 
 
 def wait_jobs(folder, now, stall, is_alive):
@@ -405,6 +413,8 @@ def jobs_state(cfg, now, is_alive=alive):
     items += [log_job(p, 'ship', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'ship-*.log'))]
     items += [log_job(p, 'files', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'files', LOGS))]
     items += [log_job(p, 'run', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'runs', LOGS))]
+    items += [log_job(p, 'test', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'tests', LOGS))]
+    items += [log_job(p, 'device', now, stall, is_alive) for p in glob.glob(os.path.join(folder, 'devices', LOGS))]
     items += wait_jobs(os.path.join(folder, 'waits'), now, stall, is_alive)
     items += pid_jobs(folder, is_alive)
     items += found_jobs(cfg, folder, now, stall, is_alive, items)
@@ -445,6 +455,7 @@ def assemble(cfg, probes, now=None, is_alive=alive):
     return {'version': __version__, 'generated_at': now_dt.isoformat(), 'config': cfg['_path'],
             'refresh_seconds': cfg['dashboard']['refresh_seconds'], 'usage': usage,
             'machines': {'probed_at': iso(probes.get('machines_at')), 'items': machines},
+            'devices': {'items': probes.get('devices') or []},
             'workers': {'probed_at': iso(probes.get('workers_at')), **workers, 'off': off_notes(cfg)}, 'jobs': jobs,
             'summary': {**summary(usage, machines, workers, jobs, next_worker(cfg, usage['accounts'])), 'runs_today': runs_today(cfg)}}
 
@@ -454,6 +465,9 @@ def off_notes(cfg):
     out = []
     for o in cfg.get('off') or []:
         section = 'workers' if o['kind'] == 'worker' else 'accounts'
+        if o.get('paused'):
+            out.append(f'{o["name"]} ({o["kind"]}): {controls.paused_note({"paused": o["paused"]})}')
+            continue
         why = 'costs money per use, so it is opt-in' if o['costs_money'] else 'turned off'
         out.append(f'{o["name"]} ({o["kind"]}): {why}; {section}.{o["name"]}.enabled: true in the config turns it on')
     return out
@@ -464,7 +478,8 @@ def runs_today(cfg):
     return delegate.runs_today(cfg)
 
 
-def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, stored_fn=None):
+def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, stored_fn=None, readings_fn=None):
     """The slow part, run off the request path: every machine (and the files it stores) and every worker."""
     return {'machines': machines_state(cfg, probe_fn, stored_fn), 'machines_at': clock(),
+            'devices': devices.devices_state(cfg, readings_fn or (lambda m, d: {'state': 'unreachable'})),
             'workers': workers_state(cfg, available_fn, which), 'workers_at': clock()}

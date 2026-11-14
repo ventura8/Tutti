@@ -150,7 +150,11 @@ def run_check(cfg, top, check, env, track):
     if check.get('where', 'local') != 'route':
         return shell(top, run, env).returncode, 'local'
     machines = {n: config.merge(m, {'runner': check.get('runner') or {}}) for n, m in cfg['machines'].items()}
-    choice = routing.choose(cfg['routing']['order'], machines, lambda n: remote.probe(machines[n]))
+    try:
+        choice = routing.choose(cfg['routing']['order'], machines, lambda n: remote.probe(machines[n]))
+    except routing.NoMachine as e:
+        sys.stderr.write(f'tutti: check not run: {e}\n')
+        return 3, 'none'
     say_route(choice)
     return remote.run(cfg, machines[choice.machine], track, top, run), choice.machine
 

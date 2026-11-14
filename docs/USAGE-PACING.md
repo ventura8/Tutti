@@ -107,7 +107,7 @@ small, and stays simple enough to check by hand:
   Tutti) estimates the rise per hour between readings with no Tutti run of its worker (`<state>/runs/*.log.cmd`) and keeps
   that much of the room for it until the target, instead of a fixed reserve. Read on the dashboard and by the autopilot.
 
-The dashboard says each decision on the account's card: `agy-claude: window ends 18:44 UTC (in 2.1 h); this window: 1 of 3
+The dashboard says each decision on the account's card: `agy-claude: spend by 18:44 UTC (in 2.1 h), resets 19:44 UTC (in 3.1 h); this window: 1 of 3
 weekly points (30 of 34 windows left can run); 40 % would be lost at its end → 3 task(s) now`. The tests simulate a week
 (`tests/test_limits.py`): with a third or half of the windows quiet, the planner wastes nothing where spreading the
 weekly room evenly over every window (the min() rule) loses 4 to 7 points.

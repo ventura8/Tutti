@@ -243,15 +243,28 @@ def rsh(cfg, machine):
 
 
 def rsh_main(machine, args):
-    """`tutti rsh <machine> [ssh options...] <host> <command...>`: the remote-shell shim git and rsync call for a WSL machine."""
+    """`tutti rsh <machine> [ssh options...] [<host>] <command...>`: the remote-shell shim git and rsync call for a WSL machine
+    (they put the host first), and a person's way to run something there. One word is a bash script (`;`, pipes and new
+    lines work: it travels base64-encoded); several words are a command whose arguments are each quoted."""
+    command = rsh_command(machine, args)
+    if not command:
+        sys.stderr.write(f'tutti: rsh: name the command to run on {machine["name"]}, e.g. tutti rsh {machine["name"]} \'uname -a\'\n')
+        return 2
+    return subprocess.run(argv(machine, command)).returncode
+
+
+def rsh_command(machine, args):
+    """The bash script `tutti rsh` runs: ssh options dropped, the host dropped only when it is the machine's (git, rsync)."""
     args = list(args)
     while args and args[0].startswith('-'):
         if args[0] in ('-o', '-p', '-l'):
             args.pop(0)
         args.pop(0)
-    command = args[1:]
-    script = command[0] if len(command) == 1 else ' '.join(shlex.quote(a) for a in command)
-    return subprocess.run(argv(machine, script)).returncode
+    hosts = {machine.get(k) for k in ('host', 'lan')}   # never the name: a command may be called like the machine
+    hosts |= {f'{machine["user"]}@{h}' for h in set(hosts) if h and machine.get('user')}
+    if args and args[0] in hosts - {None} and len(args) > 1:
+        args = args[1:]
+    return args[0] if len(args) == 1 else ' '.join(shlex.quote(a) for a in args)
 
 
 def lock_files(machine):

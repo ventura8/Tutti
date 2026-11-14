@@ -239,7 +239,25 @@ def cmd_control(cfg, a):
         print(f'{a.kind} {a.name}: {a.state}')
         return 0
     pause = a.cmd == 'pause'
-    controls.set_paused(config.state_dir(cfg), a.kind, a.name, pause, source='cli', note=getattr(a, 'note', None) or '')
+    start = until = None
+    if pause and (getattr(a, 'start', None) or getattr(a, 'until', None)):
+        try:
+            start = controls.parse_when(a.start or 'now')
+            until = None if (a.until or 'unknown') == 'unknown' else controls.parse_when(a.until, after=start)
+        except ValueError as e:
+            say(str(e))
+            return 2
+        if until is not None and until <= start:
+            say(f'--until is not after --from: the absence would be over before it starts; give an end after {a.start or "now"}')
+            return 2
+        if a.stop_now:
+            say('--stop-now does not go with --from: a planned absence hands its running work over at its start by itself')
+            return 2
+    controls.set_paused(config.state_dir(cfg), a.kind, a.name, pause, source='cli', note=getattr(a, 'note', None) or '',
+                        start=start, until=until)
+    if start is not None:
+        print(controls.paused_note({'paused': controls.read(config.state_dir(cfg))['paused'][controls.key(a.kind, a.name)]}))
+        return 0
     print(f'{a.kind} {a.name}: {"paused" if pause else "resumed"}')
     handed = handover.stop_now(config.load(cfg['_path']), a.kind, a.name) if pause and a.stop_now else []
     for log, to in handed:
@@ -1369,6 +1387,9 @@ def parser():
             s.add_argument('--stop-now', action='store_true',
                            help='hand running jobs over to the next machine, device or worker, then stop them')
             s.add_argument('--note', help='why, shown on the dashboard')
+            s.add_argument('--from', dest='start', help='a planned absence: when it starts (local time: "2026-11-16 07:00", '
+                           '"tomorrow 07:00", "07:00"); no new work 30 min before, running work handed over at it')
+            s.add_argument('--until', help='when it ends (the same forms), or "unknown": it ends when presence sees it again')
     s = add('optin', cmd_control, 'turn an opt-in item on or off (a costs_money or opt_in worker or account, Android lint and unit runs)')
     s.add_argument('kind', choices=list(controls.SECTIONS))
     s.add_argument('name')

@@ -45,6 +45,12 @@ function pausedBy(p) {
     if (!p) return '';
     const at = p.at ? relative(new Date(p.at * 1000).toISOString()) : '';
     const note = p.note ? `: ${p.note}` : '';
+    if (p.from) {   // a planned absence (tutti pause --from --until)
+        const when = (t) => new Date(t * 1000).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+        const end = p.until ? when(p.until) : 'it is seen again';
+        const head = p.window === 'planned' ? 'Away (planned)' : 'Away now';
+        return `${head}: from ${when(p.from)} until ${end}${note}. No new work starts on it from 30 min before.`;
+    }
     return `Paused by ${p.by || 'the owner'} ${at}${note}`;
 }
 
@@ -62,7 +68,7 @@ function pausable(kind, name, paused, state) {
             } }, 'Pause, stop now')];
     return el('li', { class: 'row' },
         el('div', { class: 'row__name' }, name, el('span', { class: 'row__kind', text: kind })),
-        chip(paused ? 'paused' : state || 'on', paused ? 'warn' : 'ok'),
+        chip(paused ? (paused.window === 'planned' ? 'away later' : paused.from ? 'away' : 'paused') : state || 'on', paused ? 'warn' : 'ok'),
         el('div', { class: 'row__stats' }, ...buttons),
         paused ? el('p', { class: 'row__note', text: pausedBy(paused) }) : null);
 }

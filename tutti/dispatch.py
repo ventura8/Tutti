@@ -638,7 +638,10 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
     changes = presence.update(cfg, pst, devices_rows, machine_rows, now, members, models)
     off = presence.offset(cfg)
     gone = {tid: presence.label(r, off) for tid, r in presence.absent(pst).items()}
+    planned = controls.planned_round(cfg, pst, now, stop_fn=lambda kind, name: hand_over_now(cfg, kind, name))
     with locked(cfg) as st:
+        for line in planned:
+            event(st, now, line)
         for tid, change, r in changes:
             event(st, now, f'{tid} {"is back" if change == "returned" else presence.label(r, off).lower()}')
         restore_left(cfg, st, devices_rows, now)
@@ -695,6 +698,12 @@ def announce_free(cfg, names, now=None, st=None):
         return
     with locked(cfg) as held:
         tell(held)
+
+
+def hand_over_now(cfg, kind, name):
+    """A planned absence started: the target's running jobs go to the next machine, device or worker (handover)."""
+    from . import handover
+    return handover.stop_now(config.load(cfg['_path']), kind, name)
 
 
 def restore_left(cfg, st, rows, now, sh=None):

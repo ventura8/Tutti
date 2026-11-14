@@ -72,13 +72,83 @@ def set_enabled(folder, kind, name, on, source='dashboard', clock=time.time):
         data['enabled'][key(kind, name)] = {'on': bool(on), 'by': who(source), 'at': clock()}
 
 
-def set_paused(folder, kind, name, paused, source='dashboard', note='', clock=time.time):
+LEAD_MINUTES = 30   # a planned absence takes no new work this long before it starts, so nothing is cut at the start
+
+
+def set_paused(folder, kind, name, paused, source='dashboard', note='', clock=time.time, start=None, until=None):
+    """Pause or resume. With `start` (a time) the pause is a planned absence: from `start` (no new work LEAD_MINUTES
+    before it, running work handed over at it) until `until`, or with `until` None until presence sees it back."""
     with changed(folder) as data:
         k = key(kind, name)
         if paused:
             data['paused'][k] = {'by': who(source), 'at': clock(), 'note': note}
+            if start is not None:
+                data['paused'][k].update({'from': float(start), 'until': None if until is None else float(until)})
         else:
             data['paused'].pop(k, None)
+
+
+def parse_when(text, now=None, after=None):
+    """Epoch seconds of a local time: "now", "YYYY-MM-DD HH:MM" (or with T), "tomorrow HH:MM", "HH:MM" (the next one,
+    after `after` when given). ValueError with the forms that work."""
+    from datetime import datetime, timedelta
+    now = time.time() if now is None else now
+    t = (text or '').strip().lower()
+    if t == 'now':
+        return now
+    base = tz.local_now(after if after is not None else now)
+    try:
+        if t.startswith('tomorrow'):
+            hm = datetime.strptime(t.split(None, 1)[1], '%H:%M')
+            local = (base + timedelta(days=1)).replace(hour=hm.hour, minute=hm.minute, second=0, microsecond=0)
+        elif len(t) <= 5:
+            hm = datetime.strptime(t, '%H:%M')
+            local = base.replace(hour=hm.hour, minute=hm.minute, second=0, microsecond=0)
+            local += timedelta(days=1) if local <= base else timedelta()
+        else:
+            local = datetime.strptime(t.replace('t', ' '), '%Y-%m-%d %H:%M')
+    except (ValueError, IndexError) as e:
+        raise ValueError(f'"{text}" is not a time Tutti reads: use "2026-11-16 07:00", "tomorrow 07:00", "07:00" or "now" '
+                         '(local time)') from e
+    return tz.to_utc(local, tz.zone_name()).timestamp()
+
+
+def window(v, now):
+    """'planned' (it starts later), 'active' or 'over' for a pause; one without `from` is always active."""
+    if 'from' not in v:
+        return 'active'
+    if v.get('until') is not None and now >= v['until']:
+        return 'over'
+    return 'active' if now >= v['from'] - LEAD_MINUTES * 60 else 'planned'
+
+
+def planned_round(cfg, pst, now, stop_fn=None, say=lambda m: None):
+    """Each dispatch round: a planned absence that started hands its running work over once; one that is over, or
+    whose end was left open and whose target presence saw away and then back, is removed. Returns what it did."""
+    from . import config
+    folder, done = config.state_dir(cfg), []
+    with changed(folder) as data:
+        for k, v in list(data['paused'].items()):
+            if 'from' not in v:
+                continue
+            state, back = window(v, now), False
+            rec = (pst.get('targets') or {}).get(k) or {}
+            if state == 'active' and now >= v['from']:
+                if rec.get('state') in ('away', 'asleep'):
+                    v['seen_away'] = True
+                back = v.get('until') is None and v.get('seen_away') and rec.get('state') == 'present'
+                if not v.get('handed'):
+                    v['handed'] = True
+                    kind, _, name = k.partition(':')
+                    if stop_fn:
+                        stop_fn(kind, name)
+                    done.append(f'{k}: planned absence started; its running work was handed over')
+            if state == 'over' or back:
+                data['paused'].pop(k)
+                done.append(f'{k}: {"back early: presence saw it again" if back else "planned absence over"}; it takes work again')
+    for line in done:
+        say(line)
+    return done
 
 
 def set_setting(folder, name, value):
@@ -93,8 +163,11 @@ def set_setting(folder, name, value):
 def apply(raw, data):
     """The switches written into the raw config (before defaults and opt-outs): `enabled: <on>` and `paused: {by, at, note}`
     on each named entry. A switch for an entry the config no longer has is ignored."""
+    now = time.time()
     for field in ('enabled', 'paused'):
         for k, v in (data.get(field) or {}).items():
+            if field == 'paused' and window(v, now) != 'active':
+                continue   # a planned absence not started yet (or over): the entry works as usual
             kind, _, name = k.partition(':')
             section = (raw.get(SECTIONS.get(kind, '')) or {}) if isinstance(raw, dict) else {}
             if name not in section:
@@ -111,6 +184,11 @@ def paused_note(entry):
     if not p:
         return ''
     at = time.strftime('%Y-%m-%d %H:%M', tz.localtime(p.get('at') or 0))
+    if 'from' in p:
+        start = time.strftime('%a %d %b %H:%M', tz.localtime(p['from']))
+        end = time.strftime('%a %d %b %H:%M', tz.localtime(p['until'])) if p.get('until') is not None else 'it is seen again'
+        return (f'away (planned by {p.get("by") or "the owner"}) from {start} until {end}' + (f': {p["note"]}' if p.get('note') else '')
+                + '; no new work starts on it; resume it from the dashboard or with `tutti resume`')
     return f'paused by {p.get("by") or "the owner"} at {at}' + (f': {p["note"]}' if p.get('note') else '') + \
         '; resume it from the dashboard or with `tutti resume`'
 
@@ -183,5 +261,6 @@ def view(cfg, data):
         for name, d in (cfg.get('devices') or {}).items():
             on = (data['enabled'].get(key('device', name)) or {}).get('on', (d or {}).get('enabled') is True)
             opt_in.append({'kind': 'device', 'name': name, 'on': bool(on), 'why': 'Android lint and unit runs (adb)'})
-    paused = [{'kind': k.partition(':')[0], 'name': k.partition(':')[2], **v} for k, v in data['paused'].items()]
+    now = time.time()
+    paused = [{'kind': k.partition(':')[0], 'name': k.partition(':')[2], **v, 'window': window(v, now)} for k, v in data['paused'].items()]
     return {'opt_in': opt_in, 'paused': paused}

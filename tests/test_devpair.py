@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import yaml
 
-from tutti import adbhost, adbpair, devices, devicesweb, devmove, keepon, qr
+from tutti import adbhost, adbpair, devices, devicesweb, devmove, keepon, qr, remote
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUID = 'adb-ABC123-xYz'
@@ -537,3 +537,31 @@ class ReconnectTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RshTest(unittest.TestCase):
+    """`tutti rsh` on a WSL machine (backlog t38): a script with `;` or new lines, and a command with arguments."""
+    M = {'name': 'pc', 'host': 'pc.example', 'transport': 'wsl', 'wsl_helper': '/h/run64.sh'}
+
+    def run_script(self, args):
+        script = remote.rsh_command(self.M, args)
+        return subprocess.run(['bash', '-c', script], capture_output=True, text=True, check=False).stdout
+
+    def test_a_script_with_semicolons_and_new_lines_runs_whole(self):
+        self.assertEqual(self.run_script(['echo a; echo b']), 'a\nb\n')
+        self.assertEqual(self.run_script(['echo a\nfor i in 1 2; do echo $i; done']), 'a\n1\n2\n')
+
+    def test_a_command_keeps_its_arguments_each_quoted(self):
+        self.assertEqual(remote.rsh_command(self.M, ['/mnt/c/a b/adb.exe', 'devices']), "'/mnt/c/a b/adb.exe' devices")
+        self.assertEqual(self.run_script(['printf', '%s|', 'x y', "it's"]), "x y|it's|")
+
+    def test_git_and_rsync_put_the_host_first(self):
+        self.assertEqual(remote.rsh_command(self.M, ['-o', 'BatchMode=yes', 'pc.example', 'git-upload-pack x']), 'git-upload-pack x')
+        self.assertEqual(remote.rsh_command(self.M, ['pc.example', 'rsync', '--server', '.']), 'rsync --server .')
+        self.assertEqual(remote.rsh_command(self.M, ['pc', 'status']), 'pc status')   # a command named like the machine
+
+    def test_the_script_travels_base64_encoded_to_wsl(self):
+        cmd = remote.argv(self.M, remote.rsh_command(self.M, ['echo a; echo "b c"']))
+        packed = cmd[-1].split()[-1]
+        import base64
+        self.assertEqual(base64.b64decode(packed).decode(), 'cd ~ && echo a; echo "b c"')

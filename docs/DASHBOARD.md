@@ -163,6 +163,10 @@ busy or ready and why), and the owner's switches.
   The job then shows "Stopped from the dashboard: handed over to ...". A remote command whose ssh link is cut may still
   finish on its own; its slot is released when it ends. Only processes that still run tutti are stopped: a pid the system
   gave to another program is never taken for the job.
+- **A planned absence**: `tutti pause device pixel9pro --from "2026-11-16 07:00" --until unknown --note "with the
+  owner"` (local time; `--until` a time, or `unknown`). From 30 min before the start nothing new is scheduled on it; at
+  the start its running work is handed over (as *Pause, stop now*). It ends at `--until`, or, left open, when presence
+  has seen it away and then back. The row shows **away later** or **away** with the window; Resume ends it at once.
 - A device whose machine is paused is held too. When every machine is paused, off or refused by its power policy, a run
   is not queued anywhere: `tutti test` and routed checks say so and stop (exit 3).
 - **Opt-in** switches: every worker or account marked `costs_money: true` (Copilot, an API key) or `opt_in: true` (a

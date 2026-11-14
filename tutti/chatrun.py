@@ -236,7 +236,10 @@ class Engine:
             cfg, snap = self.cfg_fn(), self.snap_fn() or {}
             known = chat.known_names(cfg, snap)
             call = chat.parse(prompt.get('text') or '', known)
-            if call and 'error' in call:
+            from . import welcome  # What did I miss?: the welcome-back summary since the user's last one (docs/WELCOME.md)
+            if welcome.asks_miss(prompt.get('text')):
+                self._say(job, welcome.chat_answer(cfg, user))
+            elif call and 'error' in call:
                 self._say(job, call['error'], chat.ChatError)
             elif call:
                 self._act(job, user, cfg, call)

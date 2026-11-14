@@ -149,6 +149,21 @@ class Roles(Base):
         self.assertTrue(welcome.enabled_for(cfg, welcome.read(cfg), 'adm'))
 
 
+class Chat(Base):
+    def test_what_did_i_miss_in_the_chat_answers_the_summary_for_that_user(self):
+        cfg = self.cfg()
+        with backlog.locked(cfg) as data:
+            data['tasks'].extend(Roles.TASKS)
+        self.assertTrue(welcome.asks_miss('What did I miss?'))
+        self.assertFalse(welcome.asks_miss('what did I miss in the planner code'))
+        with mock.patch.object(welcome, 'accounts_now', return_value=[]), mock.patch.object(welcome, 'rewrite'):
+            viewer = welcome.chat_answer(cfg, {'sub': 'ana', 'role': 'viewer'}, T0 + 10 * H)
+            admin = welcome.chat_answer(cfg, {'sub': 'local', 'role': 'admin'}, T0 + 10 * H)
+        self.assertNotIn('Owner decision', viewer)
+        self.assertIn('Decide on task p1', admin)
+        self.assertIn('owner', welcome.read(cfg)['users'])   # sign-in off: the chat's local user is the owner
+
+
 class Words(Base):
     def test_the_template_when_ai_is_off_and_the_model_when_on(self):
         cfg = self.cfg()

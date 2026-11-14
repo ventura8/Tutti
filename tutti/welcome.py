@@ -17,6 +17,7 @@ template writes it otherwise. The needs-you list is always built from the facts,
 Each item has a scope: `admin` (the owner's projects, accounts and setup), `household` (shared machines' work) or a user's
 own id. A viewer sees their own and the household's; an admin sees everything."""
 import os
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -366,6 +367,25 @@ def miss(cfg, role, sub, accounts=None, now=None):
     prev = (user_of(data, sub).get('summaries') or [None])[-1]
     since = prev['at'] if prev else now - 86400
     return build(cfg, {'since': since, 'signal': 'asked'}, role, sub, accounts, ai=False)
+
+
+MISS_RX = re.compile(r"^\s*(what (did|have) i miss(ed)?|what happened while i was away)\s*\??\s*$", re.I)
+
+
+def asks_miss(text):
+    return bool(MISS_RX.match(text or ''))
+
+
+def chat_answer(cfg, user, now=None):
+    """The Chat's answer to What did I miss?: the summary since this user's last one, kept as their latest."""
+    key = OWNER if user.get('sub') in (None, 'local') else user['sub']
+    role = user.get('role') or 'viewer'
+    made = miss(cfg, role, key, accounts_now(cfg, now or time.time()) if role == 'admin' else [])
+    data = read(cfg)
+    remember(data, key, made)
+    user_of(data, key)['unread'] = False
+    write(cfg, data)
+    return made['text']
 
 
 def post(collector, headers, raw):

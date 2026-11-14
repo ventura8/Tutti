@@ -750,8 +750,8 @@ def save_work_move(collector, body):
 def _self_posts():
     from . import mainmachine, manage
     return {mainmachine.API: lambda c, h, b: mainmachine.post(c, h, b), manage.API: lambda c, h, b: manage.act_post(c, h, b),
-            chatrun.API: chatrun.handle,
-            welcome.API: lambda c, h, b: welcome.post(c, h, b)}   # the Chat: every user's own conversations, each action with its own role check
+            chatrun.API: chatrun.handle,   # the Chat: every user's own conversations, each action with its own role check
+            welcome.API: lambda c, h, b: welcome.post(c, h, b)}   # Welcome back: the viewer's own summary and switch
 
 
 SELF_POSTS = _self_posts()

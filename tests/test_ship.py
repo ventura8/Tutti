@@ -87,8 +87,9 @@ class ShipTest(unittest.TestCase):
         self.write('b.txt', 'two\n<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> other\n')
         self.write('README.md', 'Title\n=======\n')   # a heading underline alone is not a conflict
         before = git(self.origin, 'rev-parse', 'main')
+        cfg = self.cfg()
         with self.assertRaises(ship.ShipError) as ctx:
-            self.ship(self.cfg())
+            self.ship(cfg)
         self.assertIn('conflict markers', str(ctx.exception))
         self.assertIn('b.txt', str(ctx.exception))
         self.assertNotIn('README.md', str(ctx.exception))
@@ -104,13 +105,15 @@ class ShipTest(unittest.TestCase):
         git(self.tree, 'commit', '-qam', 'feat: main')
         git(self.tree, 'checkout', '-q', 'work')
         subprocess.run(['git', '-C', self.tree, 'rebase', 'main'], capture_output=True)
+        cfg = self.cfg()
         with self.assertRaises(ship.ShipError) as ctx:
-            self.ship(self.cfg())
+            self.ship(cfg)
         self.assertIn('middle of a rebase', str(ctx.exception))
         git(self.tree, 'rebase', '--abort')
         subprocess.run(['git', '-C', self.tree, 'merge', 'main'], capture_output=True)
+        cfg = self.cfg()
         with self.assertRaises(ship.ShipError) as ctx:
-            self.ship(self.cfg())
+            self.ship(cfg)
         self.assertIn('middle of a merge', str(ctx.exception))
 
     def test_dry_run_changes_nothing(self):

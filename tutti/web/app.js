@@ -74,7 +74,8 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 function nextNote(t) {
     const n = t.next_worker;
     if (!n) return '';
-    return n.worker ? ` · next agent job: ${n.worker}${n.args.length ? ' ' + n.args.join(' ') : ''}` : ' · no agent account has room';
+    if (!n.worker) return ' · no agent account has room';
+    return ` · next agent job: ${[n.worker, ...n.args].join(' ')}`;
 }
 
 function quotaTile(s) {

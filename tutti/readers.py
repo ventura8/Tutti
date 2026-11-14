@@ -28,8 +28,8 @@ KEEP_EVERY = timedelta(hours=1)
 
 LIMITS = tuple(re.compile(p, re.I) for p in (
     r'usage limit', r'rate[ -]?limit', r'quota (?:exceeded|exhausted|reached|limit)', r'resource[_ ]exhausted',
-    r'limit (?:reached|exceeded|hit)', r'out of (?:credits|requests|quota)', r'(?:hit|reached) (?:your|the) .{0,40}limit',
-    r'too many requests', r'exhausted (?:your|the) .{0,30}quota'))
+    r'limit (?:reached|exceeded|hit)', r'out of (?:credits|requests|quota)', r'(?:hit|reached) your .{0,40}limit',
+    r'reached the .{0,40}limit', r'too many requests', r'exhausted your .{0,30}quota'))
 ISO = re.compile(r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?')
 UNIT = r'(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b'
 RELATIVE = re.compile(r'\b(?:in|after|within)\s+((?:\d+(?:\.\d+)?\s*' + UNIT + r'[\s,]*(?:and\s+)?)+)', re.I)
@@ -65,7 +65,8 @@ def clock_reset(text, now):
     hour, minute, half = int(m.group(1)), int(m.group(2) or 0), (m.group(3) or '').lower()
     if not (m.group(2) or half):
         return None   # a bare number ("again 3") is not a time
-    hour = hour % 12 + (12 if half == 'pm' else 0) if half else hour
+    if half:
+        hour = hour % 12 + (12 if half == 'pm' else 0)
     if hour > 23 or minute > 59:
         return None
     local = now.astimezone()

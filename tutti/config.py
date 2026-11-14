@@ -150,15 +150,19 @@ def validate(cfg):
     errs += [f'routing.workers names "{n}", which is not under workers:' for n in cfg['routing'].get('workers') or []
              if n not in cfg['workers']]
     for name, a in cfg['accounts'].items():
-        errs += _account_source_errors(name, a or {})
-        errs += _account_worker_errors(cfg, name, a or {})
-        share = (a or {}).get('share', 1)
-        if not isinstance(share, (int, float)) or not 0 < share <= 1:
-            errs.append(f'accounts.{name}.share is {share!r}: use a fraction above 0 and up to 1 (0.5 = half)')
-        panic_at = (a or {}).get('panic_at', 95)
-        if not isinstance(panic_at, (int, float)) or not 0 < panic_at <= 100:
-            errs.append(f'accounts.{name}.panic_at is {panic_at!r}: use a percentage above 0 and up to 100 (95 = panic at 95 % used)')
+        errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
     return errs + _dashboard_errors(cfg['dashboard'])
+
+
+def _account_pace_errors(name, a):
+    errs = []
+    share = a.get('share', 1)
+    if not isinstance(share, (int, float)) or not 0 < share <= 1:
+        errs.append(f'accounts.{name}.share is {share!r}: use a fraction above 0 and up to 1 (0.5 = half)')
+    panic_at = a.get('panic_at', 95)
+    if not isinstance(panic_at, (int, float)) or not 0 < panic_at <= 100:
+        errs.append(f'accounts.{name}.panic_at is {panic_at!r}: use a percentage above 0 and up to 100 (95 = panic at 95 % used)')
+    return errs
 
 
 def _command_errors(key, spec, needs):

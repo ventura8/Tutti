@@ -265,15 +265,22 @@ def wait_jobs(folder, now, stall, is_alive):
             continue
         if not is_alive(pid):
             continue
-        watch = info.get('watch') or info.get('target', '')
-        updated = mtime(watch) if os.path.exists(watch) else None
-        limit = info.get('stall') or stall
-        target = f'{info.get("kind", "?")} {info.get("target", "")} {info.get("pattern", "")}'.strip()
-        out.append({'id': f'wait:{pid}', 'kind': 'wait', 'title': f'wait {target}', 'pid': int(pid), 'log': watch if updated else None,
-                    'started': iso(info.get('started')), 'updated': iso(updated), 'idle_seconds': round(now - updated) if updated else None,
-                    'rc': None, 'status': status_of(True, updated, None, now, limit), 'tail': tail(watch, 12) if updated else [],
-                    'progress': progress(watch, tail(watch)) if updated else None})
+        out.append(wait_job(pid, info, now, stall))
     return out
+
+
+def wait_job(pid, info, now, stall):
+    watch = info.get('watch') or info.get('target', '')
+    updated = mtime(watch) if os.path.exists(watch) else None
+    limit = info.get('stall') or stall
+    target = f'{info.get("kind", "?")} {info.get("target", "")} {info.get("pattern", "")}'.strip()
+    job = {'id': f'wait:{pid}', 'kind': 'wait', 'title': f'wait {target}', 'pid': int(pid), 'log': None,
+           'started': iso(info.get('started')), 'updated': None, 'idle_seconds': None, 'rc': None, 'status': status_of(True, updated, None, now, limit), 'tail': [],
+           'progress': None}
+    if updated:
+        job.update(log=watch, updated=iso(updated), idle_seconds=round(now - updated), tail=tail(watch, 12),
+                   progress=progress(watch, tail(watch)))
+    return job
 
 
 def pid_jobs(folder, is_alive):

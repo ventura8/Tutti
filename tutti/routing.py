@@ -78,7 +78,9 @@ def account_unfit(s):
 
 def rank(s):
     v = s.get('verdict')
-    return 0 if v in USE_FIRST else 1 if v in NORMAL else 2
+    if v in USE_FIRST:
+        return 0
+    return 1 if v in NORMAL else 2
 
 
 def pick_account(states):

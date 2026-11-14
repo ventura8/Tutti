@@ -36,6 +36,14 @@ loads its code as `app.js?v=<version>` and the worker matches those exactly, so 
 new page. It remembers that reload per tab (`sessionStorage`): if the page is still old after
 it, or the browser blocks storage, it never reloads again and says how to reload by hand (`web/update.js`).
 
+## The Users tab
+
+Next to Dashboard and Settings, for admins only: every user (the admin's own row marked "(you)"), their main machine,
+presence, schedule and consumption, **Manage <name>** with every action an admin can take for them, and the household
+audit, filterable by user; the sign-in's part of the tab (people, roles, invites, its audit) is docs/AUTH.md's, the
+household's (`web/userstab.js`) is drawn into its `#users-manage` (docs/HOUSEHOLD.md, *The Users tab*). Settings shows no key
+about people (`settings_schema.MANAGED`). **Me → My main machine** (in the bar) moves this user's own Tutti.
+
 ## Me and Household
 
 The bar's **Me / Household** switch (remembered per browser): **Me** shows this user's own setup; **Household** adds the

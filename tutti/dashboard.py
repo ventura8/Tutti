@@ -595,7 +595,7 @@ def post(collector, headers, path, port, token, read):
     if not allowed_host(host, port, origins):
         return 403, {'error': 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)'}
     path = path.split('?', 1)[0]
-    if path not in POSTS:
+    if path not in POSTS and path not in SELF_POSTS:
         return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, {"agent": ...} to /api/main, '
                           '{"enabled": ...} to /api/autopilot or /api/self-improve, {"action": ...} to /api/control, '
                           '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, '
@@ -606,6 +606,14 @@ def post(collector, headers, path, port, token, read):
     refused = check_post(headers, host, token, origins) or (authorize(collector, headers) if path in ADMIN_PATHS else None)
     if refused:
         return refused[0], {'error': refused[1]}
+    if path in SELF_POSTS:   # their own role check: an admin for anyone, a member only for themself (tutti/manage.py)
+        try:
+            size = int(headers.get('Content-Length') or 0)
+        except ValueError:
+            size = -1
+        if not 0 < size <= MAX_BODY:
+            return 413, {'error': f'send a small JSON object (at most {MAX_BODY} bytes)'}
+        return SELF_POSTS[path](collector, headers, read(size))
     try:
         size = int(headers.get('Content-Length') or 0)
     except ValueError:
@@ -717,6 +725,14 @@ def save_work_move(collector, body):
     except jobmove.MoveError as e:
         return 409, {'error': str(e)}
     return 200, {'ok': True, 'done': done}
+
+
+def _self_posts():
+    from . import mainmachine, manage
+    return {mainmachine.API: lambda c, h, b: mainmachine.post(c, h, b), manage.API: lambda c, h, b: manage.act_post(c, h, b)}
+
+
+SELF_POSTS = _self_posts()
 
 
 HANDLERS = {

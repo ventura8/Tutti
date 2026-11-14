@@ -27,6 +27,9 @@ def print_user(v, out=sys.stdout):
 def cmd_user(cfg, a, out=sys.stdout):
     """`tutti user [show|name <name>|share <account> on|off]`."""
     try:
+        if a.action == 'main-machine':
+            from . import mainmachine
+            return mainmachine.change(cfg, a.arg or '', dry_run=bool(getattr(a, 'dry_run', False)), out=out)
         if a.action == 'main-agent':
             worker, note = users.set_main_agent(cfg, a.arg or '')
             print(f'main agent: {worker}' + (f' ({note})' if note else ''), file=out)
@@ -40,6 +43,9 @@ def cmd_user(cfg, a, out=sys.stdout):
                 return 2
             users.set_share(cfg, a.arg or '', a.value == 'on')
     except users.UserError as e:
+        say(str(e))
+        return 2
+    except RuntimeError as e:   # mainmachine.MainMachineError
         say(str(e))
         return 2
     v = users.view(cfg)

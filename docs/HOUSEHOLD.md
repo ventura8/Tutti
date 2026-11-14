@@ -277,6 +277,57 @@ in (while the run may still go on, it stays). A paused machine takes no more of 
 - **Who decides:** pc's owner shares, pauses or unshares it (`tutti household machine pause pc`) and chooses the runner;
   her Tutti claims only jobs for her own machines, and no member can claim or read another's job.
 
+## Your main machine
+
+A user's **main machine** is the computer where their main agent and their own Tutti live. Each user (the admin too)
+changes it with one click, **Me → My main machine** on their dashboard, or `tutti user main-machine <m>`
+(`--dry-run` shows the plan). It is `tutti move` for that user's own Tutti (tutti/mainmachine.py over tutti/move.py, no
+machinery of its own): their state moves (schedule, mode and the learned profile, readings, backlog, `user.json`), their
+household membership and token (mode 600, never printed), their agent logins, connected agents' MCP entries and the
+readings forwarder as `tutti move` moves them, and the old computer becomes a client of the new one. WIP refs live on
+the repository's origin and need nothing. The target is one of the user's own machines (ssh or WSL), never another
+member's compute-only machine.
+
+It is not the household coordinator's move: a member's main machine moves only that member. An admin whose login also
+runs the coordinator moves it with their Tutti, as `tutti move` does (members are repointed by themselves).
+
+**Who may:** only the user, for themself. The dashboard's server checks it: with sign-in (docs/AUTH.md) a signed-in
+user whose Google identity is not that Tutti's user is refused, whatever their role; the admin acts for a member
+through the Users tab (below), which their own Tutti carries out.
+
+**Presence follows it:** the heartbeat comes from the new main machine. A host with clients counts its user present
+only while one of its clients (the laptop they sit at) is connected; a laptop that leaves makes them away, as a member
+away from home is.
+
+## The Users tab (managing a member)
+
+The admin may be the only technical person at home, so everything a member would do for their own setup the admin can
+do for them, from one place: the **Users** tab, next to Dashboard and Settings, for admins only (viewers never see it,
+and the server refuses them). Settings keeps the system's configuration; everything about people is here: users and
+roles and invites (docs/AUTH.md: the sign-in draws them; the household part, below, is drawn into the same tab), the household membership, machine sharing, each user's
+schedule and main agent.
+
+Each user is a row, the admin's own marked **(you)** with exactly the same fields and controls (in a household of one
+too, where its actions run at once on this computer): main machine, presence and last seen, whether their Tutti joined,
+mode and schedule, and their consumption (per account kind: used, verdict and target; runs today). **Manage <name>**
+opens every action for them: schedule, away and vacation; main agent; main machine; reconnect agents (`tutti
+connect`); pair a device; use a shared machine; pause or resume a machine; update Tutti and the agents; join, rejoin or
+install (the invite to hand them); make admin; remove.
+
+How it reaches the member: the admin's dashboard queues the action at the coordinator (`/hh/act`); the coordinator lets
+the admin act for anyone and a member only for themself, and writes the audit line ("schedule by admin Ana for Bo"); the
+member's own Tutti claims it at its next round and does it on the member's computer, as the member, and its result
+shows on the row. What only the member can do is never technical work for the admin: the tab shows the one step to hand
+them (a Google sign-in in their own browser, the pairing code on their phone) or the invite's QR code.
+
+**The last-admin guard:** the household's admin cannot remove themself (nor, through the sign-in's roles, demote
+themself) while they are the only admin; they make another member admin first. Their row shows those controls disabled,
+with the reason as a tooltip, never hidden.
+
+**The audit**, filterable by user, lists every action, by whom and for whom. **What the admin sees** of a member here
+goes beyond the household view: the consumption by account kind and their schedule, never their prompts, briefs,
+account names, readings' sources or tokens.
+
 ## Spare room shared with the household
 
 An account with `share_spare: true` (or `tutti user share <account> on`) whose planner says it has tasks to give now,
@@ -369,6 +420,7 @@ a user is named by `user` = the first 12 hex digits of `SHA-256("tutti-user:" + 
 | 1 (0.1.29) | the user model (`tutti user`, the hashed id, `share_spare`), per-user state, the single-user migration, this design |
 | 2 (0.1.31) | the coordinator, `household init\|join\|status\|leave\|code`, signed requests, leases with heartbeats, shared backlogs and dedupe |
 | 3 (0.1.34) | fair shares of shared machines in routing and the autopilot, the household plan from every member's profile, `share_spare` |
+| 6 (0.1.64) | your main machine (Me → My main machine, `tutti user main-machine`); the Users tab: an admin acts for any member, audited |
 | 5 (0.1.51) | shared machines as compute only: a member's runs go to the owner's Tutti as a WIP ref and a signed job; no login for members |
 | 4 (0.1.46) | joining with the dashboard's invite and Google identity, LAN or VPN only (`netpolicy`); the dashboard: **Me / Household**, the household card, others' jobs as "busy for <user>" |
 

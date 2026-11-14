@@ -2,6 +2,34 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.64 (2026-11-14)
+
+### Added
+
+- **Your main machine** (docs/HOUSEHOLD.md): every user, the admin too, moves their own Tutti, agent logins, connected
+  agents' MCP entries, readings forwarder, schedule and profile to another of their machines with one click (**Me → My
+  main machine**) or `tutti user main-machine <m>`; it is `tutti move` for that user (no new machinery), WIP refs stay on
+  origin, and it is never the coordinator's move for others. The server refuses a signed-in user who is not that Tutti's
+  user, whatever their role. Presence follows: a host with clients counts its user present only while a client is
+  connected, so a laptop that leaves makes them away.
+- **The Users tab** (admin-only, next to Dashboard and Settings): every user, the admin's own row marked "(you)", with
+  main machine, presence, last seen, Tutti joined, mode, schedule and consumption by account kind; **Manage <name>** with
+  every action an admin can take for them (schedule, away and vacation, main agent, main machine, reconnect agents, pair a
+  device, use a shared machine, pause or resume, update, join or rejoin, make admin, remove); the audit, filterable by
+  user ("schedule by admin Ana for Bo"). The admin's dashboard queues the action at the coordinator; the member's own
+  Tutti does it on the member's computer. Steps only the member can do show as the one step to hand them. The last-admin
+  guard: the only admin cannot remove themself. One tab: the sign-in's (#39) Users tab, the household drawn into it.
+- Settings shows no key about people any more (`settings_schema.MANAGED`: user, household, pacing, main.agent).
+- The admin's own row on the Users tab has every field and control another row has (consumption, presence, main agent
+  and main machine, schedule and away, Tutti joined and last seen, every help action), also in a household of one,
+  where its actions run here at once; the last-admin guard only disables remove and make-admin, with the reason as a
+  tooltip.
+
+### Fixed
+
+- The Users card showed on every view, Settings included: `.users-view`'s `display: grid` undid its `hidden`. It shows
+  only on the Users tab, for admins.
+
 ## 0.1.63 (2026-11-14)
 
 ### Added

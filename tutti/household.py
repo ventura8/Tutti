@@ -19,6 +19,7 @@ NONCE_SECONDS = 300      # how long a seen nonce is remembered (more than twice 
 RESERVE_MINUTES = 5      # a lease asked for a task that may start soon; renewed into lease_minutes once it runs
 HELD = ('running', 'review', 'needs-person')   # local statuses whose lease is kept: nobody else may redo the task
 CLOSED = ('done', 'dropped')
+SETUP_KEYS = ('main_machine', 'targets', 'agents', 'mode', 'machines_shared', 'devices', 'schedule', 'stats')
 ACTIVE_MINUTES = 15      # a member whose last heartbeat said "prompting" within this is active
 SEEN_MINUTES = 10        # a member heard from within this is online
 TASK_KEYS = ('title', 'scope', 'check', 'size', 'source')
@@ -103,7 +104,8 @@ def new_state(name, now):
 def member_view(m, now):
     """What every member may see of a member: name, agent kind, online, active (prompting lately), the shared totals."""
     seen = now - (m.get('last_seen') or 0)
-    return {'name': m['name'], 'hash': m['hash'], 'agent': m.get('agent'), 'online': seen <= SEEN_MINUTES * 60,
+    return {'name': m['name'], 'hash': m['hash'], 'agent': m.get('agent'), 'online': seen <= SEEN_MINUTES * 60 and not m.get('away'),
+            'away': bool(m.get('away')), 'main_machine': (m.get('setup') or {}).get('main_machine'),
             'active': now - (m.get('prompting_at') or 0) <= ACTIVE_MINUTES * 60, 'last_seen': m.get('last_seen'),
             'runs_today': (m.get('totals') or {}).get('runs_today', 0), 'left': bool(m.get('left'))}
 
@@ -145,8 +147,28 @@ def heartbeat(state, user_id, beat, now):
         m['totals'] = {k: v for k, v in totals.items() if k in ('runs_today', 'minutes_shared') and isinstance(v, (int, float))}
     if isinstance(beat.get('agent'), str):
         m['agent'] = beat['agent'][:32]
+    _beat_setup(m, beat)
     if 'machines' in beat:   # a status look sends no demand: the last real one stays
         m['demand'] = clean_demand(beat.get('machines'), state.get('machines') or {})
+    _beat_profile(m, beat)
+
+
+def _beat_setup(m, beat):
+    setup = beat.get('setup')
+    if isinstance(setup, dict):   # what the admin's Manage tab offers for this member: names, kinds and counts only
+        m['setup'] = {k: _clean_field(setup.get(k)) for k in SETUP_KEYS}
+    if 'away' in beat:
+        m['away'] = bool(beat['away'])
+
+
+def _clean_field(v):
+    if isinstance(v, list):
+        return [str(x)[:40] if not isinstance(x, dict) else {k: x[k] for k in list(x)[:8] if isinstance(x[k], (int, float, str))}
+                for x in v][:20]
+    return str(v or '')[:60]
+
+
+def _beat_profile(m, beat):
     w = beat.get('weight')
     if isinstance(w, (int, float)) and not isinstance(w, bool) and 0 < w <= 10:
         m['weight'] = w
@@ -548,3 +570,116 @@ def job_view(state, user_id, jid):
     if not j or j['by'] != user_id:
         raise HouseholdError(f'no job "{jid}" of yours')
     return {'id': jid, 'state': j['state'], 'machine': j['machine'], 'rc': j.get('rc'), 'tail': j.get('tail', '')}
+
+
+# ---- acting for a member (the admin may be the only technical person at home; docs/HOUSEHOLD.md, *Managing a member*)
+
+ACTS = ('schedule', 'main-agent', 'main-machine', 'connect', 'pair-device', 'machine-use', 'pause', 'resume', 'update')
+AUDIT_KEEP = 500
+ACT_RECLAIM = 15 * 60   # an action claimed but not finished this long (its Tutti stopped) is claimed again
+ACT_KEEP = 200
+
+
+def member_by_hash(state, uid_hash):
+    for uid, m in state['members'].items():
+        if m.get('hash') == uid_hash and not m.get('left'):
+            return uid
+    raise HouseholdError('no member with that id in the household: reload the household card')
+
+
+def audit(state, by, target, action, now, detail=''):
+    """One line of the household's audit: when, who did it, for whom, what (names and the action; never a secret)."""
+    entry = {'at': now, 'by': holder_name(state, by), 'for': holder_name(state, target), 'action': action,
+             'detail': str(detail)[:200]}
+    entry['text'] = (f'{action} by admin {entry["by"]} for {entry["for"]}' if by != target and by == state.get('admin')
+                     else f'{action} by {entry["by"]}') + (f': {entry["detail"]}' if entry['detail'] else '')
+    log = state.setdefault('audit', [])
+    log.append(entry)
+    del log[:-AUDIT_KEEP]
+    return entry
+
+
+def queue_act(state, caller, target_hash, action, args, now):
+    """The admin queues an action for any member, a member only for themself; the member's own Tutti runs it at its next
+    round. Returns the act's id."""
+    target = member_by_hash(state, target_hash)
+    if caller != target and caller != state.get('admin'):
+        raise HouseholdError('only the household\'s admin can act for another member; you can change only your own setup')
+    if action not in ACTS:
+        raise HouseholdError(f'"{action}" is not something Tutti can do for a member: one of {", ".join(ACTS)}')
+    args = {k: v for k, v in (args or {}).items() if isinstance(k, str) and isinstance(v, (str, int, float, bool, list, type(None)))}
+    if len(str(args)) > 2000:
+        raise HouseholdError('the action\'s details are too long')
+    acts = state.setdefault('acts', {})
+    aid = f'a{state.get("next_act", 1)}'
+    state['next_act'] = state.get('next_act', 1) + 1
+    acts[aid] = {'by': caller, 'for': target, 'action': action, 'args': args, 'state': 'queued', 'at': now}
+    audit(state, caller, target, action, now, ', '.join(f'{k}={v}' for k, v in args.items()))
+    old = sorted((a['at'], k) for k, a in acts.items() if a['state'] == 'done')
+    for _at, k in old[:max(0, len(acts) - ACT_KEEP)]:
+        del acts[k]
+    return aid
+
+
+def claim_acts(state, uid, now):
+    out = []
+    for aid, a in sorted((state.get('acts') or {}).items(), key=lambda kv: kv[1]['at']):
+        stale = a['state'] == 'running' and now - a.get('claimed', 0) > ACT_RECLAIM
+        if a['for'] == uid and (a['state'] == 'queued' or stale):
+            a.update(state='running', claimed=now)
+            out.append({'id': aid, 'action': a['action'], 'args': a['args'], 'by': holder_name(state, a['by'])})
+    return out
+
+
+def finish_act(state, uid, aid, ok, note, now):
+    a = (state.get('acts') or {}).get(aid)
+    if not a or a['for'] != uid:
+        raise HouseholdError(f'no action "{aid}" for you')
+    a.update(state='done', ok=bool(ok), note=str(note or '')[:500], finished=now)
+    audit(state, uid, uid, f'{a["action"]} {"done" if ok else "failed"}', now, a['note'])
+
+
+def acts_view(state, caller):
+    """The actions the caller may see: the admin every member's, a member their own."""
+    admin = caller == state.get('admin')
+    return [{'id': k, 'action': a['action'], 'for': holder_name(state, a['for']), 'by': holder_name(state, a['by']),
+             'state': a['state'], 'ok': a.get('ok'), 'note': a.get('note', ''), 'at': a['at']}
+            for k, a in sorted((state.get('acts') or {}).items(), key=lambda kv: -kv[1]['at']) if admin or a['for'] == caller][:50]
+
+
+def members_setup(state, caller):
+    """The admin's Manage panel: each member's id hash, name and setup choices (their own entry for a member)."""
+    admin = caller == state.get('admin')
+    now = max([x.get('last_seen') or 0 for x in state['members'].values()] + [0])
+    return [{**member_view(m, now), 'setup': m.get('setup') or {}, 'me': uid == caller, 'joined': m.get('joined'),
+             'admin': uid == state.get('admin')}
+            for uid, m in state['members'].items() if not m.get('left') and (admin or uid == caller)]
+
+
+def audit_view(state, caller):
+    admin = caller == state.get('admin')
+    me = holder_name(state, caller)
+    return [e for e in reversed(state.get('audit') or []) if admin or me in (e['by'], e['for'])][:50]
+
+
+def remove_member(state, caller, target_hash, now):
+    """The admin takes a member out of the household (their own setup stays as it is on their computer). The last-admin
+    guard: the household's admin cannot remove themself; they make another member admin first, or leave (which hands the
+    admin role to the longest-standing member)."""
+    target = member_by_hash(state, target_hash)
+    if caller != state.get('admin'):
+        raise HouseholdError('only the household\'s admin can remove a member')
+    if target == caller:
+        raise HouseholdError('you are the household\'s only admin and cannot remove yourself: make another member admin, '
+                             'who can then remove you, or run `tutti household leave` (it hands the admin role on)')
+    audit(state, caller, target, 'remove', now)
+    leave(state, target)
+
+
+def make_admin(state, caller, target_hash, now):
+    """The admin hands the household's admin role to another member (the coordinator stays where it runs)."""
+    target = member_by_hash(state, target_hash)
+    if caller != state.get('admin'):
+        raise HouseholdError('only the household\'s admin can make another member admin')
+    state['admin'] = target
+    audit(state, caller, target, 'make admin', now)

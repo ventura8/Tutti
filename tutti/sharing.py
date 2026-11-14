@@ -249,9 +249,50 @@ def beat(cfg, now, machines=None):
     active = prompting(entries, accounts, now)
     v = owner.view(cfg, folder, entries, now)
     away = v['effective'] not in ('active', 'auto', 'present')
-    return {'agent': agent, 'prompting': active, 'totals': {'runs_today': state.runs_today(cfg)},
+    present = _present(cfg)
+    return {'agent': agent, 'prompting': active and present, 'away': not present, 'setup': setup_of(cfg, v),
+            'totals': {'runs_today': state.runs_today(cfg)},
             'weight': (cfg.get('user') or {}).get('weight', 1), 'profile': [] if away else v['profile'],
             'utc_offset': v['utc_offset'], 'zone': v['zone'], 'machines': demand(cfg, active, machines or [])}
+
+
+def _present(cfg):
+    from . import mainmachine
+    return mainmachine.present(cfg)
+
+
+def setup_of(cfg, owner_view):
+    """What the admin's Manage panel offers for this member (names and kinds only): the main machine and where it could
+    move, the agents installed here, the mode, the machines shared, the devices."""
+    import shutil
+
+    from . import mainmachine
+    try:
+        here = mainmachine.current(cfg)
+    except (OSError, ValueError, KeyError):
+        here = {'machine': '', 'targets': []}
+    agents = [k for k, (names, _) in users.MAIN_KINDS.items() if any(shutil.which(n) for n in names)]
+    s = owner_view.get('schedule') or {}
+    return {'main_machine': here['machine'], 'targets': here['targets'], 'agents': agents, 'mode': owner_view.get('mode'),
+            'machines_shared': sorted(mine_shared(cfg)), 'devices': sorted(cfg.get('devices') or {}),
+            'schedule': [f'days {",".join(s.get("days") or [])}', f'window {s.get("window")}', f'hours {s.get("hours")}'],
+            'stats': stats_of(cfg)}
+
+
+def stats_of(cfg):
+    """The admin's view of this member's consumption, by account kind (never an account's name or a reading's source):
+    used %, verdict and target, then the runs today and the machines used."""
+    from datetime import datetime, timezone
+
+    from . import state
+    try:
+        accounts = state.usage_state(cfg, datetime.now(timezone.utc))['accounts']
+    except (OSError, ValueError, KeyError):
+        accounts = []
+    rows = [{'kind': telemetry.tool_of(a['name']), 'used': a.get('used'), 'verdict': str(a.get('verdict') or ''),
+             'target': str(a.get('target') or '')[:20]} for a in accounts][:10]
+    rows.append({'kind': 'runs today', 'used': state.runs_today(cfg), 'verdict': '', 'target': ''})
+    return rows
 
 
 def running_on(folder, name):
@@ -431,8 +472,14 @@ def view(cfg, now):
     answers. Of the others only aggregates and names: never their jobs, prompts or accounts."""
     m = users.read_household()
     me = users.identity(cfg)
+    from . import mainmachine
+    try:
+        here = mainmachine.current(cfg)
+        main_machine = {'machine': here['machine'], 'targets': here['targets']}
+    except (OSError, ValueError, KeyError):
+        main_machine = None
     if not m:
-        return {'role': 'alone', 'me': me['name'], 'main': me['main'], 'members': [], 'machines': {}}
+        return {'role': 'alone', 'me': me['name'], 'main': me['main'], 'members': [], 'machines': {}, 'main_machine': main_machine}
     cache = fairshare.read_cache(config.state_dir(cfg))
     status = cache.get('status') or {}
     fresh = now - (cache.get('at') or 0) <= fairshare.STALE_SECONDS
@@ -442,7 +489,7 @@ def view(cfg, now):
     return {'role': users.role(m), 'household': m.get('household'), 'me': m.get('name'), 'main': me['main'], 'reachable': fresh,
             'error': cache.get('error') if not fresh else None, 'at': cache.get('at'), 'members': members,
             'machines': cache.get('machines') or {}, 'admin': status.get('admin'), 'projects': status.get('projects') or {},
-            'away': away, 'away_since': cache.get('away_since') if away else None,
+            'away': away, 'away_since': cache.get('away_since') if away else None, 'main_machine': main_machine,
             'away_note': 'away from the household: working on your own until you\'re home' if away else None}
 
 

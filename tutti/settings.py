@@ -20,8 +20,8 @@ import time
 
 import yaml
 
-from . import autopilot, config, configone, controls, groksetup, owner, telemetry, users, yamledit
-from .settings_schema import DAYS, ENTRIES, ENTRY_DEFAULTS, FIELDS, MISSING, RESTART, SECTIONS
+from . import autopilot, config, configone, controls, groksetup, owner, telemetry, yamledit
+from .settings_schema import DAYS, ENTRIES, ENTRY_DEFAULTS, FIELDS, MANAGED, MISSING, RESTART, SECTIONS
 
 SECRET_RX = re.compile(r'(dsn|token|secret|password|passwd|api_?key|private_?key|credential)', re.I)
 HIDDEN = '(hidden: a secret)'
@@ -185,7 +185,8 @@ class View:
 
     def rows_under(self, prefix):
         """The rows of a fixed part of the config (not a named entry): schema lines, automatic ones and the file's own keys."""
-        keys = [k for k in list(FIELDS) + list(DEFAULTS_FLAT) if (k == prefix or k.startswith(prefix + '.')) and '*' not in k]
+        keys = [k for k in list(FIELDS) + list(DEFAULTS_FLAT) if (k == prefix or k.startswith(prefix + '.')) and '*' not in k
+                and not managed(k)]
         rows, seen = [], set()
         for k in keys:
             if k in seen or k in ENTRIES:
@@ -269,7 +270,7 @@ class View:
         return rows
 
     def other(self):
-        claimed = {p.split('.')[0] for _, _, _, parts in SECTIONS for p in parts}
+        claimed = {p.split('.')[0] for _, _, _, parts in SECTIONS for p in parts} | {m.split('.')[0] for m in MANAGED if '.' not in m}
         keys = [k for k in self.raw if k not in claimed and k not in config.DEFAULTS]
         auto = sorted({k.split('.')[0] for k in DEFAULTS_FLAT} - claimed)
         rows = [r for k in auto for r in self.rows_under(k)]
@@ -288,6 +289,11 @@ class View:
                          'rows': self.other(), 'groups': []})
         return {'path': self.cfg.get('_path') or '', 'writable': writable(self.cfg), 'sections': sections,
                 'secrets': secrets_view(self.cfg, self.env)}
+
+
+def managed(key):
+    """A key about people (a user, the household, a user's schedule or main agent): on the Manage tab, not in Settings."""
+    return any(key == m or key.startswith(m + '.') for m in MANAGED)
 
 
 def yaml_row(out, value, default):
@@ -322,10 +328,7 @@ def secrets_view(cfg, env):
             if var:
                 out.append({'label': f'Scout {name}: {what}', 'set': bool(env.get(var, '').strip()) or var in in_file, 'where': var,
                             'setup': 'tutti scout setup grok'})
-    member = users.read_household(env)
-    out.append({'label': 'Household membership', 'set': bool(member.get('token')), 'where': os.path.basename(users.household_path(env)),
-                'setup': 'tutti household join'})
-    return out
+    return out   # the household membership is on the Manage tab
 
 
 def overrides(cfg, folder):

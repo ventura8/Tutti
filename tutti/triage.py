@@ -51,18 +51,20 @@ def watches(cfg, sc):
     return out
 
 
-def errors(cfg):
-    errs = []
-    for name, s in projects_with_sentry(cfg).items():
-        key = f'projects.{name}.sentry'
-        for k in ('org', 'project'):
-            if not (isinstance(s.get(k), str) and re.fullmatch(SLUG_RX, s[k])):
-                errs.append(f'{key}.{k} is {s.get(k)!r}: the Sentry {"organisation" if k == "org" else "project"} slug, as in its URL')
-        if 'reply_repo' in s and not scouts.is_repo(s['reply_repo']):
-            errs.append(f'{key}.reply_repo is {s["reply_repo"]!r}: the GitHub repository as owner/name')
-        if 'every' in s and not (isinstance(s['every'], str) and re.fullmatch(scouts.EVERY_RX, s['every'])):
-            errs.append(f'{key}.every is {s["every"]!r}: write it as 1d, 12h or 7d')
+def one_errors(name, s):
+    key = f'projects.{name}.sentry'
+    errs = [f'{key}.{k} is {s.get(k)!r}: the Sentry {what} slug, as in its URL'
+            for k, what in (('org', 'organisation'), ('project', 'project'))
+            if not (isinstance(s.get(k), str) and re.fullmatch(SLUG_RX, s[k]))]
+    if 'reply_repo' in s and not scouts.is_repo(s['reply_repo']):
+        errs.append(f'{key}.reply_repo is {s["reply_repo"]!r}: the GitHub repository as owner/name')
+    if 'every' in s and not (isinstance(s['every'], str) and re.fullmatch(scouts.EVERY_RX, s['every'])):
+        errs.append(f'{key}.every is {s["every"]!r}: write it as 1d, 12h or 7d')
     return errs
+
+
+def errors(cfg):
+    return [e for name, s in projects_with_sentry(cfg).items() for e in one_errors(name, s)]
 
 
 def task_lines(answer):

@@ -197,7 +197,7 @@ def candidates(summary, min_count):
     return out
 
 
-def add_candidates(cfg, items, source, now):
+def add_candidates(cfg, items, source, now, accept=None):
     """Adds items to the home project's repo, deduped by signature, within the day's room. Returns how many were added."""
     s = settings(cfg)
     pol = policy(cfg, s['home'])
@@ -217,7 +217,7 @@ def add_candidates(cfg, items, source, now):
                                         'report` summarises them.']
             t = backlog.new_task(pol['autopilot_repo'], it['title'], source=source, notes=notes)
             t.update(project=pol['name'], sig=it['sig'], pr_mode='ready', added=now,
-                     status='queued' if auto_accept(cfg) else 'candidate')
+                     status='queued' if (auto_accept(cfg) if accept is None else accept) else 'candidate')
             _t, new = backlog.add(data, t)
             added += int(new)
     return added

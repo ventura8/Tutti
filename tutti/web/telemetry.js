@@ -142,8 +142,15 @@ function renderAiAssist(a) {
         insightRows('Latest proposals', a.recent, (p) => `${p.title} (${p.by})`),
         el('section', { class: 'autopilot__group' }, el('h3', { class: 'card__sub', text: 'Parameters tuned' }),
             tuned.length ? el('ul', { class: 'list' }, ...tuned) : el('p', { class: 'row__note', text: 'Nothing yet.' })),
-        insightRows('Waiting for you (larger changes)', a.tune_proposals, (t) => `${t.path}: ${t.old} → ${t.value}: ${t.why}`),
-        a.skipped ? el('p', { class: 'row__note', text: a.skipped }) : null);
+        el('section', { class: 'autopilot__group' }, el('h3', { class: 'card__sub', text: 'Waiting for you (larger changes)' }),
+            a.tune_proposals.length ? el('ul', { class: 'list' }, ...a.tune_proposals.map((t) => el('li', { class: 'row' },
+                el('div', { class: 'row__name' }, `${t.path}: ${t.old} → ${t.value}`, el('span', { class: 'row__kind', text: t.why })),
+                el('button', { class: 'btn btn--tonal', type: 'button', 'data-control': 'aiassist-apply',
+                    onclick: () => void telemetrySwitch('/api/ai-assist', { proposal: t.path, apply: true }, 'The change was not applied.') }, 'Apply'),
+                el('button', { class: 'btn', type: 'button', 'data-control': 'aiassist-dismiss',
+                    onclick: () => void telemetrySwitch('/api/ai-assist', { proposal: t.path, apply: false }, 'The proposal was not dismissed.') }, 'Dismiss'))))
+                : el('p', { class: 'row__note', text: 'Nothing waits for you.' })),
+        ...(a.skipped ? [el('p', { class: 'row__note', text: a.skipped })] : []));
 }
 
 function renderTelemetry(s) {

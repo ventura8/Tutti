@@ -241,6 +241,7 @@ def normalise(raw):
     if not isinstance(raw, dict):
         raise ConfigError('the config must be a mapping at the top level (machines:, workers:, accounts:, ...)')
     cfg = merge(DEFAULTS, raw)
+    cfg['_ai_assist_file'] = dict(raw.get('ai_assist') or {}) if isinstance(raw.get('ai_assist'), dict) else {}   # as written
     for name, m in list(cfg['machines'].items()):
         cfg['machines'][name] = machine_of(cfg, name, m or {})
         if cfg['machines'][name].get('via'):   # probed through that client's bridge (tutti/bridge.py)

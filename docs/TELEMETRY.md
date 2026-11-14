@@ -172,24 +172,32 @@ What it does (`tutti/aiassist.py`, tested in `tests/test_aiassist.py`):
    categories and numbers above, nothing else) and writes ranked `PROPOSAL:` lines. Each becomes a self-improvement task
    in `self_improve.home` with its evidence and a regression-test-first note, inside the day's cap and the dedupe.
 2. **Smarter decisions** (local, each with a cheap fallback when AI is off or every model is down):
-   - a failed autopilot attempt is classified **flaky**, **environment** or **real** (regular expressions at once, a local
-     model later): flaky and environment failures retry on the same ladder step, a real one escalates;
+   - a failed autopilot attempt is classified **flaky** (a dropped connection, a DNS failure), **environment** (a missing
+     tool, a full disk, out of memory) or **real** (regular expressions at once, a local model's `CLASS:` line later): a
+     flaky or environment failure retries once on the same ladder step, then escalates; a real one escalates at once. A
+     rate limit is never flaky: the ladder moves on. With AI assist off the ladder works as before;
    - the model's one-line cause of the failure goes into the retry's brief;
    - a queued task gets acceptance criteria (*Done when:* in its brief) and a size, S, M or L (the model tier that takes
-     it); the fallback sizes it from its scope and title.
+     it); the fallback sizes it from its scope and title, and the criteria are asked again once a model is back.
+   The model is asked outside the backlog's lock, at most 5 tasks a round; after a round where no model answered, the
+   next waits 30 minutes.
    The owner's activity and device presence are predicted by the planner's own work (`tutti/owner.py`, presence).
 3. **Auto-tuning.** Measured outcomes (and the model's `TUNE:` lines) propose new values for `autopilot.no_progress`,
    `autopilot.max_attempts`, `dashboard.stall_minutes`, `dashboard.probe_seconds` and `self_improve.every_hours`. A change
    inside the key's bounds and step is written to the config file by itself (with the usual backup), at most two a day and
    one per key a day, and logged with its old value: **Undo** on the card, or `tutti ai-assist undo <id>`, puts it back.
-   A larger one waits on the card for the admin. The card shows the measured gain since each change (wasted quota, stalls).
+   A larger one waits on the card, where the admin applies it (logged and undoable the same way) or dismisses it; a
+   proposal older than 7 days goes. A small one past the day's room waits for the next round. The card shows the measured
+   gain since each change (wasted quota, stalls).
 4. **Research and design** (online). The scout gets two generated watches, `tutti-ai-release-notes` (the agent CLIs'
    release notes, new models, prices, usage APIs) and `tutti-ai-design` (a design review of the scrubbed summary). Both
    are `spare_only`: sent only while the scout's account is behind its pace, quota the planner says would be lost, never
-   the owner's reserve. Their `TUTTI-TASK:` lines become tasks in the home project.
+   the owner's reserve. Their `TUTTI-TASK:` lines become *candidates* in the home project (outside text: the admin accepts
+   them with `tutti backlog accept <id>`); an answer that arrives after online AI was turned off is dropped.
 5. **Privacy.** What goes online is scrubbed as above (`tutti/scrub.py`) and is the summary of categories and numbers, or
-   a research question naming the agent CLIs; never a prompt, a brief, code or failure output unless `online_code` is on.
-   Local-only (`online: false`) makes no online watch at all.
+   a research question naming the agent CLIs. With `online_code: true` the design review also gets the titles of the
+   failed and parked tasks (scrubbed); briefs, failure output and code always stay on local models. Local-only
+   (`online: false`) makes no online watch at all. `false` written in the config always wins over the dashboard's switch.
 
 `tutti ai-assist` shows the switches, the latest proposals, the tuned parameters and the gains; `tutti ai-assist tick`
 runs one round now. Telemetry records `aiassist.analyse` (counts), `aiassist.tune`, `aiassist.undo` (the key) and

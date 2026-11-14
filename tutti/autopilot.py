@@ -241,7 +241,9 @@ def _candidates(cfg, t, over='', machines=()):
     if is_local(cfg, last['step']) and not last['ok']:
         return [n for n in steps if not is_local(cfg, n)] + [n for n in locals_ if n != last['step']]
     at = steps.index(last['step']) if last['step'] in steps else -1
-    stay = last['ok'] or last.get('class') in ('flaky', 'environment')   # a stronger model does not fix a timeout or a full disk
+    # a stronger model does not fix a dropped connection or a full disk: the same step once more, then up the ladder
+    again = len(t['attempts']) > 1 and t['attempts'][-2].get('step') == last['step']
+    stay = last['ok'] or (last.get('class') in ('flaky', 'environment') and not again)
     start = max(min(at + (0 if stay else 1), len(steps) - 1), 0)
     # the steps above first; then the ones below, strongest first, so a retry never waits while only a weaker step has room
     # (agy's accounts sat idle behind a paced cursor and a yielding PC, 2026-11-14)
@@ -605,8 +607,8 @@ def attempt_of(cfg, task, report, now):
     ok = bool(report) and report['rc'] == 0
     if ok:
         sig, why = '', 'passed'
-    from . import aiassist  # flaky or environment retries on the same step; real escalates (a model refines it later)
-    return {'class': None if ok else aiassist.classify_quick(failing[-1]),
+    from . import aiassist  # with AI assist on: flaky or environment retries on the same step once; real escalates
+    return {'class': aiassist.attempt_class(cfg, ok, failing[-1]),
             'run': task['run'], 'step': task.get('step'), 'worker': task.get('worker'), 'at': now, 'ok': ok, 'started': task.get('started'),
             'signature': sig, 'why': why, 'stat': (report or {}).get('stat', ''), 'diff': (report or {}).get('diff'),
             'tail': '' if report and report['rc'] == 0 else failing[-1][-TAIL_CHARS:], 'gates': task.get('gates') if ok else None}

@@ -46,10 +46,14 @@ TUNABLE = {
     ('self_improve', 'every_hours'): (2, 24, 2),
 }
 MAX_AUTO_PER_DAY = 2
-FLAKY_RX = re.compile(r'timed? ?out|timeout|ECONNRESET|connection reset|temporar(y|ily) (failure|unavailable)|\b429\b|rate.?limit|'
-                      r'flaky|intermittent|ETIMEDOUT|EAI_AGAIN|503 Service|try again', re.I)
-ENV_RX = re.compile(r'command not found|not on PATH|ModuleNotFoundError|No module named|ENOSPC|No space left|permission denied|'
-                    r'Cannot connect to the Docker daemon|out of memory|OOM|killed|ENOENT.*(node|npm|python)|unable to access', re.I)
+# Narrow phrases from the network and the machine, never words a test name or an assertion uses; a rate limit is not
+# flaky: the ladder moves on to another account (the reviewer's finding on #77)
+FLAKY_RX = re.compile(r'\b(ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED)\b|Connection reset by peer|Temporary failure in name '
+                      r'resolution|503 Service Unavailable|Read timed out|net::ERR_[A-Z_]+')
+ENV_RX = re.compile(r': command not found\b|is not on PATH|^ModuleNotFoundError: |No space left on device|\bENOSPC\b|'
+                    r'Cannot connect to the Docker daemon|\bOut of memory\b|\bOOM[- ]kill|Killed\s*$', re.M)
+SWITCH_DOWN = 1800   # after no local model answered, decisions wait this long before asking again
+PER_ROUND = 5   # failures examined and tasks sharpened per round
 _running = threading.Lock()
 
 
@@ -73,9 +77,11 @@ def write_state(cfg, data):
 
 
 def switch(cfg, name):
-    """A switch: the state folder's (a config the dashboard cannot write) over the config's; every switch is off while
-    `enabled` is."""
+    """A switch: false in the config always wins (the admin's off); else the state folder's (a config the dashboard
+    cannot write) over the config's. Every switch is off while `enabled` is."""
     def one(k):
+        if (cfg.get('_ai_assist_file') or {}).get(k) is False:   # written in the file, not a default
+            return False
         v = (read_state(cfg).get('switches') or {}).get(k)
         return bool(settings(cfg)[k]) if v is None else bool(v)
     return one('enabled') and (name == 'enabled' or one(name))
@@ -144,8 +150,13 @@ def size_quick(task):
 
 
 def parse_class(answer):
-    m = re.search(r'\b(flaky|environment|real)\b', answer or '', re.I)
+    m = re.search(r'^\W*CLASS:\s*(flaky|environment|real)\b', answer or '', re.I | re.M)
     return m.group(1).lower() if m else None
+
+
+def attempt_class(cfg, ok, text):
+    """The class of a finished attempt for the autopilot: None when it passed or AI assist is off (the ladder as before)."""
+    return None if ok or not switch(cfg, 'enabled') else classify_quick(text)
 
 
 def parse_size(answer):
@@ -194,9 +205,14 @@ def sharpen_task(cfg, t, ask):
     if t['status'] != 'queued' or t.get('attempts') or t.get('criteria') is not None:
         return False
     answer, _who = ask(cfg, brief_prompt(t))
-    t['criteria'] = criteria_lines(re.sub(r'(?im)^\s*SIZE:.*$', '', answer or ''))
-    if not t.get('sized'):
-        t['size'] = parse_size(answer) or size_quick(t)
+    if answer is None:   # no model: the heuristic size now; criteria stay unasked and are asked again later
+        if t.get('sized'):
+            return False
+        t['size'], t['sized'] = size_quick(t), 'heuristic'
+        return True
+    t['criteria'] = criteria_lines(re.sub(r'(?im)^\s*SIZE:.*$', '', answer))
+    if t.get('sized') != 'ai':
+        t['size'] = parse_size(answer) or (t['size'] if t.get('sized') else size_quick(t))
         t['sized'] = 'ai' if parse_size(answer) else 'heuristic'
     return True
 
@@ -239,9 +255,8 @@ def parse_tunes(answer):
     out = []
     for line in (answer or '').splitlines():
         m = re.match(r'^\W*TUNE:\s*([a-z_.]+)\s*=\s*(-?\d+(?:\.\d+)?)\s*(?:\|\|\s*why:\s*(.*))?$', line.strip(), re.I)
-        if m and tuple(m.group(1).split('.')) in TUNABLE:
-            v = float(m.group(2))
-            out.append({'path': tuple(m.group(1).split('.')), 'value': int(v) if v.is_integer() else v,
+        if m and tuple(m.group(1).split('.')) in TUNABLE and float(m.group(2)).is_integer():   # every tunable key is a whole number
+            out.append({'path': tuple(m.group(1).split('.')), 'value': int(float(m.group(2))),
                         'why': (m.group(3) or 'proposed by the self-analysis').strip()[:200]})
     return out
 
@@ -306,35 +321,58 @@ def auto_room(log, now):
     return MAX_AUTO_PER_DAY - sum(1 for e in log if e.get('by') == 'auto' and now - e['at'] < DAY)
 
 
+def apply_tune(cfg, st, t, summary, now, by, store):
+    """Writes one tune into the config (with its backup) and logs it with its old value for undo. Returns an event line."""
+    from . import settings as settings_mod
+    log, key, old = st.setdefault('tuned', []), '.'.join(t['path']), current(cfg, t['path'])
+    try:
+        store(cfg, [(list(t['path']), t['value'])])
+    except settings_mod.SettingsError as e:
+        return f'ai-assist: {key} not tuned: {e}'
+    log.append({'id': f'u{len(log) + 1}', 'at': now, 'path': key, 'old': old, 'new': t['value'], 'why': t['why'], 'by': by,
+                'metric': t.get('metric'), 'before': metric(summary, t.get('metric'))})
+    telemetry.record('feature', 'aiassist.tune', key=key, by=by)
+    return f'ai-assist: {key} {old} -> {t["value"]} ({t["why"]}); undo on the dashboard'
+
+
+def propose(cfg, st, t, now):
+    key = '.'.join(t['path'])
+    props = [p for p in st.get('tune_proposals') or [] if now - p['at'] < 7 * DAY and p['path'] != key]   # stale ones go
+    st['tune_proposals'] = props + [{'path': key, 'value': t['value'], 'old': current(cfg, t['path']), 'why': t['why'], 'at': now,
+                                     'metric': t.get('metric')}]
+
+
 def tune(cfg, st, tunes, summary, now, store=None):
-    """Applies the small tunes (at most MAX_AUTO_PER_DAY a day, one per key a day) and keeps the larger ones as proposals.
-    Returns event lines."""
+    """Applies the small tunes (at most MAX_AUTO_PER_DAY a day, one per key a day; one past the day's room waits for the
+    next round) and keeps the larger ones as proposals the admin applies or dismisses. Returns event lines."""
     if not switch(cfg, 'auto_tune'):
         return []
     from . import settings as settings_mod
     store = store or settings_mod.store
-    log, events = st.setdefault('tuned', []), []
+    events = []
     for t in tunes:
         verdict, key = judge(cfg, t), '.'.join(t['path'])
-        recent = any(e['path'] == key and now - e['at'] < DAY for e in log)
-        if verdict == 'drop' or recent:
+        if verdict == 'drop' or any(e['path'] == key and now - e['at'] < DAY for e in st.get('tuned') or []):
             continue
-        if verdict == 'auto' and auto_room(log, now) > 0 and settings_mod.writable(cfg):
-            old = current(cfg, t['path'])
-            try:
-                store(cfg, [(list(t['path']), t['value'])])
-            except settings_mod.SettingsError as e:
-                events.append(f'ai-assist: {key} not tuned: {e}')
-                continue
-            log.append({'id': f'u{len(log) + 1}', 'at': now, 'path': key, 'old': old, 'new': t['value'], 'why': t['why'],
-                        'by': 'auto', 'metric': t.get('metric'), 'before': metric(summary, t.get('metric'))})
-            telemetry.record('feature', 'aiassist.tune', key=key, by='auto')
-            events.append(f'ai-assist: {key} {old} -> {t["value"]} ({t["why"]}); undo on the dashboard')
-        else:
-            props = st.setdefault('tune_proposals', [])
-            if not any(p['path'] == key and p['value'] == t['value'] for p in props):
-                props.append({'path': key, 'value': t['value'], 'old': current(cfg, t['path']), 'why': t['why'], 'at': now})
+        if verdict == 'propose':
+            propose(cfg, st, t, now)
+        elif auto_room(st.get('tuned') or [], now) > 0 and settings_mod.writable(cfg):
+            events.append(apply_tune(cfg, st, t, summary, now, 'auto', store))
     return events
+
+
+def decide(cfg, path, apply, store=None, now=None):
+    """The admin's answer to a proposed tune: apply it (logged, undoable) or dismiss it. Returns (ok, why)."""
+    from . import settings as settings_mod
+    st, now = read_state(cfg), now or time.time()
+    p = next((x for x in st.get('tune_proposals') or [] if x['path'] == path), None)
+    if not p:
+        return False, f'no proposed change to {path}: reload the page'
+    st['tune_proposals'] = [x for x in st['tune_proposals'] if x['path'] != path]
+    line = apply_tune(cfg, st, {**p, 'path': tuple(path.split('.'))}, cached_summary(cfg) or {}, now, 'admin',
+                      store or settings_mod.store) if apply else ''
+    write_state(cfg, st)
+    return (False, line) if 'not tuned' in line else (True, line)
 
 
 def undo(cfg, tune_id, store=None):
@@ -377,12 +415,21 @@ def research_text(cfg):
             'that shows it>. Write no TUTTI-TASK line when nothing is worth it.')
 
 
+def failing_titles(cfg):
+    """The titles of failed and parked tasks: text the owner wrote, sent online only with online_code."""
+    tasks = backlog.load(cfg)['tasks']
+    return [t['title'][:160] for t in tasks if t['status'] == 'needs-person'
+            or (t.get('attempts') and not t['attempts'][-1].get('ok'))][-10:]
+
+
 def design_text(cfg, summary):
     return ('Design review for Tutti, a tool that paces quotas of AI coding agents. Its telemetry of the last 7 days '
             '(categories and numbers only) follows. Name the two or three changes to its design that would cut failures, '
             'stalls, wasted quota or idle capacity the most, each with the evidence. End with one line per change, exactly: '
             'TUTTI-TASK: <the change, one line> || check: <the regression test>.\n\n'
-            + online_text(cfg, json.dumps(summary, sort_keys=True), quotes=False))
+            + online_text(cfg, json.dumps(summary, sort_keys=True), quotes=False)
+            + (('\n\nThe tasks that failed or were parked (titles):\n' + online_text(cfg, '\n'.join(failing_titles(cfg))))
+               if may_send_online(cfg, 'code') else ''))
 
 
 def watches(cfg, sc, summary_fn=None):
@@ -422,12 +469,15 @@ def feed(cfg, requests, now=None):
     scouts'). Returns event lines."""
     from . import selfimprove, triage
     events, now = [], now or time.time()
+    if not may_send_online(cfg, 'telemetry'):   # answers after online AI was turned off are dropped
+        return [f'{r["id"]} {r["watch"]}: not read, online AI is off' for r in requests]
     for r in requests:
         items = [{'sig': sig_of(it['title']), 'title': it['title'], 'why': f'online research ({r["watch"]})',
                   'notes': [f'From {r["watch"]} ({r.get("url") or r["id"]}).', 'First add a test that shows the change; then make it.']
                   + ([f'Suggested check (not run by Tutti): {it["check"][:200]}'] if it['check'] else [])}
                  for it in triage.parse(r.get('answer'))]
-        added = selfimprove.add_candidates(cfg, items, 'insight', now) if items else 0
+        # outside text (a scout's reply): candidates the admin accepts (tutti backlog accept), never queued by itself
+        added = selfimprove.add_candidates(cfg, items, 'insight', now, accept=False) if items else 0
         remember(cfg, items, f'online {r["watch"]}', now)
         events.append(f'{r["id"]} {r["watch"]}: {added} task(s) for the backlog')
     return events
@@ -458,13 +508,40 @@ def self_analysis(cfg, summary, now, ask):
     return [f'ai-assist: {who} proposed {len(items)} improvement(s), {added} new task(s)'], parse_tunes(answer), ''
 
 
-def decisions(cfg, ask):
-    """Failed attempts examined, queued tasks sharpened; the regex and heuristic fallbacks when no model answers."""
-    changed = 0
+def wants_model(t):
+    last = (t.get('attempts') or [None])[-1]
+    failed = bool(last) and not last.get('ok') and last.get('class_by') != 'ai' and bool(last.get('tail'))
+    fresh = t['status'] == 'queued' and not t.get('attempts') and t.get('criteria') is None
+    return failed or fresh
+
+
+def decisions(cfg, ask, now=None):
+    """Up to PER_ROUND failed attempts examined and queued tasks sharpened. The model is asked outside the backlog's lock
+    (copies), the results applied under it; after a round where no model answered, the next waits SWITCH_DOWN."""
+    now, st = now or time.time(), read_state(cfg)
+    if now < float(st.get('models_down_until') or 0):
+        return []
     with backlog.locked(cfg) as data:
-        for t in data['tasks'][-200:]:
-            changed += int(examine_attempt(cfg, t, ask)) + int(sharpen_task(cfg, t, ask))
-    return [f'ai-assist: {changed} task(s) sharpened or failures examined'] if changed else []
+        work = [json.loads(json.dumps(t)) for t in data['tasks'][-200:] if wants_model(t)][:PER_ROUND]
+    answered, down = [], [False]
+
+    def asking(c, prompt):
+        answer, who = ask(c, prompt)
+        down[0] = down[0] or answer is None
+        return answer, who
+    for t in work:
+        if examine_attempt(cfg, t, asking) | sharpen_task(cfg, t, asking):
+            answered.append(t)
+    with backlog.locked(cfg) as data:
+        by_id = {t['id']: t for t in answered}
+        for t in data['tasks']:
+            if t['id'] in by_id and len(t.get('attempts') or []) == len(by_id[t['id']].get('attempts') or []):
+                t.update({k: by_id[t['id']][k] for k in ('attempts', 'criteria', 'size', 'sized') if k in by_id[t['id']]})
+    if down[0]:
+        st = read_state(cfg)
+        st['models_down_until'] = now + SWITCH_DOWN
+        write_state(cfg, st)
+    return [f'ai-assist: {len(answered)} task(s) sharpened or failures examined'] if answered else []
 
 
 def tick(cfg, now=None, ask=None, store=None):
@@ -473,7 +550,7 @@ def tick(cfg, now=None, ask=None, store=None):
         return []
     now, ask = now or time.time(), ask or ask_local
     st = read_state(cfg)
-    events = decisions(cfg, ask)
+    events = decisions(cfg, ask, now)
     if now - float(st.get('last_round') or 0) < float(settings(cfg)['every_hours']) * 3600:
         return events
     summary = insights.summary(telemetry.read_events(telemetry.folder_of(config.state_dir(cfg))), 7)
@@ -532,6 +609,11 @@ def save(collector, raw):
         data = None
     if not isinstance(data, dict):
         return 400, {'error': 'send JSON such as {"switch": "enabled", "on": true} or {"undo": "u1"}'}
+    if 'proposal' in data:
+        ok, why = decide(collector.cfg, str(data['proposal']), data.get('apply') is True)
+        if ok and getattr(collector, 'reload', None):
+            collector.reload()
+        return (200, {'ok': True}) if ok else (409, {'error': why})
     if 'undo' in data:
         ok, why = undo(collector.cfg, str(data['undo']))
         reload = getattr(collector, 'reload', None)

@@ -111,15 +111,31 @@ class LocalOnly(Base):
         self.assertFalse(scouts.due(sc, [], 'tutti-ai-design', w, None, NOW))
         self.assertTrue(scouts.due(sc, [], 'tutti-ai-design', w, {'verdict': 'behind'}, NOW))
 
-    def test_an_answered_research_watch_becomes_tasks_in_the_home_project(self):
-        cfg = self.cfg(enabled=True, online=True)
-        data = {'requests': [{'id': 'q1', 'kind': 'watch', 'watch': 'tutti-ai-release-notes', 'status': 'answered',
+    def answer(self):
+        return {'requests': [{'id': 'q1', 'kind': 'watch', 'watch': 'tutti-ai-release-notes', 'status': 'answered',
                               'answer': 'notes\nTUTTI-TASK: Read the new usage API || check: a test'}]}
+
+    def test_an_answered_research_watch_becomes_candidates_the_admin_accepts(self):
+        cfg = self.cfg(enabled=True, online=True)
+        data = self.answer()
         events = aiassist.feed(cfg, aiassist.answered(data), NOW)
         self.assertIn('1 task(s)', events[0])
         self.assertEqual(aiassist.answered(data), [])   # fed once
         t = backlog.load(cfg)['tasks'][0]
-        self.assertEqual((t['repo'], t['source']), ('tutti', 'insight'))
+        self.assertEqual((t['repo'], t['source'], t['status']), ('tutti', 'insight', 'candidate'))   # outside text: never queued
+
+    def test_an_answer_after_online_ai_was_turned_off_is_dropped(self):
+        cfg = self.cfg(enabled=True, online=False)
+        self.assertIn('online AI is off', aiassist.feed(cfg, aiassist.answered(self.answer()), NOW)[0])
+        self.assertEqual(backlog.load(cfg)['tasks'], [])
+
+    def test_task_titles_go_online_only_with_online_code(self):
+        for code, seen in ((False, False), (True, True)):
+            cfg = self.cfg(enabled=True, online=True, online_code=code)
+            with backlog.locked(cfg) as data:
+                t, _ = backlog.add(data, backlog.new_task('tutti', 'Secret plan for the parser'))
+                t['status'] = 'needs-person'
+            self.assertEqual('Secret plan' in aiassist.design_text(cfg, SUMMARY), seen, code)
 
 
 class Fallbacks(Base):
@@ -142,20 +158,48 @@ class Fallbacks(Base):
         self.assertEqual(aiassist.ask_local(cfg, 'p', available=lambda w: (True, ''), generate=gen), ('ok', 'pc'))
         self.assertEqual(calls, ['n', 'm'])
 
+    def test_a_config_false_beats_the_dashboards_switch(self):
+        cfg = self.cfg(enabled=False)
+        aiassist.set_state_switch(cfg, 'enabled', True)
+        self.assertFalse(aiassist.switch(cfg, 'enabled'))
+        cfg = self.cfg()
+        aiassist.set_state_switch(cfg, 'enabled', True)
+        self.assertTrue(aiassist.switch(cfg, 'enabled'))   # no key in the file: the dashboard's switch counts
+
+    def test_a_round_with_no_model_waits_before_asking_again(self):
+        cfg = self.cfg(enabled=True)
+        with backlog.locked(cfg) as data:
+            backlog.add(data, backlog.new_task('tutti', 'Fix the probe'))
+        ask = fake_ask(None)
+        self.assertEqual(aiassist.decisions(cfg, ask, NOW), ['ai-assist: 1 task(s) sharpened or failures examined'])
+        self.assertEqual(aiassist.decisions(cfg, ask, NOW + 60), [])
+        self.assertEqual(len(ask.prompts), 1)
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['sized'], 'heuristic')
+
     def test_off_never_asks_a_model(self):
         cfg = self.cfg(enabled=True, local=False)
         self.assertEqual(aiassist.ask_local(cfg, 'p', available=lambda w: 1 / 0), (None, 'local AI is off'))
 
     def test_quick_classes(self):
-        self.assertEqual(aiassist.classify_quick('Error: connect ETIMEDOUT'), 'flaky')
+        self.assertEqual(aiassist.classify_quick('Error: connect ETIMEDOUT 10.0.0.1:443'), 'flaky')
         self.assertEqual(aiassist.classify_quick('bash: ruff: command not found'), 'environment')
-        self.assertEqual(aiassist.classify_quick('AssertionError: 3 != 4'), 'real')
+        self.assertEqual(aiassist.classify_quick('OSError: [Errno 28] No space left on device'), 'environment')
+        for real in ('AssertionError: 3 != 4', "AssertionError: 'room' != 'zoom'", 'test_retry_after_timeout FAILED',
+                     'HTTP 429: rate limit reached', 'bloom filter killed the test'):
+            self.assertEqual(aiassist.classify_quick(real), 'real', real)
+
+    def test_the_class_comes_from_the_class_line_only(self):
+        self.assertEqual(aiassist.parse_class('CLASS: flaky\nSUMMARY: a real bug'), 'flaky')
+        self.assertIsNone(aiassist.parse_class('SUMMARY: a real bug in the planner'))
 
     def test_a_down_model_still_sizes_the_task_by_heuristic(self):
         cfg = self.cfg(enabled=True)
         t = {**backlog.new_task('tutti', 'Rework the planner, the pacing and the dashboard', ['a', 'b', 'c', 'd', 'e']), 'id': 't1'}
         self.assertTrue(aiassist.sharpen_task(cfg, t, fake_ask(None)))
-        self.assertEqual((t['size'], t['sized'], t['criteria']), ('L', 'heuristic', []))
+        self.assertEqual((t['size'], t['sized'], t.get('criteria')), ('L', 'heuristic', None))   # criteria asked again later
+        self.assertFalse(aiassist.sharpen_task(cfg, t, fake_ask(None)))
+        aiassist.sharpen_task(cfg, t, fake_ask('- it works\nSIZE: M'))
+        self.assertEqual((t['size'], t['sized'], t['criteria']), ('M', 'ai', ['it works']))
 
     def test_a_model_writes_criteria_and_a_size(self):
         cfg = self.cfg(enabled=True)
@@ -178,13 +222,29 @@ class Fallbacks(Base):
 
 
 class Escalation(Base):
-    def test_a_flaky_or_environment_failure_retries_on_the_same_step(self):
-        cfg = config.normalise({**self.raw(), 'workers': {'a': {'kind': 'cli', 'command': ['a', '{prompt}']}},
-                                'accounts': {'one': {'worker': 'a'}, 'two': {'worker': 'a'}},
-                                'autopilot': {'accounts': ['one'], 'ladder': ['one', 'two'], 'repos': {'app': {'path': '.'}}}})
-        for cls, first in (('flaky', 'one'), ('environment', 'one'), ('real', 'two')):
-            t = {'repo': 'app', 'attempts': [{'step': 'one', 'ok': False, 'class': cls}]}
-            self.assertEqual(autopilot.candidates(cfg, t)[0], first, cls)
+    def ladder(self, **ai):
+        raw = {**self.raw(**ai), 'workers': {'a': {'kind': 'cli', 'command': ['a', '{prompt}']}},
+               'accounts': {'one': {'worker': 'a'}, 'two': {'worker': 'a'}},
+               'autopilot': {'accounts': ['one'], 'ladder': ['one', 'two'], 'repos': {'app': {'path': '.'}}}}
+        cfg = config.normalise(raw)
+        cfg['_path'] = os.path.join(self.tmp.name, 'tutti.config.yaml')
+        return cfg
+
+    def next_step(self, cfg, outputs):
+        attempts = [{'step': 'one', 'ok': False, 'class': aiassist.attempt_class(cfg, False, out)} for out in outputs]
+        return autopilot.candidates(cfg, {'repo': 'app', 'attempts': attempts})[0]
+
+    def test_with_ai_assist_on_a_flaky_failure_retries_the_same_step_once_then_escalates(self):
+        cfg = self.ladder(enabled=True)
+        self.assertEqual(self.next_step(cfg, ['curl: (56) Connection reset by peer']), 'one')
+        self.assertEqual(self.next_step(cfg, ['bash: npx: command not found']), 'one')
+        self.assertEqual(self.next_step(cfg, ['AssertionError: 3 != 4']), 'two')
+        self.assertEqual(self.next_step(cfg, ['Connection reset by peer', 'Connection reset by peer']), 'two')   # once only
+
+    def test_with_ai_assist_off_the_ladder_is_unchanged(self):
+        cfg = self.ladder()
+        self.assertIsNone(aiassist.attempt_class(cfg, False, 'Connection reset by peer'))
+        self.assertEqual(self.next_step(cfg, ['Connection reset by peer']), 'two')
 
 
 class Analysis(Base):
@@ -210,7 +270,8 @@ class Analysis(Base):
 
     def test_parsers(self):
         self.assertEqual(len(aiassist.parse_proposals('PROPOSAL: a\nPROPOSAL: b\nPROPOSAL: c', 2)), 2)
-        tunes = aiassist.parse_tunes('TUNE: dashboard.stall_minutes = 15 || why: stalls\nTUNE: runner.cpus = 99')
+        tunes = aiassist.parse_tunes('TUNE: dashboard.stall_minutes = 15 || why: stalls\nTUNE: runner.cpus = 99\n'
+                                     'TUNE: autopilot.no_progress = 2.5')
         self.assertEqual(tunes, [{'path': ('dashboard', 'stall_minutes'), 'value': 15, 'why': 'stalls'}])
 
 
@@ -239,6 +300,22 @@ class AutoTune(Base):
             self.assertEqual(yaml.safe_load(f)['autopilot']['no_progress'], 3)
         self.assertFalse(aiassist.undo(cfg, 'u1', store)[0])   # once
 
+    def test_the_admin_applies_or_dismisses_a_larger_change(self):
+        cfg = self.cfg(enabled=True)
+        st = {}
+        aiassist.tune(cfg, st, [{'path': ('dashboard', 'probe_seconds'), 'value': 90, 'why': 'slow probes'}], SUMMARY, NOW, self.store())
+        aiassist.write_state(cfg, st)
+        self.assertFalse(aiassist.decide(cfg, 'dashboard.nope', True)[0])
+        self.assertTrue(aiassist.decide(cfg, 'dashboard.probe_seconds', True, self.store(), NOW)[0])
+        with open(cfg['_path'], encoding='utf8') as f:
+            self.assertEqual(yaml.safe_load(f)['dashboard']['probe_seconds'], 90)
+        st = aiassist.read_state(cfg)
+        self.assertEqual((st['tune_proposals'], st['tuned'][-1]['by']), ([], 'admin'))
+        st['tune_proposals'] = [{'path': 'dashboard.stall_minutes', 'value': 40, 'old': 10, 'why': 'x', 'at': NOW}]
+        aiassist.write_state(cfg, st)
+        self.assertTrue(aiassist.decide(cfg, 'dashboard.stall_minutes', False)[0])
+        self.assertEqual(aiassist.read_state(cfg)['tune_proposals'], [])
+
     def test_at_most_two_a_day_and_never_out_of_bounds(self):
         cfg = self.cfg(enabled=True)
         self.assertEqual(aiassist.judge(cfg, {'path': ('autopilot', 'no_progress'), 'value': 1}), 'propose')
@@ -247,7 +324,7 @@ class AutoTune(Base):
         store = self.store()
         aiassist.tune(cfg, st, aiassist.rule_tunes(cfg, SUMMARY), SUMMARY, NOW, store)
         self.assertEqual(store.calls, [])
-        self.assertEqual(len(st['tune_proposals']), 2)
+        self.assertNotIn('tune_proposals', st)   # small changes past the day's room wait for the next round
 
     def test_auto_tune_off_changes_nothing(self):
         cfg = self.cfg(enabled=True, auto_tune=False)

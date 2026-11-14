@@ -33,6 +33,8 @@ run on the machines. There is no daemon and no server; state is files.
 | `tutti/waiting.py` | Waits on a pid, a file or a log line, always under a timeout. |
 | `tutti/files.py` | Files for other machines, the pure part: the secret check, item manifests (SHA-256), the cache's least-recently-used eviction, progress lines. |
 | `tutti/transfer.py` | `tutti files` and `--input`: copies items over the machine's transport (rsync, else a resumable stream), verifies them with `sha256sum` there, records them in the machine's cache and keeps it within its budget. |
+| `tutti/conduct.py` | `tutti conduct`, `tutti main`, `tutti handoff`: the main agent's choice and order, the instruction file, the `tutti` shim on its PATH, the watch (panic, limit, switch), the handoff note, the local model's command loop. |
+| `tutti/projects.py` | The dashboard's projects: a folder's repository from its `.git` files, jobs tagged by project, a read-only look at every machine's processes in git repositories and its GPU, a WSL machine's Windows side over plain ssh. |
 | `tutti/state.py` | The dashboard's state as plain data: accounts and pacing, machines, workers, jobs, the summary. Probes are passed in. |
 | `tutti/delegate.py` | `tutti run --repo` and `tutti runs`: the worktree, the headless worker, the diff, the checks (never stopping at the first failure), DENIED tool calls, the coverage note and the report. |
 | `tutti/review.py` | `tutti pr review`: asking Copilot and CodeRabbit through `gh`, reading their answers and limits, the local fallback review posted as a comment. `gh` is passed in for tests. |

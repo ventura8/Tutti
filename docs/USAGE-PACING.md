@@ -85,12 +85,17 @@ spent by `now` is `(now - start) / (target - start)`, capped at 100 %. Against a
 
 | Verdict | When | Do |
 | --- | --- | --- |
-| `on pace` | within 5 points of the line | keep going |
-| `behind` | more than 5 points under | start more parallel work from the backlog |
-| `ahead` | more than 5 points over | shift work to cheaper workers and local models |
+| `on pace` | within the band around the line | keep going |
+| `behind` | under the band | start more parallel work from the backlog |
+| `ahead` | over the band | shift work to cheaper workers and local models |
 | `spent` | the quota is used up | nothing new on this account until the reset |
 | `late` | past the target with quota left | start parallel work now; the rest is lost at the reset |
 | `no reading` | nothing logged in this window | read the source and log it |
+
+The band is a quarter of the line, at least 1 point and at most 5 (0.1.9): early in a week 10 % used against a line of
+6 % is `ahead` (the band is ±1.5), where a fixed ±5 called it `on pace`. Each row of `tutti usage` ends with the math,
+`[10 % vs 6.6 % by now; the on-pace band is ±1.6]`. An account shared with a peer session (`share`) is judged against the
+whole quota's line, since a reading counts every session's use; the row says so.
 
 A reading from an earlier window is ignored: it says nothing about this one.
 

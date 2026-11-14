@@ -482,7 +482,7 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
 /* the main agent's switch */
 .switch { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .switch label { flex-basis: 100%; font-size: 0.8125rem; color: var(--on-surface-2); }
-.switch select {
+.pick, .switch select {
     flex: 1 1 12rem; min-height: 40px; padding: 0 10px; font: inherit; color: var(--on-surface);
     background: var(--surface-2); border: 1px solid var(--outline-2); border-radius: var(--r-s);
 }

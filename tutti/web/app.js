@@ -7,7 +7,7 @@ const VERDICT_TONE = { 'on pace': 'ok', ahead: 'warn', behind: 'warn', late: 'ba
 const MACHINE_TONE = { free: 'ok', loaded: 'warn', busy: 'accent', paused: 'warn', offline: 'bad' };
 const JOB_TONE = { running: 'accent', stalled: 'warn', failed: 'bad', done: 'ok', ended: 'idle' };
 const storedOpen = new Set();   // machines whose stored-files list is open: kept across re-renders
-const ui = { filter: 'all', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0, editing: new Map() };
+const ui = { filter: 'all', project: '', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0, editing: new Map() };
 const TOKEN = document.querySelector('meta[name="tutti-token"]')?.content || '';
 const RESET_FROM = { reading: 'from the latest reading', estimate: 'an estimate from the config: add a reading to set it', config: 'from the config' };
 
@@ -390,6 +390,43 @@ function renderWorkers(s) {
     $('agents').replaceChildren(...w.agents.map(agent));
 }
 
+// ---- projects
+
+function machineLine(m) {
+    const parts = [`${m.name}: ${m.processes} process${m.processes === 1 ? '' : 'es'}`];
+    if (m.agents) parts.push(`${m.agents} agent${m.agents === 1 ? '' : 's'}`);
+    if (m.programs?.length) parts.push(m.programs.slice(0, 5).join(', '));
+    if (m.yield_flag) parts.push('its yield flag is up (the machine is this project\'s)');
+    if (m.gpu) parts.push(`GPU ${m.gpu.util_pct} % · ${Math.round(m.gpu.mem_used_mib / 1024)}/${Math.round(m.gpu.mem_total_mib / 1024)} GB`);
+    return parts.join(' · ');
+}
+
+function project(p) {
+    const busy = p.running + p.machines.reduce((n, m) => n + m.processes, 0);
+    const repos = p.repos.map((r) => `${r.machine}: ${r.path}${r.branch ? ` (${r.branch})` : ''}`);
+    const counts = `${p.running} running job${p.running === 1 ? '' : 's'} · ${p.agents} agent${p.agents === 1 ? '' : 's'} · ${p.runs} run${p.runs === 1 ? '' : 's'}`
+        + (p.conductor ? ` · conducted by ${p.conductor}` : '');
+    return el('li', { class: 'row' },
+        el('div', { class: 'row__name' }, p.name, el('span', { class: 'row__kind', text: counts })),
+        chip(busy ? 'active' : 'idle', busy ? 'accent' : 'idle'),
+        el('p', { class: 'row__note', text: p.last_activity ? `Last activity ${relative(p.last_activity)}` : 'No activity seen' }),
+        ...repos.map((r) => el('p', { class: 'row__note', text: r })),
+        ...p.machines.map((m) => el('p', { class: 'row__note', text: machineLine(m) })),
+        el('div', { class: 'row__stats' }, el('button', {
+            class: 'btn btn--tonal', type: 'button', text: 'Show its jobs',
+            onclick: () => { ui.project = p.name; render(); $('jobs-h').scrollIntoView({ behavior: 'smooth' }); },
+        })));
+}
+
+function renderProjects(s) {
+    const ps = s.projects;
+    if (!ps) return;
+    const errors = Object.entries(ps.errors || {}).map(([m, e]) => `${m}: ${e}`);
+    $('projects-meta').textContent = errors.length ? `Not looked at: ${errors.join('; ')}` : `${ps.items.length} seen on your machines`;
+    $('projects').replaceChildren(...(ps.items.length ? ps.items.map(project)
+        : [el('li', {}, empty('No projects seen yet', 'Jobs and processes inside a git repository show their project here.'))]));
+}
+
 // ---- the main agent
 
 function mainRun(m) {
@@ -478,8 +515,19 @@ function job(j) {
     return d;
 }
 
+function renderProjectPick(s) {
+    const pick = $('job-project');
+    if (document.activeElement === pick) return;
+    const names = (s.projects?.items || []).map((p) => p.name);
+    if (ui.project && ui.project !== '-' && !names.includes(ui.project)) names.push(ui.project);
+    pick.replaceChildren(el('option', { value: '', text: 'All projects', selected: !ui.project }),
+        ...names.map((n) => el('option', { value: n, text: n, selected: ui.project === n })),
+        el('option', { value: '-', text: 'No project', selected: ui.project === '-' }));
+}
+
 function renderJobs(s) {
-    const items = s.jobs.items;
+    renderProjectPick(s);
+    const items = s.jobs.items.filter((j) => !ui.project || (ui.project === '-' ? !j.project : j.project === ui.project));
     const count = (f) => (f === 'all' ? items.length : items.filter((j) => j.status === f || (f === 'done' && j.status === 'ended')).length);
     const filterFocus = document.activeElement?.closest?.('#job-filter') ? document.activeElement.dataset.f : null;
     $('job-filter-buttons').replaceChildren(...FILTERS.map(([f, label], i) => el('button', {
@@ -521,6 +569,7 @@ function render() {
     $('config-path').title = s.config;
     $('foot-version').textContent = `Tutti ${s.version}`;
     renderTiles(s);
+    renderProjects(s);
     renderMain(s);
     renderUsage(s, now);
     renderMachines(s);
@@ -684,6 +733,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('refresh').addEventListener('click', refresh);
     $('refresh-readings').addEventListener('click', refreshReadings);
     $('main-form').addEventListener('submit', switchMain);
+    $('job-project').addEventListener('change', (e) => { ui.project = e.target.value; render(); });
     document.addEventListener('keydown', keys);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
     setInterval(live, 1000);

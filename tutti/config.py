@@ -214,7 +214,28 @@ def validate(cfg):
              if n not in cfg['workers']]
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
-    return errs + _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg) + _main_errors(cfg)
+    errs += _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
+    return errs + _main_errors(cfg) + _projects_errors(cfg)
+
+
+def _projects_errors(cfg):
+    ps = cfg.get('projects') or {}
+    if not isinstance(ps, dict):
+        return [f'projects is {ps!r}: write it as a mapping, e.g. projects: {{my-app: {{match: my-app}}}}']
+    errs = []
+    for name, p in ps.items():
+        p = p or {}
+        if not isinstance(p, dict):
+            errs.append(f'projects.{name} is {p!r}: a mapping with match:, machines:, containers: or windows:')
+            continue
+        if 'match' in p:
+            errs += _regex_errors(f'projects.{name}.match', p['match'])
+        errs += [f'projects.{name}.machines names "{m}", which is not under machines:' for m in p.get('machines') or []
+                 if m not in cfg['machines']]
+        win = p.get('windows') or {}
+        errs += [f'projects.{name}.windows names "{m}", which is not a wsl machine under machines:' for m in win
+                 if (cfg['machines'].get(m) or {}).get('transport') != 'wsl']
+    return errs
 
 
 def _main_errors(cfg):

@@ -2,6 +2,36 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.9 (2026-11-14)
+
+Any agent can be the main agent; the dashboard shows the projects on every machine.
+
+### Added
+
+- `tutti conduct "<goal>" [--main <agent>] [--fallback a,b] [--dir] [--show]`: a CLI worker (Cursor, Antigravity, the
+  Copilot CLI, Claude Code) or a local model conducts. It gets a generated instruction file (Tutti's commands, the
+  project's `AGENTS.md`/`CLAUDE.md`, the safety limits, the handoff rules) and a `tutti` on its PATH; agy's permission
+  list gets `command(tutti)` by itself. A local model runs in Tutti's loop: it answers `RUN: tutti ...` lines, only
+  Tutti's own commands run (no shell; `ship` only as a dry run), until `DONE:` or `BLOCKED:`.
+- Automatic fallback: every `main.check_seconds` the run checks the readings; when all of the agent's accounts are in
+  panic or spent (or a limit message ends it, or the owner switches), it is stopped and the next agent in
+  `main.fallback` starts with a written handoff note: the goal, who stopped and why, what is done, the tree's changes
+  and what comes next. `tutti handoff done|next "<text>"` keeps the run's progress.
+- `tutti main [<agent>]`, and the dashboard's **Main agent** panel with a switch (`POST /api/main`).
+- While a main agent conducts, `tutti ship` runs only with `--dry-run` and without `--allow-protected`.
+- `main:` in the config: `agent`, `fallback`, `commands` (a command per agent when it conducts), `ask_first`,
+  `check_seconds`, `rounds`, `command_timeout`.
+- The dashboard's **Projects** panel: each project's running jobs, agents and runs, repositories and branches per
+  machine, processes and programs per machine (read-only look at every machine, including a WSL machine's Windows side
+  over plain ssh), yield flags, GPU use and last activity; the Jobs panel filters by project. `projects:` in the config
+  names projects (`match`, `machines`, `containers`, `windows`).
+
+### Fixed
+
+- Pacing: the on-pace band is a quarter of the line (1 to 5 points) instead of a fixed 5 points, so 10 % used against
+  6 % by now is `ahead`, not `on pace`; each `tutti usage` row shows the math and says a shared account is judged on the
+  whole quota.
+
 ## 0.1.8 (2026-11-14)
 
 Usable by an orchestrator end to end: hand off, wait, test, review, read usage.

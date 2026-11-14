@@ -431,6 +431,7 @@ def run_local(cfg, agent, text, run, watch, out=None, reply_fn=local_reply):
             return 1, kept
         reply = reply_fn(cfg['workers'][agent], messages)
         out.write(reply.rstrip() + '\n')
+        out.flush()
         kept = [*kept, *reply.splitlines()][-workers.KEEP_LINES:]
         answer, final = local_step(cfg, agent, reply, run)
         if final:

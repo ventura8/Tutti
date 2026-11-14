@@ -6,13 +6,16 @@ rules that keep them from stepping on each other.
 Tutti is a small toolkit for AI-assisted work on a software project when you have more than one model subscription and
 more than one computer. It grew out of one project's working day and keeps only what proved useful.
 
-> **Status: v0.1.8.** Linux only. The npm package `tutti-agents` is marked `private` until the first
+> **Status: v0.1.9.** Linux only. The npm package `tutti-agents` is marked `private` until the first
 > publish. **Licence:** MIT (see `LICENSE`).
 
 ## The ideas
 
 - **The orchestrator.** One capable agent (for example Claude Code) writes specs, briefs workers, reviews diffs and
   ships. It spends its own tokens on judgement, not on bulk.
+- **Any agent can conduct.** `tutti conduct --main <agent> "<goal>"` makes Cursor, Antigravity, the Copilot CLI or a
+  local model the orchestrator, with Tutti's commands as its tools; when its quota is in panic another takes over with a
+  written handoff note. See [docs/CONDUCT.md](docs/CONDUCT.md).
 - **Workers.** Bounded tasks go to cheaper hands: other vendors' CLI agents (Claude `claude`, Cursor `cursor-agent`,
   Google Antigravity `agy`) and local models served by Ollama. Every worker gets its own worktree and a precise brief,
   and never commits. The rule is **review the diff, then gate it**. See [docs/WORKERS.md](docs/WORKERS.md).
@@ -74,6 +77,9 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | `tutti usage` | Every account against its pace. `tutti usage log <account> <percent> [--resets <time>]` records a reading; `tutti usage read` runs the automatic readers now (Antigravity `agy /usage`, the Cursor plan, limit messages in job logs). See [docs/USAGE-PACING.md](docs/USAGE-PACING.md). |
 | `tutti workers` | The workers and whether each is ready. |
 | `tutti run <worker> "<task>" [files]` | Briefs a CLI worker in a worktree (`--dir`); `--show` prints the brief; `--input <path> --on <machine>` copies inputs to that machine first and tells the worker where they are. `tutti run auto` picks the worker from the latest readings: never an account in panic or spent, first one whose quota would be lost at the reset (`routing.workers`, `accounts.<name>.worker` and `args`). A limit message in its output logs the account as spent. With `--repo <repo>` the task is handed off end to end: a worktree of the repo (new, or `--track <name>` reused), the worker headless, the diff captured, the targeted checks routed (`delegate.checks`, default `ship.checks`) and a report that says what changed, the diff's path, each check's verdict, whether coverage was checked and any tool call the CLI denied. `--bg` returns at once with the id; `--discard` removes a new worktree after the report. Every run is logged with the account it spent. |
+| `tutti conduct "<goal>" [--main <agent>] [--fallback a,b]` | Another agent as the main (conductor) agent: a CLI worker (Cursor, Antigravity, Copilot, Claude Code) or a local model gets the goal and a generated instruction file: Tutti's commands as plain shell commands, the project's `AGENTS.md`/`CLAUDE.md`, the safety limits (no push, tag, merge or deploy; `ship` only with `--dry-run`; no credentials; ask-first actions stop with `NEEDS HUMAN`). When its accounts reach panic or spent (the readings), a limit message appears, or the owner switches on the dashboard, it is stopped and the next in `main.fallback` continues from a handoff note (goal, done, changes, next). `--show` prints the instructions. See [docs/CONDUCT.md](docs/CONDUCT.md). |
+| `tutti main [<agent>]` | The main agent now, who has room, the running or last conductor run; `tutti main <agent>` switches it (a running conductor hands over). |
+| `tutti handoff done\|next "<text>"` | Inside `tutti conduct`: records a finished step or the next one in the run's progress, the handoff note's source. |
 | `tutti runs [show\|discard <id>]` | The delegated runs, a run's report, or removing its worktree. |
 | `tutti pr review <n>` | Asks the reviewers (`review.reviewers`: Copilot, CodeRabbit), detects when none will come (a refused request, CodeRabbit's "Review limit reached", or `review.timeout_minutes`) and says so, then has a cheap worker (`review.fallback`) review the diff and posts its findings to the pull request (`--no-post` prints them). |
 | `tutti job register\|done` | A script outside Tutti shows on the dashboard with its log, progress and result. |
@@ -87,12 +93,13 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | `tutti guard` | Pauses test containers when memory runs low; resumes them later. |
 | `tutti tunnel start\|stop\|status <worker>` | The self-healing ssh tunnel to a worker's model server. |
 | `tutti wait pid\|file\|grep\|run <target> [regex]` | Waits that end: always with `--timeout`, never by matching command lines; `--stall <s>` gives up (exit 125) when the watched log stops changing. Ends with one line: `done: ...`, or for `run <id>` the run's verdict and report. |
-| `tutti dashboard [--port 4777]` | A local web dashboard on `127.0.0.1` (installable as an app): usage and pacing with the panic threshold, machines and their slots, workers and the agents installed here, running, stalled and recent jobs with the end of their logs. `--once` prints the same state as JSON. See [docs/DASHBOARD.md](docs/DASHBOARD.md). |
+| `tutti dashboard [--port 4777]` | A local web dashboard on `127.0.0.1` (installable as an app): the projects Tutti sees on every machine (jobs, agents and runs per project, repositories and branches, a peer's processes, yield flags and GPU), the main agent with a switch, usage and pacing with the panic threshold, machines and their slots, workers and the agents installed here, running, stalled and recent jobs with the end of their logs. `--once` prints the same state as JSON. See [docs/DASHBOARD.md](docs/DASHBOARD.md). |
 | `tutti translate <source.json> <locale>` | Translation with mandatory QA; `--check <out.json>` is the import gate. |
 
 ## Documents
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the pieces and how a run flows.
+- [docs/CONDUCT.md](docs/CONDUCT.md): another agent as the main agent, its tools, limits and the handoff.
 - [docs/WORKERS.md](docs/WORKERS.md): briefing Cursor, Antigravity and local models; review the diff, then gate.
 - [docs/USAGE-PACING.md](docs/USAGE-PACING.md): the pacing rule and its arithmetic.
 - [docs/MACHINES.md](docs/MACHINES.md): slots, routing, heat and memory guards, the yield flag, peers.

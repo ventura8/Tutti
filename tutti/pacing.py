@@ -238,7 +238,7 @@ def report(accounts, entries, now):
             continue
         mine = '' if s['share'] >= 1 else (f' (shared: this session\'s part is {100 * s["share"]:g} % of the quota; the line is the '
                                            'whole account\'s, since a reading counts every session)')
-        mine += f' [{s["used"]:g} % vs {s["expected"]:g} % by now, on pace within ±{s["tolerance"]:g}]'
+        mine += f' [{s["used"]:g} % vs {s["expected"]:g} % by now; the on-pace band is ±{s["tolerance"]:g}]'
         rows.append((name, f'{s["used"]:g} %', f'{s["expected"]:.0f} %', reset, target, s['verdict'], s['action'] + mine))
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
     return '\n'.join('  '.join(c.ljust(w) for c, w in zip(r, widths, strict=True)).rstrip() for r in rows)

@@ -315,6 +315,7 @@ class CliAndDashboardTest(Folder):
         self.assertEqual(dashboard.save_main(self.cfg, b'not json')[0], 400)
         snap = dashboard.Collector(self.cfg).snapshot()
         self.assertEqual(snap['main']['agent'], 'local')
+        self.assertEqual(snap['projects'], {'items': [], 'errors': {}})
 
     def test_config_errors_name_the_key(self):
         bad = config.normalise({'workers': {'a': {'kind': 'cli', 'command': ['a']}},

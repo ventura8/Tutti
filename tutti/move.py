@@ -27,21 +27,25 @@ import urllib.request
 
 import yaml
 
-from . import __version__, bridge, clientmode, config, delegate, guided, install, netpolicy, remote, yamledit
+from . import __version__, bridge, clientmode, config, delegate, guided, install, movetools, netpolicy, remote, yamledit
 
-STEPS = ('preflight', 'install', 'copy', 'freeze', 'jobs', 'sync', 'configure', 'start', 'health', 'client', 'verify', 'done')
+STEPS = ('preflight', 'install', 'tools', 'logins', 'copy', 'freeze', 'jobs', 'sync', 'configure', 'start', 'health', 'client', 'verify',
+         'done')
 STEP_TEXT = {
     'preflight': 'check the target: ssh, OS and architecture, disk, Tutti, addresses, always-on',
     'install': 'install Tutti there when it is missing or older (the one-line install, tutti/install.py)',
-    'copy': 'copy the state, the usage log and the per-login state (while Tutti still runs here)',
+    'tools': 'the agent CLIs there at the same versions: their install folders copied, their links made again',
+    'logins': 'their logins copied (mode 600, never read or shown), then checked with each tool\'s own status command',
+    'copy': 'copy the state, the usage log, the per-login state and the repositories with their worktrees (while Tutti still runs here)',
     'freeze': 'stop the dashboard here: no more writes to the state here',
     'jobs': 'running autopilot jobs: wait for them, or hand them over',
     'sync': 'copy what changed since (the final sync)',
     'configure': 'write the target\'s config (machine names from its point of view) and the secrets (mode 600)',
     'start': 'start Tutti there as a user service (systemd --user), and its stable name on the LAN',
     'health': 'check that the dashboard answers there (a failure rolls back by itself)',
-    'client': 'this computer becomes a client: its config points at the new host; tutti-client keeps the bridge and the dashboard',
-    'verify': 'the bridge is up and the dashboard opens here through it',
+    'client': 'this computer becomes a client: its commands and agents reach the new host; tutti-client keeps the dashboard here '
+              'and sends this computer\'s readings there',
+    'verify': 'the dashboard opens here (a failure rolls back); `tutti doctor` and `tutti workers` run there and are reported',
     'done': 'record the move',
 }
 FOLDER = 'move'
@@ -146,13 +150,12 @@ def preflight_script(programs, reach):
         'echo "rsync=$(command -v rsync)"; echo "avahi=$(command -v avahi-publish)"',
         'echo "systemd_user=$(systemctl --user is-system-running 2>/dev/null)"',
         'echo "linger=$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)"',
-        'echo "suspend=$(systemctl is-enabled suspend.target 2>/dev/null)"',
-        'echo "idle_action=$(grep -hs "^IdleAction=" /etc/systemd/logind.conf /etc/systemd/logind.conf.d/*.conf | tail -1 | cut -d= -f2)"',
         'echo "uptime_s=$(cut -d. -f1 /proc/uptime 2>/dev/null)"',
         'echo "ifaces=$(ip -j addr 2>/dev/null | base64 -w0)"',
-        'PATH="$HOME/.local/bin:$PATH" gh auth status >/dev/null 2>&1 && echo gh_auth=yes || echo gh_auth=no',
     ]
     lines += [f'echo "has_{p}=$(command -v {shlex.quote(p)})"' for p in programs]
+    lines += [f'echo "ver_{p}=$({movetools.TARGET_PATH} timeout 15 {p} --version 2>/dev/null | head -1)"'
+              for p in (*movetools.TOOLS, 'node')]
     lines += [f'ssh -o BatchMode=yes -o ConnectTimeout=3 {shlex.quote(host)} true >/dev/null 2>&1 && echo reach_{n}=yes '
               f'|| echo reach_{n}=no' for n, host in reach]
     return '\n'.join(lines)
@@ -216,11 +219,6 @@ def judge(facts, need_gb):
         owner.append(guided.step('sudo', f'Keep Tutti running on {facts.get("hostname", "the target")} with nobody signed in',
                                  f'sudo loginctl enable-linger {facts.get("user", "<user>")}',
                                  'a user service stops at sign-out unless lingering is on (run it on the target)'))
-    if facts.get('suspend') != 'masked' or facts.get('idle_action') not in ('', 'ignore', None):
-        warnings.append('the target may suspend when idle, which stops Tutti')
-        owner.append(guided.step('sudo', f'Keep {facts.get("hostname", "the target")} always on',
-                                 'sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target',
-                                 'an always-on host never sleeps; suspend is not masked there (run it on the target)'))
     return blockers, warnings, owner
 
 
@@ -257,46 +255,18 @@ def machine_edits(cfg, target, facts, src):
     return edits + [(['machines', n, 'via'], src['name']) for n, _h in ssh_machines(cfg, target) if facts.get(f'reach_{n}') != 'yes']
 
 
-def path_edits(raw, cfg, facts):
-    """The state, the worktrees and the usage log under the target's home."""
-    src_home, dst_home = os.path.expanduser('~'), facts['home']
-    keys = (['project', 'state'], ['project', 'worktrees'], ['usage', 'log'])
-    edits = [(key, home_map(_get(raw, key), src_home, dst_home)) for key in keys if isinstance(_get(raw, key), str)]
-    if _get(raw, ['project', 'state']) is None:
-        edits.append((['project', 'state'], home_map(config.expand(cfg['project']['state']), src_home, dst_home)))
-    return edits
-
-
-def needs_here(a, missing):
-    """An account whose reader or plan program is not on the target (or is built in, reading this computer's sign-in)."""
-    cmd = [((a.get(k) or {}).get('command') or [''])[0] for k in ('reader', 'plan') if a.get(k)]
-    return any(os.path.basename(c) in missing or not c for c in cmd)
-
-
-def account_edits(raw, cfg, missing, src):
-    """Readings that need this computer's sign-ins or files are read here, through the bridge."""
-    edits = []
-    for name, a in cfg['accounts'].items():
-        if name not in (raw.get('accounts') or {}):
-            continue
-        if needs_here(a or {}, missing):
-            edits.append((['accounts', name, 'read_on'], src['name']))
-        if (a or {}).get('reading_file'):
-            edits.append((['accounts', name, 'reading_from'], src['name']))
-    return edits
-
-
 def host_edits(raw, cfg, target, facts, src):
-    """[(dotted path as a list, value)] that turn this computer's config into the target's (the host's)."""
-    missing = {p for p in programs_of(cfg) if not facts.get(f'has_{p}')}
-    edits = machine_edits(cfg, target, facts, src) + path_edits(raw, cfg, facts) + account_edits(raw, cfg, missing, src)
-    jobs_need = {os.path.basename(w['command'][0]) for w in cfg['workers'].values() if w.get('command')}
+    """[(dotted path as a list, value)] that turn this computer's config into the target's (the host's). The jobs, the readers
+    and the repositories are on the target after the move, so nothing points back here but the machines it cannot reach."""
     host = {'machine': target, 'me': target, 'address': src['address_name'], 'port': src['port']}
-    if jobs_need & missing or cfg['autopilot'].get('repos'):
-        host['jobs'] = src['name']   # the repositories and the workers' sign-ins stay on this computer: jobs run here, via its bridge
-    edits.append((['host'], host))
     binds = (['household', 'bind'], ['dashboard', 'bind'])
-    return edits + [(key, 'auto') for key in binds if _get(raw, key) not in (None, 'auto')]   # the target's own LAN and VPN addresses
+    return machine_edits(cfg, target, facts, src) + [(['host'], host)] + \
+        [(key, 'auto') for key in binds if _get(raw, key) not in (None, 'auto')]   # the target's own LAN and VPN addresses
+
+
+def homes_moved(text, src_home, dst_home):
+    """Every path under this computer's home in the config text, under the target's home (comments and order kept)."""
+    return text.replace(src_home.rstrip('/') + '/', dst_home.rstrip('/') + '/')
 
 
 def client_block(cfg, target, facts, host_cfg_path, src):
@@ -306,7 +276,8 @@ def client_block(cfg, target, facts, host_cfg_path, src):
                      os.path.expanduser('~'), facts['home'])
     return {'machine': target, 'me': src['name'], 'ssh': remote.dest(m), 'config': host_cfg_path,
             'tutti': facts.get('tutti') or f'{facts["home"]}/.local/bin/tutti', 'state': state, 'usage_log': usage,
-            'address': src['address_name'], 'port': src['port'], 'moved': time.strftime('%Y-%m-%dT%H:%MZ', time.gmtime())}
+            'address': src['address_name'], 'port': src['port'], 'home': facts['home'],
+            'moved': time.strftime('%Y-%m-%dT%H:%MZ', time.gmtime())}
 
 
 def _get(d, path):
@@ -386,20 +357,23 @@ def bind_blockers(host_text, ifaces):
     return out
 
 
-def sign_ins(cfg, target, facts, missing):
-    """The sign-ins only the owner can do on the target: each worker whose jobs run there, and gh for the host's own loops."""
-    ssh = remote.dest(cfg['machines'][target])
-    out = [guided.step('sign-in', f'Sign {p} in on {target}', f'ssh -t {ssh} {p} login',
-                       'its jobs run there now; Tutti never copies another tool\'s sign-in') for p in missing]
-    if uses_github(cfg) and facts.get('gh_auth') != 'yes':
-        out.append(guided.step('sign-in', f'Sign GitHub\'s gh in on {target}', f'ssh -t {ssh} ~/.local/bin/gh auth login --web',
-                               'the host lists pull requests and posts scout answers and self-improvement tasks with gh'))
-    return out
+def carried(cfg, facts):
+    """What else moves (tutti/movetools.py): the CLIs at their versions, the logins, the repositories and their size."""
+    home = os.path.expanduser('~')
+    tools = movetools.tools_plan(home, facts)
+    node = None
+    if any(t['node'] for t in tools) and not facts.get('ver_node'):
+        node = movetools.version_of('node')
+    repos = movetools.repo_set(cfg, home, config.expand)
+    return {'tools': tools, 'node': node, 'logins': movetools.login_tools(), 'repos': repos,
+            'uncarried': movetools.uncarried(home),
+            'repos_gb': round(movetools.size_kb(repos['paths'], home) / 1048576, 1)}
 
 
-def make_plan(cfg, target, facts):
-    """Everything --dry-run shows and the move does: blockers, warnings, owner steps, the configs, the origins."""
-    need = round(state_size_gb(cfg) * 2 + FREE_MARGIN_GB, 1)
+def make_plan(cfg, target, facts, carry=None):
+    """Everything --dry-run shows and the move does: blockers, warnings, owner steps, what moves, the configs, the origins."""
+    carry = carry if carry is not None else carried(cfg, facts)
+    need = round(state_size_gb(cfg) * 2 + carry['repos_gb'] + FREE_MARGIN_GB, 1)
     blockers, warnings, owner = judge(facts, need)
     if blockers:
         return {'to': target, 'blockers': blockers, 'warnings': warnings, 'owner': owner, 'facts': facts}
@@ -413,31 +387,42 @@ def make_plan(cfg, target, facts):
         text = f.read()
     raw = yaml.safe_load(text) or {}
     host_path = f'{facts["home"]}/.config/tutti/config.yaml'
-    host_text = apply_edits(text, host_edits(raw, cfg, target, facts, src))
+    host_text = homes_moved(apply_edits(text, host_edits(raw, cfg, target, facts, src)), os.path.expanduser('~'), facts['home'])
     hcfg = config.normalise(yaml.safe_load(host_text))
     hcfg['_path'] = host_path
     before, after = origins(cfg, src['port']), origins(hcfg, src['port'])
     blockers += check_origins(after, facts['ifaces']) + bind_blockers(host_text, facts['ifaces'])
-    missing = [p for p in programs_of(cfg) if not facts.get(f'has_{p}')]
-    jobs = hcfg['host'].get('jobs')
-    logins = sign_ins(cfg, target, facts, [] if jobs else missing)
     choices = [guided.choice('host.address', src['address_name'], 'the stable LAN name clients and members use'),
                guided.choice('host.port', src['port'], 'the dashboard stays on 127.0.0.1 at both ends; the client\'s ssh carries it')]
-    if jobs:
-        choices.append(guided.choice('host.jobs', jobs, f'the repositories and the workers\' sign-ins are on {jobs}; '
-                                                         f'{target} runs its jobs there through the bridge'))
     return {'to': target, 'blockers': blockers, 'warnings': warnings, 'owner': owner, 'facts': facts, 'src': src,
             'host_text': host_text, 'host_path': host_path, 'client': client_block(cfg, target, facts, host_path, src),
+            'host_configs': [home_map(p, os.path.expanduser('~'), facts['home']) for p in client_configs(cfg)],
             'origins': {'before': before, 'after': after, 'add': [o for o in after if o not in before],
                         'remove': [o for o in before if o not in after]},
-            'jobs': jobs, 'missing': missing, 'logins': logins, 'choices': choices, 'need_gb': need,
+            'carry': carry, 'logins': [], 'choices': choices, 'need_gb': need,
+            'unreachable': [n for n, _h in ssh_machines(cfg, target) if facts.get(f'reach_{n}') != 'yes'],
             'install': not facts.get('tutti') or version_tuple(facts.get('tutti_version')) < version_tuple(__version__)}
 
 
-def uses_github(cfg):
-    """Whether the host's own loops call gh: a project's repo (its pull requests), a scout's replies, self-improvement."""
-    return any((p or {}).get('repo') for p in (cfg.get('projects') or {}).values()) or bool(cfg.get('scouts')) or \
-        bool((cfg.get('self_improve') or {}).get('enabled'))
+def describe_carry(plan):
+    c, to = plan['carry'], plan['to']
+    out = [f'  CLI {t["name"]} {t["version"] or "?"}: copied ({", ".join(t["copy"])})' + (f', replacing {t["there"]}' if t['there'] else '')
+           for t in c['tools']]
+    if c.get('uncarried'):
+        out.append(f'  not carried (installed by a package manager here): {", ".join(c["uncarried"])}: install them on {to} the same '
+                   'way, or their jobs fail there')
+    if c['node']:
+        out.append(f'  node {c["node"]} for the npm CLIs: from nodejs.org, checked against its SHA256SUMS')
+    if c['logins']:
+        out.append(f'  logins copied (mode 600, never read or shown), then checked there: {", ".join(c["logins"])}; '
+                   'a tool that refuses the copy gets its own device-code sign-in (the only possible prompt)')
+    if c['repos']['paths']:
+        out.append(f'  repositories and worktrees, {c["repos_gb"]} GB with hard links kept, then `git worktree repair`: '
+                   + ', '.join('~/' + p for p in c['repos']['paths']))
+    out.append(f'  host config also at: {", ".join(plan["host_configs"])}; every path under this home moves under {plan["facts"]["home"]}')
+    if plan['unreachable']:
+        out.append(f'  {to} cannot ssh to {", ".join(plan["unreachable"])}: probed through this computer while it is connected')
+    return out
 
 
 def describe(plan):
@@ -457,8 +442,7 @@ def describe(plan):
     for i, s in enumerate(STEPS, 1):
         out.append(f'  {i:2}. {s}: {STEP_TEXT[s]}' + (' (needed)' if s == 'install' and plan['install'] else ''))
     out += [f'  default: {c["key"]} = {c["value"]} ({c["why"]})' for c in plan['choices']]
-    if plan['missing']:
-        out.append(f'  not on {plan["to"]}: {", ".join(plan["missing"])}' + (f' (used on {plan["jobs"]} instead)' if plan['jobs'] else ''))
+    out += describe_carry(plan)
     o = plan['origins']
     if o['add'] or o['remove']:
         out.append('  OAuth client (console.cloud.google.com/apis/credentials): authorized JavaScript origins')
@@ -482,7 +466,7 @@ class Ops:
         return remote.sh(self.m, script, capture=True, timeout=timeout, stdin=stdin, ssh_opts=remote.QUICK)
 
     def local(self, argv, **kw):
-        return subprocess.run(argv, capture_output=True, text=True, **kw)
+        return subprocess.run(argv, capture_output=True, text=True, **kw)   # its output is never logged: a token may pass
 
     def dest(self, path):
         return path if self.m['transport'] == 'local' else f'{remote.dest(self.m)}:{path}'
@@ -493,6 +477,23 @@ class Ops:
             a += ['-e', remote.rsh(self.cfg, self.m)]
         pair = [self.dest(src), dst] if back else [src, self.dest(dst)]
         return self.local([*a, *pair])
+
+    def rsync_home(self, rel, exclude=(), delete=False, chmod=None):
+        """Home-relative files and folders to the same places under the target's home, in one rsync (hard links kept)."""
+        home = os.path.expanduser('~').rstrip('/')
+        a = ['rsync', '-aHR', *(['--delete'] if delete else []), *([f'--chmod={chmod}'] if chmod else []),
+             *[f'--exclude={x}' for x in exclude]]
+        if self.m['transport'] != 'local':
+            a += ['-e', remote.rsh(self.cfg, self.m)]
+        dest = self.dest('~/') if self.m['transport'] != 'local' else os.environ.get('TUTTI_MOVE_TARGET_HOME', home) + '/'
+        return self.local([*a, *[f'{home}/./{r}' for r in rel], dest], timeout=6 * 3600)
+
+    def pipe(self, argv, script):
+        """A local command's output straight into a script on the target (a token: held in memory, never shown)."""
+        here = self.local(argv)
+        if here.returncode != 0 or not here.stdout.strip():
+            return here
+        return self.target(script, stdin=here.stdout)
 
     def put_secret(self, path, text):
         """A file written on the target with mode 600, its content on stdin (never in argv or a log)."""
@@ -682,6 +683,35 @@ class Move:
         self.plan['facts']['tutti'] = f'{self.plan["facts"]["home"]}/.local/bin/tutti'
         self.note(f'installed {r.stdout.strip()} on {self.target}')
 
+    def tools(self):
+        c = self.j['plan']['carry']
+        if c['node']:
+            must(self.ops.target(movetools.node_script(c['node'], self.j['plan']['facts'].get('arch', 'x86_64')), timeout=900),
+                 f'installing node {c["node"]} on {self.target}')
+        if c['tools']:
+            must(self.ops.rsync_home([p for t in c['tools'] for p in t['copy']]), 'copying the CLIs')
+            must(self.ops.target(movetools.link_script(c['tools'])), 'linking the CLIs')
+        self.note('CLIs there at the same versions: ' + (', '.join(f'{t["name"]} {t["version"]}' for t in c['tools']) or 'nothing to copy'))
+
+    def logins(self):
+        c, home = self.j['plan']['carry'], os.path.expanduser('~')
+        paths = movetools.login_paths(home, c['logins'])
+        if paths:
+            must(self.ops.rsync_home(paths, movetools.LOGIN_EXCLUDE, chmod='D700,F600'), 'copying the logins')
+        if 'gh' in c['logins']:
+            gh = f'{movetools.TARGET_PATH} gh'
+            r = self.ops.pipe(['gh', 'auth', 'token'], f'{gh} auth login --with-token && {gh} auth setup-git')   # gh's documented way
+            if r.returncode != 0:
+                self.note('gh\'s token did not go across (gh here has none, or gh there refused it): gh gets its own sign-in')
+        r = self.ops.target(movetools.verify_script(c['logins']), timeout=900)
+        ok = movetools.parse_verify(r.stdout)
+        dest = remote.dest(self.cfg['machines'][self.target])
+        self.j['plan']['logins'] = [guided.step('sign-in', f'Sign {n} in on {self.target}', f'ssh -t {dest} {movetools.LOGINS[n]["login"]}',
+                                                f'{n} did not take the copied login there; its own sign-in opens a code or a link for '
+                                                'your browser') for n in c['logins'] if not ok.get(n)]
+        state = ', '.join(f'{n} {"signed in" if ok.get(n) else "needs its own sign-in"}' for n in c['logins'])
+        self.note(f'logins copied (mode 600): {state}')
+
     def paths(self):
         p = self.j['plan']
         return config.expand(self.cfg['project']['state']), p['client']['state'], p['client']['usage_log']
@@ -698,7 +728,14 @@ class Move:
         if os.path.isdir(xdg) and os.path.realpath(xdg) != os.path.realpath(here):
             there_xdg = f'{self.j["plan"]["facts"]["home"]}/.local/state/tutti/'
             must(self.ops.rsync(xdg + '/', there_xdg, XDG_STATE_EXCLUDE), 'copying ~/.local/state/tutti')
-        self.note(f'state copied to {self.target}:{there}' + (' (final sync)' if delete else ''))
+        repos = self.j['plan']['carry']['repos']
+        if repos['paths']:
+            home = os.path.expanduser('~').rstrip('/')
+            skip = [f'/{os.path.relpath(here, home)}/'] if here.startswith(home + '/') else []
+            must(self.ops.rsync_home(repos['paths'], skip, delete=delete), 'copying the repositories')
+            must(self.ops.target(movetools.repair_script(repos['repos'], home, self.j['plan']['facts']['home'])),
+                 'repairing the worktrees\' links (git worktree repair)')
+        self.note(f'state and {len(repos["paths"])} repository folder(s) copied to {self.target}' + (' (final sync)' if delete else ''))
 
     def freeze(self):
         with open(os.path.join(move_dir(self.cfg), FROZEN), 'w', encoding='utf8') as f:
@@ -721,9 +758,10 @@ class Move:
 
     def configure(self):
         p = self.j['plan']
-        path = remote.home_path(p['host_path'])
-        must(self.ops.target(f'[ -f {path} ] && cp {path} {path}{BACKUP}; mkdir -p ~/.config/tutti; cat > {path}',
-                             stdin=p['host_text']), 'writing the target\'s config')
+        for target_path in dict.fromkeys([p['host_path'], *p.get('host_configs', [])]):
+            path = remote.home_path(target_path)
+            must(self.ops.target(f'[ -f {path} ] && cp {path} {path}{BACKUP}; mkdir -p "$(dirname {path})"; cat > {path}',
+                                 stdin=p['host_text']), 'writing the target\'s config')
         sent = []
         base = config.xdg_tutti_dir()
         for pattern in SECRET_FILES:
@@ -792,9 +830,13 @@ class Move:
         if not h:
             raise MoveError(f'the dashboard does not open here on 127.0.0.1:{port} through {CLIENT_UNIT}: see '
                             f'`journalctl --user -u {CLIENT_UNIT}`')
-        r = self.ops.target(f'{shlex.quote(self.j["plan"]["client"]["tutti"])} --config {shlex.quote(self.j["plan"]["host_path"])} '
-                            'bridge status')
-        self.note(f'http://127.0.0.1:{port}/ here is the dashboard of {h.get("host")}; bridge: {r.stdout.strip() or r.stderr.strip()}')
+        p = self.j['plan']
+        tutti = f'{movetools.TARGET_PATH} {shlex.quote(p["client"]["tutti"])} --config {shlex.quote(p["host_path"])}'
+        doctor = self.ops.target(f'{tutti} doctor', timeout=300)
+        workers = self.ops.target(f'{tutti} workers', timeout=300)
+        self.note(f'http://127.0.0.1:{port}/ here is the dashboard of {h.get("host")}; `tutti doctor` there: '
+                  f'{"clean" if doctor.returncode == 0 else (doctor.stdout + doctor.stderr).strip()[-300:]}; workers there: '
+                  f'{"listed" if workers.returncode == 0 else (workers.stderr or "").strip()[-200:]}')
 
     def done(self):
         last = {'from': source_name(self.cfg), 'to': self.target, 'at': time.time(), 'result': 'moved',
@@ -808,7 +850,8 @@ class Move:
         self.note(f'moved: Tutti runs on {self.target}')
 
     def run_step(self, name):
-        fn = {'preflight': self.preflight, 'install': self.install, 'copy': self.copy, 'freeze': self.freeze, 'jobs': self.wait_jobs,
+        fn = {'preflight': self.preflight, 'install': self.install, 'tools': self.tools, 'logins': self.logins, 'copy': self.copy,
+              'freeze': self.freeze, 'jobs': self.wait_jobs,
               'sync': lambda: self.copy(delete=True), 'configure': self.configure, 'start': self.start, 'health': self.health,
               'client': self.client, 'verify': self.verify, 'done': self.done}[name]
         self.j['step'] = name
@@ -1066,9 +1109,13 @@ def cmd_client(cfg, a):
         sys.stderr.write(f'tutti: {text}\n')
 
     def mirror():
+        n = 0
         while True:
-            clientmode.refresh_mirror(cfg)
-            time.sleep(300)
+            clientmode.push_readings(cfg)   # this computer's session writes them; the host paces with them
+            if n % 5 == 0:
+                clientmode.refresh_mirror(cfg)
+            n += 1
+            time.sleep(60)
     threading.Thread(target=mirror, daemon=True).start()
     return bridge.client_loop(cfg, say, once=a.once)
 

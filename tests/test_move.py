@@ -14,7 +14,7 @@ from unittest import mock
 
 import yaml
 
-from tutti import bridge, clientmode, config, move
+from tutti import bridge, clientmode, config, move, movetools
 
 TEXT = """# the owner's comment stays
 project:
@@ -43,6 +43,11 @@ autopilot:
 """
 SECRET = 'TUTTI_GROK_KEY=s3cr3t-value-never-logged'
 IFACES = [('lo', '', ['127.0.0.1']), ('enp86s0', '', ['192.168.1.53']), ('docker0', 'bridge', ['172.17.0.1'])]
+
+
+CARRY = {'tools': [{'name': 'claude', 'copy': ['.local/share/claude/versions/2.1.296'], 'link': '.local/share/claude/versions/2.1.296',
+                    'node': False, 'version': '2.1.296 (Claude Code)', 'there': ''}],
+         'node': None, 'logins': ['claude', 'gh'], 'repos': {'paths': ['Projects/map'], 'repos': {}}, 'repos_gb': 1.5}
 
 
 def ok(out=''):
@@ -79,6 +84,9 @@ class Base(unittest.TestCase):
         nets = mock.patch.object(move.netpolicy, 'interfaces', return_value=[('wlo1', '', ['192.168.1.33'])])
         nets.start()
         self.addCleanup(nets.stop)
+        carry = mock.patch.object(move, 'carried', return_value=CARRY)
+        carry.start()
+        self.addCleanup(carry.stop)
 
 
 class FakeOps:
@@ -92,6 +100,8 @@ class FakeOps:
         self.calls.append(('target', script))
         if 'uname -s' in script:
             return ok(self.facts_out)
+        if 'auth status' in script:
+            return ok('claude yes\ngh no\n')
         if 'enable --now' in script and 'start' in self.fail:
             return subprocess.CompletedProcess([], 1, '', 'unit failed')
         return ok()
@@ -105,6 +115,14 @@ class FakeOps:
         if 'copy' in self.fail and not delete:
             self.fail.discard('copy')
             return subprocess.CompletedProcess([], 23, '', 'rsync: connection lost')
+        return ok()
+
+    def rsync_home(self, rel, exclude=(), delete=False, chmod=None):
+        self.calls.append(('rsync', f'home {" ".join(rel)}' + (' delete' if delete else '') + (f' chmod {chmod}' if chmod else '')))
+        return ok()
+
+    def pipe(self, argv, script):
+        self.calls.append(('pipe', f'{" ".join(argv)} | {script}'))
         return ok()
 
     def put_secret(self, path, text):
@@ -137,11 +155,10 @@ class PreflightTest(Base):
         for want in ('Darwin', '0.5 GB free', 'rsync is missing', 'systemd --user'):
             self.assertIn(want, text)
 
-    def test_lingering_and_suspend_become_one_sudo_line_each(self):
+    def test_lingering_off_is_one_sudo_line_and_sleep_is_left_alone(self):
         _b, warnings, owner = move.judge(facts(linger='no', suspend='static'), 1)
-        mask = 'sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target'
-        self.assertEqual([s['command'] for s in owner], ['sudo loginctl enable-linger target', mask])
-        self.assertTrue(warnings)
+        self.assertEqual([s['command'] for s in owner], ['sudo loginctl enable-linger target'])   # sleep is left alone (owner)
+        self.assertEqual(warnings, [])
 
     def test_the_facts_are_parsed_from_the_script_output(self):
         f = move.parse_facts(facts_text(facts()))
@@ -167,14 +184,16 @@ class RewriteTest(Base):
         self.assertEqual(host['machines']['laptop'], {'host': '192.168.1.33', 'user': 'me', 'via': 'laptop'})
         self.assertEqual(host['machines']['pc']['via'], 'laptop')   # the target cannot ssh there
         self.assertEqual(host['project']['state'], '/home/target/state')
-        self.assertEqual(host['host'], {'machine': 'nuc', 'me': 'nuc', 'address': 'tutti.local', 'port': 4777, 'jobs': 'laptop'})
+        self.assertEqual(host['host'], {'machine': 'nuc', 'me': 'nuc', 'address': 'tutti.local', 'port': 4777})   # jobs run there
         self.assertIn('# the owner\'s comment stays', p['host_text'])
         self.assertIn('# the build machine', p['host_text'])
 
-    def test_readings_that_need_this_computer_are_read_here(self):
+    def test_jobs_readers_and_every_home_path_are_the_target_own(self):
         host = yaml.safe_load(self.plan()['host_text'])
-        self.assertEqual(host['accounts']['agy-claude']['read_on'], 'laptop')
-        self.assertEqual(host['accounts']['claude']['reading_from'], 'laptop')
+        self.assertNotIn('read_on', host['accounts']['agy-claude'])
+        self.assertEqual(host['accounts']['claude']['reading_file'], '/home/target/claude-usage.json')
+        self.assertEqual(host['autopilot']['repos']['map']['path'], '/home/target/repo')
+        self.assertNotIn(self.home, self.plan()['host_text'])
 
     def test_no_public_or_wildcard_bind_is_written(self):
         host = yaml.safe_load(self.plan()['host_text'])
@@ -231,7 +250,10 @@ class RunTest(Base):
     def test_secrets_go_with_mode_600_and_never_into_the_log(self):
         self.patches()
         ops = FakeOps(facts_text(facts()))
-        self.run_move(ops).run()
+        j = self.run_move(ops).run()
+        self.assertIn(('rsync', 'home .local/share/claude/versions/2.1.296'), ops.calls)   # the CLI at its version
+        self.assertTrue(any(c[0] == 'pipe' and c[1].startswith('gh auth token |') for c in ops.calls))   # gh's own way
+        self.assertEqual([s['command'] for s in j['plan']['logins']], ['ssh -t nuc gh auth login --web'])   # refused: its sign-in
         self.assertEqual(ops.secrets['~/.config/tutti/grok.env'], SECRET)
         journal = json.dumps(move.read_journal(self.cfg))
         self.assertNotIn('s3cr3t', journal)
@@ -263,12 +285,12 @@ class RunTest(Base):
         m = self.run_move(ops)
         with self.assertRaisesRegex(move.MoveError, 'stopped at copy'):
             m.run()
-        self.assertEqual(move.read_journal(self.cfg)['done'], ['preflight', 'install'])
+        self.assertEqual(move.read_journal(self.cfg)['done'], ['preflight', 'install', 'tools', 'logins'])
         ops.calls.clear()
         j = self.run_move(ops).run()
         self.assertEqual(j['status'], 'done')
         self.assertFalse(any('uname -s' in c[1] for c in ops.calls if c[0] == 'target' and c is ops.calls[0]))
-        self.assertIn('resuming the move to nuc after preflight, install', '\n'.join(j['log']))
+        self.assertIn('resuming the move to nuc after preflight, install, tools, logins', '\n'.join(j['log']))
 
     def test_rollback_after_a_move_restores_this_computer(self):
         self.patches()
@@ -433,3 +455,79 @@ class ViewTest(Base):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class CarryTest(unittest.TestCase):
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+
+    def test_each_cli_is_carried_by_its_own_install_folder(self):
+        def real(p):
+            return {'/b/claude': f'{self.home}/.local/share/claude/versions/2.1.296',
+                    '/b/gemini': f'{self.home}/.local/lib/node_modules/@google/gemini-cli/bundle/gemini.js',
+                    '/b/agy': f'{self.home}/.local/bin/agy', '/b/node': '/usr/bin/node'}[p]
+        which = {'claude': '/b/claude', 'gemini': '/b/gemini', 'agy': '/b/agy', 'node': '/b/node'}.get
+        c = movetools.carry('claude', self.home, which, real)
+        self.assertEqual((c['copy'], c['node']), (['.local/share/claude/versions/2.1.296'], False))
+        g = movetools.carry('gemini', self.home, which, real)
+        self.assertEqual((g['copy'], g['node']), (['.local/lib/node_modules/@google/gemini-cli'], True))
+        self.assertIsNone(movetools.carry('agy', self.home, which, real)['link'])
+        self.assertIsNone(movetools.carry('node', self.home, which, real))   # a package manager's: not carried
+        self.assertIsNone(movetools.carry('codex', self.home, which, real))
+        script = movetools.link_script([c, g])
+        self.assertIn('ln -sfn "$HOME/".local/share/claude/versions/2.1.296 "$HOME/.local/bin/"claude', script)
+
+    def test_the_same_version_there_is_not_copied_again(self):
+        with mock.patch.object(movetools, 'carry', side_effect=lambda n, h, w=None: {'name': n, 'copy': [n], 'link': None, 'node': False}
+                               if n == 'claude' else None):
+            fake = mock.Mock(return_value=subprocess.CompletedProcess([], 0, '2.1.296 (Claude Code)\n', ''))
+            self.assertEqual(movetools.tools_plan(self.home, {'ver_claude': '2.1.296 (Claude Code)'}, runner=fake), [])
+            self.assertEqual(len(movetools.tools_plan(self.home, {'ver_claude': '2.0.1'}, runner=fake)), 1)
+
+    def test_node_is_checked_against_its_sums(self):
+        s = movetools.node_script('v24.19.0', 'x86_64')
+        self.assertIn('node-v24.19.0-linux-x64.tar.xz', s)
+        self.assertIn('sha256sum -c', s)
+
+    def test_login_files_are_found_by_name_only_and_checked_by_each_tool(self):
+        os.makedirs(os.path.join(self.home, '.claude'))
+        open(os.path.join(self.home, '.claude', '.credentials.json'), 'w').close()
+        with mock.patch('builtins.open', side_effect=AssertionError('a login file was read')):
+            self.assertEqual(movetools.login_paths(self.home, ['claude', 'gh']), ['.claude/.credentials.json'])
+        script = movetools.verify_script(['claude', 'gh'])
+        self.assertIn('claude auth status', script)
+        self.assertNotIn('echo "$out"', script)   # a status line (an email) is matched, never printed
+        self.assertEqual(movetools.parse_verify('claude yes\ngh no\n'), {'claude': True, 'gh': False})
+        self.assertIn('[ -s "$HOME/".gemini/oauth_creds.json ]', movetools.verify_script(['gemini']))   # its login file, not --version
+
+    def test_worktrees_are_repaired_with_their_new_paths(self):
+        script = movetools.repair_script({'/home/a/Projects/map': ['/home/a/Projects/wt/x']}, '/home/a', '/home/b')
+        self.assertIn("git -C /home/b/Projects/map worktree repair /home/b/Projects/wt/x || exit 1", script)
+
+    def test_the_repo_set_keeps_only_top_folders_under_home(self):
+        repo = os.path.join(self.home, 'Projects', 'map')
+        wt = os.path.join(self.home, 'Projects', 'wt')
+        for d in (repo, os.path.join(wt, 'x'), '/tmp'):
+            os.makedirs(d, exist_ok=True)
+        cfg = {'autopilot': {'repos': {'map': {'path': repo}}}, 'project': {'worktrees': wt}}
+        fake = mock.Mock(return_value=subprocess.CompletedProcess([], 0, f'worktree {repo}\nworktree {wt}/x\nworktree /tmp\n', ''))
+        got = movetools.repo_set(cfg, self.home, lambda p: p, runner=fake)
+        self.assertEqual(got['paths'], ['Projects/map', 'Projects/wt'])
+
+
+class ReadingsTest(Base):
+    def test_a_changed_reading_file_goes_to_the_host_once(self):
+        f = os.path.join(self.home, 'claude-usage.json')
+        with open(f, 'w', encoding='utf8') as fh:
+            fh.write('{"claude": {"used": 7}}')
+        cfg = dict(self.cfg)
+        cfg['host'] = {'machine': 'nuc', 'me': 'laptop', 'ssh': 'nuc', 'home': '/home/target'}
+        calls = []
+
+        def run(argv, **kw):
+            calls.append((argv[-1], kw['input']))
+            return subprocess.CompletedProcess(argv, 0, '', '')
+        clientmode._PUSHED.clear()
+        self.assertEqual(clientmode.push_readings(cfg, run=run), ['/home/target/claude-usage.json'])
+        self.assertFalse(clientmode.push_readings(cfg, run=run))
+        self.assertIn('/home/target/claude-usage.json', calls[0][0])

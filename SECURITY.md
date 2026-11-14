@@ -3,7 +3,9 @@
 ## What Tutti handles
 
 Tutti runs commands on machines you configure and briefs agents you installed. It does not store, read, print or send
-credentials: ssh uses your own keys and agent, and each worker CLI keeps its own sign-in.
+credentials: ssh uses your own keys and agent, and each worker CLI keeps its own sign-in. The one exception: `tutti move`,
+run by an admin, copies the agent CLIs' login files to the new host over ssh, mode 600, never read or shown
+(docs/MOVE.md, *Logins*).
 
 ## Your part
 

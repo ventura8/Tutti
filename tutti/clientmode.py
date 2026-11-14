@@ -112,3 +112,42 @@ def refusal(cfg, cmd):
     return (f'{cmd} changes Tutti\'s state, which lives on {cfg["host"]["machine"]}, and {cfg["host"]["machine"]} cannot be reached '
             f'(ssh {cfg["host"]["ssh"]} failed). Start it or reconnect, then run the command again; `tutti move --rollback` brings '
             f'Tutti back to this computer if {cfg["host"]["machine"]} is gone for good')
+
+
+_PUSHED = {}   # reading file -> the mtime last sent to the host
+
+
+def changed_readings(cfg):
+    """[(path here, its mtime)] of this computer's reading files that changed since they were last sent."""
+    out = []
+    for a in cfg['accounts'].values():
+        f = config.expand((a or {}).get('reading_file') or '') if (a or {}).get('reading_file') else ''
+        try:
+            seen = os.path.getmtime(f) if f else None
+        except OSError:
+            seen = None
+        if seen and _PUSHED.get(f) != seen:
+            out.append((f, seen))
+    return out
+
+
+def push_readings(cfg, run=subprocess.run):
+    """The reading files this computer's own session writes (accounts.<n>.reading_file, e.g. Claude's readings from its
+    get_usage) sent to the same path under the host's home whenever they change, so the host paces with them. Returns the
+    files sent."""
+    h = cfg['host']
+    home, there_home = os.path.expanduser('~').rstrip('/'), (h.get('home') or '').rstrip('/')
+    sent = []
+    for f, seen in changed_readings(cfg) if there_home else []:
+        if not f.startswith(home + '/'):
+            continue
+        there = there_home + f[len(home):]
+        with open(f, encoding='utf8') as fh:
+            text = fh.read()
+        q = shlex.quote(there)
+        r = run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', h['ssh'],
+                 f'mkdir -p "$(dirname {q})" && cat > {q}.tmp && mv {q}.tmp {q}'], input=text, capture_output=True, text=True)
+        if r.returncode == 0:
+            _PUSHED[f] = seen
+            sent.append(there)
+    return sent

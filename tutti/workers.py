@@ -1,6 +1,7 @@
 """Outside workers: other vendors' CLI agents (Cursor, Antigravity, Claude) and local models. The orchestrator briefs them,
 reviews their diff, then gates it; a worker never commits."""
 import json
+import shlex
 import shutil
 import subprocess
 import urllib.request
@@ -24,14 +25,17 @@ def command(worker, prompt):
     return [prompt if a == '{prompt}' else a.replace('{prompt}', prompt) for a in worker['command']]
 
 
+def _tagged(name):
+    """Ollama's own identity for a model: an untagged `llama3` is `llama3:latest`."""
+    return name if ':' in name.rsplit('/', 1)[-1] else f'{name}:latest'
+
+
 def _ollama_model_names(data):
-    names = set()
-    for m in data.get('models') or []:
-        if m.get('name'):
-            names.add(m['name'])
-        if m.get('model'):
-            names.add(m['model'])
-    return names
+    """The models an /api/tags answer lists, tagged; ValueError when the answer has another shape."""
+    models = data.get('models') if isinstance(data, dict) else None
+    if not isinstance(models, list):
+        raise ValueError('no "models" list')
+    return {_tagged(m[k]) for m in models if isinstance(m, dict) for k in ('name', 'model') if isinstance(m.get(k), str) and m[k]}
 
 
 def available(worker, timeout=3):
@@ -44,11 +48,12 @@ def available(worker, timeout=3):
         with urllib.request.urlopen(config.ollama_url(worker['host'], '/api/tags'), timeout=timeout) as r:
             names = _ollama_model_names(json.loads(r.read().decode()))
     except ValueError as e:
-        return False, f'{worker["host"]} answered /api/tags with something that is not JSON ({e}): is it an ollama server?'
+        return False, f'{worker["host"]} answered /api/tags with something that is not an ollama model list ({e}): is it an ollama server?'
     except OSError as e:
         return False, f'{worker["host"]} does not answer ({e}): start the model server or its tunnel'
-    if model not in names:
-        return False, f'model missing: {model}: ollama pull {model}'
+    if _tagged(model) not in names:
+        pull = f'OLLAMA_HOST={shlex.quote(worker["host"])} ollama pull {shlex.quote(model)}'
+        return False, f'model missing: {model}: {pull}'
     return True, f'{model} at {worker["host"]}'
 
 

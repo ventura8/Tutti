@@ -53,7 +53,22 @@ class BriefTest(unittest.TestCase):
             ok, note = workers.available(worker)
         self.assertFalse(ok)
         self.assertIn('model missing: coder:9b', note)
-        self.assertIn('ollama pull coder:9b', note)
+        self.assertIn('OLLAMA_HOST=127.0.0.1:11434 ollama pull coder:9b', note)
+
+    def test_ollama_untagged_model_matches_latest(self):
+        worker = {'kind': 'ollama', 'host': '127.0.0.1:11434', 'model': 'llama3'}
+        with mock.patch('tutti.workers.urllib.request.urlopen', return_value=self._tags_response([{'name': 'llama3:latest'}])):
+            ok, _ = workers.available(worker)
+        self.assertTrue(ok)
+
+    def test_ollama_tags_of_another_shape_are_down_not_a_crash(self):
+        worker = {'kind': 'ollama', 'host': '127.0.0.1:11434', 'model': 'coder:9b'}
+        for body in (b'[]', b'{"models": [null]}', b'{"models": 3}'):
+            cm = self._tags_response([])
+            cm.__enter__.return_value = io.BytesIO(body)
+            with mock.patch('tutti.workers.urllib.request.urlopen', return_value=cm):
+                ok, note = workers.available(worker)
+            self.assertFalse(ok, body)
 
     def test_ollama_url_keeps_a_written_scheme(self):
         self.assertEqual(config.ollama_url('127.0.0.1:11434', '/api/tags'), 'http://127.0.0.1:11434/api/tags')
@@ -66,7 +81,7 @@ class BriefTest(unittest.TestCase):
         with mock.patch('tutti.workers.urllib.request.urlopen', return_value=cm):
             ok, note = workers.available(worker)
         self.assertFalse(ok)
-        self.assertIn('not JSON', note)
+        self.assertIn('not an ollama model list', note)
 
     def test_ollama_worker_down_when_the_server_does_not_answer(self):
         worker = {'kind': 'ollama', 'host': '127.0.0.1:9', 'model': 'coder:9b'}

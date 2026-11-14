@@ -654,8 +654,8 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
 /* The Me / Household view (household.js): the household card and others' use of shared machines only in Household. */
 .seg { display: inline-flex; gap: 2px; border: 0; margin: 0; padding: 0; min-inline-size: 0; }
 .seg [aria-pressed="true"] { font-weight: 600; text-decoration: underline; text-underline-offset: 4px; }
-body:not([data-view="household"]) #household-card,
-body:not([data-view="household"]) .household-only { display: none; }
+body:not([data-hh-view="household"]) #household-card,
+body:not([data-hh-view="household"]) .household-only { display: none; }
 
 /* devices.js: the wireless-debugging pairing QR code; white quiet zone, scannable in dark mode too */
 .qr { width: min(240px, 100%); height: auto; display: block; margin: 8px 0; }
@@ -686,4 +686,5 @@ body[data-role='viewer'] :is(button, input, select, textarea, form, .btn, a.link
 body[data-view="household"] #my-schedule { display: none; }   /* My schedule lives in the Me view */
 #my-days label { display: inline-flex; gap: 4px; align-items: center; margin-right: 8px; }
 .users-view { max-width: 1100px; margin: 0 auto; display: grid; gap: var(--gap); }
+.users-view[hidden] { display: none; }   /* its display: grid must not undo [hidden]: the Users card showed on every view */
 #users-tab[hidden] { display: none; }

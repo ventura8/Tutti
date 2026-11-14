@@ -89,7 +89,8 @@ class SchemaTest(unittest.TestCase):
 
     def test_every_default_has_a_label_and_a_section(self):
         claimed = {p.split('.')[0] for _, _, _, parts in settings.SECTIONS for p in parts}
-        self.assertEqual(sorted(set(config.DEFAULTS) - claimed - {'routing'}), [])
+        people = {m for m in settings.MANAGED if '.' not in m}   # on the Manage tab (tutti/manage.py), never here
+        self.assertEqual(sorted(set(config.DEFAULTS) - claimed - people - {'routing'}), [])
         for key in settings.DEFAULTS_FLAT:
             self.assertTrue(settings.known(key)['label'], key)
 
@@ -264,7 +265,7 @@ console.log(JSON.stringify({{ text: s.renderSettings({json.dumps(data)}).map(tex
 """
         out = subprocess.run(['node', '-e', script], capture_output=True, text=True, check=True).stdout.splitlines()
         page, changed = json.loads(out[0]), json.loads(out[1])
-        for title in ('Accounts and readings', 'Autopilot', 'Pacing', 'Opt-ins', 'Dashboard', 'Secrets', 'Project priority',
+        for title in ('Accounts and readings', 'Autopilot', 'Opt-ins', 'Dashboard', 'Secrets', 'Project priority',
                       'Runs at once'):
             self.assertIn(title, page['text'])
         self.assertIn('Reset to default', page['text'])
@@ -285,3 +286,18 @@ console.log(JSON.stringify({{ text: s.renderSettings({json.dumps(data)}).map(tex
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ManagedKeysTest(unittest.TestCase):
+    """Users, the household, a user's schedule and main agent are on the Manage tab only: nothing of it in Settings."""
+
+    def test_settings_shows_no_people_keys(self):
+        cfg = config.normalise({})
+        cfg['_path'] = '/tmp/none.yaml'
+        payload = settings.view(cfg, env={})
+        keys = [r.get('key', '') for s in payload['sections'] for r in s['rows']]
+        keys += [r.get('key', '') for s in payload['sections'] for g in s.get('groups', []) for e in g.get('entries', [])
+                 for r in e.get('rows', [])]
+        self.assertEqual([k for k in keys if settings.managed(k)], [])
+        self.assertNotIn('Household membership', str(payload['secrets']))
+        self.assertIn('main.fallback', keys)   # the system part of the main agent's section stays

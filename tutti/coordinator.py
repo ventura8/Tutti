@@ -275,6 +275,8 @@ class Service:
         if path == '/hh/leave':
             household.leave(data, uid)
             return 200, {'left': True}
+        if path == '/hh/act':
+            return 200, self.act(data, uid, ask, now)
         if path == '/hh/job':
             return 200, self.job(data, uid, ask, now)
         if path == '/hh/machine':
@@ -306,6 +308,27 @@ class Service:
         if (ask.get('beat') or {}).get('spare'):
             answer['offers'] = household.offers(data, set(projects), now)
         return answer
+
+    def act(self, data, uid, ask, now):
+        """Acting for a member: queue (the admin for anyone, a member for themself), claim and finish (the member's own
+        Tutti), list (the admin sees everyone's, a member their own) with the audit."""
+        action = ask.get('action')
+        if action == 'queue':
+            return {'id': household.queue_act(data, uid, str(ask.get('member') or ''), str(ask.get('act') or ''),
+                                              ask.get('args') or {}, now)}
+        if action == 'claim':
+            return {'acts': household.claim_acts(data, uid, now)}
+        if action == 'finish':
+            household.finish_act(data, uid, str(ask.get('id') or ''), ask.get('ok'), ask.get('note'), now)
+            return {'ok': True}
+        if action in ('remove', 'make-admin'):
+            fn = household.remove_member if action == 'remove' else household.make_admin
+            fn(data, uid, str(ask.get('member') or ''), now)
+            return {'ok': True}
+        if action == 'list':
+            return {'acts': household.acts_view(data, uid), 'audit': household.audit_view(data, uid),
+                    'admin': data.get('admin') == uid, 'members': household.members_setup(data, uid), 'admins': 1}
+        raise household.HouseholdError('say queue, claim, finish, list, remove or make-admin')
 
     def job(self, data, uid, ask, now):
         """Compute jobs on shared machines: submit and status (a member), claim and finish (the machine's owner)."""

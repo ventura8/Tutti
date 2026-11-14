@@ -16,6 +16,9 @@ RESTART = {'host', 'dashboard.port', 'dashboard.bind', 'dashboard.origins', 'aut
            'project.state', 'household.port', 'household.bind', 'telemetry.endpoint', 'telemetry.environment'}
 # Named entries: each one is drawn as its own group of fields
 ENTRIES = ('machines', 'devices', 'workers', 'accounts', 'projects', 'scouts', 'autopilot.repos', 'scouts.*.watches')
+# About people, not this system: shown on the Manage tab (users, roles, invites, the household, each user's schedule and
+# main agent; tutti/manage.py), never in Settings
+MANAGED = ('user', 'household', 'pacing', 'main.agent')
 SECTIONS = [
     ('accounts', 'Accounts and readings', 'The quotas Tutti paces and where their readings come from.', ['accounts', 'usage']),
     ('energy', 'Energy', 'Local models\' estimated energy cost: your electricity price and currency (docs/ENERGY.md).', ['energy']),
@@ -33,7 +36,6 @@ SECTIONS = [
     ('time', 'Time zone', 'What local time means for your hours, quiet hours and tariffs; auto is this computer\'s.', ['time']),
     ('presence', 'Presence', 'Devices and machines that come and go: away, asleep, moving work and Wake-on-LAN (docs/PRESENCE.md).',
      ['presence']),
-    ('pacing', 'Pacing', 'Your own prompting: the hours kept for you on the main agent\'s accounts.', ['pacing']),
     ('autocompact', 'Autocompact', 'When a worker\'s context is compacted.', ['autocompact']),
     ('review', 'Review', '`tutti pr review`: who reviews a pull request and who steps in when no one answers.', ['review']),
     ('scouts', 'Scouts', 'Helpers that are not workers (Grok Bot): questions, watches and reviews.', ['scouts']),
@@ -48,8 +50,7 @@ SECTIONS = [
      ['dashboard', 'project']),
     ('auth', 'Sign-in', 'Sign-in with Google and how long a session lasts (docs/AUTH.md; `tutti auth setup` sets the clients).',
      ['auth']),
-    ('household', 'You and your household', 'Who this Tutti works for, and the household it shares machines with.',
-     ['user', 'household', 'host']),
+    ('host', 'Where Tutti runs', 'This computer as Tutti\'s host, and where it moved (docs/MOVE.md).', ['host']),
     ('vpn', 'Private network (optional)', 'Already have a VPN to your home? Nothing to do. Which one `tutti vpn setup` sets up '
      '(docs/NETWORK.md).', ['vpn']),
 ]

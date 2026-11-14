@@ -1523,10 +1523,12 @@ def parser():
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])
     s = add('user', householdcmd.cmd_user, 'who this Tutti works for: show, name <name> (config: back to the config\'s), '
                                            'main-agent <kind> (claude, codex, agy, cursor, copilot, gemini, local), '
+                                           'main-machine <m> (your Tutti and main agent move there, like `tutti move`), '
                                            'share <account> on|off (room it would lose at its reset may do the household\'s '
                                            'shared tasks; docs/HOUSEHOLD.md)')
-    s.add_argument('action', nargs='?', default='show', choices=['show', 'name', 'main-agent', 'share'])
-    s.add_argument('arg', nargs='?', help='name: the name; main-agent: the kind; share: the account')
+    s.add_argument('action', nargs='?', default='show', choices=['show', 'name', 'main-agent', 'main-machine', 'share'])
+    s.add_argument('--dry-run', action='store_true', help='main-machine: check the machine and print the plan; change nothing')
+    s.add_argument('arg', nargs='?', help='name: the name; main-agent: the kind; main-machine: the machine; share: the account')
     s.add_argument('value', nargs='?', help='share: on or off')
     s = add('household', householdcmd.cmd_household, 'several people, one set of machines (docs/HOUSEHOLD.md): status, init '
                                                      '(this computer coordinates; prints the join code), join <code>, leave, '

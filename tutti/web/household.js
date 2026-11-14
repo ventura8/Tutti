@@ -49,11 +49,35 @@ function householdView() {
 
 function setHouseholdView(v) {
     try { localStorage.setItem(HOUSEHOLD_VIEW, v); } catch { /* private window: only this page load */ }
-    document.body.dataset.view = v;
+    document.body.dataset.hhView = v;
     for (const b of document.querySelectorAll('[data-view-pick]')) b.setAttribute('aria-pressed', String(b.dataset.viewPick === v));
 }
 
+// The Me view's "My main machine": where this user's Tutti and main agent live; one click moves them (tutti/mainmachine.py).
+function renderMainMachine(s) {
+    const box = $('my-main-machine');
+    const mm = s.household?.main_machine;
+    if (!box || !mm) return;
+    if (box.dataset.drawn === mm.machine + (mm.targets || []).join()) return;   // keep a picked option across polls
+    box.dataset.drawn = mm.machine + (mm.targets || []).join();
+    const pick = el('select', { class: 'pick', 'aria-label': 'Move my Tutti and main agent to' }, ...(mm.targets || []).map((t) => el('option', { value: t, text: t })));
+    const note = el('p', { class: 'row__note', 'aria-live': 'polite' });
+    box.replaceChildren(el('span', { text: `My main machine: ${mm.machine}` }),
+        mm.targets?.length ? pick : el('span', { class: 'row__note', text: ' (no other machine of yours to move to)' }),
+        mm.targets?.length ? el('button', {
+            class: 'btn btn--text', type: 'button', text: 'Make it my main machine',   // a viewer may (their own)
+            onclick: async () => {
+                if (!window.confirm(`Move your Tutti, logins and main agent to ${pick.value}? This computer becomes its client.`)) return;
+                const res = await fetch('/api/user/main-machine', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN },
+                    body: JSON.stringify({ machine: pick.value }) });
+                const a = await res.json().catch(() => ({}));
+                note.textContent = res.ok ? `Moving to ${pick.value}: this page reconnects there by itself.` : (a.error || `refused (${res.status})`);
+            },
+        }) : null, note);
+}
+
 function renderHousehold(s) {
+    renderMainMachine(s);
     const r = householdRows(s.household);
     const away = $('household-away');   // shown in both views: the one thing a member away from home needs to know
     if (away) {

@@ -445,7 +445,9 @@ function sendBrowserZone(o) {
     if (zoneSent || !zone || o.browser_zone === zone) return;
     zoneSent = true;
     fetch('/api/owner', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN },
-        body: JSON.stringify({ browser_zone: zone }) }).catch(() => {});
+        body: JSON.stringify({ browser_zone: zone }) })
+        .then((res) => { if (!res.ok) zoneSent = false; })   // a failed save tries again on the next refresh
+        .catch(() => { zoneSent = false; });
 }
 
 function ownerPanel(o) {

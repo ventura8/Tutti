@@ -228,16 +228,19 @@ def tariff(cfg, env=None, zone=None, zone_tab=None):
             'periods': list(e.get('tariff') or [])}
 
 
-@functools.lru_cache(maxsize=1)
 def system_zone():
     """(this computer's time zone name, zone.tab's text); empty strings where they cannot be read."""
-    zone = tz.zone_name()   # time.zone, else the detected one (tutti/tz.py: Linux, Windows and macOS)
-    zone = '' if zone == 'UTC' else zone
+    zone = tz.zone_name()   # time.zone, else the detected one (tutti/tz.py: Linux, Windows and macOS), else UTC
+    return zone, _zone_tab()
+
+
+@functools.lru_cache(maxsize=1)
+def _zone_tab():
     try:
         with open('/usr/share/zoneinfo/zone.tab', encoding='utf8') as f:
-            return zone, f.read()
+            return f.read()
     except OSError:
-        return zone, ''
+        return ''
 
 
 def price_at(t, hour):

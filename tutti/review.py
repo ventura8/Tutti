@@ -9,7 +9,7 @@ import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 
-from . import pacing, routing, state, workers
+from . import pacing, routing, state, tz, workers
 
 COPILOT_LOGINS = ('copilot-pull-request-reviewer[bot]', 'copilot-pull-request-reviewer', 'Copilot')
 # the names the REST API has taken; 'Copilot' first (PRs #9-#20 of the Tutti repository). The answer is checked: GitHub
@@ -243,7 +243,7 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
     asked, absent = [], {}
     for who in r['reviewers']:
         until = skipped_until(entries, who, since)
-        why = f'skipped until {until.isoformat()}: its allowance is used (account {who} at 100 %)' if until else \
+        why = f'skipped until {tz.show(until)}: its allowance is used (account {who} at 100 %)' if until else \
             request(repo, number, who, gh_fn)
         if why:
             absent[who] = why
@@ -257,7 +257,7 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
     if limited:
         evs, now = events(repo, number, gh_fn), datetime.now(timezone.utc)
         for w in limited:
-            say(f'review: {w} is rate-limited: skipped until {note_limited(cfg, repo, number, w, evs, since, now).isoformat()}')
+            say(f'review: {w} is rate-limited: skipped until {tz.show(note_limited(cfg, repo, number, w, evs, since, now))}')
     if any(s == 'reviewed' for s in found.values()):
         say(f'review: {", ".join(w for w, s in found.items() if s == "reviewed")} reviewed pull request {number}: '
             'read and resolve its threads')

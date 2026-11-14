@@ -52,8 +52,7 @@ def _name(text):
     if ':' in text and not text.startswith(':'):   # macOS `Time Zone: Europe/Bucharest`
         text = text.split(':', 1)[1].strip()
     text = text.lstrip(':').strip()
-    if text in WINDOWS:
-        return WINDOWS[text]
+    text = WINDOWS.get(text, text)
     return text if valid(text) else ''
 
 
@@ -127,7 +126,8 @@ def zone_name(cfg=None, browser=''):
     want = ((cfg or {}).get('time') or {}).get('zone') or _CHOSEN['zone']
     if want != 'auto' and valid(want):
         return want
-    return host_zone() or (browser if valid(browser) else '') or 'UTC'
+    host = host_zone()
+    return (host if valid(host) else '') or (browser if valid(browser) else '') or 'UTC'
 
 
 def zone(cfg_or_name=None):

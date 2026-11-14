@@ -23,8 +23,11 @@ def parse_time(s):
     text, zone = str(s).strip(), None
     head, _, last = text.rpartition(' ')
     if head and '/' in last:
-        from zoneinfo import ZoneInfo
-        text, zone = head.strip(), ZoneInfo(last)
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        try:
+            text, zone = head.strip(), ZoneInfo(last)
+        except (ZoneInfoNotFoundError, ValueError) as e:
+            raise ValueError(f'{last!r} is not a time zone: write an IANA name such as Europe/Bucharest') from e
     dt = datetime.fromisoformat(text.replace('Z', '+00:00'))
     if zone is not None and not dt.tzinfo:
         return dt.replace(tzinfo=zone).astimezone(timezone.utc)

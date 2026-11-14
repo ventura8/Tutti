@@ -251,9 +251,26 @@ def beat(cfg, now, machines=None):
     away = v['effective'] not in ('active', 'auto', 'present')
     present = _present(cfg)
     return {'agent': agent, 'prompting': active and present, 'away': not present, 'setup': setup_of(cfg, v),
-            'totals': {'runs_today': state.runs_today(cfg)},
+            'totals': {'runs_today': runs_total(cfg)},
             'weight': (cfg.get('user') or {}).get('weight', 1), 'profile': [] if away else v['profile'],
             'utc_offset': v['utc_offset'], 'zone': v['zone'], 'machines': demand(cfg, active, machines or [])}
+
+
+def _pct(v):
+    """A reading's percent, rounded to one decimal; None when it is not a number (one bad account never hides the rest)."""
+    try:
+        return round(float(v), 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def runs_total(cfg):
+    """Runs today, all workers together (state.runs_today counts them per worker)."""
+    from . import state
+    runs = state.runs_today(cfg)
+    if isinstance(runs, dict):
+        return sum(v for v in runs.values() if isinstance(v, (int, float)) and not isinstance(v, bool))
+    return runs if isinstance(runs, int) else 0
 
 
 def _present(cfg):
@@ -289,9 +306,10 @@ def stats_of(cfg):
         accounts = state.usage_state(cfg, datetime.now(timezone.utc))['accounts']
     except (OSError, ValueError, KeyError):
         accounts = []
-    rows = [{'kind': telemetry.tool_of(a['name']), 'used': a.get('used'), 'verdict': str(a.get('verdict') or ''),
+    rows = [{'kind': telemetry.tool_of(a['name']), 'used': _pct(a.get('used')),
+             'verdict': str(a.get('verdict') or ''),
              'target': str(a.get('target') or '')[:20]} for a in accounts][:10]
-    rows.append({'kind': 'runs today', 'used': state.runs_today(cfg), 'verdict': '', 'target': ''})
+    rows.append({'kind': 'runs today', 'used': runs_total(cfg), 'verdict': '', 'target': ''})
     return rows
 
 

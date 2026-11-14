@@ -2,6 +2,15 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.67 (2026-11-15)
+
+### Fixed
+
+- The admin's own row, checked live: it said "away" at the computer they sit at (a Tutti no client ever connected to is
+  where its user is: present; only a host whose client left counts them away), "runs today: [object Object]" (the runs
+  are summed over the workers; the household heartbeat's total had been dropped for the same reason) and readings with
+  fifteen decimals (rounded to one).
+
 ## 0.1.66 (2026-11-15)
 
 ### Added

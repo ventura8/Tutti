@@ -196,22 +196,31 @@ main {
 .tile[data-tone='bad'] { background: var(--bad-c); border-color: transparent; }
 .tile[data-tone='warn'] { background: var(--warn-c); border-color: transparent; }
 
+/* The cards sit on a 12-column grid, ordered by importance: full-width rows (usage, what needs you, projects, history)
+   and paired rows (running jobs beside machines, the autopilot beside the main agent and workers). Cards of a row stretch
+   to the same height, so no tall narrow column is left with nothing beside it. One column on a phone or a narrow window. */
 .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--gap);
-    align-items: start;
+    align-items: stretch;
 }
 
-@media (min-width: 1100px) {
-    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .card--usage, .card--jobs { grid-column: 1 / -1; }
+.stack { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+.stack > .card:last-child { flex: 1 1 auto; }
+
+@media (min-width: 960px) {
+    .grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .span-full { grid-column: 1 / -1; }
+    .span-wide { grid-column: span 7; }
+    .span-narrow { grid-column: span 5; }
 }
 
-@media (min-width: 2000px) {
-    .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    .card--usage { grid-column: span 2; grid-row: span 2; }
-    .card--jobs { grid-column: 1 / -1; }
+@media (min-width: 1800px) {
+    .span-wide { grid-column: span 8; }
+    .span-narrow { grid-column: span 4; }
+    .jobs--history { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+    .jobs--history > .more__row { grid-column: 1 / -1; }
 }
 
 .card {
@@ -289,13 +298,28 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
 
 /* ---- usage */
 
-.accounts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: var(--gap); }
+.accounts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: var(--gap); align-items: stretch; }
+.accounts:focus-visible { outline-offset: 4px; }
+
+/* an account bound by a longer limit: its windows side by side (agy: 5 h and weekly) */
+.windows { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: 12px; }
+.window { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.window__label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 500; color: var(--on-surface-2); }
+.window__pct { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
+.window__pct .account__by { font-size: 0.75rem; font-weight: 400; letter-spacing: 0; }
+.account__nudge, .account__remind { font-size: 0.8125rem; }
+.account__nudge { color: var(--ok); }
+.account__plan { font-size: 0.8125rem; color: var(--on-surface); padding: 8px 10px; border-radius: var(--r-s); background: var(--accent-c); }
+.account__more { font-size: 0.8125rem; }
+.account__more > summary { cursor: pointer; color: var(--on-surface-2); min-height: 24px; }
+.account__more[open] > summary { margin-bottom: 6px; }
 
 .account {
     display: grid;
     align-content: start;
-    gap: 12px;
-    padding: 18px;
+    gap: 10px;
+    padding: 16px;
+    min-width: 0;
     border-radius: var(--r-m);
     background: var(--tint-1);
     border: 1px solid var(--outline-2);
@@ -354,7 +378,7 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
 .legend i.l-used { height: 8px; background: var(--accent); }
 .legend i.l-panic { background: var(--bad); }
 
-.spark { width: 100%; height: 72px; display: block; }
+.spark { width: 100%; height: 48px; display: block; }
 .spark .s-grid { stroke: var(--outline-2); stroke-width: 1; }
 .spark .s-target { stroke: var(--on-surface-2); stroke-width: 1.5; stroke-dasharray: 4 4; fill: none; }
 .spark .s-panic { stroke: var(--bad); stroke-width: 1; stroke-dasharray: 2 3; }
@@ -365,6 +389,26 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
 /* ---- machines and workers */
 
 .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.list--grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr)); align-items: start; }
+.list--grid > .more__row, .list--grid > li:only-child { grid-column: 1 / -1; }
+
+/* long lists: "Show N more" */
+.more__row { list-style: none; }
+.btn--text { background: transparent; color: var(--accent-line); padding: 0 12px; min-height: 36px; }
+.btn--text:hover { background: var(--accent-c); }
+.more { justify-self: start; }
+
+/* what needs you: the tone sits on the edge, the chip says it in words */
+.row--attention { border-left: 4px solid var(--outline); }
+.row--attention[data-tone='bad'] { border-left-color: var(--bad); }
+.row--attention[data-tone='warn'] { border-left-color: var(--warn); }
+.row--attention[data-tone='ok'] { border-left-color: var(--ok); }
+.row--attention .btn--text { grid-column: 1 / -1; justify-self: start; margin-left: -12px; }
+
+/* the autopilot: its groups side by side when there is room, decisions in a capped scroll box */
+.autopilot { display: grid; gap: 4px; }
+.decisions { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 18rem; overflow: auto; font-size: 0.8125rem; color: var(--on-surface-2); overflow-wrap: anywhere; }
+.decisions time { font-weight: 600; color: var(--on-surface); }
 
 .row {
     display: grid;
@@ -458,6 +502,10 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
 }
 
 @media (max-width: 560px) {
+    /* the accounts stay one row: swipe sideways, each card snaps into place */
+    .accounts { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 86%; overflow-x: auto; scroll-snap-type: x mandatory;
+        padding-bottom: 6px; overscroll-behavior-x: contain; }
+    .account { scroll-snap-align: start; }
     .tiles { grid-template-columns: 1fr 1fr; gap: 10px; }
     .tile { padding: 12px 14px; }
     .tile__value { font-size: 1.25rem; }
@@ -501,3 +549,7 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
     flex: 1 1 12rem; min-width: 0; max-width: 100%; min-height: 40px; padding: 0 10px; font: inherit; color: var(--on-surface);
     background: var(--surface-2); border: 1px solid var(--outline-2); border-radius: var(--r-s);
 }
+
+/* a row's status chip sits at the top, never stretched to the row's height */
+.row > .chip { align-self: start; }
+.row--attention .row__name { font-size: 0.9375rem; font-weight: 500; }

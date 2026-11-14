@@ -25,7 +25,8 @@ more than one computer. It grew out of one project's working day and keeps only 
   when the first is full and the shared one is idle enough. See [docs/MACHINES.md](docs/MACHINES.md).
 - **Usage pacing.** Spend every quota fully about 1 hour before its reset (override per account with `lead_hours`). Not
   earlier (work stalls), not later (quota is wasted). `tutti usage` says whether each account is ahead, behind or on
-  pace, and what to do. See [docs/USAGE-PACING.md](docs/USAGE-PACING.md).
+  pace, and what to do. A planner spends what expires soonest first: agy's 5 h windows share their weekly quota over the
+  windows left that can run, so as little as possible expires unused. See [docs/USAGE-PACING.md](docs/USAGE-PACING.md).
 - **Peer coordination.** Two orchestrator sessions can share accounts and machines: lock files are the only signal,
   limits live in one shared file, and each session's risky actions need its own owner's approval.
 - **The yield flag.** A file on a shared machine that says "this machine is mine for now". While it exists Tutti
@@ -96,7 +97,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | `tutti guard` | Pauses test containers when memory runs low; resumes them later. |
 | `tutti tunnel start\|stop\|status <worker>` | The self-healing ssh tunnel to a worker's model server. |
 | `tutti wait pid\|file\|grep\|run <target> [regex]` | Waits that end: always with `--timeout`, never by matching command lines; `--stall <s>` gives up (exit 125) when the watched log stops changing. Ends with one line: `done: ...`, or for `run <id>` the run's verdict and report. |
-| `tutti dashboard [--port 4777]` | A local web dashboard on `127.0.0.1` (installable as an app): the projects Tutti sees on every machine (jobs, agents and runs per project, repositories and branches, a peer's processes, yield flags and GPU), the main agent with a switch, usage and pacing with the panic threshold, machines and their slots, workers and the agents installed here, running, stalled and recent jobs with the end of their logs. `--once` prints the same state as JSON. See [docs/DASHBOARD.md](docs/DASHBOARD.md). |
+| `tutti dashboard [--port 4777]` | A local web dashboard on `127.0.0.1` (installable as an app): the projects Tutti sees on every machine (jobs, agents and runs per project, repositories and branches, a peer's processes, yield flags and GPU), the main agent with a switch, usage and pacing first (agy's 5 h and weekly windows side by side, the planner's decision), what needs you, machines and their slots, workers and the agents installed here, running, stalled and recent jobs with the end of their logs. `--once` prints the same state as JSON. See [docs/DASHBOARD.md](docs/DASHBOARD.md). |
 | `tutti translate <source.json> <locale>` | Translation with mandatory QA; `--check <out.json>` is the import gate. |
 
 ## Documents

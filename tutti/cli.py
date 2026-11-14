@@ -223,9 +223,9 @@ def cmd_usage(cfg, a):
             return 2
         pacing.append_log(path, a.account, float(a.percent), now, a.note, resets=a.resets)
     entries = pacing.read_log(path)
-    print(pacing.report(cfg['accounts'], entries, now))
+    print(pacing.report(cfg['accounts'], entries, now, cfg['autopilot'].get('quiet_hours')))
     for name, acc in cfg['accounts'].items():
-        s = pacing.account_state(name, acc, entries, now)
+        s = pacing.account_state(name, acc, entries, now, *pacing.plan_args(cfg))
         if s.get('remind'):
             say(f'reminder: {s["remind"]}')
     return 0
@@ -239,7 +239,7 @@ def cmd_workers(cfg, a):
 def choose_worker(cfg, now):
     """`tutti run auto`: the worker whose account has room, from the latest readings (panic and spent accounts are skipped)."""
     entries = pacing.read_log(usage_log_path(cfg))
-    accounts = [pacing.account_state(n, x, entries, now) for n, x in cfg['accounts'].items()]
+    accounts = [pacing.account_state(n, x, entries, now, *pacing.plan_args(cfg)) for n, x in cfg['accounts'].items()]
     return state.next_worker(cfg, accounts)
 
 

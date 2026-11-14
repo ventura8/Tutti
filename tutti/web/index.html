@@ -15,6 +15,7 @@
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
     <link rel="stylesheet" href="app.css?v=__TUTTI_VERSION__">
     <script src="update.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="attention.js?v=__TUTTI_VERSION__" defer></script>
     <script src="app.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
@@ -37,48 +38,35 @@
     <main id="main" tabindex="-1">
         <section class="tiles" aria-label="At a glance" id="tiles"></section>
 
+        <!-- Ordered by importance, top to bottom: quota, what needs the owner, what runs now, the autopilot, projects, history. -->
         <div class="grid">
-            <section class="card" aria-labelledby="projects-h">
-                <header class="card__head">
-                    <h2 id="projects-h">Projects</h2>
-                    <p class="card__meta" id="projects-meta"></p>
-                </header>
-                <ul id="projects" class="list"></ul>
-            </section>
-
-            <section class="card" aria-labelledby="main-h">
-                <header class="card__head">
-                    <h2 id="main-h">Main agent</h2>
-                    <p class="card__meta" id="main-meta"></p>
-                </header>
-                <form class="switch" id="main-form">
-                    <label for="main-pick">Conducts the next goal</label>
-                    <select id="main-pick"></select>
-                    <button class="btn btn--filled" type="submit">Switch</button>
-                </form>
-                <div id="main-run"></div>
-            </section>
-
-            <section class="card" aria-labelledby="autopilot-h">
-                <header class="card__head">
-                    <h2 id="autopilot-h">Autopilot</h2>
-                    <p class="card__meta" id="autopilot-meta"></p>
-                    <button class="btn btn--tonal" id="autopilot-toggle" type="button" aria-pressed="false">Turn on</button>
-                </header>
-                <p class="row__note" id="autopilot-state"></p>
-                <div id="autopilot"></div>
-            </section>
-
-            <section class="card card--usage" aria-labelledby="usage-h">
+            <section class="card card--usage span-full" aria-labelledby="usage-h">
                 <header class="card__head">
                     <h2 id="usage-h">Usage &amp; pacing</h2>
                     <p class="card__meta" id="usage-meta"></p>
                     <button class="btn btn--tonal" id="refresh-readings" type="button" title="Run the automatic usage readers now">Refresh readings</button>
                 </header>
-                <div id="usage" class="accounts"></div>
+                <div id="usage" class="accounts" tabindex="0" role="group" aria-label="Accounts: scroll sideways for more on a small screen"></div>
             </section>
 
-            <section class="card" aria-labelledby="machines-h">
+            <section class="card card--attention span-full" aria-labelledby="attention-h">
+                <header class="card__head">
+                    <h2 id="attention-h">Needs you</h2>
+                    <p class="card__meta" id="attention-meta"></p>
+                </header>
+                <ul id="attention" class="list list--grid"></ul>
+            </section>
+
+            <section class="card card--running span-wide" aria-labelledby="running-h">
+                <header class="card__head">
+                    <h2 id="running-h">Running jobs</h2>
+                    <label class="sr-only" for="job-project">Show jobs of</label>
+                    <select class="pick" id="job-project"></select>
+                </header>
+                <div id="running" class="jobs"></div>
+            </section>
+
+            <section class="card span-narrow" aria-labelledby="machines-h">
                 <header class="card__head">
                     <h2 id="machines-h">Machines</h2>
                     <p class="card__meta" id="machines-meta"></p>
@@ -86,25 +74,57 @@
                 <ul id="machines" class="list"></ul>
             </section>
 
-            <section class="card" aria-labelledby="workers-h">
+            <section class="card card--autopilot span-wide" aria-labelledby="autopilot-h">
                 <header class="card__head">
-                    <h2 id="workers-h">Workers</h2>
-                    <p class="card__meta" id="workers-meta"></p>
+                    <h2 id="autopilot-h">Autopilot</h2>
+                    <p class="card__meta" id="autopilot-meta"></p>
+                    <button class="btn btn--tonal" id="autopilot-toggle" type="button" aria-pressed="false">Turn on</button>
                 </header>
-                <ul id="workers" class="list"></ul>
-                <ul id="workers-off" class="list" aria-label="Workers and accounts that are off"></ul>
-                <h3 class="card__sub">Agents on this computer</h3>
-                <ul id="agents" class="chips"></ul>
+                <p class="row__note" id="autopilot-state"></p>
+                <div id="autopilot" class="autopilot"></div>
             </section>
 
-            <section class="card card--jobs" aria-labelledby="jobs-h">
+            <div class="stack span-narrow">
+                <section class="card" aria-labelledby="main-h">
+                    <header class="card__head">
+                        <h2 id="main-h">Main agent</h2>
+                        <p class="card__meta" id="main-meta"></p>
+                    </header>
+                    <form class="switch" id="main-form">
+                        <label for="main-pick">Conducts the next goal</label>
+                        <select id="main-pick"></select>
+                        <button class="btn btn--filled" type="submit">Switch</button>
+                    </form>
+                    <div id="main-run"></div>
+                </section>
+
+                <section class="card" aria-labelledby="workers-h">
+                    <header class="card__head">
+                        <h2 id="workers-h">Workers</h2>
+                        <p class="card__meta" id="workers-meta"></p>
+                    </header>
+                    <ul id="workers" class="list"></ul>
+                    <ul id="workers-off" class="list" aria-label="Workers and accounts that are off"></ul>
+                    <h3 class="card__sub">Agents on this computer</h3>
+                    <ul id="agents" class="chips"></ul>
+                </section>
+            </div>
+
+            <section class="card span-full" aria-labelledby="projects-h">
                 <header class="card__head">
-                    <h2 id="jobs-h">Jobs</h2>
-                    <label class="sr-only" for="job-project">Show jobs of</label>
-                    <select class="pick" id="job-project"></select>
-                    <fieldset class="segmented" id="job-filter"><legend class="sr-only">Show jobs</legend><div class="segmented__buttons" id="job-filter-buttons"></div></fieldset>
+                    <h2 id="projects-h">Projects</h2>
+                    <p class="card__meta" id="projects-meta"></p>
                 </header>
-                <div id="jobs" class="jobs"></div>
+                <ul id="projects" class="list list--grid"></ul>
+            </section>
+
+            <section class="card card--jobs span-full" aria-labelledby="jobs-h">
+                <header class="card__head">
+                    <h2 id="jobs-h">Finished jobs</h2>
+                    <p class="card__meta" id="jobs-meta"></p>
+                    <fieldset class="segmented" id="job-filter"><legend class="sr-only">Show finished jobs</legend><div class="segmented__buttons" id="job-filter-buttons"></div></fieldset>
+                </header>
+                <div id="jobs" class="jobs jobs--history"></div>
             </section>
         </div>
     </main>
@@ -113,7 +133,7 @@
         <p id="foot-version">Tutti</p>
         <p id="foot-accent"></p>
         <p><a href="/helper">Reading helper</a>: read a provider's usage page in one click</p>
-        <p>Served on this computer only (127.0.0.1). Keys: <kbd>R</kbd> refresh, <kbd>1</kbd>–<kbd>5</kbd> job filter.</p>
+        <p>Served on this computer only (127.0.0.1). Keys: <kbd>R</kbd> refresh, <kbd>1</kbd>–<kbd>3</kbd> finished-jobs filter.</p>
     </footer>
 </body>
 </html>

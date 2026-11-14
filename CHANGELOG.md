@@ -2,6 +2,31 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.16 (2026-11-14)
+
+### Added
+
+- The quota planner (`tutti/planner.py`, docs/USAGE-PACING.md): what expires soonest is spent first, across accounts. An
+  account's `limits` names a longer quota that bounds it (agy's 5 h windows under `agy-claude-weekly`, `agy-gemini-weekly`,
+  read from the same `/usage` answer): the weekly room is shared over the 5 h windows left that can run, at least what the
+  later windows cannot hold, so nothing expires unused; a window in `autopilot.quiet_hours` gets nothing and its share moves.
+  `reserve` (default 0) keeps points for work outside Tutti; `background: true` (Cursor's own reviews) estimates the spend
+  outside Tutti from readings and plans around it. The autopilot sends as many tasks as the plan holds; `tutti run auto`
+  picks the soonest-expiring room. A simulated week shows it wastes less than spreading the weekly evenly.
+- Dashboard: an agy card shows its 5 h window and its weekly limit side by side, and the planner's line ("this window: X of
+  Y weekly points … → N task(s) now").
+- Dashboard: **Needs you**, near the top: tasks that need a person, panic, stalled jobs (with **Open its log**), machines
+  offline, workers down, readings due, results to review.
+
+### Changed
+
+- Dashboard layout by importance (docs/DASHBOARD.md, *Layout*): tiles and Usage & pacing first, full width, the accounts in
+  one row of compact cards (a swipeable row on a phone); then Needs you; Running jobs beside Machines; the Autopilot beside
+  the Main agent and Workers; Projects; Finished jobs at the bottom. A 12-column grid whose rows fill their width, cards of a
+  row the same height, long lists folded with "Show N more". Checked at 375, 1440 and 2560 px, light and dark.
+- Autopilot acceptance is the task's own check AND the repo's `check` (its gates): results whose new tests passed but broke
+  lint or type checks were marked passing (LESSONS).
+
 ## 0.1.15 (2026-11-14)
 
 ### Added

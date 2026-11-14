@@ -141,6 +141,25 @@ def credits_in(lines):
     return round(total, 2)
 
 
+def busy_intervals(folder, worker, now):
+    """[(start, end)] of Tutti's runs of one worker, from `<state>/runs/<epoch>-<pid>.log.cmd` ("run <worker>: ..."): the
+    start from the name, the end from the `.rc` file's time (still running: now). The planner's background estimate skips them."""
+    out = []
+    for cmd in glob.glob(os.path.join(folder, '*.log.cmd')):
+        try:
+            with open(cmd, encoding='utf8', errors='replace') as f:
+                first = f.readline()
+            start = float(os.path.basename(cmd).split('-')[0])
+        except (OSError, ValueError):
+            continue
+        if not first.startswith(f'run {worker}:'):
+            continue
+        end = mtime(cmd[:-len('.cmd')] + '.rc')
+        out.append((datetime.fromtimestamp(start, timezone.utc),
+                    datetime.fromtimestamp(end, timezone.utc) if end else now))
+    return out
+
+
 def credits_since(folders, since):
     """AI credits printed by agent runs whose logs changed since `since` (a datetime), in the given folders (Tutti's runs
     and quiet logs)."""

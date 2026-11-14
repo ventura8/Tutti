@@ -136,6 +136,11 @@ def step_room(cfg, name, states, running_units, machines=()):
     unfit = routing.account_unfit(s)
     if unfit:
         return 0, f'{name}: {unfit}'
+    p = s.get('quota_plan')
+    if name in settings(cfg)['accounts'] and p and p.get('limit'):
+        # a window under a weekly limit (tutti/planner.py): its planned share is spent before the window expires
+        room = p['tasks'] - used
+        return (room, '') if room > 0 else (0, f'{name}: {p["why"]}')
     if name in settings(cfg)['accounts']:
         if s.get('verdict') not in ('behind', 'late'):
             return 0, f'{name}: at its even-pace line ({s.get("verdict")})'
@@ -282,12 +287,21 @@ def should_park(cfg, task):
     return ''
 
 
+def acceptance(task, repo):
+    """The command a result must pass: the task's own check AND the repository's `check` (its lint and type gates), so a
+    task's new tests passing never hides a gate it broke. Either alone when the other is missing; '' when neither is set."""
+    own, gates = (task.get('check') or '').strip(), (repo.get('check') or '').strip()
+    if own and gates and own != gates:
+        return f'( {own} ) && ( {gates} )'
+    return own or gates
+
+
 def brief(task, repo):
     """The worker's task: what to change, where, the acceptance check, and for a retry what went wrong so far."""
     lines = [task['title'], '']
     if task['scope']:
         lines.append('Change only these paths (and tests or docs that belong to them): ' + ', '.join(task['scope']))
-    check = task.get('check') or repo.get('check')
+    check = acceptance(task, repo)
     if check:
         lines.append(f'Acceptance: this command must pass from the repository root: {check}')
     lines.append('Keep the change small and bounded; if the task is not safe to do as described, change nothing and say why.')
@@ -323,7 +337,7 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen):
     p = delegate.paths(cfg, run_id)
     with open(p['log'], 'a', encoding='utf8') as log:   # the id is taken from here on: the next dispatch gets another
         log.write(f'autopilot: task {task["id"]} attempt {len(task["attempts"]) + 1} on {step_name}\n')
-    check = task.get('check') or repo.get('check') or ''
+    check = acceptance(task, repo)
     argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', step['worker'], brief(task, repo)]
     if step['kind'] == 'ollama':
         argv += [s for s in task['scope'] if not os.path.isdir(os.path.join(repo_path(cfg, task), s))]

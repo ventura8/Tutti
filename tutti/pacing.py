@@ -197,10 +197,24 @@ def account_action(name, a, p, used, is_panic, room):
     return p['action']
 
 
-def account_state(name, a, entries, now):
+def plan_args(cfg):
+    """What account_state needs from the config for the planner: every account (for `limits`) and the quiet hours."""
+    return cfg['accounts'], cfg['autopilot'].get('quiet_hours')
+
+
+def account_state(name, a, entries, now, accounts=None, quiet_hours=None):
     """Everything known about one account now, as plain data: the window, the latest reading, the pace and panic.
-    `state` is `ok`, `no reset` (the reset time or window is not in the config) or `no reading` (none in this window)."""
+    `state` is `ok`, `no reset` (the reset time or window is not in the config) or `no reading` (none in this window).
+    With `accounts` (the config's), the planner (tutti/planner.py) adds its `plan`: an account's `limits` (a 5 h window's
+    weekly quota) bound it, and what expires soonest is spent first."""
     a = a or {}
+    if accounts is not None:
+        from tutti import planner  # planner imports pacing: imported here, when a plan is wanted
+        own = account_state(name, {k: v for k, v in a.items() if k != 'limits'}, entries, now)
+        if not a.get('limits'):
+            return planner.plan_alone(own, a, now)
+        lims = [account_state(n, accounts.get(n), entries, now) for n in a['limits'] if n in accounts]
+        return planner.bind(own, lims, a, accounts, quiet_hours, now)
     src = a.get('source', 'its dashboard')
     out = {'name': name, 'source': src, 'window': a.get('window'), 'share': a.get('share', 1.0), 'usage_url': a.get('usage_url'),
            'reset_from': None,
@@ -234,13 +248,13 @@ def account_state(name, a, entries, now):
             'panic': is_panic, 'reading_at': parse_time(e['at']).isoformat()}
 
 
-def report(accounts, entries, now):
+def report(accounts, entries, now, quiet_hours=None):
     """One row per account: used, reset, target, verdict and what to do. Times in UTC."""
     rows = [('account', 'used', 'by now', 'resets (UTC)', 'spend by (UTC)', 'verdict', 'do')]
     # A reading is the whole account's use, whoever spent it, so the pace is judged against the whole quota; an account shared
     # with a peer session shows this session's part beside the verdict.
     for name, a in accounts.items():
-        s = account_state(name, a, entries, now)
+        s = account_state(name, a, entries, now, accounts, quiet_hours)
         if s['state'] == 'no reset':
             rows.append((name, '?', '?', '?', '?', 'unknown', s['action']))
             continue

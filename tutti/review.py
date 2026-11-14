@@ -123,7 +123,8 @@ def worker_room(cfg, name, entries, now):
     accounts = [n for n, a in cfg['accounts'].items() if n == name or (a or {}).get('worker') == name]
     if not accounts:
         return [], ''
-    best, reason = routing.pick_account([pacing.account_state(n, cfg['accounts'][n], entries, now) for n in accounts])
+    states = [pacing.account_state(n, cfg['accounts'][n], entries, now, *pacing.plan_args(cfg)) for n in accounts]
+    best, reason = routing.pick_account(states)
     if not best:
         return None, reason
     return list((cfg['accounts'][best['name']] or {}).get('args') or []), ''

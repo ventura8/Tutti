@@ -43,7 +43,8 @@ DEFAULTS = {
     # when it conducts (default: its worker command), extra ask-first actions, how often the run checks the readings
     # autopilot: `tutti autopilot`; accounts whose pace triggers it, the escalation ladder of retries, how many runs at once,
     # when a task is parked for a person, and the repos it may work in ({name: {path, check, where, pr, commit, trailers, gaps}})
-    'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'max_parallel': 1, 'no_progress': 3, 'max_attempts': 12, 'repos': {}},
+    'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'max_parallel': 1, 'no_progress': 3, 'max_attempts': 12, 'repos': {},
+                  'quiet_hours': []},
     'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
              'command_timeout': 3600},
 }
@@ -278,11 +279,24 @@ def _autopilot_repo_errors(n, r):
     return errs
 
 
+QUIET = re.compile(r'([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d')
+
+
+def quiet_hours_errors(hours):
+    """autopilot.quiet_hours: UTC spans when the autopilot must not run, e.g. ['22:00-06:00'] (the planner gives them nothing)."""
+    if hours is None:
+        return []
+    if not isinstance(hours, list) or not all(isinstance(h, str) and QUIET.fullmatch(h) for h in hours):
+        return [f'autopilot.quiet_hours is {hours!r}: a list of UTC spans HH:MM-HH:MM, e.g. ["22:00-06:00"] (past midnight wraps)']
+    return []
+
+
 def _autopilot_errors(cfg):
     ap = cfg['autopilot']
     if not isinstance(ap, dict):
         return [f'autopilot is {ap!r}: write it as a mapping, e.g. autopilot: {{enabled: false, accounts: [...], repos: {{...}}}}']
     errs = _autopilot_name_errors(cfg, 'accounts', ap.get('accounts')) + _autopilot_name_errors(cfg, 'ladder', ap.get('ladder'))
+    errs += quiet_hours_errors(ap.get('quiet_hours'))
     for key in ('max_parallel', 'no_progress', 'max_attempts'):
         v = ap.get(key)
         if isinstance(v, bool) or not isinstance(v, int) or v < 1:
@@ -348,7 +362,9 @@ def _account_pace_errors(name, a):
     if not isinstance(panic_at, (int, float)) or not 0 < panic_at <= 100:
         errs.append(f'accounts.{name}.panic_at is {panic_at!r}: use a percentage above 0 and up to 100 (95 = panic at 95 % used)')
     for key, hint in (('stale_hours', 'hours after which a hand reading is old (0: never remind)'),
-                      ('task_pct', 'the points of quota one bounded task costs, e.g. 2')):
+                      ('task_pct', 'the points of quota one bounded task costs, e.g. 2'),
+                      ('reserve', 'points of the quota the planner leaves for work outside Tutti (default 0)'),
+                      ('window_points', 'the points of its limit one whole window costs, e.g. 10')):
         v = a.get(key, 1)
         if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
             errs.append(f'accounts.{name}.{key} is {v!r}: use a number, 0 or more: {hint}')
@@ -397,13 +413,23 @@ def _account_source_errors(name, a):
 
 
 def _account_worker_errors(cfg, name, a):
-    errs = []
+    errs = _limits_errors(cfg, name, a.get('limits'))
     if a.get('worker') and a['worker'] not in cfg['workers']:
         errs.append(f'accounts.{name}.worker names "{a["worker"]}", which is not under workers:')
     args = a.get('args', [])
     if not isinstance(args, list) or not all(isinstance(x, str) for x in args):
         errs.append(f'accounts.{name}.args is {args!r}: a list of extra arguments for its worker, e.g. [--model, gemini-3.8-flash-high]')
     return errs
+
+
+def _limits_errors(cfg, name, limits):
+    if limits is None:
+        return []
+    if not isinstance(limits, list) or not all(isinstance(x, str) for x in limits):
+        return [f'accounts.{name}.limits is {limits!r}: a list of other accounts that also bound this one, e.g. [agy-claude-weekly]']
+    return [f'accounts.{name}.limits names "{n}", which is not under accounts: (or it is turned off)' if n != name
+            else f'accounts.{name}.limits names the account itself: name its other window, e.g. {name}-weekly'
+            for n in limits if n == name or n not in cfg['accounts']]
 
 
 def _match_errors(key, m):

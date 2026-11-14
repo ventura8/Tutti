@@ -566,7 +566,7 @@ def save_connect(collector, body, home=None):
         data = None
     action, name = (data or {}).get('action'), (data or {}).get('agent')
     if action == 'status':
-        return 200, {'agents': connect.status_all(home)}
+        return 200, {'agents': connect.status_all(home, cfg_path=collector.cfg['_path'])}
     if action not in ('connect', 'undo', 'test') or name not in connect.AGENTS:
         return 400, {'error': 'send {"action": "status"}, or {"action": "connect"|"undo"|"test", "agent": one of '
                               f'{", ".join(connect.AGENTS)}}}'}

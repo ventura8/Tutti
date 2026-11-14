@@ -155,8 +155,7 @@ def write_config(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if os.path.exists(path):
         shutil.copy2(path, path + '.bak')
-    with open(path, 'w', encoding='utf8') as f:
-        f.write(text)
+    config.write_text(path, text)
 
 
 def systemd_missing(platform, run):

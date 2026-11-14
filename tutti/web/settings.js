@@ -291,6 +291,28 @@ function secretsBlock(list) {
             h('div', { class: 'setting__control' }, secretBox({ set: s.set, setup: s.setup }))))));
 }
 
+// Another copy of the config that drifted apart (docs/CONFIG.md): the warning and its one-click merge.
+function copiesBlock(copies) {
+    if (!copies?.length) return '';
+    const button = h('button', { class: 'btn btn--filled', type: 'button', text: 'Merge into one' });
+    const msg = h('p', { class: 'setting__msg', role: 'status' });
+    button.addEventListener('click', async () => {
+        button.disabled = true;
+        const res = await fetch('/api/settings', { method: 'POST', headers: headers(), body: JSON.stringify({ action: 'merge-configs' }) }).catch(() => null);
+        const answer = res ? await res.json().catch(() => ({})) : { error: 'the dashboard did not answer: is it running?' };
+        if (res?.ok) { await loadSettings(true); return; }
+        button.disabled = false;
+        msg.dataset.tone = 'bad';
+        msg.textContent = `Not merged: ${answer.error || `the dashboard answered ${res?.status}`}`;
+    });
+    return h('section', { class: 'card setting-card', id: 'settings-copies', role: 'alert' },
+        h('p', { class: 'setting__help', text: `${copies.length} other copy(ies) of the config differ from the one in use; Tutti reads only the one in use, so what only a copy holds is not used:` }),
+        h('ul', { class: 'list' }, ...copies.map((c) => h('li', { class: 'setting__note',
+            text: `${c.path}: ${c.missing.length} setting(s) only there, ${c.conflicts.length} with other values${c.conflicts.length ? ` (${c.conflicts.join(', ')})` : ''}` }))),
+        h('p', { class: 'setting__help', text: 'Merge into one adds what only a copy has (the file in use wins where both differ), keeps each copy as a backup and links it to the one file.' }),
+        button, msg);
+}
+
 function renderSettings(data) {
     if (!data) return [h('p', { class: 'setting__note', text: 'Loading the settings…' })];
     const sections = data.sections.map(sectionBlock).filter(Boolean);
@@ -299,7 +321,7 @@ function renderSettings(data) {
             .map((s) => h('a', { class: 'chip', href: `#settings/${s.id}`, text: s.title })));
     const head = h('p', { class: 'setting__note' }, data.writable ? `Saved into ${data.path}, its comments and order kept; a backup is made first.`
         : `${data.path || 'The config'} cannot be saved from here (only a YAML file you may write can): the values are shown read-only.`);
-    return [head, nav, ...(SET.query || SET.changed ? [] : [secretsBlock(data.secrets)]),
+    return [head, copiesBlock(data.copies), nav, ...(SET.query || SET.changed ? [] : [secretsBlock(data.secrets)]),
         ...(sections.length ? sections : [h('p', { class: 'setting__note', text: 'No setting matches: clear the search or the filter.' })])];
 }
 

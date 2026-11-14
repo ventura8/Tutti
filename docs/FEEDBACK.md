@@ -29,3 +29,9 @@ of your project or secrets: describe the setup in general words.
 - 2026-11-14 (owner): the dashboard still said "Use it: 46 bounded task(s) can go here now (tutti run auto …)" while the autopilot was on; agy took none of the queued tasks and three results waited for a manual review. Fixed in 0.1.23: `fill_room` fills the room by itself, retries fall back to agy when the steps above have no room, `auto_review` lands results, and the card says what the autopilot does with the room.
 
 - 2026-11-14 (owner): pacing ignored how the owner works (about 8 h of prompting on weekdays, agents alone on weekends, days away, holidays), so either the main agent risked its limit or quota expired. Fixed in 0.1.25: the weekday x hour owner profile, the reserve on working days only, the mode with I'm away until…, and a 7 x 24 heatmap.
+- 2026-11-14 (owner): Settings edits (energy price, working days and hours) landed in one of two config files; the
+  autopilot read the other. Fixed in 0.1.62: one config per user, writes through symlinks, the doctor's and Settings'
+  merge.
+- 2026-11-14 (owner): "Claude Code: needs-restart" while `claude mcp list` said Connected, and "Claude Desktop (chat):
+  not connected" after the app dropped Tutti's entry. Fixed in 0.1.62: the status comes from `claude mcp list`; a dropped
+  Desktop entry is put back with a backup.

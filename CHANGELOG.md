@@ -2,6 +2,23 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.62 (2026-11-14)
+
+### Fixed
+
+- One config per user: `~/.config/tutti/config.yaml` (or `$TUTTI_CONFIG`) wins over a project `tutti.config.yaml`, so the
+  dashboard, the MCP server, the service and every command read the same file whatever their working directory. A
+  project file is used only when no XDG file exists.
+- Every config write (Settings, `tutti setup`, `tutti move`, device saves, `tutti connect`'s files) goes through
+  `config.write_text`: atomic, into the real file, so a symlinked config stays a symlink and keeps its mode.
+- `tutti doctor` reports another copy of the config that differs from the one in use; `tutti doctor --merge-configs` and
+  Settings' **Merge into one** add what only the copy has (the file in use wins), keep the copy as
+  `<copy>.bak-merge-<time>` and link it to the one file (`tutti/configone.py`).
+- Connect your agent: Claude Code's row comes from `claude mcp list`, so a registered, healthy server is *connected*. A
+  session started before Tutti was added is a soft note, not "needs restart". Claude Desktop (chat) and Claude Code (Code
+  tab) stay separate rows. When Claude Desktop rewrites its settings and drops Tutti's entry, the status check adds it
+  back with a backup and says the chat part needs a full quit and reopen.
+
 ## 0.1.61 (2026-11-14)
 
 ### Added

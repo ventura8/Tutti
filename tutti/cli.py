@@ -54,6 +54,7 @@ from . import (
     vpncmd,
     waiting,
     workers,
+    yamledit,
 )
 
 SCRIPTS = remote.SCRIPTS
@@ -102,8 +103,27 @@ def cmd_config(cfg, a):
     return 0
 
 
+def config_problems(a):
+    """The drifted copies of the config (docs/CONFIG.md); with --merge-configs, merged into the one in use first."""
+    from . import configone
+    try:
+        cfg = config.load(a.config)
+    except config.ConfigError:
+        return []   # no config yet, or a broken one: `tutti config` says which
+    if getattr(a, 'merge_configs', False):
+        try:
+            done = configone.merge(cfg)
+        except (config.ConfigError, OSError, yamledit.EditError) as e:
+            return [f'the copies were not merged: {e}']
+        for m in done['merged']:
+            print(f'merged {m["path"]} into {done["file"]}: {len(m["added"])} key(s) added, {len(m["kept"])} kept as they were '
+                  f'in {done["file"]} ({", ".join(m["kept"]) or "none"}); '
+                  + (m['error'] if m.get('error') else f'the copy is now a link to it, backup {m["backup"]}'))
+    return configone.warnings(cfg)
+
+
 def cmd_doctor(cfg, a):
-    problems = doctor.check_git()
+    problems = doctor.check_git() + config_problems(a)
     for line in problems:
         say(f'problem: {line}')
     print('doctor: ' + (f'{len(problems)} problem(s)' if problems else 'ok'))
@@ -1214,7 +1234,7 @@ SUBCOMMANDS = []
 def parser():
     p = argparse.ArgumentParser(prog='tutti', description='One orchestrator, many workers, shared machines.')
     p.add_argument('--version', action='version', version=f'tutti {__version__}')
-    p.add_argument('--config', help='path of tutti.config.yaml (default: $TUTTI_CONFIG, then the nearest one upwards)')
+    p.add_argument('--config', help='path of tutti.config.yaml (default: $TUTTI_CONFIG, then ~/.config/tutti/config.yaml, then the nearest one upwards)')
     sub = p.add_subparsers(dest='cmd', required=True)
 
     def add(name, fn, text):
@@ -1225,7 +1245,10 @@ def parser():
         return s
 
     add('config', cmd_config, 'check the config and print its path')
-    add('doctor', cmd_doctor, 'check this machine: a git that cannot do HTTPS comes first in PATH')
+    s = add('doctor', cmd_doctor, 'check this machine: a git that cannot do HTTPS comes first in PATH; another copy of the config '
+                                  'that differs from the one in use')
+    s.add_argument('--merge-configs', action='store_true', help='merge every differing copy into the config in use and link '
+                                                                'the copies to it (backups kept)')
     s = add('update', cmd_update, 'update every worker CLI on every machine without sudo (their own updaters, npm, ollama pulls); '
                                   'name the exact command for what needs the owner (apt packages such as the Cursor editor)')
     s.add_argument('--check', action='store_true', help='only read the versions; change nothing')

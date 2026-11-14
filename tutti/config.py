@@ -38,6 +38,10 @@ DEFAULTS = {
     'delegate': {'checks': None, 'prefix': 'tutti-run-', 'remote_track': 'tutti-run'},
     # review: `tutti pr review`; who to ask, how long to wait for them, and which cheap workers review when none answers
     'review': {'reviewers': [], 'timeout_minutes': 20, 'poll_seconds': 30, 'fallback': []},
+    # main: `tutti conduct`; the main (conductor) agent, the ones that take over when its quota is out, a command per agent
+    # when it conducts (default: its worker command), extra ask-first actions, how often the run checks the readings
+    'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
+             'command_timeout': 3600},
 }
 MACHINE_DEFAULTS = {'transport': 'ssh', 'root': 'tutti-wt', 'slots': 2, 'min_free_gb': 6, 'lock_prefix': '/tmp/tutti-slot-',
                     'yield_file': '~/.tutti/yield'}
@@ -210,7 +214,50 @@ def validate(cfg):
              if n not in cfg['workers']]
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
-    return errs + _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
+    errs += _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
+    return errs + _main_errors(cfg) + _projects_errors(cfg)
+
+
+def _projects_errors(cfg):
+    ps = cfg.get('projects') or {}
+    if not isinstance(ps, dict):
+        return [f'projects is {ps!r}: write it as a mapping, e.g. projects: {{my-app: {{match: my-app}}}}']
+    errs = []
+    for name, p in ps.items():
+        p = p or {}
+        if not isinstance(p, dict):
+            errs.append(f'projects.{name} is {p!r}: a mapping with match:, machines:, containers: or windows:')
+            continue
+        if 'match' in p:
+            errs += _regex_errors(f'projects.{name}.match', p['match'])
+        errs += [f'projects.{name}.machines names "{m}", which is not under machines:' for m in p.get('machines') or []
+                 if m not in cfg['machines']]
+        win = p.get('windows') or {}
+        errs += [f'projects.{name}.windows names "{m}", which is not a wsl machine under machines:' for m in win
+                 if (cfg['machines'].get(m) or {}).get('transport') != 'wsl']
+    return errs
+
+
+def _main_errors(cfg):
+    m = cfg['main']
+    if not isinstance(m, dict):
+        return [f'main is {m!r}: write it as a mapping, e.g. main: {{agent: cursor, fallback: [agy, local]}}']
+    fallback = m.get('fallback')
+    if not isinstance(fallback, list):
+        return [f'main.fallback is {fallback!r}: a list of workers, e.g. [agy, cursor]']
+    errs = [f'main.fallback names "{n}", which is not under workers:' for n in fallback if n not in cfg['workers']]
+    commands = m.get('commands') if isinstance(m.get('commands'), dict) else {}
+    errs += [f'main.commands.{n}: "{n}" is not under workers:' for n in commands if n not in cfg['workers']]
+    errs += [f'main.commands.{n} is {c!r}: a list such as [claude, -p, "{{prompt}}"]' for n, c in commands.items()
+             if not isinstance(c, list) or not c or not all(isinstance(x, str) for x in c)]
+    for key in ('check_seconds', 'command_timeout'):
+        v = m.get(key)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
+            errs.append(f'main.{key} is {v!r}: use a number above 0')
+    rounds = m.get('rounds')
+    if isinstance(rounds, bool) or not isinstance(rounds, int) or rounds < 1:
+        errs.append(f'main.rounds is {rounds!r}: use a whole number, 1 or more (a local model\'s answers before it is stopped)')
+    return errs
 
 
 def _account_pace_errors(name, a):

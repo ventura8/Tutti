@@ -139,3 +139,22 @@ The first real `tutti pr review` reported "coderabbit reviewed" while CodeRabbit
 Review rate limited", and it edits its summary comment in place (its `created_at` stays old, `updated_at` moves) to say
 "Review limit reached". Only a pull request review counts as a review; comments are read for limit messages, at the later
 of their created and updated times.
+
+## PowerShell flattens a one-pair list (2026-11-14)
+
+The Windows look-around script listed projects as `@(@('RoRadio', 'C:\\...'))`; PowerShell flattened the single pair into two
+strings, so `$x[0]` was the letter `R` and the dashboard showed projects named "R" and "C". A hashtable (`@{'RoRadio'='C:\\...'}`)
+keeps one entry whole. The Windows side of a WSL machine is read over the machine's plain ssh (the Windows host): its
+WSL had no interop (`Exec format error` for every `.exe`), and WSL's `/proc` never shows Windows processes.
+
+## A fixed band hid "ahead" early in a window (2026-11-14)
+
+`on pace` meant within 5 points of the line. On the second day of a week the line is about 6 %, so 10 % used (two thirds
+over) read as `on pace`. The band is now a quarter of the line, 1 to 5 points, and each row prints the math.
+
+## A headless agent denies a compound shell line (2026-11-14)
+
+The first agy conductor runs passed; a later one ended after its CLI auto-denied a `Bash` call: the model had joined
+commands (`cd`, `&&`, `>>`) that no `command(...)` rule allows, and Claude models in agy use a `Bash` tool the list does
+not cover at all. The turn had exited 0, so it would have read as done: a turn now counts as done only with a `DONE:` line
+and no denied tool call, and the instructions ask for one command per line and edits through the agent's own edit tool.

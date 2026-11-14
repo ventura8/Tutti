@@ -6,7 +6,13 @@ import re
 from datetime import datetime, timedelta, timezone
 
 UNITS = {'h': 'hours', 'd': 'days', 'w': 'weeks'}
-TOLERANCE = 5  # percentage points either side of the line that still count as on pace
+TOLERANCE = 5  # at most this many percentage points either side of the line still count as on pace
+TOLERANCE_PART = 0.25  # early in a window the band is a quarter of the line (at least 1 point): 10 % against 6 % is ahead
+
+
+def tolerance(expected):
+    """The on-pace band around the line: a quarter of it, at least 1 point and at most TOLERANCE points."""
+    return min(TOLERANCE, max(1.0, expected * TOLERANCE_PART))
 
 
 def parse_time(s):
@@ -52,17 +58,18 @@ def pace(now, start, reset, used, lead_hours=1, share=1.0):
     span = (target - start).total_seconds()
     done = 1.0 if span <= 0 else min(1.0, max(0.0, (now - start).total_seconds() / span))
     expected = budget * done
+    band = tolerance(expected)
     if used >= budget:
         verdict, action = 'spent', 'nothing new on this account until the reset: send work to the other workers'
     elif now >= target:
         verdict, action = 'late', f'{budget - used:.0f} points will be lost at the reset: start parallel work now'
-    elif used > expected + TOLERANCE:
+    elif used > expected + band:
         verdict, action = 'ahead', 'spending too fast: shift work to cheaper workers and local models'
-    elif used < expected - TOLERANCE:
+    elif used < expected - band:
         verdict, action = 'behind', 'spending too slowly: start more parallel work from the backlog'
     else:
         verdict, action = 'on pace', 'keep going'
-    return {'target': target, 'budget': budget, 'expected': expected, 'verdict': verdict, 'action': action}
+    return {'target': target, 'budget': budget, 'expected': expected, 'tolerance': band, 'verdict': verdict, 'action': action}
 
 
 def read_log(path):
@@ -210,7 +217,8 @@ def account_state(name, a, entries, now):
     is_panic = panic(used, now, target, out['panic_at'])
     out['room_tasks'] = room_tasks(p, used, a.get('task_pct', TASK_PCT))
     action = account_action(name, a, p, used, is_panic, out['room_tasks'])
-    return {**out, 'state': 'ok', 'used': used, 'expected': round(p['expected'], 1), 'verdict': p['verdict'], 'action': action,
+    return {**out, 'state': 'ok', 'used': used, 'expected': round(p['expected'], 1), 'tolerance': round(p['tolerance'], 1),
+            'verdict': p['verdict'], 'action': action,
             'panic': is_panic, 'reading_at': parse_time(e['at']).isoformat()}
 
 
@@ -228,7 +236,9 @@ def report(accounts, entries, now):
         if s['state'] == NO_READING:
             rows.append((name, '?', '?', reset, target, NO_READING, s['action']))
             continue
-        mine = '' if s['share'] >= 1 else f' (shared: this session\'s part is {100 * s["share"]:g} % of the quota)'
+        mine = '' if s['share'] >= 1 else (f' (shared: this session\'s part is {100 * s["share"]:g} % of the quota; the line is the '
+                                           'whole account\'s, since a reading counts every session)')
+        mine += f' [{s["used"]:g} % vs {s["expected"]:g} % by now; the on-pace band is ±{s["tolerance"]:g}]'
         rows.append((name, f'{s["used"]:g} %', f'{s["expected"]:.0f} %', reset, target, s['verdict'], s['action'] + mine))
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
     return '\n'.join('  '.join(c.ljust(w) for c, w in zip(r, widths, strict=True)).rstrip() for r in rows)

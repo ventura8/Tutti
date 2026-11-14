@@ -13,6 +13,8 @@ $t run cursor "smoke" --show > /dev/null
 $t wait file "$0" --timeout 1
 $t ship "chore: smoke" --dry-run --allow-protected > /dev/null
 $t dashboard --once --no-probe > /dev/null
+$t conduct --show --main cursor "smoke" > /dev/null
+$t main > /dev/null
 $t runs > /dev/null
 $t pr --help > /dev/null
 echo "check: all passed"

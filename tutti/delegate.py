@@ -207,6 +207,8 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
     say = say or (lambda m: (sys.stderr.write(f'tutti: {m}\n'), log.write(m + '\n'), log.flush()))
     try:
         wt, created = tree_for(cfg, repo, run_id, track, say)
+        # what the run works on, for the dashboard's projects while it runs
+        write(os.path.join(p['dir'], 'meta.json'), json.dumps({'repo': os.path.abspath(repo), 'worktree': wt}) + '\n')
         worktree.share(wt, cfg['ship'].get('share', []), say)
         rc, lines = workers.run(cfg, name, task, files, cwd=wt, out=log, extra=extra, log=p['worker_log'])
         changed, stat = capture_diff(wt, p['diff'])
@@ -271,6 +273,16 @@ def remove_tree(wt, say=print):
         raise ship.ShipError(f'{wt} is not a linked worktree: nothing removed')
     ship.git(main, 'worktree', 'remove', '--force', wt)
     say(f'run: removed the worktree {wt}')
+
+
+def read_meta(cfg, run_id):
+    """What a run works on, written when it starts: {repo, worktree}; {} when not (yet) written."""
+    try:
+        with open(os.path.join(paths(cfg, run_id)['dir'], 'meta.json'), encoding='utf8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def load_report(cfg, run_id):

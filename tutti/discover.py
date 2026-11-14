@@ -109,6 +109,7 @@ def script_job(proc, pid, name, args, now, stall):
     updated = state.mtime(log) if log else None
     lines = state.tail(log) if log else []
     return {'id': f'proc:{pid}', 'kind': 'script', 'title': ' '.join([name, *args])[:200], 'pid': pid, 'log': log,
+            'cwd': link(proc, pid, 'cwd'),
             'started': state.iso(started_at(proc, pid)), 'updated': state.iso(updated),
             'idle_seconds': round(now - updated) if updated else None, 'rc': None,
             'status': state.status_of(True, updated, None, now, stall), 'tail': lines[-12:],
@@ -128,7 +129,7 @@ def agent_job(proc, pid, name, now, cfg=None):
     cwd = link(proc, pid, 'cwd')
     outside = cfg is not None and not started_by_tutti(cfg, cwd)
     title = f'{name} in {cwd or "?"}' + (' (started outside Tutti: use tutti run auto)' if outside else '')
-    return {'id': f'agent:{pid}', 'kind': 'agent', 'title': title, 'pid': pid, 'log': None, 'outside': outside,
+    return {'id': f'agent:{pid}', 'kind': 'agent', 'title': title, 'pid': pid, 'log': None, 'outside': outside, 'cwd': cwd,
             'started': state.iso(started_at(proc, pid)), 'updated': None, 'idle_seconds': None, 'rc': None,
             'status': 'running', 'tail': [], 'progress': None, 'age_seconds': round(now - started_at(proc, pid))}
 
@@ -172,7 +173,8 @@ def task_jobs(cfg, now):
             if not updated or now - updated > TASK_RECENT:
                 continue
             active = now - updated < TASK_ACTIVE
-            out.append({'id': f'task:{os.path.basename(path)}', 'kind': 'agent task', 'title': f'background task {os.path.basename(path)}',
+            out.append({'id': f'task:{os.path.basename(path)}', 'kind': 'agent task', 'path': path,
+                        'title': f'background task {os.path.basename(path)}',
                         'pid': None, 'log': None, 'started': None, 'updated': state.iso(updated), 'idle_seconds': round(now - updated),
                         'rc': None, 'status': 'running' if active else 'ended', 'tail': [],
                         'progress': state.progress(path, state.tail(path, 5)) if active else None})

@@ -83,7 +83,7 @@ Lessons that drove it: LESSONS.md (Gemini CLI free tier closed → agy; agy head
 - A terminal view, and a view of the live plan.
 - GUI setup wizard (the user chooses TUI or GUI setup); easy "connect a device" (local AI and non-AI work) and "connect an agent" (Claude Code, agy, Cursor, …) flows.
 
-**Main agent.** The user chooses the main agent: Claude Code (default), Cursor or agy. Switching shares the context through Tutti's own state (plan, task history, memory), so no context is copied or re-explained between agents and switching costs no extra tokens.
+**Main agent.** *First step shipped in 0.1.9:* `tutti conduct` and the dashboard's switch (docs/CONDUCT.md). The user chooses the main agent: Claude Code (default), Cursor or agy. Switching shares the context through Tutti's own state (plan, task history, memory), so no context is copied or re-explained between agents and switching costs no extra tokens.
 
 **Token savings.** Tutti manages compaction for every agent at the right moment (before quality drops, and when cheapest); uses the MCP servers that save tokens; keeps the main agent lean by delegating.
 

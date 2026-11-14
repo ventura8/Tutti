@@ -165,3 +165,17 @@ review:
   reviewers: [copilot, coderabbit]
   timeout_minutes: 15
   fallback: [cursor, agy]
+
+# `tutti conduct`: another agent as the main (conductor) agent; who takes over when its quota is in panic (docs/CONDUCT.md)
+main:
+  agent: claude
+  fallback: [agy, cursor, small]
+  commands:
+    claude: [claude, -p, '{prompt}', --permission-mode, acceptEdits, --allowedTools, 'Bash(tutti:*)']
+  check_seconds: 30
+
+# The dashboard's projects: named by their git remote; these entries name them and lend them machines, containers and a
+# Windows folder (a WSL machine's Windows processes, read over its plain ssh). Read-only: nothing is started or stopped.
+projects:
+  my-app: {match: 'my-app', containers: [my-app-]}
+  # other-app: {match: other-app, machines: [win-box], windows: {win-box: 'C:\Users\me\Projects\other-app'}}

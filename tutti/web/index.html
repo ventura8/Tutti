@@ -36,6 +36,27 @@
         <section class="tiles" aria-label="At a glance" id="tiles"></section>
 
         <div class="grid">
+            <section class="card" aria-labelledby="projects-h">
+                <header class="card__head">
+                    <h2 id="projects-h">Projects</h2>
+                    <p class="card__meta" id="projects-meta"></p>
+                </header>
+                <ul id="projects" class="list"></ul>
+            </section>
+
+            <section class="card" aria-labelledby="main-h">
+                <header class="card__head">
+                    <h2 id="main-h">Main agent</h2>
+                    <p class="card__meta" id="main-meta"></p>
+                </header>
+                <form class="switch" id="main-form">
+                    <label for="main-pick">Conducts the next goal</label>
+                    <select id="main-pick"></select>
+                    <button class="btn btn--filled" type="submit">Switch</button>
+                </form>
+                <div id="main-run"></div>
+            </section>
+
             <section class="card card--usage" aria-labelledby="usage-h">
                 <header class="card__head">
                     <h2 id="usage-h">Usage &amp; pacing</h2>
@@ -66,6 +87,8 @@
             <section class="card card--jobs" aria-labelledby="jobs-h">
                 <header class="card__head">
                     <h2 id="jobs-h">Jobs</h2>
+                    <label class="sr-only" for="job-project">Show jobs of</label>
+                    <select class="pick" id="job-project"></select>
                     <fieldset class="segmented" id="job-filter"><legend class="sr-only">Show jobs</legend><div class="segmented__buttons" id="job-filter-buttons"></div></fieldset>
                 </header>
                 <div id="jobs" class="jobs"></div>

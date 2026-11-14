@@ -146,12 +146,14 @@ NORMAL = ('on pace', 'no reading', 'unknown')
 def account_unfit(s):
     """Why an account (a pacing.account_state) must not take new work, or ''."""
     if s.get('panic'):
-        return f'panic: {s["used"]:g} % used before the target time'
+        return f'panic: {s["used"]:g} % used before the target time' if s.get('used') is not None else 'panic'
     if s.get('verdict') == 'spent':
         return 'spent until the reset'
     if s.get('used') is not None and s['used'] >= s.get('panic_at', 95):
         return f'{s["used"]:g} % used: at the panic threshold'
     p = s.get('quota_plan')
+    if p and not p.get('limit') and p['left'] <= 0:
+        return 'its planned room is used (what is left is kept as its reserve or for its spend outside Tutti)'
     if p and p.get('limit') and p['left'] <= 0:
         if not p['allowance']:
             return 'this window is in the quiet hours (autopilot.quiet_hours)'

@@ -36,9 +36,11 @@ narrow with nothing beside it; one column on a phone. Phone (375 px) to 4K (2560
 1. **At a glance** (the tiles) and **Usage & pacing**, full width: the accounts as one row of compact cards (on a phone,
    a row to swipe sideways; each card snaps). An account under a longer limit shows both windows side by side (agy: the
    5 h window and the weekly limit, each with its meter, pace mark and reset) and the planner's line ("this window: 1 of 3
-   weekly points … → 3 task(s) now"); the limit has no card of its own. Each card's facts fold under **Details**.
+   weekly points … → 3 task(s) now"); the limit has no card of its own unless it needs a reading (its Add a reading
+   lives there). Each card's facts fold under **Details**.
 2. **Needs you**, full width: tasks that need a person, accounts in panic, stalled jobs (**Open its log**), machines
-   offline, workers down, readings due, results to review, agents started outside Tutti. Most urgent first
+   offline, workers down, readings due, results to review (each task with its attempts and failure history), agents
+   started outside Tutti. **Open its log** clears the project filter and unfolds the running list to show the job. Most urgent first
    (`web/attention.js`, a pure function the tests run in node); "Nothing needs you" when all is clear.
 3. **Running jobs** (with progress, and the project filter) beside **Machines**.
 4. **Autopilot** (its state, runs, queue and latest decisions, each list folded) beside **Main agent** and **Workers**.

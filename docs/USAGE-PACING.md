@@ -97,8 +97,11 @@ small, and stays simple enough to check by hand:
   costs of the limit is `window_points`, else measured from this window's readings (the limit's rise over the window's
   rise), else unknown (no cap from the later windows). When this window has spent its allowance, nothing new goes to it until
   it resets; a limit spent or in panic closes it at once.
-- **Room in tasks.** The allowance left, in the window's own points, divided by `task_pct`, is how many tasks the autopilot
-  sends now (its trigger accounts) and the room `tutti run auto` sees.
+- **Room in tasks.** The allowance left, in the window's own points, divided by `task_pct` (0: no tasks), is how many tasks
+  the autopilot sends now (its trigger accounts) and the room `tutti run auto` sees. With several limits, the one that allows
+  the fewest tasks binds (points of different limits do not compare). An account without limits gets its pace's room, never
+  more than what is left after `reserve` and its background spend; when that is used, routing skips it.
+- **Quiet hours** stop new dispatches at the current time too; finished runs are still collected.
 - **Reserve.** `reserve` (points, default 0) is left for work outside Tutti; the default assumes all work goes through it.
 - **Background spend.** `background: true` (Cursor: its own automatic security and dependency reviews spend it outside
   Tutti) estimates the rise per hour between readings with no Tutti run of its worker (`<state>/runs/*.log.cmd`) and keeps

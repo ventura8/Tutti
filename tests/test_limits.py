@@ -59,7 +59,8 @@ class Allowance(unittest.TestCase):
         late = state([('2026-01-07T19:00Z', 90)], now=T('2026-01-07T21:00Z'), five_used=0)
         self.assertEqual(early['quota_plan']['windows'], 33)                    # 05:00 to 01:00 seven days later: 32.8 windows
         self.assertEqual(early['quota_plan']['allowance'], round(100 / 33, 1))
-        self.assertEqual((late['quota_plan']['windows'], late['quota_plan']['allowance']), (1, 10.0))   # the last window gets it all
+        # the last window (21:00 to the target at 01:00: 4 of its 5 hours, 8 points) gets all it can hold
+        self.assertEqual((late['quota_plan']['windows'], late['quota_plan']['allowance']), (1, 8.0))
 
     def test_the_reserve_is_kept_for_the_owner(self):
         accounts = {'agy': FIVE, 'agy-weekly': {**WEEK, 'reserve': 15}}
@@ -75,7 +76,8 @@ class Allowance(unittest.TestCase):
 
     def test_a_weekly_reset_since_the_window_started_counts_from_zero(self):
         lim = {'name': 'w', 'readings': [{'at': '2026-01-08T03:00:00+00:00', 'used': 2.0}], 'window_start': '2026-01-08T02:00:00+00:00'}
-        self.assertEqual(planner.used_at(lim, T('2026-01-08T00:00Z')), 0.0)
+        self.assertEqual(planner.used_at(lim, T('2026-01-08T00:00Z')), (0.0, True))
+        self.assertEqual(planner.used_at({**lim, 'window_start': '2026-01-07T00:00:00+00:00'}, T('2026-01-08T00:00Z')), (2.0, False))
 
     def test_a_spent_weekly_closes_the_window(self):
         s = state([('2026-01-06T01:00Z', 100)])
@@ -127,12 +129,12 @@ class Background(unittest.TestCase):
 
 class SoonestFirst(unittest.TestCase):
     def test_the_capacity_that_expires_first_is_used_first(self):
-        month = {'name': 'cursor', 'verdict': 'on pace', 'quota_plan': {'expires': '2026-01-30T00:00:00+00:00', 'tasks': 9}}
-        window = {'name': 'agy', 'verdict': 'on pace', 'quota_plan': {'expires': '2026-01-06T04:00:00+00:00', 'tasks': 2}}
+        month = {'name': 'cursor', 'verdict': 'on pace', 'quota_plan': {'expires': '2026-01-30T00:00:00+00:00', 'tasks': 9, 'left': 18}}
+        window = {'name': 'agy', 'verdict': 'on pace', 'quota_plan': {'expires': '2026-01-06T04:00:00+00:00', 'tasks': 2, 'left': 4}}
         self.assertEqual(routing.pick_account([month, window])[0]['name'], 'agy')
 
     def test_an_account_ahead_of_its_pace_still_comes_last(self):
-        window = {'name': 'agy', 'verdict': 'ahead', 'quota_plan': {'expires': '2026-01-06T04:00:00+00:00', 'tasks': 2}}
+        window = {'name': 'agy', 'verdict': 'ahead', 'quota_plan': {'expires': '2026-01-06T04:00:00+00:00', 'tasks': 2, 'left': 4}}
         month = {'name': 'cursor', 'verdict': 'on pace', 'quota_plan': None}
         self.assertEqual(routing.pick_account([window, month])[0]['name'], 'cursor')
 
@@ -164,10 +166,68 @@ class SimulatedWeek(unittest.TestCase):
             plan, even = simulate('plan', hours), simulate('min', hours)
             self.assertLessEqual(plan, even, hours)
             self.assertLess(plan, 0.01, hours)                            # nothing expires unused
-        self.assertGreater(simulate('min', ['20:00-08:00']), 5)          # half the windows quiet: min() loses 7 points
+        self.assertGreater(simulate('min', ['20:00-08:00']), 5)
+
+    def test_spending_in_the_last_window_is_counted_once(self):
+        # 16:00-21:00 then 21:00 to the target (8 points): room 40 gives this window all its 10; 6 spent, 4 still usable
+        s = state([('2026-01-07T15:00Z', 60), ('2026-01-07T17:00Z', 66)], now=T('2026-01-07T17:00Z'), five_used=60)
+        p = s['quota_plan']
+        self.assertEqual((p['windows'], p['allowance'], p['this_window'], p['left']), (2, 10.0, 6.0, 4.0))
+        self.assertGreater(p['tasks'], 0)          # half the windows quiet: min() loses 7 points
 
     def test_when_capacity_is_short_both_spend_all_they_can(self):
         self.assertAlmostEqual(simulate('plan', ['00:00-23:59'], budget=50), 50)   # nothing can run: everything is lost
+
+
+class ReviewCases(unittest.TestCase):
+    def test_a_first_weekly_reading_after_the_window_started_does_not_close_it(self):
+        accounts = {'agy': {k: v for k, v in FIVE.items() if k != 'window_points'}, 'agy-weekly': WEEK}
+        s = state([('2026-01-06T02:00Z', 50)], accounts=accounts)        # the rise in this window is not known
+        self.assertIsNone(s['quota_plan']['window_points'])
+        self.assertGreater(s['quota_plan']['tasks'], 0)
+
+    def test_task_pct_zero_plans_no_tasks_instead_of_failing(self):
+        accounts = {'agy': {**FIVE, 'task_pct': 0}, 'agy-weekly': WEEK}
+        self.assertEqual(state([('2026-01-05T23:00Z', 40)], accounts=accounts)['quota_plan']['tasks'], 0)
+        alone = planner.plan_alone({'name': 'c', 'state': 'ok', 'share': 1.0, 'used': 10.0, 'target': '2026-01-08T00:00Z',
+                                    'room_tasks': 3}, {'task_pct': 0}, NOW)
+        self.assertEqual(alone['quota_plan']['tasks'], 0)
+
+    def test_a_weekly_in_panic_with_an_unread_window_closes_it_without_failing(self):
+        lim = {'name': 'w', 'state': 'ok', 'panic': True, 'verdict': 'ahead', 'window': '7d', 'action': 'stop', 'used': 97}
+        own = {'name': 'agy', 'state': 'no reading', 'panic': False, 'verdict': 'no reading', 'used': None, 'room_tasks': None}
+        s = planner.bind(own, [lim], {}, {}, None, NOW)
+        self.assertFalse(s['panic'])
+        self.assertIn('its limit w: panic', routing.account_unfit(s))
+
+    def test_the_limit_with_the_fewest_tasks_binds(self):
+        # two limits: one roomy, one with its window share nearly used; the second binds even with more points left
+        roomy = {**WEEK}
+        tight = {**WEEK, 'resets': '2026-01-06T06:00Z', 'window': '1d', 'panic_at': 100}
+        accounts = {'agy': {**FIVE, 'limits': ['w1', 'w2']}, 'w1': roomy, 'w2': tight}
+        entries = [r('2026-01-05T23:00Z', 10, 'w1'), r('2026-01-05T23:00Z', 99, 'w2'), r(NOW.isoformat(), 30, 'agy')]
+        s = pacing.account_state('agy', accounts['agy'], entries, NOW, accounts)
+        own = pacing.account_state('agy', {k: v for k, v in FIVE.items() if k != 'limits'}, entries, NOW)
+        plans = [planner.plan_limited(own, pacing.account_state(n, accounts[n], entries, NOW), accounts['agy'], accounts[n], None)
+                 for n in ('w1', 'w2')]
+        self.assertNotEqual(plans[0]['tasks'], plans[1]['tasks'])
+        self.assertEqual(s['quota_plan']['tasks'], min(p['tasks'] for p in plans))
+
+    def test_a_used_reserve_stops_routing_to_a_single_window_account(self):
+        s = {'name': 'cursor', 'state': 'ok', 'share': 1.0, 'used': 80.0, 'target': '2026-01-08T00:00Z', 'verdict': 'on pace',
+             'room_tasks': None, 'panic': False, 'panic_at': 95}
+        planned = planner.plan_alone(s, {'reserve': 20}, NOW)
+        self.assertIn('reserve', routing.account_unfit(planned))
+
+    def test_nothing_new_starts_in_quiet_hours(self):
+        from tutti import autopilot
+        cfg = config.normalise({'autopilot': {'enabled': True, 'quiet_hours': ['00:00-06:00'], 'repos': {}}})
+        p = autopilot.plan(cfg, [{'id': 't1', 'repo': 'x', 'status': 'queued'}], {}, [], True, NOW)
+        self.assertNotIn('quiet hours', p['reason'])                     # nothing queued for a known repo: idle
+        cfg['autopilot']['repos'] = {'x': {'path': '/tmp', 'check': 'true'}}
+        p = autopilot.plan(cfg, [{'id': 't1', 'repo': 'x', 'status': 'queued', 'check': 'true'}], {}, [], True, NOW)
+        self.assertEqual(p['state'], 'waiting')
+        self.assertIn('quiet hours', p['reason'])
 
 
 class LimitsConfig(unittest.TestCase):

@@ -1,12 +1,13 @@
 // Tutti dashboard: what needs the owner, most urgent first, and how much of a long list to show (pure; app.js and a node
-// test share it). Each item: {kind, tone, title, note, job?}; job names a job id whose log the item opens.
+// test share it). Each item: {kind, tone, title, note, job?, task?}; job: a job id whose log it opens; task: an autopilot task
+// whose attempts and failure history it shows.
 const TUTTI_ATTENTION_ORDER = ['needs-person', 'panic', 'stalled', 'offline', 'down', 'reading', 'review', 'outside'];
 
 function tuttiAttention(s) {
     const items = [];
     const ap = s.autopilot || {};
     for (const t of ap.parked || []) {
-        items.push({ kind: 'needs-person', tone: 'bad', title: t.title, note: `${t.id} · ${t.repo}: ${t.parked || 'parked after its attempts'}` });
+        items.push({ kind: 'needs-person', tone: 'bad', title: t.title, note: `${t.id} · ${t.repo}: ${t.parked || 'parked after its attempts'}`, task: t });
     }
     for (const a of s.usage?.accounts || []) {
         if (a.panic) items.push({ kind: 'panic', tone: 'bad', title: `${a.name} is in panic (${a.used} % used)`, note: `Do: ${a.action}` });
@@ -23,7 +24,7 @@ function tuttiAttention(s) {
         if (!w.ready) items.push({ kind: 'down', tone: 'warn', title: `Worker ${w.name} is down`, note: w.note || 'See Workers.' });
     }
     for (const t of ap.review || []) {
-        items.push({ kind: 'review', tone: 'ok', title: t.title, note: `${t.id} · ${t.repo}: ${t.publish_note || `branch ${t.branch}`}` });
+        items.push({ kind: 'review', tone: 'ok', title: t.title, note: `${t.id} · ${t.repo}: ${t.publish_note || `branch ${t.branch}`}`, task: t });
     }
     if (s.summary?.outside) {
         items.push({ kind: 'outside', tone: 'warn', title: `${s.summary.outside} agent(s) started outside Tutti`, note: 'Their usage is not paced: start them with tutti run auto.' });

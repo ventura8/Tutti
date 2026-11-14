@@ -49,6 +49,7 @@ class Attention(unittest.TestCase):
         items = js(f'tuttiAttention({json.dumps(self.STATE)})')
         self.assertEqual([i['kind'] for i in items], ['needs-person', 'panic', 'stalled', 'offline', 'down', 'reading', 'review'])
         self.assertEqual(items[2]['job'], 'j1')                       # a stalled job's item opens its log
+        self.assertEqual(items[0]['task']['id'], 't9')                # a parked task keeps its failure history
 
     def test_nothing_when_all_is_clear(self):
         self.assertEqual(js('tuttiAttention({})'), [])

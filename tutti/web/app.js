@@ -345,7 +345,10 @@ function renderUsage(s, now, force) {
     const stale = u.accounts.filter((a) => a.stale).length;
     $('usage-meta').textContent = u.problem || (stale ? `${plural(stale, 'account')} need a fresh reading · ` : '') + `Readings from ${u.log}`;
     // An account that is another's limit (agy's weekly) shows inside that account's card, beside its 5 h window.
-    const inside = new Set(u.accounts.flatMap((a) => (a.limits || []).map((l) => l.name)));
+    // A limit that needs a reading (or has its form open) keeps its own card too: Add a reading lives there.
+    const byName = new Map(u.accounts.map((a) => [a.name, a]));
+    const ownCard = (n) => ui.editing.has(n) || byName.get(n)?.needs_reading !== false;
+    const inside = new Set(u.accounts.flatMap((a) => (a.limits || []).map((l) => l.name)).filter((n) => !ownCard(n)));
     const shown = u.accounts.filter((a) => !inside.has(a.name));
     $('usage').replaceChildren(...(shown.length ? shown.map((a) => account(a, now))
         : [empty('No accounts yet', codeText('Add an accounts: section to the config (see ', 'tutti.config.example.yaml', ').'))]));
@@ -790,11 +793,13 @@ function attentionItem(it) {
     return el('li', { class: 'row row--attention', 'data-tone': it.tone },
         el('div', { class: 'row__name', title: it.title }, it.title.length > 140 ? `${it.title.slice(0, 140)}…` : it.title),
         chip(ATTENTION_LABEL[it.kind] || it.kind, it.tone),
-        el('p', { class: 'row__note', text: it.note }), open);
+        el('p', { class: 'row__note', text: it.note }), open, it.task ? attemptHistory(it.task) : null);
 }
 
 function openJob(id) {
     ui.open.add(id);
+    ui.project = '';            // the job may belong to a project the filter hides,
+    ui.expanded.add('running'); // or sit past the fold of the running list
     render();
     const box = document.querySelector(`.job[data-id="${CSS.escape(id)}"]`);
     box?.scrollIntoView({ behavior: 'smooth', block: 'center' });

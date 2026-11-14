@@ -34,24 +34,24 @@ def runnable(start, end, hours):
 
 
 def used_at(lim, at):
-    """The limit's % used when a window started: its newest reading at or before `at`, else 0 when its own window began
-    after `at` (it reset since), else its first reading after `at` (the best known)."""
+    """(the limit's % used when a window started, known): its newest reading at or before `at`, else 0 when its own window
+    began after `at` (it reset since); else its first reading after `at`, the best guess, not known."""
     rs = lim['readings']
     before = [r for r in rs if parse_time(r['at']) <= at]
     if before:
-        return before[-1]['used']
+        return before[-1]['used'], True
     if parse_time(lim['window_start']) >= at or not rs:
-        return 0.0
-    return rs[0]['used']
+        return 0.0, True
+    return rs[0]['used'], False
 
 
-def window_points(own, lim, at_start, configured=None):
+def window_points(own, lim, at_start, configured=None, known=True):
     """What a whole short window costs of the limit, in its points: `accounts.<name>.window_points` when set, else measured in
     this window (the limit's rise over the window's own rise, once the window rose 5 points), else None (not known yet)."""
     if configured:
         return float(configured)
     rise = own['used'] or 0
-    if rise >= 5:
+    if known and rise >= 5 and lim['used'] > at_start:
         return max(0.0, lim['used'] - at_start) * 100 / rise
     return None
 
@@ -70,16 +70,14 @@ def allowance(room, capacities, now_index=0):
 
 
 def timeline(own, lim, hours, per_window):
-    """The windows from the current one to the limit's target: [(start, end, capacity)], the current one with what is left."""
+    """The windows from the current one to the limit's target: [(start, end, capacity)], each at its full capacity."""
     start, reset = parse_time(own['window_start']), parse_time(own['reset'])
     span = reset - start
     target = parse_time(lim['target'])
     out, t = [], start
     while t < target:
         end = min(t + span, target)
-        cap = None if per_window is None else per_window * (end - t) / span
-        if t == start and cap is not None:
-            cap = per_window * max(0.0, 100 - (own['used'] or 0)) / 100
+        cap = None if per_window is None else per_window * (end - t) / span   # whole windows: what is spent is subtracted once, later
         out.append((t, end, cap if runnable(max(t, start), end, hours) else 0.0))
         t += span
     return out or [(start, reset, None)]
@@ -89,8 +87,9 @@ def plan_limited(own, lim, a, lim_cfg, hours):
     """The plan of one short window under its limit: {expires, allowance, this_window, left, tasks, lose, why}."""
     start = parse_time(own['window_start'])
     budget = 100.0 * lim['share'] - float(lim_cfg.get('reserve', 0))
-    at_start = min(budget, used_at(lim, start))
-    per = window_points(own, lim, at_start, a.get('window_points'))
+    at, known = used_at(lim, start)
+    at_start = min(budget, at)
+    per = window_points(own, lim, at_start, a.get('window_points'), known)
     windows = timeline(own, lim, hours, per)
     room = max(0.0, budget - at_start)
     give = allowance(room, [c for _, _, c in windows])
@@ -99,7 +98,7 @@ def plan_limited(own, lim, a, lim_cfg, hours):
     own_left = 100 - (own['used'] or 0)
     left_own = own_left if per is None else min(own_left, left * 100 / per) if per else 0.0
     task = float(a.get('task_pct', TASK_PCT))
-    tasks = max(0, int(left_own // task)) if left > 0 else 0
+    tasks = max(0, int(left_own // task)) if left > 0 and task > 0 else 0
     return {'limit': lim['name'], 'expires': own['target'], 'windows': len(windows), 'runnable': sum(1 for *_, c in windows if c != 0),
             'per_window': round(room / max(1, len(windows)), 1), 'allowance': round(give, 1), 'this_window': round(spent, 1),
             'left': round(left, 1), 'tasks': tasks, 'lose': round(max(0.0, left_own), 1), 'window_points': per}
@@ -128,7 +127,8 @@ def plan_single(s, a, now, rate=None):
     left = max(0.0, budget - (s['used'] or 0))
     task = float(a.get('task_pct', TASK_PCT))
     room = s.get('room_tasks') or 0   # the pace's own room (behind its line); never more than the left points hold
-    return {'limit': None, 'expires': s['target'], 'left': round(left, 1), 'lose': round(left, 1), 'tasks': min(room, int(left // task)),
+    tasks = min(room, int(left // task)) if task > 0 else 0
+    return {'limit': None, 'expires': s['target'], 'left': round(left, 1), 'lose': round(left, 1), 'tasks': tasks,
             'allowance': round(left, 1), 'this_window': None, 'windows': 1, 'runnable': 1,
             'background': None if rate is None else round(background, 1)}
 
@@ -155,14 +155,16 @@ def bind(own, limits, a, accounts, hours, now):
     out = {**own, 'limits': limits, 'bound_by': None, 'quota_plan': None}
     for lim in limits:
         if lim['state'] == 'ok' and (lim['panic'] or lim['verdict'] == 'spent'):
-            out.update(verdict='spent' if lim['verdict'] == 'spent' else out['verdict'], panic=own['panic'] or lim['panic'],
+            # panic moves over only with a reading of the window itself; the limit's own check still closes an unread one
+            panic = own['panic'] or (lim['panic'] and own['used'] is not None)
+            out.update(verdict='spent' if lim['verdict'] == 'spent' else out['verdict'], panic=panic,
                        bound_by=lim['name'], room_tasks=None, action=f'{lim["name"]} ({lim["window"]}) closes it: {lim["action"]}')
             return out
     ok = [lim for lim in limits if lim['state'] == 'ok']
     if own['state'] != 'ok' or not ok:
         return out
     plans = [plan_limited(own, lim, a, accounts.get(lim['name']) or {}, hours) for lim in ok]
-    p = min(plans, key=lambda x: x['left'])
+    p = min(plans, key=lambda x: (x['tasks'], x['left']))   # the fewest tasks: points of different limits do not compare
     p['why'] = explain(own['name'], p, now)
     lim_tasks = p['tasks']
     out.update(quota_plan=p, room_tasks=min(own['room_tasks'], lim_tasks) if own['room_tasks'] else (lim_tasks or None))

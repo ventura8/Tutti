@@ -158,7 +158,7 @@ autopilot:
   max_parallel: 2
   no_progress: 3
   max_attempts: 12
-  quiet_hours: []                      # UTC spans it must not run, e.g. ['22:00-06:00']; the planner moves their share
+  quiet_hours: []                      # local-time spans (time.zone) it must not run, e.g. ['22:00-06:00']; the planner moves their share
   fill_room: true                      # free room on autopilot.accounts is filled from the repos' sources
   auto_review: true                    # results are reviewed by review.fallback and landed by their repo's `land`
   repos:
@@ -184,7 +184,7 @@ broke ruff, mypy and the scenario registry (LESSONS). A failure of either feeds 
 
 **Room comes from the planner.** A trigger account whose windows sit under a weekly limit gets as many tasks as the
 planner's allowance holds (docs/USAGE-PACING.md, *The planner*), whatever its own verdict: a 5 h window's quota is spent
-before it expires, as far as the weekly allows. `autopilot.quiet_hours` lists UTC spans it must not run.
+before it expires, as far as the weekly allows. `autopilot.quiet_hours` lists local-time spans (`time.zone`, daylight saving included) it must not run.
 
 ## The panel
 

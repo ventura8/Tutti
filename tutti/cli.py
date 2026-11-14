@@ -48,6 +48,7 @@ from . import (
     transfer,
     translate,
     trial,
+    tz,
     update,
     vpncmd,
     waiting,
@@ -871,8 +872,8 @@ def files_list(cfg, a):
             continue
         print(f'{m["name"]}: {files.human(st["bytes"])} of {files.human(st["budget_bytes"])} in {st["cache"]}')
         for it in st['items']:
-            used = datetime.fromtimestamp(it['used_at'], timezone.utc).strftime('%Y-%m-%d %H:%M')
-            print(f'  {it["name"]:40} {files.human(it["bytes"]):>10}  used {used} UTC')
+            used = tz.show(datetime.fromtimestamp(it['used_at'], timezone.utc))
+            print(f'  {it["name"]:40} {files.human(it["bytes"]):>10}  used {used}')
     return 0
 
 
@@ -1030,9 +1031,11 @@ def cmd_owner(cfg, a):
     v = owner.view(cfg, folder, pacing.read_log(state.usage_log_path(cfg)), now)
     s = v['schedule']
     learned = f'learned from {v["hours_seen"]} h of readings' if v['learned'] else 'seeded from pacing.schedule'
-    print(f'owner: mode {v["mode"]} (in effect: {v["effective"]}{", until " + v["until"] if v["until"] else ""}); accounts '
+    until = ', until ' + tz.show(pacing.parse_time(v['until'])) if v['until'] else ''
+    print(f'owner: mode {v["mode"]} (in effect: {v["effective"]}{until}); accounts '
           f'{", ".join(v["accounts"]) or "(none)"}; {learned}')
-    print(f'schedule: {", ".join(s["days"])}, {s["hours"]} h in {s["window"]} (UTC{v["utc_offset"]:+g}); reserve per day: ' +
+    where = f'{v["zone"]}, now {tz.label(v["utc_offset"])}'
+    print(f'schedule: {", ".join(s["days"])}, {s["hours"]} h in {s["window"]} ({where}); reserve per day: ' +
           ', '.join(f'{d} {sum(r):g}' for d, r in zip(v['days'], v['reserve'], strict=True)))
     return 0
 

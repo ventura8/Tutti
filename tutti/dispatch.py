@@ -245,7 +245,8 @@ def targets(devices_rows, machine_rows, st, held=None):
         tid = f'machine:{m["name"]}'
         busy = m.get('status') == 'busy' or leased.count(tid) >= max(m.get('free') or 0, 1)
         why = '' if m.get('status') == 'free' else f'{m["name"]} is {m.get("status")}: {m.get("reason")}'
-        out.append({'id': tid, 'kind': 'machine', 'name': m['name'], 'busy': busy, 'blocked': '' if busy else why})
+        out.append({'id': tid, 'kind': 'machine', 'name': m['name'], 'busy': busy, 'blocked': '' if busy else why,
+                    'zone': m.get('zone') or ''})
     return out
 
 
@@ -254,6 +255,7 @@ def blocked_by(cfg, target, work, on, quiet):
         return OFF
     if target['blocked']:
         return target['blocked']
+    quiet = quiet(target) if callable(quiet) else quiet   # a machine's quiet hours are in its own zone
     if quiet:
         return quiet
     refused = [light_refused(cfg, target, w) or w.get('wait') for w in work]
@@ -523,13 +525,17 @@ def start(cfg, st, target, w, now, spawn=subprocess.Popen):
     return lid
 
 
-def quiet_now(cfg, now):
+def quiet_now(cfg, now, zone=''):
+    """Why nothing new starts now ('' when it may): dispatch.quiet_hours, read in `zone` (a remote machine's own, read over
+    its ssh) or this computer's (time.zone), daylight saving included."""
     from datetime import datetime, timezone
 
-    from . import planner
+    from . import planner, tz
     hours = (cfg.get('dispatch') or {}).get('quiet_hours') or []
-    if hours and planner.quiet(datetime.fromtimestamp(now, timezone.utc), hours):
-        return f'quiet hours ({", ".join(hours)} UTC, dispatch.quiet_hours): nothing new starts'
+    z = zone if tz.valid(zone) else tz.zone()
+    if hours and planner.quiet(datetime.fromtimestamp(now, timezone.utc), hours, z):
+        where = f'{zone} time' if tz.valid(zone) else 'local time'
+        return f'quiet hours ({", ".join(hours)} {where}, dispatch.quiet_hours): nothing new starts'
     return ''
 
 
@@ -549,7 +555,7 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
         pend = pending(cfg, st, now)
         held = {**cooling(st, now), **calls.holds(cfg, st, devices_rows, now)}
         tgts = targets(devices_rows, machine_rows, st, held)
-        p = plan(cfg, st, tgts, pend, on, quiet_now(cfg, now))
+        p = plan(cfg, st, tgts, pend, on, lambda t: quiet_now(cfg, now, t.get('zone') or ''))
         kept = [w for w in st['warnings'] if w['kind'] == 'worker'] if accounts is None else []
         watch(cfg, st, tgts, pend, p, now, rows)
         st['warnings'] += kept   # a round without the accounts' readings (a run that ended) keeps the workers' rows

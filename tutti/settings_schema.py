@@ -26,6 +26,7 @@ SECTIONS = [
     ('autopilot', 'Autopilot', 'Backlog tasks sent to accounts that are behind their pace; retries climb the ladder.',
      ['autopilot', 'autopilot.repos']),
     ('dispatch', 'Keep busy', 'Idle devices and machines pull the projects\' pending test shards (docs/DISPATCH.md).', ['dispatch']),
+    ('time', 'Time zone', 'What local time means for your hours, quiet hours and tariffs; auto is this computer\'s.', ['time']),
     ('pacing', 'Pacing', 'Your own prompting: the hours kept for you on the main agent\'s accounts.', ['pacing']),
     ('autocompact', 'Autocompact', 'When a worker\'s context is compacted.', ['autocompact']),
     ('review', 'Review', '`tutti pr review`: who reviews a pull request and who steps in when no one answers.', ['review']),
@@ -71,7 +72,8 @@ POLICY = {
 FIELDS = {
     # accounts and readings
     'accounts.*.window': field('Window', 'How often the quota resets: 5h, 7d, 2w or monthly.', 'text'),
-    'accounts.*.resets': field('A known reset', 'Any one reset time (UTC); the window repeats it.', 'text'),
+    'accounts.*.resets': field('A known reset', 'One reset: UTC, or with an offset or zone (Europe/Bucharest); the window repeats it.',
+                               'text'),
     'accounts.*.resets_estimated': field('Reset is a guess', 'The reset day is estimated until a reading names the real one.', 'switch',
                                      default=False),
     'accounts.*.lead_hours': field('Finish early by', 'Pace the quota to run out this long before the reset.', **HRS),
@@ -191,7 +193,7 @@ FIELDS = {
     'autopilot.no_progress': field('Park after', 'A task with the same failure this many times waits for you.', 'number', min=1,
                                unit='attempts'),
     'autopilot.max_attempts': field('Most attempts', 'A task is parked after this many attempts in all.', 'number', min=1, unit='attempts'),
-    'autopilot.quiet_hours': field('Quiet hours', 'UTC spans the autopilot must not run in.', 'timespans'),
+    'autopilot.quiet_hours': field('Quiet hours', 'Local-time spans the autopilot must not run in.', 'timespans'),
     'autopilot.fill_room': field('Fill free room', 'Free room on the trigger accounts is filled from the repos\' TODOs, gaps and '
                              'untested files.', 'switch'),
     'autopilot.auto_review': field('Review and land results', 'A passing result is reviewed by review.fallback, then landed.', 'switch'),
@@ -210,7 +212,7 @@ FIELDS = {
     'dispatch.idle_minutes': field('Idle after', 'A target with nothing to do this long is offered work.', **MIN),
     'dispatch.lease_minutes': field('Lease', 'A run with no heartbeat this long frees its target; its shard is retried.', **MIN),
     'dispatch.retries': field('Retries', 'Tries of a failed shard on the same commit.', 'number', min=0),
-    'dispatch.quiet_hours': field('Quiet hours', 'UTC spans in which nothing new is sent.', 'timespans'),
+    'dispatch.quiet_hours': field('Quiet hours', 'Local-time spans in which nothing new is sent.', 'timespans'),
     'dispatch.call_poll_seconds': field('Look for phone calls every', 'A phone in a call pauses its run.', **SEC),
     'dispatch.resume_after_call_seconds': field('Resume after a call', 'Wait this long after a call ends.', **SEC),
     'dispatch.pause_on_owner_use': field('Pause while I use a device', 'A run pauses while you use the device.', 'switch'),
@@ -236,12 +238,16 @@ FIELDS = {
     'update.every_hours': field('Every', 'How often worker CLIs are updated.', **HRS),
     'update.packages': field('npm packages', 'Worker CLIs installed with npm.', 'list', item='package'),
     'update.programs': field('Programs', 'Worker CLIs that update themselves.', 'list', item='program'),
+    # time
+    'time.zone': field('Time zone', 'auto: this computer\'s, found by itself (daylight saving included); or an IANA name.', 'text',
+                       suggest=['auto', 'Europe/Bucharest', 'Europe/London', 'America/New_York']),
     # pacing
     'pacing.schedule.days': field('Working days', 'The days you prompt yourself.', 'days'),
     'pacing.schedule.hours': field('Hours kept for you', 'The reserve kept on those days.', **HRS),
     'pacing.schedule.window': field('Your hours', 'Local hours, from-to.', 'hours'),
     'pacing.schedule.rate': field('Points per hour', 'What one of your hours spends.', 'number', min=0, step=0.1),
-    'pacing.schedule.utc_offset': field('UTC offset', 'Empty: this computer\'s.', 'number', unit='hours', min=-12, max=14),
+    'pacing.schedule.utc_offset': field('Fixed UTC offset', 'Empty (best): time.zone, with daylight saving.', 'number', unit='hours',
+                                        min=-12, max=14),
     'pacing.mode': field('Mode', 'auto learns from your readings; active, away or vacation-until-YYYY-MM-DD say it yourself.', 'text',
                      suggest=['auto', 'active', 'away', 'vacation-until-YYYY-MM-DD']),
     'pacing.away_after_hours': field('Away after', 'Your hours with no rise after which auto says away.', **HRS),

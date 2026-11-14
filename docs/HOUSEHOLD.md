@@ -202,7 +202,7 @@ elsewhere or queues), so the slot queue on the machine stays first come, first s
 5. **Work-conserving.** Slots nobody else wants are granted to whoever wants them, so a machine is never idle while
    someone has work.
 
-The **household plan** combines every member's 7 x 24 profile (sent in UTC terms with their offset; empty while they are
+The **household plan** combines every member's 7 x 24 profile (in their own local hours with their IANA zone, from their Tutti host or their browser, so each member's daylight saving is their own; empty while they are
 away or on vacation) into the expected members per hour, and that is the "expected activity" of step 3: in Ana's working
 hours her background runs weigh twice Bo's, in his hours the other way round, and at night they share evenly. Each
 member's own accounts are still planned by their own pacing (USAGE-PACING.md), so every account of every member ends

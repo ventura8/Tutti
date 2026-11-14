@@ -2,6 +2,28 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.50 (2026-11-14)
+
+### Added
+
+- Tutti finds its own time zone (`tutti/tz.py`, `time.zone: auto`, an override in Settings > Time zone): TZ,
+  /etc/timezone, /etc/localtime, timedatectl, Windows `tzutil /g` mapped to IANA, macOS `systemsetup`; never a question.
+  Windows installs get `tzdata`.
+- A remote machine's zone is read by its probe over ssh; its `dispatch.quiet_hours` are its own local time.
+- A household member's beat carries their IANA zone (their Tutti host's, else their browser's), and the coordinator
+  reads each member's hours in that zone.
+
+### Fixed
+
+- Owner hours, the learned 7 x 24 profile, away and vacation ends, quiet hours, time-of-day tariffs, energy days and runs
+  today follow the local zone with daylight saving: a profile bucket is a local hour, so the March and October changes no
+  longer shift the learned pattern by an hour (the old fixed offset did).
+- No bare UTC for people: `tutti usage`, the planner's "spend by" text (was "Wed 09 Dec 21:00 UTC"), `tutti owner` and
+  `tutti files list` print local time with the offset, e.g. "Sun 15 Nov 02:00 (UTC+2)"; the dashboard shows the
+  viewer's zone with UTC in the tooltip. A test greps the sources for bare UTC times.
+- Resets stated with a zone or an offset (`resets 3pm (Europe/Bucharest)`, `2026-01-03 04:00 Europe/Bucharest`) are read
+  in that zone; a bare one is still UTC.
+
 ## 0.1.49 (2026-11-14)
 
 ### Added

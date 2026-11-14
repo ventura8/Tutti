@@ -12,7 +12,7 @@ description = "Tutti: one orchestrator, many AI workers, shared machines."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-dependencies = ["PyYAML==6.0.3"]
+dependencies = ["PyYAML==6.0.3", "tzdata==2025.2; sys_platform == 'win32'"]
 
 [project.scripts]
 tutti = "tutti.cli:entry"

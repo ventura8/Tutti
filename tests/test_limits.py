@@ -5,8 +5,20 @@ import os
 import tempfile
 import unittest
 from datetime import timedelta
+from unittest import mock
 
 from tutti import config, pacing, planner, readers, routing
+
+# These tests read times in UTC: the host's detected zone is pinned so they pass anywhere (tests/test_tz.py covers zones)
+_PIN = mock.patch('tutti.tz.host_zone', return_value='UTC')
+
+
+def setUpModule():
+    _PIN.start()
+
+
+def tearDownModule():
+    _PIN.stop()
 
 T = pacing.parse_time
 NOW = T('2026-01-06T02:00Z')
@@ -48,8 +60,8 @@ class Allowance(unittest.TestCase):
         p = s['quota_plan']
         self.assertEqual((p['left'], p['tasks']), (1.0, 5))               # 1 weekly point = 10 points of the 5 h window = 5 tasks
         self.assertEqual(routing.account_unfit(s), '')
-        self.assertIn('agy: spend by 04:00 UTC', p['why'])
-        self.assertIn('resets 05:00 UTC', p['why'])
+        self.assertIn('agy: spend by 04:00 (UTC, in 2.0 h)', p['why'])
+        self.assertIn('resets 05:00 (UTC, in 3.0 h)', p['why'])
         self.assertIn('this window: 1 of 2 weekly points', p['why'])
         self.assertIn('would be lost at its end → 5 task(s) now', p['why'])
         spent = state([('2026-01-05T23:00Z', 80), ('2026-01-06T02:00Z', 84)])['quota_plan']['why']

@@ -2,8 +2,20 @@ import os
 import tempfile
 import unittest
 from datetime import timedelta
+from unittest import mock
 
 from tutti import pacing
+
+# These tests read times in UTC: the host's detected zone is pinned so they pass anywhere (tests/test_tz.py covers zones)
+_PIN = mock.patch('tutti.tz.host_zone', return_value='UTC')
+
+
+def setUpModule():
+    _PIN.start()
+
+
+def tearDownModule():
+    _PIN.stop()
 
 T = pacing.parse_time
 
@@ -60,7 +72,7 @@ class PacingTest(unittest.TestCase):
             self.assertIn('no reading', text)
             self.assertIn('tutti usage log claude', text)
             self.assertIn('accounts.agy.resets', text)
-            self.assertIn('2026-01-10 01:00', text)  # spend by: reset minus the default 1 h lead
+            self.assertIn('Sat 10 Jan 01:00 (UTC)', text)  # spend by: reset minus the default 1 h lead
             pacing.append_log(path, 'claude', 20, T('2026-01-05T00:00Z'))
             pacing.append_log(path, 'claude', 52, T('2026-01-06T11:00Z'))
             text = pacing.report(accounts, pacing.read_log(path), T('2026-01-06T12:00Z'))
@@ -71,8 +83,8 @@ class PacingTest(unittest.TestCase):
     def test_report_spend_by_honours_per_account_lead_hours(self):
         accounts = {'claude': {'window': '7d', 'resets': '2026-01-03T02:00Z', 'lead_hours': 3, 'source': 'the usage page'}}
         text = pacing.report(accounts, [], T('2026-01-06T12:00Z'))
-        self.assertIn('2026-01-09 23:00', text)  # reset 02:00 minus 3 h
-        self.assertNotIn('2026-01-10 01:00', text)
+        self.assertIn('Fri 09 Jan 23:00 (UTC)', text)  # reset 02:00 minus 3 h
+        self.assertNotIn('Sat 10 Jan 01:00 (UTC)', text)
 
 
 

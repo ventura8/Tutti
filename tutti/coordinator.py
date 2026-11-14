@@ -285,9 +285,13 @@ class Service:
         return 404, {'error': 'not a household call: update Tutti on this computer'}
 
     def weight_at(self, now):
-        from datetime import datetime, timedelta, timezone
+        """Each member's weight this hour, read in that member's own zone (their beat's IANA zone, else their fixed offset)."""
+        from datetime import datetime, timezone
+
+        from tutti import tz
         utc = datetime.fromtimestamp(now, timezone.utc)
-        return lambda m: fairshare.hour_weight(m.get('weight', 1), m.get('profile'), utc + timedelta(hours=m.get('utc_offset') or 0))
+        return lambda m: fairshare.hour_weight(m.get('weight', 1), m.get('profile'),
+                                               tz.local(utc, m['zone'] if tz.valid(m.get('zone')) else float(m.get('utc_offset') or 0)))
 
     def sync(self, data, uid, ask, now):
         household.heartbeat(data, uid, ask.get('beat') or {}, now)

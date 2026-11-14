@@ -9,7 +9,7 @@ override it per account with `lead_hours`.
 Each account under `accounts:` has:
 
 - `window`: how often it resets: `5h`, `7d`, `2w` or `monthly`;
-- `resets`: any one known reset time, in UTC; Tutti rolls it forward by itself;
+- `resets`: any one known reset time: UTC (`2026-01-03T02:00Z`), with an offset, or with a zone (`2026-01-03 04:00 Europe/Bucharest`); Tutti rolls it forward by itself;
 - `lead_hours`: the margin before the reset (1 by default);
 - `share`: this session's part when a peer session uses the same account (0.5 = half);
 - `source`: where a reading comes from (a usage command, a dashboard page).
@@ -96,7 +96,7 @@ small, and stays simple enough to check by hand:
 
   `allowance = max(room / runnable windows, room - what the later runnable windows can hold)`, at most what this window has left.
 
-  A window in `autopilot.quiet_hours` (UTC spans, e.g. `['22:00-06:00']`) gets nothing and its share moves to the windows
+  A window in `autopilot.quiet_hours` (local-time spans, `time.zone`, e.g. `['22:00-06:00']`) gets nothing and its share moves to the windows
   that can run; with no quiet hours, overnight windows are filled by the autopilot instead of lost. What a whole window
   costs of the limit is `window_points`, else measured from this window's readings (the limit's rise over the window's
   rise), else unknown (no cap from the later windows). When this window has spent its allowance, nothing new goes to it until
@@ -106,7 +106,7 @@ small, and stays simple enough to check by hand:
   in the week a window can take far more than 1/33 of the weekly quota, and it is never cut off while the week still fits.
 - **Each window keeps its own badge.** The 5 h window's verdict is its own line's; the card's Do line and the Decision say
   which limit binds and why (`5h window has room; the limit agy-claude-weekly (ahead of its pace; projected to end at 104 %)
-  is binding: new work waits for the 22:55 UTC reset`). The Do line always comes from the plan, so it never says "spending
+  is binding: new work waits for the 00:55 (UTC+2) reset`). The Do line always comes from the plan, so it never says "spending
   too slowly" while the Decision says "nothing more", nor "too fast" while the plan says spend.
 - **Model and effort follow the pace** (`tutti/tiers.py`). `accounts.<name>.tiers: {strong: {args: [--model, x], sizes: [L,
   M]}, cheap: {args: [--model, y], sizes: [S]}}`. Behind on the binding limit (a window's limit projected to end under 90 %,
@@ -125,7 +125,7 @@ small, and stays simple enough to check by hand:
   Tutti) estimates the rise per hour between readings with no Tutti run of its worker (`<state>/runs/*.log.cmd`) and keeps
   that much of the room for it until the target, instead of a fixed reserve. Read on the dashboard and by the autopilot.
 
-The dashboard says each decision on the account's card: `agy-claude: spend by 18:44 UTC (in 2.1 h), resets 19:44 UTC (in 3.1 h); this window: 1 of 3
+The dashboard says each decision on the account's card: `agy-claude: spend by 20:44 (UTC+2, in 2.1 h), resets 21:44 (UTC+2, in 3.1 h); this window: 1 of 3
 weekly points (30 of 34 windows left can run); 40 % would be lost at its end → 3 task(s) now`. The tests simulate a week
 (`tests/test_limits.py`): with a third or half of the windows quiet, the planner wastes nothing where spreading the
 weekly room evenly over every window (the min() rule) loses 4 to 7 points.
@@ -160,13 +160,29 @@ its use is higher then; on weekends, on holiday, or while away the agents work a
 
 ```yaml
 pacing:
-  schedule: {days: [mon, tue, wed, thu, fri], hours: 8, window: '01-14', rate: 1.0, utc_offset: null}   # null: this computer's
+  schedule: {days: [mon, tue, wed, thu, fri], hours: 8, window: '01-14', rate: 1.0, utc_offset: null}   # null (best): time.zone, daylight saving included
   mode: auto
   away_after_hours: 3
   accounts: null                       # null: the main agent's accounts
 ```
 
 Each account card also says **On track to finish at X % by its reset**: the last day's rate carried on.
+
+## Time zones
+
+Tutti finds its own time zone and never asks (`tutti/tz.py`): `time.zone: auto` reads `TZ`, `/etc/timezone`, the
+`/etc/localtime` link, `timedatectl`, Windows' `tzutil /g` (mapped to IANA) or macOS' `systemsetup -gettimezone`; an IANA
+name in Settings (Time zone) overrides it, and the dashboard's browser zone is used only when nothing else is known.
+
+- Every stored time is UTC (ISO with `Z`); local time is used only at the edges: the owner hours (`pacing.schedule.window`),
+  the learned 7 x 24 profile, quiet hours, away and vacation dates, time-of-day tariffs and runs today.
+- A profile bucket is a local weekday x hour, so the switch to summer or winter time never moves what was learned by an
+  hour; `pacing.schedule.utc_offset` is a fixed offset with no daylight saving, left empty unless you need one.
+- The CLI prints local time with the offset, e.g. `Sun 15 Nov 02:00 (UTC+2)`; the dashboard shows the viewer's own
+  zone with UTC in the tooltip.
+- A household member's hours are read in that member's own zone; a remote machine's zone is read over its ssh, and its
+  `dispatch.quiet_hours` are its own local time.
+- A reset stated in UTC, with an offset or with a zone (`resets 3pm (Europe/Bucharest)`) is read in that zone.
 
 ## The arithmetic
 

@@ -13,6 +13,8 @@ import json
 import os
 import time
 
+from . import tz
+
 try:
     import fcntl
 except ImportError:   # Windows: no flock; the dashboard is the only writer there
@@ -111,7 +113,7 @@ def paused_note(entry):
     p = (entry or {}).get('paused')
     if not p:
         return ''
-    at = time.strftime('%Y-%m-%d %H:%M', time.localtime(p.get('at') or 0))
+    at = time.strftime('%Y-%m-%d %H:%M', tz.localtime(p.get('at') or 0))
     return f'paused by {p.get("by") or "the owner"} at {at}' + (f': {p["note"]}' if p.get('note') else '') + \
         '; resume it from the dashboard or with `tutti resume`'
 

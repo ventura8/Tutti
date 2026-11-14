@@ -9,6 +9,8 @@ import subprocess
 import sys
 import time
 
+from . import tz
+
 REQUEUE = 'requeue:'          # an rc file that starts with this queues the shard again, the reason after it (not a failure)
 PREPARE_RETRY = 1800          # seconds before a failed build is tried again on the same commit
 TAIL = 40                     # log lines a failed shard shows in the report
@@ -154,7 +156,7 @@ def prepare_wait(p, s, now):
     if b.get('status') == 'running':
         return f'{s["project"]} {s["name"]}: the build for this commit is running'
     if b.get('status') == 'failed':
-        again = time.strftime('%H:%M', time.localtime(b['at'] + PREPARE_RETRY))
+        again = time.strftime('%H:%M', tz.localtime(b['at'] + PREPARE_RETRY))
         return f'{s["project"]} {s["name"]}: the build failed ({b.get("why")}); it is tried again at {again} (or on a new commit)'
     return ''
 
@@ -239,7 +241,7 @@ def report(project, p, now):
     for sh in shards.values():
         counts[sh['status']] = counts.get(sh['status'], 0) + 1
     lines = [f'# {project}: Tutti test runs', '',
-             f'Commit `{(p.get("commit") or "")[:12]}`, updated {time.strftime("%Y-%m-%d %H:%M", time.localtime(now))}: ' +
+             f'Commit `{(p.get("commit") or "")[:12]}`, updated {time.strftime("%Y-%m-%d %H:%M", tz.localtime(now))}: ' +
              (', '.join(f'{n} {k}' for k, n in sorted(counts.items())) or 'no shards'), '']
     for name, b in sorted((p.get('prepare') or {}).items()):
         lines.append(f'- build of {name}: {b.get("status")} ({b.get("why") or "running"})')

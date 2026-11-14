@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 
-from . import routing, worktree
+from . import routing, tz, worktree
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # a checkout or a release has scripts/ beside the package; a uv or pipx install ships them inside it (pyproject.toml)
@@ -267,6 +267,8 @@ def probe_script(machine):
             f'{GPU_TEMP}'
             f'{containers_script(machine)}'
             f'{termux_readings(machine)}'
+            # the machine's own time zone (`Z <name or zoneinfo path>`): its quiet hours are read in its local time
+            f'echo "Z $({tz.remote_command()})"; '
             # Android may refuse /proc/loadavg (SELinux): the load is then 0, not a broken line
             f'echo "$n $(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo 0) $(nproc) $y ${{t:-0}} ${{g:--}}"')
 
@@ -359,6 +361,7 @@ def probe(machine, timeout=20, windows_fn=None):
     lines = r.stdout.strip().splitlines() if r.returncode == 0 else []
     p = routing.parse_probe(lines[-1] if lines else '')
     p.containers = [line[2:].strip() for line in lines[:-1] if line.startswith('C ')]
+    p.zone = next((tz.parse_remote(line[2:]) for line in lines[:-1] if line.startswith('Z ')), '')
     if machine['transport'] == 'android':
         from . import devices
         p.readings = devices.parse_readings('\n'.join(lines[:-1]), prefix='R ')

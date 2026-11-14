@@ -8,9 +8,21 @@ import tempfile
 import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import timedelta
+from datetime import timedelta, timezone
+from unittest import mock
 
 from tutti import cli, config, dashboard, pacing, readers, routing, state, workers
+
+# These tests read times in UTC: the host's detected zone is pinned so they pass anywhere (tests/test_tz.py covers zones)
+_PIN = mock.patch('tutti.tz.host_zone', return_value='UTC')
+
+
+def setUpModule():
+    _PIN.start()
+
+
+def tearDownModule():
+    _PIN.stop()
 
 T = pacing.parse_time
 NOW = T('2026-01-06T12:00Z')
@@ -53,7 +65,7 @@ class ParseTest(unittest.TestCase):
         self.assertIsNone(readers.parse_reset('you have reached your usage limit', NOW))
 
     def test_clock_time_resets(self):
-        local = NOW.astimezone()
+        local = NOW.astimezone(timezone.utc)   # the module pins the zone to UTC
         at = readers.parse_reset("Claude usage limit reached. Your limit resets 3pm", NOW).astimezone(local.tzinfo)
         self.assertEqual((at.hour, at.minute), (15, 0))
         self.assertTrue(NOW < at <= NOW + timedelta(days=1))
@@ -428,7 +440,7 @@ class CliTest(unittest.TestCase):
                 rc = cli.main(['--config', path, 'usage', 'log', 'cursor', '40', '--resets', '2026-01-20T00:00Z',
                                '--at', '2026-01-06T00:00Z'])
             self.assertEqual(rc, 0)
-            self.assertIn('2026-01-20 00:00', out.getvalue())
+            self.assertIn('Tue 20 Jan 00:00 (UTC)', out.getvalue())
             err = io.StringIO()
             with redirect_stderr(err), redirect_stdout(io.StringIO()):
                 self.assertEqual(cli.main(['--config', path, 'usage', 'log', 'cursor']), 2)

@@ -55,6 +55,7 @@ class RoutingTest(unittest.TestCase):
 
     def test_parse_probe(self):
         self.assertEqual(routing.parse_probe('2 0.53 16 0'), Probe(True, 2, 0.53, 16, False))
+        self.assertEqual(routing.parse_probe('2 0.5 8 0 45000 - 7.3').mem_gb, 7.3)   # free memory, GB
         self.assertTrue(routing.parse_probe('0 12 8 1').yielding)
         for junk in ('', 'ssh: connect timed out', '2 x 16 0'):
             self.assertFalse(routing.parse_probe(junk).reachable)

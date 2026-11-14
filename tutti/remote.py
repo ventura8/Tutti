@@ -272,7 +272,9 @@ def probe_script(machine):
             # the machine's own time zone (`Z <name or zoneinfo path>`): its quiet hours are read in its local time
             f'echo "Z $({tz.remote_command()})"; '
             # Android may refuse /proc/loadavg (SELinux): the load is then 0, not a broken line
-            f'echo "$n $(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo 0) $(nproc) $y ${{t:-0}} ${{g:--}}"')
+            # free memory in GB (MemAvailable), `-` when unreadable: the autopilot's limit and the dashboard show it
+            'm=$(awk \'/MemAvailable/{printf "%.1f", $2/1048576}\' /proc/meminfo 2>/dev/null); '
+            f'echo "$n $(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo 0) $(nproc) $y ${{t:-0}} ${{g:--}} ${{m:--}}"')
 
 
 def termux_readings(machine):

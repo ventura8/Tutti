@@ -155,7 +155,7 @@ class Tiers(unittest.TestCase):
 def grok_acc(used=13.0, now=None, verdict='behind'):
     now = now or datetime(2026, 1, 10, 20, tzinfo=UTC)
     return {'name': 'grok-bot', 'state': 'ok', 'verdict': verdict, 'used': used, 'panic': False, 'room_tasks': 42,
-            'target': '2026-01-10T23:00:00+00:00', 'reset': '2026-01-11T00:00:00+00:00'}
+            'target': '2026-01-10T23:00:00+00:00', 'reset': '2026-01-11T00:00:00+00:00', 'window_start': '2026-01-04T00:00:00+00:00'}
 
 
 class SpendTheRest(unittest.TestCase):
@@ -173,10 +173,10 @@ class SpendTheRest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_it_runs_only_behind_near_the_reset_and_under_its_stop(self):
-        self.assertTrue(spendrest.active(self.sc, grok_acc(), self.now)[0])
-        self.assertFalse(spendrest.active(self.sc, grok_acc(), self.now - 2 * 86400)[0])          # days before the reset
-        self.assertFalse(spendrest.active(self.sc, grok_acc(verdict='on pace'), self.now)[0])
+    def test_it_runs_under_its_weekly_line_all_week_and_under_its_stop(self):
+        self.assertTrue(spendrest.active(self.sc, grok_acc(), self.now)[0])                      # the burst before the reset
+        self.assertTrue(spendrest.active(self.sc, grok_acc(), self.now - 2 * 86400)[0])           # days before: under its line
+        self.assertIn('even line', spendrest.active(self.sc, grok_acc(used=80), self.now - 2 * 86400)[1])   # ahead: waits
         self.assertIn('stops at 95', spendrest.active(self.sc, grok_acc(used=96), self.now)[1])
         off = {**self.sc, 'spend_rest': False}
         self.assertIn('off', spendrest.active(off, grok_acc(), self.now)[1])
@@ -188,7 +188,7 @@ class SpendTheRest(unittest.TestCase):
             backlog.add(data, backlog.new_task('tutti', 'fix the reader'))
         p = spendrest.plan(self.cfg, self.sc, self.requests, grok_acc(), self.now)
         self.assertEqual([i['ref'] for i in p['items']], ['t1', 'live-site', 'dependency-notes'])   # Tutti 0, Map 2, unranked
-        self.assertEqual(spendrest.line(p), 'Scout: will use the remaining allowance on 3 watch(es) before the reset')
+        self.assertTrue(spendrest.line(p).startswith('Scout: burst before the reset: 41 run(s)'))   # (95 - 13) / 2 points
         self.assertEqual([t['id'] for t in backlog.queued(backlog.load(self.cfg))], ['t2'])   # a question is no worker's task
         recent = [{**x, 'sent': self.now - 3600} for x in self.requests]
         self.assertEqual([i['ref'] for i in spendrest.plan(self.cfg, self.sc, recent, grok_acc(), self.now)['items']], ['t1'])   # min gap
@@ -203,9 +203,10 @@ class SpendTheRest(unittest.TestCase):
             return 200
         with scouts.locked(self.cfg) as data:
             data['requests'] = list(self.requests)
-            events, n = spendrest.round_(self.cfg, {**self.sc, 'per_tick': 2}, data, grok_acc(), 'http://x', KEY, 0, gh, post, self.now)
-        self.assertEqual(n, 2)                                            # per_tick holds
-        self.assertTrue(all('spend the rest' in e for e in events))
+            sc = {**self.sc, 'spend_rest': {'burst_per_tick': 2}}
+            events, n = spendrest.round_(self.cfg, sc, data, grok_acc(), 'http://x', KEY, 0, gh, post, self.now)
+        self.assertEqual(n, 2)                                            # the burst's per_tick holds
+        self.assertTrue(all('scout week' in e for e in events))
         self.assertEqual(len(posts), 2)
         with scouts.locked(self.cfg) as data:
             events, n = spendrest.round_(self.cfg, self.sc, data, grok_acc(), 'http://x', KEY, 0, gh, post, self.now)
@@ -224,7 +225,7 @@ class SpendTheRest(unittest.TestCase):
         self.assertIsNone(a['room_tasks'])
         self.assertNotIn('bounded task', a['action'])
         self.assertNotIn('backlog', a['action'].replace('no backlog tasks', ''))
-        self.assertTrue(a['action'].startswith('Scout: will use the remaining allowance'))
+        self.assertTrue(a['action'].startswith('Scout: '))
         decision = {x['label']: x.get('value') for x in a['quota_plan']['rows']}
         self.assertNotIn('task(s) now', decision['Decision'])
         self.assertEqual(a['quota_plan']['tasks'], 0)

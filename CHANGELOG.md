@@ -2,6 +2,49 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.59 (2026-11-14)
+
+### Added
+
+- The scout's week (docs/SCOUTS.md, *The week's plan*): Grok Bot works all week, not only at its end.
+  - The cost of one run is measured from real readings around its runs (estimates ignored); the estimates logged after each
+    run use it. The guess of 2 % a run was about 10x too high and kept 85 % of the week unused.
+  - An even line to `stop_at` (95 %) paces every round; a burst in the last `hours` (6) sends what is left as fast as
+    `burst_per_tick` and `burst_max_open` allow.
+  - Regular work by project priority: Sentry triage, dependency notes, live-site checks, `scout:`/`research:` questions,
+    second opinions on autopilot tasks that failed twice (the retry waits for the answer, which joins its brief), and
+    reviews of every open pull request of `review_repos` not reviewed since it changed.
+  - The card shows the week's plan: runs left, the mix, what can go now, what it did today.
+- A scout in `review.reviewers` (e.g. `grok`) is a regular reviewer of `tutti pr review`; its `grok-scout` comment counts.
+- Adaptive autopilot parallelism (docs/AUTOPILOT.md): the smallest of the accounts' room, this machine's free memory and idle
+  cores, the machines' free gate slots, and `max_parallel` (now an optional cap). The dashboard says `running N of M
+  possible: limited by <bound>`. Every probe reports the machine's free memory.
+- Heavy gates (ESLint, tsc, tests, ...) of a repo whose checks run `local` go to a routed machine, and so does any gate
+  while this machine is short of memory.
+- The dashboard's **Queued** list beside Running jobs (docs/DASHBOARD.md): autopilot tasks, Keep busy shards, scout questions
+  and due watches, Tutti's waiting move; grouped by project priority, with size, destination, estimated start and why it
+  waits; an admin's Run now, Move to, Cancel and Priority up or down. The header counts `N running · M queued`.
+- Running jobs and Queued fill the height of the main-agent and workers column beside them: as many rows as fit, then "Show
+  more" for the rest; re-measured on resize; 8 rows on a phone (docs/DASHBOARD.md, *Layout*).
+- Targets (docs/USAGE-PACING.md): `accounts.<name>.target_pct` and `main.target_pct` (100 by default, Settings) set where each
+  window's spend ends by its spend-by time (reset minus lead); the owner's reserve still holds. Each account card says
+  `Target 100 % · on track to finish at X % by HH:MM`, and when short, why and what Tutti is doing about it.
+
+- The owner's real day (docs/USAGE-PACING.md): the reserve follows today's real start, stop and burn rate; a heavy-burn day
+  cuts the workers' share at once and warns early when the main agent would run out even with no worker; unused owner
+  hours go to the workers hour by hour; the owner panel says `Today: started 07:00 (planned 09:00)`.
+
+### Changed
+
+- After a reset with no reading yet, an account starts the new window from 0 % at once: queued work goes on with no gap.
+- An account inside its on-pace band but under its line gets the tasks that top it up, so a window ends at its target.
+- A backlog task whose title starts with `research:` now goes to a scout, like `scout:`, never to a worker.
+- `scouts.<name>.spend_rest.hours` (the burst before the reset) defaults to 6, was 24: the even weekly line now spends the
+  allowance all week, so the burst only sends what is left.
+- The dashboard's order: Running jobs and Queued beside Main agent and Workers, then Autopilot beside Machines.
+- With no cap and free memory unknown (no /proc/meminfo), the adaptive limit stays at 2 runs.
+- `autopilot.max_parallel` has no default: the limit is adaptive unless the owner caps it.
+
 ## 0.1.58 (2026-11-14)
 
 ### Changed

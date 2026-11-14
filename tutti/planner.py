@@ -94,7 +94,7 @@ def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None):
     from tutti import owner as owner_mod
     start = parse_time(own['window_start'])
     kept = owner_mod.reserve_until(owner, now, parse_time(lim['target'])) if owner and now else 0.0
-    budget = 100.0 * lim['share'] - float(lim_cfg.get('reserve', 0)) - kept
+    budget = float(lim_cfg.get('target_pct', 100)) * lim['share'] - float(lim_cfg.get('reserve', 0)) - kept
     at, known = used_at(lim, start)
     at_start = min(budget, at)
     per = window_points(own, lim, at_start, a.get('window_points'), known)
@@ -152,12 +152,25 @@ def plan_single(s, a, now, rate=None, owner=None):
     hours_left = max(0.0, (target - now).total_seconds() / 3600)
     background = (rate or 0.0) * hours_left
     mine = owner_fields(owner, now, target)
-    budget = 100.0 * s['share'] - float(a.get('reserve', 0)) - background - (mine['owner_reserve'] or 0.0)
+    budget = float(a.get('target_pct', 100)) * s['share'] - float(a.get('reserve', 0)) - background - (mine['owner_reserve'] or 0.0)
     left = max(0.0, budget - (s['used'] or 0))
     task = float(a.get('task_pct', TASK_PCT))
     return {'limit': None, 'expires': s['target'], 'resets': s.get('reset'), 'left': round(left, 1), 'lose': round(left, 1),
             'tasks': single_tasks(s, left, task, owner, now, target), 'allowance': round(left, 1), 'this_window': None,
-            'windows': 1, 'runnable': 1, 'background': None if rate is None else round(background, 1), **mine}
+            'windows': 1, 'runnable': 1, 'background': None if rate is None else round(background, 1), **mine,
+            'run_out': run_out_of(s, owner, now)}
+
+
+def run_out_of(s, owner, now):
+    """ISO time the owner's account reaches 100 % at the owner's pace alone, before its reset; None when it does not.
+    Hard safety: the workers then get nothing on it (the reserve already covers it) and the dashboard warns early."""
+    if not owner or s.get('used') is None or not s.get('reset') or not owner.get('reserve'):
+        return None
+    from tutti import ownerday
+    factor = (owner.get('today') or {}).get('factor', 1.0)   # today's pace carried forward over the plan
+    t = ownerday.run_out(float(s['used']), now, parse_time(s['reset']), owner.get('planned_reserve') or owner['reserve'],
+                         owner.get('offset', 0.0), factor)
+    return t.isoformat() if t else None
 
 
 def owner_fields(owner, now, target):

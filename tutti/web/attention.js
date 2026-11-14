@@ -42,6 +42,18 @@ function tuttiPlanRows(plan, fmt) {
 }
 
 // A long list shows `limit` items and a "Show N more" button; opened, all of them and "Show fewer".
+// How many rows of Running jobs and of Queued fit beside the main-agent and workers column: the column's height less what
+// the jobs stack holds besides the two lists, shared by the two lists in turn (running first), at the rows' measured
+// height. Columns stacked (a phone): the cap. At least `min` rows each, so a short column never hides everything.
+function tuttiFit({ column, others, rowRunning, rowQueued, running, queued, phone, cap = 8, min = 3 }) {
+    if (phone || !column) return { running: cap, queued: cap };
+    let space = Math.max(0, column - others);
+    const r = Math.max(min, Math.min(running, Math.floor(space / Math.max(1, rowRunning))));
+    space -= Math.min(r, running) * rowRunning;
+    const q = Math.max(min, Math.floor(space / Math.max(1, rowQueued)));
+    return { running: r, queued: q };
+}
+
 function tuttiMore(count, limit, expanded) {
     if (count <= limit) return { shown: count, hidden: 0, button: '' };
     if (expanded) return { shown: count, hidden: 0, button: 'Show fewer' };

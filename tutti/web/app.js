@@ -332,7 +332,8 @@ function scoutFacts(sc) {
     const allowance = f.used === null || f.used === undefined ? 'allowance: no reading yet' : `allowance: ${f.used} % used, ${f.left} % left`;
     const next = f.next_watch ? `next watch: ${f.next_watch.name} ${when(f.next_watch.at)}` : 'no watches';
     const last = f.last_answer ? `last answer ${relative(f.last_answer.at)}: ${f.last_answer.text || f.last_answer.id}` : 'no answer yet';
-    return el('p', { class: 'account__nudge', 'data-tone': 'ok', 'data-scout': sc.name, text: `Scout ${sc.name} · ${allowance} · ${next} · ${last}` });
+    const week = sc.week?.text ? ` · this week: ${sc.week.text}` : '';
+    return el('p', { class: 'account__nudge', 'data-tone': 'ok', 'data-scout': sc.name, text: `Scout ${sc.name} · ${allowance} · ${next} · ${last}${week}` });
 }
 
 async function fillRoom() {
@@ -359,7 +360,9 @@ function account(a, now) {
     card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
     if (a.quota_plan?.rows?.length) card.append(planFacts(a.quota_plan));
     else if (a.quota_plan?.why) card.append(el('p', { class: 'account__plan', text: `Planner: ${a.quota_plan.why}` }));
-    if (a.projected_end !== undefined && a.projected_end !== null) {
+    if (a.outlook) {
+        card.append(el('p', { class: 'account__auto', 'data-target': a.name, 'data-tone': a.outlook.short ? 'warn' : 'ok', text: a.outlook.text }));
+    } else if (a.projected_end !== undefined && a.projected_end !== null) {
         card.append(el('p', { class: 'account__auto', 'data-tone': a.projected_end < 90 ? 'warn' : 'ok',
             text: `On track to finish at ${a.projected_end} % by its reset (the last day's rate carried on)` }));
     }
@@ -460,6 +463,7 @@ function ownerPanel(o) {
     return [
         el('h3', { class: 'card__sub', text: 'You and the main agent ' }, el('a', { class: 'link', href: '#settings/pacing', text: 'In Settings' })),
         el('p', { class: 'row__note', title: utcTitle(o.until), text: `Mode: ${MODE_TEXT[o.effective] || o.effective}${until} (set: ${o.mode}) · ${o.accounts.join(', ') || 'no account'} · ${learned}` }),
+        o.today ? el('p', { class: 'row__note', 'data-owner-today': '', text: o.today }) : '',
         el('div', { class: 'row__stats' },
             date,
             el('button', { class: 'btn btn--tonal', type: 'button', text: 'I\'m away until…',
@@ -764,7 +768,7 @@ function renderAutopilot(s) {
     const toggle = $('autopilot-toggle');
     toggle.textContent = ap.enabled ? 'Turn off' : 'Turn on';
     toggle.setAttribute('aria-pressed', String(ap.enabled));
-    $('autopilot-meta').textContent = `${ap.enabled ? 'on' : 'off'} · ${ap.ladder.join(' → ') || 'no ladder'} · at most ${ap.max_parallel} at once`
+    $('autopilot-meta').textContent = `${ap.enabled ? 'on' : 'off'} · ${ap.ladder.join(' → ') || 'no ladder'} · ${ap.parallel_line || 'parallel limit not measured yet'}${ap.max_parallel ? ` (cap ${ap.max_parallel})` : ''}`
         + ` · fills free room: ${ap.fill_room ? 'on' : 'off'} · reviews results: ${ap.auto_review ? 'on' : 'off'}`;
     const last = ap.last;
     let stateText = 'Not set up: add autopilot.repos to the config.';
@@ -832,6 +836,7 @@ function scoutBlock(sc) {
     return el('div', {},
         el('h3', { class: 'card__sub', text: `${sc.name} · ${sc.kind}` }), state,
         el('p', { class: 'row__note', text: `${scoutMeter(sc.meter)} · ${sc.waiting} waiting, ${sc.queued} queued · plan: ${sc.plan}` }),
+        sc.week ? el('p', { class: 'row__note', 'data-week': sc.name, text: `Week: ${sc.week.text}` }) : '',
         sc.meter?.usage_url && (sc.meter.stale || sc.meter.used === null || sc.meter.used === undefined)
             ? el('a', { class: 'btn btn--tonal', href: sc.meter.usage_url, target: '_blank', rel: 'noopener noreferrer', text: 'Add a reading',
                 title: `Opens ${sc.meter.usage_url}: click the reading helper there (it reads Grok Bot with Cursor)` }) : null,
@@ -1005,6 +1010,29 @@ function fillJobs(box, jobs, none, key, limit) {
 
 const finishedAs = (j, f) => f === 'all' || j.status === f || (f === 'done' && j.status === 'ended');
 
+// Running jobs and Queued use the height of the column beside them: rows that fit show, "Show more" only for the rest.
+// Measured after each render and whenever either column changes size (ResizeObserver); a phone (stacked columns) keeps 8.
+function measureFit() {
+    const side = $('side-stack'), stack = $('jobs-stack');
+    if (!side || !stack) return;
+    const lists = [$('running'), $('queued')];
+    const rowOf = (box) => box.querySelector('.job, .row')?.getBoundingClientRect().height || 72;
+    const listsH = lists.reduce((h, box) => h + (box?.getBoundingClientRect().height || 0), 0);
+    const fit = tuttiFit({ column: side.getBoundingClientRect().height, others: stack.getBoundingClientRect().height - listsH,
+        rowRunning: rowOf(lists[0]), rowQueued: rowOf(lists[1]), running: ui.counts?.running || 0, queued: ui.counts?.queued || 0,
+        phone: !window.matchMedia('(min-width: 960px)').matches });
+    if (fit.running !== ui.fit?.running || fit.queued !== ui.fit?.queued) {
+        ui.fit = fit;
+        render();
+    }
+}
+
+function watchFit() {
+    if (ui.fitWatch || typeof ResizeObserver !== 'function') return;
+    ui.fitWatch = new ResizeObserver(() => requestAnimationFrame(measureFit));
+    for (const id of ['side-stack', 'jobs-stack']) if ($(id)) ui.fitWatch.observe($(id));
+}
+
 function renderJobs(s) {
     ui.accounts = new Map((s.usage?.accounts || []).map((a) => [a.name, a]));
     renderProjectPick(s);
@@ -1012,7 +1040,9 @@ function renderJobs(s) {
     const running = items.filter((j) => LIVE.has(j.status));
     const finished = items.filter((j) => !LIVE.has(j.status));
     fillJobs($('running'), running, empty('Nothing running', codeText('Runs from ', 'tutti quiet', ', ship checks, transfers and the autopilot show here with their progress.')),
-        'running', 8);
+        'running', ui.fit?.running ?? 8);
+    ui.counts = { running: running.length, queued: s.queue?.queued || 0 };
+    watchFit();
     $('jobs-meta').textContent = ui.project ? `of ${ui.project === '-' ? 'no project' : ui.project} (choose in Running jobs)` : '';
     const filterFocus = document.activeElement?.closest?.('#job-filter') ? document.activeElement.dataset.f : null;
     $('job-filter-buttons').replaceChildren(...FILTERS.map(([f, label], i) => el('button', {
@@ -1074,6 +1104,7 @@ function render() {
     renderAttention(s);
     renderControls(s);   // controls.js: devices, pause and resume, opt-in switches
     renderJobs(s);
+    if (typeof renderQueue === 'function') renderQueue(s);   // queue.js: the Queued list beside Running jobs
     renderMachines(s);
     renderPresence(s);   // controls.js: work waiting on away or asleep targets, the host's warning
     renderAutopilot(s);

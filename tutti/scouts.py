@@ -72,11 +72,28 @@ def settings(cfg, name):
     if acc is not None and cfg.get('project'):   # where a sent question's spend estimate goes (its account's usage log)
         from . import state  # state imports config, which imports this module
         extra = {'_usage_log': state.usage_log_path(cfg), '_task_pct': float((acc or {}).get('task_pct', pacing.TASK_PCT))}
+        extra['_cost'] = measured(cfg, name, sc.get('account'), extra['_usage_log'], extra['_task_pct'])
     # Sentry triage watches, one per project with a sentry: entry (triage builds on this module)
     from . import triage
     out = {**DEFAULTS, **sc, 'name': name, **extra}
     out['watches'] = {**triage.watches(cfg, out), **(out.get('watches') or {})}
     return out
+
+
+def measured(cfg, name, account, log, fallback):
+    """What one run of the scout costs of its account, from the real readings around its runs (tutti/grokweek.py)."""
+    from . import grokweek
+    try:
+        entries = pacing.read_log(log)
+        requests = load(cfg)['requests']
+    except (OSError, ValueError):
+        return {'pct': fallback, 'runs': 0, 'rise': 0.0, 'measured': False}
+    return grokweek.cost(entries, requests, account, name, fallback)
+
+
+def run_pct(sc):
+    """The points one run costs: measured when known, else the account's task_pct."""
+    return float((sc.get('_cost') or {}).get('pct') or sc.get('_task_pct') or pacing.TASK_PCT)
 
 
 def spend_estimate(sc, r, now=None):
@@ -91,9 +108,9 @@ def spend_estimate(sc, r, now=None):
         return None
     reset = pacing.reading_anchor(entries, sc['account'])
     reset_passed = reset and pacing.parse_time(last['at']) < reset <= at   # the newest reading is from before the reset: from 0
-    used = min(100.0, (0.0 if reset_passed else float(last['used'])) + sc['_task_pct'])
+    used = min(100.0, (0.0 if reset_passed else float(last['used'])) + run_pct(sc))
     return pacing.append_log(sc['_usage_log'], sc['account'], used, at, f'estimate: scout {sc["name"]} {r["id"]} sent '
-                             f'(+{sc["_task_pct"]:g} points)', source='estimate')
+                             f'(+{run_pct(sc):g} points)', source='estimate')
 
 
 def _every_errors(key, v):
@@ -475,7 +492,9 @@ def tick(cfg, accounts, env=None, gh_fn=gh, post_fn=post, now=None):
             extra, n = spendrest.round_(cfg, sc, data, acc, url, key, sent, gh_fn, post_fn, now) if acc else ([], 0)
             events += extra
             events += triage.feed_answered(cfg, data, selfimprove.auto_accept(cfg))
-            left = spendrest.room(sc, data, acc, sent + n) if acc else 0
+            answers = spendrest.second_answers(data)
+            left = spendrest.room(sc, data, acc, sent + n, now) if acc else 0
+        events += spendrest.feed_seconds(cfg, answers)   # the backlog's lock: never inside the scouts' lock
         events += spendrest.reviews(cfg, name, acc, left, gh_fn, post_fn, env, now) if acc else []   # GitHub: outside the lock
     return events
 
@@ -540,7 +559,26 @@ def scout_view(cfg, sc, requests, acc, env, now):
             'recent': [request_view(r) for r in sorted(mine, key=lambda r: r['added'], reverse=True)[:6]],
             'facts': scout_facts(meter, watches, mine),
             'spend_rest': {'on': rest['on'], 'why': rest['why'], 'count': len(rest['items']), 'line': spendrest.line(rest),
-                           'items': [i['ref'] for i in rest['items']]}}
+                           'items': [i['ref'] for i in rest['items']]},
+            'week': week_view(cfg, sc, requests, acc, rest, now)}
+
+
+def week_view(cfg, sc, requests, acc, rest, now):
+    """The week's plan on the scout's card: runs left and their mix, what can go now, what it did today."""
+    from . import grokweek, spendrest
+    b = rest.get('week') or grokweek.budget(None, now, 1, 95, 6)
+    c = sc.get('_cost') or {'pct': run_pct(sc), 'runs': 0, 'rise': 0.0, 'measured': False}
+    days = 0.0 if not acc or not acc.get('target') else max(0.0, (pacing.parse_time(acc['target']).timestamp() - now) / 86400)
+    w = sc.get('watches') or {}
+    triage_n = sum(1 for n in w if n.startswith('sentry-'))
+    notes = sum(1 for n in w if spendrest.NOTES_RX.search(n) and not n.startswith('sentry-'))
+    checks = len(w) - triage_n - notes
+    reviews = sum(1 for i in rest.get('items', []) if i['kind'] == 'review') + 3 * max(1, len(spendrest.review_repos(cfg, sc['name'])))
+    research = sum(1 for i in rest.get('items', []) if i['kind'] in ('research', 'second'))
+    mixed = grokweek.mix(b['left'], days, reviews, triage_n, notes, checks, research)
+    done = grokweek.today(requests, sc['name'], now)
+    return {'left': b['left'], 'now': b['now'], 'mode': b['mode'], 'line': b['line'], 'cost': c, 'mix': mixed, 'today': done,
+            'text': grokweek.text(b, c, mixed, done)}
 
 
 def scout_facts(meter, watches, mine):
@@ -575,6 +613,7 @@ def describe(v):
         m = f'{meter["used"]:g} % of the week used, {meter["verdict"]}' if meter and meter.get('used') is not None else 'no meter reading'
         state = 'ready' if s['ready'] else f'not set up ({", ".join(s["missing"])} missing)'
         lines.append(f'{s["name"]} ({s["kind"]}): {state}; {m}; {s["waiting"]} waiting, {s["queued"]} queued; plan: {s["plan"]}')
+        lines.append(f'  week: {s["week"]["text"]}')
         lines += [f'  watch {w["name"]}: every {w["every"]}, last {w["last"] or "never"}' for w in s['watches']]
         lines += [f'  {r["id"]} {r["status"]} {r["kind"]}: {r["task"][:70]} {r["url"] or r["why"] or ""}' for r in s['recent']]
     return '\n'.join(lines)

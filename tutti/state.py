@@ -54,8 +54,30 @@ def usage_state(cfg, now):
         s = with_credits(cfg, pacing.account_state(n, a, entries, now, *pacing.plan_args(cfg)), a or {})
         accounts.append(with_background(cfg, s, a or {}, now))
     accounts = with_scouts(cfg, accounts, now)
+    accounts = with_targets(cfg, accounts, now)
     from . import owner
     return {'log': path, 'problem': problem, 'accounts': accounts, 'owner': owner.view(cfg, config.state_dir(cfg), entries, now)}
+
+
+def target_facts(cfg):
+    """What the target line needs from the autopilot: tasks queued, why runs wait, fill_room, the parallel limit."""
+    from . import autopilot, backlog, fill
+    try:
+        tasks = backlog.load(cfg)['tasks']
+        st = autopilot.read_state(cfg)
+    except (OSError, ValueError, KeyError):
+        return {}
+    last = st.get('last') or {}
+    busy = last.get('reason') if last.get('state') in ('waiting', 'running') and 'queued' not in str(last.get('reason')) else ''
+    return {'queued': sum(1 for t in tasks if t.get('status') == 'queued'), 'busy': busy, 'fill_room': fill.fill_on(cfg),
+            'parallel': (st.get('parallel') or {}).get('limit')}
+
+
+def with_targets(cfg, accounts, now):
+    """Each account's target line (tutti/target.py): where it is heading by its spend-by time and, when short, why."""
+    from . import target
+    facts = target_facts(cfg) if cfg.get('autopilot', {}).get('enabled') else {}
+    return [{**a, 'outlook': target.outlook(a, now, facts)} for a in accounts]
 
 
 def with_scouts(cfg, accounts, now):
@@ -92,11 +114,10 @@ def scout_do(name, a, p):
 
 def scout_plan(a, p, do):
     """The planner rows of a scout account with its Decision and Why replaced: scout work, no tasks."""
-    from . import spendrest
     plan = a.get('quota_plan')
     if not plan:
         return plan
-    decision = f'scout work: {spendrest.count(p)} watch(es) before the reset' if p['on'] else 'scout work only'
+    decision = f'scout work: {(p.get("week") or {}).get("now", 0)} run(s) now on its weekly line' if p['on'] else 'scout work only'
     rows = [r for r in plan.get('rows', []) if r['label'] not in ('Decision', 'Why')]
     rows += [{'label': 'Decision', 'value': decision}, {'label': 'Why', 'value': 'a scout answers questions; it takes no backlog tasks'}]
     return {**plan, 'tasks': 0, 'rows': rows, 'why': f'{a["name"]}: {do}'}
@@ -155,7 +176,8 @@ def machine_state(m, p, rank):
             'min_free_gb': m['min_free_gb'], 'temp_c': p.temp if p.reachable else None, 'heat': m.get('heat'),
             'gpu_temp_c': p.gpu_temp if p.reachable else None, 'temp_note': p.temp_note if p.reachable else '',
             'containers': list(getattr(p, 'containers', []) or []), 'readings': getattr(p, 'readings', None),
-            'owner_paused': m.get('paused'), 'zone': getattr(p, 'zone', '') if p.reachable else ''}
+            'owner_paused': m.get('paused'), 'zone': getattr(p, 'zone', '') if p.reachable else '',
+            'mem_free_gb': getattr(p, 'mem_gb', None) if p.reachable else None}
 
 
 def machines_state(cfg, probe_fn, stored_fn=None):

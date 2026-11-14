@@ -275,7 +275,7 @@ autopilot:
   enabled: false
   accounts: [cursor]
   ladder: [cursor]
-  max_parallel: 1
+  # max_parallel: 2                    # optional cap; without it the limit is adaptive (docs/AUTOPILOT.md, Adaptive parallelism)
   quiet_hours: []                      # local-time spans (time.zone) the autopilot must not run, e.g. ['22:00-06:00']: the planner gives them nothing
   fill_room: true                      # free room on `accounts` is filled from the repos' sources (TODOs, gaps, untested files)
   auto_review: true                    # a passing result is reviewed by review.fallback, then landed by its repo's `land`

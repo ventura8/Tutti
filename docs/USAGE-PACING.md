@@ -10,7 +10,11 @@ Each account under `accounts:` has:
 
 - `window`: how often it resets: `5h`, `7d`, `2w` or `monthly`;
 - `resets`: any one known reset time: UTC (`2026-01-03T02:00Z`), with an offset, or with a zone (`2026-01-03 04:00 Europe/Bucharest`); Tutti rolls it forward by itself;
-- `lead_hours`: the margin before the reset (1 by default);
+- `lead_hours`: the margin before the reset (1 by default); the window's **spend-by time** is the reset minus it;
+- `target_pct`: the % of the quota to have used by the spend-by time (100 by default). A lower target (80) leaves headroom on
+  purpose. The main agent's accounts take `main.target_pct` (100 by default) when they have none of their own; the owner's
+  reserve still keeps the owner's working hours, the target only says where the spend ends. Both are in Settings (admins
+  only);
 - `share`: this session's part when a peer session uses the same account (0.5 = half);
 - `source`: where a reading comes from (a usage command, a dashboard page).
 
@@ -22,6 +26,38 @@ tutti usage log cursor 40 --resets 2026-12-03T00:00Z   # with the reset the usag
 tutti usage                        # every account against its pace
 tutti usage read                   # run the automatic readers now (the dashboard runs them by itself)
 ```
+
+## The target, and straight on after the reset
+
+The even line runs from the window's start to `target_pct` at its spend-by time, and the planner's budget is the target (not
+100) minus the reserve. Inside the on-pace band but under the line, an account still gets the tasks that top it up to the
+line, so a window ends at its target instead of a band's width short. The autopilot's adaptive limit (docs/AUTOPILOT.md)
+starts as many runs as the room and the machines allow.
+
+When a reset has passed and the new window has no reading yet, the account starts from 0 % at once (`after_reset`): queued
+work goes on with no gap and no "nothing more this window" from the old window survives; the next real reading replaces it.
+
+Each account card says `Target 100 % · on track to finish at 97 % by 23:00 (UTC+2, in 5.0 h)` (the last day's rate carried to the spend-by
+time). Heading more than 5 points short, it says why (no work queued, the machines or devices busy, the account blocked) and
+what Tutti already does about it (fill_room adds tasks, up to N runs at once, a stronger model while behind).
+
+## The owner's real day
+
+The owner's reserve follows how the owner really works today (`tutti/ownerday.py`), read from the live readings of the main
+agent's accounts (keep their reader at `every_minutes: 30` or less while the owner works):
+
+- **Burning faster than planned.** The owner's rate over the last 2 hours, above the workers' baseline, against the plan's: the
+  reserve until the target is scaled by that factor at once, so the workers' share on that account drops and their load goes
+  to the other accounts and local models. If the account would reach 100 % before its reset at the owner's pace alone, the
+  card warns early (`At today's pace you run out on Thu 19 Nov 10:00 (UTC+2) ...`) and names what Tutti already did. **Hard safety:**
+  the main agent never runs out because of Tutti's workers; that outranks the target.
+- **Using less than planned.** The reserve counts only the hours still ahead, so every owner hour that passes unused goes to
+  the workers from that hour on, and the target is still reached by its spend-by time.
+- **Earlier or later than the schedule.** The real start is the first hour today whose rise stands above the baseline by half
+  the planned rate: an earlier start moves today's reserve to begin there. The real stop is no such rise for
+  `pacing.stop_after_minutes` (60) inside the planned hours: the rest of today is released. Still working after the planned
+  stop keeps the reserve an hour at a time. The learned 7 x 24 profile learns from the same readings, so repeated early starts
+  move the schedule by themselves. The owner panel says `Today: started 07:00 (planned 09:00); ...`.
 
 ## Automatic readings
 

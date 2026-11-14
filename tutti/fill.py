@@ -44,7 +44,8 @@ def fresh_units(cfg, tasks):
 
 def want(cfg, tasks, free):
     """Fresh tasks to add now: the room, capped at AHEAD per parallel run, less the fresh tasks already queued."""
-    target = min(free, autopilot.settings(cfg)['max_parallel'] * AHEAD)
+    from . import parallel
+    target = min(free, parallel.current(cfg) * AHEAD)
     return max(0, target - fresh_units(cfg, tasks))
 
 

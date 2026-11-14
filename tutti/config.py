@@ -56,7 +56,7 @@ DEFAULTS = {
     # when a task is parked for a person, and the repos it may work in ({name: {path, check, where, pr, commit, trailers, gaps,
     # land, base}}); fill_room: free room on the trigger accounts is filled from the repos' sources by itself (tutti/fill.py);
     # auto_review: a result to review is reviewed by review.fallback and landed by its repo's `land` (merge, pr or branch)
-    'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'max_parallel': 1, 'no_progress': 3, 'max_attempts': 12, 'repos': {},
+    'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'max_parallel': None, 'no_progress': 3, 'max_attempts': 12, 'repos': {},
                   'checkpoint_minutes': 5, 'quiet_hours': [], 'fill_room': True, 'auto_review': True},
     # pacing: the owner's own prompting (tutti/owner.py): the weekly schedule that seeds the learned weekday x hour profile
     # (days, hours of the reserve window, the local window, points per owner hour, the UTC offset; None: this computer's),
@@ -318,8 +318,8 @@ def _review_errors(cfg):
     r = cfg['review']
     errs = [f'review.fallback names "{n}", which is not a cli worker under workers:' for n in r.get('fallback') or []
             if (cfg['workers'].get(n) or {}).get('kind') != 'cli']
-    errs += [f'review.reviewers has "{n}": use copilot or coderabbit' for n in r.get('reviewers') or []
-             if n not in ('copilot', 'coderabbit')]
+    errs += [f'review.reviewers has "{n}": use copilot, coderabbit or a scout named under scouts: (e.g. grok)'
+             for n in r.get('reviewers') or [] if n not in ('copilot', 'coderabbit') and n not in (cfg.get('scouts') or {})]
     v = r.get('timeout_minutes')
     if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
         errs.append(f'review.timeout_minutes is {v!r}: use minutes, 0 or more (0: do not wait, fall back at once)')
@@ -447,8 +447,12 @@ def _autopilot_errors(cfg):
     errs = _autopilot_name_errors(cfg, 'accounts', ap.get('accounts')) + _autopilot_name_errors(cfg, 'ladder', ap.get('ladder'))
     errs += quiet_hours_errors(ap.get('quiet_hours'))
     errs += [f'autopilot.{k} is {ap[k]!r}: use true or false' for k in ('fill_room', 'auto_review') if not isinstance(ap.get(k), bool)]
+    from . import parallel
+    errs += parallel.errors(ap.get('parallel'))
     for key in ('max_parallel', 'no_progress', 'max_attempts'):
         v = ap.get(key)
+        if key == 'max_parallel' and v is None:   # optional: the limit is adaptive (tutti/parallel.py); a number caps it
+            continue
         if isinstance(v, bool) or not isinstance(v, int) or v < 1:
             errs.append(f'autopilot.{key} is {v!r}: use a whole number of 1 or more')
     repos = ap.get('repos') or {}
@@ -489,6 +493,13 @@ def _project_errors(cfg, name, p):
     return errs
 
 
+def target_errors(key, v):
+    """A target_pct: a percentage above 0 and up to 100, or absent (100)."""
+    if v is None or (not isinstance(v, bool) and isinstance(v, (int, float)) and 0 < v <= 100):
+        return []
+    return [f'{key} is {v!r}: the % of the quota to use by its spend-by time, above 0 and up to 100 (default 100)']
+
+
 def _main_errors(cfg):
     m = cfg['main']
     if not isinstance(m, dict):
@@ -497,6 +508,7 @@ def _main_errors(cfg):
     if not isinstance(fallback, list):
         return [f'main.fallback is {fallback!r}: a list of workers, e.g. [agy, cursor]']
     errs = [f'main.fallback names "{n}", which is not under workers:' for n in fallback if n not in cfg['workers']]
+    errs += target_errors('main.target_pct', m.get('target_pct'))
     commands = m.get('commands') if isinstance(m.get('commands'), dict) else {}
     errs += [f'main.commands.{n}: "{n}" is not under workers:' for n in commands if n not in cfg['workers']]
     errs += [f'main.commands.{n} is {c!r}: a list such as [claude, -p, "{{prompt}}"]' for n, c in commands.items()
@@ -519,6 +531,7 @@ def _account_pace_errors(name, a):
     panic_at = a.get('panic_at', 95)
     if not isinstance(panic_at, (int, float)) or not 0 < panic_at <= 100:
         errs.append(f'accounts.{name}.panic_at is {panic_at!r}: use a percentage above 0 and up to 100 (95 = panic at 95 % used)')
+    errs += target_errors(f'accounts.{name}.target_pct', a.get('target_pct'))
     for key, hint in (('stale_hours', 'hours after which a hand reading is old (0: never remind)'),
                       ('task_pct', 'the points of quota one bounded task costs, e.g. 2'),
                       ('reserve', 'points of the quota the planner leaves for work outside Tutti (default 0)'),

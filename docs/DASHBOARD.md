@@ -60,7 +60,10 @@ narrow with nothing beside it; one column on a phone. Phone (375 px) to 4K (2560
    offline, workers down, readings due, results to review (each task with its attempts and failure history), agents
    started outside Tutti. **Open its log** clears the project filter and unfolds the running list to show the job. Most urgent first
    (`web/attention.js`, a pure function the tests run in node); "Nothing needs you" when all is clear.
-3. **Running jobs** (with progress, and the project filter) beside **Machines**.
+3. **Running jobs** (with progress, and the project filter), then **Queued**, beside **Main agent** and **Workers**. The two
+   lists fill the height of that column: as many rows as fit show, and "Show more" folds only the rows that do not (measured
+   after each render and on every resize with a ResizeObserver; `tuttiFit` in `attention.js`). On a phone, where the columns
+   stack, each shows 8 rows. **Autopilot** and **Machines** follow.
 4. **Autopilot** (its state, runs, queue and latest decisions, each list folded) beside **Main agent** and **Workers**.
 5. **Projects**, full width, in columns.
 6. **Scouts**, full width: each scout, its meter, watches, recent questions and the review trial (*Scouts* below).
@@ -85,6 +88,18 @@ button keeps the keyboard focus. Cards in a row stretch to the same height.
 
 Machines and workers are probed in the background every `dashboard.probe_seconds` (ssh answers can be slow); the
 rest is read on each request. The page polls `/api/state` every `dashboard.refresh_seconds` and pauses while hidden.
+
+## Queued
+
+Beside Running jobs, everything waiting (`tutti/waitlist.py`, `tutti/web/queue.js`), grouped by project in priority order, with
+the counts in its header (`3 running · 19 queued`): the autopilot's queued backlog tasks, Keep busy's queued test and device
+shards, scout questions queued and watches that are due, and Tutti's own move while it waits for its running jobs. Each item
+shows its size, where it goes (an account, a device, a machine), when it should start and **why it waits**, in the words of
+the last round (e.g. `agy-claude weekly binding until 12:55 (UTC+2)`, `running 2 of 2 possible: limited by memory`, a device
+held by another tool, a machine asleep). An admin acts on a task: **Run now** (first in line, still within the limits),
+**Move to…** (a ladder step it goes to first), **Cancel** (dropped, with a note), **Priority up** or **down**; and cancels a
+queued scout question (`POST /api/queue`, admins only). A viewer sees the list read-only. Household jobs wait at the
+household's coordinator and show on the shared machine's own dashboard once claimed.
 
 ## Autopilot
 

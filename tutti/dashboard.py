@@ -252,9 +252,17 @@ class Collector:
         if theirs:   # a client's own jobs (its scripts, ship checks) after a move: docs/MOVE.md
             out['jobs']['items'] = theirs + out['jobs']['items']
             out['jobs']['total'] += len(theirs)
+        from . import waitlist  # the Queued list beside Running jobs: everything waiting and why
+        live = sum(1 for j in out['jobs']['items'] if j.get('status') in ('running', 'stalled', 'starting'))
+        out['queue'] = waitlist.view(self.cfg, out['where'], live, can_act=self.can_act())
         last = update.load(self.cfg)
         out['updates'] = {**update.view(self.cfg, last), 'running': self.updating.locked(), 'error': (last or {}).get('error')}
         return out
+
+    def can_act(self):
+        """Whether this dashboard's viewer may act on the Queued list: an admin (a sign-in with roles plugs in here)."""
+        check = getattr(self, 'authorize', None)
+        return check is None or check({}, 'admin') is None
 
     def reload(self):
         """The config read again after a switch, so routing, workers and the page see it at once."""
@@ -314,8 +322,10 @@ def static_path(url_path):
 
 API_SETTINGS, API_RESTART, API_SETUP = '/api/settings', '/api/restart', '/api/setup'
 API_PAIR, API_MOVE = '/api/devices/pair', '/api/devices/move'
+API_QUEUE = '/api/queue'   # the Queued list's actions: an admin's (Run now, Move to, Cancel, Priority up or down)
 API_TUTTI_MOVE = '/api/move'   # Tutti itself to another machine (docs/MOVE.md); API_MOVE moves a device
-ADMIN_PATHS = (API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn')   # these change the config: an admin's
+# these change the config or the queue: an admin's
+ADMIN_PATHS = (API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE)
 API_WORK_MOVE = '/api/work/move'   # work waiting on an away or asleep target moved now (docs/PRESENCE.md)
 ADMIN_PATHS += (API_WORK_MOVE,)   # takes work off a member's computer: an admin's (a viewer gets 403 from the auth hook)
 BODY_LIMITS[API_SETTINGS] = 65536
@@ -544,7 +554,7 @@ def save_dispatch(collector, raw):
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
          '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, API_SETUP,
          API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn',
-         API_WORK_MOVE)
+         API_WORK_MOVE, API_QUEUE)
 
 
 def save_connect(collector, body, home=None):
@@ -703,6 +713,7 @@ def save_work_move(collector, body):
 
 HANDLERS = {
     API_SETUP: run_setup,
+    API_QUEUE: lambda c, b: waitlist_post(c, b),
     API_PAIR: lambda c, b: devicesweb.pair_post(c, b),
     API_MOVE: lambda c, b: devicesweb.move_post(c, b),
     API_WORK_MOVE: save_work_move,
@@ -723,6 +734,11 @@ HANDLERS = {
     '/api/self-improve': dashtelemetry.save_self_improve,
     '/api/update': start_update,
 }
+
+
+def waitlist_post(collector, body):
+    from . import waitlist
+    return waitlist.post(collector, body)
 
 
 def dispatch(collector, path, body):

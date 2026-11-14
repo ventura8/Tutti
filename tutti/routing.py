@@ -19,6 +19,7 @@ class Probe:
     temp_note: str = ''            # why the CPU temperature is not readable (a WSL machine whose Windows side has no sensor)
     readings: dict | None = None   # a Termux machine's battery, charging, battery_c and wifi (tutti/devices.py), else None
     zone: str = ''                 # the machine's own IANA zone, read over its ssh (tutti/tz.py): its quiet hours are its local time
+    mem_gb: float | None = None    # free memory (MemAvailable) in GB, None when unreadable
 
     def hottest(self):
         """(degrees C, 'CPU' or 'GPU') of the hotter of the two, or (None, '') when neither is readable."""
@@ -62,7 +63,8 @@ def parse_probe(text):
     try:
         temp = parse_temp(parts[4] if len(parts) > 4 else None)
         gpu = parse_gpu_temp(parts[5] if len(parts) > 5 else None)
-        return Probe(True, int(parts[0]), float(parts[1]), max(1, int(parts[2])), parts[3] == '1', temp, gpu_temp=gpu)
+        mem = float(parts[6]) if len(parts) > 6 and parts[6] != '-' else None
+        return Probe(True, int(parts[0]), float(parts[1]), max(1, int(parts[2])), parts[3] == '1', temp, gpu_temp=gpu, mem_gb=mem)
     except (IndexError, ValueError):
         return Probe()
 

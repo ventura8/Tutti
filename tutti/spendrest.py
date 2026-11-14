@@ -1,28 +1,37 @@
-"""Spend the rest: a scout's allowance that is behind its pace near its reset is used by Tutti itself on scout work that has
+"""The scout's week (tutti/grokweek.py) and spending the rest: a scout's weekly allowance is used all week on scout work that has
 value, never on backlog tasks (a scout answers questions; it takes no bounded tasks). On by default, `scouts.<name>.spend_rest:
-false` turns it off; `{hours: 24, stop_at: 95, min_gap_hours: 3}` tune it.
+false` turns it off; `{hours: 6, stop_at: 95, min_gap_hours: 3, pace_gap_hours: 6, burst_per_tick: 10, burst_max_open: 30,
+review_repos: [owner/name]}` tune it.
 
-Inside the last `hours` before the allowance's target, while it is behind (or late) and under `stop_at` %, every round sends,
-in the order of the projects' `priority` (config.project_priority: 0 first; a watch without `project:` after the ranked
-ones) and then by kind:
+Every round sends up to the runs the week's even line allows now (`grokweek.budget`: the measured cost of one run, `stop_at` x
+the window gone); in the last `hours` before the target (the burst) whatever is left goes out as fast as the caps allow. In
+the order of the projects' `priority` (config.project_priority: 0 first; a watch without `project:` after the ranked ones)
+and then by kind:
   1. Sentry triage of every project with Sentry (the `sentry-*` watches);
   2. dependency and changelog notes (a watch whose name says dep, changelog, release or notes);
   3. the other watches (live-site checks and the like);
-  4. research questions from the backlog: a queued task whose title starts with `scout:`;
-then, with the room left, a review of each open pull request the review trial still takes (`scouts.<name>.review_trial`;
-GitHub is asked outside the scouts' lock, so reviews come last in a round).
-A watch runs at most once more in that stretch, and only `min_gap_hours` after its last run. The scout's own caps still hold:
-`per_tick` per round, `max_open` waiting, and the points left before `stop_at` (one question costs the account's task_pct)."""
+  4. research questions from the backlog: a queued task whose title starts with `scout:` (or `research:`);
+  5. second opinions on autopilot tasks that failed twice or more, before they climb the ladder again (tutti/autopilot.py
+     waits up to `second_wait_minutes` for the answer, which joins the next attempt's brief);
+then, with the room left, a review of each open pull request of `review_repos` (default: the projects' `repo`, the review
+trial's repositories) not reviewed by the scout since it last changed (GitHub is asked outside the scouts' lock, so reviews
+come last in a round). A watch runs again only `pace_gap_hours` after its last run (`min_gap_hours` in the burst, once more at
+most). The caps still hold: `per_tick` per round and `max_open` waiting (`burst_per_tick` and `burst_max_open` in the burst),
+and the points left before `stop_at`."""
 import json
 import re
 import time
 
-from . import backlog, config, pacing, scouts
+from . import backlog, config, grokweek, pacing, scouts
 
-DEFAULTS = {'enabled': True, 'hours': 24, 'stop_at': 95, 'min_gap_hours': 3}
-RANK = {'sentry': 0, 'notes': 1, 'check': 2, 'research': 3}
+DEFAULTS = {'enabled': True, 'hours': 6, 'stop_at': 95, 'min_gap_hours': 3, 'pace_gap_hours': 6, 'burst_per_tick': 10,
+            'burst_max_open': 30, 'review_repos': None, 'second_wait_minutes': 30}
+NUMBERS = ('hours', 'stop_at', 'min_gap_hours', 'pace_gap_hours', 'burst_per_tick', 'burst_max_open', 'second_wait_minutes')
+RANK = {'sentry': 0, 'notes': 1, 'check': 2, 'research': 3, 'second': 4}
 PREFIX = 'scout:'
 NOTES_RX = re.compile(r'dep|changelog|release|notes', re.I)
+SECOND = ('Second opinion before a coding agent retries. Task in {repo}: "{title}". It failed {n} time(s); the last failure:\n'
+          '{why}\n\nName the likely cause, the file to look at and a concrete fix the next attempt should make. Plain words, short.')
 
 
 def settings(sc):
@@ -36,32 +45,51 @@ def errors(key, v):
     if v is None or isinstance(v, bool):
         return []
     if not isinstance(v, dict):
-        return [f'{key} is {v!r}: true, false, or {{hours: 24, stop_at: 95, min_gap_hours: 3}}']
-    errs = [f'{key}.{k} is {v[k]!r}: a number above 0' for k in ('hours', 'stop_at', 'min_gap_hours')
+        return [f'{key} is {v!r}: true, false, or {{hours: 6, stop_at: 95, min_gap_hours: 3}}']
+    errs = [f'{key}.{k} is {v[k]!r}: a number above 0' for k in NUMBERS
             if k in v and (isinstance(v[k], bool) or not isinstance(v[k], (int, float)) or v[k] <= 0)]
-    return errs + [f'{key}.{k} is not a spend_rest key: use enabled, hours, stop_at, min_gap_hours' for k in v if k not in DEFAULTS]
+    rr = v.get('review_repos')
+    if rr is not None and (not isinstance(rr, list) or not all(scouts.is_repo(x) for x in rr)):
+        errs.append(f'{key}.review_repos is {rr!r}: a list of owner/name repositories')
+    return errs + [f'{key}.{k} is not a spend_rest key: use {", ".join(DEFAULTS)}' for k in v if k not in DEFAULTS]
+
+
+def pct(sc):
+    """What one run costs: measured (sc['_cost'], set by the round from the real readings), else the account's task_pct."""
+    c = sc.get('_cost') or {}
+    return float(c.get('pct') or sc.get('_task_pct') or pacing.TASK_PCT)
+
+
+def week(sc, acc, now):
+    s = settings(sc)
+    return grokweek.budget(acc, now, pct(sc), s['stop_at'], s['hours'])
 
 
 def active(sc, acc, now):
-    """(on, why) for the scout's account state `acc` at `now` (epoch seconds)."""
+    """(on, why) for the scout's account state `acc` at `now` (epoch seconds): on while the week's line has room for a run now,
+    or in the burst before the reset."""
     s = settings(sc)
     if not s['enabled']:
         return False, f'off (scouts.{sc["name"]}.spend_rest: false)'
     if not acc or acc.get('state') != 'ok' or acc.get('used') is None:
         return False, 'no reading of its allowance in this window'
-    if acc.get('panic') or acc.get('verdict') not in ('behind', 'late'):
-        return False, f'{acc.get("verdict")}: not behind its pace'
-    if acc['used'] >= s['stop_at']:
+    if acc.get('panic') or acc['used'] >= s['stop_at']:
         return False, f'{acc["used"]:g} % used: it stops at {s["stop_at"]:g} %'
-    start = pacing.parse_time(acc['target']).timestamp() - s['hours'] * 3600
-    if now < start or now >= pacing.parse_time(acc['reset']).timestamp():
-        return False, f'not in the last {s["hours"]:g} h before its reset'
+    if now >= pacing.parse_time(acc['reset']).timestamp():
+        return False, 'past its reset: waiting for a reading of the new week'
+    b = week(sc, acc, now)
+    if b['mode'] == 'ahead' or not b['now']:
+        return False, f'{acc["used"]:g} % used, at its even line ({b["line"]:g} % by the next hour): the next run waits for it'
     return True, ''
 
 
+def burst(sc, acc, now):
+    return week(sc, acc, now)['mode'] == 'burst'
+
+
 def points_left(sc, acc):
-    """How many questions fit before stop_at, each costing the account's task_pct."""
-    cost = float(sc.get('_task_pct') or pacing.TASK_PCT)
+    """How many runs fit before stop_at, each costing pct(sc)."""
+    cost = pct(sc)
     return max(0, int((settings(sc)['stop_at'] - float(acc.get('used') or 0)) // cost)) if cost > 0 else 0
 
 
@@ -72,27 +100,44 @@ def kind_of(name, w):
 
 
 def extra_watches(sc, requests, acc, now, until=None):
-    """The watches that may run once more now (or, with `until`, by then): run before, not due by their own period,
-    min_gap_hours since their last run, and no extra run of theirs yet in this stretch."""
+    """The watches that may run again now (or, with `until`, by then): run before, not due by their own period, and
+    `pace_gap_hours` since their last run; in the burst `min_gap_hours`, and no extra run of theirs yet in this stretch."""
     s = settings(sc)
+    hot = burst(sc, acc, until or now)
     since = pacing.parse_time(acc['target']).timestamp() - s['hours'] * 3600
+    gap = (s['min_gap_hours'] if hot else s['pace_gap_hours']) * 3600
     out = []
     for name, w in (sc.get('watches') or {}).items():
         last = scouts.last_fired(requests, sc['name'], name)
-        if last is None or (until or now) - last < s['min_gap_hours'] * 3600 or scouts.due(sc, requests, name, w, acc, now):
+        if last is None or (until or now) - last < gap or scouts.due(sc, requests, name, w, acc, now):
             continue
-        if any(r['scout'] == sc['name'] and r.get('watch') == name and r.get('extra') and (r.get('sent') or r['added']) >= since
-               for r in requests):
+        if hot and any(r['scout'] == sc['name'] and r.get('watch') == name and r.get('extra') and (r.get('sent') or r['added']) >= since
+                       for r in requests):
             continue
         out.append({'kind': kind_of(name, w), 'ref': name, 'project': w.get('project')})
     return out
 
 
 def questions(cfg):
-    """The backlog's research questions for a scout: queued tasks whose title starts with `scout:`."""
+    """The backlog's research questions for a scout: queued tasks whose title starts with `scout:` or `research:`."""
     return [{'kind': 'research', 'ref': t['id'], 'project': config.project_of_repo(cfg, t['repo']),
-             'task': t['title'][len(PREFIX):].strip()}
+             'task': t['title'].split(':', 1)[1].strip()}
             for t in backlog.load(cfg)['tasks'] if backlog.is_question(t) and t['status'] == 'queued']
+
+
+def seconds(cfg, requests, name):
+    """Autopilot tasks that failed twice or more and have no second opinion for their latest failure yet."""
+    asked = {(r.get('second_opinion') or {}).get('key') for r in requests if r['scout'] == name}
+    out = []
+    for t in backlog.load(cfg)['tasks']:
+        fails = [a for a in t.get('attempts') or [] if not a.get('ok')]
+        key = f'{t["id"]}#{len(fails)}'
+        if t['status'] not in ('queued', 'needs-person') or len(fails) < 2 or key in asked:
+            continue
+        why = f'{fails[-1].get("why") or "no failure text recorded"}\n{fails[-1].get("tail") or ""}'.strip()[-1500:]
+        out.append({'kind': 'second', 'ref': t['id'], 'key': key, 'project': config.project_of_repo(cfg, t['repo']),
+                    'task': SECOND.format(repo=t['repo'], title=t['title'][:200], n=len(fails), why=why)})
+    return out
 
 
 def ordered(cfg, items):
@@ -100,45 +145,58 @@ def ordered(cfg, items):
 
 
 def plan(cfg, sc, requests, acc, now):
-    """{on, why, items}: what spend-the-rest would send now, in order (reviews are listed by the round, which asks GitHub)."""
+    """{on, why, items, later, week}: what the round would send now, in order (reviews are listed by the round, which asks
+    GitHub), and the week's budget."""
     on, why = active(sc, acc, now)
+    b = week(sc, acc, now) if acc else grokweek.budget(None, now, 1, 95, 6)
     if not on:
-        return {'on': False, 'why': why, 'items': [], 'later': 0}
-    items = ordered(cfg, extra_watches(sc, requests, acc, now) + questions(cfg))
+        return {'on': False, 'why': why, 'items': [], 'later': 0, 'week': b}
+    items = ordered(cfg, extra_watches(sc, requests, acc, now) + questions(cfg) + seconds(cfg, requests, sc['name']))
     target = pacing.parse_time(acc['target']).timestamp()
-    later = len(extra_watches(sc, requests, acc, now, target)) - sum(1 for i in items if i['kind'] != 'research')
-    return {'on': True, 'why': '', 'items': items, 'later': later}
+    later = len(extra_watches(sc, requests, acc, now, target)) - sum(1 for i in items if i['kind'] not in ('research', 'second'))
+    return {'on': True, 'why': '', 'items': items, 'later': max(0, later), 'week': b}
 
 
 def count(p, reviews=0):
-    """How many extra runs spend-the-rest plans before the reset: free now, free later, and reviews."""
+    """How many runs the plan has now: free now, free later, and reviews."""
     return len(p['items']) + p.get('later', 0) + reviews
 
 
 def line(p, reviews=0):
-    """The scout account's Do line while spend-the-rest is on."""
-    n = count(p, reviews)
+    """The scout account's Do line while the week's plan sends."""
     if not p['on']:
         return ''
-    if not n:
-        return 'Scout: will use the remaining allowance before the reset; no extra watch is free yet (each waits min_gap_hours)'
-    return f'Scout: will use the remaining allowance on {n} watch(es) before the reset'
+    b = p.get('week') or {}
+    if b.get('mode') == 'burst':
+        return f'Scout: burst before the reset: {b.get("left", 0)} run(s) of allowance left, sending all the useful work that fits'
+    n = count(p, reviews)
+    return (f'Scout: {b.get("now", 0)} run(s) can go now on its even weekly line ({n} useful item(s) ready, '
+            f'{b.get("left", 0)} runs left this week)')
 
 
-def room(sc, data, acc, sent):
+def room(sc, data, acc, sent, now=None):
+    """Runs the round may still send: the caps (higher in the burst), the week's line, the points left before stop_at."""
+    now = now or time.time()
+    s = settings(sc)
+    hot = burst(sc, acc, now)
     waiting = sum(1 for r in data['requests'] if r['scout'] == sc['name'] and r['status'] == 'waiting')
-    return max(0, min(int(sc['per_tick']) - sent, int(sc['max_open']) - waiting, points_left(sc, acc)))
+    per_tick = int(s['burst_per_tick'] if hot else sc['per_tick'])
+    max_open = int(s['burst_max_open'] if hot else sc['max_open'])
+    return max(0, min(per_tick - sent, max_open - waiting, week(sc, acc, now)['now'] - sent, points_left(sc, acc)))
 
 
 def round_(cfg, sc, data, acc, url, key, sent, gh_fn=scouts.gh, post_fn=scouts.post, now=None):
-    """Under the scouts lock: sends the extra watches and the backlog's questions that fit; returns (events, how many sent)."""
+    """Under the scouts lock: sends the extra watches, the backlog's questions and second opinions that fit; returns
+    (events, how many sent)."""
     now = now or time.time()
     p = plan(cfg, sc, data['requests'], acc, now)
     events, n = [], 0
-    for item in p['items'][:room(sc, data, acc, sent)]:
-        if item['kind'] == 'research':
+    for item in p['items'][:room(sc, data, acc, sent, now)]:
+        if item['kind'] in ('research', 'second'):
             r = scouts.new_request(data, sc, item['task'], 'ask', skill='research', now=now)
             r['backlog'] = item['ref']
+            if item['kind'] == 'second':
+                r['second_opinion'] = {'key': item['key'], 'task': item['ref']}
         else:
             w = sc['watches'][item['ref']]
             r = scouts.new_request(data, sc, w['task'], 'watch', item['ref'], w.get('repo'), w.get('skill'), now)
@@ -150,7 +208,7 @@ def round_(cfg, sc, data, acc, url, key, sent, gh_fn=scouts.gh, post_fn=scouts.p
         if r['status'] == 'waiting' and item['kind'] == 'research':
             mark_asked(cfg, item['ref'], sc['name'], r)
         n += r['status'] == 'waiting'
-        events.append(f'spend the rest: {r["id"]} {r["status"]}: {r.get("url") or r.get("why")}')
+        events.append(f'scout week: {r["id"]} {item["kind"]} {r["status"]}: {r.get("url") or r.get("why")}')
     return events, n
 
 
@@ -162,32 +220,109 @@ def mark_asked(cfg, task_id, name, r):
         t['notes'] = [*t.get('notes', []), f'asked scout {name} ({r["id"]}): {r.get("url")}']
 
 
+def second_answers(data):
+    """Under the scouts lock: [(request id, task id, note)] of answered second opinions not fed yet (nothing is changed)."""
+    out = []
+    for r in data['requests']:
+        so = r.get('second_opinion')
+        if so and r.get('status') == 'answered' and not so.get('fed'):
+            out.append((r['id'], so['task'], f'second opinion ({r["id"]}, {r.get("url")}): {(r.get("answer") or "")[:1200]}'))
+    return out
+
+
+def feed_seconds(cfg, answers):
+    """After the scouts lock is released (the backlog lock is never taken inside it): each answer joins its task's notes
+    (the next attempt's brief carries them), and only then is it marked fed. Returns event lines."""
+    events, done = [], []
+    for rid, task_id, note in answers:
+        with backlog.locked(cfg) as b:
+            t = next((x for x in b['tasks'] if x['id'] == task_id), None)
+            if t is not None:
+                t['notes'] = [*t.get('notes', []), note]
+        done.append(rid)
+        events.append(f'{rid} second opinion on {task_id}: added to its notes')
+    if done:
+        with scouts.locked(cfg) as data:
+            for r in data['requests']:
+                if r['id'] in done:
+                    r['second_opinion']['fed'] = True
+    return events
+
+
+def waiting_seconds(cfg, now=None):
+    """{task id: why} of tasks whose second opinion is still on its way (held by the autopilot up to second_wait_minutes)."""
+    now = now or time.time()
+    out = {}
+    if not cfg.get('scouts'):
+        return out
+    for r in scouts.load(cfg)['requests']:
+        so = r.get('second_opinion')
+        if not so or r.get('status') != 'waiting':
+            continue
+        sc = (cfg['scouts'].get(r['scout']) or {})
+        wait = settings(sc if isinstance(sc, dict) else {})['second_wait_minutes'] * 60
+        if now - (r.get('sent') or r['added']) < wait:
+            out[so['task']] = f'waits up to {wait / 60:g} min for scout {r["scout"]}\'s second opinion ({r["id"]}) before its retry'
+    return out
+
+
 def open_prs(repo, gh_fn=scouts.gh):
-    """[(number, url)] of the repository's open pull requests, or [] when GitHub cannot be asked."""
-    rc, out, _ = gh_fn(['pr', 'list', '--repo', repo, '--state', 'open', '--json', 'number,url', '--limit', '20'])
+    """[(number, url, head commit)] of the repository's open pull requests, or [] when GitHub cannot be asked."""
+    rc, out, _ = gh_fn(['pr', 'list', '--repo', repo, '--state', 'open', '--json', 'number,url,headRefOid', '--limit', '30'])
     try:
-        return [(int(p['number']), p['url']) for p in json.loads(out or '[]')] if rc == 0 else []
+        return [(int(p['number']), p['url'], p.get('headRefOid') or '') for p in json.loads(out or '[]')] if rc == 0 else []
     except (ValueError, KeyError, TypeError):
         return []
 
 
+def review_repos(cfg, name):
+    """Where the scout reviews every open pull request: spend_rest.review_repos, else the projects' repo and the review
+    trial's repositories."""
+    from . import trial
+    sc = scouts.settings(cfg, name)
+    given = settings(sc)['review_repos']
+    if given is not None:
+        return list(given)
+    repos = [p['repo'] for p in sorted((cfg.get('projects') or {}).values(), key=lambda p: (p or {}).get('priority', 99))
+             if isinstance(p, dict) and p.get('repo')]
+    return list(dict.fromkeys(repos + list((trial.settings(cfg, name) or {}).get('repos') or [])))
+
+
+def reviewed(requests, name, repo, number, head):
+    """The scout already reviewed this head commit (a request from before heads were kept counts for any head: no repeat).
+    Only a new commit asks again; comments, labels and CI runs do not."""
+    return any(r['scout'] == name and r.get('kind') == 'review' and r.get('repo') == repo and r.get('issue') == number
+               and r['status'] in ('waiting', 'answered') and r.get('head', head) == head for r in requests)
+
+
+def keep_head(cfg, rid, head):
+    with scouts.locked(cfg) as data:
+        for r in data['requests']:
+            if r['id'] == rid:
+                r['head'] = head
+
+
 def reviews(cfg, name, acc, left, gh_fn=scouts.gh, post_fn=scouts.post, env=None, now=None):
-    """Outside the scouts lock: the review trial's open pull requests not reviewed yet, at most `left`. Returns events."""
+    """Outside the scouts lock: the open pull requests of review_repos not reviewed since they last changed, at most `left`.
+    Returns events."""
     from . import trial  # trial builds on scouts
     sc = scouts.settings(cfg, name)
-    if left <= 0 or not active(sc, acc, now or time.time())[0] or trial.may_review(cfg, name):
+    if left <= 0 or not active(sc, acc, now or time.time())[0]:
         return []
-    t, events = trial.settings(cfg, name) or {'repos': []}, []
-    done = {p['key'] for p in (trial.load(cfg)['scouts'].get(name) or {}).get('prs', [])}
-    for repo in t['repos']:
-        for number, url in open_prs(repo, gh_fn):
-            if left <= 0 or trial.key_of(repo, number) in done or not trial.eligible(cfg, trial.load(cfg), name, repo):
+    listed = name in (cfg.get('review') or {}).get('reviewers', [])
+    if not listed and trial.may_review(cfg, name):
+        return []
+    events, requests = [], scouts.load(cfg)['requests']
+    for repo in review_repos(cfg, name):
+        for number, url, head in open_prs(repo, gh_fn):
+            if left <= 0 or reviewed(requests, name, repo, number, head):
                 continue
             try:
-                r = trial.ask_review(cfg, name, repo, number, url, gh_fn, post_fn, env, {acc['name']: acc})
+                r = trial.ask_review(cfg, name, repo, number, url, gh_fn, post_fn, env, {acc['name']: acc}, listed=listed)
             except scouts.ScoutError as e:
-                events.append(f'spend the rest: review of {repo}#{number} not sent: {e}')
+                events.append(f'scout week: review of {repo}#{number} not sent: {e}')
                 continue
             left -= 1
-            events.append(f'spend the rest: review {r["id"]} {r["status"]}: {url}')
+            keep_head(cfg, r['id'], head)
+            events.append(f'scout week: review {r["id"]} {r["status"]}: {url}')
     return events

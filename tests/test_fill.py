@@ -74,6 +74,32 @@ class FillTest(Base):
         cfg = self.cfg(fill_room=True)
         self.assertIn('no folder', self.round(cfg, 1.0)['note'])
 
+    def test_built_bundles_and_prose_todos_are_not_tasks(self):
+        files = ['cdn/engine/engine.iife.js', 'web/compare-CNW-vnBa.js', 'src/x.min.js', 'pkg/dist/a.js', 'src/real.ts']
+        self.assertEqual([p for _, p in backlog.untested_items(files)], ['src/real.ts'])
+        lines = ['README.md:85:seed reads `TODO(owner)` and gaps', 'a.py:3:x = 1  # see `TODO(dev)` docs', 'b.py:4:# TODO(dev): fix']
+        self.assertEqual([p for _, p in backlog.todo_items(lines)], ['b.py'])
+
+    def test_an_import_makes_a_file_tested_a_bare_word_does_not(self):
+        text = 'from tutti import owner\nconst c = require("./city-icon")\n# the state of the config\n'
+        files = ['tutti/owner.py', 'src/city-icon.ts', 'tutti/state.py', 'tutti/config.py']
+        self.assertEqual([p for _, p in backlog.untested_items(files, text)], ['tutti/state.py', 'tutti/config.py'])
+        self.assertEqual([p for _, p in backlog.untested_items(['build/release.py'], '', built_dirs=())], ['build/release.py'])
+
+    def test_the_untested_switch_and_its_config_check(self):
+        self.repo()
+        cfg = self.cfg()
+        repo = {**cfg['autopilot']['repos']['app'], 'untested': False}
+        self.assertNotIn('untested', {src for _, _, src in backlog.sources(repo, untested=True)})
+        cfg['autopilot']['repos']['app'].update(untested='no', built='dist')
+        errs = '\n'.join(config.validate(cfg))
+        self.assertIn('autopilot.repos.app.untested', errs)
+        self.assertIn('autopilot.repos.app.built', errs)
+
+    def test_an_apostrophe_is_not_a_quote_but_a_string_is(self):
+        lines = ["a.py:1:# don't forget, TODO(dev): x", "b.py:2:help = 'reads TODO(owner) items'", 'c.py:3:x = "it\'s"  # TODO(dev): y']
+        self.assertEqual([p for _, p in backlog.todo_items(lines)], ['a.py', 'c.py'])
+
     def test_a_short_name_is_not_tested_by_a_longer_test_name(self):
         self.assertEqual([p for _, p in backlog.untested_items(['a.py', 'tests/test_data.py', 'b.ts', 'b.spec.ts'])], ['a.py'])
 

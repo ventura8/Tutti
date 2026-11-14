@@ -222,7 +222,11 @@ delegate:
   checks:
     - {run: 'F={changed:py}; [ -z "$F" ] || python3 -m pytest -q --no-cov $F', where: route, verdict: 'passed|failed|error'}
 
-# `tutti pr review <n>`: who to ask, how long to wait, and the cheap workers that review when no one answers.
+# The owner's own prompting (docs/USAGE-PACING.md): the reserve kept for you on the main agent's accounts on working days
+pacing:
+  schedule: {days: [mon, tue, wed, thu, fri], hours: 8, window: '01-14', rate: 1.0}   # local hours; learned from readings later
+  mode: auto                           # active, away (the rest of today), vacation-until-YYYY-MM-DD; the dashboard sets it too
+
 # `tutti autopilot` (docs/AUTOPILOT.md): backlog tasks to accounts that are behind their pace; retries climb the ladder.
 autopilot:
   enabled: false
@@ -237,6 +241,7 @@ autopilot:
     # land: merge (merged after a clean review), pr (a pull request a person merges; the default) or branch
     app: {path: ~/src/app, check: 'ruff check . && python3 -m pytest -q', where: local, pr: false, land: pr}
 
+# `tutti pr review <n>`: who to ask, how long to wait, and the cheap workers that review when no one answers.
 review:
   reviewers: [copilot, coderabbit]
   timeout_minutes: 15

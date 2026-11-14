@@ -338,6 +338,10 @@ function account(a, now) {
     if (a.reset) card.append(sparkline(a, now));
     card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
     if (a.quota_plan?.why) card.append(el('p', { class: 'account__plan', text: `Planner: ${a.quota_plan.why}` }));
+    if (a.projected_end !== undefined && a.projected_end !== null) {
+        card.append(el('p', { class: 'account__auto', 'data-tone': a.projected_end < 90 ? 'warn' : 'ok',
+            text: `On track to finish at ${a.projected_end} % by its reset (the last day's rate carried on)` }));
+    }
     if (a.room_tasks) card.append(roomLine(a));
     if (a.credits_used !== undefined) card.append(el('p', { class: 'account__auto', text: `${a.credits_used} AI credits in this window from Tutti's runs` }));
     if (a.stale) card.append(el('p', { class: 'account__remind', 'data-tone': 'warn', role: 'note', text: `Reminder: ${a.remind}` }));
@@ -372,6 +376,67 @@ function renderUsage(s, now, force) {
     const shown = u.accounts.filter((a) => !inside.has(a.name));
     $('usage').replaceChildren(...(shown.length ? shown.map((a) => account(a, now))
         : [empty('No accounts yet', codeText('Add an accounts: section to the config (see ', 'tutti.config.example.yaml', ').'))]));
+    if (u.owner) $('owner').replaceChildren(...ownerPanel(u.owner));
+}
+
+// ---- the owner's own prompting: the mode, "I'm away until…", and the learned week (tutti/owner.py)
+
+const MODE_TEXT = { auto: 'auto: working days by the profile', active: 'active: the reserve is kept', away: 'away for the rest of today',
+    vacation: 'on vacation' };
+
+async function saveOwner(body, failText) {
+    try {
+        const res = await fetch('/api/owner', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify(body),
+        });
+        const answer = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(answer.error || `the dashboard answered ${res.status}`);
+        await refresh();
+    } catch (err) {
+        showBanner(el('strong', { text: `${failText} ` }), err.message);
+    }
+}
+
+function heatCell(share, kept, title) {
+    const cell = el('span', { class: 'heat__cell', role: 'cell', 'data-reserve': String(kept), title, 'aria-label': title });
+    cell.style.setProperty('--v', share.toFixed(2));   // CSSOM, not a style attribute: the page's CSP allows only its own styles
+    return cell;
+}
+
+function heatmap(o) {
+    // 7 x 24: each cell's shade is the owner's points per hour; the planner's reserve hours are outlined.
+    const top = Math.max(0.001, ...o.profile.flat());
+    const rows = o.profile.map((row, d) => el('div', { class: 'heat__row', role: 'row' },
+        el('span', { class: 'heat__day', role: 'rowheader', text: o.days[d] }),
+        ...row.map((v, h) => heatCell(v / top, o.reserve[d][h] > 0, `${o.days[d]} ${String(h).padStart(2, '0')}:00 · ${v} points/h${o.reserve[d][h] > 0 ? ' · kept for you' : ''}`))));
+    const hours = el('div', { class: 'heat__row heat__hours', 'aria-hidden': 'true' }, el('span', { class: 'heat__day' }),
+        ...Array.from({ length: 24 }, (_, h) => el('span', { class: 'heat__cell heat__label', text: h % 6 === 0 ? String(h) : '' })));
+    return el('div', { class: 'heat', role: 'table', 'aria-label': 'Your week: points per hour by weekday and hour (local time); outlined hours are kept for you' },
+        ...rows, hours);
+}
+
+function ownerPanel(o) {
+    const until = o.until ? ` until ${new Date(o.until).toLocaleString()}` : '';
+    const t = new Date(Date.now() + 86400000);   // tomorrow, local: the server reads the date as the owner's local midnight
+    const date = el('input', { type: 'date', class: 'field', 'aria-label': 'Away until (date)',
+        value: `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}` });
+    const learned = o.learned ? `learned from ${o.hours_seen} h of readings` : `seeded from pacing.schedule (${o.schedule.window}, ${o.schedule.hours} h)`;
+    return [
+        el('h3', { class: 'card__sub', text: 'You and the main agent' }),
+        el('p', { class: 'row__note', text: `Mode: ${MODE_TEXT[o.effective] || o.effective}${until} (set: ${o.mode}) · ${o.accounts.join(', ') || 'no account'} · ${learned}` }),
+        el('div', { class: 'row__stats' },
+            date,
+            el('button', { class: 'btn btn--tonal', type: 'button', text: 'I\'m away until…',
+                onclick: () => saveOwner({ mode: `vacation-until-${date.value}` }, 'The mode was not saved.') }),
+            el('button', { class: 'btn btn--tonal', type: 'button', text: 'Away today', onclick: () => saveOwner({ mode: 'away' }, 'The mode was not saved.') }),
+            el('button', { class: 'btn btn--tonal', type: 'button', text: 'I\'m back (auto)', onclick: () => saveOwner({ mode: 'auto' }, 'The mode was not saved.') })),
+        heatmap(o),
+        el('div', { class: 'row__stats' }, el('span', { class: 'row__note', text: 'Your working days (the reserve is kept on them):' }), ...o.days.map((d) => el('button', {
+            class: 'btn btn--tonal', type: 'button', 'aria-pressed': String(o.schedule.days.includes(d)), title: `Your working days: ${d}`,
+            text: d, onclick: () => saveOwner({ days: o.schedule.days.includes(d) ? o.schedule.days.filter((x) => x !== d) : [...o.schedule.days, d] },
+                'The working days were not saved.'),
+        }))),
+    ];
 }
 
 // ---- machines

@@ -83,10 +83,13 @@ def timeline(own, lim, hours, per_window):
     return out or [(start, reset, None)]
 
 
-def plan_limited(own, lim, a, lim_cfg, hours):
-    """The plan of one short window under its limit: {expires, allowance, this_window, left, tasks, lose, why}."""
+def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None):
+    """The plan of one short window under its limit: {expires, allowance, this_window, left, tasks, lose, why}. With `owner`
+    (tutti/owner.py) the owner's expected burn until the limit's target is kept out of the budget."""
+    from tutti import owner as owner_mod
     start = parse_time(own['window_start'])
-    budget = 100.0 * lim['share'] - float(lim_cfg.get('reserve', 0))
+    kept = owner_mod.reserve_until(owner, now, parse_time(lim['target'])) if owner and now else 0.0
+    budget = 100.0 * lim['share'] - float(lim_cfg.get('reserve', 0)) - kept
     at, known = used_at(lim, start)
     at_start = min(budget, at)
     per = window_points(own, lim, at_start, a.get('window_points'), known)
@@ -102,7 +105,8 @@ def plan_limited(own, lim, a, lim_cfg, hours):
     return {'limit': lim['name'], 'expires': own['target'], 'resets': own.get('reset'),
             'windows': len(windows), 'runnable': sum(1 for *_, c in windows if c != 0),
             'per_window': round(room / max(1, len(windows)), 1), 'allowance': round(give, 1), 'this_window': round(spent, 1),
-            'left': round(left, 1), 'tasks': tasks, 'lose': round(max(0.0, left_own), 1), 'window_points': per}
+            'left': round(left, 1), 'tasks': tasks, 'lose': round(max(0.0, left_own), 1), 'window_points': per,
+            'owner_reserve': round(kept, 1) if owner else None, 'mode': owner['mode'] if owner else None}
 
 
 def background_rate(readings, busy):
@@ -119,24 +123,52 @@ def background_rate(readings, busy):
     return rise / hours if hours >= 1 else None
 
 
-def plan_single(s, a, now, rate=None):
+def plan_single(s, a, now, rate=None, owner=None):
     """An account without limits: one window, its room (minus the reserve and the background spend expected until its
-    target) until its target."""
-    hours_left = max(0.0, (parse_time(s['target']) - now).total_seconds() / 3600)
+    target) until its target. With `owner` (the main agent's account, tutti/owner.py) the owner's expected burn until the
+    target is kept too, and the rest is spent evenly (owner.spendable) instead of only while behind the even-pace line."""
+    from tutti import owner as owner_mod
+    target = parse_time(s['target'])
+    hours_left = max(0.0, (target - now).total_seconds() / 3600)
     background = (rate or 0.0) * hours_left
-    budget = 100.0 * s['share'] - float(a.get('reserve', 0)) - background
+    kept = owner_mod.reserve_until(owner, now, target) if owner else 0.0
+    budget = 100.0 * s['share'] - float(a.get('reserve', 0)) - background - kept
     left = max(0.0, budget - (s['used'] or 0))
     task = float(a.get('task_pct', TASK_PCT))
-    room = s.get('room_tasks') or 0   # the pace's own room (behind its line); never more than the left points hold
-    tasks = min(room, int(left // task)) if task > 0 else 0
+    if owner:
+        tasks = int(owner_mod.spendable(left, now, target) // task) if task > 0 else 0
+    else:
+        room = s.get('room_tasks') or 0   # the pace's own room (behind its line); never more than the left points hold
+        tasks = min(room, int(left // task)) if task > 0 else 0
     return {'limit': None, 'expires': s['target'], 'resets': s.get('reset'), 'left': round(left, 1), 'lose': round(left, 1), 'tasks': tasks,
             'allowance': round(left, 1), 'this_window': None, 'windows': 1, 'runnable': 1,
-            'background': None if rate is None else round(background, 1)}
+            'background': None if rate is None else round(background, 1), 'owner_reserve': round(kept, 1) if owner else None,
+            'mode': owner['mode'] if owner else None}
 
 
 def _at(t, now):
     hours = max(0.0, (t - now).total_seconds() / 3600)
     return f'{t:%H:%M} UTC (in {hours:.1f} h)' if hours < 24 else f'{t:%a %d %b %H:%M} UTC'
+
+
+def explain_limited(name, p, when):
+    head = (f'{name}: spend by {when}; this window: {p["this_window"]:g} of {p["allowance"]:g} weekly points '
+            f'({p["runnable"]} of {p["windows"]} windows left can run)')
+    if p.get('owner_reserve'):
+        head += f'; {p["owner_reserve"]:g} weekly points kept for the owner ({p["mode"]})'
+    if p['tasks']:
+        return f'{head}; {p["lose"]:g} % would be lost at its end → {p["tasks"]} task(s) now'
+    return f'{head} → nothing more this window'
+
+
+def explain_single(name, p, when):
+    head = f'{name}: {p["left"]:g} points left, spend by {when}'
+    if p.get('background'):
+        head += f', after {p["background"]:g} expected outside Tutti'
+    if p.get('owner_reserve') is not None:
+        head += f', {p["owner_reserve"]:g} kept for the owner ({p["mode"]})'
+        return f'{head} → {p["tasks"]} task(s) now, spread evenly to the target' if p['tasks'] else f'{head} → nothing more now'
+    return f'{head} → {p["tasks"]} task(s) now, behind its pace' if p['tasks'] else f'{head} → no extra tasks (not behind its pace)'
 
 
 def explain(name, p, now):
@@ -145,19 +177,10 @@ def explain(name, p, now):
     when = _at(parse_time(p['expires']), now)
     if p.get('resets'):
         when += f', resets {_at(parse_time(p["resets"]), now)}'
-    if p['limit']:
-        head = (f'{name}: spend by {when}; this window: {p["this_window"]:g} of {p["allowance"]:g} weekly points '
-                f'({p["runnable"]} of {p["windows"]} windows left can run)')
-        if p['tasks']:
-            return f'{head}; {p["lose"]:g} % would be lost at its end → {p["tasks"]} task(s) now'
-        return f'{head} → nothing more this window'
-    head = f'{name}: {p["left"]:g} points left, spend by {when}'
-    if p.get('background'):
-        head += f', after {p["background"]:g} expected outside Tutti'
-    return f'{head} → {p["tasks"]} task(s) now, behind its pace' if p['tasks'] else f'{head} → no extra tasks (not behind its pace)'
+    return explain_limited(name, p, when) if p['limit'] else explain_single(name, p, when)
 
 
-def bind(own, limits, a, accounts, hours, now):
+def bind(own, limits, a, accounts, hours, now, owner=None):
     """The account under its limits: a limit spent or in panic closes it; otherwise the planner sets its room."""
     out = {**own, 'limits': limits, 'bound_by': None, 'quota_plan': None}
     for lim in limits:
@@ -170,7 +193,7 @@ def bind(own, limits, a, accounts, hours, now):
     ok = [lim for lim in limits if lim['state'] == 'ok']
     if own['state'] != 'ok' or not ok:
         return out
-    plans = [plan_limited(own, lim, a, accounts.get(lim['name']) or {}, hours) for lim in ok]
+    plans = [plan_limited(own, lim, a, accounts.get(lim['name']) or {}, hours, owner, now) for lim in ok]
     p = min(plans, key=lambda x: (x['tasks'], x['left']))   # the fewest tasks: points of different limits do not compare
     p['why'] = explain(own['name'], p, now)
     lim_tasks = p['tasks']
@@ -183,10 +206,11 @@ def bind(own, limits, a, accounts, hours, now):
     return out
 
 
-def plan_alone(s, a, now, rate=None):
-    """The plan of an account with no limits, for the expiry order and the dashboard's line; `rate`: its background spend."""
+def plan_alone(s, a, now, rate=None, owner=None):
+    """The plan of an account with no limits, for the expiry order and the dashboard's line; `rate`: its background spend;
+    `owner`: the owner's context when it is the main agent's account."""
     if s['state'] != 'ok':
         return s
-    p = plan_single(s, a, now, rate)
+    p = plan_single(s, a, now, rate, owner)
     p['why'] = explain(s['name'], p, now)
     return {**s, 'quota_plan': p}

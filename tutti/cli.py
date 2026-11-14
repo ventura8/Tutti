@@ -883,6 +883,26 @@ def task_change(task, a):
     print(f'{task["id"]}: {task["status"]}')
 
 
+def cmd_owner(cfg, a):
+    """`tutti owner [status|mode <mode>]`: the owner's mode and the profile the planner keeps a reserve by (docs/USAGE-PACING.md)."""
+    from . import owner
+    folder = config.state_dir(cfg)
+    if a.action == 'mode':
+        code, answer = owner.change(cfg, folder, {'mode': None if a.mode in (None, 'config') else a.mode})
+        if code != 200:
+            say(answer['error'])
+            return 2
+    now = datetime.now(timezone.utc)
+    v = owner.view(cfg, folder, pacing.read_log(state.usage_log_path(cfg)), now)
+    s = v['schedule']
+    learned = f'learned from {v["hours_seen"]} h of readings' if v['learned'] else 'seeded from pacing.schedule'
+    print(f'owner: mode {v["mode"]} (in effect: {v["effective"]}{", until " + v["until"] if v["until"] else ""}); accounts '
+          f'{", ".join(v["accounts"]) or "(none)"}; {learned}')
+    print(f'schedule: {", ".join(s["days"])}, {s["hours"]} h in {s["window"]} (UTC{v["utc_offset"]:+g}); reserve per day: ' +
+          ', '.join(f'{d} {sum(r):g}' for d, r in zip(v['days'], v['reserve'], strict=True)))
+    return 0
+
+
 def cmd_autopilot(cfg, a):
     """`tutti autopilot [status|on|off|tick|fill on|off|land <id>]`."""
     from . import fill
@@ -1139,6 +1159,9 @@ def parser():
     s.add_argument('--source', default='orchestrator')
     s.add_argument('--note', action='append', help='a note for the worker (retry: the reviewer\'s notes)')
     s.add_argument('--all', action='store_true', help='list: also done and dropped tasks')
+    s = add('owner', cmd_owner, 'the owner\'s own prompting: status, or mode auto|active|away|vacation-until-YYYY-MM-DD|config')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'mode'])
+    s.add_argument('mode', nargs='?', help='mode: auto, active, away (the rest of today), vacation-until-YYYY-MM-DD, or config')
     s = add('autopilot', cmd_autopilot, 'send backlog tasks to accounts that are behind their pace, by itself: status, on, off, '
                                         'tick (one round now; the dashboard ticks while it runs), fill on|off (fill free room from '
                                         'the repos\' sources), land <id> (review a result and land it)')

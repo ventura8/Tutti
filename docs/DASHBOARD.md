@@ -220,6 +220,13 @@ Besides `tutti quiet` runs, ship checks, waits and delegated runs, the Jobs card
 - **remote containers**: the test containers holding each machine's slots (`machines.<m>.containers: [prefix-]`, read
   by the probe with `docker ps`).
 
+## You and the main agent
+
+Under the account cards: the owner's mode (set, and in effect with its end), **I'm away until…** with a date, **Away
+today**, **I'm back (auto)**, the working-day switches, and a 7 x 24 heatmap of the learned week (points per hour by weekday
+and local hour; the hours the planner keeps for the owner are outlined). Each account card adds **On track to finish at X %
+by its reset**. See docs/USAGE-PACING.md, *The owner's own prompting*.
+
 ## Reminders and nudges
 
 A card whose account is read by hand shows **Reminder: ... tutti usage log <account> <percent>** once its reading is

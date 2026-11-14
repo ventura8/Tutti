@@ -27,3 +27,5 @@ of your project or secrets: describe the setup in general words.
 - 2026-11-14 (map project): most running jobs on the dashboard showed "—" for progress (agents, scripts whose output goes through a pipe, containers); the owner could not tell how far anything was. Fixed in 0.1.12: layered progress with its source, and job facts.
 
 - 2026-11-14 (owner): the dashboard still said "Use it: 46 bounded task(s) can go here now (tutti run auto …)" while the autopilot was on; agy took none of the queued tasks and three results waited for a manual review. Fixed in 0.1.23: `fill_room` fills the room by itself, retries fall back to agy when the steps above have no room, `auto_review` lands results, and the card says what the autopilot does with the room.
+
+- 2026-11-14 (owner): pacing ignored how the owner works (about 8 h of prompting on weekdays, agents alone on weekends, days away, holidays), so either the main agent risked its limit or quota expired. Fixed in 0.1.25: the weekday x hour owner profile, the reserve on working days only, the mode with I'm away until…, and a 7 x 24 heatmap.

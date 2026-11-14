@@ -212,8 +212,9 @@ def add_candidates(cfg, items, source, now):
                 break
             if any(t.get('sig') == it['sig'] and t['status'] not in ('done', 'dropped') for t in data['tasks']):
                 continue
-            notes = [f'Self-improvement ({it["why"]}). First add a regression test that reproduces it and fails; then fix it.',
-                     'The local events are in <state>/telemetry/events.jsonl; `tutti telemetry report` summarises them.']
+            notes = it.get('notes') or [f'Self-improvement ({it["why"]}). First add a regression test that reproduces it and fails; '
+                                        'then fix it.', 'The local events are in <state>/telemetry/events.jsonl; `tutti telemetry '
+                                        'report` summarises them.']
             t = backlog.new_task(pol['autopilot_repo'], it['title'], source=source, notes=notes)
             t.update(project=pol['name'], sig=it['sig'], pr_mode='ready', added=now,
                      status='queued' if auto_accept(cfg) else 'candidate')

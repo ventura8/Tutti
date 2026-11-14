@@ -78,6 +78,9 @@ TOOLS = [
          {'scout': _s('the scout name (see `tutti scout list`)'), 'question': _s('the question or research task'),
           'skill': _s('optional hint', enum=['research', 'web-browse', 'triage', 'monitoring', 'drafting', 'browser-repro'])},
          required=('scout', 'question'), mutating=True),
+    tool('welcome_summary', 'Welcome back: what happened while the user was away, newest first by project priority: what '
+         'shipped, what runs now, what failed or was parked and why, usage by each reset, and a numbered list of what only '
+         'the user can do with the exact step. Show it to the user when they return or ask what they missed.'),
     tool('away_mode', 'Set the owner\'s mode for pacing: active, away (the rest of today), auto, or vacation until a date. While '
          'away, Tutti fills the owner\'s room with backlog work. With no mode it only shows the status (still needs admin).',
          {'mode': _s('active, away, auto or vacation-until-YYYY-MM-DD; empty for the status')}, mutating=True),
@@ -115,6 +118,7 @@ def argv_of(name, a):
     size = a.get('size')
     table = {
         'usage': lambda: ['usage'],
+        'welcome_summary': lambda: ['welcome', 'miss'],
         'machines': lambda: ['machines'],
         'devices': lambda: ['devices'],
         'backlog_list': lambda: ['backlog', 'list'] + (['--all'] if a.get('all') else []),

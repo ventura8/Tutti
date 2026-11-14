@@ -75,6 +75,12 @@ DEFAULTS = {
     # home: the project Tutti's own fixes go to (docs/TELEMETRY.md, *Self-improvement*); auto_accept: a Sentry or scout triage
     # task joins the queue by itself, no `tutti backlog accept` (still the 3-a-day cap and the dedupe)
     'self_improve': {'enabled': True, 'auto_accept': True, 'every_hours': 6, 'max_new_per_day': 3, 'min_count': 3, 'home': ''},
+    # ai_assist: Tutti uses AI, local and online, to make itself better (tutti/aiassist.py, docs/TELEMETRY.md, *AI assist*);
+    # off until an admin opts in; local, online and online_code (code to online models) are separate switches
+    # welcome: the welcome-back summary for every user (tutti/welcome.py); away_hours: None is pacing.away_after_hours
+    'welcome': {'enabled': True, 'away_hours': None, 'ai': True},
+    'ai_assist': {'enabled': False, 'local': True, 'online': False, 'online_code': False, 'auto_tune': True, 'every_hours': 6,
+                  'max_proposals': 5, 'local_worker': '', 'scout': '', 'research_every': '7d'},
     # autocompact: a worker agent's context is compacted at threshold_pct of its window (tutti/autocompact.py); the
     # dashboard can change the percentage; context_tokens is the window when workers.<w>.context_tokens does not say
     'autocompact': {'enabled': True, 'threshold_pct': 60, 'context_tokens': 200000},
@@ -394,7 +400,9 @@ def validate(cfg):
     # they import modules that import this one
     from . import autocompact, chat, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
     errs += dispatch.errors(cfg) + tiers.errors(cfg) + tz.errors(cfg) + presence.errors(cfg)
-    errs += selfimprove.errors(cfg) + sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
+    from . import aiassist, welcome
+    errs += welcome.errors(cfg) + aiassist.errors(cfg) + selfimprove.errors(cfg)
+    errs += sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
         owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update']) + energy.errors(cfg) + \
         chat.errors(cfg)

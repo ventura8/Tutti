@@ -113,18 +113,56 @@ function renderSending(st) {
         + `Recorded on this computer always; ${st.queued} queued.${problem}`;
 }
 
+function aiSwitch(name, on) {
+    return el('button', { class: 'btn', type: 'button', id: `aiassist-${name}`, 'aria-pressed': String(on),
+        onclick: () => void telemetrySwitch('/api/ai-assist', { switch: name, on: !on }, 'AI assist was not switched.') },
+    `${name.replace('_', ' ')}: ${on ? 'on' : 'off'}`);
+}
+
+function renderAiAssist(a) {
+    if (!a) return;
+    const on = a.switches.enabled;
+    const toggle = $('aiassist-toggle');
+    toggle.textContent = on ? 'Turn off' : 'Turn on';
+    toggle.setAttribute('aria-pressed', String(on));
+    $('aiassist-meta').textContent = on
+        ? `${a.proposals} proposal(s) · ${a.done} done · ${a.tuned.filter((t) => !t.undone).length} parameter(s) tuned`
+        : 'off: an admin opts in';
+    if (!on) {
+        $('aiassist').replaceChildren(empty('AI assist is off', 'Turned on, your local models read Tutti\'s telemetry and failures and propose fixes, retries are smarter, small parameter changes tune themselves, and the scout researches new models and prices with spare quota only.'));
+        return;
+    }
+    const tuned = a.tuned.map((t) => el('li', { class: 'row' },
+        el('div', { class: 'row__name' }, `${t.path}: ${t.old} → ${t.new}`, el('span', { class: 'row__kind', text: t.why })),
+        t.undone ? chip('undone', 'idle') : el('button', { class: 'btn', type: 'button', 'data-control': 'aiassist-undo',
+            onclick: () => void telemetrySwitch('/api/ai-assist', { undo: t.id }, 'The change was not undone.') }, 'Undo')));
+    $('aiassist').replaceChildren(
+        el('p', { class: 'row__note' }, ...['local', 'online', 'online_code', 'auto_tune'].map((k) => aiSwitch(k, a.switches[k]))),
+        insightRows('Measured gains', a.gains, (g) => g),
+        insightRows('Latest proposals', a.recent, (p) => `${p.title} (${p.by})`),
+        el('section', { class: 'autopilot__group' }, el('h3', { class: 'card__sub', text: 'Parameters tuned' }),
+            tuned.length ? el('ul', { class: 'list' }, ...tuned) : el('p', { class: 'row__note', text: 'Nothing yet.' })),
+        insightRows('Waiting for you (larger changes)', a.tune_proposals, (t) => `${t.path}: ${t.old} → ${t.value}: ${t.why}`),
+        a.skipped ? el('p', { class: 'row__note', text: a.skipped }) : null);
+}
+
 function renderTelemetry(s) {
     if (!s.telemetry) return;
     renderConsent(s);   // report.js: the first-run question, until it is answered
     renderSending(s.telemetry.status);
     renderInsights(s.telemetry);
     renderLane(s.telemetry.self_improve);
+    renderAiAssist(s.telemetry.ai_assist);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     $('telemetry-toggle').addEventListener('click', () => {
         const on = $('telemetry-toggle').getAttribute('aria-pressed') !== 'true';
         void telemetrySwitch('/api/telemetry', { consent: on }, 'Sending was not switched.');
+    });
+    $('aiassist-toggle').addEventListener('click', () => {
+        const on = $('aiassist-toggle').getAttribute('aria-pressed') !== 'true';
+        void telemetrySwitch('/api/ai-assist', { switch: 'enabled', on }, 'AI assist was not switched.');
     });
     $('selfimprove-toggle').addEventListener('click', () => {
         const on = $('selfimprove-toggle').getAttribute('aria-pressed') !== 'true';

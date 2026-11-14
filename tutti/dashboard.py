@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 
 from . import (
     __version__,
+    aiassist,
     authweb,
     autocompact,
     autopilot,
@@ -60,6 +61,7 @@ from . import (
     trial,
     update,
     vpncmd,
+    welcome,
     workers,
     workq,
 )
@@ -212,6 +214,8 @@ class Collector:
                 self.dispatch_tick()
                 self.scouts_tick()
                 dashtelemetry.tick(self.cfg)
+                aiassist.tick_in_background(self.cfg)   # off unless an admin opted in
+                welcome.tick(self.cfg)   # the owner back: their welcome-back summary
                 from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)
                 hhjobs.tick(self.cfg)
             except Exception as e:  # a probe bug must not end the loop; the page shows the last good data and its age
@@ -339,7 +343,7 @@ API_PAIR, API_MOVE = '/api/devices/pair', '/api/devices/move'
 API_QUEUE = '/api/queue'   # the Queued list's actions: an admin's (Run now, Move to, Cancel, Priority up or down)
 API_TUTTI_MOVE = '/api/move'   # Tutti itself to another machine (docs/MOVE.md); API_MOVE moves a device
 # these change the config or the queue: an admin's
-ADMIN_PATHS = (API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE)
+ADMIN_PATHS = (API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE, '/api/ai-assist')
 API_REPORT = '/api/report'   # Report a problem (docs/REPORT.md): every signed-in user, viewers included
 API_WORK_MOVE = '/api/work/move'   # work waiting on an away or asleep target moved now (docs/PRESENCE.md)
 ADMIN_PATHS += (API_WORK_MOVE,)   # takes work off a member's computer: an admin's (a viewer gets 403 from the auth hook)
@@ -575,7 +579,7 @@ def save_dispatch(collector, raw):
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
          '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, API_SETUP,
          API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn',
-         API_WORK_MOVE, API_QUEUE, API_REPORT)
+         API_WORK_MOVE, API_QUEUE, API_REPORT, '/api/ai-assist')
 BODY_LIMITS[chatrun.API] = chatrun.BODY_LIMIT
 
 
@@ -746,7 +750,8 @@ def save_work_move(collector, body):
 def _self_posts():
     from . import mainmachine, manage
     return {mainmachine.API: lambda c, h, b: mainmachine.post(c, h, b), manage.API: lambda c, h, b: manage.act_post(c, h, b),
-            chatrun.API: chatrun.handle}   # the Chat: every user's own conversations, each action with its own role check
+            chatrun.API: chatrun.handle,
+            welcome.API: lambda c, h, b: welcome.post(c, h, b)}   # the Chat: every user's own conversations, each action with its own role check
 
 
 SELF_POSTS = _self_posts()
@@ -773,6 +778,7 @@ HANDLERS = {
     '/api/reading': lambda c, b: save_reading(c.cfg, b),
     '/api/telemetry': dashtelemetry.save,
     '/api/self-improve': dashtelemetry.save_self_improve,
+    '/api/ai-assist': lambda c, b: aiassist.save(c, b),
     '/api/update': start_update,
     API_REPORT: report.api,
 }
@@ -904,6 +910,9 @@ def get(collector, path, token, headers):
     if path == '/api/state':
         code, body, extra = state_response(collector, headers)
         return code, body, JSON_TYPE, 'no-cache', extra
+    if path == welcome.API:   # the viewer's own summary: per user, never in the shared /api/state
+        code, answer = welcome.get(collector, headers)
+        return code, safe_json(answer), JSON_TYPE, 'no-store', None
     refused = authorize(collector, headers) if path in ADMIN_PATHS else None
     if refused:
         return refused[0], json.dumps({'error': refused[1]}).encode(), JSON_TYPE, 'no-store', None

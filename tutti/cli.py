@@ -1224,6 +1224,56 @@ def cmd_presence(cfg, a):
     return 0
 
 
+def cmd_welcome(cfg, a):
+    """`tutti welcome [show|miss|on|off]` (docs/WELCOME.md): the owner's welcome-back summary, What did I miss?, the switch."""
+    from . import mcpserver, welcome
+    role = mcpserver.role_of(cfg)   # a viewer's agent (TUTTI_ROLE, mcp.role) sees only household items
+    key = welcome.OWNER if role == 'admin' else f'{role}-agent'
+    data = welcome.read(cfg)
+    u = welcome.user_of(data, key)
+    if a.action in ('on', 'off'):
+        u['enabled'] = a.action == 'on'
+        welcome.write(cfg, data)
+        print(f'welcome-back summaries: {a.action}')
+        return 0
+    if a.action == 'miss' or not u.get('summaries'):
+        import time as _time
+        s = welcome.miss(cfg, role, key, welcome.accounts_now(cfg, _time.time()) if role == 'admin' else [])
+        welcome.remember(data, key, s)
+    else:
+        s = u['summaries'][-1]
+    u['unread'] = False
+    welcome.write(cfg, data)
+    print(s['text'])
+    return 0
+
+
+def cmd_aiassist(cfg, a):
+    """`tutti ai-assist [status|tick|undo <id>]` (docs/TELEMETRY.md, *AI assist*): turned on by an admin in the config or on
+    the dashboard."""
+    from . import aiassist
+    if a.action == 'tick':
+        for e in aiassist.tick(cfg):
+            say(e)
+    elif a.action == 'undo':
+        ok, why = aiassist.undo(cfg, a.id or '')
+        if not ok:
+            raise SystemExit(why)
+    v = aiassist.view(cfg)
+    on = [k for k, x in v['switches'].items() if x]
+    print(f'AI assist: {"on (" + ", ".join(on) + ")" if v["switches"]["enabled"] else "off (ai_assist.enabled: true opts in)"}; '
+          f'{v["proposals"]} proposal(s), {v["done"]} done')
+    for p in v['recent']:
+        print(f'  proposal by {p["by"]}: {p["title"][:90]}')
+    for t in v['tuned']:
+        print(f'  {t["id"]} {t["path"]}: {t["old"]} -> {t["new"]}{" (undone)" if t.get("undone") else ""}: {t["why"]}')
+    for t in v['tune_proposals']:
+        print(f'  proposed {t["path"]}: {t["old"]} -> {t["value"]}: {t["why"]}')
+    for g in v['gains']:
+        print(f'  gain: {g}')
+    return 0
+
+
 def cmd_selfimprove(cfg, a):
     """`tutti selfimprove [status|on|off|tick]` (docs/TELEMETRY.md, *Self-improvement*)."""
     if a.action in ('on', 'off'):
@@ -1541,6 +1591,13 @@ def parser():
     s = add('selfimprove', cmd_selfimprove, 'crashes and insights become autopilot tasks, pull requests, and where a project '
                                             'allows it merges and patch releases: status, on, off, tick (one round now)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])
+    s = add('welcome', cmd_welcome, 'welcome back: what happened while you were away (shipped, running, failed, usage, what '
+                                     'needs you): show (the latest), miss (What did I miss? since the last one), on, off')
+    s.add_argument('action', nargs='?', default='show', choices=['show', 'miss', 'on', 'off'])
+    s = add('ai-assist', cmd_aiassist, 'Tutti uses AI, local and online, to make itself better (an admin opts in): status, tick '
+                                       '(one round now), undo <id> (a tuned parameter back)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'tick', 'undo'])
+    s.add_argument('id', nargs='?', help='undo: the tuned change\'s id (u1, u2, ...)')
     s = add('user', householdcmd.cmd_user, 'who this Tutti works for: show, name <name> (config: back to the config\'s), '
                                            'main-agent <kind> (claude, codex, agy, cursor, copilot, gemini, local), '
                                            'main-machine <m> (your Tutti and main agent move there, like `tutti move`), '

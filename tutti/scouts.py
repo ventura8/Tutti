@@ -76,7 +76,8 @@ def settings(cfg, name):
     # Sentry triage watches, one per project with a sentry: entry (triage builds on this module)
     from . import triage
     out = {**DEFAULTS, **sc, 'name': name, **extra}
-    out['watches'] = {**triage.watches(cfg, out), **(out.get('watches') or {})}
+    from . import aiassist  # AI assist's research and design watches (spare quota only)
+    out['watches'] = {**triage.watches(cfg, out), **aiassist.watches(cfg, out), **(out.get('watches') or {})}
     return out
 
 
@@ -426,6 +427,8 @@ def due(sc, requests, name, w, acc, now):
     failed = last_fired(requests, sc['name'], name, failed=True)
     if failed is not None and now - failed < RETRY_SECONDS:
         return False
+    if w.get('spare_only') and not behind(acc):   # AI assist's research: only quota the planner says is spare
+        return False
     last, gap = last_fired(requests, sc['name'], name), every_seconds(w['every'])
     return last is None or now - last >= gap or bool(w.get('early') and behind(acc) and now - last >= gap / 2)
 
@@ -493,8 +496,11 @@ def tick(cfg, accounts, env=None, gh_fn=gh, post_fn=post, now=None):
             events += extra
             events += triage.feed_answered(cfg, data, selfimprove.auto_accept(cfg))
             answers = spendrest.second_answers(data)
+            from . import aiassist
+            ai_answers = aiassist.answered(data)   # fed below, outside the scouts' lock
             left = spendrest.room(sc, data, acc, sent + n, now) if acc else 0
         events += spendrest.feed_seconds(cfg, answers)   # the backlog's lock: never inside the scouts' lock
+        events += aiassist.feed(cfg, ai_answers, now)
         events += spendrest.reviews(cfg, name, acc, left, gh_fn, post_fn, env, now) if acc else []   # GitHub: outside the lock
     return events
 

@@ -2,6 +2,29 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.70 (2026-11-15)
+
+### Added
+
+- Welcome back, on for every user (docs/WELCOME.md): when a user returns (the owner's first prompt or the end of their
+  away time, their laptop or main machine present again, or a first dashboard visit after a gap), one summary of the time
+  since they left: what shipped, what runs, what failed or was parked and why, usage by each reset, and a numbered list of
+  what only they can do, each with its exact step and a link. A local model writes the opening words (the template when
+  AI is off). A viewer sees their own and the household's items, an admin everything. The dashboard's *Welcome back*
+  panel and *What did I miss?*, `tutti welcome [show|miss|on|off]` and the MCP tool `welcome_summary`; each user may turn
+  theirs off.
+- AI assist: Tutti uses AI, local and online, to make itself better; off until an admin opts in (`ai_assist.enabled`,
+  Settings or the dashboard), with separate switches for local AI, online AI and code to online AI (docs/TELEMETRY.md,
+  *AI assist*). A local model reads Tutti's own telemetry and writes ranked proposals that become self-improvement tasks
+  with their evidence and a regression-test-first brief; failed attempts are classified flaky, environment or real
+  (flaky and environment retry on the same step instead of escalating) and summarised for the retry; queued tasks get
+  acceptance criteria and a size. Each has a fallback with no AI.
+- Auto-tuning: small changes to Tutti's own parameters apply by themselves within bounds (two a day), logged with undo;
+  larger ones wait for the admin. The dashboard's *Tutti is improving itself* card shows proposals, tasks done, tuned
+  parameters with Undo and the measured gains. `tutti ai-assist [status|tick|undo <id>]`.
+- Online research and design review through the scout (`tutti-ai-*` watches), sent only with spare quota (`spare_only`:
+  the account behind its pace), never the owner's reserve; what goes online is scrubbed and is never code.
+
 ## 0.2.0 (2026-11-15)
 
 ### Added

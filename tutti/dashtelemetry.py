@@ -99,7 +99,9 @@ def view(cfg):
     st = telemetry.status(folder, cfg)
     st.pop('folder', None)
     st['events'] = os.path.basename(st['events'])
-    return {'status': st, 'insights': cached_insights(folder), 'self_improve': selfimprove.lane(cfg)}
+    from . import aiassist
+    summary = cached_insights(folder)
+    return {'status': st, 'insights': summary, 'self_improve': selfimprove.lane(cfg), 'ai_assist': aiassist.view(cfg, summary)}
 
 
 def tick(cfg):

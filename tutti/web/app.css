@@ -663,3 +663,27 @@ body:not([data-view="household"]) .household-only { display: none; }
 .presence__label[data-state='away'], .presence__label[data-state='asleep'] { color: var(--warn, inherit); }
 .presence__strip { display: inline-flex; gap: 1px; }
 .presence__hour { width: 5px; height: 10px; border-radius: 1px; background: var(--ok, currentColor); }
+/* Sign-in, invite and waiting pages (login.html), and the Users card (users.js) */
+body.login { min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--surface); }
+.login__card { max-width: 32rem; width: 100%; display: grid; gap: 12px; justify-items: start; }
+.login__error { color: var(--bad); margin: 0; }
+.login__join { display: grid; gap: 8px; border-top: 1px solid var(--outline-2); padding-top: 12px; width: 100%; }
+.login__join h2 { font-size: 1rem; margin: 0; }
+.login__cmd, .invite__link { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.login__cmd code, .invite__link code { font-family: var(--mono); font-size: 0.85em; overflow-wrap: anywhere; background: var(--surface-2);
+    padding: 6px 8px; border-radius: var(--r-s); flex: 1 1 16rem; }
+.invite { display: grid; gap: 8px; margin-top: 8px; }
+.me { font-size: 0.85rem; color: var(--on-surface-2); }
+/* A viewer sees the dashboard, never a control that changes something (the server refuses those anyway, 403). One rule
+   for every page part, static or drawn later: every control is hidden for a viewer unless it is viewer-safe (it only
+   shows, filters or navigates). A new control is therefore hidden by default; mark a read-only one with .view-ok. */
+body[data-role='viewer'] :is(button, input, select, textarea, form, .btn, a.link, [data-admin], #settings-view, #users-view,
+    .tabs__tab[data-view='settings']):not(.view-ok, .view-ok *, .more, .seg, .seg *, #job-filter *, #job-project, #refresh,
+    #install, #signout) { display: none; }
+.card[hidden], .banner[hidden], .btn[hidden], .me[hidden], .invite[hidden], .login__join[hidden], .login__error[hidden] { display: none; }
+.login__code { font-family: var(--mono); font-size: 1.6rem; letter-spacing: 0.15em; background: var(--surface-2); padding: 8px 12px; border-radius: var(--r-s); }
+.viewer-label { font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--warn-c); color: var(--on-surface); }
+body[data-view="household"] #my-schedule { display: none; }   /* My schedule lives in the Me view */
+#my-days label { display: inline-flex; gap: 4px; align-items: center; margin-right: 8px; }
+.users-view { max-width: 1100px; margin: 0 auto; display: grid; gap: var(--gap); }
+#users-tab[hidden] { display: none; }

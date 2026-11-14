@@ -2,6 +2,50 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.57 (2026-11-14)
+
+### Added
+
+- Sign-in with Google from the home network or any VPN (the router's, OpenVPN, IPsec; no Tailscale or WireGuard
+  needed): on a plain LAN address over http the page uses Google's device flow (a code at google.com/device; the second
+  OAuth client, "TVs and Limited Input devices", its secret mode 600 and read from stdin). The flow is bound to the
+  browser that started it; the server asks Google once per interval. Clients from any private subnet are accepted, a
+  public source address is dropped. `tutti auth setup --client-id <web> --device-client-id <tv> --device-secret-stdin`
+  takes everything with no prompt.
+- Sign-in with Google for the dashboard (docs/AUTH.md). `tutti auth setup` prints the Google Cloud console page and the
+  exact fields (consent screen: External, Testing, test users; OAuth client: Web application, the JavaScript origins),
+  then saves the client ID (`--client-id <id>`, public; no client secret). The server checks the ID token's RS256
+  signature against Google's JWKS (cached), `iss`, `aud`, `exp`, `iat`, a nonce bound to this browser and the verified
+  e-mail, with no new dependency.
+- Viewers see only the dashboard: one CSS rule hides every control for a viewer unless it is marked viewer-safe (new
+  controls are hidden by default), and the header says "Viewer: read-only". Every user, viewers included, edits their own
+  **My schedule** (working days, hours, away or vacation mode; `POST /api/me/schedule`, 403 for someone else's unless
+  admin; `<state>/schedules.json`, read by the household's per-user pacing through `myschedule.read`).
+- `auth.may_act_for(actor, target)` and `auth.act_for(...)`: an admin may do any member's action for them (the household's
+  Manage panel calls it), a member only their own; each one is audited as "by actor for target".
+- Role changes from the Users tab (Make admin, Make viewer, also one's own while another admin exists), each one
+  click and a confirm, enforced on the server, and an audit log (`<state>/auth-audit.jsonl`, mode 600) shown under
+  **Changes**: who changed which role, and when.
+- Roles: the first user to sign in becomes admin (atomic under a file lock); later users wait for approval as pending,
+  then viewer; an admin can Make admin, Make viewer or Remove; the last admin can be neither. Viewers see the dashboard
+  read-only; every POST is admin-only on the server unless listed, and Settings, the reading helper and the Users list
+  are admin-only GETs.
+- Invites: **Invite someone** creates a single-use, 7-day, revocable link with a QR code and a role (viewer by default);
+  signing in through it approves at once. Only the token's hash is stored. The same invite lets the person's Tutti join
+  the household (`tutti household join <invite-url>`, wired by the household's increment 4; `tutti/invites.py` is the
+  shared interface). A bad invite fails only a new or pending user's sign-in; an invite stays revocable while its
+  household use is open; `reset-admin` revokes every invite.
+- Sessions: HttpOnly, SameSite=Strict cookie with a random id, stored server-side as a hash with an expiry
+  (`auth.session_hours`, 72) and a CSRF token checked on every POST; Sign out. Signed-in answers are `no-store` and the
+  service worker never keeps them.
+- `dashboard.bind` and `dashboard.origins` (https, or http only on a loopback name): reaching the dashboard from other
+  computers requires sign-in, and only through the LAN or a VPN. A public bind, `0.0.0.0`, or an origin that resolves to
+  a public address is refused at start (`tutti/netpolicy.py`, shared with the household); the OAuth origins and the invite
+  links use only localhost and LAN or VPN names. `tutti auth setup` detects Tailscale; `--tailscale` serves the dashboard
+  on this computer's tailnet-only https name (`tailscale serve`, never funnel) and adds that origin.
+  `auth.required_origins(cfg)` is the interface `tutti move` shows after a move. Recovery from a
+  shell: `tutti auth users|promote <email>|reset-admin --yes`.
+
 ## 0.1.56 (2026-11-14)
 
 ### Added

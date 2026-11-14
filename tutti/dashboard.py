@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 
 from . import (
     __version__,
+    authweb,
     autocompact,
     autopilot,
     bridge,
@@ -266,9 +267,40 @@ class Collector:
         return self.cfg
 
 
-def allowed_host(host, port):
-    """Only the loopback names with our port: a page on another site that rebinds its DNS to 127.0.0.1 is refused."""
-    return host in (f'127.0.0.1:{port}', f'localhost:{port}', f'[::1]:{port}')
+LOOPBACK = ('127.0.0.1', 'localhost', '::1')
+
+
+def allowed_host(host, port, origins=()):
+    """Only the loopback names with our port, and the hosts of dashboard.origins (sign-in required for those): a page on
+    another site that rebinds its DNS to 127.0.0.1 is refused."""
+    return host in (f'127.0.0.1:{port}', f'localhost:{port}', f'[::1]:{port}') or host in {urlsplit(o).netloc for o in origins}
+
+
+def bind_of(cfg):
+    return (cfg.get('dashboard') or {}).get('bind') or BIND
+
+
+def private_client(addr):
+    """A request from loopback or any private range (RFC 1918 from any subnet, as a router's VPN hands out, 100.64.0.0/10,
+    fc00::/7): never one from the internet, whatever proxy or port forward someone set up."""
+    from . import netpolicy
+    return netpolicy.private(addr)
+
+
+def reach_origins(collector):
+    """The non-loopback origins this running server answers: none unless it started with sign-in on (an origin saved later,
+    e.g. by `tutti auth setup --tailscale`, never opens a server that runs without sign-in)."""
+    if not getattr(collector, 'signed', False):
+        return ()
+    bind = bind_of(collector.cfg)
+    host = f'[{bind}]' if ':' in bind else bind
+    lan = [] if bind in LOOPBACK else [f'{authweb.LOCAL_SCHEME}://{host}:{getattr(collector, "port", collector.cfg["dashboard"]["port"])}']
+    return [*authweb.origins(collector.cfg), *lan]   # a LAN or VPN bind (netpolicy-checked at start) on plain http
+
+
+def exposed(cfg):
+    """True when others may reach the dashboard (a non-loopback bind, or dashboard.origins): sign-in is then required."""
+    return bind_of(cfg) not in LOOPBACK or bool(authweb.origins(cfg))
 
 
 def static_path(url_path):
@@ -297,16 +329,19 @@ def authorize(collector, headers, need='admin'):
     return check(headers, need) if callable(check) else None
 
 
-def same_origin(origin, host):
-    """The dashboard is served over plain HTTP on loopback only (allowed_host), so its Origin is that scheme and host."""
+def same_origin(origin, host, origins=()):
+    """The page's own origin: plain HTTP on the request's host, or one of dashboard.origins (an HTTPS name) for that host."""
     parts = urlsplit(origin or '')
+    if (origin or '').rstrip('/') in origins and parts.netloc == host:
+        return True
     return parts.scheme == 'http' and parts.netloc == host and parts.path == '' and not parts.query
 
 
-def check_post(headers, host, token):
+def check_post(headers, host, token, origins=()):
     """None when a POST may write, else (status, why). Same origin only: the Origin header must be this dashboard's, a
-    browser's Sec-Fetch-Site must say same-origin, the body is JSON and the page's token is sent back."""
-    if not same_origin(headers.get('Origin'), host):
+    browser's Sec-Fetch-Site must say same-origin, the body is JSON and the page's token is sent back (with sign-in on, the
+    session's CSRF token)."""
+    if not same_origin(headers.get('Origin'), host, origins):
         return 403, 'only the dashboard page itself may save a reading (the Origin header is not this dashboard)'
     if headers.get('Sec-Fetch-Site', 'same-origin') != 'same-origin':
         return 403, 'only the dashboard page itself may save a reading (the request is cross-site)'
@@ -538,7 +573,8 @@ def save_connect(collector, body, home=None):
 def post(collector, headers, path, port, token, read):
     """(status, answer) for a POST. `read(n)` reads n bytes of the body, only once the request passed every check."""
     host = headers.get('Host', '')
-    if not allowed_host(host, port):
+    origins = reach_origins(collector)
+    if not allowed_host(host, port, origins):
         return 403, {'error': 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)'}
     path = path.split('?', 1)[0]
     if path not in POSTS:
@@ -549,7 +585,7 @@ def post(collector, headers, path, port, token, read):
                           '{"path": ...} to /api/settings, {} to /api/restart, '
                           '{"consent"|"error"|"use": ...} to /api/telemetry, {} to /api/update, {"action": "run"} to /api/setup, '
                           '{"action": ...} to /api/devices/pair or {"to": ...} to /api/devices/move'}
-    refused = check_post(headers, host, token) or (authorize(collector, headers) if path in ADMIN_PATHS else None)
+    refused = check_post(headers, host, token, origins) or (authorize(collector, headers) if path in ADMIN_PATHS else None)
     if refused:
         return refused[0], {'error': refused[1]}
     try:
@@ -818,10 +854,42 @@ def get(collector, path, token, headers):
 
 def response_headers(code, body, ctype, cache, extra=None):
     """[(name, value)] of every answer. A 304 states no Content-Length: it would have to be the full answer's."""
-    out = [*(extra or {}).items(), ('Content-Type', ctype)]
+    extra = extra or {}
+    out = [(k, x) for k, v in extra.items() for x in (v if isinstance(v, list) else [v])] + [('Content-Type', ctype)]
     out += [] if code == 304 else [('Content-Length', str(len(body)))]
-    return out + [('Cache-Control', cache), ('X-Content-Type-Options', 'nosniff'), ('Referrer-Policy', 'no-referrer'),
-                  ('Content-Security-Policy', CSP)]
+    # the sign-in page sets its own CSP (Google's script and frame) and referrer policy
+    return out + [('Cache-Control', cache), ('X-Content-Type-Options', 'nosniff')] + \
+        [(k, v) for k, v in (('Referrer-Policy', 'no-referrer'), ('Content-Security-Policy', CSP)) if k not in extra]
+
+
+def signed_post(rt, collector, headers, path, port, read):
+    """(status, answer, extra headers) of a POST with sign-in on: the gate (authweb.post), then the dashboard's own POST with
+    the session's CSRF token in place of the per-start token."""
+    host = headers.get('Host', '')
+    if not allowed_host(host, port, reach_origins(collector)):
+        return 403, {'error': 'open the dashboard at one of its addresses (other host names are refused)'}, None
+    path = path.split('?', 1)[0]
+    if path not in POSTS and path not in authweb.AUTH_POSTS:
+        return 404, {'error': 'this path is not part of the dashboard'}, None
+    return authweb.post(rt, headers, path, host, read, lambda csrf, rd: post(collector, headers, path, port, csrf, rd))
+
+
+def any_post(rt, collector, headers, path, port, token, read):
+    """(status, answer, extra headers): the per-start token without sign-in, the session's gate with it."""
+    if rt is None:
+        return (*post(collector, headers, path, port, token, read), None)
+    return signed_post(rt, collector, headers, path, port, read)
+
+
+class Server(ThreadingHTTPServer):
+    """Drops a connection from a public address before reading it: the dashboard serves this computer, the LAN and a VPN."""
+
+    def verify_request(self, request, client_address):
+        return private_client(client_address[0])
+
+
+class AuthRequired(Exception):
+    """The dashboard would be reachable by others without sign-in."""
 
 
 def make_handler(collector, token):
@@ -847,14 +915,16 @@ def make_handler(collector, token):
             self.do_GET()
 
         def do_GET(self):
-            if not allowed_host(self.headers.get('Host', ''), self.server.server_address[1]):
+            if not allowed_host(self.headers.get('Host', ''), self.server.server_address[1], reach_origins(collector)):
                 return self.fail(403, 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)')
-            self.send(*reported('dashboard-get', get, collector, self.path.split('?', 1)[0], token, self.headers))
+            path = self.path.split('?', 1)[0]
+            self.send(*reported('dashboard-get', authweb.get, getattr(self.server, 'auth', None), path, self.headers,
+                                lambda tok: get(collector, path, tok, self.headers), token))
 
         def do_POST(self):
-            code, answer = reported('dashboard-post', post, collector, self.headers, self.path, self.server.server_address[1], token,
-                                    self.rfile.read)
-            self.send(code, json.dumps(answer).encode(), JSON_TYPE)
+            code, answer, extra = reported('dashboard-post', any_post, getattr(self.server, 'auth', None), collector, self.headers,
+                                           self.path, self.server.server_address[1], token, self.rfile.read)
+            self.send(code, json.dumps(answer).encode(), JSON_TYPE, extra=extra)
 
     return Handler
 
@@ -862,9 +932,20 @@ def make_handler(collector, token):
 def server(cfg, port, collector=None):
     """The HTTP server on 127.0.0.1:<port> (0 picks a free port). Not started: call serve_forever()."""
     collector = collector or Collector(cfg)
+    from . import auth
+    if exposed(cfg):
+        problems = auth.network_errors(cfg)
+        if problems:
+            raise AuthRequired('; '.join(problems))
+    if exposed(cfg) and not auth.enabled(cfg):
+        raise AuthRequired('dashboard.bind or dashboard.origins lets others reach the dashboard, and sign-in is off: run '
+                           '`tutti auth setup` first, or remove dashboard.bind and dashboard.origins to keep it on this computer')
     token = secrets.token_urlsafe(24)   # a new one per start: the page loaded from this server sends it back with a POST
-    httpd = ThreadingHTTPServer((BIND, port), make_handler(collector, token))
+    httpd = Server((bind_of(cfg), port), make_handler(collector, token))
     httpd.token = token
+    httpd.auth = authweb.Runtime(cfg, httpd.server_address[1]) if auth.enabled(cfg) else None
+    collector.signed = httpd.auth is not None
+    collector.who = lambda headers: authweb.who(httpd.auth, headers)   # the household's handlers ask who is asking
     httpd.daemon_threads = True
     httpd.collector = collector
     collector.port = httpd.server_address[1]   # the reading helper's bookmarklets open this exact address

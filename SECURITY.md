@@ -20,6 +20,16 @@ A household's coordinator listens on the LAN (`household.port`, 4778). Every req
 which is derived on both sides from the join code and never sent; requests are not encrypted and carry nothing private.
 The threat model and what crosses the network are in [docs/HOUSEHOLD.md](docs/HOUSEHOLD.md#auth-and-the-threat-model).
 
+## The dashboard
+
+Without sign-in the dashboard serves 127.0.0.1 only. With sign-in with Google ([docs/AUTH.md](docs/AUTH.md)) the server
+checks the ID token's signature against Google's keys and its `iss`, `aud`, `exp` and nonce; sessions are HttpOnly,
+SameSite=Strict cookies with a server-side record and a CSRF token on every POST; roles (pending, viewer, admin) are
+enforced on the server for every route. Users, sessions and invites are kept mode 600 in the state folder; the session
+file and the invite file hold only hashes. The dashboard refuses to listen beyond loopback, or behind `dashboard.origins`,
+without sign-in, and it is never on the internet: a bind must be a LAN or VPN address (RFC 1918, 100.64.0.0/10,
+fc00::/7), never a public one or 0.0.0.0, and every origin must resolve only to such addresses. Recovery needs shell access on the host (`tutti auth promote`, `tutti auth reset-admin`).
+
 ## Reporting a vulnerability
 
 Please do not open a public issue for a security problem. Once the repository is public, use GitHub's private

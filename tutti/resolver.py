@@ -11,7 +11,7 @@ ALLOW_DAYS = 7
 
 def attempts(cfg, plan, tasks, rooms, events=()):
     """[{fix, done, note}] of the automatic fixes for a stopped plan, in the order tried."""
-    from . import autopilot, fleet
+    from . import autopilot
     queued = [t for t in tasks if t['status'] == 'queued']
     no_files = [t['id'] for t in queued if not autopilot.has_files(t)]
     guessed = [e for e in events if 'so a local model can take it' in e]

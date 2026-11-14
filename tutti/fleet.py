@@ -117,7 +117,8 @@ def fits(worker, task):
 
 def units_of(worker):
     """The room a free local worker offers: the units of its strongest model's tier (2 lets an M task in)."""
-    tiers = [m['tier'] for m in worker.get('models') or [] if m] or [(classify({'name': worker.get('model') or ''}) or {}).get('tier', 'small')]
+    own = (classify({'name': worker.get('model') or ''}) or {}).get('tier', 'small')
+    tiers = [m['tier'] for m in worker.get('models') or [] if m] or [own]
     return max(TIERS[t]['units'] for t in tiers)
 
 
@@ -427,7 +428,8 @@ def view(cfg, now=None):
         w = cfg['workers'][n]
         rows.append({'name': n, 'machine': machine_of(cfg, n), 'auto': bool(w.get('auto')), 'model': w.get('model'),
                      'host': w.get('host'), 'num_ctx': w.get('num_ctx'), 'hardware': w.get('hardware') or {},
-                     'models': [{k: m.get(k) for k in ('name', 'tier', 'kinds', 'params_b', 'tokens_s')} for m in w.get('models') or [] if m]})
+                     'models': [{k: m.get(k) for k in ('name', 'tier', 'kinds', 'params_b', 'tokens_s')}
+                                for m in w.get('models') or [] if m]})
     return {'workers': rows, 'machines': data.get('machines') or {}}
 
 
@@ -438,7 +440,8 @@ def describe(v):
     for r in v['workers']:
         hw = r['hardware']
         where = ', '.join(x for x in (hw.get('gpu'), hw.get('npu') and f'NPU {hw["npu"]}', hw.get('cpu')) if x) or 'hardware not read'
-        lines.append(f'{r["name"]:14} {r["machine"]:8} {"auto" if r["auto"] else "config"}  {r["host"]}  ctx {r["num_ctx"] or "-"}  {where}')
+        origin = 'auto' if r['auto'] else 'config'
+        lines.append(f'{r["name"]:14} {r["machine"]:8} {origin}  {r["host"]}  ctx {r["num_ctx"] or "-"}  {where}')
         for m in r['models']:
             speed = f'{m["tokens_s"]} tok/s' if m.get('tokens_s') else 'speed not measured yet'
             lines.append(f'    {m["name"]:28} {m["tier"]:6} {m["params_b"]:g}B  {speed}  {", ".join(m["kinds"])}')

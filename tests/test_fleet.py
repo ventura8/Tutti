@@ -191,7 +191,7 @@ class Governor(Base):
         hot = [{'name': 'nuc', 'status': 'loaded', 'free': 2, 'reason': 'too hot: CPU 99 C'}]
         p = autopilot.plan(cfg, [t], blocked_states(), hot, True)
         self.assertEqual(p['dispatch'], [])
-        self.assertIn('too hot', p['reason'])
+        self.assertIn('too hot', autopilot.step_room(cfg, 'pc', blocked_states(), {}, hot)[1])
 
     def test_the_step_loop_uses_the_model_for_the_kind(self):
         cfg = self.cfg()

@@ -15,6 +15,9 @@ E2E_POLICY = {'min_battery': 30, 'require_charging': False, 'max_battery_c': 42,
 # A Termux machine lends its CPU: only while charging, well charged, cool, on Wi-Fi and while nobody uses it.
 TERMUX_POLICY = {'min_battery': 50, 'require_charging': True, 'max_battery_c': 40, 'wifi_only': True, 'screen': 'off'}
 SCREENS = ('wake', 'off', 'any')
+# A TV (a Cast receiver: devices.<d>.kind: tv) runs on mains power and has no battery or call state to read.
+TV_POLICY = {'min_battery': 0, 'require_charging': False, 'max_battery_c': 0, 'wifi_only': False, 'screen': 'any'}
+KINDS = ('phone', 'tablet', 'tv')
 
 # Termux's own readings, through the Termux:API app (`pkg install termux-api`): the same keys as device-readings.sh, each
 # line starting `R `. termux-* commands hang when the Termux:API app is missing, so each has a timeout; /sys is the fallback.
@@ -34,7 +37,8 @@ TERMUX_READINGS = (
 
 def policy(entry, termux=False):
     """The device's policy: the defaults for its use, overridden by its own `policy:`."""
-    out = {**(TERMUX_POLICY if termux else E2E_POLICY), **((entry or {}).get('policy') or {})}
+    base = TERMUX_POLICY if termux else TV_POLICY if (entry or {}).get('kind') == 'tv' else E2E_POLICY
+    out = {**base, **((entry or {}).get('policy') or {})}
     if out.get('screen') is False:   # YAML reads an unquoted `off` as false
         out['screen'] = 'off'
     return out
@@ -66,6 +70,18 @@ def errors(cfg):
         if d.get('machine') not in cfg['machines']:
             errs.append(f'{where}.machine is {d.get("machine")!r}: name the machine its adb sees it on, one of machines:')
         errs += policy_errors(where, d.get('policy'))
+        from . import prep
+        errs += prep.errors(where, d.get('prep'))
+        if d.get('kind', 'phone') not in KINDS:
+            errs.append(f'{where}.kind is {d["kind"]!r}: use phone, tablet or tv (a Cast receiver: only suites with targets: [tv] use it)')
+        if 'calls' in d and not isinstance(d['calls'], bool):
+            errs.append(f'{where}.calls is {d["calls"]!r}: use true or false (false: no phone-call check, e.g. a tablet with no SIM)')
+        if 'external_lock' in d and not (isinstance(d['external_lock'], str) and d['external_lock'].strip()):
+            errs.append(f'{where}.external_lock is {d["external_lock"]!r}: the path of the lock file other tools keep for it '
+                        '({serial} is its serial)')
+        v = d.get('external_lock_stale_minutes')
+        if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0):
+            errs.append(f'{where}.external_lock_stale_minutes is {v!r}: minutes after which another tool\'s lock counts as left behind')
     return errs
 
 
@@ -200,7 +216,39 @@ def status(pol, r, serial=''):
         return 'waiting', why
     if r.get('locked') == 1:
         return 'busy', 'a run holds it; the next run waits for it'
+    if r.get('external') == 1:
+        return 'busy', f'held by {r.get("external_by") or "another tool"} (its lock file, devices.<d>.external_lock); free once that ends'
     return 'ready', note(pol, r) or 'ready: takes the next run'
+
+
+EXTERNAL_STALE_MINUTES = 30
+
+
+def external_lock(device):
+    """The device's lock file shared with other tools (`external_lock`, {serial} filled in), or ''."""
+    path = device.get('external_lock') or ''
+    return path.replace('{serial}', str(device['serial'])) if path else ''
+
+
+def external_wrap(found, command, who='tutti'):
+    """`command` as a device session: it waits while another tool's lock file (devices.<d>.external_lock) exists and is
+    fresher than external_lock_stale_minutes (30), writes each with "<who> <time>", runs each device's prep (tutti/prep.py:
+    the current values saved first), prints the ready marker (the clock of a suite's `started` check), and when the command
+    ends, however it ends, restores the saved values and removes the lock files."""
+    from . import prep
+    locks = [(external_lock(d), int(float(d.get('external_lock_stale_minutes', EXTERNAL_STALE_MINUTES)) * 60)) for d in found]
+    locks = [(p, stale) for p, stale in locks if p]
+    setup, restore = prep.scripts(found)
+    if not locks and not setup:
+        return command
+    waits = ''.join(
+        f'while [ -e {shlex.quote(p)} ] && [ $(( $(date +%s) - $(stat -c %Y {shlex.quote(p)}) )) -lt {stale} ]; do '
+        f'echo "tutti: waiting for {p}: $(head -c 200 {shlex.quote(p)})"; sleep 30; done && ' for p, stale in locks)
+    files = ' '.join(shlex.quote(p) for p, _ in locks)
+    take = f'for f in {files}; do printf "%s %s\\n" {shlex.quote(who)} "$(date -Iseconds)" > "$f"; done && ' if locks else ''
+    release = '; '.join(x for x in (restore, f'rm -f {files}' if locks else '') if x)
+    return (f'{waits}{take}trap {shlex.quote(release)} EXIT && {setup + "; " if setup else ""}echo \'tutti: device ready\' && '
+            f'{{ {command}; }}; exit $?')
 
 
 def readings_command(device, scripts_dir, wake=False):
@@ -209,14 +257,21 @@ def readings_command(device, scripts_dir, wake=False):
     env = f'DEVICE_SERIAL={shlex.quote(str(device["serial"]))} DEVICE_LOCK={remote.home_path(device["lock"])}'
     if device.get('adb'):
         env += f' ADB={shlex.quote(device["adb"])}'
+    if device.get('prep'):
+        from . import prep
+        env += f' PREP_SAVED={prep.saved_path(device)}'
+    if external_lock(device):
+        stale = int(float(device.get('external_lock_stale_minutes', EXTERNAL_STALE_MINUTES)) * 60)
+        env += f' EXT_LOCK={shlex.quote(external_lock(device))} EXT_STALE={stale}'
     return f'{env} WAKE={1 if wake else 0} bash {scripts_dir}/{READINGS_SCRIPT}'
 
 
 def device_state(d, readings):
     pol = policy(d)
     st, reason = status(pol, readings, d['serial'])
-    keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi', 'call')
-    return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'status': st, 'reason': reason,
+    keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi', 'call', 'external_by', 'prep_left')
+    return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'kind': d.get('kind', 'phone'), 'status': st,
+            'reason': reason,
             'policy': pol, **{k: readings.get(k) for k in keep}}
 
 

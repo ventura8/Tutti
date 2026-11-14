@@ -19,7 +19,7 @@ projects:
     tests:
       e2e:
         kind: e2e                                # e2e, unit, lint or other
-        targets: [android]                       # android (a device under devices:) and/or machine
+        targets: [android]                       # android (a phone or tablet under devices:), tv and/or machine
         run: './run-e2e.sh --serial "$ANDROID_SERIAL" --spec {shard}'   # {shard} is the shard's name
         shards: [player.spec, search.spec]       # or shards_from: {run: 'ls e2e/specs', where: builder}
         dir: ~/src/my-app                        # the tree `tutti test` copies over (default: an empty folder)
@@ -78,6 +78,76 @@ The row's button fixes the cause: **Resume** a paused target, **Allow lint and u
 on**, **Turn the autopilot on**, or **Check again now** (a round with fresh probes). A worker with quota room shows the same
 row while backlog tasks are queued; the autopilot dispatches to it, so its plan's reason is the one shown.
 
+## Suites in depth
+
+A shard may be a name, or a mapping with its own options:
+
+```yaml
+shards:
+  - SearchUITest
+  - {name: TabletCastUITest, devices: [phone], extra: '-CastTablet <tablet serial>', holds: [tablet]}
+```
+
+- `devices` lists the only devices the shard may run on.
+- `extra` fills the command's `{extra}`.
+- `holds` names other devices the run uses too. The shard starts only when they are free. They count as busy while it
+  runs, and their external lock files are held as well (`tutti test --hold-device`).
+
+A suite can also say how to build and how to read its output:
+
+- `prepare: {run, where}`: the build, run once per commit before any shard of the suite (`tutti dispatch build`). Its shards
+  wait until it passes. A failed build holds them with its reason and is tried again after 30 minutes or on a new commit.
+- `verdict: {pass, fail}` (regexes): for a runner that always exits 0. The run fails when `fail` matches, or when `pass`
+  never appears.
+- `started: {pattern, within_seconds}`: the tests must start in time. The clock starts at the device lock's
+  `tutti: device ready` line. A run that never starts is stopped and queued again, not counted as a failure, and the device
+  is left alone for `dispatch.requeue_cooldown_minutes` (10).
+- `requeue_on: [regex]`: output that means "not the test's fault", such as another app in front. The shard is queued
+  again, with the same cooldown.
+
+A project can name a report file: `projects.<p>.report: {path, where}`. Each time a shard or a build ends, its results on
+the latest commit are written there as Markdown: the counts, the builds, and each failed shard with why and the end of its
+log. Put it where the project's own sessions read it.
+
+## Devices shared with other tools
+
+`devices.<d>.external_lock` names the lock file other tools keep for the device, with `{serial}` filled in, for example
+`/mnt/c/.../adb-{serial}.lock`.
+
+- **Waiting**: a run waits while that file exists and is fresher than `external_lock_stale_minutes` (30).
+- **Holding**: it then writes the file with "tutti <time>" and removes it when the run ends, however the run ends.
+- **Readings**: the readings show the device as busy, held by the file's first line, so it is neither idle nor dispatched to.
+
+`devices.<d>.kind` is `phone` (the default), `tablet` or `tv`:
+
+- A TV is a Cast receiver. It has no battery and no call state, so its policy reads neither. Only suites with
+  `targets: [tv]` use it, though a shard may hold it with `holds:`.
+- `calls: false` skips the phone-call check on any device.
+
+A wireless-debugging serial (`<name>._adb-tls-connect._tcp`) whose port changed is found again each round. The readings
+look it up in `adb mdns services` and `adb connect` to today's ip:port, so no port is written in the config.
+
+## Prep and restore
+
+`devices.<d>.prep` lists the settings a run needs (`tutti/prep.py`):
+
+```yaml
+prep:
+  - {setting: 'secure screensaver_enabled', value: 0}        # Android's settings get|put|delete
+  - {name: music volume, read: 'cmd media_session volume --stream 3 --get', parse: 'volume is (\d+)',
+     set: 'cmd media_session volume --stream 3 --set {value}', value: 2, cap: true}   # cap: only lowers it
+```
+
+1. Once the device's lock is taken, every item's current value is read and saved to `~/.tutti/prep/<device>.saved` on the
+   device's machine. This happens before anything changes. Then the new values are set.
+2. When the run ends, however it ends, exactly the saved values are put back and the file is removed. A setting that was
+   unset (`null`) is deleted again.
+3. A file left behind (the machine rebooted, the device went away) shows in the readings as `prep_left`. The next dispatch
+   round restores it once the device answers and nothing holds it.
+
+A read that gives nothing, such as a binary the device lacks (`media` on a Google TV Streamer), skips that item cleanly.
+Nothing is set that could not be put back.
+
 ## Phone calls
 
 An Android device that rings or is in a call takes no new work (`tutti/calls.py`). The call state comes from
@@ -101,7 +171,7 @@ screen is always lit while it charges.
 
 ```yaml
 dispatch: {enabled: true, idle_minutes: 5, lease_minutes: 10, retries: 2, quiet_hours: [],
-           call_poll_seconds: 3, resume_after_call_seconds: 30, pause_on_owner_use: false}
+           call_poll_seconds: 3, resume_after_call_seconds: 30, pause_on_owner_use: false, requeue_cooldown_minutes: 10}
 ```
 
 The dashboard's switch is kept in `<state>/controls.json` (`settings.dispatch_enabled`) and overrides `enabled`.

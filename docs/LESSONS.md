@@ -308,3 +308,14 @@ works on, is what reads it. Validation treated a reader it did not know as a fat
 running; change the config in the same step that restarts on the new version. Tutti is lenient too (0.1.41): an account key
 it does not know or a reader format it cannot read is a warning (`tutti: warning: ...`), and that reader is skipped; the
 rest of the config and the dashboard still start.
+
+## The same live-config outage twice (2026-11-14)
+
+**What happened.** Hours after the reader outage, an agent wrote a per-shard mapping (`{name, devices, holds, extra}`) into
+the owner's live config while the version that reads it was still a pull request. The installed Tutti refused the config
+again, and every `tutti` command failed.
+
+**Rule.** The same as above, now for shards: change the live config only after the release that reads it is merged,
+fast-forwarded and restarted. Since 0.1.42, a shard entry this version cannot read is a warning and only that shard is
+skipped.
+

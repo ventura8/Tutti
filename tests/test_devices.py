@@ -8,7 +8,6 @@ import subprocess
 import sys
 import tempfile
 import textwrap
-import time
 import unittest
 
 from tutti import config, devices, remote, routing
@@ -302,12 +301,18 @@ class DeviceRunTest(unittest.TestCase):
         f = open(self.lock, 'w')
         fcntl.flock(f, fcntl.LOCK_EX)
         p = self.tutti('test', '--device', 'pixel', '--', 'touch', 'ran')
-        time.sleep(1.5)
+        # deterministic, no sleeps: read the run's output until slot.sh says it queues behind the held lock (a fixed sleep
+        # raced a slow readings round under load, 2026-11-14), then free the lock
+        seen = []
+        for line in p.stdout:
+            seen.append(line)
+            if 'waiting for a free slot' in line:
+                break
+        self.assertTrue(seen and 'waiting for a free slot' in seen[-1], ''.join(seen))
         self.assertFalse(os.path.exists(os.path.join(self.tree, 'ran')))
         f.close()
         out, err = p.communicate(timeout=60)
         self.assertEqual(p.returncode, 0, err)
-        self.assertIn('waiting for a free slot', out)   # slot.sh's line, in the job's output
         self.assertTrue(os.path.exists(os.path.join(self.tree, 'ran')))
 
     def test_a_flat_battery_refuses_with_the_reason(self):

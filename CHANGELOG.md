@@ -9,6 +9,10 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 - The dashboard updates itself: a restart on a new release is noticed through `/api/state`'s version; the page updates
   its service worker (`registration.update()`, `skipWaiting`, `clients.claim`) and reloads once, never in a loop.
 
+### Fixed
+
+- The autopilot never sends a retry to a local model whose machine is paused (its yield flag is up) or offline.
+
 ### Changed
 
 - Docs: an agy account whose `--settings` allow only some commands soft-denies the rest headless, so autopilot tasks that

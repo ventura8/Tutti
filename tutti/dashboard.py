@@ -2,6 +2,7 @@
 Standard library only: a threaded HTTP server bound to 127.0.0.1, static files from tutti/web, and /api/state as JSON.
 Machines and workers are probed in a background thread (ssh and model servers can be slow); the rest is read per request."""
 import hmac
+import html
 import json
 import math
 import mimetypes
@@ -230,10 +231,17 @@ def post(collector, headers, path, port, token, read):
     return save_reading(collector.cfg, body)
 
 
+def safe_json(data):
+    """JSON with &, < and > written as \\u escapes (the parsed values are unchanged), so no record read from a file (a goal,
+    a job's title) can ever form markup; html.escape then finds nothing left to change and only states that."""
+    text = json.dumps(data).replace('&', '\\u0026').replace('<', '\\u003c').replace('>', '\\u003e')
+    return html.escape(text, quote=False).encode()
+
+
 def route(collector, path, token=''):
     """(status, body, content type, cache control) for a GET of `path`."""
     if path == '/api/state':
-        return 200, json.dumps(collector.snapshot()).encode(), JSON_TYPE, 'no-store'
+        return 200, safe_json(collector.snapshot()), JSON_TYPE, 'no-store'
     if path == '/api/health':
         return 200, b'{"ok": true}', JSON_TYPE, 'no-store'
     if path in ('/helper', '/helper.html'):

@@ -77,9 +77,19 @@ def origin_url(config_text):
     return first
 
 
+HEAD_REF = 'ref: refs/heads/'
+
+
+def branch_name(head):
+    """The branch a HEAD file's line names, `detached <sha>` for a bare commit, None for nothing."""
+    head = head.strip()
+    if head.startswith(HEAD_REF):
+        return head[len(HEAD_REF):]
+    return f'detached {head[:8]}' if head else None
+
+
 def branch_of(gdir):
-    head = read(os.path.join(gdir, 'HEAD')).strip()
-    return head[len('ref: refs/heads/'):] if head.startswith('ref: refs/heads/') else (f'detached {head[:8]}' if head else None)
+    return branch_name(read(os.path.join(gdir, 'HEAD')))
 
 
 def name_from(url, top):
@@ -257,8 +267,7 @@ def parse_windows(text):
         if f[0] == 'X' and len(f) == 4:
             out['procs'].append((f[1], f[2], f[3]))
         elif f[0] == 'B' and len(f) == 3:
-            head = f[2].strip()
-            out['branches'][f[1]] = head[len('ref: refs/heads/'):] if head.startswith('ref: refs/heads/') else (head[:8] or None)
+            out['branches'][f[1]] = branch_name(f[2])
         elif line.startswith('G '):
             out['gpu'] = parse_gpu(line.rstrip('\r'))
     return out
@@ -397,17 +406,24 @@ def projects_state(cfg, jobs, machines, activity, conduct_run=None, now_iso=None
         if not act.get('error'):
             add_machine(cfg, projects, mname, act, now_iso, cache)
     lend_machines(cfg, projects, machines, activity or {})
-    if conduct_run and conduct_run.get('status') == 'running':
-        found = identify(conduct_run.get('cwd'))
-        if found:
-            p = projects.setdefault(rename(cfg, found), blank(rename(cfg, found)))
-            p['conductor'] = conduct_run['agents'][-1]['agent'] if conduct_run.get('agents') else None
-    items = []
-    for p in projects.values():
-        items.append({**p, 'repos': list(p['repos'].values()),
-                      'machines': [{'name': n, **m} for n, m in p['machines'].items()]})
+    add_conductor(cfg, projects, conduct_run)
+    items = [{**p, 'repos': list(p['repos'].values()), 'machines': [{'name': n, **m} for n, m in p['machines'].items()]}
+             for p in projects.values()]
     items.sort(key=lambda p: (-p['running'] - sum(m['processes'] for m in p['machines']), p['name'].lower()))
-    errors = {n: a['error'] for n, a in (activity or {}).items() if a.get('error')}
-    errors.update({f'{n} (Windows)': a['windows']['error'] for n, a in (activity or {}).items()
+    return {'items': items, 'errors': look_errors(activity or {})}
+
+
+def add_conductor(cfg, projects, conduct_run):
+    """The project a running `tutti conduct` works in shows its main agent."""
+    found = identify(conduct_run.get('cwd')) if conduct_run and conduct_run.get('status') == 'running' else None
+    if found:
+        name = rename(cfg, found)
+        p = projects.setdefault(name, blank(name))
+        p['conductor'] = conduct_run['agents'][-1]['agent'] if conduct_run.get('agents') else None
+
+
+def look_errors(activity):
+    errors = {n: a['error'] for n, a in activity.items() if a.get('error')}
+    errors.update({f'{n} (Windows)': a['windows']['error'] for n, a in activity.items()
                    if isinstance(a.get('windows'), dict) and a['windows'].get('error')})
-    return {'items': items, 'errors': errors}
+    return errors

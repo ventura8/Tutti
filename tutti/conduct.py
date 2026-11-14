@@ -50,8 +50,8 @@ SAFETY = (
 ASK_FIRST = ['git push', 'git tag', 'merging a pull request', 'deploys', 'payments', 'accepting terms or consent',
              'changing cloud or account settings', 'deleting data']
 RULE_FILES = ('AGENTS.md', 'CLAUDE.md')
-DONE = re.compile(r'^\s*(DONE|BLOCKED):\s*(.*)$')
-RUN = re.compile(r'^\s*RUN:\s*(.+)$')
+DONE = re.compile(r'^\s*(DONE|BLOCKED):(.*)')   # group 2 is stripped where it is used
+RUN = re.compile(r'^\s*RUN:(.+)')
 OUTPUT_MAX = 3000
 STOP_GRACE = 10
 
@@ -333,7 +333,7 @@ def shim(folder, cfg_path):
     path = os.path.join(d, 'tutti')
     with open(path, 'w', encoding='utf8') as f:
         f.write(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(remote.BIN)} --config {shlex.quote(cfg_path)} "$@"\n')
-    os.chmod(path, 0o755)
+    os.chmod(path, 0o700)   # only this user runs it
     return d
 
 
@@ -415,7 +415,7 @@ def local_command(line, protected_ok=False):
     if not m:
         return None, 'not a RUN: line'
     try:
-        args = shlex.split(m.group(1))
+        args = shlex.split(m.group(1).strip())
     except ValueError as e:
         return None, f'the command does not parse ({e}): quote it like a shell line'
     if args[:1] == ['tutti']:
@@ -445,8 +445,8 @@ LOCAL_PROTOCOL = ('You cannot run a shell yourself. To run one of Tutti\'s comma
                   '`DONE: <what was achieved>` or `BLOCKED: <what a human must do>`. Keep answers short.')
 
 
-def stopped(watch, poll):
-    """Waits up to `poll` seconds; True (and the reason kept) when the watch says the agent must stop."""
+def stopped(watch):
+    """True (and the reason kept) when the watch says the agent must stop."""
     hit = watch.check()
     if hit:
         watch.reason = hit
@@ -461,7 +461,7 @@ def run_tutti(cfg, args, run, agent, watch=None):
         reader = ThreadPoolExecutor(max_workers=1).submit(p.stdout.read)
         end = time.monotonic() + settings(cfg)['command_timeout']
         while p.poll() is None:
-            if time.monotonic() > end or (watch and stopped(watch, 0)):
+            if time.monotonic() > end or (watch and stopped(watch)):
                 stop_process(p)
                 break
             time.sleep(min(1.0, watch.every if watch else 1.0))
@@ -482,6 +482,17 @@ def local_step(cfg, agent, reply, run, watch=None):
     return 'Answer with one RUN: line or one DONE:/BLOCKED: line.', None
 
 
+def wait_reply(pool, reply_fn, worker, messages, watch):
+    """The model's answer, or None when the watch stops the agent first (the answer still on its way is dropped)."""
+    pending = pool.submit(reply_fn, worker, messages)
+    while not pending.done():
+        if stopped(watch):
+            return None
+        time.sleep(min(1.0, watch.every))
+    reply = pending.result()
+    return None if stopped(watch) else reply
+
+
 def run_local(cfg, agent, text, run, watch, out=None, reply_fn=local_reply):
     """The conductor's loop for a local model: it answers, Tutti runs the command it names and returns the output."""
     out = out or sys.stdout
@@ -490,15 +501,8 @@ def run_local(cfg, agent, text, run, watch, out=None, reply_fn=local_reply):
     local.busy_marker(cfg)   # low-priority local jobs wait while the conductor's model works
     pool = ThreadPoolExecutor(max_workers=1)
     for _ in range(settings(cfg)['rounds']):
-        if stopped(watch, 0):
-            return 1, kept
-        pending = pool.submit(reply_fn, cfg['workers'][agent], messages)
-        while not pending.done():
-            if stopped(watch, 0):
-                return 1, kept   # the answer still on its way is dropped: the departing model takes no further step
-            time.sleep(min(1.0, watch.every))
-        reply = pending.result()
-        if stopped(watch, 0):
+        reply = None if stopped(watch) else wait_reply(pool, reply_fn, cfg['workers'][agent], messages, watch)
+        if reply is None:
             return 1, kept
         out.write(reply.rstrip() + '\n')
         out.flush()
@@ -552,7 +556,7 @@ def read_text(path):
         return ''
 
 
-def hand_over(cfg, run, frm, to, why, tail):
+def hand_over(run, frm, to, why, tail):
     note = handoff_note(run['goal'], frm, to, why, read_text(run['progress']), tree_changes(run['cwd']), tail[-20:])
     path = os.path.join(run['dir'], f'handoff-{len(run["agents"])}.md')
     with open(path, 'w', encoding='utf8') as f:
@@ -605,6 +609,32 @@ def turn_order(cfg, names, reason):
     return names, None
 
 
+def take_turn(cfg, run, agent, handoff, commands, now, say, out_fn, out, run_fn):
+    """One agent's turn: its instruction file, the run, the record. (rc, last lines, stop reason or None)."""
+    text, path = instruction_file(cfg, run, agent, commands, now)
+    run['agents'].append({'agent': agent, 'started': datetime.now(timezone.utc).isoformat(), 'instructions': path})
+    record(cfg, run)
+    say(f'conduct {run["id"]}: {agent} is the main agent (instructions {path})')
+    rc, lines, reason = run_fn(cfg, agent, prompt(text, handoff), run, out_fn, out=out)
+    run['agents'][-1].update(ended=datetime.now(timezone.utc).isoformat(), rc=rc, stopped=reason and reason[0])
+    return rc, lines, reason
+
+
+def handover_step(cfg, run, names, tried, agent, reason, lines, out_fn, say):
+    """After a stopped turn: the new order and the handoff note for the next agent."""
+    names, first = turn_order(cfg, names, reason)
+    if first in tried:
+        tried.remove(first)
+    nxt, _ = next_agent(names, tried, out_fn)
+    handoff, note_path = hand_over(run, agent, nxt, reason[1], lines)
+    run['agents'][-1]['handoff'] = note_path
+    say(f'conduct: {agent} stopped ({reason[1]}); handoff note {note_path}' + (f'; {nxt} takes over' if nxt else ''))
+    return names, handoff
+
+
+NO_ROOM = 'stopped: no main agent has room'
+
+
 def conduct(cfg, goal, main=None, fallback=None, cwd='.', commands=(), say=print, out=None, out_fn=None, run_fn=run_agent):
     """Runs the goal with the main agent, handing over on panic, limit or a switch. Returns (exit code, the run record)."""
     s = settings(cfg)
@@ -622,29 +652,18 @@ def conduct(cfg, goal, main=None, fallback=None, cwd='.', commands=(), say=print
         for line in skipped:
             say(f'conduct: skipped {line}')
         if not agent:
-            run['status'] = 'stopped: no main agent has room'
+            run['status'] = NO_ROOM
             break
         tried.append(agent)
-        text, path = instruction_file(cfg, run, agent, commands, now)
-        run['agents'].append({'agent': agent, 'started': datetime.now(timezone.utc).isoformat(), 'instructions': path})
-        record(cfg, run)
-        say(f'conduct {run["id"]}: {agent} is the main agent (instructions {path})')
-        rc, lines, reason = run_fn(cfg, agent, prompt(text, handoff), run, out_fn, out=out)
-        run['agents'][-1].update(ended=datetime.now(timezone.utc).isoformat(), rc=rc, stopped=reason and reason[0])
+        rc, lines, reason = take_turn(cfg, run, agent, handoff, commands, now, say, out_fn, out, run_fn)
         if not reason:
             rc, run['status'] = outcome(cfg, agent, rc, lines, run)
             break
-        names, first = turn_order(cfg, names, reason)
-        if first in tried:
-            tried.remove(first)
-        nxt, _ = next_agent(names, tried, out_fn)
-        handoff, note_path = hand_over(cfg, run, agent, nxt, reason[1], lines)
-        run['agents'][-1]['handoff'] = note_path
-        say(f'conduct: {agent} stopped ({reason[1]}); handoff note {note_path}' + (f'; {nxt} takes over' if nxt else ''))
+        names, handoff = handover_step(cfg, run, names, tried, agent, reason, lines, out_fn, say)
     run['ended'] = datetime.now(timezone.utc).isoformat()
     record(cfg, run)
     say(f'conduct {run["id"]}: {run["status"]} (record {os.path.join(run["dir"], "run.json")})')
-    return (rc if run['status'] != 'stopped: no main agent has room' else 3), run
+    return (3 if run['status'] == NO_ROOM else rc), run
 
 
 # ---- what the dashboard shows

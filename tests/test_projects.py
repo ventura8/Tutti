@@ -130,7 +130,7 @@ class ActivityTest(unittest.TestCase):
             w = projects.parse_windows('X\tRoRadio\tdotnet.exe\t2026-01-01T10:00:00+02:00\r\nB\tRoRadio\tref: refs/heads/master\r\n'
                                        'B\tOther\tabc\nG 5 100 200\r\n')
             self.assertEqual(w['procs'], [('RoRadio', 'dotnet.exe', '2026-01-01T10:00:00+02:00')])
-            self.assertEqual(w['branches'], {'RoRadio': 'master', 'Other': 'abc'})
+            self.assertEqual(w['branches'], {'RoRadio': 'master', 'Other': 'detached abc'})
             self.assertEqual(w['gpu']['util_pct'], 5.0)
             looks = projects.probe_all(cfg, activity_fn=lambda m: {'procs': [], 'repos': {}, 'gpu': None},
                                        windows_fn=lambda m, f: w)

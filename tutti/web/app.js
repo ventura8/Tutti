@@ -397,15 +397,20 @@ function machineLine(m) {
     if (m.agents) parts.push(`${m.agents} agent${m.agents === 1 ? '' : 's'}`);
     if (m.programs?.length) parts.push(m.programs.slice(0, 5).join(', '));
     if (m.yield_flag) parts.push('its yield flag is up (the machine is this project\'s)');
-    if (m.gpu) parts.push(`GPU ${m.gpu.util_pct} % · ${Math.round(m.gpu.mem_used_mib / 1024)}/${Math.round(m.gpu.mem_total_mib / 1024)} GB`);
+    if (m.gpu) {
+        const used = Math.round(m.gpu.mem_used_mib / 1024);
+        const total = Math.round(m.gpu.mem_total_mib / 1024);
+        parts.push(`GPU ${m.gpu.util_pct} % · ${used}/${total} GB`);
+    }
     return parts.join(' · ');
 }
 
 function project(p) {
     const busy = p.running + p.machines.reduce((n, m) => n + m.processes, 0);
-    const repos = p.repos.map((r) => `${r.machine}: ${r.path}${r.branch ? ` (${r.branch})` : ''}`);
-    const counts = `${p.running} running job${p.running === 1 ? '' : 's'} · ${p.agents} agent${p.agents === 1 ? '' : 's'} · ${p.runs} run${p.runs === 1 ? '' : 's'}`
-        + (p.conductor ? ` · conducted by ${p.conductor}` : '');
+    const repos = p.repos.map((r) => [`${r.machine}: ${r.path}`, r.branch && `(${r.branch})`].filter(Boolean).join(' '));
+    const plural = (n, word) => (n === 1 ? `1 ${word}` : `${n} ${word}s`);
+    const counts = [plural(p.running, 'running job'), plural(p.agents, 'agent'), plural(p.runs, 'run'),
+        p.conductor && `conducted by ${p.conductor}`].filter(Boolean).join(' · ');
     return el('li', { class: 'row' },
         el('div', { class: 'row__name' }, p.name, el('span', { class: 'row__kind', text: counts })),
         chip(busy ? 'active' : 'idle', busy ? 'accent' : 'idle'),
@@ -432,10 +437,13 @@ function renderProjects(s) {
 function mainRun(m) {
     const r = m.running || m.last;
     if (!r) return empty('No conductor run yet', 'Start one with tutti conduct "<goal>"; it shows here.');
-    const turns = (r.agents || []).map((t) => `${t.agent}${t.stopped ? ` (stopped: ${t.stopped})` : ''}`).join(' → ');
+    const turns = (r.agents || []).map((t) => [t.agent, t.stopped && `(stopped: ${t.stopped})`].filter(Boolean).join(' ')).join(' → ');
+    let tone = 'warn';
+    if (m.running) tone = 'accent';
+    else if (r.status === 'done') tone = 'ok';
     return el('div', { class: 'row' },
         el('div', { class: 'row__name' }, m.running ? 'Running' : 'Last run', el('span', { class: 'row__kind', text: r.goal })),
-        chip(r.status, m.running ? 'accent' : (r.status === 'done' ? 'ok' : 'warn')),
+        chip(r.status, tone),
         el('p', { class: 'row__note', text: `${turns || 'no agent started'} · since ${relative(r.started)}` }));
 }
 
@@ -447,7 +455,7 @@ function renderMain(s) {
     if (document.activeElement !== pick) {
         pick.replaceChildren(...m.choices.map((c) => el('option', {
             value: c.name, selected: c.name === m.agent,
-            text: `${c.name} (${c.kind === 'ollama' ? 'local model' : 'cli'})${c.out ? ` · out: ${c.out}` : ''}`,
+            text: [`${c.name} (${c.kind === 'ollama' ? 'local model' : 'cli'})`, c.out && `out: ${c.out}`].filter(Boolean).join(' · '),
         })));
     }
     $('main-run').replaceChildren(mainRun(m));

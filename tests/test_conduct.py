@@ -164,7 +164,7 @@ class LocalCommandTest(unittest.TestCase):
         self.assertEqual(conduct.local_command('RUN: tutti runs show 1-2')[0], ['runs', 'show', '1-2'])
 
     def test_ship_only_as_a_dry_run(self):
-        self.assertEqual(conduct.local_command('RUN: tutti ship "m" --dry-run')[1], None)
+        self.assertIsNone(conduct.local_command('RUN: tutti ship "m" --dry-run')[1])
         self.assertIn('--dry-run', conduct.local_command('RUN: tutti ship "m"')[1])
         self.assertIn('--dry-run', conduct.local_command('RUN: tutti ship "m" --dry-run --allow-protected')[1])
 
@@ -268,8 +268,9 @@ class ConductTest(Folder):
         self.assertIn('denied 1 tool call', run['status'])
 
     def test_an_unknown_main_is_refused(self):
+        run_fn = self.fake([])[0]
         with self.assertRaises(conduct.ConductError):
-            self.go(self.fake([])[0], main='nobody')
+            self.go(run_fn, main='nobody')
 
 
 class RunCliTest(Folder):

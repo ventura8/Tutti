@@ -202,7 +202,8 @@ def service(platform, home_dir, run=subprocess.run, start=True):
         return 'ok', f'the dashboard starts at login ({files[0][0]})'
     for argv in cmds:
         r = run(argv, capture_output=True, text=True, check=False)
-        if r.returncode != 0 and argv[:2] != ['launchctl', 'unload']:
+        # linger (start at boot, before a login) is a bonus: without it the dashboard still starts at login
+        if r.returncode != 0 and argv[:2] != ['launchctl', 'unload'] and argv[0] != 'loginctl':
             return 'todo', f'`{" ".join(argv)}` failed ({(r.stderr or r.stdout).strip()[:120]}): run it by hand, then `tutti setup`'
     return 'ok', f'the dashboard now starts at login ({files[0][0]})'
 

@@ -176,6 +176,8 @@ def claim(state, key, user_id, now, minutes):
     lease = state['leases'].get(key)
     if lease and lease['user'] != user_id:
         return False, lease['user']
+    if user_id in ((state.get('moved') or {}).get(key) or {}).get('users', []):
+        return False, None   # an admin moved it away from this member (reassign)
     state['leases'][key] = {'user': user_id, 'until': now + minutes * 60, 'at': (lease or {}).get('at', now)}
     return True, None
 
@@ -186,6 +188,26 @@ def release(state, key, user_id):
         del state['leases'][key]
         return True
     return False
+
+
+def reassign(state, pkey, key, to_user, now, minutes=None):
+    """An admin's move of a member's task (tutti/jobmove.py): the lease taken from whoever holds it and given to `to_user`
+    (or left free for the first member with room). The old holder's next sync sees the task held by another, keeps its local
+    work on a backup branch and never runs it again. Returns what was done."""
+    lk = lease_key(pkey, key)
+    lease = state['leases'].pop(lk, None)
+    if not lease and not to_user:
+        return f'{key}: nobody held it; it is free for the first member with room'
+    was = holder_name(state, lease['user']) if lease else 'nobody'
+    if lease:   # the old holders never get it back: their claims are refused, their syncs are told it moved
+        m = state.setdefault('moved', {}).setdefault(lk, {'users': [], 'at': now})
+        m['users'] = sorted({*m['users'], lease['user']})
+    if to_user:
+        if to_user not in state['members']:
+            raise HouseholdError(f'no member "{to_user}" in this household: `tutti household status` lists them')
+        state['leases'][lk] = {'user': to_user, 'until': now + (minutes or RESERVE_MINUTES) * 60, 'at': now, 'moved_from': was}
+        return f'{key}: moved from {was} to {holder_name(state, to_user)}'
+    return f'{key}: taken from {was}; the first member with room takes it'
 
 
 def holder_name(state, user_id):
@@ -286,19 +308,24 @@ def _ask_project(state, pkey, project, ask, user_id, now, minutes):
 
 
 def _answer_project(state, pkey, project, user_id):
-    mine, held = [], {}
+    mine, held, gone = [], {}, []
     for key in project['tasks']:
         lease = state['leases'].get(lease_key(pkey, key))
+        moved = user_id in ((state.get('moved') or {}).get(lease_key(pkey, key)) or {}).get('users', [])
         if lease and lease['user'] == user_id:
             mine.append(key)
         elif lease:
             held[key] = holder_name(state, lease['user'])
+        elif moved:
+            held[key] = 'another member (an admin moved it)'
+        if moved:
+            gone.append(key)
     tasks = []
     for k, t in project['tasks'].items():
         by = t.get('closed_by')
         tasks.append({'key': k, **{x: t[x] for x in TASK_KEYS}, 'status': t['status'],
                       'closed_by': holder_name(state, by) if by and by != user_id else None})
-    return {'tasks': tasks, 'mine': mine, 'held': held}
+    return {'tasks': tasks, 'mine': mine, 'held': held, 'moved': gone}
 
 
 def sync_project(state, pkey, ask, user_id, now, minutes):

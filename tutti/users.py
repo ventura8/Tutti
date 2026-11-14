@@ -50,6 +50,8 @@ def _write(path, data, mode=None):
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode or 0o644)
     with os.fdopen(fd, 'w', encoding='utf8') as f:
         json.dump(data, f, indent=1)
+        f.flush()
+        os.fsync(f.fileno())   # durable: a power-off never leaves half a file (tutti/durable.py)
     if mode:
         os.chmod(tmp, mode)   # an existing tmp keeps its old mode with os.open: set it again
     os.replace(tmp, path)

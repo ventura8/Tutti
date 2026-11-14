@@ -21,6 +21,8 @@ from datetime import datetime, timedelta
 from tutti import tz
 from tutti.pacing import parse_time
 
+from . import durable
+
 FILE = 'owner.json'
 DAYS = ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')
 MODES = ('auto', 'active', 'away')
@@ -234,6 +236,8 @@ def context(owner, readings, now):
     offset = zone_of(sched, owner.get('zone'))
     prof = profile_of(sched, readings, offset)
     mode, until = effective(owner['mode'], prof['reserve'], readings, now, offset, owner.get('away_after_hours', 3), prof['learned'])
+    if mode == 'auto' and owner.get('laptop_away'):   # the owner's laptop is away or asleep (presence.owner_laptop): away
+        mode, until = 'away', now + timedelta(hours=1)  # for the next hour, looked at again each round
     return {**prof, 'offset': offset, 'zone': offset if isinstance(offset, str) else tz.label(offset),
             'utc_offset': tz.offset_hours(offset, now), 'mode': mode, 'set_mode': owner['mode'], 'until': until}
 
@@ -280,10 +284,7 @@ def write(folder, **changes):
         else:
             data[k] = v
     os.makedirs(os.path.expanduser(folder), exist_ok=True)
-    tmp = f'{path(folder)}.{os.getpid()}.tmp'
-    with open(tmp, 'w', encoding='utf8') as f:
-        json.dump(data, f, indent=1)
-    os.replace(tmp, path(folder))
+    durable.dump_json(path(folder), data, indent=1)
     return data
 
 
@@ -296,8 +297,10 @@ def owner_of(cfg, folder):
     accounts = p.get('accounts')
     if accounts is None:   # no main agent: no account is the owner's
         accounts = [n for n, a in cfg['accounts'].items() if agent and (n == agent or (a or {}).get('worker') == agent)]
+    from . import presence  # imported here: config loads this module before presence exists
     return {'accounts': list(accounts), 'schedule': sched, 'mode': saved.get('mode') or p.get('mode', 'auto'),
-            'away_after_hours': p.get('away_after_hours', 3), 'zone': tz.zone_name(cfg, saved.get('browser_zone') or '')}
+            'away_after_hours': p.get('away_after_hours', 3), 'zone': tz.zone_name(cfg, saved.get('browser_zone') or ''),
+            'laptop_away': presence.owner_away(cfg)}
 
 
 def view(cfg, folder, entries, now):

@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import backlog, compact, config, delegate, planner, priority, remote, routing, telemetry, tiers, tz, worktree
+from . import backlog, compact, config, delegate, durable, planner, priority, remote, routing, telemetry, tiers, tz, worktree
 
 try:
     import fcntl
@@ -47,10 +47,7 @@ def read_state(cfg):
 
 
 def write_state(cfg, data):
-    tmp = f'{state_path(cfg)}.{os.getpid()}.tmp'
-    with open(tmp, 'w', encoding='utf8') as f:
-        json.dump(data, f, indent=1)
-    os.replace(tmp, state_path(cfg))
+    durable.dump_json(state_path(cfg), data, indent=1)
 
 
 @contextlib.contextmanager
@@ -188,7 +185,20 @@ def candidates(cfg, t):
     # the steps above first; then the ones below, strongest first, so a retry never waits while only a weaker step has room
     # (agy's accounts sat idle behind a paced cursor and a yielding PC, 2026-11-14)
     out = steps[start:] + steps[:start][::-1]
-    return [n for n in out if (step_of(cfg, n) or {}).get('kind') != 'ollama' or has_files(t)]
+    return pinned(cfg, t, [n for n in out if (step_of(cfg, n) or {}).get('kind') != 'ollama' or has_files(t)])
+
+
+def pinned(cfg, t, names):
+    """An admin's move to a machine (tutti/jobmove.py): only the steps whose worker runs there, when any does."""
+    pin = (t.get('pin') or '').partition(':')[2]
+    if not pin:
+        return names
+    return [n for n in names if on_machine(cfg, n) == pin]   # none there: it waits (jobmove refuses such a move)
+
+
+def on_machine(cfg, step_name):
+    """The machine a ladder step's worker runs on, or None."""
+    return ((cfg.get('workers') or {}).get((step_of(cfg, step_name) or {}).get('worker') or '') or {}).get('machine')
 
 
 def tier_last(prefer, size):
@@ -389,6 +399,8 @@ def brief(task, repo):
         if len(tries) > 1:
             lines += ['Earlier failures:'] + [f'- attempt {i + 1} ({a["step"]}): {first_line(a["why"], 160)}'
                                               for i, a in enumerate(tries[:-1])][-HISTORY_LINES:]
+    if task.get('resume_note'):
+        lines += ['', f'Note: {task["resume_note"]}. The worktree holds that run\'s changes: continue from them.']
     if task.get('notes'):
         lines += ['', 'The reviewer\'s notes (follow them):'] + [f'- {n}' for n in task['notes']]
     return '\n'.join(lines)
@@ -436,6 +448,7 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
         f.write(f'{child.pid}\n')
     # the repo's gates this attempt runs (acceptance holds them): a result lands only when they are today's (tutti/fill.py)
     task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now, gates=(repo.get('check') or '').strip(),
+                boot=durable.boot_id(), checkpoint=now,
                 choice={k: choice[k] for k in ('tier', 'model', 'effort', 'label')} if choice else None)
     return run_id
 
@@ -577,7 +590,11 @@ def collect(cfg, data, now, is_alive, publish_fn=publish):
         ended, report = finished(cfg, t, is_alive)
         if not ended:
             continue
+        if report is None and durable.died_with_host(t.get('boot')):
+            events.append(interrupt(cfg, t))
+            continue
         a = attempt_of(cfg, t, report, now)
+        t.pop('resume_note', None)
         t['attempts'].append(a)
         record_attempt(cfg, t, a, now)
         if a['ok']:
@@ -588,6 +605,173 @@ def collect(cfg, data, now, is_alive, publish_fn=publish):
         park = after_failure(cfg, t)
         events.append(f'{t["id"]} failed on {a["step"]} ({a["why"][:120]})' + (f': parked: {park}' if park else ': queued again'))
     return events
+
+
+# ---- a power-off: WIP checkpoints, interrupted attempts (docs/PRESENCE.md)
+
+
+def wip_name(task):
+    """The task's WIP branch name, the same on every member's computer (from its title, as the household matches tasks)."""
+    title = re.sub(r'[^a-z0-9]+', ' ', task['title'].lower()).strip()
+    return f'{slug(title)[:30]}-{hashlib.sha1(title.encode()).hexdigest()[:8]}'
+
+
+def wip_ref(task):
+    return f'refs/heads/tutti/wip/{wip_name(task)}'
+
+
+def wip_remote(cfg, task):
+    """The remote checkpoints are pushed to (autopilot.repos.<r>.wip_remote, default origin), or '' when the repo says
+    wip_push: false. Only refs/tutti/wip/* is ever pushed: never main, master or any branch."""
+    repo = settings(cfg)['repos'].get(task['repo']) or {}
+    return '' if repo.get('wip_push') is False else repo.get('wip_remote', 'origin')
+
+
+def push_wip(wt, sha, name, remote_name, run=git):
+    """The checkpoint pushed to `<remote> refs/tutti/wip/<name>` (forced: it is ours). Returns '' or why it failed."""
+    if not remote_name or not sha:
+        return ''
+    done = run(wt, 'push', '-q', '-f', remote_name, f'{sha}:refs/tutti/wip/{name}')
+    return '' if done.returncode == 0 else (done.stderr or done.stdout or 'push failed').strip()[:200]
+
+
+def tree_of(cfg, task):
+    """The task's worktree, rebuilt from the config (<worktrees>/<delegate.prefix>ap-<id>, as `tutti run --track` makes it),
+    never a path read from a file; None when it does not exist."""
+    from . import handover  # handover imports conduct, which imports modules that import this one
+    wt = handover.worktree_of(cfg, TRACK_PREFIX + str(task.get('id') or ''))
+    return wt if wt and os.path.isdir(wt) else None
+
+
+def pid_of(cfg, run_id):
+    """The pid a run wrote, found in the runs folder by the folder's own listing, or None."""
+    path = listed(delegate.runs_dir(cfg), f'{run_id}.log.pid') if delegate.valid_id(run_id) else None
+    try:
+        with open(path, encoding='utf8') as f:
+            return int(f.read().strip())
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def stop_run(cfg, t, is_alive, kill):
+    """The task's run stopped when its process still lives (a laptop that came back, a move). Returns its worktree or None."""
+    pid = pid_of(cfg, t.get('run'))
+    if pid and kill and is_alive(pid):
+        kill(pid)
+    return tree_of(cfg, t)
+
+
+def checkpoint(wt, ref, run_id, run=subprocess.run):
+    """Everything in the worktree (untracked files too) as a commit on `ref`, through a separate index: the worker's files,
+    HEAD and index are not touched. Returns the commit, or '' when nothing changed or git failed."""
+    gitdir = run([worktree.git_bin(), '-C', wt, 'rev-parse', '--absolute-git-dir'], capture_output=True, text=True).stdout.strip()
+    if not gitdir:
+        return ''
+    env = {**os.environ, 'GIT_INDEX_FILE': os.path.join(gitdir, 'tutti-wip-index')}
+
+    def g(*a):
+        return run([worktree.git_bin(), '-C', wt, *a], capture_output=True, text=True, env=env)
+
+    if g('read-tree', 'HEAD').returncode or g('add', '-A').returncode:
+        return ''
+    tree, head = g('write-tree').stdout.strip(), g('rev-parse', 'HEAD^{tree}').stdout.strip()
+    if not tree or tree == head:
+        return ''
+    sha = g('commit-tree', tree, '-p', 'HEAD', '-m', f'chore(wip): checkpoint of run {run_id}').stdout.strip()
+    return sha if sha and g('update-ref', ref, sha).returncode == 0 else ''
+
+
+def checkpoints(cfg, data, now, snap=checkpoint, push=push_wip):
+    """A WIP checkpoint of every running attempt every autopilot.checkpoint_minutes, pushed to the project's remote under
+    refs/tutti/wip/*: a power-off loses at most that much, and another machine can resume from it."""
+    every = float(settings(cfg).get('checkpoint_minutes', 5)) * 60
+    for t in [t for t in data['tasks'] if t['status'] == 'running']:
+        wt = tree_of(cfg, t) if every > 0 else None
+        if wt and now - float(t.get('checkpoint') or t.get('started') or 0) >= every:
+            sha = snap(wt, wip_ref(t), t['run'])
+            t['checkpoint'] = now
+            failed = push(wt, sha, wip_name(t), wip_remote(cfg, t)) if sha else ''
+            t['wip'] = {'at': now, 'sha': sha or (t.get('wip') or {}).get('sha'), 'pushed': not failed, 'error': failed or None}
+
+
+def reconcile(wt, ref, remote_name='', run=git):
+    """Before an interrupted or moved attempt resumes: when the worktree lacks the changes but a checkpoint has them (here,
+    or fetched from the remote's refs/tutti/wip/*), they are applied (the further-along copy wins; a worktree that holds
+    changes is never overwritten). Returns what was done."""
+    if not wt:
+        return 'no worktree: the next attempt starts a new one'
+    if remote_name:
+        run(wt, 'fetch', '-q', remote_name, f'+refs/tutti/wip/{ref.rsplit("/", 1)[1]}:{ref}')
+    if run(wt, 'rev-parse', '--verify', '-q', ref).returncode != 0:
+        return 'no checkpoint yet'
+    if run(wt, 'status', '--porcelain').stdout.strip():
+        return 'the worktree holds its changes: kept as they are'
+    if run(wt, 'cherry-pick', '-n', ref).returncode != 0:
+        run(wt, 'reset', '-q', '--hard')
+        return f'the checkpoint {ref} does not apply to this base: starting from the worktree as it is'
+    run(wt, 'reset', '-q')
+    return f'the worktree was restored from the checkpoint {ref}'
+
+
+def pause(t, why):
+    """A running attempt stopped because this computer sleeps or shuts down: queued again from its worktree (left as it
+    is), nothing counted."""
+    t.update(status='queued', interrupted=int(t.get('interrupted') or 0) + 1,
+             resume_note=f'the previous run ({t.get("run")}) stopped because {why}; its partial work is in the worktree')
+
+
+def interrupt(cfg, t):
+    """An attempt whose host went down under it: queued again from the same worktree, with no attempt counted (not a
+    failure, not a retry, no no-progress step)."""
+    done = reconcile(tree_of(cfg, t), wip_ref(t), wip_remote(cfg, t))
+    t.update(status='queued', interrupted=int(t.get('interrupted') or 0) + 1,
+             resume_note=f'the previous run ({t.get("run")}) was interrupted by a power-off or reboot before it ended; {done}')
+    telemetry.record('feature', 'autopilot.interrupted', source=t.get('source'))
+    return f'{t["id"]} was interrupted by a power-off or reboot: queued again from its worktree, not counted ({done})'
+
+
+def move_out(cfg, t, to, now, is_alive=None, kill=None, snap=checkpoint):
+    """An admin's move (tutti/jobmove.py): the run stopped, a last checkpoint taken where the worktree is reachable, the task
+    queued again with no attempt counted, pinned to `to` (a target id, '' for the best available), with a handoff note."""
+    from . import state as state_mod
+    note = ''
+    if t['status'] == 'running':
+        wt = stop_run(cfg, t, is_alive or state_mod.alive, kill)
+        if wt:
+            snap(wt, wip_ref(t), t['run'])
+        t.setdefault('moved_runs', []).append(t.get('run'))
+        note = reconcile(wt, wip_ref(t), wip_remote(cfg, t))
+    t.update(status='queued', pin=to or None, moved={'at': now, 'to': to or 'auto', 'from': t.get('worker')},
+             resume_note=f'an admin moved this task to {to or "the best available worker"} while its machine was away; '
+                         f'continue from the last synced checkpoint ({note or "the worktree as it is"})')
+    return f'queued for {to or "the best available worker"}; {note or "it was not running"}'
+
+
+def give_up_here(cfg, t, holder, is_alive, kill, run=git):
+    """One task moved to `holder`: the stale run stopped, its WIP kept on tutti/backup/<name>, the worktree cleaned."""
+    wt = stop_run(cfg, t, is_alive, kill)
+    kept = ''
+    if wt:
+        sha = checkpoint(wt, f'refs/heads/tutti/backup/{wip_name(t)}', t.get('run'), run=subprocess.run)
+        kept = f'; the local work is kept on tutti/backup/{wip_name(t)}' if sha else ''
+        run(wt, 'reset', '-q', '--hard')
+        run(wt, 'clean', '-qfd')
+    t.update(status='moved', moved={'to': holder, 'at': time.time()})
+    return f'{t["id"]} moved to {holder} while this computer was away: not run here again{kept}'
+
+
+def moved_away(cfg, data, moved, is_alive=None, kill=None, run=git):
+    """This member's tasks that an admin moved to another member while this computer was away (`moved`: {task key:
+    holder}, sharing.moved_of): never run here again. Returns event lines."""
+    from . import household
+    from . import state as state_mod
+    is_alive = is_alive or state_mod.alive
+    out = []
+    for t in data['tasks']:
+        holder = moved.get(household.fold(t['title']))
+        if holder and t['status'] in ('running', 'queued'):
+            out.append(give_up_here(cfg, t, holder, is_alive, kill, run))
+    return out
 
 
 def after_failure(cfg, t):
@@ -634,7 +818,10 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     events_spare = sharing.adopt_offers(cfg, shared, now)
     with backlog.locked(cfg) as data:
         events = collect(cfg, data, now, is_alive, publish_fn)
+        checkpoints(cfg, data, now)
         hold, mirrored = sharing.under_lock(shared, data, now)
+        from . import handover  # handover imports conduct, which imports modules that import this one
+        mirrored += moved_away(cfg, data, sharing.moved_of(shared), is_alive, handover.end_tree)
         hold.update(sharing.spare_hold(cfg, data))
         events += mirrored + events_spare
         started = []

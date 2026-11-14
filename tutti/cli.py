@@ -610,7 +610,10 @@ def cmd_pr(cfg, a):
 
 
 def cmd_job(cfg, a):
-    """`tutti job register|done`: a script outside tutti shows on the dashboard with its log, progress and result."""
+    """`tutti job register|done`: a script outside tutti shows on the dashboard with its log, progress and result;
+    `tutti job waiting|move`: work waiting on an away or asleep target (cmd_jobmove)."""
+    if a.action in ('waiting', 'move'):
+        return cmd_jobmove(cfg, a)
     folder = os.path.join(config.state_dir(cfg), 'jobs')
     pid = a.pid or os.getppid()
     if a.action == 'register':
@@ -1117,6 +1120,52 @@ def cmd_dispatch(cfg, a):
     return 0
 
 
+def cmd_jobmove(cfg, a):
+    """`tutti job waiting|move <id> --to <target|auto> [--bump]`: work waiting on an away or asleep target, moved now."""
+    from . import handover, jobmove
+    if a.action == 'waiting':
+        rows = jobmove.waiting(cfg)
+        for j in rows:
+            print(f'{j["id"]}  {j["title"][:60]}  waits on {j["target"]}: {j["label"]}{" (urgent)" if j["urgent"] else ""}')
+        print('' if rows else 'nothing waits on an away or asleep target')
+        return 0
+    if not a.id:
+        say('name the job: tutti job move <id> --to <device|machine|auto> (ids from `tutti job waiting`)')
+        return 2
+    try:
+        print(jobmove.move(cfg, a.id, a.to, a.bump, kill=handover.end_tree, stop=dispatch.stop_pid))
+    except jobmove.MoveError as e:
+        say(str(e))
+        return 2
+    return 0
+
+
+def cmd_machine(cfg, a):
+    """`tutti machine evacuate <machine>`: every job waiting on it moved to the best available target."""
+    from . import handover, jobmove
+    try:
+        for line in jobmove.evacuate(cfg, a.name, kill=handover.end_tree, stop=dispatch.stop_pid):
+            print(line)
+    except jobmove.MoveError as e:
+        say(str(e))
+        return 2
+    return 0
+
+
+def cmd_presence(cfg, a):
+    """`tutti presence`: each target's state (present, away, asleep, unknown), since when, and today's profile strip."""
+    import time as _time
+
+    from . import presence
+    v = presence.view(cfg, _time.time())
+    for tid, it in sorted(v['items'].items()):
+        bar = ''.join(' ' if x is None else '.:-=#'[min(4, int(x * 5))] for x in it['strip'])
+        print(f'{tid:28} {it["label"]:50} [{bar}] always-on {int(it["always_on"] * 100)} %')
+    if v['host']['warning']:
+        print(v['host']['warning'])
+    return 0
+
+
 def cmd_selfimprove(cfg, a):
     """`tutti selfimprove [status|on|off|tick]` (docs/TELEMETRY.md, *Self-improvement*)."""
     if a.action in ('on', 'off'):
@@ -1274,8 +1323,13 @@ def parser():
     s.add_argument('--repo', help='owner/name (default: the repository of the current directory)')
     s.add_argument('--timeout', type=float, help='minutes to wait for the reviewers (default: review.timeout_minutes)')
     s.add_argument('--no-post', action='store_true', help='print the fallback review instead of posting it')
-    s = add('job', cmd_job, 'register a script\'s run for the dashboard (`job register --title t`), and its result (`job done --rc n`)')
-    s.add_argument('action', choices=['register', 'done'])
+    s = add('job', cmd_job, 'register a script\'s run for the dashboard (`job register --title t`), and its result (`job done --rc n`); '
+                            'work waiting on an away or asleep target: `job waiting`, `job move <id> --to <device|machine|auto> '
+                            '[--bump]` (now, from its last synced checkpoint; docs/PRESENCE.md)')
+    s.add_argument('action', choices=['register', 'done', 'waiting', 'move'])
+    s.add_argument('id', nargs='?', help='move: the job id from `tutti job waiting`')
+    s.add_argument('--to', default='auto', help='move: a device or machine name, or auto (the best available)')
+    s.add_argument('--bump', action='store_true', help='move: first in its queue')
     s.add_argument('--pid', type=int, help='the process (default: the caller, the shell that runs tutti)')
     s.add_argument('--title', help='what the job does')
     s.add_argument('--log', help='its log (default: where the process\'s standard output goes, when that is a file)')
@@ -1406,6 +1460,10 @@ def parser():
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'now', 'run', 'build'])
     s.add_argument('lease', nargs='?', help='run: the lease id; build: the project')
     s.add_argument('rest', nargs='*', help='build: the suite and the rc file')
+    s = add('machine', cmd_machine, 'evacuate <machine>: move every job waiting on it to the best available target')
+    s.add_argument('action', choices=['evacuate'])
+    s.add_argument('name')
+    add('presence', cmd_presence, 'each device, machine, member and model server: here, away, asleep or unknown, and its profile')
     s = add('selfimprove', cmd_selfimprove, 'crashes and insights become autopilot tasks, pull requests, and where a project '
                                             'allows it merges and patch releases: status, on, off, tick (one round now)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])

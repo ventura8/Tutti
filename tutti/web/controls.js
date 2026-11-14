@@ -37,6 +37,7 @@ function device(d) {
         el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `adb ${d.serial} · on ${d.machine}` })),
         chip(DEVICE_CHIP[d.status] || d.status, DEVICE_TONE[d.status]),
         deviceStats(d),
+        presenceBits(d.presence),
         el('p', { class: 'row__note', text: d.reason }));
 }
 
@@ -197,3 +198,60 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     $('autocompact-reset').addEventListener('click', () => { void saveAutocompact(null); });
 });
+
+// ---- presence (tutti/presence.py): here, away or asleep since when, today's profile strip, and moving work off an absent target
+
+function hereText(x, none) {
+    return x === null ? none : `${Math.round(x * 100)} % here`;
+}
+
+function presenceBits(p) {
+    if (!p) return null;
+    const strip = el('span', { class: 'presence__strip', 'aria-label': 'today, hour by hour: ' + p.strip.map((x) => hereText(x, 'unknown')).join(', ') },
+        ...p.strip.map((x, h) => {
+            const cell = el('span', { class: 'presence__hour', title: String(h).padStart(2, '0') + ':00 ' + hereText(x, 'not seen yet') });
+            cell.style.opacity = x === null ? '0.15' : String(0.25 + 0.75 * x);
+            return cell;
+        }));
+    return el('div', { class: 'presence row__stats' }, el('span', { class: 'presence__label', 'data-state': p.state, text: p.label }), strip);
+}
+
+async function moveWork(body) {
+    try {
+        const res = await fetch('/api/work/move', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify(body),
+        });
+        const answer = await res.json().catch(() => ({}));
+        if (res.status === 403) throw new Error(`only an admin can move work (${answer.error || 'your role is viewer'}): ask the owner, or sign in as an admin`);
+        if (!res.ok) throw new Error(answer.error || `the dashboard answered ${res.status}`);
+        ui.notice = `Moved: ${(answer.done || []).join('; ')}`;
+        await refresh();
+    } catch (err) {
+        showBanner(el('strong', { text: 'The work was not moved. ' }), err.message);
+    }
+}
+
+function waitingRow(j, targets) {
+    const pick = el('select', { 'aria-label': `Move ${j.title} to` },
+        el('option', { value: 'auto', text: 'Best available' }), ...targets.map((t) => el('option', { value: t, text: t })));
+    const bump = el('input', { type: 'checkbox', 'aria-label': 'First in its queue' });
+    const go = el('button', { class: 'btn', type: 'button', text: 'Move now' });
+    go.addEventListener('click', () => moveWork({ job: j.id, to: pick.value, bump: bump.checked }));
+    const all = el('button', { class: 'btn btn--quiet', type: 'button', text: `Move all waiting on ${j.target.split(':')[1]}` });
+    all.addEventListener('click', () => moveWork({ evacuate: j.target }));
+    return el('li', { class: 'row' },
+        el('div', { class: 'row__name' }, j.title, el('span', { class: 'row__kind', text: `${j.kind}${j.urgent ? ' · urgent' : ''}` })),
+        el('p', { class: 'row__note', text: `Waits on ${j.target}: ${j.label}` }),
+        el('div', { class: 'row__stats' }, pick, el('label', {}, bump, ' first in queue'), go, all));
+}
+
+function renderPresence(s) {
+    const p = s.presence || { waiting: [], host: {} };
+    const here = Object.entries(p.items || {}).filter(([id, it]) => it.state === 'present' && /^(device|machine):/.test(id)).map(([id]) => id);
+    const waiting = p.waiting || [];
+    $('waiting-h').hidden = !waiting.length;
+    $('waiting').replaceChildren(...waiting.map((j) => waitingRow(j, here)));
+    const warn = p.host?.warning || '';
+    $('host-warning').hidden = !warn;   // in the Where Tutti runs card (where.js)
+    $('host-warning').textContent = warn;
+}

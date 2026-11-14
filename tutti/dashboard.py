@@ -39,13 +39,16 @@ from . import (
     move,
     owner,
     pacing,
+    presence,
     projects,
     readers,
+    recovery,
     releases,
     remote,
     scouts,
     settings,
     setupcmd,
+    sleepwatch,
     state,
     telemetry,
     transfer,
@@ -167,7 +170,13 @@ class Collector:
         """One dispatch round after each probe: idle devices and machines pull pending shards; the idle watchdog's rows."""
         snap = self.snapshot()
         accounts = {a['name']: a for a in snap['usage']['accounts']}
-        return keepbusy.tick(self.cfg, snap['devices']['items'], snap['machines']['items'], accounts)
+        from . import coordinator, fairshare
+        members = presence.members_of(coordinator.load(coordinator.state_path(self.cfg)), time.time(), fairshare.STALE_SECONDS)
+        p = keepbusy.tick(self.cfg, snap['devices']['items'], snap['machines']['items'], accounts, members=members,
+                          models=presence.probe_models(self.cfg))
+        from . import jobmove
+        jobmove.auto_moves(self.cfg, kill=handover.end_tree, stop=keepbusy.stop_pid)   # opt-in: presence.move_after_minutes
+        return p
 
     def scouts_tick(self):
         """One scouts round after each probe: answers collected, due watches and queued questions sent within the allowance."""
@@ -201,7 +210,9 @@ class Collector:
             self.stop.wait(float(self.cfg['dashboard']['probe_seconds']))
 
     def start(self):
+        recovery.on_start(self.cfg)   # a power-off's torn writes repaired, orphaned runs marked interrupted (docs/PRESENCE.md)
         threading.Thread(target=self.loop, name='tutti-probes', daemon=True).start()
+        sleepwatch.start_in_background(self.cfg)
 
     def snapshot(self):
         with self.lock:
@@ -229,6 +240,9 @@ class Collector:
                                           'why': 'free room on the trigger accounts is filled from the repos\' sources by itself'})
         out['controls']['autocompact'] = autocompact.view(self.cfg)
         out['dispatch'] = keepbusy.view(self.cfg)
+        out['presence'] = presence.attach(self.cfg, out, time.time())
+        from . import jobmove
+        out['presence']['waiting'] = jobmove.waiting(self.cfg)
         out['controls']['opt_in'].append({'kind': 'dispatch', 'name': 'keep_busy', 'on': out['dispatch']['enabled'],
                                           'why': 'idle devices and machines pull pending test shards by themselves; idle ones warn'})
         autocompact.tag_jobs(self.cfg, out['jobs']['items'])
@@ -270,6 +284,8 @@ API_SETTINGS, API_RESTART, API_SETUP = '/api/settings', '/api/restart', '/api/se
 API_PAIR, API_MOVE = '/api/devices/pair', '/api/devices/move'
 API_TUTTI_MOVE = '/api/move'   # Tutti itself to another machine (docs/MOVE.md); API_MOVE moves a device
 ADMIN_PATHS = (API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn')   # these change the config: an admin's
+API_WORK_MOVE = '/api/work/move'   # work waiting on an away or asleep target moved now (docs/PRESENCE.md)
+ADMIN_PATHS += (API_WORK_MOVE,)   # takes work off a member's computer: an admin's (a viewer gets 403 from the auth hook)
 BODY_LIMITS[API_SETTINGS] = 65536
 
 
@@ -492,7 +508,8 @@ def save_dispatch(collector, raw):
 
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
          '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, API_SETUP,
-         API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn')
+         API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn',
+         API_WORK_MOVE)
 
 
 def save_connect(collector, body, home=None):
@@ -628,10 +645,31 @@ def run_setup(collector, body, popen=subprocess.Popen):
     return 202, {'ok': True, 'log': log}
 
 
+def save_work_move(collector, body):
+    """POST /api/work/move {"job": <id>, "to": <target>|"auto", "bump": bool} or {"evacuate": <target>} (admin only)."""
+    from . import jobmove
+    try:
+        data = json.loads(body or b'null')
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or not (isinstance(data.get('job'), str) or isinstance(data.get('evacuate'), str)):
+        return 400, {'error': 'send {"job": "<id>", "to": "<device or machine>|auto", "bump": false} or {"evacuate": "<machine>"}'}
+    try:
+        if data.get('evacuate'):
+            done = jobmove.evacuate(collector.cfg, data['evacuate'], kill=handover.end_tree, stop=keepbusy.stop_pid)
+        else:
+            done = [jobmove.move(collector.cfg, data['job'], str(data.get('to') or 'auto'), bool(data.get('bump')),
+                                 kill=handover.end_tree, stop=keepbusy.stop_pid)]
+    except jobmove.MoveError as e:
+        return 409, {'error': str(e)}
+    return 200, {'ok': True, 'done': done}
+
+
 HANDLERS = {
     API_SETUP: run_setup,
     API_PAIR: lambda c, b: devicesweb.pair_post(c, b),
     API_MOVE: lambda c, b: devicesweb.move_post(c, b),
+    API_WORK_MOVE: save_work_move,
     '/api/main': lambda c, b: save_main(c.cfg, b),
     '/api/autopilot': save_autopilot,
     API_SETTINGS: settings.save,

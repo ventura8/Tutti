@@ -21,7 +21,7 @@ try:
 except ImportError:   # Windows: no flock; the dashboard is the only writer there
     fcntl = None
 
-from . import calls, config, controls, devices, priority, shards, telemetry
+from . import calls, config, controls, devices, durable, presence, priority, shards, telemetry
 
 FILE = 'dispatch.json'
 TARGET_KINDS = ('android', 'tv', 'machine')   # tv: a device of kind tv (a Cast receiver); only suites that name it use it
@@ -29,6 +29,7 @@ DEVICE_KINDS = ('android', 'tv')
 SUITE_KINDS = ('e2e', 'unit', 'lint', 'other')
 LIGHT = ('unit', 'lint')            # on an Android device these are opt-in (its battery and heat): `tutti optin device <d> on`
 COMMIT_EVERY = 300                  # seconds between two looks at a project's latest commit
+ANY = 'any'                         # a shard moved to "the best available target": any target of its kinds
 OFF = "dispatch is off: the dashboard's Keep busy switch or `tutti dispatch on` turns it on"
 
 
@@ -61,7 +62,7 @@ def suites(cfg):
                         'started': s.get('started'), 'requeue_on': list(s.get('requeue_on') or []),
                         'dir': s.get('dir'), 'devices': s.get('devices'), 'machines': s.get('machines'),
                         'pause': s.get('pause'), 'resume': s.get('resume'),
-                        'retries': s.get('retries', retries)})
+                        'retries': s.get('retries', retries), 'minutes': float(s.get('minutes') or 0)})
     return out
 
 
@@ -165,10 +166,7 @@ def locked(cfg):
         try:
             yield data
         finally:   # a lease taken before a later step failed is still written: its run is going
-            tmp = f'{path}.{os.getpid()}.tmp'
-            with open(tmp, 'w', encoding='utf8') as f:
-                json.dump(data, f, indent=1)
-            os.replace(tmp, path)
+            durable.dump_json(path, data, indent=1)
 
 
 def event(st, now, text):
@@ -203,13 +201,15 @@ def pending(cfg, st, now=None):
             opt = s['shard_opts'].get(shard) or {}
             out.append({**s, 'suite': suite, 'shard': shard, 'key': key, 'attempts': sh['attempts'],
                         'devices': opt.get('devices', s['devices']), 'extra': opt.get('extra', ''), 'holds': list(opt.get('holds') or []),
-                        'wait': shards.prepare_wait(p, s, now or time.time())})
-    return sorted(out, key=lambda w: (w['attempts'], w['project'], w['key']))
+                        'wait': shards.prepare_wait(p, s, now or time.time()), 'pin': sh.get('pin'), 'bump': bool(sh.get('bump'))})
+    return sorted(out, key=lambda w: (not w['bump'], w['attempts'], w['project'], w['key']))   # an admin's bump goes first
 
 
 def compatible(target, w):
     if target['kind'] not in w['targets']:
         return False
+    if w.get('pin'):   # an admin moved it (tutti/jobmove.py): to this target, or to any of its kind, over the suite's own list
+        return w['pin'] in (ANY, target['id'])
     names = w['devices'] if target['kind'] in DEVICE_KINDS else w['machines']
     return not names or target['name'] in names
 
@@ -227,10 +227,11 @@ def light_refused(cfg, target, w):
 # ---- targets: devices and machines as the probes see them
 
 
-def targets(devices_rows, machine_rows, st, held=None):
+def targets(devices_rows, machine_rows, st, held=None, gone=None):
     """Every device and machine as a target: busy (a run holds it), or free, with what blocks it ('' when nothing does).
     `held`: {device: why} for a phone call or its owner (tutti/calls.py). A machine is busy once our leases on it fill its
-    free slots (the probe may not count a run that just started)."""
+    free slots (the probe may not count a run that just started). `gone`: {target id: card text} of the targets presence
+    says are away or asleep: blocked with that text and marked absent (the idle watchdog never flags them)."""
     leased = [lease['target'] for lease in st['leases'].values()]
     leased += [f'device:{n}' for lease in st['leases'].values() for n in lease.get('holds') or []]
     out = []
@@ -240,14 +241,20 @@ def targets(devices_rows, machine_rows, st, held=None):
         shown = 'paused' if d.get('status') == 'held' else d.get('status')
         why = (held or {}).get(d['name']) or ('' if d.get('status') == 'ready' else f'{d["name"]} is {shown}: {d.get("reason")}')
         kind = 'tv' if d.get('kind') == 'tv' else 'android'
-        out.append({'id': tid, 'kind': kind, 'name': d['name'], 'busy': busy, 'blocked': '' if busy else why})
+        out.append(_absent({'id': tid, 'kind': kind, 'name': d['name'], 'busy': busy, 'blocked': '' if busy else why}, gone))
     for m in machine_rows or []:
         tid = f'machine:{m["name"]}'
         busy = m.get('status') == 'busy' or leased.count(tid) >= max(m.get('free') or 0, 1)
         why = '' if m.get('status') == 'free' else f'{m["name"]} is {m.get("status")}: {m.get("reason")}'
-        out.append({'id': tid, 'kind': 'machine', 'name': m['name'], 'busy': busy, 'blocked': '' if busy else why,
-                    'zone': m.get('zone') or ''})
+        out.append(_absent({'id': tid, 'kind': 'machine', 'name': m['name'], 'busy': busy, 'blocked': '' if busy else why,
+                            'zone': m.get('zone') or ''}, gone))
     return out
+
+
+def _absent(t, gone):
+    if (gone or {}).get(t['id']):
+        t.update(absent=True, busy=False, blocked=f'{t["name"]}: {gone[t["id"]]}')
+    return t
 
 
 def blocked_by(cfg, target, work, on, quiet):
@@ -270,29 +277,60 @@ def holds_free(w, free, taken):
 def pick(cfg, work, running):
     """The shard a target takes: the first in the weighted fair share of the projects' priority (tutti/priority.py,
     config.project_priority: the higher priority first, no project starves), fewest attempts first within a project."""
-    return priority.fair_order(cfg, work, lambda w: w['project'], running)[0]
+    bumped = [w for w in work if w.get('bump')]   # an admin's priority bump (tutti/jobmove.py) goes before the fair share
+    return bumped[0] if bumped else priority.fair_order(cfg, work, lambda w: w['project'], running)[0]
 
 
-def plan(cfg, st, tgts, pend, on, quiet=''):
+def long_work(cfg, w):
+    return w.get('minutes', 0) >= float(presence.settings(cfg)['long_minutes'])
+
+
+def staying(cfg, t, work, place):
+    """(work this target may take, why it is blocked or ''): a target likely to leave or sleep soon takes no long shard."""
+    leaving = (place.get(t['id']) or {}).get('leaving')
+    if not leaving or t['blocked']:
+        return work, ''
+    short = [w for w in work if not (long_work(cfg, w) and leaving(w['minutes']))]
+    if work and not short and not t['busy']:
+        return [], f'{t["name"]} usually leaves or sleeps soon: long shards wait for a target that stays'
+    return short, ''
+
+
+def ready_work(cfg, t, work, free, taken):
+    """(the shards this target can start now, why none can or '')."""
+    ready = [x for x in work if not light_refused(cfg, t, x) and not x.get('wait') and holds_free(x, free - {t['id']}, taken)]
+    if ready:
+        return ready, ''
+    return [], 'its shards also need ' + ', '.join(sorted({n for x in work for n in x.get('holds') or []})) + ', which is busy or held'
+
+
+def choices(cfg, t, pend, place, taken, free, on, quiet):
+    """(the shards this target may start now, why it is blocked or ''); (None, '') when it has nothing to do (busy, or no
+    compatible work)."""
+    work, why = staying(cfg, t, [w for w in pend if compatible(t, w) and (w['project'], w['key']) not in taken], place)
+    if not why and (t['busy'] or not work or t['id'] in taken):
+        return None, ''
+    why = why or blocked_by(cfg, t, work, on, quiet)
+    return ([], why) if why else ready_work(cfg, t, work, free, taken)
+
+
+def plan(cfg, st, tgts, pend, on, quiet='', place=None):
     """{assign: [(target, shard)], blocked: {target id: why}}: each free target pulls a compatible pending shard, the
-    projects taking turns by their weighted fair share."""
+    projects taking turns by their weighted fair share. `place` (presence.placement): the most always-on targets choose
+    first, and a long shard (suite `minutes` >= presence.long_minutes) never goes to a target likely to leave or sleep soon."""
     out, taken = {'assign': [], 'blocked': {}}, set()
+    place = place or {}
+    tgts = sorted(tgts, key=lambda t: -(place.get(t['id']) or {}).get('stay', 1.0))
     running = {}
     for lease in st['leases'].values():
         running[lease['project']] = running.get(lease['project'], 0) + 1
     free = {t['id'] for t in tgts if not t['busy'] and not t['blocked']}
     for t in tgts:
-        work = [w for w in pend if compatible(t, w) and (w['project'], w['key']) not in taken]
-        if t['busy'] or not work or t['id'] in taken:
+        ready, why = choices(cfg, t, pend, place, taken, free, on, quiet)
+        if ready is None:
             continue
-        why = blocked_by(cfg, t, work, on, quiet)
         if why:
             out['blocked'][t['id']] = why
-            continue
-        ready = [x for x in work if not light_refused(cfg, t, x) and not x.get('wait') and holds_free(x, free - {t['id']}, taken)]
-        if not ready:
-            out['blocked'][t['id']] = 'its shards also need ' + ', '.join(sorted({n for x in work for n in x.get('holds') or []})) + \
-                ', which is busy or held'
             continue
         w = pick(cfg, ready, running)
         taken |= {(w['project'], w['key']), t['id'], *(f'device:{n}' for n in w.get('holds') or [])}
@@ -333,7 +371,7 @@ def watch(cfg, st, tgts, pend, p, now, worker_rows=()):
     warnings = []
     for t in [*tgts, *worker_rows]:
         work = t.get('work') or [w for w in pend if compatible(t, w)]
-        if t['busy'] or not work or t['id'] in sent:
+        if t['busy'] or t.get('absent') or not work or t['id'] in sent:   # away or asleep is not idle
             st['idle'].pop(t['id'], None)
             st['warned'].pop(t['id'], None)
             continue
@@ -471,29 +509,65 @@ def finish(st, lease, ok, why, now):
               log=lease.get('log'))
 
 
-def recover(cfg, st, now, is_alive, rc_fn=read_rc, age_fn=beat_age):
-    """Ends every lease whose run finished (its rc file) or died (no live pid, or a heartbeat older than lease_minutes): the
-    shard is passed, failed or (crashed) failed with its retries counted, and its target is free again."""
+def stop_pid(pid):
+    """A lease's run stopped (its target left): its process group gets SIGTERM; it is gone already when that fails."""
+    import signal
+    with contextlib.suppress(OSError, AttributeError):
+        os.killpg(pid, signal.SIGTERM)
+
+
+def interrupted(lease, rc, alive, gone, boot):
+    """Why the lease's run is interrupted, not failed, or '': its target left (away or asleep), or its host went down under it
+    (an earlier boot: a power-off or reboot). Interrupted shards are queued again with no attempt counted."""
+    if lease['target'] in (gone or {}) and rc != 0:
+        return f'{lease["name"]} left mid-run ({gone[lease["target"]]}): queued again, not counted as a failure'
+    if rc is None and not alive and durable.died_with_host(lease.get('boot'), boot):
+        return 'interrupted by a power-off or reboot of this host: queued again, not counted as a failure'
+    return ''
+
+
+def no_result_why(cfg, lid, alive, now, age_fn):
+    """A run with no result yet: None while it lives with a fresh heartbeat, else why it counts as failed."""
     limit = float((cfg.get('dispatch') or {}).get('lease_minutes', 10)) * 60
+    age = age_fn(cfg, lid, now)
+    if alive and age is not None and age < limit:
+        return None
+    if not alive:
+        return 'the run died without a result (crash): retried'
+    return f'no heartbeat for {int((age or limit) // 60)} min: retried'
+
+
+def ended_why(cfg, st, lid, lease, rc, alive, cut, now, age_fn):
+    """Why the lease's run ended, or None while it still runs with a fresh heartbeat."""
+    if rc is None and not cut:
+        return no_result_why(cfg, lid, alive, now, age_fn)
+    if rc == STOPPED_FOR_CALL:
+        return 'stopped for a phone call: queued again, not counted as a failure'
+    if isinstance(rc, str):
+        if lease.get('kind') in DEVICE_KINDS:   # the device was locked or in use: let it be for a while
+            cool = float((cfg.get('dispatch') or {}).get('requeue_cooldown_minutes', 10)) * 60
+            st.setdefault('cooldown', {})[lease['name']] = now + cool
+        return rc[len(shards.REQUEUE):].strip()
+    if cut:
+        return cut
+    return 'passed' if rc == 0 else f'failed (exit {rc}): see {paths(cfg, lid)["log"]}'
+
+
+def recover(cfg, st, now, is_alive, rc_fn=read_rc, age_fn=beat_age, gone=None, boot=None, stop_fn=stop_pid):
+    """Ends every lease whose run finished (its rc file) or died (no live pid, or a heartbeat older than lease_minutes): the
+    shard is passed, failed or (crashed) failed with its retries counted, and its target is free again. A run whose target
+    left (`gone`: presence's away and asleep targets) or whose host rebooted is interrupted: queued again, nothing counted."""
     ended = []
     for lid, lease in list(st['leases'].items()):
         rc = rc_fn(cfg, lid)
-        if rc is None:
-            age = age_fn(cfg, lid, now)
-            if is_alive(lease['pid']) and age is not None and age < limit:
-                continue
-            why = 'the run died without a result (crash or reboot): retried' if not is_alive(lease['pid']) else \
-                f'no heartbeat for {int((age or limit) // 60)} min: retried'
-        elif rc == STOPPED_FOR_CALL:
-            why = 'stopped for a phone call: queued again, not counted as a failure'
-        elif isinstance(rc, str):
-            why = rc[len(shards.REQUEUE):].strip()
-            cool = float((cfg.get('dispatch') or {}).get('requeue_cooldown_minutes', 10)) * 60
-            if lease.get('kind') in DEVICE_KINDS:   # the device was locked or in use: let it be for a while
-                st.setdefault('cooldown', {})[lease['name']] = now + cool
-        else:
-            why = 'passed' if rc == 0 else f'failed (exit {rc}): see {paths(cfg, lid)["log"]}'
-        if isinstance(rc, str):
+        alive = is_alive(lease['pid'])
+        cut = interrupted(lease, rc, alive, gone, boot)
+        why = ended_why(cfg, st, lid, lease, rc, alive, cut, now, age_fn)
+        if why is None:
+            continue
+        if cut and alive and rc is None:
+            stop_fn(lease['pid'])
+        if isinstance(rc, str) or cut:
             requeue(st, lease, why, now)
         else:
             finish(st, lease, rc == 0, why, now)
@@ -517,7 +591,8 @@ def start(cfg, st, target, w, now, spawn=subprocess.Popen):
     commit = st['projects'][w['project']].get('commit')
     st['leases'][lid] = {'id': lid, 'project': w['project'], 'key': w['key'], 'commit': commit, 'target': target['id'],
                          'kind': target['kind'], 'name': target['name'], 'pid': child.pid, 'started': now,
-                         'holds': list(w.get('holds') or []), 'extra': w.get('extra', ''), 'log': p['log']}
+                         'holds': list(w.get('holds') or []), 'extra': w.get('extra', ''), 'log': p['log'],
+                         'boot': durable.boot_id()}
     st['projects'][w['project']]['shards'][w['key']].update(status='running', lease=lid, target=target['id'], at=now)
     st['idle'].pop(target['id'], None)
     st['warned'].pop(target['id'], None)
@@ -539,23 +614,44 @@ def quiet_now(cfg, now, zone=''):
     return ''
 
 
-def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None, spawn=subprocess.Popen, ask_fn=ask):
-    """One round: end finished or dead leases, refresh the pending work, pull it to free targets, watch for idle ones."""
+def waiting_since(st, tgts, pend):
+    """{target id: since when compatible work waits for it} (the oldest pending shard's queue time)."""
+    out = {}
+    for t in tgts:
+        ats = [((st['projects'].get(w['project']) or {}).get('shards') or {}).get(w['key'], {}).get('at') or
+               (st['projects'].get(w['project']) or {}).get('since') or 0 for w in pend if compatible(t, w)]
+        if ats:
+            out[t['id']] = min(ats)
+    return out
+
+
+def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None, spawn=subprocess.Popen, ask_fn=ask,
+         presence_io=presence.round_io, members=None, models=None, stop_fn=stop_pid):
+    """One round: presence from the probes, end finished, dead or interrupted leases, refresh the pending work, pull it to
+    free targets that are here, watch for idle ones, and reconnect or wake absent ones."""
     now = now or time.time()
     is_alive = is_alive or controls.alive
     on = settings(cfg).get('enabled', True) is not False
     rows = worker_rows(cfg, accounts or {}, machine_rows) if accounts is not None else []
+    pst = presence.read(cfg)
+    changes = presence.update(cfg, pst, devices_rows, machine_rows, now, members, models)
+    off = presence.offset(cfg)
+    gone = {tid: presence.label(r, off) for tid, r in presence.absent(pst).items()}
     with locked(cfg) as st:
+        for tid, change, r in changes:
+            event(st, now, f'{tid} {"is back" if change == "returned" else presence.label(r, off).lower()}')
         restore_left(cfg, st, devices_rows, now)
         before = {lid: lease['project'] for lid, lease in st['leases'].items()}
-        recover(cfg, st, now, is_alive)
+        recover(cfg, st, now, is_alive, gone=gone, stop_fn=stop_fn)
         touched = {pr for lid, pr in before.items() if lid not in st['leases']}
         refresh(cfg, st, now, ask_fn)
         touched |= builds(cfg, st, now, is_alive, spawn)
         pend = pending(cfg, st, now)
         held = {**cooling(st, now), **calls.holds(cfg, st, devices_rows, now)}
-        tgts = targets(devices_rows, machine_rows, st, held)
-        p = plan(cfg, st, tgts, pend, on, lambda t: quiet_now(cfg, now, t.get('zone') or ''))
+        tgts = targets(devices_rows, machine_rows, st, held, gone)
+        p = plan(cfg, st, tgts, pend, on, lambda t: quiet_now(cfg, now, t.get('zone') or ''), presence.placement(cfg, pst, now))
+        for line in presence_io(cfg, pst, now, waiting_since(st, [t for t in tgts if t.get('absent')], pend)):
+            event(st, now, line)
         kept = [w for w in st['warnings'] if w['kind'] == 'worker'] if accounts is None else []
         watch(cfg, st, tgts, pend, p, now, rows)
         st['warnings'] += kept   # a round without the accounts' readings (a run that ended) keeps the workers' rows
@@ -567,6 +663,7 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
         st['last'] = {'at': now, 'on': on, 'sent': len(p['assign']), 'pending': len(pend), 'blocked': p['blocked']}
         for project in touched & set(st['projects']):   # the results where the project's own sessions read them (projects.<p>.report)
             shards.write_report(cfg, project, st['projects'][project], now)
+    presence.write(cfg, pst)
     telemetry.record('feature', 'dispatch.tick', sent=len(p['assign']), pending=len(pend), blocked=len(p['blocked']))
     return p
 

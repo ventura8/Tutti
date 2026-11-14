@@ -156,6 +156,22 @@ what needs you), then **Move**. The move runs detached; this dashboard stops dur
 to the new host's dashboard, through the client, on the same address. A stopped move offers **Roll back**. On a client
 whose host is down, the card says the page is a read-only copy. See [MOVE.md](MOVE.md).
 
+## Presence and moving work
+
+Each device and machine card shows whether it is here: *Here*, *Away since 18:40 (left with its owner)*, *Asleep since
+01:10*. It also shows a strip of today's 24 hours, how often the target was here at each hour. An away or asleep target
+is never flagged idle.
+
+Machines → *Waiting on away or asleep targets* lists the jobs that wait on such a target. Each job has these controls:
+
+- **Move now**: to a target you pick, or to *Best available*;
+- **First in queue**: a priority bump;
+- **Move all waiting on …**: moves everything waiting on that target.
+
+Only an admin can move work (`POST /api/work/move` passes the auth hook; a viewer gets 403). When Tutti runs on a laptop,
+the *Where Tutti runs* card says what stops while the laptop is gone, and how to move Tutti to an always-on machine. See
+[PRESENCE.md](PRESENCE.md).
+
 ## Settings
 
 The **Settings** tab (beside *Dashboard* in the app bar; at the bottom of the screen on a phone; `#settings`, or

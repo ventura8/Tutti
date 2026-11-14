@@ -65,6 +65,10 @@ own lock is held on its machine, as for any device run.
   `dispatch.lease_minutes`.
 - A crashed run counts as a failed attempt and is retried; its target is free again in the same round.
 
+A lease whose target goes away or asleep, or whose run died with its host (an earlier boot id), is interrupted, not
+failed: the shard is queued again with no attempt counted. An admin can move a waiting shard to another target, and pin it
+there, with `tutti job move` or the dashboard's Move now. See [PRESENCE.md](PRESENCE.md).
+
 ## The idle watchdog
 
 A target idle for more than `dispatch.idle_minutes` (default 5) while compatible work waits gets three things:

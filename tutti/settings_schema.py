@@ -12,7 +12,8 @@ from . import config, scouts
 MISSING = object()
 DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 # Settings that change only when the dashboard starts again (the page then offers a Restart button)
-RESTART = {'host', 'dashboard.port', 'project.state', 'household.port', 'household.bind', 'telemetry.endpoint', 'telemetry.environment'}
+RESTART = {'host', 'dashboard.port', 'dashboard.bind', 'dashboard.origins', 'auth.client_id', 'auth.session_hours',
+           'project.state', 'household.port', 'household.bind', 'telemetry.endpoint', 'telemetry.environment'}
 # Named entries: each one is drawn as its own group of fields
 ENTRIES = ('machines', 'devices', 'workers', 'accounts', 'projects', 'scouts', 'autopilot.repos', 'scouts.*.watches')
 SECTIONS = [
@@ -43,6 +44,8 @@ SECTIONS = [
      ['self_update', 'update']),
     ('dashboard', 'Dashboard', 'This page: its port, how often it refreshes, and which processes it shows as jobs.',
      ['dashboard', 'project']),
+    ('auth', 'Sign-in', 'Sign-in with Google and how long a session lasts (docs/AUTH.md; `tutti auth setup` sets the clients).',
+     ['auth']),
     ('household', 'You and your household', 'Who this Tutti works for, and the household it shares machines with.',
      ['user', 'household', 'host']),
     ('vpn', 'Private network (optional)', 'Already have a VPN to your home? Nothing to do. Which one `tutti vpn setup` sets up '
@@ -348,6 +351,11 @@ FIELDS = {
     'translate.retries': field('Retries', 'Tries after a failed check.', 'number', min=0),
     # dashboard
     'dashboard.port': field('Port', 'The dashboard\'s port on 127.0.0.1.', 'number', min=1, max=65535),
+    'dashboard.bind': field('Address', 'Where the dashboard listens: 127.0.0.1, or this computer\'s LAN or VPN address (sign-in '
+                            'required; never a public address).', 'text'),
+    'auth.client_id': field('Web client ID', 'The Google OAuth "Web application" client for this computer and https names. '
+                            'Public, not a secret. Empty: the one `tutti auth setup` saved.', 'text'),
+    'auth.session_hours': field('Session length', 'How long a sign-in lasts before signing in again.', **HRS),
     'dashboard.refresh_seconds': field('Page refresh', 'How often this page asks for news.', **SEC),
     'dashboard.probe_seconds': field('Probe machines every', 'How often machines and workers are probed.', **SEC),
     'dashboard.stall_minutes': field('Stalled after', 'A running job whose log is quiet this long is stalled.', 'number', unit='minutes',

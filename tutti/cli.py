@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from . import (
     __version__,
+    authcmd,
     autopilot,
     backlog,
     bridge,
@@ -920,8 +921,11 @@ def cmd_dashboard(cfg, a):
     port = cfg['dashboard']['port'] if a.port is None else a.port
     try:
         httpd = dashboard.server(cfg, port, collector)
+    except dashboard.AuthRequired as e:
+        say(str(e))
+        return 2
     except OSError as e:
-        say(f'cannot listen on {dashboard.BIND}:{port} ({e.strerror}): another dashboard may be running there; open it, '
+        say(f'cannot listen on {dashboard.bind_of(cfg)}:{port} ({e.strerror}): another dashboard may be running there; open it, '
             'or pass --port <n> (or set dashboard.port)')
         return 1
     refused = vpncmd.funnel_refusal(cfg)
@@ -933,7 +937,9 @@ def cmd_dashboard(cfg, a):
         collector.start()
     from . import install  # a release install updates itself daily and restarts in place (docs/INSTALL.md, *Updates*)
     install.start_daily(cfg, collector.stop, remote.ROOT, lambda: os.execv(sys.executable, [sys.executable, *sys.argv]))
-    say(f'dashboard: http://{dashboard.BIND}:{httpd.server_address[1]}/ (this computer only; Ctrl+C stops it)')
+    where = 'this computer only' if not dashboard.exposed(cfg) else 'reachable by others: sign-in with Google required'
+    signin = 'sign-in with Google on' if httpd.auth else 'sign-in off: `tutti auth setup` turns it on'
+    say(f'dashboard: http://127.0.0.1:{httpd.server_address[1]}/ ({where}; {signin}; Ctrl+C stops it)')
     from . import coordinator, netpolicy  # the household coordinator's computer serves the household from its dashboard too
     try:
         hh = coordinator.start_in_background(cfg)
@@ -1533,6 +1539,16 @@ def parser():
     s.add_argument('--dry-run', action='store_true', help='setup: print what it would do; change nothing')
     s.add_argument('--authkey', metavar='MACHINE', help='setup: join a headless machine with a Tailscale auth key typed hidden')
     s.add_argument('--cert', action='store_true', help='setup: also make the private https certificate for this computer\'s tailnet name')
+    s = add('auth', authcmd.cmd_auth, 'sign-in with Google for the dashboard (docs/AUTH.md): status, setup [--client-id <id>] '
+                                      '(prints the console steps), users, promote <email>, reset-admin --yes')
+    s.add_argument('action', nargs='?', default='status', choices=list(authcmd.ACTIONS))
+    s.add_argument('email', nargs='?', help='promote: the e-mail of a user who signed in once')
+    s.add_argument('--client-id', help='setup: the OAuth client ID (public, not a secret)')
+    s.add_argument('--yes', action='store_true', help='reset-admin: really forget every user and session')
+    s.add_argument('--device-client-id', help='setup: the "TVs and Limited Input devices" client ID (sign-in from the LAN and any VPN)')
+    s.add_argument('--device-secret-stdin', action='store_true', help='setup: read that client\'s secret from stdin (never argv)')
+    s.add_argument('--tailscale', action='store_true', help='setup: serve the dashboard on this computer\'s Tailscale https '
+                                                            'name (tailnet only) and add that origin')
     s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it')
     s.add_argument('agent', nargs='?')
     return p

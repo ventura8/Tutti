@@ -26,7 +26,7 @@ class Order(unittest.TestCase):
         heads = re.findall(r'<h2 id="([a-z]+)-h">', page)
         self.assertEqual(heads, ['usage', 'attention', 'household',
                                  'running', 'machines', 'autopilot', 'main', 'workers', 'projects', 'scouts',
-                                 'connect', 'where', 'setup', 'controls', 'selfimprove', 'insights', 'jobs', 'vpn'])
+                                 'connect', 'where', 'setup', 'controls', 'selfimprove', 'insights', 'jobs', 'vpn', 'users'])
 
     def test_usage_shows_the_accounts_then_local_models_then_the_owner(self):
         # the served page: online agents' usage cards, then Local models, then "You and the main agent" (#owner)

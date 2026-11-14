@@ -325,3 +325,20 @@ The first dry run of `tutti devices move --to nuc` said no device was seen over 
 there listed all three. The preflight's `adb mdns services` had started the adb server, which had not heard any
 announcement yet. **Rule.** Ask adb's mDNS list after `adb start-server` and again for a few seconds until a connect
 service shows (tutti/adbhost.py `services`); never conclude "not on this network" from one look.
+
+## Google's sign-in button needs inline styles (2026-11-14)
+
+**What happened.** With `style-src 'self' https://accounts.google.com/gsi/style` the GIS button rendered as a page-sized
+Google logo: GIS injects inline styles, and the CSP blocked them.
+
+**Rule.** The login page alone allows `'unsafe-inline'` styles (it renders no data as markup); the dashboard's own CSP is
+unchanged. Check a third-party widget in a real browser, not only through the server's headers.
+
+## Two scripts of one page declared the same constant (2026-11-14)
+
+**What happened.** users.js declared `const DAY_NAMES`, which another script of the dashboard already declared. Classic
+scripts share one global scope, so users.js stopped with a SyntaxError and the whole sign-in UI (role, Users tab, My
+schedule) silently did nothing. The unit tests passed; only a real browser showed it.
+
+**Rule.** A test reads every script that index.html loads and fails on a top-level name declared twice. Check a page
+change in a browser, with the service worker's cache cleared.

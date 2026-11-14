@@ -21,6 +21,7 @@ $t connect --status > /dev/null
 $t mcp < /dev/null
 $t user > /dev/null
 $t household status > /dev/null
+$t auth status > /dev/null
 $t runs > /dev/null
 $t move --status > /dev/null
 $t bridge status > /dev/null

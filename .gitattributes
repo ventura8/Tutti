@@ -1,0 +1,4 @@
+# Shell scripts and the bash-run launcher keep LF on every checkout: a Windows clone with core.autocrlf=true got CRLF,
+# and bash could not run scripts/slot.sh (exit 126), so every local run on Windows failed (QA, Windows 11, 2026-11-14).
+*.sh text eol=lf
+bin/tutti text eol=lf

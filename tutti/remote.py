@@ -13,6 +13,21 @@ BIN = os.path.join(ROOT, 'bin', 'tutti')
 SSH = ['ssh', '-o', 'LogLevel=ERROR']
 
 
+_BASH_PATHS = {}
+
+
+def bash_path(p):
+    """A path on this computer as the local bash sees it. On Windows that bash is WSL's (C:\\x -> /mnt/c/x) or Git
+    Bash (-> /c/x): handed the Windows path, `cd` failed and every local run exited 1. Elsewhere the path itself."""
+    if os.name != 'nt':
+        return p
+    if p not in _BASH_PATHS:
+        r = subprocess.run(['bash', '-c', 'wslpath -a "$1" 2>/dev/null || cygpath -u "$1"', 'bash', p],
+                           capture_output=True, text=True, check=False)
+        _BASH_PATHS[p] = r.stdout.strip() or p
+    return _BASH_PATHS[p]
+
+
 def home_path(p):
     """A path for a remote bash line: a leading ~ becomes $HOME, the rest is quoted."""
     if p == '~' or p.startswith('~/'):
@@ -131,7 +146,8 @@ def run(cfg, machine, track, src, command):
     """Runs `command` over the tree on the machine, behind its slot queue. Returns the command's exit code."""
     slot = slot_prefix(machine)
     if machine['transport'] == 'local':
-        script = f'cd {shlex.quote(src)} && {slot} bash {shlex.quote(SLOT_SCRIPT)} {runner_command(machine, track, command)}'
+        script = (f'cd {shlex.quote(bash_path(src))} && {slot} bash {shlex.quote(bash_path(SLOT_SCRIPT))} '
+                  f'{runner_command(machine, track, command)}')
         return sh(machine, script).returncode
     is_git = sync(cfg, machine, track, src)
     root = root_path(machine)

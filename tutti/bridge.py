@@ -499,8 +499,10 @@ def ssh_argv(cfg):
     h = cfg['host']
     port = int(h.get('port') or cfg['dashboard']['port'])
     remote_cmd = shlex.join([h.get('tutti') or 'tutti', '--config', h['config'], 'bridge', 'serve', '--machine', h['me']])
+    # local models on this computer's loopback reach the host's own loopback (host.reverse, set by `tutti move`)
+    reverse = [x for p, here in h.get('reverse') or [] for x in ('-R', f'127.0.0.1:{int(p)}:{here}')]
     return ['ssh', '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3', '-o', 'ExitOnForwardFailure=no',
-            '-L', f'127.0.0.1:{port}:127.0.0.1:{port}', h['ssh'], remote_cmd]
+            '-L', f'127.0.0.1:{port}:127.0.0.1:{port}', *reverse, h['ssh'], remote_cmd]
 
 
 class Pipe:

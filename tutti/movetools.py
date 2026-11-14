@@ -195,3 +195,81 @@ def size_kb(paths, home, runner=run):
         return int(last[0].split()[0])
     except (ValueError, IndexError):
         return 0
+
+
+# ---- ssh access to the machines the target cannot reach yet (the owner's decision, docs/MOVE.md, *Machines*)
+
+
+def ssh_blocks(aliases, text):
+    """{alias: {'block', 'identities', 'hostname', 'port'}} of `Host <alias>` entries in an ssh config's text (the block as
+    written; its IdentityFile paths; where it points). Only exact single-alias blocks are taken."""
+    out, cur, lines = {}, None, text.splitlines()
+    for line in [*lines, 'Host __end__']:
+        words = line.strip().split()
+        if words and words[0].lower() in ('host', 'match'):
+            if cur and cur['alias'] in aliases:
+                out[cur['alias']] = cur
+            cur = {'alias': words[1], 'block': [line], 'identities': [], 'hostname': words[1], 'port': '22'} \
+                if words[0].lower() == 'host' and len(words) == 2 else None
+            continue
+        if cur is None:
+            continue
+        cur['block'].append(line)
+        if len(words) >= 2 and words[0].lower() == 'identityfile':
+            cur['identities'].append(words[1])
+        elif len(words) >= 2 and words[0].lower() == 'hostname':
+            cur['hostname'] = words[1]
+        elif len(words) >= 2 and words[0].lower() == 'port':
+            cur['port'] = words[1]
+    return {a: {**b, 'block': '\n'.join(b['block']).rstrip() + '\n'} for a, b in out.items()}
+
+
+def ssh_carry(aliases, home, read=None):
+    """What gives the target the same ssh access as here to these machines: their config blocks and key files."""
+    path = os.path.join(home, '.ssh', 'config')
+    try:
+        text = read(path) if read else open(path, encoding='utf8').read()
+    except OSError:
+        return {}
+    found = ssh_blocks(set(aliases), text)
+    for b in found.values():
+        b['block'] = b['block'].replace(home.rstrip('/') + '/', '~/')   # the key's path under the target's own home
+        b['keys'] = [os.path.relpath(os.path.expanduser(i), home) for i in b['identities']
+                     if os.path.expanduser(i).startswith(home.rstrip('/') + '/') and os.path.exists(os.path.expanduser(i))]
+    return found
+
+
+def known_hosts(entry, runner=run):
+    """The known_hosts lines for a machine (public host keys: `ssh-keygen -F`), so the target trusts the same host key."""
+    name = entry['hostname'] if entry['port'] == '22' else f'[{entry["hostname"]}]:{entry["port"]}'
+    out = []
+    for n in dict.fromkeys([name, entry['alias']]):
+        r = runner(['ssh-keygen', '-F', n])
+        out += [line for line in (r.stdout or '').splitlines() if line and not line.startswith('#')]
+    return list(dict.fromkeys(out))
+
+
+def ssh_script(entries, lines_of):
+    """On the target: each Host block appended to ~/.ssh/config when that alias has none, the host keys to known_hosts."""
+    parts = ['set -e; umask 077; mkdir -p "$HOME/.ssh"; touch "$HOME/.ssh/config" "$HOME/.ssh/known_hosts"']
+    for e in entries.values():
+        block = shlex.quote('\n' + e['block'])   # literal: no escapes interpreted
+        parts.append(f'grep -qiE "^Host[[:space:]]+{re.escape(e["alias"])}[[:space:]]*$" "$HOME/.ssh/config" || '
+                     f'printf %s {block} >> "$HOME/.ssh/config"')
+        for line in lines_of(e):
+            q = shlex.quote(line)
+            parts.append(f'grep -qxF {q} "$HOME/.ssh/known_hosts" || printf "%s\\n" {q} >> "$HOME/.ssh/known_hosts"')
+    parts.append('chmod 600 "$HOME/.ssh/config" "$HOME/.ssh/known_hosts"')
+    return '\n'.join(parts)
+
+
+def reverse_ports(cfg, first=11435):
+    """[(worker, port on the host, address here)] for each local model served on this computer's loopback: the client's ssh
+    carries it to the host's own 127.0.0.1:<port> (never a LAN or public bind)."""
+    out, port = [], first
+    for name, w in cfg['workers'].items():
+        host = str(w.get('host') or '')
+        if w.get('kind') == 'ollama' and not w.get('machine') and not w.get('tunnel') and host.split(':')[0] in ('127.0.0.1', 'localhost'):
+            out.append((name, port, host))
+            port += 1
+    return out

@@ -184,7 +184,7 @@ def is_test(path):
 def test_stem(path):
     """The unit a test file names: test_foo.py, foo_test.py, foo.test.ts and foo.spec.js all name `foo`."""
     name = os.path.basename(path).lower().split('.')[0]
-    return re.sub(r'^test_|_test$', '', name)
+    return re.sub(r'(^test_)|(_test$)', '', name)
 
 
 def untested_items(files):

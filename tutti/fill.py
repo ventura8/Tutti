@@ -152,7 +152,9 @@ def verdict(text):
     bullets = [ln.strip()[2:].strip() for ln in body.splitlines() if ln.strip().startswith(('- ', '* '))]
     if body.lstrip('*_# ').lower().startswith('no findings') and not bullets:   # a hedged "no findings, but - ..." is not clean
         return True, []
-    return False, (bullets or [body[:400] or 'the reviewer gave no verdict'])[:8]
+    if bullets:
+        return False, bullets[:8]
+    return False, [body[:400] or 'the reviewer gave no verdict']
 
 
 def gated(cfg, task):

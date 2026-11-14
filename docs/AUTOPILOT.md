@@ -117,6 +117,12 @@ queued ones it may start next are reserved. The answer mirrors the other members
 another member has ("leased by Bo"). The plan then works as usual, under this member's own accounts only. While the
 coordinator cannot be reached, the shared repos' queued tasks wait and the private repos go on.
 
+A member reserves only as many shared tasks as it could start now (`max_parallel` minus its runs), so it never keeps
+tasks from the others. An account with `share_spare` whose room would be lost at its reset may also take other members'
+shared projects (*spare repos*, `hh-<name>`, cloned once; docs/HOUSEHOLD.md, *Spare room*): only those spare accounts
+take their tasks, and a result is a draft pull request. A household's shared machines offer each member only its grant
+(docs/MACHINES.md, *Shared with a household*).
+
 ## Results land by themselves (`auto_review`)
 
 On by default. One result at a time, `tutti autopilot land <id>` runs in the background:

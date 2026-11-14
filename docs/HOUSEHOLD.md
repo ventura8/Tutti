@@ -113,8 +113,8 @@ A repo in `autopilot.repos` with `household: true` is a **shared project**. Its 
   `household`), so the queue, retries and the ladder work as before.
 - **Dedupe.** A task's key is its title, folded (case, spaces, punctuation). A key the shared backlog has, in any status
   (done and dropped too), is never added again, and a task one member finished is closed for all.
-- **Leases.** A shared task starts only under its lease `task:<project>:<key>`: the round's call reserves the next ones
-  for 5 minutes, and a task that starts gets the full 30 minutes in a second call right away; every round renews the
+- **Leases.** A shared task starts only under its lease `task:<project>:<key>`: the round's call reserves, in its order,
+  as many free tasks as the member could start now (`max_parallel` minus its runs) for 5 minutes, and a task that starts gets the full 30 minutes in a second call right away; every round renews the
   leases of its running and in-review tasks (the heartbeat). A lease held by another member makes the task wait ("leased by
   Bo"); one whose heartbeat stopped expires and the task may be taken again (it starts over in the new holder's worktree). A
   task mirrored from the household is reserved at the member's next round. Only the member that published a task or holds
@@ -139,15 +139,55 @@ elsewhere or queues), so the slot queue on the machine stays first come, first s
 5. **Work-conserving.** Slots nobody else wants are granted to whoever wants them, so a machine is never idle while
    someone has work.
 
-The **household plan** combines every member's 7 x 24 profile into the expected users per hour; the shared local models
-(Ollama on a GPU) take each member's background tasks in the hours the others are expected to be away. Each member's own
-accounts are still planned by their own pacing (USAGE-PACING.md), so every account of every member ends near 100 %
-before its reset.
+The **household plan** combines every member's 7 x 24 profile (sent in UTC terms with their offset; empty while they are
+away or on vacation) into the expected members per hour, and that is the "expected activity" of step 3: in Ana's working
+hours her background runs weigh twice Bo's, in his hours the other way round, and at night they share evenly. Each
+member's own accounts are still planned by their own pacing (USAGE-PACING.md), so every account of every member ends
+near 100 % before its reset; the shared machines only decide where and when their runs go.
+
+What a member tells the coordinator each round, per shared machine: its runs there by hand (interactive) and by the
+autopilot (background; an autopilot run's jobs carry `class:background`), one more interactive slot while it prompts
+on the first shared machine of its routing order (its next test should not wait), its queued tasks spread once over the
+machines (never counted on each), and for its own shared machines how many slots are fit now (0 while offline,
+yielding, paused or too hot; `heat.hot_slots` while hot). Counts only; a status look sends none and keeps the last.
+
+A member's routing (`tutti test`) and its autopilot see a shared machine with at most `grant - its runs there` free
+slots; the dashboard's machine and the autopilot's reason say who it is busy for ("household share: 1 of 4 slot(s)
+yours now (busy for Bo 3)"). A grant older
+than 5 minutes is not used: another member's machine then counts as full, one's own keeps its last grant.
+
+### Joining a machine
+
+`tutti household machine share pc` (its owner, once): Tutti makes `/tmp/tutti-household` on pc (mode 1777 like `/tmp`:
+every member's login can make a slot lock there and nobody can remove or replace another login's file; `slot.sh` opens a
+shared lock read-only, which `flock` allows), points the owner's own `machines.pc` at it (`lock_prefix`, kept in
+`user.json`, never in the config file), and tells the
+coordinator pc's address (`--host`, default its `host`, or this computer's LAN address for a `local` machine), its slots
+and whether it has a GPU. The owner's yield flag stays where it is: while it is up (or pc is offline or paused), the
+owner's heartbeat reports no fit slot and the coordinator grants nobody a slot on pc.
+
+`tutti household machine use pc` (each other member): pc joins their machines (in `user.json`; after the routing order
+they wrote) with the household's paths, and Tutti checks it answers over ssh. It runs as the member's own login on pc
+(`--user <login>` when it differs): the owner adds a login for them there, or their ssh key to an account, once. That is
+the one step Tutti cannot do for them.
+
+`machine pause|resume pc` pauses it for the whole household (its owner or the admin); `machine unshare pc` takes it out.
+
+## Spare room shared with the household
+
+An account with `share_spare: true` (or `tutti user share <account> on`) whose planner says it has tasks to give now,
+within `household.share_spare_hours` (default 6) of its target, and is neither in panic nor spent, is *spare*. While a
+member has a spare account its heartbeat says so, and the coordinator offers the shared projects of other members that
+have queued tasks nobody holds (with the gates, `check`, their members publish). Tutti clones such a project once with
+the member's own git sign-in into `<state>/household/repos/hh-<name>` (a failed clone is said and tried again after 6 h)
+and adds it as a *spare repo*: its tasks are leased like any shared task, only the spare accounts take them, and a result
+becomes a draft pull request a member of that project merges. With no spare account, they wait ("only room your accounts
+would lose at their reset does it").
 
 ## Setup: minimum input
 
 What ships when is under *Increments* below: `tutti user` and `tutti household status` (0.1.29), `init`, `join`,
-`leave`, `code`, `serve` and `project share` (0.1.31), then `machine share|use`.
+`leave`, `code`, `serve` and `project share` (0.1.31), `machine share|unshare|use|pause|resume` and spare room (0.1.34).
 
 The coordinator (once, on the always-on computer):
 
@@ -180,23 +220,35 @@ so a later join starts with nothing shared). `tutti household serve --port <n>` 
 name the new port. `init` always starts a fresh household: an older coordinator file's members and tokens are gone.
 
 `tutti user` shows who this Tutti works for (name, a hashed id, main agent, config and state folders, household role);
-`tutti user name <name>` and `tutti user share <account> on|off` change it; the main agent is `tutti main <agent>`'s.
+`tutti user name <name>` and `tutti user share <account> on|off` change it.
+
+### The main agent
+
+Every member uses their own main agent and may change it at any time: `tutti user main-agent <kind>`, one of `claude`
+(Claude Code), `codex` (Codex / ChatGPT), `agy` (Antigravity), `cursor`, `copilot`, `gemini` or `local` (a local model).
+The default is what `tutti setup` detects. The choice is kept in `user.json` (the config file is untouched) and names
+the config's worker of that kind; the planner's owner reserve (USAGE-PACING.md) then applies to the accounts behind that
+worker, so it moves with the switch. A switch runs `tutti connect` for the new agent (tutti/connect.py's `connect_all`).
+The household view shows each member's main agent (its kind only).
 
 ## Files
 
 | Where | What |
 | --- | --- |
 | member: `~/.config/tutti/household.json` (600) | the household, the coordinator's address, the user id, the derived token, the role |
-| member: `<state>/user.json` | the name, the `share_spare` switches, the repos shared by `household project share` |
+| member: `<state>/user.json` | the name, the `share_spare` switches, the repos shared by `household project share`, its shared machines' paths (`machine_overrides`), the machines it uses (`household_machines`), adopted spare repos |
+| member: `<state>/household/grants.json` | the last grants per shared machine (routing reads them; 5 minutes fresh) |
+| member: `<state>/household/repos/` | clones of other members' projects adopted for spare room |
 | coordinator: `<state>/household/coordinator.json` (600) | members (name, hash, agent kind, token, last heartbeat, totals), the join code's secret and expiry, leases, the shared backlogs |
 
-The coordinator's API: `POST /hh/join` (signed with the join code), `/hh/sync` (the heartbeat and every shared
-project in one call per round), `/hh/status`, `/hh/leave`, `/hh/code` (the admin only); `GET /hh/health`.
+The coordinator's API: `POST /hh/join` (signed with the join code), `/hh/sync` (the heartbeat, every shared project and
+the grants in one call per round; offers when spare), `/hh/status`, `/hh/machine` (share, unshare, pause, resume),
+`/hh/leave`, `/hh/code` (the admin only); `GET /hh/health`.
 
 ## Telemetry
 
-New events (`household.init`, `household.join`, `household.sync` with its outcome `ok`, `offline` or `refused`, and from
-increment 3 `household.grant`) carry categories and counts only;
+New events (`household.init`, `household.join`, `household.sync` with its outcome `ok`, `offline` or `refused`, `household.grant` with
+the shared machines, the slots granted and how many machines limited this member) carry categories and counts only;
 a user is named by `user` = the first 12 hex digits of `SHA-256("tutti-user:" + user id)`, never a name.
 
 ## Migration
@@ -212,5 +264,5 @@ a user is named by `user` = the first 12 hex digits of `SHA-256("tutti-user:" + 
 | --- | --- |
 | 1 (0.1.29) | the user model (`tutti user`, the hashed id, `share_spare`), per-user state, the single-user migration, this design |
 | 2 (0.1.31) | the coordinator, `household init\|join\|status\|leave\|code`, signed requests, leases with heartbeats, shared backlogs and dedupe |
-| 3 | fair shares of shared machines in routing and the autopilot, the household plan from every member's profile, `share_spare` |
+| 3 (0.1.34) | fair shares of shared machines in routing and the autopilot, the household plan from every member's profile, `share_spare` |
 | 4 | the dashboard: **Me / Household**, the household card, others' jobs as "busy for <user>" |

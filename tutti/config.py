@@ -611,6 +611,8 @@ def load(path=None, start=None, env=None):
     from . import controls  # the owner's switches from the dashboard, kept in the state folder
     state = ((raw or {}).get('project') or {}).get('state') if isinstance(raw, dict) else None
     raw = controls.apply(raw, controls.read(state or DEFAULTS['project']['state']))
+    from . import users  # the household's machines this member shares or uses (docs/HOUSEHOLD.md), kept in user.json
+    raw = users.apply(raw, users.read(state or DEFAULTS['project']['state']))
     cfg = normalise(raw)
     cfg['raw_entries'] = {k: copy.deepcopy((raw or {}).get(k) or {}) for k in ('workers', 'accounts', 'machines')}
     errs = validate(cfg)

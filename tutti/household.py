@@ -6,8 +6,11 @@ and serves it over HTTP. Nothing here reads a clock, a file or the network."""
 import base64
 import hashlib
 import hmac
+import os
 import re
 import secrets
+
+from . import config
 
 CODE_PREFIX = 'tutti-hh'
 CODE_DAYS = 7
@@ -142,6 +145,17 @@ def heartbeat(state, user_id, beat, now):
         m['totals'] = {k: v for k, v in totals.items() if k in ('runs_today', 'minutes_shared') and isinstance(v, (int, float))}
     if isinstance(beat.get('agent'), str):
         m['agent'] = beat['agent'][:32]
+    if 'machines' in beat:   # a status look sends no demand: the last real one stays
+        m['demand'] = clean_demand(beat.get('machines'), state.get('machines') or {})
+    w = beat.get('weight')
+    if isinstance(w, (int, float)) and not isinstance(w, bool) and 0 < w <= 10:
+        m['weight'] = w
+    if 'profile' in beat:
+        from tutti import fairshare
+        m['profile'] = fairshare.normalise_profile(beat.get('profile') or [])
+    off = beat.get('utc_offset')
+    if isinstance(off, (int, float)) and not isinstance(off, bool) and -14 <= off <= 14:
+        m['utc_offset'] = off
 
 
 # ---- leases
@@ -226,7 +240,36 @@ def close(project, key, status, user_id, now, holder=None):
     return True
 
 
+def offers(state, asked, now):
+    """Shared projects with queued tasks nobody holds, other than the ones this member asked about: what its spare room
+    may take ({key, check, queued})."""
+    expire(state, now)
+    out = []
+    for pkey, p in state['projects'].items():
+        if pkey in asked or not (p.get('meta') or {}).get('check'):
+            continue
+        free = [k for k, t in p['tasks'].items() if t['status'] == 'queued' and lease_key(pkey, k) not in state['leases']]
+        if free:
+            out.append({'key': pkey, 'check': p['meta']['check'], 'queued': len(free)})
+    return out
+
+
+def reserve(state, pkey, project, ask, user_id, now):
+    """Reserves, in the member's order of `want`, up to `room` tasks nobody else holds (all of `want` without a room)."""
+    room = ask.get('room')
+    room = len(ask.get('want') or []) if not isinstance(room, int) else max(0, room)
+    for key in ask.get('want') or []:
+        if room <= 0:
+            break
+        t = project['tasks'].get(key)
+        if t and t['status'] not in CLOSED and claim(state, lease_key(pkey, key), user_id, now, RESERVE_MINUTES)[0]:
+            room -= 1
+
+
 def _ask_project(state, pkey, project, ask, user_id, now, minutes):
+    meta = ask.get('meta') or {}
+    if isinstance(meta.get('check'), str) and meta['check'].strip():
+        project['meta'] = {'check': meta['check'][:500]}
     for task in ask.get('publish') or []:
         publish(project, task, user_id, now)
     for c in ask.get('closed') or []:
@@ -235,10 +278,7 @@ def _ask_project(state, pkey, project, ask, user_id, now, minutes):
         release(state, lease_key(pkey, c.get('key')), user_id)
     for key in ask.get('held') or []:
         claim(state, lease_key(pkey, key), user_id, now, minutes)
-    for key in ask.get('want') or []:
-        t = project['tasks'].get(key)
-        if t and t['status'] not in CLOSED:
-            claim(state, lease_key(pkey, key), user_id, now, RESERVE_MINUTES)
+    reserve(state, pkey, project, ask, user_id, now)
 
 
 def _answer_project(state, pkey, project, user_id):
@@ -279,3 +319,106 @@ def status(state, user_id, now):
     return {'household': state['household'], 'admin': state['members'].get(state.get('admin'), {}).get('name'),
             'members': [member_view(m, now) for m in state['members'].values() if not m.get('left')],
             'projects': projects, 'my_leases': own, 'other_leases': len(state['leases']) - len(own)}
+
+
+# ---- shared machines (increment 3)
+
+# on each shared machine: the slot locks every member's login takes, next to the default lock files (mode 1777 like /tmp:
+# nobody can remove or replace another login's file; the locks are opened read-only, docs/HOUSEHOLD.md)
+SHARED_DIR = os.path.join(os.path.dirname(config.MACHINE_DEFAULTS['lock_prefix']), 'tutti-household')
+MACHINE_KEYS = ('host', 'slots', 'kind', 'gpu', 'ollama_port', 'lock_prefix')
+
+
+def share_machine(state, user_id, name, info, now):
+    """A member shares one of its machines with the household. Another member's machine of that name is refused."""
+    m = state.setdefault('machines', {}).get(name)
+    if m and m['owner'] != user_id:
+        raise HouseholdError(f'the household already has a machine "{name}" ({holder_name(state, m["owner"])}\'s): rename yours '
+                             'under machines: in your config, then share it under the new name')
+    clean = {k: info.get(k) for k in MACHINE_KEYS}
+    clean['slots'] = max(1, min(64, int(clean.get('slots') or 1)))
+    state['machines'][name] = {**(m or {}), **clean, 'owner': user_id, 'shared_at': (m or {}).get('shared_at', now)}
+    return state['machines'][name]
+
+
+def may_manage(state, user_id, name):
+    m = state.get('machines', {}).get(name)
+    if not m:
+        raise HouseholdError(f'the household has no machine "{name}": `tutti household status` lists them')
+    if user_id not in (m['owner'], state.get('admin')):
+        raise HouseholdError(f'only {holder_name(state, m["owner"])} (its owner) or the household\'s admin may change {name}; '
+                             'you can stop your own runs on it with `tutti pause machine ' + name + '` (only for you)')
+    return m
+
+
+def unshare_machine(state, user_id, name):
+    may_manage(state, user_id, name)
+    del state['machines'][name]
+    state.get('grants', {}).pop(name, None)
+
+
+def pause_machine(state, user_id, name, paused, now):
+    m = may_manage(state, user_id, name)
+    if paused:
+        m['paused'] = {'by': user_id, 'at': now}
+    else:
+        m.pop('paused', None)
+
+
+def capacity(m, demands, now, stale):
+    """The slots the household may share on a machine now: none while paused; the owner's last fresh report of its fit
+    slots (yield, heat, offline), else all of them."""
+    if m.get('paused'):
+        return 0
+    own = demands.get(m['owner']) or {}
+    if own.get('capacity') is not None and now - own.get('at', 0) <= stale:
+        return max(0, min(int(m['slots']), int(own['capacity'])))
+    return int(m['slots'])
+
+
+def machine_round(state, now, starve_minutes, weights_at):
+    """Grants for every shared machine from every member's latest demand. `weights_at(member) -> weight now`."""
+    from tutti import fairshare
+    state.setdefault('starved', {})
+    prev, state['grants'] = state.get('grants') or {}, {}
+    live = {u: m for u, m in state['members'].items() if not m.get('left') and now - (m.get('last_seen') or 0) <= fairshare.STALE_SECONDS}
+    for name, m in state.get('machines', {}).items():
+        demands = {u: dict((mm.get('demand') or {}).get(name) or {}, at=mm.get('last_seen', 0)) for u, mm in live.items()}
+        demands = {u: d for u, d in demands.items() if d.get('interactive') or d.get('background') or u == m['owner']}
+        cap = capacity(m, demands, now, fairshare.STALE_SECONDS)
+        weights = {u: weights_at(live[u]) for u in demands}
+        last = (prev.get(name) or {}).get('grants') or {}
+        starved = fairshare.starving(state['starved'], name, demands, last, now, starve_minutes)
+        g = fairshare.grants(cap, demands, weights, starved)
+        fairshare.starving(state['starved'], name, demands, g, now, starve_minutes)
+        state['grants'][name] = {'capacity': cap, 'grants': g, 'demand': {u: int(d.get('interactive', 0)) + int(d.get('background', 0))
+                                                                            for u, d in demands.items()}}
+
+
+def machines_view(state, user_id):
+    """What a member sees of the shared machines: its grant, each member's running count by name, the owner, paused."""
+    out = {}
+    for name, m in state.get('machines', {}).items():
+        g = (state.get('grants') or {}).get(name) or {}
+        use = {}
+        for mm in state['members'].values():
+            running = int(((mm.get('demand') or {}).get(name) or {}).get('running', 0))
+            if running and not mm.get('left'):
+                use[mm['name']] = running
+        out[name] = {**{k: m.get(k) for k in MACHINE_KEYS}, 'owner': holder_name(state, m['owner']), 'mine': m['owner'] == user_id,
+                     'grant': (g.get('grants') or {}).get(user_id, 0), 'capacity': g.get('capacity', m['slots']), 'use': use,
+                     'paused': bool(m.get('paused')),
+                     'paused_by': holder_name(state, m['paused']['by']) if m.get('paused') else None}
+    return out
+
+
+def clean_demand(raw, shared):
+    """A member's demand per shared machine from its heartbeat: counts only."""
+    out = {}
+    for name, d in (raw or {}).items():
+        if name not in shared or not isinstance(d, dict):
+            continue
+        out[name] = {k: max(0, min(256, int(d.get(k) or 0))) for k in ('interactive', 'background', 'running')}
+        if d.get('capacity') is not None:
+            out[name]['capacity'] = max(0, min(256, int(d['capacity'])))
+    return out

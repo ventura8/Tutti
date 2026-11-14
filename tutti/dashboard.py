@@ -115,9 +115,10 @@ class Collector:
             return None
         snap = self.snapshot()
         states = {a['name']: a for a in snap['usage']['accounts']}
-        from . import sharing  # a household member's heartbeat rides on the round (docs/HOUSEHOLD.md)
-        beat = sharing.beat(self.cfg, datetime.fromtimestamp(self.clock(), timezone.utc))
-        return autopilot.tick(self.cfg, states, snap['machines']['items'], beat=beat)
+        from . import sharing  # a household member's heartbeat rides on the round; shared machines offer its grant only
+        machines = sharing.limit_items(self.cfg, [dict(m) for m in snap['machines']['items']], self.clock())
+        beat = sharing.beat(self.cfg, datetime.fromtimestamp(self.clock(), timezone.utc), machines)
+        return autopilot.tick(self.cfg, states, machines, beat=beat)
 
     def update_round(self, force=False):
         """`tutti update` in the background: the daily round (update.auto, update.every_hours) or a click on Update now.

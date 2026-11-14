@@ -99,6 +99,44 @@ class ShareTest(unittest.TestCase):
             self.assertIn('accounts.api.share_spare is true but it costs money', '\n'.join(users.errors(cfg)))
 
 
+class MainAgentTest(unittest.TestCase):
+    RAW = {'workers': {'claude': {'kind': 'cli', 'command': ['claude']}, 'cursor': {'kind': 'cli', 'command': ['cursor-agent']},
+                       'pc': {'kind': 'ollama', 'host': 'localhost:11434', 'model': 'm'}},
+           'accounts': {'claude': {'worker': 'claude'}, 'cursor-pro': {'worker': 'cursor'}}}
+
+    def load(self, d):
+        """The config as `config.load` builds it: user.json applied before the defaults."""
+        import copy
+        raw = {**copy.deepcopy(self.RAW), 'project': {'state': os.path.join(d, 'state')}}
+        cfg = config.normalise(users.apply(raw, users.read(os.path.join(d, 'state'))))
+        cfg['_path'] = os.path.join(d, 'config.yaml')
+        return cfg
+
+    def test_a_switch_moves_the_owner_reserve_to_the_new_agents_account(self):
+        from tutti import owner
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self.load(d)
+            self.assertEqual(owner.owner_of(cfg, os.path.join(d, 'state'))['accounts'], ['claude'])
+            calls = []
+            worker, note = users.set_main_agent(cfg, 'cursor', connect_fn=lambda path, names: calls.append(names) or [])
+            self.assertEqual((worker, calls), ('cursor', [['cursor']]))
+            self.assertIn('tutti connect cursor: done', note)
+            cfg = self.load(d)
+            self.assertEqual(cfg['main']['agent'], 'cursor')
+            self.assertEqual(owner.owner_of(cfg, os.path.join(d, 'state'))['accounts'], ['cursor-pro'])
+            self.assertEqual(users.set_main_agent(cfg, 'local', connect_fn=lambda *a, **k: [])[0], 'pc')
+
+    def test_an_unknown_kind_or_one_without_a_worker_says_what_to_do(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self.load(d)
+            with self.assertRaisesRegex(users.UserError, 'pick one of'):
+                users.set_main_agent(cfg, 'notepad')
+            worker, note = users.set_main_agent(cfg, 'gemini', connect_fn=lambda *a, **k: [{'status': 'error', 'note': 'not installed'}])
+            self.assertEqual(worker, 'gemini')
+            self.assertIn('tutti setup', note)
+            self.assertIn('not installed', note)
+
+
 class MembershipFileTest(unittest.TestCase):
     def test_the_membership_is_mode_600_and_leaving_removes_it(self):
         with tempfile.TemporaryDirectory() as d:

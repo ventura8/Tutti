@@ -217,6 +217,14 @@ machines:
 - **GPU or CPU, not both.** A machine whose GPU serves models gets CPU-only test runs; never pass a GPU flag to a test
   container.
 
+## Shared with a household
+
+A machine several people's Tutti use (docs/HOUSEHOLD.md): its owner runs `tutti household machine share <m>`, each other
+member `tutti household machine use <m>`. Its slot locks move to `/tmp/tutti-household/` (mode 1777; under
+`SLOT_SHARED` `slot.sh` opens a lock another login made read-only), so one slot queue holds for everyone; the owner's
+yield flag reaches the others through the coordinator (no slot is granted while it is up). The household's coordinator grants each member a fair share of the slots; a
+member's routing sees at most its grant free. Heat, the yield flag and a pause still apply to every member.
+
 ## Peers
 
 When two orchestrator sessions share machines:

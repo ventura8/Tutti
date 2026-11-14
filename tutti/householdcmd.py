@@ -7,7 +7,8 @@ import time
 
 from . import config, coordinator, household, sharing, telemetry, users
 
-ACTIONS = ('status', 'init', 'join', 'leave', 'code', 'serve', 'project')
+ACTIONS = ('status', 'init', 'join', 'leave', 'code', 'serve', 'project', 'machine')
+MACHINE_ACTIONS = ('share', 'unshare', 'use', 'pause', 'resume')
 
 
 def say(msg):
@@ -26,7 +27,11 @@ def print_user(v, out=sys.stdout):
 def cmd_user(cfg, a, out=sys.stdout):
     """`tutti user [show|name <name>|share <account> on|off]`."""
     try:
-        if a.action == 'name':
+        if a.action == 'main-agent':
+            worker, note = users.set_main_agent(cfg, a.arg or '')
+            print(f'main agent: {worker}' + (f' ({note})' if note else ''), file=out)
+            cfg['main']['agent'] = worker
+        elif a.action == 'name':
             users.set_name(cfg, a.arg)
         elif a.action == 'share':
             if a.value not in ('on', 'off'):
@@ -70,6 +75,10 @@ def print_status(v, me, out, now):
     for pkey, counts in sorted(v['projects'].items()):
         print(f'  shared project {pkey}: ' + ', '.join(f'{n} {s}' for s, n in sorted(counts.items())), file=out)
     print(f'  leases: {len(v["my_leases"])} yours, {v["other_leases"]} held by others', file=out)
+    for name, m in sorted((v.get('machines') or {}).items()):
+        use = ', '.join(f'{n} {k}' for n, k in sorted(m['use'].items())) or 'idle'
+        paused = f'; paused by {m["paused_by"]}' if m['paused'] else ''
+        print(f'  machine {name} ({m["owner"]}\'s, {m["slots"]} slot(s)): {use}; your share now {m["grant"]}{paused}', file=out)
 
 
 def status(cfg, a, out, client_fn):
@@ -79,7 +88,8 @@ def status(cfg, a, out, client_fn):
               'run `tutti household init` on an always-on computer (docs/HOUSEHOLD.md)', file=out)
         return 0
     try:
-        v = client_fn(cfg).call('/hh/status')
+        c = client_fn(cfg)
+        v = {**c.call('/hh/status'), 'machines': c.call('/hh/sync', {'beat': {}}).get('machines')}
     except coordinator.Unreachable as e:
         print(f'household {me["household"]}: {e}. Working alone: your own repos and machines as usual, shared projects wait. '
               'Check that the coordinator\'s computer is on and its dashboard (or `tutti household serve`) runs.', file=out)
@@ -139,6 +149,81 @@ def project(cfg, a, out):
     return 0
 
 
+def share_info(cfg, name, host, probe_fn, sh_fn):
+    """What the household learns of a machine this member shares; the shared lock and yield folder made on it."""
+    m = cfg['machines'][name]
+    d = household.SHARED_DIR
+    rc = sh_fn(m, f'mkdir -p {d} && chmod 1777 {d} 2>/dev/null; test -w {d}')
+    if rc.returncode != 0:
+        raise household.HouseholdError(f'could not make {d} on {name} (the folder every member\'s login shares locks in): '
+                                       f'check that {name} answers over ssh (`tutti machines`), then try again')
+    p = probe_fn(m)
+    if not host:
+        host = coordinator.lan_address() if m['transport'] == 'local' else m.get('host')
+    return {'host': host, 'slots': m['slots'], 'kind': m['transport'], 'gpu': p.gpu_temp is not None,
+            'lock_prefix': f'{d}/slot-'}
+
+
+def machine(cfg, a, out, client_fn, probe_fn=None, sh_fn=None):
+    """`tutti household machine share|unshare|use|pause|resume <m>`."""
+    from . import remote
+    probe_fn, sh_fn = probe_fn or remote.probe, sh_fn or (lambda m, script: remote.sh(m, script, capture=True, timeout=30))
+    if len(a.arg) != 2 or a.arg[0] not in MACHINE_ACTIONS:
+        say('household machine: say share, unshare, use, pause or resume and the machine, e.g. `tutti household machine share pc`')
+        return 2
+    action, name = a.arg
+    folder = config.state_dir(cfg)
+    c = client_fn(cfg)
+    if action == 'use':
+        return use_machine(cfg, name, a, out, c, probe_fn)
+    if action == 'share':
+        if name not in cfg['machines']:
+            names = ', '.join(cfg['machines']) or '(none)'
+            raise household.HouseholdError(f'no machine "{name}" in {cfg["_path"]}: the machines are {names}')
+        info = share_info(cfg, name, a.host, probe_fn, sh_fn)
+        c.call('/hh/machine', {'action': 'share', 'name': name, 'info': info})
+        over = dict(users.read(folder).get('machine_overrides') or {})
+        over[name] = {'lock_prefix': info['lock_prefix'], 'household_shared': True}
+        users.write(folder, machine_overrides=over)
+        print(f'{name} is shared with the household at {info["host"]} ({info["slots"]} slot(s)). Others add it with '
+              f'`tutti household machine use {name}`; you keep priority only as everyone does: by fair share.', file=out)
+        return 0
+    c.call('/hh/machine', {'action': action, 'name': name})
+    if action == 'unshare':
+        over = dict(users.read(folder).get('machine_overrides') or {})
+        over.pop(name, None)
+        users.write(folder, machine_overrides=over)
+    print(f'{name}: {action}d for the household', file=out)
+    return 0
+
+
+def use_machine(cfg, name, a, out, c, probe_fn):
+    """Adds another member's shared machine to this member's machines (user.json, never the config file) and checks ssh."""
+    view = (c.call('/hh/sync', {'beat': {}}).get('machines') or {}).get(name)
+    if not view:
+        raise household.HouseholdError(f'the household has no machine "{name}": `tutti household status` lists them')
+    if name in cfg['machines'] and not view['mine']:
+        raise household.HouseholdError(f'you already have a machine "{name}" in {cfg["_path"]}: rename yours to use the '
+                                       'household\'s')
+    entry = {'host': view['host'], 'transport': 'ssh', 'slots': view['slots'], 'lock_prefix': view['lock_prefix'],
+             'household_shared': True, 'household_owner': view['owner']}
+    if a.user:
+        entry['user'] = a.user
+    folder = config.state_dir(cfg)
+    used = dict(users.read(folder).get('household_machines') or {})
+    used[name] = entry
+    users.write(folder, household_machines=used)
+    from . import config as config_mod
+    p = probe_fn(config_mod.machine_of(cfg, name, entry))
+    if p.reachable:
+        print(f'{name} ({view["owner"]}\'s) is now one of your machines; routing gives you your fair share of it.', file=out)
+        return 0
+    print(f'{name} is added, but it did not answer over ssh as {a.user or users.login_name()}@{view["host"]}: {view["owner"]} '
+          f'adds a login for you on {name} (or your ssh key to one), then `tutti machines` shows it ready '
+          f'(`tutti household machine use {name} --user <login on {name}>` if your login there differs).', file=out)
+    return 1
+
+
 def serve(cfg, a, out):
     if users.read_household().get('role') != 'coordinator':
         say('household serve: this login is not a household coordinator: `tutti household init` first')
@@ -176,28 +261,24 @@ def leave(cfg, out, client_fn):
     return rc
 
 
+def code(cfg, out, client_fn):
+    if users.read_household().get('role') != 'coordinator':
+        say('household code: only the coordinator\'s computer makes join codes: run it there')
+        return 2
+    print(f'New join code (the old one stops working):\n\n    tutti household join {client_fn(cfg).call("/hh/code")["code"]}\n',
+          file=out)
+    return 0
+
+
 def cmd_household(cfg, a, out=sys.stdout, io=None, client_fn=coordinator.client_of, join_fn=coordinator.join):
-    """`tutti household status|init|join|leave|code|serve|project` (docs/HOUSEHOLD.md)."""
+    """`tutti household status|init|join|leave|code|serve|project|machine` (docs/HOUSEHOLD.md)."""
     io = io or {}
+    actions = {'status': lambda: status(cfg, a, out, client_fn), 'init': lambda: init(cfg, a, out, io),
+               'join': lambda: join(cfg, a, out, io, join_fn), 'leave': lambda: leave(cfg, out, client_fn),
+               'project': lambda: project(cfg, a, out), 'serve': lambda: serve(cfg, a, out),
+               'machine': lambda: machine(cfg, a, out, client_fn), 'code': lambda: code(cfg, out, client_fn)}
     try:
-        if a.action == 'status':
-            return status(cfg, a, out, client_fn)
-        if a.action == 'init':
-            return init(cfg, a, out, io)
-        if a.action == 'join':
-            return join(cfg, a, out, io, join_fn)
-        if a.action == 'leave':
-            return leave(cfg, out, client_fn)
-        if a.action == 'project':
-            return project(cfg, a, out)
-        if a.action == 'serve':
-            return serve(cfg, a, out)
-        if users.read_household().get('role') != 'coordinator':
-            say('household code: only the coordinator\'s computer makes join codes: run it there')
-            return 2
-        print(f'New join code (the old one stops working):\n\n    tutti household join {client_fn(cfg).call("/hh/code")["code"]}\n',
-              file=out)
-        return 0
+        return actions[a.action]()
     except (household.HouseholdError, users.UserError) as e:
         say(str(e))
         return 2

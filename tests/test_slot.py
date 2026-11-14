@@ -89,5 +89,24 @@ class SlotHeatTest(unittest.TestCase):
         self.assertNotIn('HEAT', remote.slot_prefix({**m, 'heat': {}}))
 
 
+
+@unittest.skipUnless(fcntl and shutil.which('flock'), 'needs flock(1) and fcntl')
+class SlotSharedTest(unittest.TestCase):
+    """A household's shared machine: a lock another login made (here: read-only for us) is opened read-only and still locks."""
+
+    def test_a_read_only_lock_file_still_takes_the_slot_and_a_missing_one_is_made(self):
+        with tempfile.TemporaryDirectory() as d:
+            ro, new, out = os.path.join(d, '1.lock'), os.path.join(d, '2.lock'), os.path.join(d, 'ran')
+            open(ro, 'w').close()
+            os.chmod(ro, 0o444)
+            env = {**os.environ, 'SLOT_LOCKS': ro, 'MIN_FREE_GB': '0', 'SLOT_SHARED': '1', 'NVIDIA_SMI': 'none',
+                   'THERMAL_GLOB': os.path.join(d, 'none')}
+            self.assertEqual(subprocess.run(['bash', SLOT, 'touch', out], env=env, capture_output=True).returncode, 0)
+            self.assertTrue(os.path.exists(out))
+            env['SLOT_LOCKS'] = new
+            self.assertEqual(subprocess.run(['bash', SLOT, 'true'], env=env, capture_output=True).returncode, 0)
+            self.assertEqual(os.stat(new).st_mode & 0o777, 0o666)
+
+
 if __name__ == '__main__':
     unittest.main()

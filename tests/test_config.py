@@ -57,10 +57,29 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(config.find(deep, {}), path)
             self.assertEqual(config.find(deep, {'TUTTI_CONFIG': '/elsewhere.yaml'}), '/elsewhere.yaml')
 
-    def test_missing_config_says_what_to_do(self):
+    def test_find_uses_xdg_config_yaml_then_tutti_config_yaml(self):
+        with tempfile.TemporaryDirectory() as d:
+            empty = os.path.join(d, 'empty')
+            os.makedirs(empty)
+            xdg = os.path.join(d, 'xdg')
+            tutti = os.path.join(xdg, 'tutti')
+            os.makedirs(tutti)
+            env = {'XDG_CONFIG_HOME': xdg}
+            fallback = os.path.join(tutti, 'tutti.config.yaml')
+            open(fallback, 'w', encoding='utf8').close()
+            self.assertEqual(config.find(empty, env), fallback)
+            canonical = os.path.join(tutti, 'config.yaml')
+            open(canonical, 'w', encoding='utf8').close()
+            self.assertEqual(config.find(empty, env), canonical)
+
+    def test_missing_config_names_the_xdg_path_and_the_copy(self):
         with tempfile.TemporaryDirectory() as d, self.assertRaises(config.ConfigError) as ctx:
             config.load(start=d, env={'XDG_CONFIG_HOME': d})
-        self.assertIn('tutti.config.example.yaml', str(ctx.exception))
+        msg = str(ctx.exception)
+        dest = os.path.join(d, 'tutti', 'config.yaml')
+        self.assertIn(dest, msg)
+        self.assertIn(f'cp {config.EXAMPLE} {dest}', msg)
+        self.assertNotIn('tutti.config.yaml in', msg)
 
 
 if __name__ == '__main__':

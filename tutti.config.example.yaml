@@ -65,8 +65,8 @@ brief:
 
 # Quotas to pace. `resets` is any one known reset time (UTC); `window` repeats it: 5h, 7d, 2w or monthly.
 accounts:
-  claude: {window: 7d, resets: '2026-01-03T02:00Z', lead_hours: 3, share: 1.0, source: the usage page}
-  cursor: {window: monthly, resets: '2026-01-10T00:00Z', lead_hours: 3, source: the dashboard's Usage tab}
+  claude: {window: 7d, resets: '2026-01-03T02:00Z', lead_hours: 1, share: 1.0, source: the usage page}
+  cursor: {window: monthly, resets: '2026-01-10T00:00Z', lead_hours: 1, source: the dashboard's Usage tab}
   agy: {source: the account page}     # reset unknown yet: `tutti usage` says where to read it
 
 usage:

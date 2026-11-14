@@ -1,7 +1,8 @@
 # Usage pacing
 
-**The rule: spend every quota fully about 3 hours before its reset.** Not earlier: work stalls while you wait. Not
-later: the unused part is lost at the reset. The 3 hours are a margin for readings that lag and tasks that overrun.
+**The rule: spend every quota fully about 1 hour before its reset.** Not earlier: work stalls while you wait. Not
+later: the unused part is lost at the reset. The hour is a margin for readings that lag and tasks that overrun;
+override it per account with `lead_hours`.
 
 ## Accounts
 
@@ -9,7 +10,7 @@ Each account under `accounts:` has:
 
 - `window`: how often it resets: `5h`, `7d`, `2w` or `monthly`;
 - `resets`: any one known reset time, in UTC; Tutti rolls it forward by itself;
-- `lead_hours`: the margin before the reset (3 by default);
+- `lead_hours`: the margin before the reset (1 by default);
 - `share`: this session's part when a peer session uses the same account (0.5 = half);
 - `source`: where a reading comes from (a usage command, a dashboard page).
 

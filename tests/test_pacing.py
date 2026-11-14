@@ -30,17 +30,21 @@ class PacingTest(unittest.TestCase):
 
     def test_verdicts(self):
         start, reset = T('2026-01-03T02:00Z'), T('2026-01-10T02:00Z')
-        half = start + (reset - timedelta(hours=3) - start) / 2
+        half = start + (reset - timedelta(hours=1) - start) / 2
 
         def verdict(now, used, share=1.0):
-            return pacing.pace(now, start, reset, used, 3, share)['verdict']
+            return pacing.pace(now, start, reset, used, 1, share)['verdict']
         self.assertEqual(verdict(half, 50), 'on pace')
         self.assertEqual(verdict(half, 80), 'ahead')
         self.assertEqual(verdict(half, 20), 'behind')
         self.assertEqual(verdict(half, 100), 'spent')
-        self.assertEqual(verdict(reset - timedelta(hours=1), 70), 'late')
+        self.assertEqual(verdict(reset - timedelta(hours=0.5), 70), 'late')
         self.assertEqual(verdict(half, 25, share=0.5), 'on pace')
         self.assertEqual(verdict(half, 50, share=0.5), 'spent')
+
+    def test_target_defaults_to_one_hour_before_the_reset(self):
+        p = pacing.pace(T('2026-01-05T00:00Z'), T('2026-01-03T02:00Z'), T('2026-01-10T02:00Z'), 10)
+        self.assertEqual(p['target'], T('2026-01-10T01:00Z'))
 
     def test_target_is_the_reset_minus_the_lead(self):
         p = pacing.pace(T('2026-01-05T00:00Z'), T('2026-01-03T02:00Z'), T('2026-01-10T02:00Z'), 10, lead_hours=3)
@@ -56,12 +60,19 @@ class PacingTest(unittest.TestCase):
             self.assertIn('no reading', text)
             self.assertIn('tutti usage log claude', text)
             self.assertIn('accounts.agy.resets', text)
+            self.assertIn('2026-01-10 01:00', text)  # spend by: reset minus the default 1 h lead
             pacing.append_log(path, 'claude', 20, T('2026-01-05T00:00Z'))
             pacing.append_log(path, 'claude', 52, T('2026-01-06T11:00Z'))
             text = pacing.report(accounts, pacing.read_log(path), T('2026-01-06T12:00Z'))
             self.assertIn('52 %', text)
             self.assertIn("this session's part is 50 %", text)
             self.assertIn('on pace', text)
+
+    def test_report_spend_by_honours_per_account_lead_hours(self):
+        accounts = {'claude': {'window': '7d', 'resets': '2026-01-03T02:00Z', 'lead_hours': 3, 'source': 'the usage page'}}
+        text = pacing.report(accounts, [], T('2026-01-06T12:00Z'))
+        self.assertIn('2026-01-09 23:00', text)  # reset 02:00 minus 3 h
+        self.assertNotIn('2026-01-10 01:00', text)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,6 @@
 """Small pure pieces: the brief, the remote command lines, waits, the translation validators and the QA gate."""
 import base64
+import io
 import json
 import os
 import subprocess
@@ -28,6 +29,38 @@ class BriefTest(unittest.TestCase):
         ok, note = workers.available({'kind': 'cli', 'command': ['tutti-no-such-binary']})
         self.assertFalse(ok)
         self.assertIn('not on PATH', note)
+
+    def _tags_response(self, models):
+        body = io.BytesIO(json.dumps({'models': models}).encode())
+        cm = mock.MagicMock()
+        cm.__enter__.return_value = body
+        cm.__exit__.return_value = False
+        return cm
+
+    def test_ollama_worker_is_ready_only_when_its_model_is_listed(self):
+        worker = {'kind': 'ollama', 'host': '127.0.0.1:11434', 'model': 'coder:9b'}
+        with mock.patch('tutti.workers.urllib.request.urlopen', return_value=self._tags_response(
+                [{'name': 'coder:9b'}, {'name': 'other:1b'}])) as urlopen:
+            ok, note = workers.available(worker)
+        self.assertTrue(ok)
+        self.assertIn('coder:9b at 127.0.0.1:11434', note)
+        urlopen.assert_called_once()
+        self.assertIn('/api/tags', urlopen.call_args.args[0])
+
+    def test_ollama_worker_names_a_missing_model_and_the_pull(self):
+        worker = {'kind': 'ollama', 'host': '127.0.0.1:11434', 'model': 'coder:9b'}
+        with mock.patch('tutti.workers.urllib.request.urlopen', return_value=self._tags_response([{'name': 'other:1b'}])):
+            ok, note = workers.available(worker)
+        self.assertFalse(ok)
+        self.assertIn('model missing: coder:9b', note)
+        self.assertIn('ollama pull coder:9b', note)
+
+    def test_ollama_worker_down_when_the_server_does_not_answer(self):
+        worker = {'kind': 'ollama', 'host': '127.0.0.1:9', 'model': 'coder:9b'}
+        with mock.patch('tutti.workers.urllib.request.urlopen', side_effect=OSError('refused')):
+            ok, note = workers.available(worker)
+        self.assertFalse(ok)
+        self.assertIn('does not answer', note)
 
 
 class RemoteTest(unittest.TestCase):

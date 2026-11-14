@@ -251,7 +251,8 @@ def run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list):
     the given files with the first check as its own check."""
     if cfg['workers'][name]['kind'] != 'ollama':
         return run_compacting(cfg, name, task, files, wt, log, extra, worker_log)
-    from . import fleet, local, workers as workers_mod
+    from . import fleet, local
+    from . import workers as workers_mod
     check = (check_list or [{}])[0].get('run') or 'true'
     w = cfg['workers'][name]
     # the model the scheduler chose (`--extra=--model --extra=<name>`, tutti/autopilot.py), else the one that suits the task's

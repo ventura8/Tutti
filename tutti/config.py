@@ -45,6 +45,8 @@ DEFAULTS = {
     # when a task is parked for a person, and the repos it may work in ({name: {path, check, where, pr, commit, trailers, gaps}})
     'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'max_parallel': 1, 'no_progress': 3, 'max_attempts': 12, 'repos': {},
                   'quiet_hours': []},
+    # scouts: helpers that are not workers (Grok Bot's webhook routine): asked questions, they answer on a GitHub issue
+    'scouts': {},
     'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
              'command_timeout': 3600},
 }
@@ -247,7 +249,8 @@ def validate(cfg):
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
     errs += _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
-    return errs + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg)
+    from . import scouts  # scouts imports modules that import this one
+    return errs + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg)
 
 
 def _autopilot_name_error(cfg, key, n):

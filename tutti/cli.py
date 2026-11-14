@@ -27,10 +27,13 @@ from . import (
     remote,
     review,
     routing,
+    scoutcmd,
+    scouts,
     ship,
     state,
     transfer,
     translate,
+    trial,
     waiting,
     workers,
 )
@@ -333,7 +336,9 @@ def note_limits(cfg, worker, lines):
 
 def cmd_pr(cfg, a):
     """`tutti pr review <n>`: reviewers, the wait, the fallback review."""
-    return review.review(cfg, a.number, a.repo, a.timeout, post=not a.no_post, say=say)
+    repo = review.repo_of(a.repo)
+    trial.in_trial(cfg, repo, a.number, say)   # a scout in its review trial is asked too; advisory, never blocking
+    return review.review(cfg, a.number, repo, a.timeout, post=not a.no_post, say=say)
 
 
 def cmd_job(cfg, a):
@@ -748,6 +753,15 @@ def cmd_autopilot(cfg, a):
     return 0
 
 
+def cmd_scout(cfg, a):
+    """`tutti scout list|setup|ask|answer|watch|tick`: helpers that answer on a GitHub issue (docs/SCOUTS.md)."""
+    try:
+        return scoutcmd.run(cfg, a)
+    except scouts.ScoutError as e:
+        say(str(e))
+        return 2
+
+
 SUBCOMMANDS = []
 
 
@@ -922,6 +936,21 @@ def parser():
     s = add('autopilot', cmd_autopilot, 'send backlog tasks to accounts that are behind their pace, by itself: status, on, off, '
                                         'tick (one round now; the dashboard ticks while it runs)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])
+    s = add('scout', cmd_scout, 'scouts, helpers that are not workers (Grok Bot): ask <scout> "<question>" (answered on a GitHub '
+                                'issue), answer <id>, watch [<scout> <watch>], tick (send what is due within the allowance), '
+                                'review <pr> (advisory), trial (the review trial), list, setup')
+    s.add_argument('action', choices=['list', 'setup', 'ask', 'answer', 'watch', 'tick', 'review', 'trial'])
+    s.add_argument('scout', nargs='?', help='ask, setup, watch: the scout; answer: the request id; review: the pull request number; '
+                                            'trial: status, collect, show, mark or done')
+    s.add_argument('task', nargs='?', help='ask: the question or task; watch: the watch to run now; trial: owner/name#number')
+    s.add_argument('rest', nargs='*', help='trial mark: the finding id and real or noise')
+    s.add_argument('--via', help='review, trial: the scout (default: the only one)')
+    s.add_argument('--repo', help='ask: the repository whose issue gets the answer (default: scouts.<name>.reply.github_repo)')
+    s.add_argument('--skill', help='ask: research, web-browse, triage, monitoring, drafting or browser-repro (a hint for the scout)')
+    s.add_argument('--no-wait', action='store_true', help='ask: return once it is sent; `tutti scout answer <id>` later')
+    s.add_argument('--queue', action='store_true', help='ask: do not send now; the next round sends it when the allowance has room')
+    s.add_argument('--timeout', type=float, help='ask, answer: minutes to wait for the answer (default: timeout_minutes; 0: look once)')
+    s.add_argument('--key-stdin', action='store_true', help='ask: read the webhook key from the first line of stdin instead of key_env')
     s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it')
     s.add_argument('agent', nargs='?')
     return p

@@ -20,4 +20,7 @@ $t runs > /dev/null
 $t backlog list > /dev/null
 $t autopilot > /dev/null
 $t pr --help > /dev/null
+$t scout list > /dev/null
+$t scout setup > /dev/null
+$t scout trial > /dev/null
 echo "check: all passed"

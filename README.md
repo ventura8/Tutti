@@ -84,7 +84,8 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | `tutti main [<agent>]` | The main agent now, who has room, the running or last conductor run; `tutti main <agent>` switches it (a running conductor hands over). |
 | `tutti handoff done\|next "<text>"` | Inside `tutti conduct`: records a finished step or the next one in the run's progress, the handoff note's source. |
 | `tutti runs [show\|discard <id>]` | The delegated runs, a run's report, or removing its worktree. |
-| `tutti pr review <n>` | Asks the reviewers (`review.reviewers`: Copilot, CodeRabbit), detects when none will come (a refused request, CodeRabbit's "Review limit reached", or `review.timeout_minutes`) and says so, then has a cheap worker (`review.fallback`) review the diff and posts its findings to the pull request (`--no-post` prints them). |
+| `tutti pr review <n>` | During a scout's review trial it also asks the scout (advisory, docs/SCOUTS.md). Asks the reviewers (`review.reviewers`: Copilot, CodeRabbit), detects when none will come (a refused request, CodeRabbit's "Review limit reached", or `review.timeout_minutes`) and says so, then has a cheap worker (`review.fallback`) review the diff and posts its findings to the pull request (`--no-post` prints them). |
+| `tutti scout ask <scout> "<question>"` | Scouts are helpers that are not workers (Grok Bot): a question goes to its webhook routine and the answer comes back as a comment on a GitHub issue (label `tutti-scout`), which Tutti reads and prints. `scout watch` sends recurring watches (dependency release notes, the live site), `scout tick` sends what is due within the scout's weekly allowance (never on-demand), `scout review <pr>` asks for an advisory review, `scout trial` runs the review trial, `scout setup` prints the owner's steps. See [docs/SCOUTS.md](docs/SCOUTS.md). |
 | `tutti job register\|done` | A script outside Tutti shows on the dashboard with its log, progress and result. |
 | `tutti ask <worker> "<question>" [files]` | A short answer from a local model about files or stdin. |
 | `tutti code <worker> <file> "<instruction>"` | A local model rewrites one file; you review `git diff`. |
@@ -106,6 +107,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 - [docs/AUTOPILOT.md](docs/AUTOPILOT.md): the backlog, rounds, retries up the ladder and parking.
 - [docs/CONDUCT.md](docs/CONDUCT.md): another agent as the main agent, its tools, limits and the handoff.
 - [docs/WORKERS.md](docs/WORKERS.md): briefing Cursor, Antigravity and local models; review the diff, then gate.
+- [docs/SCOUTS.md](docs/SCOUTS.md): scouts (Grok Bot): questions answered on GitHub issues, watches, the review trial, the owner's setup.
 - [docs/USAGE-PACING.md](docs/USAGE-PACING.md): the pacing rule and its arithmetic.
 - [docs/MACHINES.md](docs/MACHINES.md): slots, routing, heat and memory guards, the yield flag, peers.
 - [docs/DASHBOARD.md](docs/DASHBOARD.md): the local dashboard, its data sources and `/api/state`.

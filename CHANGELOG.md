@@ -2,6 +2,21 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.18 (2026-11-14)
+
+### Added
+
+- Scouts: helpers that are not workers. Grok Bot (Cursor Pro's chat bot, its own weekly allowance) through its webhook
+  routine: `tutti scout ask` opens a GitHub issue (label `tutti-scout`), POSTs `{task, reply_to}` and prints the answer the
+  routine posts there; `scout answer`, `scout watch` (recurring watches whose results are issues), `scout tick` (the
+  dashboard's round), `scout list`, `scout setup` (the owner's steps). The URL and key come from environment variables
+  (or stdin) and are never stored or shown. Paced by the `grok-bot` account: nothing is sent once the allowance is used
+  (never on-demand); `early` watches use an allowance that is behind its pace. docs/SCOUTS.md.
+- `tutti scout review <pr>`: an advisory review posted on the pull request, tagged `grok-scout`; and the review trial
+  (`scouts.<name>.review_trial`): for the next pull requests `tutti pr review` also asks the scout, findings of every
+  reviewer are collected and marked real or noise in `<state>/review-trial.json`, and the verdict says whether review
+  joins the scout's skills. The dashboard's Scouts card shows all of it.
+
 ## 0.1.16 (2026-11-14)
 
 ### Added

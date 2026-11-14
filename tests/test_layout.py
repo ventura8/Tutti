@@ -24,7 +24,7 @@ class Order(unittest.TestCase):
         with open(os.path.join(dashboard.WEB, 'index.html'), encoding='utf8') as f:
             page = f.read()
         heads = re.findall(r'<h2 id="([a-z]+)-h">', page)
-        self.assertEqual(heads, ['usage', 'attention', 'running', 'machines', 'autopilot', 'main', 'workers', 'projects', 'jobs'])
+        self.assertEqual(heads, ['usage', 'attention', 'running', 'machines', 'autopilot', 'main', 'workers', 'projects', 'scouts', 'jobs'])
 
     def test_the_page_and_the_worker_load_the_attention_code(self):
         with open(os.path.join(dashboard.WEB, 'sw.js'), encoding='utf8') as f:

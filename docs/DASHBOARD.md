@@ -45,7 +45,8 @@ narrow with nothing beside it; one column on a phone. Phone (375 px) to 4K (2560
 3. **Running jobs** (with progress, and the project filter) beside **Machines**.
 4. **Autopilot** (its state, runs, queue and latest decisions, each list folded) beside **Main agent** and **Workers**.
 5. **Projects**, full width, in columns.
-6. **Finished jobs** at the bottom: All, Failed, Done (keys 1 to 3); two columns from 1800 px.
+6. **Scouts**, full width: each scout, its meter, watches, recent questions and the review trial (*Scouts* below).
+7. **Finished jobs** at the bottom: All, Failed, Done (keys 1 to 3); two columns from 1800 px.
 
 Long lists fold after a few items with **Show N more** (and **Show fewer**); what is open stays open across polls, and the
 button keeps the keyboard focus. Cards in a row stretch to the same height.
@@ -71,6 +72,15 @@ The **Autopilot** card turns it on or off (`POST /api/autopilot {"enabled": true
 reading) and shows its last decision, the runs going, the results to review, the tasks that need a person and the queue, each
 with its attempt count and failure history. While it is on, the probe thread runs one autopilot round after every probe.
 `/api/state` carries it as `autopilot`. See [AUTOPILOT.md](AUTOPILOT.md).
+
+## Scouts
+
+The Scouts card shows each scout (docs/SCOUTS.md): ready, or which environment variables are missing (names only), Grok
+Bot's weekly meter from its account, the plan of the next round, the watches with their last and next time, and the recent
+questions with their status and the start of each answer. With the review trial on, its tallies per reviewer (raised,
+real, noise, to mark) and the verdict. When a scout is not set up, or none is configured, the owner's setup steps are
+shown. After every probe the dashboard runs one scouts round (`tutti scout tick`), so start it from a shell that has the
+scout's variables.
 
 ## Add a reading
 

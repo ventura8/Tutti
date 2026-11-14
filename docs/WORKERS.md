@@ -11,6 +11,10 @@ to a cheaper worker.
 | Bulk or repetitive work: log reading, drafts, mechanical rewrites, translation | A local model (Ollama) | Free once the hardware exists. |
 | Work that needs judgement, a browser, or multi-step shipping | A subagent of the orchestrator's own model | Worth the tokens. |
 
+**Grok Bot is a scout, not a worker.** It has no CLI to brief and never gets a worktree or a diff; it answers questions
+(research, browsing, watching changelogs, triage, monitoring, drafting) through a webhook routine, on a GitHub issue. See
+[SCOUTS.md](SCOUTS.md).
+
 Flat plans have quotas too. Give CLI agents small, high-value tasks and avoid long agentic loops that burn the month
 in a day; `tutti usage` tracks them like any account.
 

@@ -21,6 +21,18 @@ PROMPT = ('You are reviewing a pull request. The full diff is in the file pr.dif
           'most serious first. If there is nothing worth fixing, write exactly: No findings. Do not edit any file.')
 
 
+def documents(text):
+    """Every JSON document in `text`, written back to back (`gh api --paginate`: one per page)."""
+    decoder, out, i, text = json.JSONDecoder(), [], 0, text or ''
+    while True:
+        while i < len(text) and text[i].isspace():
+            i += 1
+        if i >= len(text):
+            return out
+        doc, i = decoder.raw_decode(text, i)
+        out.append(doc)
+
+
 def gh(args, run=subprocess.run):
     """(exit code, stdout, stderr) of one `gh` call."""
     r = run(['gh', *args], capture_output=True, text=True)
@@ -56,11 +68,11 @@ def events(repo, number, gh_fn=gh):
     out = []
     for path, when, kind in ((f'repos/{repo}/pulls/{number}/reviews', 'submitted_at', 'review'),
                              (f'repos/{repo}/issues/{number}/comments', 'created_at', 'comment')):
-        # --slurp: every page in one JSON array; without it --paginate prints one document per page
-        rc, text, err = gh_fn(['api', '--paginate', '--slurp', path])
+        # --paginate prints one JSON document per page, back to back; --slurp would join them but gh before 2.62 lacks it
+        rc, text, err = gh_fn(['api', '--paginate', f'{path}?per_page=100'])
         if rc != 0:
             raise RuntimeError(f'reading {path} failed ({err}): check `gh auth status`')
-        pages = json.loads(text or '[]')
+        pages = documents(text)
         for item in (x for page in pages for x in (page if isinstance(page, list) else [page])):
             times = [pacing.parse_time(item[k]) for k in (when, 'updated_at') if item.get(k)]
             if times:

@@ -64,7 +64,8 @@ dashboard flags agent processes it finds working outside a Tutti folder.
    reused when it exists); the dependency folders of `ship.share` are hard-linked from the main checkout;
 2. the worker, headless, in that worktree, on the brief below; its output goes to the run's log;
 3. the diff of everything it changed or added, as one patch file, and the list of changed paths;
-4. the checks (`delegate.checks`, default `ship.checks`) with `$TUTTI_CHANGED`; a routed check (`where: route`) runs on
+4. the checks of the target repository (`projects.<name>.checks`, else a `tutti.config.*` in that repository, else
+   `delegate.checks` / `ship.checks`, but only for the repository `delegate.project` names, or any when it is unset) with `$TUTTI_CHANGED`; a routed check (`where: route`) runs on
    the first fit machine in a copy named `delegate.remote_track` (one run at a time per copy; `--track` gives a run its
    own) and gets the list through `{changed}` or `{changed:ts,js}` in its command. Both hold one path per line (git's
    names are read with `-z`), so a path with a space stays whole: `F={changed:ts}; [ -z "$F" ] || printf '%s\n' "$F" |

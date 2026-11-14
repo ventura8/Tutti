@@ -10,6 +10,8 @@ import subprocess
 import sys
 import time
 
+import yaml
+
 from . import config, ship, workers, worktree
 
 try:
@@ -147,6 +149,34 @@ def run_checks(cfg, wt, checks, env, track, say=print, folder=None):
     return out
 
 
+def checks_for(cfg, repo):
+    """(checks, where they come from) for a run in `repo`. A repository's checks belong to it, so the config's default
+    checks never run on another project's code: the project's own `projects.<name>.checks`, else a tutti.config.* inside
+    the target repository, else the default (delegate.checks or ship.checks) only when the repository is the one they are
+    for (`delegate.project`, or no delegate.project at all); otherwise none, and the report says how to give it some."""
+    from . import projects
+    found = projects.identify(os.path.abspath(repo)) or {}
+    name = projects.rename(cfg, found) if found else None
+    own = (projects.configured(cfg).get(name) or {}).get('checks') if name else None
+    if own is not None:
+        return own, f'projects.{name}.checks'
+    top = found.get('folder') or os.path.abspath(repo)
+    local = next((os.path.join(top, n) for n in config.NAMES if os.path.isfile(os.path.join(top, n))), None)
+    if local and os.path.abspath(local) != os.path.abspath(cfg.get('_path') or ''):
+        try:
+            theirs = config.load(local)
+        except (config.ConfigError, ValueError, yaml.YAMLError) as e:
+            return [], f'none: {local} is not a valid config ({e}); fix it to run its checks'
+        chosen = theirs['delegate']['checks'] if theirs['delegate']['checks'] is not None else theirs['ship']['checks']
+        return chosen, local
+    home = cfg['delegate'].get('project')
+    if home and name != home:
+        return [], (f'none for {name or top}: the default checks are for {home} (delegate.project); give this repository its own '
+                    f'with projects.{name or "<name>"}.checks in the config')
+    chosen = cfg['delegate']['checks'] if cfg['delegate']['checks'] is not None else cfg['ship']['checks']
+    return chosen, 'delegate.checks' if cfg['delegate']['checks'] is not None else 'ship.checks'
+
+
 def summary(r):
     """The reviewable report, plain text."""
     lines = [f'run {r["id"]}: {r["worker"]} exit {r["worker_rc"]}; {len(r["changed"])} file(s) changed',
@@ -161,7 +191,7 @@ def summary(r):
     if r['checks'] is None:
         lines += ['', 'checks    skipped (--no-checks): nothing was tested']
     elif not r['checks']:
-        lines += ['', 'checks    none configured (delegate.checks or ship.checks): nothing was tested']
+        lines += ['', f'checks    {r.get("checks_from") or "none configured (delegate.checks or ship.checks)"}: nothing was tested']
     for c in r['checks'] or []:
         lines.append(f'check     [{c["where"]}] rc={c["rc"]} {c["verdict"] or ""} (log {c["log"]})'.rstrip())
         if c['coverage']:
@@ -215,10 +245,12 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
         found = denials(cfg['workers'][name], lines, p['worker_log'])
         r = {'id': run_id, 'worker': name, 'task': task, 'worker_rc': rc, 'worktree': wt, 'created': created, 'diff': p['diff'],
              'changed': changed, 'stat': stat, 'denied': found, 'checks': None, 'report': p['report']}
-        if checks and changed:
+        chosen, source = checks_for(cfg, repo)
+        r['checks_from'] = source if chosen else (source if source.startswith('none') else f'none configured ({source})')
+        if checks and changed and chosen:
             env = {'TUTTI_CHANGED': ship.join_changed(changed), 'TUTTI_TREE': wt, 'TUTTI_GIT_MOUNT': worktree.docker_mount(wt)}
-            chosen = cfg['delegate']['checks'] if cfg['delegate']['checks'] is not None else cfg['ship']['checks']
             remote_track = track or cfg['delegate']['remote_track']
+            say(f'run: checking the change ({len(chosen)} check(s))')   # the dashboard's phase marker
             with track_lock(cfg, remote_track, say):
                 r['checks'] = run_checks(cfg, wt, chosen, env, remote_track, say, p['dir'])
         elif checks:

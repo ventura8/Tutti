@@ -388,9 +388,10 @@ class FakeGh:
         if args[:2] == ['api', '-X']:
             return (0, '{}', '') if self.copilot_ok else (1, '', 'HTTP 422: Reviews may only be requested from collaborators')
         if args[0] == 'api':
-            key = 'submitted_at' if args[-1].endswith('/reviews') else 'created_at'
+            assert '--slurp' not in args, 'gh before 2.62 has no --slurp'
+            key = 'submitted_at' if args[-1].split('?')[0].endswith('/reviews') else 'created_at'
             items = [e for e in self.events if key in e]
-            return 0, json.dumps([items[:1], items[1:]]), ''   # two pages, as --paginate --slurp prints them
+            return 0, json.dumps(items[:1]) + '\n' + json.dumps(items[1:]), ''   # two pages back to back, as --paginate prints them
         if args[:2] == ['pr', 'diff']:
             return 0, 'diff --git a/x b/x\n+bug\n', ''
         return 0, '', ''

@@ -28,9 +28,10 @@ DEFAULTS = {
     'accounts': {},
     'ship': {'protected': ['main', 'master'], 'add': ['.'], 'checks': [], 'full_checks': []},
     # watch_scripts: script names whose running processes are jobs; watch_agents: agent CLIs shown by process; task_globs:
-    # an agent session's background task outputs (shown by time only)
+    # an agent session's background task outputs (shown by time only); shapes: a job kind's known phases or counted lines
+    # (docs/DASHBOARD.md, *Progress*); typical_minutes: the rough estimate for an agent kind before any run of it finished
     'dashboard': {'port': 4777, 'refresh_seconds': 10, 'probe_seconds': 30, 'stall_minutes': 10, 'watch_scripts': [],
-                  'watch_agents': [], 'task_globs': []},
+                  'watch_agents': [], 'task_globs': [], 'shapes': {}, 'typical_minutes': {'agent': 20, 'agent task': 15, 'conduct': 30}},
     # test.prepare: steps a command needs first ({when: regex, run: cmd}); test.no_coverage: how a run with coverage off looks
     'test': {'prepare': [], 'no_coverage': ''},
     # delegate: `tutti run --repo`; checks default to ship.checks, worktrees go under project.worktrees/<prefix><id>
@@ -376,6 +377,31 @@ def _dashboard_errors(d):
         v = d.get(key)
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0:
             errs.append(f'dashboard.{key} is {v!r}: use a number above 0')
+    return errs + _shape_errors(d.get('shapes'))
+
+
+def _shape_errors(shapes):
+    """dashboard.shapes: {name: {match or kind, phases: [{name, when}] or count + total / total_command, machine}}."""
+    if not isinstance(shapes, dict):
+        return [f'dashboard.shapes is {shapes!r}: write it as a mapping of names to shapes, or remove the key']
+    errs = []
+    for name, s in shapes.items():
+        where = f'dashboard.shapes.{name}'
+        if not isinstance(s, dict) or not (s.get('match') or s.get('kind')):
+            errs.append(f'{where}: give it match (a regex on the job title) or kind (quiet, script, run, ...)')
+            continue
+        phases = s.get('phases') or []
+        if not phases and not s.get('count'):
+            errs.append(f'{where}: give it phases ([{{name, when}}]) or count (a regex) with total or total_command')
+        if s.get('count') and not (s.get('total') or s.get('total_command')):
+            errs.append(f'{where}.count: give total (a number) or total_command (prints the number)')
+        errs += _regex_errors(f'{where}.match', s['match']) if s.get('match') else []
+        errs += _regex_errors(f'{where}.count', s['count']) if s.get('count') else []
+        for i, p in enumerate(phases if isinstance(phases, list) else []):
+            if not isinstance(p, dict) or not p.get('name'):
+                errs.append(f'{where}.phases[{i}]: write {{name: ..., when: <regex>}} (the first phase may leave out when)')
+            elif p.get('when'):
+                errs += _regex_errors(f'{where}.phases[{i}].when', p['when'])
     return errs
 
 

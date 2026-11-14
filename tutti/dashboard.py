@@ -75,6 +75,7 @@ class Collector:
         self.read_lock = threading.Lock()   # the probe thread and a Refresh readings click never run the readers at once
         self.stop = threading.Event()
         self.env = os.environ   # the scouts' webhook variables (names only ever leave this process)
+        self.update_error = None
         self.updating = threading.Lock()   # one update round at a time in this dashboard (the daily one or a click)
 
     def read_usage(self, force=False):
@@ -127,11 +128,8 @@ class Collector:
         def go():
             try:
                 update.run(self.cfg, clock=self.clock, when_due=not force)
-            except update.Busy:   # `tutti update` or another dashboard is running a round for this config
-                pass
-            except Exception as e:  # a failed round must not end the dashboard; it is tried again in an hour
-                why = f'the update round failed ({type(e).__name__}: {e}): run tutti update to see why'
-                update.record_failure(self.cfg, self.clock(), why)
+            except Exception as e:  # Busy (another round runs), or a failure update.run already noted in the round's file
+                self.update_error = None if isinstance(e, update.Busy) else f'{type(e).__name__}: {e}'
             finally:
                 self.updating.release()
         threading.Thread(target=go, name='tutti-update', daemon=True).start()

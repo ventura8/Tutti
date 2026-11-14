@@ -568,7 +568,9 @@ function versionRow(x) {
 function versionMachine(m) {
     const rows = m.items.filter((x) => x.status !== 'missing');
     return el('li', {}, el('h4', { class: 'card__sub', text: m.name }),
-        m.error ? el('p', { class: 'row__note', text: m.error }) : el('ul', { class: 'list' }, ...rows.map(versionRow)));
+        m.error ? el('p', { class: 'row__note', text: m.error }) : null,
+        m.note ? el('p', { class: 'row__note', text: m.note }) : null,
+        rows.length ? el('ul', { class: 'list' }, ...rows.map(versionRow)) : null);
 }
 
 function ownerStep(o) {

@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import shlex
+import tempfile
 import time
 import urllib.request
 
@@ -21,7 +22,7 @@ from . import config, inuse, local, remote
 STATE_FILE = 'updates-{key}.json'   # one per config: two configs sharing a state folder keep their own rounds
 MARK = 'TUTTI-UPD'
 # the program's own updater; a program without one is updated through npm when npm installed it under a folder the user owns
-SELF_UPDATE = {'cursor-agent': 'cursor-agent update', 'agy': 'agy update', 'copilot': 'copilot update', 'claude': 'claude update'}
+SELF_UPDATE = {'cursor-agent': 'update', 'agy': 'update', 'copilot': 'update', 'claude': 'update'}   # program -> its update subcommand
 RETRY_SECONDS = 3600   # a round that failed as a whole is tried again after an hour, not after every_hours
 TIMEOUT = 600   # seconds for one program's update on a machine
 
@@ -54,7 +55,14 @@ one() {
 	fi
 	if [ "$check" = 1 ]; then row "$p" checked "$before" '' "$uc"; return; fi
 	b=${p##*/}
-	if pgrep -f "(^|/)$b([ /.]|$)" > /dev/null 2>&1; then row "$p" busy "$before" '' 'running now: the next round updates it'; return; fi
+	# this script's own shell, and its forks (same command line), carry the program's path: never the program running
+	me=$(tr -d '\0' < "/proc/$$/cmdline" 2>/dev/null)
+	for x in $(pgrep -f "(^|/)$b([ /.]|$)" 2>/dev/null); do
+		c=$(tr -d '\0' < "/proc/$x/cmdline" 2>/dev/null) || continue   # gone already: a short-lived fork of this script
+		if [ "$x" != "$$" ] && [ -n "$c" ] && [ "$c" != "$me" ]; then
+			row "$p" busy "$before" '' 'running now: the next round updates it'; return
+		fi
+	done
 	if [ -n "$L" ] && command -v flock > /dev/null 2>&1; then
 		mkdir -p "$L"
 		out=$(timeout __TIMEOUT__ flock -n -E 75 -x "$L/use-$b.lock" bash -c "$uc" 2>&1 < /dev/null); rc=$?
@@ -91,20 +99,26 @@ pkg() {
 def programs(cfg):
     """{program: {version, update}} for every program a CLI worker runs, plus `update.programs`; a worker's `update: false`
     leaves its program out, `update: {command, version}` replaces how it is updated or read."""
-    out = {}
+    out, off = {}, set()
     for w in cfg['workers'].values():
         if w.get('kind') != 'cli':
             continue
         spec = w.get('update', True)
         p = w['command'][0]
         if spec is False:
-            out.pop(p, None)
+            off.add(p)   # opted out by any worker that runs it, whatever the order of the workers
             continue
         spec = spec if isinstance(spec, dict) else {}
-        out[p] = {'version': spec.get('version') or '', 'update': spec.get('command') or SELF_UPDATE.get(os.path.basename(p), '')}
+        out.setdefault(p, {'version': spec.get('version') or '', 'update': spec.get('command') or default_update(p)})
     for p in (cfg.get('update') or {}).get('programs') or []:
-        out.setdefault(p, {'version': '', 'update': SELF_UPDATE.get(p, '')})
-    return out
+        out.setdefault(p, {'version': '', 'update': default_update(p)})
+    return {p: s for p, s in out.items() if p not in off}
+
+
+def default_update(program):
+    """The program's own updater, run through the configured executable itself (a path stays that path), else ''."""
+    sub = SELF_UPDATE.get(os.path.basename(program))
+    return f'{shlex.quote(program)} {sub}' if sub else ''
 
 
 def script(progs, packages, check=False, locks=''):
@@ -144,7 +158,8 @@ def owner_commands(results):
         rows = r.get('items') or []
         old = [x for x in rows if x['status'] == 'package-old']
         off = [x for x in rows if x['status'] in ('package', 'package-old') and x['detail']]   # detail: its switched-off source
-        steps = [f"sudo sed -i 's/^Enabled: *no/Enabled: yes/' {' '.join(shlex.quote(x['detail']) for x in off)}"] if off else []
+        # the same rule as the script's detection: `Enabled:`, any spaces, `no` in any case
+        steps = [f"sudo sed -i 's/^Enabled:[[:space:]]*no/Enabled: yes/I' {' '.join(shlex.quote(x['detail']) for x in off)}"] if off else []
         names = list(dict.fromkeys(x['name'] for x in old + off))
         if names:
             steps.append(f'sudo apt update && sudo apt install --only-upgrade {" ".join(names)}')
@@ -238,22 +253,40 @@ def run(cfg, check=False, only=None, sh=remote.sh, call=_ollama, clock=time.time
             raise Busy('another update round is running for this config: wait for it (the dashboard shows when it is done)')
         if when_due and not due(cfg, clock(), load(cfg)):
             return None
-        return _round(cfg, check, only, sh, call, clock)
+        try:
+            return _round(cfg, check, only, sh, call, clock)
+        except Exception as e:
+            if not check:   # under the same lock, so no other round's results are overwritten
+                save(cfg, {**(load(cfg) or {'at': None, 'machines': {}, 'models': [], 'owner': []}), 'failed_at': clock(),
+                           'error': f'the update round failed ({type(e).__name__}: {e}): run tutti update to see why'})
+            raise
+
+
+def lent_out(machine):
+    """The yield note of a machine that is lent out, else None (an unreachable machine is not lent out: its round says so)."""
+    try:
+        return local.yield_cached(machine)
+    except (OSError, ValueError):
+        return None
+
+
+def _machine_round(cfg, m, progs, packages, check, sh, last):
+    if not check and lent_out(m) is not None:
+        kept = ((last or {}).get('machines') or {}).get(m['name']) or {}
+        return {'items': kept.get('items') or [], 'error': None,
+                'note': 'lent out (its yield flag is up): not updated this round, the versions are from the last one'}
+    locks = inuse.lock_dir(config.state_dir(cfg)) if m['transport'] == 'local' else ''
+    return run_machine(m, script(progs, packages, check, locks), sh)
 
 
 def _round(cfg, check, only, sh, call, clock):
     u = cfg.get('update') or {}
-    progs, packages = programs(cfg), list(u.get('packages') or [])
-    results = {}
-    for n, m in cfg['machines'].items():
-        if not only or n == only:
-            locks = inuse.lock_dir(config.state_dir(cfg)) if m['transport'] == 'local' else ''
-            results[n] = run_machine(m, script(progs, packages, check, locks), sh)
+    progs, packages, last = programs(cfg), list(u.get('packages') or []), load(cfg)
+    results = {n: _machine_round(cfg, m, progs, packages, check, sh, last) for n, m in cfg['machines'].items() if not only or n == only}
     out = {'at': clock(), 'check': check, 'machines': results, 'models': pull_models(cfg, check, call, only),
            'owner': owner_commands(results)}
     if check:
         return out
-    last = load(cfg) if only else None
     if only and last:
         machines = {**(last.get('machines') or {}), **results}
         models = [x for x in last.get('models') or [] if x['name'] not in {m['name'] for m in out['models']}] + out['models']
@@ -271,8 +304,8 @@ def path(cfg):
 def save(cfg, data):
     p = path(cfg)
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    tmp = p + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(p), prefix='.updates-', suffix='.tmp')
+    with os.fdopen(fd, 'w', encoding='utf-8') as f:
         json.dump(data, f)
     os.replace(tmp, p)
 
@@ -291,14 +324,12 @@ def due(cfg, now, last):
     u = cfg.get('update') or {}
     if not u.get('auto', True):
         return False
-    if last and last.get('failed_at') and now - float(last['failed_at']) < RETRY_SECONDS:
-        return False
-    return not last or now - float(last.get('at') or 0) >= float(u.get('every_hours', 24)) * 3600
-
-
-def record_failure(cfg, now, error):
-    """A round that failed as a whole: the last good round and its time stay; it is tried again after RETRY_SECONDS."""
-    save(cfg, {**(load(cfg) or {'at': None, 'machines': {}, 'models': [], 'owner': []}), 'failed_at': now, 'error': error})
+    if not last:
+        return True
+    failed = float(last.get('failed_at') or 0)
+    if failed > float(last.get('at') or 0):   # the newest round failed as a whole: tried again after RETRY_SECONDS
+        return now - failed >= RETRY_SECONDS
+    return now - float(last.get('at') or 0) >= float(u.get('every_hours', 24)) * 3600
 
 
 def view(cfg, data):
@@ -307,17 +338,18 @@ def view(cfg, data):
     base = {'auto': bool(u.get('auto', True)), 'every_hours': u.get('every_hours', 24)}
     if not data:
         return {**base, 'at': None, 'machines': [], 'models': [], 'owner': []}
-    machines = [{'name': n, 'error': r.get('error'), 'items': r.get('items') or []} for n, r in (data.get('machines') or {}).items()]
+    machines = [{'name': n, 'error': r.get('error'), 'note': r.get('note'), 'items': r.get('items') or []}
+                for n, r in (data.get('machines') or {}).items()]
     return {**base, 'at': data.get('at'), 'machines': machines, 'models': data.get('models') or [], 'owner': data.get('owner') or []}
 
 
-STATUS_TEXT = {'updated': 'updated', 'current': 'up to date', 'busy': 'skipped: running', 'failed': 'FAILED', 'missing': 'not installed',
+STATUS_TEXT = {'updated': 'updated', 'current': 'up to date', 'busy': 'skipped', 'failed': 'FAILED', 'missing': 'not installed',
                'owner': 'needs the owner', 'manual': 'no updater', 'checked': 'installed', 'package': 'package, newest',
                'package-old': 'package, OLD'}
 
 
 def machine_lines(name, r):
-    lines = [f'{name}:' + (f' {r["error"]}' if r['error'] else '')]
+    lines = [f'{name}:' + ''.join(f' {t}' for t in (r.get('error'), r.get('note')) if t)]
     for x in r['items']:
         if x['status'] == 'missing':
             continue
@@ -331,7 +363,7 @@ def report(data):
     """Plain text for `tutti update`."""
     lines = [line for n, r in data['machines'].items() for line in machine_lines(n, r)]
     for x in data['models']:
-        detail = x['detail'] if x['status'] == 'failed' else ''
+        detail = x['detail'] if x['status'] in ('failed', 'busy') else ''
         lines.append(f'model {x["name"]}: {STATUS_TEXT.get(x["status"], x["status"])} {detail}'.rstrip())
     lines += [f'owner, on {o["machine"]} ({o["why"]}): {o["command"]}' for o in data['owner']]
     return '\n'.join(lines)

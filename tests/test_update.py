@@ -55,7 +55,8 @@ class PlanTest(unittest.TestCase):
             {'name': 'agy', 'status': 'current', 'before': '1', 'after': '1', 'detail': ''}]}, 'nuc': {'items': [], 'error': None}}
         [o] = update.owner_commands(res)
         self.assertEqual(o['machine'], 'laptop')
-        self.assertTrue(o['command'].startswith("sudo sed -i 's/^Enabled: *no/Enabled: yes/' /etc/apt/sources.list.d/grok-bot.sources && "))
+        sed = "sudo sed -i 's/^Enabled:[[:space:]]*no/Enabled: yes/I' /etc/apt/sources.list.d/grok-bot.sources && "
+        self.assertTrue(o['command'].startswith(sed))
         self.assertIn('sudo apt update && sudo apt install --only-upgrade cursor grok-bot', o['command'])
         self.assertTrue(o['command'].endswith('sudo npm install -g @google/gemini-cli@latest'))
         self.assertIn('cursor 3.24.18 -> 3.30.14', o['why'])
@@ -278,13 +279,18 @@ class ReviewFixesTest(unittest.TestCase):
 
     def test_a_failed_round_is_retried_in_an_hour_not_a_day(self):
         with tempfile.TemporaryDirectory() as t:
-            cfg = cfg_of({}, t)
-            update.save(cfg, {'at': 0, 'machines': {}, 'models': [], 'owner': []})
-            update.record_failure(cfg, 100000, 'boom')
+            cfg = cfg_of({'machines': {'a': {'host': 'local'}}}, t)
+            update.save(cfg, {'at': 99000, 'machines': {'a': {'items': [], 'error': None}}, 'models': [], 'owner': []})
+
+            def boom(*a, **k):
+                raise RuntimeError('boom')
+            with self.assertRaises(RuntimeError), mock.patch.object(update, 'run_machine', boom):
+                update.run(cfg, clock=lambda: 100000.0)
             last = update.load(cfg)
-            self.assertEqual((last['at'], last['error']), (0, 'boom'))
+            self.assertEqual(last['at'], 99000)   # the last good round stays
+            self.assertIn('boom', last['error'])
             self.assertFalse(update.due(cfg, 100000 + 60, last))
-            self.assertTrue(update.due(cfg, 100000 + update.RETRY_SECONDS, last))
+            self.assertTrue(update.due(cfg, 100000 + update.RETRY_SECONDS, last))   # an hour, though the good round is recent
 
     def test_a_bad_model_server_and_a_lent_machine(self):
         cfg = config.normalise({'machines': {'gpu': {'host': 'gpu.example'}}, 'workers': {
@@ -320,3 +326,44 @@ class WslTest(unittest.TestCase):
             out = subprocess.run(['bash', '-c', text], capture_output=True, text=True, env=env, check=False)
             [row] = update.parse(out.stdout)
             self.assertEqual((row['status'], row['detail']), ('missing', 'only a Windows copy is on PATH here'))
+
+
+class SecondReviewTest(unittest.TestCase):
+    def test_an_opt_out_holds_whatever_the_worker_order(self):
+        for order in (('a', 'b'), ('b', 'a')):
+            spec = {'a': {'kind': 'cli', 'command': ['agy'], 'update': False}, 'b': {'kind': 'cli', 'command': ['agy']}}
+            cfg = config.normalise({'workers': {n: spec[n] for n in order}})
+            self.assertNotIn('agy', update.programs(cfg))
+
+    def test_the_updater_runs_the_configured_executable(self):
+        cfg = config.normalise({'workers': {'c': {'kind': 'cli', 'command': ['/home/me/my tools/claude', '-p']}}})
+        self.assertEqual(update.programs(cfg)['/home/me/my tools/claude']['update'], "'/home/me/my tools/claude' update")
+
+    def test_the_source_repair_matches_every_disabled_form(self):
+        res = {'m': {'items': [{'name': 'x', 'status': 'package', 'before': '1', 'after': '1', 'detail': 'SRC'}]}}
+        sed = update.owner_commands(res)[0]['command'].split(' && ')[0]
+        expr = sed.split("'")[1]
+        for line in ('Enabled: no', 'Enabled:no', 'Enabled:   NO', 'Enabled: No'):
+            out = subprocess.run(['sed', expr], input=line + '\n', capture_output=True, text=True, check=True).stdout
+            self.assertEqual(out.strip(), 'Enabled: yes', line)
+
+    def test_the_scripts_own_shell_is_not_the_program(self):
+        with tempfile.TemporaryDirectory() as t:
+            prog = fake(t, 'selfprog', '[ "$1" = update ] && echo done; echo 1.0')
+            text = update.script({prog: {'version': '', 'update': update.default_update(prog) or f'{prog} update'}}, [])
+            out = subprocess.run(['bash', '-c', text], capture_output=True, text=True, check=False)
+            [row] = update.parse(out.stdout)
+            self.assertEqual(row['status'], 'current')
+
+    def test_a_lent_out_machine_keeps_its_last_versions_and_is_not_touched(self):
+        with tempfile.TemporaryDirectory() as t:
+            cfg = cfg_of({'machines': {'a': {'host': 'local'}}}, t)
+            update.save(cfg, {'at': 1.0, 'machines': {'a': {'items': [{'name': 'agy', 'status': 'current', 'before': '1', 'after': '1',
+                                                                       'detail': ''}], 'error': None}}, 'models': [], 'owner': []})
+            touched = []
+            with mock.patch.object(update.local, 'yield_cached', lambda m: 'lent'):
+                data = update.run(cfg, sh=lambda *a, **k: touched.append(1), clock=lambda: 2.0)
+            self.assertEqual(touched, [])
+            self.assertIn('lent out', data['machines']['a']['note'])
+            self.assertEqual(data['machines']['a']['items'][0]['name'], 'agy')
+            self.assertIn('lent out', update.report(data))

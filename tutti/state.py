@@ -163,20 +163,25 @@ def machine_status(m, p, reason):
     return 'free' if not reason else 'loaded'
 
 
-def machine_state(m, p, rank):
-    """One machine as the dashboard shows it, from its config and a probe (routing.Probe)."""
+def machine_state(m, p, rank, now=None, idle_s=None, quiet_hours=None):
+    """One machine as the dashboard shows it, from its config and a probe (routing.Probe). Its free slots are capped at its
+    share for Tutti (tutti/share.py: use_pct, lower while someone uses it, in quiet hours or hot)."""
+    from . import share
     reason = routing.unfit(m, p)
     status = machine_status(m, p, reason)
     slots = int(m['slots'])
-    free = min(p.free, slots) if p.reachable else None
+    pct, pct_why = share.pct(m, {'reason': reason}, now, idle_s, quiet_hours)
+    free = share.cap_free(slots, min(p.free, slots), pct) if p.reachable else None
+    if p.reachable and status == 'free' and not free:
+        status, reason = 'busy', f'its share for Tutti is {pct} %' + (f' ({pct_why})' if pct_why else '') + ': no slot left at it'
     return {'name': m['name'], 'transport': m['transport'], 'host': m.get('host', 'local'), 'slots': slots, 'free': free,
-            'busy': None if free is None else slots - free, 'load': p.load if p.reachable else None,
+            'busy': None if free is None else slots - min(p.free, slots), 'load': p.load if p.reachable else None,
             'cores': p.cores if p.reachable else None,
             'reachable': p.reachable, 'paused': p.yielding, 'status': status, 'reason': reason or 'fit: takes the next run', 'rank': rank,
             'min_free_gb': m['min_free_gb'], 'temp_c': p.temp if p.reachable else None, 'heat': m.get('heat'),
             'gpu_temp_c': p.gpu_temp if p.reachable else None, 'temp_note': p.temp_note if p.reachable else '',
             'containers': list(getattr(p, 'containers', []) or []), 'readings': getattr(p, 'readings', None),
-            'owner_paused': m.get('paused'), 'zone': getattr(p, 'zone', '') if p.reachable else '',
+            'owner_paused': m.get('paused'), 'use_pct': pct, 'use_why': pct_why, 'zone': getattr(p, 'zone', '') if p.reachable else '',
             'mem_free_gb': getattr(p, 'mem_gb', None) if p.reachable else None}
 
 
@@ -188,10 +193,16 @@ def machines_state(cfg, probe_fn, stored_fn=None):
     if not names:
         return []
 
+    from . import share
+    now = datetime.now(timezone.utc)
+    idle = share.idle_seconds() if any(cfg['machines'][n].get('transport') == 'local' for n in names) else None
+    quiet = (cfg.get('autopilot') or {}).get('quiet_hours')
+
     def one(n):
         m = cfg['machines'][n]
         p = probe_fn(m)
-        out = machine_state(m, p, order.index(n) + 1 if n in order else None)
+        out = machine_state(m, p, order.index(n) + 1 if n in order else None, now,
+                            idle if m.get('transport') == 'local' else None, quiet)
         out['stored'] = stored_fn(m) if stored_fn and p.reachable else None
         return out
     with ThreadPoolExecutor(max_workers=min(8, len(names))) as pool:

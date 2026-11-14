@@ -2,6 +2,23 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.66 (2026-11-15)
+
+### Added
+
+- A machine's share for Tutti (docs/FLEET.md, *The machine's share*): `machines.<m>.use_pct` (Settings) caps its slots, this
+  computer's cores in the adaptive limit and the models' threads. The share drops to `in_use_pct` (30) while someone uses
+  the machine, `quiet_pct` (50) in its quiet hours and `hot_pct` (50) while it is hot. The machine card shows it and why.
+- Model servers kept alive. A dropped tunnel is started again at the next probe (after a reboot or sleep too). A quiet Ollama
+  is restarted (user service, else `ollama serve`). When it cannot be, the exact one-step fix is shown.
+- Household use: "Household use: X % of available capacity (last hour)" on the Usage card. Each machine shows its use over
+  the last hour and today, and why it is idle.
+
+### Fixed
+
+- A machine with `nvidia-smi` but no NVIDIA driver (the NUC) read as unreachable: the driver's error on stdout broke the
+  probe's summary line, so its local model and its slots were never used.
+
 ## 0.1.65 (2026-11-14)
 
 ### Fixed

@@ -155,6 +155,13 @@ FIELDS = {
     'machines.*.min_free_gb': field('Free memory needed', 'A run starts only with this much memory free.', **GB),
     'machines.*.max_load_ratio': field('Load limit', 'Fit only while its load is under this share of its cores.', 'number', min=0, max=4,
                                    step=0.05),
+    'machines.*.use_pct': field('Tutti\'s share (%)', 'How much of this machine\'s slots, cores and model threads Tutti uses.',
+                                'number', min=0, max=100, step=5),
+    'machines.*.in_use_pct': field('Share while in use (%)', 'While someone uses this machine (keyboard or mouse in the last '
+                                   'minutes).', 'number', min=0, max=100, step=5),
+    'machines.*.quiet_pct': field('Share in quiet hours (%)', 'Fans and noise at night: the share in its quiet hours.', 'number',
+                                  min=0, max=100, step=5),
+    'machines.*.quiet_hours': field('Quiet hours', 'Local-time spans such as ["23:00-07:00"] (else autopilot.quiet_hours).', **YAML),
     'machines.*.heat': field('Heat', 'cap_c: one run at this temperature; stop_c: none; hot_slots: runs while hot.', **YAML),
     'machines.*.yield_file': field('Yield flag', 'While this file exists, the machine gets nothing new.', 'text'),
     'machines.*.lock_prefix': field('Lock files', 'Where its slot locks live.', 'text'),

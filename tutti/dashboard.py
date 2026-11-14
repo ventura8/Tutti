@@ -36,6 +36,7 @@ from . import (
     fleet,
     handover,
     helper,
+    householduse,
     keepon,
     local,
     move,
@@ -231,6 +232,8 @@ class Collector:
         out['local_models'] = {**energy.view(self.cfg, probes.get('energy'), out['machines']['items'], self.clock()),
                                'error': probes.get('energy_error')}
         out['autopilot'] = autopilot.view(self.cfg)
+        out['household_use'] = householduse.view(self.cfg, self.clock())   # the headline and each machine's use (docs/FLEET.md)
+        out['fleet'] = fleet.view(self.cfg)
         accounts = {a['name']: a for a in out['usage']['accounts']}
         out['scouts'] = {**scouts.view(self.cfg, accounts, self.env), 'error': probes.get('scout_error'), 'trial': trial.view(self.cfg)}
         out['controls'] = controls.view(self.cfg, controls.read(config.state_dir(self.cfg)))

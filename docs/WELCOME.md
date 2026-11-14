@@ -39,8 +39,10 @@ its owner.
 
 ## Where it shows
 
-- **The dashboard**: a *Welcome back* panel above the cards, shown once per return (*Got it* hides it), and
-  **What did I miss?** in the top bar, which makes a summary since your last one at any time. Tutti has no Chat tab yet;
-  when it does, the same summary (`GET /api/welcome`) is its first message.
-- **Your main agent**: the MCP tool `welcome_summary` (a viewer's agent, `TUTTI_ROLE` or `mcp.role`, gets the viewer's view).
+- **The Chat** (the default tab) and every other view: a *Welcome back* panel at the top, shown once per return (*Got it*
+  hides it). *What did I miss?* is the Chat's first suggestion; asked there (or typed), the Chat answers with a summary
+  since your last one. The same button sits in the top bar.
+- **Your main agent**: the MCP tool `welcome_summary` shows your latest summary, or makes one when there is none; it
+  never marks the dashboard's panel read (a viewer's agent, `TUTTI_ROLE` or `mcp.role`, gets the viewer's view).
+- With sign-in on, `/api/welcome` answers only a signed-in user, and only about themself.
 - **The terminal**: `tutti welcome [show|miss|on|off]`.

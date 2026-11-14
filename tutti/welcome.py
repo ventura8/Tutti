@@ -43,6 +43,9 @@ def path_of(cfg):
     return os.path.join(config.state_dir(cfg), FILE)
 
 
+LOCK = threading.RLock()   # the dashboard's loop, its request threads and the rewrite thread share welcome.json
+
+
 def read(cfg):
     return telemetry.read_json(path_of(cfg), {'users': {}})
 
@@ -105,6 +108,15 @@ def at_text(ts):
     return when(datetime.fromtimestamp(ts, timezone.utc))
 
 
+def parse_reset(text):
+    """A reset time, or None when it is missing or unreadable (`Z` suffix included)."""
+    try:
+        at = datetime.fromisoformat(str(text).replace('Z', '+00:00')) if text else None
+    except ValueError:
+        return None
+    return at if at is None or at.tzinfo else at.replace(tzinfo=timezone.utc)
+
+
 def scope_of(t):
     if t.get('user'):
         return f'user:{t["user"]}'
@@ -161,7 +173,7 @@ def usage_facts(accounts):
         if used is None:
             continue
         at_end = f', on track to end at {end:g} %' if isinstance(end, (int, float)) else ''
-        reset = f' by its reset {when(datetime.fromisoformat(a["reset"]))}' if a.get('reset') else ''
+        reset = f' by its reset {when(parsed)}' if (parsed := parse_reset(a.get('reset'))) else ''
         out.append({'scope': 'admin', 'text': f'{a["name"]}: {used:g} % used{at_end}{reset} ({a.get("verdict") or "unknown"})'})
     return out
 
@@ -186,7 +198,7 @@ def tune_needs(cfg):
     return [{'scope': 'admin', 'kind': 'decision', 'project': 'Tutti',
              'title': f'Approve or ignore {p["path"]}: {p["old"]} -> {p["value"]}',
              'step': f'Settings: set {p["path"]} to {p["value"]}, or leave it', 'why': p['why'], 'link': '/#settings'}
-            for p in (aiassist.read_state(cfg).get('tune_proposals') or [])] if aiassist.switch(cfg, 'enabled') else []
+            for p in aiassist.live_proposals(aiassist.read_state(cfg))] if aiassist.switch(cfg, 'enabled') else []
 
 
 ACTIONABLE = ('decision', 'sign-in', 'sudo', 'phone', 'reading')
@@ -267,17 +279,19 @@ def rewrite(cfg, key, at, ask=None):
     """The stored summary of `key` made at `at` gets the local model's intro (in a thread: the page is never kept waiting)."""
     def go():
         try:
-            data = read(cfg)
+            with LOCK:
+                data = read(cfg)
             s = next((x for x in user_of(data, key).get('summaries') or [] if x['at'] == at), None)
             f = {k: s[k] for k in ('shipped', 'running', 'failed', 'usage', 'needs')} if s else None
             intro = ai_intro(cfg, f, s['since'], ask) if s else None
             if not intro:
                 return
-            data = read(cfg)   # read again: the page may have marked it read meanwhile
-            for x in user_of(data, key).get('summaries') or []:
-                if x['at'] == at:
-                    x.update(intro=intro, by='model', text=render(intro, f))
-            write(cfg, data)
+            with LOCK:
+                data = read(cfg)   # read again: the page may have marked it read meanwhile
+                for x in user_of(data, key).get('summaries') or []:
+                    if x['at'] == at:
+                        x.update(intro=intro, by='model', text=render(intro, f))
+                write(cfg, data)
         except Exception as e:  # a model problem never breaks the dashboard: recorded as a crash
             telemetry.capture_exception(type(e), e, e.__traceback__, where='welcome')
     threading.Thread(target=go, name='tutti-welcome', daemon=True).start()
@@ -313,7 +327,7 @@ def owner_here(cfg, now):
     return mode not in ('away', 'vacation'), 'owner-mode'
 
 
-def tick(cfg, now=None, ask=None):
+def _tick(cfg, now=None, ask=None):
     """The dashboard's loop: the owner's signals; a return makes their summary. Returns event lines."""
     now = now or time.time()
     data = read(cfg)
@@ -332,15 +346,24 @@ def tick(cfg, now=None, ask=None):
 
 
 def viewer(collector, headers):
+    """(role, key) of who asks; None with sign-in on and no signed-in user (never the owner's summary by default)."""
     who = getattr(collector, 'who', None)
     w = who(headers) if callable(who) else None
-    return (w['role'], w['sub']) if w else ('admin', OWNER)
+    if w:
+        return w['role'], w['sub']
+    return None if getattr(collector, 'signed', False) else ('admin', OWNER)
 
 
-def get(collector, headers, now=None):
+ANON = (401, {'error': 'sign in first: open the dashboard'})
+
+
+def _get(collector, headers, now=None):
     """GET /api/welcome: this viewer's latest summary (made now when they just came back). ?now=1 is What did I miss?"""
     cfg, now = collector.cfg, now or time.time()
-    role, sub = viewer(collector, headers)
+    who = viewer(collector, headers)
+    if who is None:
+        return ANON
+    role, sub = who
     key = sub
     data = read(cfg)
     on = enabled_for(cfg, data, key)
@@ -376,7 +399,7 @@ def asks_miss(text):
     return bool(MISS_RX.match(text or ''))
 
 
-def chat_answer(cfg, user, now=None):
+def _chat_answer(cfg, user, now=None):
     """The Chat's answer to What did I miss?: the summary since this user's last one, kept as their latest."""
     key = OWNER if user.get('sub') in (None, 'local') else user['sub']
     role = user.get('role') or 'viewer'
@@ -388,7 +411,7 @@ def chat_answer(cfg, user, now=None):
     return made['text']
 
 
-def post(collector, headers, raw):
+def _post(collector, headers, raw):
     """POST /api/welcome {"action": "read"|"miss"|"on"|"off"}: the viewer's own setting and summary only."""
     import json
     try:
@@ -399,7 +422,10 @@ def post(collector, headers, raw):
     if action not in ('read', 'miss', 'on', 'off'):
         return 400, {'error': 'send {"action": "read"}, {"action": "miss"} (What did I miss?), {"action": "on"} or {"action": "off"}'}
     cfg = collector.cfg
-    role, sub = viewer(collector, headers)
+    who = viewer(collector, headers)
+    if who is None:
+        return ANON
+    role, sub = who
     data = read(cfg)
     u = user_of(data, sub)
     if action in ('on', 'off'):
@@ -428,3 +454,23 @@ def errors(cfg):
     if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0):
         errs.append(f'welcome.away_hours is {v!r}: hours above 0 (empty: pacing.away_after_hours)')
     return errs
+
+
+def tick(cfg, now=None, ask=None):
+    with LOCK:
+        return _tick(cfg, now, ask)
+
+
+def get(collector, headers, now=None):
+    with LOCK:
+        return _get(collector, headers, now)
+
+
+def post(collector, headers, raw):
+    with LOCK:
+        return _post(collector, headers, raw)
+
+
+def chat_answer(cfg, user, now=None):
+    with LOCK:
+        return _chat_answer(cfg, user, now)

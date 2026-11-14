@@ -158,6 +158,21 @@ class Fallbacks(Base):
         self.assertEqual(aiassist.ask_local(cfg, 'p', available=lambda w: (True, ''), generate=gen), ('ok', 'pc'))
         self.assertEqual(calls, ['n', 'm'])
 
+    def test_a_rate_limit_stays_real_whatever_the_model_says(self):
+        cfg = self.cfg(enabled=True)
+        t = {'attempts': [{'ok': False, 'tail': 'Error: 429 Too Many Requests: rate limit reached'}]}
+        aiassist.examine_attempt(cfg, t, fake_ask('CLASS: flaky\nSUMMARY: try later'))
+        self.assertEqual(t['attempts'][-1]['class'], 'real')
+
+    def test_a_reply_that_is_not_json_hands_over_to_the_next_model(self):
+        cfg = self.cfg(enabled=True)
+
+        def gen(cfg, w, prompt, **kw):
+            if w['model'] == 'n':
+                raise ValueError('Expecting value: line 1 column 1')
+            return 'ok'
+        self.assertEqual(aiassist.ask_local(cfg, 'p', available=lambda w: (True, ''), generate=gen), ('ok', 'pc'))
+
     def test_a_config_false_beats_the_dashboards_switch(self):
         cfg = self.cfg(enabled=False)
         aiassist.set_state_switch(cfg, 'enabled', True)
@@ -315,6 +330,21 @@ class AutoTune(Base):
         aiassist.write_state(cfg, st)
         self.assertTrue(aiassist.decide(cfg, 'dashboard.stall_minutes', False)[0])
         self.assertEqual(aiassist.read_state(cfg)['tune_proposals'], [])
+
+    def test_a_failed_apply_keeps_the_proposal_and_old_ones_go(self):
+        cfg = self.cfg(enabled=True)
+        aiassist.write_state(cfg, {'tune_proposals': [{'path': 'dashboard.stall_minutes', 'value': 40, 'old': 10, 'why': 'x', 'at': NOW},
+                                                      {'path': 'dashboard.probe_seconds', 'value': 90, 'old': 30, 'why': 'y',
+                                                       'at': NOW - 8 * aiassist.DAY}]})
+
+        def refuse(cfg, changes):
+            raise settings.SettingsError(409, 'read-only')
+        ok, why = aiassist.decide(cfg, 'dashboard.stall_minutes', True, refuse, NOW)
+        self.assertFalse(ok)
+        self.assertIn('read-only', why)
+        st = aiassist.read_state(cfg)
+        self.assertEqual(len(st['tune_proposals']), 2)
+        self.assertEqual([p['path'] for p in aiassist.live_proposals(st, NOW)], ['dashboard.stall_minutes'])
 
     def test_at_most_two_a_day_and_never_out_of_bounds(self):
         cfg = self.cfg(enabled=True)

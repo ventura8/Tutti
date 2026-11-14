@@ -181,7 +181,6 @@ What it does (`tutti/aiassist.py`, tested in `tests/test_aiassist.py`):
      it); the fallback sizes it from its scope and title, and the criteria are asked again once a model is back.
    The model is asked outside the backlog's lock, at most 5 tasks a round; after a round where no model answered, the
    next waits 30 minutes.
-   The owner's activity and device presence are predicted by the planner's own work (`tutti/owner.py`, presence).
 3. **Auto-tuning.** Measured outcomes (and the model's `TUNE:` lines) propose new values for `autopilot.no_progress`,
    `autopilot.max_attempts`, `dashboard.stall_minutes`, `dashboard.probe_seconds` and `self_improve.every_hours`. A change
    inside the key's bounds and step is written to the config file by itself (with the usual backup), at most two a day and

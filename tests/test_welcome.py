@@ -164,6 +164,20 @@ class Chat(Base):
         self.assertIn('owner', welcome.read(cfg)['users'])   # sign-in off: the chat's local user is the owner
 
 
+class Guards(Base):
+    def test_with_sign_in_on_nobody_signed_in_gets_nothing(self):
+        cfg = self.cfg()
+        collector = type('C', (), {'cfg': cfg, 'signed': True, 'who': staticmethod(lambda h: None)})()
+        self.assertEqual(welcome.get(collector, {}, T0)[0], 401)
+        self.assertEqual(welcome.post(collector, {}, b'{"action": "off"}')[0], 401)
+        self.assertEqual(welcome.read(cfg)['users'], {})
+
+    def test_an_unreadable_reset_is_left_out(self):
+        rows = welcome.usage_facts([{'name': 'a', 'used': 5.0, 'reset': 'soon'}, {'name': 'b', 'used': 5.0, 'reset': '2026-11-20T08:00Z'}])
+        self.assertNotIn('reset', rows[0]['text'])
+        self.assertIn('by its reset', rows[1]['text'])
+
+
 class Words(Base):
     def test_the_template_when_ai_is_off_and_the_model_when_on(self):
         cfg = self.cfg()

@@ -75,10 +75,10 @@ DEFAULTS = {
     # home: the project Tutti's own fixes go to (docs/TELEMETRY.md, *Self-improvement*); auto_accept: a Sentry or scout triage
     # task joins the queue by itself, no `tutti backlog accept` (still the 3-a-day cap and the dedupe)
     'self_improve': {'enabled': True, 'auto_accept': True, 'every_hours': 6, 'max_new_per_day': 3, 'min_count': 3, 'home': ''},
-    # ai_assist: Tutti uses AI, local and online, to make itself better (tutti/aiassist.py, docs/TELEMETRY.md, *AI assist*);
-    # off until an admin opts in; local, online and online_code (code to online models) are separate switches
     # welcome: the welcome-back summary for every user (tutti/welcome.py); away_hours: None is pacing.away_after_hours
     'welcome': {'enabled': True, 'away_hours': None, 'ai': True},
+    # ai_assist: Tutti uses AI, local and online, to make itself better (tutti/aiassist.py, docs/TELEMETRY.md, *AI assist*);
+    # off until an admin opts in; local, online and online_code (code to online models) are separate switches
     'ai_assist': {'enabled': False, 'local': True, 'online': False, 'online_code': False, 'auto_tune': True, 'every_hours': 6,
                   'max_proposals': 5, 'local_worker': '', 'scout': '', 'research_every': '7d'},
     # autocompact: a worker agent's context is compacted at threshold_pct of its window (tutti/autocompact.py); the

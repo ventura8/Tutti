@@ -52,6 +52,7 @@ FLAKY_RX = re.compile(r'\b(ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED)\b|Connec
                       r'resolution|503 Service Unavailable|Read timed out|net::ERR_[A-Z_]+')
 ENV_RX = re.compile(r': command not found\b|is not on PATH|^ModuleNotFoundError: |No space left on device|\bENOSPC\b|'
                     r'Cannot connect to the Docker daemon|\bOut of memory\b|\bOOM[- ]kill|Killed\s*$', re.M)
+RATE_RX = re.compile(r'\b429\b|rate[ -]?limit|quota (exceeded|exhausted)|usage limit', re.I)
 SWITCH_DOWN = 1800   # after no local model answered, decisions wait this long before asking again
 PER_ROUND = 5   # failures examined and tasks sharpened per round
 _running = threading.Lock()
@@ -125,7 +126,7 @@ def ask_local(cfg, prompt, available=None, generate=None):
             continue
         try:
             return generate(cfg, w, prompt, low_priority=True, timeout=600), name
-        except (RuntimeError, OSError, KeyError) as e:
+        except (RuntimeError, OSError, KeyError, ValueError) as e:   # ValueError: a reply that is not JSON or cut short
             tried.append(f'{name}: {type(e).__name__}')
     return None, 'no local model answered (' + (', '.join(tried) or 'no ollama worker in the config') + ')'
 
@@ -171,7 +172,8 @@ def criteria_lines(answer, limit=5):
 
 def failure_prompt(tail):
     return ('A coding agent\'s attempt failed. Its failing output follows. Answer in two lines: first CLASS: flaky, environment '
-            'or real (flaky: a timeout, a network or rate-limit error; environment: a missing tool, disk, memory or permission; '
+            'or real (flaky: a dropped connection or a DNS failure; environment: a missing tool, disk, memory or permission; '
+            'a rate limit or a used-up quota is real, never flaky; '
             'real: the code or the test is wrong). Then SUMMARY: the cause in one sentence a developer can act on.\n\n'
             + (tail or '')[-4000:])
 
@@ -191,7 +193,9 @@ def examine_attempt(cfg, t, ask):
     answer, _who = ask(cfg, failure_prompt(last['tail']))
     if answer is None:
         return False
-    last['class'] = parse_class(answer) or last.get('class') or classify_quick(last['tail'])
+    quick = classify_quick(last['tail'])
+    # a rate limit is never flaky, whatever the model says: the ladder moves on to another account
+    last['class'] = 'real' if RATE_RX.search(last['tail']) else parse_class(answer) or last.get('class') or quick
     m = re.search(r'SUMMARY:\s*(.+)', answer)
     if m:
         last['summary'] = m.group(1).strip()[:400]
@@ -322,17 +326,17 @@ def auto_room(log, now):
 
 
 def apply_tune(cfg, st, t, summary, now, by, store):
-    """Writes one tune into the config (with its backup) and logs it with its old value for undo. Returns an event line."""
+    """Writes one tune into the config (with its backup) and logs it with its old value for undo. Returns (ok, event line)."""
     from . import settings as settings_mod
     log, key, old = st.setdefault('tuned', []), '.'.join(t['path']), current(cfg, t['path'])
     try:
         store(cfg, [(list(t['path']), t['value'])])
     except settings_mod.SettingsError as e:
-        return f'ai-assist: {key} not tuned: {e}'
+        return False, f'ai-assist: {key} not tuned: {e}'
     log.append({'id': f'u{len(log) + 1}', 'at': now, 'path': key, 'old': old, 'new': t['value'], 'why': t['why'], 'by': by,
                 'metric': t.get('metric'), 'before': metric(summary, t.get('metric'))})
     telemetry.record('feature', 'aiassist.tune', key=key, by=by)
-    return f'ai-assist: {key} {old} -> {t["value"]} ({t["why"]}); undo on the dashboard'
+    return True, f'ai-assist: {key} {old} -> {t["value"]} ({t["why"]}); undo on the dashboard'
 
 
 def propose(cfg, st, t, now):
@@ -357,7 +361,7 @@ def tune(cfg, st, tunes, summary, now, store=None):
         if verdict == 'propose':
             propose(cfg, st, t, now)
         elif auto_room(st.get('tuned') or [], now) > 0 and settings_mod.writable(cfg):
-            events.append(apply_tune(cfg, st, t, summary, now, 'auto', store))
+            events.append(apply_tune(cfg, st, t, summary, now, 'auto', store)[1])
     return events
 
 
@@ -368,11 +372,18 @@ def decide(cfg, path, apply, store=None, now=None):
     p = next((x for x in st.get('tune_proposals') or [] if x['path'] == path), None)
     if not p:
         return False, f'no proposed change to {path}: reload the page'
-    st['tune_proposals'] = [x for x in st['tune_proposals'] if x['path'] != path]
-    line = apply_tune(cfg, st, {**p, 'path': tuple(path.split('.'))}, cached_summary(cfg) or {}, now, 'admin',
-                      store or settings_mod.store) if apply else ''
-    write_state(cfg, st)
-    return (False, line) if 'not tuned' in line else (True, line)
+    ok, line = apply_tune(cfg, st, {**p, 'path': tuple(path.split('.'))}, cached_summary(cfg) or {}, now, 'admin',
+                          store or settings_mod.store) if apply else (True, '')
+    if ok:   # a failed apply keeps the proposal, so the admin can try again
+        st['tune_proposals'] = [x for x in st['tune_proposals'] if x['path'] != path]
+        write_state(cfg, st)
+    return ok, line
+
+
+def live_proposals(st, now=None):
+    """The proposed tunes younger than 7 days (older ones go from the card and the welcome-back list)."""
+    now = now or time.time()
+    return [p for p in st.get('tune_proposals') or [] if now - float(p.get('at') or 0) < 7 * DAY]
 
 
 def undo(cfg, tune_id, store=None):
@@ -596,7 +607,7 @@ def view(cfg, summary=None):
     props = st.get('proposals') or []
     return {'switches': {k: switch(cfg, k) for k in SWITCHES}, 'proposals': len(props), 'done': len(done),
             'recent': props[-5:][::-1], 'tuned': (st.get('tuned') or [])[-10:][::-1],
-            'tune_proposals': (st.get('tune_proposals') or [])[-5:],
+            'tune_proposals': live_proposals(st)[-5:],
             'gains': gains(cfg, st, summary or cached_summary(cfg) or {}), 'last_round': st.get('last_round'),
             'skipped': st.get('skipped') or ''}
 

@@ -1236,13 +1236,14 @@ def cmd_welcome(cfg, a):
         welcome.write(cfg, data)
         print(f'welcome-back summaries: {a.action}')
         return 0
-    if a.action == 'miss' or not u.get('summaries'):
+    if a.action == 'miss' or not u.get('summaries'):   # show: the latest, made only when there is none
         import time as _time
         s = welcome.miss(cfg, role, key, welcome.accounts_now(cfg, _time.time()) if role == 'admin' else [])
         welcome.remember(data, key, s)
     else:
         s = u['summaries'][-1]
-    u['unread'] = False
+    if not a.keep_unread:   # an agent showing it leaves the dashboard's panel for the person
+        u['unread'] = False
     welcome.write(cfg, data)
     print(s['text'])
     return 0
@@ -1594,6 +1595,7 @@ def parser():
     s = add('welcome', cmd_welcome, 'welcome back: what happened while you were away (shipped, running, failed, usage, what '
                                      'needs you): show (the latest), miss (What did I miss? since the last one), on, off')
     s.add_argument('action', nargs='?', default='show', choices=['show', 'miss', 'on', 'off'])
+    s.add_argument('--keep-unread', action='store_true', help='leave the dashboard\'s Welcome back panel unread (the MCP tool)')
     s = add('ai-assist', cmd_aiassist, 'Tutti uses AI, local and online, to make itself better (an admin opts in): status, tick '
                                        '(one round now), undo <id> (a tuned parameter back)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'tick', 'undo'])

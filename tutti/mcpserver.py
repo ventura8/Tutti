@@ -118,7 +118,7 @@ def argv_of(name, a):
     size = a.get('size')
     table = {
         'usage': lambda: ['usage'],
-        'welcome_summary': lambda: ['welcome', 'miss'],
+        'welcome_summary': lambda: ['welcome', 'show', '--keep-unread'],
         'machines': lambda: ['machines'],
         'devices': lambda: ['devices'],
         'backlog_list': lambda: ['backlog', 'list'] + (['--all'] if a.get('all') else []),

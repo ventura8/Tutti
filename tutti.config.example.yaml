@@ -100,8 +100,8 @@ accounts:
            match: {command: '\bclaude\b'},   # no CLI prints the plan's %: a limit message ("resets 3pm") still logs it as spent
            reading_file: ~/.local/state/tutti/claude-usage.json,   # the orchestrator writes {"used": 42} here from its own tool
            stale_hours: 2}                  # a reading by hand older than this gets a reminder
-  # Cursor prints no usage: the plan comes from `cursor-agent about`, "used" from a limit message in a job's output or one tap
-  # on the dashboard's "Add a reading" (it opens usage_url). The reset day is a guess until a reading names the real one.
+  # Cursor's two meters come from its own account call, signed in with cursor-agent's login (docs/USAGE-PACING.md): no owner
+  # click; the reading names the billing cycle's end, which then anchors the window.
   cursor:
     window: monthly
     resets: '2026-01-01T00:00Z'
@@ -111,6 +111,8 @@ accounts:
     worker: cursor
     background: true                   # Cursor's own automatic reviews spend it outside Tutti: the planner estimates them
     plan: {command: [cursor-agent, about, --format, json], field: subscriptionTier, every_minutes: 360}
+    # "Cursor Models"; an account for the page's "Other Models" meter reads field: apiPercentUsed
+    reader: {format: cursor-api, field: autoPercentUsed, every_minutes: 15}
     match: {command: cursor-agent}
   # Antigravity answers `agy -p /usage --output-format json` with every quota bucket, its remaining share and reset time,
   # without spending quota: two rolling 5-hour windows (Claude and GPT models; Gemini models), read at every probe.
@@ -126,6 +128,10 @@ accounts:
     args: [--model, claude-sonnet-5-5-medium, --settings, '{"permissions":{"allow":["command(*)"]}}']
     reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: 3p-5h}
     limits: [agy-claude-weekly]        # the weekly quota bounds the 5 h windows: the planner shares it out (docs/USAGE-PACING.md)
+    # model and effort by pace (names from `agy models`): strong while behind its weekly limit, cheap while ahead
+    tiers:
+      strong: {args: [--model, claude-opus-5-5-high], sizes: [L, M]}
+      cheap: {args: [--model, claude-sonnet-5-5-low], sizes: [S]}
     # window_points: 10                # what one whole 5 h window costs of the weekly, in points; measured from readings when unset
     match: {command: '\bagy\b', model: 'claude|sonnet|opus|gpt'}
   agy-gemini:
@@ -318,6 +324,7 @@ scouts:
         task: Open https://my-app.example and report console errors, broken pages and failed requests, with steps.
     sentry_triage: true                   # a daily watch per project with a sentry: entry (docs/SCOUTS.md, Sentry triage)
     review_trial: {repos: [octo/my-app], prs: 5}   # `tutti pr review` also asks the scout for the next 5 pull requests
+    spend_rest: true                      # behind near the reset: extra watches, reviews and `scout:` questions, up to 95 %
 
 # Telemetry (docs/TELEMETRY.md): recorded in <state>/telemetry always; sent only after you say yes (tutti telemetry on).
 # Keep the DSN out of this file: `tutti telemetry setup` stores it in ~/.config/tutti/telemetry.env (or $TUTTI_SENTRY_DSN).

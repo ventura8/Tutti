@@ -40,6 +40,9 @@ Tasks from self-improvement (`sentry`, `insight`) get a ready pull request inste
 starts with "Open", and the dated notes under the table), `TODO(owner):` and `FIXME(owner):` comments (an owner tag means a
 person meant it), and the lines the repo's `gaps` command prints (`<path>: <what is missing>`, e.g. a coverage or lint report).
 
+A task whose title starts with `scout:` is a research question for a scout (docs/SCOUTS.md, *Spend the rest*): the
+autopilot never sends it to a worker.
+
 ## A round
 
 The dashboard runs one round after every probe while the autopilot is on (`tutti autopilot tick` runs one by hand):

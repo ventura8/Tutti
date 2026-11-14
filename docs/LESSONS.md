@@ -295,3 +295,16 @@ document end, so a config line built from it broke the file on the first real ru
 like a domain). `configmerge.flow` dumps the value inside a list and strips the brackets; a test round-trips names with
 dots and values with colons.
 
+## Config written for code that had not shipped took the dashboard down (2026-11-14)
+
+**What happened.** An agent added `reader: {format: cursor-api, ...}` to the owner's live `tutti.config.yaml` while the
+code that reads that format was still in an open pull request. The installed Tutti refused the whole config (the reader
+had no `command` or `bucket`), and the dashboard could not restart until a person commented the lines out.
+
+**Why.** The config is shared by every Tutti process on the computer, and the installed version, not the branch the agent
+works on, is what reads it. Validation treated a reader it did not know as a fatal error.
+
+**Rule.** Never write a key or value into a live config before the version that reads it is merged, fast-forwarded and
+running; change the config in the same step that restarts on the new version. Tutti is lenient too (0.1.41): an account key
+it does not know or a reader format it cannot read is a warning (`tutti: warning: ...`), and that reader is skipped; the
+rest of the config and the dashboard still start.

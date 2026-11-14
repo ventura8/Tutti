@@ -44,7 +44,7 @@ class Allowance(unittest.TestCase):
         self.assertIn('4 of 2 points', routing.account_unfit(s))
 
     def test_within_its_share_it_takes_tasks_and_says_why(self):
-        s = state([('2026-01-05T23:00Z', 80), ('2026-01-06T02:00Z', 81)])
+        s = state([('2026-01-05T03:00Z', 70), ('2026-01-05T23:00Z', 80), ('2026-01-06T02:00Z', 81)])   # projected past 100: even share
         p = s['quota_plan']
         self.assertEqual((p['left'], p['tasks']), (1.0, 5))               # 1 weekly point = 10 points of the 5 h window = 5 tasks
         self.assertEqual(routing.account_unfit(s), '')
@@ -56,7 +56,8 @@ class Allowance(unittest.TestCase):
         self.assertIn('→ nothing more this window', spent)
 
     def test_the_plan_comes_as_label_value_rows_without_the_account_name(self):
-        p = state([('2026-01-05T23:00Z', 80), ('2026-01-06T02:00Z', 81)])['quota_plan']
+        # projected past 100: the even share
+        p = state([('2026-01-05T03:00Z', 70), ('2026-01-05T23:00Z', 80), ('2026-01-06T02:00Z', 81)])['quota_plan']
         got = {r['label']: r.get('value') or r.get('at') for r in p['rows']}
         self.assertEqual(got['This window'], '1 of 2 weekly points')
         self.assertEqual(got['Spend by'], p['expires'])                    # a time stays ISO: the page shows it in local time

@@ -213,7 +213,8 @@ class AnchorTest(unittest.TestCase):
         self.assertEqual(config.validate(config.normalise({'accounts': ACCOUNTS})), [])
         bad = {'a': {'usage_url': 'http://x', 'reader': {'command': [], 'every_minutes': 0}, 'plan': 'x', 'match': {'command': '('}},
                'b': {'match': {'model': 'x'}}, 'c': {'match': {'command': 'x', 'model': '['}}}
-        errs = '\n'.join(config.validate(config.normalise({'accounts': bad})))
+        cfg = config.normalise({'accounts': bad})
+        errs = '\n'.join(config.validate(cfg) + cfg['_warnings'])   # a reader it cannot read is a warning: skipped
         for key in ('a.usage_url', 'a.reader.command', 'a.reader.bucket', 'a.reader.every_minutes', 'a.plan is', 'a.match.command',
                     'b.match needs command', 'c.match.model'):
             self.assertIn(f'accounts.{key}', errs)

@@ -2,6 +2,37 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.41 (2026-11-14)
+
+### Fixed
+
+- A config written for a newer Tutti never stops this one: an account key it does not know, or a reader whose format it
+  cannot read, is a warning (`tutti: warning: ...` on stderr) and that reader is skipped; the config still loads and the
+  dashboard still starts (docs/LESSONS.md).
+
+- A scout's account (Grok Bot) never offers backlog tasks: its card's Do line and the planner's Decision no longer say
+  "start more parallel work from the backlog" or "42 task(s) now"; they say what the scout does with the allowance.
+- The owner's reserve names the working days it is kept for and whether the profile is learned yet; on a Saturday it is
+  the expected use of the working days before the reset (none when Monday's hours come after it). The Do line of the
+  owner's account comes from the plan: it never says "spending too fast" while the plan says spend.
+- A 5 h window under a weekly limit keeps its own badge (6 % used against 33 % by now is behind, not ahead); the card's Do
+  line and Decision name the binding limit and why, and never contradict each other.
+
+### Added
+
+- Spend the rest (`scouts.<name>.spend_rest`, on by default): near its reset, a scout behind its pace spends what is left
+  by itself on Sentry triage, dependency notes, the other watches, `scout:` research questions from the backlog and the
+  review trial's open pull requests, in project priority order, within its caps and up to 95 %
+  (`tutti/spendrest.py`, docs/SCOUTS.md).
+- Joint planning of a window and its weekly limit: a window may spend over its even share while the limit's projection
+  still ends within its budget.
+- Model and effort by pace (`accounts.<name>.tiers`, `tutti/tiers.py`): behind on the binding limit, an account runs its
+  strong tier (`--model`, `--effort`) and takes the L and M tasks first; ahead, its cheap tier and the S tasks. Running
+  tasks and `tutti run auto` show the choice and why.
+- Cursor's two meters read automatically (`reader: {format: cursor-api, field: autoPercentUsed | apiPercentUsed}`,
+  `tutti/cursorusage.py`): the spending page's own account call, signed in with cursor-agent's login, with no owner click.
+  Grok Bot's weekly meter is not in that answer and keeps the reading helper.
+
 ## 0.1.39 (2026-11-14)
 
 ### Fixed

@@ -25,14 +25,18 @@ tutti usage read                   # run the automatic readers now (the dashboar
 
 ## Automatic readings
 
-Tutti reads what the CLIs print, never their credential files, cookies or private APIs. Three sources, all written to
-the same usage log as `tutti usage log`:
+Tutti reads what the CLIs print, plus one account call: Cursor's. Four sources, all written to the same usage log as
+`tutti usage log`:
 
 | Source | Config | What it gives |
 | --- | --- | --- |
 | A reader command | `reader: {command: [...], bucket: <id>, every_minutes: 10}` | Antigravity: `agy -p /usage --output-format json` lists every quota bucket (`3p-5h` and `gemini-5h`: the two rolling 5-hour windows; `3p-weekly`, `gemini-weekly`) with the share left and the reset time, and spends no quota. One run serves every account that names the same command. |
 | A plan command | `plan: {command: [...], field: <key>}` | A label for the card, such as Cursor's tier from `cursor-agent about --format json` (`subscriptionTier`). Only that field is read. |
+| Cursor's account call | `reader: {format: cursor-api, field: autoPercentUsed}` (or `apiPercentUsed`) | Both meters of cursor.com/dashboard/spending ("Cursor Models", "Other Models") and the billing cycle's end, from the call the spending page makes (`DashboardService/GetCurrentPeriodUsage` on api2.cursor.sh), signed in with cursor-agent's own login (`~/.config/cursor/auth.json`). No quota spent, no owner click; one call serves both accounts. The token is sent only there and never logged or printed; a refused call says to run `cursor-agent login`. Grok Bot's weekly meter is not in this answer: it keeps the reading helper. |
 | Limit messages | `match: {command: <regex>, model: <regex>, fallback: true}` | A "usage limit reached, try again in 3 h" line in the output of `tutti run` or of a `tutti quiet` job whose command matches logs the account as spent (100 %) until the reset it names. With several accounts on one CLI (`agy`), `model` picks the one the command or the message names; `fallback` takes the rest. |
+
+A reader this version cannot read (an unknown `format`, a missing `command` or `bucket`) and an account key it does not
+know are warnings, not errors: the reader is skipped, the account still takes readings by hand, and the config loads.
 
 A reading that names its reset (a reader, a limit message, the dashboard form, `--resets`) anchors the account's
 window from then on: it beats the config's `resets`, which is only a first guess. Mark such a guess with
@@ -97,6 +101,20 @@ small, and stays simple enough to check by hand:
   costs of the limit is `window_points`, else measured from this window's readings (the limit's rise over the window's
   rise), else unknown (no cap from the later windows). When this window has spent its allowance, nothing new goes to it until
   it resets; a limit spent or in panic closes it at once.
+- **Both limits together.** An even share is a floor, not a cap: while the limit's projection (its last day's rate carried
+  to its reset) ends under its budget, this window may also spend the difference, up to what the window itself holds. Early
+  in the week a window can take far more than 1/33 of the weekly quota, and it is never cut off while the week still fits.
+- **Each window keeps its own badge.** The 5 h window's verdict is its own line's; the card's Do line and the Decision say
+  which limit binds and why (`5h window has room; the limit agy-claude-weekly (ahead of its pace; projected to end at 104 %)
+  is binding: new work waits for the 22:55 UTC reset`). The Do line always comes from the plan, so it never says "spending
+  too slowly" while the Decision says "nothing more", nor "too fast" while the plan says spend.
+- **Model and effort follow the pace** (`tutti/tiers.py`). `accounts.<name>.tiers: {strong: {args: [--model, x], sizes: [L,
+  M]}, cheap: {args: [--model, y], sizes: [S]}}`. Behind on the binding limit (a window's limit projected to end under 90 %,
+  else the account's own verdict behind or late): the strong tier's flags replace the account's (`--model`, `--effort`), and
+  the autopilot gives it the L and M tasks first; ahead (projected over 100 %): the cheap tier and the small tasks; on pace:
+  the account's own `args`. The model names come from the worker's own list (`agy models`, `cursor-agent --list-models`,
+  `claude --help`), never guessed; an account without tiers keeps its args. A running task shows its choice and why
+  (`claude-opus-5-5-high/high: agy-claude behind: agy-claude-weekly projected to end at 60 %`), and so does `tutti run auto`.
 - **Room in tasks.** The allowance left, in the window's own points, divided by `task_pct` (0: no tasks), is how many tasks
   the autopilot sends now (its trigger accounts) and the room `tutti run auto` sees. With several limits, the one that allows
   the fewest tasks binds (points of different limits do not compare). An account without limits gets its pace's room, never
@@ -125,7 +143,10 @@ its use is higher then; on weekends, on holiday, or while away the agents work a
   busiest `hours` contiguous hours. Days not in `schedule.days` never keep a reserve.
 - **The reserve.** On the main agent's accounts the planner keeps the owner's expected burn for the owner hours left
   before the window's target, weekly windows across the whole week (a reset on a Wednesday keeps Monday's and Tuesday's
-  hours, nothing after). An account with `limits` keeps it out of the weekly limit's budget, and the planner's windows
+  hours, nothing after). On a Saturday it is the next working days' expected use that falls before the reset: none when
+  the reset comes before Monday's hours, Monday to Friday's when the reset is the next Saturday. The card names those days
+  and whether the profile is learned yet (`Kept for the owner: 40 points for Mon 16, Tue 17, Wed 18, Thu 19, Fri 20 (auto,
+  from pacing.schedule until learned)`); until 48 h of readings are seen the amount is the schedule's `rate x hours` a day. An account with `limits` keeps it out of the weekly limit's budget, and the planner's windows
   spread the rest (*The planner* above). Without `limits` the rest is spent by the
   workers (Claude-backed autopilot too, when the main account is in `autopilot.accounts`), evenly: at most the rest x 5 h /
   the hours left at a time, so it ends near 100 % about an hour before the reset with no burst that would block the owner.

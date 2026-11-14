@@ -86,6 +86,20 @@ The scout's `account` is paced like any other (docs/USAGE-PACING.md). The plan o
 - A send that failed (a refused key, a paused routine) waits an hour before the next try, so a wrong key never opens an
   issue every round.
 
+**A scout takes no backlog tasks.** Its account card never offers bounded tasks or "start more parallel work from the
+backlog"; its Do line says what the scout does with the allowance instead.
+
+**Spend the rest** (`tutti/spendrest.py`, `scouts.<name>.spend_rest`, on by default; `false` turns it off, or `{hours: 24,
+stop_at: 95, min_gap_hours: 3}`). In the last `hours` before the allowance's target, while it is behind its pace (or late)
+and under `stop_at` %, every round sends extra scout work that has value, in the order of the projects' `priority` (0
+first; a watch without `project:` after the ranked ones; a question takes its backlog repo's project), then by kind: Sentry triage of every project with Sentry, dependency and
+changelog notes, the other watches (live-site checks), and research questions from the backlog (a queued task whose title
+starts with `scout:`; it goes to the scout, never to a worker, and moves to review with the issue's link). With the room
+left, the review trial's open pull requests not reviewed yet go out too. Each watch runs at most once more in that stretch,
+`min_gap_hours` after its last run; `per_tick`, `max_open` and the points left before `stop_at` (one question = the
+account's `task_pct`) still hold. The card then says `Scout: will use the remaining allowance on N watch(es) before the
+reset`.
+
 Read the meter in one click: the reading helper's bookmarklet for the Cursor spending page reads every account on that
 page, Grok Bot's weekly meter included (`helper_label: Grok Bot`).
 

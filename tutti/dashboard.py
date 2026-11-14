@@ -24,6 +24,7 @@ from . import (
     fill,
     handover,
     helper,
+    owner,
     pacing,
     projects,
     readers,
@@ -269,6 +270,15 @@ def save_main(cfg, raw):
     return 200, {'ok': True, 'agent': agent}
 
 
+def save_owner(cfg, raw):
+    """(status, answer) for POST /api/owner: the owner's mode ("I'm away until…") and schedule edits (tutti/owner.py)."""
+    try:
+        data = json.loads(raw or b'null')
+    except ValueError:
+        data = None
+    return owner.change(cfg, config.state_dir(cfg), data)
+
+
 def save_autopilot(cfg, raw):
     """(status, answer) for POST /api/autopilot {"enabled": true|false, "fill_room": true|false}: the dashboard's switches
     (either key, or both: "Let autopilot fill it" sends both)."""
@@ -314,7 +324,8 @@ def save_control(collector, raw, stop_fn=handover.stop_now):
     return 200, {'ok': True, 'handed': [{'log': log, 'to': to} for log, to in handed]}
 
 
-POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve')
+POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
+         '/api/owner')
 
 
 def post(collector, headers, path, port, token, read):
@@ -325,7 +336,8 @@ def post(collector, headers, path, port, token, read):
     path = path.split('?', 1)[0]
     if path not in POSTS:
         return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, {"agent": ...} to /api/main, '
-                          '{"enabled": ...} to /api/autopilot or /api/self-improve, {"action": ...} to /api/control, or '
+                          '{"enabled": ...} to /api/autopilot or /api/self-improve, {"action": ...} to /api/control, '
+                          '{"mode": ...} to /api/owner, or '
                           '{"consent"|"error"|"use": ...} to /api/telemetry'}
     refused = check_post(headers, host, token)
     if refused:
@@ -350,6 +362,7 @@ def refresh_now(collector, _body):
 HANDLERS = {
     '/api/main': lambda c, b: save_main(c.cfg, b),
     '/api/autopilot': lambda c, b: save_autopilot(c.cfg, b),
+    '/api/owner': lambda c, b: save_owner(c.cfg, b),
     '/api/control': save_control,
     '/api/refresh': refresh_now,
     '/api/reading': lambda c, b: save_reading(c.cfg, b),

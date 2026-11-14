@@ -198,23 +198,35 @@ def account_action(name, a, p, used, is_panic, room):
 
 
 def plan_args(cfg):
-    """What account_state needs from the config for the planner: every account (for `limits`) and the quiet hours."""
-    return cfg['accounts'], cfg['autopilot'].get('quiet_hours')
+    """What account_state needs from the config for the planner: every account (for `limits`), the quiet hours, and the
+    owner's schedule and mode (tutti/owner.py; the mode and the dashboard's edits are read from the state folder)."""
+    from tutti import config, owner
+    return cfg['accounts'], cfg['autopilot'].get('quiet_hours'), owner.owner_of(cfg, config.state_dir(cfg))
 
 
-def account_state(name, a, entries, now, accounts=None, quiet_hours=None):
+def owner_readings(entries, names, now, weeks=4):
+    """The owner accounts' readings of the last `weeks`, oldest first, for the learned profile."""
+    since = now - timedelta(weeks=weeks)
+    return [{'at': e['at'], 'used': float(e['used'])} for e in entries
+            if e['account'] in names and e.get('source') != 'estimate' and parse_time(e['at']) >= since]
+
+
+def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=None):
     """Everything known about one account now, as plain data: the window, the latest reading, the pace and panic.
     `state` is `ok`, `no reset` (the reset time or window is not in the config) or `no reading` (none in this window).
     With `accounts` (the config's), the planner (tutti/planner.py) adds its `plan`: an account's `limits` (a 5 h window's
     weekly quota) bound it, and what expires soonest is spent first."""
     a = a or {}
     if accounts is not None:
+        from tutti import owner as owner_mod
         from tutti import planner  # planner imports pacing: imported here, when a plan is wanted
         own = account_state(name, {k: v for k, v in a.items() if k != 'limits'}, entries, now)
+        ctx = owner_mod.context(owner, owner_readings(entries, owner['accounts'], now), now) \
+            if owner and name in owner['accounts'] else None
         if not a.get('limits'):
-            return planner.plan_alone(own, a, now)
+            return planner.plan_alone(own, a, now, owner=ctx)
         lims = [account_state(n, accounts.get(n), entries, now) for n in a['limits'] if n in accounts]
-        return planner.bind(own, lims, a, accounts, quiet_hours, now)
+        return planner.bind(own, lims, a, accounts, quiet_hours, now, owner=ctx)
     src = a.get('source', 'its dashboard')
     out = {'name': name, 'source': src, 'window': a.get('window'), 'share': a.get('share', 1.0), 'usage_url': a.get('usage_url'),
            'reset_from': None,
@@ -243,6 +255,8 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None):
     is_panic = panic(used, now, target, out['panic_at'])
     out['room_tasks'] = room_tasks(p, used, a.get('task_pct', TASK_PCT))
     action = account_action(name, a, p, used, is_panic, out['room_tasks'])
+    from tutti import owner as owner_mod  # owner imports pacing
+    out['projected_end'] = owner_mod.projection(out['readings'], used, now, reset)
     return {**out, 'state': 'ok', 'used': used, 'expected': round(p['expected'], 1), 'tolerance': round(p['tolerance'], 1),
             'verdict': p['verdict'], 'action': action,
             'panic': is_panic, 'reading_at': parse_time(e['at']).isoformat()}

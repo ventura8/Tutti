@@ -137,8 +137,10 @@ def todo_items(lines):
     out = []
     for line in lines:
         parts = line.split(':', 2)
-        m = re.search(TODO_RX, parts[2]) if len(parts) == 3 else None
-        if m:
+        m = re.search(TODO_RX, parts[2]) if len(parts) == 3 and not parts[0].lower().endswith(PROSE) else None
+        before = parts[2][:m.start()] if m else ''
+        # a quoted `TODO(owner)` names the syntax (docs, help text, test fixtures), never a task
+        if m and not is_test(parts[0]) and not before.endswith('`') and before.count("'") % 2 == 0 and before.count('"') % 2 == 0:
             out.append((f'{m.group(1)}({m.group(2)}) in {parts[0]}:{parts[1]}: {m.group(3).strip()[:200]}', parts[0]))
     return out
 
@@ -171,6 +173,15 @@ def gap_items(lines):
 
 
 SOURCE_EXT = ('.py', '.ts', '.tsx', '.js', '.mjs', '.sh')
+PROSE = ('.md', '.txt', '.rst')   # a TODO in prose is about TODOs (a changelog, a README), never a task
+BUILT = {'dist', 'build', 'cdn', 'vendor', 'third_party', 'node_modules', 'generated', 'out', 'coverage', 'site-packages'}
+HASHED = re.compile(r'-([A-Za-z0-9_-]{8})\.m?js$')   # a bundler's content hash (vite: compare-CNW-vnBa.js)
+
+
+def built(name):
+    """A minified or content-hashed bundle: built, not written (the hash has a capital or a digit, a word does not)."""
+    m = HASHED.search(name)
+    return '.min.' in name or bool(m and re.search(r'[A-Z0-9]', m.group(1)))
 NOT_UNITS = ('__init__', 'index', 'main', 'conftest', 'setup')
 
 
@@ -187,7 +198,27 @@ def test_stem(path):
     return re.sub(r'(^test_)|(_test$)', '', name)
 
 
-def untested_items(files):
+def mentioned(stem, text):
+    return bool(text) and re.search(r'(?<![\w-])' + re.escape(stem) + r'(?![\w-])', text) is not None
+
+
+def test_text(path, files, limit=4_000_000):
+    """The test files' text (at most `limit` characters in all): a unit a test imports is tested whatever the test's name."""
+    out, size = [], 0
+    for f in (f for f in files if is_test(f)):
+        try:
+            with open(os.path.join(path, f), encoding='utf8', errors='replace') as fh:
+                text = fh.read(200_000)
+        except OSError:
+            continue
+        out.append(text)
+        size += len(text)
+        if size >= limit:
+            break
+    return '\n'.join(out)
+
+
+def untested_items(files, tests_text=''):
     """(title, path) of every tracked source file (`git ls-files` lines) whose name no test file mentions: a missing test is
     a bounded task with an obvious check. Config files, type declarations, package entry points and the tests are skipped."""
     tests = {test_stem(f) for f in files if is_test(f)}
@@ -196,7 +227,8 @@ def untested_items(files):
         base = os.path.basename(f)
         stem, ext = os.path.splitext(base)
         if ext not in SOURCE_EXT or is_test(f) or stem in NOT_UNITS or '.config' in base or base.endswith('.d.ts') \
-                or stem.lower() in tests:   # an exact unit name: `a` is not tested by test_data.py
+                or BUILT & set(f.lower().split('/')[:-1]) or built(base) \
+                or stem.lower() in tests or mentioned(stem, tests_text):   # an exact unit name: `a` is not tested by test_data.py
             continue
         out.append((f'Add unit tests for {f}: no test file names it; cover its behaviour, a good case and a bad one', f))
     return out
@@ -227,9 +259,9 @@ def sources(repo, run=subprocess.run, untested=False):
     if repo.get('gaps'):
         res = _out(run, ['bash', '-c', repo['gaps']], cwd=path)
         found += [(t, [p] if p else [], 'gaps') for t, p in gap_items(res.splitlines())]
-    if untested:
-        files = _out(run, [worktree.git_bin(), '-C', path, 'ls-files'])
-        found += [(t, [p], 'untested') for t, p in untested_items(files.splitlines())]
+    if untested and repo.get('untested', True):   # off for a repo whose coverage gate already proves every file tested
+        files = _out(run, [worktree.git_bin(), '-C', path, 'ls-files']).splitlines()
+        found += [(t, [p], 'untested') for t, p in untested_items(files, test_text(path, files))]
     return found
 
 

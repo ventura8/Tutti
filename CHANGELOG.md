@@ -2,6 +2,26 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.25 (2026-11-14)
+
+### Added
+
+- The owner's own prompting in the planner (`tutti/owner.py`, `pacing.schedule`, `pacing.mode`, `tutti owner`): a weekday
+  x hour profile, seeded Mon-Fri 8 h within 01-14 local and learned from the main agent's readings (the workers' baseline
+  taken off). On working days the main agent's accounts keep the owner's expected burn until the window's target; on
+  weekends, away (`auto` infers it) or on vacation nothing is kept and the workers spend the rest evenly, so every account
+  ends near 100 % about an hour before its reset. Week-long simulations prove 95 % or more at the end and no owner hour
+  projected at the limit (reset on Monday, Saturday, Wednesday; a day away; two weeks of vacation; an hour a day).
+- The dashboard: the mode, **I'm away until…**, **Away today**, **I'm back (auto)**, the working-day switches, a 7 x 24
+  heatmap of the learned week, and **On track to finish at X % by its reset** on every account card.
+
+### Fixed
+
+- `fill_room` queued built bundles (`cdn/…`, content-hashed or minified files) and quoted `TODO(owner)` in docs, help text and
+  test fixtures as tasks. Built folders and bundles are skipped, a TODO in prose, a quote or a test is not a task, a file a
+  test imports counts as tested, and `autopilot.repos.<repo>.untested: false` turns the untested source off for a repo whose
+  coverage gate already proves every file tested.
+
 ## 0.1.23 (2026-11-14)
 
 ### Added

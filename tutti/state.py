@@ -53,7 +53,8 @@ def usage_state(cfg, now):
     for n, a in cfg['accounts'].items():
         s = with_credits(cfg, pacing.account_state(n, a, entries, now, *pacing.plan_args(cfg)), a or {})
         accounts.append(with_background(cfg, s, a or {}, now))
-    return {'log': path, 'problem': problem, 'accounts': accounts}
+    from . import owner
+    return {'log': path, 'problem': problem, 'accounts': accounts, 'owner': owner.view(cfg, config.state_dir(cfg), entries, now)}
 
 
 def with_background(cfg, s, a, now):

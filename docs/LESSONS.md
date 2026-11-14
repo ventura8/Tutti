@@ -241,3 +241,12 @@ only cursor and the PC, so it looked as if agy had been forgotten.
 
 **Rule.** A rule that narrows where work may go needs a fallback for when the narrowed set has no room, and a "why nothing
 happened" line names every candidate, the ones with room too, with the reason they took nothing.
+
+## A "missing test" by file name is noise in a repo with a coverage gate (2026-11-14)
+
+**What happened.** The first `fill_room` round queued tests for content-hashed bundles in `cdn/` and for `TODO(owner)`
+quoted in a changelog and a README; in the map repo 495 of its files had no test named after them, while its per-file
+90 % coverage gate already proves each one tested.
+
+**Rule.** A task source is checked against the real repositories before it runs unattended: built output, prose and
+quotes are not tasks, a test that imports a file tests it, and a repo can turn a heuristic source off.

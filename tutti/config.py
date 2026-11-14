@@ -51,6 +51,13 @@ DEFAULTS = {
     # auto_review: a result to review is reviewed by review.fallback and landed by its repo's `land` (merge, pr or branch)
     'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'max_parallel': 1, 'no_progress': 3, 'max_attempts': 12, 'repos': {},
                   'quiet_hours': [], 'fill_room': True, 'auto_review': True},
+    # pacing: the owner's own prompting (tutti/owner.py): the weekly schedule that seeds the learned weekday x hour profile
+    # (days, hours of the reserve window, the local window, points per owner hour, the UTC offset; None: this computer's),
+    # the mode (auto, active, away, vacation-until-YYYY-MM-DD), the owner hours with no rise after which auto says away,
+    # and the accounts the owner prompts on (None: the main agent's)
+    'pacing': {'schedule': {'days': ['mon', 'tue', 'wed', 'thu', 'fri'], 'hours': 8, 'window': '01-14', 'rate': 1.0,
+                            'utc_offset': None},
+               'mode': 'auto', 'away_after_hours': 3, 'accounts': None},
     # scouts: helpers that are not workers (Grok Bot's webhook routine): asked questions, they answer on a GitHub issue
     'scouts': {},
     # telemetry: crash reports and usage statistics (docs/TELEMETRY.md); recorded locally always, sent only with consent.
@@ -293,9 +300,10 @@ def validate(cfg):
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
     errs += _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
-    from . import scouts, selfimprove, sentry  # they import modules that import this one
+    from . import owner, scouts, selfimprove, sentry  # they import modules that import this one
     errs += selfimprove.errors(cfg) + sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
-    return errs + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg)
+    return errs + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
+        owner.schedule_errors(cfg['pacing'])
 
 
 def _autopilot_name_error(cfg, key, n):
@@ -324,6 +332,8 @@ def _autopilot_repo_errors(n, r):
         errs.append(f'autopilot.repos.{n}.where is {r["where"]!r}: use local (the check runs here) or route (a routed machine)')
     if r.get('pr', False) not in (False, 'draft'):
         errs.append(f'autopilot.repos.{n}.pr is {r["pr"]!r}: use false (a branch to review) or draft (also a draft pull request)')
+    if not isinstance(r.get('untested', True), bool):
+        errs.append(f'autopilot.repos.{n}.untested is {r["untested"]!r}: true (fill_room queues tests for files no test names) or false')
     if r.get('land', 'pr') not in ('merge', 'pr', 'branch'):
         errs.append(f'autopilot.repos.{n}.land is {r["land"]!r}: use merge (a reviewed result is merged), pr (a pull request a '
                     'person merges) or branch (it waits for a person)')

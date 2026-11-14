@@ -553,3 +553,13 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
 /* a row's status chip sits at the top, never stretched to the row's height */
 .row > .chip { align-self: start; }
 .row--attention .row__name { font-size: 0.9375rem; font-weight: 500; }
+
+/* the owner's week (tutti/owner.py): a 7 x 24 heatmap of points per hour, the reserve hours outlined */
+.owner { display: grid; gap: 8px; margin-top: 12px; }
+.heat { display: grid; gap: 2px; max-width: 100%; overflow-x: auto; }
+.heat__row { display: grid; grid-template-columns: 2.5rem repeat(24, minmax(10px, 1fr)); gap: 2px; align-items: center; }
+.heat__day { font-size: 0.75rem; color: var(--on-surface-2); }
+.heat__cell { height: 14px; border-radius: 2px; background: color-mix(in srgb, var(--ok) calc(var(--v, 0) * 100%), var(--surface-2, transparent)); }
+.heat__cell[data-reserve='true'] { outline: 1px solid var(--on-surface); }
+.heat__label { height: auto; background: none; font-size: 0.625rem; color: var(--on-surface-2); }
+.owner .btn[aria-pressed='true'] { background: var(--accent-c); outline: 1px solid var(--accent); }

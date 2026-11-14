@@ -97,8 +97,9 @@ Opt-in turns it off. Each round, while the autopilot is on:
    already queued: the queue never floods, and never runs dry.
 3. **The sources** (every repo of `autopilot.repos`, read at most every 10 minutes while nothing new turns up): FEEDBACK.md
    open items, `TODO(owner)` / `FIXME(owner)`, the repo's `gaps` command (lint findings, coverage gaps, Sentry or scout
-   findings: one per line, `<path>: <what>`), and the tracked source files no test file names ("Add unit tests for
-   `<path>`"). A title the backlog ever had (dropped and done ones too) is never queued again; repos take turns.
+   findings: one per line, `<path>: <what>`), and the tracked source files no test names or imports ("Add unit tests for
+   `<path>`"; built folders, minified and content-hashed bundles skipped; `untested: false` turns it off for a repo whose
+   coverage gate already proves every file tested). A TODO in prose, in quotes or in a test is not a task. A title the backlog ever had (dropped and done ones too) is never queued again; repos take turns.
 
 The panel and each trigger account's card say what it did: "Autopilot: filling 46 slots — 1 running here, 6 queued · queued 4
 new task(s) from the repos' sources". With the autopilot or `fill_room` off, the card shows "46 bounded tasks fit here now"

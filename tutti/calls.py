@@ -38,7 +38,7 @@ def hold_for(cfg, st, d, now, leased):
 
 def holds(cfg, st, devices_rows, now):
     """{device name: why it is held} for every device on a call, just after one, or (opt-in) in its owner's hands."""
-    leased = {lease['name'] for lease in st['leases'].values() if lease.get('kind') == 'android'}
+    leased = {lease['name'] for lease in st['leases'].values() if lease.get('kind') in ('android', 'tv')}
     out = {}
     for d in devices_rows or []:
         why = hold_for(cfg, st, d, now, d['name'] in leased)

@@ -302,7 +302,14 @@ class DeviceRunTest(unittest.TestCase):
         f = open(self.lock, 'w')
         fcntl.flock(f, fcntl.LOCK_EX)
         p = self.tutti('test', '--device', 'pixel', '--', 'touch', 'ran')
-        time.sleep(1.5)
+        folder = os.path.join(self.tmp.name, 'state', 'devices')
+
+        def waiting():   # the run reached slot.sh's queue (a fixed sleep raced a slow readings round under load)
+            logs = [os.path.join(folder, x) for x in os.listdir(folder) if x.endswith('.log')] if os.path.isdir(folder) else []
+            return any('waiting for a free slot' in open(x, encoding='utf8').read() for x in logs)
+        deadline = time.monotonic() + 30
+        while not waiting() and time.monotonic() < deadline:
+            time.sleep(0.1)
         self.assertFalse(os.path.exists(os.path.join(self.tree, 'ran')))
         f.close()
         out, err = p.communicate(timeout=60)

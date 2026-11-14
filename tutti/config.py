@@ -91,7 +91,8 @@ DEFAULTS = {
     # A phone call on a device (any SIM slot) pauses its work: looked for every call_poll_seconds during a run, work starts
     # again resume_after_call_seconds after the call; pause_on_owner_use (opt-in): a screen a person turned on holds it too.
     'dispatch': {'enabled': True, 'idle_minutes': 5, 'lease_minutes': 10, 'retries': 2, 'quiet_hours': [],
-                 'call_poll_seconds': 3, 'resume_after_call_seconds': 30, 'pause_on_owner_use': False},
+                 'call_poll_seconds': 3, 'resume_after_call_seconds': 30, 'pause_on_owner_use': False,
+                 'requeue_cooldown_minutes': 10},   # a device whose run never started or lost the front rests this long
     'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
              'command_timeout': 3600},
 }

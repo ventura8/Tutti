@@ -2,6 +2,30 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.42 (2026-11-14)
+
+### Added
+
+- Suites in depth (docs/DISPATCH.md):
+  - A shard may carry its own `devices`, an `{extra}` for its command and `holds`: other devices it needs free, which are
+    held with it (`tutti test --hold-device`).
+  - `prepare` builds once per commit before any shard.
+  - `verdict` judges a runner that always exits 0.
+  - `started` stops a run whose tests never start in time.
+  - `requeue_on` names output that is not the test's fault.
+  - A requeued device rests for `dispatch.requeue_cooldown_minutes`.
+  - `projects.<p>.report` writes the results, with failed shards' log ends, to a file the project's sessions read.
+- Devices shared with other tools:
+  - `devices.<d>.external_lock`: Tutti waits while another tool's lock file is fresh, writes its own and removes it after.
+    The readings show the device as busy, held by that tool.
+  - `kind: tv` is a Cast receiver: no battery or call state, and used only by `targets: [tv]` suites or `holds`.
+  - `calls: false` skips the phone-call check.
+  - A wireless-debugging serial whose port changed is reconnected through `adb mdns services`.
+
+### Fixed
+
+- The device-lock test polls for the queue line instead of sleeping 1.5 s (it raced a slow readings round under load).
+
 ## 0.1.41 (2026-11-14)
 
 ### Fixed

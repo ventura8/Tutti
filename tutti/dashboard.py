@@ -26,6 +26,7 @@ from . import (
     autocompact,
     autopilot,
     bridge,
+    browsercmd,
     chatrun,
     conduct,
     config,
@@ -255,6 +256,7 @@ class Collector:
         out['controls'] = controls.view(self.cfg, controls.read(config.state_dir(self.cfg)))
         out['telemetry'] = dashtelemetry.view(self.cfg)
         out['setup'] = setupcmd.read_report(self.cfg)
+        out['work_browser'] = browsercmd.view(self.cfg)
         from . import sharing  # the household (docs/HOUSEHOLD.md): its members, shared machines' use per member, fairness
         out['household'] = sharing.view(self.cfg, self.clock())
         sharing.busy_for(out['machines']['items'], out['household'])
@@ -600,7 +602,8 @@ def save_dispatch(collector, raw):
     return 400, {'error': 'send {"enabled": true|false} to switch Keep busy, or {"action": "now"} for a dispatch round now'}
 
 
-POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
+POSTS = ('/api/reading', '/api/refresh',
+         '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
          '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, API_SETUP,
          API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn',
          API_WORK_MOVE, API_QUEUE, API_REPORT, '/api/ai-assist', API_LIMIT)
@@ -775,7 +778,8 @@ def _self_posts():
     from . import mainmachine, manage
     return {mainmachine.API: lambda c, h, b: mainmachine.post(c, h, b), manage.API: lambda c, h, b: manage.act_post(c, h, b),
             chatrun.API: chatrun.handle,   # the Chat: every user's own conversations, each action with its own role check
-            welcome.API: lambda c, h, b: welcome.post(c, h, b)}   # Welcome back: the viewer's own summary and switch
+            welcome.API: lambda c, h, b: welcome.post(c, h, b),   # Welcome back: the viewer's own summary and switch
+            '/api/browser': browsercmd.post}   # the work browser: any signed-in user, for the admin's sites
 
 
 SELF_POSTS = _self_posts()

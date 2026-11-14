@@ -390,6 +390,11 @@ def make_plan(cfg, target, facts, carry=None):
     carry = carry if carry is not None else carried(cfg, facts)
     need = round(state_size_gb(cfg) * 2 + carry['repos_gb'] + FREE_MARGIN_GB, 1)
     blockers, warnings, owner = judge(facts, need)
+    b = cfg.get('browser') or {}
+    if b.get('mode') == 'isolated' and b.get('machine', '') in ('', target):   # the isolated work browser runs on the target
+        owner.append(guided.step('sudo', f'The isolated work browser on {target}', 'tutti browser isolate --script | sudo bash',
+                                 'creates the tutti-browser user and its sandboxed unit once (run it on the target), then '
+                                 'set browser.mode to isolated'))
     if blockers:
         return {'to': target, 'blockers': blockers, 'warnings': warnings, 'owner': owner, 'facts': facts}
     src = source_facts(cfg, facts)

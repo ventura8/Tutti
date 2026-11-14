@@ -251,6 +251,7 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
         return planner.bind(own, lims, a, accounts, quiet_hours, now, owner=ctx)
     src = a.get('source', 'its dashboard')
     out = {'name': name, 'source': src, 'window': a.get('window'), 'share': a.get('share', 1.0), 'usage_url': a.get('usage_url'),
+           'tutti_browser': bool(a.get('usage_url') and not a.get('reader')),
            'reset_from': None,
            'lead_hours': a.get('lead_hours', 1), 'panic_at': a.get('panic_at', PANIC_AT), 'used': None, 'expected': None,
            'verdict': 'unknown', 'panic': False, 'reset': None, 'target': None, 'window_start': None, 'reading_at': None, 'readings': [],

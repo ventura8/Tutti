@@ -2,6 +2,28 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.6.0 (2026-11-15)
+
+### Added
+
+- **The work browser** (docs/BROWSER.md): the household's one Chrome on one machine (`browser.machine`, default this
+  one) for every browser task through Tutti, users' and workers' alike. `browser.mode`: `existing` (the owner's own
+  Chrome profile and its sign-ins; Tutti only reads its DevToolsActivePort and never starts, restarts or closes it),
+  `dedicated` (Tutti's own profile, DevTools on 127.0.0.1) or `isolated` (a fresh Chrome as the `tutti-browser` user in a
+  systemd sandbox, no TCP DevTools port: a Unix socket for Tutti's broker only). One connection, one tab per task closed
+  after, a queue with `browser.max_tabs`, idle close.
+- **The broker**: allowed sites per task type (`browser.scopes`), every action logged without content or queries, a
+  page that leaves the scope returns nothing, downloads per task. Workers on other machines use it through
+  `tutti browser remote <machine> <url>` (a one-time token on 127.0.0.1, forwarded over ssh), never the DevTools port.
+- `tutti browser status|sign-in|sites|read|page|remote|isolate|close`; the **Work browser** card (machine, mode, tabs per
+  user or worker, the queue, each site's sign-in with **Sign in to <site> on the work browser**, Check sign-ins); Settings
+  → Work browser; the move plan lists `tutti browser isolate --script | sudo bash` when the work browser moves.
+
+### Changed
+
+- Tutti no longer opens the owner's browser by itself: `tutti vpn` (Tailscale), `tutti household join` (the invite) and
+  the first `tutti setup` (the dashboard) print the link for the owner to click.
+
 ## 0.5.1 (2026-11-15)
 
 ### Security

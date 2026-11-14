@@ -46,6 +46,8 @@ SECTIONS = [
     ('optins', 'Opt-ins', 'Everything that is off until you turn it on: what costs money per use, and Android runs.', []),
     ('update', 'Updates', 'Tutti itself (`tutti self-update`) and the worker CLIs on every machine (`tutti update`).',
      ['self_update', 'update']),
+    ('browser', 'Work browser', 'The household\'s one Chrome for every browser task; sites signed in there are shared by '
+     'everyone who uses it (docs/BROWSER.md).', ['browser']),
     ('dashboard', 'Dashboard', 'This page: its port, how often it refreshes, and which processes it shows as jobs.',
      ['dashboard', 'project']),
     ('chat', 'Chat', 'The Chat tab: what viewers may ask it to do, and how much of a conversation a model sees (docs/CHAT.md).',
@@ -409,6 +411,30 @@ FIELDS = {
     'chat.history_turns': field('Messages a model sees', 'The earlier messages of a conversation sent with each question.', 'number',
                                 min=0, max=50),
     # dashboard
+    'browser.machine': field('Browser machine', 'The one machine whose Chrome every user and worker uses; empty is this one.',
+                             'select', choices_from='machines'),
+    'browser.mode': field('Which Chrome', 'existing: your own Chrome and its sign-ins; dedicated: Tutti\'s own profile; '
+                          'isolated: a sandboxed Chrome as its own user (`tutti browser isolate`).', 'select',
+                          choices=['existing', 'dedicated', 'isolated']),
+    'browser.sites': field('Sites to sign in to', 'Shared by everyone who uses the work browser: choose only what the work needs.',
+                           'list', item='https address'),
+    'browser.scopes': field('Sites per task type', '{task type: [hosts]} a task may open; the defaults come from the sites and the '
+                            'usage pages.', **YAML),
+    'browser.allow_local': field('Local addresses allowed', 'Isolated mode: the local services it may reach (all others are '
+                                 'blocked).', 'list', item='address'),
+    'browser.file_tasks': field('Task types that get files', 'Only these may take a downloaded file, by its name.', 'list',
+                                item='task type'),
+    'browser.max_tabs': field('Tabs at once', 'More tasks wait in the queue.', 'number', min=1, max=20),
+    'browser.path': field('Browser program', 'Chrome or Chromium to start; empty finds one (then Playwright\'s Chromium).', 'text'),
+    'browser.profile': field('Tutti profile folder', 'Dedicated mode\'s own sign-ins; empty is the default. Never your browser\'s.',
+                             'text'),
+    'browser.user_profile': field('Your Chrome profile folder', 'Existing mode; empty is Chrome\'s default.', 'text'),
+    'browser.socket': field('Isolated socket', 'Isolated mode\'s Unix socket; empty is /run/tutti-browser/devtools.sock.', 'text'),
+    'browser.headless': field('Hidden', 'Dedicated mode: readings run without a window; a sign-in opens one.', 'switch'),
+    'browser.idle_minutes': field('Close after', 'The connection (and Tutti\'s own Chrome) closes when no task used it this long.',
+                                  **MIN),
+    'browser.port': field('DevTools port', 'Dedicated mode, on 127.0.0.1 only: nothing on the network can drive it.', 'number',
+                          min=1024, max=65535),
     'dashboard.port': field('Port', 'The dashboard\'s port on 127.0.0.1.', 'number', min=1, max=65535),
     'dashboard.bind': field('Address', 'Where the dashboard listens: 127.0.0.1, or this computer\'s LAN or VPN address (sign-in '
                             'required; never a public address).', 'text'),

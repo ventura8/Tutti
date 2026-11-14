@@ -96,9 +96,9 @@ def funnel_refusal(cfg, run=subprocess.run):
 # ---- Tailscale
 
 def join(machine, sh_argv=remote.argv, popen=subprocess.Popen, opener=None, out=sys.stdout):
-    """Runs `tailscale up` there (passwordless sudo) and opens its sign-in link in this computer's browser. Returns the exit code."""
-    import webbrowser
-    opener = opener or webbrowser.open
+    """Runs `tailscale up` there (passwordless sudo) and shows its sign-in link for the owner to open in their own browser
+    (Tutti never opens the owner's browser by itself: docs/BROWSER.md). Returns the exit code."""
+    opener = opener or (lambda link: None)
     p = popen(sh_argv(machine, vpn.up_command().replace('sudo ', 'sudo -n ', 1)), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
               text=True, errors='replace')
     opened = False
@@ -106,7 +106,9 @@ def join(machine, sh_argv=remote.argv, popen=subprocess.Popen, opener=None, out=
         hit = vpn.LOGIN_URL.search(line)
         if hit and not opened:
             opened = True
-            say(f'{machine["name"]}: sign in to Tailscale in the page just opened ({hit.group(0)})', out)
+            say(f'{machine["name"]}: open this link in your browser and sign in to Tailscale: {hit.group(0)}', out)
+            if hasattr(out, 'flush'):
+                out.flush()   # the link shows now, not when `tailscale up` ends
             opener(hit.group(0))
     return p.wait()
 

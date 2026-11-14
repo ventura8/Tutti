@@ -287,6 +287,8 @@ def attempt_of(cfg, task, report, now):
     if report is None or report.get('worker_rc') or not failing:
         failing = [tail_of(delegate.paths(cfg, task['run'])['log'])]
     ok = bool(report) and report['rc'] == 0
+    if ok:
+        sig, why = '', 'passed'
     return {'run': task['run'], 'step': task.get('step'), 'worker': task.get('worker'), 'at': now, 'ok': ok,
             'signature': sig, 'why': why, 'stat': (report or {}).get('stat', ''), 'diff': (report or {}).get('diff'),
             'tail': '' if report and report['rc'] == 0 else failing[-1][-TAIL_CHARS:]}
@@ -309,7 +311,8 @@ def publish(cfg, task, report, run=git, gh=subprocess.run):
     task.update(branch=branch, worktree=wt, diff=report['diff'])
     run(wt, 'checkout', '-q', '-B', branch)
     run(wt, 'add', '-A')
-    subject = repo.get('commit', 'chore(autopilot): {title}').replace('{title}', task['title'])[:100]
+    subject = repo.get('commit', 'chore(autopilot): {title}').replace('{title}', task['title'])
+    subject = subject if len(subject) <= 100 else subject[:99].rsplit(' ', 1)[0] + '…'   # a subject line of at most 100
     msg = f'{subject}\n\nBacklog task {task["id"]}, attempt {len(task["attempts"])}, run {report["id"]} by {task.get("step")}.\n'
     for line in repo.get('trailers') or []:
         msg += f'\n{line}'

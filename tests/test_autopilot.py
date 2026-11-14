@@ -255,6 +255,7 @@ class RoundTest(Base):
         t = backlog.load(self.c)['tasks'][0]
         self.assertEqual(t['status'], 'review')
         self.assertEqual([a['ok'] for a in t['attempts']], [False, True])
+        self.assertEqual(t['attempts'][1]['why'], 'passed')
         self.assertTrue(t['branch'].startswith('autopilot/t1-'))
         self.assertEqual(git(t['worktree'], 'log', '--format=%s', '-1'), 'chore(autopilot): Mark a.txt fixed')
         with open(os.path.join(t['worktree'], 'a.txt'), encoding='utf8') as f:

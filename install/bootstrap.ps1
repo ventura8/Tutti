@@ -48,6 +48,7 @@ if (-not $gh) {
     $gh = Join-Path $Bin 'gh.exe'
 }
 
+if ($Version -and $Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw "tutti: -Version $Version is not a version like 0.6.1" }
 $base = if ($Version) { "https://github.com/$Repo/releases/download/v$Version" } else { "https://github.com/$Repo/releases/latest/download" }
 $sumsFile = Join-Path $Tmp 'SHA256SUMS'   # one copy: the file whose signature is checked is the one the tarball is checked against
 Invoke-WebRequest -UseBasicParsing -Uri "$base/SHA256SUMS" -OutFile $sumsFile

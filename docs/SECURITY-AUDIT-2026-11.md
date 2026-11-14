@@ -98,8 +98,9 @@ that needs a position on your network; **low**, hardening, or a risk that needs 
   actions/attest-build-provenance pinned by SHA) and attaches `SHA256SUMS.sigstore.json`. `install.verify_signature` (and
   the same check in bootstrap.sh and bootstrap.ps1) runs `gh attestation verify` with the release workflow as the signer
   and requires the certificate's ref to be the version's tag; otherwise nothing installs. `--insecure-skip-verify` is the
-  loud, manual-only offline fallback. A stolen token can publish a release but not a signature from that workflow on a
-  tag. `test_setup.Signature` (a fixed bundle and the recorded gh answer; the real gh refuses the forged bundle; the bash
+  loud, manual-only offline fallback. A stolen token that can only upload release files cannot make the signature;
+  one that can push a `v*` tag can (it runs the workflow from that tag), so `v*` tags need a ruleset that only the
+  maintainer may create them (the owner's step, filed). `test_setup.Signature` (a fixed bundle and the recorded gh answer; the real gh refuses the forged bundle; the bash
   bootstrap with faked curl and gh) and `test_an_unsigned_or_forged_release_is_refused_and_skip_says_so_loudly`.
 - **M1, M2** `coordinator.content_length` refuses a missing number, a negative or an oversized length; every server
   (dashboard, coordinator, MCP) closes a connection silent for 30 s and serves a bounded number of requests at once, and at

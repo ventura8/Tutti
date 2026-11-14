@@ -8,13 +8,13 @@ fills the config. You sign in to your tools; nothing else is manual.
 **Linux, WSL and macOS** (a terminal):
 
 ```bash
-curl -fsSLo tutti-bootstrap.sh https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.sh && echo "1d61bcc956807664c5542861881d2bc4f21be0be9251b35d2fe25720e2495586  tutti-bootstrap.sh" | (sha256sum -c - || shasum -a 256 -c -) && bash tutti-bootstrap.sh
+curl -fsSLo tutti-bootstrap.sh https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.sh && echo "2e03ec55f79bbd8f7b243ca95cedbb0789417a7e1170e19a900c9212dfbef898  tutti-bootstrap.sh" | (sha256sum -c - || shasum -a 256 -c -) && bash tutti-bootstrap.sh
 ```
 
 **Windows** (PowerShell):
 
 ```powershell
-irm https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.ps1 -OutFile tutti-bootstrap.ps1; if ((Get-FileHash tutti-bootstrap.ps1).Hash -eq '34E20D51ABAC703FE249AA77476435DA6F9643310700CD28C32D14D362F1BB3D') { powershell -ExecutionPolicy Bypass -File tutti-bootstrap.ps1 } else { 'tutti: checksum mismatch, not run' }
+irm https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.ps1 -OutFile tutti-bootstrap.ps1; if ((Get-FileHash tutti-bootstrap.ps1).Hash -eq '5E78D44FA21959F13ECBCD86BDBEA47539D2227458115E512CCAC27C57EB85E7') { powershell -ExecutionPolicy Bypass -File tutti-bootstrap.ps1 } else { 'tutti: checksum mismatch, not run' }
 ```
 
 Nothing is asked. At the end `tutti setup` lists the few things only you can do (a sign-in, a sudo line, a tap on a
@@ -121,10 +121,12 @@ issues to that workflow run (actions/attest-build-provenance) and attaches the b
 - the signer is `ventura8/Tutti/.github/workflows/release.yml`;
 - it was made on the tag of the version being installed (`refs/tags/v<version>`), never a branch.
 
-Then the tarball is checked against that `SHA256SUMS`. No key is kept anywhere: someone who steals a GitHub token can
-publish a release, but cannot make a signature from that workflow on a tag. A refusal says why (no signature file, not
-signed by the workflow, signed on another ref, gh missing or older than 2.49) and leaves the running version in place.
-Releases before 0.9.2 have no signature.
+Then the tarball is checked against that `SHA256SUMS`. No key is kept anywhere. Someone who only steals a token that can
+upload release files cannot make that signature; someone who can push a `v*` tag can (they can run the workflow from it),
+so the repository's `v*` tags should be protected by a ruleset (only the maintainer creates them). A refusal says why (no
+signature file, not signed by the workflow, signed on another ref, gh missing or older than 2.49) and leaves the running
+version in place. Right after a release is published its workflow takes a minute or two to add the signature; an update
+in that window is refused and the next try takes it. Releases before 0.9.2 have no signature.
 
 **Offline fallback** (a release you checked another way): `tutti self-update --insecure-skip-verify`,
 `bash tutti-bootstrap.sh --insecure-skip-verify`, or `-InsecureSkipVerify` for `bootstrap.ps1`. It prints a loud warning;

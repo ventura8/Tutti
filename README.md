@@ -39,13 +39,13 @@ more than one computer. It grew out of one project's working day and keeps only 
 One line, then sign in. **Linux, WSL, macOS:**
 
 ```bash
-curl -fsSLo tutti-bootstrap.sh https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.sh && echo "1d61bcc956807664c5542861881d2bc4f21be0be9251b35d2fe25720e2495586  tutti-bootstrap.sh" | (sha256sum -c - || shasum -a 256 -c -) && bash tutti-bootstrap.sh
+curl -fsSLo tutti-bootstrap.sh https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.sh && echo "2e03ec55f79bbd8f7b243ca95cedbb0789417a7e1170e19a900c9212dfbef898  tutti-bootstrap.sh" | (sha256sum -c - || shasum -a 256 -c -) && bash tutti-bootstrap.sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.ps1 -OutFile tutti-bootstrap.ps1; if ((Get-FileHash tutti-bootstrap.ps1).Hash -eq '34E20D51ABAC703FE249AA77476435DA6F9643310700CD28C32D14D362F1BB3D') { powershell -ExecutionPolicy Bypass -File tutti-bootstrap.ps1 } else { 'tutti: checksum mismatch, not run' }
+irm https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.ps1 -OutFile tutti-bootstrap.ps1; if ((Get-FileHash tutti-bootstrap.ps1).Hash -eq '5E78D44FA21959F13ECBCD86BDBEA47539D2227458115E512CCAC27C57EB85E7') { powershell -ExecutionPolicy Bypass -File tutti-bootstrap.ps1 } else { 'tutti: checksum mismatch, not run' }
 ```
 
 It installs Tutti and what it needs (Python through uv, gh) in your user space, checking every download's SHA-256,

@@ -87,6 +87,7 @@ if [[ -z "$gh" ]] || ! "$gh" attestation verify --help > /dev/null 2>&1; then
 	esac
 	# Tutti's own copy beside uv when an older gh is on PATH (it is not replaced); else the user's bin
 	if [[ -n "$gh" ]]; then gh="$home/bin/gh"; else gh="$bin/gh"; fi
+	mkdir -p "$(dirname "$gh")"
 	cp "$tmp"/gh_"$GH_VERSION"_*/bin/gh "$gh"
 fi
 
@@ -101,6 +102,7 @@ if ! command -v git > /dev/null; then
 fi
 
 # Tutti itself: the release tarball, checked against the release's SHA256SUMS
+[[ -z "$version" || "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "--version $version is not a version like 0.6.1"
 if [[ -n "$version" ]]; then base="https://github.com/$REPO/releases/download/v$version"; else base="https://github.com/$REPO/releases/latest/download"; fi
 get "$base/SHA256SUMS" "$tmp/SHA256SUMS"
 if [[ -z "$version" ]]; then
@@ -116,7 +118,7 @@ else
 	signed=$("$gh" attestation verify "$tmp/SHA256SUMS" --bundle "$tmp/SHA256SUMS.sigstore.json" --repo "$REPO" \
 		--signer-workflow "$REPO/.github/workflows/release.yml" --format json 2> "$tmp/verify.err") ||
 		die "v$version's SHA256SUMS is not signed by Tutti's release workflow ($(tail -n 1 "$tmp/verify.err")): not installed"
-	grep -q "\"refs/tags/v$version\"" <<< "$signed" || die "v$version's SHA256SUMS is signed, but not on the tag v$version: not installed"
+	grep -qF "\"refs/tags/v$version\"" <<< "$signed" || die "v$version's SHA256SUMS is signed, but not on the tag v$version: not installed"
 	say "v$version's SHA256SUMS: signed by Tutti's release workflow (Sigstore)"
 fi
 name="tutti-$version.tar.gz"

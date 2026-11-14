@@ -223,9 +223,17 @@ def signed_refs(text):
     return {r for r in refs if r}
 
 
-def gh_program(home_dir=None):
-    """GitHub's CLI that verifies signatures: on PATH, else the one the bootstrap installed; None without one."""
-    return shutil.which('gh') or shutil.which('gh', path=os.path.join(home_dir or home(), 'bin'))
+def gh_program(home_dir=None, run=subprocess.run):
+    """GitHub's CLI that can verify signatures (`gh attestation`, gh 2.49+): the one on PATH, else the pinned copy the
+    bootstrap put in <home>/bin when the PATH one is older; the first found when none can (its error then says why)."""
+    found = [g for g in (shutil.which('gh'), shutil.which('gh', path=os.path.join(home_dir or home(), 'bin'))) if g]
+    for g in dict.fromkeys(found):
+        try:
+            if run([g, 'attestation', 'verify', '--help'], capture_output=True, text=True, timeout=30).returncode == 0:
+                return g
+        except (OSError, subprocess.SubprocessError):
+            continue
+    return found[0] if found else None
 
 
 def verify_signature(sums_path, bundle_path, version, gh=None, run=subprocess.run):

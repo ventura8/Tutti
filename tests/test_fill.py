@@ -210,6 +210,36 @@ class LandTest(Base):
         self.assertIn(('push', '-q', 'origin', '--delete', 'autopilot/t1-x'), calls)   # merged: the remote branch goes
         self.assertIn(('diff', '--stat', '--patch', 'FETCH_HEAD...HEAD'), calls)     # the whole branch is reviewed
 
+    def test_the_merge_is_pinned_to_the_reviewed_commit(self):
+        # exploit (audit 2026-11, M3): a commit pushed to the branch after the review was merged with it
+        cfg = self.cfg()
+        cfg['autopilot']['repos']['app'].update(land='merge', base='main')
+        self.review_task(cfg)
+        run, _ = self.gitfake()
+        gh = mock.Mock(side_effect=[done(0, 'https://github.example/o/r/pull/7\n'), done(0), done(0)])
+        with mock.patch.object(fill, 'ask_reviewer', return_value=('cheap', 'No findings.')):
+            fill.land(cfg, 't1', run=run, gh=gh)
+        argv = gh.call_args_list[1][0][0]
+        self.assertEqual(argv[:3], ['gh', 'pr', 'merge'])
+        self.assertEqual(argv[argv.index('--match-head-commit') + 1], 'HEAD')   # the fake's rev-parse answer
+
+    def test_a_branch_that_changes_its_own_gates_is_never_merged_by_the_autopilot(self):
+        # exploit (audit 2026-11, M7): a worker edits the check script so it passes, and the result merges itself
+        cfg = self.cfg()
+        cfg['autopilot']['repos']['app'].update(land='merge', base='main', check='bash scripts/check.sh')
+        self.review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0]['attempts'][-1]['gates'] = 'bash scripts/check.sh'
+        def run(cwd, *args):
+            if args[:2] == ('diff', '--name-only'):
+                return done(0, 'src/a.py\nscripts/check.sh\n')
+            return done(0, 'HEAD' if args[0] == 'rev-parse' else 'feat: x' if args[0] == 'log' else 'diff')
+        gh = mock.Mock(return_value=done(0, 'https://github.example/o/r/pull/9'))
+        with mock.patch.object(fill, 'ask_reviewer', return_value=('cheap', 'No findings.')):
+            fill.land(cfg, 't1', run=run, gh=gh)
+        self.assertEqual(gh.call_count, 1)   # the pull request only: no merge
+        self.assertIn('scripts/check.sh', backlog.load(cfg)['tasks'][0]['publish_note'])
+
     def test_land_pr_opens_a_pull_request_and_never_merges(self):
         cfg = self.cfg()
         cfg['autopilot']['repos']['app'].update(land='pr', base='dev')

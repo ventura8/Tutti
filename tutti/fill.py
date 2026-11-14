@@ -7,6 +7,7 @@ review lands it by autopilot.repos.<repo>.land (merge: a pull request merged at 
 branch: it stays for a person), findings send it back to the queue with the findings as notes. A result lands only when its
 attempt passed the repo's `check` (its lint and type gates). Pure parts: want, pick, verdict; the I/O: fill, review_round, land."""
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -186,7 +187,8 @@ def ask_reviewer(cfg, diff, run_worker=None):
             f.write(diff)
         argv = workers.with_args(workers.command(cfg['workers'][name], review.PROMPT), args)
         run_worker = run_worker or (lambda a, cwd: subprocess.run(a, cwd=cwd, capture_output=True, text=True,
-                                                                    stdin=subprocess.DEVNULL, timeout=1800))
+                                                                    stdin=subprocess.DEVNULL, timeout=1800,
+                                                                    env=workers.worker_env(cfg)))
         r = run_worker(argv, d)
     if r.returncode != 0 or not (r.stdout or '').strip():
         raise RuntimeError(f'{name} did not finish the review (exit {r.returncode}): {(r.stderr or "")[-300:]}')
@@ -236,7 +238,12 @@ def merge(task, url, base, reviewer, run=git, gh=subprocess.run):
     """(status, note) of a squash merge. A merge that exits non-zero is checked against the PR's state before it is called
     failed; the remote branch is deleted after (gh cannot delete a branch a worktree holds)."""
     wt = task['worktree']
-    merged = gh(['gh', 'pr', 'merge', url, '--squash'], cwd=wt, capture_output=True, text=True)
+    head = run(wt, 'rev-parse', 'HEAD')
+    sha = (head.stdout or '').strip() if head.returncode == 0 else ''
+    if not sha:
+        return 'review', f'retry: reviewed clean by {reviewer}: pull request {url} is open; its commit could not be read'
+    # --match-head-commit: GitHub merges only the commit that was reviewed; anything pushed to the branch since is refused
+    merged = gh(['gh', 'pr', 'merge', url, '--squash', '--match-head-commit', sha], cwd=wt, capture_output=True, text=True)
     if merged.returncode != 0:
         state = gh(['gh', 'pr', 'view', url, '--json', 'state', '--jq', '.state'], cwd=wt, capture_output=True, text=True)
         if (state.stdout or '').strip() != 'MERGED':
@@ -261,7 +268,33 @@ def publish_reviewed(cfg, task, base, reviewer, run=git, gh=subprocess.run):
     task['pr'] = url
     if land_policy(cfg, task) != 'merge':
         return 'done', f'reviewed clean by {reviewer}: pull request {url} into {base}, for a person to merge (land: pr)'
+    touched = gate_files_touched(cfg, task, run)
+    if touched:
+        return 'done', (f'reviewed clean by {reviewer}: pull request {url} into {base}, for a person to merge: it changes '
+                        f'{", ".join(touched[:3])}, which the gates themselves run (a result never merges a change to its own '
+                        'judge)')
     return merge(task, url, base, reviewer, run, gh)
+
+
+# what the gates run or read: a change to one of these is never merged by the autopilot (a worker could make its check pass by
+# editing the check); the repo's check command also names its own scripts, which are added
+GATE_FILES = ('Makefile', 'package.json', 'pyproject.toml', 'setup.cfg', 'tox.ini', 'ruff.toml', '.ruff.toml', 'noxfile.py',
+              '.pre-commit-config.yaml', 'eslint.config.js', 'eslint.config.mjs', '.eslintrc', '.eslintrc.json', 'tsconfig.json')
+GATE_DIRS = ('.github/', '.gitlab-ci', '.circleci/', '.tutti')
+
+
+def gate_files_touched(cfg, task, run=None):
+    """The changed paths of the branch (against the fetched base) that the gates run or read: CI, build and lint configs,
+    and every file the repo's check command names."""
+    run = run or git
+    out = run(task['worktree'], 'diff', '--name-only', 'FETCH_HEAD...HEAD')
+    if out.returncode != 0:
+        return ['(the changed files could not be listed)']
+    repo = autopilot.settings(cfg)['repos'].get(task['repo']) or {}
+    named = {w.strip('\'"').lstrip('./') for w in re.split(r'[\s;&|()]+', autopilot.acceptance(task, repo)) if '/' in w or
+             w.endswith(('.sh', '.py', '.mk', '.js', '.ts'))}
+    paths = [ln.strip() for ln in (out.stdout or '').splitlines() if ln.strip()]
+    return [p for p in paths if os.path.basename(p) in GATE_FILES or p.startswith(GATE_DIRS) or p in named]
 
 
 def decide(cfg, task, run=git, gh=subprocess.run, run_worker=None):

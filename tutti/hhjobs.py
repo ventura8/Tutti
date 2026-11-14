@@ -16,6 +16,7 @@ credential of theirs goes there. Their run travels as a git WIP ref and a signed
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -140,6 +141,8 @@ def tick(cfg, client=None, spawn=subprocess.Popen, room=2):
     os.makedirs(folder(cfg), exist_ok=True)
     started = []
     for j in jobs:
+        if not isinstance(j, dict) or not JOB_ID.fullmatch(str(j.get('id') or '')):
+            continue   # an answer that names no job id is never a file name here
         with open(os.path.join(folder(cfg), f'{j["id"]}.json'), 'w', encoding='utf8') as f:
             json.dump(j, f)
         log = open(os.path.join(folder(cfg), f'{j["id"]}.log'), 'a', encoding='utf8')
@@ -150,12 +153,22 @@ def tick(cfg, client=None, spawn=subprocess.Popen, room=2):
     return started
 
 
-def sandbox_refusal(cfg, machine_name):
-    """Why a member's command may not run on this machine, or ''."""
+def sandbox_refusal(cfg, machine_name, device=None):
+    """Why a member's command may not run on this machine (with `device`: on the machine that device is on, with its own
+    runner merged in, as `tutti test --device` would run it), or ''."""
     m = cfg['machines'].get(machine_name)
     if not m:
         return f'{machine_name} is not in its owner\'s config any more'
-    if m['runner']['kind'] != 'docker' and not cfg['household'].get('member_shell'):
+    runner = m['runner']
+    if device:
+        d = (cfg.get('devices') or {}).get(device) if device != 'any' else None
+        if not d:
+            return (f'the job names the device "{device}": a member\'s run may use only a device named in its owner\'s config '
+                    f'that is on {machine_name} (never "any")')
+        if d.get('machine') != machine_name:
+            return f'the device {device} is on {d.get("machine")}, not on the shared machine {machine_name}: refused'
+        runner = remote.merge_runner(runner, d.get('runner'))
+    if runner['kind'] != 'docker' and not cfg['household'].get('member_shell'):
         return (f'{machine_name} runs commands in a shell, not a container: its owner allows members\' runs there with '
                 'household.member_shell: true (docs/HOUSEHOLD.md, trust model)')
     return ''
@@ -165,22 +178,54 @@ def slug(repo):
     return re.sub(r'[^A-Za-z0-9._-]+', '-', repo)[-80:]
 
 
+# the owner's own git over the cache: no hook, no fsmonitor, whatever a fetched repository would like
+CACHE_GIT = ('-c', 'core.hooksPath=' + os.devnull, '-c', 'core.fsmonitor=false')
+JOB_ID = re.compile(r'j\d{1,12}')
+
+
+def extract(tarball, tree):
+    """The job's files from `git archive`: never a path or a link that leaves the tree (tarfile's data filter, or the same
+    refusals by hand on an older Python)."""
+    import tarfile
+    with tarfile.open(tarball) as t:
+        if hasattr(tarfile, 'data_filter'):
+            t.extractall(tree, filter='data')
+            return
+        for m in t.getmembers():
+            bad = os.path.isabs(m.name) or '..' in m.name.split('/') or m.islnk() or \
+                (m.issym() and (os.path.isabs(m.linkname) or '..' in m.linkname.split('/')))
+            if bad or not (m.isfile() or m.isdir() or m.issym()):
+                raise JobError(f'the job\'s files hold {m.name}, a path or link that leaves its folder: refused')
+        t.extractall(tree)
+
+
 def prepare(cfg, j, run=subprocess.run):
-    """The sandboxed worktree of the job: the member's WIP ref fetched with the owner's git sign-in into a cache of its own."""
+    """The sandboxed tree of the job: the member's WIP ref fetched with the owner's git sign-in into a cache of its own, then
+    exported as plain files (`git archive`). The tree has no .git: the container never sees, and so never changes, the
+    cache's hooks or config that the owner's git runs next time (a linked worktree would mount them read-write)."""
     if not j['repo'].startswith(('https://', 'ssh://', 'git@')) or not household.project_key(j['repo']):
         raise JobError(f'{j["repo"]} is not a git remote of a shared project: refused')
+    if not JOB_ID.fullmatch(str(j.get('id') or '')):
+        raise JobError(f'{str(j.get("id"))[:40]!r} is not a job id: refused')
     cache = os.path.join(folder(cfg), 'repos', slug(j['repo']))
     if not os.path.isdir(cache):
         os.makedirs(cache)
-        git(cache, 'init', '-q', '--bare', run=run)
-    got = git(cache, 'fetch', '-q', '--depth', '50', j['repo'], f'+{j["ref"]}:{j["ref"]}', run=run, timeout=900)
+        git(cache, *CACHE_GIT, 'init', '-q', '--bare', run=run)
+    got = git(cache, *CACHE_GIT, 'fetch', '-q', '--depth', '50', j['repo'], f'+{j["ref"]}:{j["ref"]}', run=run, timeout=900)
     if got.returncode != 0:
         raise JobError(f'the owner\'s git could not read {j["repo"]} ({got.stderr.strip()[:160]}): share the repository with '
                        'them, or run it on your own machines')
     tree = os.path.join(folder(cfg), j['id'])
-    added = git(cache, 'worktree', 'add', '-q', '--detach', '--force', tree, j['ref'], run=run)
-    if added.returncode != 0:
-        raise JobError(f'could not check out the job ({added.stderr.strip()[:160]})')
+    tarball = tree + '.tar'
+    try:
+        out = git(cache, *CACHE_GIT, 'archive', '--format=tar', f'--output={tarball}', j['ref'], run=run)
+        if out.returncode != 0:
+            raise JobError(f'could not export the job\'s files ({out.stderr.strip()[:160]})')
+        os.makedirs(tree)
+        extract(tarball, tree)
+    finally:
+        if os.path.exists(tarball):
+            os.remove(tarball)
     return cache, tree
 
 
@@ -191,7 +236,7 @@ def run_job(cfg, jid, client=None, run=subprocess.run, exec_fn=subprocess.run):
         j = json.load(f)
     rc, tail, cache, tree = 125, '', None, None
     try:
-        why = sandbox_refusal(cfg, j['machine'])
+        why = sandbox_refusal(cfg, j['machine'], j.get('device'))
         if why:
             raise JobError(why)
         cache, tree = prepare(cfg, j, run)
@@ -204,9 +249,10 @@ def run_job(cfg, jid, client=None, run=subprocess.run, exec_fn=subprocess.run):
     except (JobError, OSError) as e:
         rc, tail = 125, f'household: {e}'
     finally:
-        if cache and tree:
-            git(cache, 'worktree', 'remove', '--force', tree, run=run)
-            git(cache, 'update-ref', '-d', j['ref'], run=run)
+        if tree:
+            shutil.rmtree(tree, ignore_errors=True)   # never follows a link the run left in it
+        if cache:
+            git(cache, *CACHE_GIT, 'update-ref', '-d', j['ref'], run=run)
     result = {'action': 'finish', 'id': jid, 'rc': rc, 'tail': tail[-household.JOB_TAIL:]}
     if not send_result(client, result):   # kept; every round sends it again until the coordinator has it
         with open(os.path.join(folder(cfg), f'{jid}.result'), 'w', encoding='utf8') as f:

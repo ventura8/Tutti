@@ -2,6 +2,30 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## Untrusted text reached a command by a side door (security audit, 2026-11)
+
+**What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:
+another member's task `check` and a spare-room offer's ran through the autopilot's acceptance; a Sentry-derived check went
+into a worker's brief; a stranger's comment counted as a scout's answer; a member's job escaped its container through a
+device's shell runner and through the git cache a linked worktree mounts read-write.
+
+**Why.** Each path was checked where the text entered, not where it was used: the acceptance runs `check` from wherever
+the task came from, and the sandbox check looked at the machine the job named, not the one that ran it.
+
+**Rule.** A field that ends up in a shell (`check`, a command, a runner) is only ever taken from this login's own config.
+Check a sandbox at the place that runs the command, with the runner it really uses. Data from outside goes into a brief
+marked as data, never as a command, and the process that reads it gets no token it does not need.
+
+## The test suite filled /tmp's inodes (2026-11-15)
+
+**What happened.** During the audit `/tmp` (a tmpfs) ran out of inodes: 53,000 leftover `tmp*` folders, about 85 files each,
+from repeated `scripts/check.sh` runs by many agents. Every tool that needed a temp file failed with ENOSPC.
+
+**Why.** Many tests use `tempfile.mkdtemp()` (the Household fixture among them) without removing it.
+
+**Rule.** A test removes what it makes (`TemporaryDirectory`, or `addCleanup(shutil.rmtree, d)`); run the suite with
+`TMPDIR` on a disk folder when several agents share a computer.
+
 ## A wait loop that matched its own command line
 
 **What happened.** Agents waited for a job with `while pgrep -f '<pattern>'; do sleep ...; done`. Three of them

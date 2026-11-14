@@ -297,6 +297,10 @@ def _machine_errors(name, m):
         errs.append(f'machines.{name}.transport is "{m["transport"]}": use one of {", ".join(TRANSPORTS)}')
     if m['transport'] not in ('local', 'household') and not m.get('host'):
         errs.append(f'machines.{name}.host is missing: give its ssh alias, or "local" for this computer')
+    for key in ('host', 'user'):   # never an ssh option (-oProxyCommand=...) or a second word on the ssh command line
+        v = m.get(key)
+        if isinstance(v, str) and (v.startswith('-') or any(c.isspace() for c in v)):
+            errs.append(f'machines.{name}.{key} is {v!r}: a host name, address or ssh alias (no leading "-", no spaces)')
     if m['transport'] == 'wsl' and not m.get('wsl_helper'):
         errs.append(f'machines.{name}.wsl_helper is missing: the path, inside WSL, of the base64 runner (docs/MACHINES.md)')
     if not isinstance(m['slots'], int) or m['slots'] < 1:

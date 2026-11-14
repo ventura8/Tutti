@@ -335,11 +335,19 @@ def advance(cfg, t, st, now, run=subprocess.run, spawn=subprocess.Popen):
     key = f'{pol["repo"]}#{number}'
     reviews = st.setdefault('reviews', {})
     if key not in reviews:
+        pr = pr_state(pol['repo'], number, run)
+        if pr is None:
+            return None
         request_review(cfg, pol['repo'], number, spawn)
-        reviews[key] = now
+        reviews[key] = {'at': now, 'sha': pr.get('headRefOid') or ''}   # the commit the reviewers see
         return f'{t["id"]}: AI reviews asked on {key}'
     pr = pr_state(pol['repo'], number, run)
     if pr is None:
+        return None
+    asked = reviews[key] if isinstance(reviews[key], dict) else {}
+    if pr.get('state') == 'OPEN' and pr.get('headRefOid') and asked.get('sha') != pr['headRefOid']:
+        reviews.pop(key, None)   # commits pushed after the review are never merged unreviewed: the next round asks again
+        t['self_improve'] = 'new commits since the AI reviews: they are asked again'
         return None
     ok, why = may_merge(pol, pr, review_finished(cfg, pol['repo'], number))
     t['self_improve'] = why or 'merging'

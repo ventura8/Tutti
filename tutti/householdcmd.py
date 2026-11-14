@@ -233,10 +233,14 @@ def share_info(cfg, name, host, probe_fn, sh_fn):
     """What the household learns of a machine this member shares; the shared lock and yield folder made on it."""
     m = cfg['machines'][name]
     d = household.SHARED_DIR
-    rc = sh_fn(m, f'mkdir -p {d} && chmod 1777 {d} 2>/dev/null; test -w {d}')
+    # sticky (1777, like /tmp) and a real folder: in a folder another login made without the sticky bit, a planted link
+    # could make every member's lock open a file of theirs
+    rc = sh_fn(m, f'mkdir -p {d} && chmod 1777 {d} 2>/dev/null; test -w {d} && test -k {d} && test ! -L {d}')
     if rc.returncode != 0:
-        raise household.HouseholdError(f'could not make {d} on {name} (the folder every member\'s login shares locks in): '
-                                       f'check that {name} answers over ssh (`tutti machines`), then try again')
+        raise household.HouseholdError(f'could not make {d} on {name} (the folder every member\'s login shares locks in, '
+                                       'mode 1777): check that it answers over ssh (`tutti machines`); if the folder exists '
+                                       f'without the sticky bit or is a link, someone else made it: remove it there, then try '
+                                       'again')
     p = probe_fn(m)
     if not host:
         host = coordinator.lan_address() if m['transport'] == 'local' else m.get('host')

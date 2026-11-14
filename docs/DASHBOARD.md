@@ -2,7 +2,9 @@
 
 `tutti dashboard` serves a local web dashboard at `http://127.0.0.1:4777/` (`--port` or `dashboard.port` to change
 it). It binds to 127.0.0.1 and refuses requests whose `Host` is not a loopback name with that port, so another
-site cannot read it through DNS rebinding.
+site cannot read it through DNS rebinding. Without sign-in it serves only this login: on Linux a loopback connection from
+another user's process (a computer several people log in to) is dropped before it is read. It closes a connection that stays
+silent for 30 s and serves at most 128 requests at once.
 
 **Sign-in with Google** (`tutti auth setup`, [AUTH.md](AUTH.md)): with an OAuth client ID set, every page and `/api/*`
 route needs a signed-in user. The first one to sign in is the admin; later ones wait for approval, or come in at once

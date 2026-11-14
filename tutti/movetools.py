@@ -255,7 +255,8 @@ def ssh_script(entries, lines_of):
     parts = ['set -e; umask 077; mkdir -p "$HOME/.ssh"; touch "$HOME/.ssh/config" "$HOME/.ssh/known_hosts"']
     for e in entries.values():
         block = shlex.quote('\n' + e['block'])   # literal: no escapes interpreted
-        parts.append(f'grep -qiE "^Host[[:space:]]+{re.escape(e["alias"])}[[:space:]]*$" "$HOME/.ssh/config" || '
+        pattern = shlex.quote(f'^Host[[:space:]]+{re.escape(e["alias"])}[[:space:]]*$')   # one shell word: no $( ) or ` runs
+        parts.append(f'grep -qiE {pattern} "$HOME/.ssh/config" || '
                      f'printf %s {block} >> "$HOME/.ssh/config"')
         for line in lines_of(e):
             q = shlex.quote(line)

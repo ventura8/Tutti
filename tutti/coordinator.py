@@ -5,6 +5,7 @@ Standard library only. The state is one JSON file (mode 600: it holds the member
 `<state>/household/coordinator.json`, changed under one lock of this process. Every request but a join is signed with the
 member's token; a join is signed with the join code's secret, and its answer lets both sides derive the token without
 sending it. Bodies carry no secret and nothing private (docs/HOUSEHOLD.md, *What crosses the network*)."""
+import hmac
 import json
 import os
 import secrets
@@ -14,9 +15,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
-from . import config, fairshare, household, netpolicy, telemetry, users
+from . import config, fairshare, household, httpguard, netpolicy, telemetry, users
 
 FOLDER = 'household'
 FILE = 'coordinator.json'
@@ -26,6 +27,9 @@ JOIN_WINDOW = 600
 JOIN_BLOCK = 3600
 JSON_TYPE = 'application/json'
 JOIN = '/hh/join'
+SOCKET_TIMEOUT = 30        # seconds a connection may stay silent
+MAX_CONNECTIONS = 64       # requests served at once; more are dropped (a LAN host cannot open threads without end)
+ANSWER_HEADER = 'X-Tutti-Answer'
 SCHEME = 'http'   # the coordinator is on the LAN: requests are signed, carry nothing secret (docs/HOUSEHOLD.md, threat model)
 
 
@@ -171,12 +175,14 @@ class Service:
         self.cfg, self.clock, self.path = cfg, clock, state_path(cfg)
         self.lock = threading.Lock()
         self.join_fails = {}
+        self.answering = threading.local()   # the verified member's token, to sign this thread's answer with
 
     def minutes(self):
         return float(self.cfg['household']['lease_minutes'])
 
     def handle(self, path, headers, body, addr):
         """(status, answer) of a POST."""
+        self.answering.key = None
         with self.lock:
             data = load(self.path)
             if not data and path == JOIN and invite_join(body):
@@ -191,6 +197,7 @@ class Service:
                 why = self.verify(data, uid, path, headers, body, now)
                 if why:
                     return 401, {'error': why}
+                self.answering.key = data['members'][uid]['token']
                 try:
                     code, answer = self.member_call(data, uid, path, json.loads(body or b'{}'), now)
                 except household.HouseholdError as e:
@@ -231,6 +238,10 @@ class Service:
         why = users.name_error(ask.get('name'))
         if not (len(uid) == 16 and len(nonce) == 32) or why:
             return 400, {'error': why or 'the join request is incomplete: update Tutti on this computer'}
+        taken = household.taken_id(data, uid)
+        if taken:
+            self.join_fails.setdefault(addr, []).append(now)
+            return 409, {'error': taken}
         server_nonce = secrets.token_hex(16)
         token = household.derive_token(code['secret'], uid, nonce, server_nonce)
         final = household.join(data, uid, users.id_hash(uid), ask['name'], str(ask.get('agent') or '')[:32], token, now)
@@ -358,17 +369,35 @@ class Service:
         return {'machines': household.machines_view(data, uid)}
 
 
+def answer_signature(key, path, request_nonce, body):
+    """The coordinator's proof on an answer to a signed request: the member's token over the path, the request's nonce and
+    the answer's bytes. A member's Tutti then knows the jobs and actions it is handed come from its coordinator."""
+    return household.signature(key, 'ANSWER', path, '', request_nonce, body)
+
+
+def content_length(headers, limit):
+    """The body's size, or None when it is missing a number, negative or over `limit` (a read of -1 would read to the end)."""
+    try:
+        size = int(headers.get('Content-Length') or 0)
+    except ValueError:
+        return None
+    return size if 0 <= size <= limit else None
+
+
 def make_handler(service):
     class Handler(BaseHTTPRequestHandler):
         server_version = 'tutti-household'
         sys_version = ''
+        timeout = SOCKET_TIMEOUT   # a client that sends its request slowly (or never) loses the connection
 
         def log_message(self, fmt, *args):
             return
 
-        def answer(self, code, data):
+        def answer(self, code, data, key=None):
             body = json.dumps(data).encode()
             self.send_response(code)
+            if key:
+                self.send_header(ANSWER_HEADER, answer_signature(key, self.path, self.headers.get('X-Tutti-Nonce') or '', body))
             self.send_header('Content-Type', JSON_TYPE)
             self.send_header('Content-Length', str(len(body)))
             self.send_header('Cache-Control', 'no-store')
@@ -381,9 +410,9 @@ def make_handler(service):
             return self.answer(404, {'error': 'the household coordinator answers signed POSTs only'})
 
         def do_POST(self):
-            size = int(self.headers.get('Content-Length') or 0)
-            if size > MAX_BODY:
-                return self.answer(413, {'error': f'the request is over {MAX_BODY // 1024} KB'})
+            size = content_length(self.headers, MAX_BODY)
+            if size is None:
+                return self.answer(413, {'error': f'send a request of at most {MAX_BODY // 1024} KB with its Content-Length'})
             body = self.rfile.read(size)
             try:
                 code, data = service.handle(self.path, self.headers, body, self.client_address[0])
@@ -392,7 +421,7 @@ def make_handler(service):
             except Exception as e:
                 telemetry.capture_exception(type(e), e, e.__traceback__, where='household-coordinator')
                 code, data = 500, {'error': 'the coordinator failed on this request; it is reported and the next round tries again'}
-            self.answer(code, data)
+            self.answer(code, data, getattr(service.answering, 'key', None))
 
     return Handler
 
@@ -403,14 +432,19 @@ def server(cfg, port=None, bind=None, service=None, clock=time.time, ifaces=None
     if not bind.startswith('127.'):
         netpolicy.check(bind, 'household.bind', ifaces)
     service = service or Service(cfg, clock)
-    cls = Server6 if ':' in bind else ThreadingHTTPServer
+    cls = Server6 if ':' in bind else Server4
     httpd = cls((bind, cfg['household']['port'] if port is None else port), make_handler(service))
     httpd.daemon_threads = True
     httpd.service = service
     return httpd
 
 
-class Server6(ThreadingHTTPServer):
+class Server4(httpguard.CappedServer):
+    """The coordinator on an IPv4 address: at most MAX_CONNECTIONS requests at once."""
+    max_connections = MAX_CONNECTIONS
+
+
+class Server6(Server4):
     """The coordinator on an IPv6 address (ULA, link-local with its interface, ::1)."""
     address_family = socket.AF_INET6
 
@@ -470,7 +504,9 @@ class Client:
         req = urllib.request.Request(self.url(path), data=raw, headers=headers, method='POST')
         try:
             with self.opener.open(req, timeout=self.timeout) as r:
-                return json.loads(r.read() or b'{}')
+                answer = r.read()
+                self.check_answer(path, nonce, answer, r.headers.get(ANSWER_HEADER), key)
+                return json.loads(answer or b'{}')
         except urllib.error.HTTPError as e:
             try:
                 why = json.loads(e.read() or b'{}').get('error')
@@ -481,6 +517,27 @@ class Client:
             raise household.HouseholdError(why or f'the coordinator answered {e.code}') from e
         except (OSError, ValueError) as e:
             raise Unreachable(f'the household coordinator at {self.m["coordinator"]} did not answer ({type(e).__name__})') from e
+
+    def check_answer(self, path, nonce, answer, sign, key):
+        """An answer to a member's call is the coordinator's own: signed with the member's token. Once one signed answer came,
+        an unsigned one is refused (someone on the LAN answering in the coordinator's place); before that (an older
+        coordinator), unsigned answers are taken."""
+        if key != self.m.get('token') or not key:
+            return   # the join: signed with the code, answered before any token exists
+        if sign:
+            if not hmac.compare_digest(sign, answer_signature(key, path, nonce, answer)):
+                raise household.HouseholdError('the answer is not signed by your household\'s coordinator: someone else on '
+                                               'this network answered in its place; nothing was done')
+            if not self.m.get('signed_answers'):
+                self.m['signed_answers'] = True
+                self.remember(self.m)
+        elif self.m.get('signed_answers'):
+            raise household.HouseholdError('the answer carries no coordinator signature (it always did before): someone else '
+                                           'on this network may be answering in its place; nothing was done')
+
+    def remember(self, membership):
+        if users.read_household().get('token') == membership.get('token'):
+            users.write_household(membership)
 
     def call(self, path, body=None):
         return self.post(path, body or {}, self.m['token'], self.m['user_id'])

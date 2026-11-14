@@ -100,7 +100,10 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual(rows['brokena']['status'], 'failed')
         self.assertIn('exit 3: network down', rows['brokena']['detail'])
         self.assertEqual(rows['npmtool']['status'], 'current')
-        self.assertEqual(npm_args.split(), ['install', '-g', '--prefix', t, '@x/tool@latest'])
+        words = npm_args.split()
+        self.assertEqual(words[:5], ['install', '-g', '--prefix', t, '@x/tool@latest'])
+        # audit 2026-11: never a version published in the last days (a hijacked release is usually pulled within them)
+        self.assertRegex(words[5], r'^--before=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$')
         self.assertEqual(rows['nothere']['status'], 'missing')
 
     def test_check_changes_nothing(self):

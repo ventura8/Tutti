@@ -345,16 +345,27 @@ def open_issue(sc, r, gh_fn=gh):
     return int(m.group(1)), out.strip().splitlines()[-1]
 
 
-def answer_of(repo, issue, since, gh_fn=gh, marker=None):
-    """The first comment on the issue (or pull request) made after `since` (epoch seconds), and holding `marker` when one is
-    given (a review's "grok-scout" tag: other reviewers comment there too): (text, author) or None."""
+TRUSTED = ('OWNER', 'MEMBER', 'COLLABORATOR')   # GitHub's author_association of someone who may write to the repository
+
+
+def trusted(c, login=None):
+    """A comment a scout's answer may come from: by the account the scout posts as (scouts.<name>.github_login), or by
+    someone who may write to the repository. In a public repository anyone can comment, and an answer becomes backlog work."""
+    who = (c.get('user') or {}).get('login', '')
+    return bool(login and who == login) or c.get('author_association') in TRUSTED
+
+
+def answer_of(repo, issue, since, gh_fn=gh, marker=None, login=None):
+    """The first comment on the issue (or pull request) made after `since` (epoch seconds) by a trusted author (`trusted`),
+    and holding `marker` when one is given (a review's "grok-scout" tag: other reviewers comment there too): (text, author)
+    or None."""
     rc, text, err = gh_fn(['api', '--paginate', f'repos/{repo}/issues/{issue}/comments?per_page=100'])
     if rc != 0:
         raise ScoutError(f'reading the comments of {repo}#{issue} failed ({err}): check `gh auth status`')
     items = [c for page in documents(text) for c in (page if isinstance(page, list) else [page])]
     for c in sorted(items, key=lambda c: c.get('created_at') or ''):
         at = pacing.parse_time(c['created_at']).timestamp() if c.get('created_at') else 0
-        if at >= since - 60 and (c.get('body') or '').strip() and (not marker or marker in c['body']):
+        if at >= since - 60 and (c.get('body') or '').strip() and (not marker or marker in c['body']) and trusted(c, login):
             return c['body'].strip()[:ANSWER_CHARS], (c.get('user') or {}).get('login', '')
     return None
 
@@ -388,7 +399,8 @@ def send(sc, r, url, key, gh_fn=gh, post_fn=post, now=None):
 def collect(sc, r, gh_fn=gh, now=None):
     """Looks once for the answer of a waiting request; gives up after give_up_hours. Returns the request."""
     now = now or time.time()
-    found = answer_of(r['repo'], r['issue'], r['sent'], gh_fn, REVIEW_MARKER if r['kind'] == 'review' else None)
+    found = answer_of(r['repo'], r['issue'], r['sent'], gh_fn, REVIEW_MARKER if r['kind'] == 'review' else None,
+                      sc.get('github_login'))
     if found:
         r.update(status='answered', answer=found[0], answered_by=found[1], answered=now)
         if r['kind'] == 'ask':   # a watch's issue stays open for the orchestrator to triage

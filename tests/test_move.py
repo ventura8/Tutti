@@ -554,7 +554,13 @@ class SshAccessTest(unittest.TestCase):
     def test_the_target_gets_the_entry_once_and_the_host_key(self):
         e = {'alias': 'w5090', 'block': 'Host w5090\n  HostName 192.168.1.154\n', 'hostname': '192.168.1.154', 'port': '22'}
         script = movetools.ssh_script({'w5090': e}, lambda _e: ['192.168.1.154 ssh-ed25519 AAAA'])
-        self.assertIn('grep -qiE "^Host[[:space:]]+w5090', script)
+        self.assertIn("grep -qiE '^Host[[:space:]]+w5090", script)
+        # audit 2026-11 (L): an alias from ~/.ssh/config with a quote or a backtick stays one word on the target
+        evil = movetools.ssh_script({'x': {**e, 'alias': 'a`touch /tmp/pwned`"b'}}, lambda _e: [])
+        import shlex as _shlex
+        words = _shlex.split(evil)
+        pattern = words[words.index('-qiE') + 1]
+        self.assertTrue(pattern.startswith('^Host') and '`touch' in pattern and 'pwned`' in pattern)   # literal text, never run
         self.assertIn('known_hosts', script)
         self.assertIn('chmod 600', script)
         found = '# Host 192.168.1.154 found: line 3\n192.168.1.154 ssh-ed25519 AAAA\n'

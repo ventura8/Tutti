@@ -8,7 +8,8 @@
 // used", "$spent of $limit", else a bare "N%"), plus the next line when that line says "Resets <date>"; it never reaches
 // past the next configured label or 8 lines. With no label the whole page is searched. A reset in the meter
 // wins; otherwise the page's "limits reset <date>", else the end of a "billing period <a> - <b>". A "Resets" line of another
-// meter (Grok's weekly) is never taken for this one.
+// meter (Grok's weekly) is never taken for this one. `loading` is true when nothing was read and the page shows no "N% used"
+// at all (Cursor's page sometimes stays on its spinner): the caller reports it and saves nothing, never a 0.
 function (text, targets, now) {
     const DATE = String.raw`([A-Z][a-z]{2,8}\.?\s+\d{1,2}(?:,?\s+\d{4})?)`;
     const clean = String(text || '').replaceAll(' ', ' ');
@@ -93,5 +94,5 @@ function (text, targets, now) {
             missing.push(t.label || t.account);
         }
     }
-    return { readings: readings, missing: missing };
+    return { readings: readings, missing: missing, loading: readings.length === 0 && !/%\s*used/i.test(clean) };
 }

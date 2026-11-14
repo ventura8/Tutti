@@ -113,7 +113,10 @@ def _list(cfg, _a, _gh_fn, _post_fn):
     return 0
 
 
-def _setup(cfg, a, _gh_fn, _post_fn):
+def _setup(cfg, a, gh_fn, post_fn):
+    if a.scout == 'grok' or a.task:   # `setup grok [<name>]`: the guided, interactive setup in a real terminal
+        from . import groksetup
+        return groksetup.run(cfg, a.task or 'grok', gh_fn=gh_fn, post_fn=post_fn)
     print(setup_text(cfg, a.scout))
     return 0
 

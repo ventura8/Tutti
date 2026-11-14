@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 shellcheck scripts/*.sh
 if command -v ruff > /dev/null; then ruff check . bin/tutti; else echo "ruff is not installed here: skipped (CI runs it)"; fi
-python3 -m unittest discover -s tests
+XDG_CONFIG_HOME="$(mktemp -d)" python3 -m unittest discover -s tests   # never the owner's grok.env
 # smoke: the example config is valid and the commands that need no machine answer
 t="python3 bin/tutti --config tutti.config.example.yaml"
 $t config

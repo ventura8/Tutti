@@ -38,6 +38,7 @@ RETRY_SECONDS = 3600
 REVIEW_MARKER = 'grok-scout'   # the first line of a scout's review comment on a pull request
 LOOPBACK = ('127.0.0.1', 'localhost', '::1')
 SETUP = (
+    'Easiest: run `tutti scout setup grok` in a terminal; it walks you through every step below and tests it. By hand:',
     'Open the Grok Bot app (Cursor Pro includes it; it has its own weekly allowance).',
     'Create a bot named "Tutti scout" (new bot, name it, keep it personal: Only me).',
     'In "Connect apps" (sidebar) connect GitHub, and allow it the repository named in scouts.<name>.reply.github_repo.',
@@ -66,7 +67,29 @@ def settings(cfg, name):
     if sc is None:
         known = ', '.join(cfg.get('scouts') or {}) or 'none (add scouts: to the config, docs/SCOUTS.md)'
         raise ScoutError(f'no scout "{name}" under scouts: (known: {known})')
-    return {**DEFAULTS, **sc, 'name': name}
+    acc = (cfg.get('accounts') or {}).get(sc.get('account')) if isinstance(sc, dict) else None
+    extra = {}
+    if acc is not None and cfg.get('project'):   # where a sent question's spend estimate goes (its account's usage log)
+        from . import state  # state imports config, which imports this module
+        extra = {'_usage_log': state.usage_log_path(cfg), '_task_pct': float((acc or {}).get('task_pct', pacing.TASK_PCT))}
+    return {**DEFAULTS, **sc, 'name': name, **extra}
+
+
+def spend_estimate(sc, r, now=None):
+    """After a question went out: the account's newest reading plus task_pct, logged as an estimate (source `estimate`), so
+    the meter moves between readings. An estimate never counts as a fresh reading; the next real one replaces it."""
+    if not sc.get('_usage_log') or not sc.get('account'):
+        return None
+    at = datetime.fromtimestamp(now or time.time(), timezone.utc)
+    entries = pacing.read_log(sc['_usage_log'])
+    last = pacing.latest(entries, sc['account'])
+    if not last:
+        return None
+    reset = pacing.reading_anchor(entries, sc['account'])
+    reset_passed = reset and pacing.parse_time(last['at']) < reset <= at   # the newest reading is from before the reset: from 0
+    used = min(100.0, (0.0 if reset_passed else float(last['used'])) + sc['_task_pct'])
+    return pacing.append_log(sc['_usage_log'], sc['account'], used, at, f'estimate: scout {sc["name"]} {r["id"]} sent '
+                             f'(+{sc["_task_pct"]:g} points)', source='estimate')
 
 
 def _every_errors(key, v):
@@ -331,6 +354,7 @@ def send(sc, r, url, key, gh_fn=gh, post_fn=post, now=None):
         gh_fn(['issue', 'close', str(r['issue']), '--repo', r['repo'], '--comment', f'Tutti: not sent. {why}'])
         return r
     r['status'] = 'waiting'
+    spend_estimate(sc, r, r['sent'])
     return r
 
 
@@ -486,7 +510,7 @@ def scout_view(sc, requests, acc, env, now):
         watches.append({'name': n, 'every': w['every'], 'task': w['task'][:160], 'last': _iso(last),
                         'next': _iso((last or now) + (every_seconds(w['every']) if last else 0))})
     p = plan(sc, requests, acc, now)
-    meter = {k: acc.get(k) for k in ('name', 'used', 'reset', 'verdict', 'panic', 'reading_at', 'usage_url')} if acc else None
+    meter = {k: acc.get(k) for k in ('name', 'used', 'reset', 'verdict', 'panic', 'reading_at', 'usage_url', 'stale')} if acc else None
     return {'name': sc['name'], 'kind': sc['kind'], 'ready': not missing, 'missing': missing, 'auto': sc['auto'],
             'skills': sc['skills'], 'repo': sc['reply']['github_repo'], 'account': sc.get('account'), 'meter': meter,
             'plan': p['why'], 'watches': watches, 'waiting': sum(1 for r in mine if r['status'] == 'waiting'),

@@ -107,7 +107,7 @@ function renderSending(st) {
     toggle.setAttribute('aria-pressed', String(on));
     let target = 'nowhere yet: run tutti telemetry setup';
     if (st.endpoint_set) target = 'to your endpoint';
-    if (st.dsn_set) target = 'to Sentry at ' + st.dsn_host;
+    if (st.dsn_set) target = st.dsn_from === 'release default' ? "to Tutti's maintainers (Sentry)" : 'to Sentry at ' + st.dsn_host;
     const problem = st.last_error ? ' Last send: ' + st.last_error : '';
     $('telemetry-state').textContent = `Crash reports and usage statistics: ${on ? 'sent' : 'not sent'} (${target}). `
         + `Recorded on this computer always; ${st.queued} queued.${problem}`;
@@ -115,6 +115,7 @@ function renderSending(st) {
 
 function renderTelemetry(s) {
     if (!s.telemetry) return;
+    renderConsent(s);   // report.js: the first-run question, until it is answered
     renderSending(s.telemetry.status);
     renderInsights(s.telemetry);
     renderLane(s.telemetry.self_improve);

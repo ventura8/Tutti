@@ -69,10 +69,12 @@ def iso(ts=None):
 
 
 def envelope(event, dsn):
-    """One event as an envelope: the header line, the item header, the payload."""
+    """One event as an envelope: the header line, the item header, the payload. A user's report (`tutti report`) goes as
+    Sentry's `feedback` item, the rest as `event`."""
     payload = json.dumps(event, separators=(',', ':')).encode()
     head = {'event_id': event['event_id'], 'sent_at': iso(), 'dsn': dsn, 'sdk': {'name': 'tutti', 'version': __version__}}
-    item = {'type': 'event', 'length': len(payload), 'content_type': 'application/json'}
+    kind = 'feedback' if event.get('type') == 'feedback' else 'event'
+    item = {'type': kind, 'length': len(payload), 'content_type': 'application/json'}
     return b'\n'.join([json.dumps(head).encode(), json.dumps(item).encode(), payload]) + b'\n'
 
 

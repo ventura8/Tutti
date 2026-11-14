@@ -688,3 +688,12 @@ body[data-view="household"] #my-schedule { display: none; }   /* My schedule liv
 .users-view { max-width: 1100px; margin: 0 auto; display: grid; gap: var(--gap); }
 .users-view[hidden] { display: none; }   /* its display: grid must not undo [hidden]: the Users card showed on every view */
 #users-tab[hidden] { display: none; }
+/* Report a problem (report.js) and the first-run consent banner */
+.report { max-width: min(640px, calc(100vw - 32px)); border: none; border-radius: var(--r-s); padding: 0; }
+.report::backdrop { background: rgb(0 0 0 / 40%); }
+.report__form { display: grid; gap: 8px; padding: 20px; }
+.report__form textarea { width: 100%; font: inherit; }
+.report__preview { max-height: 40vh; overflow: auto; white-space: pre-wrap; font-family: var(--mono); font-size: 0.8rem; background: var(--surface-2); padding: 8px; }
+.report__actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+#consent-banner { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#consent-banner[hidden] { display: none; }

@@ -18,13 +18,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from . import auth, config
+from . import auth, config, official
 
 DEVICE_FILE = 'auth-device.json'
 CODE_URL = 'https://oauth2.googleapis.com/device/code'
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
 GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
-SCOPE = 'openid email profile'
+SCOPE = 'openid email'   # non-sensitive scopes only: Google publishes such an app after brand verification
 MAX_FLOWS = 32            # flows waiting at once (a page that starts many cannot grow the server's memory)
 FLOW_COOKIE = 'tutti_flow_{port}'
 
@@ -38,9 +38,11 @@ def path(cfg):
 
 
 def client(cfg):
-    """(client_id, client_secret) of the device client, or ('', '') when it is not set up."""
+    """(client_id, client_secret) of the device client: the household's own (`tutti auth setup`), else Tutti's built-in one
+    in a release build that carries its secret (tutti/official.py), else ('', '')."""
     data = auth._read(auth.state_path(cfg, DEVICE_FILE))
-    return (data.get('client_id') or '').strip(), (data.get('client_secret') or '').strip()
+    own = (data.get('client_id') or '').strip(), (data.get('client_secret') or '').strip()
+    return own if all(own) else official.device_client(cfg)
 
 
 def save(cfg, client_id, secret):

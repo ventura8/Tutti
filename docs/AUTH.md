@@ -1,11 +1,54 @@
 # Sign-in with Google, roles and invites
 
-The dashboard can require sign-in with Google. Until an OAuth client ID is set it behaves as before: it serves
-`127.0.0.1` only, with no sign-in, and shows a banner that offers `tutti auth setup`. Once a client ID is set, every
+The dashboard can require sign-in with Google. A release of Tutti has its own sign-in built in (below), so a new household
+creates nothing in Google Cloud. In a checkout with no client ID it behaves as before: it serves `127.0.0.1` only, with no
+sign-in, and shows a banner that offers `tutti auth setup`. Once a client ID is set, every
 page and every `/api/*` route needs a signed-in user, except the sign-in page itself and the app's code and icons.
 
 Code: `tutti/auth.py` (token checks, users, sessions), `tutti/authweb.py` (the HTTP gate), `tutti/invites.py` (invites,
 shared with the household), `tutti/authcmd.py` (`tutti auth`), `tutti/web/login.*` and `tutti/web/users.js`.
+
+## Tutti's own sign-in (built in; nothing to set up)
+
+Like gh and gcloud, a release carries Tutti's own public OAuth clients from the maintainer's Google project
+`tutti-dashboard` (`tutti/official.py`):
+
+| Client | Type | What a release carries |
+| --- | --- | --- |
+| `Tutti dashboard` | Web application, origins `http://127.0.0.1:4777` and `http://localhost:4777` | the client ID |
+| `Tutti dashboard (LAN)` | TVs and Limited Input devices | the client ID, and its installed-app secret (Google documents it as not confidential) |
+
+- **A new household:** install, open the dashboard, choose **Sign in with Google** (on this computer) or scan the QR code
+  (from the LAN or a VPN). The first person becomes the administrator. No console, no IDs.
+- **Scopes:** `openid` and `email` only (non-sensitive). Tutti receives the e-mail address and Google's subject id, and they
+  stay in the household (docs/PRIVACY.md).
+- **The secret is never in the repository.** The release workflow (`.github/workflows/release.yml`) rebuilds each
+  release's tarball with `tutti/release.json` (git-ignored) holding it, from the Actions secret
+  `TUTTI_GOOGLE_DEVICE_SECRET`. `scripts/release-assets.sh` reads it from the environment only and never prints it.
+- **Which client wins:** a client the household saved (`tutti auth setup`, or `auth.client_id`) always wins. The built-in
+  ones are used only by a release build (one with `release.json`), and the web client only when `dashboard.port` is 4777,
+  the port its origins name. `auth.official: false` turns them off. A checkout and the tests have no `release.json`.
+- **A release built without the secret** has the button on this computer only; the code from a LAN address then needs the
+  household's own device client (the steps below).
+- `tutti auth setup` with nothing to add says that sign-in is built in; `tutti auth status` says which clients are Tutti's.
+
+### Publishing the app (the maintainer, once)
+
+Until the app is published, Google lets only its test users sign in. In the `tutti-dashboard` project:
+
+1. Set the secret: `bash scripts/set-device-secret.sh` (hidden input, piped to `gh secret set TUTTI_GOOGLE_DEVICE_SECRET -R
+   ventura8/Tutti`), and the default DSN: `gh variable set TUTTI_SENTRY_DSN -R ventura8/Tutti` (paste it; DSNs are public).
+2. **Branding** (<https://console.cloud.google.com/auth/branding?project=tutti-dashboard>): app name `Tutti dashboard`,
+   support e-mail, homepage `https://ventura8.github.io/Tutti/`, privacy policy
+   `https://ventura8.github.io/Tutti/PRIVACY.html`, terms `https://ventura8.github.io/Tutti/TERMS.html`, authorized domain
+   `ventura8.github.io`, developer contact e-mail. Save.
+3. **Domain ownership:** verify `https://ventura8.github.io/` in Google Search Console (<https://search.google.com/search-console>)
+   with the same Google account.
+4. **Data access** (<https://console.cloud.google.com/auth/scopes?project=tutti-dashboard>): only `openid` and `.../auth/userinfo.email`.
+5. **Audience** (<https://console.cloud.google.com/auth/audience?project=tutti-dashboard>): **Publish app**, confirm
+   Production.
+6. **Verification centre** (<https://console.cloud.google.com/auth/verification?project=tutti-dashboard>): submit for
+   brand verification and answer Google's e-mails. With non-sensitive scopes only, there is no security assessment.
 
 ## From the home network or any VPN: the default
 
@@ -40,9 +83,10 @@ Input devices** (`tutti/authdevice.py`):
   is read.
 - **The listening address.** Set `dashboard.bind` to this computer's LAN address. `tutti auth setup` prints it.
 
-## Setting it up (the owner, once)
+## A household's own clients (optional)
 
-Creating the OAuth clients is the owner's step: Tutti never creates them. `tutti auth setup` detects what applies
+A household that wants its own Google project (or runs a build without the built-in clients) creates its own clients:
+Tutti never creates them. `tutti auth setup` detects what applies
 (localhost, the LAN and any VPN through the device flow, a Tailscale https name), then prints these steps with the
 dashboard's real port, its LAN address and its origins. It saves the client IDs with no prompt:
 

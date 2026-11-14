@@ -48,6 +48,7 @@ from . import (
     recovery,
     releases,
     remote,
+    report,
     scouts,
     settings,
     setupcmd,
@@ -331,6 +332,7 @@ API_QUEUE = '/api/queue'   # the Queued list's actions: an admin's (Run now, Mov
 API_TUTTI_MOVE = '/api/move'   # Tutti itself to another machine (docs/MOVE.md); API_MOVE moves a device
 # these change the config or the queue: an admin's
 ADMIN_PATHS = (API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE)
+API_REPORT = '/api/report'   # Report a problem (docs/REPORT.md): every signed-in user, viewers included
 API_WORK_MOVE = '/api/work/move'   # work waiting on an away or asleep target moved now (docs/PRESENCE.md)
 ADMIN_PATHS += (API_WORK_MOVE,)   # takes work off a member's computer: an admin's (a viewer gets 403 from the auth hook)
 BODY_LIMITS[API_SETTINGS] = 65536
@@ -565,7 +567,7 @@ def save_dispatch(collector, raw):
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
          '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, API_SETUP,
          API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn',
-         API_WORK_MOVE, API_QUEUE)
+         API_WORK_MOVE, API_QUEUE, API_REPORT)
 
 
 def save_connect(collector, body, home=None):
@@ -604,7 +606,8 @@ def post(collector, headers, path, port, token, read):
                           '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, '
                           '{"enabled"|"action": ...} to /api/dispatch, {"action": ...} to /api/connect or /api/vpn, '
                           '{"path": ...} to /api/settings, {} to /api/restart, '
-                          '{"consent"|"error"|"use": ...} to /api/telemetry, {} to /api/update, {"action": "run"} to /api/setup, '
+                          '{"consent"|"error"|"use": ...} to /api/telemetry, {"what": ...} to /api/report, '
+                          '{} to /api/update, {"action": "run"} to /api/setup, '
                           '{"action": ...} to /api/devices/pair or {"to": ...} to /api/devices/move'}
     refused = check_post(headers, host, token, origins) or (authorize(collector, headers) if path in ADMIN_PATHS else None)
     if refused:
@@ -760,6 +763,7 @@ HANDLERS = {
     '/api/telemetry': dashtelemetry.save,
     '/api/self-improve': dashtelemetry.save_self_improve,
     '/api/update': start_update,
+    API_REPORT: report.api,
 }
 
 

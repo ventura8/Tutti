@@ -1,0 +1,35 @@
+name: release
+# Builds a release's install files again with the release defaults (tutti/official.py): the built-in Google device
+# client's secret (the Actions secret TUTTI_GOOGLE_DEVICE_SECRET) and the default Sentry DSN (the Actions variable
+# TUTTI_SENTRY_DSN), then replaces the files scripts/release-patch.sh attached. Without them the release still works:
+# the button sign-in on this computer is built in, and a household adds its own device client (docs/AUTH.md).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: the release tag to rebuild, e.g. v0.1.60
+        required: true
+permissions:
+  contents: write
+jobs:
+  assets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - name: Build the install files with the release defaults
+        env:
+          TUTTI_GOOGLE_DEVICE_SECRET: ${{ secrets.TUTTI_GOOGLE_DEVICE_SECRET }}
+          TUTTI_SENTRY_DSN: ${{ vars.TUTTI_SENTRY_DSN }}
+        run: bash scripts/release-assets.sh "${TAG#v}" "$RUNNER_TEMP/assets" HEAD
+      - name: Replace the release's files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "$RUNNER_TEMP"/assets/* --clobber --repo "$GITHUB_REPOSITORY"

@@ -1,0 +1,20 @@
+name: Something went wrong
+description: "Tutti did not do what you expected. Tip: `tutti report` or the dashboard's Report a problem fills this in for you."
+labels: [bug, user-report]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: "One or two sentences. Do not paste secrets, tokens, e-mail addresses or private paths: issues are public."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+  - type: input
+    id: version
+    attributes:
+      label: Tutti version and system
+      description: The first line of `tutti --version`, and Linux, macOS, Windows or WSL.

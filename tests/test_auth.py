@@ -422,7 +422,7 @@ class ServerTest(unittest.TestCase):
 
     def test_a_viewer_gets_403_on_every_mutating_route_and_on_settings(self):
         for path in [*dashboard.POSTS, '/api/auth/users', '/api/auth/invites']:
-            if path == '/api/telemetry':
+            if path in ('/api/telemetry', '/api/report'):   # a viewer may report a problem and a page error
                 continue
             r, _ = self.post(path, {'action': 'create', 'enabled': True}, self.viewer)
             self.assertEqual(r.status, 403, path)
@@ -430,6 +430,7 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(self.get(path, self.viewer)[0].status, 403, path)
         self.assertEqual(self.post('/api/telemetry', {'consent': True}, self.viewer)[0].status, 403)
         self.assertEqual(self.post('/api/telemetry', {'use': {'panel': 'usage'}}, self.viewer)[0].status, 200)
+        self.assertEqual(self.post('/api/report', {'what': ''}, self.viewer)[0].status, 400)   # reached, then refused as empty
 
     def test_csrf_and_origin_are_checked_on_every_post(self):
         body = {'mode': 'auto'}

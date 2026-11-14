@@ -30,6 +30,7 @@ KEEP = 3
 OUTBOX_MAX = 2000
 FLUSH_SECONDS = 600
 ENV_DSN = 'TUTTI_SENTRY_DSN'
+LAST_CRASH = 'last-crash.json'   # the event id of the last crash queued for Sentry: a report's feedback links to it
 ENV_OFF = 'TUTTI_TELEMETRY'   # `off`: record nothing at all, not even locally (tests, a locked-down machine)
 PACKAGE = os.path.dirname(os.path.abspath(__file__))
 _ctx = {'folder': None, 'hosts': (), 'environment': 'production', 'command': ''}
@@ -172,15 +173,20 @@ def read_env_file(path):
 
 
 def dsn(cfg=None, env=None):
-    """(the DSN, where it came from): $TUTTI_SENTRY_DSN, then ~/.config/tutti/telemetry.env, then telemetry.sentry_dsn."""
+    """(the DSN, where it came from): $TUTTI_SENTRY_DSN, then ~/.config/tutti/telemetry.env, then telemetry.sentry_dsn, then
+    the release's default (tutti/official.py). Whichever it is, nothing is sent until sending is on."""
     env = os.environ if env is None else env
     if env.get(ENV_DSN):
         return env[ENV_DSN].strip(), ENV_DSN
     found = read_env_file(env_file(env)).get(ENV_DSN)
     if found:
         return found, env_file(env)
+    from . import official
     own = ((cfg or {}).get('telemetry') or {}).get('sentry_dsn') or ''
-    return (own.strip(), 'telemetry.sentry_dsn') if own else ('', '')
+    if own:
+        return own.strip(), 'telemetry.sentry_dsn'
+    default = official.sentry_dsn()
+    return (default, 'release default') if default else ('', '')
 
 
 def save_dsn(value, env=None):
@@ -335,6 +341,8 @@ def report(ev, kind='crash', name=''):
     try:
         if sending(folder):
             queue(folder, {'type': 'event', 'event': ev})
+            if kind == 'crash':   # `tutti report` links its feedback to the last crash Sentry got (docs/REPORT.md)
+                write_json(os.path.join(folder, LAST_CRASH), {'event_id': ev['event_id'], 'at': now_iso()})
     except OSError:
         return None
     return ev

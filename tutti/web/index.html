@@ -31,6 +31,7 @@
     <script src="vpn.js?v=__TUTTI_VERSION__" defer></script>
     <script src="qr.js?v=__TUTTI_VERSION__" defer></script>
     <script src="users.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="report.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
     <a class="skip" href="#main">Skip to the dashboard</a>
@@ -53,6 +54,7 @@
             <button class="btn btn--filled" id="install" type="button" hidden>Install app</button>
             <span class="me" id="me" hidden></span>
             <span class="viewer-label" id="viewer-label" hidden>Viewer: read-only</span>
+            <button class="btn btn--text view-ok" id="report-open" type="button" title="Tell Tutti's maintainers what went wrong">Report a problem</button>
             <button class="btn btn--text" id="signout" type="button" hidden>Sign out</button>
         </div>
         <!-- The views: the dashboard and Settings. On a phone the bar sits at the bottom of the screen (app.css). -->
@@ -65,6 +67,35 @@
 
     <div class="banner" id="banner" role="alert" hidden></div>
     <output class="banner" id="auth-banner" hidden></output>
+    <!-- asked once, in plain words, until the admin answers (here, or the terminal's question, or tutti telemetry on|off) -->
+    <section class="banner" id="consent-banner" data-admin aria-labelledby="consent-h" hidden>
+        <strong id="consent-h">Help make Tutti better?</strong>
+        <span>Tutti can send crash reports and usage counts to its maintainers: which commands ran, how long they took and
+            whether they failed. Never your prompts, tasks, code, file paths, computer names, e-mail or keys. You can change
+            this any time under Insights.</span>
+        <button class="btn btn--filled" id="consent-yes" type="button">Yes, send them</button>
+        <button class="btn btn--text" id="consent-no" type="button">No, thanks</button>
+    </section>
+
+    <dialog class="report view-ok" id="report-dialog" aria-labelledby="report-title">
+        <form class="report__form" id="report-form" method="dialog">
+            <h2 id="report-title">Report a problem</h2>
+            <p class="row__note">Tell Tutti's maintainers what went wrong. You see everything before it is sent.</p>
+            <label for="report-what">What happened?</label>
+            <textarea id="report-what" rows="4" maxlength="2000" required></textarea>
+            <label for="report-expected">What did you expect instead?</label>
+            <textarea id="report-expected" rows="3" maxlength="2000"></textarea>
+            <p class="row__note">Tutti adds its version, your system's name, a health check, recent error types and the
+                shape of your settings. Secrets, file paths, computer names, e-mail addresses, prompts and code are removed.</p>
+            <pre class="report__preview" id="report-preview" hidden></pre>
+            <output class="row__note" id="report-status" aria-live="polite"></output>
+            <div class="report__actions">
+                <button class="btn btn--text" id="report-cancel" type="button">Cancel</button>
+                <button class="btn btn--tonal" id="report-preview-btn" type="button">Preview</button>
+                <button class="btn btn--filled" id="report-send" type="button" disabled>Send</button>
+            </div>
+        </form>
+    </dialog>
 
     <main id="main" tabindex="-1">
       <div id="dashboard-view">

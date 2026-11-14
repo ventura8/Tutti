@@ -942,9 +942,10 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     now = now or time.time()
     is_alive = is_alive or state_mod.alive
     on = enabled(cfg)
-    if '_host' not in cfg:
+    if '_host_raw' not in cfg:
         from . import parallel
-        cfg['_host'] = local_share(cfg, parallel.host(), machines)
+        cfg['_host_raw'] = parallel.host()
+    cfg['_host'] = local_share(cfg, cfg['_host_raw'], machines)   # the share changes by the minute (in use, quiet, hot)
     from . import fill  # fill imports this module
     filled = None
     found = fill.gather(cfg, backlog.load(cfg), states, machines, now) if on else None   # the repos' commands: never under the lock

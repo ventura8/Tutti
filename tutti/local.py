@@ -89,8 +89,11 @@ def threads_at_share(cfg, worker, now=None, idle_fn=None):
     m = cfg['machines'].get(name) or {}
     idle = (idle_fn or share.idle_seconds)() if m.get('transport') == 'local' else None
     pct, _ = share.pct(m, None, now or datetime.now(timezone.utc), idle, (cfg.get('autopilot') or {}).get('quiet_hours'))
-    base = worker.get('threads') or (os.cpu_count() if pct < 100 else None)
-    return share.scaled(base, pct) if base else None
+    if pct >= 100:
+        return worker.get('threads')
+    # the target machine's cores: this computer's own, else machines.<m>.cores, else a cautious 8
+    base = worker.get('threads') or (os.cpu_count() if m.get('transport') == 'local' else None) or m.get('cores') or 8
+    return max(1, share.scaled(base, pct))   # a share of 0 still sends one thread, never Ollama's all
 
 
 def generate(cfg, worker, prompt, wait=False, low_priority=False, timeout=1800):

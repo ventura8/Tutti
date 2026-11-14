@@ -26,6 +26,8 @@ class Share(Base):
         cfg['machines']['nuc']['use_pct'] = 50
         cfg['workers']['pc'].update(machine='nuc', threads=8)
         self.assertEqual(local.threads_at_share(cfg, {**cfg['workers']['pc'], '_name': 'pc'}, NIGHT.replace(hour=12)), 4)
+        cfg['machines']['nuc']['use_pct'] = 0
+        self.assertEqual(local.threads_at_share(cfg, {**cfg['workers']['pc'], '_name': 'pc'}, NIGHT.replace(hour=12)), 1)
 
     def test_someone_at_the_keyboard_and_quiet_hours_lower_the_share(self):
         m = {'use_pct': 100, 'quiet_hours': ['00:00-23:59']}
@@ -33,6 +35,8 @@ class Share(Base):
         self.assertEqual(share.pct({'use_pct': 100}, None, NIGHT, idle_s=3600), (100, ''))
         self.assertEqual(share.pct(m, None, NIGHT)[0], 50)
         self.assertEqual(share.pct({'use_pct': 80, 'in_use_pct': 10}, {'reason': 'too hot: CPU 99 C'}, NIGHT, idle_s=1)[0], 10)
+        hot = share.pct({'use_pct': 100}, {'reason': 'too hot: CPU 99 C'}, NIGHT, idle_s=None)
+        self.assertEqual(hot, (50, 'it runs hot'))
         self.assertEqual(share.scaled(16, 30), 4)
         self.assertEqual(share.scaled(1, 30), 1)                           # a share above 0 keeps one slot
         self.assertEqual(share.scaled(4, 0), 0)
@@ -107,4 +111,9 @@ class Probe(Base):
             os.chmod(fake, stat.S_IRWXU)
             out = subprocess.run(['bash', '-c', remote.GPU_TEMP + 'echo "[$g]"'], capture_output=True, text=True,
                                  env={**os.environ, 'PATH': f'{d}:/usr/bin:/bin'}).stdout
-        self.assertNotIn('NVIDIA-SMI', out)                                 # the NUC read as unreachable with it (2026-11-14)
+            self.assertNotIn('NVIDIA-SMI', out)                                 # the NUC read as unreachable with it (2026-11-14)
+            with open(fake, 'w', encoding='utf8') as f:
+                f.write('#!/bin/sh\necho 55\n')
+            ok = subprocess.run(['bash', '-c', remote.GPU_TEMP + 'echo "[$g]"'], capture_output=True, text=True,
+                                env={**os.environ, 'PATH': f'{d}:/usr/bin:/bin'}).stdout
+            self.assertIn('[55]', ok)                                           # a real reading still comes through

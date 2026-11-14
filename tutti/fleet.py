@@ -429,6 +429,8 @@ def restart_fix(machine, how):
     """The one-step fix the owner sees when Tutti could not restart a machine's Ollama itself."""
     if machine.get('transport') == 'wsl':
         return 'start the Ollama app on Windows (Start menu: Ollama); Tutti cannot start a Windows program from WSL'
+    if how == 'unreachable':
+        return f'{machine.get("name")} did not answer over ssh: check it is on and reachable (`tutti machines`)'
     if how == 'system-service':
         return f'run `sudo systemctl restart ollama` on {machine.get("name")} (a system service needs your password)'
     return f'install Ollama on {machine.get("name")} (https://ollama.com/download), or start it: `ollama serve`'

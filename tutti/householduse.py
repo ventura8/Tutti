@@ -54,7 +54,7 @@ def record(cfg, machines, now, busy_fn=None):
     from . import energy, fleet
     live = (busy_fn or energy.in_flight)(cfg)
     st = fleet.read_state(cfg).get('machines') or {}
-    data = load(cfg)
+    data = {k: v for k, v in load(cfg).items() if k in cfg['machines']}   # a machine removed from the config leaves the view
     for m in machines or ():
         name = m.get('name')
         workers = [n for n in fleet.local_names(cfg) if fleet.machine_of(cfg, n) == name]

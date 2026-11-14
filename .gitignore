@@ -8,3 +8,5 @@ node_modules/
 /tutti.config.json
 .env
 .env.*
+# written by the release build only (scripts/release-assets.sh): the built-in device client's secret and the default DSN
+/tutti/release.json

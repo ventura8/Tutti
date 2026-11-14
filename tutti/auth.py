@@ -201,9 +201,11 @@ def valid_client_id(value):
 
 
 def client_id(cfg):
-    """The OAuth client ID: `auth.client_id` in the config, else the one `tutti auth setup` saved; '' when sign-in is off."""
+    """The OAuth client ID: `auth.client_id` in the config, else the one `tutti auth setup` saved, else Tutti's built-in
+    client in a release build (tutti/official.py); '' when sign-in is off."""
+    from . import official
     own = ((cfg.get('auth') or {}).get('client_id') or '').strip()
-    return own or (_read(state_path(cfg, AUTH_FILE)).get('client_id') or '').strip()
+    return own or (_read(state_path(cfg, AUTH_FILE)).get('client_id') or '').strip() or official.web_client(cfg)
 
 
 def save_client_id(cfg, value):

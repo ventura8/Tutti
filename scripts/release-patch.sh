@@ -62,5 +62,8 @@ git tag -a "v$next" "$sha" -m "Tutti $next"
 git push -q origin "v$next"
 assets=$(mktemp -d)
 bash scripts/release-assets.sh "$next" "$assets" "v$next"   # the one-line install's files (docs/INSTALL.md)
-gh release create "v$next" --title "Tutti $next" --notes "$notes" --verify-tag "$assets"/*
+# a draft first, published once its files are attached: the release workflow (on published) then rebuilds them with the
+# release defaults (tutti/official.py) and is always the last upload
+gh release create "v$next" --title "Tutti $next" --notes "$notes" --verify-tag --draft "$assets"/*
+gh release edit "v$next" --draft=false
 echo "release-patch: v$next released"

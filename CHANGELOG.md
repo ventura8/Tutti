@@ -2,6 +2,36 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.68 (2026-11-14)
+
+### Added
+
+- Tutti's own sign-in, built in (docs/AUTH.md, *Tutti's own sign-in*): a release carries the public OAuth clients of the
+  maintainer's `tutti-dashboard` project, so a new household opens the dashboard, chooses **Sign in with Google** (or scans
+  the QR code) and is admin, with no Google Cloud console. The LAN client's installed-app secret is written into the
+  release at build time from the Actions secret `TUTTI_GOOGLE_DEVICE_SECRET` (`.github/workflows/release.yml`,
+  `scripts/set-device-secret.sh`); a household's own clients still win, and `auth.official: false` turns them off.
+- **Report a problem** on the dashboard (every signed-in user) and `tutti report` (docs/REPORT.md): what happened and what
+  was expected, with a scrubbed diagnostic bundle previewed before sending; a `user-report` issue through gh, else GitHub's
+  prefilled page; Sentry user feedback linked to the last crash when sending is on. Self-improvement and the scout's triage
+  pick up `user-report` issues. Issue templates for problems and ideas.
+- The release's default Sentry DSN (Actions variable `TUTTI_SENTRY_DSN`), used only once sending is on.
+- The first-run consent question on the dashboard: a **Help make Tutti better?** banner for the admin until answered.
+- The privacy policy (docs/PRIVACY.md), the terms (docs/TERMS.md) and a homepage (docs/index.md) for GitHub Pages.
+
+### Changed
+
+- The device sign-in asks Google for `openid email` only (no `profile`): non-sensitive scopes.
+- An install from a release that never set a client now has sign-in on: after the upgrade, the dashboard asks for Google
+  sign-in and the first person to sign in becomes the administrator. The dashboard still listens on 127.0.0.1 by default,
+  so that person is on the computer itself; keep it there until you have signed in (docs/AUTH.md, *Threat model*).
+- `scripts/release-patch.sh` publishes a release only after its files are attached (a draft first), so the release
+  workflow's rebuild with the release defaults is always the last upload.
+
+### Later
+
+- Translations of the dashboard and the messages (every message is in plain English for now).
+
 ## 0.1.67 (2026-11-15)
 
 ### Fixed

@@ -23,7 +23,7 @@ import time
 from . import backlog, config, insights, remote, telemetry
 
 FILE = 'self-improve.json'
-SOURCES = ('sentry', 'insight')
+SOURCES = ('sentry', 'insight', 'report')
 DEFAULTS = {'enabled': True, 'auto_accept': True, 'every_hours': 6, 'max_new_per_day': 3, 'min_count': 3, 'home': ''}
 POLICY = {'tasks': False, 'autopilot_repo': '', 'merge': False, 'release': False, 'release_every_hours': 24, 'release_command': '',
           'base': ''}
@@ -237,6 +237,31 @@ def analyse(cfg, now):
     return [f'self-improvement: {added} task(s) from the local insights'] if added else []
 
 
+def report_candidates(issues):
+    """[{title, sig, why}] from the open `user-report` issues (`tutti report`, docs/REPORT.md). The issue's text was written by
+    a stranger: only its number and title go into the task, and the worker is told to read it as data, never instructions."""
+    out = []
+    for i in issues or []:
+        if isinstance(i, dict) and isinstance(i.get('number'), int):
+            title = ' '.join(str(i.get('title') or '').split())[:120]
+            out.append({'sig': f'report:{i["number"]}', 'why': f'a user\'s report, issue #{i["number"]}',
+                        'title': f'Look into user report #{i["number"]}: {title}'})
+    return out
+
+
+def user_reports(cfg, now, run=subprocess.run):
+    """The home project's open `user-report` issues into tasks, every `every_hours`, like the Sentry triage's."""
+    s, st = settings(cfg), read_state(cfg)
+    pol = policy(cfg, s['home'])
+    if not pol or not pol['repo'] or now - float(st.get('last_reports') or 0) < float(s['every_hours']) * 3600:
+        return []
+    issues = gh_json(['issue', 'list', '--repo', pol['repo'], '--label', 'user-report', '--state', 'open',
+                      '--json', 'number,title', '--limit', '20'], run)
+    added = add_candidates(cfg, report_candidates(issues), 'report', now) if issues else 0
+    write_state(cfg, {**read_state(cfg), 'last_reports': now})
+    return [f'self-improvement: {added} task(s) from user reports'] if added else []
+
+
 # ---- GitHub (I/O at the edge)
 
 def gh_json(args, run=subprocess.run):
@@ -402,7 +427,7 @@ def tick(cfg, now=None, run=subprocess.run, spawn=subprocess.Popen):
     now = now or time.time()
     if not enabled(cfg):
         return []
-    events = analyse(cfg, now) + accept_waiting(cfg)
+    events = analyse(cfg, now) + user_reports(cfg, now, run) + accept_waiting(cfg)
     st = read_state(cfg)
     with backlog.locked(cfg) as data:
         for t in [t for t in data['tasks'] if t.get('source') in SOURCES and t['status'] == 'review' and t.get('pr')]:

@@ -37,6 +37,10 @@ one written in the line, and only then runs it. Nothing unverified is ever piped
 Run the line again to repair an install. `--version <x.y.z>` (`-Version` on Windows) pins a release; `--no-setup`
 skips step 3.
 
+After the install, open the dashboard and choose **Sign in with Google** (or scan its QR code from a phone): the first
+person to sign in is the administrator. Sign-in is built into the release; nothing is created in Google Cloud
+(docs/AUTH.md). Something wrong? **Report a problem** on the dashboard, or `tutti report` (docs/REPORT.md).
+
 ## `tutti setup`
 
 The first run, with no questions. What it can find, it finds; for the rest it picks the recommended default and the

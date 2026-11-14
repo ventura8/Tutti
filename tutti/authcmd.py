@@ -9,7 +9,7 @@
 import sys
 import time
 
-from . import auth, authdevice, authweb, config, invites
+from . import auth, authdevice, authweb, config, invites, official
 
 ACTIONS = ('status', 'setup', 'users', 'promote', 'reset-admin')
 CONSOLE = 'https://console.cloud.google.com/apis/credentials/oauthclient'
@@ -97,7 +97,19 @@ def serve_tailscale(cfg, ts_name, out, run=None):
     return True
 
 
+def builtin_only(cfg, a):
+    """True when Tutti's own clients already cover sign-in and nothing was asked for: no console steps to print."""
+    asked = a.client_id or getattr(a, 'device_client_id', None) or getattr(a, 'tailscale', False)
+    return not asked and official.on(cfg) and auth.enabled(cfg)
+
+
 def setup(cfg, a, out, io):
+    if builtin_only(cfg, a):
+        lan = 'and from the LAN or a VPN (a code at google.com/device)' if authdevice.enabled(cfg) else \
+            '(from the LAN or a VPN this release has no built-in code sign-in: add your own device client, docs/AUTH.md)'
+        print(f'sign-in with Google is built in: open the dashboard on this computer {lan}, choose Sign in with Google, '
+              'and the first person to sign in becomes the administrator. Nothing to create in Google Cloud.', file=out)
+        return 0
     ts_name = auth.tailscale_name()
     if getattr(a, 'tailscale', False):
         if not ts_name:
@@ -162,6 +174,8 @@ def status(cfg, out):
     tv = authdevice.client(cfg)[0]
     print(f'sign-in: {"on" if auth.enabled(cfg) else "off (run `tutti auth setup`): the dashboard stays on this computer"}; '
           f'button client {cid or "(none)"}; LAN/VPN device client {tv or "(none)"}', file=out)
+    if official.on(cfg):
+        print("Tutti's own sign-in clients are built into this release; a client of the household's own wins", file=out)
     print(f'origins to authorize: {", ".join(js_origins(cfg))}', file=out)
     for problem in auth.network_errors(cfg):
         print(f'not allowed: {problem}', file=out)

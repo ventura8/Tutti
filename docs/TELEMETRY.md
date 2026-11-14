@@ -11,7 +11,11 @@ project (or your own endpoint) only when you say yes. The same records feed the 
 | Local recording | always on | `<state>/telemetry/events.jsonl` (rotated at 2 MB, 3 old files kept) | `TUTTI_TELEMETRY=off` in the environment records nothing at all (tests, a locked-down machine) |
 | Sending | **off** until you say yes | `<state>/telemetry/consent.json` | asked once on the first interactive run; `tutti telemetry on\|off`; the **Send reports** button on the dashboard's Insights card |
 
-The question is asked once, on a terminal only (never in CI, a pipe, or the commands other tools run: `run`, `test`,
+The question is asked once, in plain words: on a terminal (below), or on the dashboard, where the admin sees a **Help make
+Tutti better?** banner with **Yes, send them** and **No, thanks** until either answer is given. The Insights card always
+says whether reports are sent and where to.
+
+The terminal question is asked once, on a terminal only (never in CI, a pipe, or the commands other tools run: `run`, `test`,
 `wait`, `quiet`, `dashboard`, ...). Any answer but yes is no.
 
 ## What is collected
@@ -64,7 +68,14 @@ otherwise keep the address a report came from.
 - **Your own endpoint** (`telemetry.endpoint`, https; http only on 127.0.0.1): `POST {install_id, release, id, items}`
   in batches of 100, the same items.
 
-## Set up sending (the owner, once)
+## The release default: no setup for new installs
+
+A release carries the maintainer's Sentry DSN in `tutti/release.json` (DSNs are public; the release workflow writes it from
+the Actions variable `TUTTI_SENTRY_DSN`). So a stranger's install that says yes reports to the maintainers with no setup.
+The order is `$TUTTI_SENTRY_DSN`, then `~/.config/tutti/telemetry.env`, then `telemetry.sentry_dsn`, then the release default
+(`tutti telemetry status` says `release default`). Whatever the DSN, **nothing is sent until sending is on**.
+
+## Set up sending to your own Sentry (optional)
 
 1. Create a Sentry project for Tutti (platform Python) in your Sentry organisation: an account step, done by you.
 2. Copy its DSN: Sentry, **Settings, Projects, <the project>, Client Keys (DSN)**.

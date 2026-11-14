@@ -37,6 +37,7 @@ from . import (
     pacing,
     readers,
     remote,
+    report,
     review,
     routing,
     scoutcmd,
@@ -1508,6 +1509,12 @@ def parser():
     s.add_argument('--days', type=int, default=7, help='report: the last this many days (7)')
     s.add_argument('--json', action='store_true', help='report: print the summary as JSON')
     s.add_argument('--test', action='store_true', help='send: one test event straight to the project, to check the DSN')
+    s = add('report', report.cmd, 'report a problem to Tutti\'s maintainers: what happened and what you '
+                                                          'expected, with a scrubbed diagnostic bundle you see before it is sent')
+    s.add_argument('--what', help='what happened (asked when not given)')
+    s.add_argument('--expected', help='what you expected instead (asked when not given)')
+    s.add_argument('--preview', action='store_true', help='print the report and send nothing')
+    s.add_argument('--yes', action='store_true', help='send without asking again after the preview')
     s = add('dispatch', cmd_dispatch, 'keep devices and machines busy: idle ones pull pending test shards (projects.<p>.tests) by '
                                       'themselves: status, on, off, now (one round with fresh probes), run <lease> and build '
                                       '<project> <suite> <rc> (internal)')

@@ -303,6 +303,35 @@ function windowBlock(w, label) {
     return box;
 }
 
+// The work browser (docs/BROWSER.md): it reads the usage page by itself, after one sign-in there.
+function browserButtons(a) {
+    let site;
+    try {
+        site = new URL(a.usage_url).hostname;
+    } catch {
+        return el('p', { class: 'row__note', text: `The usage page address of ${a.name} is not a web address: fix usage_url in Settings, Accounts.` });
+    }
+    const go = (action, label) => el('button', {
+        class: 'btn btn--text', type: 'button', text: label, 'data-browser': action,
+        onclick: () => void postBrowser({ action, url: a.usage_url }, action === 'read' ? `Read ${site} on the work browser.` : ''),
+    });
+    return el('div', { class: 'account__browser' }, go('read', 'Read on the work browser'), go('sign-in', `Sign in to ${site} on the work browser`));
+}
+
+async function postBrowser(body, done) {
+    const res = await fetch('/api/browser', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify(body),
+    }).catch(() => null);
+    const answer = res ? await res.json().catch(() => ({})) : {};
+    const problems = Object.values(answer.problems || {});
+    if (!res) {
+        banner('The dashboard did not answer: check that Tutti still runs, then try again.');
+        return;
+    }
+    const said = problems.length ? problems.join(' ') : answer.message || done;
+    banner(answer.error || said);
+}
+
 function addButton(a) {
     return el('button', {
         class: 'btn btn--tonal account__add', type: 'button', 'data-add': a.name, text: 'Add a reading',
@@ -381,6 +410,7 @@ function account(a, now) {
     // Add a reading only where it is needed: nothing reads the account on its own, or its reading is old (a form being typed stays).
     if (ui.editing.has(a.name)) card.append(readingForm(a));
     else if (a.needs_reading !== false) card.append(addButton(a));
+    if (a.tutti_browser && !ui.editing.has(a.name)) card.append(browserButtons(a));
     return card;
 }
 
@@ -576,6 +606,38 @@ function renderMachines(s) {
     $('machines').replaceChildren(...(ms.items.length ? ms.items.map(machine)
         : [el('li', {}, ms.probed_at ? empty('No machines', 'Add machines: to the config to route heavy runs.') : empty('Probing machines…', 'ssh answers can take a few seconds.'))]));
     if (focused) $('machines').querySelector(`.stored[data-machine="${CSS.escape(focused)}"] > summary`)?.focus({ preventScroll: true });
+}
+
+// ---- the work browser (docs/BROWSER.md): the household's one Chrome; its tabs per user or worker, the queue, each site's sign-in
+const BROWSER_MODE = { existing: 'your own Chrome, with its sign-ins', dedicated: 'Tutti\'s own Chrome profile', isolated: 'a sandboxed Chrome of its own' };
+
+const SIGN_IN_CHIP = { true: ['signed in', 'ok'], false: ['not signed in', 'bad'], null: ['not checked', undefined], failed: ['check failed', 'bad'] };
+
+function renderWorkBrowser(s) {
+    const w = s.work_browser;
+    if (!w) return;
+    $('work-browser-meta').textContent = `${w.machine} · ${BROWSER_MODE[w.mode] || w.mode}`;
+    const byWho = {};
+    for (const t of w.tabs) byWho[t.who] = (byWho[t.who] || 0) + 1;
+    const tabs = Object.entries(byWho).map(([who, n]) => el('li', { class: 'row' }, el('div', { class: 'row__name', text: who }), chip(`${n} tab${n > 1 ? 's' : ''}`, 'ok')));
+    const sites = w.sites.map((x) => el('li', { class: 'row' },
+        el('div', { class: 'row__name', text: x.site }),
+        chip(...(x.problem ? SIGN_IN_CHIP.failed : SIGN_IN_CHIP[String(x.signed_in)] || SIGN_IN_CHIP.null)),
+        x.problem ? el('p', { class: 'row__note', text: x.problem }) : null,
+        x.signed_in === true ? null : el('button', {
+            class: 'btn btn--text', type: 'button', 'data-browser': 'sign-in', text: `Sign in to ${x.site} on the work browser`,
+            onclick: () => void postBrowser({ action: 'sign-in', url: x.url }, ''),
+        })));
+    $('work-browser').replaceChildren(...[
+        w.problem ? el('p', { class: 'row__note', text: w.problem }) : null,
+        el('p', { class: 'row__note', text: `${w.tabs.length} of ${w.max_tabs} tabs open · ${w.queue.length} waiting` }),
+        tabs.length ? el('ul', { class: 'list', 'aria-label': 'Open tabs by user or worker' }, ...tabs) : null,
+        w.queue.length ? el('ul', { class: 'list', 'aria-label': 'Waiting tasks' }, ...w.queue.map((q) => el('li', { class: 'row' }, el('div', { class: 'row__name', text: q.who }), el('p', { class: 'row__note', text: q.site })))) : null,
+        el('h3', { class: 'card__sub', text: 'Sites to sign in to' }),
+        sites.length ? el('ul', { class: 'list', 'aria-label': 'Sign-in per site' }, ...sites) : empty('No sites yet', 'An admin adds them in Settings, Work browser.'),
+        el('button', { class: 'btn btn--tonal', type: 'button', 'data-browser': 'check', text: 'Check sign-ins', onclick: () => void postBrowser({ action: 'check' }, 'Sign-ins checked.') }),
+        el('p', { class: 'row__note', text: 'Sites signed in here are shared by everyone who uses the work browser; admins choose them.' }),
+    ].filter(Boolean));
 }
 
 // ---- workers
@@ -1156,6 +1218,7 @@ function render() {
     renderJobs(s);
     if (typeof renderQueue === 'function') renderQueue(s);   // queue.js: the Queued list beside Running jobs
     renderMachines(s);
+    renderWorkBrowser(s);
     renderPresence(s);   // controls.js: work waiting on away or asleep targets, the host's warning
     renderAutopilot(s);
     renderScouts(s);

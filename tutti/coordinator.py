@@ -10,6 +10,7 @@ import json
 import os
 import secrets
 import socket
+import sys
 import threading
 import time
 import urllib.error
@@ -612,7 +613,8 @@ def join_invite(cfg, link, agent, accounts, override=None, client_fn=Client, clo
             if 'sign in with Google' not in str(e) or clock() - start > INVITE_WAIT:
                 raise
             if not opened:
-                (say or (lambda m: None))('sign in with Google in the page that opened (the invite link); waiting...')
+                (say or (lambda m: print(m, file=sys.stderr)))(f'open the invite link in your browser and sign in with Google: {link} '
+                                                             '(waiting...)')
                 (open_fn or _open_browser)(link)
                 opened = True
             sleep(INVITE_POLL)
@@ -624,11 +626,8 @@ def join_invite(cfg, link, agent, accounts, override=None, client_fn=Client, clo
 
 
 def _open_browser(link):
-    import webbrowser
-    try:
-        webbrowser.open(link)
-    except webbrowser.Error:
-        pass
+    """Nothing: the owner opens the invite link in their own browser (said above). Tutti never opens it by itself (docs/BROWSER.md)."""
+    return link
 
 
 def client_of(cfg, membership=None):

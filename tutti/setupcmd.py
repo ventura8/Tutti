@@ -395,8 +395,8 @@ def run(a, probe=None, asker=None, platform=None, home_dir=None, runner=subproce
     if interactive and steps:
         sign_ins(steps, runner, out)
     if interactive and first and svc[0] == 'ok':
-        import webbrowser  # the first run opens the dashboard: install it as an app from the browser's menu
-        webbrowser.open(f'http://127.0.0.1:{cfg["dashboard"]["port"]}/')
+        # the dashboard's link, for the owner to open (Tutti never opens their browser by itself: docs/BROWSER.md)
+        print(f'open the dashboard: http://127.0.0.1:{cfg["dashboard"]["port"]}/ (install it as an app from the browser\'s menu)', file=out)
     if a.join:
         from . import cli  # cli imports this module
         return cli.main(['--config', path, 'household', 'join', a.join])

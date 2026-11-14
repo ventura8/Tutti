@@ -15,6 +15,7 @@ from . import (
     autopilot,
     backlog,
     bridge,
+    browsercmd,
     clientmode,
     conduct,
     config,
@@ -1437,6 +1438,14 @@ def parser():
     s.add_argument('--allow-protected', action='store_true')
     s.add_argument('--dry-run', action='store_true', help='print the plan; change nothing')
     s.add_argument('--dir', default='.')
+    s = add('browser', browsercmd.cmd_browser, 'the household\'s work browser: status, sign-in <url>, sites, read, page <url>, '
+                                               'remote <machine> <url> [-- cmd], isolate [--sign-in <url>], close (docs/BROWSER.md)')
+    s.add_argument('action', choices=['status', 'sign-in', 'sites', 'read', 'page', 'remote', 'isolate', 'close'])
+    s.add_argument('target', nargs='*', help='the page; for remote: <machine> <url> [-- <command>]')
+    s.add_argument('--type', default='page', help='the task type whose sites the broker allows (browser.scopes)')
+    s.add_argument('--sign-in', dest='sign_in_url', help='isolate: the one command for a sign-in on the isolated browser')
+    s.add_argument('--script', action='store_true',
+                   help='isolate: print the root setup script (`tutti browser isolate --script | sudo bash`)')
     s = add('usage', cmd_usage, 'show every account against its pace; `usage log <account> <percent>` records a reading, '
                                 '`usage refresh` (or read) runs the automatic readers now')
     s.add_argument('action', nargs='?', choices=['log', 'read', 'refresh', 'page-script', 'page-reading'])

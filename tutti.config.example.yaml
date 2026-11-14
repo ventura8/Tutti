@@ -184,6 +184,11 @@ chat:
   viewer_projects: []
   history_turns: 10
 
+# The household's work browser (docs/BROWSER.md): the one Chrome every browser task uses, on one machine. mode: existing
+# (your own Chrome profile and its sign-ins), dedicated (Tutti's own profile) or isolated (a sandboxed Chrome as its own
+# user: `tutti browser isolate`). Sites signed in there are shared by everyone who uses it; admins choose them (sites).
+browser: {machine: '', mode: dedicated, max_tabs: 4, idle_minutes: 5, sites: []}
+
 dashboard:
   port: 4777
   refresh_seconds: 10

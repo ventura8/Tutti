@@ -115,6 +115,13 @@ DEFAULTS = {
     # the cloud API priced for the same tokens; machines: per machine {base_w, gpu, gpu_tdp_w, cpu_tdp_w, ollama}
     'energy': {'country': '', 'currency': '', 'price_per_kwh': None, 'tariff': [], 'prefer_cheap_hours': False, 'include_idle': True,
                'keep_alive_minutes': 5, 'compare_with': 'claude-sonnet', 'machines': {}},
+    # browser: the household's work browser (tutti/browser.py, docs/BROWSER.md), the one Chrome every user's and worker's
+    # browser task uses: machine ('' is this one), mode (existing: the owner's own Chrome profile; dedicated: Tutti's own
+    # profile; isolated: a sandboxed Chrome as the tutti-browser user), path, profile, user_profile, headless, idle_minutes,
+    # port (127.0.0.1), max_tabs, sites (the admin's sites to sign in to), socket, scopes ({task type: [hosts]}), allow_local
+    'browser': {'machine': '', 'mode': 'dedicated', 'path': '', 'profile': '', 'user_profile': '', 'headless': True,
+                'idle_minutes': 5, 'port': 9333, 'max_tabs': 4, 'sites': [], 'socket': '', 'scopes': {}, 'allow_local': [],
+                'file_tasks': []},
     # auth: sign-in with Google for the dashboard (docs/AUTH.md): the OAuth client ID (public; `tutti auth setup` saves it in
     # the state folder instead) and how long a session lasts
     'auth': {'client_id': '', 'session_hours': 72},

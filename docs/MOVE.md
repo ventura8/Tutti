@@ -188,7 +188,9 @@ internet.
 The plan lists these once, at the end, each with its exact command:
 
 - `sudo loginctl enable-linger <user>` on the target, only when lingering is off there (shown in the plan, before the move);
-- a tool's own device-code sign-in, only when it refuses its copied login.
+- a tool's own device-code sign-in, only when it refuses its copied login;
+- `tutti browser isolate --script | sudo bash` on the target, when the work browser moves there in isolated mode
+  (`browser.mode: isolated` and `browser.machine` empty or the target; docs/BROWSER.md).
 
 `host.jobs: <client>` (an option, not set by a move) still runs the worker jobs on a client through its bridge, for a
 host that cannot hold the CLIs.

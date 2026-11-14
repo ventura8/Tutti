@@ -301,9 +301,11 @@ key is wrong (403), so a site that opens the dashboard with a made-up reading on
 dashboard opens the form instead. The tests run the parser on the text of the real Cursor spending page (2026-11-14:
 "Cursor Models 25% used", "Other Models 14% used", "Usage limits reset on Dec 10"), and it was checked on the live page.
 
-**Without a click.** The dashboard cannot read cursor.com (the sign-in lives in the owner's browser). An orchestrator
-with browser tools does it instead: `tutti usage page-script [cursor]` prints the same parser as one JavaScript
-expression; it runs it in the owner's open, signed-in tab (claude-in-chrome's `javascript_tool`, read-only) and passes the
+**Without a click.** The work browser reads the page (docs/BROWSER.md): **Read on the work browser** on the card or
+`tutti browser read`, after one sign-in there (**Sign in to <site> on the work browser**). The **Work browser** card shows
+the machine, the mode, the open tabs per user or worker, the queue and each site's sign-in. An orchestrator with browser
+tools can still do it by hand: `tutti usage page-script [cursor]` prints the same parser as one JavaScript
+expression; it runs it in a signed-in tab of its own browser (read-only) and passes the
 JSON string it evaluates to to `tutti usage page-reading '<json>'`, which checks each reading as the dashboard does and
 logs it with `source: page script`. A label not found exits 1 and says to read that one by eye.
 

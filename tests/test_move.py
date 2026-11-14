@@ -174,6 +174,16 @@ class PreflightTest(Base):
         self.assertFalse(os.path.exists(os.path.join(self.cfg['project']['state'], 'move', 'journal.json')))
 
 
+    def test_the_work_browser_moving_in_isolated_mode_is_one_root_command(self):
+        cmds = [s['command'] for s in move.make_plan(self.cfg, 'nuc', facts())['owner']]
+        self.assertNotIn('tutti browser isolate --script | sudo bash', cmds)
+        for b, listed in (({'mode': 'isolated'}, True), ({'mode': 'isolated', 'machine': 'nuc'}, True),
+                          ({'mode': 'isolated', 'machine': 'pc'}, False), ({'mode': 'existing', 'machine': 'nuc'}, False)):
+            self.cfg['browser'] = b
+            cmds = [s['command'] for s in move.make_plan(self.cfg, 'nuc', facts())['owner']]
+            self.assertEqual('tutti browser isolate --script | sudo bash' in cmds, listed, b)
+
+
 class RewriteTest(Base):
     def plan(self):
         return move.make_plan(self.cfg, 'nuc', facts())

@@ -17,6 +17,8 @@ $t ship "chore: smoke" --dry-run --allow-protected > /dev/null
 $t dashboard --once --no-probe > /dev/null
 $t conduct --show --main cursor "smoke" > /dev/null
 $t main > /dev/null
+$t user > /dev/null
+$t household status > /dev/null
 $t runs > /dev/null
 $t backlog list > /dev/null
 $t telemetry status > /dev/null

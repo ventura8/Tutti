@@ -146,6 +146,7 @@ accounts:
     source: agy /usage (Claude and GPT models, weekly)
     reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: 3p-weekly}
     # reserve: 0                       # points the planner leaves for work outside Tutti (default 0: all work goes through Tutti)
+    # share_spare: false               # true: room it would lose at its reset may do the household's shared tasks (docs/HOUSEHOLD.md)
   agy-gemini-weekly:
     window: 7d
     resets: '2026-01-01T00:00Z'
@@ -233,6 +234,10 @@ delegate:
 pacing:
   schedule: {days: [mon, tue, wed, thu, fri], hours: 8, window: '01-14', rate: 1.0}   # local hours; learned from readings later
   mode: auto                           # active, away (the rest of today), vacation-until-YYYY-MM-DD; the dashboard sets it too
+
+# Who this Tutti works for (docs/HOUSEHOLD.md). A single user needs neither key: they are a household of one.
+# user: {name: Ana, weight: 1}         # name: default the login's; weight: its share of the household's shared machines
+# household: {port: 4778, lease_minutes: 30, starve_minutes: 20, share_spare_hours: 6}   # `tutti household init|join`
 
 # `tutti autopilot` (docs/AUTOPILOT.md): backlog tasks to accounts that are behind their pace; retries climb the ladder.
 autopilot:

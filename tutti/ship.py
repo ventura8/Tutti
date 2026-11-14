@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-from . import config, remote, routing
+from . import config, remote, routing, worktree
 
 
 class ShipError(Exception):
@@ -15,14 +15,14 @@ class ShipError(Exception):
 
 
 def git(top, *args, check=True):
-    r = subprocess.run(['git', '-C', top, *args], capture_output=True, text=True)
+    r = subprocess.run([worktree.git_bin(), '-C', top, *args], capture_output=True, text=True)
     if check and r.returncode != 0:
         raise ShipError(f'git {" ".join(args)} failed in {top}: {r.stderr.strip() or r.stdout.strip()}')
     return r.stdout.strip()
 
 
 def toplevel(directory):
-    r = subprocess.run(['git', '-C', directory, 'rev-parse', '--show-toplevel'], capture_output=True, text=True)
+    r = subprocess.run([worktree.git_bin(), '-C', directory, 'rev-parse', '--show-toplevel'], capture_output=True, text=True)
     if r.returncode != 0:
         raise ShipError(f'{directory} is not inside a git work tree: cd into the worktree you want to ship (nothing was changed)')
     return r.stdout.strip()
@@ -119,6 +119,7 @@ def plan(cfg, top, branch, text, full, no_add):
     checks = s['full_checks'] if full else s['checks']
     push = s.get('push')
     lines = [f'tree    {top} (branch {branch})',
+             f'share   {" ".join(s.get("share", [])) or "(none)"}',
              f'format  {s.get("format") or "(none)"}',
              f'add     {"(skipped: --no-add)" if no_add else " ".join(s["add"])}',
              f'commit  {message(text, s.get("trailer", "")).splitlines()[0]}' + (' (+ trailer)' if s.get('trailer') else ''),
@@ -136,15 +137,17 @@ def ship(cfg, directory, text, full=False, no_add=False, track=None, allow_prote
         say(plan(cfg, top, branch, text, full, no_add))
         return
     say(f'ship: {top} (branch {branch})')
+    worktree.share(top, s.get('share', []), say)
     if s.get('format') and shell(top, s['format'], {'TUTTI_CHANGED': ' '.join(pending(top))}).returncode != 0:
         say('ship: the format step failed; going on, the checks will show why')
     if not no_add:
         paths = [p for p in s['add'] if os.path.exists(os.path.join(top, p))]
         if paths:
             git(top, 'add', '-A', '--', *paths)
-    if subprocess.run(['git', '-C', top, 'diff', '--cached', '--quiet']).returncode != 0:
+    if subprocess.run([worktree.git_bin(), '-C', top, 'diff', '--cached', '--quiet']).returncode != 0:
         git(top, 'commit', '-q', '-m', message(text, s.get('trailer', '')))
-    env = {'TUTTI_CHANGED': ' '.join(changed_since(top, s.get('base'))), 'TUTTI_COMMIT': git(top, 'rev-parse', 'HEAD'), 'TUTTI_TREE': top}
+    env = {'TUTTI_CHANGED': ' '.join(changed_since(top, s.get('base'))), 'TUTTI_COMMIT': git(top, 'rev-parse', 'HEAD'), 'TUTTI_TREE': top,
+           'TUTTI_GIT_MOUNT': worktree.docker_mount(top)}
     run_checks(cfg, top, s['full_checks'] if full else s['checks'], env, track or os.path.basename(top), say)
     push = s.get('push')
     if push:

@@ -2,6 +2,25 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.2 (2026-11-14)
+
+Fixes for the pains agents hit shipping from linked worktrees.
+
+### Fixed
+
+- git: Tutti runs the system git (`/usr/bin/git`, or `TUTTI_GIT`) instead of the first `git` on PATH, which can be an
+  agent runtime's wrapper without a working https helper.
+- `tutti ship` from a linked worktree: `ship.share` (e.g. `[node_modules, packages/*/node_modules]`) hard-links missing
+  dependency folders from the main checkout; checks get `TUTTI_GIT_MOUNT` (`-v <main .git>:<main .git>`) and local
+  docker runs mount it, so git inside the container reaches the main repository.
+- `runner.rewrite` maps a substring of a test command to another (a pipeline script that starts docker itself, rewritten
+  to the one that runs inside the image).
+
+### Added
+
+- `tutti wait ... --stall <s> [--stall-file <log>]`: ends with exit 125 when the log stops changing, so an agent waiting
+  on a hung job stops instead of re-announcing "still waiting".
+
 ## 0.1.1 (2026-11-14)
 
 QA round 1 on Windows and Linux. The first tagged release.

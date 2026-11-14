@@ -162,8 +162,14 @@ def cmd_wait(cfg, a):
     if a.kind == 'grep' and not a.pattern:
         say('wait grep needs a pattern: tutti wait grep <file> <regex>')
         return 2
-    if waiting.until(checks[a.kind](), a.timeout, a.poll):
-        return 0
+    done = checks[a.kind]()
+    stall = waiting.stalled(a.stall_file or a.target, a.stall) if a.stall else (lambda: False)
+    if waiting.until(lambda: done() or stall(), a.timeout, a.poll):
+        if done():
+            return 0
+        say(f'wait {a.kind} {a.target}: {a.stall_file or a.target} has not changed for {a.stall:g} s; the job looks stalled: '
+            'read its log, then stop or restart it (do not wait again on the same job)')
+        return 125
     say(f'wait {a.kind} {a.target}: not seen within {a.timeout:g} s; the thing waited for may have failed: look at its log')
     return 124
 
@@ -260,6 +266,8 @@ def parser():
     s.add_argument('pattern', nargs='?')
     s.add_argument('--timeout', type=float, default=3600)
     s.add_argument('--poll', type=float, default=2)
+    s.add_argument('--stall', type=float, default=0, help='give up (exit 125) when the log has not changed for this many seconds')
+    s.add_argument('--stall-file', help='the log watched by --stall (default: the target)')
     s = add('translate', cmd_translate, 'translate a flat JSON catalogue with mandatory QA; --check verifies an output\'s report')
     s.add_argument('source')
     s.add_argument('locale', nargs='?')

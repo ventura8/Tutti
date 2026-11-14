@@ -39,7 +39,7 @@ more than one computer. It grew out of one project's working day and keeps only 
 One line, then sign in. **Linux, WSL, macOS:**
 
 ```bash
-curl -fsSLo tutti-bootstrap.sh https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.sh && echo "2e03ec55f79bbd8f7b243ca95cedbb0789417a7e1170e19a900c9212dfbef898  tutti-bootstrap.sh" | (sha256sum -c - || shasum -a 256 -c -) && bash tutti-bootstrap.sh
+curl -fsSLo tutti-bootstrap.sh https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.sh && echo "7b60ef90e814978ed42f3d18f64bacd7530eaec2206d12ae20c551cfa1ec7e1a  tutti-bootstrap.sh" | (sha256sum -c - || shasum -a 256 -c -) && bash tutti-bootstrap.sh
 ```
 
 **Windows (PowerShell):**

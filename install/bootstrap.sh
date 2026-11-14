@@ -39,7 +39,7 @@ sha256() {
 }
 get() {
 	local url="$1" out="$2"
-	curl -fsSL --retry 3 -o "$out" "$url" || die "could not download $url: check the network and run this again"
+	curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 -o "$out" "$url" || die "could not download $url: check the network and run this again"
 }
 check() { # check <file> <expected sha256>
 	local file="$1" want="$2" got
@@ -113,7 +113,7 @@ fi
 if [[ "$skip_verify" = 1 ]]; then
 	say "WARNING: --insecure-skip-verify: the release's signature is NOT checked; anyone who could change the files on the way could change what is installed"
 else
-	curl -fsSL --retry 3 -o "$tmp/SHA256SUMS.sigstore.json" "https://github.com/$REPO/releases/download/v$version/SHA256SUMS.sigstore.json" ||
+	curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 -o "$tmp/SHA256SUMS.sigstore.json" "https://github.com/$REPO/releases/download/v$version/SHA256SUMS.sigstore.json" ||
 		die "v$version has no signature (SHA256SUMS.sigstore.json): it was not published by Tutti's release workflow; not installed (choose a newer --version, or --insecure-skip-verify offline)"
 	signed=$("$gh" attestation verify "$tmp/SHA256SUMS" --bundle "$tmp/SHA256SUMS.sigstore.json" --repo "$REPO" \
 		--signer-workflow "$REPO/.github/workflows/release.yml" --format json 2> "$tmp/verify.err") ||

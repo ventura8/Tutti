@@ -17,7 +17,9 @@ exploit-style test, except signed releases (H8, open). The changes you may notic
   no longer act for the owner from the Users tab; the chat never passes a task `check`.
 - Every server closes connections silent for 30 s and caps requests at once; the coordinator refuses a negative body size.
 - `tutti mcp --http` on a LAN or VPN address is a viewer unless `mcp.role: admin`; another site's Origin is refused.
-- A scout's answer counts only from its account (`scouts.<name>.github_login`) or a repository writer.
+- A scout's answer counts only from its account (`scouts.<name>.github_login`) or a repository writer. **Upgrade step:** a
+  scout that posts as an account without write access needs `scouts.<name>.github_login` set; until then its comment is
+  ignored and the request says so.
 - The autopilot merges only the reviewed commit and never a branch that changes its own gates; self-improvement asks the
   reviews again after a new push, and `tutti pr review` exits 3 when the local review has findings.
 - Workers and reviewers run without GH_TOKEN, Sentry, npm and the scouts' variables; tasks from outside text carry a

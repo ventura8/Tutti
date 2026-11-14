@@ -367,7 +367,7 @@ def trusted(c, repo, gh_fn, login=None, seen=None):
     return c.get('author_association') in TRUSTED and bool(who) and writer(repo, who, gh_fn, {} if seen is None else seen)
 
 
-def answer_of(repo, issue, since, gh_fn=gh, marker=None, login=None):
+def answer_of(repo, issue, since, gh_fn=gh, marker=None, login=None, skipped=None):
     """The first comment on the issue (or pull request) made after `since` (epoch seconds) by a trusted author (`trusted`),
     and holding `marker` when one is given (a review's "grok-scout" tag: other reviewers comment there too): (text, author)
     or None."""
@@ -381,6 +381,9 @@ def answer_of(repo, issue, since, gh_fn=gh, marker=None, login=None):
         if at >= since - 60 and (c.get('body') or '').strip() and (not marker or marker in c['body']) and \
                 trusted(c, repo, gh_fn, login, seen):
             return c['body'].strip()[:ANSWER_CHARS], (c.get('user') or {}).get('login', '')
+        body = (c.get('body') or '').strip()
+        if skipped is not None and at >= since - 60 and body and (not marker or marker in body):
+            skipped.append((c.get('user') or {}).get('login', '') or '?')
     return None
 
 
@@ -413,8 +416,12 @@ def send(sc, r, url, key, gh_fn=gh, post_fn=post, now=None):
 def collect(sc, r, gh_fn=gh, now=None):
     """Looks once for the answer of a waiting request; gives up after give_up_hours. Returns the request."""
     now = now or time.time()
+    skipped = []
     found = answer_of(r['repo'], r['issue'], r['sent'], gh_fn, REVIEW_MARKER if r['kind'] == 'review' else None,
-                      sc.get('github_login'))
+                      sc.get('github_login'), skipped)
+    if skipped and not found:   # say why the answer does not count, once per author
+        r['ignored'] = (f'a comment by {", ".join(sorted(set(skipped)))} was not taken as the answer: that account cannot write '
+                        f'to {r["repo"]}; if the scout posts as it, set scouts.{sc.get("name", "<name>")}.github_login: <that login>')
     if found:
         r.update(status='answered', answer=found[0], answered_by=found[1], answered=now)
         if r['kind'] == 'ask':   # a watch's issue stays open for the orchestrator to triage
@@ -567,7 +574,7 @@ def _iso(ts):
 
 
 def request_view(r):
-    return {k: r.get(k) for k in ('id', 'kind', 'watch', 'status', 'url', 'why', 'answered_by')} | {
+    return {k: r.get(k) for k in ('id', 'kind', 'watch', 'status', 'url', 'why', 'answered_by', 'ignored')} | {
         'task': r['task'][:200], 'answer': (r.get('answer') or '')[:600], 'at': _iso(r.get('sent') or r['added']),
         'answered_at': _iso(r.get('answered'))}
 

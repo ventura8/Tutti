@@ -112,7 +112,8 @@ See [PRESENCE.md](PRESENCE.md).
 - **Every answer signed.** The coordinator signs its answer to a member's request with that member's token
   (`X-Tutti-Answer = HMAC(token, ANSWER | path | | request nonce | SHA-256 of the answer)`), and a join's answer with the
   code's secret. A join needs that signed answer (a coordinator on an older Tutti is updated first), and the membership
-  refuses unsigned answers from then on (one made by an older Tutti does so once it has seen a signed answer). Someone else on the LAN answering in the coordinator's
+  refuses unsigned answers from then on (one made by an older Tutti does so once it has seen a signed answer). Error
+  answers are not signed: they can only stop an action (a refusal), never start one. Someone else on the LAN answering in the coordinator's
   place cannot hand you jobs or actions.
 - **Nothing a member writes runs as a command elsewhere.** Another member's task `check`, and a spare-room offer's, are
   never copied: your own repo's check gates the task. A member's job runs from plain files (`git archive`, no .git) in a

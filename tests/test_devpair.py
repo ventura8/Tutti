@@ -200,8 +200,8 @@ class FlowTest(unittest.TestCase):
         host = FakeHost()
         host.adb = lambda *a, timeout=60: (0, 'inet 192.168.1.9/24 brd') if 'wlan0' in a else FakeHost.adb(host, *a)
         self.assertEqual(adbpair.via_usb(host, 'R58', sleep=lambda s: None), '192.168.1.9:5555')
-        self.assertEqual(adbpair.usb_serials(f'List of devices attached\nR58\tdevice\n1.2.3.4:5555\tdevice\n{SERIAL}\tdevice\nX\tunauthorized\n'),
-                         ['R58'])
+        listed = f'List of devices attached\nR58\tdevice\n1.2.3.4:5555\tdevice\n{SERIAL}\tdevice\nX\tunauthorized\n'
+        self.assertEqual(adbpair.usb_serials(listed), ['R58'])
 
 
 class KeyCopyTest(unittest.TestCase):
@@ -210,7 +210,8 @@ class KeyCopyTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp)
         self.old_dir, self.new_dir = os.path.join(self.tmp, 'old'), os.path.join(self.tmp, 'new')
         os.makedirs(self.old_dir)
-        for name, text in (('adbkey', '-----BEGIN PRIVATE KEY-----\nSECRETSECRET\n-----END PRIVATE KEY-----\n'), ('adbkey.pub', 'QUJD pc@home\n')):
+        pair = (('adbkey', '-----BEGIN PRIVATE KEY-----\nSECRETSECRET\n-----END PRIVATE KEY-----\n'), ('adbkey.pub', 'QUJD pc@home\n'))
+        for name, text in pair:
             with open(os.path.join(self.old_dir, name), 'w', encoding='utf8') as f:
                 f.write(text)
 
@@ -371,8 +372,8 @@ class DashboardTest(unittest.TestCase):
         path = os.path.join(self.tmp, 'tutti.config.yaml')
         with open(path, 'w', encoding='utf8') as f:
             f.write(CONFIG)
-        self.collector = SimpleNamespace(cfg={'_path': path, 'project': {'state': self.tmp}, 'machines': {'pc': {'transport': 'local'}, 'nuc': {'transport': 'ssh'}},
-                                              'devices': {}})
+        machines = {'pc': {'transport': 'local'}, 'nuc': {'transport': 'ssh'}}
+        self.collector = SimpleNamespace(cfg={'_path': path, 'project': {'state': self.tmp}, 'machines': machines, 'devices': {}})
         devicesweb.PAIR['current'] = None
 
     def post(self, body, **kw):

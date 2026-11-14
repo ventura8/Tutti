@@ -70,47 +70,56 @@ def _body(raw):
     return data if isinstance(data, dict) else {}
 
 
+def _start(cfg, data, host_fn, start):
+    if PAIR['current'] and PAIR['current'].state == 'waiting':
+        return 409, {'error': 'a pairing is already waiting: finish it on the device, or cancel it first'}
+    machine = data.get('machine') or devicescmd.default_machine(cfg)
+    if machine not in cfg['machines']:
+        return 400, {'error': f'no machine "{machine}": the machines are {", ".join(cfg["machines"])}'}
+    try:
+        flow = adbpair.flow_for(data.get('kind'), data.get('flow'))
+    except adbpair.PairError as e:
+        return 400, {'error': str(e)}
+    if flow == 'usb':
+        return 400, {'error': 'the USB fallback runs in a terminal: tutti devices pair --flow usb'}
+    host = (host_fn or (lambda n: adbhost.Host(n, cfg['machines'][n])))(machine)
+    if not host.path():
+        return 400, {'error': f'adb is not on {machine}: run `tutti devices pair --install-adb` once (a user-space copy)'}
+    if host.version() < adbpair.MIN_ADB:
+        return 400, {'error': f'adb on {machine} is too old for wireless pairing (platform-tools {adbpair.MIN_ADB}+ needed): '
+                              'run `tutti devices pair --install-adb` once'}
+    p = PAIR['current'] = Pairing(cfg, machine, flow, data.get('kind'), host)
+    if start:
+        threading.Thread(target=p.run, daemon=True).start()
+    return 202, p.view()
+
+
+def _code(cur, data):
+    code = str(data.get('code') or '').strip()
+    if not (code.isdigit() and len(code) == 6):
+        return 400, {'error': 'type the 6 digits the device shows'}
+    cur.code = code
+    cur.got_code.set()
+    return 200, cur.view()
+
+
+def _cancel(cur, _data):
+    cur.cancelled = True
+    cur.state, cur.message = 'failed', 'cancelled'
+    cur.got_code.set()
+    return 200, cur.view()
+
+
 def pair_post(collector, raw, host_fn=None, start=True):
     """{"action": "start", "machine"?, "kind"?: "tv", "flow"?} | {"action": "code", "code"} | {"action": "status"|"cancel"}."""
-    data, cfg = _body(raw), collector.cfg
-    action, cur = data.get('action'), PAIR['current']
-    if action == 'start':
-        if cur and cur.state == 'waiting':
-            return 409, {'error': 'a pairing is already waiting: finish it on the device, or cancel it first'}
-        machine = data.get('machine') or devicescmd.default_machine(cfg)
-        if machine not in cfg['machines']:
-            return 400, {'error': f'no machine "{machine}": the machines are {", ".join(cfg["machines"])}'}
-        try:
-            flow = adbpair.flow_for(data.get('kind'), data.get('flow'))
-        except adbpair.PairError as e:
-            return 400, {'error': str(e)}
-        if flow == 'usb':
-            return 400, {'error': 'the USB fallback runs in a terminal: tutti devices pair --flow usb'}
-        host = (host_fn or (lambda n: adbhost.Host(n, cfg['machines'][n])))(machine)
-        if not host.path():
-            return 400, {'error': f'adb is not on {machine}: run `tutti devices pair --install-adb` once (a user-space copy)'}
-        if host.version() < adbpair.MIN_ADB:
-            return 400, {'error': f'adb on {machine} is too old for wireless pairing (platform-tools {adbpair.MIN_ADB}+ needed): '
-                                  'run `tutti devices pair --install-adb` once'}
-        p = PAIR['current'] = Pairing(cfg, machine, flow, data.get('kind'), host)
-        if start:
-            threading.Thread(target=p.run, daemon=True).start()
-        return 202, p.view()
+    data = _body(raw)
+    if data.get('action') == 'start':
+        return _start(collector.cfg, data, host_fn, start)
+    cur = PAIR['current']
     if not cur:
         return 404, {'error': 'no pairing is running: press Pair a device'}
-    if action == 'code':
-        code = str(data.get('code') or '').strip()
-        if not (code.isdigit() and len(code) == 6):
-            return 400, {'error': 'type the 6 digits the device shows'}
-        cur.code = code
-        cur.got_code.set()
-        return 200, cur.view()
-    if action == 'cancel':
-        cur.cancelled = True
-        cur.state, cur.message = 'failed', 'cancelled'
-        cur.got_code.set()
-        return 200, cur.view()
-    return 200, cur.view()
+    act = {'code': _code, 'cancel': _cancel}.get(data.get('action'))
+    return act(cur, data) if act else (200, cur.view())
 
 
 def move_post(collector, raw, hosts_fn=None, popen=subprocess.Popen):

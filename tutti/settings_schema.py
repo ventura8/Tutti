@@ -170,7 +170,8 @@ FIELDS = {
     'guard.low_gb': field('Pause containers under', '`tutti guard` pauses the runner\'s containers below this free memory.', **GB),
     'guard.high_gb': field('Resume them over', 'And resumes them above this.', **GB),
     # devices
-    'devices.*.serial': field('adb serial', 'Wireless: its mDNS name (adb-…._adb-tls-connect._tcp, set by `tutti devices pair`); USB: from `adb devices`.', 'text'),
+    'devices.*.serial': field('adb serial', 'Wireless: its mDNS name (adb-…._adb-tls-connect._tcp, set by `tutti devices pair`); '
+                                'USB: from `adb devices`.', 'text'),
     'devices.*.machine': field('Plugged into', 'The machine the device is reached from.', 'select', choices_from='machines'),
     'devices.*.kind': field('Kind', 'Set by `tutti devices pair`: phone, tablet or tv.', 'select', choices=['phone', 'tablet', 'tv']),
     'devices.*.model': field('Model', 'Set by `tutti devices pair`; a move checks the device it reaches is this one.', 'text'),

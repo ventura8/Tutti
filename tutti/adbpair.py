@@ -190,8 +190,8 @@ def pair(host, *, name=None, password=None, code=None, ignore=(), wait=180, slee
     say('waiting for the device: scan the QR code' if name else 'waiting for the device\'s pairing screen')
     addr = wait_for(lambda: pairing_service(parse_services(host.adb('mdns', 'services')[1]), name, ignore), wait, sleep)
     if not addr:
-        raise PairError('no device asked to pair within {} s: check Wireless debugging is on and the device is on the same '
-                        'Wi-Fi as this machine, then try again'.format(wait))
+        raise PairError(f'no device asked to pair within {wait} s: check Wireless debugging is on and the device is on the same '
+                        'Wi-Fi as this machine, then try again')
     rc, out = host.adb('pair', addr, password if name else code, timeout=60)
     guid = parse_paired(out)
     if rc != 0 or not guid:

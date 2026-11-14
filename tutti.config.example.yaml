@@ -276,11 +276,12 @@ main:
 # The dashboard's projects: named by their git remote; these entries name them and lend them machines, containers and a
 # Windows folder (a WSL machine's Windows processes, read over its plain ssh). Read-only: nothing is started or stopped.
 projects:
-  my-app: {match: 'my-app', containers: [my-app-], repo: octo/my-app,   # repo: its open pull requests (a release), CI and reviews
+  # priority: 0 is the most important; the autopilot and fill_room share the work out by it (docs/AUTOPILOT.md, Priority)
+  my-app: {match: 'my-app', containers: [my-app-], repo: octo/my-app, priority: 0,   # repo: its open pull requests, CI and reviews
            sentry: {org: octo, project: my-app}}   # a daily Sentry triage by a scout with sentry_triage (docs/SCOUTS.md)
   # self_improve: {tasks: true, autopilot_repo: app, base: develop}   # its triage becomes tasks and ready PRs to develop
   #               (merge: true, release: true, release_command: ... only where Tutti may merge and tag; docs/TELEMETRY.md)
-  tool: {match: '/tool(\.git)?\b', checks: [{run: bash scripts/check.sh}]}   # `tutti run --repo` in this repo runs these checks
+  tool: {match: '/tool(\.git)?\b', checks: [{run: bash scripts/check.sh}], priority: 1}   # `tutti run --repo` in this repo runs these checks
   # other-app: {match: other-app, machines: [win-box], windows: {win-box: 'C:\Users\me\Projects\other-app'}}
   # Keep busy (docs/DISPATCH.md): declared suites are run by idle devices and machines on each new commit, highest priority first
   # phone-app:

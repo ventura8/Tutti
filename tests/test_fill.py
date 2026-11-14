@@ -134,10 +134,10 @@ class FillTest(Base):
 
     def test_the_dashboard_switch_takes_fill_room_and_refuses_a_bad_body(self):
         cfg = self.cfg(enabled=False)
-        self.assertEqual(dashboard.save_autopilot(cfg, b'{"enabled": true, "fill_room": true}')[0], 200)
+        self.assertEqual(dashboard.save_autopilot(SimpleNamespace(cfg=cfg), b'{"enabled": true, "fill_room": true}')[0], 200)
         self.assertTrue(autopilot.enabled(cfg) and fill.fill_on(cfg))
-        self.assertEqual(dashboard.save_autopilot(cfg, b'{"fill_room": "yes"}')[0], 400)
-        self.assertEqual(dashboard.save_autopilot(cfg, b'{}')[0], 400)
+        self.assertEqual(dashboard.save_autopilot(SimpleNamespace(cfg=cfg), b'{"fill_room": "yes"}')[0], 400)
+        self.assertEqual(dashboard.save_autopilot(SimpleNamespace(cfg=cfg), b'{}')[0], 400)
 
     def test_config_refuses_a_bad_land_and_switch(self):
         cfg = self.cfg(fill_room='yes')

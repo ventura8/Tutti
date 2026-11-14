@@ -1,6 +1,8 @@
 """The owner's switches, from the dashboard or `tutti pause|resume|optin`: opt-in items turned on or off, and machines, devices
-and workers paused. Kept in <project.state>/controls.json, never by rewriting the owner's YAML; applied when the config
-loads, so routing, the autopilot, conduct's fallbacks and device locks all see them.
+and workers paused. Kept in <project.state>/controls.json and applied when the config loads, so routing, the autopilot,
+conduct's fallbacks and device locks all see them. Pausing is a state and stays here; the dashboard's opt-in switch is a
+setting and writes `enabled` into the config file when it can (as its Settings tab does), so only `tutti optin` and a
+config the dashboard cannot write keep `enabled` switches here.
 
 A paused item takes nothing new; what already runs finishes, unless the owner chose "stop now", which ends the tutti jobs
 bound to it (`<job log>.target` names them: `machine:<m>`, `device:<d>`, `worker:<w>`)."""

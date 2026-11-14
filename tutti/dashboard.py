@@ -10,6 +10,7 @@ import math
 import mimetypes
 import os
 import secrets
+import sys
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -35,6 +36,7 @@ from . import (
     releases,
     remote,
     scouts,
+    settings,
     state,
     telemetry,
     transfer,
@@ -55,6 +57,9 @@ TOKEN_SLOT = b'__TUTTI_TOKEN__'   # index.html carries this server's token in <m
 INDEX = 'index.html'
 VERSION_SLOT = b'__TUTTI_VERSION__'   # index.html's <meta name="tutti-version"> and sw.js's cache name: the running version
 MAX_BODY = 4096
+BODY_LIMITS = {}   # filled below: a setting's YAML may be longer than a reading
+STARTED = time.time()   # when this process started: a restarted dashboard answers /api/health with a new one
+RESTART_DELAY = 0.5   # seconds: the answer reaches the page before the process starts again
 NOTE_MAX = 200
 RESET_PAST = timedelta(days=1)
 RESET_AHEAD = timedelta(days=62)
@@ -228,6 +233,19 @@ def static_path(url_path):
     return full
 
 
+API_SETTINGS, API_RESTART = '/api/settings', '/api/restart'
+ADMIN_PATHS = (API_SETTINGS, API_RESTART)
+BODY_LIMITS[API_SETTINGS] = 65536
+
+
+def authorize(collector, headers, need='admin'):
+    """None when the request may use an admin part of the dashboard (Settings, Restart), else (status, why). The dashboard
+    serves this computer only, so its owner is the admin; a sign-in with roles plugs in as `collector.authorize(headers,
+    need)`, the one check every admin request passes."""
+    check = getattr(collector, 'authorize', None)
+    return check(headers, need) if callable(check) else None
+
+
 def same_origin(origin, host):
     """The dashboard is served over plain HTTP on loopback only (allowed_host), so its Origin is that scheme and host."""
     parts = urlsplit(origin or '')
@@ -312,16 +330,31 @@ def save_main(cfg, raw):
     return 200, {'ok': True, 'agent': agent}
 
 
-def save_owner(cfg, raw):
-    """(status, answer) for POST /api/owner: the owner's mode ("I'm away until…") and schedule edits (tutti/owner.py)."""
+def save_owner(collector, raw):
+    """(status, answer) for POST /api/owner: the owner's mode ("I'm away until…", kept in the state folder: it is a state, not a
+    setting) and schedule edits (days, window, hours: saved in the config file, the Settings tab's pacing.schedule)."""
     try:
         data = json.loads(raw or b'null')
     except ValueError:
         data = None
-    return owner.change(cfg, config.state_dir(cfg), data)
+    cfg = collector.cfg
+    sched = {k: data[k] for k in ('days', 'window', 'hours') if isinstance(data, dict) and k in data}
+    rest = {k: v for k, v in data.items() if k not in sched} if isinstance(data, dict) else data
+    if not sched:
+        return owner.change(cfg, config.state_dir(cfg), rest)
+    trial = {**cfg['pacing'], 'schedule': {**cfg['pacing']['schedule'], **{k: v for k, v in sched.items() if v is not None}}}
+    errs = owner.schedule_errors(trial)
+    if errs:
+        return 400, {'error': '; '.join(errs)}
+    if rest:
+        code, answer = owner.change(cfg, config.state_dir(cfg), rest)
+        if code != 200:
+            return code, answer
+    return stored(collector, [(['pacing', 'schedule', k], settings.yamledit.DELETE if v is None else v) for k, v in sched.items()],
+                  dict(data), lambda: owner.write(config.state_dir(cfg), **sched))
 
 
-def save_autopilot(cfg, raw):
+def save_autopilot(collector, raw):
     """(status, answer) for POST /api/autopilot {"enabled": true|false, "fill_room": true|false}: the dashboard's switches
     (either key, or both: "Let autopilot fill it" sends both)."""
     try:
@@ -331,11 +364,31 @@ def save_autopilot(cfg, raw):
     keys = [k for k in ('enabled', 'fill_room') if isinstance(data, dict) and k in data]
     if not keys or not all(isinstance(data[k], bool) for k in keys):
         return 400, {'error': 'send {"enabled": true|false} and/or {"fill_room": true|false} as JSON'}
-    if 'enabled' in keys:
-        autopilot.set_enabled(cfg, data['enabled'])
-    if 'fill_room' in keys:
-        fill.set_fill(cfg, data['fill_room'])
-    return 200, {'ok': True, **{k: data[k] for k in keys}}
+    def in_state():
+        if 'enabled' in keys:
+            autopilot.set_enabled(collector.cfg, data['enabled'])
+        if 'fill_room' in keys:
+            fill.set_fill(collector.cfg, data['fill_room'])
+    # saved in the config file, the same value as the Settings tab's (a CLI switch kept in the state folder is taken back)
+    return stored(collector, [(['autopilot', k], data[k]) for k in keys], {k: data[k] for k in keys}, in_state)
+
+
+def stored(collector, changes, answer, in_state):
+    """(status, answer) of a dashboard switch saved into the config file through the Settings tab's writer, then reloaded.
+    A config the dashboard cannot write (JSON, read-only, none) keeps the switch in the state folder, as before."""
+    reload = getattr(collector, 'reload', None) or (lambda: collector.cfg)
+    try:
+        if not settings.writable(collector.cfg):
+            in_state()
+            reload()
+            return 200, {'ok': True, **answer}
+        done = settings.store(collector.cfg, changes)
+        reload()
+    except settings.SettingsError as e:
+        return e.status, {'error': str(e)}
+    except config.ConfigError as e:
+        return 500, {'error': f'saved, but the config no longer loads: {e}'}
+    return 200, {'ok': True, **answer, 'backup': done['backup']}
 
 
 def save_control(collector, raw, stop_fn=handover.stop_now):
@@ -351,19 +404,25 @@ def save_control(collector, raw, stop_fn=handover.stop_now):
     section = controls.SECTIONS[kind]
     if name not in ((cfg.get('raw_entries') or {}).get(section) or cfg.get(section) or {}):
         return 404, {'error': f'no {kind} "{name}" in the config: reload the page, the config may have changed'}
-    folder = config.state_dir(cfg)
     if data['action'] == 'optin':
-        if not isinstance(data.get('on'), bool):
-            return 400, {'error': 'send "on": true or false with an optin'}
-        controls.set_enabled(folder, kind, name, data['on'])
-    else:
-        controls.set_paused(folder, kind, name, data['action'] == 'pause', note=str(data.get('note') or '')[:200])
+        return save_optin(collector, kind, name, data.get('on'))
+    controls.set_paused(config.state_dir(cfg), kind, name, data['action'] == 'pause', note=str(data.get('note') or '')[:200])
     try:
         cfg = collector.reload()
     except config.ConfigError as e:
         return 500, {'error': f'saved, but the config no longer loads: {e}'}
     handed = stop_fn(cfg, kind, name) if data['action'] == 'pause' and data.get('stop') is True else []
     return 200, {'ok': True, 'handed': [{'log': log, 'to': to} for log, to in handed]}
+
+
+def save_optin(collector, kind, name, on):
+    """An opt-in switch: `enabled` of the entry in the config file (the Settings tab's key), or the state folder's switch
+    for a config the dashboard cannot write."""
+    if not isinstance(on, bool):
+        return 400, {'error': 'send "on": true or false with an optin'}
+    section = controls.SECTIONS[kind]
+    return stored(collector, [([section, name, 'enabled'], on)], {'handed': []},
+                  lambda: controls.set_enabled(config.state_dir(collector.cfg), kind, name, on))
 
 
 def save_autocompact(collector, raw):
@@ -376,8 +435,9 @@ def save_autocompact(collector, raw):
     if pct is not None and not autocompact.valid_pct(pct):
         return 400, {'error': f'send {{"threshold_pct": <a whole number from {autocompact.MIN_PCT} to {autocompact.MAX_PCT}>}}, '
                               'or {"threshold_pct": null} for the config\'s value'}
-    controls.set_setting(config.state_dir(collector.cfg), 'autocompact_pct', pct)
-    return 200, {'ok': True, 'threshold_pct': autocompact.threshold(collector.cfg)}
+    code, answer = stored(collector, [(['autocompact', 'threshold_pct'], settings.yamledit.DELETE if pct is None else pct)], {},
+                          lambda: controls.set_setting(config.state_dir(collector.cfg), 'autocompact_pct', pct))
+    return (code, {**answer, 'threshold_pct': autocompact.threshold(collector.cfg)}) if code == 200 else (code, answer)
 
 
 def save_dispatch(collector, raw):
@@ -396,7 +456,7 @@ def save_dispatch(collector, raw):
 
 
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
-         '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect')
+         '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART)
 
 
 def save_connect(collector, body, home=None):
@@ -433,16 +493,18 @@ def post(collector, headers, path, port, token, read):
                           '{"enabled": ...} to /api/autopilot or /api/self-improve, {"action": ...} to /api/control, '
                           '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, '
                           '{"enabled"|"action": ...} to /api/dispatch, {"action": ...} to /api/connect, '
+                          '{"path": ...} to /api/settings, {} to /api/restart, '
                           '{"consent"|"error"|"use": ...} to /api/telemetry, or {} to /api/update'}
-    refused = check_post(headers, host, token)
+    refused = check_post(headers, host, token) or (authorize(collector, headers) if path in ADMIN_PATHS else None)
     if refused:
         return refused[0], {'error': refused[1]}
     try:
         size = int(headers.get('Content-Length') or 0)
     except ValueError:
         size = -1
-    if not 0 < size <= MAX_BODY:
-        return 413, {'error': f'a reading is a small JSON object (at most {MAX_BODY} bytes)'}
+    limit = BODY_LIMITS.get(path, MAX_BODY)
+    if not 0 < size <= limit:
+        return 413, {'error': f'send a small JSON object (at most {limit} bytes)'}
     return dispatch(collector, path, read(size))
 
 
@@ -460,10 +522,33 @@ def refresh_now(collector, _body):
     return 200, {'ok': True, 'read': sorted(found), 'problems': {n: r['problem'] for n, r in found.items() if r['problem']}}
 
 
+def without_port(argv):
+    """The command line without `--port N`: after a restart the saved dashboard.port applies."""
+    out, skip = [], False
+    for a in argv:
+        if skip:
+            skip = False
+        elif a == '--port':
+            skip = True
+        elif not a.startswith('--port='):
+            out.append(a)
+    return out
+
+
+def restart_now(collector, _body, execv=os.execv, timer=threading.Timer):
+    """POST /api/restart: the dashboard starts again with the same command, so a setting that needs a restart applies. The
+    page waits for /api/health and reloads."""
+    argv = without_port(getattr(collector, 'argv', None) or [sys.executable, *sys.argv])
+    timer(RESTART_DELAY, lambda: execv(argv[0], argv)).start()
+    return 200, {'ok': True, 'restarting': True}
+
+
 HANDLERS = {
     '/api/main': lambda c, b: save_main(c.cfg, b),
-    '/api/autopilot': lambda c, b: save_autopilot(c.cfg, b),
-    '/api/owner': lambda c, b: save_owner(c.cfg, b),
+    '/api/autopilot': save_autopilot,
+    API_SETTINGS: settings.save,
+    API_RESTART: restart_now,
+    '/api/owner': save_owner,
     '/api/control': save_control,
     '/api/autocompact': save_autocompact,
     '/api/dispatch': save_dispatch,
@@ -559,8 +644,10 @@ def route(collector, path, token=''):
     """(status, body, content type, cache control) for a GET of `path`."""
     if path == '/api/state':
         return 200, safe_json(collector.snapshot()), JSON_TYPE, 'no-store'
-    if path == '/api/health':
-        return 200, b'{"ok": true}', JSON_TYPE, 'no-store'
+    if path == '/api/health':   # `started` changes when the process starts again (Settings' Restart waits for it)
+        return 200, json.dumps({'ok': True, 'started': STARTED}).encode(), JSON_TYPE, 'no-store'
+    if path == API_SETTINGS:
+        return 200, safe_json(settings.view(collector.cfg, getattr(collector, 'env', None))), JSON_TYPE, 'no-store'
     if path in ('/helper', '/helper.html'):
         port = getattr(collector, 'port', None) or collector.cfg['dashboard']['port']
         return 200, helper.page(collector.cfg, config.state_dir(collector.cfg), port), 'text/html; charset=utf-8', 'no-store'
@@ -594,6 +681,9 @@ def get(collector, path, token, headers):
     if path == '/api/state':
         code, body, extra = state_response(collector, headers)
         return code, body, JSON_TYPE, 'no-cache', extra
+    refused = authorize(collector, headers) if path in ADMIN_PATHS else None
+    if refused:
+        return refused[0], json.dumps({'error': refused[1]}).encode(), JSON_TYPE, 'no-store', None
     return (*route(collector, path, token), None)
 
 

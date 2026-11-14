@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import backlog, compact, config, delegate, planner, remote, routing, telemetry, worktree
+from . import backlog, compact, config, delegate, planner, priority, remote, routing, telemetry, worktree
 
 try:
     import fcntl
@@ -187,7 +187,7 @@ def candidates(cfg, t):
 
 
 def assign(cfg, queued, rooms, free, out):
-    """Each queued task, oldest first, to the first of its candidate steps that has room for its size."""
+    """Each queued task, in the order given (by priority, then oldest), to the first of its candidate steps that has room for its size."""
     for t in queued:
         if free <= 0:
             break
@@ -278,7 +278,11 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     used = spent_units(tasks, states)
     names = list(dict.fromkeys([*ladder(cfg), *settings(cfg)['accounts'], *cfg.get('_spare_accounts', ())]))
     rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}
-    assign(cfg, queued, rooms, free, out)
+    # fresh tasks and retries alike, by weighted fair share of their projects' priority (the runs going count as served)
+    going = {}
+    for t in running:
+        going[t['repo']] = going.get(t['repo'], 0) + 1
+    assign(cfg, priority.by_repo(cfg, queued, lambda t: t['repo'], going), rooms, free, out)
     if out['dispatch']:
         return {**out, 'state': 'dispatching', 'reason': f'{len(out["dispatch"])} task(s) sent to ' +
                 ', '.join(sorted({n for _, n in out['dispatch']}))}

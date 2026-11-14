@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 
-from . import autopilot, backlog, config, remote, review, workers, worktree
+from . import autopilot, backlog, config, priority, remote, review, workers, worktree
 
 AHEAD = 3            # fresh tasks kept queued per parallel run: enough to never idle, never a flood
 FILL_EVERY = 600     # seconds between reads of a repo's sources while the room stays unfilled
@@ -48,20 +48,17 @@ def want(cfg, tasks, free):
     return max(0, target - fresh_units(cfg, tasks))
 
 
-def pick(data, found, need):
+def pick(data, found, need, cfg=None):
     """The first `need` of [(repo, title, scope, source, check)] whose title the backlog never had (a dropped or done task is
-    not queued again), taken round-robin over the repos so one repo never takes all the room."""
+    not queued again), shared out over the repos by their projects' priority (weighted fair share, tutti/priority.py), so a
+    more important project gets more of the room and no repo takes all of it."""
     known = {backlog.key_of(t) for t in data['tasks']}
     by_repo = {}
     for item in found:
         if backlog.key_of({'repo': item[0], 'title': item[1]}) not in known:
             by_repo.setdefault(item[0], []).append(item)
-    out, queues = [], list(by_repo.values())
-    while len(out) < need and any(queues):
-        for q in queues:
-            if q and len(out) < need:
-                out.append(q.pop(0))
-    return out
+    items = [it for q in by_repo.values() for it in q]
+    return priority.by_repo(cfg or {}, items, lambda it: it[0])[:max(0, need)]
 
 
 def due(cfg, data, states, machines, now):
@@ -98,7 +95,7 @@ def fill(cfg, data, states, machines, now, found=None):
     if found is None:
         return info
     items, problems = found
-    for repo_name, title, scope, source, check in pick(data, items, want(cfg, data['tasks'], free)):
+    for repo_name, title, scope, source, check in pick(data, items, want(cfg, data['tasks'], free), cfg):
         backlog.add(data, backlog.new_task(repo_name, title, scope, check, 'S', source))
         info['added'] += 1
     info.update(read_at=now, queued=fresh_units(cfg, data['tasks']))

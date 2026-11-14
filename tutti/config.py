@@ -425,23 +425,27 @@ def _projects_errors(cfg):
         return [f'projects is {ps!r}: write it as a mapping, e.g. projects: {{my-app: {{match: my-app}}}}']
     errs = []
     for name, p in ps.items():
-        p = p or {}
-        if not isinstance(p, dict):
-            errs.append(f'projects.{name} is {p!r}: a mapping with match:, machines:, containers:, windows:, repo:, priority:, '
-                        'commit: or tests:')
-            continue
-        if 'match' in p:
-            errs += _regex_errors(f'projects.{name}.match', p['match'])
-        errs += [f'projects.{name}.machines names "{m}", which is not under machines:' for m in p.get('machines') or []
-                 if m not in cfg['machines']]
-        win = p.get('windows') or {}
-        errs += [f'projects.{name}.windows names "{m}", which is not a wsl machine under machines:' for m in win
-                 if (cfg['machines'].get(m) or {}).get('transport') != 'wsl']
-        pr = p.get('priority', 0)
-        if isinstance(pr, bool) or not isinstance(pr, int) or pr < 0:
-            errs.append(f'projects.{name}.priority is {pr!r}: a whole number, 0 for the most important project, 1 for the next')
-        if 'repo' in p and not (isinstance(p['repo'], str) and re.fullmatch(r'[\w.-]+/[\w.-]+', p['repo'])):
-            errs.append(f'projects.{name}.repo is {p["repo"]!r}: the GitHub repository as owner/name, e.g. octo/my-app')
+        errs += _project_errors(cfg, name, p or {})
+    return errs
+
+
+def _project_errors(cfg, name, p):
+    if not isinstance(p, dict):
+        return [f'projects.{name} is {p!r}: a mapping with match:, machines:, containers:, windows:, repo:, priority:, '
+                'commit: or tests:']
+    errs = []
+    if 'match' in p:
+        errs += _regex_errors(f'projects.{name}.match', p['match'])
+    errs += [f'projects.{name}.machines names "{m}", which is not under machines:' for m in p.get('machines') or []
+             if m not in cfg['machines']]
+    win = p.get('windows') or {}
+    errs += [f'projects.{name}.windows names "{m}", which is not a wsl machine under machines:' for m in win
+             if (cfg['machines'].get(m) or {}).get('transport') != 'wsl']
+    pr = p.get('priority', 0)
+    if isinstance(pr, bool) or not isinstance(pr, int) or pr < 0:
+        errs.append(f'projects.{name}.priority is {pr!r}: a whole number, 0 for the most important project, 1 for the next')
+    if 'repo' in p and not (isinstance(p['repo'], str) and re.fullmatch(r'[\w.-]+/[\w.-]+', p['repo'])):
+        errs.append(f'projects.{name}.repo is {p["repo"]!r}: the GitHub repository as owner/name, e.g. octo/my-app')
     return errs
 
 
@@ -656,7 +660,7 @@ def project_of_repo(cfg, repo):
     path = (((cfg.get('autopilot') or {}).get('repos') or {}).get(repo) or {}).get('path') or ''
     for name, p in projects.items():
         rx = (p or {}).get('match')
-        if isinstance(rx, str) and rx and any(re.search(rx, x) for x in (repo, os.path.basename(path.rstrip('/'))) if x):
+        if isinstance(rx, str) and rx and any(re.search(rx, x, re.I) for x in (repo, path) if x):
             return name
     return None
 

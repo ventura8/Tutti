@@ -10,8 +10,9 @@ last `away_after_hours` of today's owner hours) or on vacation, nothing is
 reserved and the workers (Claude-backed autopilot too) spend the rest, spread evenly so the account ends near 100 % about
 an hour before its reset without a burst that would block the owner when they come back.
 
-The mode (`auto`, `active`, `away`, `vacation-until-YYYY-MM-DD`) and the dashboard's edits of the schedule live in
-<state>/owner.json, never in the config. Pure, except `read` and `write`."""
+The mode (`auto`, `active`, `away`, `vacation-until-YYYY-MM-DD`) is a state and lives in <state>/owner.json. The
+dashboard's edits of the schedule (days, window, hours) are settings: written into the config's pacing.schedule when the
+dashboard can write the file, else kept in owner.json, which wins until the key is saved. Pure, except `read` and `write`."""
 import json
 import os
 import re

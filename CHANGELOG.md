@@ -2,8 +2,7 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
-## 0.1.2 (2026-11-14)
-
+## 0.1.3 (2026-11-14)
 Fixes for the pains agents hit shipping from linked worktrees.
 
 ### Fixed
@@ -20,6 +19,19 @@ Fixes for the pains agents hit shipping from linked worktrees.
 
 - `tutti wait ... --stall <s> [--stall-file <log>]`: ends with exit 125 when the log stops changing, so an agent waiting
   on a hung job stops instead of re-announcing "still waiting".
+
+## 0.1.2 (2026-11-14)
+QA round 2 on Windows.
+
+### Fixed
+
+- Windows: the WSL `bash.exe -c` line carries no quotes, `&&`, `$(` or braces and no arguments after `-c`; the script
+  is sourced from base64 (`source <(echo <b64> | base64 -d)`).
+- Windows: `install.ps1` repairs CRLF scripts left by installs from before `.gitattributes`.
+
+### Added
+
+- `tutti config` warns when an account's `lead_hours` is not 1 (the old example's 3) and prints the one-line fix.
 
 ## 0.1.1 (2026-11-14)
 

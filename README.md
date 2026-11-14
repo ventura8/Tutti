@@ -6,7 +6,7 @@ rules that keep them from stepping on each other.
 Tutti is a small toolkit for AI-assisted work on a software project when you have more than one model subscription and
 more than one computer. It grew out of one project's working day and keeps only what proved useful.
 
-> **Status: v0.1.4.** Linux only. The npm package `tutti-agents` is marked `private` until the first
+> **Status: v0.1.5.** Linux only. The npm package `tutti-agents` is marked `private` until the first
 > publish. **Licence:** MIT (see `LICENSE`).
 
 ## The ideas
@@ -69,16 +69,17 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | Command | What it does |
 | --- | --- |
 | `tutti test <track> '<cmd>'` | Copies the track's worktree to the first fit machine and runs the command there behind the slot queue, in a memory-capped container or plain bash. `--on <machine>` skips routing; `--dir` names the tree. Returns the command's exit code. |
-| `tutti ship "<message>"` | In the worktree you stand in: format, commit (with your trailer), run the targeted checks, push, deploy. `--full` runs the full checks; `--dry-run` prints the plan; `--track <t>` refuses any other worktree. |
-| `tutti usage` | Every account against its pace. `tutti usage log <account> <percent>` records a reading. |
+| `tutti ship "<message>"` | In the worktree you stand in: format, commit (with your trailer), run the targeted checks, push, deploy. `--full` runs the full checks; `--dry-run` prints the plan; `--track <t>` refuses any other worktree. Refuses to commit or push mid-rebase or mid-merge, or with conflict markers left in files (it names them). |
+| `tutti usage` | Every account against its pace. `tutti usage log <account> <percent> [--resets <time>]` records a reading; `tutti usage read` runs the automatic readers now (Antigravity `agy /usage`, the Cursor plan, limit messages in job logs). See [docs/USAGE-PACING.md](docs/USAGE-PACING.md). |
 | `tutti workers` | The workers and whether each is ready. |
-| `tutti run <worker> "<task>" [files]` | Briefs a CLI worker in a worktree (`--dir`); `--show` prints the brief. |
+| `tutti run <worker> "<task>" [files]` | Briefs a CLI worker in a worktree (`--dir`); `--show` prints the brief. `tutti run auto` picks the worker from the latest readings: never an account in panic or spent, first one whose quota would be lost at the reset (`routing.workers`, `accounts.<name>.worker` and `args`). A limit message in its output logs the account as spent. |
 | `tutti ask <worker> "<question>" [files]` | A short answer from a local model about files or stdin. |
 | `tutti code <worker> <file> "<instruction>"` | A local model rewrites one file; you review `git diff`. |
 | `tutti agent <worker> "<task>" "<check>" files...` | A local model edits, runs the check, reads the failure, retries. |
 | `tutti yield on\|off\|status --machine <m>` | Raises or lowers a machine's yield flag (`--unload` asks for models to be unloaded). |
 | `tutti machines` | Probes every machine. |
 | `tutti quiet [--summary <worker>] <cmd>` | Runs a command, keeps the log, prints only the exit code and, on failure, a five-line summary. |
+| `tutti progress <done>/<total> [--job <log>]` | Reports how far a job is for the dashboard's progress bar (inside `tutti quiet` it finds its job through `TUTTI_PROGRESS_FILE`). |
 | `tutti guard` | Pauses test containers when memory runs low; resumes them later. |
 | `tutti tunnel start\|stop\|status <worker>` | The self-healing ssh tunnel to a worker's model server. |
 | `tutti wait pid\|file\|grep <target> [regex]` | Waits that end: always with `--timeout`. |

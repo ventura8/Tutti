@@ -1,9 +1,11 @@
 """Outside workers: other vendors' CLI agents (Cursor, Antigravity, Claude) and local models. The orchestrator briefs them,
 reviews their diff, then gates it; a worker never commits."""
+import collections
 import json
 import shlex
 import shutil
 import subprocess
+import sys
 import urllib.request
 
 from . import config
@@ -65,7 +67,19 @@ def listing(cfg):
     return '\n'.join(rows) or 'no workers in the config: add a workers: section (tutti.config.example.yaml)'
 
 
-def run(cfg, name, task, files=(), cwd=None):
-    """Runs a CLI worker on a brief in `cwd` (give each worker its own worktree). Returns its exit code."""
+KEEP_LINES = 2000
+
+
+def run(cfg, name, task, files=(), cwd=None, out=None, extra=()):
+    """Runs a CLI worker on a brief in `cwd` (give each worker its own worktree). Its output is passed through as it comes and
+    the last lines are kept, so a limit message in them can be read. Returns (exit code, the last lines)."""
     worker = cfg['workers'][name]
-    return subprocess.run(command(worker, brief(cfg, task, files)), cwd=cwd).returncode
+    out = out or sys.stdout
+    kept = collections.deque(maxlen=KEEP_LINES)
+    with subprocess.Popen(command(worker, brief(cfg, task, files)) + list(extra), cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          text=True, errors='replace', bufsize=1) as p:
+        for line in p.stdout:
+            out.write(line)
+            out.flush()
+            kept.append(line.rstrip('\n'))
+    return p.returncode, list(kept)

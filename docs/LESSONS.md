@@ -101,3 +101,16 @@ and WSL does not pass positional arguments after `-c` through as bash expects.
 
 **Rule.** A command bound for Windows `bash.exe` avoids quotes, `&&`, `$(` and braces in the `-c` line and never relies
 on arguments after `-c`. Send the script base64-encoded: `bash -c source <(echo <b64> | base64 -d)`.
+
+## A CLI's rolling-window reset is a few seconds after ours (2026-11-14)
+
+`agy /usage` reports a window nobody has started as resetting one full window after its own clock. Recorded as is, the
+window started just after Tutti's `now`, so the reading fell into the window before and the account showed "late" with
+no reading. Read and record with one `now`, and clamp a reset more than one window ahead to `now + window`
+(`readers.not_started`).
+
+## Ship committed a half-resolved merge (2026-11-14)
+
+Twice in one day a ship ran while a rebase was stopped on a conflict, and committed files with `<<<<<<<` markers. Ship
+now checks `git rev-parse --git-path` for `rebase-merge`, `rebase-apply`, `MERGE_HEAD`, `CHERRY_PICK_HEAD` and
+`REVERT_HEAD`, and `git grep --untracked` for opening or closing markers, before the commit and again before the push.

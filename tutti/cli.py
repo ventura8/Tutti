@@ -7,7 +7,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
-from . import __version__, config, dashboard, local, pacing, remote, routing, ship, translate, waiting, workers
+from . import __version__, config, dashboard, local, pacing, readers, remote, routing, ship, state, translate, waiting, workers
 
 SCRIPTS = os.path.join(remote.ROOT, 'scripts')
 SUMMARY = 'In at most 5 short lines: which check failed, the file:line and the exact error. No advice.'
@@ -84,14 +84,28 @@ def usage_log_path(cfg):
     return config.expand((cfg.get('usage') or {}).get('log') or os.path.join(config.state_dir(cfg), 'usage.jsonl'))
 
 
+def read_now(cfg, path, now):
+    """`tutti usage read`: every automatic reader once and the recent job logs; prints what was found and any problem."""
+    r = readers.Readers(cfg)
+    found = r.read_all(now, force=True)
+    written = readers.record(path, found, r.scan_jobs(now), now)
+    for name, x in found.items():
+        if x['problem']:
+            say(f'{name}: {x["problem"]}')
+    say(f'usage read: {len(found)} account(s) with a reader, {len(written)} new reading(s) in {path}')
+
+
 def cmd_usage(cfg, a):
     path = usage_log_path(cfg)
     now = pacing.parse_time(a.at) if a.at else datetime.now(timezone.utc)
+    if a.action in ('read', 'refresh'):
+        read_now(cfg, path, now)
     if a.action == 'log':
-        if a.account not in cfg['accounts']:
-            say(f'no account "{a.account}" in the config: the accounts are {", ".join(cfg["accounts"]) or "(none)"}')
+        if a.account not in cfg['accounts'] or a.percent is None:
+            names = ', '.join(cfg['accounts']) or '(none)'
+            say(f'usage: tutti usage log <account> <percent> [--resets <ISO time>]; the accounts are {names}')
             return 2
-        pacing.append_log(path, a.account, float(a.percent), now, a.note)
+        pacing.append_log(path, a.account, float(a.percent), now, a.note, resets=a.resets)
     print(pacing.report(cfg['accounts'], pacing.read_log(path), now))
     return 0
 
@@ -101,12 +115,36 @@ def cmd_workers(cfg, a):
     return 0
 
 
+def choose_worker(cfg, now):
+    """`tutti run auto`: the worker whose account has room, from the latest readings (panic and spent accounts are skipped)."""
+    entries = pacing.read_log(usage_log_path(cfg))
+    accounts = [pacing.account_state(n, x, entries, now) for n, x in cfg['accounts'].items()]
+    return state.next_worker(cfg, accounts)
+
+
 def cmd_run(cfg, a):
+    extra = []
+    if a.worker == 'auto':
+        pick = choose_worker(cfg, datetime.now(timezone.utc))
+        if not pick['worker']:
+            say(f'run auto: {pick["reason"]}')
+            return 3
+        say(f'run auto: {pick["worker"]} {" ".join(pick["args"])} ({pick["reason"]})'.replace('  ', ' '))
+        a.worker, extra = pick['worker'], pick['args']
     worker_of(cfg, a.worker, 'cli')
     if a.show:
         print(workers.brief(cfg, a.task, a.files))
         return 0
-    return workers.run(cfg, a.worker, a.task, a.files, cwd=a.dir)
+    rc, lines = workers.run(cfg, a.worker, a.task, a.files, cwd=a.dir, extra=extra)
+    now = datetime.now(timezone.utc)
+    cmd_text = ' '.join(cfg['workers'][a.worker]['command'])
+    hits = readers.scan_text(cfg['accounts'], cmd_text, lines, now, f'run-{a.worker}-{int(now.timestamp())}')
+    if hits:
+        readers.record(usage_log_path(cfg), {}, hits, now)
+        for name, reset, _ref, _text in hits[:1]:
+            say(f'{a.worker} hit a usage limit: {name} is logged as spent'
+                + (f' until {reset.isoformat()}' if reset else ' (no reset time in its message)') + '; send new work to other workers')
+    return rc
 
 
 def cmd_ask(cfg, a):
@@ -138,6 +176,32 @@ def cmd_yield(cfg, a):
     for name in names:
         note = remote.yield_note(machine_of(cfg, name))
         print(f'{name:12} {"free" if note is None else "YIELD " + note}'.rstrip())
+    return 0
+
+
+def progress_target(cfg, job):
+    if not job:
+        return os.environ.get('TUTTI_PROGRESS_FILE')
+    name = job.split(':', 1)[-1]   # the dashboard's id (quiet:<log>) or the log's name or path
+    log = name if os.sep in name else os.path.join(config.state_dir(cfg), 'quiet', name)
+    return log + '.progress'
+
+
+def cmd_progress(cfg, a):
+    """`tutti progress <n>/<m>`: how far the job is, for the dashboard's progress bar."""
+    try:
+        done, total = (int(x) for x in a.value.split('/'))
+    except ValueError:
+        done, total = -1, 0
+    if total <= 0 or not 0 <= done <= total:
+        say(f'progress {a.value!r}: write <done>/<total> with whole numbers, done at most total (for example 150/177)')
+        return 2
+    path = progress_target(cfg, a.job)
+    if not path:
+        say('progress: no job to report for: run it inside `tutti quiet` (it sets TUTTI_PROGRESS_FILE) or pass --job <log>')
+        return 2
+    with open(path, 'w', encoding='utf8') as f:
+        f.write(f'{done} {total}\n')
     return 0
 
 
@@ -274,14 +338,17 @@ def parser():
     s.add_argument('--allow-protected', action='store_true')
     s.add_argument('--dry-run', action='store_true', help='print the plan; change nothing')
     s.add_argument('--dir', default='.')
-    s = add('usage', cmd_usage, 'show every account against its pace; `usage log <account> <percent>` records a reading')
-    s.add_argument('action', nargs='?', choices=['log'])
+    s = add('usage', cmd_usage, 'show every account against its pace; `usage log <account> <percent>` records a reading, '
+                                '`usage refresh` (or read) runs the automatic readers now')
+    s.add_argument('action', nargs='?', choices=['log', 'read', 'refresh'])
     s.add_argument('account', nargs='?')
     s.add_argument('percent', nargs='?')
     s.add_argument('--at', help='the time of the reading or of the report (ISO 8601, UTC by default)')
     s.add_argument('--note', default='')
+    s.add_argument('--resets', help='usage log: the reset time the usage page shows (ISO 8601); it anchors the window from then on')
     add('workers', cmd_workers, 'list the workers and whether each is ready')
-    s = add('run', cmd_run, 'brief a CLI worker (cursor, agy, claude) in a worktree; it must not commit')
+    s = add('run', cmd_run, 'brief a CLI worker (cursor, agy, claude; `auto`: the one whose account has room) in a worktree; '
+                            'it must not commit')
     s.add_argument('worker')
     s.add_argument('task')
     s.add_argument('files', nargs='*')
@@ -311,6 +378,9 @@ def parser():
     s = add('quiet', cmd_quiet, 'run a command, keep its log, print only the exit code (and a short failure summary)')
     s.add_argument('--summary', help='the local-model worker that summarises a failure')
     s.add_argument('command', nargs='+')
+    s = add('progress', cmd_progress, 'report how far a job is (<done>/<total>) for the dashboard\'s progress bar')
+    s.add_argument('value')
+    s.add_argument('--job', help='the job: its log, or the dashboard id quiet:<log> (default: $TUTTI_PROGRESS_FILE, set by tutti quiet)')
     add('guard', cmd_guard, 'pause test containers when memory runs low, resume them when it is back')
     s = add('tunnel', cmd_tunnel, 'the self-healing ssh tunnel to a worker\'s model server')
     s.add_argument('action', choices=['start', 'stop', 'status'])

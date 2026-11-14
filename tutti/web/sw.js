@@ -1,6 +1,7 @@
 // Tutti dashboard service worker: the app shell works offline (stale-while-revalidate); /api/ is never cached, so the
-// page always shows live data or says plainly that the local service is not answering.
-const CACHE = 'tutti-shell-v2';
+// page always shows live data or says plainly that the local service is not answering. The page itself is network-first:
+// it carries the running server's token for saving readings, so a cached copy is only the offline fallback.
+const CACHE = 'tutti-shell-v3';
 const SHELL = ['./', 'index.html', 'app.css', 'app.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
     'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 
@@ -17,6 +18,13 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
     if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) {
+        return;
+    }
+    if (event.request.mode === 'navigate') {
+        event.respondWith(fetch(event.request).then(async (res) => {
+            if (res.ok) await (await caches.open(CACHE)).put('index.html', res.clone());
+            return res;
+        }).catch(async () => (await caches.match('index.html')) || Response.error()));
         return;
     }
     event.respondWith(caches.open(CACHE).then(async (cache) => {

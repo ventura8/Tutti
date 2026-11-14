@@ -72,10 +72,27 @@ def read_log(path):
         return [json.loads(line) for line in f if line.strip()]
 
 
-def append_log(path, account, used, at, note=''):
+def append_log(path, account, used, at, note='', resets=None, source=None, ref=None):
+    """Appends one reading. `resets`: the reset time the reading names (it then anchors the account's window); `source`: who
+    read it (`reader`, `limit message`, `dashboard`; none for `tutti usage log`); `ref`: where a limit message was seen."""
+    entry = {'at': at.isoformat(), 'account': account, 'used': used, 'note': note}
+    if resets is not None:
+        entry['resets'] = parse_time(resets).isoformat()
+    entry.update({k: v for k, v in (('source', source), ('ref', ref)) if v})
     os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
     with open(path, 'a', encoding='utf8') as f:
-        f.write(json.dumps({'at': at.isoformat(), 'account': account, 'used': used, 'note': note}) + '\n')
+        f.write(json.dumps(entry) + '\n')
+    return entry
+
+
+def reading_anchor(entries, account):
+    """The reset time named by the account's newest reading that names one, or None. It beats the config's `resets`: a
+    reading (the CLI's own answer, a limit message, the owner's form) knows the real window, the config only a first guess."""
+    best = None
+    for e in entries:
+        if e.get('account') == account and e.get('resets') and (best is None or parse_time(e['at']) > parse_time(best['at'])):
+            best = e
+    return parse_time(best['resets']) if best else None
 
 
 def latest(entries, account, since=None):
@@ -108,24 +125,37 @@ def readings(entries, account, since):
     return [{'at': at.isoformat(), 'used': used} for at, used in sorted(out)]
 
 
+def no_reading_action(name, a, src):
+    if a.get('reader'):
+        return 'read automatically at every probe of `tutti dashboard`; `tutti usage refresh` reads it now'
+    tap = ', or Add a reading on the dashboard' if a.get('usage_url') else ''
+    return f'read it at {src}, then: tutti usage log {name} <percent>{tap}'
+
+
 def account_state(name, a, entries, now):
     """Everything known about one account now, as plain data: the window, the latest reading, the pace and panic.
     `state` is `ok`, `no reset` (the reset time or window is not in the config) or `no reading` (none in this window)."""
     a = a or {}
     src = a.get('source', 'its dashboard')
-    out = {'name': name, 'source': src, 'window': a.get('window'), 'share': a.get('share', 1.0),
+    out = {'name': name, 'source': src, 'window': a.get('window'), 'share': a.get('share', 1.0), 'usage_url': a.get('usage_url'),
+           'reset_from': None,
            'lead_hours': a.get('lead_hours', 1), 'panic_at': a.get('panic_at', PANIC_AT), 'used': None, 'expected': None,
            'verdict': 'unknown', 'panic': False, 'reset': None, 'target': None, 'window_start': None, 'reading_at': None, 'readings': []}
-    if not a.get('resets') or not a.get('window'):
+    anchor = reading_anchor(entries, name)
+    if anchor:
+        out['reset_from'] = 'reading'
+    elif a.get('resets'):
+        anchor = parse_time(a['resets'])
+        out['reset_from'] = 'estimate' if a.get('resets_estimated') else 'config'
+    if not anchor or not a.get('window'):
         return {**out, 'state': 'no reset', 'action': f'read the reset time at {src} and set accounts.{name}.resets and .window'}
-    start, reset = window_at(parse_time(a['resets']), a['window'], now)
+    start, reset = window_at(anchor, a['window'], now)
     target = reset - timedelta(hours=out['lead_hours'])
     out.update(reset=reset.isoformat(), target=target.isoformat(), window_start=start.isoformat(),
                readings=readings(entries, name, start))
     e = latest(entries, name, start)
     if not e:
-        return {**out, 'state': NO_READING, 'verdict': NO_READING,
-                'action': f'read it at {src}, then: tutti usage log {name} <percent>'}
+        return {**out, 'state': NO_READING, 'verdict': NO_READING, 'action': no_reading_action(name, a, src)}
     used = float(e['used'])
     p = pace(now, start, reset, used, out['lead_hours'])
     is_panic = panic(used, now, target, out['panic_at'])

@@ -37,6 +37,7 @@ runner:
   rewrite: {}                         # substring -> replacement, e.g. a script that starts docker -> the one run inside the image
 
 routing:
+  workers: [agy, cursor, copilot]     # `tutti run auto`: the agent accounts in this order, skipping panic and spent ones
   order: [builder, gpu-box]           # first fit wins; when none is fit the run queues on the first
 
 sync:
@@ -48,6 +49,7 @@ workers:
   cursor: {kind: cli, command: [cursor-agent, -p, '{prompt}', --trust, --output-format, text]}
   agy: {kind: cli, command: [agy, -p, '{prompt}', --print-timeout, 600s]}        # Google Antigravity
   claude: {kind: cli, command: [claude, -p, '{prompt}']}
+  copilot: {kind: cli, command: [copilot, -p, '{prompt}', --allow-all-tools, --no-ask-user, -s]}   # GitHub Copilot CLI
   big:                                # a large model on the GPU box, reached through a tunnel
     kind: ollama
     host: 127.0.0.1:11436
@@ -66,10 +68,41 @@ brief:
 
 # Quotas to pace. `resets` is any one known reset time (UTC); `window` repeats it: 5h, 7d, 2w or monthly.
 accounts:
-  claude: {window: 7d, resets: '2026-01-03T02:00Z', lead_hours: 1, share: 1.0, source: the usage page}
-  cursor: {window: monthly, resets: '2026-01-10T00:00Z', lead_hours: 1, source: the dashboard's Usage tab}
-  agy: {source: the account page}     # reset unknown yet: `tutti usage` says where to read it
+  claude: {window: 7d, resets: '2026-01-03T02:00Z', lead_hours: 1, share: 1.0, source: the usage page,
+           match: {command: '\bclaude\b'}}   # no CLI prints the plan's %: a limit message ("resets 3pm") still logs it as spent
+  # Cursor prints no usage: the plan comes from `cursor-agent about`, "used" from a limit message in a job's output or one tap
+  # on the dashboard's "Add a reading" (it opens usage_url). The reset day is a guess until a reading names the real one.
+  cursor:
+    window: monthly
+    resets: '2026-01-01T00:00Z'
+    resets_estimated: true
+    usage_url: https://cursor.com/dashboard?tab=usage
+    source: cursor.com/dashboard (Usage)
+    worker: cursor
+    plan: {command: [cursor-agent, about, --format, json], field: subscriptionTier, every_minutes: 360}
+    match: {command: cursor-agent}
+  # Antigravity answers `agy -p /usage --output-format json` with every quota bucket, its remaining share and reset time,
+  # without spending quota: two rolling 5-hour windows (Claude and GPT models; Gemini models), read at every probe.
+  agy-claude:
+    window: 5h
+    resets: '2026-01-01T00:00Z'
+    resets_estimated: true
+    source: agy /usage (Claude and GPT models, 5 h)
+    worker: agy
+    args: [--model, claude-sonnet-5-5-medium]   # `tutti run auto` adds these when it picks this account
+    reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: 3p-5h}
+    match: {command: '\bagy\b', model: 'claude|sonnet|opus|gpt'}
+  agy-gemini:
+    window: 5h
+    resets: '2026-01-01T00:00Z'
+    resets_estimated: true
+    source: agy /usage (Gemini models, 5 h)
+    worker: agy
+    args: [--model, gemini-3.8-flash-high]
+    reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: gemini-5h}
+    match: {command: '\bagy\b', model: gemini, fallback: true}   # an agy job that names no model counts here
 # Each account may set panic_at (default 95): at or over that % before the target time, it is in quota panic.
+# The weekly agy buckets (3p-weekly, gemini-weekly) can be accounts of their own the same way, with window: 7d.
 
 # `tutti dashboard`: the local web dashboard on 127.0.0.1 (stall_minutes: a running job whose log is quiet that long is stalled)
 dashboard: {port: 4777, refresh_seconds: 10, probe_seconds: 30, stall_minutes: 10}

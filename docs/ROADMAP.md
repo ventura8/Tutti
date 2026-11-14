@@ -6,7 +6,7 @@ v0.1.0 is the extraction of one project's working toolkit. The backlog is fed by
 
 - `tutti test`: a full run on a `wsl` machine verified end to end (the probe is verified; the copy and run are ported
   but not yet exercised by a second user).
-- `tutti usage`: readers for accounts that expose usage (a command or an API), so fewer readings are typed.
+- `tutti usage`: readers for accounts that expose usage (a command or an API), so fewer readings are typed. *Shipped in 0.1.5:* Antigravity (`agy -p /usage`), the Cursor plan, limit messages in job output and the dashboard's Add a reading. Still to come: Claude `get_usage`, `ccusage`.
 - `tutti translate`: the rest of the original pipeline: several streams sharing one queue (`flock` claims), a second
   judge on a larger model for strings the first judge doubted, a per-locale glossary and register, locale punctuation
   fixes, catalogue formats beyond flat JSON.

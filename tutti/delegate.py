@@ -251,10 +251,19 @@ def run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list):
     the given files with the first check as its own check."""
     if cfg['workers'][name]['kind'] != 'ollama':
         return run_compacting(cfg, name, task, files, wt, log, extra, worker_log)
-    from . import local
+    from . import fleet, local
     check = (check_list or [{}])[0].get('run') or 'true'
+    w = cfg['workers'][name]
+    # the machine's model that suits the task's kind (tutti/fleet.py), and its files in steps the model can hold at once;
+    # every step runs the check, the last one's result is the run's
+    model = fleet.model_for(w, {'title': task, 'scope': list(files), 'size': 'S'}) or {}
+    worker = {**w, 'model': model.get('name') or w['model'], '_name': name}
+    parts = fleet.steps(files, fleet.files_per_step(model))
+    ok = False
     with contextlib.redirect_stdout(log):
-        ok = local.agent(cfg, cfg['workers'][name], task, check, files, base=wt)
+        for i, part in enumerate(parts, 1):
+            step_task = task if len(parts) == 1 else f'{task}\n\n(Step {i} of {len(parts)}: change only these files now.)'
+            ok = local.agent(cfg, worker, step_task, check, part, base=wt)
     return (0 if ok else 1), []
 
 

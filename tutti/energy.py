@@ -380,7 +380,8 @@ def save_store(cfg, store):
 def log_run(cfg, worker, start, end, answer):
     """One line per local-model call in <state>/local-runs.jsonl: the worker, its model, when and the tokens Ollama counted."""
     entry = {'worker': worker, 'start': start, 'end': end, 'model': (answer or {}).get('model'),
-             'out': (answer or {}).get('eval_count') or 0, 'in': (answer or {}).get('prompt_eval_count') or 0}
+             'out': (answer or {}).get('eval_count') or 0, 'in': (answer or {}).get('prompt_eval_count') or 0,
+             'eval_s': round(((answer or {}).get('eval_duration') or 0) / 1e9, 3)}   # Ollama's own generation time: tokens/s
     try:
         with open(os.path.join(config.state_dir(cfg), RUNS_FILE), 'a', encoding='utf8') as f:
             f.write(json.dumps(entry) + '\n')
@@ -440,6 +441,11 @@ def hosts(cfg):
     for name, m in ((cfg.get('energy') or {}).get('machines') or {}).items():
         if (m or {}).get('ollama'):
             out.setdefault(name, {'workers': [], 'ollama': None, 'on': ''})['on'] = m['ollama']
+    if (cfg.get('fleet') or {}).get('enabled') is not False:   # every machine's Ollama is looked for (tutti/fleet.py)
+        for name, m in cfg['machines'].items():
+            if m.get('transport') not in ('android', 'household'):
+                h = out.setdefault(name, {'workers': [], 'ollama': None, 'on': '', 'looked': True})
+                h['on'] = h['on'] or '127.0.0.1:11434'
     return out
 
 
@@ -532,6 +538,9 @@ def view(cfg, readings, machine_items, now, t=None, store=None, runs=None):
     items = {m['name']: m for m in machine_items or []}
     cards = []
     for name, h in hosts(cfg).items():
+        r = (readings or {}).get(name) or {}
+        if h.get('looked') and not h['workers'] and not ((r.get('tags') or {}).get('models')):
+            continue   # a machine looked at for an Ollama that has none: no card
         busy = any(w in live for w in h['workers'])
         cards.append(card(cfg, name, h, (readings or {}).get(name), items.get(name), store, runs, now, t, busy))
     wait = cheap_now(cfg, t, tz.localtime(now).tm_hour)
@@ -569,8 +578,9 @@ def probe_all(cfg, power_fn, ollama_fn):
         h = found[name]
         machine = cfg['machines'].get(name) or config.machine_of(cfg, name, {'host': 'local'})
         r = power_fn(machine, h['on'])
-        if r is not None and h['ollama']:
-            r['ps'], r['tags'] = ollama_fn(h['ollama'], '/api/ps'), ollama_fn(h['ollama'], '/api/tags')
+        if r is not None and h['ollama']:   # from here through the worker's host; the machine's own curl when that is down
+            ps, tags = ollama_fn(h['ollama'], '/api/ps'), ollama_fn(h['ollama'], '/api/tags')
+            r['ps'], r['tags'] = ps if ps is not None else r.get('ps'), tags if tags is not None else r.get('tags')
         return name, r
     if not found:
         return {}

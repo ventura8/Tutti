@@ -144,7 +144,7 @@ class Tiers(unittest.TestCase):
         cfg = {'autopilot': {'accounts': ['weak', 'strong'], 'ladder': ['weak', 'strong']}}
         tasks = [{'id': 't1', 'size': 'S', 'attempts': []}, {'id': 't2', 'size': 'L', 'attempts': []}]
         orig = autopilot.candidates
-        autopilot.candidates = lambda c, t: ['strong', 'weak']
+        autopilot.candidates = lambda c, t, *a: ['strong', 'weak']
         try:
             autopilot.assign(cfg, tasks, {'strong': (3, ''), 'weak': (3, '')}, 5, out, {'strong': ['L', 'M']})
         finally:

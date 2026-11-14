@@ -778,6 +778,19 @@ function renderAutopilot(s) {
     const groups = AP_GROUPS.filter(([key]) => ap[key].length).map(([key, title, limit]) => el('section', { class: 'autopilot__group' },
         el('h3', { class: 'card__sub', text: `${title} (${ap[key].length})` }),
         el('ul', { class: 'list' }, ...more(`ap:${key}`, ap[key].map(apTask), limit))));
+    const rv = ap.resolver;   // work waits and no one takes it: the fixes Tutti tried, then the owner's one action
+    if (rv) {
+        const act = rv.action;
+        groups.push(el('section', { class: 'autopilot__group autopilot__group--wide' },
+            el('h3', { class: 'card__sub', text: 'Why nothing starts, and what Tutti tried' }),
+            el('ul', { class: 'list' }, ...(rv.attempts || []).map((a) => el('li', { class: 'row' },
+                el('div', { class: 'row__name', text: a.fix }), chip(a.done ? 'done' : 'no', a.done ? 'ok' : 'idle'),
+                el('p', { class: 'row__note', text: a.note })))),
+            act ? el('p', { class: 'row__note', text: act.why }) : null,
+            act && act.kind === 'allow' ? el('button', { class: 'btn btn--filled', type: 'button', text: act.label,
+                onclick: () => switchAutopilot({ allow: act.account }, `${act.account} was not allowed.`) })
+                : (act ? el('p', { class: 'row__note', text: act.label }) : null)));
+    }
     const waiting = ap.review.length + ap.parked.length;
     if (waiting) groups.push(el('p', { class: 'row__note', text: `${plural(ap.review.length, 'result')} to review and ${ap.parked.length} parked: see Needs you.` }));
     if (ap.events?.length) {

@@ -114,6 +114,10 @@ DEFAULTS = {
     'auth': {'client_id': '', 'session_hours': 72},
     'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
              'command_timeout': 3600},
+    # fleet: the household's local models as workers (docs/FLEET.md): every machine's Ollama is read and a machine with models
+    # but no configured ollama worker gets `<machine>-local` (a tunnel from port_base on); memory_floor_gb: this computer
+    # runs no local model with less memory free; enabled: false turns the discovery and the overflow routing off
+    'fleet': {'enabled': True, 'port_base': 11450, 'memory_floor_gb': 3},
     # host: where Tutti runs (docs/MOVE.md), written by `tutti move`: the machine that serves the dashboard and keeps the
     # state, this computer's own name (me), and on a client how to reach the host (ssh, config, tutti, state, usage_log),
     # the stable name members use (address) and its port; on the host, jobs: the client whose repositories and sign-ins
@@ -793,6 +797,8 @@ def load(path=None, start=None, env=None):
     for w in cfg['_warnings']:
         sys.stderr.write(f'tutti: warning: {path}: {w}\n')
     cfg['_path'] = os.path.abspath(path)
+    from . import fleet  # the discovered local model workers (<state>/fleet.json), added after validation: built valid
+    fleet.apply(cfg)
     from . import tz
     tz.use(cfg)
     return cfg

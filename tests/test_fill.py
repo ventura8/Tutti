@@ -40,7 +40,7 @@ class FillTest(Base):
         self.repo()
         cfg = self.cfg(fill_room=True)
         info = self.round(cfg, 1000.0)
-        self.assertEqual(info['room'], 10)
+        self.assertEqual(info['room'], 11)                  # 5 + 5 on agy, and the free local model while cursor is ahead
         self.assertEqual(info['added'], 2)                  # the TODO in b.py and b.py without a test; a.py has one
         self.assertEqual({t['source'] for t in backlog.load(cfg)['tasks']}, {'todo', 'untested'})
         with backlog.locked(cfg) as data:
@@ -50,11 +50,20 @@ class FillTest(Base):
         self.assertEqual(again['added'], 0)
         self.assertIn('nothing new', again['note'])
 
+    def test_a_free_local_model_is_room_to_fill_while_the_online_accounts_are_spared(self):
+        cfg = self.cfg(fill_room=True)
+        self.assertEqual(fill.room(cfg, [], self.states(room=0), FREE), 1)   # agy has none, cursor is ahead: pc is the room
+        cfg['workers']['pc']['machine'] = 'nuc'
+        hot = [{**FREE[0], 'status': 'loaded', 'reason': 'too hot: CPU 99 C (nothing new at 98 C or more)'}]
+        self.assertEqual(fill.room(cfg, [], self.states(room=0), hot), 0)   # the governor: a hot machine is no room
+
     def test_no_room_or_the_switch_off_reads_nothing(self):
         self.repo()
         cfg = self.cfg(fill_room=True)
         run = mock.Mock()
-        self.assertIsNone(fill.gather(cfg, backlog.load(cfg), self.states(room=0), FREE, 1.0, run))
+        cfg['workers']['pc']['machine'] = 'nuc'
+        paused = [{**FREE[0], 'status': 'paused', 'reason': 'yield flag is up'}]   # the local model's machine yields too
+        self.assertIsNone(fill.gather(cfg, backlog.load(cfg), self.states(room=0), paused, 1.0, run))
         fill.set_fill(cfg, False)
         self.assertIsNone(fill.gather(cfg, backlog.load(cfg), self.states(), FREE, 1.0, run))
         run.assert_not_called()

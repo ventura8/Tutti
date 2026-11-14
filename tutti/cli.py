@@ -1113,6 +1113,14 @@ def cmd_autopilot(cfg, a):
             say(str(e))
             return 2
         return 0
+    elif a.action == 'allow':
+        from . import resolver
+        try:
+            r = resolver.allow(cfg, a.arg or '')
+        except ValueError as e:
+            say(str(e))
+            return 2
+        say(f'autopilot: {r["allowed"]} takes first attempts until {tz.show(datetime.fromtimestamp(r["until"], timezone.utc))}')
     elif a.action == 'tick':
         now = datetime.now(timezone.utc)
         states = {s['name']: s for s in state.usage_state(cfg, now)['accounts']}
@@ -1122,6 +1130,13 @@ def cmd_autopilot(cfg, a):
         for e in events:
             say(f'autopilot: {e}')
     print(autopilot.describe(autopilot.view(cfg)))
+    return 0
+
+
+def cmd_fleet(cfg, a):
+    """`tutti fleet`: every local model worker, discovered or configured, with its machine, models, speed and hardware."""
+    from . import fleet
+    print(fleet.describe(fleet.view(cfg)))
     return 0
 
 
@@ -1465,8 +1480,11 @@ def parser():
     s = add('autopilot', cmd_autopilot, 'send backlog tasks to accounts that are behind their pace, by itself: status, on, off, '
                                         'tick (one round now; the dashboard ticks while it runs), fill on|off (fill free room from '
                                         'the repos\' sources), land <id> (review a result and land it)')
-    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick', 'fill', 'land'])
-    s.add_argument('arg', nargs='?', help='fill: on or off; land: the task id')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick', 'fill', 'land', 'allow'])
+    s.add_argument('arg', nargs='?', help='fill: on or off; land: the task id; allow: the account that may take first attempts '
+                                          'for 7 days (the block resolver\'s one action)')
+    s = add('fleet', cmd_fleet, 'the household\'s local models as workers: every machine\'s Ollama, its models, their kinds, '
+                                'speed and hardware (docs/FLEET.md)')
     s = add('scout', cmd_scout, 'scouts, helpers that are not workers (Grok Bot): ask <scout> "<question>" (answered on a GitHub '
                                 'issue), answer <id>, watch [<scout> <watch>], tick (send what is due within the allowance), '
                                 'review <pr> (advisory), trial (the review trial), list, setup')

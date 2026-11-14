@@ -32,6 +32,7 @@ from . import (
     dashtelemetry,
     devicesweb,
     energy,
+    fleet,
     fill,
     handover,
     helper,
@@ -129,6 +130,7 @@ class Collector:
         try:   # local models: power and models read, energy added to the day's buckets (tutti/energy.py)
             fresh['energy'] = energy.probe_all(self.cfg, self.power_fn, self.ollama_fn)
             energy.sample(self.cfg, fresh['energy'], self.clock(), 2 * self.cfg['dashboard']['probe_seconds'])
+            fleet.after_probe(self.cfg, fresh, self.clock())   # every machine's models: the local workers follow them
         except (OSError, ValueError) as e:
             fresh['energy_error'] = f'local models\' power readings failed ({e}): the next probe tries again'
         try:
@@ -457,6 +459,12 @@ def save_autopilot(collector, raw):
         data = json.loads(raw or b'null')
     except ValueError:
         data = None
+    if isinstance(data, dict) and isinstance(data.get('allow'), str):   # the block resolver's one-click fix (tutti/resolver.py)
+        from . import resolver
+        try:
+            return 200, resolver.allow(collector.cfg, data['allow'])
+        except ValueError as e:
+            return 400, {'error': str(e)}
     keys = [k for k in ('enabled', 'fill_room') if isinstance(data, dict) and k in data]
     if not keys or not all(isinstance(data[k], bool) for k in keys):
         return 400, {'error': 'send {"enabled": true|false} and/or {"fill_room": true|false} as JSON'}

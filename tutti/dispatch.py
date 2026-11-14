@@ -413,7 +413,7 @@ def worker_rows(cfg, accounts, machines):
     why = '' if on and last.get('state') == 'dispatching' else (last.get('reason') or 'the autopilot has not planned yet')
     why = why if on else 'the autopilot is off, so queued backlog tasks wait'
     out = []
-    for name in dict.fromkeys([*autopilot.ladder(cfg), *autopilot.settings(cfg)['accounts']]):
+    for name in dict.fromkeys([*autopilot.ladder(cfg), *autopilot.trigger_accounts(cfg)]):
         room, _ = autopilot.step_room(cfg, name, accounts, used, machines or ())
         if room > 0 and not used.get(name):
             out.append({'id': f'worker:{name}', 'kind': 'worker', 'name': name, 'busy': False, 'why': why,

@@ -184,7 +184,7 @@ class Cards(unittest.TestCase):
 
     def test_hosts_come_from_ollama_workers_and_the_energy_machines(self):
         h = energy.hosts(self.cfg)
-        self.assertEqual(h['pc'], {'workers': ['big'], 'ollama': '127.0.0.1:1', 'on': ''})
+        self.assertEqual(h['pc'], {'workers': ['big'], 'ollama': '127.0.0.1:1', 'on': '127.0.0.1:11434'})   # its own curl too
         self.assertEqual(h['this computer']['workers'], ['small'])
         self.assertEqual(h['nas'], {'workers': [], 'ollama': None, 'on': '127.0.0.1:11434'})
 

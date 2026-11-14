@@ -32,9 +32,17 @@ def set_fill(cfg, on):
 
 
 def room(cfg, tasks, states, machines):
-    """Units of room on the trigger accounts now, after the runs going and the attempts the readings do not show yet."""
+    """Units of room now on the trigger accounts and, while they are spared (tutti/fleet.py overflow), on the household's free
+    local models (one S task each: what the sources give is file-scoped and small), after the runs going and the attempts the
+    readings do not show yet."""
+    from . import fleet
     used = autopilot.spent_units(tasks, states)
-    return sum(max(0, autopilot.step_room(cfg, n, states, used, machines or ())[0]) for n in autopilot.settings(cfg)['accounts'])
+    rooms = {n: autopilot.step_room(cfg, n, states, used, machines or ()) for n in autopilot.trigger_accounts(cfg)}
+    total = sum(max(0, r[0]) for r in rooms.values())
+    locals_ = [n for n in autopilot.ladder(cfg) if autopilot.is_local(cfg, n)]
+    if locals_ and fleet.overflow(cfg, states, rooms, locals_):
+        total += sum(1 for n in locals_ if autopilot.step_room(cfg, n, states, used, machines or ())[0] > 0)
+    return total
 
 
 def fresh_units(cfg, tasks):

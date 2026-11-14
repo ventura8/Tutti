@@ -9,7 +9,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import autopilot, backlog, cli, config, dashboard, delegate
+from tutti import autopilot, backlog, cli, config, dashboard, delegate, fleet
 
 FAKE_WORKER = '''import sys
 prompt = sys.argv[1]
@@ -175,7 +175,7 @@ class PlanTest(Base):
         room, why = autopilot.step_room(cfg, 'pc', {}, {}, paused)
         self.assertEqual(room, 0)
         self.assertIn('yield flag is up', why)
-        self.assertEqual(autopilot.step_room(cfg, 'pc', {}, {}, FREE)[0], 1)
+        self.assertEqual(autopilot.step_room(cfg, 'pc', {}, {}, FREE)[0], fleet.UNITS_ANY)   # no quota: fits() decides the size
 
     def test_a_result_passes_only_with_the_repos_gates_too(self):
         repo = {'check': 'ruff check . && mypy .'}

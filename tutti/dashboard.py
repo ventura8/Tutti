@@ -22,6 +22,7 @@ from . import (
     autopilot,
     conduct,
     config,
+    connect,
     controls,
     dashtelemetry,
     fill,
@@ -395,7 +396,30 @@ def save_dispatch(collector, raw):
 
 
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
-         '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch')
+         '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect')
+
+
+def save_connect(collector, body, home=None):
+    """(status, answer) for POST /api/connect {"action": "status"|"connect"|"undo"|"test", "agent": <name>} (docs/CONNECT.md):
+    the "Connect your agent" card. status lists every agent; test starts the agent's configured server and lists its tools."""
+    try:
+        data = json.loads(body or b'{}')
+    except ValueError:
+        data = None
+    action, name = (data or {}).get('action'), (data or {}).get('agent')
+    if action == 'status':
+        return 200, {'agents': connect.status_all(home)}
+    if action not in ('connect', 'undo', 'test') or name not in connect.AGENTS:
+        return 400, {'error': 'send {"action": "status"}, or {"action": "connect"|"undo"|"test", "agent": one of '
+                              f'{", ".join(connect.AGENTS)}}}'}
+    if action == 'test':
+        ok, text = connect.test(name, home)
+        return 200, {'agent': name, 'ok': ok, 'text': text}
+    try:
+        return 200, connect.apply(name, collector.cfg['_path'], action == 'connect', home)
+    except connect.ConnectError as e:
+        return 409, {'error': str(e)}
+
 
 
 def post(collector, headers, path, port, token, read):
@@ -408,7 +432,7 @@ def post(collector, headers, path, port, token, read):
         return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, {"agent": ...} to /api/main, '
                           '{"enabled": ...} to /api/autopilot or /api/self-improve, {"action": ...} to /api/control, '
                           '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, '
-                          '{"enabled"|"action": ...} to /api/dispatch, '
+                          '{"enabled"|"action": ...} to /api/dispatch, {"action": ...} to /api/connect, '
                           '{"consent"|"error"|"use": ...} to /api/telemetry, or {} to /api/update'}
     refused = check_post(headers, host, token)
     if refused:
@@ -443,6 +467,7 @@ HANDLERS = {
     '/api/control': save_control,
     '/api/autocompact': save_autocompact,
     '/api/dispatch': save_dispatch,
+    '/api/connect': save_connect,
     '/api/refresh': refresh_now,
     '/api/reading': lambda c, b: save_reading(c.cfg, b),
     '/api/telemetry': dashtelemetry.save,

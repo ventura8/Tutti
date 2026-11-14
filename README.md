@@ -50,9 +50,21 @@ irm https://raw.githubusercontent.com/ventura8/Tutti/main/install/install.ps1 | 
 
 Re-run the same line to update. Uninstall with `install/uninstall.sh` or `install/uninstall.ps1` the same way (config is kept unless `TUTTI_PURGE=1`). Edit the example config the installer wrote under `$XDG_CONFIG_HOME/tutti/config.yaml` (`~/.config/tutti/config.yaml` when `XDG_CONFIG_HOME` is unset; `TUTTI_CONFIG` or a project `tutti.config.yaml` takes precedence), then run `tutti config` and `tutti workers`.
 
-## Quick start
+## Quick start: use Tutti from your own agent
 
-Requirements: Linux, Python 3.10+, `PyYAML`, `git`, `rsync`, `ssh` with key-based login to your machines, and Docker
+```bash
+curl -fsSL https://raw.githubusercontent.com/ventura8/Tutti/main/install/install.sh | bash   # 1. install
+tutti setup              # 2. sign in and find your machines and agents (it runs step 3 too)
+tutti connect --all      # 3. connect Claude Code, Claude Desktop, Codex, Antigravity, Cursor, Copilot, VS Code, Gemini
+```
+
+Then ask your agent to hand work to Tutti. Each agent gets Tutti's MCP server and a short instruction; your other
+settings are kept and backed up, `tutti connect --undo <agent>` takes it out, and the dashboard's **Connect your agent**
+card shows each agent's state with a Test button. See [docs/CONNECT.md](docs/CONNECT.md).
+
+## Quick start from a clone
+
+Requirements: Linux, Python 3.10+ (3.11+ for connecting Codex), `PyYAML`, `git`, `rsync`, `ssh` with key-based login to your machines, and Docker
 on the machines if you use the container runner.
 
 ```bash
@@ -88,6 +100,8 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 | `tutti dispatch [status\|on\|off\|now]` | Keep busy (on by default): idle Android devices and machines pull the pending test shards that projects declare (`projects.<p>.tests`), on every new commit, highest priority first by a weighted fair share. Pause, yield, heat, battery, phone calls (paused, then resumed 30 s after the call) and opt-ins are respected, and a crashed run's lease is recovered. A target idle more than 5 min while work waits gets a warning with the cause and a fix button on the dashboard. See [docs/DISPATCH.md](docs/DISPATCH.md). |
 | `tutti backlog add\|list\|rm\|seed\|retry\|done\|accept` | The autopilot's queue: `add <repo> "<title>" --scope <path> --check "<cmd>"`; `seed <repo>` reads FEEDBACK open items, `TODO(owner)` and the repo's `gaps` command; `retry <id> --note` sends a task back with the reviewer's notes; `accept <id>` queues a suggested candidate (a scout's Sentry triage). |
 | `tutti conduct "<goal>" [--main <agent>] [--fallback a,b]` | Another agent as the main (conductor) agent: a CLI worker (Cursor, Antigravity, Copilot, Claude Code) or a local model gets the goal and a generated instruction file: Tutti's commands as plain shell commands, the project's `AGENTS.md`/`CLAUDE.md`, the safety limits (no push, tag, merge or deploy; `ship` only with `--dry-run`; no credentials; ask-first actions stop with `NEEDS HUMAN`). When its accounts reach panic or spent (the readings), a limit message appears, or the owner switches on the dashboard, it is stopped and the next in `main.fallback` continues from a handoff note (goal, done, changes, next). `--show` prints the instructions. See [docs/CONDUCT.md](docs/CONDUCT.md). |
+| `tutti connect [<agent>\|--all] [--undo\|--status [--test]]` | Wires Tutti into every main agent installed here (Claude Code, Claude Desktop, Codex, Antigravity, Cursor, Copilot CLI, VS Code, Gemini CLI): its MCP server in the agent's own config plus a skill or a marked instructions block, merged, backed up, idempotent; `--undo` removes it, `--status --test` lists each agent's state and makes a real MCP round trip. ChatGPT's app cannot reach a local server; it says why and what to do. See [docs/CONNECT.md](docs/CONNECT.md). |
+| `tutti mcp [--http [PORT]]` | Tutti as an MCP server: delegate a task, job status and logs, the backlog, usage and hand-off advice, machines and devices, test on a machine or device, ask a scout, away mode. Changing tools need the `admin` role. See [docs/CONNECT.md](docs/CONNECT.md#the-mcp-server). |
 | `tutti main [<agent>]` | The main agent now, who has room, the running or last conductor run; `tutti main <agent>` switches it (a running conductor hands over). |
 | `tutti handoff done\|next "<text>"` | Inside `tutti conduct`: records a finished step or the next one in the run's progress, the handoff note's source. |
 | `tutti runs [show\|discard <id>]` | The delegated runs, a run's report, or removing its worktree. |
@@ -114,6 +128,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 ## Documents
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the pieces and how a run flows.
+- [docs/CONNECT.md](docs/CONNECT.md): `tutti connect` and the MCP server: Tutti from inside Claude, Codex, Antigravity, Cursor, Copilot and Gemini.
 - [docs/AUTOPILOT.md](docs/AUTOPILOT.md): the backlog, rounds, retries up the ladder and parking.
 - [docs/CONDUCT.md](docs/CONDUCT.md): another agent as the main agent, its tools, limits and the handoff.
 - [docs/WORKERS.md](docs/WORKERS.md): briefing Cursor, Antigravity and local models; review the diff, then gate.

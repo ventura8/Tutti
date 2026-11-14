@@ -52,10 +52,10 @@ class Window(unittest.TestCase):
 
     def test_bad_windows_are_named_with_the_fix(self):
         self.assertIn('HH-HH', share.limit_errors('nuc', {'window': '6pm-1am'})[0])
-        self.assertIn('from 1 to 100', share.limit_errors('nuc', {'window': '18-01', 'pct': 140})[0])
+        self.assertIn('from 0 to 100', share.limit_errors('nuc', {'window': '18-01', 'pct': 140})[0])
         self.assertIn('a list of mon', share.limit_errors('nuc', {'window': '18-01', 'days': ['monday']})[0])
         self.assertEqual(share.limit_errors('nuc', None), [])
-        self.assertIn('from 1 to 100', share.limit_errors('nuc', {'window': '18-01', 'pct': 0})[0])   # 0 would stop it silently
+        self.assertEqual(share.limit_errors('nuc', {'window': '18-01', 'pct': 0}), [])   # 0: not used at all then (blocked hours)
         self.assertIn('the same', share.limit_errors('nuc', {'window': '18-18'})[0])
 
 

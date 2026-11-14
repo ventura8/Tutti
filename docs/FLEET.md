@@ -168,7 +168,8 @@ Each machine's share uses its own reading.
 ## Limited hours
 
 An admin can give any machine a daily window when Tutti uses at most `pct` % of it, for example a NUC that also hosts Plex in
-the evening. Set it with `tutti machine limit nuc 18-01 60` (`off` removes it), the machine card's **Limited hours**, or
+the evening. Set it with `tutti machine limit nuc 18-01 60` (`off` removes it; `0` means not used at all then, as a
+device's blocked hours: no new work from 30 min before, running work handed over at the start), the machine card's **Limited hours**, or
 Settings (`machines.<m>.limit: {window: "18-01", pct: 60, days: [mon, ...]}`). It is stored in the config.
 
 - **The window:** its hours are in Tutti's time zone (`time.zone`). A window past midnight belongs to the day it starts on. Without `days` it runs every day. When a window is

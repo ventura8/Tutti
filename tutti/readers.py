@@ -1,11 +1,13 @@
 """Automatic usage readings, with no input from the owner.
 
-Two sources, both read from what the CLIs print, never from their credential files or private APIs:
+Three sources; the first two read what the CLIs print:
 - an account's `reader`: a command the CLI answers without spending quota (Antigravity: `agy -p /usage --output-format json`
   prints every quota bucket with its remaining fraction and reset time); `plan` reads a label such as the subscription tier
   (`cursor-agent about --format json`);
 - limit messages in the output of jobs Tutti ran (`tutti quiet` logs, `tutti run`): a "usage limit reached, resets in 3 h"
-  line means the account is spent until then.
+  line means the account is spent until then;
+- Cursor's own account call (`reader: {format: cursor-api, field: ...}`, tutti/cursorusage.py), signed in with the token of
+  cursor-agent's login: the spending page's two meters with no owner click. The token is never logged or printed.
 Parsing is pure; running commands and appending to the usage log are the thin edge at the bottom."""
 import glob
 import json
@@ -15,7 +17,7 @@ import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 
-from . import config, pacing
+from . import config, cursorusage, pacing
 
 READER_TIMEOUT = 90
 SCAN_DAYS = 2
@@ -227,12 +229,18 @@ def run_json(command, timeout=READER_TIMEOUT, cwd=None):
         return None, f'{" ".join(command)} did not print JSON: the reader expects --output-format json (or --format json)'
 
 
+def key_of(spec):
+    """The cache key of a reader: its command (one run serves every account that shares it), or its format."""
+    return tuple(spec.get('command') or [spec.get('format') or '?'])
+
+
 class Readers:
     """Runs each reader command at most every `every_minutes` (default: every probe, `dashboard.probe_seconds`); one run
     serves every account that shares the command. `force` (Refresh readings, `tutti usage refresh`) skips the wait."""
 
-    def __init__(self, cfg, run=run_json, clock=time.time):
+    def __init__(self, cfg, run=run_json, clock=time.time, cursor=None):
         self.cfg, self.run, self.clock = cfg, run, clock
+        self.cursor = cursor or cursorusage.fetch   # format cursor-api: Cursor's account call, no command
         self.cache = {}   # command tuple -> (when, data, problem)
         self.backoff = {}   # command tuple -> how many intervals to wait now (1 .. BACKOFF_MAX)
         self.runs = 0   # reader commands run, for `tutti dashboard` measurements
@@ -242,14 +250,14 @@ class Readers:
         return spec.get('every_minutes') or round(float(self.cfg['dashboard']['probe_seconds']) / 60, 2)
 
     def _answer(self, spec, force=False):
-        key = tuple(spec['command'])
+        key = key_of(spec)
         every = float(self.every_minutes(spec)) * 60
         hit = self.cache.get(key)
         wait = every * self.backoff.get(key, 1)
         # A little under the interval: a probe that comes a moment early still runs the reader.
         if hit and not force and self.clock() - hit[0] < wait * 0.9:
             return hit[1], hit[2]
-        data, problem = self.run(list(spec['command']))
+        data, problem = self.cursor() if spec.get('format') == 'cursor-api' else self.run(list(spec['command']))
         self.runs += 1
         same = hit is not None and not force and problem is None and data is not None and data == hit[1]
         self.backoff[key] = min(BACKOFF_MAX, self.backoff.get(key, 1) * 2) if same else 1
@@ -258,7 +266,7 @@ class Readers:
 
     def interval_minutes(self, spec):
         """The interval a reader is asked at now: its own, times the back-off while its answer stays the same."""
-        return round(float(self.every_minutes(spec)) * self.backoff.get(tuple(spec['command']), 1), 2)
+        return round(float(self.every_minutes(spec)) * self.backoff.get(key_of(spec), 1), 2)
 
     def read(self, name, a, now=None, force=False):
         """{'plan', 'used', 'resets', 'problem', 'every_minutes'} for one account from its `reader` and `plan` commands."""
@@ -279,7 +287,7 @@ class Readers:
                     out['used'], out['resets'] = self.parse(r, a, data, now or datetime.fromtimestamp(self.clock(), timezone.utc))
                 except (ValueError, KeyError, TypeError) as e:
                     problem = f'accounts.{name}.reader: {e}'
-                    self.backoff[tuple(r['command'])] = 1   # an answer it cannot read is asked again at its own interval
+                    self.backoff[key_of(r)] = 1   # an answer it cannot read is asked again at its own interval
             out['problem'] = problem or out['problem']
         return out
 
@@ -288,6 +296,10 @@ class Readers:
         """(used %, reset) from a reader's answer: GitHub's premium-request report, else agy's /usage buckets."""
         if r.get('format') == 'github-premium':
             used, resets = github_premium(data, r['allowance'], now)
+        elif r.get('format') == 'cursor-api':
+            used, resets = cursorusage.parse(data, r['field'])
+            if resets is None:
+                return used, None
         else:
             used, resets = agy_usage(data, r['bucket'])
         return used, not_started(resets, a.get('window'), now)

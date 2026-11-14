@@ -721,7 +721,8 @@ function attemptHistory(t) {
 function taskNote(t) {
     if (t.status === 'running') {
         const credits = t.credits ? ` · ${t.credits} credits` : '';
-        return `run ${t.run} on ${t.step} · ${duration(t.elapsed)}${credits} · ${t.last_line || 'started'}`;
+        const choice = t.choice?.label ? ` · ${t.choice.label}` : '';   // the model and effort its pace chose, and why
+        return `run ${t.run} on ${t.step}${choice} · ${duration(t.elapsed)}${credits} · ${t.last_line || 'started'}`;
     }
     if (t.status === 'needs-person') return `Needs a person: ${t.parked}`;
     if (t.status === 'review' && t.landing) return `The reviewer is reading it (since ${relative(new Date(t.landing.at * 1000).toISOString())})`;

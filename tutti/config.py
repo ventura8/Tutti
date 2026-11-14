@@ -4,6 +4,7 @@ import json
 import math
 import os
 import re
+import sys
 
 from . import files
 
@@ -187,6 +188,7 @@ def normalise(raw):
     from . import devices  # devices imports this module
     devices.normalise(cfg)
     opt_out(cfg)
+    lenient(cfg)
     return cfg
 
 
@@ -324,8 +326,8 @@ def validate(cfg):
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
     errs += _dashboard_errors(cfg['dashboard']) + files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
-    from . import autocompact, dispatch, owner, scouts, selfimprove, sentry, users  # they import modules that import this one
-    errs += dispatch.errors(cfg)
+    from . import autocompact, dispatch, owner, scouts, selfimprove, sentry, tiers, users  # they import modules that import this one
+    errs += dispatch.errors(cfg) + tiers.errors(cfg)
     errs += selfimprove.errors(cfg) + sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
         owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update'])
@@ -518,6 +520,52 @@ def _regex_errors(key, value):
     return []
 
 
+READER_FORMATS = (None, 'github-premium', 'cursor-api')
+EXTRA_ACCOUNT_KEYS = {'credits', 'note', 'name'}   # read by the code, not in the Settings tab's schema
+
+
+def reader_problems(name, a):
+    """Why this version cannot read accounts.<name>.reader (an unknown format, a missing command or field), or []."""
+    key, r = f'accounts.{name}.reader', a['reader']
+    fmt = r.get('format') if isinstance(r, dict) else None
+    if fmt not in READER_FORMATS:
+        return [f'{key}.format is {fmt!r}, which this Tutti ({_version()}) cannot read (it knows '
+                f'{", ".join(f for f in READER_FORMATS if f)} or a command); a newer Tutti may']
+    if fmt == 'cursor-api':   # Cursor's account call (tutti/cursorusage.py): no command
+        from . import cursorusage
+        if r.get('field') not in cursorusage.FIELDS:
+            return [f'{key}.field is {r.get("field")!r}: one of {", ".join(cursorusage.FIELDS)} '
+                    '(autoPercentUsed is "Cursor Models", apiPercentUsed "Other Models")']
+        return []
+    return _command_errors(key, r, 'allowance' if fmt == 'github-premium' else 'bucket')
+
+
+def _version():
+    from . import __version__
+    return __version__
+
+
+def lenient(cfg):
+    """Warnings, never errors, for what a config written for another Tutti version may hold: an account key this version
+    does not know is ignored, and a reader it cannot read is skipped (removed from the account), so the rest of the config
+    and the dashboard still start. Kept in cfg['_warnings']."""
+    from . import settings_schema  # it imports this module
+    known = {k.split('.')[2] for k in settings_schema.FIELDS if k.startswith('accounts.*.')} | EXTRA_ACCOUNT_KEYS
+    warns = []
+    for name, a in (cfg.get('accounts') or {}).items():
+        if not isinstance(a, dict):
+            continue
+        warns += [f'accounts.{name}.{k} is not a key Tutti {_version()} knows: ignored (a newer Tutti may read it)'
+                  for k in a if k not in known]
+        if 'reader' in a:
+            problems = reader_problems(name, a)
+            if problems:
+                warns += [f'{p}: this reader is skipped; the account still works with readings by hand' for p in problems]
+                a.pop('reader')
+    cfg['_warnings'] = warns
+    return warns
+
+
 def _account_source_errors(name, a):
     """usage_url, reader, plan and match: where readings come from without the owner's input."""
     key = f'accounts.{name}'
@@ -525,10 +573,7 @@ def _account_source_errors(name, a):
     url = a.get('usage_url')
     if url is not None and (not isinstance(url, str) or not url.startswith('https://')):
         errs.append(f'{key}.usage_url is {url!r}: give the https:// address of the provider\'s usage page')
-    if 'reader' in a:
-        github = isinstance(a['reader'], dict) and a['reader'].get('format') == 'github-premium'
-        errs += _command_errors(f'{key}.reader', a['reader'], 'allowance' if github else 'bucket')
-    if 'plan' in a:
+    if 'plan' in a:   # a reader this version cannot read is skipped with a warning (lenient), never an error
         errs += _command_errors(f'{key}.plan', a['plan'], 'field')
     return errs + _match_errors(key, a.get('match'))
 
@@ -637,6 +682,8 @@ def load(path=None, start=None, env=None):
     errs = validate(cfg)
     if errs:
         raise ConfigError(f'{path} has {len(errs)} problem(s):\n  - ' + '\n  - '.join(errs))
+    for w in cfg['_warnings']:
+        sys.stderr.write(f'tutti: warning: {path}: {w}\n')
     cfg['_path'] = os.path.abspath(path)
     return cfg
 

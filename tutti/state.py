@@ -53,8 +53,53 @@ def usage_state(cfg, now):
     for n, a in cfg['accounts'].items():
         s = with_credits(cfg, pacing.account_state(n, a, entries, now, *pacing.plan_args(cfg)), a or {})
         accounts.append(with_background(cfg, s, a or {}, now))
+    accounts = with_scouts(cfg, accounts, now)
     from . import owner
     return {'log': path, 'problem': problem, 'accounts': accounts, 'owner': owner.view(cfg, config.state_dir(cfg), entries, now)}
+
+
+def with_scouts(cfg, accounts, now):
+    """A scout's account (Grok Bot's allowance) takes no bounded tasks: its Do line and Decision say what the scout does with
+    the allowance instead (tutti/spendrest.py: the rest is spent on scout work by itself near the reset)."""
+    owners = {(sc or {}).get('account'): n for n, sc in (cfg.get('scouts') or {}).items() if isinstance(sc, dict)}
+    if not any(a['name'] in owners for a in accounts):
+        return accounts
+    from . import scouts, spendrest
+    requests = scouts.load(cfg)['requests']
+    out = []
+    for a in accounts:
+        name = owners.get(a['name'])
+        if not name or a.get('state') != 'ok':
+            out.append({**a, 'scout': name} if name else a)
+            continue
+        p = spendrest.plan(cfg, scouts.settings(cfg, name), requests, a, now.timestamp())
+        do = scout_do(name, a, p)
+        out.append({**a, 'scout': name, 'room_tasks': None, 'action': do, 'quota_plan': scout_plan(a, p, do)})
+    return out
+
+
+def scout_do(name, a, p):
+    """A scout account's Do line: what spend-the-rest does, else what its pace means for the scout (never backlog tasks)."""
+    from . import spendrest
+    if spendrest.line(p):
+        return spendrest.line(p)
+    if a['verdict'] in ('behind', 'late'):
+        return f'scout {name}: its watches run on their own periods; spend the rest: {p["why"]}'
+    if a['verdict'] == 'ahead':
+        return f'scout {name}: {a["action"]}'
+    return f'scout {name}: its watches run on their own periods'
+
+
+def scout_plan(a, p, do):
+    """The planner rows of a scout account with its Decision and Why replaced: scout work, no tasks."""
+    from . import spendrest
+    plan = a.get('quota_plan')
+    if not plan:
+        return plan
+    decision = f'scout work: {spendrest.count(p)} watch(es) before the reset' if p['on'] else 'scout work only'
+    rows = [r for r in plan.get('rows', []) if r['label'] not in ('Decision', 'Why')]
+    rows += [{'label': 'Decision', 'value': decision}, {'label': 'Why', 'value': 'a scout answers questions; it takes no backlog tasks'}]
+    return {**plan, 'tasks': 0, 'rows': rows, 'why': f'{a["name"]}: {do}'}
 
 
 def with_background(cfg, s, a, now):
@@ -167,7 +212,9 @@ def next_worker(cfg, accounts):
     if not best:
         return {'worker': None, 'account': None, 'args': [], 'reason': reason}
     acc = cfg['accounts'][best['name']]
-    return {'worker': acc['worker'], 'account': best['name'], 'args': list(acc.get('args') or []), 'reason': reason}
+    from . import tiers
+    choice = tiers.choose(cfg, best['name'], best)   # stronger while behind its binding limit, cheaper while ahead
+    return {'worker': acc['worker'], 'account': best['name'], 'args': choice['args'], 'reason': f'{reason}; {choice["label"]}'}
 
 
 def with_readers(usage, readers):

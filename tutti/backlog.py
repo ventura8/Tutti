@@ -99,9 +99,14 @@ def find(data, task_id):
     raise BacklogError(f'no task "{task_id}" in the backlog: `tutti backlog list --all` shows every id')
 
 
+def is_question(t):
+    """A research question for a scout (its title starts with `scout:`): never a worker's task (tutti/spendrest.py)."""
+    return str(t.get('title', '')).lower().startswith('scout:')
+
+
 def queued(data, repos=None):
-    """The tasks waiting for a worker, oldest first (a retry keeps its place)."""
-    return [t for t in data['tasks'] if t['status'] == 'queued' and (repos is None or t['repo'] in repos)]
+    """The tasks waiting for a worker, oldest first (a retry keeps its place); a scout's questions are not among them."""
+    return [t for t in data['tasks'] if t['status'] == 'queued' and (repos is None or t['repo'] in repos) and not is_question(t)]
 
 
 def listing(data, show_all=False):

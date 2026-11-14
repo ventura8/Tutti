@@ -95,8 +95,12 @@ def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None):
     per = window_points(own, lim, at_start, a.get('window_points'), known)
     windows = timeline(own, lim, hours, per)
     room = max(0.0, budget - at_start)
-    give = allowance(room, [c for _, _, c in windows])
+    caps = [c for _, _, c in windows]
+    give = allowance(room, caps)
     spent = max(0.0, lim['used'] - at_start)
+    headroom = projection_room(lim, budget, now)
+    if headroom is not None and headroom > 0:   # joint: more than an even share while the limit's projection still fits
+        give = min(room, max(give, spent + headroom), caps[0] if caps[0] is not None else room)
     left = give - spent
     own_left = 100 - (own['used'] or 0)
     left_own = own_left if per is None else min(own_left, left * 100 / per) if per else 0.0
@@ -106,7 +110,19 @@ def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None):
             'windows': len(windows), 'runnable': sum(1 for *_, c in windows if c != 0),
             'per_window': round(room / max(1, len(windows)), 1), 'allowance': round(give, 1), 'this_window': round(spent, 1),
             'left': round(left, 1), 'tasks': tasks, 'lose': round(max(0.0, left_own), 1), 'window_points': per,
-            'owner_reserve': round(kept, 1) if owner else None, 'mode': owner['mode'] if owner else None}
+            'owner_reserve': round(kept, 1) if owner else None, 'mode': owner['mode'] if owner else None,
+            'projected': None if headroom is None else round(budget - headroom, 1), 'limit_verdict': lim.get('verdict'),
+            'limit_reset': lim.get('reset')}
+
+
+def projection_room(lim, budget, now):
+    """Points the limit can still take on top of its projected end (its last day's rate carried to the reset), or None when
+    there is no projection yet. Positive: a window may spend over its even share and the limit still ends within its budget."""
+    from tutti import owner as owner_mod
+    if not now or not lim.get('reset') or lim.get('used') is None:
+        return None
+    end = owner_mod.projection(lim.get('readings') or [], lim['used'], now, parse_time(lim['reset']))
+    return None if end is None else budget - end
 
 
 def background_rate(readings, busy):
@@ -127,23 +143,36 @@ def plan_single(s, a, now, rate=None, owner=None):
     """An account without limits: one window, its room (minus the reserve and the background spend expected until its
     target) until its target. With `owner` (the main agent's account, tutti/owner.py) the owner's expected burn until the
     target is kept too, and the rest is spent evenly (owner.spendable) instead of only while behind the even-pace line."""
-    from tutti import owner as owner_mod
     target = parse_time(s['target'])
     hours_left = max(0.0, (target - now).total_seconds() / 3600)
     background = (rate or 0.0) * hours_left
-    kept = owner_mod.reserve_until(owner, now, target) if owner else 0.0
-    budget = 100.0 * s['share'] - float(a.get('reserve', 0)) - background - kept
+    mine = owner_fields(owner, now, target)
+    budget = 100.0 * s['share'] - float(a.get('reserve', 0)) - background - (mine['owner_reserve'] or 0.0)
     left = max(0.0, budget - (s['used'] or 0))
     task = float(a.get('task_pct', TASK_PCT))
+    return {'limit': None, 'expires': s['target'], 'resets': s.get('reset'), 'left': round(left, 1), 'lose': round(left, 1),
+            'tasks': single_tasks(s, left, task, owner, now, target), 'allowance': round(left, 1), 'this_window': None,
+            'windows': 1, 'runnable': 1, 'background': None if rate is None else round(background, 1), **mine}
+
+
+def owner_fields(owner, now, target):
+    """The plan's owner keys: the reserve kept until `target`, the days it is for, the mode, whether it is learned."""
+    if not owner:
+        return {'owner_reserve': None, 'mode': None, 'owner_days': None, 'learned': None}
+    from tutti import owner as owner_mod
+    return {'owner_reserve': round(owner_mod.reserve_until(owner, now, target), 1), 'mode': owner['mode'],
+            'owner_days': ', '.join(owner_mod.reserve_days(owner, now, target)), 'learned': owner.get('learned')}
+
+
+def single_tasks(s, left, task, owner, now, target):
+    """Tasks now for an account without limits: the owner's account spreads `left` evenly to the target; any other takes
+    the pace's own room (behind its line), never more than `left` holds."""
+    if task <= 0:
+        return 0
     if owner:
-        tasks = int(owner_mod.spendable(left, now, target) // task) if task > 0 else 0
-    else:
-        room = s.get('room_tasks') or 0   # the pace's own room (behind its line); never more than the left points hold
-        tasks = min(room, int(left // task)) if task > 0 else 0
-    return {'limit': None, 'expires': s['target'], 'resets': s.get('reset'), 'left': round(left, 1), 'lose': round(left, 1), 'tasks': tasks,
-            'allowance': round(left, 1), 'this_window': None, 'windows': 1, 'runnable': 1,
-            'background': None if rate is None else round(background, 1), 'owner_reserve': round(kept, 1) if owner else None,
-            'mode': owner['mode'] if owner else None}
+        from tutti import owner as owner_mod
+        return int(owner_mod.spendable(left, now, target) // task)
+    return min(s.get('room_tasks') or 0, int(left // task))
 
 
 def _at(t, now):
@@ -177,6 +206,21 @@ def _decision_single(p):
     return (f'{p["tasks"]} task(s) now', 'behind its pace') if p['tasks'] else ('no extra tasks', 'not behind its pace')
 
 
+def kept_text(p):
+    unit = 'weekly points' if p['limit'] else 'points'
+    days = f' for {p["owner_days"]}' if p.get('owner_days') else ''
+    how = ''
+    if p.get('learned') is not None:
+        how = ', learned' if p['learned'] else ', from pacing.schedule until learned'
+    return f'{p["owner_reserve"]:g} {unit}{days} ({p["mode"]}{how})'
+
+
+def _decision_limited(p):
+    if p['tasks']:
+        return f'{p["tasks"]} task(s) now', f'{p["lose"]:g} % would be lost at its end'
+    return 'nothing more this window', ''
+
+
 def rows(p):
     """The plan as label/value rows for the account card (the card names the account): {label, value} or {label, at} for a
     time (ISO, UTC), which the page shows in the viewer's own time with UTC in a tooltip."""
@@ -192,13 +236,8 @@ def rows(p):
     if not p['limit'] and p.get('background'):
         out.append({'label': 'Outside Tutti', 'value': f'{p["background"]:g} points expected'})
     if p.get('owner_reserve'):
-        unit = 'weekly points' if p['limit'] else 'points'
-        out.append({'label': 'Kept for the owner', 'value': f'{p["owner_reserve"]:g} {unit} ({p["mode"]})'})
-    if p['limit']:
-        decision = f'{p["tasks"]} task(s) now' if p['tasks'] else 'nothing more this window'
-        why = f'{p["lose"]:g} % would be lost at its end' if p['tasks'] else ''
-    else:
-        decision, why = _decision_single(p)
+        out.append({'label': 'Kept for the owner', 'value': kept_text(p)})
+    decision, why = _decision_limited(p) if p['limit'] else _decision_single(p)
     out.append({'label': 'Decision', 'value': decision})
     if why:
         out.append({'label': 'Why', 'value': why})
@@ -230,14 +269,58 @@ def bind(own, limits, a, accounts, hours, now, owner=None):
     plans = [plan_limited(own, lim, a, accounts.get(lim['name']) or {}, hours, owner, now) for lim in ok]
     p = min(plans, key=lambda x: (x['tasks'], x['left']))   # the fewest tasks: points of different limits do not compare
     p['why'], p['rows'] = explain(own['name'], p, now), rows(p)
-    lim_tasks = p['tasks']
-    out.update(quota_plan=p, room_tasks=min(own['room_tasks'], lim_tasks) if own['room_tasks'] else (lim_tasks or None))
+    # the plan decides the room: the window's own pace line says nothing about its weekly limit (each badge keeps its own verdict)
+    out.update(quota_plan=p, room_tasks=p['tasks'] or None, binding=binding(own, p, now))
     if p['left'] <= 0:
-        used = (f'this window used its share of {p["limit"]} ({p["this_window"]:g} of {p["allowance"]:g} points): '
-                'nothing new until it resets')
-        why = 'this window is in autopilot.quiet_hours: its share moves to the windows that can run' if not p['allowance'] else used
-        out.update(bound_by=p['limit'], room_tasks=None, verdict='ahead', action=why)
+        out.update(bound_by=p['limit'], room_tasks=None)
+    out['action'] = agree(out, p, a, now)
     return out
+
+
+def binding(own, p, now):
+    """Which of the account's windows sets its room now and why: {name, verdict, why}."""
+    if p['tasks']:
+        return {'name': own['name'], 'verdict': own['verdict'], 'why': f'{p["limit"]} has room for it ({_proj(p)})'}
+    lim = f'{p["limit"]} ({p.get("limit_verdict") or "?"} of its pace{"; " + _proj(p) if p.get("projected") is not None else ""})'
+    return {'name': p['limit'], 'verdict': p.get('limit_verdict'), 'why': lim}
+
+
+def _proj(p):
+    if p.get('projected') is None:
+        return 'no projection yet'
+    return 'projected to reach 100 % before its reset' if p['projected'] >= 100 else f'projected to end at {p["projected"]:g} %'
+
+
+def agree(s, p, a, now):
+    """The Do line from the plan, so it never contradicts the Decision: room → how much goes where; no room while the
+    account's own line is behind → what holds it (the binding limit, the owner's reserve); else the pace's own action."""
+    if p['tasks']:
+        return f'spend: about {p["tasks"]} bounded task(s) can go to {a.get("worker") or s["name"]} now ({_spend_why(p)})'
+    if s.get('panic') or s.get('verdict') == 'spent':
+        return s['action']
+    if p['limit']:
+        return _held_by_limit(s, p, now)
+    if p.get('owner_reserve'):
+        days = f' ({p["owner_days"]})' if p.get('owner_days') else ''
+        return (f'nothing more now: {p["owner_reserve"]:g} points are kept for the owner\'s working days before the reset'
+                f'{days}; {p["left"]:g} left for the workers, spread evenly')
+    return s['action']
+
+
+def _spend_why(p):
+    if p['limit']:
+        return f'{p["this_window"]:g} of {p["allowance"]:g} weekly points this window; {_proj(p)}'
+    if p.get('owner_reserve') is not None:
+        return f'{p["left"]:g} points left, spread evenly to the target'
+    return 'behind its pace'
+
+
+def _held_by_limit(s, p, now):
+    if not p['allowance']:
+        return 'this window is in autopilot.quiet_hours: its share moves to the windows that can run'
+    reset = _at(parse_time(p['resets']), now) if p.get('resets') else 'its reset'
+    return (f'{s.get("window") or "this"} window has room; the limit {binding(s, p, now)["why"]} is binding: '
+            f'new work waits for the {reset} reset ({p["this_window"]:g} of {p["allowance"]:g} weekly points this window)')
 
 
 def plan_alone(s, a, now, rate=None, owner=None):
@@ -247,4 +330,7 @@ def plan_alone(s, a, now, rate=None, owner=None):
         return s
     p = plan_single(s, a, now, rate, owner)
     p['why'], p['rows'] = explain(s['name'], p, now), rows(p)
-    return {**s, 'quota_plan': p}
+    out = {**s, 'quota_plan': p}
+    if owner:   # the owner's account: the plan (reserve kept, the rest spread evenly) decides, not the even line
+        out.update(room_tasks=p['tasks'] or None, action=agree(out, p, a, now))
+    return out

@@ -262,13 +262,15 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
             'panic': is_panic, 'reading_at': parse_time(e['at']).isoformat()}
 
 
-def report(accounts, entries, now, quiet_hours=None):
-    """One row per account: used, reset, target, verdict and what to do. Times in UTC."""
+def report(accounts, entries, now, quiet_hours=None, states=None):
+    """One row per account: used, reset, target, verdict and what to do. Times in UTC. `states`: the accounts' states as the
+    dashboard has them (tutti/state.py: the owner's reserve, scouts), else computed here."""
+    by_name = {s['name']: s for s in states or []}
     rows = [('account', 'used', 'by now', 'resets (UTC)', 'spend by (UTC)', 'verdict', 'do')]
     # A reading is the whole account's use, whoever spent it, so the pace is judged against the whole quota; an account shared
     # with a peer session shows this session's part beside the verdict.
     for name, a in accounts.items():
-        s = account_state(name, a, entries, now, accounts, quiet_hours)
+        s = by_name.get(name) or account_state(name, a, entries, now, accounts, quiet_hours)
         if s['state'] == 'no reset':
             rows.append((name, '?', '?', '?', '?', 'unknown', s['action']))
             continue

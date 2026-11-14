@@ -204,6 +204,20 @@ def reserve_until(ctx, now, end):
     return total
 
 
+def reserve_days(ctx, now, end):
+    """The owner's local days from `now` to `end` that keep a reserve, e.g. ['Mon 16', 'Tue 17']: the working days the reserve
+    is for (a weekend keeps nothing; a day after the reset is not counted)."""
+    out, t = [], now
+    skip = ctx.get('until')
+    while t < end:
+        lt = local(t, ctx['offset'])
+        name = f'{DAYS[lt.weekday()].title()} {lt.day}'
+        if not (skip and t < skip) and ctx['reserve'][lt.weekday()][lt.hour] > 0 and name not in out:
+            out.append(name)
+        t = min(end, t.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
+    return out
+
+
 def context(owner, readings, now):
     """What the planner needs for an owner account: the reserve profile, the mode in effect, the offset. None when off."""
     if not owner:

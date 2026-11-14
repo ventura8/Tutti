@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import backlog, compact, config, delegate, planner, priority, remote, routing, telemetry, worktree
+from . import backlog, compact, config, delegate, planner, priority, remote, routing, telemetry, tiers, worktree
 
 try:
     import fcntl
@@ -186,12 +186,20 @@ def candidates(cfg, t):
     return [n for n in out if (step_of(cfg, n) or {}).get('kind') != 'ollama' or has_files(t)]
 
 
-def assign(cfg, queued, rooms, free, out):
-    """Each queued task, in the order given (by priority, then oldest), to the first of its candidate steps that has room for its size."""
+def tier_last(prefer, size):
+    """A sort key that puts last the steps whose model tier wants other sizes than `size`."""
+    return lambda n: bool(prefer.get(n)) and size not in prefer[n]
+
+
+def assign(cfg, queued, rooms, free, out, prefer=None):
+    """Each queued task, in the order given (by priority, then oldest), to the first of its candidate steps that has room for its
+    size. `prefer`: {step: the sizes its model tier wants} (tutti/tiers.py): a step whose tier names sizes is tried last for a
+    task of another size."""
+    prefer = prefer or {}
     for t in queued:
         if free <= 0:
             break
-        steps = candidates(cfg, t)
+        steps = sorted(candidates(cfg, t), key=tier_last(prefer, t.get('size')))
         pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t)), None)
         if pick is None:
             out['waiting'][t['id']] = '; '.join(rooms.get(n, (0, f'{n}: not on the ladder'))[1] or f'{n}: too little room for a '
@@ -261,7 +269,8 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     nothing new starts in `autopilot.quiet_hours`; finished runs are still collected. `hold`: {task id: why} of shared
     tasks this member may not start now (tutti/sharing.py: leased by another member, or the coordinator unreachable)."""
     hold = hold or {}
-    queued = [t for t in tasks if t['status'] == 'queued' and t['repo'] in settings(cfg)['repos'] and t['id'] not in hold]
+    queued = [t for t in tasks if t['status'] == 'queued' and t['repo'] in settings(cfg)['repos'] and t['id'] not in hold
+              and not backlog.is_question(t)]   # a `scout:` question goes to a scout (tutti/spendrest.py), never a worker
     unchecked = [t for t in queued if not (t.get('check') or settings(cfg)['repos'][t['repo']].get('check'))]
     queued = [t for t in queued if t not in unchecked]
     running = [t for t in tasks if t['status'] == 'running']
@@ -282,7 +291,8 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     going = {}
     for t in running:
         going[t['repo']] = going.get(t['repo'], 0) + 1
-    assign(cfg, priority.by_repo(cfg, queued, lambda t: t['repo'], going), rooms, free, out)
+    prefer = {n: tiers.choose(cfg, n, states.get(n))['sizes'] for n in names if n in cfg['accounts']}
+    assign(cfg, priority.by_repo(cfg, queued, lambda t: t['repo'], going), rooms, free, out, prefer)
     if out['dispatch']:
         return {**out, 'state': 'dispatching', 'reason': f'{len(out["dispatch"])} task(s) sent to ' +
                 ', '.join(sorted({n for _, n in out['dispatch']}))}
@@ -385,14 +395,19 @@ def repo_path(cfg, task):
     return config.expand(settings(cfg)['repos'][task['repo']]['path'])
 
 
-def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen):
-    """Starts `tutti run <worker> <brief> --repo <repo> --track ap-<task>` in the background; marks the task running."""
+def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
+    """Starts `tutti run <worker> <brief> --repo <repo> --track ap-<task>` in the background; marks the task running. An
+    account's model and effort follow its pace (tutti/tiers.py): stronger while behind, cheaper while ahead."""
     step = step_of(cfg, step_name)
+    choice = tiers.choose(cfg, step['account'], (states or {}).get(step['account'])) if step['account'] else None
+    if choice:
+        step = {**step, 'args': choice['args']}
     repo = settings(cfg)['repos'][task['repo']]
     run_id = delegate.new_id(cfg)
     p = delegate.paths(cfg, run_id)
     with open(p['log'], 'a', encoding='utf8') as log:   # the id is taken from here on: the next dispatch gets another
-        log.write(f'autopilot: task {task["id"]} attempt {len(task["attempts"]) + 1} on {step_name}\n')
+        log.write(f'autopilot: task {task["id"]} attempt {len(task["attempts"]) + 1} on {step_name}'
+                  f'{"; " + choice["label"] if choice else ""}\n')
     check = acceptance(task, repo)
     argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', step['worker'], brief(task, repo)]
     if step['kind'] == 'ollama':
@@ -410,7 +425,8 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen):
     with open(p['pid'], 'w', encoding='utf8') as f:
         f.write(f'{child.pid}\n')
     # the repo's gates this attempt runs (acceptance holds them): a result lands only when they are today's (tutti/fill.py)
-    task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now, gates=(repo.get('check') or '').strip())
+    task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now, gates=(repo.get('check') or '').strip(),
+                choice={k: choice[k] for k in ('tier', 'model', 'effort', 'label')} if choice else None)
     return run_id
 
 
@@ -619,7 +635,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         for task_id, step in p['dispatch']:
             t = backlog.find(data, task_id)
             try:
-                run_id = dispatch(cfg, t, step, now, spawn)
+                run_id = dispatch(cfg, t, step, now, spawn, states)
             except OSError as e:
                 events.append(f'{task_id} could not be started on {step} ({e}): it stays queued')
                 continue
@@ -658,7 +674,7 @@ def last_line(path):
 
 def task_view(cfg, t, now):
     v = {k: t.get(k) for k in ('id', 'repo', 'title', 'status', 'size', 'source', 'step', 'run', 'branch', 'pr', 'publish_note',
-                               'parked', 'diff', 'worktree', 'landing')}
+                               'parked', 'diff', 'worktree', 'landing', 'choice')}
     v['attempt_count'] = len(t['attempts'])
     v['history'] = [{'step': a['step'], 'ok': a['ok'], 'why': a['why'][:200], 'signature': a['signature'], 'run': a['run']}
                     for a in t['attempts']]

@@ -86,7 +86,10 @@ FIELDS = {
     'accounts.*.reading_file': field('Reading file', 'A file your own tool writes {"used": 42} to.', 'text'),
     'accounts.*.stale_hours': field('Reading goes stale after', 'A reading by hand older than this gets a reminder.', **HRS),
     'accounts.*.args': field('Extra worker flags', 'Added when `tutti run auto` or conduct picks this account.', **CMD),
-    'accounts.*.reader': field('Automatic reader', 'A command that prints the usage and the bucket to read from it.', **YAML),
+    'accounts.*.reader': field('Automatic reader', 'A command that prints the usage and the bucket to read from it, or '
+                               '{format: cursor-api, field: autoPercentUsed} for Cursor.', **YAML),
+    'accounts.*.tiers': field('Models by pace', 'Behind its limit: the strong tier\'s flags and the large tasks; ahead: the cheap '
+                              'tier\'s and the small ones ({strong: {args: [--model, x], sizes: [L, M]}, cheap: ...}).', **YAML),
     'accounts.*.limits': field('Bounded by', 'Longer quotas that bound this one (a weekly over a 5-hour window).', 'list',
                            choices_from='accounts'),
     'accounts.*.window_points': field('Points per window', 'What one whole window costs of its weekly limit; measured when empty.',
@@ -249,6 +252,9 @@ FIELDS = {
     'scouts.*.watches.*.early': field('May go early', 'Ahead of time while the allowance is behind its pace.', 'switch', default=False),
     'scouts.*.watches.*.task': field('Task', 'What the scout is asked.', 'textarea'),
     'scouts.*.sentry_triage': field('Sentry triage', 'A daily watch per project with a sentry entry.', 'switch', default=False),
+    'scouts.*.spend_rest': field('Spend the rest', 'Near its reset and behind its pace, extra scout work up to 95 % (true, false or '
+                                 '{hours, stop_at, min_gap_hours}).', **YAML, default=True),
+    'scouts.*.watches.*.project': field('Project', 'Orders the extra runs of spend the rest by project priority.', 'text'),
     'scouts.*.review_trial': field('Review trial', 'The scout also reviews the next pull requests of these repos.', **YAML),
     # telemetry and self-improvement
     'telemetry.sentry_dsn': field('Sentry DSN', 'Set with `tutti telemetry setup`; never shown here.', 'secret',

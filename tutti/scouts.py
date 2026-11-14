@@ -153,8 +153,9 @@ def _one_errors(cfg, name, sc):
         errs.append(f'{key}.reply.github_repo is {reply.get("github_repo")!r}: the repository its answers go to, as owner/name')
     if 'issue_label' in reply and not (isinstance(reply['issue_label'], str) and reply['issue_label'].strip()):
         errs.append(f'{key}.reply.issue_label is {reply["issue_label"]!r}: a label name such as {LABEL}')
-    from . import trial  # trial builds on this module
+    from . import spendrest, trial  # they build on this module
     errs += trial.errors(f'{key}.review_trial', sc.get('review_trial')) + _triage_errors(key, sc)
+    errs += spendrest.errors(f'{key}.spend_rest', sc.get('spend_rest'))
     bad = [s for s in sc.get('skills') or [] if s not in SKILLS]
     if bad:
         errs.append(f'{key}.skills has {", ".join(map(str, bad))}: use any of {", ".join(SKILLS)}')
@@ -441,7 +442,7 @@ def guard(cfg, sc, accounts=None, now=None):
 
 
 def behind(acc):
-    return bool(acc) and acc.get('verdict') in ('behind', 'late') and (acc.get('room_tasks') or 0) > 0
+    return bool(acc) and acc.get('verdict') in ('behind', 'late')
 
 
 def plan(sc, requests, acc, now):
@@ -468,10 +469,17 @@ def tick(cfg, accounts, env=None, gh_fn=gh, post_fn=post, now=None):
         if not sc['auto'] or missing_env(sc, env):
             continue
         url, key = secrets(sc, env)
+        acc = accounts.get(sc.get('account'))
+        from . import selfimprove, spendrest, triage
         with locked(cfg) as data:
-            events += _round(sc, data, accounts.get(sc.get('account')), url, key, gh_fn, post_fn, now)
-            from . import selfimprove, triage
+            before = len(events)
+            events += _round(sc, data, acc, url, key, gh_fn, post_fn, now)
+            sent = sum(1 for e in events[before:] if ' waiting: ' in e)
+            extra, n = spendrest.round_(cfg, sc, data, acc, url, key, sent, gh_fn, post_fn, now) if acc else ([], 0)
+            events += extra
             events += triage.feed_answered(cfg, data, selfimprove.auto_accept(cfg))
+            left = spendrest.room(sc, data, acc, sent + n) if acc else 0
+        events += spendrest.reviews(cfg, name, acc, left, gh_fn, post_fn, env, now) if acc else []   # GitHub: outside the lock
     return events
 
 
@@ -516,7 +524,7 @@ def request_view(r):
         'answered_at': _iso(r.get('answered'))}
 
 
-def scout_view(sc, requests, acc, env, now):
+def scout_view(cfg, sc, requests, acc, env, now):
     missing = missing_env(sc, env)
     mine = [r for r in requests if r['scout'] == sc['name']]
     watches = []
@@ -525,13 +533,17 @@ def scout_view(sc, requests, acc, env, now):
         watches.append({'name': n, 'every': w['every'], 'task': w['task'][:160], 'last': _iso(last),
                         'next': _iso((last or now) + (every_seconds(w['every']) if last else 0))})
     p = plan(sc, requests, acc, now)
+    from . import spendrest
+    rest = spendrest.plan(cfg, sc, requests, acc, now) if acc else {'on': False, 'why': 'no meter', 'items': []}
     meter = {k: acc.get(k) for k in ('name', 'used', 'reset', 'verdict', 'panic', 'reading_at', 'usage_url', 'stale')} if acc else None
     return {'name': sc['name'], 'kind': sc['kind'], 'ready': not missing, 'missing': missing, 'auto': sc['auto'],
             'skills': sc['skills'], 'repo': sc['reply']['github_repo'], 'account': sc.get('account'), 'meter': meter,
             'plan': p['why'], 'watches': watches, 'waiting': sum(1 for r in mine if r['status'] == 'waiting'),
             'queued': sum(1 for r in mine if r['status'] == 'queued'),
             'recent': [request_view(r) for r in sorted(mine, key=lambda r: r['added'], reverse=True)[:6]],
-            'facts': scout_facts(meter, watches, mine)}
+            'facts': scout_facts(meter, watches, mine),
+            'spend_rest': {'on': rest['on'], 'why': rest['why'], 'count': len(rest['items']), 'line': spendrest.line(rest),
+                           'items': [i['ref'] for i in rest['items']]}}
 
 
 def scout_facts(meter, watches, mine):
@@ -552,7 +564,7 @@ def view(cfg, accounts, env=None, now=None):
     questions and answers; the owner's setup steps when a scout is not ready or none is configured."""
     now = now or time.time()
     requests = load(cfg)['requests'] if cfg.get('scouts') else []
-    items = [scout_view(settings(cfg, n), requests, accounts.get((cfg['scouts'][n] or {}).get('account')), env, now)
+    items = [scout_view(cfg, settings(cfg, n), requests, accounts.get((cfg['scouts'][n] or {}).get('account')), env, now)
              for n in cfg.get('scouts') or {}]
     return {'configured': bool(items), 'items': items, 'setup': list(SETUP) if not items or not all(i['ready'] for i in items) else []}
 

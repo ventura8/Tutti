@@ -129,6 +129,7 @@ The shared module is `tutti/install.py`; the setup steps are in `tutti/setupcmd.
 | --- | --- |
 | `install.install_line(platform, join=None)` | the exact one-line install for `linux` / `wsl` / `darwin` / `win32`, with `--join "<invite>"` appended when given: what a household invite page shows a new member |
 | `tutti setup --join <invite>` | setup (no questions), then `tutti household join <invite>` with the config it wrote; the member's sign-ins open at the end |
+| `vpncmd.guided_setup(cfg)` | the optional private network's (choices, steps), changing nothing (docs/NETWORK.md) |
 | `guided.choice()`, `guided.step()`, `guided.render()`, `guided.choice_rows()` | the rule above: a default picked, a step only the person can do, the one list at the end, the card's rows |
 | `bootstrap.sh --join <invite>` / `bootstrap.ps1 -Join <invite>` | install, then `tutti setup --join <invite>` |
 | `install.home()`, `install.is_release_install(root, home)` | where a release install lives; whether the running Tutti is one |

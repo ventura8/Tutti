@@ -49,6 +49,7 @@ from . import (
     translate,
     trial,
     update,
+    vpncmd,
     waiting,
     workers,
 )
@@ -898,6 +899,11 @@ def cmd_dashboard(cfg, a):
         say(f'cannot listen on {dashboard.BIND}:{port} ({e.strerror}): another dashboard may be running there; open it, '
             'or pass --port <n> (or set dashboard.port)')
         return 1
+    refused = vpncmd.funnel_refusal(cfg)
+    if refused:
+        httpd.server_close()
+        say(refused)
+        return 1
     if not a.no_probe:
         collector.start()
     from . import install  # a release install updates itself daily and restarts in place (docs/INSTALL.md, *Updates*)
@@ -1434,6 +1440,15 @@ def parser():
     s = add('client', move.cmd_client, 'this computer as a client of the host Tutti moved to: keeps the bridge and the dashboard\'s '
                                        'port up (the tutti-client user service runs it); --once: one connection')
     s.add_argument('--once', action='store_true')
+    s = add('vpn', vpncmd.cmd_vpn, 'an optional private network between the household\'s machines and phones (docs/NETWORK.md): '
+                                   'status, setup (Tailscale, or --wireguard); Tutti works without one')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'setup', 'funnel'])
+    g = s.add_mutually_exclusive_group()
+    g.add_argument('--tailscale', dest='provider', action='store_const', const='tailscale', help='set up Tailscale')
+    g.add_argument('--wireguard', dest='provider', action='store_const', const='wireguard', help='set up plain WireGuard (no account)')
+    s.add_argument('--dry-run', action='store_true', help='setup: print what it would do; change nothing')
+    s.add_argument('--authkey', metavar='MACHINE', help='setup: join a headless machine with a Tailscale auth key typed hidden')
+    s.add_argument('--cert', action='store_true', help='setup: also make the private https certificate for this computer\'s tailnet name')
     s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it')
     s.add_argument('agent', nargs='?')
     return p

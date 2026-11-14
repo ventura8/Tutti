@@ -80,6 +80,8 @@ DEFAULTS = {
     # self_update: Tutti installs its newest checksummed release at login and once a day from the dashboard (docs/INSTALL.md);
     # enabled: false is the opt-out
     'self_update': {'enabled': True},
+    # vpn: optional (docs/NETWORK.md). prefer: which one `tutti vpn setup` sets up (tailscale or wireguard); Tutti never needs one
+    'vpn': {'prefer': 'tailscale', 'wireguard': {'port': 51820, 'subnet': 'auto', 'hub': None, 'endpoint': None}},
     'household': {'port': 4778, 'bind': 'auto', 'lease_minutes': 30, 'starve_minutes': 20, 'share_spare_hours': 6,
                   'timeout_seconds': 3},
     # update: `tutti update` and the dashboard's daily round; auto: false turns the round off, packages: apt packages whose
@@ -334,8 +336,9 @@ def validate(cfg):
              for n, m in cfg['machines'].items() if m.get('via') and m['via'] not in cfg['machines']]
     from . import move
     errs += move.errors(cfg)
-    from . import devices
+    from . import devices, vpn
     errs += devices.errors(cfg)
+    errs += vpn.errors(cfg)
     for name, w in cfg['workers'].items():
         errs += _worker_errors(name, w)
         if (w or {}).get('machine') and w['machine'] not in cfg['machines']:

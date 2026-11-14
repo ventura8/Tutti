@@ -75,7 +75,7 @@ class FillTest(Base):
         self.assertIn('no folder', self.round(cfg, 1.0)['note'])
 
     def test_built_bundles_and_prose_todos_are_not_tasks(self):
-        files = ['cdn/engine/engine.iife.js', 'web/compare-CNW-vnBa.js', 'src/x.min.js', 'pkg/dist/a.js', 'src/real.ts']
+        files = ['cdn/engine/engine.iife.js', 'web/compare-CNW-vnBa.js', 'src/x.min.js', 'pkg/dist/a.js', 'src/real.ts', 'scripts/x.sh']
         self.assertEqual([p for _, p in backlog.untested_items(files)], ['src/real.ts'])
         lines = ['README.md:85:seed reads `TODO(owner)` and gaps', 'a.py:3:x = 1  # see `TODO(dev)` docs', 'b.py:4:# TODO(dev): fix']
         self.assertEqual([p for _, p in backlog.todo_items(lines)], ['b.py'])

@@ -30,4 +30,4 @@ if [ ! -e "$config_path" ]; then
 	cp "$home/tutti.config.example.yaml" "$config_path"
 	echo "tutti: wrote example config to $config_path"
 fi
-echo "tutti $(git -C "$home" rev-parse --short HEAD) installed. Next: edit $config_path, then run: tutti config; tutti workers"
+echo "tutti $(git -C "$home" rev-parse --short HEAD) installed. Next: edit $config_path (unless TUTTI_CONFIG or a project tutti.config.yaml takes precedence), then run: tutti config; tutti workers"

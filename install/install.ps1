@@ -30,9 +30,9 @@ $env:Path += ";$shim"
 $configHome = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME '.config' }
 $configDir = Join-Path $configHome 'tutti'
 $configPath = Join-Path $configDir 'config.yaml'
-if (-not (Test-Path $configPath)) {
+if (-not (Test-Path -LiteralPath $configPath)) {
     New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-    Copy-Item (Join-Path $app 'tutti.config.example.yaml') $configPath
+    Copy-Item -LiteralPath (Join-Path $app 'tutti.config.example.yaml') -Destination $configPath
     Write-Host "tutti: wrote example config to $configPath"
 }
-Write-Host "tutti $(git -C $app rev-parse --short HEAD) installed. Open a new terminal, then: edit $configPath, then run: tutti config; tutti workers"
+Write-Host "tutti $(git -C $app rev-parse --short HEAD) installed. Open a new terminal, then: edit $configPath (unless TUTTI_CONFIG or a project tutti.config.yaml takes precedence), then run: tutti config; tutti workers"

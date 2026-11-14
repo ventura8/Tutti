@@ -23,12 +23,7 @@ def pid_gone(pid):
 
     def check():
         if os.name == 'nt':
-            import ctypes
-            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-            if handle:
-                ctypes.windll.kernel32.CloseHandle(handle)
-                return False
-            return True
+            return _win_pid_gone(pid)
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
@@ -38,6 +33,28 @@ def pid_gone(pid):
         return False
 
     return check
+
+
+def _win_pid_gone(pid):
+    """OpenProcess succeeds for an exited process while another program holds its handle, and fails with
+    ERROR_ACCESS_DENIED for a live protected one: read the exit code, and treat a denied open as alive."""
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    k32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    handle = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ctypes.get_last_error() != 5  # ERROR_ACCESS_DENIED: the process exists
+    try:
+        code = wintypes.DWORD()
+        if not k32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value != 259  # STILL_ACTIVE
+    finally:
+        k32.CloseHandle(handle)
 
 
 def file_exists(path):

@@ -54,8 +54,9 @@ class RemoteTest(unittest.TestCase):
             args = remote.argv(self.cfg['machines']['l'], script)
         self.assertEqual(args[:2], ['bash', '-c'])
         self.assertNotIn('"', args[2])
-        packed = args[2].split()[1]
+        packed = args[2].split('echo ')[1].split()[0]
         self.assertEqual(base64.b64decode(packed).decode(), script)
+        self.assertNotIn('| bash', args[2])  # the script goes to a file: the command keeps the caller's stdin
 
     def test_docker_runner_is_capped_and_quotes_the_command(self):
         line = remote.runner_command(self.cfg['machines']['a'], 'trk', "echo 'hi' && exit 3")

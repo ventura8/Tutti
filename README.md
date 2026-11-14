@@ -44,7 +44,7 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/ventura8/Tutti/main/install/install.ps1 | iex
 ```
 
-Re-run the same line to update. Uninstall with `install/uninstall.sh` or `install/uninstall.ps1` the same way (config is kept unless `TUTTI_PURGE=1`). Edit the example config the installer wrote under `~/.config/tutti/config.yaml`, then run `tutti config` and `tutti workers`.
+Re-run the same line to update. Uninstall with `install/uninstall.sh` or `install/uninstall.ps1` the same way (config is kept unless `TUTTI_PURGE=1`). Edit the example config the installer wrote under `$XDG_CONFIG_HOME/tutti/config.yaml` (`~/.config/tutti/config.yaml` when `XDG_CONFIG_HOME` is unset; `TUTTI_CONFIG` or a project `tutti.config.yaml` takes precedence), then run `tutti config` and `tutti workers`.
 
 ## Quick start
 

@@ -26,7 +26,7 @@ def bash_path(p):
         # the -c line, so a "$1" came empty and every path became the current folder.
         q = shlex.quote(p)
         r = subprocess.run(argv({'transport': 'local'}, f'wslpath -a {q} 2>/dev/null || cygpath -u {q}'),
-                           capture_output=True, text=True, check=False)
+                           capture_output=True, encoding='utf-8', errors='replace', check=False)
         _BASH_PATHS[p] = r.stdout.strip() or p
     return _BASH_PATHS[p]
 
@@ -51,8 +51,9 @@ def argv(machine, script, ssh_opts=()):
             # Windows rebuilds the command line for bash.exe (WSL or Git Bash) and mangles double quotes inside it:
             # `cut -d" "` arrived as `cut -d\"`, so the local probe printed garbage and `here` showed "unreachable".
             # The line travels base64-encoded instead, as it does for a WSL machine behind ssh: no quotes to mangle.
+            # It is decoded to a temporary file, not piped into bash, so the command keeps the caller's standard input.
             packed = base64.b64encode(script.encode()).decode()
-            return ['bash', '-c', f'echo {packed} | base64 -d | bash']
+            return ['bash', '-c', f'f=$(mktemp) && echo {packed} | base64 -d > $f && {{ bash $f; r=$?; rm -f $f; exit $r; }}']
         return ['bash', '-c', script]
     if t == 'ssh':
         return [*SSH, *ssh_opts, machine['host'], script]

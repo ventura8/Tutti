@@ -3,10 +3,11 @@ review that is posted to the pull request. Reviewers are GitHub's Copilot code r
 rate-limited (CodeRabbit's free plan says "Review limit reached") or simply never answer. Everything goes through `gh`."""
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import pacing, routing, state, workers
 
@@ -195,14 +196,55 @@ def comment(repo, number, body, gh_fn=gh):
         raise RuntimeError(f'posting the review to pull request {number} failed ({err})')
 
 
+# ---- a reviewer whose allowance is used: skipped until its reset (its account reading at 100 % with a reset time)
+
+LIMIT_WAIT_RX = re.compile(r'wait\W+(?:(\d+)\s*hours?)?\W*(?:and\W+)?(?:(\d+)\s*minutes?)?', re.I)
+LIMIT_DEFAULT = timedelta(hours=1)
+
+
+def skipped_until(entries, who, now):
+    """The reset time while the reviewer's account (the account named like the reviewer: `copilot`, `coderabbit`) reads
+    100 % or more and that reset is still ahead, else None: after the reset the reviewer is asked again by itself."""
+    last = pacing.latest(entries, who)
+    if not last or float(last.get('used') or 0) < 100 or not last.get('resets'):
+        return None
+    reset = pacing.parse_time(last['resets'])
+    return reset if reset > now else None
+
+
+def limit_reset(text, now):
+    """When a rate-limit comment says the reviewer comes back ("Please wait **26 minutes and 35 seconds**"); an hour when
+    it does not say."""
+    m = LIMIT_WAIT_RX.search(text or '')
+    if m and (m.group(1) or m.group(2)):
+        return now + timedelta(hours=int(m.group(1) or 0), minutes=int(m.group(2) or 0) + 1)
+    return now + LIMIT_DEFAULT
+
+
+def note_limited(cfg, repo, number, who, evs, since, now):
+    """Writes the reviewer's account at 100 % until the reset its rate-limit comment names, so the next pull requests skip it."""
+    logins = COPILOT_LOGINS if who == 'copilot' else (CODERABBIT_LOGIN,)
+    bodies = [b for login, t, b, _k in evs if login in logins and t >= since]
+    reset = limit_reset(bodies[-1] if bodies else '', now)
+    pacing.append_log(state.usage_log_path(cfg), who, 100, now, f'rate-limit comment on {repo}#{number}', resets=reset,
+                      source='limit message', ref=f'{repo}#{number}')
+    return reset
+
+
 def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh, say=print, **kw):
     """The whole flow. Returns 0 when a reviewer answered or the fallback review was posted, 1 otherwise."""
     r = cfg['review']
     repo = repo_of(pr_repo, gh_fn)
     since = datetime.now(timezone.utc).replace(microsecond=0)
+    try:
+        entries = pacing.read_log(state.usage_log_path(cfg))
+    except (OSError, ValueError):
+        entries = []
     asked, absent = [], {}
     for who in r['reviewers']:
-        why = request(repo, number, who, gh_fn)
+        until = skipped_until(entries, who, since)
+        why = f'skipped until {until.isoformat()}: its allowance is used (account {who} at 100 %)' if until else \
+            request(repo, number, who, gh_fn)
         if why:
             absent[who] = why
             say(f'review: {who} will not come: {why}')
@@ -211,6 +253,11 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
             say(f'review: asked {who}')
     timeout = float(r['timeout_minutes'] if timeout_minutes is None else timeout_minutes) * 60
     found = wait_for(repo, number, asked, since, timeout, float(r['poll_seconds']), gh_fn, **kw) if asked else {}
+    limited = [w for w, s in found.items() if s == 'limited']
+    if limited:
+        evs, now = events(repo, number, gh_fn), datetime.now(timezone.utc)
+        for w in limited:
+            say(f'review: {w} is rate-limited: skipped until {note_limited(cfg, repo, number, w, evs, since, now).isoformat()}')
     if any(s == 'reviewed' for s in found.values()):
         say(f'review: {", ".join(w for w, s in found.items() if s == "reviewed")} reviewed pull request {number}: '
             'read and resolve its threads')

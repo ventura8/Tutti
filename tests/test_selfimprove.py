@@ -337,6 +337,11 @@ class Triage(Base):
         self.assertEqual({(t['project'], t['status']) for t in tasks}, {('App', 'queued')})
         self.assertEqual(selfimprove.accept_waiting(cfg), [])   # nothing twice, nothing added
 
+    def test_insight_tasks_wait_as_candidates_with_auto_accept_off(self):
+        cfg = self.cfg(auto_accept=False)
+        selfimprove.add_candidates(cfg, selfimprove.candidates(Analysis.summary(self), 3)[:1], 'insight', NOW)
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'candidate')
+
     def test_auto_accept_is_a_true_or_false(self):
         cfg = self.cfg()
         cfg['self_improve']['auto_accept'] = 'yes'

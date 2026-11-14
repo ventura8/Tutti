@@ -215,7 +215,8 @@ def add_candidates(cfg, items, source, now):
             notes = [f'Self-improvement ({it["why"]}). First add a regression test that reproduces it and fails; then fix it.',
                      'The local events are in <state>/telemetry/events.jsonl; `tutti telemetry report` summarises them.']
             t = backlog.new_task(pol['autopilot_repo'], it['title'], source=source, notes=notes)
-            t.update(project=pol['name'], sig=it['sig'], pr_mode='ready', added=now)
+            t.update(project=pol['name'], sig=it['sig'], pr_mode='ready', added=now,
+                     status='queued' if auto_accept(cfg) else 'candidate')
             _t, new = backlog.add(data, t)
             added += int(new)
     return added

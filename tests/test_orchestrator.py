@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import cli, config, dashboard, delegate, helper, pacing, readers, review, routing, ship, workers
+from tutti import cli, config, dashboard, delegate, helper, pacing, readers, review, routing, ship, state, workers
 
 NOW = datetime(2026, 11, 14, 12, 0, tzinfo=timezone.utc)
 
@@ -466,6 +466,40 @@ class ReviewTest(unittest.TestCase):
         self.assertIn('did not list Copilot', why)
         self.assertIn('Settings > Copilot > Code review', why)
         self.assertFalse(review.copilot_listed('not json'))
+
+    def test_a_spent_reviewer_is_skipped_until_its_reset_then_comes_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self.cfg(d, ('copilot',))
+            now = datetime.now(timezone.utc)
+            pacing.append_log(state.usage_log_path(cfg), 'copilot', 100, now, 'budget', resets=now + timedelta(days=3))
+            fake, said = FakeGh(copilot_ok=True), []
+            done = SimpleNamespace(returncode=0, stdout='No findings.', stderr='')
+            with mock.patch.object(review.workers, 'available', return_value=(True, 'cheap')), \
+                    mock.patch.object(review.subprocess, 'run', return_value=done):
+                self.assertEqual(review.review(cfg, 7, 'o/r', gh_fn=fake, say=said.append, sleep=lambda s: None), 0)
+            self.assertFalse(any(c[:2] == ['api', '-X'] for c in fake.calls))   # never asked, no wait
+            self.assertIn('copilot will not come: skipped until', said[0])
+            self.assertTrue(any('local review by cheap' in s for s in said))
+            entries = pacing.read_log(state.usage_log_path(cfg))
+            self.assertIsNone(review.skipped_until(entries, 'copilot', now + timedelta(days=4)))   # after the reset
+            self.assertIsNone(review.skipped_until(entries, 'coderabbit', now))
+
+    def test_a_rate_limited_reviewer_is_noted_until_the_time_its_comment_names(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self.cfg(d, ('coderabbit',))
+            later = (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
+            body = 'Review limit reached. Please wait **26 minutes and 35 seconds** before requesting another review.'
+            fake, said = FakeGh(events=[{'user': {'login': 'coderabbitai[bot]'}, 'created_at': later, 'body': body}]), []
+            done = SimpleNamespace(returncode=0, stdout='No findings.', stderr='')
+            with mock.patch.object(review.workers, 'available', return_value=(True, 'cheap')), \
+                    mock.patch.object(review.subprocess, 'run', return_value=done):
+                review.review(cfg, 7, 'o/r', timeout_minutes=1, gh_fn=fake, say=said.append, sleep=lambda s: None)
+            self.assertTrue(any('coderabbit is rate-limited: skipped until' in s for s in said))
+            now = datetime.now(timezone.utc)
+            until = review.skipped_until(pacing.read_log(state.usage_log_path(cfg)), 'coderabbit', now)
+            self.assertTrue(timedelta(minutes=20) < until - now < timedelta(minutes=30))
+        self.assertEqual(review.limit_reset('limit reached', NOW), NOW + review.LIMIT_DEFAULT)
+        self.assertEqual(review.limit_reset('wait 2 hours and 5 minutes', NOW), NOW + timedelta(hours=2, minutes=6))
 
     def test_no_fallback_worker_says_review_it_yourself(self):
         with tempfile.TemporaryDirectory() as d:

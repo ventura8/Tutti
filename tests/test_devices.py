@@ -57,7 +57,8 @@ class PolicyTest(unittest.TestCase):
         self.assertEqual(devices.status(devices.E2E_POLICY, GOOD, 'R58'), ('ready', 'ready: takes the next run'))
 
     def test_each_refusal_names_the_cause_and_the_fix(self):
-        cases = [({'adb': 'missing'}, 'adb is not installed'), ({**GOOD, 'state': 'unauthorized'}, 'tap Allow'),
+        cases = [({'adb': 'missing'}, 'adb is not installed'),
+                 ({'adb': 'broken'}, 'needs WSL interop'), ({**GOOD, 'state': 'unauthorized'}, 'tap Allow'),
                  ({**GOOD, 'state': 'offline'}, 'adb connect R58'), ({'adb': 'ok', 'state': 'missing'}, 'not connected'),
                  ({**GOOD, 'battery': None}, 'battery not readable'), ({**GOOD, 'battery': 20}, 'battery 20 % is under 50 %'),
                  ({**GOOD, 'charging': 0}, 'not charging'), ({**GOOD, 'battery_c': 41}, 'battery 41 C'),

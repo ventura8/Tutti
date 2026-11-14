@@ -2,7 +2,8 @@
 // refresh, showBanner, TOKEN). Every switch is a POST to /api/control, saved in the state folder (never in the config file).
 'use strict';
 
-const DEVICE_TONE = { ready: 'ok', busy: 'accent', waiting: 'warn', offline: 'bad', held: 'warn' };
+const DEVICE_TONE = { ready: 'ok', busy: 'accent', waiting: 'warn', offline: 'bad', held: 'warn', call: 'warn' };
+const DEVICE_CHIP = { held: 'paused', call: 'Paused: phone call' };
 
 async function control(body, failText) {
     try {
@@ -34,7 +35,7 @@ function deviceStats(d) {
 function device(d) {
     return el('li', { class: 'row' },
         el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `adb ${d.serial} · on ${d.machine}` })),
-        chip(d.status === 'held' ? 'paused' : d.status, DEVICE_TONE[d.status]),
+        chip(DEVICE_CHIP[d.status] || d.status, DEVICE_TONE[d.status]),
         deviceStats(d),
         el('p', { class: 'row__note', text: d.reason }));
 }
@@ -74,6 +75,7 @@ function optIn(o) {
             onclick: async () => {
                 // the autopilot's own switches (fill_room) are saved by /api/autopilot, the entries' by /api/control
                 if (o.kind === 'autopilot') await switchAutopilot({ [o.name]: !o.on }, `${label} was not switched.`);
+                else if (o.kind === 'dispatch') await postDispatch({ enabled: !o.on }, 'Keep busy was not switched.');
                 else await control({ action: 'optin', kind: o.kind, name: o.name, on: !o.on }, `${label} was not switched.`);
             } },
         o.on ? 'Turn off' : 'Turn on')));
@@ -88,8 +90,42 @@ function scoutRow(sc) {
         chip(state, sc.ready ? 'ok' : 'bad'));
 }
 
+// Keep busy (tutti/dispatch.py): POST /api/dispatch {enabled} switches it, {action: "now"} runs a round now.
+async function postDispatch(body, failText) {
+    try {
+        const res = await fetch('/api/dispatch', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify(body),
+        });
+        const answer = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(answer.error || `the dashboard answered ${res.status}`);
+        await refresh();
+    } catch (err) {
+        showBanner(el('strong', { text: `${failText} ` }), err.message);
+    }
+}
+
+async function fixIdle(f) {
+    const failText = `${f.label} did not work.`;
+    if (f.action === 'dispatch_on') await postDispatch({ enabled: true }, failText);
+    else if (f.action === 'dispatch_now') await postDispatch({ action: 'now' }, failText);
+    else if (f.action === 'autopilot_on') await switchAutopilot({ enabled: true }, failText);
+    else if (f.action === 'resume') await control({ action: 'resume', kind: f.kind, name: f.name }, failText);
+    else if (f.action === 'optin') await control({ action: 'optin', kind: f.kind, name: f.name, on: true }, failText);
+}
+
+// The idle watchdog: a device, machine or worker idle past dispatch.idle_minutes while work waits for it, and why.
+function idleWarning(w) {
+    return el('li', { class: 'row row--attention', 'data-tone': w.state === 'blocked' ? 'bad' : 'warn' },
+        el('div', { class: 'row__name' }, w.name, el('span', { class: 'row__kind', text: w.kind })),
+        chip(w.state, w.state === 'blocked' ? 'bad' : 'warn'),
+        el('div', { class: 'row__stats' }, w.fix
+            ? el('button', { class: 'btn btn--tonal', type: 'button', onclick: async () => { await fixIdle(w.fix); } }, w.fix.label) : null),
+        el('p', { class: 'row__note', text: w.text }));
+}
+
 function renderControls(s) {
     const devices = s.devices?.items || [];
+    $('idle-warnings').replaceChildren(...(s.dispatch?.warnings || []).map(idleWarning));
     const c = s.controls || { opt_in: [], paused: [] };
     const paused = new Map(c.paused.map((p) => [`${p.kind}:${p.name}`, p]));
     $('controls-meta').textContent = `${devices.length} device${devices.length === 1 ? '' : 's'} · ${c.paused.length} paused`;

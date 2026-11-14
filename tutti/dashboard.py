@@ -41,6 +41,7 @@ from . import (
     update,
     workers,
 )
+from . import dispatch as keepbusy  # dashboard.dispatch() routes POSTs
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 BIND = '127.0.0.1'
@@ -136,6 +137,12 @@ class Collector:
         threading.Thread(target=go, name='tutti-update', daemon=True).start()
         return True
 
+    def dispatch_tick(self):
+        """One dispatch round after each probe: idle devices and machines pull pending shards; the idle watchdog's rows."""
+        snap = self.snapshot()
+        accounts = {a['name']: a for a in snap['usage']['accounts']}
+        return keepbusy.tick(self.cfg, snap['devices']['items'], snap['machines']['items'], accounts)
+
     def scouts_tick(self):
         """One scouts round after each probe: answers collected, due watches and queued questions sent within the allowance."""
         if not self.cfg.get('scouts'):
@@ -155,6 +162,7 @@ class Collector:
                 self.refresh()
                 self.update_round()
                 self.autopilot_tick()
+                self.dispatch_tick()
                 self.scouts_tick()
                 dashtelemetry.tick(self.cfg)
             except Exception as e:  # a probe bug must not end the loop; the page shows the last good data and its age
@@ -186,6 +194,9 @@ class Collector:
         out['controls']['opt_in'].append({'kind': 'autopilot', 'name': 'fill_room', 'on': out['autopilot']['fill_room'],
                                           'why': 'free room on the trigger accounts is filled from the repos\' sources by itself'})
         out['controls']['autocompact'] = autocompact.view(self.cfg)
+        out['dispatch'] = keepbusy.view(self.cfg)
+        out['controls']['opt_in'].append({'kind': 'dispatch', 'name': 'keep_busy', 'on': out['dispatch']['enabled'],
+                                          'why': 'idle devices and machines pull pending test shards by themselves; idle ones warn'})
         autocompact.tag_jobs(self.cfg, out['jobs']['items'])
         last = update.load(self.cfg)
         out['updates'] = {**update.view(self.cfg, last), 'running': self.updating.locked(), 'error': (last or {}).get('error')}
@@ -368,8 +379,23 @@ def save_autocompact(collector, raw):
     return 200, {'ok': True, 'threshold_pct': autocompact.threshold(collector.cfg)}
 
 
+def save_dispatch(collector, raw):
+    """(status, answer) for POST /api/dispatch {"enabled": true|false} (the Keep busy switch) or {"action": "now"} (a round now)."""
+    try:
+        data = json.loads(raw or b'null')
+    except ValueError:
+        data = None
+    if isinstance(data, dict) and isinstance(data.get('enabled'), bool):
+        keepbusy.set_enabled(collector.cfg, data['enabled'])
+        return 200, {'ok': True, 'enabled': data['enabled']}
+    if isinstance(data, dict) and data.get('action') == 'now':
+        p = collector.dispatch_tick()
+        return 200, {'ok': True, 'sent': len(p['assign']), 'blocked': p['blocked']}
+    return 400, {'error': 'send {"enabled": true|false} to switch Keep busy, or {"action": "now"} for a dispatch round now'}
+
+
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
-         '/api/owner', '/api/autocompact', '/api/update')
+         '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch')
 
 
 def post(collector, headers, path, port, token, read):
@@ -382,6 +408,7 @@ def post(collector, headers, path, port, token, read):
         return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, {"agent": ...} to /api/main, '
                           '{"enabled": ...} to /api/autopilot or /api/self-improve, {"action": ...} to /api/control, '
                           '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, '
+                          '{"enabled"|"action": ...} to /api/dispatch, '
                           '{"consent"|"error"|"use": ...} to /api/telemetry, or {} to /api/update'}
     refused = check_post(headers, host, token)
     if refused:
@@ -415,6 +442,7 @@ HANDLERS = {
     '/api/owner': lambda c, b: save_owner(c.cfg, b),
     '/api/control': save_control,
     '/api/autocompact': save_autocompact,
+    '/api/dispatch': save_dispatch,
     '/api/refresh': refresh_now,
     '/api/reading': lambda c, b: save_reading(c.cfg, b),
     '/api/telemetry': dashtelemetry.save,

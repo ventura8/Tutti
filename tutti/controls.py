@@ -177,5 +177,10 @@ def view(cfg, data):
             if why:
                 on = (data['enabled'].get(key(kind, name)) or {}).get('on', (e or {}).get('enabled') is True)
                 opt_in.append({'kind': kind, 'name': name, 'on': bool(on), 'why': OPT_IN_WHY[why]})
+    from . import dispatch  # dispatch imports this module
+    if any(s['kind'] in dispatch.LIGHT and 'android' in s['targets'] for s in dispatch.suites(cfg)):
+        for name, d in (cfg.get('devices') or {}).items():
+            on = (data['enabled'].get(key('device', name)) or {}).get('on', (d or {}).get('enabled') is True)
+            opt_in.append({'kind': 'device', 'name': name, 'on': bool(on), 'why': 'Android lint and unit runs (adb)'})
     paused = [{'kind': k.partition(':')[0], 'name': k.partition(':')[2], **v} for k, v in data['paused'].items()]
     return {'opt_in': opt_in, 'paused': paused}

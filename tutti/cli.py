@@ -20,6 +20,7 @@ from . import (
     delegate,
     devices,
     discover,
+    dispatch,
     doctor,
     files,
     groksetup,
@@ -957,6 +958,27 @@ def cmd_autopilot(cfg, a):
     return 0
 
 
+def cmd_dispatch(cfg, a):
+    """`tutti dispatch [status|on|off|now|run <lease>]`: keep devices and machines busy while test shards wait."""
+    if a.action in ('on', 'off'):
+        dispatch.set_enabled(cfg, a.action == 'on')
+        print(f'dispatch: {a.action}')
+        return 0
+    if a.action == 'run':
+        if not a.lease:
+            say('name the lease: tutti dispatch run <lease> (the dispatcher starts these itself)')
+            return 2
+        return dispatch.run(cfg, a.lease)
+    if a.action == 'now':
+        p = dispatch.live_tick(cfg)
+        for t, w in p['assign']:
+            print(f'sent {w["project"]} {w["key"]} to {t["id"]}')
+        for tid, why in p['blocked'].items():
+            print(f'{tid}: blocked by {why}')
+    print(dispatch.describe_view(dispatch.view(cfg)))
+    return 0
+
+
 def cmd_selfimprove(cfg, a):
     """`tutti selfimprove [status|on|off|tick]` (docs/TELEMETRY.md, *Self-improvement*)."""
     if a.action in ('on', 'off'):
@@ -1220,6 +1242,10 @@ def parser():
     s.add_argument('--days', type=int, default=7, help='report: the last this many days (7)')
     s.add_argument('--json', action='store_true', help='report: print the summary as JSON')
     s.add_argument('--test', action='store_true', help='send: one test event straight to the project, to check the DSN')
+    s = add('dispatch', cmd_dispatch, 'keep devices and machines busy: idle ones pull pending test shards (projects.<p>.tests) by '
+                                      'themselves: status, on, off, now (one round with fresh probes), run <lease> (internal)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'now', 'run'])
+    s.add_argument('lease', nargs='?', help='run: the lease id')
     s = add('selfimprove', cmd_selfimprove, 'crashes and insights become autopilot tasks, pull requests, and where a project '
                                             'allows it merges and patch releases: status, on, off, tick (one round now)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick'])

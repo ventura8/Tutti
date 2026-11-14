@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # device-readings.sh: one look at an Android device over adb, on the machine its adb sees it on. Prints key=value lines
-# (tutti/devices.py reads them): adb, state, locked, battery, charging, battery_c, screen, wifi. Read-only: it changes no
+# (tutti/devices.py reads them): adb, state, locked, battery, charging, battery_c, screen, call, wifi. Read-only: it changes no
 # setting; WAKE=1 only presses the wake key, so an e2e run does not start against a dark screen.
 # env: DEVICE_SERIAL (required: the serial `adb devices` lists, or ip:port for wireless debugging),
 #      DEVICE_LOCK (its lock file: reports whether a run holds it), ADB (adb), WAKE (0).
@@ -11,6 +11,8 @@ if [[ -n "${DEVICE_LOCK:-}" ]]; then
 	if flock -n "$DEVICE_LOCK" true 2> /dev/null; then echo "locked=0"; else echo "locked=1"; fi
 fi
 command -v "$adb" > /dev/null 2>&1 || { echo "adb=missing"; exit 0; }
+# a Windows adb.exe called from WSL without interop is found but cannot run ("Exec format error")
+timeout 20 "$adb" version > /dev/null 2>&1 || { echo "adb=broken"; exit 0; }
 echo "adb=ok"
 state=$(timeout 20 "$adb" devices 2> /dev/null | tr -d '\r' | awk -v s="$DEVICE_SERIAL" '$1 == s {print $2}')
 echo "state=${state:-missing}"
@@ -25,6 +27,9 @@ on dumpsys battery | awk -F': *' '
 w=$(on dumpsys power | grep -m1 -o 'mWakefulness=[A-Za-z]*')
 w=${w#mWakefulness=}
 if [[ "$w" = Awake ]]; then echo "screen=1"; elif [[ -n "$w" ]]; then echo "screen=0"; fi
+# the call state of every SIM slot (0 idle, 1 ringing, 2 offhook): the highest one, so a call on any slot counts
+c=$(on dumpsys telephony.registry | grep -o 'mCallState=[0-9]' | cut -d= -f2 | sort -n | tail -1)
+[[ -n "$c" ]] && echo "call=$c"
 s=$(on cmd wifi status)
 if printf '%s' "$s" | grep -qi 'connected to'; then echo "wifi=1"; elif [[ -n "$s" ]]; then echo "wifi=0"; fi
 exit 0

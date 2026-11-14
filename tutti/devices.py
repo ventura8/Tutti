@@ -2,6 +2,7 @@
 screen, Wi-Fi) shared with Termux machines. The readings come from scripts/device-readings.sh (adb) or from the Termux
 probe; deciding is pure and unit-tested here."""
 import os
+import re
 import shlex
 import time
 
@@ -108,6 +109,9 @@ def parse_readings(text, prefix=''):
 def _connection(r, serial):
     if r.get('adb') == 'missing':
         return 'adb is not installed on its machine: install the Android platform tools there (`adb version` must answer)'
+    if r.get('adb') == 'broken':
+        return ('adb is on its machine but does not run: a Windows adb.exe called from WSL needs WSL interop (the WSLInterop '
+                'binfmt entry; `ls /proc/sys/fs/binfmt_misc/WSLInterop` must list it), else install adb inside WSL')
     state = r.get('state')
     if state == 'unreachable':
         return 'its machine did not answer over ssh: check it is on and reachable (`tutti machines`)'
@@ -153,7 +157,8 @@ def unfit(pol, r, serial=''):
     """Why the device must not take a run now, or ''. Unreadable power readings refuse it: running blind on a phone is
     how a battery gets drained or cooked."""
     hint = 'install the Termux:API app and `pkg install termux-api`' if 'state' not in r else 'check `adb shell dumpsys battery` answers'
-    return _connection(r, serial) or _battery(pol, r, hint) or _use_charging(pol, r) or _heat(pol, r, hint) or _use(pol, r)
+    call = f'Paused: phone call ({CALL_WORDS[r["call"]]}): it waits until the call ends' if on_call(r) else ''
+    return _connection(r, serial) or call or _battery(pol, r, hint) or _use_charging(pol, r) or _heat(pol, r, hint) or _use(pol, r)
 
 
 def _use_charging(pol, r):
@@ -169,11 +174,28 @@ def note(pol, r):
     return ''
 
 
+CALL_IDLE, CALL_RINGING, CALL_OFFHOOK = 0, 1, 2
+CALL_WORDS = {CALL_RINGING: 'ringing', CALL_OFFHOOK: 'in a call'}
+
+
+def call_state(text):
+    """The phone's call state from `dumpsys telephony.registry`: every SIM slot has its own mCallState line (0 idle,
+    1 ringing, 2 offhook); a call on any slot counts, offhook over ringing. None when no line is readable (no telephony)."""
+    found = [int(m) for m in re.findall(r'mCallState=(\d)', text or '')]
+    return max(found) if found else None
+
+
+def on_call(r):
+    return r.get('call') in (CALL_RINGING, CALL_OFFHOOK)
+
+
 def status(pol, r, serial=''):
-    """(status, reason) for the dashboard and `tutti devices`: offline, busy, waiting or ready."""
+    """(status, reason) for the dashboard and `tutti devices`: offline, call, busy, waiting or ready."""
     why = unfit(pol, r, serial)
     if _connection(r, serial):
         return 'offline', why
+    if on_call(r):
+        return 'call', f'Paused: phone call ({CALL_WORDS[r["call"]]}); runs start again after it ends'
     if why:
         return 'waiting', why
     if r.get('locked') == 1:
@@ -193,7 +215,7 @@ def readings_command(device, scripts_dir, wake=False):
 def device_state(d, readings):
     pol = policy(d)
     st, reason = status(pol, readings, d['serial'])
-    keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi')
+    keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi', 'call')
     return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'status': st, 'reason': reason,
             'policy': pol, **{k: readings.get(k) for k in keep}}
 

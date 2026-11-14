@@ -2,6 +2,31 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.35 (2026-11-14)
+
+### Added
+
+- Keep busy (docs/DISPATCH.md), on by default: projects declare test suites (`projects.<p>.tests`: kind, target kinds
+  android and machine, `run` with `{shard}`, `shards` or `shards_from`, retries) and their latest commit (`commit:`).
+  Every shard not passed on that commit is pending. Idle devices and machines pull it on every dashboard round and the
+  moment a run ends. Pause, yield, heat, battery, quiet hours and opt-ins are respected; lint and unit runs on an Android
+  device are opt-in. A read-only project still gets test runs; the results stay in the state folder.
+- Leases with a heartbeat: `tutti dispatch run <lease>` touches its beat every 30 s and writes its exit code. A crashed or
+  silent run frees its target and its shard is retried.
+- The idle watchdog: a device, machine or worker idle past `dispatch.idle_minutes` (5) while compatible work waits gets a
+  warning row on the Controls card ("Idle 12 min while RoRadio has 14 e2e shards pending: blocked by ..."), an event, a
+  telemetry event and a fix button. The Keep busy switch is in the opt-in list; `tutti dispatch status|on|off|now`.
+- Phone calls: a device that rings or is in a call (`dumpsys telephony.registry`, every SIM slot) takes no new work and
+  shows "Paused: phone call". A running shard is looked at every 3 s: Home frees the screen, then the suite's
+  `pause`/`resume` hooks hold it, or it is stopped cleanly and queued again with no failure counted. Work resumes
+  `dispatch.resume_after_call_seconds` (30) after the call. Opt-in `dispatch.pause_on_owner_use`: a screen a person
+  turned on while no run drives the device holds it too.
+- `device-readings.sh` reports `call=` and an adb that is found but does not run (a Windows adb.exe from WSL without
+  interop), with the fix.
+- Project priorities: `projects.<p>.priority` (0 the highest), read through the shared `config.project_priority` and
+  `tutti/priority.py`'s `fair_order` (the same helper as the Settings tab and the autopilot). Free targets take pending
+  work by a weighted fair share (weight `1 / (priority + 1)`), so the higher priority goes first and no project starves.
+
 ## 0.1.34 (2026-11-14)
 
 ### Added

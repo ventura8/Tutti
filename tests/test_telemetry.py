@@ -73,8 +73,15 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.state = os.path.join(self.tmp.name, 'state')
-        self.folder = telemetry.configure(self.state, {'machines': {'nuc': {'host': 'my-nuc', 'user': 'alice'}}}, 'test', env={})
         self.env = {'XDG_CONFIG_HOME': os.path.join(self.tmp.name, 'xdg')}
+        # hermetic: a real DSN or opt-in on this machine (~/.config/tutti/telemetry.env, $TUTTI_SENTRY_DSN) is never read,
+        # so no test can send to a real Sentry or fail because of one; every call gets self.env, never {} (which falls back
+        # to the real ~/.config)
+        clean = {k: v for k, v in os.environ.items() if not k.startswith('TUTTI_')}
+        patcher = mock.patch.dict(os.environ, {**clean, **self.env}, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.folder = telemetry.configure(self.state, {'machines': {'nuc': {'host': 'my-nuc', 'user': 'alice'}}}, 'test', env=self.env)
 
     def tearDown(self):
         telemetry.unconfigure()
@@ -284,7 +291,7 @@ class Sending(Base):
             raise RuntimeError(f'boom at {HOME}/x')
         except RuntimeError as e:
             telemetry.capture_exception(type(e), e, e.__traceback__, where='cli')
-        r = telemetry.flush(self.folder, cfg, env={}, force=True)
+        r = telemetry.flush(self.folder, cfg, env=self.env, force=True)
         self.assertEqual(r['left'], 0)
         self.assertEqual({c['path'] for c in f.calls}, {'/api/42/envelope/'})
         self.assertIn('sentry_key=publickey', f.calls[0]['headers']['X-Sentry-Auth'])
@@ -298,43 +305,43 @@ class Sending(Base):
     def test_offline_keeps_the_queue_for_the_next_try(self):
         telemetry.record('command', 'run')
         cfg = self.cfg(dsn=f'http://k@127.0.0.1:{free_port()}/1')
-        r = telemetry.flush(self.folder, cfg, env={}, force=True)
+        r = telemetry.flush(self.folder, cfg, env=self.env, force=True)
         self.assertEqual((r['sent'], r['left']), (0, 1))
         self.assertTrue(telemetry.status(self.folder)['last_error'])
 
     def test_a_wrong_dsn_keeps_the_queue_and_says_so(self):
         f = self.fake(401)
         telemetry.record('command', 'run')
-        r = telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env={}, force=True)
+        r = telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env=self.env, force=True)
         self.assertEqual(r['left'], 1)
         self.assertIn('telemetry setup', telemetry.status(self.folder)['last_error'])
 
     def test_throttled_keeps_and_refused_drops(self):
         f = self.fake(429)
         telemetry.record('command', 'run')
-        self.assertEqual(telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env={}, force=True)['left'], 1)
+        self.assertEqual(telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env=self.env, force=True)['left'], 1)
         f.status = [400]
-        self.assertEqual(telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env={}, force=True)['left'], 0)
+        self.assertEqual(telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env=self.env, force=True)['left'], 0)
 
     def test_nothing_is_sent_without_consent_or_a_target(self):
         f = self.fake()
         telemetry.record('command', 'run')
-        self.assertIn('setup', telemetry.flush(self.folder, self.cfg(), env={}, force=True)['why'])
+        self.assertIn('setup', telemetry.flush(self.folder, self.cfg(), env=self.env, force=True)['why'])
         telemetry.set_consent(self.folder, False)
-        self.assertIn('off', telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env={}, force=True)['why'])
+        self.assertIn('off', telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env=self.env, force=True)['why'])
         self.assertEqual(f.calls, [])
 
     def test_a_flush_waits_its_interval(self):
         f = self.fake()
         telemetry.record('command', 'run')
-        telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env={}, force=True)
+        telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env=self.env, force=True)
         telemetry.record('command', 'run')
-        self.assertEqual(telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env={})['why'], 'sent recently')
+        self.assertEqual(telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env=self.env)['why'], 'sent recently')
 
     def test_a_custom_endpoint_gets_json_batches(self):
         f = self.fake()
         telemetry.record('command', 'run')
-        telemetry.flush(self.folder, self.cfg(endpoint=f'http://127.0.0.1:{f.port}/collect'), env={}, force=True)
+        telemetry.flush(self.folder, self.cfg(endpoint=f'http://127.0.0.1:{f.port}/collect'), env=self.env, force=True)
         body = json.loads(f.calls[0]['body'])
         self.assertEqual(body['items'][0]['event']['name'], 'run')
 
@@ -352,7 +359,7 @@ class Wrapper(Base):
             f.write(f'project: {{state: {self.state}}}\n')
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             rc = telemetrycmd.run(cli.main, ['--config', cfg_path, 'wait', 'file', '/nonexistent/secret-name', '--timeout', '0.01',
-                                             '--poll', '0.01'], env={})
+                                             '--poll', '0.01'], env=self.env)
         self.assertEqual(rc, 124)
         ev = [e for e in telemetry.read_events(self.folder) if e['kind'] == 'command'][-1]
         self.assertEqual((ev['name'], ev['rc'], ev['outcome']), ('wait', 124, 'failed'))
@@ -363,7 +370,7 @@ class Wrapper(Base):
         def boom(_argv):
             raise ZeroDivisionError('x')
         with self.assertRaises(ZeroDivisionError):
-            telemetrycmd.run(boom, ['--config', '/nonexistent.yaml', 'backlog', 'add', 'r', 'title'], env={})
+            telemetrycmd.run(boom, ['--config', '/nonexistent.yaml', 'backlog', 'add', 'r', 'title'], env=self.env)
         kinds = [e['kind'] for e in telemetry.read_events(telemetry._ctx['folder'])]
         self.assertIn('crash', kinds)
 

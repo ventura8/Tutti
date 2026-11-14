@@ -171,6 +171,40 @@ def explain_single(name, p, when):
     return f'{head} → {p["tasks"]} task(s) now, behind its pace' if p['tasks'] else f'{head} → no extra tasks (not behind its pace)'
 
 
+def _decision_single(p):
+    if p.get('owner_reserve') is not None:
+        return (f'{p["tasks"]} task(s) now', 'spread evenly to the target') if p['tasks'] else ('nothing more now', '')
+    return (f'{p["tasks"]} task(s) now', 'behind its pace') if p['tasks'] else ('no extra tasks', 'not behind its pace')
+
+
+def rows(p):
+    """The plan as label/value rows for the account card (the card names the account): {label, value} or {label, at} for a
+    time (ISO, UTC), which the page shows in the viewer's own time with UTC in a tooltip."""
+    out = []
+    if p['limit']:
+        out.append({'label': 'This window', 'value': f'{p["this_window"]:g} of {p["allowance"]:g} weekly points'})
+        out.append({'label': 'Windows left', 'value': f'{p["runnable"]} of {p["windows"]} can run'})
+    else:
+        out.append({'label': 'Points left', 'value': f'{p["left"]:g}'})
+    out.append({'label': 'Spend by', 'at': p['expires']})
+    if p.get('resets'):
+        out.append({'label': 'Resets', 'at': p['resets']})
+    if not p['limit'] and p.get('background'):
+        out.append({'label': 'Outside Tutti', 'value': f'{p["background"]:g} points expected'})
+    if p.get('owner_reserve'):
+        unit = 'weekly points' if p['limit'] else 'points'
+        out.append({'label': 'Kept for the owner', 'value': f'{p["owner_reserve"]:g} {unit} ({p["mode"]})'})
+    if p['limit']:
+        decision = f'{p["tasks"]} task(s) now' if p['tasks'] else 'nothing more this window'
+        why = f'{p["lose"]:g} % would be lost at its end' if p['tasks'] else ''
+    else:
+        decision, why = _decision_single(p)
+    out.append({'label': 'Decision', 'value': decision})
+    if why:
+        out.append({'label': 'Why', 'value': why})
+    return out
+
+
 def explain(name, p, now):
     """One line for the dashboard: the spend-by time (the reset minus the lead: what `expires` is), the reset itself (as the
     meter says it), what it may still spend, what would be lost and what Tutti does."""
@@ -195,7 +229,7 @@ def bind(own, limits, a, accounts, hours, now, owner=None):
         return out
     plans = [plan_limited(own, lim, a, accounts.get(lim['name']) or {}, hours, owner, now) for lim in ok]
     p = min(plans, key=lambda x: (x['tasks'], x['left']))   # the fewest tasks: points of different limits do not compare
-    p['why'] = explain(own['name'], p, now)
+    p['why'], p['rows'] = explain(own['name'], p, now), rows(p)
     lim_tasks = p['tasks']
     out.update(quota_plan=p, room_tasks=min(own['room_tasks'], lim_tasks) if own['room_tasks'] else (lim_tasks or None))
     if p['left'] <= 0:
@@ -212,5 +246,5 @@ def plan_alone(s, a, now, rate=None, owner=None):
     if s['state'] != 'ok':
         return s
     p = plan_single(s, a, now, rate, owner)
-    p['why'] = explain(s['name'], p, now)
+    p['why'], p['rows'] = explain(s['name'], p, now), rows(p)
     return {**s, 'quota_plan': p}

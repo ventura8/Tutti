@@ -110,8 +110,10 @@ TUTTI-TASK: <what to change> || check: <a command that fails before the fix and 
 Those lines become backlog tasks (`source: sentry`, tagged with the project, one per Sentry issue, within
 `self_improve.max_new_per_day`; the `check:` is only a hint for the worker, never run: the repo's own check is the
 acceptance) only for a project that
-opts in with `self_improve: {tasks: true, autopilot_repo: <repo>}`; with self-improvement off they wait as `candidate`
-until `tutti backlog accept <id>`. A project without that opt-in (one Tutti may only read) gets the issue alone. What
+opts in with `self_improve: {tasks: true, autopilot_repo: <repo>}`. With self-improvement on and
+`self_improve.auto_accept` (default `true`) they join the queue by themselves, so `fill_room` and the autopilot pick them
+up; a candidate left from a time it was off is queued at the next self-improvement round. With either off they wait as
+`candidate` until `tutti backlog accept <id>`. A project without that opt-in (one Tutti may only read) gets the issue alone. What
 happens next (pull request, reviews, merge only where allowed) is docs/TELEMETRY.md, *Self-improvement*.
 
 On demand: `tutti scout ask grok "triage Sentry issue <id> in <org>/<project>: cause, file, commit, fix, severity"

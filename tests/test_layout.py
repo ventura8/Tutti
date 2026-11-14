@@ -55,6 +55,19 @@ class Attention(unittest.TestCase):
     def test_nothing_when_all_is_clear(self):
         self.assertEqual(js('tuttiAttention({})'), [])
 
+    def test_the_planner_rows_show_local_time_with_utc_in_the_tooltip(self):
+        plan = {'rows': [{'label': 'Points left', 'value': '86'}, {'label': 'Spend by', 'at': '2026-12-09T21:00:00+00:00'},
+                         {'label': 'Why', 'value': ''}]}
+        fmt = "(iso) => new Intl.DateTimeFormat('en-GB', {timeZone: 'Europe/Bucharest', weekday: 'short', day: '2-digit', " \
+              "month: 'short', hour: '2-digit', minute: '2-digit'}).format(new Date(iso))"
+        rows = js(f'tuttiPlanRows({json.dumps(plan)}, {fmt})')
+        self.assertEqual(rows[0], {'label': 'Points left', 'text': '86', 'title': ''})
+        self.assertEqual(rows[1]['label'], 'Spend by')
+        self.assertIn('23:00', rows[1]['text'])                           # the viewer's time (Bucharest: UTC+2)
+        self.assertEqual(rows[1]['title'], 'Wed 09 Dec 2026 21:00 UTC')   # UTC in the tooltip
+        self.assertEqual(len(rows), 2)                                     # an empty row is left out
+        self.assertEqual(js('tuttiPlanRows(null, String)'), [])
+
     def test_long_lists_fold(self):
         self.assertEqual(js('tuttiMore(10, 4, false)'), {'shown': 4, 'hidden': 6, 'button': 'Show 6 more'})
         self.assertEqual(js('tuttiMore(10, 4, true)'), {'shown': 10, 'hidden': 0, 'button': 'Show fewer'})

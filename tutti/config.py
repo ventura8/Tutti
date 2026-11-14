@@ -65,8 +65,9 @@ DEFAULTS = {
     # collector instead of Sentry; environment: Sentry's environment tag
     'telemetry': {'sentry_dsn': '', 'endpoint': '', 'environment': 'production'},
     # self_improve: crashes and insights become autopilot tasks, PRs and (where a project allows) merges and patch releases;
-    # home: the project Tutti's own fixes go to (docs/TELEMETRY.md, *Self-improvement*)
-    'self_improve': {'enabled': True, 'every_hours': 6, 'max_new_per_day': 3, 'min_count': 3, 'home': ''},
+    # home: the project Tutti's own fixes go to (docs/TELEMETRY.md, *Self-improvement*); auto_accept: a Sentry or scout triage
+    # task joins the queue by itself, no `tutti backlog accept` (still the 3-a-day cap and the dedupe)
+    'self_improve': {'enabled': True, 'auto_accept': True, 'every_hours': 6, 'max_new_per_day': 3, 'min_count': 3, 'home': ''},
     # autocompact: a worker agent's context is compacted at threshold_pct of its window (tutti/autocompact.py); the
     # dashboard can change the percentage; context_tokens is the window when workers.<w>.context_tokens does not say
     'autocompact': {'enabled': True, 'threshold_pct': 60, 'context_tokens': 200000},

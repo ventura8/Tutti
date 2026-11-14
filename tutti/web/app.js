@@ -275,6 +275,13 @@ function accountFacts(a) {
     ]);
 }
 
+// The planner's plan as label/value rows (attention.js builds them), times in the viewer's time with UTC as the tooltip.
+function planFacts(plan) {
+    const rows = tuttiPlanRows(plan, (iso) => fmtTime.format(new Date(iso)));
+    return el('dl', { class: 'account__facts account__plan', 'aria-label': 'Planner' },
+        ...rows.flatMap((r) => [el('dt', { text: r.label }), el('dd', { text: r.text, ...(r.title ? { title: r.title } : {}) })]));
+}
+
 // The details of an account fold away so the cards stay compact in one row; an open one stays open across polls.
 function factsToggle(a) {
     const d = el('details', { class: 'account__more', open: ui.expanded.has(`facts:${a.name}`) }, el('summary', { text: 'Details' }), accountFacts(a));
@@ -315,6 +322,15 @@ function roomLine(a) {
         hint ? '' : el('button', { class: 'btn btn--tonal', type: 'button', 'data-fill': a.name, onclick: fillRoom, text: 'Let autopilot fill it' }));
 }
 
+// A scout's account (Grok Bot): its allowance, the next watch and the last answer, never room for bounded tasks.
+function scoutFacts(sc) {
+    const f = sc.facts || {};
+    const allowance = f.used === null || f.used === undefined ? 'allowance: no reading yet' : `allowance: ${f.used} % used, ${f.left} % left`;
+    const next = f.next_watch ? `next watch: ${f.next_watch.name} ${when(f.next_watch.at)}` : 'no watches';
+    const last = f.last_answer ? `last answer ${relative(f.last_answer.at)}: ${f.last_answer.text || f.last_answer.id}` : 'no answer yet';
+    return el('p', { class: 'account__nudge', 'data-tone': 'ok', 'data-scout': sc.name, text: `Scout ${sc.name} · ${allowance} · ${next} · ${last}` });
+}
+
 async function fillRoom() {
     await switchAutopilot({ enabled: true, fill_room: true }, 'The autopilot was not switched on.');
 }
@@ -337,12 +353,15 @@ function account(a, now) {
     }
     if (a.reset) card.append(sparkline(a, now));
     card.append(el('p', { class: 'account__action', text: `Do: ${a.action}` }));
-    if (a.quota_plan?.why) card.append(el('p', { class: 'account__plan', text: `Planner: ${a.quota_plan.why}` }));
+    if (a.quota_plan?.rows?.length) card.append(planFacts(a.quota_plan));
+    else if (a.quota_plan?.why) card.append(el('p', { class: 'account__plan', text: `Planner: ${a.quota_plan.why}` }));
     if (a.projected_end !== undefined && a.projected_end !== null) {
         card.append(el('p', { class: 'account__auto', 'data-tone': a.projected_end < 90 ? 'warn' : 'ok',
             text: `On track to finish at ${a.projected_end} % by its reset (the last day's rate carried on)` }));
     }
-    if (a.room_tasks) card.append(roomLine(a));
+    const scout = (ui.scouts?.items || []).find((i) => i.account === a.name);
+    if (scout) card.append(scoutFacts(scout));   // a scout answers questions: no task room on its card
+    else if (a.room_tasks) card.append(roomLine(a));
     if (a.credits_used !== undefined) card.append(el('p', { class: 'account__auto', text: `${a.credits_used} AI credits in this window from Tutti's runs` }));
     if (a.stale) card.append(el('p', { class: 'account__remind', 'data-tone': 'warn', role: 'note', text: `Reminder: ${a.remind}` }));
     card.append(factsToggle(a), autoLine(a) || '');
@@ -980,6 +999,7 @@ function render() {
     $('foot-version').textContent = `Tutti ${s.version}`;
     renderTiles(s);
     ui.autopilot = s.autopilot;   // the accounts' room lines say what the autopilot does with the room
+    ui.scouts = s.scouts;         // a scout's account card shows its scout facts, not task room
     renderUsage(s, now);
     renderAttention(s);
     renderControls(s);   // controls.js: devices, pause and resume, opt-in switches

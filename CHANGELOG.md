@@ -2,6 +2,32 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.30 (2026-11-14)
+
+### Changed
+
+- The dashboard's Grok Bot card (a scout's account) shows its scout facts, the allowance used and left, the next watch
+  and the last answer, instead of "N bounded tasks fit here now": a scout takes no tasks.
+- Sentry and scout triage tasks join the backlog queue by themselves when self-improvement is on
+  (`self_improve.auto_accept`, default `true`), so `fill_room` and the autopilot pick them up; a waiting candidate is
+  queued at the next self-improvement round. The 3-a-day cap and the dedupe hold; a read-only project (RoRadio) still
+  gets the issue only.
+
+- `tutti pr review` skips a reviewer whose allowance is used and goes straight to the fallback: its account (named like
+  the reviewer, `copilot` or `coderabbit`) reads 100 % with a reset still ahead (`tutti usage log copilot 100 --resets
+  2026-12-01T00:00Z`), or its last PR comment said it is rate-limited (the reading is then written by itself, until the
+  time the comment names, else an hour). It says which reviewer was skipped and until when; after the reset it is asked
+  again by itself.
+
+- The planner on every account card is label/value rows (Points left, Spend by, Resets, Decision, Why; `quota_plan.rows`)
+  instead of one run-on sentence, without the account's name; times in the viewer's own time, UTC in the tooltip.
+
+### Fixed
+
+- Self-improvement insight tasks also wait as `candidate` when `self_improve.auto_accept` is off (cursor's review).
+- The telemetry *Sending* tests are hermetic: a real DSN in `~/.config/tutti/telemetry.env` or a `TUTTI_*` variable on
+  the machine can no longer make a test send to Sentry or fail.
+
 ## 0.1.29 (2026-11-14)
 
 ### Added

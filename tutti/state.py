@@ -291,6 +291,7 @@ def log_job(path, kind, now, stall, is_alive):
         prog = {'done': 1, 'total': 1, 'pct': 100, 'source': 'finished'}
     return {'id': f'{kind}:{os.path.basename(path)}', 'kind': kind, 'title': title, 'pid': pid, 'log': path, 'started': iso(started),
             'updated': iso(updated), 'idle_seconds': round(now - updated) if updated else None, 'rc': rc,
+            'ended': iso(mtime(path + '.rc')) if rc is not None else None,   # the result file is written when it ends
             'status': status, 'tail': lines, 'progress': prog}
 
 

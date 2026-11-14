@@ -41,6 +41,7 @@ class Base(unittest.TestCase):
         self.cfg = cfg_of(self.dir)
         os.makedirs(os.path.join(self.dir, 'state'))
         jobprogress._histories.clear()
+        jobprogress._scans.clear()
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -87,7 +88,8 @@ class ShapeTest(Base):
         p = self.one(job(kind='run', title='run agy: x', log=log, started=iso(NOW - 60)))['progress']
         self.assertEqual((p['layer'], p['done'], p['total'], p['pct']), ('shape', 1, 3, 33))
         self.assertIn('phase 2 of 3: the worker works', p['label'])
-        write(log, 'run: new worktree /x\nrun: checking the change (1 check(s))\n')
+        with open(log, 'a', encoding='utf8') as f:
+            f.write('much output\n' * 100000 + 'run: checking the change (1 check(s))\n')
         self.assertEqual(self.one(job(kind='run', title='run agy: x', log=log))['progress']['step'], 'checks')
 
     def test_configured_phases_and_counted_lines(self):
@@ -127,7 +129,8 @@ class ShapeTest(Base):
 
 class EstimateTest(Base):
     def done_job(self, i, seconds):
-        return job(id=f'quiet:{i}', status='done', started=iso(NOW - 1000), updated=iso(NOW - 1000 + seconds), rc=0)
+        return job(id=f'quiet:{i}', status='done', started=iso(NOW - 1000), updated=iso(NOW - 1000 + seconds),
+                   ended=iso(NOW - 1000 + seconds), rc=0)
 
     def test_history_gives_an_estimate_capped_and_late(self):
         jobprogress.annotate(self.cfg, [self.done_job(i, s) for i, s in enumerate((100, 200, 300))], NOW)
@@ -161,6 +164,54 @@ class EstimateTest(Base):
         jobprogress.annotate(self.cfg, [dict(c)], NOW, machines=[{'name': 'nuc', 'reachable': True}])
         jobprogress.annotate(self.cfg, [], NOW + 10, machines=[{'name': 'nuc', 'reachable': True}])
         self.assertEqual(jobprogress.history(self.cfg).durations('remote hcm-nuc @ nuc'), [300])
+
+
+class ReviewFixesTest(Base):
+    def test_config_rejects_bad_types(self):
+        shapes = {'p': {'kind': 'run', 'phases': {'name': 'x'}}, 't': {'kind': 'run', 'count': 'x', 'total': 'many'}}
+        errs = '\n'.join(config._shape_errors(shapes)
+                          + config._typical_errors({'agent': '20', 'conduct': 0, 'x': None}) + config._typical_errors([1]))
+        for want in ('shapes.p.phases is', 'shapes.t.total is', 'typical_minutes.agent is', 'typical_minutes is [1]'):
+            self.assertIn(want, errs)
+        self.assertNotIn('conduct', errs)
+
+    def test_configured_shapes_come_before_the_built_in_ones(self):
+        mine = {'kind': 'run', 'match': 'special', 'phases': [{'name': 'a'}, {'name': 'b', 'when': '^b'}]}
+        self.cfg = cfg_of(self.dir, shapes={'mine': mine})
+        self.assertEqual(jobprogress.shape_for({'kind': 'run', 'title': 'run x: special'}, jobprogress.shapes(self.cfg))[0], 'mine')
+        self.assertEqual(jobprogress.shape_for({'kind': 'run', 'title': 'run x: other'}, jobprogress.shapes(self.cfg))[0], 'tutti run')
+
+    def test_a_failed_total_command_is_no_total(self):
+        def run(cmd, **kw):
+            return subprocess.CompletedProcess(cmd, 1, stdout='51\n')
+        self.assertIsNone(jobprogress.total_of('printf 51; exit 1', None, (), run=run))
+
+    def test_each_finished_job_is_learned_once_beyond_the_kept_samples(self):
+        jobs = [job(id=f'quiet:{i}', status='done', started=iso(NOW - 100), ended=iso(NOW), rc=0) for i in range(40)]
+        h = jobprogress.history(self.cfg)
+        jobprogress.annotate(self.cfg, [dict(j) for j in jobs], NOW)
+        h.dirty = False
+        jobprogress.annotate(self.cfg, [dict(j) for j in jobs], NOW + 5)
+        self.assertEqual(len(h.durations('quiet npm @ local')), jobprogress.KEEP)
+        self.assertFalse(h.dirty)
+
+    def test_a_failed_job_leaves_the_running_records_even_when_already_dirty(self):
+        h = jobprogress.history(self.cfg)
+        jobprogress.annotate(self.cfg, [job(id='q:1', started=iso(NOW - 100))], NOW)
+        h.dirty = True
+        jobprogress.annotate(self.cfg, [job(id='q:1', status='failed', rc=1, started=iso(NOW - 100))], NOW + 5)
+        self.assertNotIn('q:1', h.data['running'])
+
+    def test_a_finished_job_is_learned_on_its_shapes_machine(self):
+        self.cfg = cfg_of(self.dir, shapes={'stage': {'match': r'STAGE=(\w+)', 'machine': 'box'}})
+        jobprogress.annotate(self.cfg, [job(id='s:1', kind='script', title='t STAGE=static', status='done', rc=0,
+                                            started=iso(NOW - 100), ended=iso(NOW))], NOW)
+        self.assertEqual(jobprogress.history(self.cfg).durations('stage static @ box'), [100])
+
+    def test_a_background_commands_output_gives_facts(self):
+        path = write(os.path.join(self.dir, 'b1.output'), 'running\n== 5 passed, 1 failed in 2s ==\n')
+        f = self.one(job(kind='agent task', path=path, title='background task b1.output'))['facts']
+        self.assertEqual(f['tests'], {'passed': 5, 'failed': 1})
 
 
 class AgentTest(Base):
@@ -213,7 +264,10 @@ class FactsTest(Base):
         self.assertIsNone(jobfacts.transcript_tokens(os.path.join(self.dir, 'missing')))
 
     def test_a_finished_job_has_no_bar_but_its_result(self):
-        j = self.one(job(status='failed', rc=2, started=iso(NOW - 70), updated=iso(NOW - 10), tail=['3 passed, 2 failed'],
+        silent = self.one(job(status='done', rc=0, started=iso(NOW - 70), updated=iso(NOW - 69)))   # no known end: no duration
+        self.assertNotIn('seconds', silent['facts'])
+        j = self.one(job(status='failed', rc=2, started=iso(NOW - 70), updated=iso(NOW - 69), ended=iso(NOW - 10),
+                         tail=['3 passed, 2 failed'],
                          progress={'done': 1, 'total': 1, 'pct': 100, 'source': 'finished'}))
         self.assertIsNone(j['progress'])
         self.assertEqual({k: j['facts'][k] for k in ('result', 'rc', 'seconds', 'tests')},
@@ -231,9 +285,13 @@ class FactsTest(Base):
                          ('agy-claude', 1.5, {'files': 2, 'plus': 2, 'minus': 2}, '/r.txt', {'passed': 1, 'failed': 1}))
 
     def test_a_running_run_counts_its_worktree_changes(self):
+        write(os.path.join(self.dir, 'new.py'), 'a\nb\n')
+
         def run(cmd, **kw):
+            if 'ls-files' in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout=b'new.py\0')
             return subprocess.CompletedProcess(cmd, 0, stdout=' 3 files changed, 9 insertions(+)\n')
-        self.assertEqual(jobfacts.diff_files(self.dir, clock=lambda: 0, run=run), {'files': 3, 'plus': 9, 'minus': 0})
+        self.assertEqual(jobfacts.diff_files(self.dir, clock=lambda: 0, run=run), {'files': 4, 'plus': 11, 'minus': 0})
 
 
 class EveryRunningJobTest(Base):

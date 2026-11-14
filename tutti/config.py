@@ -377,7 +377,19 @@ def _dashboard_errors(d):
         v = d.get(key)
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0:
             errs.append(f'dashboard.{key} is {v!r}: use a number above 0')
-    return errs + _shape_errors(d.get('shapes'))
+    return errs + _shape_errors(d.get('shapes')) + _typical_errors(d.get('typical_minutes'))
+
+
+def _positive(v):
+    return not isinstance(v, bool) and isinstance(v, (int, float)) and math.isfinite(v) and v > 0
+
+
+def _typical_errors(t):
+    """dashboard.typical_minutes: {job kind: minutes}; 0 or null turns the rough estimate off for that kind."""
+    if not isinstance(t, dict):
+        return [f'dashboard.typical_minutes is {t!r}: write it as a mapping such as {{agent: 20}}, or remove the key']
+    return [f'dashboard.typical_minutes.{k} is {v!r}: use minutes above 0, or 0 / null to turn it off'
+            for k, v in t.items() if v not in (None, 0) and not _positive(v)]
 
 
 def _shape_errors(shapes):
@@ -394,6 +406,10 @@ def _one_shape_errors(where, s):
     errs = []
     if s.get('count') and not (s.get('total') or s.get('total_command')):
         errs.append(f'{where}.count: give total (a number) or total_command (prints the number)')
+    if 'total' in s and not _positive(s['total']):
+        errs.append(f'{where}.total is {s["total"]!r}: use a number above 0, or total_command')
+    if 'phases' in s and not isinstance(s['phases'], list):
+        errs.append(f'{where}.phases is {s["phases"]!r}: write a list such as [{{name: build}}, {{name: test, when: "^test"}}]')
     errs += _regex_errors(f'{where}.match', s['match']) if s.get('match') else []
     errs += _regex_errors(f'{where}.count', s['count']) if s.get('count') else []
     phases = s.get('phases') or []

@@ -91,8 +91,8 @@ Every running job gets a number, never a fake precise one; each says where it co
 | Layer | Source | Shown |
 | --- | --- | --- |
 | 1 exact | `tutti progress n/m`; a counter in the log: `[150/177]`, pytest's `[ 13%]`, `stage 2 of 4`, `12/40 tests`, a pipeline's `static 3/51 eslint`, docker's `Step 3/12`, rsync's `45%`, a file transfer's MB; `slot.sh: waiting for a free slot (all 3 busy)` (0 %, "waiting for a slot") until `slot.sh: got a slot` | bar, %, ETA at this pace |
-| 2 known phases | `dashboard.shapes`: `phases` (the furthest phase whose `when` regex is in the log: phase k of n), or `count` lines against `total` / `total_command` (a shell command run in the job's folder, `{1}` = the title's first `match` group, cached for an hour); built in: `tutti run --repo` (worktree, the worker works, checks); a shape with neither only names a kind (and `machine`) for layer 3 | bar, %, step |
-| 3 estimated | elapsed time against the median duration of at least 2 earlier finished jobs of the same kind (the shape and its group, else the kind and program) on the same machine, from `<state>/durations.json` (a job that was running and is gone counts as finished; a container only when its machine was probed); capped at 95 %; past the median "taking longer than usual" | bar, ~%, time left |
+| 2 known phases | `dashboard.shapes` (configured ones first, then the built-in; the whole log is read, a little more at each look, so no phase or count is lost however long it grows): `phases` (the furthest phase whose `when` regex is in the log: phase k of n), or `count` lines against `total` / `total_command` (a shell command run in the job's folder, `{1}` = the title's first `match` group, used only when it exits 0, cached for an hour); built in: `tutti run --repo` (worktree, the worker works, checks); a shape with neither only names a kind (and `machine`) for layer 3 | bar, %, step |
+| 3 estimated | elapsed time against the median duration (a finished job's end is the time of its result, never its last output; each job is learned from once) of at least 2 earlier finished jobs of the same kind (the shape and its group, else the kind and program) on the same machine, from `<state>/durations.json` (a job that was running and is gone counts as finished; a container only when its machine was probed); capped at 95 %; past the median "taking longer than usual" | bar, ~%, time left |
 | 4 agents | a conductor's handoff notes (done of done + next); else layer 3; else `dashboard.typical_minutes` (agent 20, agent task 15, conduct 30) as a rough estimate said as such | bar, ~% |
 | elapsed | everything else (a tunnel, a local-model server, a script of a kind not yet finished once) | the elapsed time, no bar |
 
@@ -109,7 +109,7 @@ cache) and out, counted once per message, and its tool calls; an agent CLI's tex
 them ("12,345 input tokens", "Tokens: 12.3k in, 4.1k out", `"output_tokens": 45`) and Copilot's AI credits; test runners'
 summaries give passed and failed (pytest, vitest, Playwright, unittest); git's "N files changed" gives files and +/−; a
 delegated run's report gives its account (`runs.jsonl`), checks, files and report path, and while it runs `git diff
---shortstat` of its worktree (at most every 30 s). Only counts are read; no text of a log or transcript is shown that is
+--shortstat` of its worktree plus the files the worker added (at most every 30 s, only in a Tutti run worktree). Only counts are read; no text of a log or transcript is shown that is
 not already in the log view.
 
 ## Jobs found by themselves

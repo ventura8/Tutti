@@ -24,11 +24,12 @@ from . import config, jobfacts
 CAP = 95               # an estimate never says more than 95 % before the job ends
 MIN_RUNS = 2           # an estimate needs at least this many earlier runs of the kind
 KEEP = 30              # finished durations kept per kind and machine
+LEARNED_MAX = 5000     # ids of jobs already learned from
 MIN_SECONDS = 5        # shorter jobs are not worth learning from
 VANISH_WINDOW = 3600   # a running job seen in the last hour that is gone now counts as finished
 FORGET = 86400         # running records not seen for a day are dropped
 WRITE_EVERY = 60
-LOG_MAX = 1024 * 1024
+LOG_MAX = 64 * 1024      # an unfinished last line kept between two looks at most this long
 TOTAL_TTL = 3600
 AGENT_TASK = 'agent task'
 AGENT_KINDS = ('agent', AGENT_TASK, 'conduct')
@@ -44,7 +45,7 @@ BUILTIN_SHAPES = {
 AGE = re.compile(r'\b(\d+|an?) (second|minute|hour|day|week)s? ago', re.I)   # docker ps: "4 minutes ago", "About an hour ago"
 UNIT = {'second': 1, 'minute': 60, 'hour': 3600, 'day': 86400, 'week': 604800}
 _lock = threading.Lock()
-_logs = {}
+_scans = {}
 _totals = {}
 _histories = {}
 
@@ -53,7 +54,9 @@ _histories = {}
 
 
 def shapes(cfg):
-    return {**BUILTIN_SHAPES, **((cfg.get('dashboard') or {}).get('shapes') or {})}
+    """The configured shapes first (the first that fits a job wins), then the built-in ones they do not override."""
+    configured = (cfg.get('dashboard') or {}).get('shapes') or {}
+    return {**configured, **{n: s for n, s in BUILTIN_SHAPES.items() if n not in configured}}
 
 
 def shape_for(job, all_shapes):
@@ -71,23 +74,39 @@ def shape_for(job, all_shapes):
     return None, None, ()
 
 
-def log_lines(path):
-    """The last MB of a log as lines, cached by size and time (phase markers may lie far above the tail)."""
+def scan(path, name, shape):
+    """(furthest phase index, lines counted) over the whole log, read incrementally: each look reads only what was added
+    since the last one, so phases and counts are never lost however long the log grows. A shorter or replaced file
+    (truncated, rotated) starts over."""
     try:
         st = os.stat(path)
     except (OSError, TypeError):
-        return []
-    hit = _logs.get(path)
-    if hit and hit[0] == (st.st_size, st.st_mtime):
-        return hit[1]
-    try:
-        with open(path, 'rb') as f:
-            f.seek(max(0, st.st_size - LOG_MAX))
-            lines = [line.replace('\r', '') for line in f.read().decode('utf8', 'replace').splitlines()]
-    except OSError:
-        return []
-    _logs[path] = ((st.st_size, st.st_mtime), lines)
-    return lines
+        return 0, 0
+    key = (path, name)
+    seen = _scans.get(key)
+    if not seen or seen['ino'] != st.st_ino or st.st_size < seen['offset']:
+        seen = {'ino': st.st_ino, 'offset': 0, 'at': 0, 'count': 0, 'rest': b''}
+    if st.st_size > seen['offset']:
+        try:
+            with open(path, 'rb') as f:
+                f.seek(seen['offset'])
+                chunk = seen['rest'] + f.read(st.st_size - seen['offset'])
+        except OSError:
+            return seen['at'], seen['count']
+        lines = chunk.split(b'\n')
+        seen['rest'] = lines.pop()[-LOG_MAX:]   # a line still being written is read again next time
+        seen['offset'] = st.st_size
+        for raw in lines:
+            line = raw.decode('utf8', 'replace').replace('\r', '')
+            seen['at'] = max(seen['at'], phase_of(shape, line))
+            seen['count'] += 1 if shape.get('count') and re.search(shape['count'], line) else 0
+    _scans[key] = seen
+    return seen['at'], seen['count']
+
+
+def phase_of(shape, line):
+    """The furthest phase whose `when` this line matches, or 0."""
+    return max((i for i, p in enumerate(shape.get('phases') or []) if p.get('when') and re.search(p['when'], line)), default=0)
 
 
 def total_of(command, cwd, groups, run=subprocess.run, clock=time.time):
@@ -100,31 +119,28 @@ def total_of(command, cwd, groups, run=subprocess.run, clock=time.time):
     if hit and clock() - hit[0] < TOTAL_TTL:
         return hit[1]
     try:
-        out = run(command, shell=True, cwd=cwd if cwd and os.path.isdir(cwd) else None, capture_output=True, text=True, timeout=10).stdout
-        found = int(out.strip().split()[-1])
+        done = run(command, shell=True, cwd=cwd if cwd and os.path.isdir(cwd) else None, capture_output=True, text=True, timeout=10)
+        found = int(done.stdout.strip().split()[-1]) if done.returncode == 0 else None
     except (OSError, subprocess.SubprocessError, ValueError, IndexError):
         found = None
     _totals[key] = (clock(), found if found and found > 0 else None)
     return _totals[key][1]
 
 
-def shape_progress(name, shape, groups, job, lines):
+def shape_progress(name, shape, groups, job):
     """Layer 2: phases started out of all, or lines counted against a total; None when the log says nothing yet."""
     phases = shape.get('phases') or []
+    at, counted = scan(job['log'], name, shape)
     if phases:
-        at = 0
-        for i, p in enumerate(phases):
-            if p.get('when') and any(re.search(p['when'], line) for line in lines):
-                at = i
         return {'pct': round(100 * at / len(phases)), 'done': at, 'total': len(phases), 'layer': 'shape',
                 'label': f'phase {at + 1} of {len(phases)}: {phases[at]["name"]} (the known phases of {name})', 'step': phases[at]['name']}
     if shape.get('count'):
         total = shape.get('total') or (total_of(shape['total_command'], job.get('cwd'), groups) if shape.get('total_command') else None)
         if not total:
             return None
-        done = min(sum(1 for line in lines if re.search(shape['count'], line)), total)
+        done = min(counted, int(total))
         return {'pct': min(99, round(100 * done / total)), 'done': done, 'total': int(total), 'layer': 'shape',
-                'label': f'{done} of {total} counted in its log ({name})'}
+                'label': f'{done} of {int(total)} counted in its log ({name})'}
     return None
 
 
@@ -137,6 +153,7 @@ class History:
     def __init__(self, path, clock=time.time):
         self.path, self.clock = path, clock
         self.data = self.load()
+        self._learned = set(self.data['learned']) | {r['id'] for runs in self.data['runs'].values() for r in runs}
         self.written = 0.0
         self.dirty = False
 
@@ -145,10 +162,10 @@ class History:
             with open(self.path, encoding='utf8') as f:
                 data = json.load(f)
             if isinstance(data, dict):
-                return {'running': data.get('running') or {}, 'runs': data.get('runs') or {}}
+                return {'running': data.get('running') or {}, 'runs': data.get('runs') or {}, 'learned': data.get('learned') or []}
         except (OSError, ValueError):
             pass
-        return {'running': {}, 'runs': {}}
+        return {'running': {}, 'runs': {}, 'learned': []}
 
     def save(self, force=False):
         if not self.dirty and not force:
@@ -168,11 +185,15 @@ class History:
         return [r['s'] for r in self.data['runs'].get(key, [])]
 
     def record(self, key, run_id, seconds_taken):
-        if seconds_taken < MIN_SECONDS:
+        """One finished duration, once per job: the ids learned from are kept apart from the bounded samples, so a job
+        listed again after its sample was dropped is not learned twice."""
+        learned = self.data['learned']
+        if run_id in self._learned or seconds_taken < MIN_SECONDS:
             return
+        self._learned.add(run_id)
+        learned.append(run_id)
+        del learned[:-LEARNED_MAX]
         runs = self.data['runs'].setdefault(key, [])
-        if any(r['id'] == run_id for r in runs):
-            return
         runs.append({'id': run_id, 's': round(seconds_taken), 'at': round(self.clock())})
         del runs[:-KEEP]
         self.dirty = True
@@ -185,9 +206,11 @@ class History:
             self.dirty = self.dirty or j['id'] not in running
             running[j['id']] = {'key': key, 'started': started or now, 'last': now, 'kind': j.get('kind'), 'machine': j.get('machine')}
             return
-        if j['status'] == 'done' and started:
-            self.record(key, j['id'], (jobfacts.seconds(j.get('updated')) or now) - started)
-        self.dirty = self.dirty or running.pop(j['id'], None) is not None
+        ended = jobfacts.seconds(j.get('ended'))
+        if j['status'] == 'done' and started and ended:
+            self.record(key, j['id'], ended - started)
+        if running.pop(j['id'], None) is not None:
+            self.dirty = True
 
     def gone(self, job_id, now, reachable):
         """A running job no longer listed has finished: learned from when it was seen in the last hour (a container only
@@ -324,7 +347,7 @@ def layered(cfg, job, hist, now, all_shapes):
     elapsed = max(0, now - job['_started'])
     found = exact(job, elapsed)
     if not found and shape and job.get('log'):
-        found = shape_progress(name, shape, groups, job, log_lines(job['log']))
+        found = shape_progress(name, shape, groups, job)
         if found:
             found['eta_seconds'] = eta(found['pct'], elapsed)
     if not found and job.get('kind') == 'conduct':
@@ -362,7 +385,9 @@ def annotate(cfg, items, now, worker_account=lambda w: None, machines=None):
             if j['status'] in ACTIVE:
                 j['progress'] = layered(cfg, j, hist, now, all_shapes)
             else:
-                name, _, groups = shape_for(j, all_shapes)
+                name, shape, groups = shape_for(j, all_shapes)
+                if shape and shape.get('machine') and not j.get('machine'):
+                    j['machine'] = shape['machine']
                 j['_key'], j['_started'] = key_of(j, name, groups), started_at(j, hist, None)
             j['facts'] = jobfacts.facts({**j, 'first_seen': j['_started']}, folder, worker_account, now, own_tree)
             if j['status'] not in ACTIVE:

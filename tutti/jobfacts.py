@@ -24,6 +24,7 @@ SHORTSTAT = re.compile(r'(\d+) files? changed')
 INSERTIONS = re.compile(r'(\d+) insertions?\(\+\)')
 DELETIONS = re.compile(r'(\d+) deletions?\(-\)')
 TRANSCRIPT_MAX = 8 * 1024 * 1024      # an agent transcript larger than this is read from its last 8 MB
+UNTRACKED_MAX = 200                    # untracked files counted in a running run's changes
 DIFF_TTL = 30                          # a running run's `git diff --shortstat` is asked at most every 30 s
 _cache = {}
 
@@ -180,15 +181,33 @@ def files_in_lines(lines):
     return None
 
 
+def new_files(worktree, run):
+    """(files, lines) of the untracked files a worker added (git ignores them in `diff HEAD`), at most UNTRACKED_MAX files
+    and the first MB of each counted; the index is never touched."""
+    out = run(['git', '-C', worktree, 'ls-files', '--others', '--exclude-standard', '-z'], capture_output=True, timeout=5).stdout
+    names = [n for n in out.split(b'\0') if n][:UNTRACKED_MAX]
+    lines = 0
+    for n in names:
+        try:
+            with open(os.path.join(worktree, os.fsdecode(n)), 'rb') as f:
+                lines += f.read(1024 * 1024).count(b'\n')
+        except OSError:
+            continue
+    return len(names), lines
+
+
 def diff_files(worktree, clock=time.time, run=subprocess.run):
-    """A running delegated run's changes so far: `git diff --shortstat HEAD` in its worktree, at most every DIFF_TTL s."""
+    """A running delegated run's changes so far: `git diff --shortstat HEAD` (tracked files) plus the files it added,
+    at most every DIFF_TTL s."""
     key = ('diff', worktree)
     hit = _cache.get(key)
     if hit and clock() - hit[0] < DIFF_TTL:
         return hit[1]
     try:
         out = run(['git', '-C', worktree, 'diff', '--shortstat', 'HEAD'], capture_output=True, text=True, timeout=5).stdout
-        found = files_in_lines([out]) or ({'files': 0, 'plus': 0, 'minus': 0} if os.path.isdir(worktree) else None)
+        found = files_in_lines([out]) or {'files': 0, 'plus': 0, 'minus': 0}
+        added, lines = new_files(worktree, run)
+        found = {**found, 'files': found['files'] + added, 'plus': found['plus'] + lines}
     except (OSError, subprocess.SubprocessError):
         found = None
     _cache[key] = (clock(), found)
@@ -259,12 +278,18 @@ def seconds(iso_text):
         return None
 
 
+def state_tail(path):
+    from . import state  # state imports this module's callers
+    return state.tail(path)
+
+
 def timing(job, now):
     """Elapsed seconds (running) or the duration (finished), the result and the exit code."""
     out = {}
     started = seconds(job.get('started')) or job.get('first_seen')
-    if started:
-        end = now if job['status'] in ('running', 'stalled') else (seconds(job.get('updated')) or now)
+    # a finished job's duration only when its end is known (its result's time), never the last output's time
+    end = now if job['status'] in ('running', 'stalled') else seconds(job.get('ended'))
+    if started and end:
         out['seconds'] = max(0, round(end - started))
     if job['status'] in ('done', 'failed', 'ended'):
         out['result'] = {'done': 'passed', 'failed': 'failed'}.get(job['status'], 'ended')
@@ -276,7 +301,10 @@ def timing(job, now):
 def from_lines(job):
     """Tests, tokens, AI credits and files changed, as the end of the log (or an agent's transcript) says them."""
     lines = job.get('tail') or []
-    tok = transcript_tokens(job['path']) if job.get('kind') == 'agent task' and job.get('path') else None
+    task = job['path'] if job.get('kind') == 'agent task' and job.get('path') else None
+    tok = transcript_tokens(task) if task else None
+    if task and not tok and not lines:
+        lines = state_tail(task)   # a background command's output: read for counts only, never shown
     found = {'tests': tests(lines), 'tokens': tok or tokens_in_lines(lines), 'credits': readers.credits_in(lines) or None,
              'files': files_in_lines(lines)}
     return {k: v for k, v in found.items() if v}

@@ -2,6 +2,15 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.6 (2026-11-14)
+
+Dependencies at latest stable.
+
+### Changed
+
+- Dev tool `ruff` 0.17.3 -> 0.17.5. PyYAML 6.0.3, `actions/checkout` v7.0.1 and `actions/setup-python` v7.1.0 were already
+  the latest; the web dashboard loads no CDN script and the installers pin no versions.
+
 ## 0.1.5 (2026-11-14)
 
 Usage readings with minimum input.

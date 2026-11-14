@@ -3,6 +3,7 @@
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 ## 0.1.3 (2026-11-14)
+
 Fixes for the pains agents hit shipping from linked worktrees.
 
 ### Fixed

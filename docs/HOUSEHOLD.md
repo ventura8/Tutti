@@ -295,9 +295,10 @@ runs the coordinator moves it with their Tutti, as `tutti move` does (members ar
 user whose Google identity is not that Tutti's user is refused, whatever their role; the admin acts for a member
 through the Users tab (below), which their own Tutti carries out.
 
-**Presence follows it:** the heartbeat comes from the new main machine. A host with clients counts its user present
-only while one of its clients (the laptop they sit at) is connected; a laptop that leaves makes them away, as a member
-away from home is.
+**Presence follows it:** the heartbeat comes from the new main machine. A host whose client (the laptop they sit at)
+connected within the last 14 days counts its user present only while one is connected; a laptop that leaves makes them
+away, as a member away from home is. A Tutti no client has reached lately is where its user sits: present (a host
+configured for clients that none has reached yet, or a retired laptop's old status file, never makes them away).
 
 ## The Users tab (managing a member)
 

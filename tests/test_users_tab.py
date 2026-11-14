@@ -154,14 +154,31 @@ class MainMachineTest(unittest.TestCase):
             self.assertEqual(mainmachine.post(collector, {}, b'{"machine": "pc"}')[0], 403)
 
     def test_a_laptop_that_leaves_makes_the_user_away(self):
+        from tutti import bridge
         with tempfile.TemporaryDirectory() as d:
             cfg = self.cfg(d)
-            with mock.patch.object(mainmachine.move, 'client_configs', return_value=['/x/c.yaml', '/y/c.yaml']), \
-                    mock.patch.object(mainmachine.move.bridge, 'clients', return_value=[]):
-                self.assertFalse(mainmachine.present(cfg))
-            with mock.patch.object(mainmachine.move, 'client_configs', return_value=['/x/c.yaml', '/y/c.yaml']), \
-                    mock.patch.object(mainmachine.move.bridge, 'clients', return_value=[{'machine': 'laptop'}]):
+            self.assertTrue(mainmachine.present(cfg))   # no client ever connected: the user sits at this Tutti (0.1.64 said away)
+            status = os.path.join(bridge.folder(cfg), 'laptop.json')   # the laptop connected once (its status file)
+            with open(status, 'w') as f:
+                f.write('{}')
+            with mock.patch.object(bridge, 'clients', return_value=[]):
+                self.assertFalse(mainmachine.present(cfg))   # and has left: away
+                old = os.path.getmtime(status) - (mainmachine.KNOWN_DAYS + 1) * 86400
+                os.utime(status, (old, old))
+                self.assertTrue(mainmachine.present(cfg))    # a retired laptop's old file never makes them away for good
+            os.utime(status)
+            with mock.patch.object(bridge, 'clients', return_value=[{'machine': 'laptop'}]):
                 self.assertTrue(mainmachine.present(cfg))
+
+    def test_the_admins_row_counts_runs_as_a_number(self):
+        from tutti import sharing
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self.cfg(d)
+            with mock.patch('tutti.state.runs_today', return_value={'cursor': 2, 'agy': 3, 'odd': None}):
+                self.assertEqual(sharing.runs_total(cfg), 5)
+                self.assertEqual(sharing.stats_of(cfg)[-1]['used'], 5)
+            self.assertIsNone(sharing._pct('n/a'))
+            self.assertEqual(sharing._pct(34.075999999999965), 34.1)
 
 
 class SignedInTest(unittest.TestCase):

@@ -102,12 +102,20 @@ def post(collector, headers, body, popen=subprocess.Popen):
     return 202, {'ok': True, 'started': 'main-machine', 'to': data.get('machine')}
 
 
-def present(cfg):
-    """Whether this user is at their main machine's Tutti: on a host with clients (it moved), only while one of its
-    clients (the laptop they sit at) is connected; a laptop that leaves makes the user away (docs/HOUSEHOLD.md)."""
+KNOWN_DAYS = 14   # a client seen within this is the laptop the user sits at; an older status file is a retired one
+
+
+def present(cfg, clock=None):
+    """Whether this user is at their main machine's Tutti. A host with a client seen lately (its status file younger than
+    KNOWN_DAYS: the laptop they sit at) counts them present only while one is connected, so a laptop that leaves makes
+    them away (docs/HOUSEHOLD.md). A Tutti with no such client is where its user sits: present; a retired laptop's old
+    file never makes them away for good."""
+    import glob
+    import time
+    now = (clock or time.time)()
     try:
-        configured = move.client_configs(cfg)
-        connected = move.bridge.clients(cfg)
+        known = [p for p in glob.glob(os.path.join(move.bridge.folder(cfg), '*.json'))
+                 if now - os.path.getmtime(p) < KNOWN_DAYS * 86400]
+        return not known or bool(move.bridge.clients(cfg))
     except (OSError, ValueError, KeyError):
         return True
-    return not configured or bool(connected)

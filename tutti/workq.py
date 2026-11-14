@@ -49,10 +49,25 @@ def errors(cfg):
             out.append(f'{key}.where is {where!r}: use route, here (this computer, no slot) or a name under machines:')
         if not re.fullmatch(r'commit|\d+[hmd]', str(j.get('every', 'commit'))):
             out.append(f'{key}.every is {j.get("every")!r}: use commit (each new commit) or a period such as 6h, 30m, 1d')
-        f = j.get('findings') or {}
-        if f and '(?P<file>' not in str(f.get('pattern', '')):
-            out.append(f'{key}.findings.pattern needs a (?P<file>...) group: the file each finding names')
+        out += findings_errors(key, j.get('findings') or {})
     return out
+
+
+def findings_errors(key, f):
+    """A findings pattern that compiles with a `file` group, and a title its groups can fill."""
+    if not f:
+        return []
+    try:
+        rx = re.compile(str(f.get('pattern', '')), re.M)
+    except re.error as e:
+        return [f'{key}.findings.pattern does not compile ({e}): fix the regex']
+    if 'file' not in rx.groupindex:
+        return [f'{key}.findings.pattern needs a (?P<file>...) group: the file each finding names']
+    try:
+        (f.get('title') or '{file}').format(**{g: 'x' for g in rx.groupindex})
+    except (KeyError, IndexError, ValueError) as e:
+        return [f'{key}.findings.title names {e} that the pattern has no group for: use only {", ".join(rx.groupindex)}']
+    return []
 
 
 # ---- pure
@@ -68,8 +83,8 @@ def due(job, last, commit, now):
     period once it has passed since its last start."""
     if not last:
         return True
-    if last.get('rerun'):
-        return True
+    if last.get('rerun') and last.get('commit') == commit:
+        return True   # the rerun of a first failure, on the same commit only
     p = period(job.get('every'))
     if p is None:
         return bool(commit) and last.get('commit') != commit
@@ -109,21 +124,26 @@ def assign(cfg, items, rows, busy, now_dt):
     return out
 
 
-def verdict(rc, last):
+def verdict(rc, last, commit=None):
     """('pass'|'flaky'|'fail'|'retry', rerun?) of a finished run: a first failure is run again on the same commit."""
+    rerun = last.get('rerun') and (commit is None or last.get('commit') == commit)   # a new commit starts afresh
+    if rc is None:
+        return 'lost', False   # no exit status (killed, crashed, the file lost): no verdict and no task
     if rc == 0:
-        return ('flaky' if last.get('rerun') else 'pass'), False
-    return ('fail', False) if last.get('rerun') else ('retry', True)
+        return ('flaky' if rerun else 'pass'), False
+    return ('fail', False) if rerun else ('retry', True)
 
 
 def tasks_of(job, outcome, commit, tail):
     """[(title, scope, size)] the run leaves in the backlog: its findings, a flaky or a failing job."""
     out = []
     f = job.get('findings') or {}
-    if f.get('pattern'):
-        rx = re.compile(f['pattern'], re.M)
-        for m in rx.finditer(tail):
-            title = (f.get('title') or 'Raise the coverage of {file}').format(**m.groupdict())
+    if f.get('pattern') and not findings_errors('', f):
+        for m in re.compile(f['pattern'], re.M).finditer(tail):
+            try:
+                title = (f.get('title') or 'Raise the coverage of {file}').format(**m.groupdict())
+            except (KeyError, IndexError, ValueError):
+                title = f'Raise the coverage of {m.group("file")}'
             out.append((title, [m.group('file')], f.get('size') or 'S'))
     last = next((ln.strip() for ln in reversed(tail.splitlines()) if ln.strip()), '')[:160]
     if outcome == 'flaky':
@@ -176,11 +196,16 @@ def tree(cfg, job, folder, commit, run=subprocess.run):
     shared from the main checkout (job.share: ship.share's patterns)."""
     wt = os.path.join(config.expand(cfg['project']['worktrees']), 'workq-' + re.sub(r'[^\w.-]', '-', job['name']))
     if not os.path.isdir(wt):
-        run(['git', '-C', folder, 'worktree', 'add', '--force', '--detach', wt, commit], capture_output=True, timeout=300)
-    run(['git', '-C', wt, 'checkout', '-q', '--force', '--detach', commit], capture_output=True, timeout=300)
+        r = run(['git', '-C', folder, 'worktree', 'add', '--force', '--detach', wt, commit], capture_output=True, text=True,
+                timeout=300)
+        if r.returncode != 0:
+            return None, f'git worktree add failed ({(r.stderr or "").strip()[-200:]})'
+    r = run(['git', '-C', wt, 'checkout', '-q', '--force', '--detach', commit], capture_output=True, text=True, timeout=300)
+    if r.returncode != 0:
+        return None, f'git checkout {commit[:7]} failed ({(r.stderr or "").strip()[-200:]})'
     if job.get('share'):
         worktree.share(wt, job['share'], say=lambda m: None)
-    return wt
+    return wt, ''
 
 
 def argv_of(cfg, job, where, wt, rc_path):
@@ -211,12 +236,16 @@ def collect(cfg, st, now, is_alive):
             continue
         try:
             with open(lease['rc'], encoding='utf8') as f:
-                rc = int(f.read().strip() or 1)
+                rc = int(f.read().strip())
         except (OSError, ValueError):
-            rc = 1
+            rc = None   # it never reported (killed, crashed): no verdict, it runs again next round
         job = next((j for j in jobs(cfg) if j['name'] == name), {'name': name})
         last = (st.setdefault('last', {}).get(name)) or {}
-        outcome, rerun = verdict(rc, last)
+        outcome, rerun = verdict(rc, last, lease['commit'])
+        if outcome == 'lost':
+            events.append(f'{name} on {lease["machine"]}: ended without an exit status; it runs again')
+            del st['leases'][name]
+            continue
         text = tail_of(lease['log'])
         st['last'][name] = {'commit': lease['commit'], 'at': lease['started'], 'ended': now, 'rc': rc, 'outcome': outcome,
                             'machine': lease['machine'], 'rerun': rerun, 'log': lease['log']}
@@ -256,7 +285,10 @@ def tick(cfg, rows, now=None, spawn=subprocess.Popen, run=subprocess.run, is_ali
         folder = os.path.join(config.state_dir(cfg), 'work-queue')
         os.makedirs(folder, exist_ok=True)
         base = os.path.join(folder, re.sub(r'[^\w.-]', '-', j['name']))
-        wt = tree(cfg, j, j['_folder'], j['_commit'], run)
+        wt, why = tree(cfg, j, j['_folder'], j['_commit'], run)
+        if not wt:   # Tutti's own problem, not the job's: an event, no run and no backlog task
+            events.append(f'{j["name"]} not started: {why}')
+            continue
         rc_path = base + '.rc'
         if os.path.exists(rc_path):
             os.remove(rc_path)

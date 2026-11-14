@@ -158,7 +158,7 @@ class Collector:
         out = autopilot.tick(self.cfg, states, machines, beat=beat)
         try:   # the work queue: machines with a free slot left after the autopilot run the projects' jobs (tutti/workq.py)
             workq.tick(self.cfg, machines)
-        except (OSError, ValueError, subprocess.SubprocessError) as e:
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as e:
             self.probes = {**self.probes, 'workq_error': f'the work queue failed ({e}): the next round tries again'}
         return out
 

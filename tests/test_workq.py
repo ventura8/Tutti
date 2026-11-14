@@ -56,6 +56,27 @@ class Plan(WqBase):
         self.assertFalse(workq.due({'every': '6h'}, {'at': 0}, 'abc', 3600))
         self.assertTrue(workq.due({'every': '6h'}, {'at': 0}, 'abc', 6 * 3600))
 
+    def test_a_moved_head_starts_afresh_and_a_lost_run_files_nothing(self):
+        last = {'commit': 'old', 'rerun': True}
+        self.assertTrue(workq.due({'every': 'commit'}, last, 'new', 10))     # a new commit is a fresh first run
+        self.assertEqual(workq.verdict(0, last, 'new'), ('pass', False))     # not "flaky" on another commit
+        self.assertEqual(workq.verdict(None, last, 'old'), ('lost', False))  # no exit status: no verdict, no task
+
+    def test_bad_findings_are_refused_and_never_break_a_round(self):
+        cfg = self.wq_cfg(jobs=[{'name': 'a', 'run': 'x', 'findings': {'pattern': '(?P<file>[', 'title': '{file}'}},
+                                {'name': 'b', 'run': 'x', 'findings': {'pattern': '(?P<file>\\S+)', 'title': '{pct} {file}'}}])
+        errs = '\n'.join(workq.errors(cfg))
+        self.assertIn('does not compile', errs)
+        self.assertIn('no group for', errs)
+        job = {'name': 'b', 'findings': {'pattern': '(?P<file>\\S+)', 'title': '{pct}'}}
+        self.assertEqual(workq.tasks_of(job, 'pass', 'abc', ''), [])       # refused config: nothing, no exception
+
+    def test_a_routed_job_runs_through_tutti_test_on_its_machine(self):
+        cfg = self.wq_cfg()
+        argv = workq.argv_of(cfg, {'name': 'map static', 'run': 'bash ci.sh'}, 'nuc', '/wt', '/s/rc')
+        self.assertIn("test --on nuc --dir /wt workq-map-static 'bash ci.sh'", argv[2])
+        self.assertTrue(argv[2].endswith("; echo $? > /s/rc"))
+
     def test_a_failure_is_run_again_then_named_flaky_or_failing(self):
         self.assertEqual(workq.verdict(1, {}), ('retry', True))
         self.assertEqual(workq.verdict(0, {'rerun': True}), ('flaky', False))
@@ -107,6 +128,35 @@ class Round(WqBase):
         titles = [t['title'] for t in backlog.load(cfg)['tasks']]
         self.assertTrue(any('work-queue job check fails' in t for t in titles))
         self.assertIn('check', workq.describe(workq.view(cfg)))
+
+    def test_a_pass_after_a_failure_files_a_flaky_task_and_a_lost_run_reruns(self):
+        repo = self.repo()
+        flag = os.path.join(self.tmp.name, 'flag')
+        cfg = self.wq_cfg(jobs=[{'name': 'wobbly', 'run': f'test -e {flag} || {{ touch {flag}; false; }}', 'repo': 'app',
+                                 'where': 'here'}])
+        cfg['autopilot']['repos']['app']['path'] = repo
+
+        def spawn(argv, **k):
+            subprocess.run(argv, check=False)
+            return SimpleNamespace(pid=999999)
+        for t in (100.0, 200.0, 300.0):
+            events = workq.tick(cfg, rows(), t, spawn=spawn, is_alive=lambda pid: False)
+        self.assertTrue(any(': flaky' in e for e in events))
+        self.assertTrue(any(t['title'].startswith('Flaky: the work-queue job wobbly') for t in backlog.load(cfg)['tasks']))
+        lost = workq.tick(cfg, rows(), 400.0, spawn=lambda argv, **k: SimpleNamespace(pid=999999), is_alive=lambda pid: False)
+        self.assertEqual(lost, [])                                         # a new period has not come: nothing due
+
+    def test_a_worktree_that_cannot_be_made_is_an_event_not_a_task(self):
+        cfg = self.wq_cfg(jobs=[{'name': 'x', 'run': 'true', 'repo': 'app', 'where': 'here'}])
+        cfg['autopilot']['repos']['app']['path'] = self.repo()
+
+        def run(argv, **k):
+            if 'worktree' in argv:
+                return SimpleNamespace(returncode=128, stdout='', stderr='fatal: no space')
+            return subprocess.run(argv, **k)
+        events = workq.tick(cfg, rows(), 1.0, spawn=self.fail, run=run)
+        self.assertIn('not started: git worktree add failed', events[0])
+        self.assertEqual(backlog.load(cfg)['tasks'], [])
 
 
 class VpnBody(Base):

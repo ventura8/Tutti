@@ -182,12 +182,15 @@ def power_text(r):
 
 def cmd_devices(cfg, a):
     """Exit 1 when a device is offline (not connected, not authorised, or its machine does not answer)."""
+    if a.action in ('pair', 'move'):
+        from . import devicescmd
+        return (devicescmd.cmd_pair if a.action == 'pair' else devicescmd.cmd_move)(cfg, a)
     if a.action == 'add':
         print(devices.ADB_STEPS.format(name=a.name or 'phone', serial=a.serial or '<serial from adb devices>',
                                        machine=a.machine or next(iter(cfg['machines']), 'here')))
         return 0
     if not cfg['devices']:
-        say('no devices: `tutti devices add` prints the one-time setup and the config lines')
+        say('no devices: `tutti devices pair` pairs one over Wi-Fi (`tutti devices add` prints the manual setup)')
         return 0
     offline = 0
     for row in devices.devices_state(cfg, remote.device_readings):
@@ -1101,11 +1104,15 @@ def parser():
     s.add_argument('--host', help='add-android: the device IP address')
     s.add_argument('--user', help='add-android: the Termux user (whoami)')
     s.add_argument('--port', type=int, default=8022, help='add-android: Termux sshd port (8022)')
-    s = add('devices', cmd_devices, 'Android devices for e2e: connection, battery, charging, heat, screen, Wi-Fi and lock')
-    s.add_argument('action', nargs='?', choices=['add'], help='print the one-time adb setup and the config lines')
-    s.add_argument('--name', help='add: the device name')
+    s = add('devices', cmd_devices, 'Android devices for e2e: connection, battery, charging, heat, screen, Wi-Fi and lock; pair one '
+            'over Wi-Fi (QR code, or the code a TV shows); move devices to another machine')
+    s.add_argument('action', nargs='?', choices=['add', 'pair', 'move'],
+                   help='pair: wireless debugging (QR code); move: to another machine (--to); add: print the manual setup')
+    s.add_argument('--name', help='add, pair: the device name (pair: default from its model)')
     s.add_argument('--serial', help='add: its serial from `adb devices` (or ip:port)')
-    s.add_argument('--machine', help='add: the machine its adb sees it on')
+    s.add_argument('--machine', help='add, pair: the machine its adb sees it on (pair: default this computer)')
+    from . import devicescmd
+    devicescmd.add_arguments(s)
     for verb, text in (('pause', 'pause a machine, device, worker or account: it takes nothing new (--stop-now hands running jobs over)'),
                        ('resume', 'resume a paused machine, device, worker or account')):
         s = add(verb, cmd_control, text)

@@ -1,0 +1,93 @@
+# Android devices: pairing over Wi-Fi and moving them
+
+Tutti runs end-to-end tests on Android phones, tablets and TVs through adb on the machine that reaches them
+(`tutti test --device`, the dispatcher, the dashboard's Devices card). This page is how a device gets there with
+wireless debugging (Android 11 and newer), and how devices move to another machine. The readings and the safe-use
+policy (battery, heat, screen, calls) are in [MACHINES.md](MACHINES.md#android-devices).
+
+## Pair a device
+
+Dashboard: **Devices and controls > Pair a device** (a phone or tablet) or **Pair a TV**. Terminal:
+
+```bash
+tutti devices pair                    # on this computer; --machine <name> for another machine's adb
+tutti devices pair --tv               # a TV: it shows a code (no camera to scan with)
+tutti devices pair --flow usb         # fallback: plugged in by USB, then adb over the LAN on port 5555
+```
+
+What the user does, and nothing else:
+
+1. Turn on Developer options: **Settings > About phone**, tap **Build number** 7 times (a TV: **Settings > System >
+   About > Android TV OS build**, press OK 7 times).
+2. **Settings > System > Developer options > Wireless debugging**: on; **Allow** ("Always allow on this network").
+3. **Pair device with QR code** and scan the code Tutti shows (on the dashboard, and drawn in the terminal). A TV:
+   **Pair device with pairing code**, and type its 6-digit code into Tutti.
+
+When a device is plugged in by USB, Tutti opens its Developer options page itself. Then Tutti:
+
+- makes a one-time pairing name and password and shows them as `WIFI:T:ADB;S:<name>;P:<password>;;`, the QR code
+  Android Studio uses;
+- watches `adb mdns services` for the device's `_adb-tls-pairing._tcp` service under that name (the code flow: the
+  pairing service the device opened), runs `adb pair`, then connects through its `_adb-tls-connect._tcp` service;
+- adds it to the config, keeping every comment: the name from its model (`Pixel 9 Pro` → `pixel9pro`), the machine,
+  its `kind` (phone, tablet or tv, from `ro.build.characteristics` and the leanback feature), `model` and
+  `capabilities` (camera, telephony, touchscreen, tv, ...). Paired again, the same entry is updated.
+
+The adb used is found by itself: `devices.<name>.adb`, else PATH, `~/Android/Sdk/platform-tools`, Tutti's own copy in
+`~/.local/share/tutti/platform-tools` (`--install-adb` downloads it, user space only), or a Windows SDK seen from WSL.
+Wireless pairing needs platform-tools 31 or newer.
+
+## Ports change: the mDNS name is the serial
+
+A device's wireless port changes on every reboot and every time Wireless debugging is turned on. The serial in the
+config is therefore the mDNS name (`adb-<serial>-<id>._adb-tls-connect._tcp`), never an ip:port. Every reading
+(`tutti devices`, the dashboard's probe, a run's start) reconnects a device that is not connected, through the ip:port
+its connect service announces now (`resolved=<ip:port>` in the readings). A device paired through
+the USB fallback keeps `ip:5555`, which a reboot ends: pair it with the QR code when it can.
+
+## Move devices to another machine
+
+```bash
+tutti devices move --to nuc --dry-run          # the plan and the preflight; nothing changes
+tutti devices move --to nuc                     # every device not on nuc yet
+tutti devices move --to nuc pixel9pro googletv  # only these
+```
+
+Dashboard: **Move devices**, pick the machine and the devices, **Show the plan**, then **Move now** (it runs
+`tutti devices move` in the background; the log is `<state>/devices-move.log`). Moving Tutti itself to another machine
+calls the same move when its devices are to follow.
+
+The best path needs no re-pairing: the old machine's adb key pair (`~/.android/adbkey` and `adbkey.pub`; a Windows
+adb's `%USERPROFILE%\.android`) is copied to the new machine over ssh, at mode 600, held in memory only and written
+through standard input (never in argv, a log or the terminal). Every device already trusts that key.
+
+- The new machine has no key: it is copied.
+- It has the same key: nothing to copy.
+- It has its own, different key (other devices may trust it): the move stops and asks. `--replace-key` backs it up as
+  `adbkey.tutti-backup-<time>` and copies the old one; `--repair` keeps it and pairs each device again instead (a
+  checklist: the QR code, or the code a TV shows). The old key cannot be read (adb does not run there, or a policy
+  forbids it): re-pairing is the plan.
+
+Preflight, before anything changes: adb on the new machine (else `--install-adb`), platform-tools 31+ on both, every
+device seen over mDNS from the new machine (so it is on the devices' network and multicast passes), and no run holding
+a device: a dispatch lease, Tutti's device lock, or another tool's lock file (`devices.<name>.external_lock`, docs/DISPATCH.md; its text names the holder).
+
+Then, on the new machine: the adb server restarts to load the key (`adb kill-server`, `adb start-server`), each
+device is connected and checked (`adb -s <serial> shell getprop ro.product.model`, and against `model` when the config
+has it), `devices.<name>.machine` (and `adb`) change in the config, and the old machine's adb server lets go of it
+(`adb disconnect`). A device that does not connect stays on the old machine with its config unchanged (rollback); when
+none moved, the new machine's key is put back as it was.
+
+## Other tools that use the same devices
+
+A tool with its own lock file per device names it in `devices.<name>.external_lock` (a path on the device's machine,
+`{serial}` filled in; docs/DISPATCH.md). Tutti mirrors it: the device shows busy while the file is fresh, a Tutti run
+waits for it and writes its own there for the run, and a move waits for it. That tool's agents keep working unchanged.
+
+To use Tutti's leases instead, an agent runs its device commands through Tutti, which holds the device's lock for the
+command, checks battery and heat first and queues a second run:
+
+- CLI: `tutti test --device <name|any> -- <command>` (for example `tutti test --device pixel9pro -- ./gradlew
+  connectedAndroidTest`); `ANDROID_SERIAL` is set for the command. `tutti devices` shows which run holds a device.
+- MCP (`tutti mcp`): the `test_on` tool with `device` (and `track`, `command`); it returns a job id to poll with
+  `job_status`. The `devices` tool shows each device's state and lock.

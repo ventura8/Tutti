@@ -1,0 +1,151 @@
+"""`tutti devices pair` and `tutti devices move`: the terminal side of pairing over wireless debugging and of moving
+devices to another machine (docs/DEVICES.md). The dashboard's Pair a device and Move devices buttons call the same code."""
+import sys
+
+from . import adbhost, adbpair, devmove, qr
+
+
+def say(msg):
+    print(f'tutti: {msg}', file=sys.stderr)
+
+
+def default_machine(cfg):
+    return next((n for n, m in cfg['machines'].items() if m['transport'] == 'local'), None) or next(iter(cfg['machines']))
+
+
+def host_for(cfg, name, adb=None):
+    return adbhost.Host(name, cfg['machines'][name], adb=adb)
+
+
+def ensure_adb(host, install, say_fn=say):
+    """adb's path on the machine; with `install` a user-space copy when there is none. '' when it is still missing."""
+    path = host.path()
+    if path or not install:
+        return path
+    say_fn(f'installing Android platform-tools on {host.name} (~/.local/share/tutti/platform-tools)')
+    rc, out = host.install_tools()
+    if rc != 0:
+        say_fn(f'the install failed on {host.name}: {out.strip()[-300:]}')
+        return ''
+    return host.path()
+
+
+def kind_hint(host, a, usb):
+    """The device's kind before pairing: --tv, else read over USB, else unknown (a phone or tablet: the QR flow)."""
+    if a.tv:
+        return 'tv'
+    if usb:
+        return adbpair.describe(host, usb[0])['kind']
+    return None
+
+
+def show_steps(kind, flow):
+    print('On the device:')
+    for i, step in enumerate(adbpair.steps(kind, flow), 1):
+        print(f'  {i}. {step}')
+
+
+def pair_one(cfg, host, a, kind=None, read_code=input):
+    """Pairs and connects one device on `host`; returns (the serial to keep, the serial adb lists now)."""
+    before = adbpair.baseline(host)   # before the user opens the device's pairing screen
+    rc, listed = host.adb('devices', timeout=30)
+    usb = adbpair.usb_serials(listed) if rc == 0 else []
+    kind = kind or kind_hint(host, a, usb)
+    flow = adbpair.flow_for(kind, a.flow)
+    if usb and adbpair.open_settings(host, usb[0]):
+        print(f'Developer options are open on the device plugged in by USB ({usb[0]}).')
+    show_steps(kind, flow)
+    if flow == 'usb':
+        if not usb:
+            raise adbpair.PairError('no device on USB: plug it in, allow USB debugging on it, then run again')
+        serial = adbpair.via_usb(host, usb[0])
+        return serial, serial
+    if flow == 'code':
+        code = a.code or read_code('Type the 6-digit code the device shows: ').strip()
+        if not (code.isdigit() and len(code) == 6):
+            raise adbpair.PairError('the pairing code is the 6 digits the device shows: open its pairing screen and run again')
+        return adbpair.pair(host, code=code, ignore=before, wait=a.wait, say=say)
+    name, password = adbpair.session()
+    payload = adbpair.qr_payload(name, password)
+    print(qr.terminal(payload))
+    print(f'(the QR code holds: {payload}; it works once, for {a.wait} s)')
+    return adbpair.pair(host, name=name, password=password, wait=a.wait, say=say)
+
+
+def cmd_pair(cfg, a, read_code=input):
+    machine = a.machine or default_machine(cfg)
+    if machine not in cfg['machines']:
+        say(f'no machine "{machine}": the machines are {", ".join(cfg["machines"])}')
+        return 2
+    host = host_for(cfg, machine, a.adb)
+    path = ensure_adb(host, a.install_adb)
+    if not path:
+        say(f'adb is not on {machine}: run again with --install-adb (a user-space copy of Android platform-tools)')
+        return 1
+    if host.version() < adbpair.MIN_ADB and a.flow != 'usb':
+        say(f'adb on {machine} is too old for wireless pairing: it needs platform-tools {adbpair.MIN_ADB}+; '
+            'run again with --install-adb')
+        return 1
+    try:
+        serial, live = pair_one(cfg, host, a, read_code=read_code)
+    except adbpair.PairError as e:
+        say(str(e))
+        return 1
+    info = adbpair.describe(host, live)
+    name = devmove.save_device(cfg['_path'], cfg.get('devices'), machine, serial, info, adb=a.adb, name=a.name)
+    print(f'{name}: {info["model"]} ({info["kind"]}; {", ".join(info["capabilities"]) or "no extras"}) on {machine}, '
+          f'serial {serial}; saved in {cfg["_path"]}')
+    return 0
+
+
+def cmd_move(cfg, a, read_code=input):
+    try:
+        found = devmove.pick(cfg, a.to, a.names or [])
+    except devmove.MoveError as e:
+        say(str(e))
+        return 2
+    src = found[0]['machine']
+    old = host_for(cfg, src, found[0].get('adb'))
+    new = host_for(cfg, a.to)
+    if not a.dry_run and not ensure_adb(new, a.install_adb):
+        say(f'adb is not on {a.to}: run again with --install-adb (a user-space copy of Android platform-tools)')
+        return 1
+    choice = 'replace' if a.replace_key else 'repair' if a.repair else None
+    pre = devmove.preflight(cfg, a.to, found, old, new, choice)
+    for line in devmove.plan_lines(pre, found):
+        print(line)
+    problems = pre['problems']
+    for p in problems:
+        say(f'cannot move yet: {p}')
+    if a.dry_run:
+        print('dry run: nothing changed')
+        return 1 if problems else 0
+    if problems:
+        return 1
+
+    def repair(d):
+        print(f'Pair {d["name"]} again on {a.to}:')
+        pair_one(cfg, new, a, kind=d.get('kind'), read_code=read_code)
+    try:
+        result = devmove.run(cfg, a.to, found, old, new, pre, say=say, pair_fn=repair)
+    except (devmove.MoveError, adbpair.PairError) as e:
+        say(str(e))
+        return 1
+    for line in devmove.summary(result, a.to, src):
+        print(line)
+    return 0 if not result['stayed'] else 1
+
+
+def add_arguments(s):
+    """The `tutti devices` options for pair and move."""
+    s.add_argument('names', nargs='*', help='move: the devices to move (default: every device not on --to)')
+    s.add_argument('--to', help='move: the machine the devices go to')
+    s.add_argument('--dry-run', action='store_true', help='move: print the plan and the preflight, change nothing')
+    s.add_argument('--replace-key', action='store_true', help='move: back up the new machine\'s own adb key and use the old one')
+    s.add_argument('--repair', action='store_true', help='move: pair each device again instead of copying the adb key')
+    s.add_argument('--install-adb', action='store_true', help='pair, move: install platform-tools in user space if adb is missing')
+    s.add_argument('--flow', choices=adbpair.FLOWS, help='pair: qr (default), code (a TV: default) or usb')
+    s.add_argument('--tv', action='store_true', help='pair: a TV (no camera): the pairing-code flow')
+    s.add_argument('--code', help='pair: the 6-digit code the device shows (asked when missing)')
+    s.add_argument('--adb', help='pair: the adb to use on the machine (default: found by itself)')
+    s.add_argument('--wait', type=int, default=180, help='pair: seconds to wait for the device (180)')

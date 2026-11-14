@@ -130,7 +130,8 @@ function renderControls(s) {
     const paused = new Map(c.paused.map((p) => [`${p.kind}:${p.name}`, p]));
     $('controls-meta').textContent = `${devices.length} device${devices.length === 1 ? '' : 's'} · ${c.paused.length} paused`;
     $('devices').replaceChildren(...(devices.length ? devices.map(device)
-        : [el('li', {}, empty('No Android devices', codeText('Run ', 'tutti devices add', ' for the one-time setup and the config lines.')))]));
+        : [el('li', {}, empty('No Android devices', codeText('Press Pair a device, or run ', 'tutti devices pair', '.')))]));
+    renderDeviceTools(s);   // devices.js: Pair a device, Pair a TV, Move devices
     const seen = new Set();
     const row = (kind, name, state) => {
         const k = `${kind}:${name}`;

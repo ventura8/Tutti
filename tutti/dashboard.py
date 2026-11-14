@@ -27,6 +27,7 @@ from . import (
     connect,
     controls,
     dashtelemetry,
+    devicesweb,
     energy,
     fill,
     handover,
@@ -251,7 +252,8 @@ def static_path(url_path):
 
 
 API_SETTINGS, API_RESTART = '/api/settings', '/api/restart'
-ADMIN_PATHS = (API_SETTINGS, API_RESTART, '/api/setup')   # setup changes the config: an admin's
+API_PAIR, API_MOVE = '/api/devices/pair', '/api/devices/move'
+ADMIN_PATHS = (API_SETTINGS, API_RESTART, '/api/setup', API_PAIR, API_MOVE)   # these change the config: an admin's
 BODY_LIMITS[API_SETTINGS] = 65536
 
 
@@ -473,7 +475,8 @@ def save_dispatch(collector, raw):
 
 
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
-         '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, '/api/setup')
+         '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, '/api/setup',
+         API_PAIR, API_MOVE)
 
 
 def save_connect(collector, body, home=None):
@@ -511,7 +514,8 @@ def post(collector, headers, path, port, token, read):
                           '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, '
                           '{"enabled"|"action": ...} to /api/dispatch, {"action": ...} to /api/connect, '
                           '{"path": ...} to /api/settings, {} to /api/restart, '
-                          '{"consent"|"error"|"use": ...} to /api/telemetry, {} to /api/update, or {"action": "run"} to /api/setup'}
+                          '{"consent"|"error"|"use": ...} to /api/telemetry, {} to /api/update, {"action": "run"} to /api/setup, '
+                          '{"action": ...} to /api/devices/pair or {"to": ...} to /api/devices/move'}
     refused = check_post(headers, host, token) or (authorize(collector, headers) if path in ADMIN_PATHS else None)
     if refused:
         return refused[0], {'error': refused[1]}
@@ -584,6 +588,8 @@ def run_setup(collector, body, popen=subprocess.Popen):
 
 HANDLERS = {
     '/api/setup': run_setup,
+    API_PAIR: lambda c, b: devicesweb.pair_post(c, b),
+    API_MOVE: lambda c, b: devicesweb.move_post(c, b),
     '/api/main': lambda c, b: save_main(c.cfg, b),
     '/api/autopilot': save_autopilot,
     API_SETTINGS: settings.save,

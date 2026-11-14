@@ -32,6 +32,8 @@ if [[ -z "$state" && "$DEVICE_SERIAL" == *._adb-tls-connect._tcp ]]; then
 		timeout 20 "$adb" connect "$addr" > /dev/null 2>&1
 		echo "resolved=$addr"
 		state=$(state_of "$DEVICE_SERIAL")
+		# an adb that lists it by ip:port only: read it there for the rest of this look
+		[[ "$state" = device ]] || { state=$(state_of "$addr"); [[ "$state" = device ]] && DEVICE_SERIAL=$addr; }
 	fi
 fi
 echo "state=${state:-missing}"

@@ -319,3 +319,9 @@ again, and every `tutti` command failed.
 fast-forwarded and restarted. Since 0.1.42, a shard entry this version cannot read is a warning and only that shard is
 skipped.
 
+## `adb mdns services` is empty right after the adb server starts (2026-11-14)
+
+The first dry run of `tutti devices move --to nuc` said no device was seen over mDNS from the NUC, while `avahi-browse`
+there listed all three. The preflight's `adb mdns services` had started the adb server, which had not heard any
+announcement yet. **Rule.** Ask adb's mDNS list after `adb start-server` and again for a few seconds until a connect
+service shows (tutti/adbhost.py `services`); never conclude "not on this network" from one look.

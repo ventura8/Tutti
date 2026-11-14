@@ -1,14 +1,13 @@
 """A machine's share for Tutti (tutti/share.py), the model servers kept alive (tutti/fleet.py keep_servers, ensure_tunnels)
 and the household's use (tutti/householduse.py). Fake runners only; no machine is called."""
-from datetime import datetime, timezone
-from types import SimpleNamespace
-
-from tests.test_autopilot import FREE, Base
 import os
 import stat
 import subprocess
 import tempfile
+from datetime import datetime, timezone
+from types import SimpleNamespace
 
+from tests.test_autopilot import FREE, Base
 from tutti import fleet, householduse, local, remote, routing, share, state
 
 NIGHT = datetime(2026, 11, 14, 23, 30, tzinfo=timezone.utc)

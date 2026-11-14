@@ -380,7 +380,6 @@ def save_autocompact(collector, raw):
     return 200, {'ok': True, 'threshold_pct': autocompact.threshold(collector.cfg)}
 
 
-<<<<<<< HEAD
 def save_dispatch(collector, raw):
     """(status, answer) for POST /api/dispatch {"enabled": true|false} (the Keep busy switch) or {"action": "now"} (a round now)."""
     try:
@@ -397,8 +396,9 @@ def save_dispatch(collector, raw):
 
 
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
-         '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch')
-=======
+         '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect')
+
+
 def save_connect(collector, body, home=None):
     """(status, answer) for POST /api/connect {"action": "status"|"connect"|"undo"|"test", "agent": <name>} (docs/CONNECT.md):
     the "Connect your agent" card. status lists every agent; test starts the agent's configured server and lists its tools."""
@@ -421,10 +421,6 @@ def save_connect(collector, body, home=None):
         return 409, {'error': str(e)}
 
 
-POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
-         '/api/owner', '/api/autocompact', '/api/connect')
->>>>>>> 4242a85 (feat(connect): tutti mcp, tutti connect for every main agent, the Connect your agent card (0.1.34))
-
 
 def post(collector, headers, path, port, token, read):
     """(status, answer) for a POST. `read(n)` reads n bytes of the body, only once the request passed every check."""
@@ -435,15 +431,9 @@ def post(collector, headers, path, port, token, read):
     if path not in POSTS:
         return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, {"agent": ...} to /api/main, '
                           '{"enabled": ...} to /api/autopilot or /api/self-improve, {"action": ...} to /api/control, '
-<<<<<<< HEAD
                           '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, '
-                          '{"enabled"|"action": ...} to /api/dispatch, '
+                          '{"enabled"|"action": ...} to /api/dispatch, {"action": ...} to /api/connect, '
                           '{"consent"|"error"|"use": ...} to /api/telemetry, or {} to /api/update'}
-=======
-                          '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, {"action": ...} to '
-                          '/api/connect, or '
-                          '{"consent"|"error"|"use": ...} to /api/telemetry'}
->>>>>>> 4242a85 (feat(connect): tutti mcp, tutti connect for every main agent, the Connect your agent card (0.1.34))
     refused = check_post(headers, host, token)
     if refused:
         return refused[0], {'error': refused[1]}
@@ -476,11 +466,8 @@ HANDLERS = {
     '/api/owner': lambda c, b: save_owner(c.cfg, b),
     '/api/control': save_control,
     '/api/autocompact': save_autocompact,
-<<<<<<< HEAD
     '/api/dispatch': save_dispatch,
-=======
     '/api/connect': save_connect,
->>>>>>> 4242a85 (feat(connect): tutti mcp, tutti connect for every main agent, the Connect your agent card (0.1.34))
     '/api/refresh': refresh_now,
     '/api/reading': lambda c, b: save_reading(c.cfg, b),
     '/api/telemetry': dashtelemetry.save,

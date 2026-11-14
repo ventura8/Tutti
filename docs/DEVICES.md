@@ -54,8 +54,8 @@ tutti devices move --to nuc pixel9pro googletv  # only these
 ```
 
 Dashboard: **Move devices**, pick the machine and the devices, **Show the plan**, then **Move now** (it runs
-`tutti devices move` in the background; the log is `<state>/devices-move.log`). Moving Tutti itself to another machine
-calls the same move when its devices are to follow.
+`tutti devices move` in the background; the log is `<state>/devices-move.log`). `tutti move --to <machine> --devices` (moving Tutti
+itself) runs the same move for every device once Tutti is there.
 
 The best path needs no re-pairing: the old machine's adb key pair (`~/.android/adbkey` and `adbkey.pub`; a Windows
 adb's `%USERPROFILE%\.android`) is copied to the new machine over ssh, at mode 600, held in memory only and written
@@ -63,14 +63,21 @@ through standard input (never in argv, a log or the terminal). Every device alre
 
 - The new machine has no key: it is copied.
 - It has the same key: nothing to copy.
-- It has its own, different key (other devices may trust it): the move stops and asks. `--replace-key` backs it up as
-  `adbkey.tutti-backup-<time>` and copies the old one; `--repair` keeps it and pairs each device again instead (a
-  checklist: the QR code, or the code a TV shows). The old key cannot be read (adb does not run there, or a policy
-  forbids it): re-pairing is the plan.
+- It has its own, different key: it is backed up as `adbkey.tutti-backup-<time>` and the old one is copied (the
+  default: the user does nothing; `--replace-key` says the same for old scripts). `--keep-key` keeps it instead, and
+  then only `--repair` moves the devices.
+- Re-pairing (`--repair`: a checklist, the QR code or the code a TV shows) is the last resort, for when the old key
+  cannot be read (adb does not run on the old machine, or a policy forbids the copy). It is never part of a normal move.
+
+A move asks the user nothing. Before anything changes, each device's Wireless debugging setting is read and kept (the
+result's `wifi_was`) and set on over the old machine's live connection (`settings put global adb_wifi_enabled 1`); after
+the device connects on the new machine it is set on again from there. Android keeps the trusted key itself (its list of
+allowed keys is not readable without root); since the copied key is the one already on that list, it keeps working.
 
 Preflight, before anything changes: adb on the new machine (else `--install-adb`), platform-tools 31+ on both, every
 device seen over mDNS from the new machine (so it is on the devices' network and multicast passes), and no run holding
-a device: a dispatch lease, Tutti's device lock, or another tool's lock file (`devices.<name>.external_lock`, docs/DISPATCH.md; its text names the holder).
+a device: a dispatch lease, Tutti's device lock, or another tool's lock file while it is fresher than `external_lock_stale_minutes` (30; `devices.<name>.external_lock`,
+docs/DISPATCH.md; its text names the holder).
 
 Then, on the new machine: the adb server restarts to load the key (`adb kill-server`, `adb start-server`), each
 device is connected and checked (`adb -s <serial> shell getprop ro.product.model`, and against `model` when the config
@@ -78,11 +85,20 @@ has it), `devices.<name>.machine` (and `adb`) change in the config, and the old 
 (`adb disconnect`). A device that does not connect stays on the old machine with its config unchanged (rollback); when
 none moved, the new machine's key is put back as it was.
 
+## Wireless debugging stays on
+
+Android turns Wireless debugging off after a reboot or a Wi-Fi change. Whenever a reading finds a wireless device not
+connected (`tutti devices`, the dashboard, the dispatcher), Tutti asks every machine's adb whether it still reaches the
+device, over Wi-Fi or a USB cable on any household machine (the USB serial is part of the mDNS name), and turns the
+setting back on through the first one; the device's row says through which. Each device is tried at most every 5 min.
+Only when no machine reaches it does the row ask the one step left, with the reason: turn Wireless debugging on, on the
+device (or plug it into any household computer by USB). See tutti/keepon.py.
+
 ## Other tools that use the same devices
 
 A tool with its own lock file per device names it in `devices.<name>.external_lock` (a path on the device's machine,
 `{serial}` filled in; docs/DISPATCH.md). Tutti mirrors it: the device shows busy while the file is fresh, a Tutti run
-waits for it and writes its own there for the run, and a move waits for it. That tool's agents keep working unchanged.
+waits for it and writes its own there for the run, and a move waits for it while it is fresh. That tool's agents keep working unchanged.
 
 To use Tutti's leases instead, an agent runs its device commands through Tutti, which holds the device's lock for the
 command, checks battery and heat first and queues a second run:

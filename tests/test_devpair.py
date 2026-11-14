@@ -9,12 +9,13 @@ import stat
 import subprocess
 import tempfile
 import textwrap
+import time
 import unittest
 from types import SimpleNamespace
 
 import yaml
 
-from tutti import adbhost, adbpair, devicesweb, devmove, qr
+from tutti import adbhost, adbpair, devices, devicesweb, devmove, keepon, qr
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUID = 'adb-ABC123-xYz'
@@ -34,7 +35,7 @@ class FakeHost:
 
     def __init__(self, name='nuc', mdns=MDNS, paired=GUID, up=True, model='Pixel 9 Pro', fp='new', path='/usr/bin/adb'):
         self.name, self.mdns, self.paired, self.up, self.model, self.fp, self._path = name, mdns, paired, up, model, fp, path
-        self.calls, self.connected, self.key = [], False, None
+        self.calls, self.connected, self.key, self.wifi = [], False, None, '0'
 
     def adb(self, *args, timeout=60):
         self.calls.append(args)
@@ -54,6 +55,17 @@ class FakeHost:
             return 0, 'feature:android.hardware.camera.any\nfeature:android.hardware.telephony\nfeature:android.hardware.wifi\n'
         if args[-1] == 'ro.build.version.sdk':
             return 0, '35\n'
+        return self.more(args)
+
+    def more(self, args):
+        """Wireless debugging's setting and `adb devices`."""
+        if args[-4:-1] == ('put', 'global', 'adb_wifi_enabled'):
+            self.wifi = args[-1]
+            return 0, ''
+        if args[-3:] == ('get', 'global', 'adb_wifi_enabled'):
+            return 0, self.wifi + '\n'
+        if args == ('devices',):
+            return 0, 'List of devices attached\n' + ''.join(f'{s}\tdevice\n' for s in getattr(self, 'listed', []))
         return 0, ''
 
     def state(self, serial):
@@ -93,7 +105,7 @@ class FakeHost:
         self.calls.append(('restart',))
         return True
 
-    def lock_holder(self, path):
+    def lock_holder(self, path, stale=None):
         return ''
 
 
@@ -261,8 +273,8 @@ class KeyCopyTest(unittest.TestCase):
         self.assertEqual(devmove.key_action('', 'abc'), 'repair')
         self.assertEqual(devmove.key_action('abc', 'abc'), 'same')
         self.assertEqual(devmove.key_action('abc', ''), 'copy')
-        self.assertEqual(devmove.key_action('abc', 'def'), 'ask')
-        self.assertEqual(devmove.key_action('abc', 'def', 'replace'), 'replace')
+        self.assertEqual(devmove.key_action('abc', 'def'), 'replace')
+        self.assertEqual(devmove.key_action('abc', 'def', 'keep'), 'ask')
         self.assertEqual(devmove.key_action('abc', 'abc', 'repair'), 'repair')
 
 
@@ -300,13 +312,17 @@ class MoveTest(unittest.TestCase):
 
     def test_the_move_copies_the_key_updates_the_config_and_disconnects_the_old_machine(self):
         old, new = FakeHost('pc', fp='pckey'), FakeHost('nuc', fp='')
+        old.connected = True   # the PC's adb still has it
         found, pre = self.pre(old, new)
         self.assertEqual(pre['problems'], [])
         self.assertEqual(pre['key'], 'copy')
         self.assertTrue(any('mode 600' in line for line in devmove.plan_lines(pre, found)))
         said = []
-        result = devmove.run(self.cfg, 'nuc', found, old, new, pre, say=said.append, sleep=lambda s: None)
-        self.assertEqual(result, {'moved': ['phone'], 'stayed': {}, 'restored': False})
+        result = devmove.run(self.cfg, 'nuc', found, old, new, pre, say=said.append, sleep=lambda s: None,
+                             pair_fn=lambda d: self.fail('a move with the key copied asks nothing'))
+        self.assertEqual(result, {'moved': ['phone'], 'stayed': {}, 'restored': False, 'wifi_was': {'phone': '0'}})
+        self.assertEqual(old.wifi, '1')   # set on over the old machine's live connection before anything moved
+        self.assertIn(('-s', SERIAL, 'shell', 'settings', 'put', 'global', 'adb_wifi_enabled', '1'), new.calls)   # re-asserted
         self.assertEqual(new.key, ('PRIVATE-KEY-TEXT', 'PUB adb@pc'))
         self.assertNotIn('PRIVATE-KEY-TEXT', ' '.join(said))
         phone = self.data()['devices']['phone']
@@ -318,7 +334,7 @@ class MoveTest(unittest.TestCase):
 
     def test_a_device_that_does_not_connect_stays_and_the_key_is_put_back(self):
         old, new = FakeHost('pc', fp='pckey'), FakeHost('nuc', fp='nuckey', up=False)
-        found, pre = self.pre(old, new, 'replace')
+        found, pre = self.pre(old, new)   # a different key on the new machine: replaced by default, backed up
         self.assertEqual(pre['key'], 'replace')
         result = devmove.run(self.cfg, 'nuc', found, old, new, pre, say=lambda m: None, wait=3, sleep=lambda s: None)
         self.assertEqual(result['moved'], [])
@@ -343,7 +359,9 @@ class MoveTest(unittest.TestCase):
         text = ' '.join(pre['problems'])
         self.assertIn('not seen over mDNS from nuc', text)
         self.assertIn('in use (dispatch lease 7', text)
-        self.assertIn('--replace-key', text)
+        self.assertEqual(pre['key'], 'replace')   # no choice asked: the NUC's own key is backed up
+        _, pre = self.pre(old, new, 'keep')
+        self.assertIn('--keep-key', ' '.join(pre['problems']))
         _, pre = self.pre(FakeHost('pc'), FakeHost('nuc', path=''))
         self.assertTrue(pre['install'])
 
@@ -438,6 +456,16 @@ FAKE_ADB = textwrap.dedent(f'''\
 ''')
 
 
+class TuttiMoveTest(unittest.TestCase):
+    def test_tutti_move_with_devices_moves_every_device_once_per_machine(self):
+        from tutti import move
+        cfg = {'machines': {'laptop': {'transport': 'local'}, 'nuc': {'transport': 'ssh'}},
+               'devices': {'p': {'machine': 'laptop'}, 'q': {'machine': 'pc'}, 'r': {'machine': 'nuc'}}}
+        got = []
+        rc = move.devices_follow(cfg, SimpleNamespace(to='nuc'), move_fn=lambda c, a: got.append((a.to, a.names, a.repair)) or 0)
+        self.assertEqual((rc, got), (0, [('nuc', ['p'], False), ('nuc', ['q'], False)]))
+
+
 class ExternalLockTest(unittest.TestCase):
     def test_a_move_waits_for_another_tools_lock_file(self):
         tmp = tempfile.mkdtemp()
@@ -449,6 +477,47 @@ class ExternalLockTest(unittest.TestCase):
         with open(theirs.replace('{serial}', 'R58'), 'w', encoding='utf8') as f:
             f.write('phone-e2e subagent 2026-11-14\n')
         self.assertEqual(devmove.busy({}, d, old, lease_fn=lambda c, n: ''), 'phone-e2e subagent 2026-11-14')
+        an_hour_ago = time.time() - 3600
+        os.utime(theirs.replace('{serial}', 'R58'), (an_hour_ago, an_hour_ago))
+        self.assertEqual(devmove.busy({}, d, old, lease_fn=lambda c, n: ''), '')   # left behind: stale after 30 min
+
+
+class KeepOnTest(unittest.TestCase):
+    """After a reboot Android turns Wireless debugging off: Tutti turns it back on through any machine that reaches the
+    device, and asks the user only when none does."""
+
+    def setUp(self):
+        keepon._TRIED.clear()
+        self.cfg = {'machines': {'pc': {'transport': 'wsl'}, 'nuc': {'transport': 'ssh'}, 'phone': {'transport': 'android'}},
+                    'devices': {}}
+        self.d = {'name': 'pixel', 'serial': SERIAL, 'machine': 'nuc'}
+
+    def test_wireless_debugging_off_after_a_reboot_is_turned_back_on_over_usb_on_another_machine(self):
+        nuc, pc = FakeHost('nuc'), FakeHost('pc')
+        pc.listed = ['ABC123']   # plugged into the PC by USB; the NUC sees nothing since the reboot
+        readings = iter([{'adb': 'ok', 'state': 'missing'}, {'adb': 'ok', 'state': 'device'}])
+        read = keepon.readings_with_revive(self.cfg, lambda m, d, **kw: next(readings),
+                                           hosts_fn=lambda n, adb=None: {'nuc': nuc, 'pc': pc}[n])
+        r = read({}, self.d)
+        self.assertEqual(r['state'], 'device')
+        self.assertIn('turned back on through pc (USB)', r['revived'])
+        self.assertEqual(pc.wifi, '1')
+        self.assertEqual(keepon.usb_serial_of('adb-46191FDAP003RM-OikUIT'), '46191FDAP003RM')
+
+    def test_no_path_left_asks_the_user_once_with_the_reason(self):
+        read = keepon.readings_with_revive(self.cfg, lambda m, d, **kw: {'adb': 'ok', 'state': 'missing'},
+                                           hosts_fn=lambda n, adb=None: FakeHost(n))
+        r = read({}, self.d)
+        self.assertEqual(r['last_step'], keepon.LAST_STEP)
+        st = devices.device_state(self.d | {'lock': '/x'}, r)
+        self.assertEqual(st['status'], 'offline')
+        self.assertIn('Android turns it off after a reboot', st['reason'])
+        self.assertIsNone(keepon.revive(self.cfg, self.d, lambda n, adb=None: self.fail('not again within 5 min')))
+
+    def test_a_connected_device_is_not_touched(self):
+        read = keepon.readings_with_revive(self.cfg, lambda m, d, **kw: {'adb': 'ok', 'state': 'device'},
+                                           hosts_fn=lambda n, adb=None: self.fail('nothing to revive'))
+        self.assertEqual(read({}, self.d)['state'], 'device')
 
 
 class ReconnectTest(unittest.TestCase):

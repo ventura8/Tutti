@@ -990,10 +990,28 @@ def cmd(cfg, a, out=None):
             return 1 if plan['blockers'] else 0
         j = Move(cfg, a.to, say=say, jobs=a.jobs, wait_minutes=a.wait_minutes).run(restart=a.restart)
         print(describe_done(j), file=out)
-        return 0
+        return devices_follow(cfg, a) if getattr(a, 'devices', False) else 0
     except MoveError as e:
         say(str(e))
         return 1
+
+
+def devices_follow(cfg, a, move_fn=None):
+    """--devices: every Android device follows Tutti to its new machine (`tutti devices move`, once per machine they are on;
+    docs/DEVICES.md: the adb key is copied, nothing is asked). The worst exit code."""
+    from types import SimpleNamespace
+
+    from . import devicescmd
+    by_machine = {}
+    for n, d in (cfg.get('devices') or {}).items():
+        if d.get('machine') != a.to:
+            by_machine.setdefault(d.get('machine'), []).append(n)
+    rc = 0
+    for names in by_machine.values():
+        args = SimpleNamespace(to=a.to, names=names, dry_run=False, keep_key=False, repair=False, install_adb=True, flow=None,
+                               tv=False, code=None, adb=None, wait=180)
+        rc = max(rc, (move_fn or devicescmd.cmd_move)(cfg, args))
+    return rc
 
 
 def describe_done(j):

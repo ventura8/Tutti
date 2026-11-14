@@ -133,12 +133,12 @@ def move_post(collector, raw, hosts_fn=None, popen=subprocess.Popen):
     if data.get('dry_run', True):
         mk = hosts_fn or (lambda n, adb=None: adbhost.Host(n, cfg['machines'][n], adb=adb))
         old, new = mk(found[0]['machine'], found[0].get('adb')), mk(data['to'])
-        pre = devmove.preflight(cfg, data['to'], found, old, new, 'replace' if data.get('key') == 'replace' else None)
+        pre = devmove.preflight(cfg, data['to'], found, old, new, 'keep' if data.get('key') == 'keep' else None)
         return 200, {'plan': devmove.plan_lines(pre, found), 'problems': pre['problems'], 'key': pre['key']}
     from . import remote
     me = [remote.BIN] if os.path.isfile(remote.BIN) else ['-c', 'import sys; from tutti.cli import entry; sys.exit(entry())']
     argv = [sys.executable, *me, '--config', cfg['_path'], 'devices', 'move', '--to', data['to'], *[d['name'] for d in found]]
-    argv += ['--replace-key'] if data.get('key') == 'replace' else []
+    argv += ['--keep-key'] if data.get('key') == 'keep' else []
     log = os.path.join(config.state_dir(cfg), 'devices-move.log')
     try:
         with open(log, 'ab') as out:

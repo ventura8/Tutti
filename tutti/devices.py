@@ -163,6 +163,8 @@ def _connection(r, serial):
         return 'adb is not allowed yet: unlock the phone and tap Allow on its "Allow USB debugging?" prompt'
     if state == 'offline':
         return f'adb sees it offline: reconnect the cable, or for wireless debugging run `adb connect {serial}` again'
+    if state not in (None, 'device') and r.get('last_step'):
+        return r['last_step']   # tutti/keepon.py: no machine reaches it to turn Wireless debugging back on
     if state not in (None, 'device'):
         return (f'not connected: plug it in by USB, or turn Wireless debugging on and run `adb connect {serial}` '
                 'on its machine (Developer options, once per network)')
@@ -297,7 +299,7 @@ def readings_command(device, scripts_dir, wake=False):
 def device_state(d, readings):
     pol = policy(d)
     st, reason = status(pol, readings, d['serial'])
-    keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi', 'call', 'external_by', 'prep_left')
+    keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi', 'call', 'external_by', 'prep_left', 'revived')
     return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'kind': d.get('kind', 'phone'), 'status': st,
             'reason': reason,
             'policy': pol, **{k: readings.get(k) for k in keep}}

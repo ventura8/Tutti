@@ -7,6 +7,7 @@ and the readings keep going when the laptop sleeps. One command moves it, and on
 tutti move --to nuc --dry-run      # check the target and print the whole plan; nothing changes
 tutti move --to nuc                # move: preflight, copy, cut-over, this computer becomes a client
 tutti move --to nuc --jobs handover   # running autopilot jobs are stopped and queued again instead of waited for
+tutti move --to nuc --devices      # the Android devices follow (tutti devices move: key copied, nothing asked; DEVICES.md)
 tutti move --status                # where Tutti runs, the clients connected, the last or current move
 tutti move --rollback              # Tutti back on this computer (also automatic when the new host fails its health check)
 ```

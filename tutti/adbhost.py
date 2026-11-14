@@ -108,11 +108,13 @@ class Host:
         time.sleep(1)
         return self.adb('start-server', timeout=60)[0] == 0
 
-    def lock_holder(self, path):
+    def lock_holder(self, path, stale=None):
         """Who holds a lock file on this machine ('' when free): a flock that cannot be taken, or a file another tool
-        writes while it uses the device (its text names the holder)."""
+        writes while it uses the device (its text names the holder). With `stale` (seconds) an older file is left behind,
+        so free, as the readings count it (devices.<d>.external_lock_stale_minutes)."""
         q = path if path.startswith('"') else shlex.quote(path)
-        rc, out = self.bash(f'f={q}; [ -e "$f" ] || exit 0; if flock -n "$f" true 2>/dev/null; then '
+        old = f'[ $(( $(date +%s) - $(stat -c %Y "$f") )) -ge {int(stale)} ] && exit 0; ' if stale is not None else ''
+        rc, out = self.bash(f'f={q}; [ -e "$f" ] || exit 0; {old}if flock -n "$f" true 2>/dev/null; then '
                             '[ -s "$f" ] && head -c 200 "$f"; else echo "a running Tutti run"; fi')
         return out.strip() if rc == 0 else ''
 

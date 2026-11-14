@@ -626,9 +626,9 @@ def builds(cfg, st, now, is_alive, spawn=subprocess.Popen):
 
 def live_tick(cfg, is_alive=None, spawn=subprocess.Popen):
     """A tick with fresh probes (a run that just ended, `tutti dispatch now`): no dashboard snapshot to lean on."""
-    from . import remote, state
-    return tick(cfg, devices.devices_state(cfg, remote.device_readings), state.machines_state(cfg, remote.probe),
-                is_alive=is_alive, spawn=spawn)
+    from . import keepon, remote, state
+    rows = devices.devices_state(cfg, keepon.readings_with_revive(cfg, remote.device_readings))
+    return tick(cfg, rows, state.machines_state(cfg, remote.probe), is_alive=is_alive, spawn=spawn)
 
 
 def test_argv(cfg, lease, s, shard):

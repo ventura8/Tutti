@@ -197,8 +197,9 @@ def cmd_devices(cfg, a):
     if not cfg['devices']:
         say('no devices: `tutti devices pair` pairs one over Wi-Fi (`tutti devices add` prints the manual setup)')
         return 0
+    from . import keepon  # a device whose Wireless debugging went off is switched back on through any machine that reaches it
     offline = 0
-    for row in devices.devices_state(cfg, remote.device_readings):
+    for row in devices.devices_state(cfg, keepon.readings_with_revive(cfg, remote.device_readings)):
         offline += row['status'] == 'offline'
         print(f'{row["name"]:12} {row["serial"]:22} on {row["machine"]:10} {row["status"]:8}{power_text(row)}  {row["reason"]}')
     return 1 if offline else 0
@@ -1452,6 +1453,8 @@ def parser():
     s.add_argument('--wait-minutes', type=float, default=60, help='with --jobs wait: how long to wait for them (60)')
     s.add_argument('--restart', action='store_true', help='start the move again from the preflight instead of resuming it')
     s.add_argument('--status', action='store_true', help='where Tutti runs, and the last or current move')
+    s.add_argument('--devices', action='store_true', help='every Android device follows (tutti devices move: '
+                   'the adb key is copied, nothing is asked; docs/DEVICES.md)')
     s.add_argument('--json', action='store_true')
     s = add('bridge', move.cmd_bridge, 'the connection a client keeps to the host (docs/MOVE.md, *The bridge*): status, '
                                        'serve (the host end, started by the client\'s ssh), exec (a run on a client)')

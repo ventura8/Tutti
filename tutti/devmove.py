@@ -2,9 +2,11 @@
 another, with no re-pairing when it can (docs/DEVICES.md, *Moving devices*).
 
 The best path copies the old machine's adb key pair to the new one: every device already trusts that key. A different
-key already on the new machine is never replaced without a choice (`--replace-key` backs it up first; `--repair` pairs
-each device again instead). Preflight: adb on the new machine (installed in user space with `--install-adb`), a recent
-enough adb on both, every device seen over mDNS from the new machine (so it is on the devices' network), and no run or
+key already on the new machine is backed up (adbkey.tutti-backup-<time>) and replaced: the user does nothing (`--keep-key`
+keeps it; `--repair`, the last resort, pairs each device again). Over the old machine's live connection each device's
+Wireless debugging is set on first and re-asserted from the new machine after (tutti/keepon.py).
+Preflight: adb on the new machine (installed in user space with `--install-adb`), a recent enough adb on both, every
+device seen over mDNS from the new machine (so it is on the devices' network), and no run or
 lock holding a device. Each device is then connected on the new machine and checked (`getprop ro.product.model`); one
 that fails stays on the old machine (rollback); the ones that work get `device.machine` (and `adb`) changed in the config
 and are disconnected from the old machine's adb server. Pure choices here; adb goes through tutti/adbhost.py."""
@@ -42,15 +44,15 @@ def pick(cfg, to, names):
 
 def key_action(old_fp, new_fp, choice=None):
     """What happens to the adb key: same (the new machine has it already), copy (it has none), replace (a different
-    one, backed up first: asked for), repair (pair again: asked for, or the old key cannot be read), ask (a choice is
-    needed: the new machine's own key may be trusted by other devices)."""
+    one: backed up first, then the old one copied; the default, so the user does nothing), repair (pair again: asked
+    for, or the old key cannot be read: the last resort), ask (--keep-key: the new machine's own key stays)."""
     if choice == 'repair' or not old_fp:
         return 'repair'
     if old_fp == new_fp:
         return 'same'
     if not new_fp:
         return 'copy'
-    return 'replace' if choice == 'replace' else 'ask'
+    return 'ask' if choice == 'keep' else 'replace'   # the default: the old key, the new one backed up (no user step)
 
 
 def leased(cfg, name):
@@ -67,9 +69,11 @@ def busy(cfg, d, old, lease_fn=leased):
     (`devices.<name>.external_lock`, a path on its machine)."""
     from . import devices, remote
     who = lease_fn(cfg, d['name'])
+    who = who or old.lock_holder(remote.home_path(d['lock']))
     ext = devices.external_lock(d)
-    for path in (remote.home_path(d['lock']), *([remote.home_path(ext)] if ext else [])):
-        who = who or old.lock_holder(path)
+    if ext and not who:
+        stale = int(float(d.get('external_lock_stale_minutes', devices.EXTERNAL_STALE_MINUTES)) * 60)
+        who = old.lock_holder(remote.home_path(ext), stale=stale)
     return who
 
 
@@ -102,8 +106,8 @@ def preflight(cfg, to, found, old, new, choice=None, lease_fn=leased):
                                        're-pairing']
     pre['key'] = key_action(old.fingerprint() if vers[0] else '', new.fingerprint() if pre['adb'] else '', choice)
     if pre['key'] == 'ask':
-        pre['problems'].append(f'{to} has its own adb key, which other devices may trust: choose --replace-key (it is backed '
-                               'up first) or --repair (pair each device again; the key stays)')
+        pre['problems'].append(f'{to} keeps its own adb key (--keep-key): run without it (the key is backed up first and '
+                               'the devices need nothing), or with --repair (pair each device again)')
     return pre
 
 
@@ -119,7 +123,8 @@ def plan_lines(pre, found):
                 'copy': f'adb key: copy {src}\'s key pair to {to} over ssh at mode 600 (never printed); no re-pairing',
                 'replace': f'adb key: back up {to}\'s own key (adbkey.tutti-backup-<time>), then copy {src}\'s at mode 600',
                 'repair': f'adb key: not copied; pair each device again on {to} (a checklist: QR code, or the code a TV shows)',
-                'ask': f'adb key: {to} has a different key: choose --replace-key or --repair'}[pre['key']])
+                'ask': f'adb key: {to} keeps its own key (--keep-key): add --repair, or drop --keep-key'}[pre['key']])
+    out.append(f'Wireless debugging: set on through {src} first (each device\'s value kept), re-asserted from {to} after')
     if pre['key'] in ('copy', 'replace'):
         out.append(f'restart the adb server on {to} so it loads the key (adb kill-server; adb start-server)')
     for d in found:
@@ -175,9 +180,26 @@ def copy_key(old, new, stamp, say):
     return ok, backup
 
 
+def keep_wifi_on(old, found, say):
+    """Over the old machine's live connection: reads each device's Wireless debugging setting (kept in the result) and
+    sets it on, so a reboot or a Wi-Fi change during the move does not strand it (tutti/keepon.py)."""
+    from . import keepon
+    was = {}
+    for d in found:
+        serial = str(d['serial'])
+        if old.state(serial) == 'device':
+            was[d['name']] = keepon.get(old, serial)
+            if was[d['name']] != '1' and keepon.turn_on(old, serial):
+                say(f'{d["name"]}: Wireless debugging was {was[d["name"]] or "unknown"}; set on through {old.name}')
+    return was
+
+
 def run(cfg, to, found, old, new, pre, *, say, pair_fn=None, stamp=None, wait=60, sleep=time.sleep):
-    """Does the move after a clean preflight. Returns {'moved': [...], 'stayed': {name: why}, 'restored': bool}."""
+    """Does the move after a clean preflight, asking nothing. Returns {'moved': [...], 'stayed': {name: why},
+    'restored': bool, 'wifi_was': {name: '0'|'1'|''}}."""
+    from . import keepon
     stamp = stamp or time.strftime('%Y%m%d-%H%M%S')
+    wifi_was = keep_wifi_on(old, found, say)
     backup, copied = '', False
     if pre['key'] in ('copy', 'replace'):
         copied, backup = copy_key(old, new, stamp, say)
@@ -193,6 +215,7 @@ def run(cfg, to, found, old, new, pre, *, say, pair_fn=None, stamp=None, wait=60
             stayed[d['name']] = f'did not connect on {to}' if not model else f'{to} sees a {model}, not a {d["model"]}'
             continue
         moved.append(d['name'])
+        keepon.turn_on(new, live_serial(new, d))   # re-asserted from the new machine: it survives the old one letting go
         say(f'{d["name"]}: connected on {to} ({model})')
     restored = False
     if not moved and copied:
@@ -203,7 +226,16 @@ def run(cfg, to, found, old, new, pre, *, say, pair_fn=None, stamp=None, wait=60
         for d in found:
             if d['name'] in moved:
                 old.adb('disconnect', str(d['serial']), timeout=30)
-    return {'moved': moved, 'stayed': stayed, 'restored': restored}
+    return {'moved': moved, 'stayed': stayed, 'restored': restored, 'wifi_was': wifi_was}
+
+
+def live_serial(host, d):
+    """The serial this machine's adb lists the device under: its mDNS name, else the ip:port it announces now."""
+    serial = str(d['serial'])
+    if host.state(serial) == 'device':
+        return serial
+    addr = adbpair.connect_address(host.services(), adbpair.guid_of(serial)) if adbpair.guid_of(serial) else None
+    return addr if addr and host.state(addr) == 'device' else serial
 
 
 def adb_for(new):

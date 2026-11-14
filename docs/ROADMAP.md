@@ -67,3 +67,24 @@ Lessons that drove it: LESSONS.md (Gemini CLI free tier closed → agy; agy head
 - Living plan: keep every request in a plan file and update it continuously; memory notes for standing rules.
 - Stall watchdog (owner, 2026-11-14): `tutti watch` checks every running task (agents, CLI workers, remote test runs, deploys) on a timer: is it still making progress (output, tool calls, CPU, log lines)? Finished but unreported → collect the result and report; waiting on something gone (killed run, self-matching wait loop, lost container) → restart the wait or the step; really stuck or failing → stop it, record why, retry once or escalate to the orchestrator with the exact cause. Shown in the TUI with the last sign of life per task.
 - Quota panic mode (owner, 2026-11-14): when an account nears its cap well before the target time (e.g. Claude at 98–99 % with hours left), Tutti switches on its own: no new agents on that account, running ones told to commit work-in-progress and stop or finish minimally, short replies, effort low, and all new work routed to accounts with room (Cursor, Antigravity's two 5 h windows) and local models; peers are told at once; it switches back automatically at the reset and resumes the parked work from the plan.
+
+## Owner's product vision, 2026-11-14 (night)
+**Panic threshold.** Panic mode starts at 3 % remaining by default (configurable). The threshold rises dynamically when consumption runs ahead of the line: Tutti computes it from the burn rate and the time left to the reset, so it slows down early instead of hitting the cap.
+
+**Steady burn.** Target an even ~14 % of the Claude week per day after each reset (100 % / 7), corrected in real time; recompute the line when the user changes the main agent (each agent has its own quota and burn).
+
+**Web app (PWA, no native apps for now)**, Material Design, following the OS light/dark theme and accent colour:
+- Left menu panel: main window, projects, dashboards, tasks, agents, devices, live plan, terminal, settings (and anything else needed, above projects).
+- Main window: a vibe-coding workspace for 2026 — tasks, a chat with the main agent, the live context.
+- Dashboards with everything: usage and limits per account/window, pace line, task history (what, who, effort, result, tokens), running tasks and their worker, devices and their load.
+- Context panel: the main agent's context use, compaction state and quota.
+- A terminal view, and a view of the live plan.
+- GUI setup wizard (the user chooses TUI or GUI setup); easy "connect a device" (local AI and non-AI work) and "connect an agent" (Claude Code, agy, Cursor, …) flows.
+
+**Main agent.** The user chooses the main agent: Claude Code (default), Cursor or agy. Switching shares the context through Tutti's own state (plan, task history, memory), so no context is copied or re-explained between agents and switching costs no extra tokens.
+
+**Token savings.** Tutti manages compaction for every agent at the right moment (before quality drops, and when cheapest); uses the MCP servers that save tokens; keeps the main agent lean by delegating.
+
+**Goal.** The best IDE and the best framework for coordinating AI and local agents and machines in 2026.
+
+**Quality.** Excellent e2e tests for the PWA on Windows (with and without WSL) and on Linux; works perfectly on both.

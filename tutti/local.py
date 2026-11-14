@@ -79,14 +79,29 @@ def wait_for_yield(cfg, worker, poll=60, sleep=time.sleep):
         sleep(poll)
 
 
+def threads_at_share(cfg, worker, now=None, idle_fn=None):
+    """The model's threads at its machine's share for Tutti (tutti/share.py): workers.<w>.threads (else none set: Ollama's
+    own choice, unless the share is lower, then the machine's cores at it)."""
+    from datetime import datetime, timezone
+
+    from . import fleet, share
+    name = fleet.machine_of(cfg, worker.get('_name') or next((n for n, w in cfg['workers'].items() if w is worker), ''))
+    m = cfg['machines'].get(name) or {}
+    idle = (idle_fn or share.idle_seconds)() if m.get('transport') == 'local' else None
+    pct, _ = share.pct(m, None, now or datetime.now(timezone.utc), idle, (cfg.get('autopilot') or {}).get('quiet_hours'))
+    base = worker.get('threads') or (os.cpu_count() if pct < 100 else None)
+    return share.scaled(base, pct) if base else None
+
+
 def generate(cfg, worker, prompt, wait=False, low_priority=False, timeout=1800):
     """One answer from the worker's model. wait=True retries forever while the host is down (for runs that must not skip)."""
     wait_for_yield(cfg, worker)
     while low_priority and others_busy(cfg):
         time.sleep(5)
     options = {'temperature': worker.get('temperature', 0.1), 'num_ctx': worker.get('num_ctx', 16384)}
-    if worker.get('threads'):
-        options['num_thread'] = worker['threads']
+    threads = threads_at_share(cfg, worker)
+    if threads:
+        options['num_thread'] = threads
     payload = {'model': worker['model'], 'prompt': prompt, 'stream': False, 'think': False, 'options': options}
     tries = 0
     while True:

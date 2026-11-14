@@ -897,6 +897,17 @@ def record_attempt(cfg, t, a, now):
                      minutes=round((now - float(a.get('started') or now)) / 60, 2))
 
 
+def local_share(cfg, here, machines):
+    """This computer's measure for the adaptive limit, its cores at its share for Tutti (machines.<m>.use_pct, lower while
+    someone uses it: tutti/share.py, read from its dashboard row)."""
+    from . import fleet, share
+    name = fleet.machine_of(cfg, '')
+    row = next((m for m in machines or () if m.get('name') == name), None)
+    if not here or not row or row.get('use_pct') is None:
+        return here
+    return {**here, 'cores': max(1, share.scaled(here['cores'], row['use_pct']))}
+
+
 def repo_files(cfg, run=subprocess.run):
     """{repo name: its tracked files}, for the scope guess of tasks that name none."""
     out = {}
@@ -933,7 +944,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     on = enabled(cfg)
     if '_host' not in cfg:
         from . import parallel
-        cfg['_host'] = parallel.host()
+        cfg['_host'] = local_share(cfg, parallel.host(), machines)
     from . import fill  # fill imports this module
     filled = None
     found = fill.gather(cfg, backlog.load(cfg), states, machines, now) if on else None   # the repos' commands: never under the lock

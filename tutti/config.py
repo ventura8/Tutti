@@ -76,6 +76,9 @@ DEFAULTS = {
     # heartbeat, when a member with no slot counts as starved, how long before a reset an account's spare room may be shared
     # (accounts.<n>.share_spare), and how long a call to the coordinator may take before the member works alone
     'user': {'name': '', 'weight': 1},
+    # self_update: Tutti installs its newest checksummed release at login and once a day from the dashboard (docs/INSTALL.md);
+    # enabled: false is the opt-out
+    'self_update': {'enabled': True},
     'household': {'port': 4778, 'bind': '0.0.0.0', 'lease_minutes': 30, 'starve_minutes': 20, 'share_spare_hours': 6,
                   'timeout_seconds': 3},
     # update: `tutti update` and the dashboard's daily round; auto: false turns the round off, packages: apt packages whose

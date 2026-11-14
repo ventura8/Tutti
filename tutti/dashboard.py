@@ -10,6 +10,7 @@ import math
 import mimetypes
 import os
 import secrets
+import subprocess
 import sys
 import threading
 import time
@@ -37,6 +38,7 @@ from . import (
     remote,
     scouts,
     settings,
+    setupcmd,
     state,
     telemetry,
     transfer,
@@ -197,6 +199,7 @@ class Collector:
         out['scouts'] = {**scouts.view(self.cfg, accounts, self.env), 'error': probes.get('scout_error'), 'trial': trial.view(self.cfg)}
         out['controls'] = controls.view(self.cfg, controls.read(config.state_dir(self.cfg)))
         out['telemetry'] = dashtelemetry.view(self.cfg)
+        out['setup'] = setupcmd.read_report(self.cfg)
         out['controls']['opt_in'].append({'kind': 'autopilot', 'name': 'fill_room', 'on': out['autopilot']['fill_room'],
                                           'why': 'free room on the trigger accounts is filled from the repos\' sources by itself'})
         out['controls']['autocompact'] = autocompact.view(self.cfg)
@@ -234,7 +237,7 @@ def static_path(url_path):
 
 
 API_SETTINGS, API_RESTART = '/api/settings', '/api/restart'
-ADMIN_PATHS = (API_SETTINGS, API_RESTART)
+ADMIN_PATHS = (API_SETTINGS, API_RESTART, '/api/setup')   # setup changes the config: an admin's
 BODY_LIMITS[API_SETTINGS] = 65536
 
 
@@ -456,7 +459,7 @@ def save_dispatch(collector, raw):
 
 
 POSTS = ('/api/reading', '/api/refresh', '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
-         '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART)
+         '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, '/api/setup')
 
 
 def save_connect(collector, body, home=None):
@@ -494,7 +497,7 @@ def post(collector, headers, path, port, token, read):
                           '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, '
                           '{"enabled"|"action": ...} to /api/dispatch, {"action": ...} to /api/connect, '
                           '{"path": ...} to /api/settings, {} to /api/restart, '
-                          '{"consent"|"error"|"use": ...} to /api/telemetry, or {} to /api/update'}
+                          '{"consent"|"error"|"use": ...} to /api/telemetry, {} to /api/update, or {"action": "run"} to /api/setup'}
     refused = check_post(headers, host, token) or (authorize(collector, headers) if path in ADMIN_PATHS else None)
     if refused:
         return refused[0], {'error': refused[1]}
@@ -543,7 +546,30 @@ def restart_now(collector, _body, execv=os.execv, timer=threading.Timer):
     return 200, {'ok': True, 'restarting': True}
 
 
+def run_setup(collector, body, popen=subprocess.Popen):
+    """(status, answer) for POST /api/setup {"action": "run"}: `tutti setup --yes` in the background (it fills only what is
+    missing, asks nothing and opens no sign-in); the Set up card shows its new report when it is done."""
+    try:
+        data = json.loads(body or b'null')
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or data.get('action') != 'run':
+        return 400, {'error': 'send {"action": "run"} to run setup again'}
+    path = ['--config', collector.cfg['_path']] if collector.cfg.get('_path') else []
+    # this same Tutti: a checkout's or release's bin/tutti, else the installed package (uv, pipx: no bin/ beside it)
+    me = [remote.BIN] if os.path.isfile(remote.BIN) else ['-c', 'import sys; from tutti.cli import entry; sys.exit(entry())']
+    argv = [sys.executable, *me, *path, 'setup', '--yes', '--from-dashboard']
+    log = os.path.join(config.state_dir(collector.cfg), 'setup.log')
+    try:
+        with open(log, 'ab') as out:
+            popen(argv, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
+    except OSError as e:
+        return 500, {'error': f'setup could not start ({e}): run `tutti setup` in a terminal; its log would be {log}'}
+    return 202, {'ok': True, 'log': log}
+
+
 HANDLERS = {
+    '/api/setup': run_setup,
     '/api/main': lambda c, b: save_main(c.cfg, b),
     '/api/autopilot': save_autopilot,
     API_SETTINGS: settings.save,

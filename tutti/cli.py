@@ -50,7 +50,7 @@ from . import (
     workers,
 )
 
-SCRIPTS = os.path.join(remote.ROOT, 'scripts')
+SCRIPTS = remote.SCRIPTS
 NONE = '(none)'
 SUMMARY = 'In at most 5 short lines: which check failed, the file:line and the exact error. No advice.'
 
@@ -116,6 +116,38 @@ def cmd_update(cfg, a):
     print(update.report(data) or 'nothing to update: no CLI workers, models or update.packages in the config')
     failed = any(r['error'] or any(x['status'] == 'failed' for x in r['items']) for r in data['machines'].values())
     return 1 if failed or any(x['status'] == 'failed' for x in data['models']) else 0
+
+
+def cmd_setup(cfg, a):
+    """`tutti setup`: the guided first run (docs/INSTALL.md); works before any config exists."""
+    from . import setupcmd
+    try:
+        return setupcmd.run(a)
+    except config.ConfigError as e:
+        say(str(e))
+        return 1
+
+
+def cmd_self_update(cfg, a):
+    """`tutti self-update [--check|--auto]`: the newest checksummed release (docs/INSTALL.md, *Updates*)."""
+    from . import install
+    home_dir = install.home()
+    if not install.is_release_install(remote.ROOT, home_dir):
+        if a.auto:
+            return 0
+        say(f'self-update: this Tutti runs from {remote.ROOT}, not a release install: update it the way it was installed '
+            '(git pull, uv tool upgrade tutti-agents or pipx upgrade tutti-agents)')
+        return 1
+    if a.auto:
+        try:
+            on = (config.load(a.config).get('self_update') or {}).get('enabled', True)
+        except config.ConfigError:
+            on = True
+        if not on:
+            return 0
+    code, msg = install.self_update(home_dir, check_only=a.check)
+    say(msg)
+    return code
 
 
 def cmd_machines(cfg, a):
@@ -808,6 +840,8 @@ def cmd_dashboard(cfg, a):
         return 1
     if not a.no_probe:
         collector.start()
+    from . import install  # a release install updates itself daily and restarts in place (docs/INSTALL.md, *Updates*)
+    install.start_daily(cfg, collector.stop, remote.ROOT, lambda: os.execv(sys.executable, [sys.executable, *sys.argv]))
     say(f'dashboard: http://{dashboard.BIND}:{httpd.server_address[1]}/ (this computer only; Ctrl+C stops it)')
     from . import coordinator  # the household coordinator's computer serves the household from its dashboard too
     if coordinator.start_in_background(cfg):
@@ -1033,6 +1067,20 @@ def parser():
                                   'name the exact command for what needs the owner (apt packages such as the Cursor editor)')
     s.add_argument('--check', action='store_true', help='only read the versions; change nothing')
     s.add_argument('--machine', help='only this machine')
+    s = add('setup', cmd_setup, 'the first run, no questions: finds agents, logins, GPUs, machines, phones and repos, writes the '
+                                'config with defaults, starts the dashboard at login, turns on updates, then lists the few steps '
+                                'only you can do (sign-ins open in each tool\'s own window); again: only fills what is missing')
+    s.add_argument('--yes', action='store_true', help='(the default) take every recommended default and ask nothing')
+    s.add_argument('--ask', action='store_true', help='ask about each default instead (one question at a time)')
+    s.add_argument('--no-service', dest='service', action='store_false', help='do not start the dashboard at login')
+    s.add_argument('--join', help='then join a household with this invite (what a new member\'s install line passes)')
+    s.add_argument('--no-connect', dest='connect', action='store_false', help='do not connect the agents found to Tutti\'s MCP '
+                                                                               'server (`tutti connect --all`)')
+    s.add_argument('--from-dashboard', action='store_true', help='run by the dashboard\'s Set up card: the login service is '
+                                                                 'enabled for the next login, not started next to that dashboard')
+    s = add('self-update', cmd_self_update, 'install the newest checksummed release of Tutti (release installs)')
+    s.add_argument('--check', action='store_true', help='only say whether a newer release is out')
+    s.add_argument('--auto', action='store_true', help='quiet no-op when turned off (self_update.enabled) or not a release install')
     s = add('machines', cmd_machines, 'probe every machine: free slots, load, yield flag (add-android: set up a Termux machine)')
     s.add_argument('action', nargs='?', choices=['add-android'], help='print the one-time Termux setup and the config lines')
     s.add_argument('--name', help='add-android: the machine name')
@@ -1289,8 +1337,8 @@ def parser():
 
 def main(argv=None):
     a = parser().parse_args(argv)
-    if a.fn is cmd_doctor:  # a machine check: it must work before any project config exists
-        return cmd_doctor(None, a)
+    if a.fn in (cmd_doctor, cmd_setup, cmd_self_update):  # they must work before any config exists
+        return a.fn(None, a)
     groksetup.load_env()   # the scout's webhook variables from ~/.config/tutti/grok.env, when the shell lacks them
     try:
         cfg = config.load(a.config)

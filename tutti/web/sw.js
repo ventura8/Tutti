@@ -4,7 +4,7 @@
 // The server writes its version here: a new release is a new worker, its own cache, and the old cache is dropped.
 const CACHE = 'tutti-shell-__TUTTI_VERSION__';
 const V = '?v=__TUTTI_VERSION__';   // the page loads its code with the release in the URL (index.html)
-const SHELL = ['./', 'index.html', `app.css${V}`, `telemetry.js${V}`, `update.js${V}`, `attention.js${V}`, `app.js${V}`, `controls.js${V}`, `connect.js${V}`, `settings.js${V}`, 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
+const SHELL = ['./', 'index.html', `app.css${V}`, `telemetry.js${V}`, `update.js${V}`, `attention.js${V}`, `app.js${V}`, `controls.js${V}`, `connect.js${V}`, `settings.js${V}`, `setup.js${V}`, 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
     'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {

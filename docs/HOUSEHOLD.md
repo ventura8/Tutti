@@ -266,3 +266,10 @@ a user is named by `user` = the first 12 hex digits of `SHA-256("tutti-user:" + 
 | 2 (0.1.31) | the coordinator, `household init\|join\|status\|leave\|code`, signed requests, leases with heartbeats, shared backlogs and dedupe |
 | 3 (0.1.34) | fair shares of shared machines in routing and the autopilot, the household plan from every member's profile, `share_spare` |
 | 4 | the dashboard: **Me / Household**, the household card, others' jobs as "busy for <user>" |
+
+## A new member's machine
+
+A member with no Tutti yet installs and joins in one go: the coordinator shows `install.install_line(platform,
+join=<invite>)` (docs/INSTALL.md, *The interface*); the bootstrap installs Tutti, `tutti setup` fills the config and
+opens the member's own sign-ins, then runs `tutti household join <invite>`.
+

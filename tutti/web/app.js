@@ -1060,6 +1060,7 @@ function render() {
     renderWorkers(s);
     renderVersions(s);
     renderProjects(s);
+    if (typeof renderSetup === 'function') renderSetup(s);   // setup.js: the Set up card
     renderTelemetry(s);   // telemetry.js: Insights, the Self-improvement lane, the sending switch
     if (s.probe_error) showBanner(s.probe_error);
     else if (ui.notice) showBanner(ui.notice);

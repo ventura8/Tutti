@@ -60,5 +60,7 @@ git fetch -q origin main
 sha=$(git rev-parse origin/main)
 git tag -a "v$next" "$sha" -m "Tutti $next"
 git push -q origin "v$next"
-gh release create "v$next" --title "Tutti $next" --notes "$notes" --verify-tag
+assets=$(mktemp -d)
+bash scripts/release-assets.sh "$next" "$assets" "v$next"   # the one-line install's files (docs/INSTALL.md)
+gh release create "v$next" --title "Tutti $next" --notes "$notes" --verify-tag "$assets"/*
 echo "release-patch: v$next released"

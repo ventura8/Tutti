@@ -1,9 +1,10 @@
 # bootstrap.ps1: installs Tutti on Windows in user space (no admin), then runs `tutti setup`.
-# Usage: powershell -ExecutionPolicy Bypass -File tutti-bootstrap.ps1 [-Join <household invite>] [-Version <x.y.z>] [-NoSetup]
+# Usage: powershell -ExecutionPolicy Bypass -File tutti-bootstrap.ps1 [-Join <household invite>] [-Version <x.y.z>] [-NoSetup] [-InsecureSkipVerify]
 # Get it with the one line in docs/INSTALL.md, which checks this file's SHA-256 before running it. uv and gh are checked
-# against the SHA-256 pinned here, Tutti's tarball against the release's SHA256SUMS; Git comes from winget (user scope),
+# against the SHA-256 pinned here, the release's SHA256SUMS against its Sigstore signature (ventura8/Tutti's release workflow
+# on the release's tag, checked with gh), Tutti's tarball against SHA256SUMS; Git comes from winget (user scope),
 # which checks its own installers. It never asks for or stores a credential. Re-run it to repair an install.
-param([string]$Join = '', [string]$Version = '', [switch]$NoSetup)
+param([string]$Join = '', [string]$Version = '', [switch]$NoSetup, [switch]$InsecureSkipVerify)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $UvVersion = '0.13.8'
@@ -33,20 +34,43 @@ if (-not $uv) {
     Expand-Archive -Force (Join-Path $Tmp 'uv.zip') $Bin
     $uv = Join-Path $Bin 'uv.exe'
 }
-if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+$gh = (Get-Command gh -ErrorAction SilentlyContinue).Source
+if ($gh) {   # too old to check signatures: Tutti's own copy instead
+    $ErrorActionPreference = 'Continue'; & $gh attestation verify --help *> $null; $ok = $LASTEXITCODE -eq 0; $ErrorActionPreference = 'Stop'
+    if (-not $ok) { $gh = $null }
+}
+if (-not $gh) {
     Write-Host "tutti: installing gh $GhVersion (checksum pinned)"
     Get-Checked "https://github.com/cli/cli/releases/download/v$GhVersion/gh_${GhVersion}_windows_amd64.zip" (Join-Path $Tmp 'gh.zip') $GhSum
     Expand-Archive -Force (Join-Path $Tmp 'gh.zip') (Join-Path $Tmp 'gh')
     $ghExe = Get-ChildItem -Recurse -Filter gh.exe (Join-Path $Tmp 'gh') | Select-Object -First 1   # the zip's folder layout varies
     Copy-Item $ghExe.FullName $Bin
+    $gh = Join-Path $Bin 'gh.exe'
 }
 
 $base = if ($Version) { "https://github.com/$Repo/releases/download/v$Version" } else { "https://github.com/$Repo/releases/latest/download" }
-$sums = (Invoke-WebRequest -UseBasicParsing -Uri "$base/SHA256SUMS").Content -split "`n"
+$sumsFile = Join-Path $Tmp 'SHA256SUMS'   # one copy: the file whose signature is checked is the one the tarball is checked against
+Invoke-WebRequest -UseBasicParsing -Uri "$base/SHA256SUMS" -OutFile $sumsFile
+$sums = (Get-Content -Raw $sumsFile) -split "`n"
 if (-not $Version) {
     $Version = $sums | ForEach-Object { if ($_ -match '^[0-9a-f]{64}  tutti-([0-9.]+)\.tar\.gz$') { $Matches[1] } } |
         Sort-Object { [version]$_ } | Select-Object -Last 1
     if (-not $Version) { throw 'tutti: the latest release lists no tarball in SHA256SUMS: try again later' }
+}
+if ($InsecureSkipVerify) {
+    Write-Host "tutti: WARNING: -InsecureSkipVerify: the release's signature is NOT checked; anyone who could change the files on the way could change what is installed"
+} else {
+    $bundle = Join-Path $Tmp 'SHA256SUMS.sigstore.json'
+    try { Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/$Repo/releases/download/v$Version/SHA256SUMS.sigstore.json" -OutFile $bundle }
+    catch { throw "tutti: v$Version has no signature (SHA256SUMS.sigstore.json): it was not published by Tutti's release workflow; not installed (choose a newer -Version, or -InsecureSkipVerify offline)" }
+    $verifyErr = Join-Path $Tmp 'verify.err'
+    $ErrorActionPreference = 'Continue'   # gh writes progress to stderr: Windows PowerShell would stop on it
+    $signed = & $gh attestation verify $sumsFile --bundle $bundle --repo $Repo --signer-workflow "$Repo/.github/workflows/release.yml" --format json 2> $verifyErr
+    $verifyRc = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    if ($verifyRc -ne 0) { throw "tutti: v$Version's SHA256SUMS is not signed by Tutti's release workflow ($(Get-Content $verifyErr | Select-Object -Last 1)): not installed" }
+    if (-not (($signed -join "`n") -match [regex]::Escape("`"refs/tags/v$Version`""))) { throw "tutti: v$Version's SHA256SUMS is signed, but not on the tag v${Version}: not installed" }
+    Write-Host "tutti: v$Version's SHA256SUMS: signed by Tutti's release workflow (Sigstore)"
 }
 $name = "tutti-$Version.tar.gz"
 $want = $sums | ForEach-Object { if ($_ -match "^([0-9a-f]{64})  $([regex]::Escape($name))$") { $Matches[1] } } | Select-Object -First 1

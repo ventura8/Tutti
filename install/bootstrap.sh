@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # bootstrap.sh: installs Tutti on Linux, WSL or macOS in user space (no sudo), then runs `tutti setup`.
-# Usage: bash tutti-bootstrap.sh [--join <household invite>] [--version <x.y.z>] [--no-setup]
+# Usage: bash tutti-bootstrap.sh [--join <household invite>] [--version <x.y.z>] [--no-setup] [--insecure-skip-verify]
 # Get it with the one line in docs/INSTALL.md, which checks this file's SHA-256 before running it. Every download below is
-# checked too: uv and gh against the SHA-256 pinned here, Tutti's tarball against the release's SHA256SUMS. Re-run it to
+# checked too: uv and gh against the SHA-256 pinned here, the release's SHA256SUMS against its Sigstore signature (made by
+# ventura8/Tutti's release workflow on the release's tag, checked with gh), Tutti's tarball against SHA256SUMS. Re-run it to
 # repair an install; `tutti self-update` keeps it current afterwards. It never asks for or stores a credential.
+# --insecure-skip-verify skips the signature (offline, a release you checked another way): a loud warning says so.
 set -euo pipefail
 
 UV_VERSION=0.13.8
@@ -11,13 +13,14 @@ GH_VERSION=2.104.0
 REPO=ventura8/Tutti
 home="${TUTTI_HOME:-$HOME/.local/share/tutti}"
 bin="${TUTTI_BIN:-$HOME/.local/bin}"
-join="" version="" setup=1
+join="" version="" setup=1 skip_verify=0
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 	--join) join="$2"; shift 2 ;;
 	--version) version="$2"; shift 2 ;;
 	--no-setup) setup=0; shift ;;
-	*) echo "tutti: unknown option $1 (use --join <invite>, --version <x.y.z>, --no-setup)" >&2; exit 2 ;;
+	--insecure-skip-verify) skip_verify=1; shift ;;
+	*) echo "tutti: unknown option $1 (use --join <invite>, --version <x.y.z>, --no-setup, --insecure-skip-verify)" >&2; exit 2 ;;
 	esac
 done
 
@@ -72,8 +75,9 @@ if [[ -z "$uv" ]]; then
 	uv="$home/bin/uv"
 fi
 
-# gh: GitHub's CLI, for pull requests and releases
-if ! command -v gh > /dev/null; then
+# gh: GitHub's CLI, for pull requests and releases, and to check the release's signature (gh attestation verify)
+gh=$(command -v gh || true)
+if [[ -z "$gh" ]] || ! "$gh" attestation verify --help > /dev/null 2>&1; then
 	say "installing gh $GH_VERSION (checksum pinned)"
 	get "https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_$gh_a" "$tmp/gh.pkg"
 	check "$tmp/gh.pkg" "$gh_sum"
@@ -81,7 +85,9 @@ if ! command -v gh > /dev/null; then
 	*.zip) (cd "$tmp" && unzip -q gh.pkg) ;;
 	*) tar -xzf "$tmp/gh.pkg" -C "$tmp" ;;
 	esac
-	cp "$tmp"/gh_"$GH_VERSION"_*/bin/gh "$bin/gh"
+	# Tutti's own copy beside uv when an older gh is on PATH (it is not replaced); else the user's bin
+	if [[ -n "$gh" ]]; then gh="$home/bin/gh"; else gh="$bin/gh"; fi
+	cp "$tmp"/gh_"$GH_VERSION"_*/bin/gh "$gh"
 fi
 
 # git: the one prerequisite a user-space installer cannot add on Linux; Tutti installs without it, its work needs it
@@ -100,6 +106,18 @@ get "$base/SHA256SUMS" "$tmp/SHA256SUMS"
 if [[ -z "$version" ]]; then
 	version=$(sed -n 's/^[0-9a-f]\{64\}  tutti-\([0-9.]*\)\.tar\.gz$/\1/p' "$tmp/SHA256SUMS" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
 	[[ -n "$version" ]] || die "the latest release lists no tarball in SHA256SUMS: try again later"
+fi
+# the signature: SHA256SUMS made and signed by ventura8/Tutti's release workflow on the tag v$version (Sigstore, keyless)
+if [[ "$skip_verify" = 1 ]]; then
+	say "WARNING: --insecure-skip-verify: the release's signature is NOT checked; anyone who could change the files on the way could change what is installed"
+else
+	curl -fsSL --retry 3 -o "$tmp/SHA256SUMS.sigstore.json" "https://github.com/$REPO/releases/download/v$version/SHA256SUMS.sigstore.json" ||
+		die "v$version has no signature (SHA256SUMS.sigstore.json): it was not published by Tutti's release workflow; not installed (choose a newer --version, or --insecure-skip-verify offline)"
+	signed=$("$gh" attestation verify "$tmp/SHA256SUMS" --bundle "$tmp/SHA256SUMS.sigstore.json" --repo "$REPO" \
+		--signer-workflow "$REPO/.github/workflows/release.yml" --format json 2> "$tmp/verify.err") ||
+		die "v$version's SHA256SUMS is not signed by Tutti's release workflow ($(tail -n 1 "$tmp/verify.err")): not installed"
+	grep -q "\"refs/tags/v$version\"" <<< "$signed" || die "v$version's SHA256SUMS is signed, but not on the tag v$version: not installed"
+	say "v$version's SHA256SUMS: signed by Tutti's release workflow (Sigstore)"
 fi
 name="tutti-$version.tar.gz"
 want=$(sed -n "s/^\([0-9a-f]\{64\}\)  $name\$/\1/p" "$tmp/SHA256SUMS")

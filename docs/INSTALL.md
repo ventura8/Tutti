@@ -8,13 +8,13 @@ fills the config. You sign in to your tools; nothing else is manual.
 **Linux, WSL and macOS** (a terminal):
 
 ```bash
-curl -fsSLo tutti-bootstrap.sh https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.sh && echo "e85e22cb369b46f122c4159301287250c9cd32d97c7a30b20488bd244b202130  tutti-bootstrap.sh" | (sha256sum -c - || shasum -a 256 -c -) && bash tutti-bootstrap.sh
+curl -fsSLo tutti-bootstrap.sh https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.sh && echo "1d61bcc956807664c5542861881d2bc4f21be0be9251b35d2fe25720e2495586  tutti-bootstrap.sh" | (sha256sum -c - || shasum -a 256 -c -) && bash tutti-bootstrap.sh
 ```
 
 **Windows** (PowerShell):
 
 ```powershell
-irm https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.ps1 -OutFile tutti-bootstrap.ps1; if ((Get-FileHash tutti-bootstrap.ps1).Hash -eq 'D8C7ED5B2E5976B72CB432D91621765F79FF12F84D887A19FADFFDFE68AD2848') { powershell -ExecutionPolicy Bypass -File tutti-bootstrap.ps1 } else { 'tutti: checksum mismatch, not run' }
+irm https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.ps1 -OutFile tutti-bootstrap.ps1; if ((Get-FileHash tutti-bootstrap.ps1).Hash -eq '34E20D51ABAC703FE249AA77476435DA6F9643310700CD28C32D14D362F1BB3D') { powershell -ExecutionPolicy Bypass -File tutti-bootstrap.ps1 } else { 'tutti: checksum mismatch, not run' }
 ```
 
 Nothing is asked. At the end `tutti setup` lists the few things only you can do (a sign-in, a sudo line, a tap on a
@@ -110,6 +110,26 @@ version. An update reads the latest release's `SHA256SUMS`, downloads the newer 
 requirements and only then moves `current`; any failure leaves the running version in place. `tutti self-update
 --check` only says whether one is out. Opt out with `self_update: {enabled: false}` in the config.
 
+### How a release is checked
+
+A checksum alone only proves the files match each other. Every release's `SHA256SUMS` is also **signed with Sigstore,
+keyless**: the release workflow (`.github/workflows/release.yml`) signs it with a short-lived certificate GitHub's OIDC
+issues to that workflow run (actions/attest-build-provenance) and attaches the bundle as `SHA256SUMS.sigstore.json`.
+`tutti self-update` and both bootstrap scripts run `gh attestation verify` on it and install nothing unless:
+
+- the signature is valid and logged in Sigstore's transparency log;
+- the signer is `ventura8/Tutti/.github/workflows/release.yml`;
+- it was made on the tag of the version being installed (`refs/tags/v<version>`), never a branch.
+
+Then the tarball is checked against that `SHA256SUMS`. No key is kept anywhere: someone who steals a GitHub token can
+publish a release, but cannot make a signature from that workflow on a tag. A refusal says why (no signature file, not
+signed by the workflow, signed on another ref, gh missing or older than 2.49) and leaves the running version in place.
+Releases before 0.9.2 have no signature.
+
+**Offline fallback** (a release you checked another way): `tutti self-update --insecure-skip-verify`,
+`bash tutti-bootstrap.sh --insecure-skip-verify`, or `-InsecureSkipVerify` for `bootstrap.ps1`. It prints a loud warning;
+the daily and login updates (`--auto`) never skip the check.
+
 Worker CLIs (Claude Code, Cursor, Antigravity, Copilot, Ollama) are kept current by `tutti update`, which the dashboard
 runs daily where the tool's package manager allows it (docs/WORKERS.md).
 
@@ -149,7 +169,9 @@ it; bootstrap installs, `tutti setup` fills the config and opens sign-ins, and `
 
 `scripts/release-assets.sh <version> <dir> [ref]` makes the release's files: `tutti-<version>.tar.gz` (a `git
 archive`), `bootstrap.sh`, `bootstrap.ps1` and `SHA256SUMS` over the three. `scripts/release-patch.sh` attaches them to
-every release. When a bootstrap script changes, its SHA-256 in this file and in the README changes with it (a unit test
+every release; the release workflow builds them again, signs `SHA256SUMS` and adds `SHA256SUMS.sigstore.json` (above). A
+rebuild by hand is dispatched on the tag itself, `gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z`, or its
+signature names a branch and every install refuses it. When a bootstrap script changes, its SHA-256 in this file and in the README changes with it (a unit test
 checks they match: `python3 -c "from tutti import install; print(install.install_line('linux'))"` prints the line).
 
 ## Uninstall

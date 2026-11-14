@@ -1,0 +1,55 @@
+[
+ {
+  "attestation": {
+   "bundle": {
+    "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+    "verificationMaterial": {
+     "certificate": {
+      "rawBytes": "bm90IGEgcmVhbCBjZXJ0aWZpY2F0ZTogYSBmb3JnZWQgYnVuZGxl"
+     },
+     "tlogEntries": [],
+     "timestampVerificationData": {}
+    },
+    "dsseEnvelope": {
+     "payload": "eyJfdHlwZSI6ICJodHRwczovL2luLXRvdG8uaW8vU3RhdGVtZW50L3YxIiwgInN1YmplY3QiOiBbeyJuYW1lIjogIlNIQTI1NlNVTVMiLCAiZGlnZXN0IjogeyJzaGEyNTYiOiAiMWM1NDE2MWJhN2Y4YjFiNDJjMmU0OTY4MjhkNzBkZDljYjg3NTQ0OThiMWNlYzczNjNlNzFjYmY2MjhiNTRiMCJ9fV0sICJwcmVkaWNhdGVUeXBlIjogImh0dHBzOi8vc2xzYS5kZXYvcHJvdmVuYW5jZS92MSIsICJwcmVkaWNhdGUiOiB7fX0=",
+     "payloadType": "application/vnd.in-toto+json",
+     "signatures": [
+      {
+       "sig": "MAIBAA=="
+      }
+     ]
+    }
+   }
+  },
+  "verificationResult": {
+   "mediaType": "application/vnd.dev.sigstore.verificationresult+json;version=0.1",
+   "statement": {
+    "_type": "https://in-toto.io/Statement/v1",
+    "subject": [
+     {
+      "name": "SHA256SUMS",
+      "digest": {
+       "sha256": "1c54161ba7f8b1b42c2e496828d70dd9cb8754498b1cec7363e71cbf628b54b0"
+      }
+     }
+    ],
+    "predicateType": "https://slsa.dev/provenance/v1",
+    "predicate": {}
+   },
+   "signature": {
+    "certificate": {
+     "certificateIssuer": "CN=sigstore-intermediate,O=sigstore.dev",
+     "subjectAlternativeName": "https://github.com/ventura8/Tutti/.github/workflows/release.yml@refs/tags/v0.5.2",
+     "issuer": "https://token.actions.githubusercontent.com",
+     "githubWorkflowTrigger": "release",
+     "githubWorkflowRepository": "ventura8/Tutti",
+     "githubWorkflowRef": "refs/tags/v0.5.2",
+     "buildSignerURI": "https://github.com/ventura8/Tutti/.github/workflows/release.yml@refs/tags/v0.5.2",
+     "sourceRepositoryURI": "https://github.com/ventura8/Tutti",
+     "sourceRepositoryRef": "refs/tags/v0.5.2",
+     "runInvocationURI": "https://github.com/ventura8/Tutti/actions/runs/1/attempts/1"
+    }
+   }
+  }
+ }
+]

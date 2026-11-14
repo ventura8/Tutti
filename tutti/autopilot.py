@@ -440,6 +440,11 @@ def publish(cfg, task, report, run=git, gh=subprocess.run):
     if done.returncode != 0:
         task['publish_note'] = f'the commit was refused ({(done.stderr or done.stdout).strip()[:200]}): review the diff {report["diff"]}'
         return
+    open_pr(cfg, task, repo, wt, branch, subject, run, gh)
+
+
+def open_pr(cfg, task, repo, wt, branch, subject, run=git, gh=subprocess.run):
+    """The committed branch pushed and a pull request opened when the repo or self-improvement asks for one."""
     from . import selfimprove
     mode, base, why = selfimprove.pr_plan(cfg, task, repo)
     if not mode:
@@ -456,11 +461,14 @@ def publish(cfg, task, report, run=git, gh=subprocess.run):
     args = ['gh', 'pr', 'create', *(['--draft'] if mode == 'draft' else []), *(['--base', base] if base else []), '--head', branch,
             '--title', subject, '--body', body]
     pr = gh(args, cwd=wt, capture_output=True, text=True)
-    task['pr'] = pr.stdout.strip() if pr.returncode == 0 else task.get('pr')   # a retry pushes onto the open pull request
-    failed = f'committed on {branch}; gh pr create failed: {pr.stderr.strip()[:200]}'
-    task['publish_note'] = f'{"draft " if mode == "draft" else ""}pull request {task["pr"]}' if task['pr'] else failed
-    if pr.returncode != 0 and task['pr']:
+    if pr.returncode == 0:
+        task['pr'] = pr.stdout.strip()
+        task['publish_note'] = ('draft ' if mode == 'draft' else '') + f'pull request {task["pr"]}'
+    elif task.get('pr'):   # a retry pushes onto the open pull request
         task['publish_note'] = f'pushed onto the open pull request {task["pr"]}'
+    else:
+        task['pr'] = None
+        task['publish_note'] = f'committed on {branch}; gh pr create failed: {pr.stderr.strip()[:200]}'
 
 
 def finished(cfg, task, is_alive):
@@ -494,15 +502,22 @@ def collect(cfg, data, now, is_alive, publish_fn=publish):
             publish_fn(cfg, t, report)
             events.append(f'{t["id"]} passed on {a["step"]}: {t.get("publish_note", "")}')
             continue
-        park = should_park(cfg, t)
-        t['status'], t['parked'] = ('needs-person', park) if park else ('queued', None)
-        if park:
-            telemetry.record('feature', 'autopilot.park', cause='max_attempts' if park.endswith(')') and 'max_attempts' in park
-                             else 'no_progress', attempts=len(t['attempts']), source=t.get('source'))
-        elif step_index(cfg, len(t['attempts'])) > step_index(cfg, len(t['attempts']) - 1):
-            telemetry.record('feature', 'autopilot.escalate', attempt=len(t['attempts']) + 1, source=t.get('source'))
+        park = after_failure(cfg, t)
         events.append(f'{t["id"]} failed on {a["step"]} ({a["why"][:120]})' + (f': parked: {park}' if park else ': queued again'))
     return events
+
+
+def after_failure(cfg, t):
+    """A failed task is parked or queued again (one step up the ladder: an escalation). Returns why it was parked, or ''."""
+    park = should_park(cfg, t)
+    t['status'], t['parked'] = ('needs-person', park) if park else ('queued', None)
+    n = len(t['attempts'])
+    if park:
+        cause = 'max_attempts' if 'max_attempts' in park else 'no_progress'
+        telemetry.record('feature', 'autopilot.park', cause=cause, attempts=n, source=t.get('source'))
+    elif step_index(cfg, n) > step_index(cfg, n - 1):
+        telemetry.record('feature', 'autopilot.escalate', attempt=n + 1, source=t.get('source'))
+    return park
 
 
 def step_index(cfg, attempt):

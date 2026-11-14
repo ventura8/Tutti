@@ -253,10 +253,10 @@ class Dsn(Base):
 
     def test_setup_reads_the_dsn_hidden_and_saves_it(self):
         said = []
-        rc = telemetrycmd.setup({}, self.folder, read_secret=lambda _p: 'https://k@s.example/9', say=said.append, env=self.env)
+        rc = telemetrycmd.setup(self.folder, read_secret=lambda _p: 'https://k@s.example/9', say=said.append, env=self.env)
         self.assertEqual(rc, 0)
         self.assertFalse(any('k@s.example' in s for s in said))   # the DSN is never echoed
-        self.assertEqual(telemetrycmd.setup({}, self.folder, read_secret=lambda _p: 'bad', say=said.append, env=self.env), 2)
+        self.assertEqual(telemetrycmd.setup(self.folder, read_secret=lambda _p: 'bad', say=said.append, env=self.env), 2)
 
     def test_the_endpoint_must_be_https(self):
         self.assertEqual(sentry.endpoint_errors('https://collect.example/t'), [])
@@ -436,7 +436,7 @@ class Dashboard(Base):
         c = self.collector()
         self.assertEqual(dashtelemetry.save(c, b'{"use": {"panel": "usage", "control": "refresh"}}')[0], 200)
         self.assertEqual(dashtelemetry.save(c, b'{"use": {"panel": "../etc", "control": "x"}}')[0], 400)
-        self.assertEqual(dashtelemetry.save(c, b'{"consent": true}')[1]['send'], True)
+        self.assertTrue(dashtelemetry.save(c, b'{"consent": true}')[1]['send'])
         self.assertEqual(dashtelemetry.save(c, b'not json')[0], 400)
         self.assertEqual(dashtelemetry.save_self_improve(c, b'{"enabled": "yes"}')[0], 400)
         self.assertEqual(dashtelemetry.save_self_improve(c, b'{"enabled": false}')[0], 200)

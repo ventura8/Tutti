@@ -16,10 +16,10 @@ function telemetryPost(body) {
 function reportError(kind, err, message) {
     if (telemetrySent.errors >= 20) return;   // one broken loop never floods the server
     telemetrySent.errors += 1;
-    telemetryPost({ error: {
-        kind, type: (err && err.name) || 'Error',
-        message: String((err && err.message) || message || '').slice(0, 500),
-        stack: String((err && err.stack) || '').slice(0, 2500),
+    void telemetryPost({ error: {
+        kind, type: err?.name || 'Error',
+        message: String(err?.message || message || '').slice(0, 500),
+        stack: String(err?.stack || '').slice(0, 2500),
     } });
 }
 
@@ -27,14 +27,19 @@ window.addEventListener('error', (e) => reportError('error', e.error, e.message)
 window.addEventListener('unhandledrejection', (e) => reportError('unhandledrejection', e.reason, String(e.reason)));
 
 // Which panel and which control: the card's heading id (usage-h -> usage) and the control's id, never what it shows.
+function panelOf(target) {
+    const card = target.closest('section.card, header.appbar, section.tiles');
+    if (!card) return 'page';
+    if (card.classList.contains('appbar')) return 'appbar';
+    const head = card.querySelector('h2')?.id;
+    return head ? head.replace(/-h$/, '') : card.id || 'page';
+}
+
 document.addEventListener('click', (e) => {
     const target = e.target.closest('button, select, a');
     if (!target) return;
-    const card = target.closest('section.card, header.appbar, section.tiles');
-    const head = card?.querySelector('h2')?.id || (card?.classList.contains('appbar') ? 'appbar-h' : card?.id ? `${card.id}-h` : 'page-h');
-    const panel = head.replace(/-h$/, '');
-    const control = (target.id || target.getAttribute('data-control') || target.tagName.toLowerCase()).slice(0, 60);
-    telemetryPost({ use: { panel, control } });
+    const control = (target.id || target.dataset.control || target.tagName.toLowerCase()).slice(0, 60);
+    void telemetryPost({ use: { panel: panelOf(target), control } });
 }, { capture: true });
 
 async function telemetrySwitch(path, body, failText) {
@@ -75,6 +80,11 @@ function lanePhase(item) {
     return [item.status, item.status === 'needs-person' ? 'warn' : 'idle'];
 }
 
+function laneKind(t) {
+    const ref = t.ref ? ' ' + t.ref : '';
+    return `${t.source}${ref} · ${t.project || ''}`;
+}
+
 function renderLane(si) {
     const toggle = $('selfimprove-toggle');
     toggle.textContent = si.enabled ? 'Turn off' : 'Turn on';
@@ -83,7 +93,7 @@ function renderLane(si) {
     $('selfimprove').replaceChildren(...(si.items.length ? si.items.map((t) => {
         const [phase, tone] = lanePhase(t);
         return el('li', { class: 'row' },
-            el('div', { class: 'row__name' }, `${t.id} ${t.title}`, el('span', { class: 'row__kind', text: `${t.source}${t.ref ? ` ${t.ref}` : ''} · ${t.project || ''}` })),
+            el('div', { class: 'row__name' }, `${t.id} ${t.title}`, el('span', { class: 'row__kind', text: laneKind(t) })),
             chip(phase, tone),
             t.pr ? el('a', { href: t.pr, target: '_blank', rel: 'noopener noreferrer', text: 'pull request' }) : null,
             t.gate ? el('p', { class: 'row__note', text: t.gate }) : null);
@@ -95,9 +105,12 @@ function renderSending(st) {
     const toggle = $('telemetry-toggle');
     toggle.textContent = on ? 'Stop sending' : 'Send reports';
     toggle.setAttribute('aria-pressed', String(on));
-    const target = st.dsn_set ? `to Sentry at ${st.dsn_host}` : st.endpoint_set ? 'to your endpoint' : 'nowhere yet: run tutti telemetry setup';
+    let target = 'nowhere yet: run tutti telemetry setup';
+    if (st.endpoint_set) target = 'to your endpoint';
+    if (st.dsn_set) target = 'to Sentry at ' + st.dsn_host;
+    const problem = st.last_error ? ' Last send: ' + st.last_error : '';
     $('telemetry-state').textContent = `Crash reports and usage statistics: ${on ? 'sent' : 'not sent'} (${target}). `
-        + `Recorded on this computer always; ${st.queued} queued.${st.last_error ? ` Last send: ${st.last_error}` : ''}`;
+        + `Recorded on this computer always; ${st.queued} queued.${problem}`;
 }
 
 function renderTelemetry(s) {
@@ -110,10 +123,10 @@ function renderTelemetry(s) {
 document.addEventListener('DOMContentLoaded', () => {
     $('telemetry-toggle').addEventListener('click', () => {
         const on = $('telemetry-toggle').getAttribute('aria-pressed') !== 'true';
-        telemetrySwitch('/api/telemetry', { consent: on }, 'Sending was not switched.');
+        void telemetrySwitch('/api/telemetry', { consent: on }, 'Sending was not switched.');
     });
     $('selfimprove-toggle').addEventListener('click', () => {
         const on = $('selfimprove-toggle').getAttribute('aria-pressed') !== 'true';
-        telemetrySwitch('/api/self-improve', { enabled: on }, 'Self-improvement was not switched.');
+        void telemetrySwitch('/api/self-improve', { enabled: on }, 'Self-improvement was not switched.');
     });
 });

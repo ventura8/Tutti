@@ -7,11 +7,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 dry=0
-[ "${1:-}" = "--dry-run" ] && dry=1
+[[ "${1:-}" = "--dry-run" ]] && dry=1
 git fetch -q --tags origin main
 last=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
-[ -n "$last" ] || { echo "release-patch: no v* tag yet: tag the first release by hand" >&2; exit 2; }
-if [ -z "$(git log --format=%s "$last"..origin/main)" ]; then
+[[ -n "$last" ]] || { echo "release-patch: no v* tag yet: tag the first release by hand" >&2; exit 2; }
+if [[ -z "$(git log --format=%s "$last"..origin/main)" ]]; then
 	echo "release-patch: nothing merged since $last: no release"
 	exit 0
 fi
@@ -21,7 +21,7 @@ while git rev-parse -q --verify "refs/tags/v$next" > /dev/null; do next="$major.
 notes=$(git log --format='- %s' "$last"..origin/main | grep -v '^- chore(release)' || true)
 echo "release-patch: $last -> v$next"
 printf '%s\n' "$notes"
-[ "$dry" = 1 ] && exit 0
+[[ "$dry" = 1 ]] && exit 0
 wt=$(mktemp -d)
 trap 'git worktree remove --force "$wt" > /dev/null 2>&1 || true' EXIT
 branch="release/v$next"

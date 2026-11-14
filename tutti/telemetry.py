@@ -149,9 +149,9 @@ def read_env_file(path):
     try:
         with open(path, encoding='utf8') as f:
             for line in f:
-                m = re.match(r'\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$', line)
-                if m:
-                    out[m.group(1)] = m.group(2).strip('\'"')
+                key, sep, value = line.strip().removeprefix('export ').partition('=')
+                if sep and re.fullmatch(r'[A-Z_][A-Z0-9_]*', key.strip()):
+                    out[key.strip()] = value.strip().strip('\'"')
     except OSError:
         pass
     return out

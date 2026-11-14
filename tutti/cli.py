@@ -215,7 +215,9 @@ def cmd_test(cfg, a):
         return 3
     say(f'test: {choice.machine}{", queued" if choice.queued else ""} ({choice.reason})' + (f', device {device["name"]}' if device else ''))
     machine = cfg['machines'][choice.machine]
-    how = 'device' if device else 'on' if a.on else 'routed'
+    how = 'on' if a.on else 'routed'
+    if device:
+        how = 'device'
     telemetry.record('feature', 'routing.choice', how=how, machine_kind=telemetry.machine_kind(machine), queued=bool(choice.queued),
                      order=len(cfg['routing']['order']))
     started = time.monotonic()
@@ -906,7 +908,9 @@ def cmd_selfimprove(cfg, a):
     v = selfimprove.lane(cfg)
     print(f'self-improvement: {"on" if v["enabled"] else "off"}; {len(v["items"])} task(s) from Sentry and the insights')
     for t in v['items']:
-        stage = 'released' if t['released'] else 'merged' if t['merged'] else t['status']
+        stage = t['status']
+        if t['merged']:
+            stage = 'released' if t['released'] else 'merged'
         gate = f' ({t["gate"]})' if t['gate'] else ''
         print(f'  {t["id"]:5} {t["source"]:8} {stage:12} {t["project"] or ""}: {t["title"][:80]}{gate}')
     return 0

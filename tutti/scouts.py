@@ -135,14 +135,18 @@ def _account_errors(cfg, key, sc):
     return []
 
 
+def _triage_errors(key, sc):
+    if 'sentry_triage' in sc and not isinstance(sc['sentry_triage'], bool):
+        return [f'{key}.sentry_triage is {sc["sentry_triage"]!r}: true or false']
+    return []
+
+
 def _one_errors(cfg, name, sc):
     key = f'scouts.{name}'
     if not isinstance(sc, dict):
         return [f'{key} is {sc!r}: write it as a mapping with kind, url_env, key_env and reply']
     if sc.get('kind') not in KINDS:
         return [f'{key}.kind is {sc.get("kind")!r}: use {", ".join(KINDS)}']
-    if 'sentry_triage' in sc and not isinstance(sc['sentry_triage'], bool):
-        return [f'{key}.sentry_triage is {sc["sentry_triage"]!r}: true or false']
     errs = _env_errors(key, sc) + _account_errors(cfg, key, sc) + _watch_errors(f'{key}.watches', sc.get('watches') or {})
     reply = sc.get('reply') or {}
     if not is_repo(reply.get('github_repo')):
@@ -150,7 +154,7 @@ def _one_errors(cfg, name, sc):
     if 'issue_label' in reply and not (isinstance(reply['issue_label'], str) and reply['issue_label'].strip()):
         errs.append(f'{key}.reply.issue_label is {reply["issue_label"]!r}: a label name such as {LABEL}')
     from . import trial  # trial builds on this module
-    errs += trial.errors(f'{key}.review_trial', sc.get('review_trial'))
+    errs += trial.errors(f'{key}.review_trial', sc.get('review_trial')) + _triage_errors(key, sc)
     bad = [s for s in sc.get('skills') or [] if s not in SKILLS]
     if bad:
         errs.append(f'{key}.skills has {", ".join(map(str, bad))}: use any of {", ".join(SKILLS)}')

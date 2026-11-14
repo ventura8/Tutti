@@ -7,6 +7,7 @@ addresses, URLs, IP addresses, host names, user@host, tokens, keys and quoted fr
 import os
 import re
 
+TOKEN = '<token>'
 CATEGORY_RX = re.compile(r'[A-Za-z0-9_.:+-]{1,64}')
 OTHER = '<other>'
 # A name followed by these is a host or domain name: `api.example.com`, `box.lan`, `pc.local`. A file name such as
@@ -15,22 +16,24 @@ TLDS = ('com|net|org|io|dev|ai|app|co|uk|de|fr|ro|eu|us|info|biz|me|cloud|local|
         'localdomain|test|invalid|onion')
 RULES = (
     # secrets first, before their parts look like something else
-    (re.compile(r'-----BEGIN [A-Z ]+-----.*?(-----END [A-Z ]+-----|$)', re.S), '<key>'),
-    (re.compile(r'(?i)\b(bearer|basic|token)\s+[A-Za-z0-9._~+/=-]{8,}'), r'\1 <token>'),
+    (re.compile(r'-----BEGIN [A-Z ]+-----[\s\S]*?-----END [A-Z ]+-----'), '<key>'),
+    (re.compile(r'-----BEGIN [A-Z ]+-----[\s\S]*'), '<key>'),   # a key block cut off before its end line
+    (re.compile(r'(?i)\b(bearer|basic|token)\s+[A-Z0-9._~+/=-]{8,}'), r'\1 ' + TOKEN),
     (re.compile(r'(?i)\b([\w-]*(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|auth|dsn|cookie|'
                 r'session)[\w-]*)(\s*[=:]\s*)("[^"]*"|\'[^\']*\'|\S+)'), r'\1\2<redacted>'),
-    (re.compile(r'\b(sk|pk|rk)[-_](live|test|ant|proj)?[-_]?[A-Za-z0-9_-]{12,}'), '<token>'),
-    (re.compile(r'\b(ghp|gho|ghu|ghs|ghr|github_pat|glpat|xox[abprs]|AKIA|ASIA|AIza|ya29|hf)[_.-]?[A-Za-z0-9_-]{10,}'), '<token>'),
-    (re.compile(r'\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'), '<token>'),   # a JWT
+    (re.compile(r'\b(sk|pk|rk)[-_](live|test|ant|proj)?[-_]?[A-Za-z0-9_-]{12,}'), TOKEN),
+    (re.compile(r'\b(ghp|gho|ghu|ghs|ghr|github_pat|glpat|xox[abprs]|AKIA|ASIA|AIza|ya29|hf)[_.-]?[A-Za-z0-9_-]{10,}'), TOKEN),
+    (re.compile(r'\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'), TOKEN),   # a JWT
     (re.compile(r'[a-z][a-z0-9+.-]*://\S+', re.I), '<url>'),
     (re.compile(r'[\w.+-]+@[\w-]+(\.[\w-]+)*'), '<email>'),        # e-mail addresses and user@host alike
     (re.compile(r'\b\d{1,3}(\.\d{1,3}){3}(:\d+)?\b'), '<ip>'),
     (re.compile(r'\b[0-9a-f]{0,4}(:[0-9a-f]{0,4}){2,7}:[0-9a-f]{1,4}\b', re.I), '<ip>'),
     (re.compile(r'\b([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(' + TLDS + r')\b(?!\.?[\w-])', re.I), '<host>'),
     # long runs that look like keys or ids: hex of 24 or more, or mixed letters and digits of 32 or more
-    (re.compile(r'\b[0-9a-f]{24,}\b', re.I), '<token>'),
-    (re.compile(r'\b(?=[A-Za-z0-9_+/=-]*\d)(?=[A-Za-z0-9_+/=-]*[A-Za-z])[A-Za-z0-9_+/=-]{32,}'), '<token>'),
+    (re.compile(r'\b[0-9a-f]{24,}\b', re.I), TOKEN),
+    (re.compile(r'\b(?=[A-Za-z0-9_+/=-]*\d)(?=[A-Za-z0-9_+/=-]*[A-Za-z])[A-Za-z0-9_+/=-]{32,}'), TOKEN),
 )
+KEY_RXS = (RULES[4][0], RULES[5][0])   # the sk-... and ghp_... shapes: a category value never looks like a key
 QUOTED = re.compile(r'"[^"\n]*"|\'[^\'\n]*\'|`[^`\n]*`|\u201c[^\u201d\n]*\u201d')
 HOME_RX = re.compile(r'(/home|/Users|/var/home|/data/data/com\.termux/files/home)/[^/\s:\'"`]+|[A-Za-z]:\\Users\\[^\\\s:\'"`]+')
 
@@ -42,7 +45,7 @@ def category(value):
     if isinstance(value, float):
         return round(value, 3)
     s = str(value)
-    return s if CATEGORY_RX.fullmatch(s) and not RULES[3][0].search(s) and not RULES[4][0].search(s) else OTHER
+    return s if CATEGORY_RX.fullmatch(s) and not any(rx.search(s) for rx in KEY_RXS) else OTHER
 
 
 def fields(data, limit=24):

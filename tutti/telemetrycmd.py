@@ -111,7 +111,7 @@ def run(main_fn, argv=None, env=None, clock=time.monotonic):
         rc = main_fn(argv)
         return rc
     except SystemExit as e:
-        rc = e.code if isinstance(e.code, int) else (0 if e.code is None else 2)
+        rc = exit_code(e.code)
         outcome = 'usage' if rc == 2 else outcome
         raise
     except KeyboardInterrupt:
@@ -123,6 +123,13 @@ def run(main_fn, argv=None, env=None, clock=time.monotonic):
         raise
     finally:
         finish(folder, cfg, name, action, words, rc, outcome, clock() - started)
+
+
+def exit_code(code):
+    """SystemExit's code as a number: None is 0, a message is 2 (argparse's usage error)."""
+    if isinstance(code, int):
+        return code
+    return 0 if code is None else 2
 
 
 def finish(folder, cfg, name, action, words, rc, outcome, seconds):
@@ -145,8 +152,11 @@ def finish(folder, cfg, name, action, words, rc, outcome, seconds):
 
 def status_lines(st):
     send = {True: 'on', False: 'off', None: 'off (never asked)'}[st['send']]
-    target = (f'Sentry at {st["dsn_host"]} (DSN from {st["dsn_from"]})' if st['dsn_set'] else
-              'a custom endpoint (telemetry.endpoint)' if st['endpoint_set'] else 'none: run `tutti telemetry setup`')
+    target = 'none: run `tutti telemetry setup`'
+    if st['endpoint_set']:
+        target = 'a custom endpoint (telemetry.endpoint)'
+    if st['dsn_set']:
+        target = f'Sentry at {st["dsn_host"]} (DSN from {st["dsn_from"]})'
     lines = [f'sending: {send}', f'send to: {target}', f'local events: {st["events"]} (always recorded)',
              f'queued to send: {st["queued"]}; sent so far: {st["sent_total"]}']
     if st.get('last_error'):
@@ -154,7 +164,7 @@ def status_lines(st):
     return lines
 
 
-def setup(cfg, folder, read_secret=getpass.getpass, say=print, env=None):
+def setup(folder, read_secret=getpass.getpass, say=print, env=None):
     """Asks for the DSN (hidden input), checks its shape, keeps it in ~/.config/tutti/telemetry.env (600)."""
     say('Paste the DSN of the Sentry project for Tutti (Sentry: Settings, Projects, <project>, Client Keys (DSN)).')
     say(f'It is kept in {telemetry.env_file(env)} (readable by you only), never in a config file or a repository.')
@@ -180,7 +190,7 @@ def send_test(cfg, folder, post_fn=None):
         return 2
     ev = telemetry.message_event('info', 'tutti telemetry test', {'where': 'test'})
     ev['user'] = {'id': telemetry.consent(folder)['install_id']}
-    sent, left = sentry.send_all(t, [{'type': 'event', 'event': ev}], ev['user']['id'], post_fn)
+    sent, _left = sentry.send_all(t, [{'type': 'event', 'event': ev}], ev['user']['id'], post_fn)
     print('test event sent: look for "tutti telemetry test" in the project' if sent else
           'the test event was not accepted: check the DSN (tutti telemetry setup) and the network')
     return 0 if sent else 1
@@ -194,7 +204,7 @@ def cmd(cfg, a):
                                                   ' (no DSN yet: run `tutti telemetry setup`)'))
         return 0
     if a.action == 'setup':
-        return setup(cfg, folder)
+        return setup(folder)
     if a.action == 'report':
         s = insights.summary(telemetry.read_events(folder), a.days)
         print(json.dumps(s, indent=1) if a.json else '\n'.join(insights.lines(s)))

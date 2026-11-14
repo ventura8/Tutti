@@ -12,7 +12,7 @@ import re
 from . import backlog, scouts
 
 PREFIX = 'sentry-'
-LINE_RX = re.compile(r'^[ \t]*[-*]?[ \t]*`?TUTTI-TASK:[ \t]*(.+?)`?[ \t]*$', re.M)
+MARK = 'TUTTI-TASK:'
 SEVERITIES = ('low', 'medium', 'high', 'critical')
 SLUG_RX = r'[a-z0-9][a-z0-9_-]{0,63}'
 
@@ -65,26 +65,35 @@ def errors(cfg):
     return errs
 
 
+def task_lines(answer):
+    """The text after `TUTTI-TASK:` on each line that starts with it (after a list marker or a backtick)."""
+    for line in (answer or '').splitlines():
+        body = line.strip().lstrip('-* ').lstrip('`')
+        if body.startswith(MARK):
+            rest = body[len(MARK):].strip().rstrip('`').strip()
+            if rest:
+                yield rest
+
+
+def task_item(text):
+    """One line's fields: {title, check, sentry, severity}; unknown or malformed fields are left out."""
+    parts = [p.strip() for p in text.split('||')]
+    item = {'title': re.sub(r'\s+', ' ', parts[0])[:200], 'check': '', 'sentry': '', 'severity': 'medium'}
+    for p in parts[1:]:
+        k, _, v = p.partition(':')
+        k, v = k.strip().lower(), v.strip().strip('`')
+        if k == 'check':
+            item['check'] = v[:300]
+        elif k == 'sentry' and re.fullmatch(r'[A-Za-z0-9_-]{1,64}', v):
+            item['sentry'] = v
+        elif k == 'severity' and v.lower() in SEVERITIES:
+            item['severity'] = v.lower()
+    return item
+
+
 def parse(answer):
-    """The suggested fixes in a scout's answer: [{title, check, sentry, severity}]; malformed lines are skipped."""
-    out = []
-    for m in LINE_RX.finditer(answer or ''):
-        parts = [p.strip() for p in m.group(1).split('||')]
-        title = re.sub(r'\s+', ' ', parts[0])[:200]
-        if not title:
-            continue
-        item = {'title': title, 'check': '', 'sentry': '', 'severity': 'medium'}
-        for p in parts[1:]:
-            k, _, v = p.partition(':')
-            k, v = k.strip().lower(), v.strip().strip('`')
-            if k == 'check':
-                item['check'] = v[:300]
-            elif k == 'sentry' and re.fullmatch(r'[A-Za-z0-9_-]{1,64}', v):
-                item['sentry'] = v
-            elif k == 'severity' and v.lower() in SEVERITIES:
-                item['severity'] = v.lower()
-        out.append(item)
-    return out
+    """The suggested fixes in a scout's answer: [{title, check, sentry, severity}]; lines without a title are skipped."""
+    return [it for it in (task_item(t) for t in task_lines(answer)) if it['title']]
 
 
 def policy(cfg, project):

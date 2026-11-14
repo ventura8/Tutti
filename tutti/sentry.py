@@ -107,7 +107,7 @@ def post(url, body, headers, timeout=TIMEOUT):
     except urllib.error.HTTPError as e:
         e.close()
         return e.code
-    except (urllib.error.URLError, OSError, ValueError):
+    except (OSError, ValueError):   # URLError is an OSError
         return 0
 
 

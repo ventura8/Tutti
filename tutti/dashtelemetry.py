@@ -10,7 +10,7 @@ from . import config, insights, scrub, selfimprove, telemetry
 
 PANELS = ('usage', 'attention', 'running', 'machines', 'autopilot', 'main', 'workers', 'projects', 'scouts', 'controls', 'jobs',
           'insights', 'selfimprove', 'tiles', 'appbar', 'helper', 'page')
-STACK_RX = re.compile(r'(?:at\s+)?([\w$.<>\[\] ]*?)\s*\(?([a-z]+://[^\s)]+|/[^\s):]+):(\d+):(\d+)\)?')
+LOCATION_RX = re.compile(r'(\S+):(\d{1,7}):(\d{1,7})')
 _cache = {}
 
 
@@ -22,13 +22,21 @@ def body(raw):
     return data if isinstance(data, dict) else None
 
 
+def js_frame(line):
+    """One stack line (`at fn (url:line:col)` in Chromium, `fn@url:line:col` in Firefox) as a frame, or None."""
+    line = line.strip().removeprefix('at ')
+    fn, _, where = line.rpartition('@') if '@' in line else line.rpartition(' ')
+    m = LOCATION_RX.fullmatch(where.strip('()'))
+    if not m:
+        return None
+    name = scrub.category(fn.strip() or '?')
+    return {'function': name if name != scrub.OTHER else '?', 'filename': scrub.url_path(m.group(1)), 'lineno': int(m.group(2)),
+            'colno': int(m.group(3)), 'in_app': True}
+
+
 def js_frames(stack):
-    out = []
-    for m in STACK_RX.finditer(str(stack or '')[:4000]):
-        fn = scrub.category((m.group(1) or '?').strip() or '?')
-        out.append({'function': fn if fn != scrub.OTHER else '?', 'filename': scrub.url_path(m.group(2)),
-                    'lineno': int(m.group(3)), 'colno': int(m.group(4)), 'in_app': True})
-    return out[::-1][-30:]   # Sentry wants the oldest frame first
+    frames = [f for f in (js_frame(x) for x in str(stack or '')[:4000].splitlines()) if f]
+    return frames[::-1][-30:]   # Sentry wants the oldest frame first
 
 
 def js_error_event(err):

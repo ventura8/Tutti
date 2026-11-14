@@ -366,6 +366,14 @@ class DashboardTest(unittest.TestCase):
         ms = state.machines_state(cfg, lambda m: probes[m['name']], lambda m: {'items': [], 'name': m['name']})
         self.assertEqual([m['stored'] and m['stored']['name'] for m in ms], ['a', None])
 
+    def test_a_fresh_progress_file_keeps_a_job_from_stalling(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = write(os.path.join(d, '100-999999.log'), b'copying\n')
+            os.utime(log, (1, 1))
+            write(log + '.progress', b'1 10 MB\n')
+            job = state.log_job(log, 'files', os.path.getmtime(log + '.progress') + 5, 60, lambda pid: True)
+            self.assertEqual(job['status'], 'running')
+
     def test_progress_file_unit(self):
         with tempfile.TemporaryDirectory() as d:
             p = write(os.path.join(d, 'x.progress'), b'5 10 MB\n')

@@ -251,7 +251,8 @@ def status_of(running, updated, rc, now, stall):
 def log_job(path, kind, now, stall, is_alive):
     m = LOG_NAME.match(os.path.basename(path))
     started, pid = (int(m.group(1)), int(m.group(2))) if m else (None, None)
-    updated = mtime(path)
+    # A progress report is activity too: a long copy that only moves its byte counter is not stalled.
+    updated = max((t for t in (mtime(path), mtime(path + '.progress')) if t), default=None)
     # The result first: a ship check's pid is the ship process, which lives on through later checks and the deploy.
     rc = read_rc(path + '.rc')
     running = rc is None and bool(pid) and is_alive(pid)

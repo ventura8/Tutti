@@ -312,7 +312,7 @@ function storedFiles(name, st) {
     if (st.problem) return el('p', { class: 'row__note', text: `Stored files: ${st.problem}` });
     const head = `Stored files: ${bytes(st.bytes)} of ${bytes(st.budget_bytes)} in ${st.cache}`;
     if (!st.items.length) return el('p', { class: 'row__note', text: `${head}. None yet: tutti files send <path> --to <machine>` });
-    const d = el('details', { class: 'stored', open: storedOpen.has(name) });
+    const d = el('details', { class: 'stored', open: storedOpen.has(name), 'data-machine': name });
     d.addEventListener('toggle', () => (d.open ? storedOpen.add(name) : storedOpen.delete(name)));
     d.append(el('summary', { text: `${head} · ${st.items.length} item${st.items.length === 1 ? '' : 's'}` }),
         el('ul', { class: 'stored__list' }, ...st.items.map((it) => el('li', {},
@@ -324,8 +324,11 @@ function storedFiles(name, st) {
 function renderMachines(s) {
     const ms = s.machines;
     $('machines-meta').textContent = ms.probed_at ? `Probed ${relative(ms.probed_at)}` : 'Probing…';
+    // A re-render replaces the rows: the stored-files toggle that had focus gets it back (keyboard users keep their place).
+    const focused = document.activeElement?.closest?.('.stored')?.dataset.machine;
     $('machines').replaceChildren(...(ms.items.length ? ms.items.map(machine)
         : [el('li', {}, ms.probed_at ? empty('No machines', 'Add machines: to the config to route heavy runs.') : empty('Probing machines…', 'ssh answers can take a few seconds.'))]));
+    if (focused) $('machines').querySelector(`.stored[data-machine="${CSS.escape(focused)}"] > summary`)?.focus({ preventScroll: true });
 }
 
 // ---- workers

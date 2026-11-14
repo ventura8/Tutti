@@ -87,7 +87,7 @@ spent by `now` is `(now - start) / (target - start)`, capped at 100 %. Against a
 | --- | --- | --- |
 | `on pace` | within the band around the line | keep going |
 | `behind` | under the band | start more parallel work from the backlog |
-| `ahead` | over the band | shift work to cheaper workers and local models |
+| `ahead` | over the band | shift work to other workers and local models |
 | `spent` | the quota is used up | nothing new on this account until the reset |
 | `late` | past the target with quota left | start parallel work now; the rest is lost at the reset |
 | `no reading` | nothing logged in this window | read the source and log it |

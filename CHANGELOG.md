@@ -2,6 +2,11 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.1.11 (2026-11-14)
+
+- The pacing advice when spending too fast now reads "shift work to other workers and local models" (CLI, dashboard, docs).
+- FEEDBACK: `tutti run --repo` ran the wrong repo's check.
+
 ## 0.1.10 (2026-11-14)
 
 The open items of 0.1.8 and 0.1.9, each proven with a real run.

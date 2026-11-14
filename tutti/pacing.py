@@ -64,7 +64,7 @@ def pace(now, start, reset, used, lead_hours=1, share=1.0):
     elif now >= target:
         verdict, action = 'late', f'{budget - used:.0f} points will be lost at the reset: start parallel work now'
     elif used > expected + band:
-        verdict, action = 'ahead', 'spending too fast: shift work to cheaper workers and local models'
+        verdict, action = 'ahead', 'spending too fast: shift work to other workers and local models'
     elif used < expected - band:
         verdict, action = 'behind', 'spending too slowly: start more parallel work from the backlog'
     else:

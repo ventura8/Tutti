@@ -123,6 +123,9 @@ class LocalOnly(Base):
         self.assertEqual(aiassist.answered(data), [])   # fed once
         t = backlog.load(cfg)['tasks'][0]
         self.assertEqual((t['repo'], t['source'], t['status']), ('tutti', 'insight', 'candidate'))   # outside text: never queued
+        notes = ' '.join(t.get('notes') or [])   # audit 2026-11: the suggested command never reaches a worker
+        self.assertIn('not passed on', notes)
+        self.assertNotIn('Suggested check', notes)
 
     def test_an_answer_after_online_ai_was_turned_off_is_dropped(self):
         cfg = self.cfg(enabled=True, online=False)

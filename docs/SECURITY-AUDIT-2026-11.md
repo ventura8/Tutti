@@ -85,7 +85,8 @@ that needs a position on your network; **low**, hardening, or a risk that needs 
   and not a link. `test_slot.test_a_planted_link_is_never_followed_and_the_run_keeps_the_callers_umask`.
 - **H6** `scouts.trusted`: an answer comes from `scouts.<name>.github_login`, or from an owner, member or collaborator whose
   permission on the repository GitHub reports as write, maintain or admin. `test_scouts.test_a_strangers_comment_is_never_taken_as_the_answer`.
-- **H7** The suggested check command is no longer in the task's notes; a task from Sentry, a scout, the household or feedback
+- **H7** The suggested check command is no longer in the task's notes (Sentry triage, and AI assist's research answers, added
+  in 0.4.0); a task from Sentry, a scout, the household or feedback
   carries a safety note in its brief; workers and reviewers run with `workers.worker_env`, without GH_TOKEN, GITHUB_TOKEN,
   Sentry, npm, PyPI, cloud tokens and the scouts' URL and key variables. **Residual risk:** a worker that runs headless with
   commands allowed (`--force`) still reads attacker-influenced task text and the repository, and keeps its own CLI sign-in and

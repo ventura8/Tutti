@@ -2,6 +2,19 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## 0.5.0 (2026-11-15)
+
+### Added
+
+- Limited hours for any machine (docs/FLEET.md, *Limited hours*). In a daily window (days and hours, past midnight too) Tutti
+  uses at most `pct` % (default 60) of it: fewer slots, fewer model threads, a lower adaptive limit and no new heavy jobs.
+  Set it with `tutti machine limit <m> <HH-HH> [pct] | off`, the machine card, or Settings. `main: true` follows the main
+  machine on `tutti move`.
+
+- A day with other owner hours (docs/USAGE-PACING.md, *A day with other hours*). Set it with `tutti owner window <date> <HH-HH|off|config>`,
+  the owner panel's **One day with other hours**, or `pacing.dates`. That day the main agent's reserve follows its own
+  window, and its usual hours run the agents at full speed. A vacation that ends before it hands over at midnight.
+
 ## 0.4.0 (2026-11-15)
 
 ### Added

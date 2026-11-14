@@ -247,3 +247,13 @@ A reading from an earlier window is ignored: it says nothing about this one.
 - Keep a backlog of ready, bounded tasks: being behind pace is only fixable if there is work to start.
 - A reading is the whole account's use, whoever spent it. With a shared account, agree the split once (for example
   half each, every window), and tell the peer early when you will not use your part.
+
+## A day with other hours
+
+One day's owner hours can differ from its weekday's: `tutti owner window 2026-11-16 20-24` (or `off` for none, `config` to
+take the day back), the owner panel's **One day with other hours**, or `pacing.dates` in the config
+(`{"2026-11-16": "20-24"}`). That day the planner keeps the main agent's reserve for those hours only, at `schedule.rate`
+points an hour. Its usual hours, and every hour outside the window, are free for the agents at full speed. A vacation that
+ends before the day (`vacation-until-2026-11-16`) hands over to it at midnight. A day's window ends by 24; hours past
+midnight are the next day's own window (`00-02`). Taking back a day the config sets keeps a null in `owner.json`. The dashboard's edits live in `owner.json`
+and win over the config's.

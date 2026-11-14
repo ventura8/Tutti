@@ -181,7 +181,8 @@ def machine_state(m, p, rank, now=None, idle_s=None, quiet_hours=None):
             'min_free_gb': m['min_free_gb'], 'temp_c': p.temp if p.reachable else None, 'heat': m.get('heat'),
             'gpu_temp_c': p.gpu_temp if p.reachable else None, 'temp_note': p.temp_note if p.reachable else '',
             'containers': list(getattr(p, 'containers', []) or []), 'readings': getattr(p, 'readings', None),
-            'owner_paused': m.get('paused'), 'use_pct': pct, 'use_why': pct_why, 'zone': getattr(p, 'zone', '') if p.reachable else '',
+            'owner_paused': m.get('paused'), 'use_pct': pct, 'use_why': pct_why, 'limit': m.get('limit'),
+            'limited': share.limited(m, now) is not None, 'zone': getattr(p, 'zone', '') if p.reachable else '',
             'mem_free_gb': getattr(p, 'mem_gb', None) if p.reachable else None}
 
 

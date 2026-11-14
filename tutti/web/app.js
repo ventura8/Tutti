@@ -459,6 +459,11 @@ function ownerPanel(o) {
     const t = new Date(Date.now() + 86400000);   // tomorrow, local: the server reads the date as the owner's local midnight
     const date = el('input', { type: 'date', class: 'field', 'aria-label': 'Away until (date)',
         value: `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}` });
+    const dDate = el('input', { type: 'date', class: 'field', 'aria-label': 'A day with other hours (date)', value: date.value });
+    const dWin = el('input', { type: 'text', class: 'field', 'aria-label': 'Its hours, HH-HH or off', placeholder: '20-24', size: 6 });
+    const dated = Object.entries(o.dates || {}).map(([d, w]) => el('span', { class: 'chip' }, `${d}: ${w === 'off' ? 'off' : w}`,
+        el('button', { class: 'btn btn--text', type: 'button', text: 'Remove', 'aria-label': `Remove the hours of ${d}`,
+            onclick: () => saveOwner({ date: d, window: null }, 'The day was not saved.') })));
     const learned = o.learned ? `learned from ${o.hours_seen} h of readings` : `seeded from pacing.schedule (${o.schedule.window}, ${o.schedule.hours} h)`;
     return [
         el('h3', { class: 'card__sub', text: 'You and the main agent ' }, el('a', { class: 'link', href: '#settings/pacing', text: 'In Settings' })),
@@ -471,6 +476,9 @@ function ownerPanel(o) {
             el('button', { class: 'btn btn--tonal', type: 'button', text: 'Away today', onclick: () => saveOwner({ mode: 'away' }, 'The mode was not saved.') }),
             el('button', { class: 'btn btn--tonal', type: 'button', text: 'I\'m back (auto)', onclick: () => saveOwner({ mode: 'auto' }, 'The mode was not saved.') })),
         heatmap(o),
+        el('div', { class: 'row__stats' }, el('span', { class: 'row__note', text: 'One day with other hours (the reserve follows them that day):' }),
+            dDate, dWin, el('button', { class: 'btn btn--tonal', type: 'button', text: 'Save that day',
+                onclick: () => saveOwner({ date: dDate.value, window: dWin.value.trim() || 'off' }, 'The day was not saved.') }), ...dated),
         el('div', { class: 'row__stats' }, el('span', { class: 'row__note', text: 'Your working days (the reserve is kept on them):' }), ...o.days.map((d) => el('button', {
             class: 'btn btn--tonal', type: 'button', 'aria-pressed': String(o.schedule.days.includes(d)), title: `Your working days: ${d}`,
             text: d, onclick: () => saveOwner({ days: o.schedule.days.includes(d) ? o.schedule.days.filter((x) => x !== d) : [...o.schedule.days, d] },
@@ -512,8 +520,31 @@ function machine(m) {
         presenceBits(m.presence),   // controls.js: Here / Away since 18:40 (left with its owner), today's strip
         el('p', { class: 'row__note', text: m.status === 'paused' ? 'Yield flag is up: Tutti sends it nothing new until it is lowered.' : m.reason }),
         use && use.idle_why ? el('p', { class: 'row__note', text: `Idle: ${use.idle_why}` }) : null,
+        limitForm(m),
         m.household_use ? el('p', { class: 'row__note household-only', text: busyFor(m) }) : null,
         storedFiles(m.name, m.stored));
+}
+
+// A machine's limited-usage window (machines.<m>.limit, tutti/share.py): a daily window when Tutti uses at most pct % of it
+function limitForm(m) {
+    const lim = m.limit || {};
+    const win = el('input', { type: 'text', class: 'field', size: 6, placeholder: '18-01', value: lim.window || '',
+        'aria-label': `${m.name}: limited hours, HH-HH` });
+    const pct = el('input', { type: 'number', class: 'field', min: 1, max: 100, step: 5, value: String(lim.pct ?? 60),
+        'aria-label': `${m.name}: the most Tutti uses then, percent` });
+    const save = (body, fail) => fetch('/api/machine-limit', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN },
+        body: JSON.stringify(body) }).then(async (res) => {
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `the dashboard answered ${res.status}`);
+        await refresh();
+    }).catch((err) => showBanner(el('strong', { text: `${fail} ` }), err.message));
+    return el('div', { class: 'row__stats' },
+        el('span', { class: 'row__note', text: lim.window ? `Limited hours ${lim.window} at ${lim.pct ?? 60} %${m.limited ? ' (now)' : ''}:` : 'Limited hours:' }),
+        win, pct, el('span', { text: '%' }),
+        el('button', { class: 'btn btn--tonal', type: 'button', text: 'Save',
+            onclick: () => save({ machine: m.name, window: win.value.trim(), pct: pct.value.trim() === '' ? null : Number(pct.value) },
+                'The limited hours were not saved.') }),
+        lim.window ? el('button', { class: 'btn btn--text', type: 'button', text: 'No limit',
+            onclick: () => save({ machine: m.name, window: 'off' }, 'The limited hours were not removed.') }) : null);
 }
 
 function bytes(n) {

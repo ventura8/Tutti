@@ -384,8 +384,10 @@ def validate(cfg):
              for n, m in cfg['machines'].items() if m.get('via') and m['via'] not in cfg['machines']]
     from . import move
     errs += move.errors(cfg)
-    from . import devices, vpn, workq
+    from . import devices, share, vpn, workq
     errs += workq.errors(cfg)
+    for name, m in cfg['machines'].items():
+        errs += share.limit_errors(name, m.get('limit'))
     errs += devices.errors(cfg)
     errs += vpn.errors(cfg)
     for name, w in cfg['workers'].items():

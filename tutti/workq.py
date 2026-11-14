@@ -114,10 +114,14 @@ def assign(cfg, items, rows, busy, now_dt):
         if where == 'here':
             out.append((j, 'here'))
             continue
+        if j.get('heavy'):   # no new heavy job on a machine in its limited-usage window (machines.<m>.limit)
+            pool = {n: r for n, r in free.items() if not r.get('limited')}
+        else:
+            pool = free
         names = [where] if where != 'route' else sorted(free, key=lambda n: (-(free[n].get('cores') or 0), route.index(n)
                                                                              if n in route else 99) if j.get('heavy') else
                                                         (route.index(n) if n in route else 99))
-        pick = next((n for n in names if n in free), None)
+        pick = next((n for n in names if n in pool), None)
         if pick:
             out.append((j, pick))
             del free[pick]

@@ -80,6 +80,11 @@ TOOLS = [
          {'scout': _s('the scout name (see `tutti scout list`)'), 'question': _s('the question or research task'),
           'skill': _s('optional hint', enum=['research', 'web-browse', 'triage', 'monitoring', 'drafting', 'browser-repro'])},
          required=('scout', 'question'), mutating=True),
+    tool('pending_questions', 'The questions only the user can answer (a parked task\'s next step, a worker\'s question), '
+         'batched: ask the user them together when it suits, then call answer_question for each. The rest of the work goes on.'),
+    tool('answer_question', 'Write the user\'s answer to one question back to Tutti; the task resumes (or is dropped).',
+         {'id': _s('the question id (q1, q2, ...)'), 'choice': _s('one of its options, or the user\'s own words')},
+         required=('id',), mutating=True),
     tool('welcome_summary', 'Welcome back: what happened while the user was away, newest first by project priority: what '
          'shipped, what runs now, what failed or was parked and why, usage by each reset, and a numbered list of what only '
          'the user can do with the exact step. Show it to the user when they return or ask what they missed.'),
@@ -123,6 +128,8 @@ def argv_of(name, a):
     table = {
         'usage': lambda: ['usage'],
         'welcome_summary': lambda: ['welcome', 'show', '--keep-unread'],
+        'pending_questions': lambda: ['needs', 'list'],
+        'answer_question': lambda: ['needs', 'answer', a['id']] + ([a['choice']] if a.get('choice') else []),
         'machines': lambda: ['machines'],
         'devices': lambda: ['devices'],
         'backlog_list': lambda: ['backlog', 'list'] + (['--all'] if a.get('all') else []),

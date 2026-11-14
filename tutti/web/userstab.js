@@ -8,7 +8,7 @@
 const HH_USER_ACTS = [
     ['schedule', 'Schedule and away'], ['main-agent', 'Main agent'], ['main-machine', 'Main machine'], ['connect', 'Reconnect agents'],
     ['pair-device', 'Pair a device'], ['machine-use', 'Use a shared machine'], ['pause', 'Pause a machine'], ['resume', 'Resume a machine'],
-    ['update', 'Update Tutti and agents'], ['join', 'Join or rejoin, install'], ['make-admin', 'Make admin'], ['remove', 'Remove'],
+    ['update', 'Update Tutti and agents'], ['notify', 'Questions outside work hours'], ['join', 'Join or rejoin, install'], ['make-admin', 'Make admin'], ['remove', 'Remove'],
 ];
 const HH_MODES = ['auto', 'active', 'away'];
 const HH_UT = { data: null, filter: '' };
@@ -58,6 +58,7 @@ function hhArgsFor(act, row, form) {
         return out;
     }
     if (act === 'main-agent') return { kind: v('kind') };
+    if (act === 'notify') return { notify: v('notify'), batch: Number(v('batch') || 3) };
     if (act === 'main-machine') return { machine: v('machine') };
     if (['machine-use', 'pause', 'resume'].includes(act)) return { machine: v('machine') };
     return {};
@@ -71,6 +72,9 @@ function hhActForm(row) {
             ...['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => el('label', {}, el('input', { type: 'checkbox', name: 'day', value: d }), d))),
         el('label', {}, 'Hours window ', el('input', { name: 'window', placeholder: '09-17', size: 5 })),
         el('label', {}, 'Hours a day ', el('input', { name: 'hours', type: 'number', min: 1, max: 24 })),
+        el('label', {}, 'Questions ', el('select', { name: 'notify' }, el('option', { value: 'work-hours', text: 'in work hours' }),
+            el('option', { value: 'always', text: 'outside work hours too' }))),
+        el('label', {}, 'after ', el('input', { name: 'batch', type: 'number', min: 1, max: 50, value: 3, size: 3 }), ' wait'),
         el('label', {}, 'Agent ', el('select', { name: 'kind' }, ...row.agents.map((a) => el('option', { value: a, text: a })))),
         el('label', {}, 'Machine ', el('select', { name: 'machine' }, ...row.targets.map((t) => el('option', { value: t, text: t })))));
     const note = el('p', { class: 'row__note', 'aria-live': 'polite' });

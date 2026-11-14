@@ -1,0 +1,210 @@
+"""Run to completion and the needs-input queue: a parked task asks one question and resumes on its answer; a worker's own
+question parks only its task; the watchdog ends a stuck run and queues it again; a failure in a row waits its backoff; the
+questions reach a user in batches at work, wait for the welcome-back summary off work, and with "Get questions outside work
+hours" reach them once N wait (urgent at once, never in quiet hours); admins see everyone's, members their own; the
+settings' checks and audit. Nothing leaves the temp folder; no real process is signalled."""
+import json
+import os
+import tempfile
+import unittest
+from unittest import mock
+
+from tutti import autopilot, backlog, chat, config, mcpserver, needs, welcome
+
+T0 = 1_800_000_000.0
+H = 3600
+
+
+def task(tid='t1', status='queued', **kw):
+    return {'id': tid, 'repo': 'app', 'title': f'Task {tid}', 'scope': [], 'check': 'true', 'size': 'S', 'source': 'test',
+            'status': status, 'attempts': [], 'notes': [], 'added': T0, **kw}
+
+
+def failed(step='a', sig='s1'):
+    return {'step': step, 'ok': False, 'signature': sig, 'why': f'failed {sig}', 'run': '1-1', 'stat': '', 'tail': 'E1', 'at': T0}
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state = os.path.join(self.tmp.name, 'state')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def cfg(self, **ap):
+        raw = {'project': {'state': self.state},
+               'workers': {'w': {'kind': 'cli', 'command': ['w', '{prompt}']}},
+               'accounts': {'a': {'worker': 'w'}, 'b': {'worker': 'w'}},
+               'autopilot': {'accounts': ['a'], 'ladder': ['a', 'b'], 'no_progress': 2, 'max_attempts': 3,
+                             'repos': {'app': {'path': self.tmp.name, 'check': 'true'}}, **ap}}
+        cfg = config.normalise(raw)
+        self.assertEqual(config.validate(cfg), [])
+        cfg['_path'] = os.path.join(self.tmp.name, 'tutti.config.yaml')
+        return cfg
+
+    def add(self, cfg, t):
+        with backlog.locked(cfg) as data:
+            data['tasks'].append(t)
+
+
+class Park(Base):
+    def test_a_parked_task_asks_one_question_and_its_answer_resumes_it(self):
+        cfg = self.cfg()
+        t = task(attempts=[failed('b'), failed('b')])
+        self.add(cfg, t)
+        with backlog.locked(cfg) as data:
+            park = autopilot.after_failure(cfg, data['tasks'][0], T0)
+        self.assertIn('no progress', park)
+        q = needs.load(cfg)['questions'][0]
+        self.assertEqual((q['id'], q['default'], q['options']), ('q1', 'retry', needs.PARK_OPTIONS))
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['question'], 'q1')
+        ok, why = needs.answer(cfg, 'q1', 'retry', now=T0 + H)
+        self.assertTrue(ok, why)
+        t = backlog.load(cfg)['tasks'][0]
+        self.assertEqual((t['status'], t['resume_from'], t['parked']), ('queued', 2, None))
+        self.assertEqual(autopilot.park_reason(cfg, t), ('', ''))   # counted afresh: it gets its tries again
+        self.assertFalse(needs.answer(cfg, 'q1', 'drop')[0])   # answered once
+
+    def test_drop_and_free_words(self):
+        cfg = self.cfg()
+        for tid in ('t1', 't2'):
+            t = task(tid)
+            self.add(cfg, t)
+            with backlog.locked(cfg) as data:
+                needs.ask(cfg, backlog.find(data, tid), **needs.park_question(t, 'stuck'), now=T0)
+        needs.answer(cfg, 'q1', 'drop')
+        needs.answer(cfg, 'q2', 'use the v2 API instead')
+        t1, t2 = backlog.load(cfg)['tasks']
+        self.assertEqual(t1['status'], 'dropped')
+        self.assertEqual(t2['status'], 'queued')
+        self.assertIn('use the v2 API instead', t2['notes'][-1])
+
+    def test_a_workers_question_parks_only_its_task(self):
+        q = needs.from_output('working...\nTUTTI-QUESTION: Keep the old config key? || why: two readers use it || options: keep | '
+                              'rename || default: keep || urgent: no\n')
+        self.assertEqual((q['question'], q['options'], q['default'], q['urgent']), ('Keep the old config key?', ['keep', 'rename'],
+                                                                                     'keep', False))
+        self.assertIsNone(needs.from_output('no question here'))
+
+
+class Resilience(Base):
+    def test_the_watchdog_ends_a_stuck_run_and_queues_it_again(self):
+        cfg = self.cfg(stuck_minutes=10)
+        t = task(status='running', run='1700000000-1', step='a', started=T0)
+        killed = []
+        with mock.patch.object(autopilot, 'run_log', return_value=os.path.join(self.tmp.name, 'none.log')), \
+                mock.patch.object(autopilot.delegate, 'paths', return_value={'pid': os.path.join(self.tmp.name, 'pid')}):
+            with open(os.path.join(self.tmp.name, 'pid'), 'w', encoding='utf8') as f:
+                f.write('4242')
+            self.assertEqual(autopilot.stuck(cfg, t, T0 + 5 * 60, killed.append), '')   # not yet
+            why = autopilot.stuck(cfg, t, T0 + 11 * 60, killed.append)
+        self.assertIn('no new output for 11 min', why)
+        self.assertEqual(killed, [4242])
+
+    def test_failures_in_a_row_wait_longer_and_the_first_climbs_at_once(self):
+        self.assertEqual(autopilot.backoff(task(attempts=[failed()])), 0)
+        self.assertEqual(autopilot.backoff(task(attempts=[failed(), failed()])), 60)
+        self.assertEqual(autopilot.backoff(task(attempts=[failed()] * 4)), 240)
+        self.assertEqual(autopilot.backoff(task(attempts=[failed()] * 20)), autopilot.BACKOFF_MAX)
+        self.assertEqual(autopilot.backoff(task(attempts=[failed()] * 5, resume_from=4)), 0)
+
+
+class Delivery(Base):
+    S = {'notify': 'work-hours', 'batch': 3, 'quiet': '23:00-07:00'}
+
+    def qs(self, n, urgent=False):
+        return [{'id': f'q{i}', 'urgent': urgent and i == 0} for i in range(n)]
+
+    def test_at_work_one_batch_per_half_hour_urgent_at_once(self):
+        self.assertEqual(needs.due(self.S, self.qs(1), True, 0, T0), (True, 'at work'))
+        self.assertFalse(needs.due(self.S, self.qs(1), True, T0 - 60, T0)[0])
+        self.assertTrue(needs.due(self.S, self.qs(1, urgent=True), True, T0 - 60, T0)[0])
+        self.assertFalse(needs.due(self.S, [], True, 0, T0)[0])
+
+    def test_off_work_without_the_opt_in_they_wait_for_the_welcome_back_summary(self):
+        ok, why = needs.due(self.S, self.qs(5, urgent=True), False, 0, T0)
+        self.assertFalse(ok)
+        self.assertIn('welcome-back', why)
+
+    def test_with_the_opt_in_the_threshold_urgent_and_quiet_hours(self):
+        s = {**self.S, 'notify': 'always', 'quiet': ''}
+        self.assertEqual(needs.due(s, self.qs(2), False, 0, T0), (False, '2 of 3 waiting before you are told'))
+        self.assertEqual(needs.due(s, self.qs(3), False, 0, T0), (True, '3 waiting (batch 3)'))
+        self.assertEqual(needs.due(s, self.qs(1, urgent=True), False, 0, T0), (True, 'urgent'))
+        with mock.patch.object(needs, 'in_quiet', return_value=True):
+            self.assertFalse(needs.due({**s, 'quiet': '23:00-07:00'}, self.qs(1, urgent=True), False, 0, T0)[0])
+
+    def test_tick_delivers_each_batch_once_to_the_chat(self):
+        cfg = self.cfg()
+        for tid in ('t1', 't2'):
+            t = task(tid)
+            self.add(cfg, t)
+            with backlog.locked(cfg) as data:
+                needs.ask(cfg, backlog.find(data, tid), **needs.park_question(t, 'stuck'), now=T0)
+        events = needs.tick(cfg, T0, at_work_fn=lambda c, k, n: True)
+        self.assertEqual(events, ['needs: 2 question(s) delivered to owner (at work)'])
+        self.assertEqual(needs.tick(cfg, T0 + 2 * H, at_work_fn=lambda c, k, n: True), [])   # nothing new
+        convs = chat.Store(config.state_dir(cfg)).load('local')['conversations']
+        self.assertEqual([c['title'] for c in convs], ['Questions from Tutti'])
+        self.assertIn('q1', convs[0]['messages'][0]['text'])
+
+    def test_off_work_they_appear_in_the_welcome_back_summary_with_their_default(self):
+        cfg = self.cfg()
+        t = task()
+        self.add(cfg, t)
+        with backlog.locked(cfg) as data:
+            needs.ask(cfg, backlog.find(data, 't1'), **needs.park_question(t, 'stuck'), now=T0)
+        f = welcome.facts(cfg, T0 - H, [])
+        self.assertEqual(len(f['needs']), 1)   # the question, not also the parked task
+        self.assertIn('"q1 retry" (default retry', f['needs'][0]['step'])
+
+
+class People(Base):
+    def test_admins_see_everyone_members_their_own(self):
+        cfg = self.cfg()
+        for tid, user in (('t1', needs.OWNER), ('t2', 'ana'), ('t3', 'bo')):
+            t = task(tid, user=user)
+            self.add(cfg, t)
+            with backlog.locked(cfg) as data:
+                needs.ask(cfg, backlog.find(data, tid), **needs.park_question(t, 'x'), user=user, now=T0)
+        self.assertEqual(len(needs.open_for(cfg, 'admin', needs.OWNER)), 3)
+        self.assertEqual([q['user'] for q in needs.open_for(cfg, 'viewer', 'ana')], ['ana'])
+        self.assertFalse(needs.answer(cfg, 'q3', 'retry', 'viewer', 'ana')[0])
+        self.assertTrue(needs.answer(cfg, 'q2', 'retry', 'viewer', 'ana')[0])
+        reply = needs.chat_reply(cfg, {'sub': 'local', 'role': 'admin'}, 'q1')   # the default
+        self.assertIn('q1 answered: retry', reply)
+        self.assertIsNone(needs.chat_reply(cfg, {'sub': 'local', 'role': 'admin'}, 'what is running?'))
+
+    def test_the_opt_in_is_off_by_default_and_checked(self):
+        cfg = self.cfg()
+        self.assertEqual(needs.user_settings(needs.load(cfg), 'anyone'), needs.USER_DEFAULTS)
+        self.assertEqual(needs.USER_DEFAULTS['notify'], 'work-hours')
+        ok, res = needs.set_user(cfg, needs.OWNER, {'notify': 'always', 'batch': 3})
+        self.assertTrue(ok)
+        self.assertEqual(res['notify'], 'always')
+        self.assertEqual(needs.user_settings(needs.load(cfg), 'someone-else')['notify'], 'work-hours')
+        self.assertFalse(needs.set_user(cfg, 'x', {'notify': 'sometimes'})[0])
+        self.assertFalse(needs.set_user(cfg, 'x', {'batch': 0})[0])
+        self.assertFalse(needs.set_user(cfg, 'x', {'quiet': '11pm'})[0])
+
+    def test_an_admin_changes_a_members_and_it_is_audited_a_member_only_their_own(self):
+        cfg = self.cfg()
+        admin = {'sub': 'adm', 'email': 'a@example.test', 'role': 'admin'}
+        member = {'sub': 'ana', 'email': 'n@example.test', 'role': 'viewer'}
+        self.assertTrue(needs.set_user(cfg, 'ana', {'notify': 'always'}, admin)[0])
+        self.assertFalse(needs.set_user(cfg, 'bo', {'notify': 'always'}, member)[0])
+        self.assertTrue(needs.set_user(cfg, 'ana', {'batch': 5}, member)[0])
+        with open(os.path.join(config.state_dir(cfg), 'auth-audit.jsonl'), encoding='utf8') as f:
+            lines = [json.loads(x) for x in f]
+        self.assertEqual([(x['by'], x['target'], x['action']) for x in lines], [('adm', 'ana', 'notify'), ('ana', 'ana', 'notify')])
+
+    def test_the_main_agent_has_the_tools(self):
+        names = {t['name'] for t in mcpserver.TOOLS}
+        self.assertLessEqual({'pending_questions', 'answer_question'}, names)
+        self.assertTrue(mcpserver.is_mutating('answer_question', {'id': 'q1'}))
+        self.assertEqual(mcpserver.argv_of('answer_question', {'id': 'q1', 'choice': 'drop'}), ['needs', 'answer', 'q1', 'drop'])
+
+
+if __name__ == '__main__':
+    unittest.main()

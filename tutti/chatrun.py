@@ -236,8 +236,14 @@ class Engine:
             cfg, snap = self.cfg_fn(), self.snap_fn() or {}
             known = chat.known_names(cfg, snap)
             call = chat.parse(prompt.get('text') or '', known)
-            from . import welcome  # What did I miss?: the welcome-back summary since the user's last one (docs/WELCOME.md)
-            if welcome.asks_miss(prompt.get('text')):
+            from . import (
+                needs,  # "q3 retry": an answer to one of Tutti's questions (docs/NEEDS.md)
+                welcome,  # What did I miss?: the welcome-back summary since the user's last one (docs/WELCOME.md)
+            )
+            reply = needs.chat_reply(cfg, user, prompt.get('text'))
+            if reply:
+                self._say(job, reply)
+            elif welcome.asks_miss(prompt.get('text')):
                 self._say(job, welcome.chat_answer(cfg, user))
             elif call and 'error' in call:
                 self._say(job, call['error'], chat.ChatError)

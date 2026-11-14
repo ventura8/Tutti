@@ -57,7 +57,7 @@ DEFAULTS = {
     # land, base}}); fill_room: free room on the trigger accounts is filled from the repos' sources by itself (tutti/fill.py);
     # auto_review: a result to review is reviewed by review.fallback and landed by its repo's `land` (merge, pr or branch)
     'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'max_parallel': None, 'no_progress': 3, 'max_attempts': 12, 'repos': {},
-                  'checkpoint_minutes': 5, 'quiet_hours': [], 'fill_room': True, 'auto_review': True},
+                  'checkpoint_minutes': 5, 'quiet_hours': [], 'fill_room': True, 'auto_review': True, 'stuck_minutes': 30},
     # pacing: the owner's own prompting (tutti/owner.py): the weekly schedule that seeds the learned weekday x hour profile
     # (days, hours of the reserve window, the local window, points per owner hour, the UTC offset; None: this computer's),
     # the mode (auto, active, away, vacation-until-YYYY-MM-DD), the owner hours with no rise after which auto says away,
@@ -417,8 +417,8 @@ def validate(cfg):
     # they import modules that import this one
     from . import autocompact, chat, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
     errs += dispatch.errors(cfg) + tiers.errors(cfg) + tz.errors(cfg) + presence.errors(cfg)
-    from . import aiassist, welcome
-    errs += welcome.errors(cfg) + aiassist.errors(cfg) + selfimprove.errors(cfg)
+    from . import aiassist, needs, welcome
+    errs += needs.errors(cfg) + welcome.errors(cfg) + aiassist.errors(cfg) + selfimprove.errors(cfg)
     errs += sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
         owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update']) + energy.errors(cfg) + \

@@ -44,6 +44,7 @@ from . import (
     keepon,
     local,
     move,
+    needs,
     owner,
     pacing,
     presence,
@@ -220,6 +221,7 @@ class Collector:
                 dashtelemetry.tick(self.cfg)
                 aiassist.tick_in_background(self.cfg)   # off unless an admin opted in
                 welcome.tick(self.cfg)   # the owner back: their welcome-back summary
+                needs.tick(self.cfg)   # the questions only a person can answer, delivered in batches (docs/NEEDS.md)
                 from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)
                 hhjobs.tick(self.cfg)
             except Exception as e:  # a probe bug must not end the loop; the page shows the last good data and its age
@@ -779,7 +781,8 @@ def _self_posts():
     return {mainmachine.API: lambda c, h, b: mainmachine.post(c, h, b), manage.API: lambda c, h, b: manage.act_post(c, h, b),
             chatrun.API: chatrun.handle,   # the Chat: every user's own conversations, each action with its own role check
             welcome.API: lambda c, h, b: welcome.post(c, h, b),   # Welcome back: the viewer's own summary and switch
-            '/api/browser': browsercmd.post}   # the work browser: any signed-in user, for the admin's sites
+            '/api/browser': browsercmd.post,   # the work browser: any signed-in user, for the admin's sites
+            needs.API: lambda c, h, b: needs.post(c, h, b)}   # questions: the viewer's own answers and settings
 
 
 SELF_POSTS = _self_posts()
@@ -939,6 +942,9 @@ def get(collector, path, token, headers):
     if path == '/api/state':
         code, body, extra = state_response(collector, headers)
         return code, body, JSON_TYPE, 'no-cache', extra
+    if path == needs.API:   # the viewer's own questions (an admin: everyone's) and notify settings
+        code, answer = needs.get(collector, headers)
+        return code, safe_json(answer), JSON_TYPE, 'no-store', None
     if path == welcome.API:   # the viewer's own summary: per user, never in the shared /api/state
         code, answer = welcome.get(collector, headers)
         return code, safe_json(answer), JSON_TYPE, 'no-store', None

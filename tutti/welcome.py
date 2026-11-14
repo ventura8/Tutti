@@ -145,6 +145,8 @@ def task_facts(cfg, tasks, since):
         elif t['status'] == 'needs-person':
             why = t.get('parked') or 'it stopped making progress'
             failed.append({**base, 'at': at, 'text': f'{t["title"][:120]}: parked, {why}'})
+            if t.get('question'):   # its question is listed from the needs-input queue (question_needs)
+                continue
             needs.append({**base, 'kind': 'decision', 'title': f'Decide on task {t["id"]}: {t["title"][:80]}',
                           'step': f'Retry it, change its brief or drop it: tutti backlog retry {t["id"]} (or tutti backlog rm {t["id"]})',
                           'why': why, 'link': '/#autopilot'})
@@ -193,6 +195,20 @@ def setup_needs(cfg):
              'link': '/#setup'} for s in report.get('steps') or [] if isinstance(s, dict)]
 
 
+def question_needs(cfg):
+    """The open questions (tutti/needs.py), one line each with its default; answered in the Chat or the Me card."""
+    from . import needs as needs_mod
+    out = []
+    for q in needs_mod.load(cfg)['questions']:
+        if q['status'] != 'open':
+            continue
+        out.append({'scope': 'admin' if q['user'] == needs_mod.OWNER else f'user:{q["user"]}', 'kind': 'decision',
+                    'project': q.get('project') or '', 'at': q['at'], 'title': f'{q["id"]}: {q["question"]}',
+                    'why': q.get('why') or '', 'link': '/#chat',
+                    'step': f'In the Chat: "{q["id"]} {q["default"]}" (default {q["default"]}; options {", ".join(q["options"])})'})
+    return out
+
+
 def tune_needs(cfg):
     from . import aiassist
     return [{'scope': 'admin', 'kind': 'decision', 'project': 'Tutti',
@@ -212,7 +228,7 @@ def actionable(item):
 def facts(cfg, since, accounts=None, tasks=None):
     tasks = backlog.load(cfg)['tasks'] if tasks is None else tasks
     shipped, running, failed, needs = task_facts(cfg, tasks, since)
-    needs += reading_needs(accounts) + setup_needs(cfg) + tune_needs(cfg)
+    needs += question_needs(cfg) + reading_needs(accounts) + setup_needs(cfg) + tune_needs(cfg)
     return {'shipped': release_facts(cfg, since) + shipped, 'running': running, 'failed': failed, 'usage': usage_facts(accounts),
             'needs': [n for n in needs if actionable(n)]}
 

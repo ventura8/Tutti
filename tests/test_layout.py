@@ -33,7 +33,8 @@ class Order(unittest.TestCase):
         _, page, _, _ = dashboard.route(dashboard.Collector(config.normalise({}), reader=object()), '/', 'tok')
         page = page.decode()
         usage = page[page.index('id="usage-h"'):page.index('id="attention-h"')]
-        at = [usage.index(x) for x in ('id="usage" ', 'id="local-h" ', 'id="local-models" ', 'id="owner" ')]   # whole ids: id="usage" is not id="usage-h"
+        # whole ids: id="usage" is not id="usage-h"
+        at = [usage.index(x) for x in ('id="usage" ', 'id="local-h" ', 'id="local-models" ', 'id="owner" ')]
         self.assertEqual(at, sorted(at))
         # Settings follows the same order: accounts, then energy, then the main agent
         names = [s[0] for s in settings_schema.SECTIONS]

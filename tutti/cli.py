@@ -845,9 +845,15 @@ def cmd_dashboard(cfg, a):
     from . import install  # a release install updates itself daily and restarts in place (docs/INSTALL.md, *Updates*)
     install.start_daily(cfg, collector.stop, remote.ROOT, lambda: os.execv(sys.executable, [sys.executable, *sys.argv]))
     say(f'dashboard: http://{dashboard.BIND}:{httpd.server_address[1]}/ (this computer only; Ctrl+C stops it)')
-    from . import coordinator  # the household coordinator's computer serves the household from its dashboard too
-    if coordinator.start_in_background(cfg):
-        say(f'household coordinator: on port {cfg["household"]["port"]} of this computer\'s network address')
+    from . import coordinator, netpolicy  # the household coordinator's computer serves the household from its dashboard too
+    try:
+        hh = coordinator.start_in_background(cfg)
+    except netpolicy.PublicAddress as e:
+        hh = None
+        say(f'household coordinator refused to start: {e}')
+    if hh:
+        say(f'household coordinator: on {", ".join(h.server_address[0] for h in hh)}, port {hh[0].server_address[1]} '
+            '(LAN and VPN only)')
     try:
         httpd.serve_forever()
     finally:
@@ -1326,7 +1332,8 @@ def parser():
     s.add_argument('arg', nargs='*', help='join: the code; project: share or unshare and the repo; machine: the action and the machine')
     s.add_argument('--user', help='machine use: your login on that machine (default: this login\'s name)')
     s.add_argument('--name', help='init: the household\'s name; join: your name in it (default: `tutti user`\'s)')
-    s.add_argument('--host', help='init: the address members reach this computer at (default: its LAN address); machine share: '
+    s.add_argument('--host', help='init: the address members reach this computer at (default: its LAN address); join with an '
+                                  'invite: the coordinator\'s host[:port] (default: the invite\'s host, household.port); machine share: '
                                   'the address members reach the machine at (default: its host, or this computer\'s LAN address)')
     s.add_argument('--port', type=int, help='init, serve: the port (default: household.port, 4778)')
     s.add_argument('--json', action='store_true', help='status: as JSON')

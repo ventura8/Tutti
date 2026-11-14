@@ -651,3 +651,8 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
     .appbar { backdrop-filter: none; background: var(--surface); }
     body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 }
+/* The Me / Household view (household.js): the household card and others' use of shared machines only in Household. */
+.seg { display: inline-flex; gap: 2px; border: 0; margin: 0; padding: 0; min-inline-size: 0; }
+.seg [aria-pressed="true"] { font-weight: 600; text-decoration: underline; text-underline-offset: 4px; }
+body:not([data-view="household"]) #household-card,
+body:not([data-view="household"]) .household-only { display: none; }

@@ -5,7 +5,7 @@ import json
 import sys
 import time
 
-from . import config, coordinator, household, sharing, telemetry, users
+from . import config, coordinator, guided, household, netpolicy, sharing, telemetry, users
 
 ACTIONS = ('status', 'init', 'join', 'leave', 'code', 'serve', 'project', 'machine')
 MACHINE_ACTIONS = ('share', 'unshare', 'use', 'pause', 'resume')
@@ -115,9 +115,83 @@ def init(cfg, a, out, io):
     return 0
 
 
-def join(cfg, a, out, io, join_fn):
+MAIN_KEY = 'main.agent'
+JOIN_EVENT = 'household.join'
+PREFERRED = ('claude', 'codex', 'cursor', 'agy', 'copilot', 'gemini', 'local')   # the default when several are installed
+
+
+def detect_main(cfg, which=None):
+    """(kind, guided choice): the main agent, never asked (docs/INSTALL.md, *The rule*): the config's when its program is
+    installed, else the installed one (the first by PREFERRED when several), else claude. The choice says why, and
+    `tutti user main-agent <kind>` changes it."""
+    import shutil
+    which = which or shutil.which
+    installed = [k for k in PREFERRED if any(which(n) for n in users.MAIN_KINDS[k][0])]
+    current = telemetry.tool_of((cfg.get('main') or {}).get('agent') or '')
+    current = {'antigravity': 'agy'}.get(current, current)
+    if current in installed:
+        return current, guided.choice(MAIN_KEY, current, 'the main agent in your config, installed here')
+    if installed:
+        why = 'the only agent installed here' if len(installed) == 1 else f'installed here (also: {", ".join(installed[1:])})'
+        return installed[0], guided.choice(MAIN_KEY, installed[0], why + '; `tutti user main-agent <kind>` changes it')
+    return 'claude', guided.choice(MAIN_KEY, 'claude', 'no agent is installed yet; `tutti setup` finds the one you install')
+
+
+def subscriptions(cfg):
+    """The kinds of the accounts in this config (the readings and names stay here): what the household view shows."""
+    return sorted({telemetry.tool_of(n) for n in cfg['accounts']} - {'other', 'none'})
+
+
+def join_invite(cfg, a, out, invite_fn):
+    """`tutti household join <invite-url>`: one command, under a minute, nothing asked (docs/INSTALL.md, *The rule*):
+    detect the main agent and subscriptions, default the rest, pair with the Google identity of the invite's sign-in, and
+    list once at the end what only the person can do."""
+    started = time.time()
+    kind, picked = detect_main(cfg)
+    steps = []
+    try:
+        answer = invite_fn(cfg, a.arg[0], kind, subscriptions(cfg), override=a.host, say=say)
+    except coordinator.Unreachable as e:
+        say(f'{e}: the household is served by the dashboard that made the invite; check it runs and this computer is on '
+            'the same network (or the household VPN), then run the same command again')
+        return 1
+    except household.HouseholdError as e:
+        if 'sign in with Google' not in str(e):
+            raise
+        steps.append(guided.step('sign-in', 'Sign in with Google on the invite page', a.arg[0],
+                                 'your household identity is your Google account; then run the same command again'))
+        print(guided.render(steps), file=out)
+        return 1
+    if not (cfg.get('user') or {}).get('name') and not users.name_error(answer['name']):
+        users.write(config.state_dir(cfg), name=answer['name'])
+    note = ''
+    if users.worker_for(cfg, kind) and telemetry.tool_of(cfg['main'].get('agent') or '') != kind:
+        note = users.set_main_agent(cfg, kind)[1]
+    elif not users.worker_for(cfg, kind):
+        steps.append(guided.step('other', f'Sign in to {kind} once', 'tutti setup',
+                                 f'no account of {kind} is in your config yet: `tutti setup` adds it and opens its sign-in'))
+    telemetry.record('feature', JOIN_EVENT, user=users.id_hash(answer['sub']), outcome='ok', how='invite')
+    print(f'Joined "{answer["household"]}" as {answer["name"]} ({answer.get("email") or "your Google account"}) in '
+          f'{time.time() - started:.0f} s. Main agent: {kind} ({picked["why"]})' + (f'; {note}' if note else '') +
+          f'; subscriptions: {", ".join(subscriptions(cfg)) or "none yet"}.', file=out)
+    print(guided.render(steps), file=out)
+    return 0
+
+
+def invite_lines(invite):
+    """The one install line per platform a household invite page shows a new member (docs/INSTALL.md): install, set up
+    with no questions, and join, in one paste."""
+    from . import install
+    return {p: install.install_line(p, join=invite) for p in ('linux', 'darwin', 'win32')}
+
+
+def join(cfg, a, out, io, join_fn, invite_fn=None):
+    if a.arg and '/invite#' in a.arg[0]:
+        return join_invite(cfg, a, out, invite_fn or coordinator.join_invite)
     if not a.arg:
-        say('household join: give the code from the coordinator, e.g. `tutti household join tutti-hh:mini.lan:4778:XXXX-...`')
+        say('household join: give the invite link from the dashboard\'s Users card (Invite someone), e.g. '
+            '`tutti household join "https://<dashboard>/invite#..."`, quoted: a shell drops # and what follows (an older '
+            'tutti-hh:... code works too)')
         return 2
     me = users.identity(cfg)
     name = a.name or ask('Your name in the household', me['name'], io)
@@ -125,11 +199,11 @@ def join(cfg, a, out, io, join_fn):
     try:
         answer = join_fn(cfg, a.arg[0], name, agent)
     except coordinator.Unreachable as e:
-        telemetry.record('feature', 'household.join', user=me['hash'], outcome='offline')
+        telemetry.record('feature', JOIN_EVENT, user=me['hash'], outcome='offline')
         say(f'{e}: check that the coordinator\'s computer is on, on this network, and its dashboard (or `tutti household serve`) '
             'runs; then try again')
         return 1
-    telemetry.record('feature', 'household.join', user=me['hash'], outcome='ok')
+    telemetry.record('feature', JOIN_EVENT, user=me['hash'], outcome='ok')
     print(f'Joined the household "{answer["household"]}" as {answer["name"]}. Nothing is shared yet: `tutti household project '
           'share <repo>` shares a project\'s backlog, and the shared machines come with the next release.', file=out)
     return 0
@@ -230,11 +304,16 @@ def serve(cfg, a, out):
         return 2
     m = users.read_household()
     port = a.port or int(m['coordinator'].rsplit(':', 1)[1])
-    httpd = coordinator.server(cfg, port)
+    all_ = coordinator.servers(cfg, port)
+    httpd = all_[0]
+    import threading
+    for extra in all_[1:]:
+        threading.Thread(target=extra.serve_forever, daemon=True).start()
     if a.port:   # members and this login reach it at the new port from now on; new join codes name it
         users.write_household({**m, 'coordinator': f'127.0.0.1:{port}'})
         coordinator.set_port(cfg, port)
-    print(f'household coordinator: on port {httpd.server_address[1]} (Ctrl+C stops it)', file=out)
+    print(f'household coordinator: on {", ".join(h.server_address[0] for h in all_)}, port {httpd.server_address[1]} (LAN and '
+          'VPN only; Ctrl+C stops it)', file=out)
     try:
         httpd.serve_forever()
     finally:
@@ -285,3 +364,6 @@ def cmd_household(cfg, a, out=sys.stdout, io=None, client_fn=coordinator.client_
     except coordinator.Unreachable as e:
         say(f'{e}: start the dashboard (or `tutti household serve`) on this computer, then try again')
         return 1
+    except netpolicy.PublicAddress as e:
+        say(f'refused: {e}')
+        return 2

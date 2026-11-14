@@ -41,7 +41,7 @@ starts with "Open", and the dated notes under the table), `TODO(owner):` and `FI
 person meant it), and the lines the repo's `gaps` command prints (`<path>: <what is missing>`, e.g. a coverage or lint report).
 
 A task whose title starts with `scout:` or `research:` is a research question for a scout (docs/SCOUTS.md, *The week's
-plan*): the autopilot never sends it to a worker (`research:` joined in 0.1.58: retitle a worker's task that starts with it).
+plan*): the autopilot never sends it to a worker (`research:` joined in 0.1.59: retitle a worker's task that starts with it).
 
 ## A round
 

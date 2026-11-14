@@ -82,5 +82,14 @@ class ConfigTest(unittest.TestCase):
         self.assertNotIn('tutti.config.yaml in', msg)
 
 
+class LeadHoursWarningTest(unittest.TestCase):
+    def test_lead_hours_other_than_one_gets_the_fix(self):
+        from tutti import cli
+        cfg = {'_path': '/c.yaml', 'accounts': {'a': {'lead_hours': 3}, 'b': {'lead_hours': 1}, 'c': {}}}
+        lines = cli.lead_hours_warnings(cfg)
+        self.assertEqual(len(lines), 1)
+        self.assertIn('set lead_hours: 1 for "a" in /c.yaml', lines[0])
+
+
 if __name__ == '__main__':
     unittest.main()

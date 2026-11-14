@@ -31,8 +31,21 @@ def worker_of(cfg, name, kind):
     return w
 
 
+def lead_hours_warnings(cfg):
+    """One line per account whose lead_hours is not the default 1 (the old example said 3), with the exact fix."""
+    out = []
+    for name, acc in cfg['accounts'].items():
+        lead = (acc or {}).get('lead_hours', 1)
+        if lead != 1:
+            out.append(f'account "{name}" has lead_hours: {lead} (the old example\'s value; the default is 1 hour before the reset): '
+                       f'set lead_hours: 1 for "{name}" in {cfg["_path"]}, or remove the key')
+    return out
+
+
 def cmd_config(cfg, a):
     print(f'{cfg["_path"]}: ok ({len(cfg["machines"])} machines, {len(cfg["workers"])} workers, {len(cfg["accounts"])} accounts)')
+    for line in lead_hours_warnings(cfg):
+        say(f'warning: {line}')
     return 0
 
 

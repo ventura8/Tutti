@@ -51,9 +51,12 @@ def argv(machine, script, ssh_opts=()):
             # Windows rebuilds the command line for bash.exe (WSL or Git Bash) and mangles double quotes inside it:
             # `cut -d" "` arrived as `cut -d\"`, so the local probe printed garbage and `here` showed "unreachable".
             # The line travels base64-encoded instead, as it does for a WSL machine behind ssh: no quotes to mangle.
-            # It is decoded to a temporary file, not piped into bash, so the command keeps the caller's standard input.
+            # It is sourced from a process substitution, not piped into bash, so the command keeps the caller's standard
+            # input. No quotes, `&&`, `$( )` or braces either: the 0.1.1 form (mktemp && ... > $f && { bash $f; ... })
+            # reached bash as "syntax error near unexpected token `&&'" and every local run failed again (QA round 2,
+            # Windows 11, 2026-11-14). `source <(...)` was the one form tested that kept stdin, the exit code and quotes.
             packed = base64.b64encode(script.encode()).decode()
-            return ['bash', '-c', f'f=$(mktemp) && echo {packed} | base64 -d > $f && {{ bash $f; r=$?; rm -f $f; exit $r; }}']
+            return ['bash', '-c', f'source <(echo {packed} | base64 -d)']
         return ['bash', '-c', script]
     if t == 'ssh':
         return [*SSH, *ssh_opts, machine['host'], script]

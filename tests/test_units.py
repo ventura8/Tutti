@@ -114,10 +114,16 @@ class RemoteTest(unittest.TestCase):
         with mock.patch.object(remote.os, 'name', 'nt'):
             args = remote.argv(self.cfg['machines']['l'], script)
         self.assertEqual(args[:2], ['bash', '-c'])
-        self.assertNotIn('"', args[2])
+        for mangled in ('"', '&&', '$(', '{'):   # what Windows' bash.exe broke on (rounds 1 and 2)
+            self.assertNotIn(mangled, args[2])
         packed = args[2].split('echo ')[1].split()[0]
         self.assertEqual(base64.b64decode(packed).decode(), script)
-        self.assertNotIn('| bash', args[2])  # the script goes to a file: the command keeps the caller's stdin
+        self.assertNotIn('| bash', args[2])  # sourced, not piped: the command keeps the caller's stdin
+
+    @unittest.skipUnless(os.name == 'nt', 'what Windows bash.exe does to the line')
+    def test_local_line_keeps_stdin_quotes_and_exit_code_on_windows(self):
+        r = remote.sh({'transport': 'local'}, 'read x; echo "got:$x" | cut -d":" -f2; exit 7', capture=True, stdin='hello\n')
+        self.assertEqual((r.returncode, r.stdout.strip()), (7, 'hello'))
 
     def test_docker_runner_is_capped_and_quotes_the_command(self):
         line = remote.runner_command(self.cfg['machines']['a'], 'trk', "echo 'hi' && exit 3")

@@ -117,3 +117,4 @@ Lessons that drove it: LESSONS.md (Gemini CLI free tier closed → agy; agy head
 - Templates/recipes: reusable task recipes (add a feature + tests + docs; fix a CI gate; translate with QA).
 - Secrets safety: never send secrets to agents; redact in logs; detect leaks before push.
 - Offline/local-first mode: everything runs with local models when the network or quotas are gone.
+- Remote access, automatic (owner, 2026-11-14): continue any chat and task from a phone, tablet or another PC with zero setup — pair a device once by scanning a QR code (or signing in), then it reaches the home service securely from anywhere (end-to-end encrypted relay or a mesh VPN such as Tailscale set up by Tutti, no port forwarding), with live sync of chats, queues, tasks and approvals, push notifications, and offline drafts that send when back online. Like Claude Code's Remote Control and the IDEs' remote sessions, but for every agent and machine in Tutti.

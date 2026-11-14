@@ -37,6 +37,7 @@ NOTIFY = ('work-hours', 'always')
 BATCH_MINUTES = 30
 PARK_OPTIONS = ['retry', 'retry-from-scratch', 'drop']
 MARK = 'TUTTI-QUESTION:'
+SECURITY_RX = re.compile(r'\b(security|vulnerab\w*|leak(ed)?|secret|credential|exploit|CVE-\d+)', re.I)
 _lock = threading.RLock()
 
 
@@ -128,6 +129,7 @@ def ask(cfg, task, question, why, options, default, user=OWNER, urgent=False, no
     per task: asking again replaces its text."""
     now = now or time.time()
     options = [str(o)[:60] for o in options if str(o).strip()][:6] or ['yes', 'no']
+    urgent = bool(urgent) or bool(SECURITY_RX.search(f'{question} {why}'))   # a security issue never waits
     default = default if default in options else options[0]
     with locked(cfg) as data:
         q = next((x for x in data['questions'] if x['task'] == task['id'] and x['status'] == 'open'), None)
@@ -136,7 +138,10 @@ def ask(cfg, task, question, why, options, default, user=OWNER, urgent=False, no
             data['questions'].append(q)
         q.update(user=user, question=str(question)[:300], why=str(why)[:300], options=options, default=default,
                  urgent=bool(urgent), title=task['title'][:120], project=task.get('project') or task.get('repo'))
-        data['questions'] = data['questions'][-500:]
+        answered = [x for x in data['questions'] if x['status'] != 'open']
+        if len(answered) > 300:   # only answered ones go: an open question stays until its answer
+            old = {x['id'] for x in answered[:-300]}
+            data['questions'] = [x for x in data['questions'] if x['id'] not in old]
     task['status'], task['question'] = 'needs-person', q['id']
     task['parked'] = task.get('parked') or q['question']
     telemetry.record('feature', 'needs.ask', urgent=bool(urgent))
@@ -180,11 +185,14 @@ def answer(cfg, qid, choice, role='admin', key=OWNER, now=None):
         q.update(status='answered', answer=choice, answered=now, by=key)
     with backlog.locked(cfg) as bl:
         t = next((x for x in bl['tasks'] if x['id'] == q['task']), None)
-        if t is not None:
+        waiting = t is not None and t['status'] == 'needs-person' and t.get('question') == q['id']
+        if waiting:
             resume(t, q, choice if choice in q['options'] else 'retry', now)
             if choice not in q['options']:
                 t['notes'] = [*t.get('notes', []), f'The person\'s answer: {choice}'][-20:]
     telemetry.record('feature', 'needs.answer', defaulted=choice == q['default'])
+    if not waiting:   # retried by hand, dropped, done or gone meanwhile: the answer is kept, the task left as it is
+        return True, f'{qid} answered: {choice}; task {q["task"]} no longer waited for it, so nothing changed'
     return True, f'{qid} answered: {choice}; task {q["task"]} ' + ('dropped' if choice == 'drop' else 'resumes')
 
 
@@ -302,20 +310,41 @@ def tick(cfg, now=None, at_work_fn=None, send=None):
         for key in users:
             pending = [q for q in data['questions'] if q['user'] == key and q['status'] == 'open' and not q.get('delivered')]
             s = user_settings(data, key)
+            if blocking_all(cfg):   # nothing else can run: every waiting question is urgent
+                pending = [{**q, 'urgent': True} for q in pending]
             ok, why = due(s, pending, at_work_fn(cfg, key, now), (data['users'].get(key) or {}).get('last_delivered'), now)
             if ok:
-                for q in pending:
-                    q['delivered'] = now
+                ids = {q['id'] for q in pending}
+                for q in data['questions']:
+                    if q['id'] in ids:
+                        q['delivered'] = now
+                prev = (data['users'].get(key) or {}).get('last_delivered')
                 data['users'].setdefault(key, {})['last_delivered'] = now
-                plan.append((key, [dict(q) for q in pending], why))
-    for key, qs, why in plan:   # the chat's own lock: outside needs.json's
+                plan.append((key, pending, why, prev))
+    for key, qs, why, prev in plan:   # the chat's own lock: outside needs.json's
         try:
             send(cfg, key, qs)
-        except (OSError, ValueError) as e:
-            events.append(f'needs: {len(qs)} question(s) for {key} not written to the Chat ({e}); the main agent still sees them')
+        except Exception as e:  # any failure: the batch is offered again next round, never lost
+            undeliver(cfg, key, {q['id'] for q in qs}, prev)
+            events.append(f'needs: {len(qs)} question(s) for {key} not delivered ({type(e).__name__}: {e}); tried again next round')
+            continue
         events.append(f'needs: {len(qs)} question(s) delivered to {key} ({why})')
         telemetry.record('feature', 'needs.deliver', count=len(qs))
     return events
+
+
+def undeliver(cfg, key, ids, prev):
+    with locked(cfg) as data:
+        for q in data['questions']:
+            if q['id'] in ids:
+                q['delivered'] = None
+        data['users'].setdefault(key, {})['last_delivered'] = prev
+
+
+def blocking_all(cfg):
+    """True when no task can run: every open task waits for a person."""
+    tasks = [t for t in backlog.load(cfg)['tasks'] if t['status'] in ('queued', 'running', 'needs-person')]
+    return bool(tasks) and all(t['status'] == 'needs-person' for t in tasks)
 
 
 ANSWER_RX = re.compile(r'^\s*(q\d+)\s*[:,-]?\s*(.*?)\s*$', re.I)
@@ -371,7 +400,9 @@ def post(collector, headers, raw):
         return (200, {'ok': True, 'note': why}) if ok else (409, {'error': why})
     target = str(body.get('user') or key)
     signed = getattr(collector, 'who', None)
-    actor = signed(headers) if callable(signed) and getattr(collector, 'signed', False) else None
+    # sign-in off: the dashboard serves its owner, who is audited as the admin acting
+    actor = signed(headers) if callable(signed) and getattr(collector, 'signed', False) else \
+        {'sub': OWNER, 'email': '', 'role': 'admin'}
     if target != key and role != 'admin':
         return 403, {'error': 'only an admin changes another member\'s notifications; yours are under Me'}
     ok, out = set_user(collector.cfg, target, {k: body[k] for k in USER_DEFAULTS if k in body}, actor)

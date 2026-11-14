@@ -66,6 +66,27 @@ class Park(Base):
         self.assertEqual(autopilot.park_reason(cfg, t), ('', ''))   # counted afresh: it gets its tries again
         self.assertFalse(needs.answer(cfg, 'q1', 'drop')[0])   # answered once
 
+    def test_a_late_answer_leaves_a_task_that_no_longer_waits(self):
+        cfg = self.cfg()
+        t = task()
+        self.add(cfg, t)
+        with backlog.locked(cfg) as data:
+            needs.ask(cfg, backlog.find(data, 't1'), **needs.park_question(t, 'stuck'), now=T0)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0]['status'] = 'done'
+        ok, why = needs.answer(cfg, 'q1', 'drop')
+        self.assertTrue(ok)
+        self.assertIn('nothing changed', why)
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'done')
+
+    def test_a_security_question_is_urgent(self):
+        cfg = self.cfg()
+        t = task()
+        self.add(cfg, t)
+        with backlog.locked(cfg) as data:
+            q = needs.ask(cfg, backlog.find(data, 't1'), 'Rotate the leaked token?', 'a secret is in the log', ['yes', 'no'], 'yes')
+        self.assertTrue(q['urgent'])
+
     def test_drop_and_free_words(self):
         cfg = self.cfg()
         for tid in ('t1', 't2'):
@@ -101,6 +122,24 @@ class Resilience(Base):
             why = autopilot.stuck(cfg, t, T0 + 11 * 60, killed.append)
         self.assertIn('no new output for 11 min', why)
         self.assertEqual(killed, [4242])
+
+    def test_collect_counts_a_stuck_run_as_a_flaky_attempt_and_queues_it(self):
+        cfg = self.cfg(stuck_minutes=10)
+        self.add(cfg, task(status='running', run='1700000000-1', step='a', started=T0))
+        log = os.path.join(self.tmp.name, 'run.log')
+        with open(log, 'w', encoding='utf8') as f:
+            f.write('working\n')
+        os.utime(log, (T0, T0))
+        with mock.patch.object(autopilot, 'run_log', return_value=log), \
+                mock.patch.object(autopilot, 'finished', return_value=(False, None)), \
+                mock.patch.object(autopilot, 'check_tails', return_value={}):
+            with backlog.locked(cfg) as data:
+                self.assertEqual(autopilot.collect(cfg, data, T0 + 5 * 60, lambda p: True, kill=lambda p: None), [])   # growing
+            with backlog.locked(cfg) as data:
+                events = autopilot.collect(cfg, data, T0 + 11 * 60, lambda p: True, kill=lambda p: None)
+        t = backlog.load(cfg)['tasks'][0]
+        self.assertEqual((t['status'], t['attempts'][-1]['class'], t['attempts'][-1]['signature']), ('queued', 'flaky', 'stuck:a'))
+        self.assertIn('queued again', events[0])
 
     def test_failures_in_a_row_wait_longer_and_the_first_climbs_at_once(self):
         self.assertEqual(autopilot.backoff(task(attempts=[failed()])), 0)
@@ -148,6 +187,29 @@ class Delivery(Base):
         convs = chat.Store(config.state_dir(cfg)).load('local')['conversations']
         self.assertEqual([c['title'] for c in convs], ['Questions from Tutti'])
         self.assertIn('q1', convs[0]['messages'][0]['text'])
+
+    def test_a_failed_send_offers_the_batch_again(self):
+        cfg = self.cfg()
+        t = task()
+        self.add(cfg, t)
+        with backlog.locked(cfg) as data:
+            needs.ask(cfg, backlog.find(data, 't1'), **needs.park_question(t, 'stuck'), now=T0)
+
+        def broken(cfg, key, qs):
+            raise RuntimeError('disk full')
+        events = needs.tick(cfg, T0, at_work_fn=lambda c, k, n: True, send=broken)
+        self.assertIn('not delivered (RuntimeError: disk full)', events[0])
+        self.assertEqual(len(events), 1)
+        self.assertEqual(needs.tick(cfg, T0 + 60, at_work_fn=lambda c, k, n: True), ['needs: 1 question(s) delivered to owner (at work)'])
+
+    def test_when_every_task_waits_for_a_person_the_questions_go_out_off_work(self):
+        cfg = self.cfg()
+        needs.set_user(cfg, needs.OWNER, {'notify': 'always', 'batch': 3, 'quiet': ''})
+        t = task()
+        self.add(cfg, t)
+        with backlog.locked(cfg) as data:
+            needs.ask(cfg, backlog.find(data, 't1'), **needs.park_question(t, 'stuck'), now=T0)
+        self.assertEqual(needs.tick(cfg, T0, at_work_fn=lambda c, k, n: False), ['needs: 1 question(s) delivered to owner (urgent)'])
 
     def test_off_work_they_appear_in_the_welcome_back_summary_with_their_default(self):
         cfg = self.cfg()

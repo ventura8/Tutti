@@ -21,8 +21,12 @@ work goes on.
 
 - **The autopilot parks a task** (no progress on the strongest step, or too many attempts): *Retry it, start it from
   scratch, or drop it?* Default: retry. The answer queues it again with its tries counted afresh, or drops it.
-- **A worker asks**: a line in its output,
-  `TUTTI-QUESTION: <question> || why: <why> || options: a | b || default: a || urgent: yes`, parks only that task.
+- **A worker asks**: a line in its own output,
+  `TUTTI-QUESTION: <question> || why: <why> || options: a | b || default: a || urgent: yes`, parks only that task (a
+  line the brief itself carries is ignored). A run that passes is published for review anyway, with its question as a
+  note for the reviewer.
+
+An answer to a task that no longer waits for it (retried by hand, dropped, done) is kept and changes nothing.
 
 Answer in the Chat (`q3 retry`, or `q3` for the default), on the **My questions** card, with `tutti needs answer q3 retry`,
 or through your main agent (`pending_questions`, `answer_question`). Free words are passed to the worker as a note.
@@ -35,12 +39,13 @@ or through your main agent (`pending_questions`, `answer_question`). Free words 
 - **Off work, away or on vacation**: they build up and appear in your welcome-back summary under *Needs you*, one line
   each with its default (docs/WELCOME.md).
 - **Get questions outside work hours** (off by default; for people who run their own business): they still reach you,
-  once `batch` of them wait (default 3), or at once when one is urgent (blocking all work, or a security issue), and
-  never in your quiet hours (default 23:00-07:00).
+  once `batch` of them wait (default 3), or at once when one is urgent, and never in your quiet hours (default
+  23:00-07:00). Urgent: the worker flagged it (`urgent: yes`), it is about security (a leak, a secret, a vulnerability),
+  or it blocks all work (every open task waits for a person).
 
 Change yours on the **My questions** card or with `tutti user notify always|work-hours [--batch N] [--quiet HH:MM-HH:MM]`.
 An admin changes a member's from the Users tab (*Questions outside work hours*), or a signed-in user's with
-`--for <email>`; the audit log records each change.
+`--for <email>`; the audit log records each change (without sign-in, as the dashboard's owner).
 
 ## Who sees what
 

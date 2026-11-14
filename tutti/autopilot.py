@@ -727,6 +727,17 @@ def stuck(cfg, t, now, kill=None):
     return f'stuck: no new output for {quiet_for / 60:.0f} min (autopilot.stuck_minutes): ended and queued again'
 
 
+def worker_question(cfg, t, a):
+    """The worker's own TUTTI-QUESTION in its output, or None: a marker line that the brief itself carries (an echoed note
+    or doc) is never taken for one."""
+    from . import needs
+    text = (a.get('tail') or '') if a['ok'] else (a.get('tail') or tail_of(run_log(cfg, t['run'])))
+    asked = needs.from_output(text)
+    if asked and asked['question'] in brief(t, settings(cfg)['repos'].get(t['repo']) or {}):
+        return None
+    return asked
+
+
 def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
     """Every running task whose run ended: an attempt recorded; a pass published for review, a failure queued again (from the
     same worktree, one step up) or parked. Returns event lines."""
@@ -745,13 +756,15 @@ def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
         t.pop('resume_note', None)
         t['attempts'].append(a)
         record_attempt(cfg, t, a, now)
+        from . import needs
+        asked = worker_question(cfg, t, a)
         if a['ok']:
+            if asked:   # a pass wins; its question goes to the reviewer with the result
+                t['notes'] = [*t.get('notes', []), f'The worker asked: {asked["question"]} (it chose: {asked["default"] or "?"})'][-20:]
             t['status'] = 'review'
             publish_fn(cfg, t, report)
             events.append(f'{t["id"]} passed on {a["step"]}: {t.get("publish_note", "")}')
             continue
-        from . import needs
-        asked = needs.from_output(a.get('tail') or tail_of(run_log(cfg, t['run'])))
         if asked:   # the worker needs a person's decision: parked with its question, the rest goes on
             q = needs.ask(cfg, t, **asked, user=t.get('user') or needs.OWNER, now=now)
             events.append(f'{t["id"]} needs an answer ({q["id"]}): {q["question"][:120]}')

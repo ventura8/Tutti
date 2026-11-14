@@ -67,12 +67,13 @@ def notify(cfg, a, out):
             say(f'user notify: no signed-in user {a.for_user}: `tutti auth users` lists them')
             return 2
         key = found[0]
-        auth.audit(config.state_dir(cfg), {'sub': 'cli', 'email': 'tutti user notify'}, 'notify', {'sub': key, 'email': a.for_user},
-                   detail=', '.join(f'{k}={v}' for k, v in changes.items()))
     ok, res = needs.set_user(cfg, key, changes)
     if not ok:
         say(f'user notify: {res}')
         return 2
+    if a.for_user:   # audited once the change is made (the owner at this computer's terminal)
+        auth.audit(config.state_dir(cfg), {'sub': needs.OWNER, 'email': 'tutti user notify'}, 'notify',
+                   {'sub': key, 'email': a.for_user}, detail=', '.join(f'{k}={v}' for k, v in changes.items()))
     print(f'questions: {res["notify"]} (outside work hours once {res["batch"]} wait, urgent at once; quiet {res["quiet"] or "none"})'
           if res['notify'] == 'always' else 'questions: in work hours; the rest wait for your welcome-back summary', file=out)
     return 0

@@ -55,7 +55,7 @@ otherwise keep the address a report came from.
 
 - **Sentry** (the envelope API over HTTPS; no SDK): a crash or a failed command (exit code other than 0, 124, 125 and
   130) is one event; usage events go in batches of 100 as the breadcrumbs of one `info` event (`tutti usage: N
-  event(s)`). The queue (`<state>/telemetry/outbox.jsonl`, at most 2000 lines) is sent at most every 10 minutes, at the
+  event(s)`). A 401, 403 or 404 (a wrong or revoked DSN) keeps the queue and says so in `tutti telemetry status`. The queue (`<state>/telemetry/outbox.jsonl`, at most 2000 lines) is sent at most every 10 minutes, at the
   end of a command or by the dashboard; a crash is sent at once. Offline, throttled (429) or a server error: the queue is
   kept for the next try. A report Sentry refuses (another 4xx) is dropped.
 - **Your own endpoint** (`telemetry.endpoint`, https; http only on 127.0.0.1): `POST {install_id, release, id, items}`
@@ -90,18 +90,22 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
    the local analysis every `self_improve.every_hours` (6): a crash, a command that fails more often than not
    (`min_count`, 3, failures or more), repeated stalls, quota wasted on failed runs.
 2. **Tasks.** Each becomes a backlog task (`source: sentry` or `insight`, tagged with the project) with an acceptance check
-   and a note: *first add a regression test that reproduces it and fails, then fix it*. One task per Sentry issue or
+   and a note: *first add a regression test that reproduces it and fails, then fix it*. The acceptance check is always
+   the repository's configured one: a command suggested in a scout's answer (which read attacker-influenced Sentry
+   events) is passed to the worker as a hint and never run. One task per Sentry issue or
    insight; at most `max_new_per_day` (3) new ones a day. Local insights go to `self_improve.home`, the project Tutti's
    own fixes belong to.
 3. **Fix.** The autopilot works on them like any task: retries up its ladder, parked after the no-progress guard.
 4. **Pull request.** A passed task becomes a ready pull request, to `self_improve.base` for a project that may not merge
    (a work branch; never `main` or `master`: such a project with no base stops at a committed branch).
 5. **Reviews.** `tutti pr review <n>` runs once per pull request (Copilot, CodeRabbit, or a cheap worker's review).
-6. **Merge** (only a project with `merge: true`): when every check is green (CI, Sonar), no review asks for changes, no
-   review thread is open, the reviews had their time, and it does not conflict. Never with `--admin`. Changes requested
-   send the task back to the autopilot.
+6. **Merge** (only a project with `merge: true`): when every check is green and at least one passed (CI, Sonar), the
+   review run ended well, no review asks for changes or is still required, no review thread is open, and GitHub found it
+   mergeable. Never with `--admin`, and only at the head commit the gates saw (`--match-head-commit`). Changes requested
+   send the task back to the autopilot, and its next push is reviewed again.
 7. **Release** (only with `release: true` and a `release_command`): a batched patch release when fixes were merged and
-   the last release is `release_every_hours` (24) ago. Tutti's own is `scripts/release-patch.sh`: it bumps the patch,
+   the last release (or failed try) is `release_every_hours` (24) ago. A release counts only once its command exits 0; a
+   failed one leaves its fixes for the next. Tutti's own is `scripts/release-patch.sh`: it bumps the patch,
    writes the CHANGELOG from the merged commits, opens and merges the release pull request after its checks, tags it and
    creates the GitHub release.
 

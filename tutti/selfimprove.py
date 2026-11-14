@@ -109,11 +109,9 @@ def pr_plan(cfg, task, repo):
 
 
 def checks_green(checks):
-    """Every check finished and passed (or was skipped/neutral); at least one ran."""
-    if not checks:
-        return False
-    ok = ('SUCCESS', 'NEUTRAL', 'SKIPPED')
-    return all((c.get('conclusion') or c.get('state') or '').upper() in ok for c in checks)
+    """Every check finished and passed (or was skipped/neutral), and at least one passed."""
+    states = [(c.get('conclusion') or c.get('state') or '').upper() for c in checks or []]
+    return 'SUCCESS' in states and all(s in ('SUCCESS', 'NEUTRAL', 'SKIPPED') for s in states)
 
 
 def may_merge(pol, pr, reviewed):
@@ -126,10 +124,12 @@ def may_merge(pol, pr, reviewed):
         return False, 'waiting for the AI reviews (tutti pr review)'
     if pr.get('reviewDecision') == 'CHANGES_REQUESTED':
         return False, 'a reviewer asked for changes: the fix goes back to the autopilot'
+    if pr.get('reviewDecision') == 'REVIEW_REQUIRED':
+        return False, 'the base branch requires an approving review'
     if pr.get('open_threads'):
         return False, f'{pr["open_threads"]} review thread(s) still open'
-    if pr.get('mergeable') == 'CONFLICTING':
-        return False, 'it conflicts with its base'
+    if pr.get('mergeable') != 'MERGEABLE':
+        return False, 'GitHub has not found it mergeable (a conflict, or not computed yet)'
     if not checks_green(pr.get('statusCheckRollup') or []):
         return False, 'checks (CI, Sonar) are not all green yet'
     return True, ''
@@ -233,7 +233,7 @@ THREADS_Q = ('query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){
 
 def pr_state(repo, number, run=subprocess.run):
     pr = gh_json(['pr', 'view', str(number), '--repo', repo, '--json',
-                  'state,isDraft,reviewDecision,mergeable,statusCheckRollup,baseRefName'], run)
+                  'state,isDraft,reviewDecision,mergeable,statusCheckRollup,baseRefName,headRefOid'], run)
     if pr is None:
         return None
     owner, name = repo.split('/', 1)
@@ -251,12 +251,31 @@ def pr_number(url):
     return int(tail) if tail.isdigit() else None
 
 
+def review_files(cfg, repo, number):
+    base = os.path.join(config.state_dir(cfg), f'self-improve-review-{repo.replace("/", "-")}-{number}')
+    return base + '.log', base + '.rc'
+
+
 def request_review(cfg, repo, number, spawn=subprocess.Popen):
-    """`tutti pr review <n>` in the background: asks the AI reviewers and falls back to a cheap worker's review."""
-    log = os.path.join(config.state_dir(cfg), f'self-improve-review-{number}.log')
+    """`tutti pr review <n>` in the background: asks the AI reviewers and falls back to a cheap worker's review; its exit
+    code lands in the .rc file once it has finished."""
+    log, rc = review_files(cfg, repo, number)
+    if os.path.exists(rc):
+        os.remove(rc)
+    argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'pr', 'review', str(number), '--repo', repo]
+    script = 'rc=0; "$@" || rc=$?; echo $rc > "$RC_FILE"'
     with open(log, 'a', encoding='utf8') as f:
-        spawn([sys.executable, remote.BIN, '--config', cfg['_path'], 'pr', 'review', str(number), '--repo', repo],
-              stdout=f, stderr=f, stdin=subprocess.DEVNULL, start_new_session=True)
+        spawn(['sh', '-c', script, 'review', *argv], stdout=f, stderr=f, stdin=subprocess.DEVNULL, start_new_session=True,
+              env={**os.environ, 'RC_FILE': rc})
+
+
+def review_finished(cfg, repo, number):
+    """True once `tutti pr review` ended well (its .rc file says 0)."""
+    try:
+        with open(review_files(cfg, repo, number)[1], encoding='utf8') as f:
+            return f.read().strip() == '0'
+    except OSError:
+        return False
 
 
 def advance(cfg, t, st, now, run=subprocess.run, spawn=subprocess.Popen):
@@ -274,17 +293,19 @@ def advance(cfg, t, st, now, run=subprocess.run, spawn=subprocess.Popen):
     pr = pr_state(pol['repo'], number, run)
     if pr is None:
         return None
-    reviewed = now - reviews[key] > 60 * float(cfg['review'].get('timeout_minutes') or 20)
-    ok, why = may_merge(pol, pr, reviewed)
+    ok, why = may_merge(pol, pr, review_finished(cfg, pol['repo'], number))
     t['self_improve'] = why or 'merging'
     if pr.get('state') == 'MERGED':
         t['status'] = 'done'
         return None
-    if not ok:
+    if not ok or not pr.get('headRefOid'):
         if pr.get('reviewDecision') == 'CHANGES_REQUESTED' and t['status'] == 'review':
             t['status'], t['notes'] = 'queued', [*t.get('notes', []), f'Changes requested on {key}: read the review and fix them.']
+            reviews.pop(key, None)   # the fix pushed onto this pull request is reviewed again before any merge
         return None
-    done = run(['gh', 'pr', 'merge', str(number), '--repo', pol['repo'], '--squash', '--delete-branch'], capture_output=True, text=True)
+    # --match-head-commit: a commit pushed after the gates were read is never merged with them
+    done = run(['gh', 'pr', 'merge', str(number), '--repo', pol['repo'], '--squash', '--delete-branch', '--match-head-commit',
+                str(pr.get('headRefOid') or '')], capture_output=True, text=True)
     if done.returncode != 0:
         t['self_improve'] = f'merge refused: {(done.stderr or done.stdout).strip()[:160]}'
         return None
@@ -294,22 +315,61 @@ def advance(cfg, t, st, now, run=subprocess.run, spawn=subprocess.Popen):
     return f'{t["id"]}: merged {key}'
 
 
+def release_files(cfg, name):
+    base = os.path.join(config.state_dir(cfg), f'self-improve-release-{name.replace(" ", "-")}')
+    return base + '.log', base + '.rc'
+
+
+def release_ended(cfg, st, name):
+    """A started release that has finished: counted as released only when its command exited 0. Returns an event or None."""
+    going = (st.get('releasing') or {}).get(name)
+    if not going:
+        return None
+    try:
+        with open(release_files(cfg, name)[1], encoding='utf8') as f:
+            rc = f.read().strip()
+    except OSError:
+        return None   # still running
+    del st['releasing'][name]
+    if rc == '0':
+        st.setdefault('released', {})[name] = going['at']
+        return f'self-improvement: release of {name} done'
+    st.setdefault('release_failed', {})[name] = going['at']
+    log = release_files(cfg, name)[0]
+    return f'self-improvement: the release of {name} failed (exit {rc}): read {log}; its fixes wait for the next one'
+
+
+def start_release(cfg, pol, name, now, spawn):
+    path = ((cfg.get('autopilot') or {}).get('repos') or {}).get(pol['autopilot_repo'], {}).get('path')
+    log, rc = release_files(cfg, name)
+    if os.path.exists(rc):
+        os.remove(rc)
+    with open(log, 'a', encoding='utf8') as f:
+        spawn(['sh', '-c', 'rc=0; bash -c "$1" || rc=$?; echo $rc > "$RC_FILE"', 'release', pol['release_command']],
+              cwd=config.expand(path) if path else None, stdout=f, stderr=f, stdin=subprocess.DEVNULL, start_new_session=True,
+              env={**os.environ, 'RC_FILE': rc})
+    return log
+
+
 def release(cfg, st, now, spawn=subprocess.Popen):
-    """A batched patch release of every project allowed to release, when its fixes wait and its interval has passed."""
+    """A batched patch release of every project allowed to release, when its fixes wait and its interval has passed. A
+    release counts only once its command exited 0; a failed one leaves its fixes for the next (and spaces the retry)."""
     events = []
     for name in projects(cfg):
+        ended = release_ended(cfg, st, name)
+        if ended:
+            events.append(ended)
+        if name in (st.get('releasing') or {}):
+            continue
         pol = policy(cfg, name)
         last = (st.get('released') or {}).get(name)
         waiting = [m for m in st.get('merged') or [] if m['project'] == name and m['at'] > float(last or 0)]
-        ok, _why = may_release(pol, last, len(waiting), now)
+        tried = max(float(last or 0), float((st.get('release_failed') or {}).get(name) or 0))
+        ok, _why = may_release(pol, tried, len(waiting), now)
         if not ok:
             continue
-        path = ((cfg.get('autopilot') or {}).get('repos') or {}).get(pol['autopilot_repo'], {}).get('path')
-        log = os.path.join(config.state_dir(cfg), f'self-improve-release-{name.replace(" ", "-")}.log')
-        with open(log, 'a', encoding='utf8') as f:
-            spawn(['bash', '-c', pol['release_command']], cwd=config.expand(path) if path else None, stdout=f, stderr=f,
-                  stdin=subprocess.DEVNULL, start_new_session=True)
-        st.setdefault('released', {})[name] = now
+        log = start_release(cfg, pol, name, now, spawn)
+        st.setdefault('releasing', {})[name] = {'at': now}
         telemetry.record('feature', 'selfimprove.release', fixes=len(waiting))
         events.append(f'self-improvement: release of {name} started with {len(waiting)} fix(es); log {log}')
     return events
@@ -328,7 +388,8 @@ def tick(cfg, now=None, run=subprocess.run, spawn=subprocess.Popen):
             if line:
                 events.append(line)
     events += release(cfg, st, now, spawn)
-    write_state(cfg, {**read_state(cfg), **{k: st[k] for k in ('reviews', 'merged', 'released') if k in st}})
+    kept = ('reviews', 'merged', 'released', 'releasing', 'release_failed')
+    write_state(cfg, {**read_state(cfg), **{k: st[k] for k in kept if k in st}})
     return events
 
 

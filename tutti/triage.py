@@ -8,6 +8,7 @@ The answer ends with one line per suggested fix, `TUTTI-TASK: <title> || check: 
 `self_improve.tasks: true` and names its `self_improve.autopilot_repo`; any other project (one Tutti may only read) gets the
 issue alone. A task is never merged by this path: docs/SCOUTS.md, docs/TELEMETRY.md."""
 import re
+import time
 
 from . import backlog, scouts
 
@@ -104,9 +105,10 @@ def policy(cfg, project):
     return selfimprove.policy(cfg, project)
 
 
-def feed(cfg, r, enabled):
+def feed(cfg, r, enabled, now=None):
     """Turns an answered Sentry watch into backlog tasks when its project opts in. Returns (added, why)."""
     project = r.get('project')
+    now = now or time.time()
     items = parse(r.get('answer'))
     pol = policy(cfg, project) if project else None
     if not items:
@@ -114,27 +116,34 @@ def feed(cfg, r, enabled):
     if not pol or not pol['tasks'] or pol['autopilot_repo'] not in (cfg.get('autopilot') or {}).get('repos', {}):
         return 0, f'{project or "this project"} takes issues only (self_improve.tasks is off or no autopilot repo)'
     added = 0
+    from . import selfimprove
     with backlog.locked(cfg) as data:
+        room = selfimprove.room_today(data['tasks'], now, selfimprove.settings(cfg)['max_new_per_day'])
         for it in items:
+            if added >= room:
+                break
             if it['sentry'] and any(t.get('sentry') == it['sentry'] and t['status'] not in ('done', 'dropped') for t in data['tasks']):
                 continue   # one task per Sentry issue
             notes = [f'From the Sentry triage of {project} ({r.get("url") or r["id"]}), severity {it["severity"]}.',
                      'First add a regression test that reproduces the issue and fails; then fix it so the test passes.']
-            t = backlog.new_task(pol['autopilot_repo'], it['title'], check=it['check'], source='sentry', notes=notes)
+            if it['check']:   # a hint for the worker only: a command from the scout's answer is never run (prompt injection)
+                notes.append(f'The triage suggested this check (not run by Tutti; write your own test): {it["check"][:200]}')
+            # the acceptance check is the repo's configured one: never a command taken from the triage text
+            t = backlog.new_task(pol['autopilot_repo'], it['title'], check='', source='sentry', notes=notes)
             t.update(project=project, sentry=it['sentry'], severity=it['severity'], status='queued' if enabled else 'candidate',
-                     pr_mode='ready')
+                     pr_mode='ready', added=now)
             _t, was_new = backlog.add(data, t)
             added += int(was_new)
     return added, 'ok'
 
 
-def feed_answered(cfg, data, enabled):
+def feed_answered(cfg, data, enabled, now=None):
     """Every answered Sentry watch not fed yet. Returns event lines."""
     events = []
     for r in data['requests']:
         if r.get('kind') != 'watch' or not str(r.get('watch') or '').startswith(PREFIX) or r.get('status') != 'answered' or r.get('fed'):
             continue
-        added, why = feed(cfg, r, enabled)
+        added, why = feed(cfg, r, enabled, now)
         r['fed'] = {'added': added, 'why': why}
         events.append(f'{r["id"]} Sentry triage of {r.get("project")}: {added} task(s) for the backlog ({why})')
     return events

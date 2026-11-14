@@ -25,18 +25,24 @@ printf '%s\n' "$notes"
 wt=$(mktemp -d)
 trap 'git worktree remove --force "$wt" > /dev/null 2>&1 || true' EXIT
 branch="release/v$next"
+# a release branch left by a run that stopped half-way is replaced, so the next run never fails on it
+git branch -D "$branch" > /dev/null 2>&1 || true
+git push -q origin --delete "$branch" > /dev/null 2>&1 || true
 git worktree add -q -b "$branch" "$wt" origin/main
 cd "$wt"
-sed -i "s/^__version__ = .*/__version__ = '$next'/" tutti/__init__.py
-sed -i "0,/\"version\": \"[^\"]*\"/s//\"version\": \"$next\"/" package.json
 python3 - "$next" "$notes" <<'PY'
+import re
 import sys
 from datetime import date
 version, notes = sys.argv[1], sys.argv[2]
+for path, rx, repl in (('tutti/__init__.py', r"^__version__ = .*$", f"__version__ = '{version}'"),
+                       ('package.json', r'"version": "[^"]*"', f'"version": "{version}"')):
+    text = open(path, encoding='utf8').read()
+    open(path, 'w', encoding='utf8').write(re.sub(rx, repl, text, count=1, flags=re.M))
 path = 'CHANGELOG.md'
 text = open(path, encoding='utf8').read()
 head, sep, rest = text.partition('\n## ')
-entry = f'\n## {version} ({date.today().isoformat()})\n\n### Fixed\n\n{notes}\n'
+entry = f'\n## {version} ({date.today().isoformat()})\n\n### Changes\n\n{notes}\n'
 open(path, 'w', encoding='utf8').write(head.rstrip('\n') + '\n' + entry + (sep + rest if sep else ''))
 PY
 git commit -q -am "chore(release): $next"
@@ -44,7 +50,10 @@ git push -q -u origin "$branch"
 gh pr create --base main --head "$branch" --title "chore(release): $next" --body "Batched patch release by self-improvement.
 
 $notes"
-sleep 20   # GitHub needs a moment to register the checks of a new pull request
+for _ in $(seq 1 30); do   # a new pull request's checks take a moment to register
+	[[ -n "$(gh pr checks "$branch" --json name --jq '.[].name' 2> /dev/null)" ]] && break
+	sleep 10
+done
 gh pr checks "$branch" --watch --fail-fast
 gh pr merge "$branch" --squash --delete-branch
 git fetch -q origin main

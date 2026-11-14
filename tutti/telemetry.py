@@ -137,8 +137,22 @@ def set_consent(folder, on, by='cli'):
     return data
 
 
+_consent_cache = {}
+
+
 def sending(folder):
-    return bool(folder) and consent(folder)['send'] is True
+    """Whether sending is on; consent.json is read again only when it changed (record() asks on every event)."""
+    if not folder:
+        return False
+    try:
+        stamp = os.stat(os.path.join(folder, CONSENT)).st_mtime_ns
+    except OSError:
+        stamp = None
+    hit = _consent_cache.get(folder)
+    if hit is None or hit[0] != stamp or stamp is None:
+        hit = (stamp, consent(folder)['send'] is True)
+        _consent_cache[folder] = hit
+    return hit[1]
 
 
 # ---- the DSN
@@ -232,15 +246,21 @@ def queue(folder, item):
     cap(path)
 
 
-def cap(path, limit=OUTBOX_MAX):
+def cap(path, limit=OUTBOX_MAX, max_bytes=None):
+    """Keeps the newest `limit` lines. Cheap on every append: the file is read only once it is past `max_bytes` (an
+    estimate of `limit` lines), and rewritten through a temp file, so a reader never sees half of it."""
     try:
+        if os.path.getsize(path) <= (max_bytes if max_bytes is not None else limit * 400):
+            return
         with open(path, encoding='utf8') as f:
             lines = f.readlines()
     except OSError:
         return
     if len(lines) > limit:
-        with open(path, 'w', encoding='utf8') as f:
+        tmp = f'{path}.{os.getpid()}.cap'
+        with open(tmp, 'w', encoding='utf8') as f:
             f.writelines(lines[-limit:])
+        os.replace(tmp, path)
 
 
 def read_events(folder, since=None):
@@ -367,6 +387,18 @@ def give_back(folder, items):
         queue(folder, it)
 
 
+def send_items(folder, target, items, post_fn, status):
+    """(sent, left) of one send; a failure keeps every item and notes why in `status`."""
+    from . import sentry
+    try:
+        return sentry.send_all(target, items, consent(folder)['install_id'], post_fn)
+    except sentry.DsnError as e:   # Tutti's own words, nothing of the user's: kept as they are
+        status['last_error'] = str(e)
+    except Exception as e:   # one bad item or a broken network never loses the queue
+        status['last_error'] = scrub.text(f'{type(e).__name__}: {e}', hosts=_ctx['hosts'], limit=200)
+    return 0, items
+
+
 def flush(folder, cfg=None, env=None, post_fn=None, clock=time.time, force=False):
     """Sends the queue when sending is on, a target is set and it is due (or forced). Returns a short status dict."""
     from . import sentry
@@ -378,12 +410,12 @@ def flush(folder, cfg=None, env=None, post_fn=None, clock=time.time, force=False
     if not force and not due(folder, clock):
         return {'sent': 0, 'why': 'sent recently'}
     items, taken = take_outbox(folder)
+    if not items:   # nothing queued: no try recorded, so the next event is not held back by the interval
+        if taken:
+            os.remove(taken)
+        return {'sent': 0, 'left': 0, 'why': 'nothing queued'}
     status = {'last_try': clock()}
-    try:
-        sent, left = sentry.send_all(target, items, consent(folder)['install_id'], post_fn)
-    except Exception as e:   # one bad item or a broken network never loses the queue
-        sent, left = 0, items
-        status['last_error'] = scrub.text(f'{type(e).__name__}: {e}', hosts=_ctx['hosts'], limit=200)
+    sent, left = send_items(folder, target, items, post_fn, status)
     give_back(folder, left)
     if taken:
         os.remove(taken)

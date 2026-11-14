@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 from . import __version__
 
 BATCH = 100
+DROP = (400, 413, 422)   # the item itself was refused: dropped. Any other failure keeps the queue
 TIMEOUT = 5
 LOOPBACK = ('127.0.0.1', 'localhost', '::1')
 
@@ -124,9 +125,14 @@ def send_sentry(t, payloads, post_fn):
         code = post_fn(t['url'], envelope(ev, t['dsn']), headers)
         if 200 <= code < 300:
             sent += 1
-        elif code in (0, 429) or code >= 500:
-            return sent, left + [it for it, _ in payloads[i:]]   # offline or throttled: keep the rest for later
-        # any other 4xx: Sentry refused the item itself; retrying would be refused again, so it is dropped
+        elif code not in DROP:
+            # offline, throttled, a server error, or a wrong or revoked DSN (401, 403, 404): keep the rest for later
+            raise_keep = [it for it, _ in payloads[i:]]
+            if code in (401, 403, 404):
+                raise DsnError(f'Sentry answered {code}: the DSN is wrong or its key was revoked; run `tutti telemetry setup` '
+                               f'with the DSN from the project\'s Client Keys ({len(raise_keep)} item(s) kept)')
+            return sent, left + raise_keep
+        # 400, 413, 422: Sentry refused this item itself; sending it again would be refused again, so it is dropped
     return sent, left
 
 

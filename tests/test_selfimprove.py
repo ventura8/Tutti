@@ -17,7 +17,18 @@ GREEN = [{'conclusion': 'SUCCESS', 'name': 'ci'}, {'conclusion': 'SUCCESS', 'nam
 
 def pr(**kw):
     return {'state': 'OPEN', 'isDraft': False, 'reviewDecision': 'APPROVED', 'open_threads': 0, 'mergeable': 'MERGEABLE',
-            'statusCheckRollup': GREEN, **kw}
+            'statusCheckRollup': GREEN, 'headRefOid': 'abc123', **kw}
+
+
+def finished_review(rc='0'):
+    """A spawn that stands for `tutti pr review`: it writes its exit code where the wrapper would."""
+    def spawn(argv, **kw):
+        if 'RC_FILE' in (kw.get('env') or {}):   # a release starts without one
+            with open(kw['env']['RC_FILE'], 'w', encoding='utf8') as f:
+                f.write(rc + '\n')
+        spawn.calls.append(argv)
+    spawn.calls = []
+    return spawn
 
 
 class Base(unittest.TestCase):
@@ -78,10 +89,12 @@ class Gates(Base):
         self.assertEqual(selfimprove.may_merge(pol, pr(), True), (True, ''))
         cases = [({}, False, 'AI reviews'), ({'reviewDecision': 'CHANGES_REQUESTED'}, True, 'changes'),
                  ({'open_threads': 2}, True, 'thread'), ({'isDraft': True}, True, 'ready'),
-                 ({'mergeable': 'CONFLICTING'}, True, 'conflicts'),
+                 ({'mergeable': 'CONFLICTING'}, True, 'mergeable'),
+                 ({'mergeable': 'UNKNOWN'}, True, 'not computed'), ({'reviewDecision': 'REVIEW_REQUIRED'}, True, 'approving'),
                  ({'statusCheckRollup': [{'conclusion': 'FAILURE'}]}, True, 'green'),
                  ({'statusCheckRollup': [{'status': 'IN_PROGRESS', 'conclusion': ''}]}, True, 'green'),
-                 ({'statusCheckRollup': []}, True, 'green')]
+                 ({'statusCheckRollup': []}, True, 'green'),
+                 ({'statusCheckRollup': [{'conclusion': 'SKIPPED'}, {'conclusion': 'NEUTRAL'}]}, True, 'green')]
         for change, reviewed, word in cases:
             ok, why = selfimprove.may_merge(pol, pr(**change), reviewed)
             self.assertFalse(ok, change)
@@ -181,29 +194,54 @@ class Rounds(Base):
     def test_reviews_are_asked_once_then_a_green_pr_is_merged_and_released(self):
         cfg = self.cfg()
         self.add_review_task(cfg)
-        spawned = []
+        spawn = finished_review()
         gh = FakeGh(pr())
-        ev = selfimprove.tick(cfg, NOW, run=gh, spawn=lambda *a, **k: spawned.append(a[0]))
+        ev = selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
         self.assertIn('AI reviews asked', ev[0])
-        self.assertIn('review', spawned[0])
-        ev = selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=lambda *a, **k: spawned.append(a[0]))
+        self.assertIn('review', spawn.calls[0])
+        ev = selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
         self.assertTrue(any('merged octo/tutti#7' in e for e in ev))
         self.assertTrue(any('release of Tutti started' in e for e in ev))
         merge = [c for c in gh.calls if c[1:3] == ['pr', 'merge']][0]
         self.assertNotIn('--admin', merge)
+        self.assertEqual(merge[merge.index('--match-head-commit') + 1], 'abc123')
+        self.assertFalse(selfimprove.lane(cfg)['items'][0]['released'])   # started is not released
+        self.assertEqual(selfimprove.tick(cfg, NOW + 3700, run=gh, spawn=spawn), ['self-improvement: release of Tutti done'])
         lane = selfimprove.lane(cfg)
         self.assertEqual((lane['items'][0]['merged'], lane['items'][0]['released'], lane['items'][0]['status']), (True, True, 'done'))
-        self.assertEqual(selfimprove.tick(cfg, NOW + 7200, run=gh, spawn=lambda *a, **k: spawned.append(a[0])), [])   # spaced
+        self.assertEqual(selfimprove.tick(cfg, NOW + 7200, run=gh, spawn=spawn), [])   # spaced
+
+    def test_a_failed_release_keeps_its_fixes_for_the_next_one(self):
+        cfg = self.cfg()
+        st = {'merged': [{'project': 'Tutti', 'pr': 'octo/tutti#1', 'at': NOW, 'task': 't1'}]}
+        selfimprove.release(cfg, st, NOW + 10, finished_review('1'))
+        ev = selfimprove.release(cfg, st, NOW + 20, finished_review('1'))
+        self.assertIn('failed (exit 1)', ev[0])
+        self.assertNotIn('released', st)
+        self.assertEqual(selfimprove.release(cfg, st, NOW + 3600, finished_review()), [])   # the retry waits its interval
+        ev = selfimprove.release(cfg, st, NOW + 25 * 3600, finished_review())
+        self.assertIn('started with 1 fix', ev[0])
+
+    def test_a_review_that_did_not_finish_well_blocks_the_merge(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh = FakeGh(pr())
+        for when, spawn in ((NOW, finished_review('1')), (NOW + 3600, None)):
+            selfimprove.tick(cfg, when, run=gh, spawn=spawn or (lambda *a, **k: None))
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+        self.assertIn('AI reviews', backlog.load(cfg)['tasks'][0]['self_improve'])
 
     def test_changes_requested_send_the_task_back_and_nothing_merges(self):
         cfg = self.cfg()
         self.add_review_task(cfg)
         gh = FakeGh(pr(reviewDecision='CHANGES_REQUESTED'))
-        selfimprove.tick(cfg, NOW, run=gh, spawn=lambda *a, **k: None)
-        selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=lambda *a, **k: None)
+        spawn = finished_review()
+        selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
         t = backlog.load(cfg)['tasks'][0]
         self.assertEqual(t['status'], 'queued')
         self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+        self.assertEqual(selfimprove.read_state(cfg)['reviews'], {})   # the pushed fix is reviewed again
 
     def test_open_threads_or_a_project_without_authority_never_merge(self):
         cfg = self.cfg()
@@ -211,7 +249,7 @@ class Rounds(Base):
         self.add_review_task(cfg, 'tutti', 4)
         gh = FakeGh(pr(), threads=1)
         for t in (NOW, NOW + 3600):
-            selfimprove.tick(cfg, t, run=gh, spawn=lambda *a, **k: None)
+            selfimprove.tick(cfg, t, run=gh, spawn=finished_review())
         self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
         gates = {t['repo']: t['self_improve'] for t in backlog.load(cfg)['tasks']}
         self.assertIn('owner merges', gates['app'])
@@ -252,7 +290,16 @@ class Triage(Base):
         tasks = backlog.load(cfg)['tasks']
         self.assertEqual(len(tasks), 2)
         self.assertEqual({(t['source'], t['project'], t['status']) for t in tasks}, {('sentry', 'Tutti', 'queued')})
+        self.assertEqual({t['check'] for t in tasks}, {''})   # the repo's own check: a command from the answer is never run
+        self.assertIn('not run by Tutti', tasks[0]['notes'][-1])
         self.assertEqual(data['requests'][0]['fed']['added'], 2)
+
+    def test_triage_tasks_count_toward_the_daily_room(self):
+        cfg = self.cfg(max_new_per_day=1)
+        triage.feed_answered(cfg, {'requests': [self.request('Tutti')]}, True, NOW)
+        tasks = backlog.load(cfg)['tasks']
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]['added'], NOW)
 
     def test_a_read_only_project_gets_the_issue_only(self):
         cfg = self.cfg()

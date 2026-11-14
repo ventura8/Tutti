@@ -45,7 +45,9 @@ def category(value):
     if isinstance(value, float):
         return round(value, 3)
     s = str(value)
-    return s if CATEGORY_RX.fullmatch(s) and not any(rx.search(s) for rx in KEY_RXS) else OTHER
+    if not CATEGORY_RX.fullmatch(s) or any(rx.search(s) for rx in KEY_RXS):
+        return OTHER
+    return s if text(s, home='', quotes=False, limit=64) == s else OTHER   # an IP, a host name or a key is not a category
 
 
 def fields(data, limit=24):

@@ -277,20 +277,26 @@ def signature(report, tails):
     return hashlib.sha1(words.encode()).hexdigest()[:12], words
 
 
-def should_park(cfg, task):
-    """'' to retry, else why the task needs a person: the same failure `no_progress` times in a row on the strongest step, or
-    max_attempts reached."""
+def park_reason(cfg, task):
+    """('', '') to retry, else (the cause, `max_attempts` or `no_progress`, and why the task needs a person): the same failure
+    `no_progress` times in a row on the strongest step, or max_attempts reached."""
     s = settings(cfg)
     tries = task['attempts']
     if len(tries) >= s['max_attempts']:
-        return f'{len(tries)} attempts without a pass (autopilot.max_attempts is {s["max_attempts"]})'
+        return 'max_attempts', f'{len(tries)} attempts without a pass (autopilot.max_attempts is {s["max_attempts"]})'
     n = s['no_progress']
     last = tries[-n:]
     steps = ladder(cfg)
     if steps and len(last) == n and all(not a['ok'] and a['step'] == steps[-1] for a in last) \
             and len({a['signature'] for a in last}) == 1:
-        return f'no progress: the strongest step ({steps[-1]}) failed the same way {n} times in a row: {last[-1]["why"][:300]}'
-    return ''
+        return 'no_progress', (f'no progress: the strongest step ({steps[-1]}) failed the same way {n} times in a row: '
+                               f'{last[-1]["why"][:300]}')
+    return '', ''
+
+
+def should_park(cfg, task):
+    """'' to retry, else why the task needs a person (park_reason's words)."""
+    return park_reason(cfg, task)[1]
 
 
 def acceptance(task, repo):
@@ -509,11 +515,10 @@ def collect(cfg, data, now, is_alive, publish_fn=publish):
 
 def after_failure(cfg, t):
     """A failed task is parked or queued again (one step up the ladder: an escalation). Returns why it was parked, or ''."""
-    park = should_park(cfg, t)
+    cause, park = park_reason(cfg, t)
     t['status'], t['parked'] = ('needs-person', park) if park else ('queued', None)
     n = len(t['attempts'])
     if park:
-        cause = 'max_attempts' if 'max_attempts' in park else 'no_progress'
         telemetry.record('feature', 'autopilot.park', cause=cause, attempts=n, source=t.get('source'))
     elif step_index(cfg, n) > step_index(cfg, n - 1):
         telemetry.record('feature', 'autopilot.escalate', attempt=n + 1, source=t.get('source'))

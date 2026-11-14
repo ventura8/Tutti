@@ -123,7 +123,8 @@ class Scrubbing(Base):
         self.assertEqual(scrub.category('autopilot.attempt'), 'autopilot.attempt')
         self.assertEqual(scrub.category(3), 3)
         self.assertIsNone(scrub.category(None))
-        for bad in ('fix the login bug', 'owner@example.com', '/home/x/y', 'ghp_abcdefghijklmnopqrstuvwxyz0123', 'x' * 65, 'a;b'):
+        for bad in ('10.0.0.5', 'box.lan', 'api.example.com', 'fix the login bug',
+                    'owner@example.com', '/home/x/y', 'ghp_abcdefghijklmnopqrstuvwxyz0123', 'x' * 65, 'a;b'):
             self.assertEqual(scrub.category(bad), scrub.OTHER, bad)
 
     def test_fields_drop_bad_names_and_text_values(self):
@@ -171,7 +172,7 @@ class Recording(Base):
         telemetry.set_consent(self.folder, True)
         for _ in range(5):
             telemetry.record('command', 'b')
-        telemetry.cap(os.path.join(self.folder, telemetry.OUTBOX), limit=3)
+        telemetry.cap(os.path.join(self.folder, telemetry.OUTBOX), limit=3, max_bytes=0)
         self.assertEqual(telemetry.status(self.folder)['queued'], 3)
 
     def test_the_install_id_is_random_and_kept(self):
@@ -300,6 +301,13 @@ class Sending(Base):
         r = telemetry.flush(self.folder, cfg, env={}, force=True)
         self.assertEqual((r['sent'], r['left']), (0, 1))
         self.assertTrue(telemetry.status(self.folder)['last_error'])
+
+    def test_a_wrong_dsn_keeps_the_queue_and_says_so(self):
+        f = self.fake(401)
+        telemetry.record('command', 'run')
+        r = telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env={}, force=True)
+        self.assertEqual(r['left'], 1)
+        self.assertIn('telemetry setup', telemetry.status(self.folder)['last_error'])
 
     def test_throttled_keeps_and_refused_drops(self):
         f = self.fake(429)

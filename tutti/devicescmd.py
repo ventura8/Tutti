@@ -147,7 +147,7 @@ def cmd_claim(cfg, a):
     d = devices.of(cfg, a.names[0])
     claim = f'{prep.users_path(d)}/claim-{"".join(c if c.isalnum() or c in "-_." else "_" for c in a.who)}'
     if a.action == 'claim':
-        script = f'mkdir -p {prep.users_path(d)} && touch {claim} && echo "tutti: {d["name"]} claimed"'
+        script = prep.lease_script(d, claim, a.minutes, a.who)
     else:
         ext = devices.external_lock(d)
         stale = int(float(d.get('external_lock_stale_minutes', devices.EXTERNAL_STALE_MINUTES)) * 60)
@@ -158,6 +158,8 @@ def cmd_claim(cfg, a):
         say(f'{d["machine"]} did not answer ({e}): try again when it is on')
         return 1
     print((r.stdout or '').strip())
+    if a.action == 'claim' and r.returncode == 3:
+        return 3
     if a.action == 'release':
         dispatch.announce_free(cfg, dispatch.released(r.stdout))
     return 0 if r.returncode == 0 else 1
@@ -213,7 +215,47 @@ def cmd_hours(cfg, a):
     return 0
 
 
-ACTIONS = {'hours': cmd_hours, 'pair': cmd_pair, 'move': cmd_move, 'claim': cmd_claim, 'release': cmd_claim, 'install': cmd_install}
+def cmd_lease(cfg, a):
+    """`tutti devices lease <device> --who <session> -- <command>`: the device leased (claim), this computer's adb connected
+    to it over Wi-Fi (the same adb key the household's machines share), the command run here with ANDROID_SERIAL set to
+    that address, then adb disconnected and the lease released, however the command ends."""
+    import io
+    import os
+    import subprocess
+    from contextlib import redirect_stdout
+
+    from . import adbhost
+    command = [w for w in (a.names or [])[1:] if w != '--']
+    a.names = (a.names or [])[:1]
+    if not a.names or not command:
+        say('name the device and the command: tutti devices lease <device> --who <session> -- <command ...>')
+        return 2
+    a.who = a.who or 'lease'
+    out = io.StringIO()
+    with redirect_stdout(out):
+        a.action = 'claim'
+        rc = cmd_claim(cfg, a)
+    text = out.getvalue()
+    print(text.strip())
+    if rc != 0:
+        return rc
+    addr = next((x[5:] for x in text.split() if x.startswith('ADDR=')), 'unknown')
+    here = adbhost.Host('here', {'transport': 'local'})
+    try:
+        if addr != 'unknown':
+            here.adb('connect', addr, timeout=30)
+        serial = addr if addr != 'unknown' else str(cfg['devices'][a.names[0]]['serial'])
+        env = {**os.environ, 'ANDROID_SERIAL': serial}
+        return subprocess.run(command, env=env, check=False).returncode
+    finally:
+        if addr != 'unknown':
+            here.adb('disconnect', addr, timeout=30)
+        a.action = 'release'
+        cmd_claim(cfg, a)
+
+
+ACTIONS = {'lease': cmd_lease, 'hours': cmd_hours, 'pair': cmd_pair, 'move': cmd_move, 'claim': cmd_claim, 'release': cmd_claim,
+           'install': cmd_install}
 
 
 def add_arguments(s):
@@ -233,4 +275,5 @@ def add_arguments(s):
     s.add_argument('--adb', help='pair: the adb to use on the machine (default: found by itself)')
     s.add_argument('--wait', type=int, default=180, help='pair: seconds to wait for the device (180)')
     s.add_argument('--who', help='claim, release: the session or tool that uses the device')
+    s.add_argument('--minutes', type=int, default=120, help='claim, lease: how long the lease lasts at most (120)')
     s.add_argument('--days', help='hours: the days, e.g. mon-fri or sat,sun (default every day)')

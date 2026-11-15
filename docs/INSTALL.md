@@ -139,10 +139,10 @@ runs daily where the tool's package manager allows it (docs/WORKERS.md).
 
 | Channel | Install | Update |
 | --- | --- | --- |
-| uv | `uv tool install git+https://github.com/ventura8/Tutti` | `uv tool upgrade tutti-agents` |
-| pipx | `pipx install git+https://github.com/ventura8/Tutti` | `pipx upgrade tutti-agents` |
+| uv | `uv tool install git+https://github.com/ventura8/Tutti@v<version>` (a release tag) | the same with `--force` and the newer tag |
+| pipx | `pipx install git+https://github.com/ventura8/Tutti@v<version>` (a release tag) | the same with `--force` and the newer tag |
 | npm (not published yet) | `npm install -g tutti-agents` | `npm update -g tutti-agents` |
-| From source | `git clone https://github.com/ventura8/Tutti` and `install/install.sh` (or `install.ps1`) | `git pull` |
+| From source | `git clone https://github.com/ventura8/Tutti` and `install/install.sh` (or `install.ps1`): the newest release tag, hash-checked requirements | run the script again |
 
 Then run `tutti setup`. npm is a ready hook: `tutti/install.py` lists it under `CHANNELS` with `published: False`; the
 first publish flips it. `tutti self-update` updates only a release install and names the right command otherwise.
@@ -172,8 +172,13 @@ it; bootstrap installs, `tutti setup` fills the config and opens sign-ins, and `
 `scripts/release-assets.sh <version> <dir> [ref]` makes the release's files: `tutti-<version>.tar.gz` (a `git
 archive`), `bootstrap.sh`, `bootstrap.ps1` and `SHA256SUMS` over the three. `scripts/release-patch.sh` attaches them to
 every release; the release workflow builds them again, signs `SHA256SUMS` and adds `SHA256SUMS.sigstore.json` (above). A
-rebuild by hand is dispatched on the tag itself, `gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z`, or its
-signature names a branch and every install refuses it. When a bootstrap script changes, its SHA-256 in this file and in the README changes with it (a unit test
+rebuild by hand is dispatched on the tag itself, `gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z` (a dispatch on a
+branch stops at once: its signature would name the branch and every install would refuse it). A dispatch for a tag that has
+no release yet creates it (notes from CHANGELOG.md), attaches the signed files and publishes it.
+
+**Releases stuck.** Installs update only to published releases. Where Tutti runs from a git checkout of its own repository,
+`tutti doctor` and the dashboard's banner say "releases stuck: N merged version(s) unpublished" when CHANGELOG.md names
+versions newer than the latest GitHub release, with why (a refused tag, a tag without a release) and the fix. When a bootstrap script changes, its SHA-256 in this file and in the README changes with it (a unit test
 checks they match: `python3 -c "from tutti import install; print(install.install_line('linux'))"` prints the line).
 
 ## Uninstall

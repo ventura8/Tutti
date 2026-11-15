@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Tutti installer for Linux, WSL and macOS: curl -fsSL https://raw.githubusercontent.com/ventura8/Tutti/main/install/install.sh | bash
-# Installs (or updates) the latest Tutti from GitHub into $TUTTI_HOME (default ~/.local/share/tutti) with its own Python venv,
+# install.sh: Tutti from source for Linux, WSL and macOS, run from a clone you made (`git clone
+# https://github.com/ventura8/Tutti && bash Tutti/install/install.sh`). The usual install is the verified one-line install of
+# docs/INSTALL.md (a signed release); never pipe this file into a shell. It checks out the newest release tag (never a
+# moving branch) into $TUTTI_HOME (default ~/.local/share/tutti), installs the hash-checked requirements into its own venv
 # and puts a `tutti` command in ~/.local/bin. Re-run it to update. No sudo, no secrets.
 set -euo pipefail
 repo="${TUTTI_REPO:-https://github.com/ventura8/Tutti.git}"
@@ -9,15 +11,16 @@ bin="${TUTTI_BIN:-$HOME/.local/bin}"
 need() { command -v "$1" >/dev/null 2>&1 || { echo "tutti: $1 is missing; install it ($2) and run this again" >&2; exit 1; }; }
 need git "e.g. sudo apt install git, or brew install git"
 need python3 "e.g. sudo apt install python3 python3-venv, or brew install python"
-if [ -d "$home/.git" ]; then
-	git -C "$home" pull --ff-only --quiet
-else
+if [ ! -d "$home/.git" ]; then
 	mkdir -p "$(dirname "$home")"
-	git clone --quiet --depth 1 "$repo" "$home"
+	git clone --quiet "$repo" "$home"
 fi
+git -C "$home" fetch --quiet --tags origin
+tag=$(git -C "$home" tag -l 'v*' --sort=-v:refname | head -n 1)
+[ -n "$tag" ] || { echo "tutti: $repo has no release tag (v*): nothing installed" >&2; exit 1; }
+git -C "$home" -c advice.detachedHead=false checkout --quiet "$tag"
 python3 -m venv "$home/.venv"
-"$home/.venv/bin/pip" install --quiet --upgrade pip
-"$home/.venv/bin/pip" install --quiet -r "$home/requirements.txt"
+"$home/.venv/bin/pip" install --quiet --require-hashes -r "$home/requirements.txt"
 mkdir -p "$bin"
 printf '#!/usr/bin/env bash\nexec "%s/.venv/bin/python" "%s/bin/tutti" "$@"\n' "$home" "$home" > "$bin/tutti"
 chmod +x "$bin/tutti"

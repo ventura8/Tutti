@@ -36,8 +36,11 @@ LAUNCHD_LABEL = 'io.github.tutti.dashboard'
 # Distribution channels. npm is a ready hook: once `tutti-agents` is published (the owner's 2FA), flip `published`.
 CHANNELS = {
     'github': {'published': True, 'install': 'the bootstrap line (docs/INSTALL.md)', 'update': 'tutti self-update'},
-    'uv': {'published': True, 'install': f'uv tool install git+https://github.com/{REPO}', 'update': 'uv tool upgrade tutti-agents'},
-    'pipx': {'published': True, 'install': f'pipx install git+https://github.com/{REPO}', 'update': 'pipx upgrade tutti-agents'},
+    # a release tag, never the moving main branch (an update names the newer tag the same way)
+    'uv': {'published': True, 'install': f'uv tool install git+https://github.com/{REPO}@v{__version__}',
+           'update': 'uv tool install --force git+https://github.com/' + REPO + '@v<newer version>'},
+    'pipx': {'published': True, 'install': f'pipx install git+https://github.com/{REPO}@v{__version__}',
+             'update': 'pipx install --force git+https://github.com/' + REPO + '@v<newer version>'},
     'npm': {'published': False, 'install': 'npm install -g tutti-agents', 'update': 'npm update -g tutti-agents'},
 }
 
@@ -312,7 +315,9 @@ def requirements(home_dir, version_dir):
     py = os.path.join(home_dir, 'venv', 'Scripts' if os.name == 'nt' else 'bin', 'python')
     req = os.path.join(version_dir, 'requirements.txt')
     uv = shutil.which('uv') or shutil.which('uv', path=os.path.join(home_dir, 'bin'))
-    argv = [uv, 'pip', 'install', '--quiet', '--python', py, '-r', req] if uv else [py, '-m', 'pip', 'install', '--quiet', '-r', req]
+    # --require-hashes: every wheel is checked against the hash requirements.txt carries (docs/INSTALL.md)
+    argv = [uv, 'pip', 'install', '--quiet', '--require-hashes', '--python', py, '-r', req] if uv else \
+        [py, '-m', 'pip', 'install', '--quiet', '--require-hashes', '-r', req]
     return subprocess.run(argv, check=False, capture_output=True, text=True).returncode == 0
 
 

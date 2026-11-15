@@ -506,8 +506,9 @@ class Browser:
             self.waiting.pop(0)
             key = object()
             self.tabs[key] = ticket
-        target = None
+        target, slot = None, None
         try:
+            slot = self.host_slot()
             try:
                 cdp = self.connection()
                 target = cdp.call('Target.createTarget', {'url': url, 'background': True})['targetId']
@@ -521,10 +522,34 @@ class Browser:
             try:
                 self.close_tab(target)   # whatever the task did, its tab is closed
             finally:
+                if slot is not None:
+                    os.close(slot)   # closing the file releases its flock: another process's task may take the tab
                 with self.cond:
                     self.tabs.pop(key, None)
                     self.last = self.clock()
                     self.cond.notify_all()
+
+    def host_slot(self):
+        """One of max_tabs lock files in <state>/browser-tabs, held with flock while the task's tab is open: the limit holds for
+        every Tutti process on this machine (the dashboard, the CLI, a worker's broker), not only this one. None where flock is
+        missing (Windows) or there is no state folder (tests)."""
+        try:
+            import fcntl
+            from . import config
+            folder = os.path.join(config.state_dir(self.cfg), 'browser-tabs')
+        except (ImportError, KeyError, TypeError):
+            return None
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        n = max(1, int(self.s['max_tabs']))
+        while True:
+            for i in range(n):
+                fd = os.open(os.path.join(folder, f'slot-{i}.lock'), os.O_RDWR | os.O_CREAT | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return fd
+                except OSError:
+                    os.close(fd)
+            self.sleep(0.5)
 
     def close_tab(self, target):
         """Closes a task's tab; only a connection that cannot even do that is dropped (other tasks keep a working one)."""

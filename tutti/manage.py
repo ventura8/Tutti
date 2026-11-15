@@ -65,10 +65,11 @@ def act_post(collector, headers, body, client=None):
         ok, why = allowed(collector.cfg, who, is_self(collector.cfg, who, data.get('member')))
         if not ok:
             return 403, {'error': why}
-        if data.get('act') in ('remove', 'make-admin'):
+        if data.get('act') in ('remove', 'make-admin', 'weight'):
             if who is not None and who.get('role') != 'admin':
-                return 403, {'error': 'only an admin can remove a member or make one admin'}
-            client.call('/hh/act', {'action': data['act'], 'member': data.get('member')})
+                return 403, {'error': 'only an admin can remove a member, make one admin or change a member\'s share'}
+            client.call('/hh/act', {'action': data['act'], 'member': data.get('member'),
+                                    **({'value': (data.get('args') or {}).get('weight')} if data['act'] == 'weight' else {})})
             audit_here(collector.cfg, who, data)
             return 200, {'ok': True}
         aid = client.call('/hh/act', {'action': 'queue', 'member': data.get('member'), 'act': data.get('act'),

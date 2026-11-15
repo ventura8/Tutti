@@ -186,7 +186,7 @@ class Service:
         self.answering.key = None
         with self.lock:
             data = load(self.path)
-            if not data and path == JOIN and invite_join(body):
+            if not data and path == JOIN and invite_join(body) and self.invite_proved(headers, body):
                 data = founding(self.cfg, self.clock())   # the dashboard's admin invited someone: the household starts here
             if not data:
                 return 503, {'error': 'this computer is not a household coordinator: run `tutti household init` here'}
@@ -248,6 +248,18 @@ class Service:
         final = household.join(data, uid, users.id_hash(uid), ask['name'], str(ask.get('agent') or '')[:32], token, now)
         self.answering.key = code['secret']   # the answer is signed with the code: the joiner knows it is the coordinator's
         return 200, {'household': data['household'], 'nonce': server_nonce, 'name': final}
+
+    def invite_proved(self, headers, body):
+        """Whether a join names a live invite of this dashboard and is signed with its secret: checked before a household is
+        founded for it, so an unproved request never writes the coordinator's state (audit 2026-11, L12)."""
+        from . import invites
+        try:
+            ask = json.loads(body or b'{}')
+            secret = invites.Invites(config.state_dir(self.cfg), clock=self.clock).household_secret_for(str(ask.get('invite') or ''))
+        except (ValueError, AttributeError, invites.InviteError):
+            return False
+        return not household.check_signed(secret, 'POST', JOIN, headers.get('X-Tutti-Time'), headers.get('X-Tutti-Nonce'), body,
+                                          headers.get('X-Tutti-Sign'), self.clock(), {})
 
     def join_invite(self, data, headers, body, addr, now):
         """A join with the dashboard's invite (docs/AUTH.md): proved with the secret both sides derive from the invite; the
@@ -338,6 +350,9 @@ class Service:
         if action in ('remove', 'make-admin'):
             fn = household.remove_member if action == 'remove' else household.make_admin
             fn(data, uid, str(ask.get('member') or ''), now)
+            return {'ok': True}
+        if action == 'weight':
+            household.set_weight(data, uid, str(ask.get('member') or ''), ask.get('value'), now)
             return {'ok': True}
         if action == 'list':
             return {'acts': household.acts_view(data, uid), 'audit': household.audit_view(data, uid),

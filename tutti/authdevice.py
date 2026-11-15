@@ -25,6 +25,7 @@ CODE_URL = 'https://oauth2.googleapis.com/device/code'
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
 GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 SCOPE = 'openid email'   # non-sensitive scopes only: Google publishes such an app after brand verification
+STARTS_PER_MINUTE = 6    # sign-in codes asked of Google per minute: a LAN page cannot spend the client's quota
 MAX_FLOWS = 32            # flows waiting at once (a page that starts many cannot grow the server's memory)
 FLOW_COOKIE = 'tutti_flow_{port}'
 
@@ -91,6 +92,7 @@ class Flows:
     def __init__(self, cfg, post=google_post, clock=time.time):
         self.cfg, self.post, self.clock = cfg, post, clock
         self.waiting, self.lock = {}, threading.Lock()
+        self.started = []   # when codes were asked of Google: STARTS_PER_MINUTE at most (the route needs no session)
 
     def _prune(self, now):
         for k in [k for k, f in self.waiting.items() if f['expires'] <= now]:
@@ -107,6 +109,10 @@ class Flows:
             self._prune(now)
             if len(self.waiting) >= MAX_FLOWS:
                 raise DeviceError('too many sign-ins are waiting: try again in a few minutes')
+            self.started = [t for t in self.started if now - t < 60]
+            if len(self.started) >= STARTS_PER_MINUTE:
+                raise DeviceError('too many sign-in codes were asked for in the last minute: wait a minute, then try again')
+            self.started.append(now)
         status, answer = self.post(CODE_URL, {'client_id': cid, 'scope': SCOPE})
         if status != 200 or not answer.get('device_code'):
             raise DeviceError(f'Google did not start the sign-in ({answer.get("error") or status}): check the device client in '

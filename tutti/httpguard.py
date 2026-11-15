@@ -104,14 +104,113 @@ def socket_uid(client, server, proc='/proc'):
     return found
 
 
-def loopback_owner_ok(client, server, uid=None, proc='/proc', sleep=None):
-    """True only when the loopback client is a process of this user. Where the tables cannot be read at all (macOS,
-    Windows) it is True, as before; on Linux a connection that is not found (looked for twice) is refused."""
+def lsof_uid(client, server, run=None):
+    """macOS (and BSD): the uid of the process whose socket is the connection's client end, from `lsof -F pun`; UNKNOWN when
+    lsof answered without it, None without lsof."""
+    import subprocess
+    run = run or subprocess.run
+    port, sport = int(client[1]), int(server[1])
+    try:
+        out = run(['lsof', '-nP', f'-iTCP:{port}', '-sTCP:ESTABLISHED', '-F', 'pun'], capture_output=True, text=True,
+                  timeout=5).stdout or ''
+    except (OSError, subprocess.SubprocessError):
+        return None
+    uid = None
+    for line in out.splitlines():
+        if line[:1] == 'u':
+            uid = int(line[1:]) if line[1:].isdigit() else None
+        elif line[:1] == 'n' and uid is not None:
+            local, _, remote = line[1:].partition('->')
+            if local.rsplit(':', 1)[-1] == str(port) and remote.rsplit(':', 1)[-1] == str(sport):
+                return uid
+    return UNKNOWN
+
+
+def windows_peer(client, server, api=None):
+    """Windows: 'same' when the process that opened the connection runs as this login, 'other' when it runs as another (its
+    token cannot be read, or names another account), None when Windows' tables cannot be read. IPv4 loopback only."""
+    try:
+        api = api or _WinApi()
+        pid = api.pid_of(int(client[1]), int(server[1]))
+        if pid is None:
+            return 'other'   # the tables were read and nobody of ours holds that connection
+        if pid == os.getpid():
+            return 'same'
+        sid = api.sid_of(pid)
+        return 'same' if sid and sid == api.sid_of(os.getpid()) else 'other'
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+class _WinApi:
+    """GetExtendedTcpTable (the owning process of each IPv4 connection) and the process token's user SID, through ctypes."""
+
+    def __init__(self):
+        import ctypes
+        from ctypes import wintypes
+        self.c, self.w = ctypes, wintypes
+        self.iphlp, self.k32, self.adv = ctypes.WinDLL('iphlpapi'), ctypes.WinDLL('kernel32'), ctypes.WinDLL('advapi32')
+
+    def pid_of(self, client_port, server_port):
+        c, w = self.c, self.w
+        size = w.DWORD(0)
+        self.iphlp.GetExtendedTcpTable(None, c.byref(size), False, 2, 4, 0)   # AF_INET, TCP_TABLE_OWNER_PID_CONNECTIONS
+        buf = c.create_string_buffer(size.value)
+        if self.iphlp.GetExtendedTcpTable(buf, c.byref(size), False, 2, 4, 0) != 0:
+            raise OSError('GetExtendedTcpTable failed')
+        n = int.from_bytes(buf.raw[:4], 'little')
+        for i in range(n):
+            row = buf.raw[4 + i * 24:4 + (i + 1) * 24]   # state, local addr, local port, remote addr, remote port, pid
+            lport = int.from_bytes(row[8:10], 'big')
+            rport = int.from_bytes(row[16:18], 'big')
+            if lport == client_port and rport == server_port:
+                return int.from_bytes(row[20:24], 'little')
+        return None
+
+    def sid_of(self, pid):
+        c, w = self.c, self.w
+        h = self.k32.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return None
+        tok = w.HANDLE()
+        try:
+            if not self.adv.OpenProcessToken(h, 0x0008, c.byref(tok)):   # TOKEN_QUERY
+                return None
+            need = w.DWORD(0)
+            self.adv.GetTokenInformation(tok, 1, None, 0, c.byref(need))   # TokenUser
+            info = c.create_string_buffer(need.value)
+            if not self.adv.GetTokenInformation(tok, 1, info, need, c.byref(need)):
+                return None
+            psid = c.cast(info, c.POINTER(c.c_void_p))[0]
+            text = w.LPWSTR()
+            if not self.adv.ConvertSidToStringSidW(c.c_void_p(psid), c.byref(text)):
+                return None
+            sid = text.value
+            self.k32.LocalFree(text)
+            return sid
+        finally:
+            if tok:
+                self.k32.CloseHandle(tok)
+            self.k32.CloseHandle(h)
+
+
+def loopback_owner_ok(client, server, uid=None, proc='/proc', sleep=None, platform=None, run=None, winapi=None):
+    """True only when the loopback client is a process of this login. Linux reads /proc/net/tcp, macOS asks lsof, Windows
+    reads the TCP table and the process's token. A connection the tables were read for but do not show (looked for twice)
+    is refused; only where nothing can be read at all (no lsof, Windows' API failing) it is True, as before."""
+    import sys
+    platform = platform or sys.platform
+    if platform == 'win32':
+        return windows_peer(client, server, winapi) != 'other'
     uid = os.getuid() if uid is None and hasattr(os, 'getuid') else uid
     if uid is None:
-        return True   # Windows: no uids to compare
-    found = socket_uid(client, server, proc)
+        return True
+
+    def look():
+        found = socket_uid(client, server, proc)
+        return lsof_uid(client, server, run) if found is None and platform != 'linux' else found
+    found = look()
     if found == UNKNOWN:
         (sleep or __import__('time').sleep)(0.05)
-        found = socket_uid(client, server, proc)
+        found = look()
     return found is None or found == uid

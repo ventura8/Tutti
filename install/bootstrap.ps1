@@ -83,7 +83,7 @@ New-Item -ItemType Directory -Force -Path $target | Out-Null
 tar -xzf (Join-Path $Tmp $name) -C $target --strip-components 1
 Write-Host "tutti: installing Python and PyYAML into $TuttiHome\venv"
 & $uv venv --quiet --allow-existing --python 3.12 (Join-Path $TuttiHome 'venv')
-& $uv pip install --quiet --python (Join-Path $TuttiHome 'venv\Scripts\python.exe') -r (Join-Path $target 'requirements.txt')
+& $uv pip install --quiet --require-hashes --python (Join-Path $TuttiHome 'venv\Scripts\python.exe') -r (Join-Path $target 'requirements.txt')
 $current = Join-Path $TuttiHome 'current'
 if (Test-Path $current) { (Get-Item $current).Delete() }
 New-Item -ItemType Junction -Path $current -Target $target | Out-Null

@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install the pinned tools
-        run: python3 -m pip install -r requirements-dev.txt
+        run: python3 -m pip install --require-hashes -r requirements-dev.txt
       # shellcheck is preinstalled on the runner image. TODO: pin its version (a digest-pinned container) once the repo is public.
       - name: shellcheck, ruff, unit tests, smoke test
         run: bash scripts/check.sh

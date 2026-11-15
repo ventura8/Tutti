@@ -6,6 +6,24 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.10.1 (2026-11-15)
+
+### Security
+
+- Every remaining audit finding fixed (docs/SECURITY-AUDIT-2026-11.md, *Follow-up*): the source installers take the newest
+  release tag and hash-checked requirements (`requirements*.txt` now carry hashes, from `requirements*.in`); the uv and pipx
+  lines name a release tag; Android platform-tools are one version checked by SHA-256; at most 6 sign-in codes a minute
+  from the device flow; a member's own share is capped at 1 unless the admin sets it, with caps on projects and lease keys;
+  credentials on watched command lines are hidden from the dashboard; links from data are never `javascript:`; an invite
+  join is proved before a household is founded; the dashboard without sign-in serves only this login on macOS (lsof) and
+  Windows (the TCP table and the process token) too; the work browser's tab limit holds across processes.
+
+### Fixed
+
+- `release.yml`: a dispatch for a tag without a release creates the signed release; a dispatch on a branch stops with the
+  fix. v0.9.3 and v0.9.4 are published and signed.
+- `tutti doctor` and the dashboard warn "releases stuck: N merged version(s) unpublished" with why and the fix.
+
 ## 0.10.0 (2026-11-15)
 
 ### Added

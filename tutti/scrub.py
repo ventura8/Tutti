@@ -67,6 +67,18 @@ def homes(home=None):
     return [h for h in {home, os.path.realpath(home) if home else ''} if h and h != '/']
 
 
+SECRET_RULES = RULES[:7]   # keys, Bearer/Basic, name=value secrets, sk-/ghp_-style tokens, JWTs: nothing else changes
+
+
+def secrets_only(value):
+    """The text with only credentials replaced (paths, names and hosts kept): a process's command line on the dashboard,
+    which every signed-in viewer sees (audit 2026-11, L10)."""
+    s = str(value or '')
+    for rx, repl in SECRET_RULES:
+        s = rx.sub(repl, s)
+    return s
+
+
 def text(value, home=None, hosts=(), limit=400, quotes=True):
     """Free text with everything personal replaced. `hosts`: names known to be personal (this computer's, the machines')."""
     s = str(value or '')

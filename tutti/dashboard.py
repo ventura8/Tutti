@@ -40,6 +40,7 @@ from . import (
     handover,
     helper,
     householduse,
+    stuck,
     httpguard,
     keepon,
     local,
@@ -291,6 +292,7 @@ class Collector:
         out['telemetry'] = dashtelemetry.view(self.cfg)
         out['setup'] = setupcmd.read_report(self.cfg)
         out['work_browser'] = browsercmd.view(self.cfg)
+        out['releases_stuck'] = stuck.cached(config.ROOT)   # merged versions no release publishes: never silent
         from . import sharing  # the household (docs/HOUSEHOLD.md): its members, shared machines' use per member, fairness
         out['household'] = sharing.view(self.cfg, self.clock())
         sharing.busy_for(out['machines']['items'], out['household'])

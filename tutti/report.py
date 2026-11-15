@@ -8,6 +8,7 @@ secret, a path, a host name, an e-mail address, a prompt or code. The person see
 Delivery: a GitHub issue on Tutti's repository with the label `user-report` when gh is signed in; otherwise a prefilled
 "new issue" link that the person opens in the browser and sends themselves. When sending telemetry is on, the report also
 goes to Sentry as user feedback, linked to the last crash. Pure building here; the I/O (gh, the browser, Sentry) at the edge."""
+import functools
 import hashlib
 import json
 import os
@@ -18,7 +19,7 @@ import threading
 import time
 import urllib.parse
 
-from . import __version__, config, scrub, telemetry
+from . import __version__, config, github, scrub, telemetry
 
 REPO = 'ventura8/Tutti'
 LABEL = 'user-report'
@@ -167,15 +168,17 @@ def gather(cfg, what, expected, doctor_fn=None):
                   telemetry.personal_hosts(cfg))
 
 
-def gh_signed_in(run=subprocess.run):
+def gh_signed_in(run=None):
+    run = run or github.run
     try:
         return run(['gh', 'auth', 'status'], capture_output=True, text=True, timeout=20).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
 
-def create_issue(rep, run=subprocess.run):
-    """The new issue's URL, or '' when gh could not create it. The label is tried first, then the issue without it."""
+def create_issue(rep, run=None):
+    """The new issue's URL, or '' when GitHub could not create it. The label is tried first, then the issue without it."""
+    run = run or github.run
     base = ['gh', 'issue', 'create', '--repo', REPO, '--title', rep['title'], '--body-file', '-']
     for args in (base + ['--label', LABEL], base):
         try:
@@ -197,7 +200,7 @@ def to_sentry(cfg, rep, post_fn=None):
     return telemetry.flush(folder, cfg, post_fn=post_fn, force=True).get('sent', 0) > 0
 
 
-def send(cfg, rep, run=subprocess.run, post_fn=None, signed_in=None):
+def send(cfg, rep, run=None, post_fn=None, signed_in=None):
     """Delivers a previewed report: {'how': 'issue'|'link', 'url', 'sentry': bool}. 'link' means the person still has to
     open the URL and choose Submit new issue on GitHub."""
     sentry_ok = to_sentry(cfg, rep, post_fn)
@@ -233,7 +236,7 @@ def cmd(cfg, a, out=sys.stdout, io=None):
     if not a.yes and ask('Send this report to Tutti\'s maintainers? [y/N] ', io).lower() not in ('y', 'yes'):
         print('report: not sent', file=out)
         return 0
-    done = send(cfg, rep, run=io.get('run', subprocess.run), post_fn=io.get('post'))
+    done = send(cfg, rep, run=io.get('run', github.run), post_fn=io.get('post'))
     if done['how'] == 'issue':
         print(f'report: sent as {done["url"]}. Thank you.', file=out)
     else:
@@ -269,7 +272,7 @@ def take_send(clock=time.time):
         return True
 
 
-def api(collector, raw, run=subprocess.run, post_fn=None, clock=time.time):
+def api(collector, raw, run=None, post_fn=None, clock=time.time, sub=None):
     """(status, answer) for POST /api/report: {"what", "expected", "send": false} previews and answers its "preview" id;
     "send": true with that id delivers, at most SENDS_PER_HOUR an hour."""
     try:
@@ -290,4 +293,5 @@ def api(collector, raw, run=subprocess.run, post_fn=None, clock=time.time):
     if not take_send(clock):
         return 429, {'error': f'{SENDS_PER_HOUR} reports were sent from this dashboard in the last hour: try again in an hour, '
                               'or run tutti report in a terminal'}
-    return 200, send(collector.cfg, rep, run=run, post_fn=post_fn)
+    # the issue is filed under the person's own GitHub connection when they made one (docs/GITHUB.md)
+    return 200, send(collector.cfg, rep, run=run or functools.partial(github.run, sub=sub), post_fn=post_fn)

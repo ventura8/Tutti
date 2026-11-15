@@ -57,6 +57,14 @@ def latest_published(fetch=None):
     from . import install
     if os.environ.get('TUTTI_OFFLINE') and fetch is None:   # tests and scripts/check.sh: never the network
         return None
+    if fetch is None:
+        from . import github
+        try:   # the API first when GitHub is connected (ETag-cached); the public download otherwise
+            tags = [r['tag'] for r in github.latest_releases(github.client(github._current['cfg']), install.REPO, 1)]
+            if tags and str(tags[0]).startswith('v'):
+                return tags[0][1:]
+        except (github.GitHubError, KeyError, TypeError):
+            pass
     try:
         return install.newest(install.parse_sums((fetch or install.fetch)(f'{install.RELEASES}/latest/download/{install.SUMS}')))
     except (OSError, ValueError):

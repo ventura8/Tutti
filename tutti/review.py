@@ -9,7 +9,7 @@ import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 
-from . import pacing, routing, state, tz, workers
+from . import github, pacing, routing, state, tz, workers
 
 COPILOT_LOGINS = ('copilot-pull-request-reviewer[bot]', 'copilot-pull-request-reviewer', 'Copilot')
 # the names the REST API has taken; 'Copilot' first (PRs #9-#20 of the Tutti repository). The answer is checked: GitHub
@@ -36,9 +36,9 @@ def documents(text):
         out.append(doc)
 
 
-def gh(args, run=subprocess.run):
+def gh(args, run=None):
     """(exit code, stdout, stderr) of one `gh` call."""
-    r = run(['gh', *args], capture_output=True, text=True)
+    r = (run or github.run)(['gh', *args], capture_output=True, text=True)
     return r.returncode, r.stdout, r.stderr.strip()
 
 

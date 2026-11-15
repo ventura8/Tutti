@@ -20,7 +20,7 @@ import subprocess
 import sys
 import time
 
-from . import backlog, config, insights, remote, telemetry
+from . import backlog, config, github, insights, remote, telemetry
 
 FILE = 'self-improve.json'
 SOURCES = ('sentry', 'insight', 'report')
@@ -250,7 +250,7 @@ def report_candidates(issues):
     return out
 
 
-def user_reports(cfg, now, run=subprocess.run):
+def user_reports(cfg, now, run=github.run):
     """The home project's open `user-report` issues into tasks, every `every_hours`, like the Sentry triage's."""
     s, st = settings(cfg), read_state(cfg)
     pol = policy(cfg, s['home'])
@@ -265,8 +265,8 @@ def user_reports(cfg, now, run=subprocess.run):
 
 # ---- GitHub (I/O at the edge)
 
-def gh_json(args, run=subprocess.run):
-    p = run(['gh', *args], capture_output=True, text=True)
+def gh_json(args, run=None):
+    p = (run or github.run)(['gh', *args], capture_output=True, text=True)
     if p.returncode != 0:
         return None
     try:
@@ -279,7 +279,7 @@ THREADS_Q = ('query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){
              '{nodes{isResolved}}}}}')
 
 
-def pr_state(repo, number, run=subprocess.run):
+def pr_state(repo, number, run=github.run):
     pr = gh_json(['pr', 'view', str(number), '--repo', repo, '--json',
                   'state,isDraft,reviewDecision,mergeable,statusCheckRollup,baseRefName,headRefOid'], run)
     if pr is None:
@@ -342,7 +342,7 @@ def ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn):
     return f'{t["id"]}: AI reviews asked on {key}'
 
 
-def advance(cfg, t, st, now, run=subprocess.run, spawn=subprocess.Popen):
+def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
     """One self-improvement task in review with a pull request: ask for reviews once, then merge when the gates allow."""
     pol = policy_of_repo(cfg, t['repo'])
     number = pr_number(t.get('pr'))
@@ -449,7 +449,7 @@ def release(cfg, st, now, spawn=subprocess.Popen):
     return events
 
 
-def tick(cfg, now=None, run=subprocess.run, spawn=subprocess.Popen):
+def tick(cfg, now=None, run=github.run, spawn=subprocess.Popen):
     """One round (the dashboard's loop): the local analysis when due, reviews and merges, batched releases."""
     now = now or time.time()
     if not enabled(cfg):

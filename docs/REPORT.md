@@ -26,7 +26,7 @@ text is scrubbed the same way (quotes are kept, as you wrote them on purpose). Y
 
 ## Where it goes
 
-1. **gh signed in** on the computer (`gh auth status`): a GitHub issue on `ventura8/Tutti` with the label `user-report`
+1. **GitHub connected** (the person's own connection, else the household's or `gh`'s; docs/GITHUB.md): a GitHub issue on `ventura8/Tutti` with the label `user-report`
    (the body goes through stdin). If the label cannot be set, the issue is created without it.
 2. **Otherwise:** GitHub's "new issue" page opens in the browser with the report filled in (cut to a length GitHub takes);
    choose **Submit new issue**. The terminal also prints the link.

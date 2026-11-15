@@ -1,11 +1,10 @@
 """Open pull requests of a project's GitHub repository, for the dashboard's Projects panel: a release in progress (an open pull
 request whose title names a version, `... (0.1.10)`) and any other open one, each with its CI state and its review state.
 
-`projects.<name>.repo: owner/name` turns it on. The probe thread asks `gh pr list` (the owner's own gh sign-in, read-only) at
-most every CACHE_SECONDS per repository; a failure is shown on the project, never raised."""
-import json
+`projects.<name>.repo: owner/name` turns it on. The probe thread asks GitHub through tutti/github.py (the household's
+connection, else gh's sign-in; ETag-cached, read-only) at most every CACHE_SECONDS per repository, with the newest releases;
+a failure is shown on the project, never raised."""
 import re
-import subprocess
 import threading
 import time
 
@@ -69,22 +68,22 @@ def pr_items(data):
     return out
 
 
-def gh_list(repo, timeout=30):
-    """The repository's open pull requests through gh, or an OSError that says why."""
-    argv = ['gh', 'pr', 'list', '-R', repo, '--state', 'open', '--limit', '10', '--json',
-            'number,title,url,headRefName,isDraft,reviewDecision,statusCheckRollup,latestReviews', '--jq', JQ]
+def gh_list(repo, timeout=30, hub=None):
+    """The repository's open pull requests through Tutti's GitHub client (docs/GITHUB.md), or an OSError that says why."""
+    from . import github
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
-    except FileNotFoundError as e:
-        raise OSError('gh is not on PATH: install the GitHub CLI and run gh auth login once') from e
-    except subprocess.TimeoutExpired as e:
-        raise OSError(f'gh did not answer within {timeout} s; asked again at the next probe') from e
-    if r.returncode != 0:
-        raise OSError(f'gh pr list -R {repo} exited {r.returncode}: {(r.stderr or "").strip()[:160]} (is gh signed in?)')
+        return github.open_prs(hub or github.client(github._current['cfg']), repo)
+    except github.GitHubError as e:
+        raise OSError(str(e)) from e
+
+
+def latest(repo, hub=None):
+    """The newest releases of a repository ([] when GitHub cannot be read: the pull requests say why)."""
+    from . import github
     try:
-        return json.loads(r.stdout or '[]')
-    except ValueError as e:
-        raise OSError(f'gh pr list -R {repo} answered something that is not JSON ({e})') from e
+        return github.latest_releases(hub or github.client(github._current['cfg']), repo)
+    except github.GitHubError:
+        return []
 
 
 def repo_prs(repo, list_fn=gh_list, clock=time.time):
@@ -95,9 +94,9 @@ def repo_prs(repo, list_fn=gh_list, clock=time.time):
     if hit and now - hit[0] < CACHE_SECONDS:
         return hit[1]
     try:
-        value = {'items': pr_items(list_fn(repo)), 'error': None}
+        value = {'items': pr_items(list_fn(repo)), 'error': None, 'releases': latest(repo) if list_fn is gh_list else []}
     except OSError as e:
-        value = {'items': (hit[1]['items'] if hit else []), 'error': str(e)}
+        value = {'items': (hit[1]['items'] if hit else []), 'error': str(e), 'releases': hit[1].get('releases', []) if hit else []}
     with _lock:
         _cache[repo] = (now, value)
     return value

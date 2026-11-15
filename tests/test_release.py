@@ -292,6 +292,28 @@ class DndTest(unittest.TestCase):
         self.assertEqual(sum(v[0] for v in seen['pixel'].values()), 1)
 
 
+class TvPrepTest(Base):
+    """A TV's screensaver and sleep settings must be read and must take, or the run does not start."""
+
+    def tv(self):
+        return {**self.d, 'kind': 'tv', 'prep_defaults': True}
+
+    def test_a_tv_is_prepared_and_its_settings_read_back(self):
+        self.set('screensaver_enabled', '1')
+        self.set('screensaver_activate_on_sleep', '1')
+        self.set('screen_off_timeout', '600000')
+        r = self.bash(prep.prep_script(self.tv()))
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual((self.get('screensaver_enabled'), self.get('screensaver_activate_on_sleep')), ('0', '0'))
+
+    def test_a_tv_that_does_not_answer_fails_loudly_instead_of_running(self):
+        tv = {**self.tv(), 'adb': '/bin/false'}   # adb answers nothing, even after a reconnect
+        r = self.bash(prep.prep_script(tv) + '; echo ran')
+        self.assertEqual(r.returncode, 4)
+        self.assertIn('prep failed', r.stdout)
+        self.assertNotIn('ran', r.stdout)
+
+
 class KeepAwakeTest(Base):
     def test_the_keep_awake_loop_starts_and_stops_with_the_run(self):
         old = prep.KEEP_AWAKE_SECONDS

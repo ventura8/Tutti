@@ -22,9 +22,14 @@ VOLUME = {'name': 'media volume', 'read': 'cmd media_session volume --stream 3 -
           'set': 'cmd media_session volume --stream 3 --set {value}', 'value': 2, 'cap': True}
 DEFAULTS = {
     'phone': [{'setting': 'system screen_brightness_mode', 'value': 0}, {'setting': 'system screen_brightness', 'value': 77}, VOLUME],
-    'tv': [{'setting': 'secure screensaver_enabled', 'value': 0}, {'setting': 'system screen_off_timeout', 'value': 1800000}, VOLUME],
+    'tv': [{'setting': 'secure screensaver_enabled', 'value': 0}, {'setting': 'secure screensaver_activate_on_sleep', 'value': 0},
+           {'setting': 'system screen_off_timeout', 'value': 1800000}, VOLUME],
 }
 DEFAULTS['tablet'] = DEFAULTS['phone']
+# A TV must never start a run with its screensaver able to come on (its photos covered the app, RoRadio 2026-11-15): these
+# settings are required, and a prep that cannot read one fails loudly instead of running
+REQUIRED = ('screensaver_enabled', 'screensaver_activate_on_sleep', 'screen_off_timeout', 'sleep_timeout',
+            'stay_on_while_plugged_in')
 KEEP_AWAKE_SECONDS = 15   # the phone's admin policy caps the screen timeout at 5 min: a harmless key every 15 s keeps it on
 
 
@@ -138,6 +143,14 @@ def _adb(device):
     return f'timeout 20 {shlex.quote(device.get("adb") or "adb")} -s {shlex.quote(str(device["serial"]))} shell'
 
 
+def _reconnect(device):
+    """adb connect by the device's mDNS name (a wireless device whose connection dropped), then a short pause."""
+    from . import adbpair
+    if not adbpair.guid_of(str(device['serial'])):
+        return ':'
+    return f'timeout 20 {shlex.quote(device.get("adb") or "adb")} connect {shlex.quote(str(device["serial"]))} > /dev/null 2>&1; sleep 3'
+
+
 def _read(device, it):
     line = f'{_adb(device)} {shlex.quote(it["read"])} 2>/dev/null | tr -d "\\r" | tail -n 1'
     if it['parse']:
@@ -157,10 +170,16 @@ def prep_script(device):
     # or the prepared values would become the "originals"
     reads = [f'mkdir -p "$(dirname {f})"', f': > {f}.tmp']
     for it in its:
-        reads.append(f'v=$({_read(device, it)})')
+        # slow or dropped adb: reconnect and read again with a longer timeout before giving up
+        reads.append(f'v=$({_read(device, it)}); [ -n "$v" ] || {{ {_reconnect(device)}; '
+                     f'v=$({_read(device, it).replace("timeout 20 ", "timeout 45 ", 1)}); }}')
         bad = 'grep -qiE "not found|inaccessible|unknown|error|exception|usage:"'
         reads.append(f'if [ -n "$v" ] && ! printf "%s" "$v" | {bad}; then printf "%s\\t%s\\n" {it["key"]} "$v" >> {f}.tmp; '
-                     f'else echo "tutti: prep {it["name"]} skipped: the device does not answer {shlex.quote(it["read"])}"; fi')
+                     + (f'else echo "tutti: prep failed: {device["name"]} does not answer {shlex.quote(it["read"])} even after a '
+                        'reconnect; the run does not start (a TV could fall into its screensaver): check its Wi-Fi and Wireless '
+                        f'debugging, then start again"; rm -f {f}.tmp; exit 4; fi'
+                        if device.get('kind') == 'tv' and it['key'] in REQUIRED else
+                        f'else echo "tutti: prep {it["name"]} skipped: the device does not answer {shlex.quote(it["read"])}"; fi'))
     reads.append(f'mv {f}.tmp {f}')
     lines = [f'if [ ! -e {f} ]; then {"; ".join(reads)}; fi']
     for it in its:
@@ -170,6 +189,10 @@ def prep_script(device):
         if it['cap']:
             cond += f' && ! {{ [ "$v" -le {value} ] 2>/dev/null; }}'
         lines.append(f'if {cond}; then {set_line} && echo "tutti: prep {it["name"]}: $v -> {it["value"]}"; fi')
+        if device.get('kind') == 'tv' and it['key'] in REQUIRED:   # read back: a setting that did not take stops the run
+            lines.append(f'c=$({_read(device, it).replace("timeout 20 ", "timeout 45 ", 1)}); if [ "$c" != {value} ]; then '
+                         f'echo "tutti: prep failed: {device["name"]} keeps {it["name"]} at ${{c:-?}} (not {it["value"]}); the run '
+                         'does not start, so its screensaver cannot cover the app: check the device, then start again"; exit 4; fi')
     return '; '.join(lines)
 
 

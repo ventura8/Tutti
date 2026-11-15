@@ -6,6 +6,18 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.15.1 (2026-11-15)
+
+### Fixed
+
+- A TV no longer starts a run with its screensaver able to come on (RoRadio, 2026-11-15: the Google TV Streamer's photo
+  screensaver covered the app; its prep had logged "the device does not answer" and run anyway). A read that gets nothing
+  reconnects by the mDNS name and reads again with a 45 s timeout; on a TV, screensaver_enabled,
+  screensaver_activate_on_sleep (new, `secure`), screen_off_timeout, sleep_timeout and stay_on_while_plugged_in are
+  required and read back after they are set: one that cannot be read or does not take stops the run with the reason.
+- A suite on a runner machine (`runner: pc`) waits while that machine yields (its yield flag up: the PC is running another
+  project's pipeline), is held, paused or off; `tutti devices lease --runner` takes nothing then (exit 3).
+
 ## 0.15.0 (2026-11-15)
 
 ### Added

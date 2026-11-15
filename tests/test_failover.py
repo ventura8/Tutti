@@ -225,7 +225,15 @@ class EdgeTest(unittest.TestCase):
         cfg['machines']['nuc'].update(host='local', transport='local')
         cfg['machines']['laptop'].update(host='laptop.invalid', transport='ssh')
         self.assertIn('nuc', failover.candidates(cfg))
+        self.assertNotIn('laptop', failover.candidates(cfg))   # the main never
+        self.assertNotIn('phone', failover.candidates(cfg))
         self.assertFalse([e for e in config.validate(cfg) if 'failover' in e])
+
+    def test_on_the_main_another_local_machine_is_not_a_candidate(self):
+        cfg = make_cfg()
+        cfg['machines']['pc'].update(host='local', transport='local')
+        cfg['failover']['main'] = 'nuc'
+        self.assertNotIn('pc', failover.candidates(cfg))
 
     def test_logs_runs_and_snapshots_stay_behind_and_what_goes_lands_at_mode_600(self):
         self.assertIn('*.log', failover.SYNC_EXCLUDE)

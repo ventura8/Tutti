@@ -94,6 +94,24 @@ setting back on through the first one; the device's row says through which. Each
 Only when no machine reaches it does the row ask the one step left, with the reason: turn Wireless debugging on, on the
 device (or plug it into any household computer by USB). See tutti/keepon.py.
 
+## Using a device from another computer (a lease)
+
+A session on another household computer (a PowerShell runner on the PC, say) uses a device that lives on the NUC with a
+lease. Its own adb reaches the device over Wi-Fi: every household machine uses the same adb key (`tutti devices move`
+copied it), so the device already trusts it.
+
+```bash
+ssh nuc tutti devices claim googletv --who roradio --minutes 120   # prints ADDR=<ip:port> and SERIAL=...; exit 3: in use
+adb connect <ADDR>                                                  # then run the tests with ANDROID_SERIAL / -s <ADDR>
+adb disconnect <ADDR>
+ssh nuc tutti devices release googletv --who roradio                # its own settings come back when it was the last user
+```
+
+The claim is exclusive (another claim or run gets exit 3 with who holds it), preps the device (its own values saved
+once), wakes it and keeps it awake while the lease lasts, and ends by itself at `--minutes` if the requester never
+releases it. Where Tutti and its config are on the requester's computer, one command does all four steps:
+`tutti devices lease googletv --who roradio -- <command ...>` (ANDROID_SERIAL set to the address).
+
 ## Other tools that use the same devices
 
 A tool with its own lock file per device names it in `devices.<name>.external_lock` (a path on the device's machine,

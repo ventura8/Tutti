@@ -123,6 +123,37 @@ class ReleaseTest(Base):
         self.assertEqual((self.get('screensaver_enabled'), self.get('screen_off_timeout')), ('1', '600000'))
 
 
+class LeaseTest(Base):
+    """A lease for a requester outside Tutti's runs (`tutti devices claim|lease`): exclusive, prepped, kept awake, timed."""
+
+    def claim(self, who='roradio'):
+        return os.path.join(self.tmp, '.tutti', 'devices', 'pixel', 'users', f'claim-{who}')
+
+    def test_a_lease_preps_the_device_and_its_release_restores_it(self):
+        r = self.bash(prep.lease_script(self.d, self.claim(), 60, 'roradio'))
+        self.assertIn('leased to roradio for 60 min', r.stdout)
+        self.assertIn('SERIAL=S1', r.stdout)
+        self.assertEqual(self.get('screen_brightness'), '77')
+        with open(self.claim(), encoding='utf8') as f:
+            self.assertGreater(int(f.read()), time.time() + 3000)   # its end time
+        os.remove(self.claim())
+        r = self.bash(prep.release_script(self.d))
+        self.assertIn('tutti: device released pixel', r.stdout)
+        self.assertEqual(self.get('screen_brightness'), '200')
+
+    def test_a_second_requester_waits_and_a_lapsed_lease_frees_the_device(self):
+        self.bash(prep.lease_script(self.d, self.claim(), 60, 'roradio'))
+        r = self.bash(prep.lease_script(self.d, self.claim('map'), 60, 'map'))
+        self.assertEqual(r.returncode, 3)
+        self.assertIn('in use by claim-roradio', r.stdout)
+        with open(self.claim(), 'w', encoding='utf8') as f:
+            f.write(str(int(time.time()) - 1))   # its requester crashed: the lease ran out
+        r = self.bash(prep.lease_script(self.d, self.claim('map'), 60, 'map'))
+        self.assertIn('leased to map', r.stdout)
+        os.remove(self.claim('map'))
+        self.bash(prep.release_script(self.d))
+
+
 class KeepAwakeTest(Base):
     def test_the_keep_awake_loop_starts_and_stops_with_the_run(self):
         old = prep.KEEP_AWAKE_SECONDS

@@ -149,10 +149,33 @@ def release_script(device, ext='', stale=1800):
     fresh = (f'[ -e {shlex.quote(ext)} ] && [ $(( $(date +%s) - $(stat -c %Y {shlex.quote(ext)}) )) -lt {int(stale)} ] && '
              f'by="$by $(head -c 120 {shlex.quote(ext)})"; ') if ext else ''
     # a run-<pid> whose process is gone (killed, OOM, a reboot) is no user: removed before deciding; claims stay until released
-    gone = f'for r in {u}/run-*; do [ -e "$r" ] || continue; kill -0 "${{r##*/run-}}" 2>/dev/null || rm -f "$r"; done; '
+    gone = (f'for r in {u}/run-*; do [ -e "$r" ] || continue; kill -0 "${{r##*/run-}}" 2>/dev/null || rm -f "$r"; done; '
+            # a lease (claim) past its end time is over: a requester that crashed never holds the device for ever
+            f'for c in {u}/claim-*; do [ -e "$c" ] || continue; e=$(head -c 20 "$c" | tr -cd 0-9); '
+            f'[ -n "$e" ] && [ "$e" -lt "$(date +%s)" ] && rm -f "$c"; done; ')
     return (f'{gone}by=$(ls -A {u} 2>/dev/null | tr "\\n" " "); {fresh}'
             f'if [ -z "${{by// /}}" ]; then {restore_script(device) or ":"}; echo "tutti: device released {device["name"]}"; '
             f'else echo "tutti: "{name}" stays in use by $by"; fi')
+
+
+def lease_script(device, claim, minutes, who):
+    """A lease for a requester outside Tutti's runs (`tutti devices claim`): refused while someone else uses the device;
+    else the claim file (its end time inside), the prep (the device's own values saved once), the screen woken and kept
+    awake for as long as the claim lasts, and the address the requester's adb connects to (`ADDR=<ip:port>`)."""
+    from . import adbpair
+    u = users_path(device)
+    guid = adbpair.guid_of(str(device['serial']))
+    addr = (f'a=$({shlex.quote(device.get("adb") or "adb")} mdns services 2>/dev/null | tr -d "\\r" | '
+            f'awk -v g={shlex.quote(guid)} \'$1 == g && $2 ~ /_adb-tls-connect/ {{print $3; exit}}\'); '
+            'echo "ADDR=${a:-unknown}"; ') if guid else f'echo "ADDR={device["serial"]}"; '
+    loop = (f'while [ -e {claim} ] && [ $(cat {claim}) -gt $(date +%s) ]; do '
+            f'{_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; sleep {KEEP_AWAKE_SECONDS}; done')
+    awake = f'nohup bash -c {shlex.quote(loop)} > /dev/null 2>&1 &'
+    return (f'{release_script(device)} > /dev/null; '   # left-behind runs and lapsed leases are cleared first
+            f'mkdir -p {u}; others=$(ls -A {u} | grep -vx "$(basename {claim})" | tr "\\n" " "); '
+            f'if [ -n "$others" ]; then echo "tutti: {device["name"]} is in use by $others: try again when it is free"; exit 3; fi; '
+            f'echo $(( $(date +%s) + {int(minutes) * 60} )) > {claim}; {prep_script(device) or ":"}; {unlock(device)}; {awake} '
+            f'{addr}echo "SERIAL={device["serial"]}"; echo "tutti: {device["name"]} leased to {who} for {int(minutes)} min"')
 
 
 def keep_awake(device):

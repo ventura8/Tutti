@@ -6,6 +6,16 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.9.6 (2026-11-15)
+
+### Fixed
+
+- A session on another computer could not use a device that moved (RoRadio, on the PC, after the devices moved to the
+  NUC). `tutti devices claim <d> --who <s> [--minutes 120]` is now a lease: exclusive (exit 3 with who holds it), the
+  device prepped and kept awake while it lasts, the address for the requester's own adb printed (`ADDR=`), and over by
+  itself at its end time. `tutti devices lease <d> --who <s> -- <command>` does claim, adb connect, the command, adb
+  disconnect and release in one (docs/DEVICES.md, *Using a device from another computer*).
+
 ## 0.9.5 (2026-11-15)
 
 ### Fixed

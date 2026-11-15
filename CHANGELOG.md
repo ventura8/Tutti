@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.13.1 (2026-11-15)
+
+### Fixed
+
+- The backup main machine's own copy of the config was refused there ("failover.backup ... cannot be the backup"): on
+  its copy the backup is `host: local`, and it stays a candidate.
+
 ## 0.13.0 (2026-11-15)
 
 ### Added

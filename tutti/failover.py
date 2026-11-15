@@ -86,10 +86,10 @@ def main_of(cfg):
 
 
 def candidates(cfg):
-    """Machines that can be the backup main: ours, reachable over ssh or WSL, not the main, not a phone or a member's."""
+    """Machines that can be the backup main: ours, reachable over ssh or WSL, not the main, not a phone or a member's. On the
+    backup's own copy of the config the backup is `host: local`, and it stays a candidate there."""
     main = main_of(cfg)
-    return [n for n, m in cfg['machines'].items() if n != main and m.get('transport') in ('ssh', 'wsl', 'local')
-            and m.get('host') != 'local']
+    return [n for n, m in cfg['machines'].items() if n != main and m.get('transport') in ('ssh', 'wsl', 'local')]
 
 
 def score(m, f):

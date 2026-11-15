@@ -220,6 +220,13 @@ class EdgeTest(unittest.TestCase):
         self.assertTrue(out['project']['state'].startswith('/home/other/.tutti-failover'))
         self.assertEqual(out['machines']['laptop']['host'], 'laptop.invalid')   # never two machines that are local
 
+    def test_the_backup_copy_of_the_config_is_valid_there(self):
+        cfg = make_cfg(me='nuc', backup='nuc')
+        cfg['machines']['nuc'].update(host='local', transport='local')
+        cfg['machines']['laptop'].update(host='laptop.invalid', transport='ssh')
+        self.assertIn('nuc', failover.candidates(cfg))
+        self.assertFalse([e for e in config.validate(cfg) if 'failover' in e])
+
     def test_logs_runs_and_snapshots_stay_behind_and_what_goes_lands_at_mode_600(self):
         self.assertIn('*.log', failover.SYNC_EXCLUDE)
         self.assertIn('/runs/', failover.SYNC_EXCLUDE)

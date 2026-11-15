@@ -6,6 +6,16 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.9.7 (2026-11-15)
+
+### Fixed
+
+- Chat on Auto hands a request the local model cannot handle to an online model with room (docs/CHAT.md, *Escalation*):
+  before answering when it would not fit the local context, has an image and no vision model, is code work for a model
+  under 14B, or the effort is max; after answering when the local model declined, was not confident, gave nothing, called
+  its tools wrongly twice or timed out, with the same context. The answer says "Answered by <model> because <reason>".
+  Pacing and opt-ins hold: an account without room is never used.
+
 ## 0.9.6 (2026-11-15)
 
 ### Fixed

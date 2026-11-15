@@ -67,6 +67,24 @@ Each answer names its model ("qwen3.8:27b-q8_0 on w5090"). When it fell back, it
 claude (claude account) because pc is asleep; nuc did not answer."). A model that does not answer (a machine asleep, a
 tunnel down) is skipped for the next one within the same answer.
 
+## Escalation (Auto)
+
+With the model on **Auto**, a request the local model cannot handle goes to an online model with room (pacing and the
+opt-ins apply: an account in panic, spent, late, paused or paid per use is never used; with none left, the local answer
+stays). Each answer says why: "Answered by claude (claude account) because …".
+
+- **Before answering**, a local model is skipped when the request (with its context) is longer than its `num_ctx` at the
+  chosen effort, it has an image and the model has no `vision`, it is code work (a code block, a traceback, or "write", "fix",
+  "implement", "refactor", "debug" or "review" followed by code, a function, a script, a test, a bug…) and the model is
+  under 14B parameters, or the effort is max.
+- **After answering**, the same context is sent online when the local model gave nothing, called its tools wrongly twice
+  in a row, timed out, or (in a short answer that used no tool) opened by declining ("I can't help…") or by not being sure
+  ("I'm not sure…"). Its text is replaced; an action it already did stays (with Undo), and then its answer stands.
+- If no online model answers after all, the local answer stays ("Kept … answer"), and a local model skipped up front tries
+  anyway. Each online model gets the request fitted to its own window (the compaction above runs for it).
+
+Local only, Online only and a named model never escalate.
+
 ## Tools: the same work from any model
 
 A model works through the same calls as the MCP tools, so a local model can do what an online one can:

@@ -650,7 +650,9 @@ function renderSelfHeal(h) {
     d.append(el('summary', { text: head }), el('ul', { class: 'stored__list' }, ...h.items.map((r) => el('li', {},
         el('span', { class: 'stored__name', text: `${r.host} · ${r.check}` }),
         el('span', { text: `${r.what} · ${relative(new Date(r.at * 1000).toISOString())}` })))));
+    const hadFocus = box.contains(document.activeElement);
     box.replaceChildren(d);
+    if (hadFocus) d.querySelector('summary')?.focus({ preventScroll: true });   // keyboard users keep their place
 }
 
 function renderMachines(s) {

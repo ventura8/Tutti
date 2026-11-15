@@ -803,7 +803,7 @@ def cmd_selfheal(cfg, a):
         if a.json:
             print(json.dumps({'repairs': lines}))
             return 0
-        say('\n'.join(lines) or 'self-heal: every check passed; nothing to repair')
+        say('\n'.join(lines) or 'self-heal: nothing repaired this round (a step only a person can take is in `tutti needs`)')
         return 0
     v = selfheal.view(cfg)
     if a.json:

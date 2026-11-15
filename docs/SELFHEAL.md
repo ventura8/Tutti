@@ -68,7 +68,7 @@ naming the fix (`tutti config`).
 ## Temp janitor (backlog t86)
 
 Every round removes Tutti's own left-over temp folders of this user in which nothing changed for 2 hours (the newest
-time anywhere inside counts, so a long run is never cleaned under it): `tutti-tests-*`, `tutti-t-*`,
+time anywhere inside counts, so a run that keeps writing is kept; one silent for 2 hours is not protected): `tutti-tests-*`, `tutti-t-*`,
 `tutti-review-*`, and anonymous `tmpXXXXXXXX` folders holding only what a Tutti test or run writes (`state`,
 `tutti.config.yaml`, ...), in the temp folder, `~/.cache/tutti-tmp` and `selfheal.temp_dirs`. The test helper
 (`tests/tmpdirs.py`) names its folders `tutti-t-*`. This replaces the stopgap cron that cleaned `/tmp` by hand.

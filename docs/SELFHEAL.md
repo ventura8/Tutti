@@ -8,7 +8,8 @@ room the disk still lacks) becomes one item in the needs-input queue ([NEEDS.md]
 ## When it runs
 
 Every `selfheal.every_seconds` (default 300) inside the failover round's service ([FAILOVER.md](FAILOVER.md)), on every
-machine that runs it; `tutti selfheal --once` runs every check now on this machine. `selfheal: {enabled: false}` turns it
+machine that runs it, in a thread of its own (one at a time), so a long repair such as a model pull never delays the
+failover heartbeat; `tutti selfheal --once` runs every check now on this machine. `selfheal: {enabled: false}` turns it
 off. Each repair is a line in `<state>/selfheal.jsonl` (the latest 2,000 kept) with the time, the machine, the check and
 what was done.
 
@@ -16,16 +17,16 @@ what was done.
 
 | Check | Probe | Repair |
 | --- | --- | --- |
-| needs | each declared need of this machine's workers and projects (below) | installed at user level; root-only: one admin command in Needs you |
+| needs | each declared need of this machine's workers (those naming it with `machine:`, or none on the main machine), projects and suites (below) | installed at user level; root-only: one admin command in Needs you |
 | workers | a CLI worker's program on PATH; its `login_check` command | installed through its needs; otherwise, or signed out, one Needs-you item with its `login` command |
 | ollama | a local worker's model server answers `/api/tags`, with the model | `systemctl --user start ollama` or `ollama serve`; `ollama pull <model>` |
 | tunnels | `tutti tunnel status <worker>` for each worker with `tunnel:` | `tutti tunnel start <worker>` |
 | adb | `adb devices` answers; each wireless address of this machine's devices is listed | `adb kill-server; adb start-server`; `adb connect <address>` |
 | disk | Tutti's own left-over temp folders; free space and file slots ([diskroom](../tutti/diskroom.py)) | removed (below); still low: one Needs-you item to make room |
 | state | each state JSON file parses | put back from its last good snapshot (the broken copy kept as `.corrupt`) |
-| config | the config file loads | the newest backup that loads (from Settings' `config-backups/`) put back; the broken one kept as `.bad` |
+| config | the config file is YAML | unreadable for 2 minutes (not a save in progress): the newest backup that loads (Settings' `config-backups/`) put back, the broken one kept as `.bad`; a config that parses but fails a check is a person's edit and is never replaced |
 | dashboard | the dashboard answers on the machine that serves | started again |
-| update | a release install is on the newest release (asked at most every 6 h) | `self-update`: the checksummed, signed release installed |
+| update | a release install is on the newest release (asked at most every 6 h) | `self-update`: the checksummed, signed release installed, unattended. On by default, like the dashboard's daily update; `self_update: {enabled: false}` turns both off |
 
 One check that fails (an exception) is logged and the others go on.
 
@@ -53,8 +54,8 @@ workers:
 | Kind | Pinned by | Installed with (user level) |
 | --- | --- | --- |
 | `npm` | `pkg@x.y.z` | `npm install -g --prefix ~/.local --ignore-scripts` (npm checks the registry's integrity hash) |
-| `pip` | `pkg==x.y.z`, optional `sha256` | `python3 -m pip install --user` (`--require-hashes` with `sha256`) |
-| `playwright` | `version` | `npx playwright@<version> install <browser>` |
+| `pip` | `pkg==x.y.z`, optional `sha256` | `python3 -m pip install --user` (`--require-hashes` with `sha256`: only for a package with no dependencies, since pip then wants every dependency's hash). A Python that refuses `--user` (PEP 668): give the need a `root:` command |
+| `playwright` | `version` | `npx playwright@<version> install <browser>`; a stamp per version and browser in `~/.local/share/tutti-deps` says it is done |
 | `ollama` | the model tag | `ollama pull` |
 | `docker` | `image@sha256:<digest>` | `docker pull` |
 | `dotnet-workload` | the workload id | `dotnet workload install`; when that needs root, the admin's command |
@@ -66,7 +67,8 @@ naming the fix (`tutti config`).
 
 ## Temp janitor (backlog t86)
 
-Every round removes Tutti's own left-over temp folders of this user untouched for 2 hours: `tutti-tests-*`, `tutti-t-*`,
+Every round removes Tutti's own left-over temp folders of this user in which nothing changed for 2 hours (the newest
+time anywhere inside counts, so a long run is never cleaned under it): `tutti-tests-*`, `tutti-t-*`,
 `tutti-review-*`, and anonymous `tmpXXXXXXXX` folders holding only what a Tutti test or run writes (`state`,
 `tutti.config.yaml`, ...), in the temp folder, `~/.cache/tutti-tmp` and `selfheal.temp_dirs`. The test helper
 (`tests/tmpdirs.py`) names its folders `tutti-t-*`. This replaces the stopgap cron that cleaned `/tmp` by hand.

@@ -800,6 +800,9 @@ def cmd_selfheal(cfg, a):
     from . import selfheal
     if a.once:
         lines = selfheal.round_(selfheal.Ctx(cfg))
+        if a.json:
+            print(json.dumps({'repairs': lines}))
+            return 0
         say('\n'.join(lines) or 'self-heal: every check passed; nothing to repair')
         return 0
     v = selfheal.view(cfg)

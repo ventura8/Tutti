@@ -141,14 +141,29 @@ def one_round(cfg, run=subprocess.run, healthy_since=None, now=None):
     return lines + pruned
 
 
-def heal(cfg, lines, last, now, heal_fn=None):
-    """The self-heal checks (tutti/selfheal.py) every selfheal.every_seconds; returns when they last ran."""
+_healing = []   # the self-heal thread now running: a long repair (a model pull) never blocks the failover round
+
+
+def heal(cfg, lines, last, now, heal_fn=None, start=None):
+    """The self-heal checks (tutti/selfheal.py) every selfheal.every_seconds, in their own thread so the failover heartbeat
+    goes on; at most one at a time. Returns when they last started."""
     selfheal.note_round(cfg, lines, now)
-    if not selfheal.enabled(cfg) or now - last < selfheal.every(cfg):
+    if not selfheal.enabled(cfg) or now - last < selfheal.every(cfg) or any(t.is_alive() for t in _healing):
         return last
-    for line in (heal_fn or (lambda c: selfheal.round_(selfheal.Ctx(c), selfheal.LOOP_CHECKS)))(cfg):
-        say(f'self-heal: {line}')
+
+    def go():
+        for line in (heal_fn or (lambda c: selfheal.round_(selfheal.Ctx(c), selfheal.LOOP_CHECKS)))(cfg):
+            say(f'self-heal: {line}')
+    t = (start or _thread)(go)
+    _healing[:] = [t] if t else []
     return now
+
+
+def _thread(fn):
+    import threading
+    t = threading.Thread(target=fn, name='tutti-self-heal', daemon=True)
+    t.start()
+    return t
 
 
 def loop(cfg, stop=None, sleep=time.sleep):

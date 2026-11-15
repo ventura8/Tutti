@@ -60,6 +60,20 @@ class NeedsCheck(unittest.TestCase):
         self.assertEqual(run.scripts, [])
 
 
+class SuiteNeeds(unittest.TestCase):
+    def test_a_suites_root_need_is_asked_on_its_machine_another_machines_worker_is_left(self):
+        cfg = make({'machines': {'pc': {'transport': 'local'}, 'gpu': {'transport': 'local'}},
+                    'projects': {'app': {'tests': {'e2e': {'run': 'x', 'needs': [{'apt': 'adb'}]}}}},
+                    'workers': {'far': {'kind': 'cli', 'command': ['far'], 'machine': 'gpu', 'needs': [{'ollama': 'm'}]}}})
+        cfg['failover'] = {**(cfg.get('failover') or {}), 'me': 'pc', 'main': 'pc'}
+        run = Fake({'missing=0': done(1, 'TUTTI-DEP-ROOT: sudo apt-get install -y adb\n')})
+        c, asked = ctx(cfg, run)
+        selfheal.check_needs(c)
+        self.assertIn('adb', run.scripts[0])
+        self.assertNotIn('ollama', run.scripts[0])
+        self.assertEqual(len(asked), 1)
+
+
 class WorkersCheck(unittest.TestCase):
     def test_a_signed_out_worker_asks_once_with_its_login_command(self):
         cfg = make({'workers': {'w': {'kind': 'cli', 'command': ['agent', '{prompt}'], 'login_check': ['agent', 'status'],
@@ -127,10 +141,16 @@ class DiskCheck(unittest.TestCase):
             os.makedirs(os.path.join(root, name))
             for e in inside:
                 open(os.path.join(root, name, e), 'w').close()
+                os.utime(os.path.join(root, name, e), (old, old))
             os.utime(os.path.join(root, name), (old, old))
         os.makedirs(os.path.join(root, 'tutti-t-new'))   # fresh: a test running now
+        busy = os.path.join(root, 'tutti-tests-busy')     # an old folder, but a run writes deep inside it now
+        os.makedirs(os.path.join(busy, 'wt', 'sub'))
+        open(os.path.join(busy, 'wt', 'sub', 'f'), 'w').close()
+        for x in (os.path.join(busy, 'wt'), busy):
+            os.utime(x, (old, old))
         self.assertEqual(selfheal.janitor([root], time.time()), 2)
-        self.assertEqual(sorted(os.listdir(root)), ['mine', 'tmpzzzzzzzz', 'tutti-t-new'])
+        self.assertEqual(sorted(os.listdir(root)), ['mine', 'tmpzzzzzzzz', 'tutti-t-new', 'tutti-tests-busy'])
 
     def test_low_disk_after_cleaning_asks_the_admin(self):
         c, asked = ctx(make())
@@ -165,17 +185,34 @@ class StateConfigCheck(unittest.TestCase):
             f.write(good)
         with open(cfg['_path'], 'w') as f:
             f.write('dashboard: [not: a mapping\n')
-        line = selfheal.check_config(ctx(cfg)[0])[0]
+        c = ctx(cfg)[0]
+        self.assertEqual(selfheal.check_config(c), [])   # first seen: maybe a save in progress
+        c.now += selfheal.CONFIG_GRACE + 1
+        line = selfheal.check_config(c)[0]
         self.assertIn('put back', line)
         self.assertEqual(open(cfg['_path']).read(), good)
         self.assertTrue(os.path.exists(cfg['_path'] + '.bad'))
+
+    def test_a_config_that_parses_but_fails_a_check_is_an_edit_never_replaced(self):
+        cfg = make()
+        with open(cfg['_path'], 'a') as f:
+            f.write('dispatch: 3\n')
+        c = ctx(cfg)[0]
+        selfheal.check_config(c)
+        c.now += 10 * selfheal.CONFIG_GRACE
+        self.assertEqual(selfheal.check_config(c), [])
+        self.assertIn('dispatch: 3', open(cfg['_path']).read())
 
     def test_a_good_config_is_left_and_no_good_backup_changes_nothing(self):
         cfg = make()
         self.assertEqual(selfheal.check_config(ctx(cfg)[0]), [])
         with open(cfg['_path'], 'w') as f:
             f.write('dashboard: [x\n')
-        self.assertEqual(selfheal.check_config(ctx(cfg)[0]), [])
+        c = ctx(cfg)[0]
+        selfheal.check_config(c)
+        c.now += selfheal.CONFIG_GRACE + 1
+        self.assertEqual(selfheal.check_config(c), [])
+        os.remove(cfg['_path'] + '.unreadable-since')
         self.assertEqual(open(cfg['_path']).read(), 'dashboard: [x\n')
 
 
@@ -211,8 +248,10 @@ class RoundTest(unittest.TestCase):
     def test_the_failover_loop_heals_on_its_period_and_logs_its_own_repairs(self):
         cfg = make()
         ran, now = [], time.time()
+        def inline(fn):
+            fn()
         last = failovercmd.heal(cfg, ['backlog.json was corrupt: put back from its last good snapshot'], 0, now,
-                                lambda c: ran.append(1) or [])
+                                lambda c: ran.append(1) or [], start=inline)
         self.assertEqual((last, ran), (now, [1]))
         self.assertEqual(failovercmd.heal(cfg, [], last, now + 10, lambda c: ran.append(1) or []), now)   # not due yet
         self.assertEqual(selfheal.view(cfg, now=time.time())['items'][0]['check'], 'state')

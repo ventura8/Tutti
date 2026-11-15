@@ -119,7 +119,29 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(needs, [{'apt': 'adb'}, {'ollama': 'm'}])
         self.assertTrue(deps.prefix(needs).startswith('bash -c '))
         self.assertEqual(deps.prefix(deps.for_suite(cfg, 'other', 'x')), '')
-        self.assertIn('deps.prefix', open(dispatch.__file__, encoding='utf8').read())
+
+    def test_test_argv_puts_the_needs_before_the_suites_command(self):
+        d = tmpdirs.mkdtemp()
+        cfg = {'_path': os.path.join(d, 'c.yaml'), 'projects': {'app': {'tests': {'e2e': {'needs': [{'ollama': 'm'}]}}}}}
+        s = {'project': 'app', 'name': 'e2e', 'run': 'npm test {shard}', 'dir': d}
+        argv = dispatch.test_argv(cfg, {'kind': 'machine', 'name': 'pc'}, s, 'a')
+        self.assertTrue(argv[-1].startswith('bash -c '))
+        self.assertTrue(argv[-1].endswith('&& npm test a'))
+
+    def test_a_playwright_need_is_met_only_by_its_own_version(self):
+        n = {'playwright': 'chromium', 'version': '1.49.0'}
+        self.assertIn('playwright-1.49.0-chromium.ok', deps.probe(n))
+        self.assertIn('playwright-1.49.0-chromium.ok', deps.install(n))
+
+    def test_installs_of_the_other_kinds_are_user_level_and_pinned(self):
+        self.assertIn('pip install --user ruff==0.8.1', deps.install({'pip': 'ruff==0.8.1'}))
+        self.assertIn('--require-hashes', deps.install({'pip': 'ruff==0.8.1', 'sha256': SHA}))
+        self.assertEqual(deps.install({'docker': 'n@sha256:' + SHA}), f'docker pull n@sha256:{SHA}')
+        self.assertIn('dotnet workload install android', deps.install({'dotnet-workload': 'android'}))
+        self.assertIn('sudo dotnet workload install android', deps.root_command({'dotnet-workload': 'android'}))
+        zipped = deps.install({'bin': 't', 'download': {'url': 'https://x.example/t.zip', 'sha256': SHA, 'unpack': 'zip', 'path': 'b/t'}})
+        self.assertIn('python3 -m zipfile -e', zipped)
+        self.assertIn('tar -xf', deps.install({'bin': 't', 'download': {'url': 'https://x', 'sha256': SHA, 'unpack': 'tar'}}))
 
 
 if __name__ == '__main__':

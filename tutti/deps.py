@@ -120,14 +120,19 @@ def probe(n):
         pkg, _, ver = v.partition('==')
         pkg = pkg.split('[')[0]
         return f'[ "$(python3 -c "import importlib.metadata as m; print(m.version({pkg!r}))" 2>/dev/null)" = {_q(ver)} ]'
+    if k == 'playwright':
+        return f'[ -e "{STORE}/"{_q(_pw_stamp(n))} ]'
     return {
-        'playwright': f'ls -d "$HOME/.cache/ms-playwright/{v.replace(chr(39), "")}"-* >/dev/null 2>&1',
         'ollama': f'ollama list 2>/dev/null | awk \'{{print $1}}\' | grep -qxF {_q(v if ":" in v else v + ":latest")}',
         'docker': f'docker image inspect {_q(v)} >/dev/null 2>&1',
         'dotnet-workload': f'dotnet workload list 2>/dev/null | awk \'{{print $1}}\' | grep -qxF {_q(v)}',
         'bin': f'command -v {_q(v)} >/dev/null 2>&1 || [ -x "$HOME/.local/bin/"{_q(v)} ]',
         'apt': f'dpkg -s {_q(v)} >/dev/null 2>&1',
     }[k]
+
+
+def _pw_stamp(n):
+    return f'playwright-{n.get("version")}-{n["playwright"]}.ok'   # written after that version installed that browser
 
 
 def _download(n):
@@ -146,14 +151,16 @@ def install(n):
     k, v = kind_of(n), str(n[kind_of(n)])
     if k == 'npm':
         return f'npm install -g --prefix "$HOME/.local" --ignore-scripts {_q(v)}'
-    if k == 'pip':
-        if n.get('sha256'):
-            return (f'printf "%s --hash=sha256:%s\\n" {_q(v)} {_q(n["sha256"])} > "$HOME/.cache/tutti-req.txt" && '
-                    f'python3 -m pip install --user --require-hashes -r "$HOME/.cache/tutti-req.txt"')
+    if k == 'pip':   # --user; a Python that refuses it (PEP 668) gets the admin's command through `root:`
+        if n.get('sha256'):   # --require-hashes: every dependency needs its hash too, so only for a package without any
+            return (f'mkdir -p "{STORE}" && printf "%s --hash=sha256:%s\\n" {_q(v)} {_q(n["sha256"])} > "{STORE}/req.txt" && '
+                    f'python3 -m pip install --user --require-hashes -r "{STORE}/req.txt"')
         return f'python3 -m pip install --user {_q(v)}'
     if k == 'bin':
         return _download(n) if n.get('download') else None
-    return {'playwright': f'npx -y playwright@{_q(n.get("version"))} install {_q(v)}', 'ollama': f'ollama pull {_q(v)}',
+    if k == 'playwright':
+        return f'npx -y playwright@{_q(n.get("version"))} install {_q(v)} && mkdir -p "{STORE}" && touch "{STORE}/"{_q(_pw_stamp(n))}'
+    return {'ollama': f'ollama pull {_q(v)}',
             'docker': f'docker pull {_q(v)}', 'dotnet-workload': f'dotnet workload install {_q(v)}', 'apt': None}[k]
 
 

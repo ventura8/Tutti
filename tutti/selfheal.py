@@ -85,11 +85,16 @@ def view(cfg, now=None):
 
 def check_needs(ctx):
     """Every declared need of this machine's workers and projects, probed and installed (tutti/deps.py)."""
-    needs = [n for _, n in deps.declared({'workers': ctx.cfg.get('workers') or {}})]
     me = _me(ctx.cfg)
-    for p in (ctx.cfg.get('projects') or {}).values():
-        if not (p or {}).get('machines') or me in p['machines']:
-            needs += list((p or {}).get('needs') or [])
+    needs = [n for w in my_workers(ctx.cfg, me).values() for n in deps._list(w.get('needs'))]
+    for pname, p in deps._map(ctx.cfg.get('projects')).items():
+        p = deps._map(p)
+        if not p.get('machines') or me in p['machines']:
+            needs += deps._list(p.get('needs'))
+        for sname, s in deps._map(p.get('tests')).items():   # a suite's own needs, so a root step is asked here too
+            if not deps._map(s).get('machines') or me in s['machines']:
+                needs += deps.for_suite(ctx.cfg, pname, sname)[len(deps._list(p.get('needs'))):]
+    needs = [n for i, n in enumerate(needs) if n not in needs[:i]]
     if not needs:
         return []
     r = ctx.run(deps.script(needs))
@@ -103,6 +108,14 @@ def check_needs(ctx):
     return [f'installed {n}' for n in got['installed']]
 
 
+def my_workers(cfg, me):
+    """The workers that run on this machine: those naming it (`machine:`), and those naming none on the main machine."""
+    from . import failover
+    main = failover.main_of(cfg) if cfg.get('failover') is not None else me
+    return {n: w for n, w in deps._map(cfg.get('workers')).items()
+            if isinstance(w, dict) and (w.get('machine') or main) == me}
+
+
 def _me(cfg):
     from . import failover
     try:
@@ -113,8 +126,8 @@ def _me(cfg):
 
 def check_workers(ctx):
     """A CLI worker's program on PATH (installed through its needs) and signed in (its `login_check`)."""
-    for name, w in (ctx.cfg.get('workers') or {}).items():
-        if (w or {}).get('kind') != 'cli' or not w.get('command'):
+    for name, w in my_workers(ctx.cfg, _me(ctx.cfg)).items():
+        if w.get('kind') != 'cli' or not w.get('command'):
             continue
         prog = w['command'][0]
         if not ctx.which(prog):
@@ -209,6 +222,21 @@ def _ours(path, name):
     return bool(inside) and set(inside) <= TUTTI_ENTRIES
 
 
+def newest(path, limit=5000):
+    """The newest modification time inside a folder (a run working in a subfolder keeps it fresh); at most `limit` entries."""
+    t, seen = os.lstat(path).st_mtime, 0
+    for root, dirs, files in os.walk(path):
+        for n in dirs + files:
+            seen += 1
+            try:
+                t = max(t, os.lstat(os.path.join(root, n)).st_mtime)
+            except OSError:
+                continue
+            if seen >= limit:
+                return t
+    return t
+
+
 def janitor(roots, now, uid=None, stale=STALE_SECONDS):
     """Removes Tutti's own left-over temp folders (this user's, untouched for `stale` seconds). Returns how many went."""
     uid = os.getuid() if uid is None else uid
@@ -224,7 +252,7 @@ def janitor(roots, now, uid=None, stale=STALE_SECONDS):
                 st = os.lstat(p)
             except OSError:
                 continue
-            if st.st_uid != uid or now - st.st_mtime < stale or not os.path.isdir(p) or not _ours(p, n):
+            if st.st_uid != uid or now - st.st_mtime < stale or not os.path.isdir(p) or not _ours(p, n) or now - newest(p) < stale:
                 continue
             shutil.rmtree(p, ignore_errors=True)
             gone += not os.path.exists(p)
@@ -254,14 +282,33 @@ def check_state(ctx):
     return out
 
 
-def config_fallback(path, backups, load=config.load):
-    """When the config at `path` does not load, the newest backup that does is put back (the broken one kept as .bad).
-    Returns a line, or ''."""
+CONFIG_GRACE = 120   # a config must stay unreadable this long (two rounds) before a backup replaces it: a save in progress
+
+
+def config_fallback(path, backups, load=config.load, now=None, grace=CONFIG_GRACE):
+    """When the config at `path` is no longer YAML for `grace` seconds, the newest backup that loads is put back (the broken
+    one kept as .bad). A config that parses but fails a check is the person's edit in progress: never replaced. Returns a line,
+    or ''."""
+    import yaml
+    now = now or time.time()
+    mark = path + '.unreadable-since'
     try:
-        load(path)
-        return ''
-    except Exception:   # any reason it does not load (YAML, a key, a missing file) is a broken config
+        with open(path, encoding='utf8') as f:
+            yaml.safe_load(f)
+    except yaml.YAMLError:
         pass
+    else:
+        if os.path.exists(mark):
+            os.remove(mark)
+        return ''
+    if not os.path.exists(mark):
+        with open(mark, 'w', encoding='utf8') as f:
+            f.write(str(now))
+        return ''
+    with open(mark, encoding='utf8') as f:
+        since = float(f.read() or now)
+    if now - since < grace:
+        return ''
     for b in sorted((os.path.join(backups, n) for n in os.listdir(backups) if n.startswith(os.path.basename(path) + '.'))
                     if os.path.isdir(backups) else [], key=os.path.getmtime, reverse=True):
         try:
@@ -271,6 +318,7 @@ def config_fallback(path, backups, load=config.load):
         shutil.copy2(path, path + '.bad')
         shutil.copy2(b, path + '.tmp')
         os.replace(path + '.tmp', path)
+        os.remove(mark)
         return f'{os.path.basename(path)} did not load: put back {os.path.basename(b)} (the broken one is {os.path.basename(path)}.bad)'
     return ''
 
@@ -280,7 +328,7 @@ def check_config(ctx):
     path = ctx.cfg.get('_path')
     if not path or not os.path.isfile(path) or os.path.islink(path):
         return []
-    line = config_fallback(path, os.path.join(config.state_dir(ctx.cfg), settings.BACKUPS))
+    line = config_fallback(path, os.path.join(config.state_dir(ctx.cfg), settings.BACKUPS), now=ctx.now)
     return [line] if line else []
 
 
@@ -312,7 +360,7 @@ def check_update(ctx, update=None, release=None):
     return [f'self-update: {msg}'] if code == 0 and '->' in msg else []
 
 
-CHECKS = (('needs', check_needs), ('workers', check_workers), ('ollama', check_ollama), ('tunnels', check_tunnels),
+CHECKS = (('ollama', check_ollama), ('needs', check_needs), ('workers', check_workers), ('tunnels', check_tunnels),
           ('adb', check_adb), ('disk', check_disk), ('state', check_state), ('config', check_config),
           ('dashboard', check_dashboard), ('update', check_update))
 

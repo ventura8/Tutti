@@ -242,9 +242,10 @@ def log_of(p, limit=None):
     try:
         with open(p, 'rb') as f:
             start = max(0, os.path.getsize(p) - limit)
-            f.seek(start)
+            f.seek(max(0, start - 1))
+            inside = start > 0 and f.read(1) != b'\n'
             data = f.read()
-        if start:   # the read began inside a line: that partial line is dropped, never matched as a finding
+        if inside:   # the read began inside a line: that partial line is dropped, never matched as a finding
             data = data.split(b'\n', 1)[1] if b'\n' in data else b''
         return data.decode('utf8', 'replace')
     except OSError:

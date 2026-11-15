@@ -2,8 +2,8 @@
 // refresh, showBanner, TOKEN). Every switch is a POST to /api/control, saved in the state folder (never in the config file).
 'use strict';
 
-const DEVICE_TONE = { ready: 'ok', busy: 'accent', waiting: 'warn', offline: 'bad', held: 'warn', call: 'warn' };
-const DEVICE_CHIP = { held: 'paused', call: 'Paused: phone call' };
+const DEVICE_TONE = { person: 'warn', ready: 'ok', busy: 'accent', waiting: 'warn', offline: 'bad', held: 'warn', call: 'warn' };
+const DEVICE_CHIP = { held: 'paused', call: 'Paused: phone call', person: 'in use by a person — waiting' };
 
 async function control(body, failText) {
     try {
@@ -47,7 +47,9 @@ function blockedHours(d) {
     const h = d.hours;
     const link = el('a', { class: 'link', href: `#settings/devices.${d.name}.hours`, text: h ? 'Change' : 'Set blocked hours' });
     const text = h ? `Not used ${h.window}${h.days ? ` on ${h.days.join(', ')}` : ' every day'} (local time). ` : 'No blocked hours. ';
-    return el('p', { class: 'row__note' }, text, link);
+    const dnd = d.dnd_now || d.dnd_schedule ? ` Do Not Disturb ${d.dnd_now ? 'on now' : 'off now'}${d.dnd_schedule ? `, usually ${d.dnd_schedule}` : ''}.` : '';
+    const night = d.night ? ` Night mode ${d.night.hours} (1 % brightness, volume 0). ` : '';
+    return el('p', { class: 'row__note' }, text, link, dnd, night, d.night ? el('a', { class: 'link', href: '#settings/night.enabled', text: 'Change' }) : null);
 }
 
 function pausedBy(p) {

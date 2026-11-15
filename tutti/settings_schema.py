@@ -27,7 +27,7 @@ SECTIONS = [
     ('main', 'Main agent', 'Who conducts `tutti conduct` and who takes over when its quota runs out.', ['main']),
     ('machines', 'Machines', 'The computers that run heavy commands, their slot queues and how commands run there.',
      ['machines', 'routing.order', 'runner', 'sync', 'files', 'guard']),
-    ('devices', 'Devices', 'Android devices for end-to-end runs, and when a run may start on them.', ['devices']),
+    ('devices', 'Devices', 'Android devices for end-to-end runs, and when a run may start on them.', ['devices', 'night']),
     ('autopilot', 'Autopilot', 'Backlog tasks sent to accounts that are behind their pace; retries climb the ladder.',
      ['autopilot', 'autopilot.repos']),
     ('fleet', 'Local models', 'Every machine\'s Ollama as a worker; they take tasks while the online accounts are spared '
@@ -203,6 +203,10 @@ FIELDS = {
     'devices.*.wireless': field('Wireless adb', 'host:port addresses tried after USB: LAN first, then the VPN.', 'list',
                                 item='host:port'),
     'devices.*.machine': field('Plugged into', 'The machine the device is reached from.', 'select', choices_from='machines'),
+    'night.enabled': field('Night mode', 'While Tutti holds or works an Android device in the night hours: 1 % brightness, every '
+                           'volume at 0 (the alarm stays yours); your own values come back at hand-back.', 'switch'),
+    'night.hours': field('Night hours', 'Local hours HH-HH, e.g. 22-08.', 'text'),
+    'night.devices': field('Night mode on', 'The devices it applies to; empty: every device.', 'list', choices_from='devices'),
     'devices.*.hours': field('Blocked hours', 'Daily local hours when the device is not used at all, e.g. {window: "22-07", '
                              'days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none.', 'yaml'),
     'devices.*.kind': field('Kind', 'Set by `tutti devices pair`: phone, tablet or tv.', 'select', choices=['phone', 'tablet', 'tv']),

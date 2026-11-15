@@ -58,6 +58,9 @@ def normalise(cfg):
         d['name'] = name
         d.setdefault('machine', local or first)
         d['lock'] = lock_path(name, d)
+        n = cfg.get('night') or {}
+        d['_night'] = {'on': n.get('enabled', True) is not False and (not n.get('devices') or name in n['devices']),
+                       'hours': n.get('hours') or '22-08'}
         cfg['devices'][name] = d
 
 
@@ -85,6 +88,11 @@ def errors(cfg):
         if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0):
             errs.append(f'{where}.external_lock_stale_minutes is {v!r}: minutes after which another tool\'s lock counts as left behind')
         errs += wireless_errors(where, d.get('wireless'))
+    try:
+        from . import hours as _h
+        _h.parse((cfg.get('night') or {}).get('hours') or '22-08')
+    except ValueError as e:
+        errs.append(f'night.hours: {e}')
     return errs
 
 
@@ -246,6 +254,9 @@ def status(pol, r, serial=''):
         return 'call', f'Paused: phone call ({CALL_WORDS[r["call"]]}); runs start again after it ends'
     if why:
         return 'waiting', why
+    if r.get('person') == 1:
+        return 'person', ('in use by a person — waiting: Tutti sends nothing and starts nothing until it has been idle '
+                          f'{r.get("idle_minutes", 3):g} min (devices.<d>.idle_minutes)')
     if r.get('locked') == 1:
         return 'busy', 'a run holds it; the next run waits for it'
     if r.get('external') == 1:
@@ -286,8 +297,16 @@ def external_wrap(found, command, who='tutti'):
                                      *(prep.release_script(d, p, stale) for d, (p, stale) in zip(found, locks, strict=True))) if x)
     setup = prep.scripts(found)[0]
     wake = '; '.join(prep.unlock(d) for d in found)
-    return (f'{waits}{take}{register}trap {shlex.quote(release)} EXIT && {setup + "; " if setup else ""}{wake}; {awake}'
-            f'echo \'tutti: device ready\' && {{ {command}; }}; exit $?')
+    watch = ''.join(prep.person_watch(d) for d in found)
+    used = ' || '.join(prep.person_recent(d) for d in found)
+    # a person picks the device up: the run ends cleanly and its shard is queued again (shards.PERSON), nothing undone
+    guard = (f'while kill -0 $cmd 2>/dev/null; do if {used}; then echo "{PERSON_LINE}"; kill -TERM -- -$cmd 2>/dev/null; '
+             f'break; fi; sleep 5; done; ')
+    return (f'{waits}{take}{register}trap {shlex.quote(release)} EXIT && {setup + "; " if setup else ""}{wake}; {watch}{awake}'
+            f'echo \'tutti: device ready\'; setsid bash -c {shlex.quote(command)} & cmd=$!; {guard}wait $cmd; exit $?')
+
+
+PERSON_LINE = 'tutti: a person is using the device: the run stops and is queued again, nothing they changed is undone'
 
 
 def readings_command(device, scripts_dir, wake=False):
@@ -296,9 +315,10 @@ def readings_command(device, scripts_dir, wake=False):
     env = f'DEVICE_SERIAL={serial_expr(device)} DEVICE_LOCK={remote.home_path(device["lock"])}'
     if device.get('adb'):
         env += f' ADB={shlex.quote(device["adb"])}'
+    from . import prep
     if device.get('prep'):
-        from . import prep
         env += f' PREP_SAVED={prep.saved_path(device)}'
+    env += f' PERSON={prep.person_path(device)} IDLE_S={prep.idle_seconds(device)}'
     if external_lock(device):
         stale = int(float(device.get('external_lock_stale_minutes', EXTERNAL_STALE_MINUTES)) * 60)
         env += f' EXT_LOCK={shlex.quote(external_lock(device))} EXT_STALE={stale}'
@@ -308,10 +328,65 @@ def readings_command(device, scripts_dir, wake=False):
 def device_state(d, readings):
     pol = policy(d)
     st, reason = status(pol, readings, d['serial'])
-    keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi', 'call', 'external_by', 'prep_left', 'revived')
+    keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi', 'call', 'external_by', 'prep_left', 'revived', 'dnd')
     return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'kind': d.get('kind', 'phone'), 'status': st,
-            'reason': reason, 'hours': d.get('hours'),
+            'reason': reason, 'hours': d.get('hours'), 'night': (d.get('_night') or {}) if (d.get('_night') or {}).get('on') else None,
             'policy': pol, **{k: readings.get(k) for k in keep}}
+
+
+DND_FILE = 'devices-dnd.json'
+
+
+def learn_dnd(seen, name, dnd, now):
+    """Counts, per local hour, how often the device's Do Not Disturb was on: its own schedule, learned (no app exposes it)."""
+    from . import tz
+    h = str(tz.local_now(now).hour)
+    rec = seen.setdefault(name, {})
+    on, n = rec.get(h, [0, 0])
+    rec[h] = [on + (1 if dnd else 0), n + 1]
+    return seen
+
+
+def dnd_hours(rec, min_seen=3, share=0.7):
+    """'22-07' from the learned counts: the longest run of hours (wrapping midnight) on at least `share` of the looks;
+    '' while not known."""
+    on = [h for h in range(24) if (rec.get(str(h)) or [0, 0])[1] >= min_seen and rec[str(h)][0] >= share * rec[str(h)][1]]
+    if not on:
+        return ''
+    best = (0, 0)
+    for start in on:
+        if (start - 1) % 24 in on:
+            continue
+        n = 0
+        while (start + n) % 24 in on and n < 24:
+            n += 1
+        best = max(best, (n, start))
+    n, start = best
+    return f'{start:02d}-{(start + n) % 24:02d}' if n < 24 else '00-24'
+
+
+def dnd_view(cfg, rows, now=None, learn=True):
+    """Adds `dnd_now` and the learned `dnd_schedule` to each device row (the device card shows them)."""
+    import json
+    path = os.path.join(config.state_dir(cfg), DND_FILE)
+    try:
+        with open(path, encoding='utf8') as f:
+            seen = json.load(f)
+    except (OSError, ValueError):
+        seen = {}
+    now = time.time() if now is None else now
+    for r in rows:
+        if learn and r.get('dnd') is not None:
+            learn_dnd(seen, r['name'], r['dnd'], now)
+        r['dnd_now'] = r.get('dnd') not in (None, 0)
+        r['dnd_schedule'] = dnd_hours(seen.get(r['name']) or {})
+    if learn:
+        try:
+            with open(path, 'w', encoding='utf8') as f:
+                json.dump(seen, f)
+        except OSError:
+            pass
+    return rows
 
 
 def devices_state(cfg, readings_fn):

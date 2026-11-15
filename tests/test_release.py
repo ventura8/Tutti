@@ -45,7 +45,8 @@ class Base(unittest.TestCase):
         self.set('screen_brightness_mode', '1')
         self.set('vol', '9')
         self.env = {**os.environ, 'HOME': self.tmp, 'FAKE': self.tmp}
-        self.d = {'name': 'pixel', 'serial': 'S1', 'kind': 'phone', 'adb': self.adb}
+        # the day's prep (night mode off): the tests run at any hour
+        self.d = {'name': 'pixel', 'serial': 'S1', 'kind': 'phone', 'adb': self.adb, '_night': {'on': False}}
 
     def set(self, key, value):
         with open(os.path.join(self.tmp, 'settings', key), 'w', encoding='utf8') as f:
@@ -152,6 +153,92 @@ class LeaseTest(Base):
         self.assertIn('leased to map', r.stdout)
         os.remove(self.claim('map'))
         self.bash(prep.release_script(self.d))
+
+
+class PersonTest(Base):
+    """A person picks the device up during a run: Tutti stops, requeues, sends nothing, and undoes nothing of theirs."""
+
+    def person(self, ago=0):
+        d = os.path.join(self.tmp, '.tutti', 'devices', 'pixel')
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'person'), 'w', encoding='utf8') as f:
+            f.write(str(int(time.time()) - ago))
+
+    def test_a_persons_own_change_is_kept_at_release(self):
+        self.bash(prep.prep_script(self.d))
+        self.set('screen_brightness', '150')   # the owner turned it up while setting an alarm
+        r = self.bash(prep.release_script(self.d))
+        self.assertIn('kept screen_brightness at 150: changed by a person', r.stdout)
+        self.assertEqual((self.get('screen_brightness'), self.get('vol')), ('150', '9'))   # Tutti's own volume went back
+
+    def test_a_person_stops_the_run_which_is_queued_again(self):
+        line = devices.external_wrap([{**self.d, 'prep_defaults': False}], f'touch {self.tmp}/started; sleep 30; touch {self.tmp}/ended')
+        log = os.path.join(self.tmp, 'run.log')
+        with open(log, 'w', encoding='utf8') as f:   # a file, not a pipe: a background loop must not hold the test open
+            child = subprocess.Popen(['bash', '-c', line], env=self.env, stdout=f, stderr=f, start_new_session=True)
+        time.sleep(1)
+        self.person()
+        try:
+            child.wait(timeout=20)
+        finally:
+            subprocess.run(['pkill', '-g', str(child.pid)], check=False)   # the session's leftovers, by its group id
+        with open(log, encoding='utf8') as f:
+            out = f.read()
+        self.assertIn(devices.PERSON_LINE, out)
+        self.assertTrue(os.path.exists(f'{self.tmp}/started'))
+        self.assertFalse(os.path.exists(f'{self.tmp}/ended'))
+        self.assertTrue(shards.judge({}, out, 143).startswith(shards.REQUEUE))
+
+    def test_no_keep_awake_key_while_a_person_uses_it_and_the_card_says_so(self):
+        self.person()
+        old = prep.KEEP_AWAKE_SECONDS
+        prep.KEEP_AWAKE_SECONDS = 0.2
+        self.addCleanup(setattr, prep, 'KEEP_AWAKE_SECONDS', old)
+        self.bash(f'{{ {prep.keep_awake(self.d)} & }}; sleep 1; kill $!')
+        self.assertEqual([x for x in self.log() if 'KEYCODE_UNKNOWN' in x], [])
+        st, why = devices.status(devices.E2E_POLICY, {'adb': 'ok', 'state': 'device', 'battery': 80, 'charging': 1,
+                                                     'battery_c': 30, 'person': 1})
+        self.assertEqual(st, 'person')
+        self.assertIn('in use by a person — waiting', why)
+
+
+class NightTest(Base):
+    """Night mode: 1 % brightness and every volume at 0 while Tutti works a device at night; the alarm stays the person's."""
+
+    def night(self, **kw):
+        return {**self.d, '_night': {'on': True, 'hours': '00-24', **kw}}   # a whole-day window: night whatever the hour
+
+    def test_at_night_brightness_is_1_and_every_volume_0_and_the_alarm_is_left(self):
+        names = {it['name']: it['value'] for it in prep.items(self.night())}
+        self.assertEqual((names['screen_brightness'], names['screen_brightness_mode']), (1, 0))
+        self.assertEqual({names[n] for n in ('media volume', 'ring volume', 'notification volume', 'system volume')}, {0})
+        self.assertFalse(any('--stream 4' in it['set'] for it in prep.items(self.night())))   # 4: the alarm
+        self.assertEqual({it['name']: it['value'] for it in prep.items(self.d)}['screen_brightness'], 77)   # by day
+
+    def test_off_or_not_listed_means_the_day_settings(self):
+        self.assertFalse(prep.night_now(self.night(on=False)))
+        from tutti import devices as dv
+        cfg = {'machines': {'pc': {'transport': 'local'}}, 'devices': {'a': {'serial': 'x'}, 'b': {'serial': 'y'}},
+               'night': {'enabled': True, 'hours': '22-08', 'devices': ['a']}}
+        dv.normalise(cfg)
+        self.assertEqual((cfg['devices']['a']['_night']['on'], cfg['devices']['b']['_night']['on']), (True, False))
+
+    def test_a_night_prep_is_put_back_by_a_day_release(self):
+        self.bash(prep.prep_script(self.night()))
+        self.assertEqual((self.get('screen_brightness'), self.get('vol')), ('1', '0'))
+        r = self.bash(prep.release_script(self.d))   # the release happens after 08:00: the day's list
+        self.assertIn('tutti: device released pixel', r.stdout)
+        self.assertEqual((self.get('screen_brightness'), self.get('screen_brightness_mode'), self.get('vol')), ('200', '1', '9'))
+
+
+class DndTest(unittest.TestCase):
+    def test_the_devices_own_dnd_schedule_is_learned_across_midnight(self):
+        rec = {str(h): [5, 5] for h in (22, 23, 0, 1, 2, 3, 4, 5, 6)}
+        rec.update({str(h): [0, 5] for h in range(7, 22)})
+        self.assertEqual(devices.dnd_hours(rec), '22-07')
+        self.assertEqual(devices.dnd_hours({'3': [1, 1]}), '')   # too few looks: not known yet
+        seen = devices.learn_dnd({}, 'pixel', 1, 1_800_000_000)
+        self.assertEqual(sum(v[0] for v in seen['pixel'].values()), 1)
 
 
 class KeepAwakeTest(Base):

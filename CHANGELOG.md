@@ -6,6 +6,28 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.10.0 (2026-11-15)
+
+### Added
+
+- Night mode for Android devices, on by default (`night: {enabled, hours: 22-08, devices: []}`): while Tutti holds or
+  works a device in those hours it runs at 1 % brightness with every volume at 0 (music and Cast, ring, notification,
+  system; the alarm stays the person's own), in place of the day's brightness and volume. The person's own values come
+  back at hand-back, a night prep is put back by a day release (the saved file keys items by name now), and a person's
+  changes are never undone. `tutti devices night [on|off|hours 22-08|only <d,...>|all]`, Settings (*Night mode*) and the
+  device card.
+- A device's own Do Not Disturb: the readings report it (`settings global zen_mode`) and its schedule is learned per
+  local hour (Android exposes no rule list to adb); the device card shows "Do Not Disturb on now, usually 22-07".
+
+### Fixed
+
+- A person who picks up a device during a run (the owner setting an alarm on the phone) is noticed and left alone:
+  `getevent` sees only physical touches and keys (the test's taps and Tutti's keep-awake key are injected and never reach
+  it). The run stops cleanly and its shard is queued again (not a failure); no key is sent; nothing starts on the device
+  until it has been idle `devices.<d>.idle_minutes` (3). The device card says "in use by a person — waiting".
+- A setting a person changed while the device was in use is never undone: at release an item goes back only while it
+  still has the value Tutti set (an alarm, their brightness stay).
+
 ## 0.9.7 (2026-11-15)
 
 ### Fixed

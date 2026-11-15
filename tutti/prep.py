@@ -10,6 +10,7 @@ group 1 is it), `set` has {value}; `cap: true` only lowers (a volume already at 
 nothing (a binary the device lacks) skips the item cleanly: never set what cannot be put back. Pure shell generation."""
 import re
 import shlex
+import time
 
 NULL = 'null'   # what `settings get` prints for a key that is not set: restored by `settings delete`
 
@@ -27,26 +28,81 @@ DEFAULTS['tablet'] = DEFAULTS['phone']
 KEEP_AWAKE_SECONDS = 15   # the phone's admin policy caps the screen timeout at 5 min: a harmless key every 15 s keeps it on
 
 
-def wanted(device):
-    """The device's prep list: the defaults of its kind, then its own `prep:` (an item with a default's name replaces it)."""
+# Night mode (devices.night, on by default 22-08): while Tutti holds or works a device at night it runs at 1 % brightness
+# with every volume stream at 0 (music, ring, notification, system; the alarm stays the person's own); Cast plays on the
+# music stream. It replaces the brightness and volume items of the day.
+NIGHT_HOURS = '22-08'
+STREAMS = {1: 'system volume', 2: 'ring volume', 3: 'media volume', 5: 'notification volume'}
+
+
+def _stream(n, name, value, cap=False):
+    return {'name': name, 'read': f'cmd media_session volume --stream {n} --get', 'parse': r'volume is (\d+)',
+            'set': f'cmd media_session volume --stream {n} --set {{value}}', 'value': value, 'cap': cap}
+
+
+NIGHT = [{'setting': 'system screen_brightness_mode', 'value': 0}, {'setting': 'system screen_brightness', 'value': 1},
+         *(_stream(n, name, 0) for n, name in STREAMS.items())]
+
+
+def night_now(device, now=None):
+    """True while the device's night mode applies now (devices.<d>._night, filled from the config's `night:`)."""
+    from . import hours
+    n = device.get('_night') or {'on': True, 'hours': NIGHT_HOURS}
+    if not n.get('on'):
+        return False
+    try:
+        return hours.window(n.get('hours') or NIGHT_HOURS, None, time.time() if now is None else now) is not None
+    except ValueError:
+        return False
+
+
+def _touches(x, words):
+    text = ' '.join(str(x.get(k, '')) for k in ('setting', 'set', 'name'))
+    return any(w in text for w in words)
+
+
+def wanted(device, night=None):
+    """The device's prep list: the defaults of its kind, then its own `prep:` (an item with a default's name replaces it);
+    at night (night_now) the brightness and volume items give way to NIGHT."""
     own = list(device.get('prep') or [])
     if device.get('prep_defaults') is False:
-        return own
-    names = {x.get('name') or str(x.get('setting', '')).split(None, 1)[-1] for x in own}
-    base = [x for x in DEFAULTS.get(device.get('kind') or 'phone', []) if (x.get('name') or x['setting'].split()[-1]) not in names]
-    return base + own
+        base = []
+    else:
+        names = {x.get('name') or str(x.get('setting', '')).split(None, 1)[-1] for x in own}
+        base = [x for x in DEFAULTS.get(device.get('kind') or 'phone', []) if (x.get('name') or x['setting'].split()[-1]) not in names]
+    out = base + own
+    if night_now(device) if night is None else night:
+        out = [x for x in out if not _touches(x, ('screen_brightness', '--stream', 'volume'))] + NIGHT
+    return out
 
 
-def items(device):
+def items(device, night=None):
     out = []
-    for i, x in enumerate(wanted(device)):
+    for i, x in enumerate(wanted(device, night)):
         if 'setting' in x:
             ns, key = str(x['setting']).split(None, 1)
-            out.append({'name': x.get('name') or key, 'read': f'settings get {ns} {key}', 'set': f'settings put {ns} {key} {{value}}',
+            out.append({'name': x.get('name') or key, 'key': _key(x.get('name') or key), 'read': f'settings get {ns} {key}',
+                        'set': f'settings put {ns} {key} {{value}}',
                         'delete': f'settings delete {ns} {key}', 'value': x['value'], 'parse': '', 'cap': bool(x.get('cap'))})
         else:
-            out.append({'name': x.get('name') or f'item{i}', 'read': x['read'], 'set': x['set'], 'delete': '', 'value': x['value'],
+            out.append({'name': x.get('name') or f'item{i}', 'key': _key(x.get('name') or f'item{i}'), 'read': x['read'],
+                        'set': x['set'], 'delete': '', 'value': x['value'],
                         'parse': x.get('parse') or '', 'cap': bool(x.get('cap'))})
+    return out
+
+
+def _key(name):
+    """The saved file's key of an item: its name in one word (the day and the night lists differ, so never an index)."""
+    return re.sub(r'\W', '_', str(name))
+
+
+def all_items(device):
+    """Every item a prep may have saved, day and night: what a release may have to put back."""
+    seen, out = set(), []
+    for it in items(device, False) + items(device, True):
+        if it['key'] not in seen:
+            seen.add(it['key'])
+            out.append(it)
     return out
 
 
@@ -100,17 +156,17 @@ def prep_script(device):
     # a saved file already there holds the device's own values (another run still uses it, or a crash): never read again,
     # or the prepared values would become the "originals"
     reads = [f'mkdir -p "$(dirname {f})"', f': > {f}.tmp']
-    for i, it in enumerate(its):
+    for it in its:
         reads.append(f'v=$({_read(device, it)})')
         bad = 'grep -qiE "not found|inaccessible|unknown|error|exception|usage:"'
-        reads.append(f'if [ -n "$v" ] && ! printf "%s" "$v" | {bad}; then printf "%s\\t%s\\n" {i} "$v" >> {f}.tmp; '
+        reads.append(f'if [ -n "$v" ] && ! printf "%s" "$v" | {bad}; then printf "%s\\t%s\\n" {it["key"]} "$v" >> {f}.tmp; '
                      f'else echo "tutti: prep {it["name"]} skipped: the device does not answer {shlex.quote(it["read"])}"; fi')
     reads.append(f'mv {f}.tmp {f}')
     lines = [f'if [ ! -e {f} ]; then {"; ".join(reads)}; fi']
-    for i, it in enumerate(its):
+    for it in its:
         value = shlex.quote(str(it['value']))
         set_line = f'{_adb(device)} {shlex.quote(it["set"].replace("{value}", str(it["value"])))} > /dev/null 2>&1'
-        cond = f'v=$(awk -F"\\t" \'$1 == {i} {{print $2}}\' {f}); [ -n "$v" ]'
+        cond = f'v=$(awk -F"\\t" \'$1 == "{it["key"]}" {{print $2}}\' {f}); [ -n "$v" ]'
         if it['cap']:
             cond += f' && ! {{ [ "$v" -le {value} ] 2>/dev/null; }}'
         lines.append(f'if {cond}; then {set_line} && echo "tutti: prep {it["name"]}: $v -> {it["value"]}"; fi')
@@ -119,16 +175,26 @@ def prep_script(device):
 
 def restore_script(device):
     """Puts back exactly the values saved by prep_script and removes the file; nothing when no file is there."""
-    its = items(device)
+    its = all_items(device)
     if not its:
         return ''
     f = saved_path(device)
+    values = {}
+    for it in items(device, False) + items(device, True):   # Tutti's own values, day and night
+        values.setdefault(it['key'], set()).add(str(it['value']))
+    legacy = {it['key']: str(i) for i, it in enumerate(items(device, False))}   # a file written by 0.9.7 or older
     cases = []
-    for i, it in enumerate(its):
+    for it in its:
         put = f'{_adb(device)} "$(printf %s {shlex.quote(it["set"])} | sed "s|{{value}}|$v|")" > /dev/null 2>&1'
         if it['delete']:
             put = f'if [ "$v" = {NULL} ]; then {_adb(device)} {shlex.quote(it["delete"])} > /dev/null 2>&1; else {put}; fi'
-        cases.append(f'{i}) {put} && echo "tutti: restored {it["name"]} to $v";;')
+        # a person's own change while the device was in use (an alarm, the brightness) is never undone: an item goes back
+        # only while it still has the value Tutti set
+        same = ' || '.join(f'[ "$c" = {shlex.quote(v)} ]' for v in sorted(values[it['key']]))
+        mine = f'c=$({{ {_read(device, it)}; }} < /dev/null); {{ {same}; }}'
+        label = it['key'] + (f'|{legacy[it["key"]]}' if it['key'] in legacy else '')
+        cases.append(f'{label}) if {mine}; then {put} < /dev/null && echo "tutti: restored {it["name"]} to $v"; '
+                     f'else echo "tutti: kept {it["name"]} at $c: changed by a person"; fi;;')
     return (f'if [ -e {f} ]; then while IFS="$(printf "\\t")" read -r i v; do case "$i" in {" ".join(cases)} esac; done < {f}; '
             f'rm -f {f}; fi')
 
@@ -169,8 +235,10 @@ def lease_script(device, claim, minutes, who):
             f'awk -v g={shlex.quote(guid)} \'$1 == g && $2 ~ /_adb-tls-connect/ {{print $3; exit}}\'); '
             'echo "ADDR=${a:-unknown}"; ') if guid else f'echo "ADDR={device["serial"]}"; '
     loop = (f'while [ -e {claim} ] && [ $(cat {claim}) -gt $(date +%s) ]; do '
-            f'{_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; sleep {KEEP_AWAKE_SECONDS}; done')
-    awake = f'nohup bash -c {shlex.quote(loop)} > /dev/null 2>&1 &'
+            f'{person_recent(device)} || {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; sleep {KEEP_AWAKE_SECONDS}; done')
+    watch = (f'while [ -e {claim} ]; do if {_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .; '
+             f'then mkdir -p "$(dirname {person_path(device)})"; date +%s > {person_path(device)}; sleep 1; fi; done')
+    awake = f'nohup bash -c {shlex.quote(loop)} > /dev/null 2>&1 & nohup bash -c {shlex.quote(watch)} > /dev/null 2>&1 &'
     return (f'{release_script(device)} > /dev/null; '   # left-behind runs and lapsed leases are cleared first
             f'mkdir -p {u}; others=$(ls -A {u} | grep -vx "$(basename {claim})" | tr "\\n" " "); '
             f'if [ -n "$others" ]; then echo "tutti: {device["name"]} is in use by $others: try again when it is free"; exit 3; fi; '
@@ -178,9 +246,39 @@ def lease_script(device, claim, minutes, who):
             f'{addr}echo "SERIAL={device["serial"]}"; echo "tutti: {device["name"]} leased to {who} for {int(minutes)} min"')
 
 
+IDLE_MINUTES = 3   # a person's use pauses Tutti on the device until it has been idle this long (devices.<d>.idle_minutes)
+
+
+def person_path(device):
+    """The file whose time is a person's last touch or key on the device (written by person_watch), on its machine."""
+    from . import remote
+    return remote.home_path(f'~/.tutti/devices/{device["name"]}/person')
+
+
+def idle_seconds(device):
+    return int(float(device.get('idle_minutes', IDLE_MINUTES)) * 60)
+
+
+def person_watch(device):
+    """A background loop that notices a person: `getevent` sees only physical touches and keys (the test's own taps and
+    Tutti's keep-awake key are injected and never reach it), and each one writes its time to person_path."""
+    p = person_path(device)
+    one = f'{_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .'
+    loop = f'while :; do if {one}; then date +%s > {p}; sleep 1; fi; done'
+    return f'mkdir -p "$(dirname {p})"; {{ {loop} & }}; '
+
+
+def person_recent(device):
+    """A shell test: true while a person touched the device within its idle time."""
+    p = person_path(device)
+    return f'{{ [ -e {p} ] && [ $(( $(date +%s) - $(cat {p} 2>/dev/null || echo 0) )) -lt {idle_seconds(device)} ]; }}'
+
+
 def keep_awake(device):
     """The keep-awake loop of a run (backgrounded by the caller): a harmless key every 15 s while the run lasts."""
-    return (f'while :; do {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; sleep {KEEP_AWAKE_SECONDS}; done')
+    # no key while a person uses it: Tutti stops sending input and leaves the device alone
+    return (f'while :; do {person_recent(device)} || {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; '
+            f'sleep {KEEP_AWAKE_SECONDS}; done')
 
 
 def unlock(device):

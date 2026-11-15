@@ -572,5 +572,6 @@ def runs_today(cfg):
 def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, stored_fn=None, readings_fn=None):
     """The slow part, run off the request path: every machine (and the files it stores) and every worker."""
     return {'machines': machines_state(cfg, probe_fn, stored_fn), 'machines_at': clock(),
-            'devices': devices.devices_state(cfg, readings_fn or (lambda m, d: {'state': 'unreachable'})),
+            'devices': devices.dnd_view(cfg, devices.devices_state(cfg, readings_fn or (lambda m, d: {'state': 'unreachable'})),
+                                        learn=readings_fn is not None),
             'workers': workers_state(cfg, available_fn, which), 'workers_at': clock()}

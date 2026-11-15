@@ -113,10 +113,11 @@ off, or `{hours: 6, stop_at: 95, pace_gap_hours: 6, min_gap_hours: 3, burst_per_
   (`min_gap_hours` and once more at most in the burst). With the room left, **reviews**: every open pull request of
   `review_repos` (default: the projects' `repo` and the review trial's repositories) not reviewed by the scout since it last
   changed.
-- **Behind its pace, useful work fills the room.** While the scout's account is behind its pace (its allowance would be
-  lost at the reset), watches run again after `min_gap_hours`, each queued backlog task not started yet gets one
+- **Behind its pace, useful work fills the room.** While the scout's account is behind its pace or late (its allowance
+  would be lost at the reset), watches run again after `min_gap_hours`, each queued backlog task not started yet gets one
   **scouting** question (the files it touches, the risk, the simplest approach, a check), and after the reviews each pull
-  request merged in the last 7 days gets one **audit** on that pull request. The Do line says how many items are ready
+  request merged in the last 7 days gets one **audit** on that pull request. A scouting question whose send failed is
+  asked again next round; a failed audit keeps its record and is sent again after 6 hours, at most 3 times. The Do line says how many items are ready
   now and how many only later (it used to add them up, so "6 useful items ready" sent nothing).
 - `per_tick`, `max_open` and the points left before `stop_at` still hold; nothing is sent at 100 %, in panic or spent.
 

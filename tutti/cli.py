@@ -795,6 +795,26 @@ def cmd_guard(cfg, a):
     return subprocess.run([os.path.join(SCRIPTS, 'memguard.sh')], env=env).returncode
 
 
+def cmd_selfheal(cfg, a):
+    """`tutti selfheal [--once] [--json]`: today's repairs, or one round of every check here."""
+    from . import selfheal
+    if a.once:
+        lines = selfheal.round_(selfheal.Ctx(cfg))
+        if a.json:
+            print(json.dumps({'repairs': lines}))
+            return 0
+        say('\n'.join(lines) or 'self-heal: nothing repaired this round (a step only a person can take is in `tutti needs`)')
+        return 0
+    v = selfheal.view(cfg)
+    if a.json:
+        print(json.dumps(v))
+        return 0
+    say(f'self-healed: {v["today"]} today')
+    for r in v['items']:
+        say(f'  {time.strftime("%H:%M", time.localtime(r["at"]))} {r["host"]} {r["check"]}: {r["what"]}')
+    return 0
+
+
 def cmd_tunnel(cfg, a):
     w = worker_of(cfg, a.worker, 'ollama')
     t = w.get('tunnel')
@@ -1585,6 +1605,9 @@ def parser():
     s.add_argument('value')
     s.add_argument('--job', help='the job: its log, or the dashboard id quiet:<log> (default: $TUTTI_PROGRESS_FILE, set by tutti quiet)')
     add('guard', cmd_guard, 'pause test containers when memory runs low, resume them when it is back')
+    s = add('selfheal', cmd_selfheal, 'self-healing (docs/SELFHEAL.md): what was repaired today, or run every check now')
+    s.add_argument('--once', action='store_true', help='run every check and repair now, on this machine')
+    s.add_argument('--json', action='store_true')
     s = add('tunnel', cmd_tunnel, 'the self-healing ssh tunnel to a worker\'s model server')
     s.add_argument('action', choices=['start', 'stop', 'status'])
     s.add_argument('worker')

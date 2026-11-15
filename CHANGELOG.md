@@ -6,6 +6,28 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.15.0 (2026-11-15)
+
+### Added
+
+- Self-healing (docs/SELFHEAL.md, the owner, 2026-11-15): every `selfheal.every_seconds` (300) on each machine running the
+  failover round, ten checks each with its repair: declared needs installed, worker CLIs present and signed in (a
+  `login_check`), ollama up with its models, tunnels up, the adb server and wireless devices, disk and inodes, the
+  dashboard, state files (their snapshot), the config (its last good backup) and self-update. Every repair is logged;
+  the Machines card shows "Self-healed: N today" with the details; `tutti selfheal [--once]`. Only a person's step (sign
+  in, a root command, room the disk still lacks) becomes one Needs-you item.
+- Declared needs (backlog t95): `needs:` per project, suite and worker (npm, pip, Playwright browsers, ollama models,
+  docker images by digest, dotnet workloads, pinned downloads with sha256, apt). A dispatched suite installs its needs on
+  its machine before it runs; a missing tool is installed at user level, never piped into a shell, not reported as a
+  failure; what needs root is one admin command in Needs you. Unpinned needs are config errors.
+
+### Fixed
+
+- Temp janitor (backlog t86): Tutti's own left-over temp folders (`tutti-tests-*`, `tutti-t-*`, `tutti-review-*` and
+  `tmpXXXXXXXX` folders holding only Tutti test files) older than 2 h are removed every self-heal round, in the temp
+  folder, `~/.cache/tutti-tmp` and `selfheal.temp_dirs`; the test helper names its folders `tutti-t-*`. This replaces the
+  stopgap cron.
+
 ## 0.14.1 (2026-11-15)
 
 ### Fixed

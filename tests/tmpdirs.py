@@ -9,6 +9,7 @@ _running = []   # the test tests/run.py is running now
 
 
 def mkdtemp(**kw):
+    kw.setdefault('prefix', 'tutti-t-')   # a Tutti temp folder is named so: the self-heal janitor knows it (t86)
     d = tempfile.mkdtemp(**kw)
     if _running:
         _running[-1].addCleanup(shutil.rmtree, d, True)

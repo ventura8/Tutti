@@ -640,6 +640,21 @@ function storedFiles(name, st) {
     return d;
 }
 
+// what self-healing repaired today (tutti/selfheal.py, docs/SELFHEAL.md): a count, the details folded
+function renderSelfHeal(h) {
+    const box = $('machines-selfheal');
+    if (!box || !h) return;
+    const head = `Self-healed: ${h.today} today`;
+    if (!h.items.length) { box.replaceChildren(el('p', { class: 'row__note', text: `${head}. Nothing needed repairing.` })); return; }
+    const d = el('details', { class: 'stored', keep: 'selfheal' });
+    d.append(el('summary', { text: head }), el('ul', { class: 'stored__list' }, ...h.items.map((r) => el('li', {},
+        el('span', { class: 'stored__name', text: `${r.host} · ${r.check}` }),
+        el('span', { text: `${r.what} · ${relative(new Date(r.at * 1000).toISOString())}` })))));
+    const hadFocus = box.contains(document.activeElement);
+    box.replaceChildren(d);
+    if (hadFocus) d.querySelector('summary')?.focus({ preventScroll: true });   // keyboard users keep their place
+}
+
 function renderMachines(s) {
     const ms = s.machines;
     $('machines-meta').textContent = ms.probed_at ? `Probed ${relative(ms.probed_at)}` : 'Probing…';
@@ -653,6 +668,7 @@ function renderMachines(s) {
             : `Main machine: ${fo.main}. No backup main machine yet: pick one in Settings, Machines, or let Tutti pick.`;
         foLine.dataset.tone = fo.may_write ? '' : 'bad';
     }
+    renderSelfHeal(s.selfheal);
     $('machines-disk').replaceChildren(...(s.disk || []).map((t) => el('p', { class: 'row__note', 'data-tone': 'bad', role: 'alert', text: t })));
     // A re-render replaces the rows: the stored-files toggle that had focus gets it back (keyboard users keep their place).
     const focused = document.activeElement?.closest?.('.stored')?.dataset.machine;

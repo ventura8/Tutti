@@ -6,6 +6,23 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.11.0 (2026-11-15)
+
+### Added
+
+- Work follows the devices that are here: a device that is away (a planned absence, presence lost, a person using it, its
+  blocked hours, paused) has its pending shards moved to devices that can run them (the same form factor, the API level
+  and capabilities a suite asks for with `requires:`); work no other device fits waits with the reason, and it all goes
+  back when the device returns. The dashboard says it ("Pixel 9 Pro away (planned absence): 3 shards moved to
+  pixeltablet, 1 waits for it"), each change is an event and a line in `<state>/devices/moves.jsonl` (docs/DISPATCH.md).
+- Paired devices: `devices.<d>.roles: [cast-receiver|cast-sender]` and a suite's `pair: {role: cast-receiver}` hold a
+  partner device, so both are leased at once; `tutti devices claim <a> <b> --who <s>` leases a pair, both or none.
+- Cast roles detected, not typed (tutti/castroles.py): a device is a receiver (a TV, the Cast receiver service, or Play
+  services' mirroring receiver: a Pixel Tablet's hub mode, a phone) and a sender (Play services' Cast on a device with a
+  screen), read once a day and at pairing; a Windows, Linux or macOS machine is a sender with Chrome, Chromium or the
+  project's desktop sender (`machines.<m>.desktop_sender`). The device and machine cards show it; `roles:` overrides. A
+  Cast suite (`pair: {role: cast-receiver, sender: true}`) runs on any sender here with any receiver here.
+
 ## 0.10.1 (2026-11-15)
 
 ### Security

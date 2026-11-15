@@ -147,6 +147,8 @@ def cmd_claim(cfg, a):
     if a.action == 'claim' and (a.minutes or 0) < 1:
         say(f'--minutes {a.minutes}: a lease lasts at least 1 minute; give --minutes 1 or more (the default is 120)')
         return 2
+    if len(a.names) > 1:   # a paired lease (a Cast sender and its receiver): all of them, or none
+        return claim_together(cfg, a)
     d = devices.of(cfg, a.names[0])
     claim = f'{prep.users_path(d)}/claim-{"".join(c if c.isalnum() or c in "-_." else "_" for c in a.who)}'
     if a.action == 'claim':
@@ -166,6 +168,26 @@ def cmd_claim(cfg, a):
     if a.action == 'release':
         dispatch.announce_free(cfg, dispatch.released(r.stdout))
     return 0 if r.returncode == 0 else 1
+
+
+def claim_together(cfg, a):
+    """`tutti devices claim <a> <b> ... --who <s>`: every device claimed (each prints its ADDR), or, when one is busy,
+    the ones already taken are released again and the exit is 3; `release` with several names releases each."""
+    import copy
+    done, rc = [], 0
+    for name in a.names:
+        one = copy.copy(a)
+        one.names = [name]
+        rc = cmd_claim(cfg, one)
+        if rc != 0 and a.action == 'claim':
+            for back in done:
+                again = copy.copy(a)
+                again.names, again.action = [back], 'release'
+                cmd_claim(cfg, again)
+            say(f'{name} could not be claimed: the pair is not leased (the others were released again)')
+            return rc
+        done.append(name)
+    return rc
 
 
 def cmd_install(cfg, a):

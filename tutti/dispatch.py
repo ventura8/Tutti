@@ -60,6 +60,7 @@ def suites(cfg):
             out.append({'project': pname, 'name': sname, 'kind': s.get('kind', 'e2e'), 'targets': list(s.get('targets') or ['machine']),
                         'run': s.get('run', ''), 'shards': shards.names(s), 'shard_opts': shards.options(s),
                         'shards_from': s.get('shards_from'), 'prepare': s.get('prepare'), 'verdict': s.get('verdict'),
+                        'requires': s.get('requires'), 'pair': s.get('pair'),
                         'started': s.get('started'), 'requeue_on': list(s.get('requeue_on') or []),
                         'dir': s.get('dir'), 'devices': s.get('devices'), 'machines': s.get('machines'),
                         'pause': s.get('pause'), 'resume': s.get('resume'),
@@ -209,6 +210,9 @@ def pending(cfg, st, now=None):
 def compatible(target, w):
     if target['kind'] not in w['targets']:
         return False
+    pair = w.get('pair') if isinstance(w.get('pair'), dict) else {}
+    if pair.get('sender') and 'cast-sender' not in (target.get('roles') or []):
+        return False   # a Cast suite runs on a sender: a device or a machine with Chrome or the desktop sender
     if w.get('pin'):   # an admin moved it (tutti/jobmove.py): to this target, or to any of its kind, over the suite's own list
         return w['pin'] in (ANY, target['id'])
     names = w['devices'] if target['kind'] in DEVICE_KINDS else w['machines']
@@ -654,6 +658,13 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
         pend = pending(cfg, st, now)
         held = {**cooling(st, now), **calls.holds(cfg, st, devices_rows, now)}
         tgts = targets(devices_rows, machine_rows, st, held, gone)
+        pend = follow_devices(cfg, st, now, pend, devices_rows, gone)
+        with contextlib.suppress(Exception):   # Cast roles of the machines (tutti/castroles.py), asked once a day
+            from . import castroles
+            mroles = castroles.machine_roles(cfg, now)
+            droles = {d['name']: d.get('roles') or [] for d in devices_rows or []}
+            for t in tgts:
+                t['roles'] = (mroles if t['kind'] == 'machine' else droles).get(t['name'], [])
         from . import diskroom
         low = diskroom.problems(cfg) if '_disk' not in cfg else cfg['_disk']   # a full disk: nothing new starts, as in quiet hours
         p = plan(cfg, st, tgts, pend, on, lambda t: low[0] if low else quiet_now(cfg, now, t.get('zone') or ''),
@@ -708,6 +719,31 @@ def hand_over_now(cfg, kind, name):
     """A planned absence started: the target's running jobs go to the next machine, device or worker (handover)."""
     from . import handover
     return handover.stop_now(config.load(cfg['_path']), kind, name)
+
+
+AWAY_STATUS = {'held': 'paused or away', 'person': 'a person is using it', 'offline': 'not reachable'}
+
+
+def follow_devices(cfg, st, now, pend, devices_rows, gone):
+    """The pending shards of devices that went away move to devices that can run them (tutti/reroute.py); the dashboard
+    and the projects are told when that changes (an event, <state>/devices/moves.jsonl)."""
+    from . import reroute
+    away = {d['name']: AWAY_STATUS[d['status']] for d in devices_rows or [] if d.get('status') in AWAY_STATUS}
+    away.update({tid.split(':', 1)[1]: 'away' for tid in (gone or {}) if tid.startswith('device:')})
+    pend, report = reroute.plan(cfg, pend, away)
+    roles = {d['name']: d.get('roles') or [] for d in devices_rows or []}
+    pend = [reroute.paired(cfg, w, away, roles) for w in pend]
+    lines = reroute.summary(cfg, report, away)
+    if lines != st.get('reroute', []):
+        for line in lines or ['every device is back: its shards are its own again']:
+            event(st, now, line)
+        with contextlib.suppress(KeyError, OSError):
+            out = os.path.join(config.state_dir(cfg), 'devices')
+            os.makedirs(out, exist_ok=True)
+            with open(os.path.join(out, 'moves.jsonl'), 'a', encoding='utf8') as f:
+                f.write(json.dumps({'at': now, 'lines': lines, 'report': report}) + '\n')
+    st['reroute'] = lines
+    return pend
 
 
 def restore_left(cfg, st, rows, now, sh=None):
@@ -914,7 +950,8 @@ def view(cfg, now=None):
                          'counts': counts, 'failed': failed[:20]})
     projects.sort(key=lambda x: (x['priority'], x['name']))
     return {'enabled': s.get('enabled', True) is not False, 'idle_minutes': s.get('idle_minutes', 5), 'projects': projects,
-            'warnings': st['warnings'], 'leases': list(st['leases'].values()), 'events': st['events'][:10], 'last': st.get('last'),
+            'warnings': st['warnings'], 'reroute': st.get('reroute', []), 'leases': list(st['leases'].values()),
+            'events': st['events'][:10], 'last': st.get('last'),
             'suites': len(suites(cfg)), 'at': now}
 
 

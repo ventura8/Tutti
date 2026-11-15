@@ -207,6 +207,8 @@ FIELDS = {
                            'volume at 0 (the alarm stays yours); your own values come back at hand-back.', 'switch'),
     'night.hours': field('Night hours', 'Local hours HH-HH, e.g. 22-08.', 'text'),
     'night.devices': field('Night mode on', 'The devices it applies to; empty: every device.', 'list', choices_from='devices'),
+    'devices.*.roles': field('Roles', 'What the device is for other devices: cast-receiver (a Cast target), cast-sender.', 'list',
+                             item='role'),
     'devices.*.hours': field('Blocked hours', 'Daily local hours when the device is not used at all, e.g. {window: "22-07", '
                              'days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none.', 'yaml'),
     'devices.*.kind': field('Kind', 'Set by `tutti devices pair`: phone, tablet or tv.', 'select', choices=['phone', 'tablet', 'tv']),

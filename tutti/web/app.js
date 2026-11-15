@@ -802,7 +802,8 @@ function prLines(prs) {
     if (!prs) return [];
     const lines = prs.items.map(prLine);
     for (const r of (prs.releases || []).slice(0, 1)) {
-        lines.push(el('p', { class: 'row__note', text: `Latest release: ${r.name}${r.published ? ` (${r.published.slice(0, 10)})` : ''}${r.draft ? ', a draft' : ''}` }));
+        const when = r.published ? ' (' + r.published.slice(0, 10) + ')' : '';
+        lines.push(el('p', { class: 'row__note', text: `Latest release: ${r.name}${when}${r.draft ? ', a draft' : ''}` }));
     }
     if (prs.error) lines.push(el('p', { class: 'row__note', text: `Pull requests of ${prs.repo} not read: ${prs.error}` }));
     return lines;

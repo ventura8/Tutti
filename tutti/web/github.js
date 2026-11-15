@@ -20,10 +20,12 @@ function githubNote(text) {
 }
 
 function githubShow(st) {
+    const fallback = {
+        household: 'Not connected: Tutti uses the household\'s connection for you.',
+        gh: 'Not connected: Tutti uses the GitHub CLI\'s sign-in on the dashboard\'s computer.',
+    };
     const how = st.connected ? `Connected as ${st.login || 'your account'}.`
-        : st.source === 'household' ? 'Not connected: Tutti uses the household\'s connection for you.'
-        : st.source === 'gh' ? 'Not connected: Tutti uses the GitHub CLI\'s sign-in on the dashboard\'s computer.'
-        : 'Not connected: Tutti cannot reach GitHub for you yet.';
+        : (fallback[st.source] || 'Not connected: Tutti cannot reach GitHub for you yet.');
     const parts = [el('p', { class: 'row__note', text: how })];
     if (st.connected) {
         parts.push(el('a', { href: st.install_url, target: '_blank', rel: 'noopener noreferrer', text: 'Choose the repositories Tutti may use' }));
@@ -50,7 +52,7 @@ async function githubWait(interval) {
             return;
         }
         githubNote(`Connected as ${done.login}.`);
-        githubRefresh();
+        await githubRefresh();
     } catch (err) {
         githubNote(err.message);
     }
@@ -75,7 +77,7 @@ async function githubDisconnect() {
     try {
         await githubPost('disconnect');
         githubNote('Disconnected here. To revoke it on GitHub too, open github.com/settings/apps/authorizations.');
-        githubRefresh();
+        await githubRefresh();
     } catch (err) {
         githubNote(err.message);
     }
@@ -85,5 +87,5 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!$('my-github')) return;
     $('my-github-connect').addEventListener('click', githubConnect);
     $('my-github-disconnect').addEventListener('click', githubDisconnect);
-    githubRefresh();
+    void githubRefresh();
 });

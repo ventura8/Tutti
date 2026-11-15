@@ -836,7 +836,7 @@ def _self_posts():
             '/api/browser': browsercmd.post,   # the work browser: any signed-in user, for the admin's sites
             needs.API: lambda c, h, b: needs.post(c, h, b),   # questions: the viewer's own answers and settings
             API_REPORT: lambda c, h, b: report.api(c, b, sub=_sub_of(c, h)),   # filed under the person's own GitHub
-            github.API: github.api}   # Connect GitHub: the person's own connection
+            github.ROUTE: github.api}   # Connect GitHub: the person's own connection
 
 
 SELF_POSTS = _self_posts()

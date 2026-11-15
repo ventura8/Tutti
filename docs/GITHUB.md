@@ -51,7 +51,9 @@ spent, until GitHub's reset time.
 `tutti/github.py` is the only place Tutti talks to GitHub. Callers keep their `gh`-shaped argv (`gh pr create`, `gh pr
 merge --match-head-commit`, `gh pr view --json state`, `gh pr ready`, `gh issue create`, `gh auth status`) and pass
 `github.run` where they used `subprocess.run`; it answers them with the REST and GraphQL API when a token exists and hands
-anything else (maintainer tools: review threads, Copilot reviews) to the real `gh`. Tests use a fake API
+anything else to the real `gh`. A merge goes through the API only when it is pinned to the reviewed commit
+(`--match-head-commit`). Still on `gh` (maintainer features, not needed by a household): self-improvement's reads of a
+pull request's gates (`gh pr view --json state,isDraft,...`, review threads over `gh api graphql`) and `tutti pr review`. Tests use a fake API
 (`tests/test_github.py`); nothing reaches GitHub.
 
 ## The official App (the maintainer, once)

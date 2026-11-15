@@ -36,7 +36,7 @@ TOKEN_VARS = ('GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPR
 # the App's permissions: least privilege for what Tutti does (open, merge and read pull requests; file issues; read CI)
 PERMISSIONS = {'contents': 'write', 'pull_requests': 'write', 'issues': 'write', 'checks': 'read', 'actions': 'read',
                'metadata': 'read'}
-API = '/api/github'
+ROUTE = '/api/github'   # the dashboard's POST (API is GitHub's own address)
 APP_SLUG = 'tutti-orchestrator'
 MAX_FLOWS = 20
 LOW_RATE = 20   # below this many calls left, only the household's own polls wait for the reset
@@ -55,7 +55,7 @@ def client_id(cfg):
     return own or str(official.release().get('github_client_id') or '').strip()
 
 
-def client_secret(cfg):
+def client_secret():
     """The App's client secret when the release carries one (GitHub asks for it to refresh a token), else ''."""
     from . import official
     return str(official.release().get('github_client_secret') or '').strip()
@@ -124,20 +124,33 @@ def form_post(url, fields, http=None):
         return status, {}
 
 
+REVOKED = ('bad_refresh_token', 'invalid_grant', 'unauthorized_client', 'incorrect_client_credentials')
+_refresh_lock = threading.Lock()   # refresh tokens are single use: one refresh at a time, the file re-read inside
+
+
 def refresh(cfg, sub, rec, http=None, clock=time.time):
-    """A fresh record for an expired token, or {} (the person reconnects; the file is removed)."""
+    """A fresh record for an expired token, or {}. The file is removed only when GitHub says the refresh token is dead (or it
+    expired); a network failure or a 5xx keeps it for the next call."""
     if not rec.get('refresh_token') or (rec.get('refresh_expires_at') and rec['refresh_expires_at'] <= clock()):
         forget(cfg, sub)
         return {}
     fields = {'client_id': client_id(cfg), 'grant_type': 'refresh_token', 'refresh_token': rec['refresh_token']}
-    if client_secret(cfg):
-        fields['client_secret'] = client_secret(cfg)
-    status, answer = form_post(TOKEN_URL, fields, http)
-    if status != 200 or not answer.get('access_token'):
-        forget(cfg, sub)
+    if client_secret():
+        fields['client_secret'] = client_secret()
+    try:
+        status, answer = form_post(TOKEN_URL, fields, http)
+    except GitHubError:
         return {}
-    save(cfg, sub, answer, rec.get('login') or '', clock)
-    return _read(token_path(cfg, sub))
+    if status == 200 and answer.get('access_token'):
+        save(cfg, sub, answer, rec.get('login') or '', clock)
+        return _read(token_path(cfg, sub))
+    if answer.get('error') in REVOKED:
+        forget(cfg, sub)
+    return {}
+
+
+def _expired(rec, clock):
+    return bool(rec and rec.get('expires_at') and rec['expires_at'] - 60 <= clock())
 
 
 def user_token(cfg, sub, http=None, clock=time.time):
@@ -145,8 +158,11 @@ def user_token(cfg, sub, http=None, clock=time.time):
     if not sub:
         return '', ''
     rec = _read(token_path(cfg, sub))
-    if rec and rec.get('expires_at') and rec['expires_at'] - 60 <= clock():
-        rec = refresh(cfg, sub, rec, http, clock)
+    if _expired(rec, clock):
+        with _refresh_lock:
+            rec = _read(token_path(cfg, sub))   # another thread may have refreshed it meanwhile
+            if _expired(rec, clock):
+                rec = refresh(cfg, sub, rec, http, clock)
     return (rec.get('access_token') or '', rec.get('login') or '') if rec else ('', '')
 
 
@@ -389,6 +405,8 @@ def repo_of_remote(url):
 
 def repo_of_worktree(wt, run=subprocess.run):
     from . import worktree
+    if not wt:
+        raise GitHubError('no repository was named: pass --repo owner/name')
     r = run([worktree.git_bin(), '-C', wt, 'remote', 'get-url', 'origin'], capture_output=True, text=True, check=False)
     repo = repo_of_remote(r.stdout if r.returncode == 0 else '')
     if not repo:
@@ -406,6 +424,10 @@ def use(cfg):
     _current['cfg'] = cfg
 
 
+class NotCovered(Exception):
+    """A gh call the API path does not answer: the real gh runs it."""
+
+
 class Done:
     """What subprocess.run returns, for the callers that read returncode, stdout and stderr."""
 
@@ -413,18 +435,24 @@ class Done:
         self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
 
 
+VALUE_FLAGS = {'--repo', '--title', '--body', '--base', '--head', '--match-head-commit', '--json', '--jq', '--label',
+               '--body-file'}
+SHORT = {'-R': '--repo', '-t': '--title', '-b': '--body', '-B': '--base', '-H': '--head', '-q': '--jq', '-l': '--label',
+         '-F': '--body-file'}
+
+
 def flags(args):
-    """({flag: value or True}, positional) of a gh argv tail; repeated flags keep the last value."""
+    """({flag: value or True}, positional) of a gh argv tail: the flags in VALUE_FLAGS take the next word, any other flag is a
+    switch; repeated flags keep the last value."""
     out, pos, i = {}, [], 0
-    boolean = {'--draft', '--squash', '--merge', '--rebase', '--delete-branch'}
     while i < len(args):
-        a = args[i]
-        if a.startswith('-') and a not in boolean and i + 1 < len(args):
-            out[{'-R': '--repo', '-t': '--title', '-b': '--body', '-B': '--base', '-H': '--head'}.get(a, a)] = args[i + 1]
+        a = SHORT.get(args[i], args[i])
+        if a in VALUE_FLAGS and i + 1 < len(args):
+            out[a] = args[i + 1]
             i += 2
             continue
         if a.startswith('-'):
-            out[a] = True
+            out[a.split('=', 1)[0]] = a.split('=', 1)[1] if '=' in a else True
         else:
             pos.append(a)
         i += 1
@@ -449,16 +477,24 @@ def _pr(c, verb, f, pos, cwd):
         pr_ready(c, repo, number)
         return ''
     if verb == 'merge':
-        pr_merge(c, repo, number, f.get('--match-head-commit'), 'rebase' if f.get('--rebase') else
-                 'merge' if f.get('--merge') else 'squash')
+        if not f.get('--match-head-commit') or f.get('--auto') or f.get('--admin'):
+            raise NotCovered('merge')   # only a merge pinned to the reviewed commit goes through the API
+        method = 'squash'
+        if f.get('--rebase'):
+            method = 'rebase'
+        elif f.get('--merge'):
+            method = 'merge'
+        pr_merge(c, repo, number, f['--match-head-commit'], method)
+        if f.get('--delete-branch'):
+            delete_branch(c, repo, (c.request('GET', f'/repos/{repo}/pulls/{int(number)}') or {}).get('head', {}).get('ref') or '')
         return ''
     if verb == 'view' and f.get('--json') == 'state':
         return pr_state(c, repo, number) + '\n'
-    raise LookupError(verb)
+    raise NotCovered(verb)
 
 
 def _api_call(c, args, cwd, stdin):
-    """The stdout of a gh call the API can answer; LookupError when it cannot (the real gh runs it)."""
+    """The stdout of a gh call the API can answer; NotCovered when it cannot (the real gh runs it)."""
     group, verb, rest = (args + ['', ''])[0], (args + ['', ''])[1], args[2:]
     f, pos = flags(rest)
     if group == 'pr':
@@ -468,7 +504,7 @@ def _api_call(c, args, cwd, stdin):
         return issue_create(c, f['--repo'], f.get('--title') or '', body or '', [f['--label']] if f.get('--label') else ()) + '\n'
     if group == 'auth' and verb == 'status':
         return 'Logged in to github.com through Tutti\n'
-    raise LookupError(group)
+    raise NotCovered(group)
 
 
 def run(argv, cwd=None, input=None, sub=None, cfg=None, http=None, fallback=subprocess.run, clock=time.time, **kw):
@@ -481,9 +517,9 @@ def run(argv, cwd=None, input=None, sub=None, cfg=None, http=None, fallback=subp
     if tok:
         try:
             return Done(0, _api_call(Client(tok, http, clock), list(argv[1:]), cwd, input))
-        except LookupError:
+        except NotCovered:
             pass
-        except (GitHubError, KeyError, ValueError) as e:
+        except (GitHubError, KeyError, ValueError, IndexError) as e:
             return Done(1, '', str(e))
     if argv[1:3] == ['auth', 'status'] and not tok:
         return Done(1, '', 'GitHub is not connected: Connect GitHub on the Me view, or gh auth login')
@@ -546,6 +582,7 @@ class Flows:
         if error == 'slow_down':
             with self.lock:
                 flow['interval'] += 5
+                flow['next'] = now + flow['interval']
             return None
         with self.lock:
             self.waiting.pop(sub, None)

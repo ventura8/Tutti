@@ -17,7 +17,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - One GitHub client, `tutti/github.py`: the autopilot's pull requests and merges, the Projects panel's pull requests, CI,
   reviews and now the latest release, Report a problem (filed under the person's own account), `tutti doctor` and the
   releases-stuck check go through the API with the person's, the household's or `gh auth token`'s token; anything else
-  still runs through `gh`. Reads use ETags, a spent rate limit waits for GitHub's reset; no webhooks.
+  (self-improvement's gate reads and `tutti pr review`, maintainer features) still runs through `gh`. Reads use ETags, a spent rate limit waits for GitHub's reset; no webhooks.
 - `tutti github manifest` and docs/github-app.html: the official App's manifest for the maintainer to create it once.
 
 ## 0.13.1 (2026-11-15)

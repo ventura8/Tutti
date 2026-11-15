@@ -45,7 +45,7 @@ class FakeGitHub:
         return self.api(method, url, headers, body, h)
 
     def api(self, method, url, headers, body, h):
-        path = url[len(github.API):]
+        path = url[len('https://api.github.com'):]
         if path == '/user':
             return 200, h, b'{"login": "octo"}'
         if path == '/repos/o/r/pulls' and method == 'POST':
@@ -116,6 +116,51 @@ class GitHubTest(unittest.TestCase):
         self.assertTrue(github.forget(self.cfg, 'u1'))
         self.assertFalse(github.forget(self.cfg, 'u1'))
         self.assertEqual(github.token_for(self.cfg, 'u1', self.fake, self.clock, no_gh), ('', ''))
+
+    def test_a_refused_code_slow_down_and_a_transient_refresh_failure(self):
+        answers = [b'{"error": "slow_down"}', b'{"error": "access_denied"}']
+
+        def http(method, url, headers, body=None):
+            if url == github.TOKEN_URL:
+                return 200, {}, answers.pop(0)
+            return self.fake(method, url, headers, body)
+        flows = github.Flows(self.cfg, http=http, clock=self.clock)
+        flows.start('u1')
+        self.now[0] += 5
+        self.assertIsNone(flows.poll('u1'))   # slow_down: the interval grows by 5 s
+        self.now[0] += 5
+        self.assertIsNone(flows.poll('u1'))   # too soon after slow_down: GitHub is not asked
+        self.now[0] += 5
+        with self.assertRaisesRegex(github.GitHubError, 'Cancel'):
+            flows.poll('u1')
+        self.connect()
+        self.now[0] += 28800
+
+        def down(method, url, headers, body=None):
+            return 502, {}, b''
+        self.assertEqual(github.user_token(self.cfg, 'u1', down, self.clock), ('', ''))
+        self.assertTrue(os.path.exists(github.token_path(self.cfg, 'u1')))   # kept for the next call
+
+        def dead(method, url, headers, body=None):
+            return 400, {}, b'{"error": "bad_refresh_token"}'
+        self.assertEqual(github.user_token(self.cfg, 'u1', dead, self.clock), ('', ''))
+        self.assertFalse(os.path.exists(github.token_path(self.cfg, 'u1')))
+
+    def test_flags_and_an_unpinned_merge(self):
+        self.assertEqual(github.flags(['--auto', 'https://x', '-R', 'o/r', '--json=state']),
+                         ({'--auto': True, '--repo': 'o/r', '--json': 'state'}, ['https://x']))
+        self.connect()
+        seen = []
+
+        def fallback(argv, **kw):
+            seen.append(argv)
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+        github.run(['gh', 'pr', 'merge', 'https://github.com/o/r/pull/7', '--squash'], cfg=self.cfg, sub='u1', http=self.fake,
+                   clock=self.clock, fallback=fallback)
+        self.assertEqual(len(seen), 1)   # never merged through the API without the reviewed commit
+        bad = github.run(['gh', 'pr', 'ready', 'not-a-number'], cfg=self.cfg, sub='u1', http=self.fake, clock=self.clock,
+                         fallback=fallback)
+        self.assertEqual(bad.returncode, 1)
 
     def test_a_refused_code_and_an_unset_app_say_what_to_do(self):
         flows = github.Flows(cfg_of(self.folder, github={}), http=self.fake, clock=self.clock)
@@ -203,7 +248,7 @@ class GitHubTest(unittest.TestCase):
             github.parse_pr_url('https://evil.example/o/r/pull/1')
         env = github.worker_env({'GH_TOKEN': 'x', 'GITHUB_TOKEN': 'y', 'PATH': '/bin'})
         self.assertEqual(env, {'PATH': '/bin'})
-        self.assertTrue(set(github.TOKEN_VARS) <= set(workers.NOT_FOR_WORKERS))
+        self.assertLessEqual(set(github.TOKEN_VARS), set(workers.NOT_FOR_WORKERS))
         with self.assertRaisesRegex(github.GitHubError, 'outside GitHub'):
             github.urlopen_http('GET', 'https://evil.example/', {})
 
@@ -214,7 +259,7 @@ class GitHubTest(unittest.TestCase):
         self.assertTrue(github.api(c, {}, b'{"action": "poll"}', flows)[1]['pending'])
         self.assertEqual(github.api(c, {}, b'{"action": "bogus"}', flows)[0], 400)
         self.assertEqual(github.api(c, {}, b'not json', flows)[0], 400)
-        self.assertEqual(github.api(c, {}, b'{"action": "disconnect"}', flows)[1]['removed'], False)
+        self.assertFalse(github.api(c, {}, b'{"action": "disconnect"}', flows)[1]['removed'])
         self.assertFalse(github.api(c, {}, b'{"action": "status"}', flows)[1]['connected'])
         gone = SimpleNamespace(cfg=self.cfg, who=lambda h: None)
         self.assertEqual(github.api(gone, {}, b'{"action": "poll"}', flows)[0], 409)   # the owner never started one

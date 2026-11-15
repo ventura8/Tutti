@@ -59,6 +59,7 @@ from . import (
     setupcmd,
     sleepwatch,
     state,
+    stuck,
     telemetry,
     transfer,
     trial,
@@ -291,6 +292,7 @@ class Collector:
         out['telemetry'] = dashtelemetry.view(self.cfg)
         out['setup'] = setupcmd.read_report(self.cfg)
         out['work_browser'] = browsercmd.view(self.cfg)
+        out['releases_stuck'] = stuck.cached(config.ROOT)   # merged versions no release publishes: never silent
         from . import sharing  # the household (docs/HOUSEHOLD.md): its members, shared machines' use per member, fairness
         out['household'] = sharing.view(self.cfg, self.clock())
         sharing.busy_for(out['machines']['items'], out['household'])
@@ -567,7 +569,8 @@ def save_limit(collector, raw):
         return 400, {'error': 'send {"machine": "<name>", "window": "18-01" or "off", "pct": 60} as JSON'}
     pct = data.get('pct')
     if pct is not None and (isinstance(pct, bool) or not isinstance(pct, (int, float))):
-        return 400, {'error': 'pct is a number from 0 to 100'}
+        return 400, {'error': f'pct is {pct!r}: machines.{data["machine"]}.limit.pct is the share of the machine used in the '
+                              'window, a number from 0 to 100 (0: not used at all); send it as a number, or leave it out for 60'}
     try:
         changes = share.limit_change(collector.cfg, data['machine'], data['window'], pct)
     except ValueError as e:

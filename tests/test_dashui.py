@@ -58,6 +58,12 @@ class Formatter(unittest.TestCase):
         self.assertEqual(fmt('f.tuttiTidy("heading for 32.122999999999976 % by 21:00 on 0.1.64 at 3.5 h")'),
                          'heading for 32 % by 21:00 on 0.1.64 at 3.5 h')
 
+    def test_the_tidy_needs_no_lookbehind_and_keeps_the_text_around_a_number(self):
+        with open(FORMAT, encoding='utf8') as f:
+            self.assertNotIn('(?<', f.read())   # a lookbehind is a SyntaxError on Safari before 16.4
+        self.assertEqual(fmt('f.tuttiTidy("1.23456789 and (2.000001) x12.34567 v1.2.34567 9.87654")'),
+                         '1.2 and (2) x12 v1.2.34567 9.9')
+
 
 class Order(unittest.TestCase):
     def page(self):

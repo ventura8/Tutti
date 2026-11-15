@@ -81,6 +81,10 @@ class Edit(unittest.TestCase):
             self.assertIn('# the build machine', f.read())                 # the comments stay
         self.assertEqual(dashboard.save_limit(c, b'{"machine": "nuc", "window": "late"}')[0], 400)
         self.assertEqual(dashboard.save_limit(c, b'{"machine": "mars", "window": "18-01"}')[0], 400)
+        code, answer = dashboard.save_limit(c, b'{"machine": "nuc", "window": "18-01", "pct": "60"}')
+        self.assertEqual(code, 400)
+        self.assertIn("pct is '60': machines.nuc.limit.pct", answer['error'])
+        self.assertIn('from 0 to 100', answer['error'])
         code, _ = dashboard.save_limit(c, b'{"machine": "nuc", "window": "18-01", "pct": null}')   # an empty box: kept 60
         self.assertEqual((code, c.cfg['machines']['nuc']['limit']['pct']), (200, 60))
         self.assertEqual(dashboard.save_limit(c, b'{"machine": "nuc", "window": "off"}')[0], 200)

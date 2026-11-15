@@ -144,6 +144,9 @@ def cmd_claim(cfg, a):
     if not a.names or not a.who:
         say(f'name the device and who you are: tutti devices {a.action} <device> --who <session>')
         return 2
+    if a.action == 'claim' and (a.minutes or 0) < 1:
+        say(f'--minutes {a.minutes}: a lease lasts at least 1 minute; give --minutes 1 or more (the default is 120)')
+        return 2
     d = devices.of(cfg, a.names[0])
     claim = f'{prep.users_path(d)}/claim-{"".join(c if c.isalnum() or c in "-_." else "_" for c in a.who)}'
     if a.action == 'claim':
@@ -241,14 +244,17 @@ def cmd_lease(cfg, a):
         return rc
     addr = next((x[5:] for x in text.split() if x.startswith('ADDR=')), 'unknown')
     here = adbhost.Host('here', {'transport': 'local'})
+    connected = False
     try:
-        if addr != 'unknown':
-            here.adb('connect', addr, timeout=30)
-        serial = addr if addr != 'unknown' else str(cfg['devices'][a.names[0]]['serial'])
-        env = {**os.environ, 'ANDROID_SERIAL': serial}
+        problem = connect_problem(a.names[0], addr, here.adb)
+        if problem:
+            say(problem)
+            return 1
+        connected = ':' in addr
+        env = {**os.environ, 'ANDROID_SERIAL': addr}
         return subprocess.run(command, env=env, check=False).returncode
     finally:
-        if addr != 'unknown':
+        if connected:
             here.adb('disconnect', addr, timeout=30)
         a.action = 'release'
         cmd_claim(cfg, a)
@@ -285,6 +291,21 @@ def cmd_night(cfg, a):
         return 2
     print(f'night mode: {words[0]} {" ".join(words[1:])}'.strip())
     return 0
+
+
+def connect_problem(device, addr, adb):
+    """Why this computer cannot reach the leased device at `addr` (the claim's ADDR=), or None once `adb connect` worked.
+    A USB serial (no ':') needs no connect."""
+    if addr == 'unknown':
+        return (f'{device}: the device\'s wireless debugging address was not found on its machine (adb mdns saw no '
+                f'_adb-tls-connect service): turn on Wireless debugging on the device, keep it on the same network, then try again')
+    if ':' not in addr:
+        return None
+    rc, out = adb('connect', addr, timeout=30)
+    if rc == 0 and ('connected to' in out or 'already connected' in out) and 'cannot' not in out and 'failed' not in out:
+        return None
+    return (f'{device}: adb on this computer could not connect to {addr} ({(out or "").strip()[:200] or f"exit {rc}"}): '
+            f'check that this computer reaches the device\'s network (VPN, same LAN), then try again')
 
 
 ACTIONS = {'night': cmd_night, 'lease': cmd_lease, 'hours': cmd_hours, 'pair': cmd_pair, 'move': cmd_move, 'claim': cmd_claim,

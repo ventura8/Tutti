@@ -129,14 +129,15 @@ def extra_watches(sc, requests, acc, now, until=None):
 
 
 def behind(acc):
-    """The scout's allowance would be lost at its reset: its account is behind its pace (pacing's verdict)."""
-    return bool(acc) and acc.get('verdict') == 'behind'
+    """The scout's allowance would be lost at its reset: its account is behind its pace or late (pacing's verdict)."""
+    return bool(acc) and acc.get('verdict') in ('behind', 'late')
 
 
 def scouting(cfg, requests, name):
     """While the scout is behind its pace: a scouting question per queued backlog task not scouted yet (no attempt yet), so
     the quota that would be lost at the reset prepares the coding agents' work."""
-    asked = {r.get('backlog') for r in requests if r['scout'] == name and r.get('scouting')}
+    # a send that failed asked nothing: that task is scouted again next round
+    asked = {r.get('backlog') for r in requests if r['scout'] == name and r.get('scouting') and r.get('status') != 'failed'}
     return [{'kind': 'scouting', 'ref': t['id'], 'project': config.project_of_repo(cfg, t['repo']),
              'task': SCOUTING.format(repo=t['repo'], title=t['title'][:300])}
             for t in backlog.load(cfg)['tasks']
@@ -359,11 +360,16 @@ def reviews(cfg, name, acc, left, gh_fn=scouts.gh, post_fn=scouts.post, env=None
     return events
 
 
+MERGED_LIMIT = 500   # gh pr list has no --paginate: a bound well above a busy repository's merges in AUDIT_DAYS
+AUDIT_RETRY_HOURS = 6   # a failed audit send waits this long before its record is sent again
+AUDIT_TRIES = 3   # then it is left failed: the round's line says so and nothing piles up
+
+
 def merged_prs(repo, gh_fn=scouts.gh, days=AUDIT_DAYS, now=None):
     """[(number, url)] of the pull requests merged in the last `days`, newest first, or [] when GitHub cannot be asked."""
     since = time.strftime('%Y-%m-%d', time.gmtime((now or time.time()) - days * 86400))
     rc, out, _ = gh_fn(['pr', 'list', '--repo', repo, '--state', 'merged', '--search', f'merged:>={since}', '--json', 'number,url',
-                        '--limit', '30'])
+                        '--limit', str(MERGED_LIMIT)])
     try:
         return [(int(p['number']), p['url']) for p in json.loads(out or '[]')] if rc == 0 else []
     except (ValueError, KeyError, TypeError):
@@ -371,25 +377,50 @@ def merged_prs(repo, gh_fn=scouts.gh, days=AUDIT_DAYS, now=None):
 
 
 def audits(cfg, name, acc, left, gh_fn=scouts.gh, post_fn=scouts.post, env=None, now=None):
-    """Outside the scouts lock: an audit of each pull request merged lately that the scout has not audited, at most `left`."""
+    """An audit of each pull request merged lately that the scout has not audited, at most `left`. The request is made
+    under the scouts lock and sent outside it. A failed send keeps its record: it is sent again after AUDIT_RETRY_HOURS,
+    at most AUDIT_TRIES times, never as a new record each round."""
+    now = now or time.time()
     sc = scouts.settings(cfg, name)
-    url_, key = scouts.secrets(sc, env)
+    try:
+        url_, key = scouts.secrets(sc, env)
+    except scouts.ScoutError as e:
+        return [f'scout week: audits not sent: {e}']
     events = []
     for repo in review_repos(cfg, name):
-        done = {r.get('issue') for r in scouts.load(cfg)['requests']
-                if r['scout'] == name and r.get('audit') and r.get('repo') == repo
-                and r['status'] != 'failed'}   # a failed send is tried again next round
+        prior = {r.get('issue'): r for r in scouts.load(cfg)['requests']
+                 if r['scout'] == name and r.get('audit') and r.get('repo') == repo}
         for number, url in merged_prs(repo, gh_fn, now=now):
-            if left <= 0 or number in done:
+            old = prior.get(number)
+            if left <= 0 or (old and not retry_audit(old, now)):
                 continue
+            r = reserve_audit(cfg, sc, old, repo, number, url, now)
+            try:
+                scouts.send(sc, r, url_, key, gh_fn, post_fn, now)
+            except scouts.ScoutError as e:
+                r.update(status='failed', why=str(e))
             with scouts.locked(cfg) as data:
-                r = scouts.new_request(data, sc, AUDIT.format(url=url, repo=repo, number=number, days=AUDIT_DAYS), 'review',
-                                       repo=repo, skill='review', now=now)
-                r.update(issue=number, url=url, extra=True, audit=True)   # answered on the pull request, as a review
-                try:
-                    scouts.send(sc, r, url_, key, gh_fn, post_fn, now)
-                except scouts.ScoutError as e:
-                    r.update(status='failed', why=str(e))
+                scouts.find(data, r['id']).update(r)
             left -= r['status'] == 'waiting'
             events.append(f'scout week: audit {r["id"]} {r["status"]}: {url}')
     return events
+
+
+def retry_audit(r, now):
+    """A failed audit is sent again after AUDIT_RETRY_HOURS, at most AUDIT_TRIES sends in all; any other is done."""
+    # a record left `queued` by a send that never happened (a crash between reserve and send) is retried the same way
+    return (r.get('status') in ('failed', 'queued') and r.get('tries', 1) < AUDIT_TRIES
+            and now - float(r.get('sent') or r.get('added') or 0) >= AUDIT_RETRY_HOURS * 3600)
+
+
+def reserve_audit(cfg, sc, old, repo, number, url, now):
+    """Under the scouts lock: the audit's record (the failed one again, or a new one); a copy to send outside the lock."""
+    with scouts.locked(cfg) as data:
+        if old:
+            r = scouts.find(data, old['id'])
+            r.update(status='queued', why=None, tries=r.get('tries', 1) + 1)
+        else:
+            r = scouts.new_request(data, sc, AUDIT.format(url=url, repo=repo, number=number, days=AUDIT_DAYS), 'review',
+                                   repo=repo, skill='review', now=now)
+            r.update(issue=number, url=url, extra=True, audit=True, tries=1)   # answered on the pull request, as a review
+        return dict(r)

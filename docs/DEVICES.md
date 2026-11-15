@@ -107,10 +107,13 @@ adb disconnect <ADDR>
 ssh nuc tutti devices release googletv --who roradio                # its own settings come back when it was the last user
 ```
 
-The claim is exclusive (another claim or run gets exit 3 with who holds it), preps the device (its own values saved
-once), wakes it and keeps it awake while the lease lasts, and ends by itself at `--minutes` if the requester never
-releases it. Where Tutti and its config are on the requester's computer, one command does all four steps:
-`tutti devices lease googletv --who roradio -- <command ...>` (ANDROID_SERIAL set to the address).
+The claim is exclusive (another claim or run gets exit 3 with who holds it; two claims at the same moment take a lock,
+so only one wins), preps the device (its own values saved once), wakes it and keeps it awake while the lease lasts (one
+keep-awake loop per device, its pid in `~/.tutti/devices/<name>/awake.pid`), and ends by itself at `--minutes` (1 or
+more) if the requester never releases it: the loop then puts the device's own settings back at once. Where Tutti and
+its config are on the requester's computer, one command does all four steps:
+`tutti devices lease googletv --who roradio -- <command ...>` (ANDROID_SERIAL set to the address). It stops with the
+reason, and releases the claim, when the device's wireless address is not found or `adb connect` fails.
 
 ## Other tools that use the same devices
 

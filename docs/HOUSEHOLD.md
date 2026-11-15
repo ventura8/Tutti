@@ -204,6 +204,8 @@ A repo in `autopilot.repos` with `household: true` is a **shared project**. Its 
 
 ## Fair use of shared machines
 
+A member's own Tutti may ask for a share (weight) of at most 1; a larger one is the admin's to give (Users, Manage, share: `{"act": "weight", "args": {"weight": 2}}`), from 0.1 to 10. The coordinator keeps at most 200 shared projects and leases only tasks that exist.
+
 The coordinator turns every member's demand on each shared machine into **grants**: how many of the machine's slots each
 member's runs may hold now. A member's routing treats a shared machine where it holds its grant as full (it routes
 elsewhere or queues), so the slot queue on the machine stays first come, first served within the grants.

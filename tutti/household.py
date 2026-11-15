@@ -24,6 +24,9 @@ ACTIVE_MINUTES = 15      # a member whose last heartbeat said "prompting" within
 SEEN_MINUTES = 10        # a member heard from within this is online
 TASK_KEYS = ('title', 'scope', 'check', 'size', 'source')
 MAX_TASKS = 2000         # per shared project: the oldest closed ones leave first
+MAX_PROJECTS = 200       # shared projects in the state: a member cannot grow the file without end (audit 2026-11, L9)
+MAX_KEYS = 200           # task keys one sync may name (held, want, closed, publish)
+WEIGHT_CAP = 1           # the most a member's own Tutti may claim; more only when the admin sets it (set_weight)
 
 
 class HouseholdError(Exception):
@@ -188,7 +191,8 @@ def _clean_field(v):
 def _beat_profile(m, beat):
     w = beat.get('weight')
     if isinstance(w, (int, float)) and not isinstance(w, bool) and 0 < w <= 10:
-        m['weight'] = w
+        # a member may ask for less than its share, never more than the admin allowed (WEIGHT_CAP unless set_weight)
+        m['weight'] = min(w, m.get('weight_cap', WEIGHT_CAP))
     if 'profile' in beat:
         from tutti import fairshare
         m['profile'] = fairshare.normalise_profile(beat.get('profile') or [])
@@ -323,7 +327,7 @@ def reserve(state, pkey, project, ask, user_id, now):
     """Reserves, in the member's order of `want`, up to `room` tasks nobody else holds (all of `want` without a room)."""
     room = ask.get('room')
     room = len(ask.get('want') or []) if not isinstance(room, int) else max(0, room)
-    for key in ask.get('want') or []:
+    for key in (ask.get('want') or [])[:MAX_KEYS]:
         if room <= 0:
             break
         t = project['tasks'].get(key)
@@ -335,14 +339,15 @@ def _ask_project(state, pkey, project, ask, user_id, now, minutes):
     meta = ask.get('meta') or {}
     if isinstance(meta.get('check'), str) and meta['check'].strip():
         project['meta'] = {'check': meta['check'][:500]}
-    for task in ask.get('publish') or []:
+    for task in (ask.get('publish') or [])[:MAX_KEYS]:
         publish(project, task, user_id, now)
-    for c in ask.get('closed') or []:
+    for c in [c for c in (ask.get('closed') or []) if isinstance(c, dict)][:MAX_KEYS]:
         lease = state['leases'].get(lease_key(pkey, c.get('key'))) or {}
         close(project, c.get('key'), c.get('status'), user_id, now, lease.get('user'))
         release(state, lease_key(pkey, c.get('key')), user_id)
-    for key in ask.get('held') or []:
-        claim(state, lease_key(pkey, key), user_id, now, minutes)
+    for key in (ask.get('held') or [])[:MAX_KEYS]:
+        if key in project['tasks']:   # a lease only for a task that exists: never a key made up to fill the state
+            claim(state, lease_key(pkey, key), user_id, now, minutes)
     reserve(state, pkey, project, ask, user_id, now)
 
 
@@ -370,6 +375,8 @@ def _answer_project(state, pkey, project, user_id):
 def sync_project(state, pkey, ask, user_id, now, minutes):
     """One member's round on one shared project: publish its new tasks, close its finished ones, renew the leases of the
     tasks it runs (or has in review), reserve the ones it may start next; answer the backlog and who holds what."""
+    if pkey not in state['projects'] and len(state['projects']) >= MAX_PROJECTS:
+        raise HouseholdError(f'the household shares {MAX_PROJECTS} projects already: the admin removes old ones first')
     project = state['projects'].setdefault(pkey, {'tasks': {}})
     _ask_project(state, pkey, project, ask, user_id, now, minutes)
     expire(state, now)
@@ -692,6 +699,18 @@ def remove_member(state, caller, target_hash, now):
     audit(state, caller, target, 'remove', now)
     leave(state, target)
     state['members'][target]['removed'] = now   # a join code made before now never brings them back (taken_id)
+
+
+def set_weight(state, caller, target_hash, value, now):
+    """The admin sets how much of the shared machines a member may claim (fair share's weight, 0.1 to 10)."""
+    target = member_by_hash(state, target_hash)
+    if caller != state.get('admin'):
+        raise HouseholdError('only the household\'s admin can change a member\'s share')
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.1 <= value <= 10:
+        raise HouseholdError('a share (weight) is a number from 0.1 to 10')
+    m = state['members'][target]
+    m['weight_cap'] = m['weight'] = value
+    audit(state, caller, target, 'weight', now, detail=f'weight={value}')
 
 
 def make_admin(state, caller, target_hash, now):

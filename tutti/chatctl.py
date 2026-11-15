@@ -194,10 +194,10 @@ def _repos(cfg):
 def repo_files(path, run=subprocess.run):
     """A repository's tracked files (git ls-files), or [] when it cannot be read."""
     try:
-        out = run(['git', '-C', path, 'ls-files'], capture_output=True, text=True, timeout=5)
+        out = run(['git', '-C', path, 'ls-files', '-z'], capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired):
         return []
-    return out.stdout.splitlines() if out.returncode == 0 else []
+    return [f for f in out.stdout.split('\0') if f] if out.returncode == 0 else []
 
 
 def viewer_may(role, kind):
@@ -308,14 +308,20 @@ def edited_steps(card, edits):
 # ---- Auto: when a local model hands over to an online one (docs/CHAT.md, *Escalation*)
 
 CODE_WORDS = re.compile(r'```|\b(stack ?trace|traceback)\b|\b(write|implement|refactor|debug|fix|review)\s+'
-                        r'(?:(?:a|an|the|this|that|my|some|new|unit|failing)\s+){0,2}'
-                        r'(code|function|method|class|script|regex|tests?|bug|query|patch|diff)\b', re.I)
+                        r'(?:(?:a|an|the|this|that|my|some|new|unit|failing)\s+){0,2}'   # 'review the test results' is not code work
+                        r'(code|function|method|class|script|regex|tests?|bug|query|patch|diff)\b'
+                        r'(?!\s+(?:results?|reports?|logs?|runs?|output|summary|status|schedule|plan|times?)\b)', re.I)
 CODE_PARAMS = 14.0   # a local model smaller than this is not trusted with code
 # only at the very start of a short answer that used no tool: "I can't find any runs today" after a lookup is a real answer
-REFUSAL = re.compile(r"^\W*(sorry,?\s*)?(i can(?:no|')t (help|do|assist|answer)|i am unable to|i'm unable to|as an ai)\b", re.I)
-UNSURE = re.compile(r"^\W*(i(?:'m| am) not sure|i don't know|i do not know|i'm uncertain)\b", re.I)
+REFUSAL = re.compile(r"^\W*(sorry,?\s*)?(i can(?:no|['’])t (help|do|assist|answer)|i am unable to|i['’]m unable to|as an ai)\b", re.I)
+UNSURE = re.compile(r"^\W*(i(?:['’]m| am) not sure|i don['’]t know|i do not know|i['’]m uncertain)\b", re.I)
 SHORT = 600
 BAD_CALLS = 2
+
+
+def seen(history, turns):
+    """The history messages a model sees (chat.model_messages keeps the last `turns`)."""
+    return history[-turns:] if turns else []
 
 
 def route_reason(cand, cfg, messages, history, effort):

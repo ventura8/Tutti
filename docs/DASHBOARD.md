@@ -172,7 +172,8 @@ busy or ready and why), and the owner's switches.
 - **A planned absence**: `tutti pause device pixel9pro --from "2026-11-16 07:00" --until unknown --note "with the
   owner"` (local time; `--until` a time, or `unknown`). From 30 min before the start nothing new is scheduled on it; at
   the start its running work is handed over (as *Pause, stop now*). It ends at `--until`, or, left open, when presence
-  has seen it away and then back. The row shows **away later** or **away** with the window; Resume ends it at once.
+  has seen it away and then back. The row shows **away later** or **away** with the window; Resume ends the planned absence at once, but
+  not the device's blocked hours (below): inside a blocked window the device stays paused until the window ends.
 - **Blocked hours** (recurring): `tutti devices hours <device> 22-07[,12-13] [--days mon-fri]` (`off` removes them), the
   device card's **Set blocked hours**, or Settings (`devices.<d>.hours`). Daily local hours, all days or the listed ones,
   when the device is not used at all; a window past midnight belongs to the day it starts on. They work as a planned

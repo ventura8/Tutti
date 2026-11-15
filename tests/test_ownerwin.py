@@ -39,6 +39,9 @@ class DatedWindow(unittest.TestCase):
         c = ctx('auto', {'2026-11-16': 'off'}, now)
         self.assertEqual(owner.reserve_until(c, now, datetime(2026, 11, 16, 22, tzinfo=timezone.utc)), 0.0)
         self.assertIn('HH-HH', owner.date_errors({'2026-11-16': '8pm'})[0])
+        self.assertIn('a mapping of dates', owner.date_errors(['2026-11-16'])[0])   # a list or a string, not a crash
+        self.assertIn('a mapping of dates', owner.date_errors('2026-11-16')[0])
+        self.assertEqual(owner.date_errors(None), [])
         self.assertIn('a date such as', owner.date_errors({'16 Nov': '20-24'})[0])
         self.assertIn('a date such as', owner.date_errors({'2026-13-40': '20-24'})[0])
 

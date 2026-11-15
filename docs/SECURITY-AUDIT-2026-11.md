@@ -28,7 +28,7 @@ that needs a position on your network; **low**, hardening, or a risk that needs 
 | H1 | high | coordinator | A join with the code and another member's id (sent in clear on every request) replaced their token: their jobs, machines and role were taken; a removed member came back the same way | fixed |
 | H2 | high | household sharing | Another member's task `check` and a spare-room offer's `check` were copied into your backlog and run as shell commands by your autopilot | fixed |
 | H3 | high | dashboard, Users tab | A viewer who named the owner's member id counted as acting "for themself" and queued the owner's main machine, schedule, update or connect; a household of one did no role check at all | fixed |
-| H4 | high | dashboard without sign-in | Another login on the same computer opened 127.0.0.1, read the page's token and used Settings (worker commands run as you) | fixed (Linux) |
+| H4 | high | dashboard without sign-in | Another login on the same computer opened 127.0.0.1, read the page's token and used Settings (worker commands run as you) | fixed (Linux 0.5.1; macOS and Windows 0.10.1) |
 | H5 | high | slot.sh on a shared machine | Every job ran with umask 0 (its files writable by every login); a link planted in a lock folder made without the sticky bit created a file of the attacker's choice in the victim's home | fixed |
 | H6 | high | scouts | The first comment after the scout's question was its answer, whoever wrote it: in a public reply repository anyone queued tasks | fixed |
 | H7 | high | Sentry triage, workers | Text from Sentry events reached the worker's brief (with a "check" command), and workers inherited GH_TOKEN and the scout's webhook key | fixed (the command and the tokens); the residual risk is below |
@@ -45,18 +45,18 @@ that needs a position on your network; **low**, hardening, or a risk that needs 
 | M9 | medium | coordinator answers | Answers were not authenticated: someone answering in the coordinator's place on the LAN handed the owner jobs and the member actions | fixed: signed answers |
 | M10 | medium | slot locks in /tmp | `exec 9> /tmp/tutti-slot-N.lock` followed a planted link and truncated its target (macOS has no protected_symlinks) | fixed |
 | M11 | medium | docs | HOUSEHOLD.md said `npm i -g tutti-agents`, a name nobody has published (anyone could) | fixed in the docs; reserving the name is the owner's step |
-| L1 | low | install | The legacy `install/install.sh` and `install.ps1` pipe `main` into a shell and upgrade pip unpinned | backlog |
-| L2 | low | install | Python dependencies are pinned with `==` but not by hash; the uv and pipx channels install HEAD | backlog |
-| L3 | low | adb | Android platform-tools are downloaded without a checksum (HTTPS only) | backlog |
+| L1 | low | install | The legacy `install/install.sh` and `install.ps1` pipe `main` into a shell and upgrade pip unpinned | fixed in 0.10.1 |
+| L2 | low | install | Python dependencies are pinned with `==` but not by hash; the uv and pipx channels install HEAD | fixed in 0.10.1 |
+| L3 | low | adb | Android platform-tools are downloaded without a checksum (HTTPS only) | fixed in 0.10.1 |
 | L4 | low | move | An ssh alias with a quote or a backtick broke out of the remote grep | fixed |
 | L5 | low | config | `machines.<m>.host` starting with `-` was an ssh option | fixed (config check) |
 | L6 | low | activity scan | `/tmp/tutti-cwd.$$` listed your working folders to other logins | fixed: a private mktemp folder |
 | L7 | low | MCP | A tool argument starting with `-` was read as an option | fixed |
-| L8 | low | dashboard sign-in | `POST /api/auth/device/start` needs no session: a LAN host can spend the owner's Google device-flow quota (32 flows at most) | backlog |
-| L9 | low | household | Members report their own fair-share weight and demand; the state file has no cap on projects, tasks or lease keys | backlog |
-| L10 | low | dashboard | Viewers see the command lines of watched processes (a token typed on a command line would show) | backlog |
-| L11 | low | dashboard | Links built from data (a PR or usage URL) are not checked for `javascript:` (the CSP blocks them) | backlog |
-| L12 | low | coordinator | A join with an invite founds the household state before the invite is proved | backlog |
+| L8 | low | dashboard sign-in | `POST /api/auth/device/start` needs no session: a LAN host can spend the owner's Google device-flow quota (32 flows at most) | fixed in 0.10.1 |
+| L9 | low | household | Members report their own fair-share weight and demand; the state file has no cap on projects, tasks or lease keys | fixed in 0.10.1 |
+| L10 | low | dashboard | Viewers see the command lines of watched processes (a token typed on a command line would show) | fixed in 0.10.1 |
+| L11 | low | dashboard | Links built from data (a PR or usage URL) are not checked for `javascript:` (the CSP blocks them) | fixed in 0.10.1 |
+| L12 | low | coordinator | A join with an invite founds the household state before the invite is proved | fixed in 0.10.1 |
 | L14 | low | work browser (0.6.0) | The worker's one-task broker read a negative Content-Length to the end of the connection (loopback, after its task token) and had no socket timeout; otherwise the broker holds: DevTools only on 127.0.0.1 or a 0660 Unix socket, https scopes per task type, Tutti's own read-only extractors, `/api/browser` admin-only by the sign-in's default deny, the isolated mode's systemd sandbox | fixed in 0.9.2 |
 | L13 | low | gitleaks | The scrubber's tests hold fake AWS keys and JWTs that gitleaks flags in history | accepted: test data, no real secret |
 
@@ -156,3 +156,13 @@ that needs a position on your network; **low**, hardening, or a risk that needs 
 - pip-audit over requirements.txt and requirements-dev.txt: no known vulnerability.
 - gitleaks over the whole history: 8 hits, all the scrubber's fake test secrets (L13).
 - semgrep could not run here (its Python package fails to import `pkg_resources` on Python 3.12); not repeated.
+
+## Follow-up, 0.10.1
+
+Every remaining finding was fixed rather than filed: the source installers take the newest release tag with hash-checked
+requirements (L1, L2: `requirements.txt` and `requirements-dev.txt` carry hashes, generated from `requirements*.in`);
+platform-tools are one version checked by SHA-256 (L3); at most 6 device-flow codes a minute (L8); a member's own share is
+capped at 1 unless the admin sets it (`set_weight`, Users tab), lease keys must name existing tasks and the state holds at
+most 200 projects (L9); credentials on watched command lines are replaced before the dashboard shows them (L10); every link
+built from data goes through `safeHref` (L11); an invite join is proved before a household is founded for it (L12); H4 on
+macOS and Windows; the work browser's tab limit holds across processes. `tests/test_audit_lows.py` plays each one.

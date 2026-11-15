@@ -125,8 +125,9 @@ def config_problems(a):
 
 
 def cmd_doctor(cfg, a):
-    from . import diskroom
+    from . import diskroom, stuck
     problems = doctor.check_git() + config_problems(a) + (diskroom.problems(cfg) if cfg else [])
+    problems += [w for w in [stuck.check(remote.ROOT)] if w]   # merged versions no release publishes (docs/INSTALL.md)
     for line in problems:
         say(f'problem: {line}')
     print('doctor: ' + (f'{len(problems)} problem(s)' if problems else 'ok'))

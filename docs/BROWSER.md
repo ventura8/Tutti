@@ -59,7 +59,8 @@ Users and workers drive the work browser only through Tutti's broker (`tutti/bro
   extractor, open, close, take or refused, the site and path (never the query).
 - **Files**: in `dedicated` and `isolated` mode the browser saves downloads in one scoped folder
   (`/var/lib/tutti-browser/downloads` when isolated, `<state>/browser-downloads` when dedicated); a worker gets a file
-  only by naming it in a task whose type is listed in `browser.file_tasks` (none by default). `existing` mode leaves the
+  only by naming it in a task whose type is listed in `browser.file_tasks` (none by default), and only up to
+  `browser.max_file_mb` (50 MB; a larger file is refused with the reason). `existing` mode leaves the
   owner's Chrome downloads as they are, and gives no files; file tasks need the browser machine to be the one Tutti runs on.
 - **Workers on other machines**: `tutti browser remote <machine> <url> [--type T] [-- <command>]` serves one task type on
   127.0.0.1 with a one-time token while the worker's command runs, forwarded over Tutti's ssh link to 127.0.0.1 on that

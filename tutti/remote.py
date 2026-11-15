@@ -275,8 +275,9 @@ def lock_files(machine):
 # Seconds since a person last used the machine's graphical session (logind's idle hint of its x11 or wayland sessions; the
 # smallest wins), `-` when it has none (a headless machine: nobody at its keyboard). tutti/share.py backs off while it is short.
 IDLE = ('i=-; now=$(date +%s); for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk \'{print $1}\'); do '
-        'T=; H=; S=0; while IFS== read -r k v; do case "$k" in Type) T=$v;; IdleHint) H=$v;; IdleSinceHint) S=$v;; esac; '
-        'done < <(loginctl show-session "$s" -p Type -p IdleHint -p IdleSinceHint 2>/dev/null); '
+        # POSIX sh, no `< <( )`: an ssh command runs in the remote user's login shell, which may be dash or another sh
+        'T=$(loginctl show-session "$s" -p Type --value 2>/dev/null); H=$(loginctl show-session "$s" -p IdleHint --value 2>/dev/null); '
+        'S=$(loginctl show-session "$s" -p IdleSinceHint --value 2>/dev/null); '
         # a desktop that never sets the hint leaves IdleSinceHint at 0: not known, not "in use" (the NUC's x11, 2026-11-15)
         'case "$T" in x11|wayland) [ "${S:-0}" -gt 0 ] 2>/dev/null || continue; if [ "$H" = no ]; then v=0; else '
         'v=$(( now - S / 1000000 )); fi; if [ "$i" = - ] || [ "$v" -lt "$i" ]; then i=$v; fi;; esac; done; ')

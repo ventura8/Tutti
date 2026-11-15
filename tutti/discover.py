@@ -15,7 +15,7 @@ import json
 import os
 import time
 
-from . import state
+from . import scrub, state
 
 INTERPRETERS = ('bash', 'sh', 'node', 'python3', 'python')
 PROC = '/proc'
@@ -108,7 +108,7 @@ def script_job(proc, pid, name, args, now, stall):
     log = log if log and os.path.isfile(log) else None
     updated = state.mtime(log) if log else None
     lines = state.tail(log) if log else []
-    return {'id': f'proc:{pid}', 'kind': 'script', 'title': ' '.join([name, *args])[:200], 'pid': pid, 'log': log,
+    return {'id': f'proc:{pid}', 'kind': 'script', 'title': scrub.secrets_only(' '.join([name, *args]))[:200], 'pid': pid, 'log': log,
             'cwd': link(proc, pid, 'cwd'),
             'started': state.iso(started_at(proc, pid)), 'updated': state.iso(updated),
             'idle_seconds': round(now - updated) if updated else None, 'rc': None,
@@ -129,7 +129,8 @@ def agent_job(proc, pid, name, now, cfg=None):
     cwd = link(proc, pid, 'cwd')
     outside = cfg is not None and not started_by_tutti(cfg, cwd)
     title = f'{name} in {cwd or "?"}' + (' (started outside Tutti: use tutti run auto)' if outside else '')
-    return {'id': f'agent:{pid}', 'kind': 'agent', 'title': title, 'pid': pid, 'log': None, 'outside': outside, 'cwd': cwd,
+    return {'id': f'agent:{pid}', 'kind': 'agent', 'title': scrub.secrets_only(title), 'pid': pid, 'log': None, 'outside': outside,
+            'cwd': cwd,
             'started': state.iso(started_at(proc, pid)), 'updated': None, 'idle_seconds': None, 'rc': None,
             'status': 'running', 'tail': [], 'progress': None, 'age_seconds': round(now - started_at(proc, pid))}
 
@@ -158,7 +159,7 @@ def registered_job(path, now, stall, is_alive):
     updated = state.mtime(log) if log else None
     lines = state.tail(log) if log else []
     status = state.status_of(running, updated, info.get('rc'), now, stall)
-    return {'id': f'job:{pid}', 'kind': 'job', 'title': info.get('title') or f'job {pid}', 'pid': pid, 'log': log,
+    return {'id': f'job:{pid}', 'kind': 'job', 'title': scrub.secrets_only(info.get('title') or f'job {pid}'), 'pid': pid, 'log': log,
             'started': state.iso(info.get('started')), 'updated': state.iso(updated),
             'idle_seconds': round(now - updated) if updated else None, 'rc': info.get('rc'), 'status': status,
             'ended': state.iso(state.mtime(path)) if info.get('rc') is not None else None,   # `tutti job done` rewrites the record

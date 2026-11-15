@@ -6,6 +6,52 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.10.1 (2026-11-15)
+
+### Security
+
+- Every remaining audit finding fixed (docs/SECURITY-AUDIT-2026-11.md, *Follow-up*): the source installers take the newest
+  release tag and hash-checked requirements (`requirements*.txt` now carry hashes, from `requirements*.in`); the uv and pipx
+  lines name a release tag; Android platform-tools are one version checked by SHA-256; at most 6 sign-in codes a minute
+  from the device flow; a member's own share is capped at 1 unless the admin sets it, with caps on projects and lease keys;
+  credentials on watched command lines are hidden from the dashboard; links from data are never `javascript:`; an invite
+  join is proved before a household is founded; the dashboard without sign-in serves only this login on macOS (lsof) and
+  Windows (the TCP table and the process token) too; the work browser's tab limit holds across processes.
+
+### Fixed
+
+- `release.yml`: a dispatch for a tag without a release creates the signed release; a dispatch on a branch stops with the
+  fix. v0.9.3 and v0.9.4 are published and signed.
+- `tutti doctor` and the dashboard warn "releases stuck: N merged version(s) unpublished" with why and the fix.
+
+#### Review findings left open on merged pull requests
+
+- Chat: outside Auto, two refused tool calls no longer end the answer (the model is told why and tries again; an answer
+  with only refused calls says so in plain words); the refusal and not-sure checks accept the curly apostrophe; "review
+  the test results" is no longer code work; an attachment anywhere in the history the model sees marks the answer as
+  reading untrusted data; repository file lists use `git ls-files -z`.
+- Devices lease: the requester's name and the device's values are shell-quoted; the in-use check and the claim write
+  hold a lock; one keep-awake loop per device, which restores the device as soon as the lease runs out; `tutti devices
+  lease` stops with the reason when the address is unknown or `adb connect` fails; `--minutes` must be 1 or more.
+- Needs: a default or an answer in another case names the listed option; a copied `OUTPUT>>>` in a run's output cannot
+  end the prompt's data block; the backfill words at most 5 questions per round and records telemetry only when it made
+  one; a Chat message `q3 <free text>` is no longer taken as an answer; `autopilot.stuck_minutes: 0` turns the watchdog
+  off everywhere (it was refused by the check); docs/NEEDS.md no longer names a setting `autopilot.backoff`.
+- Scout week: a `late` account counts as behind; a failed scouting send is asked again; merged pull requests are listed
+  up to 500 (was 30); audits are sent outside the scouts lock, a missing webhook secret is reported instead of ending the
+  round, and a failed audit is retried on its own record after 6 hours, at most 3 times, instead of a new record each
+  round.
+- Dashboard: the plan text's number tidy no longer uses a regex lookbehind, which broke the page on Safari before 16.4.
+- Work queue: a heavy `where: here` job waits in this computer's limited window or quiet hours like any machine's;
+  findings are matched against the whole run log (its last 8 MB when longer), not only its last 16 KB.
+- The machine-limit API names `machines.<m>.limit.pct` and its 0 to 100 range when pct is not a number;
+  `pacing.dates` that is a list or a string is a config error, not a crash.
+- The idle probe sent over ssh is POSIX sh (no bash-only `< <( )`), so a machine whose login shell is dash reports its
+  idle time again.
+- Work browser: a task takes a downloaded file only up to `browser.max_file_mb` (new setting, 50 MB), with a clear
+  refusal above it; a `read` whose `url` is not text is refused with the fix instead of failing inside.
+- docs/DASHBOARD.md: Resume ends a planned absence, not the device's blocked hours.
+
 ## 0.10.0 (2026-11-15)
 
 ### Added

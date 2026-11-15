@@ -131,7 +131,7 @@ mkdir -p "$home/versions/$version"
 tar -xzf "$tmp/$name" -C "$home/versions/$version" --strip-components 1
 say "installing Python and PyYAML into $home/venv"
 "$uv" venv --quiet --allow-existing --python 3.12 "$home/venv"
-"$uv" pip install --quiet --python "$home/venv/bin/python" -r "$home/versions/$version/requirements.txt"
+"$uv" pip install --quiet --require-hashes --python "$home/venv/bin/python" -r "$home/versions/$version/requirements.txt"
 ln -sfn "$home/versions/$version" "$home/current.new"
 mv -T "$home/current.new" "$home/current" 2> /dev/null || { rm -f "$home/current"; mv "$home/current.new" "$home/current"; }
 printf '#!/bin/sh\nexec "%s/venv/bin/python" "%s/current/bin/tutti" "$@"\n' "$home" "$home" > "$bin/tutti"

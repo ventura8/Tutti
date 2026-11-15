@@ -103,6 +103,8 @@ A model works through the same calls as the MCP tools, so a local model can do w
   answer with `ACTION {"tool": ..., "args": {...}}` lines, which the page never shows.
 - **Validation**: every call is checked against its schema (required fields, types, enums, no other fields) and against
   the names that exist here (projects, scouts, machines, devices). A bad call is not run; its error goes back to the model.
+  Outside Auto, refused calls never end the answer early: the model gets the reasons and its next rounds, and an answer
+  that only made refused calls says so in plain words.
 - Every call that changes something runs through the same server checks whichever mode is on: the role rules above, the
   viewer's daily limit, the audit line and Undo. Work it queues or starts still follows pacing and the opt-ins: a task waits
   in the backlog for an account with room, a hand-off goes through `tutti run auto`, a paid worker stays off until opted in.
@@ -159,7 +161,8 @@ Under the message box, as in a chat IDE, each starting at Auto:
   file, never outside the repository, never a file that looks like a secret). Type `@` for a list (`@map/` lists the
   project's files); arrows choose, Enter or Tab adds. What could not be read is named under the answer. Viewers mention
   what the Dashboard tab shows them (projects, jobs' lines, machines); files and job logs are for admins.
-  Mentioned content and attachments reach the model fenced as data, never instructions, and an answer that read any asks
+  Mentioned content and attachments reach the model fenced as data, never instructions, and an answer that read any
+  (an attachment on any message of the history the model sees, not only the last) asks
   before acting even in Autonomous mode, so a line in a log can never start work by itself.
 - **Attachments**: text and logs (32 KB each) and images (PNG, JPEG, WebP, GIF, 1 MB each), 3 a message; paste a screenshot
   or a long log (over 4,000 characters) and it is attached. A local model given `workers.<n>.vision: true` sees images; the

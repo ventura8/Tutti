@@ -9,7 +9,10 @@ import time
 from . import adbpair
 
 USER_TOOLS = '$HOME/.local/share/tutti/platform-tools'
-PLATFORM_TOOLS_URL = 'https://dl.google.com/android/repository/platform-tools-latest-linux.zip'
+# one version, checked: Google's repository2-3.xml lists r37.0.3's SHA-1 (e1579b28...), and its SHA-256 below was taken from
+# that verified file. A newer version is a change here (the URL and its SHA-256 together).
+PLATFORM_TOOLS_URL = 'https://dl.google.com/android/repository/platform-tools_r37.0.3-linux.zip'
+PLATFORM_TOOLS_SHA256 = '214548146cadb2ca3508143d8a1d4be4c59de5bb837253e3ede89ed74cf450d1'
 
 # Finds adb: the configured one, then PATH, the Android SDK, Tutti's own user-space copy, a Windows SDK seen from WSL.
 FIND = ('A=${ADB:-}; if [ -z "$A" ]; then for c in "$(command -v adb 2>/dev/null)" "$HOME/Android/Sdk/platform-tools/adb" '
@@ -120,7 +123,8 @@ class Host:
 
     def install_tools(self):
         """Installs Android platform-tools in user space (~/.local/share/tutti/platform-tools) on a Linux machine."""
-        body = (f'd={USER_TOOLS}; mkdir -p "$d" && t=$(mktemp -d) && curl -fsSL {PLATFORM_TOOLS_URL} -o "$t/pt.zip" && '
+        body = (f'd={USER_TOOLS}; mkdir -p "$d" && t=$(mktemp -d) && curl -fsSL --proto =https {PLATFORM_TOOLS_URL} -o "$t/pt.zip" && '
+                f'echo "{PLATFORM_TOOLS_SHA256}  $t/pt.zip" | sha256sum -c --quiet - && '
                 'python3 -c "import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$t/pt.zip" "$t" && '
                 'cp -r "$t/platform-tools/." "$d/" && chmod +x "$d/adb" && rm -rf "$t" && "$d/adb" version | head -1')
         return self.bash(body, timeout=600)

@@ -6,8 +6,8 @@ pacing and token limits, and asks a person only what only a person can decide.
 ## It keeps going
 
 - **Retries with backoff.** A failure climbs the ladder at once (another worker or machine); each further failure in a
-  row waits 1, 2, 4... minutes, at most 30 (`autopilot.backoff`). The Autopilot card says why a task waits.
-- **Watchdog.** A run whose log has not grown for `autopilot.stuck_minutes` (default 30) is ended, with everything it
+  row waits 1, 2, 4... minutes, at most 30 (fixed in the code, not a setting). The Autopilot card says why a task waits.
+- **Watchdog.** A run whose log has not grown for `autopilot.stuck_minutes` (default 30; 0 turns the watchdog off) is ended, with everything it
   started, and counted as a flaky attempt: the same step tries once more, then the ladder moves on.
 - **Crashes, restarts, sleep.** Runs from before a power-off are queued again from their worktree and their WIP refs, not
   counted (docs/PRESENCE.md).
@@ -28,12 +28,14 @@ work goes on.
 
 Tasks parked before the queue existed get their question at the dashboard's start, or with `tutti needs backfill`: a
 local model words it from the task's last failure when AI assist allows local models (docs/TELEMETRY.md), the template
-above otherwise.
+above otherwise; at most 5 per round, the rest in the next.
 
 An answer to a task that no longer waits for it (retried by hand, dropped, done) is kept and changes nothing.
 
 Answer in the Chat (`q3 retry`, or `q3` for the default), on the **My questions** card, with `tutti needs answer q3 retry`,
-or through your main agent (`pending_questions`, `answer_question`). Free words are passed to the worker as a note.
+or through your main agent (`pending_questions`, `answer_question`). Options match in any case. Free words are passed to
+the worker as a note, except in the Chat: there `q3` must be followed by one of its options, so a message such as
+"q3 looks odd, why?" is answered as a question, not taken as your answer.
 
 ## When questions reach you
 

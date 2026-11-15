@@ -45,6 +45,14 @@ function keptProps(node, props) {
     return rest;
 }
 
+// A link built from data (a pull request's or a usage page's URL) is only ever http(s), mailto, an in-page # or a path of this
+// dashboard: never javascript: or data:, whatever the data says (the CSP blocks those too; this is the second wall).
+function safeHref(v) {
+    const bare = v.replace(/[\u0000-\u0020]/g, '');   // browsers ignore these inside a scheme ("java script:", "\tjavascript:")
+    const scheme = /^[a-z][a-z0-9+.-]*:/i.exec(bare);
+    return !scheme || /^(https?|mailto):$/i.test(scheme[0]) ? v : '#';
+}
+
 function el(tag, props, ...kids) {
     const node = document.createElement(tag);
     for (const [k, v] of Object.entries(keptProps(node, props))) {
@@ -52,6 +60,7 @@ function el(tag, props, ...kids) {
         if (k === 'text') node.textContent = v;
         else if (k === 'class') node.className = v;
         else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+        else if (k === 'href' || k === 'src') node.setAttribute(k, safeHref(String(v)));
         else node.setAttribute(k, v === true ? '' : String(v));
     }
     for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) node.append(kid);
@@ -1267,6 +1276,7 @@ function render() {
     renderHousehold(s);   // household.js: the household card (shown in the Household view)
     if (s.probe_error) showBanner(s.probe_error);
     else if (ui.notice) showBanner(ui.notice);
+    else if (s.releases_stuck) showBanner(s.releases_stuck);   // merged versions no GitHub release publishes
     else if (!ui.failing) $('banner').hidden = true;
 }
 

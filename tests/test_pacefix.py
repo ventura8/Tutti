@@ -2,6 +2,7 @@
 its own badge; a window may spend over its even share while its weekly projection fits; model and effort follow the pace;
 a scout's account offers no backlog tasks and spends the rest of its allowance on scout work by itself; Cursor's meters are
 read from its account call with no owner click. Pure, except temp state folders and a fake opener."""
+import contextlib
 import io
 import json
 import os
@@ -235,8 +236,58 @@ class SpendTheRest(unittest.TestCase):
                 mock.patch.object(spendrest, 'review_repos', return_value=['o/r']):
             with mock.patch.object(scouts, 'send', side_effect=broken):
                 self.assertIn('failed', spendrest.audits(self.cfg, 'grok', grok_acc(), 3, gh, now=self.now)[0])
+                self.assertEqual(spendrest.audits(self.cfg, 'grok', grok_acc(), 3, gh, now=self.now + 60), [])   # backoff
+            later = self.now + spendrest.AUDIT_RETRY_HOURS * 3600
             with mock.patch.object(scouts, 'send', side_effect=lambda sc, r, *a, **k: r.update(status='waiting')):
-                self.assertIn('waiting', spendrest.audits(self.cfg, 'grok', grok_acc(), 3, gh, now=self.now)[0])
+                out = spendrest.audits(self.cfg, 'grok', grok_acc(), 3, gh, now=later)
+                self.assertIn('waiting', out[0])
+            audits = [r for r in scouts.load(self.cfg)['requests'] if r.get('audit')]
+            self.assertEqual([(r['status'], r['tries']) for r in audits], [('waiting', 2)])   # the same record, not a pile
+
+    def test_audits_without_the_scouts_secrets_say_so_and_send_nothing(self):
+        def missing(sc, env=None):
+            raise scouts.ScoutError('scout grok is not set up: GROK_URL not set')
+        with mock.patch.object(scouts, 'secrets', side_effect=missing), mock.patch.object(scouts, 'send') as send:
+            out = spendrest.audits(self.cfg, 'grok', grok_acc(), 3, lambda a: (0, '[]', ''), now=self.now)
+        self.assertEqual(out, ['scout week: audits not sent: scout grok is not set up: GROK_URL not set'])
+        send.assert_not_called()
+
+    def test_the_send_runs_outside_the_scouts_lock_and_merged_prs_asks_for_many(self):
+        held, depth, calls = [], [0], []
+        orig = scouts.locked
+
+        @contextlib.contextmanager
+        def watched(cfg):
+            depth[0] += 1
+            try:
+                with orig(cfg) as data:
+                    yield data
+            finally:
+                depth[0] -= 1
+
+        def gh(args):
+            calls.append(args)
+            return (0, '[{"number": 9, "url": "https://github.example/o/r/pull/9"}]', '') if args[:2] == ['pr', 'list'] else (0, '', '')
+
+        def send(sc, r, *a, **k):
+            held.append(depth[0])
+            r.update(status='waiting')
+        with mock.patch.object(scouts, 'secrets', return_value=('https://hook.example', 'k')), \
+                mock.patch.object(scouts, 'locked', watched), mock.patch.object(scouts, 'send', side_effect=send), \
+                mock.patch.object(spendrest, 'review_repos', return_value=['o/r']):
+            spendrest.audits(self.cfg, 'grok', grok_acc(), 3, gh, now=self.now)
+        self.assertEqual(held, [0])
+        self.assertEqual(calls[0][calls[0].index('--limit') + 1], str(spendrest.MERGED_LIMIT))
+
+    def test_late_counts_as_behind_and_a_failed_scouting_send_is_asked_again(self):
+        self.assertTrue(spendrest.behind(grok_acc(verdict='late')))
+        self.assertFalse(spendrest.behind(grok_acc(verdict='ahead')))
+        with backlog.locked(self.cfg) as data:
+            backlog.add(data, backlog.new_task('tutti', 'fix the reader'))
+        recent = [{**x, 'sent': self.now - 3600} for x in self.requests]
+        failed = recent + [{'scout': 'grok', 'backlog': 't1', 'scouting': True, 'status': 'failed', 'added': self.now}]
+        items = spendrest.plan(self.cfg, self.sc, failed, grok_acc(), self.now - 2 * 86400)['items']
+        self.assertEqual([(i['kind'], i['ref']) for i in items], [('scouting', 't1')])
 
     def test_a_round_sends_within_the_caps_and_marks_the_question(self):
         with backlog.locked(self.cfg) as data:

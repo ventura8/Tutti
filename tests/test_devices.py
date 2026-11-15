@@ -325,3 +325,30 @@ class DeviceRunTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class LeaseConnectTest(unittest.TestCase):
+    """`tutti devices lease`: the requester's adb must reach the device, or the lease says why and stops."""
+
+    def test_a_working_connect_and_a_usb_serial_pass(self):
+        from tutti import devicescmd
+        self.assertIsNone(devicescmd.connect_problem('pixel', '10.0.0.5:4444', lambda *a, **k: (0, 'connected to 10.0.0.5:4444')))
+        self.assertIsNone(devicescmd.connect_problem('pixel', 'S1', lambda *a, **k: (1, 'never called')))
+
+    def test_an_unknown_address_or_a_failed_connect_is_refused_with_the_fix(self):
+        from tutti import devicescmd
+        self.assertIn('Wireless debugging', devicescmd.connect_problem('pixel', 'unknown', None))
+        why = devicescmd.connect_problem('pixel', '10.0.0.5:4444', lambda *a, **k: (0, 'failed to connect to 10.0.0.5:4444'))
+        self.assertIn('could not connect to 10.0.0.5:4444 (failed to connect', why)
+
+    def test_a_lease_shorter_than_a_minute_is_refused(self):
+        import argparse
+        import contextlib
+        import io
+
+        from tutti import devicescmd
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(err):
+            rc = devicescmd.cmd_claim({}, argparse.Namespace(action='claim', names=['pixel'], who='x', minutes=0))
+        self.assertEqual(rc, 2)
+        self.assertIn('at least 1 minute', err.getvalue())

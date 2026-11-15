@@ -15,13 +15,18 @@ tmpdirs = importlib.import_module('tmpdirs')   # the module the tests import (te
 os.environ['TUTTI_NO_DAEMONS'] = '1'   # no real keep-awake loop, tunnel or inhibitor from a test (tutti/procs.py)
 
 
+# Python's own helpers of this runner (started once by the first multiprocessing test, they end with it)
+RUNNER_HELPERS = ('multiprocessing.resource_tracker', 'multiprocessing.forkserver')
+
+
 def left_children(root):
     """Pids of this user's live processes started under this test run (TUTTI_TEST_ROOT == root), never this runner."""
     from tutti import procs
     out = []
     for name in (n for n in os.listdir('/proc') if n.isdigit()):
         p = procs.info(name)
-        if p and p['uid'] == os.getuid() and p['pid'] != os.getpid() and p['env'].get('TUTTI_TEST_ROOT') == root:
+        if p and p['uid'] == os.getuid() and p['pid'] != os.getpid() and p['env'].get('TUTTI_TEST_ROOT') == root \
+                and not any(h in ' '.join(p['argv']) for h in RUNNER_HELPERS):
             out.append(p)
     return out
 

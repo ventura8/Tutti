@@ -29,7 +29,7 @@ esac
 exit 0
 '''
 
-TV = {'name': 'tv', 'serial': 'TV1', 'machine': 'pc', 'prep': [
+TV = {'name': 'tv', 'serial': 'TV1', 'machine': 'pc', '_night': {'on': False}, 'prep': [
     {'setting': 'global stay_on_while_plugged_in', 'value': 7},
     {'setting': 'secure screensaver_enabled', 'value': 0},
     {'setting': 'system screen_off_timeout', 'value': 2147483647},

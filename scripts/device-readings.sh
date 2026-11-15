@@ -57,4 +57,7 @@ c=$(on dumpsys telephony.registry | grep -o 'mCallState=[0-9]' | cut -d= -f2 | s
 [[ -n "$c" ]] && echo "call=$c"
 s=$(on cmd wifi status)
 if printf '%s' "$s" | grep -qi 'connected to'; then echo "wifi=1"; elif [[ -n "$s" ]]; then echo "wifi=0"; fi
+# Do Not Disturb now (0 off, 1 priority only, 2 total silence, 3 alarms only): its own schedule is learned from these
+z=$(on settings get global zen_mode)
+[[ "$z" =~ ^[0-3]$ ]] && echo "dnd=$z"
 exit 0

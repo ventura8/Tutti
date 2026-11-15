@@ -254,7 +254,41 @@ def cmd_lease(cfg, a):
         cmd_claim(cfg, a)
 
 
-ACTIONS = {'lease': cmd_lease, 'hours': cmd_hours, 'pair': cmd_pair, 'move': cmd_move, 'claim': cmd_claim, 'release': cmd_claim,
+def cmd_night(cfg, a):
+    """`tutti devices night [on|off|hours <HH-HH>|only <d,...>|all]`: night mode for the devices (config `night:`)."""
+    from . import hours, settings
+    words = list(a.names or [])
+    if not words:
+        n = cfg.get('night') or {}
+        print(f'night mode: {"on" if n.get("enabled", True) is not False else "off"}, {n.get("hours") or "22-08"}, '
+              f'{", ".join(n.get("devices") or []) or "every device"}')
+        return 0
+    try:
+        if words[0] in ('on', 'off'):
+            change = (['night', 'enabled'], words[0] == 'on')
+        elif words[0] == 'hours' and len(words) == 2:
+            hours.parse(words[1])
+            change = (['night', 'hours'], words[1])
+        elif words[0] == 'only' and len(words) == 2:
+            names = [x for x in words[1].split(',') if x]
+            unknown = [x for x in names if x not in (cfg.get('devices') or {})]
+            if unknown:
+                raise ValueError(f'no device {", ".join(unknown)}: the devices are {", ".join(cfg.get("devices") or {})}')
+            change = (['night', 'devices'], names)
+        elif words[0] == 'all':
+            change = (['night', 'devices'], [])
+        else:
+            raise ValueError('use: tutti devices night [on|off|hours 22-08|only <device,...>|all]')
+        settings.store(cfg, [change])
+    except (ValueError, settings.SettingsError) as e:
+        say(f'devices night: {e}')
+        return 2
+    print(f'night mode: {words[0]} {" ".join(words[1:])}'.strip())
+    return 0
+
+
+ACTIONS = {'night': cmd_night, 'lease': cmd_lease, 'hours': cmd_hours, 'pair': cmd_pair, 'move': cmd_move, 'claim': cmd_claim,
+           'release': cmd_claim,
            'install': cmd_install}
 
 

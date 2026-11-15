@@ -45,7 +45,8 @@ class Base(unittest.TestCase):
         self.set('screen_brightness_mode', '1')
         self.set('vol', '9')
         self.env = {**os.environ, 'HOME': self.tmp, 'FAKE': self.tmp}
-        self.d = {'name': 'pixel', 'serial': 'S1', 'kind': 'phone', 'adb': self.adb}
+        # the day's prep (night mode off): the tests run at any hour
+        self.d = {'name': 'pixel', 'serial': 'S1', 'kind': 'phone', 'adb': self.adb, '_night': {'on': False}}
 
     def set(self, key, value):
         with open(os.path.join(self.tmp, 'settings', key), 'w', encoding='utf8') as f:
@@ -199,6 +200,45 @@ class PersonTest(Base):
                                                      'battery_c': 30, 'person': 1})
         self.assertEqual(st, 'person')
         self.assertIn('in use by a person — waiting', why)
+
+
+class NightTest(Base):
+    """Night mode: 1 % brightness and every volume at 0 while Tutti works a device at night; the alarm stays the person's."""
+
+    def night(self, **kw):
+        return {**self.d, '_night': {'on': True, 'hours': '00-24', **kw}}   # a whole-day window: night whatever the hour
+
+    def test_at_night_brightness_is_1_and_every_volume_0_and_the_alarm_is_left(self):
+        names = {it['name']: it['value'] for it in prep.items(self.night())}
+        self.assertEqual((names['screen_brightness'], names['screen_brightness_mode']), (1, 0))
+        self.assertEqual({names[n] for n in ('media volume', 'ring volume', 'notification volume', 'system volume')}, {0})
+        self.assertFalse(any('--stream 4' in it['set'] for it in prep.items(self.night())))   # 4: the alarm
+        self.assertEqual({it['name']: it['value'] for it in prep.items(self.d)}['screen_brightness'], 77)   # by day
+
+    def test_off_or_not_listed_means_the_day_settings(self):
+        self.assertFalse(prep.night_now(self.night(on=False)))
+        from tutti import devices as dv
+        cfg = {'machines': {'pc': {'transport': 'local'}}, 'devices': {'a': {'serial': 'x'}, 'b': {'serial': 'y'}},
+               'night': {'enabled': True, 'hours': '22-08', 'devices': ['a']}}
+        dv.normalise(cfg)
+        self.assertEqual((cfg['devices']['a']['_night']['on'], cfg['devices']['b']['_night']['on']), (True, False))
+
+    def test_a_night_prep_is_put_back_by_a_day_release(self):
+        self.bash(prep.prep_script(self.night()))
+        self.assertEqual((self.get('screen_brightness'), self.get('vol')), ('1', '0'))
+        r = self.bash(prep.release_script(self.d))   # the release happens after 08:00: the day's list
+        self.assertIn('tutti: device released pixel', r.stdout)
+        self.assertEqual((self.get('screen_brightness'), self.get('screen_brightness_mode'), self.get('vol')), ('200', '1', '9'))
+
+
+class DndTest(unittest.TestCase):
+    def test_the_devices_own_dnd_schedule_is_learned_across_midnight(self):
+        rec = {str(h): [5, 5] for h in (22, 23, 0, 1, 2, 3, 4, 5, 6)}
+        rec.update({str(h): [0, 5] for h in range(7, 22)})
+        self.assertEqual(devices.dnd_hours(rec), '22-07')
+        self.assertEqual(devices.dnd_hours({'3': [1, 1]}), '')   # too few looks: not known yet
+        seen = devices.learn_dnd({}, 'pixel', 1, 1_800_000_000)
+        self.assertEqual(sum(v[0] for v in seen['pixel'].values()), 1)
 
 
 class KeepAwakeTest(Base):

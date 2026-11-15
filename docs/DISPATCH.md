@@ -169,6 +169,11 @@ no key is sent, nothing new starts until the device has been idle `devices.<d>.i
 "in use by a person — waiting". At release an item goes back only while it still has Tutti's value: what the person
 changed (an alarm, the brightness) stays.
 
+**Night mode** (on by default, `night: {enabled: true, hours: '22-08', devices: []}`; `tutti devices night ...`, Settings
+or the device card): while Tutti holds or works a device in the night hours it runs at 1 % brightness (auto off) with every
+volume stream at 0 (music and Cast, ring, notification, system; the alarm is never touched), in place of the day's values.
+The person's own values come back at hand-back as usual.
+
 Other rules a device run keeps:
 
 - **An e2e filter is never empty.** `--grep`, `--filter`, `--tests`, `-g`, `--test-name-pattern` or a Gradle

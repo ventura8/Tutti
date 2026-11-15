@@ -163,6 +163,12 @@ Every device run is a device session (`devices.external_wrap`, `tutti/prep.py`).
 A read that gives nothing, such as a binary the device lacks (`media` on a Google TV Streamer), skips that item cleanly.
 Nothing is set that could not be put back.
 
+**A person picks it up.** `getevent` on the device sees only physical touches and keys, never the test's injected taps or
+Tutti's keep-awake key, so a person is told apart from the run. Then the run stops cleanly and its shard is queued again,
+no key is sent, nothing new starts until the device has been idle `devices.<d>.idle_minutes` (3), and the card says
+"in use by a person — waiting". At release an item goes back only while it still has Tutti's value: what the person
+changed (an alarm, the brightness) stays.
+
 Other rules a device run keeps:
 
 - **An e2e filter is never empty.** `--grep`, `--filter`, `--tests`, `-g`, `--test-name-pattern` or a Gradle

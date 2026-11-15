@@ -18,6 +18,10 @@ if [[ -n "${EXT_LOCK:-}" && -e "$EXT_LOCK" ]] && (( $(date +%s) - $(stat -c %Y "
 fi
 # a prep whose saved values were never put back (the run's machine rebooted, the device was gone): the next round restores it
 if [[ -n "${PREP_SAVED:-}" && -e "$PREP_SAVED" ]]; then echo "prep_left=1"; fi
+# a person touched it within its idle time (PERSON: the time of their last touch or key; IDLE_S: the idle time)
+if [[ -n "${PERSON:-}" && -e "$PERSON" ]] && (( $(date +%s) - $(cat "$PERSON" 2> /dev/null || echo 0) < ${IDLE_S:-180} )); then
+	echo "person=1"
+fi
 command -v "$adb" > /dev/null 2>&1 || { echo "adb=missing"; exit 0; }
 # a Windows adb.exe called from WSL without interop is found but cannot run ("Exec format error")
 timeout 20 "$adb" version > /dev/null 2>&1 || { echo "adb=broken"; exit 0; }

@@ -154,6 +154,53 @@ class LeaseTest(Base):
         self.bash(prep.release_script(self.d))
 
 
+class PersonTest(Base):
+    """A person picks the device up during a run: Tutti stops, requeues, sends nothing, and undoes nothing of theirs."""
+
+    def person(self, ago=0):
+        d = os.path.join(self.tmp, '.tutti', 'devices', 'pixel')
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'person'), 'w', encoding='utf8') as f:
+            f.write(str(int(time.time()) - ago))
+
+    def test_a_persons_own_change_is_kept_at_release(self):
+        self.bash(prep.prep_script(self.d))
+        self.set('screen_brightness', '150')   # the owner turned it up while setting an alarm
+        r = self.bash(prep.release_script(self.d))
+        self.assertIn('kept screen_brightness at 150: changed by a person', r.stdout)
+        self.assertEqual((self.get('screen_brightness'), self.get('vol')), ('150', '9'))   # Tutti's own volume went back
+
+    def test_a_person_stops_the_run_which_is_queued_again(self):
+        line = devices.external_wrap([{**self.d, 'prep_defaults': False}], f'touch {self.tmp}/started; sleep 30; touch {self.tmp}/ended')
+        log = os.path.join(self.tmp, 'run.log')
+        with open(log, 'w', encoding='utf8') as f:   # a file, not a pipe: a background loop must not hold the test open
+            child = subprocess.Popen(['bash', '-c', line], env=self.env, stdout=f, stderr=f, start_new_session=True)
+        time.sleep(1)
+        self.person()
+        try:
+            child.wait(timeout=20)
+        finally:
+            subprocess.run(['pkill', '-g', str(child.pid)], check=False)   # the session's leftovers, by its group id
+        with open(log, encoding='utf8') as f:
+            out = f.read()
+        self.assertIn(devices.PERSON_LINE, out)
+        self.assertTrue(os.path.exists(f'{self.tmp}/started'))
+        self.assertFalse(os.path.exists(f'{self.tmp}/ended'))
+        self.assertTrue(shards.judge({}, out, 143).startswith(shards.REQUEUE))
+
+    def test_no_keep_awake_key_while_a_person_uses_it_and_the_card_says_so(self):
+        self.person()
+        old = prep.KEEP_AWAKE_SECONDS
+        prep.KEEP_AWAKE_SECONDS = 0.2
+        self.addCleanup(setattr, prep, 'KEEP_AWAKE_SECONDS', old)
+        self.bash(f'{{ {prep.keep_awake(self.d)} & }}; sleep 1; kill $!')
+        self.assertEqual([x for x in self.log() if 'KEYCODE_UNKNOWN' in x], [])
+        st, why = devices.status(devices.E2E_POLICY, {'adb': 'ok', 'state': 'device', 'battery': 80, 'charging': 1,
+                                                     'battery_c': 30, 'person': 1})
+        self.assertEqual(st, 'person')
+        self.assertIn('in use by a person — waiting', why)
+
+
 class KeepAwakeTest(Base):
     def test_the_keep_awake_loop_starts_and_stops_with_the_run(self):
         old = prep.KEEP_AWAKE_SECONDS

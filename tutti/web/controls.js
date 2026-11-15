@@ -2,8 +2,8 @@
 // refresh, showBanner, TOKEN). Every switch is a POST to /api/control, saved in the state folder (never in the config file).
 'use strict';
 
-const DEVICE_TONE = { ready: 'ok', busy: 'accent', waiting: 'warn', offline: 'bad', held: 'warn', call: 'warn' };
-const DEVICE_CHIP = { held: 'paused', call: 'Paused: phone call' };
+const DEVICE_TONE = { person: 'warn', ready: 'ok', busy: 'accent', waiting: 'warn', offline: 'bad', held: 'warn', call: 'warn' };
+const DEVICE_CHIP = { held: 'paused', call: 'Paused: phone call', person: 'in use by a person — waiting' };
 
 async function control(body, failText) {
     try {

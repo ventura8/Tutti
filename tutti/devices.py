@@ -246,6 +246,9 @@ def status(pol, r, serial=''):
         return 'call', f'Paused: phone call ({CALL_WORDS[r["call"]]}); runs start again after it ends'
     if why:
         return 'waiting', why
+    if r.get('person') == 1:
+        return 'person', ('in use by a person — waiting: Tutti sends nothing and starts nothing until it has been idle '
+                          f'{r.get("idle_minutes", 3):g} min (devices.<d>.idle_minutes)')
     if r.get('locked') == 1:
         return 'busy', 'a run holds it; the next run waits for it'
     if r.get('external') == 1:
@@ -286,8 +289,16 @@ def external_wrap(found, command, who='tutti'):
                                      *(prep.release_script(d, p, stale) for d, (p, stale) in zip(found, locks, strict=True))) if x)
     setup = prep.scripts(found)[0]
     wake = '; '.join(prep.unlock(d) for d in found)
-    return (f'{waits}{take}{register}trap {shlex.quote(release)} EXIT && {setup + "; " if setup else ""}{wake}; {awake}'
-            f'echo \'tutti: device ready\' && {{ {command}; }}; exit $?')
+    watch = ''.join(prep.person_watch(d) for d in found)
+    used = ' || '.join(prep.person_recent(d) for d in found)
+    # a person picks the device up: the run ends cleanly and its shard is queued again (shards.PERSON), nothing undone
+    guard = (f'while kill -0 $cmd 2>/dev/null; do if {used}; then echo "{PERSON_LINE}"; kill -TERM -- -$cmd 2>/dev/null; '
+             f'break; fi; sleep 5; done; ')
+    return (f'{waits}{take}{register}trap {shlex.quote(release)} EXIT && {setup + "; " if setup else ""}{wake}; {watch}{awake}'
+            f'echo \'tutti: device ready\'; setsid bash -c {shlex.quote(command)} & cmd=$!; {guard}wait $cmd; exit $?')
+
+
+PERSON_LINE = 'tutti: a person is using the device: the run stops and is queued again, nothing they changed is undone'
 
 
 def readings_command(device, scripts_dir, wake=False):
@@ -296,9 +307,10 @@ def readings_command(device, scripts_dir, wake=False):
     env = f'DEVICE_SERIAL={serial_expr(device)} DEVICE_LOCK={remote.home_path(device["lock"])}'
     if device.get('adb'):
         env += f' ADB={shlex.quote(device["adb"])}'
+    from . import prep
     if device.get('prep'):
-        from . import prep
         env += f' PREP_SAVED={prep.saved_path(device)}'
+    env += f' PERSON={prep.person_path(device)} IDLE_S={prep.idle_seconds(device)}'
     if external_lock(device):
         stale = int(float(device.get('external_lock_stale_minutes', EXTERNAL_STALE_MINUTES)) * 60)
         env += f' EXT_LOCK={shlex.quote(external_lock(device))} EXT_STALE={stale}'

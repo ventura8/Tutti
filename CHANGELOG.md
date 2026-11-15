@@ -6,6 +6,17 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.9.8 (2026-11-15)
+
+### Fixed
+
+- A person who picks up a device during a run (the owner setting an alarm on the phone) is noticed and left alone:
+  `getevent` sees only physical touches and keys (the test's taps and Tutti's keep-awake key are injected and never reach
+  it). The run stops cleanly and its shard is queued again (not a failure); no key is sent; nothing starts on the device
+  until it has been idle `devices.<d>.idle_minutes` (3). The device card says "in use by a person — waiting".
+- A setting a person changed while the device was in use is never undone: at release an item goes back only while it
+  still has the value Tutti set (an alarm, their brightness stay).
+
 ## 0.9.7 (2026-11-15)
 
 ### Fixed

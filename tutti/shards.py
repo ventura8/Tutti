@@ -116,6 +116,8 @@ def started_marker():
 def judge(s, log, rc):
     """The run's result from its output: an int exit code, or REQUEUE + why. requeue_on wins (not the test's fault), then
     the suite's verdict (a runner that always exits 0), else the exit code."""
+    if 'tutti: a person is using the device' in (log or ''):
+        return f'{REQUEUE} a person picked the device up: the run stopped cleanly and its shard is queued again'
     for r in s.get('requeue_on') or []:
         m = re.search(r, log)
         if m:

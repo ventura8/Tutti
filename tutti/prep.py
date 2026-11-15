@@ -128,7 +128,11 @@ def restore_script(device):
         put = f'{_adb(device)} "$(printf %s {shlex.quote(it["set"])} | sed "s|{{value}}|$v|")" > /dev/null 2>&1'
         if it['delete']:
             put = f'if [ "$v" = {NULL} ]; then {_adb(device)} {shlex.quote(it["delete"])} > /dev/null 2>&1; else {put}; fi'
-        cases.append(f'{i}) {put} && echo "tutti: restored {it["name"]} to $v";;')
+        # a person's own change while the device was in use (an alarm, the brightness) is never undone: an item goes back
+        # only while it still has the value Tutti set
+        mine = f'c=$({{ {_read(device, it)}; }} < /dev/null); [ "$c" = {shlex.quote(str(it["value"]))} ]'
+        cases.append(f'{i}) if {mine}; then {put} < /dev/null && echo "tutti: restored {it["name"]} to $v"; '
+                     f'else echo "tutti: kept {it["name"]} at $c: changed by a person"; fi;;')
     return (f'if [ -e {f} ]; then while IFS="$(printf "\\t")" read -r i v; do case "$i" in {" ".join(cases)} esac; done < {f}; '
             f'rm -f {f}; fi')
 
@@ -169,8 +173,10 @@ def lease_script(device, claim, minutes, who):
             f'awk -v g={shlex.quote(guid)} \'$1 == g && $2 ~ /_adb-tls-connect/ {{print $3; exit}}\'); '
             'echo "ADDR=${a:-unknown}"; ') if guid else f'echo "ADDR={device["serial"]}"; '
     loop = (f'while [ -e {claim} ] && [ $(cat {claim}) -gt $(date +%s) ]; do '
-            f'{_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; sleep {KEEP_AWAKE_SECONDS}; done')
-    awake = f'nohup bash -c {shlex.quote(loop)} > /dev/null 2>&1 &'
+            f'{person_recent(device)} || {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; sleep {KEEP_AWAKE_SECONDS}; done')
+    watch = (f'while [ -e {claim} ]; do if {_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .; '
+             f'then mkdir -p "$(dirname {person_path(device)})"; date +%s > {person_path(device)}; sleep 1; fi; done')
+    awake = f'nohup bash -c {shlex.quote(loop)} > /dev/null 2>&1 & nohup bash -c {shlex.quote(watch)} > /dev/null 2>&1 &'
     return (f'{release_script(device)} > /dev/null; '   # left-behind runs and lapsed leases are cleared first
             f'mkdir -p {u}; others=$(ls -A {u} | grep -vx "$(basename {claim})" | tr "\\n" " "); '
             f'if [ -n "$others" ]; then echo "tutti: {device["name"]} is in use by $others: try again when it is free"; exit 3; fi; '
@@ -178,9 +184,39 @@ def lease_script(device, claim, minutes, who):
             f'{addr}echo "SERIAL={device["serial"]}"; echo "tutti: {device["name"]} leased to {who} for {int(minutes)} min"')
 
 
+IDLE_MINUTES = 3   # a person's use pauses Tutti on the device until it has been idle this long (devices.<d>.idle_minutes)
+
+
+def person_path(device):
+    """The file whose time is a person's last touch or key on the device (written by person_watch), on its machine."""
+    from . import remote
+    return remote.home_path(f'~/.tutti/devices/{device["name"]}/person')
+
+
+def idle_seconds(device):
+    return int(float(device.get('idle_minutes', IDLE_MINUTES)) * 60)
+
+
+def person_watch(device):
+    """A background loop that notices a person: `getevent` sees only physical touches and keys (the test's own taps and
+    Tutti's keep-awake key are injected and never reach it), and each one writes its time to person_path."""
+    p = person_path(device)
+    one = f'{_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .'
+    loop = f'while :; do if {one}; then date +%s > {p}; sleep 1; fi; done'
+    return f'mkdir -p "$(dirname {p})"; {{ {loop} & }}; '
+
+
+def person_recent(device):
+    """A shell test: true while a person touched the device within its idle time."""
+    p = person_path(device)
+    return f'{{ [ -e {p} ] && [ $(( $(date +%s) - $(cat {p} 2>/dev/null || echo 0) )) -lt {idle_seconds(device)} ]; }}'
+
+
 def keep_awake(device):
     """The keep-awake loop of a run (backgrounded by the caller): a harmless key every 15 s while the run lasts."""
-    return (f'while :; do {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; sleep {KEEP_AWAKE_SECONDS}; done')
+    # no key while a person uses it: Tutti stops sending input and leaves the device alone
+    return (f'while :; do {person_recent(device)} || {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; '
+            f'sleep {KEEP_AWAKE_SECONDS}; done')
 
 
 def unlock(device):

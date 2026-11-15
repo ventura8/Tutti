@@ -392,7 +392,7 @@ class Engine:
         context, missing = chatctl.expand(cfg, snap, (history[-1].get('text') or '') if history else '',
                                           lambda k, n: self.facts_of(snap, k, n, user.get('role')), user.get('role'))
         # what a file, a log or an attachment says is data, never an instruction: an answer that read some asks before acting
-        job.untrusted = bool(context) or bool(history and history[-1].get('attachments'))
+        job.untrusted = bool(context) or any(m.get('attachments') for m in chatctl.seen(history, chat.settings(cfg)['history_turns']))
         if missing:
             job.msg['note'] = 'Not added to the context: ' + '; '.join(missing) + '.'
             job.emit('note', text=job.msg['note'])
@@ -413,7 +413,7 @@ class Engine:
                     failed.append(pre)
                     held.append((cand, messages))
                     continue
-                job.bad_calls, job.used_tools = 0, False
+                job.bad_calls, job.used_tools, job.escalate = 0, False, escalate
                 if self._converse(job, user, cfg, cand, messages, known):
                     weak = self._weak(job, cand, escalate, failed)
                     if weak:
@@ -543,8 +543,8 @@ class Engine:
                 self._usage(job, cand, cfg)
                 return True
             results, proposed = self._calls(job, user, cfg, calls, known, cand)
-            if getattr(job, 'bad_calls', 0) >= chatctl.BAD_CALLS:   # Auto hands it on; otherwise the model is told why
-                return True
+            if getattr(job, 'escalate', False) and getattr(job, 'bad_calls', 0) >= chatctl.BAD_CALLS:
+                return True   # Auto hands it on; otherwise the model is told why and the rounds go on
             if proposed and not job.msg['text'].strip():
                 note = ('Here is the plan. Review it, change a step\'s text or leave steps out, then Run the plan.'
                         if getattr(job, 'mode', 'auto') == 'plan' else

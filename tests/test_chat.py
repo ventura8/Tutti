@@ -923,6 +923,34 @@ class Escalation(ApiBase):
         self.assertIn('tools wrongly twice in a row', done['fallback'])
         self.assertEqual(chatctl.answer_reason('fine', 1), None)
 
+    def test_outside_auto_two_bad_calls_do_not_end_the_answer(self):
+        bad = {'tool_calls': [{'function': {'name': 'backlog_add', 'arguments': {'repo': 'nowhere', 'title': 'x'}}}]}
+        self.snap = snapshot(presence={'items': {'machine:pc': {'state': 'present'}, 'machine:nuc': {'state': 'asleep'}}})
+        done = self.run_auto({'pc': [bad], 'claude': ['online']}, model='local')
+        self.assertGreater(self.seen.count('pc'), 2)   # the model was told why and tried again
+        self.assertEqual(done['text'], chatrun.NO_ANSWER)   # only bad calls: a plain message, never a blank answer
+
+    def test_curly_apostrophes_and_review_wording(self):
+        self.assertTrue(chatctl.REFUSAL.search('I can\u2019t help with that.'))
+        self.assertTrue(chatctl.UNSURE.search('I\u2019m not sure, maybe 3.'))
+        self.assertTrue(chatctl.UNSURE.search('I don\u2019t know.'))
+        self.assertIsNone(chatctl.CODE_WORDS.search('review the test results for me'))
+        self.assertIsNone(chatctl.CODE_WORDS.search('fix the test schedule'))
+        self.assertTrue(chatctl.CODE_WORDS.search('review the failing tests'))
+        self.assertTrue(chatctl.CODE_WORDS.search('fix this bug in the parser'))
+
+    def test_attachments_anywhere_in_the_seen_history_make_it_untrusted(self):
+        hist = [{'attachments': [{'name': 'a.log'}]}, {'text': 'q'}, {'text': 'a'}]
+        self.assertEqual(chatctl.seen(hist, 3), hist)
+        self.assertEqual(chatctl.seen(hist, 2), hist[1:])
+        self.assertEqual(chatctl.seen(hist, 0), [])
+
+    def test_repo_files_splits_on_nul(self):
+        out = subprocess.CompletedProcess([], 0, stdout='a b.py\0dir/c\nd.txt\0', stderr='')
+        self.assertEqual(chatctl.repo_files('/r', run=lambda *a, **k: out), ['a b.py', 'dir/c\nd.txt'])
+        bad = subprocess.CompletedProcess([], 128, stdout='', stderr='not a repo')
+        self.assertEqual(chatctl.repo_files('/r', run=lambda *a, **k: bad), [])
+
     def test_after_a_timeout(self):
         done = self.run_auto({'pc': OSError('timed out'), 'nuc': OSError('timed out'), 'claude': ['online']})
         self.assertEqual((done['text'], self.seen), ('online', ['pc', 'nuc', 'claude']))

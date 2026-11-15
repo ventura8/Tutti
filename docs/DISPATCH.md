@@ -205,6 +205,22 @@ here: the tablet to the TV while the phone is away, the phone to the tablet when
 that role that is here, so both are leased at once, and it waits, with the reason, while none is. By hand:
 `tutti devices claim pixeltablet googletv --who <session>` leases the pair (both or none; each prints its ADDR).
 
+## A suite on a runner machine
+
+A suite whose runner lives elsewhere than its devices (RoRadio's PowerShell `run-e2e.ps1` and adb on the PC, the devices
+on the NUC) names it: `runner: pc`. Each shard then runs as `tutti devices lease <device> [<partner>] --runner pc --
+<command>`: the devices are leased (both or none), the runner's own adb connects to each lease address, the command runs
+there with `{addr:<device>}` filled in (`ANDROID_SERIAL` is the first device's, `TUTTI_ADDR_<DEVICE>` each one's), and adb
+disconnects and the devices are released however it ends. Example (the paired Cast suite):
+
+```yaml
+run: powershell -File C:\Users\me\Projects\RoRadio-tr\scripts\android\run-e2e.ps1 -Serial {addr:pixeltablet}
+     -CastTablet {addr:googletv} -CastReceiverName "Google Streamer" -Filter {shard} -Package com.example.dev -Apk <apk>
+runner: pc
+devices: [pixeltablet]
+pair: {role: cast-receiver, sender: true}
+```
+
 ## Phone calls
 
 An Android device that rings or is in a call takes no new work (`tutti/calls.py`). The call state comes from

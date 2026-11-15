@@ -60,7 +60,7 @@ def suites(cfg):
             out.append({'project': pname, 'name': sname, 'kind': s.get('kind', 'e2e'), 'targets': list(s.get('targets') or ['machine']),
                         'run': s.get('run', ''), 'shards': shards.names(s), 'shard_opts': shards.options(s),
                         'shards_from': s.get('shards_from'), 'prepare': s.get('prepare'), 'verdict': s.get('verdict'),
-                        'requires': s.get('requires'), 'pair': s.get('pair'),
+                        'requires': s.get('requires'), 'pair': s.get('pair'), 'runner': s.get('runner'),
                         'started': s.get('started'), 'requeue_on': list(s.get('requeue_on') or []),
                         'dir': s.get('dir'), 'devices': s.get('devices'), 'machines': s.get('machines'),
                         'pause': s.get('pause'), 'resume': s.get('resume'),
@@ -825,6 +825,10 @@ def test_argv(cfg, lease, s, shard):
     empty = shards.empty_filter(command)
     if empty:
         raise config.ConfigError(f'{s["project"]} {s["name"]}/{shard}: {empty}')
+    if s.get('runner') and lease['kind'] in DEVICE_KINDS:   # the suite runs on its runner machine, the devices over leases
+        names = [lease['name'], *(lease.get('holds') or [])]
+        return [sys.executable, remote.BIN, '--config', cfg['_path'], 'devices', 'lease', *names, '--runner', s['runner'],
+                '--who', f'dispatch-{s["project"]}', '--', command]
     return [sys.executable, remote.BIN, '--config', cfg['_path'], 'test', '--dir', tree, *where, *holds, track, command]
 
 

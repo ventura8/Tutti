@@ -114,7 +114,7 @@ class ScriptTest(unittest.TestCase):
     def test_a_running_program_is_skipped(self):
         with tempfile.TemporaryDirectory() as t:
             busy = fake(t, 'busyprog', '[ -n "$1" ] && { echo 1.0; exit 0; }; sleep 30')
-            proc = subprocess.Popen([busy])
+            proc = subprocess.Popen([busy], start_new_session=True)
             try:
                 for _ in range(200):   # until the fork has become the script (before that its command line is Python's)
                     with open(f'/proc/{proc.pid}/cmdline', 'rb') as f:
@@ -125,7 +125,7 @@ class ScriptTest(unittest.TestCase):
                 text = update.script({'busyprog': self.spec('busyprog')}, [])
                 out = subprocess.run(['bash', '-c', text], capture_output=True, text=True, env=env, check=False)
             finally:
-                proc.kill()
+                os.killpg(proc.pid, 9)   # the script and its `sleep`: never a child left behind
                 proc.wait()
             [row] = update.parse(out.stdout)
             self.assertEqual(row['status'], 'busy')

@@ -205,6 +205,22 @@ here: the tablet to the TV while the phone is away, the phone to the tablet when
 that role that is here, so both are leased at once, and it waits, with the reason, while none is. By hand:
 `tutti devices claim pixeltablet googletv --who <session>` leases the pair (both or none; each prints its ADDR).
 
+## Newest artifact, else a guarded build
+
+A suite's build (`prepare`) can reuse what is already built and build only when it must:
+
+```yaml
+prepare:
+  where: pc
+  run: <the build>
+  reuse: {paths: [/mnt/c/.../app-Signed.apk, ...], newer_than: 'git -C /mnt/c/.../repo log -1 --format=%ct'}
+  guard: {hours: ['20-24'], yield: [pc]}
+```
+
+An artifact newer than the commit (`newer_than` prints its time) is used as it is and nothing is built. A build that is
+needed waits, with the reason, in the guard hours and while its machine (or a `guard.yield` machine) yields; it is tried
+again later.
+
 ## A suite on a runner machine
 
 A suite whose runner lives elsewhere than its devices (RoRadio's PowerShell `run-e2e.ps1` and adb on the PC, the devices

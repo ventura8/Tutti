@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.0 (2026-11-15)
+
+### Added
+
+- "Newest artifact, else a guarded build" for a suite's build step: `prepare.reuse: {paths, newer_than}` uses an artifact
+  newer than the commit as it is; a needed build waits in `prepare.guard.hours` and while its machine yields
+  (docs/DISPATCH.md). RoRadio's e2e suite reuses its newest E2E APK and runs on the PC (`runner:`) again.
+
 ## 0.15.1 (2026-11-15)
 
 ### Fixed

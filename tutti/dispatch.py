@@ -801,6 +801,48 @@ def cooling(st, now):
     return out
 
 
+REUSE_SCRIPT = ('n=0; f=; for p in {paths}; do [ -e "$p" ] || continue; t=$(stat -c %Y "$p"); '
+                '[ "$t" -gt "$n" ] && {{ n=$t; f=$p; }}; done; c=$({newer_than}); echo "newest=$n $f"; echo "commit=$c"')
+
+
+def reuse_or_guard(cfg, p, s, now, sh=None, yield_fn=None):
+    """Before a suite's build (`prepare`), "newest artifact, else a guarded build": with `prepare.reuse: {paths, newer_than}`
+    an artifact newer than the commit (newer_than prints its time) is used as it is, nothing is built; a build that is
+    needed waits while its machine yields, in `prepare.guard.hours` (e.g. 20-24, the owner's evening) or while
+    `prepare.guard.yield` machines yield. Returns why nothing was started now ('' to build), recorded as the build's state."""
+    import shlex
+
+    from . import hours, remote
+    pr = s.get('prepare') or {}
+    where = cfg['machines'].get(pr.get('where')) if pr.get('where') else None
+    reuse = pr.get('reuse') or {}
+    if reuse.get('paths') and reuse.get('newer_than') and where:
+        script = REUSE_SCRIPT.format(paths=' '.join(shlex.quote(x) for x in reuse['paths']), newer_than=reuse['newer_than'])
+        try:
+            out = (sh or remote.sh)(where, script, capture=True, timeout=60).stdout or ''
+        except (OSError, subprocess.SubprocessError):
+            out = ''
+        newest = next((x[7:] for x in out.splitlines() if x.startswith('newest=')), '0 ')
+        commit = next((x[7:] for x in out.splitlines() if x.startswith('commit=')), '').strip()
+        t, _, path = newest.partition(' ')
+        if path and commit.isdigit() and int(t) >= int(commit):
+            p.setdefault('prepare', {})[s['name']] = {'commit': p.get('commit'), 'status': 'passed', 'at': now, 'reused': path}
+            return f'reusing {path} (newer than commit {(p.get("commit") or "")[:12]}): nothing built'
+    guard = pr.get('guard') or {}
+    why = ''
+    for spec in guard.get('hours') or []:
+        if hours.window(spec, None, now):
+            why = f'no build in {spec} (prepare.guard.hours)'
+    for name in [*(guard.get('yield') or []), *([pr['where']] if pr.get('where') else [])]:
+        m = cfg['machines'].get(name)
+        if not why and m and m.get('yield_file') and (yield_fn or remote.yield_note)(m) is not None:
+            why = f'no build while {name} yields (its yield flag is up)'
+    if why:
+        p.setdefault('prepare', {})[s['name']] = {'commit': p.get('commit'), 'status': 'failed', 'at': now, 'why': why}
+        return f'the build waits: {why}'
+    return ''
+
+
 def builds(cfg, st, now, is_alive, spawn=subprocess.Popen):
     """Each suite's `prepare` (the build) once per commit, before its shards: finished ones collected, due ones started.
     Returns the projects whose build ended."""
@@ -814,6 +856,10 @@ def builds(cfg, st, now, is_alive, spawn=subprocess.Popen):
         ended |= {s['project']} if done else set()
         left = any(sh['status'] != 'passed' for k, sh in p['shards'].items() if k.startswith(s['name'] + '/'))
         if left and shards.prepare_due(p, s, now):
+            skip = reuse_or_guard(cfg, p, s, now)
+            if skip:
+                event(st, now, f'{s["project"]} {s["name"]}: {skip}')
+                continue
             shards.start_prepare(cfg, p, s, folder(cfg), now, spawn)
             event(st, now, f'{s["project"]} {s["name"]}: building commit {(p.get("commit") or "")[:12]}')
     for line in out:

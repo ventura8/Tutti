@@ -77,10 +77,14 @@ DEFAULTS = {
     'self_improve': {'enabled': True, 'auto_accept': True, 'every_hours': 6, 'max_new_per_day': 3, 'min_count': 3, 'home': ''},
     # welcome: the welcome-back summary for every user (tutti/welcome.py); away_hours: None is pacing.away_after_hours
     'welcome': {'enabled': True, 'away_hours': None, 'ai': True},
+    # failover: the backup main machine (tutti/failover.py, docs/FAILOVER.md): backup '' elects one, 'none' turns it off; the
+    # main is silent `minutes` before the backup takes over; Tutti returns after `failback_minutes` healthy; the state's budget
+    'failover': {'backup': '', 'minutes': 3, 'failback_minutes': 5, 'sync_seconds': 60, 'dir': '~/.tutti-failover', 'reach': {},
+                 'addresses': {}, 'budget_mb': 50, 'delta_kb': 512, 'runs_keep': 200, 'runs_days': 14, 'log_mb': 2, 'junk_days': 3},
     # ai_assist: Tutti uses AI, local and online, to make itself better (tutti/aiassist.py, docs/TELEMETRY.md, *AI assist*);
     # off until an admin opts in; local, online and online_code (code to online models) are separate switches
     'ai_assist': {'enabled': False, 'local': True, 'online': False, 'online_code': False, 'auto_tune': True, 'every_hours': 6,
-                  'max_proposals': 5, 'local_worker': '', 'scout': '', 'research_every': '7d'},
+                  'max_proposals': 5, 'local_worker': '', 'scout': '', 'research_every': '7d', 'online_worker': ''},
     # autocompact: a worker agent's context is compacted at threshold_pct of its window (tutti/autocompact.py); the
     # dashboard can change the percentage; context_tokens is the window when workers.<w>.context_tokens does not say
     'autocompact': {'enabled': True, 'threshold_pct': 60, 'context_tokens': 200000},
@@ -407,6 +411,9 @@ def validate(cfg):
              for n, m in cfg['machines'].items() if m.get('via') and m['via'] not in cfg['machines']]
     from . import move
     errs += move.errors(cfg)
+    fb = (cfg.get('failover') or {}).get('backup') or ''
+    if fb not in ('', 'none') and fb not in cfg['machines']:
+        errs.append(f'failover.backup names "{fb}", which is not under machines: name one of them, auto (\'\') or none')
     from . import devices, share, vpn, workq
     errs += workq.errors(cfg)
     for name, m in cfg['machines'].items():

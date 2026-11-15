@@ -380,6 +380,9 @@ self_improve:
   # home: tool
 # AI assist (docs/TELEMETRY.md, *AI assist*): off until an admin opts in; local models, online research with spare quota
 # only, code to online models only with online_code
+# failover: a backup main machine takes over when this one is away (docs/FAILOVER.md); '' elects one, none turns it off
+failover: {backup: '', minutes: 3, failback_minutes: 5, sync_seconds: 60, budget_mb: 50}
+
 ai_assist: {enabled: false, local: true, online: false, online_code: false, auto_tune: true}
 # Welcome back (docs/WELCOME.md): a summary of what happened while you were away; on for every user, each may turn it off
 welcome: {enabled: true}

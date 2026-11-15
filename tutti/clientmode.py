@@ -42,8 +42,8 @@ def absolute_args(argv):
     return [os.path.abspath(x) if not x.startswith('-') and os.path.sep in x and os.path.exists(x) else x for x in argv]
 
 
-def ssh_command(cfg, argv, tty=False):
-    h = cfg['host']
+def ssh_command(cfg, argv, tty=False, h=None):
+    h = h or cfg['host']
     remote = shlex.join([h.get('tutti') or 'tutti', '--config', h['config'], *absolute_args(argv)])
     return ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', *(['-t'] if tty else []), h['ssh'], remote]
 
@@ -51,11 +51,16 @@ def ssh_command(cfg, argv, tty=False):
 def forward(cfg, argv, run=subprocess.run, isatty=None):
     """The command's exit code on the host, or None when the host could not be reached."""
     isatty = isatty or (lambda: sys.stdin.isatty() and sys.stdout.isatty())
-    try:
-        rc = run(ssh_command(cfg, argv, tty=isatty())).returncode
-    except OSError:
-        return None
-    return None if rc == UNREACHABLE else rc
+    # the host, then its backup main machines (host.failover: [{ssh, config, tutti}], docs/FAILOVER.md): a host that is not the
+    # active main refuses changes itself, so the first one that answers is the one to use
+    for h in [cfg['host'], *[{**cfg['host'], **f} for f in cfg['host'].get('failover') or [] if isinstance(f, dict) and f.get('ssh')]]:
+        try:
+            rc = run(ssh_command(cfg, argv, tty=isatty(), h=h)).returncode
+        except OSError:
+            continue
+        if rc != UNREACHABLE:
+            return rc
+    return None
 
 
 def is_read_only(cmd, action):

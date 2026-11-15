@@ -31,7 +31,7 @@ from . import backlog, config, insights, scrub, telemetry
 
 FILE = 'ai-assist.json'
 DEFAULTS = {'enabled': False, 'local': True, 'online': False, 'online_code': False, 'auto_tune': True, 'every_hours': 6,
-            'max_proposals': 5, 'local_worker': '', 'scout': '', 'research_every': '7d'}
+            'max_proposals': 5, 'local_worker': '', 'scout': '', 'research_every': '7d', 'online_worker': ''}
 SWITCHES = ('enabled', 'local', 'online', 'online_code', 'auto_tune')
 CLASSES = ('flaky', 'environment', 'real')
 WATCH_PREFIX = 'tutti-ai-'
@@ -104,31 +104,74 @@ def online_text(cfg, text, quotes=True):
 
 # ---- local models (through the worker registry: workers of kind ollama)
 
+def model_size(worker):
+    """The model's size in billions of parameters: `size_b` when the worker says it, else read from its tag (qwen3:27b -> 27)."""
+    if worker.get('size_b'):
+        return float(worker['size_b'])
+    import re
+    m = re.search(r'(\d+(?:\.\d+)?)b\b', str(worker.get('model') or '').lower().split(':', 1)[-1])
+    return float(m.group(1)) if m else 0.0
+
+
 def local_workers(cfg):
-    """The ollama workers, the chosen one first, then those that say they analyse (`capabilities`), then config order."""
+    """The ollama workers, best first (backlog t80): the chosen one, then the largest model (the strongest machine's: the PC's
+    before the NUC's before the laptop's, as their models measure), then those that say they analyse, then config order."""
     ws = {n: w for n, w in (cfg.get('workers') or {}).items() if isinstance(w, dict) and w.get('kind') == 'ollama'
           and w.get('enabled') is not False}
     first = settings(cfg)['local_worker']
-    return sorted(ws, key=lambda n: (n != first, 'analysis' not in (ws[n].get('capabilities') or ())))
+    order = list(ws)
+    return sorted(ws, key=lambda n: (n != first, -model_size(ws[n]), 'analysis' not in (ws[n].get('capabilities') or ()), order.index(n)))
 
 
-def ask_local(cfg, prompt, available=None, generate=None):
-    """(answer, worker) from the first local model that is up, or (None, why) when AI is off or none answers."""
+def busy(worker, ps=None):
+    """True when the model server is already running another model (asking it would wait for a swap): skipped at once."""
+    from . import local
+    ps = ps if ps is not None else local.ollama_get(worker['host'], '/api/ps', timeout=1)
+    loaded = [m.get('name') or m.get('model') for m in (ps or {}).get('models') or []]
+    return bool(loaded) and not any(str(x).split(':')[0] == str(worker['model']).split(':')[0] for x in loaded)
+
+
+def ask_online(cfg, prompt, run=None):
+    """The online fallback: `ai_assist.online_worker` (a cli worker that costs nothing per use), only when online is allowed."""
+    name = settings(cfg).get('online_worker') or ''
+    w = (cfg.get('workers') or {}).get(name)
+    if not name or not may_send_online(cfg, 'telemetry') or not w or w.get('kind') != 'cli' or w.get('costs_money'):
+        return None, 'no online model to ask (ai_assist.online_worker, online on)'
+    import subprocess
+    run = run or subprocess.run
+    argv = [x.replace('{prompt}', online_text(cfg, prompt)) for x in w['command']]
+    try:
+        r = run(argv, capture_output=True, text=True, timeout=600)
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, f'{name}: {type(e).__name__}'
+    return (r.stdout.strip(), name) if r.returncode == 0 and r.stdout.strip() else (None, f'{name} exited {r.returncode}')
+
+
+def ask_local(cfg, prompt, available=None, generate=None, busy_fn=None, online=None):
+    """(answer, worker) from the best local model that is up and free, every household machine's (t80), then online; (None, why)
+    when AI is off or none answers."""
     if not switch(cfg, 'local'):
         return None, 'local AI is off'
     from . import local, workers
-    available, generate = available or workers.available, generate or local.generate
+    available, generate = available or (lambda w: workers.available(w, timeout=1)), generate or local.generate
+    busy_fn = busy_fn or busy
     tried = []
     for name in local_workers(cfg):
         w = cfg['workers'][name]
         if not available(w)[0]:
             tried.append(f'{name} down')
             continue
+        if busy_fn(w):
+            tried.append(f'{name} busy')
+            continue
         try:
             return generate(cfg, w, prompt, low_priority=True, timeout=600), name
         except (RuntimeError, OSError, KeyError, ValueError) as e:   # ValueError: a reply that is not JSON or cut short
             tried.append(f'{name}: {type(e).__name__}')
-    return None, 'no local model answered (' + (', '.join(tried) or 'no ollama worker in the config') + ')'
+    answer, who = (online or ask_online)(cfg, prompt)
+    if answer:
+        return answer, who
+    return None, 'no local model answered (' + (', '.join(tried) or 'no ollama worker in the config') + f'); {who}'
 
 
 # ---- smarter decisions: the cheap fallbacks (pure)

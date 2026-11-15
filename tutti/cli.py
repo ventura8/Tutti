@@ -128,6 +128,12 @@ def cmd_doctor(cfg, a):
     from . import diskroom, stuck
     problems = doctor.check_git() + config_problems(a) + (diskroom.problems(cfg) if cfg else [])
     problems += [w for w in [stuck.check(remote.ROOT)] if w]   # merged versions no release publishes (docs/INSTALL.md)
+    if cfg:   # the state's size against its budget, and the backup main machine (docs/FAILOVER.md)
+        from . import failover, failovercmd, statebudget
+        lines, over = statebudget.report(config.state_dir(cfg), statebudget.opts(cfg))
+        print('\n'.join(lines))
+        print(failovercmd.describe(failover.view(cfg)))
+        problems += over
     for line in problems:
         say(f'problem: {line}')
     print('doctor: ' + (f'{len(problems)} problem(s)' if problems else 'ok'))
@@ -1027,6 +1033,10 @@ def cmd_conduct(cfg, a):
 
 def cmd_main(cfg, a):
     """`tutti main`: the main agent and who has room; `tutti main <agent>` switches it (a running conductor hands over)."""
+    if a.agent == 'backup':   # `tutti main backup [<machine>|auto|none]`: the backup main machine (docs/FAILOVER.md)
+        from . import failovercmd
+        a.machine = a.machine_name
+        return failovercmd.cmd_main_backup(cfg, a)
     if a.agent:
         try:
             conduct.choose(cfg, a.agent)
@@ -1128,6 +1138,16 @@ def cmd_owner(cfg, a):
     return 0
 
 
+def fenced(cfg, what):
+    """True (and says why) when this machine is not the active main machine now (docs/FAILOVER.md)."""
+    from . import failover
+    if failover.may_write(cfg):
+        return False
+    say(f'{what}: this machine is not the active main machine now ({failover.read(cfg).get("last") or "see `tutti failover`"}): '
+        'nothing started')
+    return True
+
+
 def cmd_autopilot(cfg, a):
     """`tutti autopilot [status|on|off|tick|fill on|off|land <id>]`."""
     from . import fill
@@ -1153,7 +1173,7 @@ def cmd_autopilot(cfg, a):
             say(str(e))
             return 2
         say(f'autopilot: {r["allowed"]} takes first attempts until {tz.show(datetime.fromtimestamp(r["until"], timezone.utc))}')
-    elif a.action == 'tick':
+    elif a.action == 'tick' and not fenced(cfg, 'autopilot'):
         now = datetime.now(timezone.utc)
         states = {s['name']: s for s in state.usage_state(cfg, now)['accounts']}
         from . import sharing
@@ -1766,8 +1786,22 @@ def parser():
     s.add_argument('--device-secret-stdin', action='store_true', help='setup: read that client\'s secret from stdin (never argv)')
     s.add_argument('--tailscale', action='store_true', help='setup: serve the dashboard on this computer\'s Tailscale https '
                                                             'name (tailnet only) and add that origin')
-    s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it')
+    s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it; '
+                              '`tutti main backup [<machine>|auto|none]`: the backup main machine (docs/FAILOVER.md)')
     s.add_argument('agent', nargs='?')
+    s.add_argument('machine_name', nargs='?', help='backup: the machine, auto (Tutti elects one) or none (no failover)')
+    s.add_argument('--yes', action='store_true', help='backup: change it although the current backup does not answer')
+    from . import failovercmd
+    s = add('failover', failovercmd.cmd_failover, 'the backup main machine: status, setup (copy Tutti there and start the rounds), '
+                                                 'tick (one round), run (the rounds, as a service), leave (this main shuts down)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'setup', 'tick', 'run', 'leave', 'beat', 'hand-back',
+                                                                  'retire'])
+    s.add_argument('--to', help=argparse.SUPPRESS)
+    s.add_argument('--term', type=int, default=0, help=argparse.SUPPRESS)
+    s.add_argument('--json', action='store_true', help='answer as JSON (what the main reads over ssh)')
+    s = add('state', failovercmd.cmd_state, 'Tutti\'s state: its size against the budget and its biggest items (size), or trim old '
+                                           'runs, screenshots and logs (prune)')
+    s.add_argument('action', nargs='?', default='size', choices=['size', 'prune'])
     return p
 
 

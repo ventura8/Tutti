@@ -246,8 +246,10 @@ class Collector:
                 self.reload()   # time-bound switches (planned absences, blocked hours) apply as the clock passes them
                 self.refresh()
                 self.update_round()
-                self.autopilot_tick()
-                self.dispatch_tick()
+                from . import failover  # only the active main machine acts; a fenced one stays read-only (docs/FAILOVER.md)
+                if failover.may_write(self.cfg):
+                    self.autopilot_tick()
+                    self.dispatch_tick()
                 self.scouts_tick()
                 dashtelemetry.tick(self.cfg)
                 aiassist.tick_in_background(self.cfg)   # off unless an admin opted in
@@ -317,6 +319,8 @@ class Collector:
         last = update.load(self.cfg)
         from . import diskroom
         out['disk'] = diskroom.problems(self.cfg)   # this computer's temp folder and work disk (Machines card)
+        from . import failover
+        out['failover'] = failover.view(self.cfg)   # the backup main machine (Machines card; docs/FAILOVER.md)
         out['updates'] = {**update.view(self.cfg, last), 'running': self.updating.locked(), 'error': (last or {}).get('error')}
         return out
 

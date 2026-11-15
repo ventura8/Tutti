@@ -154,6 +154,57 @@ class LeaseTest(Base):
         os.remove(self.claim('map'))
         self.bash(prep.release_script(self.d))
 
+    def fast(self):
+        old = prep.KEEP_AWAKE_SECONDS
+        prep.KEEP_AWAKE_SECONDS = 0.2
+        self.addCleanup(setattr, prep, 'KEEP_AWAKE_SECONDS', old)
+
+    def wait_for(self, check, seconds=5):
+        end = time.time() + seconds
+        while time.time() < end and not check():
+            time.sleep(0.1)
+        return check()
+
+    def test_a_requesters_name_is_never_run_as_a_command(self):
+        self.fast()
+        who = 'x"; touch "$FAKE/pwned"; echo "$(touch $FAKE/pwned2)'
+        r = self.bash(prep.lease_script(self.d, self.claim('x'), 60, who))
+        self.assertIn(f'leased to {who} for 60 min', r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, 'pwned')) or os.path.exists(os.path.join(self.tmp, 'pwned2')))
+        os.remove(self.claim('x'))
+        self.bash(prep.release_script(self.d))
+
+    def test_one_loop_per_device_and_it_restores_the_device_when_the_lease_runs_out(self):
+        self.fast()
+        pidfile = os.path.join(self.tmp, '.tutti', 'devices', 'pixel', 'awake.pid')
+        self.bash(prep.lease_script(self.d, self.claim(), 60, 'roradio'))
+        with open(pidfile, encoding='utf8') as f:
+            first = f.read().strip()
+        self.bash(prep.lease_script(self.d, self.claim(), 60, 'roradio'))   # the same requester again: no second loop
+        with open(pidfile, encoding='utf8') as f:
+            self.assertEqual(f.read().strip(), first)
+        self.assertEqual(self.get('screen_brightness'), '77')
+        with open(self.claim(), 'w', encoding='utf8') as f:
+            f.write(str(int(time.time()) - 1))   # nobody calls release: the loop sees the end and restores by itself
+        self.assertTrue(self.wait_for(lambda: self.get('screen_brightness') == '200'))
+        self.assertTrue(self.wait_for(lambda: not os.path.exists(pidfile)))
+        self.assertFalse(os.path.exists(self.claim()))
+
+    def test_two_requesters_at_once_get_one_lease(self):
+        self.fast()
+        out = {}
+        threads = [threading.Thread(target=lambda w=w: out.__setitem__(w, self.bash(prep.lease_script(self.d, self.claim(w), 60, w))))
+                   for w in ('a', 'b')]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(sorted(r.returncode for r in out.values()), [0, 3])
+        for w in ('a', 'b'):
+            if os.path.exists(self.claim(w)):
+                os.remove(self.claim(w))
+        self.bash(prep.release_script(self.d))
+
 
 class PersonTest(Base):
     """A person picks the device up during a run: Tutti stops, requeues, sends nothing, and undoes nothing of theirs."""
@@ -239,58 +290,6 @@ class DndTest(unittest.TestCase):
         self.assertEqual(devices.dnd_hours({'3': [1, 1]}), '')   # too few looks: not known yet
         seen = devices.learn_dnd({}, 'pixel', 1, 1_800_000_000)
         self.assertEqual(sum(v[0] for v in seen['pixel'].values()), 1)
-
-
-    def fast(self):
-        old = prep.KEEP_AWAKE_SECONDS
-        prep.KEEP_AWAKE_SECONDS = 0.2
-        self.addCleanup(setattr, prep, 'KEEP_AWAKE_SECONDS', old)
-
-    def wait_for(self, check, seconds=5):
-        end = time.time() + seconds
-        while time.time() < end and not check():
-            time.sleep(0.1)
-        return check()
-
-    def test_a_requesters_name_is_never_run_as_a_command(self):
-        self.fast()
-        who = 'x"; touch "$FAKE/pwned"; echo "$(touch $FAKE/pwned2)'
-        r = self.bash(prep.lease_script(self.d, self.claim('x'), 60, who))
-        self.assertIn(f'leased to {who} for 60 min', r.stdout)
-        self.assertFalse(os.path.exists(os.path.join(self.tmp, 'pwned')) or os.path.exists(os.path.join(self.tmp, 'pwned2')))
-        os.remove(self.claim('x'))
-        self.bash(prep.release_script(self.d))
-
-    def test_one_loop_per_device_and_it_restores_the_device_when_the_lease_runs_out(self):
-        self.fast()
-        pidfile = os.path.join(self.tmp, '.tutti', 'devices', 'pixel', 'awake.pid')
-        self.bash(prep.lease_script(self.d, self.claim(), 60, 'roradio'))
-        with open(pidfile, encoding='utf8') as f:
-            first = f.read().strip()
-        self.bash(prep.lease_script(self.d, self.claim(), 60, 'roradio'))   # the same requester again: no second loop
-        with open(pidfile, encoding='utf8') as f:
-            self.assertEqual(f.read().strip(), first)
-        self.assertEqual(self.get('screen_brightness'), '77')
-        with open(self.claim(), 'w', encoding='utf8') as f:
-            f.write(str(int(time.time()) - 1))   # nobody calls release: the loop sees the end and restores by itself
-        self.assertTrue(self.wait_for(lambda: self.get('screen_brightness') == '200'))
-        self.assertTrue(self.wait_for(lambda: not os.path.exists(pidfile)))
-        self.assertFalse(os.path.exists(self.claim()))
-
-    def test_two_requesters_at_once_get_one_lease(self):
-        self.fast()
-        out = {}
-        threads = [threading.Thread(target=lambda w=w: out.__setitem__(w, self.bash(prep.lease_script(self.d, self.claim(w), 60, w))))
-                   for w in ('a', 'b')]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        self.assertEqual(sorted(r.returncode for r in out.values()), [0, 3])
-        for w in ('a', 'b'):
-            if os.path.exists(self.claim(w)):
-                os.remove(self.claim(w))
-        self.bash(prep.release_script(self.d))
 
 
 class KeepAwakeTest(Base):

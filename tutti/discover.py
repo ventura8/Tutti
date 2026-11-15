@@ -129,7 +129,8 @@ def agent_job(proc, pid, name, now, cfg=None):
     cwd = link(proc, pid, 'cwd')
     outside = cfg is not None and not started_by_tutti(cfg, cwd)
     title = f'{name} in {cwd or "?"}' + (' (started outside Tutti: use tutti run auto)' if outside else '')
-    return {'id': f'agent:{pid}', 'kind': 'agent', 'title': scrub.secrets_only(title), 'pid': pid, 'log': None, 'outside': outside, 'cwd': cwd,
+    return {'id': f'agent:{pid}', 'kind': 'agent', 'title': scrub.secrets_only(title), 'pid': pid, 'log': None, 'outside': outside,
+            'cwd': cwd,
             'started': state.iso(started_at(proc, pid)), 'updated': None, 'idle_seconds': None, 'rc': None,
             'status': 'running', 'tail': [], 'progress': None, 'age_seconds': round(now - started_at(proc, pid))}
 

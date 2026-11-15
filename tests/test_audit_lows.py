@@ -183,7 +183,8 @@ class ReleasesStuckTest(unittest.TestCase):
             os.makedirs(os.path.join(d, '.git'))
             with open(os.path.join(d, 'CHANGELOG.md'), 'w', encoding='utf8') as f:
                 f.write('# Changelog\n\n## 0.10.0 (x)\n\n## 0.9.5 (x)\n\n## 0.9.4 (x)\n\n## 0.9.3 (x)\n')
-            sums = lambda url, dest=None: f'{"0" * 64}  tutti-0.9.4.tar.gz\n'
+            def sums(url, dest=None):
+                return f'{"0" * 64}  tutti-0.9.4.tar.gz\n'
             w = stuck.check(d, sums)
             self.assertIn('releases stuck: 2 merged version(s) unpublished (0.9.5, 0.10.0)', w)
             self.assertIn('newest release is 0.9.4', w)

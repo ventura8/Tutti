@@ -535,6 +535,7 @@ class Browser:
         missing (Windows) or there is no state folder (tests)."""
         try:
             import fcntl
+
             from . import config
             folder = os.path.join(config.state_dir(self.cfg), 'browser-tabs')
         except (ImportError, KeyError, TypeError):

@@ -8,13 +8,13 @@ fills the config. You sign in to your tools; nothing else is manual.
 **Linux, WSL and macOS** (a terminal):
 
 ```bash
-curl -fsSLo tutti-bootstrap.sh https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.sh && echo "7b60ef90e814978ed42f3d18f64bacd7530eaec2206d12ae20c551cfa1ec7e1a  tutti-bootstrap.sh" | (sha256sum -c - || shasum -a 256 -c -) && bash tutti-bootstrap.sh
+curl -fsSLo tutti-bootstrap.sh https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.sh && echo "17ccfd80f790fb48fc1642870b58e70a396a473bee88d279ba7ab6256eb56635  tutti-bootstrap.sh" | (sha256sum -c - || shasum -a 256 -c -) && bash tutti-bootstrap.sh
 ```
 
 **Windows** (PowerShell):
 
 ```powershell
-irm https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.ps1 -OutFile tutti-bootstrap.ps1; if ((Get-FileHash tutti-bootstrap.ps1).Hash -eq '5E78D44FA21959F13ECBCD86BDBEA47539D2227458115E512CCAC27C57EB85E7') { powershell -ExecutionPolicy Bypass -File tutti-bootstrap.ps1 } else { 'tutti: checksum mismatch, not run' }
+irm https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.ps1 -OutFile tutti-bootstrap.ps1; if ((Get-FileHash tutti-bootstrap.ps1).Hash -eq 'CAACFE5D2E3F84B59D62263D5434EA9120E3BC10A7D2ECD6723C140A21A032C8') { powershell -ExecutionPolicy Bypass -File tutti-bootstrap.ps1 } else { 'tutti: checksum mismatch, not run' }
 ```
 
 Nothing is asked. At the end `tutti setup` lists the few things only you can do (a sign-in, a sudo line, a tap on a

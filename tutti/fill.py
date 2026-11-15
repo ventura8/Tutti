@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 
-from . import autopilot, backlog, config, priority, remote, review, workers, worktree
+from . import autopilot, backlog, config, github, priority, remote, review, workers, worktree
 
 AHEAD = 3            # fresh tasks kept queued per parallel run: enough to never idle, never a flood
 FILL_EVERY = 600     # seconds between reads of a repo's sources while the room stays unfilled
@@ -253,7 +253,7 @@ def redo_on_base(cfg, task, base, why, run=git):
     return 'redo', f'redone on {base}: {why[:160]}', [note]
 
 
-def open_pr(task, base, subject, body, gh=subprocess.run):
+def open_pr(task, base, subject, body, gh=github.run):
     """The task's pull request: its draft marked ready, or a new one. (url, '') or (None, why)."""
     wt = task['worktree']
     if task.get('pr'):
@@ -267,7 +267,7 @@ def open_pr(task, base, subject, body, gh=subprocess.run):
     return lines[-1], ''
 
 
-def merge(task, url, base, reviewer, run=git, gh=subprocess.run):
+def merge(task, url, base, reviewer, run=git, gh=github.run):
     """(status, note) of a squash merge. A merge that exits non-zero is checked against the PR's state before it is called
     failed; the remote branch is deleted after (gh cannot delete a branch a worktree holds)."""
     wt = task['worktree']
@@ -286,7 +286,7 @@ def merge(task, url, base, reviewer, run=git, gh=subprocess.run):
     return 'done', f'reviewed clean by {reviewer} and merged into {base}: {url}'
 
 
-def publish_reviewed(cfg, task, base, reviewer, run=git, gh=subprocess.run):
+def publish_reviewed(cfg, task, base, reviewer, run=git, gh=github.run):
     """(status, note) after a clean review of the rebased branch: pushed, a pull request, merged when land is merge."""
     wt = task['worktree']
     pushed = run(wt, 'push', '-q', '--force-with-lease', '-u', 'origin', task['branch'])
@@ -346,7 +346,7 @@ def gate_files_touched(cfg, task, base, run=None):
     return [p for st, p in rows if p and is_gate(st.strip()[:1], p, files, folders)]
 
 
-def decide(cfg, task, run=git, gh=subprocess.run, run_worker=None):
+def decide(cfg, task, run=git, gh=github.run, run_worker=None):
     """(status, note, notes) of one result: its gates, its rebase onto the base, the review of the whole branch, the landing."""
     why = gated(cfg, task)
     if why:
@@ -392,7 +392,7 @@ def record(t, status, note, notes, now):
     t['status'], t['landed_at'] = status, now
 
 
-def land(cfg, task_id, run=git, gh=subprocess.run, run_worker=None, now=None):
+def land(cfg, task_id, run=git, gh=github.run, run_worker=None, now=None):
     """`tutti autopilot land <id>`: the review of one result and what follows. The worker runs outside the backlog's lock."""
     now = now or time.time()
     task = backlog.find(backlog.load(cfg), task_id)

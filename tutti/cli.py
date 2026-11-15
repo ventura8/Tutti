@@ -28,6 +28,8 @@ from . import (
     dispatch,
     doctor,
     files,
+    github,
+    githubcmd,
     groksetup,
     handover,
     helper,
@@ -136,6 +138,8 @@ def cmd_doctor(cfg, a):
         problems += over
     for line in problems:
         say(f'problem: {line}')
+    for line in [w for w in [github.doctor_line(cfg)] if w]:   # a note, not a problem: GitHub is optional (docs/GITHUB.md)
+        say(f'note: {line}')
     print('doctor: ' + (f'{len(problems)} problem(s)' if problems else 'ok'))
     return 1 if problems else 0
 
@@ -1679,6 +1683,9 @@ def parser():
     s.add_argument('--days', type=int, default=7, help='report: the last this many days (7)')
     s.add_argument('--json', action='store_true', help='report: print the summary as JSON')
     s.add_argument('--test', action='store_true', help='send: one test event straight to the project, to check the DSN')
+    s = add('github', githubcmd.cmd, 'connect Tutti to GitHub (pull requests, CI, issues) with a code at github.com/login/device: '
+            'status, connect, disconnect, or manifest (the App\'s manifest, for the maintainer)')
+    s.add_argument('action', nargs='?', default='status', choices=('status', 'connect', 'disconnect', 'manifest'))
     s = add('report', report.cmd, 'report a problem to Tutti\'s maintainers: what happened and what you '
                                                           'expected, with a scrubbed diagnostic bundle you see before it is sent')
     s.add_argument('--what', help='what happened (asked when not given)')
@@ -1846,6 +1853,7 @@ def main(argv=None):
     try:
         cfg = config.load(a.config)
         os.environ['TUTTI_CONFIG'] = cfg['_path']
+        github.use(cfg)   # every GitHub call: the connected token, else gh's (docs/GITHUB.md)
         rc = on_client(cfg, a, [x for i, x in enumerate(argv) if x != '--config' and (i == 0 or argv[i - 1] != '--config')
                                 and not x.startswith('--config=')])
         if rc is not None:

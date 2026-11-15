@@ -6,6 +6,20 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.14.0 (2026-11-15)
+
+### Added
+
+- Connect GitHub (docs/GITHUB.md): Tutti's own GitHub connection, so a household without the GitHub CLI works. The My
+  GitHub card (and `tutti github connect|status|disconnect`) runs GitHub's device flow, a code and a QR, through Tutti's
+  GitHub App with least-privilege permissions; each person's token is kept mode 600, refreshed by itself and removed by
+  Disconnect, and never reaches a log, argv or a worker's environment.
+- One GitHub client, `tutti/github.py`: the autopilot's pull requests and merges, the Projects panel's pull requests, CI,
+  reviews and now the latest release, Report a problem (filed under the person's own account), `tutti doctor` and the
+  releases-stuck check go through the API with the person's, the household's or `gh auth token`'s token; anything else
+  still runs through `gh`. Reads use ETags, a spent rate limit waits for GitHub's reset; no webhooks.
+- `tutti github manifest` and docs/github-app.html: the official App's manifest for the maintainer to create it once.
+
 ## 0.13.1 (2026-11-15)
 
 ### Fixed

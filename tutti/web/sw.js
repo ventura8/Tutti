@@ -5,7 +5,7 @@
 const CACHE = 'tutti-shell-__TUTTI_VERSION__';
 const V = '?v=__TUTTI_VERSION__';   // the page loads its code with the release in the URL (index.html)
 // the page itself is not precached: with sign-in on it carries the session's CSRF token (it is kept only when not no-store)
-const SHELL = [`app.css${V}`, `format.js${V}`, `a11y.js${V}`, `telemetry.js${V}`, `update.js${V}`, `attention.js${V}`, `app.js${V}`, `devices.js${V}`, `controls.js${V}`, `connect.js${V}`, `settings.js${V}`, `setup.js${V}`, `household.js${V}`, `energy.js${V}`, `queue.js${V}`, `where.js${V}`, `vpn.js${V}`, `qr.js${V}`, `users.js${V}`, `welcome.js${V}`, `needs.js${V}`, `chat.js${V}`, `chatctl.js${V}`, `userstab.js${V}`, `report.js${V}`, 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
+const SHELL = [`app.css${V}`, `format.js${V}`, `a11y.js${V}`, `telemetry.js${V}`, `update.js${V}`, `attention.js${V}`, `app.js${V}`, `devices.js${V}`, `controls.js${V}`, `connect.js${V}`, `settings.js${V}`, `setup.js${V}`, `household.js${V}`, `energy.js${V}`, `queue.js${V}`, `where.js${V}`, `vpn.js${V}`, `qr.js${V}`, `users.js${V}`, `welcome.js${V}`, `needs.js${V}`, `github.js${V}`, `chat.js${V}`, `chatctl.js${V}`, `userstab.js${V}`, `report.js${V}`, 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
     'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {

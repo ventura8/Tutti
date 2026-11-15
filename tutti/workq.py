@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 
-from . import backlog, config, planner, priority, remote, worktree
+from . import backlog, config, github, planner, priority, remote, worktree
 from . import state as state_mod
 
 STATE = 'work-queue.json'
@@ -318,7 +318,7 @@ def tick(cfg, rows, now=None, spawn=subprocess.Popen, run=subprocess.run, is_ali
             os.remove(rc_path)
         with open(base + '.log', 'w', encoding='utf8') as log:
             p = spawn(argv_of(cfg, j, where, wt, rc_path), stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                      start_new_session=True)
+                      start_new_session=True, env=github.worker_env())   # no GitHub token reaches a worker
         st['leases'][j['name']] = {'pid': p.pid, 'machine': where, 'commit': j['_commit'], 'started': now, 'log': base + '.log',
                                    'rc': rc_path, 'backlog': j['_repo']}
         events.append(f'{j["name"]} started on {where} ({j["_commit"][:7]})')

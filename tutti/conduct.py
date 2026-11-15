@@ -337,7 +337,7 @@ def shim(folder, cfg_path):
 
 
 def agent_env(cfg, run, agent):
-    env = dict(os.environ, TUTTI_CONFIG=cfg['_path'], TUTTI_CONDUCT=run['dir'], TUTTI_MAIN=agent)
+    env = dict(workers.worker_env(cfg), TUTTI_CONFIG=cfg['_path'], TUTTI_CONDUCT=run['dir'], TUTTI_MAIN=agent)
     env['PATH'] = run['bin'] + os.pathsep + env.get('PATH', '')
     if (cfg['workers'].get(agent) or {}).get('kind') == 'cli':   # Claude Code compacts by itself at autocompact.threshold_pct
         env.update(autocompact.env_for(cfg, {'kind': 'cli', 'command': cli_argv(cfg, agent, '', None)}))

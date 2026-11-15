@@ -37,6 +37,7 @@ from . import (
     energy,
     fill,
     fleet,
+    github,
     handover,
     helper,
     householduse,
@@ -822,13 +823,20 @@ def save_work_move(collector, body):
     return 200, {'ok': True, 'done': done}
 
 
+def _sub_of(collector, headers):
+    """The signed-in user's id, or None with sign-in off (the dashboard's owner)."""
+    return (getattr(collector, 'who', lambda _h: None)(headers) or {}).get('sub')
+
+
 def _self_posts():
     from . import mainmachine, manage
     return {mainmachine.API: lambda c, h, b: mainmachine.post(c, h, b), manage.API: lambda c, h, b: manage.act_post(c, h, b),
             chatrun.API: chatrun.handle,   # the Chat: every user's own conversations, each action with its own role check
             welcome.API: lambda c, h, b: welcome.post(c, h, b),   # Welcome back: the viewer's own summary and switch
             '/api/browser': browsercmd.post,   # the work browser: any signed-in user, for the admin's sites
-            needs.API: lambda c, h, b: needs.post(c, h, b)}   # questions: the viewer's own answers and settings
+            needs.API: lambda c, h, b: needs.post(c, h, b),   # questions: the viewer's own answers and settings
+            API_REPORT: lambda c, h, b: report.api(c, b, sub=_sub_of(c, h)),   # filed under the person's own GitHub
+            github.API: github.api}   # Connect GitHub: the person's own connection
 
 
 SELF_POSTS = _self_posts()
@@ -858,7 +866,6 @@ HANDLERS = {
     '/api/self-improve': dashtelemetry.save_self_improve,
     '/api/ai-assist': lambda c, b: aiassist.save(c, b),
     '/api/update': start_update,
-    API_REPORT: report.api,
 }
 
 
@@ -1125,6 +1132,7 @@ def server(cfg, port, collector=None):
     token = secrets.token_urlsafe(24)   # a new one per start: the page loaded from this server sends it back with a POST
     httpd = Server((bind_of(cfg), port), make_handler(collector, token))
     httpd.token = token
+    github.use(cfg)   # Connect GitHub: the connections Tutti's GitHub calls use (docs/GITHUB.md)
     httpd.auth = authweb.Runtime(cfg, httpd.server_address[1]) if auth.enabled(cfg) else None
     collector.signed = httpd.auth is not None
     collector.who = lambda headers: authweb.who(httpd.auth, headers)   # the household's handlers ask who is asking

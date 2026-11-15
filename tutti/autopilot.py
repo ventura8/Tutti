@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import backlog, compact, config, delegate, durable, planner, priority, remote, routing, telemetry, tiers, tz, worktree
+from . import backlog, compact, config, delegate, durable, github, planner, priority, remote, routing, telemetry, tiers, tz, worktree
 
 try:
     import fcntl
@@ -718,7 +718,7 @@ def publish(cfg, task, report, run=None, gh=None):
     open_pr(cfg, task, repo, wt, branch, subject, run, gh)
 
 
-def open_pr(cfg, task, repo, wt, branch, subject, run=git, gh=subprocess.run):
+def open_pr(cfg, task, repo, wt, branch, subject, run=git, gh=None):
     """The committed branch pushed and a pull request opened when the repo or self-improvement asks for one."""
     from . import selfimprove
     mode, base, why = selfimprove.pr_plan(cfg, task, repo)
@@ -735,7 +735,7 @@ def open_pr(cfg, task, repo, wt, branch, subject, run=git, gh=subprocess.run):
             else '; never merged by it.')
     args = ['gh', 'pr', 'create', *(['--draft'] if mode == 'draft' else []), *(['--base', base] if base else []), '--head', branch,
             '--title', subject, '--body', body]
-    pr = gh(args, cwd=wt, capture_output=True, text=True)
+    pr = (gh or github.run)(args, cwd=wt, capture_output=True, text=True)
     if pr.returncode == 0:
         task['pr'] = pr.stdout.strip()
         task['publish_note'] = ('draft ' if mode == 'draft' else '') + f'pull request {task["pr"]}'

@@ -43,5 +43,32 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual([x[0] for x in adb], ['connect', 'connect', 'disconnect', 'disconnect'])
 
 
+class IdleLeaseTest(unittest.TestCase):
+    def test_a_lease_is_renewed_only_while_its_command_runs(self):
+        import time
+        renewed = []
+        a = SimpleNamespace(names=['pixeltablet', 'googletv'], who='ci', action='claim', minutes=120)
+        with devicescmd.Renewer({}, a, claim_fn=lambda c, x: renewed.append((x.action, x.minutes)), every=0.05):
+            time.sleep(0.3)   # the command runs
+        n = len(renewed)
+        time.sleep(0.2)   # it ended: no more renewals, so an idle lease lapses within IDLE_MINUTES
+        self.assertGreaterEqual(n, 3)
+        self.assertEqual(len(renewed), n)
+        self.assertEqual(set(renewed), {('claim', devicescmd.IDLE_MINUTES)})
+        self.assertEqual(a.minutes, 120)   # the caller's own namespace is not changed
+
+    def test_a_command_lease_asks_for_the_idle_length_not_hours(self):
+        cfg = {'devices': {'pixeltablet': {}}, 'machines': {'pc': {'transport': 'ssh'}}}
+        seen = []
+
+        def claim(c, a):
+            seen.append((a.action, a.minutes))
+            return 3   # busy: nothing runs, nothing is held
+        a = SimpleNamespace(names=['pixeltablet', '--', 'run'], runner='pc', who='ci', action='lease', minutes=120)
+        with mock.patch.object(devicescmd, 'cmd_claim', claim):
+            self.assertEqual(devicescmd.lease_on_runner(cfg, a), 3)
+        self.assertEqual(seen, [('claim', devicescmd.IDLE_MINUTES)])
+
+
 if __name__ == '__main__':
     unittest.main()

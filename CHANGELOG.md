@@ -6,6 +6,15 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.14.1 (2026-11-15)
+
+### Fixed
+
+- A lease never holds devices while nothing runs on them (RoRadio, 2026-11-15: a waiting runner held the Pixel Tablet and
+  the Google TV Streamer for 25 min and blocked another session). `tutti devices lease` (and a runner suite's lease) takes
+  the devices only when the command starts, for 5 minutes, renewed every 2 minutes while the command runs, and releases
+  them when it ends; a holder that crashed or only waits lets them lapse within 5 minutes.
+
 ## 0.14.0 (2026-11-15)
 
 ### Added

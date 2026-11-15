@@ -569,7 +569,8 @@ def save_limit(collector, raw):
         return 400, {'error': 'send {"machine": "<name>", "window": "18-01" or "off", "pct": 60} as JSON'}
     pct = data.get('pct')
     if pct is not None and (isinstance(pct, bool) or not isinstance(pct, (int, float))):
-        return 400, {'error': 'pct is a number from 0 to 100'}
+        return 400, {'error': f'pct is {pct!r}: machines.{data["machine"]}.limit.pct is the share of the machine used in the '
+                              'window, a number from 0 to 100 (0: not used at all); send it as a number, or leave it out for 60'}
     try:
         changes = share.limit_change(collector.cfg, data['machine'], data['window'], pct)
     except ValueError as e:

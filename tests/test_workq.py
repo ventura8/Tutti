@@ -44,6 +44,23 @@ class Plan(WqBase):
         shared = [{**r, 'free': 0, 'status': 'busy'} for r in rows()]   # use_pct already capped the free slots to 0
         self.assertEqual(workq.assign(cfg, [{'name': 'a', 'run': 'x'}], shared, set(), NOON), [])
 
+    def test_a_heavy_job_here_waits_in_this_computers_limited_window_and_a_light_one_runs(self):
+        cfg = self.wq_cfg()
+        here_heavy, here_light = {'name': 'h', 'run': 'x', 'where': 'here', 'heavy': True}, {'name': 'l', 'run': 'y', 'where': 'here'}
+        limited = [{**r, 'limited': r['name'] == 'laptop'} for r in rows()]   # laptop is this computer (transport local)
+        self.assertEqual([j['name'] for j, _ in workq.assign(cfg, [here_heavy, here_light], limited, set(), NOON)], ['l'])
+        self.assertEqual([j['name'] for j, _ in workq.assign(cfg, [here_heavy], rows(), set(), NOON)], ['h'])
+
+    def test_findings_are_matched_in_the_whole_log_not_only_its_tail(self):
+        log = os.path.join(self.tmp.name, 'run.log')
+        with open(log, 'w', encoding='utf8') as f:
+            f.write('src/a.ts | 71.5 % | FAIL\n' + 'noise\n' * (workq.TAIL * 2))
+        job = {'name': 'tests', 'findings': {'pattern': r'^(?P<file>\S+) \| (?P<pct>[\d.]+) % .*FAIL$'}}
+        titles = [t for t, _, _ in workq.tasks_of(job, 'pass', 'abc', workq.log_of(log))]
+        self.assertEqual(titles, ['Raise the coverage of src/a.ts'])
+        self.assertEqual(workq.log_of(log, limit=6), 'noise\n')   # the bound keeps the end
+        self.assertEqual(workq.log_of(os.path.join(self.tmp.name, 'missing')), '')
+
     def test_the_most_important_project_goes_first(self):
         cfg = self.wq_cfg()
         items = [{'name': 'map', 'run': 'x', 'project': 'Map'}, {'name': 'tutti', 'run': 'y', 'project': 'Tutti'}]

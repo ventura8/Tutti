@@ -140,7 +140,7 @@ work_queue:
 | Key | Meaning |
 | --- | --- |
 | `repo` | An `autopilot.repos` name or a folder. The job runs in its own detached worktree at the repo's `ref` (default `HEAD`), with `share` folders hard-linked from the main checkout. |
-| `where` | `route` (default) uses any free machine. `here` runs on this computer with no slot, for light checks. A machine name pins the job to that machine. |
+| `where` | `route` (default) uses any free machine. `here` runs on this computer with no slot, for light checks; a `heavy` one waits while this computer is in its limited-usage window or quiet hours. A machine name pins the job to that machine. |
 | `heavy` | The job goes to the free machine with the most cores. |
 | `every` | `commit` (default) runs once on each new commit; a period (`6h`, `30m`, `1d`) runs again after that long. |
 | `findings` | A regex with a `file` group: each match becomes a backlog task, such as the coverage gate's FAIL rows. |

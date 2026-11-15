@@ -22,6 +22,7 @@ from . import state as state_mod
 
 STATE = 'work-queue.json'
 TAIL = 4000
+FINDINGS_BYTES = 8 * 1024 * 1024   # findings are matched against the whole log up to this size (its end when longer)
 UNIT = {'h': 3600, 'm': 60, 'd': 86400}
 
 
@@ -102,6 +103,16 @@ def quiet(cfg, machine, now_dt):
     return bool(hours) and planner.quiet(now_dt, hours)
 
 
+def here_held(cfg, rows, now_dt):
+    """True when this computer (the machine with the local transport) takes no heavy job now: in its limited-usage window
+    (machines.<m>.limit) or its quiet hours."""
+    me = next((n for n, m in cfg['machines'].items() if (m or {}).get('transport') == 'local'), None)
+    if me is None:
+        return False
+    row = next((r for r in rows if r.get('name') == me), {})
+    return bool(row.get('limited')) or quiet(cfg, me, now_dt)
+
+
 def assign(cfg, items, rows, busy, now_dt):
     """[(job, machine or 'here')]: each due job to a machine with a free slot (at its share), not in its quiet hours and not
     already running a queue job; a heavy job to the machine with the most cores first, the rest by routing order."""
@@ -111,8 +122,9 @@ def assign(cfg, items, rows, busy, now_dt):
     out = []
     for j in items:
         where = j.get('where', 'route')
-        if where == 'here':
-            out.append((j, 'here'))
+        if where == 'here':   # this computer: the same heavy rule as a machine (its limited window, its quiet hours)
+            if not (j.get('heavy') and here_held(cfg, rows, now_dt)):
+                out.append((j, 'here'))
             continue
         if j.get('heavy'):   # no new heavy job on a machine in its limited-usage window (machines.<m>.limit)
             pool = {n: r for n, r in free.items() if not r.get('limited')}
@@ -223,11 +235,14 @@ def argv_of(cfg, job, where, wt, rc_path):
     return ['bash', '-c', f'{inner}; echo $? > {shlex.quote(rc_path)}']
 
 
-def tail_of(p):
+def log_of(p, limit=None):
+    """The run's log for its findings: the whole file, or its last FINDINGS_BYTES when it is longer (a bounded read: a
+    finding in the first part of a log larger than that is missed, and the event says nothing of it)."""
+    limit = limit or FINDINGS_BYTES
     try:
         with open(p, 'rb') as f:
-            f.seek(max(0, os.path.getsize(p) - TAIL * 4))
-            return f.read().decode('utf8', 'replace')[-TAIL * 4:]
+            f.seek(max(0, os.path.getsize(p) - limit))
+            return f.read().decode('utf8', 'replace')
     except OSError:
         return ''
 
@@ -250,7 +265,7 @@ def collect(cfg, st, now, is_alive):
             events.append(f'{name} on {lease["machine"]}: ended without an exit status; it runs again')
             del st['leases'][name]
             continue
-        text = tail_of(lease['log'])
+        text = log_of(lease['log'])
         st['last'][name] = {'commit': lease['commit'], 'at': lease['started'], 'ended': now, 'rc': rc, 'outcome': outcome,
                             'machine': lease['machine'], 'rerun': rerun, 'log': lease['log']}
         events.append(f'{name} on {lease["machine"]}: {outcome} ({lease["commit"][:7]})')

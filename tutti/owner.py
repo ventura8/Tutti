@@ -210,6 +210,8 @@ DATE = re.compile(r'\d{4}-\d{2}-\d{2}')
 
 def date_errors(dates):
     """Errors of dated windows {YYYY-MM-DD: HH-HH or off}: one day's owner window that replaces its weekday's."""
+    if dates is not None and not isinstance(dates, dict):
+        return [f'pacing.dates is {dates!r}: a mapping of dates to windows, such as {{"2026-11-16": "20-24"}} ("off": no window)']
     errs = []
     for d, w in (dates or {}).items():
         try:

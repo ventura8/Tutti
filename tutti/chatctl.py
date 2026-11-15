@@ -303,3 +303,50 @@ def edited_steps(card, edits):
                 step['call']['args'][key] = text.strip()[:300]
         out.append(step)
     return out
+
+
+# ---- Auto: when a local model hands over to an online one (docs/CHAT.md, *Escalation*)
+
+CODE_WORDS = re.compile(r'```|\b(stack ?trace|traceback)\b|\b(write|implement|refactor|debug|fix|review)\s+'
+                        r'(?:(?:a|an|the|this|that|my|some|new|unit|failing)\s+){0,2}'
+                        r'(code|function|method|class|script|regex|tests?|bug|query|patch|diff)\b', re.I)
+CODE_PARAMS = 14.0   # a local model smaller than this is not trusted with code
+# only at the very start of a short answer that used no tool: "I can't find any runs today" after a lookup is a real answer
+REFUSAL = re.compile(r"^\W*(sorry,?\s*)?(i can(?:no|')t (help|do|assist|answer)|i am unable to|i'm unable to|as an ai)\b", re.I)
+UNSURE = re.compile(r"^\W*(i(?:'m| am) not sure|i don't know|i do not know|i'm uncertain)\b", re.I)
+SHORT = 600
+BAD_CALLS = 2
+
+
+def route_reason(cand, cfg, messages, history, effort):
+    """Why a local model should not even try this request (Auto only), or None: it would not fit its context, it has an
+    image but no vision, it is code work for a small model, or the effort is max."""
+    if cand.get('kind') != 'ollama':
+        return None
+    w = (cfg.get('workers') or {}).get(cand['worker']) or {}
+    if messages_tokens(messages) > window(cand, cfg, effort):
+        return f'the request is longer than {cand["label"]}\'s context'
+    last = history[-1] if history else {}
+    if any(a.get('ref') or str(a.get('type') or '').startswith('image/') for a in last.get('attachments') or []) and not w.get('vision'):
+        return f'it has an image and {cand["label"]} cannot see images'
+    if CODE_WORDS.search(last.get('text') or '') and (cand.get('params') or 0) < CODE_PARAMS:
+        return f'it is code work and {cand["label"]} is too small for it'
+    if effort == 'max':
+        return 'the effort is max'
+    return None
+
+
+def answer_reason(text, bad_calls, used_tools=False):
+    """Why a local model's answer is not good enough (Auto retries online), or None. `bad_calls`: refused tool calls in a row."""
+    if bad_calls >= BAD_CALLS:
+        return 'the local model called its tools wrongly twice in a row'
+    text = (text or '').strip()
+    if not text:
+        return 'the local model gave no answer'
+    if used_tools or len(text) > SHORT:
+        return None
+    if REFUSAL.search(text):
+        return 'the local model declined'
+    if UNSURE.search(text):
+        return 'the local model was not confident'
+    return None

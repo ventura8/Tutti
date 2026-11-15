@@ -848,6 +848,96 @@ class Robustness(ApiBase):
         self.assertEqual((nuc['params'], nuc['tools']), (15.7, True))
 
 
+class Escalation(ApiBase):
+    """Auto: a request the local model cannot handle goes to an online model, with the reason on the answer."""
+
+    def run_auto(self, script, text='hello', **extra):
+        self.seen = []
+        eng = self.engine({})
+        eng.streams = recording_streams(script, self.seen)
+        done = self.send(eng, ADMIN, text, **extra)[-1]['message']
+        return done
+
+    def test_up_front_a_request_longer_than_the_local_context(self):
+        self.cfg['workers']['pc'].update(num_ctx=64, max_ctx=64)
+        self.cfg['workers']['nuc'].update(num_ctx=64, max_ctx=64)
+        done = self.run_auto({'pc': ['local'], 'nuc': ['local'], 'claude': ['online']})
+        self.assertEqual((done['text'], self.seen), ('online', ['claude']))
+        self.assertIn("longer than big:27b on pc's context", done['fallback'])
+
+    def test_up_front_an_image_without_a_vision_model(self):
+        png = base64.b64encode(b'\x89PNG\r\n\x1a\n' + b'0' * 10).decode()
+        done = self.run_auto({'pc': ['local'], 'nuc': ['local'], 'claude': ['online']},
+                             attachments=[{'name': 's.png', 'type': 'image/png', 'data': png}])
+        self.assertEqual(self.seen, ['claude'])
+        self.assertIn('cannot see images', done['fallback'])
+
+    def test_up_front_code_work_for_a_small_model(self):
+        self.snap = snapshot(presence={'items': {'machine:pc': {'state': 'asleep'}, 'machine:nuc': {'state': 'present'}}})
+        done = self.run_auto({'nuc': ['local'], 'claude': ['online']}, text='write a regex for dates')
+        self.assertEqual(self.seen, ['claude'])
+        self.assertIn('code work', done['fallback'])
+        self.snap = snapshot()
+        self.assertEqual(self.run_auto({'pc': ['local'], 'claude': ['online']}, text='write a regex')['text'], 'local')   # 27B: ok
+
+    def test_up_front_max_effort(self):
+        done = self.run_auto({'pc': ['local'], 'claude': ['online']}, effort='max')
+        self.assertEqual((done['text'], self.seen), ('online', ['claude']))
+        self.assertIn('the effort is max', done['fallback'])
+
+    def test_a_text_attachment_is_not_an_image_and_a_poem_is_not_code(self):
+        self.snap = snapshot(presence={'items': {'machine:pc': {'state': 'asleep'}, 'machine:nuc': {'state': 'present'}}})
+        done = self.run_auto({'nuc': ['local'], 'claude': ['online']}, text='write a poem about this function of the dashboard',
+                             attachments=[{'name': 'a.log', 'text': 'log line'}])
+        self.assertEqual((done['text'], self.seen), ('local', ['nuc']))
+        done = self.run_auto({'nuc': ['local'], 'claude': ['online']}, text='please fix this bug in the parser')
+        self.assertEqual(done['text'], 'online')
+
+    def test_a_real_answer_that_says_i_cant_find_stays_local(self):
+        done = self.run_auto({'pc': ["Right now there are no runs: I can't find any job started today."], 'claude': ['online']})
+        self.assertEqual(self.seen, ['pc'])
+        self.assertNotIn('fallback', done)
+
+    def test_when_every_online_model_fails_the_local_answer_stays(self):
+        self.snap = snapshot(presence={'items': {'machine:pc': {'state': 'present'}, 'machine:nuc': {'state': 'asleep'}}})
+        done = self.run_auto({'pc': ["I can't help with that."], 'claude': OSError('down')})
+        self.assertEqual((done['text'], self.seen), ("I can't help with that.", ['pc', 'claude']))
+        self.assertIn('Kept big:27b on pc', done['fallback'])
+        self.cfg['workers']['pc'].update(num_ctx=64, max_ctx=64)   # skipped up front, then no online answer: it tries after all
+        done = self.run_auto({'pc': ['local after all'], 'claude': OSError('down')})
+        self.assertEqual((done['text'], self.seen), ('local after all', ['claude', 'pc']))
+
+    def test_after_a_refusal_or_low_confidence_online_answers_with_the_same_context(self):
+        for local, why in (("I can't help with that.", 'declined'), ("I'm not sure, maybe 3.", 'not confident')):
+            self.snap = snapshot(presence={'items': {'machine:pc': {'state': 'present'}, 'machine:nuc': {'state': 'asleep'}}})
+            done = self.run_auto({'pc': [local], 'claude': ['The answer is 42.']}, text='how many runs today?')
+            self.assertEqual((done['text'], done['model']), ('The answer is 42.', 'claude (claude account)'))
+            self.assertIn(why, done['fallback'])
+            self.assertEqual(self.seen, ['pc', 'claude'])
+
+    def test_after_two_bad_tool_calls_in_a_row(self):
+        bad = {'tool_calls': [{'function': {'name': 'backlog_add', 'arguments': {'repo': 'nowhere', 'title': 'x'}}}]}
+        self.snap = snapshot(presence={'items': {'machine:pc': {'state': 'present'}, 'machine:nuc': {'state': 'asleep'}}})
+        done = self.run_auto({'pc': [bad], 'claude': ['Done properly.']})
+        self.assertEqual((done['text'], self.seen.count('pc'), self.seen[-1]), ('Done properly.', 2, 'claude'))   # 2 rounds
+        self.assertIn('tools wrongly twice in a row', done['fallback'])
+        self.assertEqual(chatctl.answer_reason('fine', 1), None)
+
+    def test_after_a_timeout(self):
+        done = self.run_auto({'pc': OSError('timed out'), 'nuc': OSError('timed out'), 'claude': ['online']})
+        self.assertEqual((done['text'], self.seen), ('online', ['pc', 'nuc', 'claude']))
+        self.assertIn('did not answer', done['fallback'])
+
+    def test_never_an_account_out_of_room_and_never_outside_auto(self):
+        self.snap = snapshot(usage={'accounts': [{'name': 'claude', 'panic': True, 'verdict': 'late'}]},
+                             presence={'items': {'machine:pc': {'state': 'present'}, 'machine:nuc': {'state': 'asleep'}}})
+        done = self.run_auto({'pc': ["I can't."], 'claude': ['online']})
+        self.assertEqual((done['text'], self.seen), ("I can't.", ['pc']))   # no online model with room: the local answer stays
+        self.snap = snapshot(presence={'items': {'machine:pc': {'state': 'present'}, 'machine:nuc': {'state': 'asleep'}}})
+        done = self.run_auto({'pc': ["I can't."], 'claude': ['online']}, model='local')
+        self.assertEqual(self.seen, ['pc'])
+
+
 class Wiring(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()

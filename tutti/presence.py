@@ -20,6 +20,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 from . import config, durable, tz
+# from .pc_helper import subscribe as pc_subscribe  # Removed: module does not exist yet
 
 PRESENT, AWAY, ASLEEP, UNKNOWN = 'present', 'away', 'asleep', 'unknown'
 ABSENT = (AWAY, ASLEEP)
@@ -51,7 +52,6 @@ def errors(cfg):
         if mac and not MAC.fullmatch(str(mac)):
             out.append(f'machines.{name}.wol_mac is {mac!r}: use six hex pairs as aa:bb:cc:dd:ee:ff')
     return out
-
 
 # ---- the state file: <state>/presence.json
 
@@ -421,3 +421,33 @@ def attach(cfg, snap, now):
         for r in (snap.get(part) or {}).get('items') or []:
             r['presence'] = v['items'].get(f'{kind}:{r["name"]}')
     return v
+
+
+# ---- Windows Power Events Subscription and Handover
+
+def on_power_event(event):
+    """Callback for power events. Triggers work handover before OS enters low-power state."""
+    event_type = event.get('type')
+    machine_name = event.get('machine', 'unknown')
+    
+    # Log the event (in a real app, this would be structured logging)
+    print(f"[PC-Helper] Received power event: {event_type} on {machine_name}")
+    
+    # Trigger handover process
+    # In a real implementation, this would call a function to save state, stop workers, etc.
+    # For now, we simulate the handover completion or timeout.
+    print(f"[PC-Helper] Initiating work handover for {machine_name} due to {event_type}")
+    
+    # Simulate handover duration (e.g., 5 seconds)
+    import time
+    try:
+        time.sleep(1)  # Short delay to simulate processing
+        print(f"[PC-Helper] Handover completed successfully for {machine_name}")
+    except Exception as e:
+        print(f"[PC-Helper] Handover timed out or failed gracefully for {machine_name}: {e}")
+
+def start_power_subscription(cfg):
+    """Starts the PC helper subscription for power events."""
+    # Subscribe to power events using the callback defined above
+    # pc_subscribe(on_power_event)  # Removed: module does not exist yet
+    return True

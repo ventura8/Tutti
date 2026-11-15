@@ -251,6 +251,39 @@ def runner_line(command, addrs):
     return f'export ANDROID_SERIAL={shlex.quote(first)} {env}; {command}'
 
 
+IDLE_MINUTES = 5    # a lease a command holds lapses this long after the command stops renewing it (it crashed, or hangs up)
+RENEW_SECONDS = 120
+
+
+class Renewer:
+    """While a leased command runs, its lease is renewed every RENEW_SECONDS for IDLE_MINUTES more: a lease is only as long
+    as the run, and one whose holder stopped (crashed, killed, or a script that only waits) lapses within IDLE_MINUTES,
+    never holding the devices for its whole --minutes."""
+
+    def __init__(self, cfg, a, claim_fn=None, every=RENEW_SECONDS):
+        import copy
+        import threading
+        self.a, self.stop = copy.copy(a), threading.Event()
+        self.a.action, self.a.minutes = 'claim', IDLE_MINUTES
+        self.claim = claim_fn or (lambda c, x: cmd_claim(c, x))
+        self.cfg, self.every = cfg, every
+        self.thread = threading.Thread(target=self.loop, daemon=True)
+
+    def loop(self):
+        import io
+        from contextlib import redirect_stdout
+        while not self.stop.wait(self.every):
+            with redirect_stdout(io.StringIO()):
+                self.claim(self.cfg, self.a)   # the same requester again: its end moves on, nothing else changes
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.stop.set()
+
+
 def lease_on_runner(cfg, a):
     """`tutti devices lease <device> [<partner> ...] --runner <machine> --who <s> -- <command>`: the devices leased (both or
     none), the runner machine's own adb connected to each lease address, the command run there (a PowerShell runner on
@@ -266,6 +299,7 @@ def lease_on_runner(cfg, a):
         say('name the devices, the runner machine and the command: tutti devices lease <d> [<d2>] --runner <machine> -- <command>')
         return 2
     a.who, a.names, a.action = a.who or 'lease', names, 'claim'
+    a.minutes = IDLE_MINUTES   # renewed while the command runs (Renewer): idle, it lapses
     out = io.StringIO()
     with redirect_stdout(out):
         rc = cmd_claim(cfg, a)
@@ -279,7 +313,8 @@ def lease_on_runner(cfg, a):
         for addr in addrs.values():
             there.adb('connect', addr, timeout=30)
         print('tutti: device ready', flush=True)   # the dispatcher's start clock (shards.started_marker)
-        return remote.sh(cfg['machines'][a.runner], runner_line(command, addrs)).returncode
+        with Renewer(cfg, a):
+            return remote.sh(cfg['machines'][a.runner], runner_line(command, addrs)).returncode
     finally:
         for addr in addrs.values():
             there.adb('disconnect', addr, timeout=30)
@@ -304,7 +339,7 @@ def cmd_lease(cfg, a):
     if not a.names or not command:
         say('name the device and the command: tutti devices lease <device> --who <session> -- <command ...>')
         return 2
-    a.who = a.who or 'lease'
+    a.who, a.minutes = a.who or 'lease', IDLE_MINUTES   # renewed while the command runs (Renewer): idle, it lapses
     out = io.StringIO()
     with redirect_stdout(out):
         a.action = 'claim'
@@ -323,7 +358,8 @@ def cmd_lease(cfg, a):
             return 1
         connected = ':' in addr
         env = {**os.environ, 'ANDROID_SERIAL': addr}
-        return subprocess.run(command, env=env, check=False).returncode
+        with Renewer(cfg, a):
+            return subprocess.run(command, env=env, check=False).returncode
     finally:
         if connected:
             here.adb('disconnect', addr, timeout=30)

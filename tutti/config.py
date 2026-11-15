@@ -438,7 +438,8 @@ def validate(cfg):
     # they import modules that import this one
     from . import autocompact, chat, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
     errs += dispatch.errors(cfg) + tiers.errors(cfg) + tz.errors(cfg) + presence.errors(cfg)
-    from . import aiassist, needs, welcome
+    from . import aiassist, needs, selfheal, welcome
+    errs += selfheal.errors(cfg)
     errs += needs.errors(cfg) + welcome.errors(cfg) + aiassist.errors(cfg) + selfimprove.errors(cfg)
     errs += sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \

@@ -825,6 +825,8 @@ def test_argv(cfg, lease, s, shard):
     empty = shards.empty_filter(command)
     if empty:
         raise config.ConfigError(f'{s["project"]} {s["name"]}/{shard}: {empty}')
+    from . import deps
+    command = deps.prefix(deps.for_suite(cfg, s['project'], s['name'])) + command   # declared needs installed first
     if s.get('runner') and lease['kind'] in DEVICE_KINDS:   # the suite runs on its runner machine, the devices over leases
         names = [lease['name'], *(lease.get('holds') or [])]
         return [sys.executable, remote.BIN, '--config', cfg['_path'], 'devices', 'lease', *names, '--runner', s['runner'],

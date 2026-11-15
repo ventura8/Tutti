@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 
-from . import config, failover, move, remote, statebudget, watchdog, yamledit
+from . import config, failover, move, remote, selfheal, statebudget, watchdog, yamledit
 
 UNIT = 'tutti-failover.service'
 
@@ -141,11 +141,22 @@ def one_round(cfg, run=subprocess.run, healthy_since=None, now=None):
     return lines + pruned
 
 
+def heal(cfg, lines, last, now, heal_fn=None):
+    """The self-heal checks (tutti/selfheal.py) every selfheal.every_seconds; returns when they last ran."""
+    selfheal.note_round(cfg, lines, now)
+    if not selfheal.enabled(cfg) or now - last < selfheal.every(cfg):
+        return last
+    for line in (heal_fn or (lambda c: selfheal.round_(selfheal.Ctx(c), selfheal.LOOP_CHECKS)))(cfg):
+        say(f'self-heal: {line}')
+    return now
+
+
 def loop(cfg, stop=None, sleep=time.sleep):
-    healthy_since = None
+    healthy_since, healed = None, 0.0
     while not (stop and stop()):
         try:
             lines = one_round(cfg, healthy_since=healthy_since)
+            healed = heal(cfg, lines, healed, time.time())
             ok = failover.read(cfg).get('last', '').find('cannot reach') < 0
             healthy_since = (healthy_since or time.time()) if ok else None
             for line in lines:

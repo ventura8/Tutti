@@ -168,6 +168,10 @@ FIELDS = {
                                    unit='seconds', min=10),
     'failover.budget_mb': field('State budget', 'Tutti\'s state should stay under this size (`tutti doctor` shows it).', 'number',
                                 unit='MB', min=1),
+    'selfheal.enabled': field('Self-healing', 'Each round Tutti installs what work needs and restarts or repairs what broke. '
+                              'docs/SELFHEAL.md.', 'switch'),
+    'selfheal.every_seconds': field('Self-heal every', 'How often the self-heal checks run on each machine.', 'number',
+                                    unit='seconds', min=30),
     'machines.*.slots': field('Slots', 'At most this many runs at once.', 'number', min=1),
     'machines.*.min_free_gb': field('Free memory needed', 'A run starts only with this much memory free.', **GB),
     'machines.*.max_load_ratio': field('Load limit', 'Fit only while its load is under this share of its cores.', 'number', min=0, max=4,

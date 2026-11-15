@@ -158,7 +158,8 @@ def broker(cfg, b=None):
     return browserbroker.Broker(b, browserbroker.scopes(cfg, pages, needed_sites(cfg)),
                                 os.path.join(config.state_dir(cfg), browserbroker.LOG),
                                 None if browser_machine(cfg)[1] else downloads_of(cfg, b.mode), pages,
-                                browser.settings(cfg)['file_tasks'])
+                                browser.settings(cfg)['file_tasks'],
+                                max_file_mb=(cfg.get('browser') or {}).get('max_file_mb'))
 
 
 def downloads_of(cfg, mode):
@@ -367,6 +368,9 @@ def act(cfg, who, body, brk=None, now=None):
     handler = {'sign-in': act_sign_in, 'read': act_read, 'check': act_check}.get(action)
     if handler is None or (action == 'sign-in' and not isinstance(url, str)):
         return 400, {'error': 'send {"action": "sign-in", "url": ...}, {"action": "read"} or {"action": "check"}'}
+    if url is not None and not isinstance(url, str):
+        return 400, {'error': f'url is {url!r}: give the page\'s address as text, such as "https://example.com/usage", or leave '
+                              'it out to read every usage page'}
     try:
         return handler(cfg, brk, url, label, now)
     except browserbroker.OutOfScope as e:

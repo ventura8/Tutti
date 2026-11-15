@@ -431,6 +431,8 @@ FIELDS = {
                                  'blocked).', 'list', item='address'),
     'browser.file_tasks': field('Task types that get files', 'Only these may take a downloaded file, by its name.', 'list',
                                 item='task type'),
+    'browser.max_file_mb': field('Largest file a task takes', 'A downloaded file over this size is refused, with the reason.',
+                                 'number', min=1, max=2048),
     'browser.max_tabs': field('Tabs at once', 'More tasks wait in the queue.', 'number', min=1, max=20),
     'browser.path': field('Browser program', 'Chrome or Chromium to start; empty finds one (then Playwright\'s Chromium).', 'text'),
     'browser.profile': field('Tutti profile folder', 'Dedicated mode\'s own sign-ins; empty is the default. Never your browser\'s.',

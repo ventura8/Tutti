@@ -64,8 +64,10 @@ class Broker:
     """Runs tasks by type. A task never brings its own JavaScript: it names an extractor (`text`, `usage`, `check`) whose
     script is Tutti's own, read-only, and returns only what the extractor reads (never document.cookie or storage)."""
 
-    def __init__(self, b, scope_map, log_path, downloads=None, usage_targets=None, file_tasks=(), clock=time.time):
+    def __init__(self, b, scope_map, log_path, downloads=None, usage_targets=None, file_tasks=(), clock=time.time,
+                 max_file_mb=None):
         self.b, self.scope, self.log_path, self.downloads, self.clock = b, scope_map, log_path, downloads, clock
+        self.max_bytes = int(float(max_file_mb or MAX_FILE_MB) * 1024 * 1024)
         self.usage_targets, self.file_tasks = usage_targets or {}, set(file_tasks or ())
         self.lock = threading.Lock()
 
@@ -125,10 +127,21 @@ class Broker:
         path = os.path.join(self.downloads, name)
         if not os.path.isfile(path):
             raise browser.BrowserError(f'no downloaded file is named {name}')
+        size = os.path.getsize(path)
+        if size > self.max_bytes:
+            self.log(who, kind, 'refused', f'file:///{name}', f'{size} bytes, over the {self.max_bytes} byte cap')
+            raise browser.BrowserError(f'{name} is {size / 1048576:.1f} MB, over the {self.max_bytes / 1048576:.0f} MB a task may '
+                                       'take (browser.max_file_mb): ask for a smaller file, or an admin raises the cap in Settings')
         with open(path, 'rb') as f:
-            data = f.read()
+            data = f.read(self.max_bytes + 1)
+        if len(data) > self.max_bytes:   # it grew after the size check
+            raise browser.BrowserError(f'{name} grew past the {self.max_bytes / 1048576:.0f} MB cap while it was read: '
+                                       'wait until its download ends, then ask again')
         self.log(who, kind, 'take', f'file:///{name}', f'{len(data)} bytes')
         return data
+
+
+MAX_FILE_MB = 50   # browser.max_file_mb: the largest downloaded file a task may take
 
 
 def serve(broker, kind, who, token=None, port=0):

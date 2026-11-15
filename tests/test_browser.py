@@ -383,6 +383,9 @@ class Round3(unittest.TestCase):
         cfg = {'accounts': {}, 'browser': {'mode': 'existing'}, 'project': {'state': tmp()}}
         brk = browserbroker.Broker(None, {}, os.path.join(tmp(), 'l'))
         self.assertEqual(browsercmd.act(cfg, None, {'action': 'read', 'url': 'https://x.example/'}, brk)[0], 404)
+        code, answer = browsercmd.act(cfg, None, {'action': 'read', 'url': ['https://x.example/']}, brk)
+        self.assertEqual(code, 400)
+        self.assertIn('give the page\'s address as text', answer['error'])
 
 
 class WebSocket(unittest.TestCase):
@@ -493,6 +496,19 @@ class Broker(unittest.TestCase):
                 brk.take('export', bad, 'w')
         with self.assertRaises(browserbroker.OutOfScope):
             brk.take('usage-reading', 'a.csv', 'w')
+
+    def test_a_file_over_the_cap_is_refused_with_the_setting_to_raise(self):
+        brk = self.broker()
+        brk.file_tasks = {'export'}
+        brk.max_bytes = 4
+        with open(os.path.join(brk.downloads, 'big.csv'), 'w', encoding='utf8') as f:
+            f.write('12345')
+        with open(os.path.join(brk.downloads, 'ok.csv'), 'w', encoding='utf8') as f:
+            f.write('1234')
+        self.assertEqual(brk.take('export', 'ok.csv', 'w'), b'1234')
+        with self.assertRaisesRegex(browser.BrowserError, 'browser.max_file_mb'):
+            brk.take('export', 'big.csv', 'w')
+        self.assertEqual(browserbroker.Broker(None, {}, 'l').max_bytes, browserbroker.MAX_FILE_MB * 1024 * 1024)
 
     def test_the_workers_http_broker_needs_its_token_and_keeps_the_scope(self):
         brk = self.broker()

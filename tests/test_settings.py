@@ -263,7 +263,8 @@ console.log(JSON.stringify({{ text: nodes.map(text).join(' '), tags: nodes.flatM
 s.SET.changed = true;
 console.log(JSON.stringify({{ text: s.renderSettings({json.dumps(data)}).map(text).join(' ') }}));
 """
-        out = subprocess.run(['node', '-e', script], capture_output=True, text=True, check=True).stdout.splitlines()
+        # through stdin: one argv string may not pass 128 KB (MAX_ARG_STRLEN), and the settings' data grows
+        out = subprocess.run(['node', '-'], input=script, capture_output=True, text=True, check=True).stdout.splitlines()
         page, changed = json.loads(out[0]), json.loads(out[1])
         for title in ('Accounts and readings', 'Autopilot', 'Opt-ins', 'Dashboard', 'Secrets', 'Project priority',
                       'Runs at once'):

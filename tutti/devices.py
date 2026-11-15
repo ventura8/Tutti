@@ -293,7 +293,10 @@ def external_wrap(found, command, who='tutti'):
     register = ''.join(f'mkdir -p {prep.users_path(d)} && ' for d in found) + f'touch {users} && '
     refresh = f'{{ while :; do touch {files} 2>/dev/null; sleep 60; done & }}; ' if have else ''   # the lock stays fresh
     awake = refresh + ''.join(f'{{ {prep.keep_awake(d)} & }}; ' for d in found)
-    release = '; '.join(x for x in ('kill $(jobs -p) 2>/dev/null', f'rm -f {users}', f'rm -f {files}' if have else '',
+    # each background loop and its waiting `sleep` child: a loop killed alone left its sleep behind for a minute
+    # the loop first (else it goes on to its next key), then the children it had: listed before, by exact pid
+    stop = 'for j in $(jobs -p); do c=$(pgrep -P "$j"); kill "$j" 2>/dev/null; [ -n "$c" ] && kill $c 2>/dev/null; done'
+    release = '; '.join(x for x in (stop, f'rm -f {users}', f'rm -f {files}' if have else '',
                                      *(prep.release_script(d, p, stale) for d, (p, stale) in zip(found, locks, strict=True))) if x)
     setup = prep.scripts(found)[0]
     wake = '; '.join(prep.unlock(d) for d in found)

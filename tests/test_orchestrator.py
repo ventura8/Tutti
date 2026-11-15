@@ -560,7 +560,7 @@ class DiscoverTest(unittest.TestCase):
         with open(script, 'w', encoding='utf8') as f:
             f.write('echo "[150/177] e2e/specs/x.spec.ts"\nsleep 30\n')
         with open(log, 'w', encoding='utf8') as out:
-            p = subprocess.Popen(['bash', script, 'track', 'npx playwright test'], stdout=out, stderr=out)
+            p = subprocess.Popen(['bash', script, 'track', 'npx playwright test'], stdout=out, stderr=out, start_new_session=True)
         try:
             for _ in range(50):
                 with open(log, encoding='utf8') as f:
@@ -576,7 +576,7 @@ class DiscoverTest(unittest.TestCase):
             self.assertIn('nuc-test.sh track npx playwright test', mine[0]['title'])
             self.assertNotIn(p.pid, [j['pid'] for j in discover.script_jobs(config.normalise({}), 0, 600)])   # not watched: not shown
         finally:
-            p.kill()
+            os.killpg(p.pid, 9)   # the script and its `sleep`: never a child left behind
             p.wait()
 
     def test_programs_interpreters_and_wrappers(self):

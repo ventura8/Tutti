@@ -4,6 +4,7 @@ filled /tmp's inodes and stopped every command on the laptop (2026-11-15)."""
 import importlib
 import os
 import shutil
+import signal
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,23 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.dirname(HERE)]   # the tests' helpers, then the tutti package
 tmpdirs = importlib.import_module('tmpdirs')   # the module the tests import (tests/ is on the path, as discover does)
+os.environ['TUTTI_NO_DAEMONS'] = '1'   # no real keep-awake loop, tunnel or inhibitor from a test (tutti/procs.py)
+
+
+# Python's own helpers of this runner (started once by the first multiprocessing test, they end with it)
+RUNNER_HELPERS = ('multiprocessing.resource_tracker', 'multiprocessing.forkserver')
+
+
+def left_children(root):
+    """Pids of this user's live processes started under this test run (TUTTI_TEST_ROOT == root), never this runner."""
+    from tutti import procs
+    out = []
+    for name in (n for n in os.listdir('/proc') if n.isdigit()):
+        p = procs.info(name)
+        if p and p['uid'] == os.getuid() and p['pid'] != os.getpid() and p['env'].get('TUTTI_TEST_ROOT') == root \
+                and not any(h in ' '.join(p['argv']) for h in RUNNER_HELPERS):
+            out.append(p)
+    return out
 
 
 class Guarded(unittest.TextTestResult):
@@ -27,6 +45,19 @@ class Guarded(unittest.TextTestResult):
         os.environ['TMPDIR'] = old if old is not None else ROOT
         left = sorted(n for n in os.listdir(self._root) if not n.startswith(KEPT))
         shutil.rmtree(self._root, ignore_errors=True)
+        kids = left_children(ROOT) if ROOT and os.path.isdir('/proc') else []
+        for p in kids:   # stopped by exact pid: a test's leftover never runs on for hours (2026-11-15: load 60)
+            try:
+                os.kill(p['pid'], signal.SIGTERM)
+            except OSError:
+                pass
+        if kids:
+            try:
+                raise AssertionError(f'the test left {len(kids)} process(es) running: '
+                                     + '; '.join(f'{p["pid"]} {" ".join(p["argv"])[:80]}' for p in kids[:3])
+                                     + '; mock the background start or stop it in addCleanup')
+            except AssertionError:
+                self.addFailure(test, sys.exc_info())
         if left:
             try:
                 raise AssertionError(f'the test left {len(left)} entr(y/ies) in its temp folder: {", ".join(left[:5])}; '

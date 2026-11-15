@@ -6,6 +6,20 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.1 (2026-11-15)
+
+### Fixed
+
+- Tutti no longer leaks long-lived processes (the laptop at load 60, 2026-11-15). Tests start no keep-awake loop, tunnel or
+  inhibitor (`TUTTI_NO_DAEMONS`), and `tests/run.py` fails a test that leaves a process behind. A device's keep-awake loop
+  is one per device and ends when its folder is gone; a tunnel's loop is one per tunnel (`flock`); the sleep inhibitor is
+  one per Tutti process, held only while a job runs and ended with Tutti (`tail --pid`), never `sleep infinity`.
+
+### Added
+
+- Self-heal's `strays` check and `tutti reap [--dry-run]`: Tutti's own helper processes that nothing owns, stopped by exact
+  pid and logged (docs/SELFHEAL.md, *Stray processes*).
+
 ## 0.16.0 (2026-11-15)
 
 ### Added

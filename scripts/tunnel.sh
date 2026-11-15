@@ -8,6 +8,8 @@ action=$1; name=$2; local_addr=$3; ssh_host=$4; remote_addr=$5
 state="${TUTTI_STATE:-$HOME/.local/state/tutti}"
 mkdir -p "$state"
 pidf="$state/tunnel-$name.pid"
+# the marker the reaper knows its loops by (tutti/procs.py); TUTTI_STATE so it finds this pid file
+export TUTTI_PROC="tunnel:$name" TUTTI_STATE="$state"
 running() { [ -f "$pidf" ] && kill -0 "$(cat "$pidf")" 2> /dev/null; }
 loop() {
 	while :; do
@@ -20,9 +22,15 @@ loop() {
 }
 case $action in
 	start)
+		# tests and checks start no real loop (a test host's loop once ran for hours, 2026-11-15)
+		if [[ -n "${TUTTI_NO_DAEMONS:-}" ]]; then echo "not started: TUTTI_NO_DAEMONS is set"; exit 0; fi
+		# one loop per tunnel: the check and the pid write under one lock, so two starts never both win
+		exec 9> "$pidf.lock"
+		flock 9
 		if running; then echo "already running: $(cat "$pidf")"; exit 0; fi
 		export -f loop
-		setsid nohup bash -c 'loop "$@"' loop "$local_addr" "$ssh_host" "$remote_addr" >> "$state/tunnel-$name.log" 2>&1 < /dev/null &
+		# fd 9 (the start lock) closed in the loop: the lock covers only the check and the pid write
+		setsid nohup bash -c 'loop "$@"' loop "$local_addr" "$ssh_host" "$remote_addr" >> "$state/tunnel-$name.log" 2>&1 < /dev/null 9>&- &
 		echo $! > "$pidf"
 		echo "started: $(cat "$pidf")" ;;
 	stop)

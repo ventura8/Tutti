@@ -20,7 +20,7 @@ class Dashboard:
 
     def __init__(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='tutti-e2e-')
-        env = {**os.environ, 'HOME': self.tmp.name, 'XDG_CONFIG_HOME': os.path.join(self.tmp.name, '.config'),
+        env = {**os.environ, 'TUTTI_NO_DAEMONS': '1', 'HOME': self.tmp.name, 'XDG_CONFIG_HOME': os.path.join(self.tmp.name, '.config'),
                'TUTTI_TELEMETRY': 'off', 'PYTHONPATH': os.pathsep.join([ROOT, os.path.join(ROOT, 'tests')]), 'TZ': 'UTC'}
         self.proc = subprocess.Popen([sys.executable, os.path.join(HERE, 'serve.py'), self.tmp.name], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, text=True, env=env, cwd=self.tmp.name)

@@ -6,6 +6,15 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.12.0 (2026-11-15)
+
+### Added
+
+- A suite can run on a named runner machine with its devices on another (`runner: pc`): each shard leases its devices
+  (and a pair's partner, both or none), the runner's own adb connects to the lease addresses, the command runs there with
+  `{addr:<device>}` filled in, then adb disconnects and the devices are released. `tutti devices lease <d> [<d2>]
+  --runner <machine> -- <command>` does it by hand (docs/DISPATCH.md, *A suite on a runner machine*).
+
 ## 0.11.0 (2026-11-15)
 
 ### Added

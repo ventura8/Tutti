@@ -240,6 +240,53 @@ def cmd_hours(cfg, a):
     return 0
 
 
+def runner_line(command, addrs):
+    """The command for the runner machine: {addr:<device>} filled in, ANDROID_SERIAL the first device's address and
+    TUTTI_ADDR_<DEVICE> each one's (a Cast suite passes its receiver's: -CastTablet {addr:googletv})."""
+    import shlex
+    for name, addr in addrs.items():
+        command = command.replace(f'{{addr:{name}}}', addr)
+    first = next(iter(addrs.values()), '')
+    env = ' '.join(f'TUTTI_ADDR_{n.upper()}={shlex.quote(v)}' for n, v in addrs.items())
+    return f'export ANDROID_SERIAL={shlex.quote(first)} {env}; {command}'
+
+
+def lease_on_runner(cfg, a):
+    """`tutti devices lease <device> [<partner> ...] --runner <machine> --who <s> -- <command>`: the devices leased (both or
+    none), the runner machine's own adb connected to each lease address, the command run there (a PowerShell runner on
+    the PC with the devices on the NUC), then adb disconnected there and the devices released, however it ends."""
+    import io
+    from contextlib import redirect_stdout
+
+    from . import adbhost, remote
+    words = list(a.names or [])
+    cut = words.index('--') if '--' in words else next((i for i, w in enumerate(words) if w not in (cfg.get('devices') or {})), len(words))
+    names, command = words[:cut], ' '.join(w for w in words[cut:] if w != '--')
+    if not names or not command or a.runner not in cfg['machines']:
+        say('name the devices, the runner machine and the command: tutti devices lease <d> [<d2>] --runner <machine> -- <command>')
+        return 2
+    a.who, a.names, a.action = a.who or 'lease', names, 'claim'
+    out = io.StringIO()
+    with redirect_stdout(out):
+        rc = cmd_claim(cfg, a)
+    text = out.getvalue()
+    print(text.strip())
+    if rc != 0:
+        return rc
+    addrs = dict(zip(names, (x[5:] for x in text.split() if x.startswith('ADDR=')), strict=False))
+    there = adbhost.Host(a.runner, cfg['machines'][a.runner])
+    try:
+        for addr in addrs.values():
+            there.adb('connect', addr, timeout=30)
+        print('tutti: device ready', flush=True)   # the dispatcher's start clock (shards.started_marker)
+        return remote.sh(cfg['machines'][a.runner], runner_line(command, addrs)).returncode
+    finally:
+        for addr in addrs.values():
+            there.adb('disconnect', addr, timeout=30)
+        a.action = 'release'
+        cmd_claim(cfg, a)
+
+
 def cmd_lease(cfg, a):
     """`tutti devices lease <device> --who <session> -- <command>`: the device leased (claim), this computer's adb connected
     to it over Wi-Fi (the same adb key the household's machines share), the command run here with ANDROID_SERIAL set to
@@ -250,6 +297,8 @@ def cmd_lease(cfg, a):
     from contextlib import redirect_stdout
 
     from . import adbhost
+    if getattr(a, 'runner', None):
+        return lease_on_runner(cfg, a)
     command = [w for w in (a.names or [])[1:] if w != '--']
     a.names = (a.names or [])[:1]
     if not a.names or not command:
@@ -352,5 +401,6 @@ def add_arguments(s):
     s.add_argument('--adb', help='pair: the adb to use on the machine (default: found by itself)')
     s.add_argument('--wait', type=int, default=180, help='pair: seconds to wait for the device (180)')
     s.add_argument('--who', help='claim, release: the session or tool that uses the device')
+    s.add_argument('--runner', help='lease: run the command on this machine with its own adb (a suite\'s runner: the PC)')
     s.add_argument('--minutes', type=int, default=120, help='claim, lease: how long the lease lasts at most (120)')
     s.add_argument('--days', help='hours: the days, e.g. mon-fri or sat,sun (default every day)')

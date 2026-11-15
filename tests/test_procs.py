@@ -50,18 +50,23 @@ class ReaperTest(unittest.TestCase):
         self.p.add(12, ['bash', '-c', LOOP], {'HOME': h})                                     # a second loop
         self.p.add(13, ['bash', '-c', LOOP], {'HOME': h, 'TUTTI_TEST_ROOT': '/gone/root'})    # its test run is over
         self.p.add(20, ['bash', '-c', 'loop "$@"', 'loop', 'a', 'b', 'c'], {'HOME': h, 'TUTTI_STATE': '/gone'})
-        self.p.add(21, ['bash', '-c', 'loop "$@"', 'loop', 'a', 'b', 'c'], {'HOME': h, 'TUTTI_STATE': h})
-        self.p.add(22, ['bash', '-c', 'loop "$@"', 'loop', 'a', 'b', 'c'], {'HOME': h, 'TUTTI_STATE': h})
+        self.p.add(21, ['bash', '-c', 'loop "$@"', 'loop', 'a', 'b', 'c'], {'HOME': h, 'TUTTI_STATE': h, 'TUTTI_PROC': 'tunnel:big'})
+        self.p.add(22, ['bash', '-c', 'loop "$@"', 'loop', 'a', 'b', 'c'], {'HOME': h, 'TUTTI_STATE': h, 'TUTTI_PROC': 'tunnel:other'})
         self.p.add(30, ['systemd-inhibit', '--who=tutti', 'sleep', 'infinity'], {'HOME': h}, ppid=1)   # orphaned
         self.p.add(31, ['systemd-inhibit', '--who=tutti', 'tail'], {'HOME': h}, ppid=5)                # its dashboard lives
         self.p.add(32, ['systemd-inhibit', '--who=tutti'], {'HOME': h, 'TUTTI_PROC': 'inhibit', 'TUTTI_PROC_OWNER': '99'}, ppid=5)
         self.p.add(40, ['bash', '-c', LOOP], {'HOME': '/gone'}, uid=UID + 1)                   # another user's: never touched
         self.p.add(41, ['sleep', '5'], {'HOME': '/gone'})                                      # not a Tutti helper
+        old = os.path.getmtime(self.p.root) - 3600
+        for n in os.listdir(self.p.root):
+            os.utime(os.path.join(self.p.root, n), (old, old))   # none of them just started
+        self.p.add(23, ['bash', '-c', 'loop "$@"', 'loop', 'a', 'b', 'c'], {'HOME': h, 'TUTTI_STATE': h, 'TUTTI_PROC': 'tunnel:x'})
         killed, logged = [], []
         lines = procs.reap(logged.append, proc=self.p.root, kill=lambda pid, sig: killed.append((pid, sig)))
         self.assertEqual(sorted(pid for pid, _ in killed), [10, 12, 13, 20, 22, 30, 32])
         self.assertTrue(all(sig == signal.SIGTERM for _, sig in killed))
         self.assertEqual(logged, lines)
+        # 23: a second loop of tunnel x, but it just started (its pid file may be on its way): left for the next round
         self.assertIn('stopped claim 10: its home folder /gone/home is gone', lines)
         self.assertTrue(any(ln.startswith('stopped inhibit 30: its Tutti process 1 is gone') for ln in lines))
         self.assertEqual(procs.reap(logged.append, proc=self.p.root, dry=True, kill=None)[0][:10], 'would stop')

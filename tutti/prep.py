@@ -266,7 +266,8 @@ def lease_script(device, claim, minutes, who):
     live = (f'live=; for c in {u}/claim-*; do [ -e "$c" ] || continue; e=$(head -c 20 "$c" | tr -cd 0-9); '
             f'[ -n "$e" ] && [ "$e" -gt "$(date +%s)" ] && live=1; done; ')
     # the end is decided under the lease's lock: a lease written meanwhile is seen, and its device is never restored under it
-    # a folder gone (a test's temp home removed) ends the loop: its mkdir could never succeed (161 spinning loops, 2026-11-15)
+    # a folder gone (a test's temp home removed) ends the loop: its mkdir could never succeed (161 spinning loops, 2026-11-15);
+    # nothing is restored then: the device's saved values lived in that folder too
     end = (f'if [ -z "$live" ]; then until mkdir {lock} 2>/dev/null; do [ -d {u} ] || break 2; sleep 0.1; done; {live}'
            f'if [ -z "$live" ]; then rm -f {pid}; {release_script(device)} > /dev/null; rmdir {lock}; break; fi; rmdir {lock}; fi; ')
     # one loop per device: a loop that awake.pid does not name (a second one) ends at its next round

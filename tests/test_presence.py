@@ -245,6 +245,8 @@ class Sleep(Base):
         self.assertIn(f'--pid={os.getpid()}', procs[2].argv)   # it ends with this process: never `sleep infinity`
         self.assertNotIn('infinity', procs[2].argv)
         self.assertTrue(procs[2].terminate.called)              # and let go when the watcher ends
+        self.assertEqual(sleepwatch.max_delay(lambda *a, **k: SimpleNamespace(stdout='t 5000000')), 4.0)
+        self.assertIsNone(sleepwatch.parse('something else'))
 
     def test_the_lock_is_held_only_while_work_runs_and_one_per_process(self):
         procs = []
@@ -260,9 +262,9 @@ class Sleep(Base):
         self.assertTrue(procs[0].terminate.called)              # the work ended: let go
         with mock.patch.dict(os.environ, {'TUTTI_NO_DAEMONS': '1'}):
             self.assertIsNone(sleepwatch.start_in_background({}))   # tests never start a real inhibitor
-        self.assertFalse(sleepwatch.busy({}))
-        self.assertEqual(sleepwatch.max_delay(lambda *a, **k: SimpleNamespace(stdout='t 5000000')), 4.0)
-        self.assertIsNone(sleepwatch.parse('something else'))
+        cfg = {'project': {'state': tempfile.gettempdir()}, 'machines': {'pc': {}}}
+        self.assertTrue(sleepwatch.busy(cfg, running=lambda state, kind, name: [('log', 1)]))
+        self.assertFalse(sleepwatch.busy(cfg, running=lambda state, kind, name: []))
 
 
 WRITER = '''

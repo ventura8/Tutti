@@ -8,6 +8,7 @@ up; the adb server up and wireless devices reconnected; disk and inodes (Tutti's
 replaces the stopgap /tmp cron: backlog t86); the dashboard alive; state files valid (from their snapshot); the config valid
 (the last good backup); self-update applied. Every probe and action is injected, so tests run them on fakes."""
 import json
+import logging
 import os
 import shlex
 import shutil
@@ -364,7 +365,8 @@ def check_strays(ctx):
     """Tutti's own helper processes that nothing owns any more (tutti/procs.py), stopped by exact pid. Never in tests."""
     from . import procs
     reap = getattr(ctx, 'reap', None) or (procs.reap if procs.daemons_allowed() else None)
-    return reap(lambda line: None) if reap else []
+    log = logging.getLogger('tutti.selfheal').info   # each stop logged; the round records the same lines
+    return reap(log) if reap else []
 
 
 CHECKS = (('ollama', check_ollama), ('strays', check_strays), ('needs', check_needs), ('workers', check_workers),

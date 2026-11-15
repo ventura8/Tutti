@@ -14,11 +14,14 @@ The reaper stops each by its exact pid (SIGTERM), only processes of this user, a
 import os
 import re
 import signal
+import time
 
 MARK = 'TUTTI_PROC'
 NO_DAEMONS = 'TUTTI_NO_DAEMONS'   # tests and scripts/check.sh: no helper process is started at all
 CLAIM = re.compile(r'devices/([^/"\s]+)/users/claim-')
 TUNNEL = 'loop "$@"'
+PROC = '/proc'
+YOUNG_SECONDS = 30   # a helper this young may not have written its pid file yet: never a stray
 
 
 def daemons_allowed(env=None):
@@ -34,14 +37,14 @@ def _read(path, binary=False):
         return None
 
 
-def info(pid, proc='/proc'):
+def info(pid, proc=PROC):
     """{pid, ppid, uid, argv, env} of one process, or None when it is gone or unreadable."""
     base = os.path.join(proc, str(pid))
     status = _read(os.path.join(base, 'status'))
     cmd, env = _read(os.path.join(base, 'cmdline'), True), _read(os.path.join(base, 'environ'), True)
     if status is None or cmd is None or env is None:
         return None
-    fields = dict(ln.split(':', 1) for ln in status.splitlines() if ':' in ln)
+    fields = {k: v for k, _, v in (ln.partition(':') for ln in status.splitlines() if ':' in ln)}
     try:
         uid, ppid = int(fields['Uid'].split()[0]), int(fields['PPid'].strip())
     except (KeyError, ValueError, IndexError):
@@ -74,35 +77,65 @@ def _owned_by_pidfile(pid, files):
     return any((_read(f) or '').strip() == str(pid) for f in files)
 
 
-def why_stray(p, proc='/proc'):
-    """The reason this Tutti helper is a stray, or '' when something still owns it."""
-    env, k = p['env'], kind(p)
+def _age(pid, proc):
+    try:
+        return time.time() - os.stat(os.path.join(proc, str(pid))).st_mtime
+    except OSError:
+        return 0.0
+
+
+def _gone(env):
     root = env.get('TUTTI_TEST_ROOT')
     if root and not os.path.isdir(root):
         return f'its test run is over ({root} is gone)'
     if env.get('HOME') and not os.path.isdir(env['HOME']):
         return f'its home folder {env["HOME"]} is gone'
-    if k == 'inhibit':
-        owner = int(env.get('TUTTI_PROC_OWNER') or 0) or p['ppid']
-        own = info(owner, proc)
-        if not _alive(owner, proc) or own is None or not any('tutti' in a for a in own['argv']):
-            return f'its Tutti process {owner} is gone'
-        return ''
-    if k == 'tunnel':
-        state = env.get('TUTTI_STATE', '')
-        names = os.listdir(state) if os.path.isdir(state) else []
-        files = [os.path.join(state, f) for f in names if f.startswith('tunnel-') and f.endswith('.pid')]
-        return '' if _owned_by_pidfile(p['pid'], files) else 'no tunnel pid file names it (a second loop of the same tunnel)'
-    if k == 'claim':
-        m = CLAIM.search(' '.join(p['argv']))
-        mark = env.get(MARK, '')
-        device = mark.split(':', 1)[1] if ':' in mark else (m.group(1) if m else '')
-        f = os.path.join(env.get('HOME', ''), '.tutti', 'devices', device, 'awake.pid')
-        return '' if _owned_by_pidfile(p['pid'], [f]) else f'awake.pid of {device} names another loop (or none)'
     return ''
 
 
-def strays(uid=None, proc='/proc'):
+def _inhibit(p, proc):
+    owner = int(p['env'].get('TUTTI_PROC_OWNER') or 0) or p['ppid']
+    own = info(owner, proc)
+    return '' if own and any('tutti' in a for a in own['argv']) else f'its Tutti process {owner} is gone'
+
+
+def _name(p):
+    mark = p['env'].get(MARK, '')
+    return mark.split(':', 1)[1] if ':' in mark else ''
+
+
+def _tunnel(p, proc):
+    state, name = p['env'].get('TUTTI_STATE', ''), _name(p)
+    if name:
+        files = [os.path.join(state, f'tunnel-{name}.pid')]
+    else:   # a loop started before the marker: any tunnel pid file of its state folder
+        names = os.listdir(state) if os.path.isdir(state) else []
+        files = [os.path.join(state, f) for f in names if f.startswith('tunnel-') and f.endswith('.pid')]
+    return '' if _owned_by_pidfile(p['pid'], files) else 'no tunnel pid file names it (a second loop of the same tunnel)'
+
+
+def _claim(p, proc):
+    m = CLAIM.search(' '.join(p['argv']))
+    device = _name(p) or (m.group(1) if m else '')
+    f = os.path.join(p['env'].get('HOME', ''), '.tutti', 'devices', device, 'awake.pid')
+    return '' if _owned_by_pidfile(p['pid'], [f]) else f'awake.pid of {device} names another loop (or none)'
+
+
+RULES = {'inhibit': _inhibit, 'tunnel': _tunnel, 'claim': _claim}
+
+
+def why_stray(p, proc=PROC):
+    """The reason this Tutti helper is a stray, or '' when something still owns it (or it is too young to tell)."""
+    gone = _gone(p['env'])
+    if gone:
+        return gone
+    rule = RULES.get(kind(p))
+    if rule is None or _age(p['pid'], proc) < YOUNG_SECONDS:
+        return ''
+    return rule(p, proc)
+
+
+def strays(uid=None, proc=PROC):
     """[(info, kind, reason)] of this user's Tutti helpers that nothing owns, oldest pid first."""
     uid = os.getuid() if uid is None else uid
     out = []
@@ -117,11 +150,12 @@ def strays(uid=None, proc='/proc'):
     return out
 
 
-def reap(log, uid=None, proc='/proc', kill=os.kill, dry=False):
+def reap(log, uid=None, proc=PROC, kill=os.kill, dry=False):
     """Stops each stray by its exact pid and logs it. Returns the lines logged."""
     lines = []
     for p, k, reason in strays(uid, proc):
-        line = f'{"would stop" if dry else "stopped"} {k} {p["pid"]}: {reason}'
+        verb = 'would stop' if dry else 'stopped'
+        line = f'{verb} {k} {p["pid"]}: {reason}'
         if not dry:
             try:
                 kill(p['pid'], signal.SIGTERM)

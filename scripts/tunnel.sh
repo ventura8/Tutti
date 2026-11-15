@@ -23,13 +23,14 @@ loop() {
 case $action in
 	start)
 		# tests and checks start no real loop (a test host's loop once ran for hours, 2026-11-15)
-		if [ -n "${TUTTI_NO_DAEMONS:-}" ]; then echo "not started: TUTTI_NO_DAEMONS is set"; exit 0; fi
+		if [[ -n "${TUTTI_NO_DAEMONS:-}" ]]; then echo "not started: TUTTI_NO_DAEMONS is set"; exit 0; fi
 		# one loop per tunnel: the check and the pid write under one lock, so two starts never both win
 		exec 9> "$pidf.lock"
 		flock 9
 		if running; then echo "already running: $(cat "$pidf")"; exit 0; fi
 		export -f loop
-		setsid nohup bash -c 'loop "$@"' loop "$local_addr" "$ssh_host" "$remote_addr" >> "$state/tunnel-$name.log" 2>&1 < /dev/null &
+		# fd 9 (the start lock) closed in the loop: the lock covers only the check and the pid write
+		setsid nohup bash -c 'loop "$@"' loop "$local_addr" "$ssh_host" "$remote_addr" >> "$state/tunnel-$name.log" 2>&1 < /dev/null 9>&- &
 		echo $! > "$pidf"
 		echo "started: $(cat "$pidf")" ;;
 	stop)

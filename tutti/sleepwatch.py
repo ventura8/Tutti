@@ -158,11 +158,12 @@ def watch(cfg, popen=subprocess.Popen, delay=max_delay, down=going_down, up=woke
     """Follows logind's signals until the monitor ends; the delay lock is held only while work runs (a second thread)."""
     lock = Lock(popen)
     stop = stop or threading.Event()
+    down_now = threading.Event()   # between a going-down signal and the wake: the lock is never taken again
 
     def hold():
         while not stop.is_set():
             with contextlib.suppress(Exception):
-                lock.follow(is_busy(cfg))
+                down_now.is_set() or lock.follow(is_busy(cfg))
             stop.wait(HOLD_SECONDS)
     with contextlib.suppress(Exception):
         lock.follow(is_busy(cfg))
@@ -175,10 +176,12 @@ def watch(cfg, popen=subprocess.Popen, delay=max_delay, down=going_down, up=woke
                 continue
             what, going = sig
             if going:
+                down_now.set()
                 with contextlib.suppress(Exception):
                     down(cfg, what, delay())
                 lock.drop()   # let go: the OS goes on now
             else:
+                down_now.clear()
                 with contextlib.suppress(Exception):
                     up(cfg)
                 with contextlib.suppress(Exception):

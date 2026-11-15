@@ -298,6 +298,11 @@ def lease_on_runner(cfg, a):
     if not names or not command or a.runner not in cfg['machines']:
         say('name the devices, the runner machine and the command: tutti devices lease <d> [<d2>] --runner <machine> -- <command>')
         return 2
+    from . import remote as _remote
+    m = cfg['machines'][a.runner]
+    if m.get('yield_file') and _remote.yield_note(m) is not None:   # the PC is someone else's now: nothing in its foreground
+        say(f'{a.runner} yields (its yield flag is up): the run waits until it is down; nothing is leased meanwhile')
+        return 3
     a.who, a.names, a.action = a.who or 'lease', names, 'claim'
     a.minutes = IDLE_MINUTES   # renewed while the command runs (Renewer): idle, it lapses
     out = io.StringIO()

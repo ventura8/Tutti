@@ -70,5 +70,21 @@ class IdleLeaseTest(unittest.TestCase):
         self.assertEqual(seen, [('claim', devicescmd.IDLE_MINUTES)])
 
 
+class YieldTest(unittest.TestCase):
+    def test_a_runner_suite_waits_while_its_runner_yields(self):
+        pend = [{'project': 'RoRadio', 'key': 'cast/1', 'runner': 'w5090'}, {'project': 'RoRadio', 'key': 'e2e/1'}]
+        out = dispatch.runners_free(pend, [{'name': 'w5090', 'paused': True, 'status': 'paused'}])
+        self.assertIn('yield flag is up', out[0]['wait'])
+        self.assertNotIn('wait', out[1])   # a suite on the devices' own machine is not held back
+        self.assertNotIn('wait', dispatch.runners_free(pend, [{'name': 'w5090', 'status': 'free'}])[0])
+
+    def test_a_runner_lease_takes_nothing_while_the_runner_yields(self):
+        cfg = {'devices': {'pixeltablet': {}}, 'machines': {'pc': {'transport': 'ssh', 'yield_file': '/y'}}}
+        a = SimpleNamespace(names=['pixeltablet', '--', 'run'], runner='pc', who='ci', action='lease', minutes=120)
+        with mock.patch('tutti.remote.yield_note', lambda m: 'RoRadio pipeline'), \
+                mock.patch.object(devicescmd, 'cmd_claim', lambda c, x: self.fail('nothing is leased')):
+            self.assertEqual(devicescmd.lease_on_runner(cfg, a), 3)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -15,6 +15,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   reconnects by the mDNS name and reads again with a 45 s timeout; on a TV, screensaver_enabled,
   screensaver_activate_on_sleep (new, `secure`), screen_off_timeout, sleep_timeout and stay_on_while_plugged_in are
   required and read back after they are set: one that cannot be read or does not take stops the run with the reason.
+- A suite on a runner machine (`runner: pc`) waits while that machine yields (its yield flag up: the PC is running another
+  project's pipeline), is held, paused or off; `tutti devices lease --runner` takes nothing then (exit 3).
 
 ## 0.15.0 (2026-11-15)
 

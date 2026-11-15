@@ -659,6 +659,7 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
         held = {**cooling(st, now), **calls.holds(cfg, st, devices_rows, now)}
         tgts = targets(devices_rows, machine_rows, st, held, gone)
         pend = follow_devices(cfg, st, now, pend, devices_rows, gone)
+        pend = runners_free(pend, machine_rows)
         with contextlib.suppress(Exception):   # Cast roles of the machines (tutti/castroles.py), asked once a day
             from . import castroles
             mroles = castroles.machine_roles(cfg, now)
@@ -722,6 +723,20 @@ def hand_over_now(cfg, kind, name):
 
 
 AWAY_STATUS = {'held': 'paused or away', 'person': 'a person is using it', 'offline': 'not reachable'}
+
+
+def runners_free(pend, machine_rows):
+    """A suite on a runner machine (`runner:`) waits while that machine yields (its yield flag: the PC is the owner's or
+    another project's), is held, paused or off; its devices stay free for the others meanwhile."""
+    rows = {m['name']: m for m in machine_rows or []}
+    out = []
+    for w in pend:
+        m = rows.get(w.get('runner')) if w.get('runner') else None
+        if m and (m.get('paused') or m.get('status') in ('held', 'paused', 'off', 'offline')):
+            why = 'its yield flag is up' if m.get('paused') else f'it is {m.get("status")}'
+            w = {**w, 'wait': w.get('wait') or f'its runner {m["name"]} is not available ({why}): it waits'}
+        out.append(w)
+    return out
 
 
 def follow_devices(cfg, st, now, pend, devices_rows, gone):

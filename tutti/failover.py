@@ -249,8 +249,11 @@ def backup_config_text(cfg, text, backup, home_here, home_there):
     main = main_of(cfg)
     edits = [(['machines', backup, 'host'], 'local'), (['machines', backup, 'transport'], yamledit.DELETE),
              (['project', 'state'], f'{d}/state'), (['failover', 'me'], backup), (['failover', 'main'], main)]
-    if opts(cfg)['reach'].get(main):
-        edits.append((['machines', main, 'host'], opts(cfg)['reach'][main]))
+    # the main reached from the backup: failover.reach.<main>, else a name that never resolves (.invalid) so it shows as down
+    edits.append((['machines', main, 'host'], opts(cfg)['reach'].get(main) or f'{main}.invalid'))
+    for n, w in (cfg.get('workers') or {}).items():   # the backup's own model server is local there: no tunnel to itself
+        if isinstance(w, dict) and w.get('machine') == backup and w.get('tunnel'):
+            edits += [(['workers', n, 'host'], '127.0.0.1:11434'), (['workers', n, 'tunnel'], yamledit.DELETE)]
     for path, value in edits:
         text = yamledit.edit(text, path, value)
     return text.replace(home_here.rstrip('/') + '/', home_there.rstrip('/') + '/')

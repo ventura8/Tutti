@@ -197,6 +197,7 @@ class EdgeTest(unittest.TestCase):
         self.assertEqual(out['machines']['nuc']['host'], 'local')
         self.assertEqual(out['failover']['me'], 'nuc')
         self.assertTrue(out['project']['state'].startswith('/home/other/.tutti-failover'))
+        self.assertEqual(out['machines']['laptop']['host'], 'laptop.invalid')   # never two machines that are local
 
     def test_secrets_and_logs_never_go_but_the_backlog_and_runs_index_do(self):
         self.assertIn('*.log', failover.SYNC_EXCLUDE)

@@ -644,6 +644,15 @@ function renderMachines(s) {
     const ms = s.machines;
     $('machines-meta').textContent = ms.probed_at ? `Probed ${relative(ms.probed_at)}` : 'Probing…';
     // this computer's disks (tutti/diskroom.py): low space or file slots stop new work; the fix in plain words
+    // the backup main machine (docs/FAILOVER.md): who serves now and who takes over; an admin picks it in Settings, Machines
+    const fo = s.failover;
+    const foLine = $('machines-failover');
+    if (foLine && fo) {
+        foLine.textContent = fo.backup
+            ? `Main machine: ${fo.main}. Backup: ${fo.backup}${fo.chosen ? '' : ' (picked by Tutti)'}. Serving now: ${fo.active}.${fo.may_write ? '' : ' This machine is read-only until it catches up.'}`
+            : `Main machine: ${fo.main}. No backup main machine yet: pick one in Settings, Machines, or let Tutti pick.`;
+        foLine.dataset.tone = fo.may_write ? '' : 'bad';
+    }
     $('machines-disk').replaceChildren(...(s.disk || []).map((t) => el('p', { class: 'row__note', 'data-tone': 'bad', role: 'alert', text: t })));
     // A re-render replaces the rows: the stored-files toggle that had focus gets it back (keyboard users keep their place).
     const focused = document.activeElement?.closest?.('.stored')?.dataset.machine;

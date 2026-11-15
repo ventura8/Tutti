@@ -6,6 +6,22 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.13.0 (2026-11-15)
+
+### Added
+
+- A backup main machine with automatic failover (docs/FAILOVER.md): an admin picks it (Settings, Machines; `tutti main
+  backup <machine>`), or Tutti elects the healthiest always-on machine with a UPS or the most uptime. The main pushes a
+  small, frequent copy of its state (no logs or caches; mode 600, to the backup only); when the main is silent for 3
+  minutes or shuts down, the backup takes over the dashboard, coordinator, autopilot and device leases; when the main is
+  back and healthy, it catches up and Tutti returns to it. Terms and a lease make split brain impossible; members and
+  clients follow the failover list by themselves. `tutti failover setup|status|tick|run|leave`.
+- `tutti state size|prune` and `tutti doctor`: the state's size against a 50 MB budget, its biggest items, old runs,
+  screenshots and logs trimmed; a watchdog repairs corrupt state from the last good snapshot and restarts a crashed
+  dashboard.
+- Tutti's own AI asks the largest local model that is up and free on any household machine, skips busy ones at once, then
+  goes online (`ai_assist.online_worker`) (backlog t80).
+
 ## 0.12.0 (2026-11-15)
 
 ### Added

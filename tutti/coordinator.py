@@ -190,6 +190,10 @@ class Service:
                 data = founding(self.cfg, self.clock())   # the dashboard's admin invited someone: the household starts here
             if not data:
                 return 503, {'error': 'this computer is not a household coordinator: run `tutti household init` here'}
+            from . import failover
+            if not failover.may_write(self.cfg):   # a fenced or standing-by main: the members go to the active one
+                return 409, {'error': f'{failover.me(self.cfg)} is not the active main machine now: your Tutti tries the next one '
+                                      'on its failover list by itself', 'failover': failover.discovery(self.cfg)}
             now = self.clock()
             if path == JOIN:
                 code, answer = self.join(data, headers, body, addr, now)
@@ -330,7 +334,9 @@ class Service:
             if isinstance(p, dict) and household.project_key(f'https://{pkey}') == pkey:
                 projects[pkey] = household.sync_project(data, pkey, p, uid, now, self.minutes())
         household.machine_round(data, now, float(self.cfg['household'].get('starve_minutes', 20)), self.weight_at(now))
-        answer = {'projects': projects, 'status': household.status(data, uid, now), 'machines': household.machines_view(data, uid)}
+        from . import failover
+        answer = {'projects': projects, 'status': household.status(data, uid, now), 'machines': household.machines_view(data, uid),
+                  'failover': failover.discovery(self.cfg)}   # where members look when this coordinator does not answer
         if (ask.get('beat') or {}).get('spare'):
             answer['offers'] = household.offers(data, set(projects), now)
         return answer
@@ -572,7 +578,29 @@ class Client:
             users.write_household(membership)
 
     def call(self, path, body=None):
-        return self.post(path, body or {}, self.m['token'], self.m['user_id'])
+        """The call to the active coordinator: the one in the membership, else the next on its failover list (docs/FAILOVER.md),
+        which is remembered once it answers. No user step."""
+        order = [self.m['coordinator']] + [a for a in self.m.get('failover') or [] if a != self.m['coordinator']]
+        last = None
+        for addr in order:
+            self.m['coordinator'] = addr
+            try:
+                answer = self.post(path, body or {}, self.m['token'], self.m['user_id'])
+            except Unreachable as e:
+                last = e
+                continue
+            except household.HouseholdError as e:
+                if 'not the active main machine' not in str(e):
+                    raise
+                last = e
+                continue
+            fresh = answer.get('failover') if isinstance(answer, dict) else None
+            if addr != order[0] or (fresh and fresh != self.m.get('failover')):
+                self.m['failover'] = fresh or self.m.get('failover') or []
+                self.remember(self.m)
+            return answer
+        self.m['coordinator'] = order[0]
+        raise last
 
 
 def join(cfg, code, name, agent, client_fn=Client, clock=time.time):

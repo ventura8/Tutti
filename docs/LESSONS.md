@@ -413,3 +413,5 @@ suite's own load the adaptive limit left no online slot, and the local model in 
 
 **Rule.** A test that plans or ticks the autopilot sets `cfg['_host']` and `cfg['_host_raw']`. It never measures the
 machine it runs on.
+
+- **One argv string is at most 128 KB** (2026-11-15): a test that passed the Settings data to `node -e` broke when the schema grew (E2BIG, "Argument list too long"). Pass big scripts through stdin (`node -`).

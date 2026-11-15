@@ -36,5 +36,7 @@ python3 bin/tutti --config tutti.config.example.yaml config
 - **Tests clean up.** `tests/run.py` (what `scripts/check.sh` runs) gives each test its own temp folder and fails a test
   that leaves anything there: use `tmpdirs.mkdtemp()`, a `TemporaryDirectory` or `addCleanup`.
 - **Pins.** GitHub Actions by full commit SHA with a version comment; Python tools with `==`.
+- **Worktrees only.** The household's install tree (the checkout the live dashboard runs from) stays on `main`: never check
+  out a branch there. Feature work happens in its own worktree (`git worktree add ../tutti-wt-<name> <branch>`).
 - **Ask first:** pushing, tagging, publishing to npm, changing the licence, editing `.github/workflows/`.
 - **Never** run a command against a real machine from a test; tests use the `local` transport and temp folders.

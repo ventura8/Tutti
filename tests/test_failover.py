@@ -69,8 +69,9 @@ class ElectionTest(unittest.TestCase):
 class Cluster:
     """Two machines' term records and a network that can drop either way; time moves by hand."""
 
-    def __init__(self):
+    def __init__(self, skew=0.0):
         self.now = 1000.0
+        self.skew = skew   # the backup's clock minus the main's
         self.main, self.backup = {}, {}
         self.link = True
         self.healthy_since = None
@@ -78,10 +79,10 @@ class Cluster:
     def main_round(self):
         rec = self.main
         if rec.get('active', 'laptop') == 'laptop':
-            beat = {'term': int(rec.get('term') or 0), 'from': 'laptop', 'lease_until': self.now + failover.lease_seconds(OPTS)}
+            beat = {'term': int(rec.get('term') or 0), 'from': 'laptop', 'lease_seconds': failover.lease_seconds(OPTS)}
             answer = None
             if self.link:
-                self.backup, answer = failover.on_beat(self.backup, beat, self.now)
+                self.backup, answer = failover.on_beat(self.backup, beat, self.now + self.skew)
         else:
             answer = ({'ok': self.backup.get('active') == 'laptop', 'term': self.backup.get('term', 0),
                        'active': self.backup.get('active')} if self.link else None)
@@ -96,9 +97,9 @@ class Cluster:
         return act
 
     def backup_round(self):
-        act = failover.backup_decide(self.backup, 'nuc', self.now)
+        act = failover.backup_decide(self.backup, 'nuc', self.now + self.skew)
         if act == 'take-over':
-            self.backup = failover.take_over(self.backup, 'nuc', self.now)
+            self.backup = failover.take_over(self.backup, 'nuc', self.now + self.skew)
         return act
 
     def writers(self):
@@ -106,7 +107,8 @@ class Cluster:
         if failover.may_write({'machines': {'laptop': {'transport': 'local'}}, 'failover': {'me': 'laptop', 'main': 'laptop'}},
                               self.now, self.main or {'active': 'laptop', 'lease_until': 0}):
             out.append('laptop')
-        if failover.may_write({'machines': {}, 'failover': {'me': 'nuc', 'main': 'laptop'}}, self.now, self.backup or {'active': 'x'}):
+        nuc = {'machines': {}, 'failover': {'me': 'nuc', 'main': 'laptop'}}
+        if failover.may_write(nuc, self.now + self.skew, self.backup or {'active': 'x'}):
             out.append('nuc')
         return out
 
@@ -138,7 +140,7 @@ class FailoverTest(unittest.TestCase):
     def test_a_main_that_says_it_is_leaving_hands_over_at_once(self):
         c = Cluster()
         c.run(60)
-        c.backup, _ = failover.on_beat(c.backup, {'term': 0, 'from': 'laptop', 'lease_until': 0, 'leaving': True}, c.now)
+        c.backup, _ = failover.on_beat(c.backup, {'term': 0, 'from': 'laptop', 'lease_seconds': 0, 'leaving': True}, c.now)
         c.main = None
         c.run(40)
         self.assertEqual(c.writers(), ['nuc'])
@@ -166,13 +168,32 @@ class FailoverTest(unittest.TestCase):
         self.assertEqual(c.writers(), ['laptop'])
         self.assertEqual(c.main['term'], 2)
 
+    def test_clocks_that_disagree_never_give_two_writers(self):
+        for skew in (-600, -45, 45, 600):
+            c = Cluster(skew)
+            c.run(60)
+            c.link = False
+            c.run(600)
+            self.assertEqual(c.writers(), ['nuc'], skew)
+
+    def test_a_backup_that_just_started_waits_a_full_lease_before_taking_over(self):
+        rec = {'term': 0, 'active': 'laptop', 'beat_at': 0, 'lease_until': 100}
+        self.assertEqual(failover.backup_decide(rec, 'nuc', 1000, since=990, lease=180), 'stand-by')
+        self.assertEqual(failover.backup_decide(rec, 'nuc', 1300, since=990, lease=180), 'take-over')
+
+    def test_a_corrupt_record_fails_closed(self):
+        cfg = make_cfg(backup='nuc')
+        with open(failover.state_file(cfg), 'w', encoding='utf8') as f:
+            f.write('{')
+        self.assertFalse(failover.may_write(cfg))
+
     def test_a_stale_hand_back_is_refused(self):
         rec, ans = failover.on_hand_back({'term': 3, 'active': 'nuc'}, 'laptop', 2)
         self.assertFalse(ans['ok'])
         self.assertEqual(rec['active'], 'nuc')
 
     def test_an_old_heartbeat_from_a_lower_term_is_refused(self):
-        rec, ans = failover.on_beat({'term': 2, 'active': 'nuc'}, {'term': 1, 'from': 'laptop', 'lease_until': 9e9}, 0)
+        rec, ans = failover.on_beat({'term': 2, 'active': 'nuc'}, {'term': 1, 'from': 'laptop', 'lease_seconds': 9e9}, 0)
         self.assertFalse(ans['ok'])
         self.assertEqual(rec['active'], 'nuc')
 
@@ -199,11 +220,12 @@ class EdgeTest(unittest.TestCase):
         self.assertTrue(out['project']['state'].startswith('/home/other/.tutti-failover'))
         self.assertEqual(out['machines']['laptop']['host'], 'laptop.invalid')   # never two machines that are local
 
-    def test_secrets_and_logs_never_go_but_the_backlog_and_runs_index_do(self):
+    def test_logs_runs_and_snapshots_stay_behind_and_what_goes_lands_at_mode_600(self):
         self.assertIn('*.log', failover.SYNC_EXCLUDE)
         self.assertIn('/runs/', failover.SYNC_EXCLUDE)
+        self.assertIn('/snapshots/', failover.SYNC_EXCLUDE)
         self.assertNotIn('/runs.jsonl', failover.SYNC_EXCLUDE)
-        self.assertFalse(any('backlog' in x or 'auth' in x for x in failover.SYNC_EXCLUDE))
+        self.assertFalse(any('backlog' in x for x in failover.SYNC_EXCLUDE))   # the backlog and sign-in state go, to the backup only
         calls = []
         failover.rsync('a/', 'b:c/', run=lambda argv, **k: calls.append(argv) or type('R', (), {'returncode': 0, 'stdout': ''})())
         self.assertIn('--chmod=Du=rwx,go=,Fu=rw,go=', calls[0])   # mode 600 on the backup
@@ -219,7 +241,7 @@ class EdgeTest(unittest.TestCase):
 
     def test_the_discovery_list_names_the_main_then_the_backup(self):
         cfg = make_cfg(backup='nuc')
-        cfg['machines']['laptop']['host'] = 'laptop.example'
+        cfg['failover']['addresses'] = {'laptop': 'laptop.example:4778'}
         self.assertEqual(failover.discovery(cfg), ['laptop.example:4778', 'nuc.example:4778'])
 
     def test_a_member_follows_the_failover_list_when_the_coordinator_is_gone(self):
@@ -262,13 +284,15 @@ class BudgetTest(unittest.TestCase):
             p = os.path.join(d, 'runs', f'r{i}')
             open(p, 'w').close()
             os.utime(p, (old + i, old + i) if i < 2 else None)
-        for n, data in (('shot.png', b'p'), ('backlog.json', b'{}'), ('big.log', b'line\n' * 400000)):
+        for n, data in (('layout-1440.png', b'p'), ('photo.png', b'q'), ('backlog.json', b'{}'), ('big.log', b'line\n' * 400000)):
             with open(os.path.join(d, n), 'wb') as f:
                 f.write(data)
-        os.utime(os.path.join(d, 'shot.png'), (old, old))
+        os.utime(os.path.join(d, 'layout-1440.png'), (old, old))
+        os.utime(os.path.join(d, 'photo.png'), (old, old))
         _freed, lines = statebudget.prune(d, {**statebudget.DEFAULTS, 'runs_keep': 2, 'log_mb': 1})
         self.assertEqual(len(os.listdir(os.path.join(d, 'runs'))), 2)
-        self.assertFalse(os.path.exists(os.path.join(d, 'shot.png')))
+        self.assertFalse(os.path.exists(os.path.join(d, 'layout-1440.png')))
+        self.assertTrue(os.path.exists(os.path.join(d, 'photo.png')))   # only known screenshots go
         self.assertTrue(os.path.exists(os.path.join(d, 'backlog.json')))
         self.assertLessEqual(os.path.getsize(os.path.join(d, 'big.log')), 1024 * 1024)
         self.assertTrue(lines)

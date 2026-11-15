@@ -29,7 +29,8 @@ MARGIN = 30                     # seconds: the main stops before, the backup sta
 DEFAULTS = {'backup': '', 'main': '', 'minutes': 3, 'failback_minutes': 5, 'sync_seconds': 60, 'dir': '~/.tutti-failover',
             'reach': {}, 'addresses': {}}
 # never copied to the backup: logs, caches, screenshots, live processes' files, other copies (the runs index runs.jsonl goes)
-SYNC_EXCLUDE = ['/snapshots/', '*.corrupt', '/runs/', '/telemetry/', '/tests/', '/files/', '/host-mirror/', '/move/', '/bridge/', '/config-backups/',
+SYNC_EXCLUDE = ['/snapshots/', '*.corrupt',
+                '/runs/', '/telemetry/', '/tests/', '/files/', '/host-mirror/', '/move/', '/bridge/', '/config-backups/',
                 '/work-queue/', '/chat/', '/failover-dashboard.pid', f'/{FILE}', f'/{BEAT}', '*.log', '*.pid', '*.rc', '*.cmd', '*.png',
                 '*.lock', '*.bak*', '/llm-busy-*', '/local-run-*', '/tunnel-*', '*.cut', '*.tmp*']
 

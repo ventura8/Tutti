@@ -31,7 +31,8 @@ only for `failover.minutes` (3) minus 30 s after the last one. The backup takes 
 of silence, or at once when the main says it is shutting down (`tutti failover leave`, the service's stop step). Taking over
 raises the **term** and starts the backup's dashboard (with its coordinator and autopilot).
 
-Members' Tuttis learn the **failover list** (main, then backup) from every coordinator answer and try the next address by
+Members' Tuttis learn the **failover list** (main, then backup; each address from `failover.addresses.<m>`, else
+`machines.<m>.address`, else a plain `host`) from every coordinator answer and try the next address by
 themselves when one does not answer or says it is not active. A computer that is a client after `tutti move` tries
 `host.failover: [{ssh, config, tutti}]` the same way.
 
@@ -48,6 +49,11 @@ and resumes. Between the two steps nobody serves.
 - The main's lease always ends at least a minute before the backup may start, whatever the network does: cut the cable
   between them and the main turns read-only before the backup takes over (`tests/test_failover.py` simulates it every 10 s).
 - A heartbeat or hand-back from an older term is refused; a coordinator that is not active refuses members' calls.
+- The lease is a duration the backup stamps with its own clock: the two machines' clocks never have to agree. A backup that
+  just started waits a full lease before it may take over. A damaged `failover.json` never lets a machine act.
+- On a machine that is not active, every round that starts work or takes a lease (autopilot, dispatch and device leases,
+  scouts, updates, needs) is off, and commands that change the state exit with code 75, which clients treat like an
+  unreachable host and try the next one.
 
 The cost of this guarantee: when the backup is down, the main turns read-only after 3 minutes. Start the backup again, or
 `tutti main backup none` if it is gone for good. `tutti doctor` and the Machines card say which.

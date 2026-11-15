@@ -37,10 +37,10 @@ LAUNCHD_LABEL = 'io.github.tutti.dashboard'
 CHANNELS = {
     'github': {'published': True, 'install': 'the bootstrap line (docs/INSTALL.md)', 'update': 'tutti self-update'},
     # a release tag, never the moving main branch (an update names the newer tag the same way)
-    'uv': {'published': True, 'install': f'uv tool install git+https://github.com/{REPO}@v{__version__}',
-           'update': 'uv tool install --force git+https://github.com/' + REPO + '@v<newer version>'},
-    'pipx': {'published': True, 'install': f'pipx install git+https://github.com/{REPO}@v{__version__}',
-             'update': 'pipx install --force git+https://github.com/' + REPO + '@v<newer version>'},
+    'uv': {'published': True, 'install': f'uv tool install git+https://github.com/{REPO}@v<the latest release> ({RELEASES}/latest)',
+           'update': f'uv tool install --force git+https://github.com/{REPO}@v<the newer release>'},
+    'pipx': {'published': True, 'install': f'pipx install git+https://github.com/{REPO}@v<the latest release> ({RELEASES}/latest)',
+             'update': f'pipx install --force git+https://github.com/{REPO}@v<the newer release>'},
     'npm': {'published': False, 'install': 'npm install -g tutti-agents', 'update': 'npm update -g tutti-agents'},
 }
 

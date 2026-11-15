@@ -30,8 +30,9 @@ if (Test-Path (Join-Path $app '.git')) {
     New-Item -ItemType Directory -Force -Path $home_ | Out-Null
     git clone --quiet $repo $app
 }
-$tag = git -C $app tag -l 'v*' --sort=-v:refname | Select-Object -First 1
-if (-not $tag) { throw "tutti: $repo has no release tag (v*): nothing installed" }
+# the latest published GitHub release's tag (a tag with no release, or a pre-release, is never taken)
+$tag = (Invoke-RestMethod -UseBasicParsing -Uri 'https://api.github.com/repos/ventura8/Tutti/releases/latest').tag_name
+if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw "tutti: could not read the latest release ($tag): check the network, then run the installer again" }
 git -C $app -c advice.detachedHead=false checkout --quiet $tag
 if ($LASTEXITCODE -ne 0) { throw "tutti: git checkout $tag in $app failed (exit $LASTEXITCODE): run the installer again." }
 python -m venv (Join-Path $app '.venv')

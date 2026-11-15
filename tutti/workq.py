@@ -241,8 +241,12 @@ def log_of(p, limit=None):
     limit = limit or FINDINGS_BYTES
     try:
         with open(p, 'rb') as f:
-            f.seek(max(0, os.path.getsize(p) - limit))
-            return f.read().decode('utf8', 'replace')
+            start = max(0, os.path.getsize(p) - limit)
+            f.seek(start)
+            data = f.read()
+        if start:   # the read began inside a line: that partial line is dropped, never matched as a finding
+            data = data.split(b'\n', 1)[1] if b'\n' in data else b''
+        return data.decode('utf8', 'replace')
     except OSError:
         return ''
 

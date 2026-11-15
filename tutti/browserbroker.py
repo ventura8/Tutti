@@ -67,7 +67,11 @@ class Broker:
     def __init__(self, b, scope_map, log_path, downloads=None, usage_targets=None, file_tasks=(), clock=time.time,
                  max_file_mb=None):
         self.b, self.scope, self.log_path, self.downloads, self.clock = b, scope_map, log_path, downloads, clock
-        self.max_bytes = int(float(max_file_mb or MAX_FILE_MB) * 1024 * 1024)
+        try:   # a bad setting falls back to the default cap, never a broker that cannot start
+            mb = float(max_file_mb or MAX_FILE_MB)
+        except (TypeError, ValueError):
+            mb = MAX_FILE_MB
+        self.max_bytes = int(min(max(mb, 1), 2048) * 1024 * 1024)
         self.usage_targets, self.file_tasks = usage_targets or {}, set(file_tasks or ())
         self.lock = threading.Lock()
 

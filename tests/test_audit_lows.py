@@ -26,7 +26,7 @@ class InstallersTest(unittest.TestCase):
             self.assertNotIn('| iex', text)
             self.assertNotIn('--upgrade pip', text)
             self.assertIn('--require-hashes', text)
-            self.assertIn("tag -l 'v*'", text)
+            self.assertIn('releases/latest', text)
         for name in ('bootstrap.sh', 'bootstrap.ps1'):
             self.assertIn('--require-hashes', read('install', name))
         for req in ('requirements.txt', 'requirements-dev.txt'):
@@ -143,7 +143,7 @@ class OtherPlatformsTest(unittest.TestCase):
             def __init__(self, pid, sids):
                 self.pid, self.sids = pid, sids
 
-            def pid_of(self, c, s):
+            def pid_of(self, c, s, v6=False):
                 return self.pid
 
             def sid_of(self, pid):
@@ -195,6 +195,42 @@ class ReleasesStuckTest(unittest.TestCase):
                 raise OSError('no network')
             self.assertEqual(stuck.check(d, offline), '')            # cannot tell: never a false alarm
             self.assertEqual(stuck.check(os.path.join(d, 'nowhere'), sums), '')   # a release install: not a checkout
+
+
+class ReviewRoundTest(unittest.TestCase):
+    """The review of #213: each point that changed behaviour."""
+
+    def test_a_queued_audit_left_by_a_crash_is_retried(self):
+        from tutti import spendrest
+        old = {'status': 'queued', 'tries': 1, 'added': 0}
+        self.assertTrue(spendrest.retry_audit(old, spendrest.AUDIT_RETRY_HOURS * 3600 + 1))
+        self.assertFalse(spendrest.retry_audit({**old, 'status': 'answered'}, 10 ** 9))
+
+    def test_a_truncated_log_never_matches_its_partial_first_line(self):
+        from tutti import workq
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, 'log')
+            with open(p, 'w', encoding='utf8') as f:
+                f.write('FAIL tutti/a.py\nFAIL tutti/b.py\n')
+            self.assertEqual(workq.log_of(p, limit=20), 'FAIL tutti/b.py\n')   # "a.py\n" alone would have been a finding
+            self.assertIn('a.py', workq.log_of(p))
+
+    def test_a_bad_file_cap_setting_never_stops_the_broker(self):
+        from tutti import browserbroker
+        b = browserbroker.Broker(None, {}, os.devnull, max_file_mb='lots')
+        self.assertEqual(b.max_bytes, browserbroker.MAX_FILE_MB * 1024 * 1024)
+
+    def test_the_stuck_banner_refreshes_after_an_unexpected_error(self):
+        from tutti import stuck
+        stuck._cache.update(at=0.0, value=None, busy=False)
+        real = stuck.check
+        stuck.check = lambda root, fetch=None: (_ for _ in ()).throw(RuntimeError('boom'))
+        try:
+            with self.assertRaises(RuntimeError):
+                stuck.cached('/x', clock=lambda: 10 ** 6, background=False)
+        finally:
+            stuck.check = real
+        self.assertFalse(stuck._cache['busy'])
 
 
 if __name__ == '__main__':

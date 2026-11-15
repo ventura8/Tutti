@@ -55,18 +55,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then echo "made=0" >> "$GITHUB_OUTPUT"; exit 0; fi
-          awk -v v="${TAG#v}" '$0 ~ "^## " v " " {on=1; next} /^## / {on=0} on' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
-          [ -s "$RUNNER_TEMP/notes.md" ] || echo "Tutti ${TAG#v}: see CHANGELOG.md." > "$RUNNER_TEMP/notes.md"
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "Tutti ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md" \
-            --verify-tag --draft
+          # drafts too (a run that stopped half-way left one): it is published, never a second one made
+          draft=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\") | .draft" | head -n 1)
+          if [ "$draft" = false ]; then echo "made=0" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ -z "$draft" ]; then
+            awk -v v="${TAG#v}" '$0 ~ "^## " v " " {on=1; next} /^## / {on=0} on' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+            [ -s "$RUNNER_TEMP/notes.md" ] || echo "Tutti ${TAG#v}: see CHANGELOG.md." > "$RUNNER_TEMP/notes.md"
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "Tutti ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
+          else
+            id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -n 1)
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F draft=false > /dev/null
+          fi
           echo "made=1" >> "$GITHUB_OUTPUT"
       - name: Replace the release's files
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "$RUNNER_TEMP"/assets/* --clobber --repo "$GITHUB_REPOSITORY"
-      - name: Publish the release this run created (its files and signature are attached)
-        if: steps.create.outputs.made == '1'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false

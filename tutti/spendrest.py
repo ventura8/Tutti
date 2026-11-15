@@ -408,7 +408,8 @@ def audits(cfg, name, acc, left, gh_fn=scouts.gh, post_fn=scouts.post, env=None,
 
 def retry_audit(r, now):
     """A failed audit is sent again after AUDIT_RETRY_HOURS, at most AUDIT_TRIES sends in all; any other is done."""
-    return (r.get('status') == 'failed' and r.get('tries', 1) < AUDIT_TRIES
+    # a record left `queued` by a send that never happened (a crash between reserve and send) is retried the same way
+    return (r.get('status') in ('failed', 'queued') and r.get('tries', 1) < AUDIT_TRIES
             and now - float(r.get('sent') or r.get('added') or 0) >= AUDIT_RETRY_HOURS * 3600)
 
 

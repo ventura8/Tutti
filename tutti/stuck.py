@@ -80,9 +80,12 @@ def cached(root, clock=time.time, fetch=None, background=True):
             _cache['busy'] = True
 
     def refresh():
-        value = check(root, fetch)
-        with _lock:
-            _cache.update(at=clock(), value=value, busy=False)
+        value = _cache['value']
+        try:
+            value = check(root, fetch)
+        finally:   # whatever happens, the next refresh is not blocked for ever
+            with _lock:
+                _cache.update(at=clock(), value=value, busy=False)
     if stale:
         if background:
             threading.Thread(target=refresh, name='tutti-releases-stuck', daemon=True).start()

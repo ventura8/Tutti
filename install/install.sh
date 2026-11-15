@@ -16,8 +16,9 @@ if [ ! -d "$home/.git" ]; then
 	git clone --quiet "$repo" "$home"
 fi
 git -C "$home" fetch --quiet --tags origin
-tag=$(git -C "$home" tag -l 'v*' --sort=-v:refname | head -n 1)
-[ -n "$tag" ] || { echo "tutti: $repo has no release tag (v*): nothing installed" >&2; exit 1; }
+# the latest published GitHub release's tag (a tag with no release, or a pre-release, is never taken)
+tag=$(curl -fsSL --proto '=https' -o /dev/null -w '%{url_effective}' https://github.com/ventura8/Tutti/releases/latest | sed -n 's#.*/tag/##p')
+[[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "tutti: could not read the latest release ($tag): check the network, then run this again" >&2; exit 1; }
 git -C "$home" -c advice.detachedHead=false checkout --quiet "$tag"
 python3 -m venv "$home/.venv"
 "$home/.venv/bin/pip" install --quiet --require-hashes -r "$home/requirements.txt"

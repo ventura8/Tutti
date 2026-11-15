@@ -240,10 +240,13 @@ def lease_script(device, claim, minutes, who):
             f'awk -v g={q(guid)} \'$1 == g && $2 ~ /_adb-tls-connect/ {{print $3; exit}}\'); '
             'echo "ADDR=${a:-unknown}"; ') if guid else f'echo ADDR={q(str(device["serial"]))}; '
     pid, lock = f'{u}/../awake.pid', f'{u}/../lease.lock'
-    loop = (f'while :; do live=; for c in {u}/claim-*; do [ -e "$c" ] || continue; e=$(head -c 20 "$c" | tr -cd 0-9); '
-            f'[ -n "$e" ] && [ "$e" -gt "$(date +%s)" ] && live=1; done; [ -n "$live" ] || break; '
-            f'{person_recent(device)} || {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; sleep {KEEP_AWAKE_SECONDS}; done; '
-            f'rm -f {pid}; {release_script(device)} > /dev/null')
+    live = (f'live=; for c in {u}/claim-*; do [ -e "$c" ] || continue; e=$(head -c 20 "$c" | tr -cd 0-9); '
+            f'[ -n "$e" ] && [ "$e" -gt "$(date +%s)" ] && live=1; done; ')
+    # the end is decided under the lease's lock: a lease written meanwhile is seen, and its device is never restored under it
+    end = (f'if [ -z "$live" ]; then until mkdir {lock} 2>/dev/null; do sleep 0.1; done; {live}'
+           f'if [ -z "$live" ]; then rm -f {pid}; {release_script(device)} > /dev/null; rmdir {lock}; break; fi; rmdir {lock}; fi; ')
+    loop = (f'while :; do {live}{end}'
+            f'{person_recent(device)} || {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; sleep {KEEP_AWAKE_SECONDS}; done')
     # a person's touch noticed while the lease's loop lives (it ends with the loop's pid file): Tutti then sends no key
     watch = (f'while [ -e {pid} ]; do if {_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .; '
              f'then mkdir -p "$(dirname {person_path(device)})"; date +%s > {person_path(device)}; sleep 1; fi; done')

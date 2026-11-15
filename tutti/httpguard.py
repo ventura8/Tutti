@@ -128,10 +128,10 @@ def lsof_uid(client, server, run=None):
 
 def windows_peer(client, server, api=None):
     """Windows: 'same' when the process that opened the connection runs as this login, 'other' when it runs as another (its
-    token cannot be read, or names another account), None when Windows' tables cannot be read. IPv4 loopback only."""
+    token cannot be read, or names another account), None when Windows' tables cannot be read. IPv4 and IPv6 loopback."""
     try:
         api = api or _WinApi()
-        pid = api.pid_of(int(client[1]), int(server[1]))
+        pid = api.pid_of(int(client[1]), int(server[1]), ':' in str(client[0]) and not str(client[0]).startswith('::ffff:'))
         if pid is None:
             return 'other'   # the tables were read and nobody of ours holds that connection
         if pid == os.getpid():
@@ -143,28 +143,44 @@ def windows_peer(client, server, api=None):
 
 
 class _WinApi:
-    """GetExtendedTcpTable (the owning process of each IPv4 connection) and the process token's user SID, through ctypes."""
+    """GetExtendedTcpTable (the owning process of each connection) and the process token's user SID, through ctypes with
+    declared types (a 64-bit handle is never cut to a C int)."""
+    ROW = {2: (24, 8, 16, 20), 23: (56, 20, 44, 52)}   # AF_INET, AF_INET6: row size, local port, remote port, pid offsets
 
     def __init__(self):
         import ctypes
-        from ctypes import wintypes
-        self.c, self.w = ctypes, wintypes
+        from ctypes import wintypes as w
+        self.c, self.w = ctypes, w
         self.iphlp, self.k32, self.adv = ctypes.WinDLL('iphlpapi'), ctypes.WinDLL('kernel32'), ctypes.WinDLL('advapi32')
+        self.iphlp.GetExtendedTcpTable.argtypes = [ctypes.c_void_p, ctypes.POINTER(w.DWORD), w.BOOL, w.ULONG, ctypes.c_int, w.ULONG]
+        self.iphlp.GetExtendedTcpTable.restype = w.DWORD
+        self.k32.OpenProcess.argtypes, self.k32.OpenProcess.restype = [w.DWORD, w.BOOL, w.DWORD], w.HANDLE
+        self.k32.CloseHandle.argtypes, self.k32.LocalFree.argtypes = [w.HANDLE], [ctypes.c_void_p]
+        self.adv.OpenProcessToken.argtypes = [w.HANDLE, w.DWORD, ctypes.POINTER(w.HANDLE)]
+        self.adv.GetTokenInformation.argtypes = [w.HANDLE, ctypes.c_int, ctypes.c_void_p, w.DWORD, ctypes.POINTER(w.DWORD)]
+        self.adv.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(w.LPWSTR)]
 
-    def pid_of(self, client_port, server_port):
+    def table(self, family):
         c, w = self.c, self.w
-        size = w.DWORD(0)
-        self.iphlp.GetExtendedTcpTable(None, c.byref(size), False, 2, 4, 0)   # AF_INET, TCP_TABLE_OWNER_PID_CONNECTIONS
-        buf = c.create_string_buffer(size.value)
-        if self.iphlp.GetExtendedTcpTable(buf, c.byref(size), False, 2, 4, 0) != 0:
-            raise OSError('GetExtendedTcpTable failed')
-        n = int.from_bytes(buf.raw[:4], 'little')
-        for i in range(n):
-            row = buf.raw[4 + i * 24:4 + (i + 1) * 24]   # state, local addr, local port, remote addr, remote port, pid
-            lport = int.from_bytes(row[8:10], 'big')
-            rport = int.from_bytes(row[16:18], 'big')
-            if lport == client_port and rport == server_port:
-                return int.from_bytes(row[20:24], 'little')
+        for _ in range(5):   # the table may grow between asking its size and reading it (ERROR_INSUFFICIENT_BUFFER, 122)
+            size = w.DWORD(0)
+            self.iphlp.GetExtendedTcpTable(None, c.byref(size), False, family, 4, 0)   # TCP_TABLE_OWNER_PID_CONNECTIONS
+            size = w.DWORD(size.value + 4096)
+            buf = c.create_string_buffer(size.value)
+            rc = self.iphlp.GetExtendedTcpTable(buf, c.byref(size), False, family, 4, 0)
+            if rc == 0:
+                return buf.raw
+            if rc != 122:
+                break
+        raise OSError('GetExtendedTcpTable failed')
+
+    def pid_of(self, client_port, server_port, v6=False):
+        family = 23 if v6 else 2
+        raw, (size, lp, rp, pp) = self.table(family), self.ROW[family]
+        for i in range(int.from_bytes(raw[:4], 'little')):
+            row = raw[4 + i * size:4 + (i + 1) * size]
+            if int.from_bytes(row[lp:lp + 2], 'big') == client_port and int.from_bytes(row[rp:rp + 2], 'big') == server_port:
+                return int.from_bytes(row[pp:pp + 4], 'little')
         return None
 
     def sid_of(self, pid):
@@ -183,10 +199,10 @@ class _WinApi:
                 return None
             psid = c.cast(info, c.POINTER(c.c_void_p))[0]
             text = w.LPWSTR()
-            if not self.adv.ConvertSidToStringSidW(c.c_void_p(psid), c.byref(text)):
+            if not self.adv.ConvertSidToStringSidW(psid, c.byref(text)):
                 return None
             sid = text.value
-            self.k32.LocalFree(text)
+            self.k32.LocalFree(c.cast(text, c.c_void_p))
             return sid
         finally:
             if tok:

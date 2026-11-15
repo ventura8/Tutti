@@ -57,3 +57,21 @@ class TempsTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SafeByDefault(unittest.TestCase):
+    def test_a_machine_with_no_heat_block_is_refused_at_the_default_stop(self):
+        from tutti import config, routing
+        cfg = config.normalise({'machines': {'lap': {'host': 'local', 'slots': 2}}})
+        lap = cfg['machines']['lap']
+        self.assertEqual(lap['heat'], config.HEAT_DEFAULT)
+        hot = routing.Probe(True, 2, 1.0, 16, False, 95.0)
+        self.assertIn('too hot', routing.unfit(lap, hot))
+        gpu = routing.Probe(True, 1, 1.0, 16, False, 60.0, gpu_temp=96.0)   # the GPU counts too
+        self.assertIn('GPU', routing.unfit(lap, gpu))
+        self.assertEqual(routing.unfit(lap, routing.Probe(True, 2, 1.0, 16, False, 70.0)), '')
+
+    def test_an_own_heat_block_is_kept(self):
+        from tutti import config
+        cfg = config.normalise({'machines': {'pc': {'host': 'pc.example', 'heat': {'cap_c': 80, 'stop_c': 90}}}})
+        self.assertEqual(cfg['machines']['pc']['heat'], {'cap_c': 80, 'stop_c': 90})

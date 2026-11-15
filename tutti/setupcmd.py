@@ -91,11 +91,11 @@ def plan_agents(x, found, asker, now):
 
 def plan_machines(x, found, asker):
     if not x.raw.get('machines'):
-        x.put('machines', 'here', {'host': 'local', 'slots': 1}, 'this computer')
+        x.put('machines', 'here', {'host': 'local', 'slots': 1, 'heat': dict(config.HEAT_DEFAULT)}, 'this computer')
     ssh = [m for m in found['machines'] if m['source'] == 'ssh' and not x.has('machines', m['name'])]
     if ssh and asker.confirm(f'Use these machines from ~/.ssh/config for heavy runs: {", ".join(m["name"] for m in ssh)}?'):
         for m in ssh:
-            x.put('machines', m['name'], {'host': m['host'], 'slots': 1}, 'from ~/.ssh/config')
+            x.put('machines', m['name'], {'host': m['host'], 'slots': 1, 'heat': dict(config.HEAT_DEFAULT)}, 'from ~/.ssh/config')
             x.choices.append(guided.choice(f'machines.{m["name"]}', 'used for heavy runs, 1 slot', 'a Host in ~/.ssh/config'))
     for d in found['devices']:
         if d['state'] == 'device':

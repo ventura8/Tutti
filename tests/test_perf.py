@@ -257,10 +257,38 @@ class AutocompactTest(unittest.TestCase):
             self.assertFalse(review.copilot_listed(out))
 
     def test_running_jobs_show_their_context(self):
-        jobs = [{'facts': {'tokens': {'in': 900, 'out': 1, 'context': 50000}}},
+        jobs = [{'facts': {'tokens': {'in': 900, 'out': 1, 'context': 50000, 'model': 'claude-haiku-4-5'}}},
                 {'facts': {'worker': 'cursor'}, 'tail': ['Context 42% used']}, {'facts': {}, 'tail': ['nothing']}]
         autocompact.tag_jobs(self.cfg, jobs)
         self.assertEqual([j['facts'].get('context_pct') for j in jobs], [25.0, 42.0, None])
+
+    def test_an_agent_task_context_is_the_newest_turn_against_its_model_window(self):
+        # 733k tokens in a 1M-window model is 73 %, not 366 % of a 200k default
+        jobs = [{'facts': {'tokens': {'in': 9_000_000, 'context': 733_000, 'model': 'claude-opus-5-5'}}},
+                {'facts': {'tokens': {'in': 9_000_000, 'context': 733_000}}},                          # no model, no worker: unknown
+                {'facts': {'tokens': {'in': 9_000_000, 'context': 300_000, 'model': 'claude-haiku-4-5'}}}]  # over the window: unknown
+        autocompact.tag_jobs(self.cfg, jobs)
+        self.assertEqual([j['facts'].get('context_pct') for j in jobs], [73.3, None, None])
+
+    def test_model_windows_by_id_dated_ids_included(self):
+        for model, size in (('claude-opus-5-5', 1_000_000), ('claude-sonnet-4-6', 1_000_000), ('claude-haiku-5-5', 1_000_000),
+                            ('claude-opus-4-20250514', 200_000), ('claude-sonnet-4-5', 200_000), ('claude-haiku-4-5', 200_000),
+                            ('claude-3-5-sonnet-20241022', 200_000), ('gpt-x', None), ('claude-new', None)):
+            self.assertEqual(autocompact.model_window(model), size, model)
+
+    def test_the_newest_turn_is_read_even_when_an_earlier_id_repeats(self):
+        import json
+        import tempfile
+
+        from tutti import jobfacts
+        lines = [{'message': {'id': 'a', 'model': 'claude-opus-5-5', 'usage': {'input_tokens': 10}}},
+                 {'message': {'id': 'b', 'model': 'claude-opus-5-5', 'usage': {'input_tokens': 500}}},
+                 {'message': {'id': 'a', 'model': 'claude-opus-5-5', 'usage': {'input_tokens': 10}}}]
+        with tempfile.NamedTemporaryFile('w', suffix='.jsonl', delete=False) as f:
+            f.write('\n'.join(json.dumps(x) for x in lines) + '\n')
+        self.addCleanup(os.unlink, f.name)
+        out = jobfacts.transcript_tokens(f.name)
+        self.assertEqual((out['context'], out['model']), (10, 'claude-opus-5-5'))
 
 
 class SimpleCollector:

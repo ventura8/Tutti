@@ -36,8 +36,13 @@ class FakeSentry:
                 body = self.rfile.read(int(self.headers.get('Content-Length') or 0))
                 fake.calls.append({'path': self.path, 'headers': dict(self.headers), 'body': body})
                 code = fake.status.pop(0) if len(fake.status) > 1 else fake.status[0]
+                body = b''
+                if isinstance(code, tuple):   # (status, Sentry's refusal reason)
+                    code, body = code[0], json.dumps({'detail': f'event submission rejected with_reason: {code[1]}'}).encode()
                 self.send_response(code)
+                self.send_header('Content-Length', str(len(body)))
                 self.end_headers()
+                self.wfile.write(body)
 
             def log_message(self, *a):
                 return
@@ -315,6 +320,53 @@ class Sending(Base):
         r = telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env=self.env, force=True)
         self.assertEqual(r['left'], 1)
         self.assertIn('telemetry setup', telemetry.status(self.folder)['last_error'])
+
+    def test_a_key_sentry_no_longer_knows_says_which_cause_it_is(self):
+        f = self.fake()
+        f.status = [200, (403, 'ProjectId')]
+        telemetry.save_dsn(f.dsn(), self.env)
+        os.utime(telemetry.env_file(self.env), (1, 1))   # the DSN file is older than the send that worked
+        telemetry.record('command', 'run')
+        self.assertEqual(telemetry.flush(self.folder, None, env=self.env, force=True)['left'], 0)
+        telemetry.record('command', 'run')
+        r = telemetry.flush(self.folder, None, env=self.env, force=True)
+        self.assertEqual(r['left'], 1)
+        err = telemetry.status(self.folder)['last_error']
+        for words in ('403 (ProjectId)', 'deleted or moved', 'disabled or rotated', 'before the last accepted send',
+                      'tutti telemetry setup'):
+            self.assertIn(words, err)
+        self.assertNotIn('publickey', err)
+
+    def test_a_dsn_changed_after_the_last_good_send_is_named_as_the_cause(self):
+        f = self.fake()
+        f.status = [200, (403, 'ProjectId')]
+        telemetry.record('command', 'run')
+        telemetry.flush(self.folder, self.cfg(dsn=f.dsn()), env=self.env, force=True)
+        telemetry.save_dsn(f.dsn(7), self.env)   # written after the good send
+        future = telemetry.read_json(os.path.join(self.folder, telemetry.SENDS), {})['last_ok'] + 60
+        os.utime(telemetry.env_file(self.env), (future, future))
+        telemetry.record('command', 'run')
+        telemetry.flush(self.folder, None, env=self.env, force=True)
+        self.assertIn('after the last accepted send; check that DSN first', telemetry.status(self.folder)['last_error'])
+        self.assertIn('TUTTI_SENTRY_DSN', telemetry.dsn_file_note(self.folder, {**self.env, 'TUTTI_SENTRY_DSN': 'https://k@s.example/1'}))
+
+    def test_a_send_cut_off_midway_gives_its_items_back(self):
+        telemetry.record('command', 'run')
+        out = os.path.join(self.folder, telemetry.OUTBOX)
+        os.replace(out, f'{out}.999999999.sending')   # a send whose process ended before it gave the items back
+        telemetry.stranded(self.folder, alive=lambda pid: False)
+        self.assertEqual(telemetry.status(self.folder)['queued'], 1)
+        self.assertFalse(os.path.exists(f'{out}.999999999.sending'))
+
+    def test_a_stranded_file_is_given_back_once_and_an_old_one_even_with_a_live_pid(self):
+        telemetry.record('command', 'run')
+        out = os.path.join(self.folder, telemetry.OUTBOX)
+        os.replace(out, f'{out}.1.sending')
+        os.utime(f'{out}.1.sending', (1, 1))   # an hour and more ago: its pid may be another process's now
+        telemetry.stranded(self.folder, alive=lambda pid: True)
+        telemetry.stranded(self.folder, alive=lambda pid: True)   # a second sender finds nothing to give back
+        self.assertEqual(telemetry.status(self.folder)['queued'], 1)
+        telemetry.give_back_file(self.folder, f'{out}.gone.sending')   # claimed by another process meanwhile: no error
 
     def test_throttled_keeps_and_refused_drops(self):
         f = self.fake(429)

@@ -18,6 +18,7 @@ from . import autopilot, backlog, config, priority, remote, review, workers, wor
 AHEAD = 3            # fresh tasks kept queued per parallel run: enough to never idle, never a flood
 FILL_EVERY = 600     # seconds between reads of a repo's sources while the room stays unfilled
 MAX_REVIEWS = 3      # a result sent back this many times by the reviewer needs a person
+MAX_REDOS = 3        # a result redone this many times on a base that keeps moving under it needs a person
 LANDS = ('merge', 'pr', 'branch')
 
 
@@ -220,6 +221,38 @@ def rebase(wt, base, run=git):
     return f'it does not rebase cleanly onto {base} ({(done.stderr or done.stdout).strip()[:200]})'
 
 
+def superseded(wt, run=git):
+    """True when the base already holds every change of the branch (`git cherry`: no commit of the branch is missing there)."""
+    out = run(wt, 'cherry', 'FETCH_HEAD', 'HEAD')
+    lines = [ln for ln in (out.stdout or '').splitlines() if ln.strip()] if out.returncode == 0 else []
+    return bool(lines) and all(ln.startswith('-') for ln in lines)
+
+
+def redo_on_base(cfg, task, base, why, run=git):
+    """(status, note, notes) of a branch that does not rebase onto the base: never a person's job. Closed as superseded when
+    the base already has it; else its diff is kept as a hint, the worktree moves to the fresh base and the task runs again."""
+    wt = task['worktree']
+    dirty = run(wt, 'status', '--porcelain')
+    if dirty.returncode == 0 and (dirty.stdout or '').strip():   # someone's edits there: never thrown away by a redo
+        return 'review', (f'retry: {why[:120]}; the worktree {wt} has uncommitted changes, so it is neither rebased nor redone: '
+                          'commit or discard them there'), []
+    if superseded(wt, run):
+        return 'done', f'superseded: {base} already has these changes ({why[:120]}); closed without a merge', []
+    safe = re.sub(r'[^A-Za-z0-9_-]', '', str(task['id']))[:40] or 'task'   # a backlog id never names a path
+    hint = os.path.join(config.state_dir(cfg), 'runs', f'redo-{safe}.patch')
+    diff = run(wt, 'diff', 'FETCH_HEAD...HEAD')
+    os.makedirs(os.path.dirname(hint), exist_ok=True)
+    with open(hint, 'w', encoding='utf8') as f:
+        f.write(diff.stdout or '')
+    moved = run(wt, 'checkout', '-q', '-f', '--detach', 'FETCH_HEAD')   # the branch keeps its commit; the tree starts fresh
+    if moved.returncode != 0:
+        return 'review', f'retry: {why}; moving the worktree to {base} failed ({moved.stderr.strip()[:160]})', []
+    run(wt, 'clean', '-fdq')
+    note = (f'{base} moved on and the earlier result no longer rebases onto it ({why[:160]}): do the task again on the current '
+            f'{base}; the earlier diff, {hint}, is a guide, not a patch to apply')
+    return 'redo', f'redone on {base}: {why[:160]}', [note]
+
+
 def open_pr(task, base, subject, body, gh=subprocess.run):
     """The task's pull request: its draft marked ready, or a new one. (url, '') or (None, why)."""
     wt = task['worktree']
@@ -321,7 +354,7 @@ def decide(cfg, task, run=git, gh=subprocess.run, run_worker=None):
     base = base_of(cfg, task, run)
     why = rebase(task['worktree'], base, run)
     if why:
-        return ('review', why, []) if why.startswith('retry') else ('needs-person', f'{why}: rebase {task["branch"]} by hand', [])
+        return ('review', why, []) if why.startswith('retry') else redo_on_base(cfg, task, base, why, run)
     diff = run(task['worktree'], 'diff', '--stat', '--patch', 'FETCH_HEAD...HEAD')
     if diff.returncode != 0 or not diff.stdout.strip():
         return 'needs-person', f'the branch has no diff against {base} to review ({diff.stderr.strip()[:200]})', []
@@ -342,7 +375,14 @@ def record(t, status, note, notes, now):
     t['publish_note'] = note
     if status == 'review':
         t['retry_after'] = now + FILL_EVERY
-    if status == 'queued':
+    if status == 'redo':   # a rebase redo: queued again, not a reviewer's send-back (bounded by autopilot.max_attempts)
+        status = 'queued'
+        t['notes'] = [*t.get('notes', []), *notes]
+        t['redo'] = t.get('redo', 0) + 1
+        if t['redo'] > MAX_REDOS:
+            status, t['parked'] = 'needs-person', (f'redone {MAX_REDOS} times and the base moved under it each time: '
+                                                   f'{note[:200]}')
+    elif status == 'queued':
         t['reviews'] = t.get('reviews', 0) + 1
         t['notes'] = [*t.get('notes', []), *notes]
         if t['reviews'] >= MAX_REVIEWS:

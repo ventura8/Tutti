@@ -2,10 +2,11 @@
 at most pct % of it: its slots and model threads capped, no new heavy job, editable from the machine card and the CLI, and
 carried to the new main machine by `tutti move`. Temp folders and fake runs only."""
 import os
-import tempfile
 import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
+
+import tmpdirs
 
 from tutti import config, dashboard, local, move, routing, share, state, tz, workq
 
@@ -61,7 +62,7 @@ class Window(unittest.TestCase):
 
 class Edit(unittest.TestCase):
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
+        self.dir = tmpdirs.mkdtemp()
         self.path = os.path.join(self.dir, 'tutti.config.yaml')
         with open(self.path, 'w', encoding='utf8') as f:
             f.write(f'project:\n  state: {self.dir}/state\nmachines:\n  nuc:\n    host: nuc.example   # the build machine\n')

@@ -76,11 +76,31 @@ def env_for(cfg, worker, folder=None):
     return {NATIVE_ENV[program(worker)]: str(threshold(cfg, folder))}
 
 
-def percent(context_tokens, cfg, worker=None):
-    """The context use in % of the worker's window, or None when it is not known."""
+# A model's context window by the start of its id, for a transcript that names its model (Claude models: 1M, except these).
+# A model's context window by its id, for a transcript that names its model: Opus and Sonnet 4.6 on and every later Claude
+# family have 1M; Claude 3 and the 4.x models before 4.6 (dated ids such as claude-opus-4-20250514 included) have 200k.
+# Any other id is unknown, and its % is not shown.
+MODEL_WINDOWS = ((re.compile(r'^claude-(?:(?:opus|sonnet)-4-[6-9]\b|[a-z]+-(?:[5-9]|\d\d)\b)'), 1_000_000),
+                 (re.compile(r'^claude-(?:3\b|3-|(?:opus|sonnet|haiku)-4\b)'), 200_000))
+
+
+def model_window(model):
+    """The context window of a model id in tokens, or None for a model this table does not know."""
+    m = str(model or '').lower()
+    return next((n for pattern, n in MODEL_WINDOWS if pattern.search(m)), None)
+
+
+def percent(context_tokens, cfg, worker=None, model=None, guess=True):
+    """The context use in % of the window: the worker's configured one, else the model's, else the default for a configured
+    worker (or any run, with `guess`). None when it is not known, or when the count exceeds the window (then the window is
+    wrong, and no number beats a wrong one)."""
     if not context_tokens:
         return None
-    return round(100.0 * float(context_tokens) / float(window(cfg, worker)), 1)
+    size = (worker or {}).get('context_tokens') or model_window(model) or (window(cfg, worker) if worker or guess else None)
+    if not size:
+        return None
+    pct = round(100.0 * float(context_tokens) / float(size), 1)
+    return pct if pct <= 100 else None
 
 
 # What a CLI prints about its context: "context: 123,456 tokens", "Context 61%", "context window 45 % used".
@@ -172,8 +192,8 @@ def tag_jobs(cfg, jobs):
     for j in jobs:
         f = j.get('facts') or {}
         worker = cfg['workers'].get(f.get('worker')) if f.get('worker') else None
-        tokens = (f.get('tokens') or {}).get('context')
-        pct = percent(tokens, cfg, worker)
+        tokens = f.get('tokens') or {}
+        pct = percent(tokens.get('context'), cfg, worker, tokens.get('model'), guess=False)
         if pct is None:
             pct = next((p for p in (seen_percent(x, cfg, worker) for x in reversed(j.get('tail') or [])) if p is not None), None)
         if pct is not None and j.get('facts') is not None:

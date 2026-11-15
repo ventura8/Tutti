@@ -4,9 +4,10 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
 import time
 import unittest
+
+import tmpdirs
 
 from tutti import config, dashboard, energy
 
@@ -177,7 +178,7 @@ class Prices(unittest.TestCase):
 
 class Cards(unittest.TestCase):
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
+        self.dir = tmpdirs.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir)
         self.cfg = config.normalise({'project': {'state': self.dir}, 'machines': {'pc': {'host': 'pc.example'}},
                                      'workers': {'big': {'kind': 'ollama', 'host': '127.0.0.1:1', 'model': 'm:1', 'machine': 'pc'},

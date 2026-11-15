@@ -139,13 +139,20 @@ function idleWarning(w) {
         el('p', { class: 'row__note', text: w.text }));
 }
 
+// Before the first probe answers the lists come from the config's names, marked checking (never "none in the config").
+function probedOr(items, configured, probed) {
+    return probed || items.length ? items : (configured || []).map((x) => ({ ...x, status: 'checking', checking: true }));
+}
+
 function renderControls(s) {
-    const devices = s.devices?.items || [];
+    const probed = Boolean(s.machines?.probed_at);
+    const devices = probedOr(s.devices?.items || [], s.devices?.configured, probed);
     $('idle-warnings').replaceChildren(...(s.dispatch?.warnings || []).map(idleWarning));
     const c = s.controls || { opt_in: [], paused: [] };
     const paused = new Map(c.paused.map((p) => [`${p.kind}:${p.name}`, p]));
     $('controls-meta').textContent = `${devices.length} device${devices.length === 1 ? '' : 's'} · ${c.paused.length} paused`;
-    $('devices').replaceChildren(...(devices.length ? devices.map(device)
+    $('devices').replaceChildren(...(devices.length ? devices.map((d) => (d.checking ? el('li', { class: 'row' },
+        el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `on ${d.machine}` })), chip('checking', 'idle')) : device(d)))
         : [el('li', {}, empty('No Android devices', codeText('Press Pair a device, or run ', 'tutti devices pair', '.')))]));
     renderDeviceTools(s);   // devices.js: Pair a device, Pair a TV, Move devices
     const seen = new Set();
@@ -155,19 +162,24 @@ function renderControls(s) {
         seen.add(k);
         return pausable(kind, name, paused.get(k), state);
     };
-    const workers = s.workers.items;
+    const workers = probedOr(s.workers.items, s.workers.configured, Boolean(s.workers.probed_at));
+    const machines = probedOr(s.machines.items, s.machines.configured, probed);
+    const ready = (w) => {
+        if (w.checking) return 'checking';
+        return w.ready ? 'ready' : 'down';
+    };
     const local = (w) => w.kind !== 'cli';
     const leftover = (kinds) => c.paused.filter((p) => kinds.includes(p.kind)).map((p) => row(p.kind, p.name));
     // a paused worker or account is out of the config's lists until resumed: listed from the switches, in its group
     const groups = [
         ['Work machines', 'No work machines in the config.', [
-            ...s.machines.items.filter((m) => m.transport !== 'android').map((m) => row('machine', m.name, m.status))]],
+            ...machines.filter((m) => m.transport !== 'android').map((m) => row('machine', m.name, m.status))]],
         ['Android devices', 'No Android devices or Termux machines.', [
             ...devices.map((d) => row('device', d.name, d.status)),
-            ...s.machines.items.filter((m) => m.transport === 'android').map((m) => row('machine', m.name, m.status)), ...leftover(['device'])]],
-        ['Local agents', 'No local models (Ollama, llama.cpp) configured.', workers.filter(local).map((w) => row('worker', w.name, w.ready ? 'ready' : 'down'))],
+            ...machines.filter((m) => m.transport === 'android').map((m) => row('machine', m.name, m.status)), ...leftover(['device'])]],
+        ['Local agents', 'No local models (Ollama, llama.cpp) configured.', workers.filter(local).map((w) => row('worker', w.name, ready(w)))],
         ['Online agents', 'No online agents configured.', [
-            ...workers.filter((w) => !local(w)).map((w) => row('worker', w.name, w.ready ? 'ready' : 'down')),
+            ...workers.filter((w) => !local(w)).map((w) => row('worker', w.name, ready(w))),
             ...(s.usage?.accounts || []).map((a) => row('account', a.name, a.verdict)),
             ...(s.scouts?.items || []).map(scoutRow), ...leftover(['worker', 'account'])]],
     ];

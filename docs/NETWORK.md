@@ -117,4 +117,4 @@ Wireless debugging → Pair device with pairing code, then `adb pair <ip:pairing
 the person's steps once at the end (`guided.render`: sign-ins, then sudo lines, then phone taps, then the rest). For `tutti
 setup`, `vpncmd.guided_setup(cfg)` returns `(choices, steps)` and changes nothing: the one choice is `vpn.prefer`, the steps
 are what `tutti vpn setup` would leave. It stays optional: a household with its own VPN or a plain LAN has nothing to do.
-`POST /api/vpn` (the card) is an admin's, like `/api/setup`.
+`POST /api/vpn` (the card's actions) is an admin's, like `/api/setup`; `GET /api/vpn/status` (its state) answers every signed-in viewer, 200 also with no VPN set up.

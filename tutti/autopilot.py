@@ -215,7 +215,8 @@ def is_local(cfg, name):
 
 def candidates(cfg, t, over='', machines=()):
     """The steps a task may go to now (below), with the step the dashboard's Move to picked first when it is one of them."""
-    out = _candidates(cfg, t, over, machines)
+    worn = worn_out(t['attempts'])   # the same failure twice there: it is not sent there again
+    out = [n for n in _candidates(cfg, t, over, machines) if n not in worn]
     want = t.get('prefer')
     return [want, *[n for n in out if n != want]] if want in out else out
 
@@ -348,6 +349,8 @@ def capacity_now(cfg, running, machines, now, room=None):
     stop = quiet_stop(cfg, now)
     if stop:
         return (0, 0), stop
+    if cfg.get('_disk'):   # tutti/diskroom.py: under 10 % free space or file slots, nothing new starts
+        return (0, 0), {'state': 'waiting', 'reason': cfg['_disk'][0]}
     if cfg['machines'] and not machines:
         return (0, 0), {'state': 'waiting', 'reason': 'machines not probed yet'}
     slots, why = machine_capacity(cfg, machines)
@@ -420,14 +423,44 @@ def normalise_tail(text):
     return '\n'.join(re.sub(r'0x[0-9a-f]+|\d+', '#', ln) for ln in lines)
 
 
-def signature(report, tails):
+# How a worker's own failure reads in its run log: the worker is the problem there, not the task (another step is tried).
+WORKER_LIMIT = re.compile(r'quota (?:reached|exceeded|exhausted)|usage limit|resource[_ ]exhausted|rate[ -]?limit', re.I)
+WORKER_TIMEOUT = re.compile(r'print timeout|timed? ?out after|the turn still in progress', re.I)
+WORKER_SIDE = ('the worker hit its usage limit', 'the worker ran out of time', 'the worker\'s CLI refused a command',
+               'the worker exited')
+RUN_END = re.compile(r'^run \S+: \S+ exit -?\d+')   # Tutti's summary after the worker's own output (the task's text is in it)
+REPEAT = 2   # the same failure this many times in a row: on one step, that step is dropped; across steps, the task is parked
+
+
+def worker_output(run_tail, lines=6):
+    """The worker's own last lines: the run log before Tutti's summary (which quotes the task, so a task about rate limits
+    is never read as the worker's limit)."""
+    kept = []
+    for ln in (run_tail or '').splitlines():
+        if RUN_END.match(ln):
+            break
+        kept.append(ln)
+    return '\n'.join(kept[-lines:])
+
+
+def worker_words(rc, run_tail):
+    """Why a worker exited non-zero, from its own last lines: its usage limit, its time limit, or the exit code alone."""
+    own = worker_output(run_tail)
+    if WORKER_LIMIT.search(own):
+        return 'the worker hit its usage limit'
+    if WORKER_TIMEOUT.search(own):
+        return 'the worker ran out of time'
+    return f'the worker exited {rc}'
+
+
+def signature(report, tails, run_tail=''):
     """(a short hash, the words) of how an attempt failed: the same failure gives the same signature every time."""
     if report is None:
         words = 'the run ended without a report'
-    elif report.get('worker_rc'):
-        words = f'the worker exited {report["worker_rc"]}'
-    elif report.get('denied'):
+    elif report.get('denied'):   # a refused tool is the worker's problem, whatever its exit code
         words = 'the worker\'s CLI refused a command: ' + re.sub(r'\d+', '#', report['denied'][0][:120])
+    elif report.get('worker_rc'):
+        words = worker_words(report['worker_rc'], run_tail)
     elif not report.get('changed'):
         words = 'the worker changed nothing'
     else:
@@ -443,6 +476,13 @@ def park_reason(cfg, task):
     tries = task['attempts'][int(task.get('resume_from') or 0):]   # counted afresh after a person's answer (tutti/needs.py)
     if len(tries) >= s['max_attempts']:
         return 'max_attempts', f'{len(tries)} attempts without a pass (autopilot.max_attempts is {s["max_attempts"]})'
+    again = repeated(tries)
+    if again and not again['why'].startswith(WORKER_SIDE) and len({a['step'] for a in tries[-REPEAT:]}) > 1:
+        return 'no_progress', (f'no progress: it failed the same way {REPEAT} times in a row on different workers, so the task or '
+                               f'its check is the problem, not the worker: {again["why"][:300]}')
+    if worn_out(tries) and not candidates(cfg, task):
+        return 'no_progress', (f'no progress: every step it may go to failed it the same way {REPEAT} times in a row: '
+                               f'{tries[-1]["why"][:300]}')
     n = s['no_progress']
     last = tries[-n:]
     steps = ladder(cfg)
@@ -451,6 +491,24 @@ def park_reason(cfg, task):
         return 'no_progress', (f'no progress: the strongest step ({steps[-1]}) failed the same way {n} times in a row: '
                                f'{last[-1]["why"][:300]}')
     return '', ''
+
+
+def repeated(tries):
+    """The last attempt when the last REPEAT attempts failed with one signature, else None."""
+    last = tries[-REPEAT:]
+    sigs = {a.get('signature') for a in last}
+    if len(last) == REPEAT and not any(a.get('ok') for a in last) and len(sigs) == 1 and None not in sigs and '' not in sigs:
+        return last[-1]
+    return None
+
+
+def worn_out(tries):
+    """The steps whose last REPEAT attempts of this task failed the same way: sending it there again burns quota for nothing."""
+    out = set()
+    for step in {a.get('step') for a in tries}:
+        if repeated([a for a in tries if a.get('step') == step]):
+            out.add(step)
+    return out
 
 
 def should_park(cfg, task):
@@ -609,7 +667,7 @@ def tail_of(path, chars=TAIL_CHARS):
 
 def attempt_of(cfg, task, report, now):
     tails = check_tails(cfg, task['run'], (report or {}).get('checks') or [])
-    sig, why = signature(report, tails)
+    sig, why = signature(report, tails, tail_of(run_log(cfg, task['run'])) if (report or {}).get('worker_rc') else '')
     failing = [tails[c['log']] for c in (report or {}).get('checks') or [] if c['rc'] != 0]
     if report is None or report.get('worker_rc') or not failing:
         failing = [tail_of(run_log(cfg, task['run']))]
@@ -1035,6 +1093,9 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     if '_host_raw' not in cfg:
         from . import parallel
         cfg['_host_raw'] = parallel.host()
+    if '_disk' not in cfg:
+        from . import diskroom
+        cfg['_disk'] = diskroom.problems(cfg)
     cfg['_host'] = local_share(cfg, cfg['_host_raw'], machines)   # the share changes by the minute (in use, quiet, hot)
     from . import fill  # fill imports this module
     filled = None

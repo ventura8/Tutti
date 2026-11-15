@@ -2,10 +2,11 @@
 import io
 import os
 import stat
-import tempfile
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
+
+import tmpdirs
 
 from tutti import config, groksetup
 
@@ -29,7 +30,7 @@ class FakeGh:
 
 class GrokSetup(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = tmpdirs.mkdtemp()
         self.env = mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': os.path.join(self.tmp, 'cfg'), 'HOME': self.tmp,
                                                 'TUTTI_STATE_DIR': os.path.join(self.tmp, 'state')}, clear=False)
         self.env.start()
@@ -117,7 +118,7 @@ class SpendEstimate(unittest.TestCase):
         from datetime import datetime, timedelta, timezone
 
         from tutti import pacing, scouts
-        log = os.path.join(tempfile.mkdtemp(), 'usage.jsonl')
+        log = os.path.join(tmpdirs.mkdtemp(), 'usage.jsonl')
         now = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
         pacing.append_log(log, 'grok-bot', 1, now - timedelta(hours=5), resets='2026-11-15T00:00Z')
         sc = {'name': 'grok', 'account': 'grok-bot', '_usage_log': log, '_task_pct': 2.0}
@@ -134,7 +135,7 @@ class SpendEstimate(unittest.TestCase):
     def test_page_reading_reports_a_loading_page_and_saves_nothing(self):
         from tutti import cli
         cfg = {'accounts': {}}
-        log = os.path.join(tempfile.mkdtemp(), 'usage.jsonl')
+        log = os.path.join(tmpdirs.mkdtemp(), 'usage.jsonl')
         with redirect_stdout(io.StringIO()), mock.patch.object(cli, 'say') as say:
             rc = cli.page_reading(cfg, log, '{"readings": [], "missing": ["Grok Bot"], "loading": true}', None)
         self.assertEqual(rc, 3)

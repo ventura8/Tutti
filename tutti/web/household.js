@@ -73,7 +73,7 @@ function renderMainMachine(s) {
                 const a = await res.json().catch(() => ({}));
                 note.textContent = res.ok ? `Moving to ${pick.value}: this page reconnects there by itself.` : (a.error || `refused (${res.status})`);
             },
-        }) : null, note);
+        }) : '', note);   // never null: replaceChildren prints it as the text "null"
 }
 
 function renderHousehold(s) {

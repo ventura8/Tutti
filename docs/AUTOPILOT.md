@@ -82,7 +82,15 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
 - **It is parked when it makes no progress.** The same failure signature `no_progress` times in a row (default 3) on the
   strongest step, or `max_attempts` attempts (default 12), parks the task as **needs a person** with a summary on the
   dashboard. The signature is a hash of how it failed (worker exit, refused command, no change, or the failing check's last
-  lines with numbers masked), so a flaky number does not count as progress.
+  lines with numbers masked), so a flaky number does not count as progress. A worker's exit says whether it hit its
+  usage limit or ran out of time.
+- **The same failure twice stops it from burning quota.** Twice in a row on one step: that step is not given the task
+  again (when no step is left, it is parked). Twice in a row on different workers, for a failure that is not the
+  worker's own (its limit, its time, a refused tool, any other exit): the task or its check is the problem, and it is
+  parked at once. Only the worker's own last lines are read for its limit, never Tutti's summary that quotes the task.
+  When every step it may go to is worn out this way, it is parked.
+- **agy may read and write its own worktree.** A worker whose command carries an allow-list (agy's `--settings`) gets
+  `read_file(<worktree>)` and `write_file(<worktree>)` added for each run; headless agy auto-denies anything else.
 
 When nothing is sent, the stopped line names **every** step: why it has no room, or, when it has room, why no queued task
 fits it ("agy-claude: room for 1, but the queued tasks need 3", "… no queued task may go there").
@@ -133,8 +141,11 @@ On by default. One result at a time, `tutti autopilot land <id>` runs in the bac
    attempt's acceptance runs with the task's own check; a result lands only when its passing attempt ran today's gates.
    Otherwise it goes back to the queue to run them; a repo without a `check` never lands by itself.
 2. **Rebased first.** The branch is rebased onto `base` (default: the branch the repo's checkout is on) fetched from
-   `origin`. A failed fetch waits 10 minutes and tries again (never lands on a stale base); a conflict is aborted and
-   the task needs a person.
+   `origin`. A failed fetch waits 10 minutes and tries again (never lands on a stale base). A conflict never needs a
+   person: when the base already holds the branch's changes (`git cherry`), the task is closed as superseded; otherwise
+   the branch's diff is kept as `<state>/runs/redo-<id>.patch`, the worktree moves to the fresh base and the task is
+   queued again with that diff named as a guide (the branch keeps its commit). After 3 redos on a base that keeps moving
+   under it, it is parked.
 3. **The reviewer** is the first `review.fallback` worker with room (the path `tutti pr review` falls back to); it reads the
    whole branch (`git diff <base>...HEAD`) in an empty folder with `review.PROMPT`. "No findings" is clean; bullets are
    findings. A reviewer that cannot run is tried again in 10 minutes, not every round.

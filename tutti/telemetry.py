@@ -372,8 +372,48 @@ def due(folder, clock=time.time, every=FLUSH_SECONDS):
     return clock() - float(s.get('last_try') or 0) >= every
 
 
+STRANDED_AFTER = 3600   # a send moved aside this long ago is over, even if its pid now belongs to another process
+
+
+def stranded(folder, alive=None, clock=time.time):
+    """Queue files a send moved aside and never gave back (its process ended mid-send, or it is older than STRANDED_AFTER):
+    each is claimed by a rename first, so two processes never give the same items back twice."""
+    if alive is None:
+        # the same liveness check as the jobs' (no signal sent on Windows)
+        from .state import alive
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return
+    for name in names:
+        pid = name[len(OUTBOX) + 1:-len('.sending')] if name.startswith(OUTBOX + '.') and name.endswith('.sending') else ''
+        path = os.path.join(folder, name)
+        try:
+            old = clock() - os.stat(path).st_mtime > STRANDED_AFTER
+        except OSError:
+            continue
+        if not pid.isdigit() or (alive(int(pid)) and not old):
+            continue
+        give_back_file(folder, path)
+
+
+def give_back_file(folder, path):
+    """Claims a stranded queue file by renaming it, then appends its lines to the queue; another process's claim wins."""
+    mine = f'{path}.{os.getpid()}.back'
+    try:
+        os.replace(path, mine)
+        with open(mine, encoding='utf8') as f:
+            lines = [ln for ln in f if ln.strip()]
+        with open(os.path.join(folder, OUTBOX), 'a', encoding='utf8') as f:
+            f.writelines(lines)
+        os.remove(mine)
+    except OSError:
+        return
+
+
 def take_outbox(folder):
     """Moves the queue aside (atomic) so records written meanwhile go to a new one; returns (items, the taken path)."""
+    stranded(folder)
     path = os.path.join(folder, OUTBOX)
     taken = f'{path}.{os.getpid()}.sending'
     try:
@@ -395,13 +435,33 @@ def give_back(folder, items):
         queue(folder, it)
 
 
-def send_items(folder, target, items, post_fn, status):
+def dsn_file_note(folder, env=None):
+    """A clue to the cause, never a verdict: where the DSN comes from and whether its file was written after the last send
+    Sentry accepted. '' when there is nothing to compare."""
+    env = os.environ if env is None else env
+    if env.get(ENV_DSN):
+        return (f'(The DSN comes from ${ENV_DSN}, which wins over the DSN file: set it to the new DSN or unset it after '
+                '`tutti telemetry setup`.)')
+    last_ok = read_json(os.path.join(folder, SENDS), {}).get('last_ok')
+    try:
+        changed = os.stat(env_file(env)).st_mtime
+    except OSError:
+        return ''
+    if not last_ok:
+        return ''
+    when = time.strftime('%Y-%m-%d %H:%M', time.localtime(changed))
+    if changed > float(last_ok):
+        return f'(Clue: the DSN file was written at {when}, after the last accepted send; check that DSN first.)'
+    return f'(Clue: the DSN file was last written at {when}, before the last accepted send; look at the key in Sentry first.)'
+
+
+def send_items(folder, target, items, post_fn, status, env=None):
     """(sent, left) of one send; a failure keeps every item and notes why in `status`."""
     from . import sentry
     try:
         return sentry.send_all(target, items, consent(folder)['install_id'], post_fn)
     except sentry.DsnError as e:   # Tutti's own words, nothing of the user's: kept as they are
-        status['last_error'] = str(e)
+        status['last_error'] = f'{e} {dsn_file_note(folder, env)}'.strip()
     except Exception as e:   # one bad item or a broken network never loses the queue
         status['last_error'] = scrub.text(f'{type(e).__name__}: {e}', hosts=_ctx['hosts'], limit=200)
     return 0, items
@@ -423,7 +483,7 @@ def flush(folder, cfg=None, env=None, post_fn=None, clock=time.time, force=False
             os.remove(taken)
         return {'sent': 0, 'left': 0, 'why': 'nothing queued'}
     status = {'last_try': clock()}
-    sent, left = send_items(folder, target, items, post_fn, status)
+    sent, left = send_items(folder, target, items, post_fn, status, env)
     give_back(folder, left)
     if taken:
         os.remove(taken)

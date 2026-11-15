@@ -533,12 +533,22 @@ def assemble(cfg, probes, now=None, is_alive=alive):
     jobs['total'] += len(extra)
     jobprogress.annotate(cfg, jobs['items'], now_ts, lambda w: account_of_worker(cfg, w) if w else None,
                          machines if probes.get('machines_at') else None)
+    known = configured(cfg)
     return {'version': __version__, 'generated_at': now_dt.isoformat(), 'config': cfg['_path'],
             'refresh_seconds': cfg['dashboard']['refresh_seconds'], 'usage': usage,
-            'machines': {'probed_at': iso(probes.get('machines_at')), 'items': machines},
-            'devices': {'items': probes.get('devices') or []},
-            'workers': {'probed_at': iso(probes.get('workers_at')), **workers, 'off': off_notes(cfg)}, 'jobs': jobs,
+            'machines': {'probed_at': iso(probes.get('machines_at')), 'items': machines, 'configured': known['machines']},
+            'devices': {'items': probes.get('devices') or [], 'configured': known['devices']},
+            'workers': {'probed_at': iso(probes.get('workers_at')), **workers, 'off': off_notes(cfg), 'configured': known['workers']},
+            'jobs': jobs,
             'summary': {**summary(usage, machines, workers, jobs, next_worker(cfg, usage['accounts'])), 'runs_today': runs_today(cfg)}}
+
+
+def configured(cfg):
+    """The config's machines, devices and workers by name, before any probe answered: the dashboard lists them as
+    `checking` instead of saying that none is configured (a first probe can take a while over ssh)."""
+    return {'machines': [{'name': n, 'transport': m['transport']} for n, m in cfg['machines'].items()],
+            'devices': [{'name': n, 'machine': d['machine']} for n, d in (cfg.get('devices') or {}).items()],
+            'workers': [{'name': n, 'kind': w['kind']} for n, w in cfg['workers'].items()]}
 
 
 def off_notes(cfg):

@@ -145,7 +145,7 @@ class RemoteTest(unittest.TestCase):
         # flock needs a POSIX filesystem: a Windows tempfile path (often /mnt/c/...) reports free=0 under WSL/Git Bash.
         # Locks and the yield flag live under bash's /tmp; the work tree stays in the Windows-visible temp dir.
         with tempfile.TemporaryDirectory() as d:
-            lock_dir = subprocess.check_output(['bash', '-c', 'mktemp -d /tmp/tutti-test.XXXXXX'], text=True).strip()
+            lock_dir = subprocess.check_output(['bash', '-c', 'mktemp -d "${TMPDIR:-/tmp}/tutti-test.XXXXXX"'], text=True).strip()
             try:
                 cfg = cfg_of({'machines': {'l': {'host': 'local', 'min_free_gb': 0,
                                                  'locks': [f'{lock_dir}/s.lock'], 'yield_file': f'{lock_dir}/yield'}}})

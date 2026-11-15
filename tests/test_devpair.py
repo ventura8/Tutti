@@ -7,12 +7,12 @@ import os
 import shutil
 import stat
 import subprocess
-import tempfile
 import textwrap
 import time
 import unittest
 from types import SimpleNamespace
 
+import tmpdirs
 import yaml
 
 from tutti import adbhost, adbpair, devices, devicesweb, devmove, keepon, qr, remote
@@ -218,7 +218,7 @@ class FlowTest(unittest.TestCase):
 
 class KeyCopyTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = tmpdirs.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp)
         self.old_dir, self.new_dir = os.path.join(self.tmp, 'old'), os.path.join(self.tmp, 'new')
         os.makedirs(self.old_dir)
@@ -293,7 +293,7 @@ CONFIG = textwrap.dedent(f'''\
 
 class MoveTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = tmpdirs.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp)
         self.path = os.path.join(self.tmp, 'tutti.config.yaml')
         with open(self.path, 'w', encoding='utf8') as f:
@@ -385,7 +385,7 @@ class MoveTest(unittest.TestCase):
 
 class DashboardTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = tmpdirs.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp)
         path = os.path.join(self.tmp, 'tutti.config.yaml')
         with open(path, 'w', encoding='utf8') as f:
@@ -468,7 +468,7 @@ class TuttiMoveTest(unittest.TestCase):
 
 class ExternalLockTest(unittest.TestCase):
     def test_a_move_waits_for_another_tools_lock_file(self):
-        tmp = tempfile.mkdtemp()
+        tmp = tmpdirs.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
         theirs = os.path.join(tmp, 'adb-{serial}.lock')
         d = {'name': 'p', 'serial': 'R58', 'lock': os.path.join(tmp, 'tutti.lock'), 'external_lock': theirs}
@@ -522,7 +522,7 @@ class KeepOnTest(unittest.TestCase):
 
 class ReconnectTest(unittest.TestCase):
     def test_a_device_whose_port_changed_is_reconnected_through_mdns(self):
-        tmp = tempfile.mkdtemp()
+        tmp = tmpdirs.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
         adb = os.path.join(tmp, 'adb')
         with open(adb, 'w', encoding='utf8') as f:

@@ -184,6 +184,8 @@ class LandTest(Base):
             calls.append(args)
             if args[0] in fail:
                 return done(1, err=f'{args[0]} refused')
+            if args[0] == 'status':
+                return done(0, '')   # a clean worktree
             return done(0, 'HEAD' if args[0] == 'rev-parse' else 'feat: x' if args[0] == 'log' else 'diff')
         return run, calls
 
@@ -275,19 +277,59 @@ class LandTest(Base):
         self.assertEqual(t['status'], 'needs-person')
         self.assertIn('a.py:3 - off by one - use <=', t['notes'])
 
-    def test_a_conflicting_rebase_needs_a_person_and_a_failed_fetch_waits(self):
+    def test_a_conflicting_rebase_is_redone_on_the_base_and_a_failed_fetch_waits(self):
         cfg = self.cfg()
         cfg['autopilot']['repos']['app']['base'] = 'main'
         self.review_task(cfg)
         run, calls = self.gitfake(fail=('rebase',))
         fill.land(cfg, 't1', run=run, gh=mock.Mock())
-        self.assertIn('does not rebase cleanly', backlog.load(cfg)['tasks'][0]['parked'])
+        t = backlog.load(cfg)['tasks'][0]
+        self.assertEqual((t['status'], t.get('parked'), t.get('reviews', 0), t['redo']), ('queued', None, 0, 1))   # never a person
+        self.assertIn('earlier diff', t['notes'][-1])
         self.assertIn(('rebase', '--abort'), calls)
+        self.assertIn(('checkout', '-q', '-f', '--detach', 'FETCH_HEAD'), calls)   # the next attempt starts from the fresh base
+        self.assertTrue(os.path.isfile(os.path.join(config.state_dir(cfg), 'runs', 'redo-t1.patch')))
         with backlog.locked(cfg) as data:
             data['tasks'][0].update(status='review', parked=None)
         fill.land(cfg, 't1', run=self.gitfake(fail=('fetch',))[0], gh=mock.Mock(), now=100.0)
         t = backlog.load(cfg)['tasks'][0]
         self.assertEqual((t['status'], t['retry_after']), ('review', 100.0 + fill.FILL_EVERY))
+
+    def test_uncommitted_edits_in_the_worktree_are_never_thrown_away(self):
+        cfg = self.cfg()
+        cfg['autopilot']['repos']['app']['base'] = 'main'
+        self.review_task(cfg)
+        base, calls = self.gitfake(fail=('rebase',))
+
+        def run(cwd, *args):
+            return done(0, ' M a.py\n') if args[0] == 'status' else base(cwd, *args)
+        fill.land(cfg, 't1', run=run, gh=mock.Mock())
+        t = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(t['status'], 'review')
+        self.assertIn('uncommitted changes', t['publish_note'])
+        self.assertNotIn(('checkout', '-q', '-f', '--detach', 'FETCH_HEAD'), calls)
+
+    def test_a_base_that_keeps_moving_parks_after_three_redos(self):
+        cfg = self.cfg()
+        cfg['autopilot']['repos']['app']['base'] = 'main'
+        self.review_task(cfg, redo=fill.MAX_REDOS)
+        fill.land(cfg, 't1', run=self.gitfake(fail=('rebase',))[0], gh=mock.Mock())
+        t = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(t['status'], 'needs-person')
+        self.assertIn('base moved under it', t['parked'])
+
+    def test_a_branch_the_base_already_has_is_closed_as_superseded(self):
+        cfg = self.cfg()
+        cfg['autopilot']['repos']['app']['base'] = 'main'
+        self.review_task(cfg)
+        base, _ = self.gitfake(fail=('rebase',))
+
+        def run(cwd, *args):
+            return done(0, '- abc123\n') if args[0] == 'cherry' else base(cwd, *args)
+        fill.land(cfg, 't1', run=run, gh=mock.Mock())
+        t = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(t['status'], 'done')
+        self.assertIn('superseded', t['publish_note'])
 
     def test_old_or_missing_gates_send_it_back_to_run_them(self):
         cfg = self.cfg()

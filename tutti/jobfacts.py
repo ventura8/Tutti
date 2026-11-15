@@ -93,18 +93,19 @@ def tokens_in_lines(lines):
 
 
 def usage_of(raw):
-    """(message id, usage) of one transcript line, or None."""
+    """(message id, usage, model) of one transcript line, or None."""
     try:
         msg = json.loads(raw).get('message') or {}
     except (ValueError, AttributeError):
         return None
     u = msg.get('usage') if isinstance(msg, dict) else None
-    return (msg.get('id'), u) if isinstance(u, dict) else None
+    return (msg.get('id'), u, msg.get('model')) if isinstance(u, dict) else None
 
 
 def read_usage(path, size):
-    """({message id: its last usage}, tool calls) from the last TRANSCRIPT_MAX bytes of a transcript."""
-    usage, calls = {}, 0
+    """({message id: its last usage}, tool calls, the newest message's usage, its model) from the last TRANSCRIPT_MAX bytes of
+    a transcript. The newest is kept apart: a dict keeps a repeated id at its first place, so its last value is not the newest."""
+    usage, calls, newest, model = {}, 0, None, None
     with open(path, 'rb') as f:
         f.seek(max(0, size - TRANSCRIPT_MAX))
         for raw in f:
@@ -112,7 +113,8 @@ def read_usage(path, size):
             found = usage_of(raw) if b'"usage"' in raw else None
             if found:
                 usage[found[0] or len(usage)] = found[1]
-    return usage, calls
+                newest, model = found[1], found[2] or model
+    return usage, calls, newest, model
 
 
 def transcript_tokens(path):
@@ -127,16 +129,18 @@ def transcript_tokens(path):
     if hit and hit[0] == (st.st_size, st.st_mtime):
         return hit[1]
     try:
-        usage, calls = read_usage(path, st.st_size)
+        usage, calls, last, model = read_usage(path, st.st_size)
     except OSError:
         return None
     out = None
     if usage:
         keys = ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens')
         tin = sum(int(u.get(k) or 0) for u in usage.values() for k in keys)
-        last = list(usage.values())[-1]   # the newest message's prompt is the context the agent holds now
+        # the newest turn's prompt is the context the agent holds now (not the run's sum); its model says the window
         out = {'in': tin, 'out': sum(int(u.get('output_tokens') or 0) for u in usage.values()), 'calls': calls,
                'context': sum(int(last.get(k) or 0) for k in keys)}
+        if model:
+            out['model'] = model
     _cache[key] = ((st.st_size, st.st_mtime), out)
     return out
 

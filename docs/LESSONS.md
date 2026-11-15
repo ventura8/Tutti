@@ -386,3 +386,30 @@ sessions always run, so the row never left "needs restart". **Rule.** Ask the ag
 - **The rule:** every value a probe line carries is filtered to its expected shape (numbers only) before it is printed.
 - **Also:** logind's `IdleHint=no` with `IdleSinceHint=0` means the desktop does not report, not that someone is at the
   keyboard. Trust a hint only when its time is set.
+## A class's `display` beats the `hidden` attribute (2026-11-14)
+
+`.users-view { display: grid }` overrode `hidden`, so the empty Users view showed on the main dashboard. The same day the
+Private network card's POST handed raw bytes to a function that expected a dict: every click crashed the request
+("Failed to fetch") and filled Insights with "AttributeError in api".
+
+**Rule.** A class that sets `display` on an element that can be `hidden` gets a `.<class>[hidden]` rule; a test lists
+every hidden element of index.html whose class sets a display. A POST handler parses its body itself: `/api/vpn` was
+the one that did not (the others were checked), and it now answers any body.
+
+## Test folders filled /tmp's file slots (2026-11-15)
+
+`tempfile.mkdtemp()` in tests (test_household, test_hhjobs, test_connect and others) was never removed: about 45,000
+folders piled up in /tmp until it had no free inodes, and every command on the laptop failed, the agents' included.
+
+**Rule.** A test cleans up what it makes (`tmpdirs.mkdtemp()`, a `TemporaryDirectory`, `addCleanup`); `tests/run.py`
+fails a test that leaves anything in its own temp folder, and `scripts/check.sh` runs in a temp folder it removes. Tutti
+itself watches the room on its disks (`tutti/diskroom.py`) and starts no work when it is low.
+
+## Autopilot tests that read the laptop's own load (2026-11-15)
+
+Three `test_autopilot` tests failed on the laptop whenever the whole suite ran, on main too, and passed in CI and alone.
+`autopilot.tick` reads this computer's free memory and load (`parallel.host()`) when the config has no `_host_raw`. Under the
+suite's own load the adaptive limit left no online slot, and the local model in the test config took the task.
+
+**Rule.** A test that plans or ticks the autopilot sets `cfg['_host']` and `cfg['_host_raw']`. It never measures the
+machine it runs on.

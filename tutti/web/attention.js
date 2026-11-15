@@ -59,3 +59,26 @@ function tuttiMore(count, limit, expanded) {
     if (expanded) return { shown: count, hidden: 0, button: 'Show fewer' };
     return { shown: limit, hidden: count - limit, button: `Show ${count - limit} more` };
 }
+
+// What the owner opened or closed, kept across refreshes and reloads of the tab (app.js keeps it in sessionStorage).
+// ui: {open, expanded, collapsed: Sets of ids; filter, project: strings}. A fold's `byDefault` holds until the owner toggles it.
+const tuttiKept = {
+    isOpen(ui, key, byDefault) {
+        return ui.expanded.has(key) || (Boolean(byDefault) && !ui.collapsed.has(key));
+    },
+    toggled(ui, key, open) {
+        (open ? ui.expanded : ui.collapsed).add(key);
+        (open ? ui.collapsed : ui.expanded).delete(key);
+    },
+    dump(ui) {
+        return JSON.stringify({ open: [...ui.open], expanded: [...ui.expanded], collapsed: [...ui.collapsed], filter: ui.filter, project: ui.project });
+    },
+    load(ui, text) {
+        let kept = null;
+        try { kept = JSON.parse(text || 'null'); } catch { kept = null; }   // a damaged entry: start from the defaults
+        if (!kept || typeof kept !== 'object') return ui;
+        for (const k of ['open', 'expanded', 'collapsed']) if (Array.isArray(kept[k])) ui[k] = new Set(kept[k].map(String));
+        for (const k of ['filter', 'project']) if (typeof kept[k] === 'string') ui[k] = kept[k];
+        return ui;
+    },
+};

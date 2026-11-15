@@ -5,12 +5,12 @@ folders, a bare origin repository and the coordinator's service in this process.
 import io
 import os
 import subprocess
-import tempfile
 import threading
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import tmpdirs
 from test_household import DirectClient, Household, as_user
 
 from tutti import config, coordinator, hhjobs, household, routing, users
@@ -36,10 +36,10 @@ class ComputeTest(unittest.TestCase):
             users.write(config.state_dir(self.h.ana), machine_overrides={'pc': {'household_shared': True}})
         # one origin both can read; Bo's work tree has an uncommitted change
         # the shared project's origin: an https URL git maps to a bare folder here (file:// allowed for this test only)
-        self.origin = os.path.join(tempfile.mkdtemp(), 'app.git')
+        self.origin = os.path.join(tmpdirs.mkdtemp(), 'app.git')
         sh('git', 'init', '-q', '--bare', self.origin)
         url = 'https://git.example/home/app.git'
-        gitconfig = os.path.join(tempfile.mkdtemp(), 'gitconfig')
+        gitconfig = os.path.join(tmpdirs.mkdtemp(), 'gitconfig')
         with open(gitconfig, 'w') as f:
             f.write(f'[url "{self.origin}"]\n\tinsteadOf = {url}\n')
         for patcher in (mock.patch.dict(os.environ, {'GIT_CONFIG_GLOBAL': gitconfig}),
@@ -226,7 +226,7 @@ class ComputeTest(unittest.TestCase):
 
     def test_an_archive_with_a_link_out_of_the_tree_is_refused(self):
         import tarfile
-        d = tempfile.mkdtemp()
+        d = tmpdirs.mkdtemp()
         import shutil
         self.addCleanup(shutil.rmtree, d, True)
         tb = os.path.join(d, 'x.tar')

@@ -313,6 +313,8 @@ class Collector:
         live = sum(1 for j in out['jobs']['items'] if j.get('status') in ('running', 'stalled', 'starting'))
         out['queue'] = waitlist.view(self.cfg, out['where'], live, can_act=self.can_act())
         last = update.load(self.cfg)
+        from . import diskroom
+        out['disk'] = diskroom.problems(self.cfg)   # this computer's temp folder and work disk (Machines card)
         out['updates'] = {**update.view(self.cfg, last), 'running': self.updating.locked(), 'error': (last or {}).get('error')}
         return out
 
@@ -386,6 +388,7 @@ API_LIMIT = '/api/machine-limit'   # a machine's limited-usage window (tutti/sha
 ADMIN_PATHS = (API_LIMIT, API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE,
                '/api/ai-assist')
 API_REPORT = '/api/report'   # Report a problem (docs/REPORT.md): every signed-in user, viewers included
+API_VPN_STATUS = '/api/vpn/status'   # GET: the Private network card's state, 200 also when no VPN is set up
 API_WORK_MOVE = '/api/work/move'   # work waiting on an away or asleep target moved now (docs/PRESENCE.md)
 ADMIN_PATHS += (API_WORK_MOVE,)   # takes work off a member's computer: an admin's (a viewer gets 403 from the auth hook)
 BODY_LIMITS[API_SETTINGS] = 65536
@@ -941,6 +944,8 @@ def route(collector, path, token=''):
             JSON_TYPE, 'no-store'
     if path == API_SETTINGS:
         return 200, safe_json(settings.view(collector.cfg, getattr(collector, 'env', None))), JSON_TYPE, 'no-store'
+    if path == API_VPN_STATUS:   # read-only, for every viewer: the card's state on page load (a POST was an admin's: 403)
+        return (*[200, safe_json(vpncmd.api(collector.cfg, {'action': 'status'})[1])], JSON_TYPE, 'no-store')
     if path in ('/helper', '/helper.html'):
         port = getattr(collector, 'port', None) or collector.cfg['dashboard']['port']
         return 200, helper.page(collector.cfg, config.state_dir(collector.cfg), port), 'text/html; charset=utf-8', 'no-store'

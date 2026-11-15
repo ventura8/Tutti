@@ -654,7 +654,10 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
         pend = pending(cfg, st, now)
         held = {**cooling(st, now), **calls.holds(cfg, st, devices_rows, now)}
         tgts = targets(devices_rows, machine_rows, st, held, gone)
-        p = plan(cfg, st, tgts, pend, on, lambda t: quiet_now(cfg, now, t.get('zone') or ''), presence.placement(cfg, pst, now))
+        from . import diskroom
+        low = diskroom.problems(cfg) if '_disk' not in cfg else cfg['_disk']   # a full disk: nothing new starts, as in quiet hours
+        p = plan(cfg, st, tgts, pend, on, lambda t: low[0] if low else quiet_now(cfg, now, t.get('zone') or ''),
+                 presence.placement(cfg, pst, now))
         for line in presence_io(cfg, pst, now, waiting_since(st, [t for t in tgts if t.get('absent')], pend)):
             event(st, now, line)
         kept = [w for w in st['warnings'] if w['kind'] == 'worker'] if accounts is None else []

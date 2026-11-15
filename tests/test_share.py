@@ -136,6 +136,29 @@ class RemoteIdle(Base):
         row = state.machine_state(m, routing.Probe(True, 4, 0.1, 16), 1, NIGHT.replace(hour=12), idle_s=10)
         self.assertEqual((row['use_pct'], row['free']), (30, 1))
 
+    def idle_in(self, shell, sessions):
+        """The IDLE script run by `shell` with a fake loginctl: {session: (type, hint, since_us)}."""
+        with tempfile.TemporaryDirectory() as d:
+            fake = os.path.join(d, 'loginctl')
+            cases = ' '.join(f'{n}) case "$4" in Type) echo {t};; IdleHint) echo {h};; IdleSinceHint) echo {u};; esac;;'
+                             for n, (t, h, u) in sessions.items())
+            with open(fake, 'w', encoding='utf8') as f:
+                f.write('#!/bin/sh\nif [ "$1" = list-sessions ]; then printf "%s\\n" ' + ' '.join(sessions) + '; exit 0; fi\n'
+                        'case "$2" in ' + cases + ' esac\n')
+            os.chmod(fake, 0o755)
+            env = {**os.environ, 'PATH': d + os.pathsep + os.environ['PATH']}
+            r = subprocess.run([shell, '-c', remote.IDLE + 'echo "$i"'], env=env, capture_output=True, text=True, check=False)
+            return r.returncode, r.stdout.strip(), r.stderr
+
+    def test_the_idle_script_runs_in_a_posix_sh_as_in_bash(self):
+        import time
+        since = int((time.time() - 100) * 1000000)
+        for shell in ('sh', 'bash'):
+            rc, out, err = self.idle_in(shell, {'3': ('x11', 'yes', since), '7': ('tty', 'no', 0)})
+            self.assertEqual(rc, 0, err)
+            self.assertTrue(95 <= int(out) <= 130, out)
+            self.assertEqual(self.idle_in(shell, {'3': ('x11', 'no', 0)})[1], '-')   # never set the hint: not known
+
     def test_the_idle_script_skips_a_desktop_that_never_sets_the_hint(self):
         self.assertIn('IdleSinceHint', remote.IDLE)
         self.assertIn('${i:--}', remote.probe_script({'yield_file': '~/y', 'name': 'n', 'transport': 'ssh', 'slots': 1,

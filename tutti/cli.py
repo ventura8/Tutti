@@ -815,6 +815,15 @@ def cmd_selfheal(cfg, a):
     return 0
 
 
+def cmd_reap(cfg, a):
+    """`tutti reap [--dry-run]`: stops Tutti's stray helper processes of this user by exact pid (tutti/procs.py)."""
+    from . import procs
+    lines = procs.reap(say, dry=a.dry_run)
+    if not lines:
+        say('reap: no stray Tutti process here')
+    return 0
+
+
 def cmd_tunnel(cfg, a):
     w = worker_of(cfg, a.worker, 'ollama')
     t = w.get('tunnel')
@@ -1608,6 +1617,8 @@ def parser():
     s = add('selfheal', cmd_selfheal, 'self-healing (docs/SELFHEAL.md): what was repaired today, or run every check now')
     s.add_argument('--once', action='store_true', help='run every check and repair now, on this machine')
     s.add_argument('--json', action='store_true')
+    s = add('reap', cmd_reap, 'stop Tutti\'s stray helper processes (keep-awake, tunnel, inhibitor) by exact pid')
+    s.add_argument('--dry-run', action='store_true', help='only list them')
     s = add('tunnel', cmd_tunnel, 'the self-healing ssh tunnel to a worker\'s model server')
     s.add_argument('action', choices=['start', 'stop', 'status'])
     s.add_argument('worker')

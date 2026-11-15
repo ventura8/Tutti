@@ -390,8 +390,12 @@ def mem_free_gb(meminfo='/proc/meminfo'):
 def ensure_tunnels(cfg, machines, answers, run=subprocess.run):
     """Starts the tunnel of every ollama worker that has one, whose server does not answer and whose machine is up. `answers`:
     {worker: bool}. Returns the workers whose tunnel was started."""
+    from . import procs
     rows = {m.get('name'): m for m in machines or ()}
     started = []
+    # tests and checks: no real tunnel loop (an e2e test host's ran for hours, 2026-11-15)
+    if run is subprocess.run and not procs.daemons_allowed():
+        return started
     script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scripts', 'tunnel.sh')
     for n, w in cfg['workers'].items():
         t = w.get('tunnel') or {}

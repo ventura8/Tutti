@@ -360,7 +360,15 @@ def check_update(ctx, update=None, release=None):
     return [f'self-update: {msg}'] if code == 0 and '->' in msg else []
 
 
-CHECKS = (('ollama', check_ollama), ('needs', check_needs), ('workers', check_workers), ('tunnels', check_tunnels),
+def check_strays(ctx):
+    """Tutti's own helper processes that nothing owns any more (tutti/procs.py), stopped by exact pid. Never in tests."""
+    from . import procs
+    reap = getattr(ctx, 'reap', None) or (procs.reap if procs.daemons_allowed() else None)
+    return reap(lambda line: None) if reap else []
+
+
+CHECKS = (('ollama', check_ollama), ('strays', check_strays), ('needs', check_needs), ('workers', check_workers),
+          ('tunnels', check_tunnels),
           ('adb', check_adb), ('disk', check_disk), ('state', check_state), ('config', check_config),
           ('dashboard', check_dashboard), ('update', check_update))
 

@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from types import SimpleNamespace
@@ -234,11 +235,32 @@ class Sleep(Base):
             procs.append(p)
             return p
         calls = []
+        done = threading.Event()
+        done.set()   # the holding thread does not loop here: the lock follows the signals and is_busy only
         sleepwatch.watch({}, popen=popen, delay=lambda: 4.0, down=lambda c, w, b: calls.append(('down', w, b)),
-                         up=lambda c: calls.append(('up',)))
+                         up=lambda c: calls.append(('up',)), is_busy=lambda c: True, stop=done)
         self.assertEqual(calls, [('down', 'sleep', 4.0), ('up',)])
         self.assertTrue(procs[0].terminate.called)              # the first lock let go after the handover
         self.assertEqual(procs[2].argv[:2], ['systemd-inhibit', '--what=sleep:shutdown'])   # taken again on wake
+        self.assertIn(f'--pid={os.getpid()}', procs[2].argv)   # it ends with this process: never `sleep infinity`
+        self.assertNotIn('infinity', procs[2].argv)
+        self.assertTrue(procs[2].terminate.called)              # and let go when the watcher ends
+
+    def test_the_lock_is_held_only_while_work_runs_and_one_per_process(self):
+        procs = []
+        lock = sleepwatch.Lock(lambda argv, **kw: procs.append(SimpleNamespace(argv=argv, env=kw.get('env'), poll=lambda: None,
+                                                                              terminate=mock.Mock(), wait=mock.Mock())) or procs[-1])
+        lock.follow(False)
+        self.assertEqual(procs, [])                              # idle: no lock at all
+        lock.follow(True)
+        lock.follow(True)
+        self.assertEqual(len(procs), 1)                          # busy twice: still one lock
+        self.assertEqual(procs[0].env['TUTTI_PROC'], 'inhibit')
+        lock.follow(False)
+        self.assertTrue(procs[0].terminate.called)              # the work ended: let go
+        with mock.patch.dict(os.environ, {'TUTTI_NO_DAEMONS': '1'}):
+            self.assertIsNone(sleepwatch.start_in_background({}))   # tests never start a real inhibitor
+        self.assertFalse(sleepwatch.busy({}))
         self.assertEqual(sleepwatch.max_delay(lambda *a, **k: SimpleNamespace(stdout='t 5000000')), 4.0)
         self.assertIsNone(sleepwatch.parse('something else'))
 

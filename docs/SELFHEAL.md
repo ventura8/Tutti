@@ -20,6 +20,7 @@ what was done.
 | needs | each declared need of this machine's workers (those naming it with `machine:`, or none on the main machine), projects and suites (below) | installed at user level; root-only: one admin command in Needs you |
 | workers | a CLI worker's program on PATH; its `login_check` command | installed through its needs; otherwise, or signed out, one Needs-you item with its `login` command |
 | ollama | a local worker's model server answers `/api/tags`, with the model | `systemctl --user start ollama` or `ollama serve`; `ollama pull <model>` |
+| strays | Tutti's own helper processes of this user (a device's keep-awake loop, a tunnel loop, the sleep inhibitor) that nothing owns: their test run or home folder gone, an inhibitor whose Tutti process ended, a loop its pid file does not name | stopped by exact pid (SIGTERM) and logged; never another user's process, never by pattern; `tutti reap [--dry-run]` does the same by hand |
 | tunnels | `tutti tunnel status <worker>` for each worker with `tunnel:` | `tutti tunnel start <worker>` |
 | adb | `adb devices` answers; each wireless address of this machine's devices is listed | `adb kill-server; adb start-server`; `adb connect <address>` |
 | disk | Tutti's own left-over temp folders; free space and file slots ([diskroom](../tutti/diskroom.py)) | removed (below); still low: one Needs-you item to make room |
@@ -72,3 +73,18 @@ time anywhere inside counts, so a run that keeps writing is kept; one silent for
 `tutti-review-*`, and anonymous `tmpXXXXXXXX` folders holding only what a Tutti test or run writes (`state`,
 `tutti.config.yaml`, ...), in the temp folder, `~/.cache/tutti-tmp` and `selfheal.temp_dirs`. The test helper
 (`tests/tmpdirs.py`) names its folders `tutti-t-*`. This replaces the stopgap cron that cleaned `/tmp` by hand.
+
+## Stray processes (0.16.1)
+
+On 2026-11-15 the laptop sat at load 60: 161 keep-awake loops of device leases made by tests (their temp home was gone,
+so their `mkdir` lock could never succeed and each spun every 0.1 s), 38 tunnel loops of the e2e test host
+`gpu-box.example` and 45 `systemd-inhibit ... sleep infinity` left by dashboard restarts. Now:
+
+- every helper carries `TUTTI_PROC=<kind>[:<name>]` in its environment (`tutti/procs.py`);
+- tests and `scripts/check.sh` set `TUTTI_NO_DAEMONS=1`: no helper is started at all, and `tests/run.py` fails a test that
+  leaves a process of its run behind (and stops it by pid);
+- a device has one keep-awake loop: a loop that `awake.pid` does not name ends, and one whose folder is gone ends;
+- a tunnel has one loop: the check and the pid file are written under `flock`;
+- the sleep inhibitor is one per Tutti process, taken only while a job runs, and its child is `tail --pid=<tutti>`, so it
+  ends with Tutti;
+- the `strays` check (and `tutti reap`) stops what is left, by exact pid, and logs each one.

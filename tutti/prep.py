@@ -254,7 +254,7 @@ def lease_script(device, claim, minutes, who):
     shell word (remote.home_path); every other value is quoted here. The check and the claim write hold a mkdir lock, so
     two requesters cannot both win; one keep-awake loop per device (its pid in `awake.pid` beside the users folder), and
     when the last claim runs out the loop releases the device itself (restore_script), without waiting for a release."""
-    from . import adbpair
+    from . import adbpair, procs
     u = users_path(device)
     q = shlex.quote
     name = q(str(device['name']))
@@ -266,15 +266,19 @@ def lease_script(device, claim, minutes, who):
     live = (f'live=; for c in {u}/claim-*; do [ -e "$c" ] || continue; e=$(head -c 20 "$c" | tr -cd 0-9); '
             f'[ -n "$e" ] && [ "$e" -gt "$(date +%s)" ] && live=1; done; ')
     # the end is decided under the lease's lock: a lease written meanwhile is seen, and its device is never restored under it
-    end = (f'if [ -z "$live" ]; then until mkdir {lock} 2>/dev/null; do sleep 0.1; done; {live}'
+    # a folder gone (a test's temp home removed) ends the loop: its mkdir could never succeed (161 spinning loops, 2026-11-15)
+    end = (f'if [ -z "$live" ]; then until mkdir {lock} 2>/dev/null; do [ -d {u} ] || break 2; sleep 0.1; done; {live}'
            f'if [ -z "$live" ]; then rm -f {pid}; {release_script(device)} > /dev/null; rmdir {lock}; break; fi; rmdir {lock}; fi; ')
-    loop = (f'while :; do {live}{end}'
+    # one loop per device: a loop that awake.pid does not name (a second one) ends at its next round
+    mine = f'[ "$(cat {pid} 2>/dev/null)" = "$$" ] || break; '
+    loop = (f'sleep 1; while :; do {mine}{live}{end}'
             f'{person_recent(device)} || {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; sleep {KEEP_AWAKE_SECONDS}; done')
     # a person's touch noticed while the lease's loop lives (it ends with the loop's pid file): Tutti then sends no key
     watch = (f'while [ -e {pid} ]; do if {_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .; '
              f'then mkdir -p "$(dirname {person_path(device)})"; date +%s > {person_path(device)}; sleep 1; fi; done')
-    awake = (f'if ! kill -0 "$(cat {pid} 2>/dev/null)" 2>/dev/null; then nohup bash -c {q(loop)} > /dev/null 2>&1 & '
-             f'echo $! > {pid}; nohup bash -c {q(watch)} > /dev/null 2>&1 & fi; ')
+    tag = q(f'{procs.MARK}=claim:{device["name"]}')   # the reaper's marker (tutti/procs.py)
+    awake = (f'if ! kill -0 "$(cat {pid} 2>/dev/null)" 2>/dev/null; then nohup env {tag} bash -c {q(loop)} > /dev/null 2>&1 & '
+             f'echo $! > {pid}; nohup env {tag} bash -c {q(watch)} > /dev/null 2>&1 & fi; ') if procs.daemons_allowed() else ''
     take = (f'find {lock} -maxdepth 0 -mmin +1 -exec rmdir {{}} \\; 2>/dev/null; n=0; '   # a lock left by a killed claim
             f'until mkdir {lock} 2>/dev/null; do n=$((n + 1)); if [ $n -gt 100 ]; then '
             f'echo "tutti: "{name}" is being claimed by someone else right now: try again in a minute"; exit 3; fi; sleep 0.1; done; ')

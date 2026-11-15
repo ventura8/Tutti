@@ -467,6 +467,19 @@ def _target(f, pos, cwd):
     return f.get('--repo') or repo_of_worktree(cwd), int(ref)
 
 
+def _merge(c, repo, number, f):
+    """`gh pr merge`: through the API only when pinned to the reviewed commit; anything else goes to the real gh."""
+    if not f.get('--match-head-commit') or f.get('--auto') or f.get('--admin'):
+        raise NotCovered('merge')
+    method = 'rebase' if f.get('--rebase') else 'squash'
+    if f.get('--merge'):
+        method = 'merge'
+    pr_merge(c, repo, number, f['--match-head-commit'], method)
+    if f.get('--delete-branch'):
+        head = (c.request('GET', f'/repos/{repo}/pulls/{int(number)}') or {}).get('head') or {}
+        delete_branch(c, repo, head.get('ref') or '')
+
+
 def _pr(c, verb, f, pos, cwd):
     if verb == 'create':
         repo = f.get('--repo') or repo_of_worktree(cwd)
@@ -477,16 +490,7 @@ def _pr(c, verb, f, pos, cwd):
         pr_ready(c, repo, number)
         return ''
     if verb == 'merge':
-        if not f.get('--match-head-commit') or f.get('--auto') or f.get('--admin'):
-            raise NotCovered('merge')   # only a merge pinned to the reviewed commit goes through the API
-        method = 'squash'
-        if f.get('--rebase'):
-            method = 'rebase'
-        elif f.get('--merge'):
-            method = 'merge'
-        pr_merge(c, repo, number, f['--match-head-commit'], method)
-        if f.get('--delete-branch'):
-            delete_branch(c, repo, (c.request('GET', f'/repos/{repo}/pulls/{int(number)}') or {}).get('head', {}).get('ref') or '')
+        _merge(c, repo, number, f)
         return ''
     if verb == 'view' and f.get('--json') == 'state':
         return pr_state(c, repo, number) + '\n'

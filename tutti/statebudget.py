@@ -8,8 +8,8 @@ import shutil
 import time
 
 # never needed again once written: screenshots of old checks, stale busy markers of dead processes, old ship and land logs
-JUNK_SUFFIXES = ('.png', '.jpg', '.webp')
-JUNK_PREFIXES = ('land-', 'ship-')
+JUNK_SUFFIXES = ('.png',)
+JUNK_PREFIXES = ('land-', 'ship-', 'layout-')   # land and ship logs, the layout check's screenshots
 LOG_SUFFIXES = ('.log', '.jsonl')
 DEFAULTS = {'budget_mb': 50, 'delta_kb': 512, 'runs_keep': 200, 'runs_days': 14, 'log_mb': 2, 'junk_days': 3}
 
@@ -65,7 +65,7 @@ def plan(folder, o, now=None):
     old = now - o['junk_days'] * 86400
     for n in names:
         p = os.path.join(folder, n)
-        if os.path.isfile(p) and (n.endswith(JUNK_SUFFIXES) or (n.startswith(JUNK_PREFIXES) and n.endswith('.log'))) and _mtime(p) < old:
+        if os.path.isfile(p) and n.startswith(JUNK_PREFIXES) and n.endswith(('.log', *JUNK_SUFFIXES)) and _mtime(p) < old:
             drop.append((p, 'an old screenshot or ship log'))
         elif os.path.isfile(p) and n.endswith(LOG_SUFFIXES) and size_of(p) > o['log_mb'] * 1024 * 1024:
             cut.append((p, o['log_mb'] * 1024 * 1024))
@@ -90,10 +90,10 @@ def cut_log(path, keep):
         tail = f.read()
     nl = tail.find(b'\n')
     tail = tail[nl + 1:] if 0 <= nl < len(tail) - 1 else tail
-    tmp = path + '.cut'
-    with open(tmp, 'wb') as f:
+    # in place, never a rename: a writer that holds the file open for append keeps writing into this same file
+    with open(path, 'r+b') as f:
         f.write(tail)
-    os.replace(tmp, path)
+        f.truncate()
 
 
 def prune(folder, o, now=None):

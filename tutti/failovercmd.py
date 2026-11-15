@@ -35,7 +35,7 @@ def chosen_backup(cfg, facts_fn=probe_facts):
     if o['backup'] == 'none':
         return None, 'failover is off'
     if o['backup']:
-        return o['backup'], 'chosen by an admin'
+        return failover.elect(cfg, {})   # the admin's pick, checked: never the main, a phone or a member's machine
     if rec.get('elected'):
         return rec['elected'], 'elected earlier'
     b, why = failover.elect(cfg, facts_fn(cfg, failover.candidates(cfg)))
@@ -55,6 +55,9 @@ def set_backup(cfg, machine, yes=False, run=subprocess.run):
     old = o['backup'] or rec.get('elected')
     if old and old != machine:
         ans = failover.remote_cmd(cfg, old, ['retire'], run)
+        if ans is not None and not ans.get('ok'):
+            raise failover.FailoverError(f'{old} serves Tutti now ({ans.get("why") or "it is the active main"}): wait until Tutti is '
+                                         f'back on {failover.main_of(cfg)}, then change the backup')
         if ans is None and not yes:
             raise failover.FailoverError(f'the current backup {old} does not answer, and it could take over by itself if it is only cut '
                                          f'off: start {old} and try again, or add --yes if {old} is gone for good')

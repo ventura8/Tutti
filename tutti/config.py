@@ -414,6 +414,11 @@ def validate(cfg):
     fb = (cfg.get('failover') or {}).get('backup') or ''
     if fb not in ('', 'none') and fb not in cfg['machines']:
         errs.append(f'failover.backup names "{fb}", which is not under machines: name one of them, auto (\'\') or none')
+    elif fb not in ('', 'none'):
+        from . import failover
+        if fb not in failover.candidates(cfg):
+            errs.append(f'failover.backup is "{fb}", which cannot be the backup main machine (the main itself, a phone or a '
+                        f'member\'s machine): name one of {", ".join(failover.candidates(cfg)) or "(none)"}, auto (\'\') or none')
     from . import devices, share, vpn, workq
     errs += workq.errors(cfg)
     for name, m in cfg['machines'].items():

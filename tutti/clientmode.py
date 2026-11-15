@@ -22,6 +22,7 @@ READ_ONLY = {'usage': ('show', None), 'backlog': ('list', None), 'autopilot': ('
              'owner': None, 'dispatch': ('status', None), 'household': ('status', None), 'user': ('show', None),
              'selfimprove': ('status', None)}
 UNREACHABLE = 255          # ssh's own exit code: the host could not be reached
+FENCED = 75                # tutti/failover.py's: the host answered but is not the active main machine now
 MIRROR = 'host-mirror'
 MIRROR_EXCLUDE = ['/runs/', '/locks/', '/bridge/', '/move/', '*.png', '*.lock', '/llm-busy-*', '/files/']
 
@@ -58,7 +59,7 @@ def forward(cfg, argv, run=subprocess.run, isatty=None):
             rc = run(ssh_command(cfg, argv, tty=isatty(), h=h)).returncode
         except OSError:
             continue
-        if rc != UNREACHABLE:
+        if rc not in (UNREACHABLE, FENCED):   # FENCED: that host is not the active main now: try the next
             return rc
     return None
 

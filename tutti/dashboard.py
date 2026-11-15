@@ -240,23 +240,27 @@ class Collector:
             self.probes = {**self.probes, 'scout_error': error}
         return events
 
+    def acting_rounds(self):
+        """Every round that starts work, takes a lease or sends something: only where Tutti is active."""
+        self.update_round()
+        self.autopilot_tick()
+        self.dispatch_tick()
+        self.scouts_tick()
+        dashtelemetry.tick(self.cfg)
+        aiassist.tick_in_background(self.cfg)   # off unless an admin opted in
+        welcome.tick(self.cfg)   # the owner back: their welcome-back summary
+        needs.tick(self.cfg)   # the questions only a person can answer, delivered in batches (docs/NEEDS.md)
+        from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)
+        hhjobs.tick(self.cfg)
+
     def loop(self):
         while not self.stop.is_set():
             try:
                 self.reload()   # time-bound switches (planned absences, blocked hours) apply as the clock passes them
                 self.refresh()
-                self.update_round()
-                from . import failover  # only the active main machine acts; a fenced one stays read-only (docs/FAILOVER.md)
+                from . import failover  # only the active main machine acts; a fenced one only shows (docs/FAILOVER.md)
                 if failover.may_write(self.cfg):
-                    self.autopilot_tick()
-                    self.dispatch_tick()
-                self.scouts_tick()
-                dashtelemetry.tick(self.cfg)
-                aiassist.tick_in_background(self.cfg)   # off unless an admin opted in
-                welcome.tick(self.cfg)   # the owner back: their welcome-back summary
-                needs.tick(self.cfg)   # the questions only a person can answer, delivered in batches (docs/NEEDS.md)
-                from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)
-                hhjobs.tick(self.cfg)
+                    self.acting_rounds()
             except Exception as e:  # a probe bug must not end the loop; the page shows the last good data and its age
                 telemetry.capture_exception(type(e), e, e.__traceback__, where='dashboard-loop')
                 state_error = f'probing failed ({type(e).__name__}: {e}); the dashboard keeps the last results'

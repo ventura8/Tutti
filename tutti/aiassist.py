@@ -128,7 +128,9 @@ def busy(worker, ps=None):
     from . import local
     ps = ps if ps is not None else local.ollama_get(worker['host'], '/api/ps', timeout=1)
     loaded = [m.get('name') or m.get('model') for m in (ps or {}).get('models') or []]
-    return bool(loaded) and not any(str(x).split(':')[0] == str(worker['model']).split(':')[0] for x in loaded)
+    want = str(worker.get('model') or '')
+    want = want if ':' in want else f'{want}:latest'
+    return bool(loaded) and want not in [x if ':' in str(x) else f'{x}:latest' for x in loaded]
 
 
 def ask_online(cfg, prompt, run=None):

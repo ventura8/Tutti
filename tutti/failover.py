@@ -29,7 +29,7 @@ MARGIN = 30                     # seconds: the main stops before, the backup sta
 DEFAULTS = {'backup': '', 'main': '', 'minutes': 3, 'failback_minutes': 5, 'sync_seconds': 60, 'dir': '~/.tutti-failover',
             'reach': {}, 'addresses': {}}
 # never copied to the backup: logs, caches, screenshots, live processes' files, other copies (the runs index runs.jsonl goes)
-SYNC_EXCLUDE = ['/runs/', '/telemetry/', '/tests/', '/files/', '/host-mirror/', '/move/', '/bridge/', '/config-backups/',
+SYNC_EXCLUDE = ['/snapshots/', '*.corrupt', '/runs/', '/telemetry/', '/tests/', '/files/', '/host-mirror/', '/move/', '/bridge/', '/config-backups/',
                 '/work-queue/', '/chat/', '/failover-dashboard.pid', f'/{FILE}', f'/{BEAT}', '*.log', '*.pid', '*.rc', '*.cmd', '*.png',
                 '*.lock', '*.bak*', '/llm-busy-*', '/local-run-*', '/tunnel-*', '*.cut', '*.tmp*']
 
@@ -46,13 +46,20 @@ def state_file(cfg, name=FILE):
     return os.path.join(config.state_dir(cfg), name)
 
 
+FENCED = 75   # the exit code of a command refused because this machine is not the active main (clients try the next one)
+STARTED = time.time()   # this process's start: a backup that just started waits one full silence window first
+
+
 def read(cfg, name=FILE):
+    """The record, {} when there is none; {'corrupt': True} when the file exists but does not parse (fail closed)."""
     try:
         with open(state_file(cfg, name), encoding='utf8') as f:
             d = json.load(f)
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return {}
-    return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {'corrupt': True}
+    return d if isinstance(d, dict) else {'corrupt': True}
 
 
 def write(cfg, data, name=FILE):
@@ -97,6 +104,9 @@ def elect(cfg, facts):
     cands = candidates(cfg)
     if pick and pick in cands:
         return pick, 'chosen by an admin'
+    if pick:
+        return None, (f'failover.backup is {pick}, which cannot be the backup (the main itself, a phone or a member\'s machine): '
+                      f'pick one of {", ".join(cands) or "(no other ssh machine)"}')
     up = [n for n in cands if (facts.get(n) or {}).get('up')]
     if not up:
         return None, 'no candidate answers (' + (', '.join(cands) or 'no other ssh machine under machines:') + ')'
@@ -118,6 +128,8 @@ def may_write(cfg, now=None, rec=None):
     if opts(cfg)['backup'] == 'none':
         return True
     rec = rec if rec is not None else read(cfg)
+    if rec.get('corrupt'):
+        return False   # a damaged record never lets a machine act: `tutti failover` says how to repair it
     if not rec.get('active'):
         return True   # never set up: nothing to fence yet
     now = now or time.time()
@@ -127,21 +139,26 @@ def may_write(cfg, now=None, rec=None):
 
 
 def on_beat(rec, beat, now):
-    """The backup's answer to the main's heartbeat {term, from, lease_until, leaving}: (new record, answer)."""
+    """The backup's answer to the main's heartbeat {term, from, lease_seconds, leaving}: (new record, answer). The lease is a
+    duration stamped with the backup's own clock, so the two machines' clocks never have to agree."""
     term = int(rec.get('term') or 0)
     if term > int(beat['term']):
         return rec, {'ok': False, 'term': term, 'active': rec.get('active')}
     new = {**rec, 'term': int(beat['term']), 'active': beat['from'], 'beat_at': now,
-           'lease_until': now if beat.get('leaving') else float(beat['lease_until'])}
+           'lease_until': now if beat.get('leaving') else now + float(beat['lease_seconds'])}
     return new, {'ok': True, 'term': new['term'], 'active': new['active']}
 
 
-def backup_decide(rec, mine, now):
-    """The backup's round: 'serve' (it is active), 'take-over' (the main's lease ran out), or 'stand-by'."""
+def backup_decide(rec, mine, now, since=None, lease=None):
+    """The backup's round: 'serve' (it is active), 'take-over' (the main's lease ran out), or 'stand-by'. `since`: when this
+    backup started watching; a backup that just started waits a full lease first (its stored lease may be old)."""
     if rec.get('active') == mine:
         return 'serve'
     if rec.get('beat_at') is None:
         return 'stand-by'   # never heard from a main: nothing to take over
+    leaving = rec.get('lease_until') is not None and float(rec['lease_until']) <= float(rec['beat_at'])
+    if since is not None and lease and not leaving and now < since + lease + MARGIN:
+        return 'stand-by'
     return 'take-over' if now >= float(rec.get('lease_until') or 0) + MARGIN else 'stand-by'
 
 
@@ -183,7 +200,8 @@ def discovery(cfg):
     out = []
     for n in names:
         m = cfg['machines'].get(n) or {}
-        addr = o['addresses'].get(n) or (f'{m["host"]}:{port}' if m.get('host') and m['host'] != 'local' else '')
+        host = m.get('address') or (m.get('host') if m.get('host') not in (None, 'local') and '@' not in m['host'] else '')
+        addr = o['addresses'].get(n) or (f'{host}:{port}' if host else '')
         if addr:
             out.append(addr)
     return out
@@ -302,7 +320,7 @@ def stop_dashboard(cfg, kill=os.kill):
 def backup_round(cfg, now=None, start=start_dashboard, alive=recorded_pid, stop=stop_dashboard):
     now = now or time.time()
     rec = read(cfg)
-    act = backup_decide(rec, me(cfg), now)
+    act = backup_decide(rec, me(cfg), now, STARTED, lease_seconds(opts(cfg)))
     if act == 'take-over':
         rec = take_over(rec, me(cfg), now)
         write(cfg, rec)
@@ -326,7 +344,7 @@ def main_round(cfg, backup, now=None, run=subprocess.run, healthy_since=None):
     sent = 0
     if rec.get('active', mine) == mine:
         ok, sent = push(cfg, backup, run)
-        beat = {'term': int(rec.get('term') or 0), 'from': mine, 'lease_until': now + lease_seconds(o)}
+        beat = {'term': int(rec.get('term') or 0), 'from': mine, 'lease_seconds': lease_seconds(o)}
         answer = remote_cmd(cfg, backup, ['beat'], run, inp=json.dumps(beat)) if ok else None
     else:
         answer = remote_cmd(cfg, backup, ['status'], run)

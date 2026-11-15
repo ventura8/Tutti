@@ -1138,6 +1138,17 @@ def cmd_owner(cfg, a):
     return 0
 
 
+def writes_state(a):
+    """A command that changes Tutti's shared state (the ones a client forwards, but reads and `run`, which works alone)."""
+    return a.cmd in clientmode.FORWARD and a.cmd != 'run' and not clientmode.is_read_only(a.cmd, getattr(a, 'action', None)) \
+        and not (a.cmd == 'main' and not getattr(a, 'agent', None))
+
+
+def failover_fenced_code():
+    from . import failover
+    return failover.FENCED
+
+
 def fenced(cfg, what):
     """True (and says why) when this machine is not the active main machine now (docs/FAILOVER.md)."""
     from . import failover
@@ -1173,7 +1184,7 @@ def cmd_autopilot(cfg, a):
             say(str(e))
             return 2
         say(f'autopilot: {r["allowed"]} takes first attempts until {tz.show(datetime.fromtimestamp(r["until"], timezone.utc))}')
-    elif a.action == 'tick' and not fenced(cfg, 'autopilot'):
+    elif a.action == 'tick':
         now = datetime.now(timezone.utc)
         states = {s['name']: s for s in state.usage_state(cfg, now)['accounts']}
         from . import sharing
@@ -1843,6 +1854,8 @@ def main(argv=None):
         if frozen:
             say(frozen)
             return 1
+        if writes_state(a) and fenced(cfg, a.cmd):
+            return failover_fenced_code()
         return a.fn(cfg, a)
     except (config.ConfigError, ship.ShipError, backlog.BacklogError, RuntimeError, ValueError) as e:
         telemetry.record('error', type(e).__name__, command=a.cmd)

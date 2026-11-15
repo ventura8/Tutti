@@ -30,7 +30,9 @@ def _same(a, b):
 
 def files(folder):
     try:
-        return sorted(n for n in os.listdir(folder) if n.endswith(WATCHED) and os.path.isfile(os.path.join(folder, n)))
+        # never failover*.json: an old term put back would undo the term protocol (tutti/failover.py fails closed instead)
+        return sorted(n for n in os.listdir(folder) if n.endswith(WATCHED) and not n.startswith('failover')
+                      and os.path.isfile(os.path.join(folder, n)))
     except OSError:
         return []
 

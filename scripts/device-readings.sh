@@ -57,6 +57,14 @@ c=$(on dumpsys telephony.registry | grep -o 'mCallState=[0-9]' | cut -d= -f2 | s
 [[ -n "$c" ]] && echo "call=$c"
 s=$(on cmd wifi status)
 if printf '%s' "$s" | grep -qi 'connected to'; then echo "wifi=1"; elif [[ -n "$s" ]]; then echo "wifi=0"; fi
+# Cast roles, read once a day (tutti/castroles.py): cached beside the device's other files
+if [[ -n "${CAST_CACHE:-}" ]]; then
+	if [[ ! -s "$CAST_CACHE" ]] || (( $(date +%s) - $(stat -c %Y "$CAST_CACHE") > 86400 )); then
+		mkdir -p "$(dirname "$CAST_CACHE")"
+		on "$CAST_PROBE" | grep '^cast=' > "$CAST_CACHE.new" && mv "$CAST_CACHE.new" "$CAST_CACHE"
+	fi
+	[[ -s "$CAST_CACHE" ]] && cat "$CAST_CACHE"
+fi
 # Do Not Disturb now (0 off, 1 priority only, 2 total silence, 3 alarms only): its own schedule is learned from these
 z=$(on settings get global zen_mode)
 [[ "$z" =~ ^[0-3]$ ]] && echo "dnd=$z"

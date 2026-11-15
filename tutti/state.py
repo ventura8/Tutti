@@ -569,9 +569,23 @@ def runs_today(cfg):
     return delegate.runs_today(cfg)
 
 
+def with_cast_roles(cfg, mstate):
+    """Each machine's Cast roles from the daily check (tutti/castroles.py's cache), for the machine card."""
+    import json
+    try:
+        with open(os.path.join(config.state_dir(cfg), 'cast-machines.json'), encoding='utf8') as f:
+            seen = json.load(f)
+    except (OSError, ValueError, KeyError):
+        return mstate
+    seen = seen if isinstance(seen, dict) else {}
+    for m in mstate or []:
+        m['cast_roles'] = ((cfg.get('machines') or {}).get(m['name']) or {}).get('roles') or (seen.get(m['name']) or {}).get('roles') or []
+    return mstate
+
+
 def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, stored_fn=None, readings_fn=None):
     """The slow part, run off the request path: every machine (and the files it stores) and every worker."""
-    return {'machines': machines_state(cfg, probe_fn, stored_fn), 'machines_at': clock(),
+    return {'machines': with_cast_roles(cfg, machines_state(cfg, probe_fn, stored_fn)), 'machines_at': clock(),
             'devices': devices.dnd_view(cfg, devices.devices_state(cfg, readings_fn or (lambda m, d: {'state': 'unreachable'})),
                                         learn=readings_fn is not None),
             'workers': workers_state(cfg, available_fn, which), 'workers_at': clock()}

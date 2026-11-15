@@ -184,6 +184,27 @@ Other rules a device run keeps:
 - **Sessions outside Tutti** say they use a device with `tutti devices claim <d> --who <session>` and `tutti devices
   release <d> --who <session>`; the release puts the device's own settings back when it was the last user.
 
+## When a device goes away
+
+A device that is away (a planned absence, presence lost, a person using it, its blocked hours, paused or unreachable) has
+its pending shards moved to devices that can run them (`tutti/reroute.py`): the same form factor (a phone or a tablet for
+touch work, a TV for TV work), and the API level and capabilities the suite asks for (`requires: {kinds: [phone, tablet],
+min_sdk: 34, capabilities: [camera]}`). Work no other device fits waits, with the reason. The move is decided afresh each
+round, so the work goes back to the device as soon as it returns. The device card's list shows it ("Pixel 9 Pro away
+(planned absence): 3 shards moved to pixeltablet, 1 waits for it"), each change is an event, and a line goes to
+`<state>/devices/moves.jsonl` for the projects' sessions and the coordinator.
+
+## Paired devices (roles)
+
+Cast roles are detected (`tutti/castroles.py`, once a day and at pairing; the device and machine cards show them; an
+admin's `roles:` overrides): a device is a receiver when it is a TV, has the Cast receiver service or Play services'
+mirroring receiver (a Pixel Tablet, a phone), and a sender when it has Play services' Cast and a screen to send from; a
+machine is a sender with Chrome, Chromium or the project's desktop sender (`machines.<m>.desktop_sender: true`). A Cast
+suite with `pair: {role: cast-receiver, sender: true}` runs on any sender here (a device or a machine) with any receiver
+here: the tablet to the TV while the phone is away, the phone to the tablet when the TV is busy. A suite that needs a partner says so (`pair: {role: cast-receiver}`): each of its shards holds the first device with
+that role that is here, so both are leased at once, and it waits, with the reason, while none is. By hand:
+`tutti devices claim pixeltablet googletv --who <session>` leases the pair (both or none; each prints its ADDR).
+
 ## Phone calls
 
 An Android device that rings or is in a call takes no new work (`tutti/calls.py`). The call state comes from

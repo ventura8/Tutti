@@ -48,8 +48,9 @@ function blockedHours(d) {
     const link = el('a', { class: 'link', href: `#settings/devices.${d.name}.hours`, text: h ? 'Change' : 'Set blocked hours' });
     const text = h ? `Not used ${h.window}${h.days ? ` on ${h.days.join(', ')}` : ' every day'} (local time). ` : 'No blocked hours. ';
     const dnd = d.dnd_now || d.dnd_schedule ? ` Do Not Disturb ${d.dnd_now ? 'on now' : 'off now'}${d.dnd_schedule ? `, usually ${d.dnd_schedule}` : ''}.` : '';
+    const cast = (d.roles || []).length ? ` Cast: ${d.roles.map((r) => r.replace('cast-', '')).join(' and ')}.` : '';
     const night = d.night ? ` Night mode ${d.night.hours} (1 % brightness, volume 0). ` : '';
-    return el('p', { class: 'row__note' }, text, link, dnd, night, d.night ? el('a', { class: 'link', href: '#settings/night.enabled', text: 'Change' }) : null);
+    return el('p', { class: 'row__note' }, text, link, dnd, cast, night, d.night ? el('a', { class: 'link', href: '#settings/night.enabled', text: 'Change' }) : null);
 }
 
 function pausedBy(p) {
@@ -149,7 +150,8 @@ function probedOr(items, configured, probed) {
 function renderControls(s) {
     const probed = Boolean(s.machines?.probed_at);
     const devices = probedOr(s.devices?.items || [], s.devices?.configured, probed);
-    $('idle-warnings').replaceChildren(...(s.dispatch?.warnings || []).map(idleWarning));
+    $('idle-warnings').replaceChildren(...(s.dispatch?.warnings || []).map(idleWarning),
+        ...(s.dispatch?.reroute || []).map((line) => el('li', { class: 'row' }, el('p', { class: 'row__note', text: line }))));
     const c = s.controls || { opt_in: [], paused: [] };
     const paused = new Map(c.paused.map((p) => [`${p.kind}:${p.name}`, p]));
     $('controls-meta').textContent = `${devices.length} device${devices.length === 1 ? '' : 's'} · ${c.paused.length} paused`;

@@ -319,18 +319,29 @@ def readings_command(device, scripts_dir, wake=False):
     if device.get('prep'):
         env += f' PREP_SAVED={prep.saved_path(device)}'
     env += f' PERSON={prep.person_path(device)} IDLE_S={prep.idle_seconds(device)}'
+    from . import castroles
+    from . import remote as _r
+    cache = _r.home_path(f'~/.tutti/devices/{device["name"]}/cast')
+    env += f' CAST_CACHE={cache} CAST_PROBE={shlex.quote(castroles.ANDROID_PROBE)}'
     if external_lock(device):
         stale = int(float(device.get('external_lock_stale_minutes', EXTERNAL_STALE_MINUTES)) * 60)
         env += f' EXT_LOCK={shlex.quote(external_lock(device))} EXT_STALE={stale}'
     return f'{env} WAKE={1 if wake else 0} bash {scripts_dir}/{READINGS_SCRIPT}'
 
 
+def _roles(d, readings):
+    from . import castroles
+    return castroles.roles_of(d, castroles.decide(readings.get('cast')) if readings.get('cast') else [])
+
+
 def device_state(d, readings):
     pol = policy(d)
     st, reason = status(pol, readings, d['serial'])
-    keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi', 'call', 'external_by', 'prep_left', 'revived', 'dnd')
+    keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi', 'call', 'external_by', 'prep_left',
+            'revived', 'dnd', 'cast')
     return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'kind': d.get('kind', 'phone'), 'status': st,
-            'reason': reason, 'hours': d.get('hours'), 'night': (d.get('_night') or {}) if (d.get('_night') or {}).get('on') else None,
+            'reason': reason, 'hours': d.get('hours'), 'roles': _roles(d, readings),
+            'night': (d.get('_night') or {}) if (d.get('_night') or {}).get('on') else None,
             'policy': pol, **{k: readings.get(k) for k in keep}}
 
 

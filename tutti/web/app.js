@@ -577,6 +577,7 @@ function machine(m) {
         const hot = m.heat?.cap_c !== undefined && t >= m.heat.cap_c;
         stats.append(el('span', { class: 'temp', 'data-tone': hot ? 'warn' : undefined, text: `${label} ${tuttiNum(t, { digits: 0 })} °C` }));
     }
+    if ((m.cast_roles || []).length) stats.append(el('span', { text: 'Cast sender', title: 'Chrome, Chromium or the desktop sender (checked daily; machines.<m>.roles overrides)' }));
     if (m.heat?.cap_c !== undefined) stats.append(el('span', { class: 'temp', title: 'machines.<m>.heat (Settings): one run at the cap, none at the stop',
         text: `heat cap ${m.heat.cap_c} °C · stop ${m.heat.stop_c ?? '–'} °C` }));
     if (m.temp_note && (m.temp_c === null || m.temp_c === undefined)) stats.append(el('span', { class: 'temp', title: m.temp_note, text: 'CPU temperature not readable' }));

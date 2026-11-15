@@ -60,10 +60,11 @@ function tuttiCssPct(v) {
 // Float noise in the planner's own sentences (a plan's "heading for 32.122999999999976 %"): a number with four or more
 // decimals is rounded like tuttiNum. Applied only to server-computed plan, outlook and action text, never to logs, titles or
 // chat, where a 12:30:45.123456 or a 0.12345 is data.
-const TUTTI_NOISE = /(?<![\d.])\d+\.\d{4,}(?![\d.])/g;
+// No lookbehind (a SyntaxError on Safari before 16.4): the character before the number is matched and put back.
+const TUTTI_NOISE = /(^|[^\d.])(\d+\.\d{4,})(?![\d.])/g;
 
 function tuttiTidy(text) {
-    return typeof text === 'string' ? text.replace(TUTTI_NOISE, (m) => tuttiNum(Number(m))) : text;
+    return typeof text === 'string' ? text.replace(TUTTI_NOISE, (_m, before, n) => before + tuttiNum(Number(n))) : text;
 }
 
 if (typeof module !== 'undefined') module.exports = { tuttiNum, tuttiPct, tuttiShare, tuttiCompact, tuttiCssPct, tuttiTidy };

@@ -101,12 +101,26 @@ def available(worker, timeout=3):
     return True, f'{model} at {worker["host"]}'
 
 
-def listing(cfg):
-    rows = []
-    for name, w in cfg['workers'].items():
+def _row_line(w):
+    status = 'ready' if w['ready'] else 'DOWN'
+    return f'{w["name"]:12} {w["kind"]:7} {status:6} {w["note"]}'
+
+
+def rows(cfg):
+    out = []
+    for name, w in (cfg.get('workers') or {}).items():
         ok, note = available(w)
-        rows.append(f'{name:12} {w["kind"]:7} {"ready" if ok else "DOWN":6} {note}')
-    return '\n'.join(rows) or 'no workers in the config: add a workers: section (tutti.config.example.yaml)'
+        out.append({'name': name, 'kind': w['kind'], 'ready': bool(ok), 'note': note})
+    return out
+
+
+def listing(cfg, as_json=False):
+    items = rows(cfg)
+    if as_json:
+        return json.dumps(items, indent=2)
+    if not items:
+        return 'no workers in the config: add a workers: section (tutti.config.example.yaml)'
+    return '\n'.join(_row_line(w) for w in items)
 
 
 KEEP_LINES = 2000

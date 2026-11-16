@@ -249,7 +249,7 @@ def test_job(cfg, a, machine, device, src, command):
             *[f'--fetch={p}' for p in a.fetch or []], a.track, *command]
     on = machine['name'] + (f' / {device["name"]}' if device else '')
     target = f'machine:{machine["name"]}' + (f' device:{device["name"]}' if device else '')
-    if os.environ.get('TUTTI_BACKGROUND'):   # started by the autopilot: background demand on a household's shared machine
+    if os.environ.get('TUTTI_BACKGROUND') and not device:   # autopilot: background demand on a household's shared machine
         target += ' class:background'
     return transfer.Job(cfg, f'test {a.track} on {on}: {" ".join(command)}'[:200], folder='devices' if device else 'tests',
                         target=target, spec={'kind': 'test', 'track': a.track, 'device': bool(device), 'args': args})
@@ -418,7 +418,7 @@ def cmd_usage(cfg, a):
 
 
 def cmd_workers(cfg, a):
-    print(workers.listing(cfg))
+    print(workers.listing(cfg, as_json=getattr(a, 'json', False)))
     return 0
 
 
@@ -1136,7 +1136,8 @@ def parser():
     s.add_argument('--at', help='the time of the reading or of the report (ISO 8601, UTC by default)')
     s.add_argument('--note', default='')
     s.add_argument('--resets', help='usage log: the reset time the usage page shows (ISO 8601); it anchors the window from then on')
-    add('workers', cmd_workers, 'list the workers and whether each is ready')
+    s = add('workers', cmd_workers, 'list the workers and whether each is ready')
+    s.add_argument('--json', action='store_true', help='print the workers as JSON')
     s = add('run', cmd_run, 'brief a CLI worker (cursor, agy, claude; `auto`: the one whose account has room) in a worktree; '
                             'it must not commit')
     s.add_argument('worker')

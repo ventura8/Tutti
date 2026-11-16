@@ -20,6 +20,7 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 ### Added
 
+- `tutti workers --json`: print the same rows as JSON (`name`, `kind`, `ready`, `note`) for scripts.
 - Spend the rest (`scouts.<name>.spend_rest`, on by default): near its reset, a scout behind its pace spends what is left
   by itself on Sentry triage, dependency notes, the other watches, `scout:` research questions from the backlog and the
   review trial's open pull requests, in project priority order, within its caps and up to 95 %

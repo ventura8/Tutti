@@ -147,6 +147,22 @@ device_classes:
 
 A TV gets no keep-awake key either (0.21.1).
 
+## A project's runner and its own work tree
+
+`projects.<p>.runner: <machine>` is the default `runner` of every suite of the project: a device run leases the device,
+connects the runner's own adb to it over the LAN, checks `adb get-state` answers `device` there (else the run never starts,
+with the reason), then runs the command on the runner. `tutti test <Project> --device <d> -- <command>` goes the same way,
+in the project's own tree, nothing synced:
+
+```bash
+tutti test RoRadio --device pixeltablet -- 'powershell.exe -NoProfile -Command "& C:\R\scripts\android\run-e2e.ps1 -Serial $env:ANDROID_SERIAL -Filter ReadabilityUITest"'
+```
+
+`tutti test <Project> --on <machine> -- <command>` with `projects.<p>.windows.<machine>: C:\...` runs in that Windows
+tree as it is (seen from WSL as `/mnt/c/...`), never synced. Options may follow the track (`tutti test RoRadio --on
+w5090-win --fetch C:\R\out.txt -- <command>`); several command words are quoted one by one (`shlex.join`), one word is
+the line as written; a `--fetch` of a Windows path is copied from where it is.
+
 ## Dedicated machines
 
 `machines.<m>.dedicated: true` keeps a machine for the suites that name it under their `machines:` (for example a

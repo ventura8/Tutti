@@ -60,7 +60,7 @@ def suites(cfg):
             out.append({'project': pname, 'name': sname, 'kind': s.get('kind', 'e2e'), 'targets': list(s.get('targets') or ['machine']),
                         'run': s.get('run', ''), 'shards': shards.names(s), 'shard_opts': shards.options(s),
                         'shards_from': s.get('shards_from'), 'prepare': s.get('prepare'), 'verdict': s.get('verdict'),
-                        'requires': s.get('requires'), 'pair': s.get('pair'), 'runner': s.get('runner'),
+                        'requires': s.get('requires'), 'pair': s.get('pair'), 'runner': s.get('runner') or (p or {}).get('runner'),
                         'started': s.get('started'), 'requeue_on': list(s.get('requeue_on') or []),
                         'dir': s.get('dir'), 'devices': s.get('devices'), 'machines': s.get('machines'),
                         'pause': s.get('pause'), 'resume': s.get('resume'),

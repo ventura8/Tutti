@@ -16,6 +16,10 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   `TUTTI_DEVICE_CLASS` and `TUTTI_DEVICE_DENY`.
 - A phone's or tablet's rotation, screen timeout and screensaver are read before a run and put back after it
   (`value: keep` prep items), whatever the test changed them to.
+- `projects.<p>.runner`: the default runner of a project's suites; a runner lease checks the runner's adb reaches each
+  device (`get-state`) before running, and `tutti test <Project> --device <d> -- <command>` runs there unsynced.
+- `tutti test`: options may follow the track; several command words keep their quoting (`shlex.join`); a project's
+  `windows.<machine>` tree is used as it is with `--on <machine>`; `--fetch` of a Windows path copies it from where it is.
 - `machines.<m>.dedicated`: a machine only the suites naming it use (never the work queue or an open suite), for a
   Windows desktop's UI runs beside the same PC's container machine.
 - `shards_from` names join a suite's listed `shards`, which keep their own options (a TV-only class beside discovered ones).

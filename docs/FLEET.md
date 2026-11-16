@@ -97,8 +97,12 @@ share drops by itself, to the lowest that applies:
 - `quiet_pct` (50) in its quiet hours (`machines.<m>.quiet_hours`, else `autopilot.quiet_hours`): fans and noise at night.
 - `hot_pct` (50) while it is hot (its `heat` cap reached).
 
-The yield flag still takes the machine out entirely (the PC is RoRadio's), and so does the governor's memory floor. The
-machine card shows "Tutti's share N %" and why. GPU power limits need root, so Tutti does not change them.
+The yield flag still takes the machine out entirely (the PC is RoRadio's): its share reads 0 % "its yield flag is up" (and
+"also someone is at its keyboard" when both hold), and so does the governor's memory floor. The machine card shows
+"Tutti's share N %" and why. Its slot boxes are one per slot: filled for a busy slot, hatched for one held back by the
+share or the yield flag, empty for a free one, so they always add up to "F of N slots free". When the slot count does not
+come from `machines.<m>.slots` (one slot per shared lock file, or the default), the card says where it comes from. A
+Windows PC's CPU temperature needs LibreHardwareMonitor running there; without it the card says so. GPU power limits need root, so Tutti does not change them.
 
 ## Model servers kept alive
 

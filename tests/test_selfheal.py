@@ -243,8 +243,8 @@ class RoundTest(unittest.TestCase):
         lines = selfheal.round_(c, (('broken', broken), ('disk', lambda x: ['removed 3 left-over Tutti temp folder(s)'])))
         self.assertIn('the check failed', lines[0])
         v = selfheal.view(cfg)
-        self.assertEqual(v['today'], 1)
-        self.assertEqual(v['items'][0]['check'], 'disk')
+        self.assertEqual((v['today'], v['tidied']), (0, 1))   # an old temp folder removed is housekeeping, not a repair
+        self.assertEqual(v['tidy_items'][0]['check'], 'disk')
 
     def test_the_failover_loop_heals_on_its_period_and_logs_its_own_repairs(self):
         cfg = make()
@@ -266,7 +266,17 @@ class RoundTest(unittest.TestCase):
                 mock.patch.object(selfheal, 'LOOP_CHECKS', (('strays', selfheal.check_strays),)):
             failovercmd.heal(cfg, [], 0.0, time.time(), start=lambda fn: fn())
         v = selfheal.view(cfg, now=time.time())
-        self.assertEqual((v['today'], v['items'][0]['check']), (1, 'strays'))
+        self.assertEqual((v['today'], v['tidied'], v['tidy_items'][0]['check']), (0, 1, 'strays'))
+
+    def test_only_real_repairs_count_routine_clean_ups_apart(self):
+        cfg = make()
+        now = time.time()
+        for i in range(129):
+            selfheal.record(cfg, 'strays', f'stopped claim {i}: its test run is over', now)
+        selfheal.record(cfg, 'state', 'devices-dnd.json was corrupt: put back from its last good snapshot', now)
+        v = selfheal.view(cfg, now=now)
+        self.assertEqual((v['today'], v['tidied'], len(v['items']), len(v['tidy_items'])), (1, 129, 1, 10))
+        self.assertEqual(v['items'][0]['check'], 'state')
 
     def test_the_service_loop_ends_when_its_code_changes_so_systemd_starts_the_new_code(self):
         stamps, slept = iter([1.0, 1.0, 2.0]), []

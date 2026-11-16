@@ -245,8 +245,9 @@ def machine_of(cfg, name, own):
     m = merge(merge(MACHINE_DEFAULTS, ANDROID_DEFAULTS) if android else MACHINE_DEFAULTS, own)
     if m.get('host') == 'local':
         m['transport'] = 'local'
+    m['slots_from'] = 'config' if 'slots' in own else 'default'
     if m.get('locks'):
-        m['slots'] = len(m['locks'])
+        m['slots'], m['slots_from'] = len(m['locks']), 'locks'
     m['name'] = name
     if not android and not own.get('heat'):
         m['heat'] = dict(HEAT_DEFAULT)

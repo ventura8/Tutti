@@ -6,6 +6,19 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.17.2 (2026-11-16)
+
+### Fixed
+
+- Machine cards tell the truth (t130, t87): the slot boxes are busy (filled), held back by the share or the yield flag
+  (hatched) and free (empty), always matching "F of N slots free"; a machine with its yield flag up has 0 free slots and
+  "Tutti's share 0 % (its yield flag is up)" instead of 1 free and 30 %; "someone is at its keyboard" names the other
+  reason; a slot count from shared lock files or the default says so (the laptop's 1 slot is its q.sh lock); a Windows
+  PC without a CPU sensor says to start LibreHardwareMonitor; empty limited hours read "none set" with a "none"
+  placeholder instead of a greyed 18-01.
+- "Self-healed: N today" counts only real repairs; stopping a finished test run's helpers and removing old temp folders
+  are counted apart as routine clean-ups (it read 132, of which 129 were test leftovers).
+
 ## 0.17.1 (2026-11-16)
 
 ### Added

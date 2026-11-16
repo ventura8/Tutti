@@ -1,8 +1,10 @@
 # Self-healing
 
 Tutti keeps itself working: what is missing is installed, what is down is started, what is broken is put back. A repair is
-done, not reported as a failure; it is logged, and the dashboard's Machines card shows **Self-healed: N today** with each
-repair (`tutti selfheal` prints the same). Only a step a person must take (signing in, a command that needs root, making
+done, not reported as a failure; it is logged, and the dashboard's Machines card shows **Self-healed: N repairs today** with each
+repair (`tutti selfheal` prints the same). Routine clean-ups (a finished test run's left-over helper stopped, an old temp
+folder removed: the `strays` and `disk` checks) are counted apart, as *M routine clean-ups*, so the repair count means
+something was actually broken. Only a step a person must take (signing in, a command that needs root, making
 room the disk still lacks) becomes one item in the needs-input queue ([NEEDS.md](NEEDS.md)), once per problem.
 
 ## When it runs

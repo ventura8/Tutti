@@ -427,16 +427,20 @@ def overrides(newest, used):
 SAME_RESET = timedelta(minutes=10)
 
 
-def owner_by_reset(name, reset, readings):
+def owner_by_reset(name, reset, readings, now=None):
     """The account a limit message really belongs to: agy's message names no model, but its reset is the spent cap's own. When
-    the matched account's reading resets elsewhere and exactly one other reading resets then (a per-model cap such as Gemini 4
-    Argon's weekly), the message is that account's."""
-    def near(r):
-        return bool(r and r.get('resets')) and abs(r['resets'] - reset) <= SAME_RESET
-    if not reset or near(readings.get(name)):
+    the matched account's reading resets elsewhere (in the future) and another reading resets then (a per-model cap such as
+    Gemini 4 Argon's weekly), the message goes to the one whose reset is closest. Readings whose reset is past say nothing."""
+    def gap(r):
+        live = r and r.get('resets') and (now is None or r['resets'] > now)
+        return abs(r['resets'] - reset) if live else None
+    if not reset:
         return name
-    others = [n for n, r in readings.items() if n != name and near(r)]
-    return others[0] if len(others) == 1 else name
+    own = gap(readings.get(name))
+    if own is None or own <= SAME_RESET:
+        return name
+    near = sorted((g, n) for n, r in readings.items() if n != name and (g := gap(r)) is not None and g <= SAME_RESET)
+    return near[0][1] if near else name
 
 
 def last_resets(entries):
@@ -461,7 +465,7 @@ def record(path, readings, hits, now):
     for name, reset, ref, _text in hits:
         if ref in refs:
             continue
-        name = owner_by_reset(name, reset, {**last_resets(entries), **readings})
+        name = owner_by_reset(name, reset, {**last_resets(entries), **readings}, now)
         refs.add(ref)
         note = f'a limit message in {ref}' + ('' if reset else ' (no reset time in it: the window rule applies)')
         written.append(pacing.append_log(path, name, 100, now, note, resets=reset, source='limit message', ref=ref))

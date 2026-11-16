@@ -147,10 +147,18 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(readers.owner_by_reset('agy-gemini', NOW + timedelta(hours=5), readings), 'agy-gemini')
         self.assertEqual(readers.owner_by_reset('agy-gemini', None, readings), 'agy-gemini')
         self.assertEqual(readers.owner_by_reset('agy-gemini', NOW + timedelta(days=2), readings), 'agy-gemini')
+        self.assertEqual(readers.owner_by_reset('agy-x', argon, readings), 'agy-x')                  # no reading of its own
+        stale = {**readings, 'agy-gemini': {'resets': NOW - timedelta(hours=1)}}
+        self.assertEqual(readers.owner_by_reset('agy-gemini', argon, stale, NOW), 'agy-gemini')          # its reset is past
+        two = {**readings, 'agy-other': {'resets': argon + timedelta(minutes=5)}}
+        self.assertEqual(readers.owner_by_reset('agy-gemini', argon + timedelta(minutes=4), two), 'agy-other')  # the closest
+        self.assertEqual(readers.owner_by_reset('agy-gemini', argon + timedelta(minutes=11), readings), 'agy-gemini')
         with tempfile.TemporaryDirectory() as t:
             path = os.path.join(t, 'usage.jsonl')
             readers.record(path, readings, [('agy-gemini', argon, 'run-agy-1:4', 'limit')], NOW)
             self.assertEqual(pacing.latest(pacing.read_log(path), 'agy-gemini')['used'], 0.0)
+            hit = [e for e in pacing.read_log(path) if e.get('ref') == 'run-agy-1:4']
+            self.assertEqual([(e['account'], e['used']) for e in hit], [('agy-gemini-argon', 100)])
             readers.record(path, {}, [('agy-gemini', argon, 'run-agy-2:4', 'limit')], NOW + timedelta(minutes=1))   # a run: the log's readings place it
             self.assertEqual(pacing.latest(pacing.read_log(path), 'agy-gemini')['used'], 0.0)
             self.assertEqual(pacing.latest(pacing.read_log(path), 'agy-gemini-argon')['ref'], 'run-agy-2:4')

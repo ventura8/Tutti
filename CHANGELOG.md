@@ -10,6 +10,20 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Added
 
+- Device classes (`tutti/devclass.py`, `device_classes.<kind>.deny`, docs/DISPATCH.md): a per-class list of adb commands
+  never run on that kind of device. A TV by default never gets `wm size`/`wm density`, the rotation settings or
+  `cmd device_state`; a matching prep item is dropped, a run naming one is refused, and the run's script is told
+  `TUTTI_DEVICE_CLASS` and `TUTTI_DEVICE_DENY`.
+- A phone's or tablet's rotation, screen timeout and screensaver are read before a run and put back after it
+  (`value: keep` prep items), whatever the test changed them to.
+- `shards_from` names join a suite's listed `shards`, which keep their own options (a TV-only class beside discovered ones).
+
+### Changed
+
+- A run whose filter matched no test (`0 tests match`, `No tests found`) is a FAIL in every suite, even with exit 0
+  (`verdict.none` replaces the pattern).
+- `requeue_on` patterns count only after the suite's `started` line: an app in front while the runner was still starting is
+  no reason to queue again.
 - All household work through Tutti (docs/INTAKE.md, `tutti/intake.py`, `tutti/claudework.py`, backlog t156). The MCP
   server gains the tools a session needs: `backlog_claim`, `backlog_update`, `backlog_release`, `backlog_complete`,
   `lease_claim`, `lease_release`, `leases`, `usage_report`, `ask_owner`, `claude_task` and `outside_work`, each mapped to

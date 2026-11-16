@@ -65,6 +65,7 @@ flowchart LR
     owner --> dash[Dashboard on LAN/VPN]
     cli --> cfg[(tutti.config.yaml)]
     dash --> rounds[Rounds: autopilot, dispatch, work queue]
+    rounds --> devrun[Device run: class deny list, prep, verdict]
     rounds --> workers[CLI workers and local models]
     rounds --> machines[Machines over ssh/WSL/local]
     rounds --> devices[Android devices over adb]
@@ -158,6 +159,7 @@ flowchart TD
 | `tutti/fairshare.py` | Fair shares of shared machines, pure: weighted water-filling, interactive before background, the starvation rule, hour weights from a member's 7 x 24 profile, the household plan, Jain's index; the member's grant cache and `limit` (what a shared machine leaves free for it). `sharing.limit_items` and `sharing.limited_probe` apply it to the autopilot's machines and to `tutti test`'s routing. |
 | `tutti/chat.py`, `tutti/chatrun.py`, `tutti/web/chat.js` | The dashboard's Chat (docs/CHAT.md): conversations per user in `<state>/chat/` (600), requests parsed into the MCP tools' calls, the role checks, the model order, the facts and the built-in answers (pure); the answer threads, Ollama and CLI streaming, Undo, the audit lines and `POST /api/chat` (I/O); the page's safe Markdown and composer. |
 | `tutti/dispatch.py`, `tutti/workq.py` | Keep busy: the pending-work model (shards not passed on the latest commit, queued tasks), leases on devices, slots and workers; the compute work queue by project priority. |
+| `tutti/devclass.py`, `tutti/prep.py`, `tutti/shards.py` | A device run's safety: per device class deny lists (a TV never gets `wm size`, rotation or `cmd device_state`), prep and restore (kept items put back), a run's verdict (no test run is a FAIL; requeue only after the runner started). |
 | `tutti/brain.py` | Tutti's own AI, local first: the one `ask` every internal model use goes through. |
 | `tutti/selfheal.py` | The self-heal checks and repairs, `<state>/selfheal.jsonl`. |
 | `tutti/github.py`, `tutti/githubcmd.py` | The one GitHub client (device flow, the App, ETags, rate limit) and `tutti github`. |

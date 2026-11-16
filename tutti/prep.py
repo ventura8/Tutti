@@ -25,6 +25,13 @@ DEFAULTS = {
     'tv': [{'setting': 'secure screensaver_enabled', 'value': 0}, {'setting': 'secure screensaver_activate_on_sleep', 'value': 0},
            {'setting': 'system screen_off_timeout', 'value': 1800000}, VOLUME],
 }
+# Read before a run and put back after it, never set by Tutti (value: keep): a test that rotates the screen, changes the
+# screen timeout or the screensaver leaves the device as it found it (RoRadio, 2026-11-16). A TV's rotation keys are on its
+# deny list (tutti/devclass.py), so they are dropped there.
+KEEP = 'keep'
+RESTORE = [{'setting': 'system accelerometer_rotation', 'value': KEEP}, {'setting': 'system user_rotation', 'value': KEEP},
+           {'setting': 'system screen_off_timeout', 'value': KEEP}, {'setting': 'secure screensaver_enabled', 'value': KEEP}]
+DEFAULTS['phone'] = DEFAULTS['phone'] + RESTORE
 DEFAULTS['tablet'] = DEFAULTS['phone']
 # A TV must never start a run with its screensaver able to come on (its photos covered the app, RoRadio 2026-11-15): these
 # settings are required, and a prep that cannot read one fails loudly instead of running
@@ -78,7 +85,9 @@ def wanted(device, night=None):
     out = base + own
     if night_now(device) if night is None else night:
         out = [x for x in out if not _touches(x, ('screen_brightness', '--stream', 'volume'))] + NIGHT
-    return out
+    from . import devclass
+    rules = devclass.rules_of(device)
+    return [x for x in out if not devclass.denied(rules, ' '.join(str(x.get(k, '')) for k in ('setting', 'set', 'read')))]
 
 
 def items(device, night=None):
@@ -183,6 +192,8 @@ def prep_script(device):
     reads.append(f'mv {f}.tmp {f}')
     lines = [f'if [ ! -e {f} ]; then {"; ".join(reads)}; fi']
     for it in its:
+        if it['value'] == KEEP:
+            continue   # only saved, to be put back at release
         value = shlex.quote(str(it['value']))
         set_line = f'{_adb(device)} {shlex.quote(it["set"].replace("{value}", str(it["value"])))} > /dev/null 2>&1'
         cond = f'v=$(awk -F"\\t" \'$1 == "{it["key"]}" {{print $2}}\' {f}); [ -n "$v" ]'
@@ -214,6 +225,8 @@ def restore_script(device):
         # a person's own change while the device was in use (an alarm, the brightness) is never undone: an item goes back
         # only while it still has the value Tutti set
         same = ' || '.join(f'[ "$c" = {shlex.quote(v)} ]' for v in sorted(values[it['key']]))
+        if KEEP in values[it['key']]:
+            same = 'true'   # a kept item is put back whatever the run changed it to
         mine = f'c=$({{ {_read(device, it)}; }} < /dev/null); {{ {same}; }}'
         label = it['key'] + (f'|{legacy[it["key"]]}' if it['key'] in legacy else '')
         cases.append(f'{label}) if {mine}; then {put} < /dev/null && echo "tutti: restored {it["name"]} to $v"; '

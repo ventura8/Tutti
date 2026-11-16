@@ -84,8 +84,8 @@ def suite_errors(cfg, key, s, where_errors):
         errs += where_errors(cfg, f'{key}.prepare', s['prepare'])
     v = s.get('verdict')
     if v is not None:
-        if not isinstance(v, dict) or not set(v) <= {'pass', 'fail'}:
-            errs.append(f'{key}.verdict is {v!r}: write it as {{pass: <regex a passing run prints>, fail: <regex of a failure>}}')
+        if not isinstance(v, dict) or not set(v) <= {'pass', 'fail', 'none'}:
+            errs.append(f'{key}.verdict is {v!r}: write it as {{pass: <regex a passing run prints>, fail: <regex of a failure>, none: <regex of no test run>}}')
         else:
             errs += [e for k in v for e in _regex(f'{key}.verdict.{k}', v[k])]
     st = s.get('started')
@@ -113,16 +113,35 @@ def started_marker():
     return 'tutti: device ready'
 
 
+# a run whose filter matched no test (`0 tests match`, `No tests found`): a FAIL in every suite (verdict.none replaces it,
+# '' turns it off)
+NO_TESTS = (r'\b0 tests? (?:match|matched|ran|run|found|executed)\b|\bno tests? (?:match|matched|found|ran|to run)\b'
+            r'|\b(?:total|tests run): 0\b')
+
+
+def _after_start(s, log):
+    """The part of the log after the suite's `started` line: an "another app in front" printed while the runner was still
+    starting (installing, unlocking) is no reason to queue again. The whole log when the suite has no `started`."""
+    st = s.get('started')
+    if not isinstance(st, dict) or not st.get('pattern'):
+        return log
+    m = re.search(st['pattern'], log)
+    return log[m.end():] if m else ''
+
+
 def judge(s, log, rc):
     """The run's result from its output: an int exit code, or REQUEUE + why. requeue_on wins (not the test's fault), then
     the suite's verdict (a runner that always exits 0), else the exit code."""
     if 'tutti: a person is using the device' in (log or ''):
         return f'{REQUEUE} a person picked the device up: the run stopped cleanly and its shard is queued again'
+    after = _after_start(s, log or '')
     for r in s.get('requeue_on') or []:
-        m = re.search(r, log)
+        m = re.search(r, after)
         if m:
             return f'{REQUEUE} the run printed "{m.group(0)[:120]}": queued again, not a failure'
     v = s.get('verdict') or {}
+    if rc in (0, None) and re.search(v.get('none', NO_TESTS) or r'$^', log or '', re.I):
+        return 1   # a filter that matched no test passed nothing: a FAIL, never a green run
     if rc not in (0, None) or not v:
         return rc
     if v.get('fail') and re.search(v['fail'], log):

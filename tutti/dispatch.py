@@ -465,11 +465,12 @@ def refresh(cfg, st, now, ask_fn=ask):
             commit = got.splitlines()[0] if got else commit
         lists = {}
         for s in ss:
-            names = s['shards']
-            if not names and s['shards_from']:
+            names = list(s['shards'])
+            if s['shards_from']:   # discovered names join the listed ones; a listed shard keeps its own options (devices, holds)
                 known = sorted({k.partition('/')[2] for k in (p.get('shards') or {}) if k.startswith(s['name'] + '/')})
                 got = ask_fn(cfg, s['shards_from']) if due else None
-                names = [x.strip() for x in got.splitlines() if x.strip()] if got is not None else known
+                found = [x.strip() for x in got.splitlines() if x.strip()] if got is not None else known
+                names += [n for n in found if n not in names]
                 if not names:
                     continue   # its machine did not answer yet: no list, no guessed `all` shard
             lists[s['name']] = names

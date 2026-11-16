@@ -10,13 +10,13 @@ if command -v ruff > /dev/null; then ruff check . bin/tutti; else echo "ruff is 
 TMPDIR="$(mktemp -d)"
 export TMPDIR
 trap 'rm -rf "$TMPDIR"' EXIT
-XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.env
+XDG_CONFIG_HOME="$(mktemp -d)" "${HOME}/.local/bin/python" tests/run.py   # never the owner's grok.env
 # the dashboard in a real browser, every tab: layout, accessibility, roles (docs/TESTING.md, *Browser tests*). A hard gate:
 # Playwright and axe come from requirements-dev.txt; the browser is fetched once (on CI with its system libraries).
-if [ -n "${CI:-}" ]; then python3 -m playwright install --with-deps chromium > /dev/null; else python3 -m playwright install chromium > /dev/null; fi
-XDG_CONFIG_HOME="$(mktemp -d)" PYTHONPATH=tests python3 -m unittest discover -s tests/e2e
+if [ -n "${CI:-}" ]; then "${HOME}/.local/bin/python" -m playwright install --with-deps chromium > /dev/null; else "${HOME}/.local/bin/python" -m playwright install chromium > /dev/null; fi
+XDG_CONFIG_HOME="$(mktemp -d)" PYTHONPATH=tests "${HOME}/.local/bin/python" -m unittest discover -s tests/e2e
 # smoke: the example config is valid and the commands that need no machine answer
-t="python3 bin/tutti --config tutti.config.example.yaml"
+t="${HOME}/.local/bin/python bin/tutti --config tutti.config.example.yaml"
 $t config
 $t usage --at 2026-01-08T00:00Z > /dev/null
 $t usage page-script cursor > /dev/null

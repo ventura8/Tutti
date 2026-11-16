@@ -1,5 +1,6 @@
 """Token and runtime savings: compacted output for agents, shared ssh connections, automatic compaction of a context."""
 import io
+import json
 import os
 import socket
 import tempfile
@@ -214,6 +215,83 @@ class AutocompactTest(unittest.TestCase):
         self.assertIn('RUN: tutti runs show 0', out[2]['content'])
         self.assertLess(autocompact.message_tokens(out), autocompact.message_tokens(msgs))
         self.assertIs(autocompact.compact_messages({**self.cfg, 'autocompact': {'enabled': False}}, w, msgs), msgs)
+
+    def test_agy_session_context_measurement(self):
+        worker = {'kind': 'cli', 'command': ['agy', '-p', '{prompt}'], 'context_tokens': 100_000}
+        cfg = {**self.cfg, 'workers': {**self.cfg['workers'], 'agy': worker}}
+        self.assertEqual(autocompact.agy_session_percent({'context_tokens': 50_000}, cfg, worker), 50.0)
+        self.assertEqual(autocompact.agy_session_percent({'tokens': {'context': 25_000}}, cfg, worker), 25.0)
+        self.assertEqual(autocompact.agy_session_percent({'input_tokens': 40_000, 'cache_read_tokens': 20_000}, cfg, worker), 60.0)
+        self.assertEqual(autocompact.agy_session_percent({'usage': {'input_tokens': 30_000}}, cfg, worker), 30.0)
+        jsonl_path = os.path.join(self.tmp.name, 'agy_session.jsonl')
+        with open(jsonl_path, 'w', encoding='utf-8') as f:
+            f.write(json.dumps({'step_index': 0, 'input_tokens': 10_000}) + '\n')
+            f.write(json.dumps({'step_index': 1, 'input_tokens': 70_000, 'cache_read_tokens': 5_000}) + '\n')
+        self.assertEqual(autocompact.agy_session_percent(jsonl_path, cfg, worker), 75.0)
+        json_path = os.path.join(self.tmp.name, 'agy_session.json')
+        with open(json_path, 'w', encoding='utf-8') as f:
+            f.write(json.dumps({'context_tokens': 45_000}))
+        self.assertEqual(autocompact.agy_session_percent(json_path, cfg, worker), 45.0)
+
+    def test_cursor_agent_context_measurement(self):
+        worker = self.cfg['workers']['cursor']
+        self.assertEqual(autocompact.cursor_agent_percent('Tokens: 700 in, 50 out', self.cfg, worker), 70.0)
+        self.assertEqual(autocompact.cursor_agent_percent('700 prompt tokens', self.cfg, worker), 70.0)
+        self.assertEqual(autocompact.cursor_agent_percent('{"input_tokens": 350}', self.cfg, worker), 35.0)
+        self.assertEqual(autocompact.cursor_agent_percent('{"usage": {"input_tokens": 400}}', self.cfg, worker), 40.0)
+        state_path = os.path.join(self.tmp.name, 'cursor_state.json')
+        with open(state_path, 'w', encoding='utf-8') as f:
+            f.write(json.dumps({'context_tokens': 650}))
+        self.assertEqual(autocompact.cursor_agent_percent(state_path, self.cfg, worker), 65.0)
+        with open(state_path, 'w', encoding='utf-8') as f:
+            f.write(json.dumps({'context_pct': 82.5}))
+        self.assertEqual(autocompact.cursor_agent_percent(state_path, self.cfg, worker), 82.5)
+
+    def test_autocompact_handover_trigger_fires(self):
+        worker_cursor = self.cfg['workers']['cursor']
+        worker_agy = {'kind': 'cli', 'command': ['agy', '-p', '{prompt}'], 'context_tokens': 1000}
+        cfg = {**self.cfg, 'workers': {**self.cfg['workers'], 'agy': worker_agy}}
+        w_cur = autocompact.Watch(cfg, worker_cursor)
+        self.assertFalse(w_cur.line('Tokens: 500 in, 50 out'))
+        self.assertFalse(w_cur.over)
+        self.assertTrue(w_cur.line('Tokens: 650 in, 50 out'))
+        self.assertTrue(w_cur.over)
+        self.assertEqual(w_cur.pct, 65.0)
+        state_path = os.path.join(self.tmp.name, 'cursor_trigger.json')
+        with open(state_path, 'w', encoding='utf-8') as f:
+            f.write(json.dumps({'context_tokens': 700}))
+        w_cur_state = autocompact.Watch(cfg, worker_cursor, state=state_path)
+        self.assertTrue(w_cur_state.check())
+        self.assertTrue(w_cur_state.over)
+        self.assertEqual(w_cur_state.pct, 70.0)
+        session_path = os.path.join(self.tmp.name, 'agy_trigger.json')
+        with open(session_path, 'w', encoding='utf-8') as f:
+            f.write(json.dumps({'context_tokens': 500}))
+        w_agy = autocompact.Watch(cfg, worker_agy, session=session_path)
+        self.assertFalse(w_agy.check())
+        self.assertFalse(w_agy.over)
+        with open(session_path, 'w', encoding='utf-8') as f:
+            f.write(json.dumps({'context_tokens': 620}))
+        self.assertTrue(w_agy.session(session_path))
+        self.assertTrue(w_agy.over)
+        self.assertEqual(w_agy.pct, 62.0)
+
+    def test_context_measurement_handles_missing_corrupt_empty_files(self):
+        worker = self.cfg['workers']['cursor']
+        missing = os.path.join(self.tmp.name, 'does_not_exist.json')
+        empty = os.path.join(self.tmp.name, 'empty.json')
+        with open(empty, 'w', encoding='utf-8') as f:
+            f.write('')
+        corrupt = os.path.join(self.tmp.name, 'corrupt.json')
+        with open(corrupt, 'w', encoding='utf-8') as f:
+            f.write('{"invalid json: [not closed')
+        for bad in (missing, empty, corrupt, None, ''):
+            self.assertIsNone(autocompact.agy_session_percent(bad, self.cfg, worker))
+            self.assertIsNone(autocompact.cursor_agent_percent(bad, self.cfg, worker))
+        w = autocompact.Watch(self.cfg, worker, session=missing, state=corrupt)
+        self.assertFalse(w.check())
+        self.assertIsNone(w.pct)
+        self.assertFalse(w.over)
 
     def test_gzip_only_when_the_browser_takes_it(self):
         for accept, ok in (('gzip', True), ('gzip, deflate', True), ('br;q=1, gzip;q=0.5', True), ('*', True),

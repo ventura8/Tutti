@@ -126,7 +126,7 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
     kept = collections.deque(maxlen=KEEP_LINES)
     argv = with_args(command(worker, brief(cfg, task, files), log), extra)
     env = {**os.environ, **autocompact.env_for(cfg, worker)}
-    watch = autocompact.Watch(cfg, worker)
+    watch = autocompact.Watch(cfg, worker, log=log)
     stopped = False
     # the use lock: `tutti update` never replaces the program while this run uses it (tutti/inuse.py)
     with inuse.using(config.state_dir(cfg), argv[0]), \

@@ -14,6 +14,7 @@ Each worker kind gets its own way, the native one where its CLI has it:
 The threshold is the config's `autocompact.threshold_pct`; the dashboard and its Settings tab write that key into the
 config file. A value kept by an older dashboard, or for a config it cannot write, in `controls.json`
 (settings.autocompact_pct) wins until the key is saved. Pure, apart from reading that file."""
+import json
 import os
 import re
 
@@ -86,6 +87,212 @@ def percent(context_tokens, cfg, worker=None):
 # What a CLI prints about its context: "context: 123,456 tokens", "Context 61%", "context window 45 % used".
 CONTEXT_PCT = re.compile(r'\bcontext\b[^\n%]{0,30}?(\d{1,3}(?:\.\d+)?)\s*%', re.I)
 CONTEXT_TOKENS = re.compile(r'\bcontext\b\W{0,4}(\d[\d,.]*)\s*([kKmM]?)\s*tokens', re.I)
+TOKENS_NUM = r'(\d[\d,.]*)\s*([kKmM]?)'
+CURSOR_TOKENS_IN = re.compile(TOKENS_NUM + r'\s+(?:input|prompt)\s+tokens|"input_tokens"\s*:\s*(\d+)', re.I)
+CURSOR_TOKENS_PAIR = re.compile(r'\btokens?\b\W{0,4}' + TOKENS_NUM + r'\s+in\b', re.I)
+
+
+def _token_keys(data, keys):
+    if not isinstance(data, dict):
+        return 0
+    return sum(int(data[k]) for k in keys if isinstance(data.get(k), (int, float)) and not isinstance(data.get(k), bool))
+
+
+def _int_val(v):
+    return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _direct_context(data):
+    for k in ('context_tokens', 'context', 'prompt_tokens', 'input_tokens'):
+        v = data.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return int(v)
+    return None
+
+
+def _tokens_dict_val(toks):
+    if not isinstance(toks, dict):
+        return _int_val(toks)
+    direct = _direct_context(toks)
+    pair = _token_keys(toks, ('input', 'cache_read'))
+    return direct if direct is not None else (pair or None)
+
+
+def _dict_usage_tokens(data):
+    usage = data.get('usage') if isinstance(data, dict) else None
+    src = usage if isinstance(usage, dict) else data
+    val = _token_keys(src, ('input_tokens', 'prompt_tokens', 'cache_creation_input_tokens',
+                            'cache_read_input_tokens', 'cache_read_tokens'))
+    return val if val > 0 else None
+
+
+def _agy_data_tokens(data):
+    if not isinstance(data, dict):
+        return None
+    direct = _direct_context(data)
+    if direct is not None:
+        return direct
+    toks = _tokens_dict_val(data.get('tokens'))
+    return toks if toks is not None else _dict_usage_tokens(data)
+
+
+def _read_file_safe(path):
+    try:
+        if not os.path.isfile(path) or os.path.getsize(path) == 0:
+            return None
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            return f.read()
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _load_file_payload(source):
+    if '\n' not in source and (os.path.isfile(source) or source.endswith(('.json', '.jsonl', '.log'))):
+        return _read_file_safe(source)
+    return source
+
+
+def _parse_json_dict(text):
+    try:
+        d = json.loads(text)
+        return d if isinstance(d, dict) else None
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def _parse_jsonl_tokens(text, extract_fn):
+    last = None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        d = _parse_json_dict(line)
+        tok = extract_fn(d) if d else None
+        if tok is not None:
+            last = tok
+    return last
+
+
+def _parse_payload_tokens(text, extract_fn):
+    trimmed = text.strip()
+    if not trimmed:
+        return None
+    try:
+        data = json.loads(trimmed)
+    except (ValueError, UnicodeDecodeError):
+        return _parse_jsonl_tokens(trimmed, extract_fn)
+    if isinstance(data, list):
+        toks = (extract_fn(x) for x in reversed(data))
+        return next((t for t in toks if t is not None), None)
+    return extract_fn(data)
+
+
+def agy_session_tokens(source):
+    """Context tokens parsed from an agy local session file (path, content or data); None if unreadable."""
+    if isinstance(source, dict):
+        return _agy_data_tokens(source)
+    if isinstance(source, list):
+        toks = (_agy_data_tokens(x) for x in reversed(source))
+        return next((t for t in toks if t is not None), None)
+    if not isinstance(source, str):
+        return None
+    raw = _load_file_payload(source)
+    return _parse_payload_tokens(raw, _agy_data_tokens) if raw else None
+
+
+def agy_session_percent(path, cfg, worker=None):
+    """Context use of an agy session in % of the model's context window, or None."""
+    tokens = agy_session_tokens(path)
+    return percent(tokens, cfg, worker) if tokens is not None else None
+
+
+def _cursor_data_tokens(data):
+    if not isinstance(data, dict):
+        return None
+    direct = _direct_context(data)
+    if direct is not None:
+        return direct
+    toks = _tokens_dict_val(data.get('tokens'))
+    return toks if toks is not None else _dict_usage_tokens(data)
+
+
+def _scale_num(num_str, unit):
+    try:
+        n = float(num_str.replace(',', ''))
+        return int(n * {'k': 1e3, 'm': 1e6}.get((unit or '').lower(), 1))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _cursor_text_tokens(line):
+    if not isinstance(line, str):
+        return None
+    m = CURSOR_TOKENS_PAIR.search(line)
+    if m:
+        return _scale_num(m.group(1), m.group(2))
+    m = CURSOR_TOKENS_IN.search(line)
+    if m:
+        return int(m.group(3)) if m.group(3) else _scale_num(m.group(1), m.group(2))
+    return None
+
+
+def _cursor_json_line(trimmed):
+    d = _parse_json_dict(trimmed)
+    return _cursor_data_tokens(d) if d else None
+
+
+def _cursor_line_tokens(line):
+    trimmed = line.strip() if isinstance(line, str) else ''
+    if trimmed.startswith('{') and trimmed.endswith('}'):
+        return _cursor_json_line(trimmed)
+    return _cursor_text_tokens(trimmed) if trimmed else None
+
+
+def _cursor_lines_tokens(lines):
+    toks = (_cursor_line_tokens(x) for x in reversed(lines))
+    return next((t for t in toks if t is not None), None)
+
+
+def _raw_json_dict(raw):
+    s = raw.strip() if isinstance(raw, str) else ''
+    return _parse_json_dict(s) if s.startswith('{') and s.endswith('}') else None
+
+
+def cursor_agent_tokens(source):
+    """Context tokens extracted from cursor-agent log output or state file; None if unreadable."""
+    if isinstance(source, dict):
+        return _cursor_data_tokens(source)
+    if not isinstance(source, str):
+        return None
+    raw = _load_file_payload(source) or source
+    d = _raw_json_dict(raw)
+    return _cursor_data_tokens(d) if d else _cursor_lines_tokens(raw.splitlines())
+
+
+def _dict_pct(data):
+    pct = data.get('context_pct') or data.get('context_percent')
+    return float(pct) if isinstance(pct, (int, float)) and not isinstance(pct, bool) else None
+
+
+def _cursor_direct_pct(source):
+    if isinstance(source, dict):
+        return _dict_pct(source)
+    raw = _load_file_payload(source) if isinstance(source, str) else ''
+    d = _raw_json_dict(raw)
+    return _dict_pct(d) if d else None
+
+
+def cursor_agent_percent(source, cfg, worker=None):
+    """Context use of cursor-agent from log output or state file as % of window, or None."""
+    pct = _cursor_direct_pct(source)
+    if pct is not None:
+        return round(pct, 1)
+    tokens = cursor_agent_tokens(source)
+    return percent(tokens, cfg, worker) if tokens is not None else None
+
+
+agy_percent = agy_session_percent
+cursor_percent = cursor_agent_percent
 
 
 def seen_percent(line, cfg, worker):
@@ -98,25 +305,48 @@ def seen_percent(line, cfg, worker):
         n = float(m.group(1).replace(',', ''))
         n *= {'k': 1e3, 'm': 1e6}.get(m.group(2).lower(), 1)
         return percent(n, cfg, worker)
-    return None
+    return cursor_agent_percent(line, cfg, worker)
 
 
 class Watch:
-    """Follows a CLI run's output; `over` turns True once its context reaches the threshold (handover workers only)."""
+    """Follows a CLI run's output or session/state file; `over` turns True once its context reaches the threshold
+    (handover workers only)."""
 
-    def __init__(self, cfg, worker, folder=None):
+    def __init__(self, cfg, worker, folder=None, session=None, state=None, log=None):
         self.on = enabled(cfg) and mode(worker) == 'handover'
         self.cfg, self.worker = cfg, worker
         self.limit = threshold(cfg, folder) if self.on else None
         self.pct, self.over = None, False
+        self.session_path = session
+        self.state_path = state
+        self.log_path = log
+
+    def update(self, pct):
+        if pct is not None and self.on:
+            self.pct = pct
+            self.over = pct >= self.limit
+        return self.over
 
     def line(self, text):
         if not self.on:
             return False
         pct = seen_percent(text, self.cfg, self.worker)
-        if pct is not None:
-            self.pct = pct
-            self.over = pct >= self.limit
+        return self.update(pct) if pct is not None else self.poll()
+
+    def poll(self):
+        return self.check() if (self.session_path or self.state_path or self.log_path) else self.over
+
+    def session(self, path=None):
+        target = path or self.session_path
+        return self.update(agy_session_percent(target, self.cfg, self.worker)) if target else self.over
+
+    def state(self, source=None):
+        target = source or self.state_path or self.log_path
+        return self.update(cursor_agent_percent(target, self.cfg, self.worker)) if target else self.over
+
+    def check(self, session=None, state=None):
+        self.session(session)
+        self.state(state)
         return self.over
 
 
@@ -176,6 +406,9 @@ def tag_jobs(cfg, jobs):
         pct = percent(tokens, cfg, worker)
         if pct is None:
             pct = next((p for p in (seen_percent(x, cfg, worker) for x in reversed(j.get('tail') or [])) if p is not None), None)
+        sess = f.get('session') or j.get('session') or f.get('session_file')
+        if pct is None and sess:
+            pct = agy_session_percent(sess, cfg, worker)
         if pct is not None and j.get('facts') is not None:
             j['facts']['context_pct'] = pct
 

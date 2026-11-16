@@ -263,6 +263,12 @@ class FactsTest(Base):
         self.assertEqual(jobfacts.transcript_started(path), jobfacts.seconds('2026-01-01T00:00:00+00:00'))
         self.assertIsNone(jobfacts.transcript_tokens(os.path.join(self.dir, 'missing')))
 
+    def test_transcript_tokens_handles_agy_transcripts(self):
+        lines = [{'step_index': 0, 'input_tokens': 100, 'output_tokens': 20, 'cache_read_tokens': 0},
+                 {'step_index': 1, 'input_tokens': 200, 'output_tokens': 40, 'cache_read_tokens': 80}]
+        path = write(os.path.join(self.dir, 'agy.output'), '\n'.join(json.dumps(x, separators=(',', ':')) for x in lines) + '\n')
+        self.assertEqual(jobfacts.transcript_tokens(path), {'in': 380, 'out': 60, 'calls': 0, 'context': 280})
+
     def test_a_finished_job_has_no_bar_but_its_result(self):
         silent = self.one(job(status='done', rc=0, started=iso(NOW - 70), updated=iso(NOW - 69)))   # no known end: no duration
         self.assertNotIn('seconds', silent['facts'])

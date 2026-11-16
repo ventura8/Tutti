@@ -6,6 +6,8 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 ### Added
 
+- Context measurement for agy and cursor-agent: read context use from agy local session files and cursor-agent log
+  output or state files, so the auto-compact handover trigger can fire for them.
 - Local models as first-class workers (docs/FLEET.md). Every machine's Ollama is read at each probe and its models are
   classed (tier, kinds). A machine with models and no worker gets `<machine>-local` through a tunnel, and `tutti fleet`
   lists them.

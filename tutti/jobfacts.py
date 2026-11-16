@@ -95,11 +95,17 @@ def tokens_in_lines(lines):
 def usage_of(raw):
     """(message id, usage) of one transcript line, or None."""
     try:
-        msg = json.loads(raw).get('message') or {}
+        data = json.loads(raw)
     except (ValueError, AttributeError):
         return None
-    u = msg.get('usage') if isinstance(msg, dict) else None
-    return (msg.get('id'), u) if isinstance(u, dict) else None
+    if not isinstance(data, dict):
+        return None
+    msg = data.get('message')
+    if isinstance(msg, dict) and isinstance(msg.get('usage'), dict):
+        return msg.get('id'), msg['usage']
+    if 'input_tokens' in data:
+        return data.get('step_index') or len(data), data
+    return None
 
 
 def read_usage(path, size):
@@ -109,7 +115,7 @@ def read_usage(path, size):
         f.seek(max(0, size - TRANSCRIPT_MAX))
         for raw in f:
             calls += raw.count(b'"type":"tool_use"')
-            found = usage_of(raw) if b'"usage"' in raw else None
+            found = usage_of(raw) if (b'"usage"' in raw or b'"input_tokens"' in raw) else None
             if found:
                 usage[found[0] or len(usage)] = found[1]
     return usage, calls
@@ -132,7 +138,7 @@ def transcript_tokens(path):
         return None
     out = None
     if usage:
-        keys = ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens')
+        keys = ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'cache_read_tokens')
         tin = sum(int(u.get(k) or 0) for u in usage.values() for k in keys)
         last = list(usage.values())[-1]   # the newest message's prompt is the context the agent holds now
         out = {'in': tin, 'out': sum(int(u.get('output_tokens') or 0) for u in usage.values()), 'calls': calls,

@@ -113,7 +113,7 @@ dashboard's *Settings* row changes it without editing the config). Each kind use
 | --- | --- | --- |
 | Claude Code (`claude`) | native: the run gets `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=<pct>` | Claude Code compacts by itself at that share of its window (also as the main agent of `tutti conduct`). |
 | A local model as the main agent (kind `ollama`) | Tutti: the older exchanges become one summary line each; the goal and the two newest exchanges stay | Tutti holds the conversation. |
-| cursor-agent, agy, copilot | hand-over: at the threshold the run is stopped and started again in the same worktree with a handoff note (its changes, its last output), at most three times | Their `/compact` is interactive only; no headless flag. Needs the CLI to print its context use (`context 61 %`, `context: 120k tokens`); a CLI that prints none is not measured. |
+| cursor-agent, agy, copilot | hand-over: at the threshold the run is stopped and started again in the same worktree with a handoff note (its changes, its last output), at most three times | Their `/compact` is interactive only; no headless flag. Reads context use from printed output, cursor-agent log output or state files, and agy local session files. |
 
 `workers.<name>.context_tokens` is a worker's window (default `autocompact.context_tokens`, 200000);
 `autocompact.enabled: false` turns it off. The dashboard shows `context N %` on a running job when it is known.

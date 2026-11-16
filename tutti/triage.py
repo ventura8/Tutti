@@ -109,6 +109,8 @@ def answer_of(r):
 
 
 DRAFT_MAX = 2   # reports drafted a round: a local model is never held long
+DRAFT_TRIES = 3   # a report no model could read is tried this many rounds, then left
+DRAFT_LINES = 5
 
 
 def draft_prompt(report):
@@ -123,21 +125,34 @@ def draft_missing(cfg, ask=None, now=None):
     lock. Returns event lines."""
     from . import brain, scouts
     todo = [dict(r) for r in scouts.load(cfg)['requests'] if (r.get('fed') or {}).get('why') == 'no TUTTI-TASK line'
-            and r.get('answer') and 'drafted' not in r][:DRAFT_MAX]
-    drafted = {}
-    for r in todo:
-        answer, who = (ask or brain.ask)(cfg, draft_prompt(r['answer']), 'triage')
-        drafted[r['id']] = ('\n'.join(f'TUTTI-TASK: {t}' for t in task_lines(answer)), who if answer else '')
+            and r.get('answer') and not r.get('drafted') and int(r.get('draft_tries') or 0) < DRAFT_TRIES][:DRAFT_MAX]
+    drafted = {r['id']: checked_lines(r['answer'], (ask or brain.ask)(cfg, draft_prompt(r['answer']), 'triage')) for r in todo}
     if not drafted:
         return []
     with scouts.locked(cfg) as data:
         for r in data['requests']:
             if r['id'] in drafted:
-                r['drafted_tasks'], r['drafted'] = drafted[r['id']][0], drafted[r['id']][1] or 'none'
-                if r['drafted_tasks']:
-                    r.pop('fed', None)   # fed again at the next round, now with the drafted lines
-    return [f'{rid} Sentry report: {len(lines.splitlines())} task line(s) drafted by {who or "no model"}'
-            for rid, (lines, who) in drafted.items()]
+                store_draft(r, *drafted[r['id']])
+    return [f'{rid} Sentry report: {len(lines)} task line(s) drafted by {who}, held for approval'
+            for rid, (lines, who) in drafted.items() if who]
+
+
+def checked_lines(report, answer_who):
+    """(lines, who): only drafted lines whose sentry id appears in the report itself (a prompt-injected report cannot invent
+    an issue), at most DRAFT_LINES; who is '' when no model answered."""
+    answer, who = answer_who
+    if not answer:
+        return [], ''
+    items = [it for it in (task_item(t) for t in task_lines(answer)) if it['title'] and it['sentry'] and it['sentry'] in report]
+    return [f'TUTTI-TASK: {it["title"]} || sentry: {it["sentry"]} || severity: {it["severity"]}' for it in items][:DRAFT_LINES], who
+
+
+def store_draft(r, lines, who):
+    r['draft_tries'] = int(r.get('draft_tries') or 0) + 1
+    if who:
+        r['drafted'], r['drafted_tasks'] = who, '\n'.join(lines)
+        if lines:
+            r.pop('fed', None)   # fed again at the next round, now with the drafted lines
 
 
 def policy(cfg, project):
@@ -171,6 +186,7 @@ def feed(cfg, r, enabled, now=None):
     from . import selfimprove
     project = r.get('project')
     items = parse(answer_of(r))
+    enabled = enabled and not r.get('drafted_tasks')   # lines a model drafted from strangers' text wait for the owner
     pol = policy(cfg, project) if project else None
     if not items:
         return 0, 'no TUTTI-TASK line'

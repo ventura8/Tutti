@@ -75,24 +75,42 @@ def candidates(cfg, fleet_state=None):
 
 SHARED = '-shared'
 _TAGS = {}
+_TAGS_LOCK = threading.Lock()
+MISS_TTL = 600   # a member's model server that did not answer is asked again after 10 minutes, not every minute
+HOST_RX = re.compile(r'^[A-Za-z0-9.-]{1,253}$|^\[?[0-9A-Fa-f:]+\]?$')
 
 
 def shared_workers(cfg, tags_fn=None, ttl=60, clock=time.monotonic):
     """{<machine>-shared: worker} for every household member's machine this login uses (transport household) whose owner
     shares its model server (host and ollama_port): its models are read from /api/tags at most once a minute, a second at most."""
+    from . import aiassist
     out = {}
+    if not aiassist.settings(cfg).get('household_models'):
+        return out   # opt-in: prompts would go to a machine another member controls
     for name, m in (cfg.get('machines') or {}).items():
-        if not isinstance(m, dict) or m.get('transport') != 'household' or not m.get('host') or not m.get('ollama_port'):
+        host = shared_host(m)
+        if not host:
             continue
-        host = f'{str(m["host"]).split("@")[-1]}:{m["ollama_port"]}'
-        at, models = _TAGS.get(host, (None, None))
-        if at is None or clock() - at >= ttl:
-            models = shared_models(host, tags_fn)
-            _TAGS[host] = (clock(), models)
+        with _TAGS_LOCK:
+            at, models = _TAGS.get(host, (None, None))
+            if at is None or clock() - at >= (ttl if models else MISS_TTL):
+                models = shared_models(host, tags_fn)
+                _TAGS[host] = (clock(), models)
         if models:
             out[name + SHARED] = {'kind': 'ollama', 'host': host, 'machine': name, 'household': True, 'models': models,
                                   'model': models[0]['name']}
     return out
+
+
+def shared_host(m):
+    """host:port of a member's shared model server, or '' (not a household machine, no server, or a host that is not a plain
+    name or IP: no user@, no path)."""
+    if not isinstance(m, dict) or m.get('transport') != 'household':
+        return ''
+    host, port = str(m.get('host') or ''), m.get('ollama_port')
+    if not HOST_RX.match(host) or isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
+        return ''
+    return f'{host}:{port}'
 
 
 def shared_models(host, tags_fn=None):

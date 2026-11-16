@@ -323,7 +323,7 @@ def use_machine(cfg, name, a, out, c, probe_fn):
     used[name] = {'transport': hhjobs.TRANSPORT, 'slots': view['slots'], 'household_owner': view['owner'],
                   'household_state': folder,
                   # its model server, when the owner shares one: Tutti's own AI may use the best free model there (tutti/brain.py)
-                  **{k: view[k] for k in ('host', 'ollama_port', 'gpu') if view.get(k)}}
+                  **{k: view[k] for k in ('host', 'ollama_port', 'gpu') if view.get(k)}}   # used only with ai_assist.household_models
     users.write(folder, household_machines=used)
     print(f'{name} ({view["owner"]}\'s) is now one of your machines for tests, gates and builds: {view["owner"]}\'s Tutti '
           'runs them there (your code goes as a WIP ref of the repository; no login or credential of yours goes to the '

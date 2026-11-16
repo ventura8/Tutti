@@ -10,10 +10,12 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Added
 
-- Tutti's own AI also uses household members' shared machines: a shared machine whose owner shares its model server is a
-  candidate (its models read once a minute), never pre-empted; a paused or busy one is skipped.
+- Tutti's own AI may also use household members' shared machines (opt-in, `ai_assist.household_models`: its prompts then
+  go to a machine another person controls): a shared machine whose owner shares its model server is a candidate (its models
+  read once a minute, a dead one every 10 minutes), never pre-empted; a paused or busy one is skipped.
 - Sentry triage and scout drafting go through Tutti's own AI: a triage report without TUTTI-TASK lines gets them drafted
-  (local first, online within pacing), and the design review carries focus questions a local model drafted.
+  (local first, online within pacing; only lines naming an issue in the report, held for the owner's approval), and the
+  design review carries focus questions a local model drafted once a day.
 
 ## 0.17.0 (2026-11-16)
 

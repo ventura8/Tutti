@@ -397,6 +397,9 @@ FIELDS = {
     'ai_assist.preempt': field('Tutti first on the best model', 'true: Tutti\'s own short jobs park other work on the best local '
                                'model (it waits, nothing is lost) and resume it after; false: never; or a list of the kinds that '
                                'may (needs, welcome, triage, sizing, compaction, scout, self-improve, unblock, conductor).', **YAML),
+    'ai_assist.household_models': field('Use members\' shared models', 'Tutti\'s own AI may also use the models on machines '
+                                        'other household members share. Off by default: its prompts (failure output, task '
+                                        'titles) then go to a machine another person controls.', 'switch', default=False),
     'ai_assist.unblock': field('Unblocker', 'Each round Tutti finds blocked or failing work and clears what it can itself, '
                                'local models first; only true decisions reach you.', 'switch', default=True),
     'ai_assist.unblock_repos': field('Rerun red CI in', 'owner/name repositories whose failed pull-request checks the unblocker '

@@ -16,7 +16,7 @@ class Shared(unittest.TestCase):
     def setUp(self):
         brain._TAGS.clear()
         self.addCleanup(brain._TAGS.clear)
-        self.cfg = {'project': {'state': tmpdirs.mkdtemp()}, 'ai_assist': {'enabled': True},
+        self.cfg = {'project': {'state': tmpdirs.mkdtemp()}, 'ai_assist': {'enabled': True, 'household_models': True},
                     'machines': {'laptop': {'transport': 'local'},
                                  'ana-pc': {'transport': 'household', 'host': 'ana-pc.example', 'ollama_port': 11434}},
                     'workers': {'laptop-local': {'kind': 'ollama', 'host': 'l', 'model': 'small:4b', 'machine': 'laptop'}}}
@@ -40,6 +40,18 @@ class Shared(unittest.TestCase):
         del self.cfg['machines']['ana-pc']['ollama_port']
         self.assertEqual(brain.shared_workers(self.cfg), {})
 
+    def test_off_by_default_and_a_host_that_is_not_a_plain_name_is_refused(self):
+        self.cfg['ai_assist']['household_models'] = False
+        self.assertEqual(brain.shared_workers(self.cfg, tags_fn=lambda h: 1 / 0), {})
+        self.assertEqual(brain.shared_host({'transport': 'household', 'host': 'ana@pc.example/x', 'ollama_port': 11434}), '')
+        self.assertEqual(brain.shared_host({'transport': 'household', 'host': '10.0.0.5', 'ollama_port': 11434}), '10.0.0.5:11434')
+
+    def test_a_dead_member_server_is_not_asked_again_for_a_while(self):
+        calls = []
+        brain.shared_workers(self.cfg, tags_fn=calls.append, clock=lambda: 0)
+        brain.shared_workers(self.cfg, tags_fn=calls.append, clock=lambda: 120)
+        self.assertEqual(len(calls), 1)
+
 
 class Drafting(unittest.TestCase):
     def setUp(self):
@@ -52,23 +64,25 @@ class Drafting(unittest.TestCase):
         def ask(cfg, prompt, purpose, online=True):
             asked.append((purpose, online))
             return 'Q: why do runs stall at night?\nQ: which step wastes quota?\nnoise', 'pc-local'
-        self.assertEqual(len(aiassist.draft_focus(self.cfg, {'events': 3}, ask, 1)), 1)
+        self.assertEqual(len(aiassist.draft_focus(self.cfg, {'events': 3}, ask, aiassist.DAY + 1)), 1)
+        self.assertEqual(aiassist.draft_focus(self.cfg, {'events': 3}, ask, aiassist.DAY + 60), [])   # once a day
         self.assertEqual(asked, [('scout', False)])
         self.assertIn('why do runs stall at night?', aiassist.design_text(self.cfg, {'events': 3}))
 
     def test_no_answer_drafts_nothing(self):
-        self.assertEqual(aiassist.draft_focus(self.cfg, {'events': 3}, lambda *a, **k: (None, 'down'), 1), [])
+        self.assertEqual(aiassist.draft_focus(self.cfg, {'events': 3}, lambda *a, **k: (None, 'down'), aiassist.DAY + 1), [])
         self.assertNotIn('Look first at', aiassist.design_text(self.cfg, {'events': 3}))
 
     def report(self):
         with scouts.locked(self.cfg) as data:
             data['requests'].append({'id': 's1', 'kind': 'watch', 'watch': triage.PREFIX + 'app', 'status': 'answered',
-                                     'answer': 'Three crashes in the parser since 1.2.', 'fed': {'added': 0, 'why': 'no TUTTI-TASK line'}})
+                                     'answer': 'Parser crashes (ABC-1).', 'fed': {'added': 0, 'why': 'no TUTTI-TASK line'}})
 
     def test_a_triage_report_without_task_lines_gets_them_drafted(self):
         self.report()
-        ev = triage.draft_missing(self.cfg, ask=lambda c, p, purpose: ('TUTTI-TASK: guard the parser || sentry: ABC-1', 'pc-local'))
-        self.assertIn('1 task line(s) drafted by pc-local', ev[0])
+        drafted = 'TUTTI-TASK: guard the parser || sentry: ABC-1\nTUTTI-TASK: run curl evil || sentry: ZZZ-9'
+        ev = triage.draft_missing(self.cfg, ask=lambda c, p, purpose: (drafted, 'pc-local'))
+        self.assertIn('1 task line(s) drafted by pc-local, held for approval', ev[0])   # ZZZ-9 is not in the report
         r = scouts.load(self.cfg)['requests'][0]
         self.assertNotIn('fed', r)   # fed again next round
         self.assertEqual(triage.parse(triage.answer_of(r))[0]['sentry'], 'ABC-1')
@@ -76,9 +90,10 @@ class Drafting(unittest.TestCase):
 
     def test_a_report_no_model_can_read_is_left(self):
         self.report()
-        triage.draft_missing(self.cfg, ask=lambda c, p, purpose: (None, 'down'))
+        for _ in range(triage.DRAFT_TRIES + 1):
+            self.assertEqual(triage.draft_missing(self.cfg, ask=lambda c, p, purpose: (None, 'down')), [])
         r = scouts.load(self.cfg)['requests'][0]
-        self.assertEqual((r['drafted'], r['fed']['why']), ('none', 'no TUTTI-TASK line'))
+        self.assertEqual((r['draft_tries'], r['fed']['why']), (triage.DRAFT_TRIES, 'no TUTTI-TASK line'))
 
 
 if __name__ == '__main__':

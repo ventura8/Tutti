@@ -317,8 +317,9 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
 .accounts:focus-visible { outline-offset: 4px; }
 .local-models { margin-top: var(--gap); border-top: 1px solid var(--outline-2); padding-top: var(--gap); }
 .local-models__head { margin: 0 0 .25rem; font-size: 1rem; }
-.local__periods { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; }
-.local__periods th, .local__periods td { padding: .15rem .3rem; text-align: right; }
+.local__scroll { position: relative; max-width: 100%; overflow-x: auto; }   /* relative: the sr-only header stays inside the scroller */
+.local__periods { width: 100%; border-collapse: collapse; font-size: .8rem; font-variant-numeric: tabular-nums; }
+.local__periods th, .local__periods td { padding: .15rem .25rem; text-align: right; white-space: nowrap; }
 .local__periods th[scope='row'] { text-align: left; }
 .local__method summary { cursor: pointer; font-size: .85rem; }
 .local__method p { font-size: .8rem; margin: .25rem 0; }

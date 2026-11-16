@@ -2,6 +2,14 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## Unreleased
+
+### Changed
+
+- `scripts/release-patch.sh` now assigns the release version at merge time under a remote lock: it picks the next free
+  `v*` patch tag from existing tags, writes `tutti/__init__.py`, `package.json` and a new dated `CHANGELOG.md` heading,
+  then tags that commit and publishes the release.
+
 ## 0.5.0 (2026-11-15)
 
 ### Added

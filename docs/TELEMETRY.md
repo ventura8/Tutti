@@ -120,8 +120,8 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
    send the task back to the autopilot, and its next push is reviewed again.
 7. **Release** (only with `release: true` and a `release_command`): a batched patch release when fixes were merged and
    the last release (or failed try) is `release_every_hours` (24) ago. A release counts only once its command exits 0; a
-   failed one leaves its fixes for the next. Tutti's own is `scripts/release-patch.sh`: it bumps the patch,
-   writes the CHANGELOG from the merged commits, opens and merges the release pull request after its checks, tags it and
+   failed one leaves its fixes for the next. Tutti's own is `scripts/release-patch.sh`: at merge time it takes a release
+   lock, picks the next free patch tag from existing tags, writes the version and CHANGELOG heading, tags that commit and
    creates the GitHub release.
 
 Per project, under `projects:`:

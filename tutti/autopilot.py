@@ -185,11 +185,6 @@ def step_room(cfg, name, states, running_units, machines=()):
     unfit = routing.account_unfit(s)
     if unfit:
         return 0, f'{name}: {unfit}'
-    # owner, 2026-11-17: an online account is spared only in panic or spent; ahead of its pace or at its line it still
-    # works, up to its panic line at its measured cost per task (Cursor, Grok and agy sat idle at 27-62 % with 184 tasks)
-    if (cfg.get('autopilot') or {}).get('spare_only_panic', False):
-        room = takeover_room(cfg, name, s) - used
-        return (room, '') if room > 0 else (0, f'{name}: its room up to its panic line is taken')
     p = s.get('quota_plan')
     if (name in trigger_accounts(cfg) or name in cfg.get('_spare_accounts', ())) and p:
         # the planner's room (tutti/planner.py): a window's share of its weekly limit, or the room left after the reserve and

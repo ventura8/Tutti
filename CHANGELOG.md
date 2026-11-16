@@ -18,6 +18,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   are deduped per package, rule and file, ranked by severity and queued worst first. Tasks drop by themselves when the pull
   request closes or GitHub marks the alert fixed. The dashboard's Dependencies and security card shows counts, the worst
   severity, links and, for an unreadable source, the exact settings link or `gh auth refresh -s security_events`.
+- `scripts/check.sh` brings its own pinned shellcheck (`shellcheck-py`, hashed in requirements-dev.txt) into its
+  cached venv when the machine has none, so the check runs unchanged on a machine without sudo (the NUC had none).
 
 ## 0.20.0 (2026-11-16)
 

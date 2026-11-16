@@ -429,3 +429,9 @@ process and its descendants, by their exact pids.
 Stopping a test's leftover loop by pid once was not enough: between the scan and the kill the loop had already started its
 next `sleep` or fake `adb`, which carried the same marker and lived on until self-heal stopped it (about 129 a day).
 `tests/run.py` now scans and stops again until nothing of the test is left.
+
+## A missing tool is installed, never skipped (2026-11-16)
+
+`scripts/check.sh` stopped at shellcheck on a machine without it, and an agent edited a throwaway copy of the script to
+skip that line. Even in a scratch clone that weakens the check. The fix is to install the tool, not skip it: check.sh now
+puts a pinned shellcheck (`shellcheck-py`, hashed) in its venv, and a missing tool is reported, never commented out.

@@ -6,11 +6,12 @@ import subprocess
 import time
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 import tmpdirs
 import yaml
 
-from tutti import config, failovercmd, selfheal, settings
+from tutti import config, failovercmd, procs, selfheal, settings
 
 
 def done(rc=0, out=''):
@@ -257,8 +258,6 @@ class RoundTest(unittest.TestCase):
         self.assertEqual(selfheal.view(cfg, now=time.time())['items'][0]['check'], 'state')
 
     def test_a_stray_is_reaped_within_one_round_of_the_service(self):
-        from unittest import mock
-        from tutti import procs
         cfg = make()
         self.assertIn('strays', dict(selfheal.LOOP_CHECKS))
         stopped = 'stopped keep-awake 4242: its test run is gone'
@@ -270,7 +269,6 @@ class RoundTest(unittest.TestCase):
         self.assertEqual((v['today'], v['items'][0]['check']), (1, 'strays'))
 
     def test_the_service_loop_ends_when_its_code_changes_so_systemd_starts_the_new_code(self):
-        from unittest import mock
         stamps, slept = iter([1.0, 1.0, 2.0]), []
         with mock.patch.object(failovercmd, 'one_round', return_value=[]) as rounds, \
                 mock.patch.object(failovercmd, 'heal', return_value=0.0):

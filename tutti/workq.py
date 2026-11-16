@@ -117,7 +117,7 @@ def assign(cfg, items, rows, busy, now_dt):
     """[(job, machine or 'here')]: each due job to a machine with a free slot (at its share), not in its quiet hours and not
     already running a queue job; a heavy job to the machine with the most cores first, the rest by routing order."""
     free = {r['name']: r for r in rows if r.get('status') == 'free' and (r.get('free') or 0) > 0 and r['name'] not in busy
-            and not quiet(cfg, r['name'], now_dt)}
+            and not quiet(cfg, r['name'], now_dt) and not (cfg['machines'].get(r['name']) or {}).get('dedicated')}
     route = cfg['routing']['order']
     out = []
     for j in items:

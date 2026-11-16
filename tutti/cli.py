@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -322,15 +323,115 @@ def test_job(cfg, a, machine, device, src, command):
                         target=target, spec={'kind': 'test', 'track': a.track, 'device': bool(device), 'args': args})
 
 
+def test_on_runner(cfg, a, runner):
+    """`tutti test <Project> --device <d> -- <command>` for a project with `runner:` (a PC that builds and runs the tests): the device is
+    leased and the runner's own adb connected to it, and the command runs there in the project's own tree (its `windows:`
+    path), never synced from here (docs/DISPATCH.md, *A suite on a runner machine*)."""
+    import argparse
+
+    from . import devicescmd, shards
+    why = shards.empty_filter(command_line(a.command)) or \
+        ('--input and --fetch need a synced tree: on a project runner the command reads and writes its own tree'
+         if a.input or a.fetch else '')
+    if why:
+        say(f'test: refused: {why}')
+        return 2
+    holds = list(getattr(a, 'hold_device', None) or [])
+    words = a.command[1:] if a.command[:1] == ['--'] else a.command   # only a leading separator: the command keeps its own
+    lease = argparse.Namespace(names=[a.device, *holds, '--', command_line(words)], runner=runner,
+                               who=f'test-{a.track}', minutes=None, action='claim')
+    return devicescmd.lease_on_runner(cfg, lease)
+
+
+TEST_OPTIONS = {'--dir': 'dir', '--on': 'on', '--device': 'device', '--wait-minutes': 'wait_minutes'}
+TEST_LISTS = {'--fetch': 'fetch', '--input': 'input', '--hold-device': 'hold_device'}
+
+
+def late_options(a):
+    """Options written after the track (`tutti test MyApp --on pc -- cmd`) are taken as options, up to a `--`
+    or the first word that is not one of them; the rest is the command, and a lone `--` before it is dropped."""
+    words, i = list(a.command or []), 0
+    while i < len(words) and (words[i] in TEST_OPTIONS or words[i] in TEST_LISTS) and i + 1 < len(words):
+        flag, value = words[i], words[i + 1]
+        if flag in TEST_LISTS:
+            setattr(a, TEST_LISTS[flag], [*(getattr(a, TEST_LISTS[flag], None) or []), value])
+        else:
+            setattr(a, TEST_OPTIONS[flag], int(value) if flag == '--wait-minutes' else value)
+        i += 2
+    words = words[i:]
+    a.command = words[1:] if words[:1] == ['--'] else words
+    return a
+
+
+def command_line(words):
+    """One shell line from the command words: a single word is the line as written (a quoted string); of several, a word
+    with a space or a quote is quoted (it reaches the machine whole) and every other word stays raw, so `&&`, `|`, `>`
+    and `$ANDROID_SERIAL` keep working as before."""
+    import shlex
+    if len(words) == 1:
+        return words[0]
+    return ' '.join(shlex.quote(w) if re.search(r'[\s\'"]', w) or not w else w for w in words)
+
+
+WINDOWS_PATH = re.compile(r'^([A-Za-z]):[\\/](.*)$')
+
+
+def wsl_path(path):
+    """C:\\Users\\x -> /mnt/c/Users/x (a Windows path seen from the PC's WSL); other paths unchanged."""
+    m = WINDOWS_PATH.match(str(path))
+    return f'/mnt/{m.group(1).lower()}/' + m.group(2).replace('\\', '/') if m else str(path)
+
+
+def windows_tree(cfg, a):
+    """The project's own work tree on the chosen machine (`projects.<p>.windows.<machine>`), used as it is: nothing synced."""
+    project = (cfg.get('projects') or {}).get(a.track) or {}
+    path = (project.get('windows') or {}).get(a.on or '') if not a.dir else None
+    return wsl_path(path) if path else ''
+
+
+def test_in_windows_tree(cfg, a, tree):
+    import shlex
+    machine = cfg['machines'][a.on]
+    if a.input:
+        say('test: refused: --input needs a synced tree; the project\'s own work tree is used as it is (copy the file there)')
+        return 2
+    say(f'test: {a.on} (the project\'s own work tree {tree}, nothing synced)')
+    rc = remote.sh(machine, f'cd {shlex.quote(tree)} && {command_line(a.command)}').returncode
+    for p in a.fetch or []:   # a relative path is under the project's tree
+        fetch_windows(machine, p if WINDOWS_PATH.match(str(p)) or str(p).startswith('/') else f'{tree}/{p}')
+    return rc
+
+
+def fetch_windows(machine, path, dest='.'):
+    """Copies one file from a Windows path (or any path on that machine) into `dest`, by base64 over the machine's shell."""
+    import base64
+    import shlex
+    r = remote.sh(machine, f'base64 -w0 {shlex.quote(wsl_path(path))}', capture=True)
+    if r.returncode != 0:
+        say(f'test: could not copy {path} back from {machine["name"]}: {(r.stderr or "").strip()[:200]}')
+        return 1
+    name = os.path.join(dest, re.split(r'[\\/]', str(path))[-1])
+    with open(name, 'wb') as f:
+        f.write(base64.b64decode(r.stdout))
+    say(f'test: copied {path} to {name}')
+    return 0
+
+
 def cmd_test(cfg, a):
+    late_options(a)
+    if a.on and a.on in cfg['machines'] and windows_tree(cfg, a) and a.command and not a.device:
+        return test_in_windows_tree(cfg, a, windows_tree(cfg, a))
     if not a.command and not (a.device and a.track):
         say('name the command: tutti test <track> <command ...> (or one quoted string); '
             'with a device: tutti test --device <name> -- <command>')
         return 2
+    project = (cfg.get('projects') or {}).get(a.track) or {}
+    if a.device and project.get('runner') and not a.on:   # the project's runner runs it with its own tree: nothing synced
+        return test_on_runner(cfg, a, project['runner'])
     src, command = tree_and_command(cfg, a)
     if a.device:
         from . import shards
-        empty = shards.empty_filter(' '.join(command))
+        empty = shards.empty_filter(command_line(command))
         if empty:
             say(f'test: refused: {empty}')
             return 2
@@ -357,7 +458,7 @@ def cmd_test(cfg, a):
     try:
         with job_inputs(cfg, machine, a.input) as base:
             holds = [devices.of(cfg, n) for n in getattr(a, 'hold_device', None) or []]
-            rc = remote.run(cfg, machine, a.track, src, ' '.join(command), inputs=base and transfer.shell_path(base), device=device,
+            rc = remote.run(cfg, machine, a.track, src, command_line(command), inputs=base and transfer.shell_path(base), device=device,
                             out=job.log, holds=holds)
         fetch_results(cfg, machine, a.track, src, a.fetch)
         return rc
@@ -386,6 +487,9 @@ def household_test(cfg, a, machine, src, command):
 
 def fetch_results(cfg, machine, track, src, paths):
     for p in paths or []:
+        if WINDOWS_PATH.match(str(p)):   # a Windows path on a WSL machine: read where it is, not under the synced tree
+            fetch_windows(machine, p)
+            continue
         if remote.fetch(cfg, machine, track, src, p) != 0:
             say(f'test: could not copy {p} back from {machine["name"]}: it may not exist when the run made none')
 

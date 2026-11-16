@@ -60,9 +60,9 @@ def suites(cfg):
             out.append({'project': pname, 'name': sname, 'kind': s.get('kind', 'e2e'), 'targets': list(s.get('targets') or ['machine']),
                         'run': s.get('run', ''), 'shards': shards.names(s), 'shard_opts': shards.options(s),
                         'shards_from': s.get('shards_from'), 'prepare': s.get('prepare'), 'verdict': s.get('verdict'),
-                        'requires': s.get('requires'), 'pair': s.get('pair'), 'runner': s.get('runner'),
+                        'requires': s.get('requires'), 'pair': s.get('pair'), 'runner': s.get('runner') or (p or {}).get('runner'),
                         'started': s.get('started'), 'requeue_on': list(s.get('requeue_on') or []),
-                        'dir': s.get('dir'), 'devices': s.get('devices'), 'machines': s.get('machines'),
+                        'dir': s.get('dir'), 'desktop': s.get('desktop'), 'devices': s.get('devices'), 'machines': s.get('machines'),
                         'pause': s.get('pause'), 'resume': s.get('resume'),
                         'retries': s.get('retries', retries), 'minutes': float(s.get('minutes') or 0)})
     return out
@@ -98,6 +98,8 @@ def _suite_errors(cfg, key, s):
         errs += shards.suite_errors(cfg, key, s, _where_errors)
     if 'shards_from' in s:
         errs += _where_errors(cfg, f'{key}.shards_from', s['shards_from'])
+    from . import winsession
+    errs += winsession.errors(f'{key}.desktop', s.get('desktop'))
     errs += [f'{key}.{k} is {s[k]!r}: a command (run with ANDROID_SERIAL set when a phone call comes)' for k in ('pause', 'resume')
              if k in s and not (isinstance(s[k], str) and s[k].strip())]
     if 'retries' in s and (isinstance(s['retries'], bool) or not isinstance(s['retries'], int) or s['retries'] < 0):
@@ -219,6 +221,13 @@ def compatible(target, w):
     return not names or target['name'] in names
 
 
+def dedicated_refuses(cfg, target, w):
+    """A dedicated machine (machines.<m>.dedicated: a Windows desktop for one project's UI runs) takes only the suites that
+    name it under `machines`, never a suite open to every machine."""
+    m = (cfg.get('machines') or {}).get(target['name']) if target['kind'] == 'machine' else None
+    return bool(m and m.get('dedicated')) and target['name'] not in (w.get('machines') or [])
+
+
 def light_refused(cfg, target, w):
     """Why an Android device may not take this lint or unit shard ('' when it may): those are opt-in per device."""
     if target['kind'] != 'android' or w['kind'] not in LIGHT:
@@ -314,7 +323,8 @@ def ready_work(cfg, t, work, free, taken):
 def choices(cfg, t, pend, place, taken, free, on, quiet, best=0):
     """(the shards this target may start now, why it is blocked or ''); (None, '') when it has nothing to do (busy, or no
     compatible work). By measured power (tutti/power.py): a strong machine takes heavy shards first, a weak one light ones."""
-    work, why = staying(cfg, t, [w for w in pend if compatible(t, w) and (w['project'], w['key']) not in taken], place)
+    work, why = staying(cfg, t, [w for w in pend if compatible(t, w) and not dedicated_refuses(cfg, t, w)
+                                 and (w['project'], w['key']) not in taken], place)
     if not why and (t['busy'] or not work or t['id'] in taken):
         return None, ''
     why = why or blocked_by(cfg, t, work, on, quiet)
@@ -465,11 +475,12 @@ def refresh(cfg, st, now, ask_fn=ask):
             commit = got.splitlines()[0] if got else commit
         lists = {}
         for s in ss:
-            names = s['shards']
-            if not names and s['shards_from']:
+            names = list(s['shards'])
+            if s['shards_from']:   # discovered names join the listed ones; a listed shard keeps its own options (devices, holds)
                 known = sorted({k.partition('/')[2] for k in (p.get('shards') or {}) if k.startswith(s['name'] + '/')})
                 got = ask_fn(cfg, s['shards_from']) if due else None
-                names = [x.strip() for x in got.splitlines() if x.strip()] if got is not None else known
+                found = [x.strip() for x in got.splitlines() if x.strip()] if got is not None else known
+                names += [n for n in found if n not in names]
                 if not names:
                     continue   # its machine did not answer yet: no list, no guessed `all` shard
             lists[s['name']] = names
@@ -893,6 +904,10 @@ def test_argv(cfg, lease, s, shard):
     track = f'dispatch-{s["project"]}-{s["name"]}'.lower().replace(' ', '-')
     holds = [x for n in lease.get('holds') or [] for x in ('--hold-device', n)]
     command = s['run'].replace('{shard}', shard).replace('{extra}', lease.get('extra') or '')
+    if s.get('desktop'):   # a Windows UI run: in the logged-on user's interactive session, not ssh's session 0
+        from . import winsession
+        dk = s['desktop']
+        command = winsession.wrap(command, dk['user'], dk.get('dir', ''), (dk.get('before') or '').replace('{shard}', shard))
     empty = shards.empty_filter(command)
     if empty:
         raise config.ConfigError(f'{s["project"]} {s["name"]}/{shard}: {empty}')
@@ -900,8 +915,9 @@ def test_argv(cfg, lease, s, shard):
     command = deps.prefix(deps.for_suite(cfg, s['project'], s['name'])) + command   # declared needs installed first
     if s.get('runner') and lease['kind'] in DEVICE_KINDS:   # the suite runs on its runner machine, the devices over leases
         names = [lease['name'], *(lease.get('holds') or [])]
-        return [sys.executable, remote.BIN, '--config', cfg['_path'], 'devices', 'lease', *names, '--runner', s['runner'],
-                '--who', f'dispatch-{s["project"]}', '--', command]
+        # options before the names: argparse refuses a `-- <command>` after options that follow a nargs='*' positional
+        return [sys.executable, remote.BIN, '--config', cfg['_path'], 'devices', 'lease', '--runner', s['runner'],
+                '--who', f'dispatch-{s["project"]}', *names, '--', command]
     return [sys.executable, remote.BIN, '--config', cfg['_path'], 'test', '--dir', tree, *where, *holds, track, command]
 
 

@@ -447,6 +447,8 @@ def validate(cfg):
     for name, m in cfg['machines'].items():
         errs += share.limit_errors(name, m.get('limit'))
     errs += devices.errors(cfg)
+    from . import devclass
+    errs += devclass.errors(cfg)
     errs += vpn.errors(cfg)
     for name, w in cfg['workers'].items():
         errs += _worker_errors(name, w)

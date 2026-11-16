@@ -61,6 +61,8 @@ def normalise(cfg):
         n = cfg.get('night') or {}
         d['_night'] = {'on': n.get('enabled', True) is not False and (not n.get('devices') or name in n['devices']),
                        'hours': n.get('hours') or '22-08'}
+        from . import devclass
+        d['_deny'] = devclass.deny(cfg, d)   # its class's commands never run (tutti/devclass.py)
         cfg['devices'][name] = d
 
 
@@ -305,6 +307,11 @@ def external_wrap(found, command, who='tutti'):
     # a person picks the device up: the run ends cleanly and its shard is queued again (shards.PERSON), nothing undone
     guard = (f'while kill -0 $cmd 2>/dev/null; do if {used}; then echo "{PERSON_LINE}"; kill -TERM -- -$cmd 2>/dev/null; '
              f'break; fi; sleep 5; done; ')
+    from . import devclass
+    refused = devclass.refusal(found, command)
+    if refused:   # the run's own command line names a command its device class forbids: it never starts
+        return f'echo {shlex.quote(refused)}; exit 5'
+    command = devclass.export(found) + command
     return (f'{waits}{take}{register}trap {shlex.quote(release)} EXIT && {setup + "; " if setup else ""}{wake}; {watch}{awake}'
             f'echo \'tutti: device ready\'; setsid bash -c {shlex.quote(command)} & cmd=$!; {guard}wait $cmd; exit $?')
 

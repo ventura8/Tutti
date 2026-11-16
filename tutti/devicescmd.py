@@ -284,6 +284,18 @@ class Renewer:
         self.stop.set()
 
 
+def not_connected(there, addrs):
+    """Why the runner's own adb does not reach a leased device ('' when every one answers `get-state` with `device`):
+    a run never starts against a device its runner cannot see (the NUC's devices, the PC's adb, 2026-11-16)."""
+    for name, addr in addrs.items():
+        _, out = there.adb('-s', addr, 'get-state', timeout=30)
+        state = ((out or '').strip().splitlines() or [''])[-1].strip()
+        if state != 'device':
+            return (f'tutti: the runner {there.name} cannot reach {name} at {addr} (adb get-state: {state or "no answer"}): '
+                    'check that both are on the same network and the device\'s Wireless debugging is on, then run again')
+    return ''
+
+
 def lease_on_runner(cfg, a):
     """`tutti devices lease <device> [<partner> ...] --runner <machine> --who <s> -- <command>`: the devices leased (both or
     none), the runner machine's own adb connected to each lease address, the command run there (a PowerShell runner on
@@ -314,12 +326,22 @@ def lease_on_runner(cfg, a):
         return rc
     addrs = dict(zip(names, (x[5:] for x in text.split() if x.startswith('ADDR=')), strict=False))
     there = adbhost.Host(a.runner, cfg['machines'][a.runner])
+    from . import devclass
+    found = [cfg['devices'][n] for n in names if n in (cfg.get('devices') or {})]
+    refused = devclass.refusal(found, command)
     try:
+        if refused:   # the command names what its device class forbids (a TV: wm size, rotation, cmd device_state)
+            say(refused)
+            return 5
         for addr in addrs.values():
             there.adb('connect', addr, timeout=30)
+        lost = not_connected(there, addrs)
+        if lost:
+            say(lost)
+            return 3
         print('tutti: device ready', flush=True)   # the dispatcher's start clock (shards.started_marker)
         with Renewer(cfg, a):
-            return remote.sh(cfg['machines'][a.runner], runner_line(command, addrs)).returncode
+            return remote.sh(cfg['machines'][a.runner], devclass.export(found) + runner_line(command, addrs)).returncode
     finally:
         for addr in addrs.values():
             there.adb('disconnect', addr, timeout=30)

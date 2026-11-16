@@ -6,6 +6,21 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.20.0 (2026-11-16)
+
+### Added
+
+- A review policy for rate-limited review bots, CodeRabbit and now Greptile (`review.coderabbit`, `review.greptile`,
+  per repo under `review.repos`; Settings > Review, admin only): `wait` (the default) keeps the pull request unmerged
+  (exit 4) and runs the review again right after the minutes the limit message names ("Next included review available
+  in N minutes"); `fallback` has another reviewer review now and asks the bot again later, its findings handled in a
+  follow-up when already merged; `skip` never asks it; `skip-when-unavailable` asks it and merges on the other reviews
+  when it is limited. The re-requests are queued in the state folder and sent by the autopilot round.
+- `review.rounds`: how many rounds (ask, fix, ask again) each reviewer gets per pull request, for copilot, coderabbit,
+  greptile, a scout and `local` (the fallback worker); 1 each by default, 0: not called. A limit answer is no round.
+
+## 0.18.0 (2026-11-16)
+
 ## 0.19.1 (2026-11-16)
 
 ### Security

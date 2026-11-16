@@ -16,6 +16,9 @@ COPILOT_LOGINS = ('copilot-pull-request-reviewer[bot]', 'copilot-pull-request-re
 # answers 201 and drops the request for a name it does not take, and 422 "not a collaborator" for the bare bot login.
 COPILOT_REQUEST_AS = ('Copilot', 'copilot-pull-request-reviewer[bot]')
 CODERABBIT_LOGIN = 'coderabbitai[bot]'
+GREPTILE_LOGINS = ('greptile-apps[bot]', 'greptile-apps-staging[bot]')
+# the comment-asked review bots: their logins and the comment that asks them (again)
+BOTS = {'coderabbit': ((CODERABBIT_LOGIN,), '@coderabbitai review'), 'greptile': (GREPTILE_LOGINS, '@greptileai review')}
 CODERABBIT_LIMITED = ('rate limited by coderabbit.ai', 'review limit reached', 'review rate limited', 'reviews paused',
                       'rate limit exceeded')
 PROMPT = ('You are reviewing a pull request. The full diff is in the file pr.diff in the current directory; read it. Report only real '
@@ -53,8 +56,8 @@ def repo_of(pr_repo, gh_fn=gh):
 
 def request(repo, number, who, gh_fn=gh):
     """Asks one reviewer. Returns '' when the request went out, else why it cannot (the reviewer then counts as absent)."""
-    if who == 'coderabbit':
-        rc, _out, err = gh_fn(['pr', 'comment', str(number), '--repo', repo, '--body', '@coderabbitai review'])
+    if who in BOTS:
+        rc, _out, err = gh_fn(['pr', 'comment', str(number), '--repo', repo, '--body', BOTS[who][1]])
         return '' if rc == 0 else f'could not comment on the pull request ({err})'
     errors = []
     for login in COPILOT_REQUEST_AS:
@@ -125,15 +128,15 @@ def status(who, evs, since, author=None):
     A comment is never a review: CodeRabbit acknowledges a request ("Action not completed", "Review triggered") in one.
     A scout (any other name) posts as the GitHub account connected to it (`author`: the owner's, or scouts.<name>.github_login):
     its review is a comment by that account whose first line is the marker; anyone else's marker counts for nothing."""
-    if who not in ('copilot', 'coderabbit'):
+    if who != 'copilot' and who not in BOTS:
         found = any(t >= since and body.lstrip().lower().startswith(SCOUT_MARKER) and (author is None or login == author)
                     for login, t, body, _k in evs)
         return 'reviewed' if found else 'pending'
-    logins = COPILOT_LOGINS if who == 'copilot' else (CODERABBIT_LOGIN,)
+    logins = COPILOT_LOGINS if who == 'copilot' else BOTS[who][0]
     mine = [(body, kind) for login, t, body, kind in evs if login in logins and t >= since]
     if any(kind == 'review' for _b, kind in mine):
         return 'reviewed'
-    if who == 'coderabbit' and any(any(k in body.lower() for k in CODERABBIT_LIMITED) for body, _k in mine):
+    if who in BOTS and any(any(k in body.lower() for k in CODERABBIT_LIMITED) for body, _k in mine):
         return 'limited'
     return 'pending'
 
@@ -207,7 +210,7 @@ def comment(repo, number, body, gh_fn=gh):
 
 # ---- a reviewer whose allowance is used: skipped until its reset (its account reading at 100 % with a reset time)
 
-LIMIT_WAIT_RX = re.compile(r'wait\W+(?:(\d+)\s*hours?)?\W*(?:and\W+)?(?:(\d+)\s*minutes?)?', re.I)
+LIMIT_WAIT_RX = re.compile(r'(?:wait|available in)\W+(?:(\d+)\s*hours?)?\W*(?:and\W+)?(?:(\d+)\s*minutes?)?', re.I)
 LIMIT_DEFAULT = timedelta(hours=1)
 
 
@@ -222,8 +225,8 @@ def skipped_until(entries, who, now):
 
 
 def limit_reset(text, now):
-    """When a rate-limit comment says the reviewer comes back ("Please wait **26 minutes and 35 seconds**"); an hour when
-    it does not say."""
+    """When a rate-limit comment says the reviewer comes back ("Please wait **26 minutes and 35 seconds**", "Next included
+    review available in 42 minutes"); an hour when it does not say."""
     m = LIMIT_WAIT_RX.search(text or '')
     if m and (m.group(1) or m.group(2)):
         return now + timedelta(hours=int(m.group(1) or 0), minutes=int(m.group(2) or 0) + 1)
@@ -232,7 +235,7 @@ def limit_reset(text, now):
 
 def note_limited(cfg, repo, number, who, evs, since, now):
     """Writes the reviewer's account at 100 % until the reset its rate-limit comment names, so the next pull requests skip it."""
-    logins = COPILOT_LOGINS if who == 'copilot' else (CODERABBIT_LOGIN,)
+    logins = COPILOT_LOGINS if who == 'copilot' else BOTS[who][0]
     bodies = [b for login, t, b, _k in evs if login in logins and t >= since]
     reset = limit_reset(bodies[-1] if bodies else '', now)
     pacing.append_log(state.usage_log_path(cfg), who, 100, now, f'rate-limit comment on {repo}#{number}', resets=reset,
@@ -262,22 +265,148 @@ def scout_author(cfg, who, gh_fn=gh):
     return out.strip() if rc == 0 and out.strip() else ''
 
 
+# ---- the CodeRabbit policy (owner, 2026-11-16): wait for it (default), let another reviewer stand in, or skip it
+
+POLICIES = ('wait', 'fallback', 'skip', 'skip-when-unavailable')
+
+
+def coderabbit_policy(cfg, repo, who='coderabbit'):
+    """review.repos.<owner/name>.coderabbit, else review.coderabbit, else 'wait'. wait: no merge until CodeRabbit reviewed;
+    fallback: another reviewer stands in and CodeRabbit is asked again later; skip: never asked; skip-when-unavailable: asked,
+    and when it is limited the others' reviews are enough (no re-request, no follow-up)."""
+    r = cfg.get('review') or {}
+    repos = r.get('repos') if isinstance(r.get('repos'), dict) else {}
+    own = repos.get(repo) if isinstance(repos.get(repo), dict) else {}
+    own = own.get(who)
+    return own or r.get(who) or 'wait'
+
+
+def queue_path(cfg):
+    from . import config
+    return os.path.join(config.state_dir(cfg), 'coderabbit-rerequests.json')
+
+
+def read_queue(cfg):
+    try:
+        with open(queue_path(cfg), encoding='utf8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def write_queue(cfg, items):
+    path = queue_path(cfg)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf8') as f:
+        json.dump(items, f, indent=1)
+    os.replace(tmp, path)
+
+
+def schedule_rerequest(cfg, repo, number, at, policy, who='coderabbit'):
+    """Remembers to ask CodeRabbit again on repo#number at `at` (one entry per pull request; the later time wins)."""
+    same = (repo, int(number), who)
+    items = [i for i in read_queue(cfg) if (i.get('repo'), i.get('number'), i.get('who') or 'coderabbit') != same]
+    items.append({'repo': repo, 'number': int(number), 'at': at.isoformat(), 'policy': policy, 'who': who})
+    write_queue(cfg, items)
+
+
+def rerequest_due(cfg, now=None, gh_fn=gh, rerun=None):
+    """Asks CodeRabbit again on every pull request whose limit has passed. Under `wait` the whole `tutti pr review` runs
+    again (its exit code gates the merge); under `fallback` a '@coderabbitai review' comment, whose findings are handled in a
+    follow-up when the pull request has merged meanwhile. Returns the events; an entry that fails stays for the next round."""
+    now = now or datetime.now(timezone.utc)
+    if rerun is None:
+        from . import selfimprove  # it imports this module
+        rerun = selfimprove.request_review
+    keep, done = [], []
+    for i in (i for i in read_queue(cfg) if isinstance(i, dict)):
+        try:
+            due = pacing.parse_time(i['at']) <= now
+        except (KeyError, TypeError, ValueError):
+            continue   # a broken entry is dropped
+        if not due:
+            keep.append(i)
+            continue
+        if i.get('policy') == 'wait':
+            rerun(cfg, i['repo'], i['number'])
+            done.append(f'{i.get("who") or "coderabbit"} limit passed: review of {i["repo"]}#{i["number"]} started again')
+            continue
+        why = request(i['repo'], i['number'], i.get('who') or 'coderabbit', gh_fn)
+        if why:
+            keep.append(i)
+            done.append(f'{i.get("who") or "coderabbit"} could not be asked again on {i["repo"]}#{i["number"]}: {why}')
+        else:
+            done.append(f'{i.get("who") or "coderabbit"} asked again on {i["repo"]}#{i["number"]}: '
+                        'handle its findings (a follow-up if merged)')
+    write_queue(cfg, keep)
+    return done
+
+
+# ---- review rounds (owner, 2026-11-16): how many times each reviewer is asked on one pull request (a round: ask, fix the
+# findings, ask again). review.rounds.<reviewer> (copilot, coderabbit, a scout, `local` for the fallback worker); 1 by
+# default, 0: never asked. Admin-only, as every setting (the dashboard's /api/settings needs the admin role).
+
+def rounds_allowed(cfg, who):
+    rounds = (cfg.get('review') or {}).get('rounds')
+    v = rounds.get(who) if isinstance(rounds, dict) else None
+    return 1 if v is None else int(v)
+
+
+def rounds_path(cfg):
+    from . import config
+    return os.path.join(config.state_dir(cfg), 'review-rounds.json')
+
+
+def rounds_done(cfg, repo, number):
+    try:
+        with open(rounds_path(cfg), encoding='utf8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    return data if isinstance(data, dict) else {}, f'{repo}#{number}'
+
+
+def round_left(cfg, repo, number, who):
+    """'' when `who` may review repo#number once more, else why not."""
+    allowed = rounds_allowed(cfg, who)
+    if allowed <= 0:
+        return 'review.rounds says 0 (not called)'
+    data, key = rounds_done(cfg, repo, number)
+    used = int((data.get(key) or {}).get(who) or 0)
+    return '' if used < allowed else f'its {allowed} review round(s) on this pull request are done (review.rounds)'
+
+
+def count_round(cfg, repo, number, who, step=1):
+    data, key = rounds_done(cfg, repo, number)
+    data.setdefault(key, {})[who] = max(0, int(data.get(key, {}).get(who) or 0) + step)
+    path = rounds_path(cfg)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + '.tmp', 'w', encoding='utf8') as f:
+        json.dump(data, f, indent=1)
+    os.replace(path + '.tmp', path)
+
+
 def request_any(cfg, repo, number, who, gh_fn=gh):
     return ask_scout(cfg, repo, number, who, gh_fn) if who in (cfg.get('scouts') or {}) else request(repo, number, who, gh_fn)
 
 
-def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh, say=print, **kw):
-    """The whole flow. Returns 0 when a reviewer answered or the fallback review was posted, 1 otherwise."""
-    r = cfg['review']
-    repo = repo_of(pr_repo, gh_fn)
-    since = datetime.now(timezone.utc).replace(microsecond=0)
+def ask_all(cfg, repo, number, since, policy, gh_fn, say):
+    """Asks every reviewer its policy and rounds allow. Returns (asked, absent {who: why}, held {bot: until})."""
     try:
         entries = pacing.read_log(state.usage_log_path(cfg))
     except (OSError, ValueError):
         entries = []
-    asked, absent = [], {}
-    for who in r['reviewers']:
+    asked, absent, held = [], {}, {}
+    for who in cfg['review']['reviewers']:
+        why_not = 'review policy: skip' if policy.get(who) == 'skip' else round_left(cfg, repo, number, who)
+        if why_not:
+            say(f'review: {who} is not asked: {why_not}')
+            continue
         until = skipped_until(entries, who, since)
+        if until and who in BOTS:
+            held[who] = until
         why = f'skipped until {tz.show(until)}: its allowance is used (account {who} at 100 %)' if until else \
             request_any(cfg, repo, number, who, gh_fn)
         if why:
@@ -285,15 +414,52 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
             say(f'review: {who} will not come: {why}')
         else:
             asked.append(who)
+            count_round(cfg, repo, number, who)
             say(f'review: asked {who}')
+    return asked, absent, held
+
+
+def note_all_limited(cfg, repo, number, found, since, held, gh_fn, say):
+    """Each rate-limited reviewer: no round counted, its account noted until its reset, a bot's reset kept in `held`."""
+    limited = [w for w, s in found.items() if s == 'limited']
+    if not limited:
+        return
+    evs, now = events(repo, number, gh_fn), datetime.now(timezone.utc)
+    for w in limited:
+        count_round(cfg, repo, number, w, -1)   # a limit answer is no round
+        reset = note_limited(cfg, repo, number, w, evs, since, now)
+        say(f'review: {w} is rate-limited: skipped until {tz.show(reset)}')
+        if w in BOTS:
+            held[w] = reset
+
+
+def hold_for_bots(cfg, repo, number, held, policy, say):
+    """Queues the re-requests the policy wants; True when a `wait` bot keeps the pull request unmerged."""
+    for w, at in held.items():
+        if policy[w] in ('wait', 'fallback'):
+            schedule_rerequest(cfg, repo, number, at, policy[w], w)
+            say(f'review: {w} is asked again at {tz.show(at)} (review policy: {policy[w]})')
+    waiting = [w for w in held if policy[w] == 'wait']
+    if waiting:
+        say(f'review: pull request {number} stays unmerged until {" and ".join(waiting)} reviewed it and its findings are '
+            'handled (exit 4)')
+    return bool(waiting)
+
+
+def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh, say=print, **kw):
+    """The whole flow. Returns 0 when a reviewer answered or the fallback review was posted, 4 while a `wait` bot is
+    rate-limited, 3 when the local review has findings, 1 otherwise."""
+    r = cfg['review']
+    repo = repo_of(pr_repo, gh_fn)
+    since = datetime.now(timezone.utc).replace(microsecond=0)
+    policy = {b: coderabbit_policy(cfg, repo, b) for b in BOTS}
+    asked, absent, held = ask_all(cfg, repo, number, since, policy, gh_fn, say)
     timeout = float(r['timeout_minutes'] if timeout_minutes is None else timeout_minutes) * 60
     authors = {w: scout_author(cfg, w, gh_fn) for w in asked if w in (cfg.get('scouts') or {})}
     found = wait_for(repo, number, asked, since, timeout, float(r['poll_seconds']), gh_fn, authors=authors, **kw) if asked else {}
-    limited = [w for w, s in found.items() if s == 'limited']
-    if limited:
-        evs, now = events(repo, number, gh_fn), datetime.now(timezone.utc)
-        for w in limited:
-            say(f'review: {w} is rate-limited: skipped until {tz.show(note_limited(cfg, repo, number, w, evs, since, now))}')
+    note_all_limited(cfg, repo, number, found, since, held, gh_fn, say)
+    if hold_for_bots(cfg, repo, number, held, policy, say):
+        return 4
     if any(s == 'reviewed' for s in found.values()):
         say(f'review: {", ".join(w for w, s in found.items() if s == "reviewed")} reviewed pull request {number}: '
             'read and resolve its threads')
@@ -301,11 +467,16 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
     lines = [f'{w}: {"said it will not review now (limit reached)" if s == "limited" else f"no review within {timeout / 60:g} min"}'
              for w, s in found.items()] + [f'{w}: {why}' for w, why in absent.items()]
     say('review: no automated review will come: ' + '; '.join(lines or ['no reviewer configured (review.reviewers)']))
+    spent = round_left(cfg, repo, number, 'local')
+    if spent:   # its rounds done: the earlier rounds were the review; 0 rounds: no one reviews, a person does
+        say(f'review: no local review either: {spent}')
+        return 0 if 'are done' in spent else 1
     name, args = pick_fallback(cfg)
     if not name:
         say(f'review: no fallback worker can review either ({args}): review the diff yourself')
         return 1
     say(f'review: a local review by {name} {" ".join(args)}'.rstrip())
+    count_round(cfg, repo, number, 'local')
     text = local_review(cfg, repo, number, name, args, gh_fn)
     body = (f'### Local review by {name}\n\nNo automated review arrived ({"; ".join(lines) or "none configured"}), so Tutti asked a '
             f'local worker. Findings are suggestions to verify, not a verdict.\n\n{text}\n')

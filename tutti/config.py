@@ -49,7 +49,10 @@ DEFAULTS = {
     # remote_track: the folder on the test machine that routed checks copy the worktree into (one copy, kept in sync by rsync)
     'delegate': {'checks': None, 'prefix': 'tutti-run-', 'remote_track': 'tutti-run'},
     # review: `tutti pr review`; who to ask, how long to wait for them, and which cheap workers review when none answers
-    'review': {'reviewers': [], 'timeout_minutes': 20, 'poll_seconds': 30, 'fallback': []},
+    # coderabbit: wait (default; no merge until CodeRabbit reviewed), fallback, skip or skip-when-unavailable; repos.<owner/name>
+    'review': {'reviewers': [], 'timeout_minutes': 20, 'poll_seconds': 30, 'fallback': [],
+               'coderabbit': 'wait', 'greptile': 'wait', 'repos': {},
+               'rounds': {}},   # rounds.<reviewer or local>: how often each is asked per pull request (1; 0: never)
     # main: `tutti conduct`; the main (conductor) agent, the ones that take over when its quota is out, a command per agent
     # when it conducts (default: its worker command), extra ask-first actions, how often the run checks the readings
     # autopilot: `tutti autopilot`; accounts whose pace triggers it, the escalation ladder of retries, how many runs at once,
@@ -384,8 +387,19 @@ def _review_errors(cfg):
     r = cfg['review']
     errs = [f'review.fallback names "{n}", which is not a cli worker under workers:' for n in r.get('fallback') or []
             if (cfg['workers'].get(n) or {}).get('kind') != 'cli']
-    errs += [f'review.reviewers has "{n}": use copilot, coderabbit or a scout named under scouts: (e.g. grok)'
-             for n in r.get('reviewers') or [] if n not in ('copilot', 'coderabbit') and n not in (cfg.get('scouts') or {})]
+    errs += [f'review.reviewers has "{n}": use copilot, coderabbit, greptile or a scout named under scouts: (e.g. grok)'
+             for n in r.get('reviewers') or [] if n not in ('copilot', 'coderabbit', 'greptile') and n not in (cfg.get('scouts') or {})]
+    pols = ('wait', 'fallback', 'skip', 'skip-when-unavailable')
+    bots = ('coderabbit', 'greptile')
+    where = [(f'review.{b}', r.get(b)) for b in bots] + [(f'review.repos.{n}.{b}', o.get(b)) for n, o in (r.get('repos') or {}).items()
+                                                         if isinstance(o, dict) for b in bots]
+    errs += [f'{k} is {v!r}: use {", ".join(pols)}' for k, v in where if v is not None and v not in pols]
+    errs += [f'review.repos.{n} is {o!r}: use {{coderabbit: <policy>}}' for n, o in (r.get('repos') or {}).items()
+             if not isinstance(o, dict)]
+    rounds = r.get('rounds') or {}
+    pairs = rounds.items() if isinstance(rounds, dict) else [('', rounds)]
+    errs += [f'review.rounds.{n} is {v!r}: use a whole number, 0 or more (0: that reviewer is not called)'
+             for n, v in pairs if isinstance(v, bool) or not isinstance(v, int) or v < 0]
     v = r.get('timeout_minutes')
     if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
         errs.append(f'review.timeout_minutes is {v!r}: use minutes, 0 or more (0: do not wait, fall back at once)')

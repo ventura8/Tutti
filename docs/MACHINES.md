@@ -196,6 +196,16 @@ machines:
 `tutti yield on --machine <m> --note "release build"` raises it, `tutti yield off --machine <m>` lowers it, and
 `tutti yield status` shows every machine. Any tool can raise the flag by creating the file; it is the whole protocol.
 
+**A flag expires (0.18.0).** `tutti yield on` writes one JSON line: owner (`--owner`), reason (`--note`), the owner's
+process (`--pid`) and an expiry (`--hours`, default 4). `tutti yield renew --machine <m> [--hours N]` extends it. The
+self-heal round lowers a flag that expired, or whose owner's process is gone while the machine is idle, and logs it; a
+plain-text flag (any other tool's) expires 4 h after it was last written, so a tool that holds a machine longer rewrites
+(touches) its file at least every 4 h. The machine card shows the owner, the reason and the age.
+
+**Disks.** The probe reads the least free space of the home disk and, on a WSL machine, the Windows C: (`/mnt/c`): under
+15 GB the card warns with the biggest reclaimable items, under 8 GB the machine takes nothing new until the clean-up or a
+person frees space (docs/SELFHEAL.md, *Yield flags, disks and clean-up*).
+
 ## Heat and memory guards
 
 - **Heat.** The probe also reads the CPU, the hottest `/sys/class/thermal/thermal_zone*/temp`, and the hottest GPU

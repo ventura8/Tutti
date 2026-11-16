@@ -332,6 +332,8 @@ class Collector:
         out['disk'] = diskroom.problems(self.cfg)   # this computer's temp folder and work disk (Machines card)
         from . import selfheal
         out['selfheal'] = selfheal.view(self.cfg)   # what self-healing repaired today (Machines card; docs/SELFHEAL.md)
+        from . import hygiene
+        out['hygiene'] = hygiene.view(self.cfg)   # yield flags, disks, WSL and clean-ups per machine (machine cards)
         from . import failover
         out['failover'] = failover.view(self.cfg)   # the backup main machine (Machines card; docs/FAILOVER.md)
         out['updates'] = {**update.view(self.cfg, last), 'running': self.updating.locked(), 'error': (last or {}).get('error')}

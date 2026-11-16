@@ -342,7 +342,14 @@ def probe_script(machine):
             # free memory in GB (MemAvailable), `-` when unreadable: the autopilot's limit and the dashboard show it
             'm=$(awk \'/MemAvailable/{printf "%.1f", $2/1048576}\' /proc/meminfo 2>/dev/null); '
             f'{IDLE}'
-            f'echo "$n $(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo 0) $(nproc) $y ${{t:-0}} ${{g:--}} ${{m:--}} ${{i:--}}"')
+            f'{DISK}'
+            f'echo "$n $(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo 0) $(nproc) $y ${{t:-0}} ${{g:--}} ${{m:--}} ${{i:--}} ${{d:--}}"')
+
+
+# The least free space in GB on the disks work fills: the home disk and a WSL machine's Windows C: (/mnt/c); `-` when unreadable.
+# Under hygiene.STOP_GB routing sends the machine nothing new (tutti/routing.py).
+DISK = ('d=$(for p in "$HOME" /mnt/c; do [ -d "$p" ] && df -Pk "$p" 2>/dev/null | awk \'NR==2{printf "%.1f\\n", $4/1048576}\'; done '
+        '| sort -n | head -n 1); ')
 
 
 def termux_readings(machine):

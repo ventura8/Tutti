@@ -7,6 +7,7 @@ import shutil
 import signal
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -31,6 +32,25 @@ def left_children(root):
     return out
 
 
+def stop_children(rounds=5):
+    """Every leftover stopped by exact pid, again until none is left: a loop killed between two scans may already have
+    started its next child (a `sleep`, a fake `adb`), which carries the same marker and lived on until self-heal stopped it
+    (about 129 a day, 0.17.2). The first round asks (SIGTERM), later rounds insist (SIGKILL). Returns the first round's."""
+    first = []
+    for n in range(rounds):
+        kids = left_children(ROOT) if ROOT and os.path.isdir('/proc') else []
+        if not kids:
+            break
+        first = first or kids
+        for p in kids:
+            try:
+                os.kill(p['pid'], signal.SIGTERM if n == 0 else signal.SIGKILL)
+            except OSError:
+                pass
+        time.sleep(0.05)
+    return first
+
+
 class Guarded(unittest.TextTestResult):
     def startTest(self, test):
         self._root = tempfile.mkdtemp(prefix='t-', dir=ROOT)
@@ -45,12 +65,7 @@ class Guarded(unittest.TextTestResult):
         os.environ['TMPDIR'] = old if old is not None else ROOT
         left = sorted(n for n in os.listdir(self._root) if not n.startswith(KEPT))
         shutil.rmtree(self._root, ignore_errors=True)
-        kids = left_children(ROOT) if ROOT and os.path.isdir('/proc') else []
-        for p in kids:   # stopped by exact pid: a test's leftover never runs on for hours (2026-11-15: load 60)
-            try:
-                os.kill(p['pid'], signal.SIGTERM)
-            except OSError:
-                pass
+        kids = stop_children()
         if kids:
             try:
                 raise AssertionError(f'the test left {len(kids)} process(es) running: '

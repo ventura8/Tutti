@@ -2,7 +2,7 @@
 import re
 from dataclasses import dataclass, field
 
-from . import controls, devices
+from . import controls, devices, hygiene
 
 
 @dataclass
@@ -21,6 +21,7 @@ class Probe:
     zone: str = ''                 # the machine's own IANA zone, read over its ssh (tutti/tz.py): its quiet hours are its local time
     mem_gb: float | None = None    # free memory (MemAvailable) in GB, None when unreadable
     idle_s: float | None = None    # seconds since a person last used it (graphical session, Windows console); None: nobody
+    disk_gb: float | None = None   # the least free space on its work disks (home, a WSL machine's C:), None when unreadable
 
     def hottest(self):
         """(degrees C, 'CPU' or 'GPU') of the hotter of the two, or (None, '') when neither is readable."""
@@ -85,8 +86,9 @@ def parse_probe(text):
         gpu = parse_gpu_temp(parts[5] if len(parts) > 5 else None)
         mem = float(parts[6]) if len(parts) > 6 and parts[6] != '-' else None
         idle = float(parts[7]) if len(parts) > 7 and parts[7] != '-' else None
+        disk = float(parts[8]) if len(parts) > 8 and parts[8] != '-' else None
         return Probe(True, int(parts[0]), float(parts[1]), max(1, int(parts[2])), parts[3] == '1', temp, gpu_temp=gpu, mem_gb=mem,
-                     idle_s=idle)
+                     idle_s=idle, disk_gb=disk)
     except (IndexError, ValueError):
         return Probe()
 
@@ -134,6 +136,9 @@ def unfit(machine, probe):
         return 'yield flag is up'
     if probe.free < 1:
         return 'no free slot'
+    if probe.disk_gb is not None and probe.disk_gb < hygiene.STOP_GB:
+        return (f'disk nearly full: {probe.disk_gb:g} GB free, nothing new under {hygiene.STOP_GB} GB (its clean-up runs by itself; '
+                'the biggest items are on its machine card)')
     ratio = machine.get('max_load_ratio')
     if ratio is not None and probe.load >= ratio * probe.cores:
         return f'load {probe.load:g} is over {ratio:g} x {probe.cores} cores'

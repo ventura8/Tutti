@@ -8,6 +8,10 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ## 0.9.5 (2026-11-15)
 
+### Added
+
+- `tutti machines --json`: print the probed machines as JSON (the dashboard's machine_state fields) for scripts.
+
 ### Fixed
 
 - Dashboard: folds, Show more and the filters stay as the owner left them across refreshes and reloads (kept by item id

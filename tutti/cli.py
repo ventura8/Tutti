@@ -188,12 +188,16 @@ def cmd_machines(cfg, a):
         print(devices.TERMUX_STEPS.format(name=a.name or 'phone', host=a.host or '<the device IP>', user=a.user or '<whoami>',
                                           port=a.port))
         return 0
+    if getattr(a, 'json', False):
+        rows = state.machines_state(cfg, remote.probe)
+        print(json.dumps(rows, indent=2))
+        return 1 if any(not m.get('reachable') for m in rows) else 0
     down = 0
     for name, m in cfg['machines'].items():
         p = remote.probe(m)
         down += not p.reachable
-        state = routing.unfit(m, p) or 'fit'
-        print(f'{name:12} {m["transport"]:7} slots {p.free}/{m["slots"]}  load {p.load:g}/{p.cores}{heat_text(p)}  {state}')
+        fit = routing.unfit(m, p) or 'fit'
+        print(f'{name:12} {m["transport"]:7} slots {p.free}/{m["slots"]}  load {p.load:g}/{p.cores}{heat_text(p)}  {fit}')
     return 1 if down else 0
 
 
@@ -1411,6 +1415,7 @@ def parser():
     s.add_argument('--host', help='add-android: the device IP address')
     s.add_argument('--user', help='add-android: the Termux user (whoami)')
     s.add_argument('--port', type=int, default=8022, help='add-android: Termux sshd port (8022)')
+    s.add_argument('--json', action='store_true', help='print the probed machines as JSON')
     s = add('devices', cmd_devices, 'Android devices for e2e: connection, battery, charging, heat, screen, Wi-Fi and lock; pair one '
             'over Wi-Fi (QR code, or the code a TV shows); move devices to another machine')
     s.add_argument('action', nargs='?', choices=['add', 'pair', 'move', 'claim', 'release', 'install', 'hours'],

@@ -2,21 +2,28 @@
 # check.sh: everything CI runs, in one go: shellcheck, ruff (when installed), the unit tests, the dashboard's browser tests and a CLI smoke test.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# Ensure we use the local Python environment which has playwright installed.
+export PATH="$HOME/.local/bin:$PATH"
 export TUTTI_TELEMETRY=off   # the smoke runs below are not usage: record nothing
 export TUTTI_OFFLINE=1      # nothing here asks GitHub (the releases-stuck check, tutti/stuck.py)
+
 shellcheck scripts/*.sh install/*.sh
 if command -v ruff > /dev/null; then ruff check . bin/tutti; else echo "ruff is not installed here: skipped (CI runs it)"; fi
+
 # its own temp folder, removed at the end: a test's leftovers never reach /tmp (tests/run.py fails a test that leaves any)
 TMPDIR="$(mktemp -d)"
 export TMPDIR
-trap 'rm -rf "$TMPDIR"' EXIT
-XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.env
+XDG_CONFIG_HOME="$(mktemp -d)" "$HOME/.local/bin/python" tests/run.py   # never the owner's grok.env
+
 # the dashboard in a real browser, every tab: layout, accessibility, roles (docs/TESTING.md, *Browser tests*). A hard gate:
 # Playwright and axe come from requirements-dev.txt; the browser is fetched once (on CI with its system libraries).
-if [ -n "${CI:-}" ]; then python3 -m playwright install --with-deps chromium > /dev/null; else python3 -m playwright install chromium > /dev/null; fi
-XDG_CONFIG_HOME="$(mktemp -d)" PYTHONPATH=tests python3 -m unittest discover -s tests/e2e
+if [ -n "${CI:-}" ]; then "$HOME/.local/bin/python" -m playwright install --with-deps chromium > /dev/null; else "$HOME/.local/bin/python" -m playwright install chromium > /dev/null; fi
+
+XDG_CONFIG_HOME="$(mktemp -d)" PYTHONPATH=tests "$HOME/.local/bin/python" -m unittest discover -s tests/e2e
+
 # smoke: the example config is valid and the commands that need no machine answer
-t="python3 bin/tutti --config tutti.config.example.yaml"
+t="$HOME/.local/bin/python bin/tutti --config tutti.config.example.yaml"
 $t config
 $t usage --at 2026-01-08T00:00Z > /dev/null
 $t usage page-script cursor > /dev/null

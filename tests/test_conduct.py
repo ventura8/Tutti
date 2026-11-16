@@ -182,7 +182,8 @@ class LocalLoopTest(Folder):
         run = conduct.new_run(self.cfg, 'goal', self.dir, conduct.datetime.now(conduct.timezone.utc))
         it = iter(replies)
         out = io.StringIO()
-        rc, lines = conduct.run_local(self.cfg, 'local', 'go', run, watch or FakeWatch(), out=out, reply_fn=lambda w, m: next(it))
+        rc, lines = conduct.run_local(self.cfg, 'local', 'go', run, watch or FakeWatch(), out=out,
+                                      reply_fn=lambda cfg, w, m: next(it))
         return rc, lines, out.getvalue()
 
     def test_the_model_runs_tutti_commands_then_ends(self):
@@ -204,6 +205,20 @@ class LocalLoopTest(Folder):
         w = FakeWatch(('panic', 'out'))
         self.assertEqual(self.run_with([], w)[0], 1)
         self.assertEqual(w.reason, ('panic', 'out'))
+
+
+class LocalReplyTest(Folder):
+    def test_local_reply_uses_local_chat(self):
+        worker = self.cfg['workers']['local']
+        with mock.patch.object(conduct.local, 'chat', return_value={'message': {'content': 'DONE: ready'}}) as ask:
+            reply = conduct.local_reply(self.cfg, worker, [{'role': 'user', 'content': 'go'}], timeout=12)
+        self.assertEqual(reply, 'DONE: ready')
+        ask.assert_called_once_with(self.cfg, worker, [{'role': 'user', 'content': 'go'}], 12)
+
+    def test_local_reply_without_text_is_empty(self):
+        worker = self.cfg['workers']['local']
+        with mock.patch.object(conduct.local, 'chat', return_value={}):
+            self.assertEqual(conduct.local_reply(self.cfg, worker, []), '')
 
 
 class ConductTest(Folder):

@@ -43,8 +43,8 @@ def ollama_get(host, path, timeout=3):
         return None
 
 
-def post(host, payload, timeout):
-    req = urllib.request.Request(config.ollama_url(host, '/api/generate'), json.dumps(payload).encode(),
+def post(host, path, payload, timeout):
+    req = urllib.request.Request(config.ollama_url(host, path), json.dumps(payload).encode(),
                                  {'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
@@ -70,7 +70,7 @@ def wait_for_yield(cfg, worker, poll=60, sleep=time.sleep):
     while machine and (note := yield_cached(machine)) is not None:
         if 'unload' in note.lower() and not unloaded:
             try:
-                post(worker['host'], {'model': worker['model'], 'keep_alive': 0}, 60)
+                post(worker['host'], '/api/generate', {'model': worker['model'], 'keep_alive': 0}, 60)
             except OSError as e:
                 log(f'unload of {worker["model"]} skipped: {e}')
             unloaded = True
@@ -109,7 +109,7 @@ def generate(cfg, worker, prompt, wait=False, low_priority=False, timeout=1800):
     tries = 0
     while True:
         try:
-            return _timed(cfg, worker, lambda: post(worker['host'], payload, timeout))['response'].strip()
+            return _timed(cfg, worker, lambda: post(worker['host'], '/api/generate', payload, timeout))['response'].strip()
         except OSError as e:
             if not wait:
                 raise RuntimeError(f'the model server {worker["host"]} ({worker["model"]}) did not answer: {e}. Start it, or its '
@@ -117,6 +117,17 @@ def generate(cfg, worker, prompt, wait=False, low_priority=False, timeout=1800):
             tries += 1
             log(f'{worker["host"]} unreachable, waiting ({e}); try {tries}')
             time.sleep(min(60, 10 * tries))
+
+
+def chat(cfg, worker, messages, timeout=600):
+    """One /api/chat answer from the worker's model, logged like every local-model call."""
+    wait_for_yield(cfg, worker)
+    options = {'temperature': worker.get('temperature', 0.1), 'num_ctx': worker.get('num_ctx', 16384)}
+    threads = threads_at_share(cfg, worker)
+    if threads:
+        options['num_thread'] = threads
+    payload = {'model': worker['model'], 'messages': messages, 'stream': False, 'think': False, 'options': options}
+    return _timed(cfg, worker, lambda: post(worker['host'], '/api/chat', payload, timeout))
 
 
 def _timed(cfg, worker, call):

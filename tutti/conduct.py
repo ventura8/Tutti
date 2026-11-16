@@ -14,7 +14,6 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -431,14 +430,10 @@ def local_command(line, protected_ok=False):
     return args, None
 
 
-def local_reply(worker, messages, timeout=600):
+def local_reply(cfg, worker, messages, timeout=600):
     """One answer of an Ollama model to the conversation so far."""
-    body = {'model': worker['model'], 'messages': messages, 'stream': False,
-            'options': {k: worker[k] for k in ('num_ctx',) if worker.get(k)}}
-    req = urllib.request.Request(config.ollama_url(worker['host'], '/api/chat'), data=json.dumps(body).encode(),
-                                 headers={'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return (json.loads(r.read().decode()).get('message') or {}).get('content') or ''
+    answer = local.chat(cfg, worker, messages, timeout)
+    return (answer.get('message') or {}).get('content') or ''
 
 
 LOCAL_PROTOCOL = ('You cannot run a shell yourself. To run one of Tutti\'s commands, answer with exactly one line '
@@ -483,9 +478,9 @@ def local_step(cfg, agent, reply, run, watch=None):
     return 'Answer with one RUN: line or one DONE:/BLOCKED: line.', None
 
 
-def wait_reply(pool, reply_fn, worker, messages, watch):
+def wait_reply(pool, reply_fn, cfg, worker, messages, watch):
     """The model's answer, or None when the watch stops the agent first (the answer still on its way is dropped)."""
-    pending = pool.submit(reply_fn, worker, messages)
+    pending = pool.submit(reply_fn, cfg, worker, messages)
     while not pending.done():
         if stopped(watch):
             return None
@@ -504,7 +499,7 @@ def run_local(cfg, agent, text, run, watch, out=None, reply_fn=local_reply):
     for _ in range(settings(cfg)['rounds']):
         # Tutti holds this conversation, so it compacts it itself at autocompact.threshold_pct of the model's window
         messages = autocompact.compact_messages(cfg, cfg['workers'][agent], messages)
-        reply = None if stopped(watch) else wait_reply(pool, reply_fn, cfg['workers'][agent], messages, watch)
+        reply = None if stopped(watch) else wait_reply(pool, reply_fn, cfg, cfg['workers'][agent], messages, watch)
         if reply is None:
             return 1, kept
         out.write(reply.rstrip() + '\n')

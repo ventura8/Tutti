@@ -92,5 +92,5 @@ The dashboard's Settings tab, section **Energy**, edits them in place; all under
 ## Limits
 
 - Calls made outside Tutti (another program using the same Ollama) are not counted as Tutti's.
-- `tutti conduct` with a local main agent is not yet logged per call.
+- `tutti conduct` with a local main agent logs one line per local-model reply, as other Tutti local-model calls do.
 - Ollama does not say whether a model is answering right now; Tutti knows only its own calls.

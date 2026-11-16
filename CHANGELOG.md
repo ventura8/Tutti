@@ -2,6 +2,14 @@
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## Unreleased
+
+### Fixed
+
+- Local-model call accounting in the **Local models** cards now includes `tutti conduct` when the main agent is an Ollama
+  worker: each `/api/chat` reply is logged to `<state>/local-runs.jsonl` through the same path as Tutti's other
+  local-model calls, so jobs and token totals stay accurate across restarts.
+
 ## 0.5.0 (2026-11-15)
 
 ### Added

@@ -40,6 +40,16 @@ Every text model is classed. Vision, embedding and speech models are skipped.
 - **Files.** A local model edits only the files it is given. A task that names no file gets `local_scope`: the source files
   whose name is a word of its title, or a path the title quotes. The online workers keep their whole-repository freedom.
 
+## Model tiers and task difficulty
+
+Each model has a measured tier (`tutti/power.py`): light, mid or strong from its size class (small, normal, strong), one
+down for a 2-3 bit quantisation, then one up at a pass rate of 75 % or more, one down at 25 % or less, over at least four
+attempts in Tutti's own task history (each attempt records its model). A task's difficulty is 0-2: its size (S, M, L), at
+least 1 for a lint-fix or review, plus one per failed attempt. `model_for` picks the weakest tier that meets the
+difficulty (a translator still wins translations), and `order` puts the steps in that order, easy work on the weaker
+machine and hard work on the stronger one (measured power), so the strong models stay free for hard work and a failure
+escalates. The local models' cards show each model's tier, why and tokens per second; a running task shows the pick.
+
 ## Routing (the autopilot)
 
 - **First-class steps.** Local workers are added to the ladder after `autopilot.ladder`.

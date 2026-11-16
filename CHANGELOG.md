@@ -10,6 +10,17 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Added
 
+- Machine power, measured: a two-second benchmark per machine (one core's hashing speed, cores and threads, memory, GPU
+  memory, NPU, synced disk write) runs once when the machine is free and again every `power.bench_days` (7). Its score
+  times the headroom now (load per core, free memory, heat, Tutti's share in quiet, presence and limited hours) is the
+  effective power. Keep busy sends heavy shards (e2e, builds, docker, full or long suites) to the strongest machine first
+  and light ones to the weaker machines; a weak machine with under 30 % free takes no heavy shard. Each lease says why it
+  went where it did (Machines card, `tutti dispatch status`).
+- Local model tiers: every household model is light, mid or strong by its size class and quantisation, moved by its
+  measured pass rate on Tutti's own task history (4 attempts or more). A task's difficulty (size S/M/L, a lint-fix or
+  review at least mid, one up per failed attempt) picks the weakest tier that meets it, so easy work goes to small
+  models and weaker machines and the strong models stay free; a failure escalates. The local models' cards show each
+  model's tier and speed; a running task shows which model was picked and why.
 - Yield flags have an owner, a reason and an expiry (default 4 h, `tutti yield renew`); the self-heal round lowers an
   expired one, or one whose owner's process is gone while the machine is idle. The machine card shows owner and age
   (backlog t135: a flag stayed up 15 h on an idle PC).

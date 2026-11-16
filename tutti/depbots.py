@@ -194,13 +194,20 @@ def failing(checks):
     return any((c.get('conclusion') or c.get('state') or '').upper() in FAILED for c in checks or [])
 
 
+def green(checks):
+    """Every check passed (and there was at least one): a pull request that may be merged as it is."""
+    return bool(checks) and all((c.get('conclusion') or c.get('state') or '').upper() in ('SUCCESS', 'NEUTRAL', 'SKIPPED')
+                                for c in checks)
+
+
 def bot_prs(prs, bots):
     out = []
     for pr in prs:
         bot = classify_pr(pr, bots)
         if bot:
             out.append({'number': pr['number'], 'title': pr['title'], 'branch': pr['headRefName'], 'url': pr['url'], 'bot': bot,
-                        'kind': bump_kind(pr['title']), 'failing': failing(pr.get('statusCheckRollup'))})
+                        'kind': bump_kind(pr['title']), 'failing': failing(pr.get('statusCheckRollup')),
+                        'head': pr.get('headRefOid') or '', 'green': green(pr.get('statusCheckRollup'))})
     return out
 
 
@@ -309,13 +316,67 @@ def read_reviews(slug, prs, rv, gh_fn, scanners=(), most=30):
     return out, complete, ''
 
 
-def read_repo(slug, s, gh_fn=gh, rv=None):
-    """{prs, alerts, reviews, problems, code_scanning, read}: `read` names the sources read without a fault, so a task is
-    dropped only when the source that made it was read and no longer holds it. `rv`: the review intake's settings
-    (tutti/autofix.py), None when it is off."""
-    out = {'prs': [], 'alerts': [], 'reviews': [], 'problems': [], 'code_scanning': False, 'read': []}
+ISSUE_LIMIT = 200
+
+
+def other_bot_prs(prs, bots, is_bot):
+    """The bots' pull requests that are not dependency updates (a refresh, a release, cursor[bot]'s fix): each to resolve."""
+    out = []
+    for pr in prs:
+        login = (pr.get('author') or {}).get('login') or ''
+        if not is_bot(login) or classify_pr(pr, bots):
+            continue
+        out.append({'number': pr['number'], 'title': pr['title'], 'branch': pr.get('headRefName') or '', 'url': pr['url'],
+                    'bot': norm(login), 'failing': failing(pr.get('statusCheckRollup')), 'head': pr.get('headRefOid') or '',
+                    'green': green(pr.get('statusCheckRollup'))})
+    return out
+
+
+def dupe_key(title):
+    """Two bot issues are one when their titles match without numbers, dates and hashes (a failing workflow's issue a day)."""
+    return re.sub(r'[\W\d_]+', ' ', (title or '').lower()).strip()
+
+
+def bot_issues(items, is_bot):
+    """(the bots' open issues to resolve, {duplicate url: the kept issue's url}): the oldest of a title is kept."""
+    keep, dupes = {}, {}
+    for i in sorted(items, key=lambda x: x.get('number') or 0):
+        login = (i.get('author') or {}).get('login') or ''
+        if not is_bot(login):
+            continue
+        k = dupe_key(i.get('title'))
+        if k in keep:
+            dupes[i['url']] = keep[k]['url']
+            continue
+        keep[k] = {'number': i['number'], 'title': i.get('title') or '', 'url': i['url'], 'bot': norm(login),
+                   'body': (i.get('body') or '')[:1500]}
+    return list(keep.values()), dupes
+
+
+def read_bots(out, slug, prs, s, gh_fn, bo):
+    """The bots' other pull requests and their open issues (`bo`: is_bot, the autofix bot intake's test)."""
+    out['bot_prs'] = other_bot_prs(prs, s['bots'], bo)
+    rc, raw, err = gh_fn(['issue', 'list', '-R', slug, '--state', 'open', '--limit', str(ISSUE_LIMIT), '--json',
+                          'number,title,author,url,body'])
+    try:
+        items = json.loads(raw or '[]') if rc == 0 else None
+    except ValueError as exc:
+        items, err = None, f'unreadable answer ({exc})'
+    if items is None:
+        out['problems'].append(problem('issues', slug, err))
+        return
+    out['read'] += ['issues'] if len(items) < ISSUE_LIMIT else []
+    out['issues'], out['dupes'] = bot_issues(items, bo)
+
+
+def read_repo(slug, s, gh_fn=gh, rv=None, bo=None):
+    """{prs, alerts, reviews, bot_prs, issues, dupes, problems, code_scanning, read}: `read` names the sources read without a
+    fault, so a task is dropped only when the source that made it was read and no longer holds it. `rv`: the review intake's
+    settings, `bo`: the bot intake's is_bot (tutti/autofix.py); None when that intake is off."""
+    out = {'prs': [], 'alerts': [], 'reviews': [], 'bot_prs': [], 'issues': [], 'dupes': {}, 'problems': [],
+           'code_scanning': False, 'read': []}
     rc, raw, err = gh_fn(['pr', 'list', '-R', slug, '--state', 'open', '--limit', str(PR_LIMIT), '--json',
-                          'number,title,headRefName,author,url,labels,statusCheckRollup'])
+                          'number,title,headRefName,headRefOid,author,url,labels,statusCheckRollup'])
     try:
         prs = json.loads(raw or '[]') if rc == 0 else None
     except ValueError as exc:
@@ -335,6 +396,8 @@ def read_repo(slug, s, gh_fn=gh, rv=None):
         else:
             out['reviews'] = items
             out['read'] += ['reviews'] if complete else []
+    if bo and 'prs' in out['read']:
+        read_bots(out, slug, prs, s, gh_fn, bo)
     return out
 
 
@@ -358,7 +421,9 @@ def gather(cfg, now, gh_fn=gh, run=subprocess.run, force=False):
     """{repo name: read_repo + slug} when due (or forced), else None. Network: never under the backlog's lock."""
     if not force and not due(cfg, now):
         return None
+    from . import autofix
     found, rv = {}, review_settings(cfg)
+    bo = None if autofix.bots_level(cfg) == 'off' else (lambda login: autofix.is_bot(login, cfg))
     for name, repo in cfg['autopilot']['repos'].items():
         slug = repo_slug(repo, run)
         if not slug:
@@ -367,7 +432,7 @@ def gather(cfg, now, gh_fn=gh, run=subprocess.run, force=False):
                                         f'autopilot.repos.{name}.github to owner/name']}
             continue
         try:
-            found[name] = {'slug': slug, 'started': time.time(), **read_repo(slug, settings(cfg), gh_fn, rv)}
+            found[name] = {'slug': slug, 'started': time.time(), **read_repo(slug, settings(cfg), gh_fn, rv, bo)}
         except (OSError, ValueError, KeyError, TypeError) as exc:   # one bad repo never stops the others
             found[name] = {'slug': slug, 'prs': [], 'alerts': [], 'reviews': [], 'code_scanning': False, 'read': [],
                            'problems': [f'{slug}: reading it failed ({type(exc).__name__}: {exc}): `tutti security scan` again; '
@@ -415,24 +480,53 @@ def tasks_for(name, scan, check, group_trivial=True):
                      f'and say why) and run the check. The task closes when the thread is resolved or outdated. Comment: '
                      f'{r["url"]}'],
                     r['key'], ['reviews'], 5))
+    for pr in scan.get('bot_prs') or []:
+        branch = shlex.quote(pr['branch'])   # the bot's text: quoted, never shell syntax
+        out.append((f'Resolve bot pull request: {pr["title"]} (#{pr["number"]})', 'M' if pr['failing'] else 'S',
+                    f'botpr:{pr["bot"]}',
+                    [f'{pr["bot"]} opened {pr["url"]} on branch {branch}. Bring its change in first: `git fetch origin {branch} '
+                     '&& git diff HEAD...FETCH_HEAD | git apply --3way --index`, run the check and fix what breaks. When its '
+                     'change is already on the base or no longer wanted, change nothing and say why (a person then closes it '
+                     'with `tutti autofix close <id> "<why>"`). Tutti closes the pull request once your result is merged.'],
+                    pr['url'], ['prs'], 8))
+    for i in scan.get('issues') or []:
+        out.append((f'Resolve bot issue: {i["title"][:200]} (#{i["number"]})', 'S', f'botissue:{i["bot"]}',
+                    [f'{i["bot"]} opened {i["url"]}: {i["body"]}',
+                     'Find the cause (a failing workflow, a broken link or url, a crash report, a stale file) and fix it, then '
+                     'run the check. When it is already fixed or no longer applies, change nothing and say why. Tutti closes '
+                     'the issue with a comment once your result is merged.'],
+                    i['url'], ['issues'], 9))
     return out
 
 
 def _queue(cfg, data, name, scan):
-    from . import autofix  # a review or security task starts as the admin's autofix.level says (a suggestion, or queued)
+    from . import autofix  # a task of ours starts as the admin's level says (a suggestion, or queued; bots at off: none)
     check = cfg['autopilot']['repos'][name].get('check') or ''
+    greens = {p['url']: p for p in (scan.get('prs') or []) + (scan.get('bot_prs') or []) if p.get('green')}
     live, events = set(), []
     for title, size, source, notes, ref, kinds, rank_ in tasks_for(name, scan, check, settings(cfg).get('group_trivial', True)):
         live.add((name, ref))
         new = backlog.new_task(name, title, (), check, size, source, notes)
+        if autofix.level_for(cfg, new) == 'off':
+            continue
         if autofix.is_autofix(new):
-            new['status'] = autofix.new_status(cfg)
+            new['status'] = autofix.new_status(cfg, new)
         task, added = backlog.add(data, {**new, 'depbot_ref': ref, 'depbot_src': kinds, 'rank': rank_})
         if added:
             events.append(f'depbots: {"suggested" if task["status"] == "candidate" else "queued"} {task["id"]} {title}')
         elif task['status'] in ('queued', 'candidate'):
             task['notes'] = notes   # the group's member list follows the open pull requests
             task.setdefault('rank', rank_)   # a rank the owner set (Priority up/down) stays
+        if task['status'] in ('queued', 'candidate'):
+            task['bot_green'] = ref in greens   # green now: at full merged as it is (autofix.green_round)
+            task['bot_head'] = (greens.get(ref) or {}).get('head') or ''
+    if scan.get('dupes') and autofix.bots_level(cfg) not in ('off', 'suggest'):
+        st = autofix.read_state(cfg)   # under the backlog's lock (apply's caller holds it)
+        for url, kept in scan['dupes'].items():
+            if url not in (st.get('to_close') or {}):
+                st.setdefault('to_close', {})[url] = f'a duplicate of {kept}, which stays open until it is resolved'
+                events.append(f'depbots: {url} is a duplicate of {kept}; closed at the next round')
+        autofix.write_state(cfg, st)
     return live, events
 
 

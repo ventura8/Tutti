@@ -263,6 +263,13 @@ FIELDS = {
     'autofix.triage_scout': field('Triage scout', 'Optional: a scout (Grok Bot) that triages each review or security task '
                                   'before its first attempt; empty: Tutti works without one.', 'text'),
     'autofix.notify': field('Tell me', 'A new item that needs you goes to your "Needs attention" chat.', 'switch'),
+    'autofix.bots_level': field('Bots\' issues and pull requests', 'The same choice for every bot-authored issue and pull '
+                                'request (Dependabot, Renovate, cursor[bot], github-actions, Sentry, refresh and release bots): '
+                                'off; suggest; fix (the default: resolved and landed by the repo\'s land; a green one at full '
+                                'is merged as it is); full_until_review; full. Duplicates and obsolete ones are closed with a '
+                                'reason (docs/AUTOFIX.md).', 'select', choices=['off', 'suggest', 'fix', 'full_until_review', 'full']),
+    'autofix.bot_authors': field('Bot accounts', 'Plain GitHub logins that are bots too (any [bot] or app/ login already is).',
+                                 'list'),
     'autopilot.repos.*.release': field('Release command', 'Run from the repo after a review or security fix is merged '
                                        '(autofix.level full or full_until_review); empty: never released by itself.', 'text'),
     'autopilot.max_attempts': field('Most attempts', 'A task is parked after this many attempts in all.', 'number', min=1, unit='attempts'),

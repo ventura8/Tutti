@@ -72,10 +72,13 @@ DEFAULTS = {
     # autofix: how far review and security tasks go by themselves (tutti/autofix.py, docs/AUTOFIX.md): level suggest, fix
     # (the default), full_until_review (stops for a person's final approval, then merges and releases) or full; reviews:
     # open review threads of the reviewers (and, with humans, people with write access) become tasks; triage_scout: a scout
-    # that triages each one first; notify: new items for a person go to the owner's "Needs attention" chat
+    # that triages each one first; notify: new items for a person go to the owner's "Needs attention" chat; bots_level: the
+    # same choice (or off) for the bots' issues and pull requests (dependency bumps, refresh and release bots, cursor[bot],
+    # failing-workflow and Sentry issues), on at fix by default; bot_authors: plain logins that are bots too
     'autofix': {'level': 'fix', 'reviews': True, 'humans': True,
                 'reviewers': ['coderabbitai[bot]', 'greptile-apps[bot]', 'copilot-pull-request-reviewer[bot]', 'Copilot', 'cursor[bot]'],
-                'triage_scout': '', 'notify': True},
+                'triage_scout': '', 'notify': True, 'bots_level': 'fix',
+                'bot_authors': ['dependabot[bot]', 'renovate[bot]', 'cursor[bot]', 'github-actions[bot]', 'sentry-io[bot]']},
     # pacing: the owner's own prompting (tutti/owner.py): the weekly schedule that seeds the learned weekday x hour profile
     # (days, hours of the reserve window, the local window, points per owner hour, the UTC offset; None: this computer's),
     # the mode (auto, active, away, vacation-until-YYYY-MM-DD), the owner hours with no rise after which auto says away,

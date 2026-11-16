@@ -6,11 +6,12 @@ import subprocess
 import time
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 import tmpdirs
 import yaml
 
-from tutti import config, failovercmd, selfheal, settings
+from tutti import config, failovercmd, procs, selfheal, settings
 
 
 def done(rc=0, out=''):
@@ -255,6 +256,35 @@ class RoundTest(unittest.TestCase):
         self.assertEqual((last, ran), (now, [1]))
         self.assertEqual(failovercmd.heal(cfg, [], last, now + 10, lambda c: ran.append(1) or []), now)   # not due yet
         self.assertEqual(selfheal.view(cfg, now=time.time())['items'][0]['check'], 'state')
+
+    def test_a_stray_is_reaped_within_one_round_of_the_service(self):
+        cfg = make()
+        self.assertIn('strays', dict(selfheal.LOOP_CHECKS))
+        stopped = 'stopped keep-awake 4242: its test run is gone'
+        with mock.patch.object(procs, 'daemons_allowed', return_value=True), \
+                mock.patch.object(procs, 'reap', lambda log: [stopped]), \
+                mock.patch.object(selfheal, 'LOOP_CHECKS', (('strays', selfheal.check_strays),)):
+            failovercmd.heal(cfg, [], 0.0, time.time(), start=lambda fn: fn())
+        v = selfheal.view(cfg, now=time.time())
+        self.assertEqual((v['today'], v['items'][0]['check']), (1, 'strays'))
+
+    def test_the_service_loop_ends_when_its_code_changes_so_systemd_starts_the_new_code(self):
+        stamps, slept = iter([1.0, 1.0, 2.0]), []
+        with mock.patch.object(failovercmd, 'one_round', return_value=[]) as rounds, \
+                mock.patch.object(failovercmd, 'heal', return_value=0.0):
+            self.assertEqual(failovercmd.loop(make(), sleep=slept.append, stamp=lambda: next(stamps), restart=lambda: 'restarted'),
+                             'restarted')
+        self.assertEqual((len(slept), rounds.call_count), (1, 1))   # no round on the old code after the change
+        d = tmpdirs.mkdtemp()
+        os.makedirs(os.path.join(d, 'web'))
+        with open(os.path.join(d, 'web', 'app.js'), 'w', encoding='utf8') as f:
+            f.write('x')
+        os.utime(os.path.join(d, 'web', 'app.js'), (5.0, 5.0))
+        self.assertEqual(failovercmd.code_stamp(d), 5.0)   # a subfolder's file counts
+        self.assertEqual(failovercmd.code_stamp('/nonexistent-folder'), 0.0)
+        with mock.patch.object(failovercmd, 'one_round', return_value=[]), mock.patch.object(failovercmd, 'heal', return_value=0.0):
+            stamps = iter([1.0, 2.0])
+            self.assertEqual(failovercmd.loop(make(), stamp=lambda: next(stamps)), failovercmd.RESTART_CODE)
 
     def test_config_errors(self):
         self.assertEqual(selfheal.errors({'selfheal': {'every_seconds': 600}}), [])

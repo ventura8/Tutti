@@ -6,6 +6,16 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.2 (2026-11-16)
+
+### Fixed
+
+- The self-heal loop now really reaps strays (t124): the failover service kept the code it started with, so a service
+  started before 0.16.1 never ran the `strays` check, and 76 device-claim loops pushed the laptop's load to 70. The
+  service now exits with code 75 when any file of Tutti's code changes, and systemd starts it on the new code.
+- `tutti test`, routed and local checks (`ship`, `run --check`, the autopilot's acceptance check) set
+  `TUTTI_NO_DAEMONS=1` on the command itself, so an old branch's tests (before 0.16.1) can no longer start helper loops.
+
 ## 0.16.1 (2026-11-15)
 
 ### Fixed

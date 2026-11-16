@@ -545,11 +545,19 @@ def device_wrap(device, command):
     return f'mkdir -p "$(dirname {lock})" && env ANDROID_SERIAL={serial} SLOT_LOCKS={lock} MIN_FREE_GB=0 bash {{slot}} env {command}'
 
 
+def no_daemons(command):
+    """A test or check never leaves Tutti's helper loops behind: TUTTI_NO_DAEMONS (tutti/procs.py) is set on the command
+    itself (one word list, so it also follows a device's `env` and slot lock), so it reaches a container runner too, and
+    an old branch's tests (before 0.16.1 set it) start none (t124)."""
+    return f'env TUTTI_NO_DAEMONS=1 bash -c {shlex.quote(command)}'
+
+
 def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, holds=()):
     """Runs `command` over the tree on the machine, behind its slot queue, after the steps it needs first (test.prepare).
     With `device` the command also holds that Android device's lock and gets ANDROID_SERIAL. With `out` (a job log) the
     output goes there too. Returns the command's exit code."""
     command = routing.prepare(command, (cfg.get('test') or {}).get('prepare'))
+    command = no_daemons(command)
     slot = slot_prefix(machine)
     export, mount = inputs_env(inputs)
     if device:

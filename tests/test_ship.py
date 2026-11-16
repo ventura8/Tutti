@@ -138,6 +138,13 @@ class ShipTest(unittest.TestCase):
         self.assertIn('export TUTTI_CHANGED=b.txt', args[2])
         self.assertIn('export TUTTI_COMMIT=abc', args[2])
         self.assertTrue(args[2].endswith('echo ok'))
+        self.assertIn('export TUTTI_NO_DAEMONS=1', args[2])   # a check never starts a helper loop (t124)
+
+    def test_a_routed_test_or_check_runs_with_no_daemons(self):
+        self.assertEqual(ship.remote.no_daemons('a && b'), "env TUTTI_NO_DAEMONS=1 bash -c 'a && b'")
+        out = subprocess.run(['bash', '-c', 'env ' + ship.remote.no_daemons('echo "$TUTTI_NO_DAEMONS" && echo two')],
+                             capture_output=True, text=True).stdout   # after a device's `env` too
+        self.assertEqual(out, '1\ntwo\n')
 
 
 if __name__ == '__main__':

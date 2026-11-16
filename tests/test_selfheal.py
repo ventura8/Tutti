@@ -272,11 +272,21 @@ class RoundTest(unittest.TestCase):
     def test_the_service_loop_ends_when_its_code_changes_so_systemd_starts_the_new_code(self):
         from unittest import mock
         stamps, slept = iter([1.0, 1.0, 2.0]), []
-        with mock.patch.object(failovercmd, 'one_round', return_value=[]), mock.patch.object(failovercmd, 'heal', return_value=0.0):
-            self.assertEqual(failovercmd.loop(make(), sleep=slept.append, stamp=lambda: next(stamps)), 0)
-        self.assertEqual(len(slept), 1)
-        self.assertGreater(failovercmd.code_stamp(), 0)
+        with mock.patch.object(failovercmd, 'one_round', return_value=[]) as rounds, \
+                mock.patch.object(failovercmd, 'heal', return_value=0.0):
+            self.assertEqual(failovercmd.loop(make(), sleep=slept.append, stamp=lambda: next(stamps), restart=lambda: 'restarted'),
+                             'restarted')
+        self.assertEqual((len(slept), rounds.call_count), (1, 1))   # no round on the old code after the change
+        d = tmpdirs.mkdtemp()
+        os.makedirs(os.path.join(d, 'web'))
+        with open(os.path.join(d, 'web', 'app.js'), 'w', encoding='utf8') as f:
+            f.write('x')
+        os.utime(os.path.join(d, 'web', 'app.js'), (5.0, 5.0))
+        self.assertEqual(failovercmd.code_stamp(d), 5.0)   # a subfolder's file counts
         self.assertEqual(failovercmd.code_stamp('/nonexistent-folder'), 0.0)
+        with mock.patch.object(failovercmd.os, 'execv') as execv:
+            failovercmd.reexec()
+        self.assertEqual(execv.call_args.args[0], failovercmd.sys.executable)
 
     def test_config_errors(self):
         self.assertEqual(selfheal.errors({'selfheal': {'every_seconds': 600}}), [])

@@ -546,9 +546,9 @@ def device_wrap(device, command):
 
 
 def no_daemons(command):
-    """A test or check never leaves Tutti's helper loops behind: TUTTI_NO_DAEMONS (tutti/procs.py) is exported inside the
-    command itself, so it reaches a container runner too, and an old branch's tests (before 0.16.1 set it) start none (t124)."""
-    return f'export TUTTI_NO_DAEMONS=1; {command}'
+    """A test or check never leaves Tutti's helper loops behind: TUTTI_NO_DAEMONS (tutti/procs.py) is set on the command
+    itself (one word list, so it also follows a device's `env` and slot lock), so it reaches a container runner too, and an old branch's tests (before 0.16.1 set it) start none (t124)."""
+    return f'env TUTTI_NO_DAEMONS=1 bash -c {shlex.quote(command)}'
 
 
 def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, holds=()):

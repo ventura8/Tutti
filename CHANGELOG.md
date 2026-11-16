@@ -12,9 +12,9 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 - The self-heal loop now really reaps strays (t124): the failover service kept the code it started with, so a service
   started before 0.16.1 never ran the `strays` check, and 76 device-claim loops pushed the laptop's load to 70. The
-  service's loop now ends when Tutti's code changes and systemd starts it again on the new code.
-- `tutti test`, routed and local checks (`ship`, `run --check`, the autopilot's acceptance check) export
-  `TUTTI_NO_DAEMONS=1` inside the command, so an old branch's tests (before 0.16.1) can no longer start helper loops.
+  service now starts itself again in place (exec) when any file of Tutti's code changes.
+- `tutti test`, routed and local checks (`ship`, `run --check`, the autopilot's acceptance check) set
+  `TUTTI_NO_DAEMONS=1` on the command itself, so an old branch's tests (before 0.16.1) can no longer start helper loops.
 
 ## 0.16.1 (2026-11-15)
 

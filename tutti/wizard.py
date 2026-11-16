@@ -12,6 +12,7 @@ import os
 import re
 import socket
 import subprocess
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -46,6 +47,7 @@ INTEGRATIONS = {
     'discord': {'title': 'Discord', 'what': 'questions and finished work reach you in a channel'},
 }
 _PLUGINS = {}
+_LOCK = threading.RLock()   # wizard.json and the config: one step applied at a time in this process
 
 
 class WizardError(RuntimeError):
@@ -72,7 +74,14 @@ def progress(cfg):
 
 
 def mark(cfg, sid, how='done'):
-    """Records a step as done or skipped (a later apply of the step clears the skip)."""
+    """Records a step as done or skipped (a later apply of the step clears the skip). One writer at a time in this process
+    (the dashboard: two admins or two tabs); a terminal wizard running beside it may still lose a record, which only shows
+    the step as left to do again."""
+    with _LOCK:
+        return _mark(cfg, sid, how)
+
+
+def _mark(cfg, sid, how):
     p = progress(cfg)
     done, skipped = list(p.get('done') or []), list(p.get('skipped') or [])
     done, skipped = [s for s in done if s != sid], [s for s in skipped if s != sid]
@@ -397,14 +406,51 @@ def new_machine(found, name):
     return {'host': d['host'], 'slots': 1, 'heat': dict(config.HEAT_DEFAULT)}
 
 
-def apply_main(cfg, found, data, run, installer):
-    main, backup = str(data.get('main') or ''), str(data.get('backup') or 'auto')
+def text_of(data, key, default=''):
+    """A field that must be one string (a malformed POST is refused, never iterated)."""
+    v = data.get(key, default)
+    if v is None:
+        return default
+    if not isinstance(v, str):
+        raise WizardError(f'{key}: send one name as a string, not {type(v).__name__}')
+    return v
+
+
+def list_of(data, key):
+    """A field that must be a list of strings."""
+    v = data.get(key) or []
+    if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+        raise WizardError(f'{key}: send a list of names (strings), e.g. ["a", "b"]')
+    return v
+
+
+def check_main(cfg, found, main, backup):
+    """Every choice of the main step checked before anything is written."""
     if not main:
         raise WizardError('main: pick the machine that runs Tutti')
     if main == backup:
         raise WizardError(f'backup: {main} is already the main machine; pick another one, auto or none')
     adds = {n: new_machine(found, n) for n in (main, backup) if n not in ('auto', 'none') and n not in cfg['machines']}
+    for n in (main, backup):
+        m = cfg['machines'].get(n) or adds.get(n)
+        if m is not None and m.get('transport', 'ssh') in ('android', 'household'):
+            raise WizardError(f'{n} is a phone or another member\'s machine: the main and backup are your own computers')
+    return adds
+
+
+def apply_main(cfg, found, data, run, installer):
+    main, backup = text_of(data, 'main'), text_of(data, 'backup', 'auto') or 'auto'
+    adds = check_main(cfg, found, main, backup)
     said = []
+    try:
+        return main_steps(cfg, found, data, run, installer, main, backup, adds, said)
+    except WizardError as e:
+        if said:
+            raise WizardError(f'{e} (already applied: {"; ".join(said)}; apply the step again once it is fixed)') from e
+        raise
+
+
+def main_steps(cfg, found, data, run, installer, main, backup, adds, said):
     if adds:
         add_entries(cfg, 'machines', adds, 'tutti setup wizard')
         cfg = reload(cfg)
@@ -465,7 +511,7 @@ def apply_machines(cfg, found, data, run, installer):
             hours = quiet_hours(n, data[f'machines.{n}.quiet_hours'])
             if hours != (m.get('quiet_hours') or []):
                 edits.append((['machines', n, 'quiet_hours'], hours or yamledit.DELETE))
-    adds = {n: new_machine(found, n) for n in data.get('add') or [] if n not in cfg['machines']}
+    adds = {n: new_machine(found, n) for n in list_of(data, 'add') if n not in cfg['machines']}
     changed = edit_config(cfg, edits)
     if adds:
         add_entries(reload(cfg) if changed else cfg, 'machines', adds, 'tutti setup wizard')
@@ -510,25 +556,36 @@ def apply_accounts(cfg, found, data, run, installer):
     return ', '.join(said) and 'added ' + ', '.join(said) or 'nothing to change'
 
 
+def clone(run, nwo, dest, said):
+    """The project name of `nwo` cloned at `dest`; a folder already there must be that repository (its origin), never another."""
+    name = os.path.basename(dest)
+    if os.path.exists(dest):
+        r = run(['git', '-C', dest, 'remote', 'get-url', 'origin'], capture_output=True, text=True, check=False, timeout=30)
+        url = (r.stdout or '').strip().removesuffix('.git').rstrip('/') if r.returncode == 0 else ''
+        if not url.lower().endswith(('/' + nwo.lower(), ':' + nwo.lower())):
+            raise WizardError(f'clone: {dest} already exists and is not {nwo} (its origin: {url or "none"}): move it away or clone '
+                              f'{nwo} by hand, then pick it under the local repositories')
+        said.append(f'{nwo} already at {dest}')
+        return name
+    r = run(['gh', 'repo', 'clone', nwo, dest], capture_output=True, text=True, check=False, timeout=600)
+    if r.returncode != 0:
+        raise WizardError(f'clone: `gh repo clone {nwo}` failed ({(r.stderr or "").strip()[:160]}): run it in a terminal')
+    said.append(f'cloned {nwo}')
+    return name
+
+
 def apply_github(cfg, found, data, run, installer):
     local = {r['name']: r for r in found['repos']}
     remote = {r['repo']: r for r in found.get('remote_repos') or []}
-    pick = [n for n in data.get('projects') or [] if n in local]
-    clones = [r for r in data.get('clone') or [] if r in remote]
-    bad = [r for r in data.get('clone') or [] if r not in remote]
+    pick = [n for n in list_of(data, 'projects') if n in local]
+    asked = list_of(data, 'clone')
+    bad = [r for r in asked if r not in remote]
     if bad:
-        raise WizardError(f'clone: {", ".join(map(str, bad))} is not one of your GitHub repositories (`gh repo list`); check again')
+        raise WizardError(f'clone: {", ".join(bad)} is not one of your GitHub repositories (`gh repo list`); check again')
     said = []
     home = found.get('home') or os.path.expanduser('~')
-    for nwo in clones:
-        name = remote[nwo]['name']
-        dest = os.path.join(home, 'Projects', name)
-        if not os.path.exists(dest):
-            r = run(['gh', 'repo', 'clone', nwo, dest], capture_output=True, text=True, check=False, timeout=600)
-            if r.returncode != 0:
-                raise WizardError(f'clone: `gh repo clone {nwo}` failed ({(r.stderr or "").strip()[:160]}): run it in a terminal')
-            said.append(f'cloned {nwo}')
-        pick.append(name)
+    for nwo in asked:
+        pick.append(clone(run, nwo, os.path.join(home, 'Projects', remote[nwo]['name']), said))
     entries = {}
     for i, n in enumerate(dict.fromkeys(pick)):
         entries[n] = {'match': n, 'priority': local[n]['priority'] if n in local else len(local) + i}
@@ -560,8 +617,9 @@ def apply(cfg, found, sid, data, run=subprocess.run, installer=install_failover)
             raise WizardError(f'{TITLES[sid]} cannot be skipped')
         mark(cfg, sid, 'skipped')
         return f'{TITLES[sid]}: skipped (come back to it at any time)'
-    msg = APPLY[sid](cfg, found, data, run, installer) if sid in APPLY else 'done'
-    mark(cfg, sid)
+    with _LOCK:
+        msg = APPLY[sid](cfg, found, data, run, installer) if sid in APPLY else 'done'
+        mark(cfg, sid)
     return f'{TITLES[sid]}: {msg}'
 
 

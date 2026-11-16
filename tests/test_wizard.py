@@ -223,6 +223,31 @@ class Apply(Base):
             self.apply('github', {'clone': ['someone/lib']}, run=Ran(1))
         self.assertNotIn('lib', self.raw()['projects'])
 
+    def test_a_folder_already_there_must_be_the_chosen_repository(self):
+        os.makedirs(os.path.join(self.d, 'Projects', 'lib'))
+        with self.assertRaisesRegex(wizard.WizardError, 'already exists and is not someone/lib'):
+            self.apply('github', {'clone': ['someone/lib']}, run=lambda argv, **kw: SimpleNamespace(
+                returncode=0, stdout='git@github.com:other/lib.git\n', stderr=''))
+        self.assertNotIn('lib', self.raw()['projects'])
+        msg = self.apply('github', {'clone': ['someone/lib']}, run=lambda argv, **kw: SimpleNamespace(
+            returncode=0, stdout='https://github.com/someone/lib.git\n', stderr=''))
+        self.assertIn('already at', msg)
+        self.assertIn('lib', self.raw()['projects'])
+
+    def test_a_malformed_field_is_refused_never_iterated(self):
+        for sid, data, why in (('machines', {'add': 'spare'}, 'add: send a list'), ('github', {'projects': 'app'}, 'projects: send a list'),
+                               ('github', {'clone': [1]}, 'clone: send a list'), ('main', {'main': ['here']}, 'main: send one name')):
+            with self.subTest(data=data), self.assertRaisesRegex(wizard.WizardError, why):
+                self.apply(sid, data)
+
+    def test_a_failure_after_a_write_says_what_was_applied(self):
+        def broken(cfg, run):
+            raise wizard.WizardError('install: ssh refused')
+        with self.assertRaisesRegex(wizard.WizardError, 'already applied: .*backup main machine: builder'):
+            self.apply('main', {'main': 'here', 'backup': 'builder', 'install': True}, installer=broken)
+        self.assertEqual(self.raw()['failover']['backup'], 'builder')
+        self.assertNotEqual(self.step('main')['status'], 'done')
+
     def test_skip_review_and_resume(self):
         self.apply('welcome', {})
         self.assertIn('skipped', self.apply('devices', {'skip': True}))

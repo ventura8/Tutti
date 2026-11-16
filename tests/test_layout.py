@@ -29,7 +29,7 @@ class Order(unittest.TestCase):
             page = f.read()
         heads = re.findall(r'<h2 id="([a-z]+)-h">', page)
         self.assertEqual(heads, ['usage', 'machines', 'attention', 'household',
-                                 'running', 'queued', 'main', 'workers', 'autopilot', 'projects', 'scouts',
+                                 'running', 'queued', 'main', 'workers', 'autopilot', 'projects', 'security', 'scouts',
                                  'connect', 'where', 'setup', 'controls', 'selfimprove', 'aiassist', 'insights', 'jobs', 'vpn', 'users'])
 
     def test_usage_shows_the_accounts_then_local_models_then_the_owner(self):

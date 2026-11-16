@@ -125,3 +125,12 @@ class PrepTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TvGetsNoKeepAwakeKey(unittest.TestCase):
+    def test_the_keep_awake_loop_asks_leanback_and_skips_the_key_on_a_tv(self):
+        from tutti import prep
+        loop = prep.keep_awake({'name': 'googletv', 'serial': 'x:5555', 'adb': 'adb'})
+        self.assertIn('pm has-feature android.software.leanback', loop)
+        self.assertIn('[ $k = 0 ]', loop)
+        self.assertLess(loop.index('k=0'), loop.index('KEYCODE_UNKNOWN'))

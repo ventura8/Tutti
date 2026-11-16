@@ -909,8 +909,9 @@ def test_argv(cfg, lease, s, shard):
     command = deps.prefix(deps.for_suite(cfg, s['project'], s['name'])) + command   # declared needs installed first
     if s.get('runner') and lease['kind'] in DEVICE_KINDS:   # the suite runs on its runner machine, the devices over leases
         names = [lease['name'], *(lease.get('holds') or [])]
-        return [sys.executable, remote.BIN, '--config', cfg['_path'], 'devices', 'lease', *names, '--runner', s['runner'],
-                '--who', f'dispatch-{s["project"]}', '--', command]
+        # options before the names: argparse refuses a `-- <command>` after options that follow a nargs='*' positional
+        return [sys.executable, remote.BIN, '--config', cfg['_path'], 'devices', 'lease', '--runner', s['runner'],
+                '--who', f'dispatch-{s["project"]}', *names, '--', command]
     return [sys.executable, remote.BIN, '--config', cfg['_path'], 'test', '--dir', tree, *where, *holds, track, command]
 
 

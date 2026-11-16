@@ -19,7 +19,9 @@ class RunnerTest(unittest.TestCase):
         cfg = {'_path': '/c.yaml', 'project': {'state': '/tmp'}}
         s = {'project': 'RoRadio', 'name': 'cast', 'run': 'pwsh run-e2e.ps1 -Filter {shard}', 'runner': 'pc', 'dir': '/tmp'}
         argv = dispatch.test_argv(cfg, {'kind': 'android', 'name': 'pixeltablet', 'holds': ['googletv']}, s, 'TabletCastUITest')
-        self.assertEqual(argv[argv.index('lease') + 1:argv.index('--runner')], ['pixeltablet', 'googletv'])
+        self.assertEqual(argv[argv.index('--who') + 2:argv.index('--')], ['pixeltablet', 'googletv'])
+        from tutti import cli
+        self.assertEqual(cli.parser().parse_args(argv[argv.index('devices'):]).names[:2], ['pixeltablet', 'googletv'])
         self.assertEqual(argv[-1], 'pwsh run-e2e.ps1 -Filter TabletCastUITest')
         self.assertIn('pc', argv)
 

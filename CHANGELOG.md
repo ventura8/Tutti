@@ -16,6 +16,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   `TUTTI_DEVICE_CLASS` and `TUTTI_DEVICE_DENY`.
 - A phone's or tablet's rotation, screen timeout and screensaver are read before a run and put back after it
   (`value: keep` prep items), whatever the test changed them to.
+- `machines.<m>.dedicated`: a machine only the suites naming it use (never the work queue or an open suite), for a
+  Windows desktop's UI runs beside the same PC's container machine.
 - `shards_from` names join a suite's listed `shards`, which keep their own options (a TV-only class beside discovered ones).
 
 ### Changed

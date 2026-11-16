@@ -147,6 +147,12 @@ device_classes:
 
 A TV gets no keep-awake key either (0.21.1).
 
+## Dedicated machines
+
+`machines.<m>.dedicated: true` keeps a machine for the suites that name it under their `machines:` (for example a
+Windows desktop entry with a shell runner for one project's UI pipeline and emulators). The work queue never routes a
+job there, and a suite open to every machine never takes it. Give it `slots: 1` so its suites never overlap.
+
 A project can name a report file: `projects.<p>.report: {path, where}`. Each time a shard or a build ends, its results on
 the latest commit are written there as Markdown: the counts, the builds, and each failed shard with why and the end of its
 log. Put it where the project's own sessions read it.

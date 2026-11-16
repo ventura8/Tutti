@@ -98,5 +98,18 @@ class ShardsFrom(unittest.TestCase):
         self.assertEqual(list(st['projects']['P']['shards']), ['e2e/TvRemoteE2ETest'])
 
 
+class Dedicated(unittest.TestCase):
+    def test_a_dedicated_machine_takes_only_suites_that_name_it(self):
+        from tutti import workq
+        cfg = {'machines': {'win': {'dedicated': True}, 'nuc': {}}}
+        t = {'kind': 'machine', 'name': 'win'}
+        self.assertTrue(dispatch.dedicated_refuses(cfg, t, {'machines': None}))
+        self.assertFalse(dispatch.dedicated_refuses(cfg, t, {'machines': ['win']}))
+        self.assertFalse(dispatch.dedicated_refuses(cfg, {'kind': 'machine', 'name': 'nuc'}, {'machines': None}))
+        rows = [{'name': 'win', 'status': 'free', 'free': 1}]
+        cfg.update(routing={'order': []})
+        self.assertEqual(workq.assign(cfg, [{'name': 'j'}], rows, set(), None), [])
+
+
 if __name__ == '__main__':
     unittest.main()

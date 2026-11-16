@@ -219,6 +219,13 @@ def compatible(target, w):
     return not names or target['name'] in names
 
 
+def dedicated_refuses(cfg, target, w):
+    """A dedicated machine (machines.<m>.dedicated: a Windows desktop for one project's UI runs) takes only the suites that
+    name it under `machines`, never a suite open to every machine."""
+    m = (cfg.get('machines') or {}).get(target['name']) if target['kind'] == 'machine' else None
+    return bool(m and m.get('dedicated')) and target['name'] not in (w.get('machines') or [])
+
+
 def light_refused(cfg, target, w):
     """Why an Android device may not take this lint or unit shard ('' when it may): those are opt-in per device."""
     if target['kind'] != 'android' or w['kind'] not in LIGHT:
@@ -314,7 +321,8 @@ def ready_work(cfg, t, work, free, taken):
 def choices(cfg, t, pend, place, taken, free, on, quiet, best=0):
     """(the shards this target may start now, why it is blocked or ''); (None, '') when it has nothing to do (busy, or no
     compatible work). By measured power (tutti/power.py): a strong machine takes heavy shards first, a weak one light ones."""
-    work, why = staying(cfg, t, [w for w in pend if compatible(t, w) and (w['project'], w['key']) not in taken], place)
+    work, why = staying(cfg, t, [w for w in pend if compatible(t, w) and not dedicated_refuses(cfg, t, w)
+                                 and (w['project'], w['key']) not in taken], place)
     if not why and (t['busy'] or not work or t['id'] in taken):
         return None, ''
     why = why or blocked_by(cfg, t, work, on, quiet)

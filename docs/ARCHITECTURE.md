@@ -180,6 +180,26 @@ flowchart TD
     P -- skip --> O
 ```
 
+## All work through Tutti
+
+Every Claude Code session in the household, and every other main agent, does its work as a Tutti task (`tutti/intake.py`,
+`tutti/claudework.py`, [INTAKE.md](INTAKE.md)). A session claims a backlog task or schedules one for a Claude worker,
+leases the machine or device it uses, asks the owner through the needs queue and closes the task; the intake guard
+reads the autopilot repos' git and the leases and shows what no task explains.
+
+```mermaid
+flowchart LR
+    S[Claude Code session] -- MCP tools / CLI --> B[(backlog)]
+    S -- backlog_claim --> C[claimed task]
+    S -- lease_claim --> L[(session leases)]
+    S -- ask_owner --> N[needs queue] -- answer --> C
+    S -- claude_task --> W[claude -p in a worktree, paced] --> R[autopilot collect: branch, PR, review policy]
+    C -- commits name t123 --> G[git of the autopilot repos]
+    G --> I{intake guard}
+    L --> I
+    I -- no task explains it --> D[dashboard: Work outside Tutti]
+```
+
 ## How `tutti test <track> '<cmd>'` flows
 
 1. The config gives the routing order. Machines are probed lazily, in order: free slots, load, cores, yield flag.

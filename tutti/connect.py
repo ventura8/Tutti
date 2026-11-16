@@ -29,6 +29,9 @@ GUIDE = """Tutti (local orchestrator) is connected as the MCP server `tutti`.
   your own pace, offload more.
 - Queue work for later with `backlog_add`; run tests on another machine or an Android device with `test_on`; ask a scout
   with `scout_ask`; `away_mode` sets the owner's mode.
+- All household work goes through Tutti: before working by hand, `backlog_add` or find the task and `backlog_claim` it; name
+  its id (t123) in every commit; `lease_claim` a machine or device for it; `ask_owner` for what only the owner decides;
+  `claude_task` for Claude-only work (browser, judgement); `backlog_complete` when done. `outside_work` shows the gaps.
 - Without MCP, the same in a shell: `tutti run auto "<task>" --repo <dir> --bg`, `tutti wait run <id>`, `tutti usage`."""
 
 SKILL = f"""---
@@ -581,8 +584,22 @@ def status_line(r):
     return line + (f'\n  note: {r["soft"]}' if r.get('soft') else '') + '\n'
 
 
+def connect_repo(a, out):
+    """`tutti connect --repo <path>`: the "all work goes through Tutti" section in the repo's AGENTS.md (docs/INTAKE.md)."""
+    from . import intake
+    try:
+        path, changed = intake.connect_repo(os.path.abspath(os.path.expanduser(a.repo)))
+    except intake.IntakeError as e:
+        sys.stderr.write(f'tutti: {e}\n')
+        return 2
+    out.write(f'{path}: {"the Tutti section added; commit it" if changed else "already has the Tutti section"}\n')
+    return 0
+
+
 def cmd(cfg, a, out=None):
     out = out or sys.stdout
+    if isinstance(getattr(a, 'repo', None), str) and a.repo:
+        return connect_repo(a, out)
     names = resolve(['all'] if a.all or not a.agent else [a.agent])
     if a.status or a.test:
         rows = status_all(cfg_path=cfg['_path']) if a.agent is None else [heal(status(n), cfg_path=cfg['_path']) for n in names]

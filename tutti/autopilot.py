@@ -229,6 +229,9 @@ def _candidates(cfg, t, over='', machines=()):
     another machine's model. A local model only with file scope and a model that fits the task's kind and size."""
     from . import fleet
     steps = ladder(cfg)
+    kind, _, who = (t.get('pin') or '').partition(':')
+    if kind == 'worker':   # `tutti run claude` (tutti/claudework.py): only the accounts whose worker that is, ladder or not
+        return [n for n in dict.fromkeys([*steps, *cfg['accounts']]) if (step_of(cfg, n) or {}).get('worker') == who]
     if (settings(cfg)['repos'].get(t['repo']) or {}).get('spare'):
         # another member's project, adopted for spare room (accounts.<n>.share_spare): only the accounts whose room would
         # otherwise be lost at their reset (docs/HOUSEHOLD.md)
@@ -254,8 +257,8 @@ def _candidates(cfg, t, over='', machines=()):
 
 def pinned(cfg, t, names):
     """An admin's move to a machine (tutti/jobmove.py): only the steps whose worker runs there, when any does."""
-    pin = (t.get('pin') or '').partition(':')[2]
-    if not pin:
+    kind, _, pin = (t.get('pin') or '').partition(':')
+    if not pin or kind == 'worker':
         return names
     return [n for n in names if on_machine(cfg, n) == pin]   # none there: it waits (jobmove refuses such a move)
 

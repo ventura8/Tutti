@@ -20,8 +20,9 @@ FILE = 'backlog.json'
 SIZES = {'S': 1, 'M': 2, 'L': 3}   # what a task costs in bounded-task units of an account's room
 # queued: waits for a worker; running: a run works on it; review: passed its check, a person reviews it; needs-person: parked
 # (no progress, or too many attempts); done: accepted; dropped: removed from the queue but kept for the record; candidate: a
-# suggestion (a scout's Sentry triage while self-improvement is off) that waits for `tutti backlog accept <id>`
-STATUSES = ('candidate', 'queued', 'running', 'review', 'needs-person', 'done', 'dropped')
+# suggestion (a scout's Sentry triage while self-improvement is off) that waits for `tutti backlog accept <id>`; claimed: a
+# session (a Claude Code window, a person's agent) works on it by hand through `tutti backlog claim` (docs/INTAKE.md)
+STATUSES = ('candidate', 'queued', 'claimed', 'running', 'review', 'needs-person', 'done', 'dropped')
 OPEN = ('queued', 'running')
 TODO_RX = r'\b(TODO|FIXME)\(([A-Za-z0-9_.@-]+)\):?\s*(.*)'
 TODO_ERE = r'(TODO|FIXME)\([A-Za-z0-9_.@-]+\)'   # the same for git grep -E

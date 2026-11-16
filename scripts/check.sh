@@ -4,19 +4,38 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export TUTTI_TELEMETRY=off   # the smoke runs below are not usage: record nothing
 export TUTTI_OFFLINE=1      # nothing here asks GitHub (the releases-stuck check, tutti/stuck.py)
+
+# Ensure we use the Python interpreter with Playwright installed.
+# The acceptance command sets PATH to include ~/.local/bin, but we explicitly prefer it if available.
+if [ -x "$HOME/.local/bin/python3" ]; then
+    export PYTHON="$HOME/.local/bin/python3"
+else
+    # Fallback to project venv or system python. Prefer venv if available.
+    for py in "venv/bin/python" ".venv/bin/python"; do
+        if [ -x "$py" ]; then
+            export PYTHON="$py"
+            break
+        fi
+    done
+    # If still no specific interpreter found, use system python3 (which might have playwright installed in CI)
+    if [ -z "${PYTHON:-}" ]; then
+        export PYTHON="python3"
+    fi
+fi
+
 shellcheck scripts/*.sh install/*.sh
 if command -v ruff > /dev/null; then ruff check . bin/tutti; else echo "ruff is not installed here: skipped (CI runs it)"; fi
 # its own temp folder, removed at the end: a test's leftovers never reach /tmp (tests/run.py fails a test that leaves any)
 TMPDIR="$(mktemp -d)"
 export TMPDIR
 trap 'rm -rf "$TMPDIR"' EXIT
-XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.env
+XDG_CONFIG_HOME="$(mktemp -d)" $PYTHON tests/run.py   # never the owner's grok.env
 # the dashboard in a real browser, every tab: layout, accessibility, roles (docs/TESTING.md, *Browser tests*). A hard gate:
 # Playwright and axe come from requirements-dev.txt; the browser is fetched once (on CI with its system libraries).
-if [ -n "${CI:-}" ]; then python3 -m playwright install --with-deps chromium > /dev/null; else python3 -m playwright install chromium > /dev/null; fi
-XDG_CONFIG_HOME="$(mktemp -d)" PYTHONPATH=tests python3 -m unittest discover -s tests/e2e
+if [ -n "${CI:-}" ]; then $PYTHON -m playwright install --with-deps chromium > /dev/null; else $PYTHON -m playwright install chromium > /dev/null; fi
+XDG_CONFIG_HOME="$(mktemp -d)" PYTHONPATH=tests $PYTHON -m unittest discover -s tests/e2e
 # smoke: the example config is valid and the commands that need no machine answer
-t="python3 bin/tutti --config tutti.config.example.yaml"
+t="$PYTHON bin/tutti --config tutti.config.example.yaml"
 $t config
 $t usage --at 2026-01-08T00:00Z > /dev/null
 $t usage page-script cursor > /dev/null

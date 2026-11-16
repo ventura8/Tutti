@@ -470,7 +470,7 @@ class Client:
             return refuse(f'{run_id!r} is not a run id')
         argv = [sys.executable, remote.BIN, '--config', self.cfg['_path'], *tail]
         p = self.popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True, errors='replace',
-                       env={**os.environ, 'TUTTI_LOCAL': '1', 'TUTTI_BACKGROUND': '1'})
+                       env={**os.environ, 'TUTTI_LOCAL': '1', 'TUTTI_BACKGROUND': 'job'})
         if run_id:
             self.running[run_id] = p.pid
         for line in p.stdout:

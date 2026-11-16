@@ -2,6 +2,7 @@
 escalation ladder), failure signatures and parking, the retry brief, and whole rounds against a throwaway repository with a
 fake worker. Nothing leaves the temp folder; no real machine or account is used."""
 import os
+import io
 import subprocess
 import sys
 import tempfile
@@ -492,6 +493,22 @@ class DelegateCheckTest(Base):
         self.assertEqual(delegate.chosen_checks(cfg, self.tmp.name, None)[0], [{'run': 'false'}])
         a = cli.parser().parse_args(['run', 'agy', 't', '--repo', '.', '--check', 'bash scripts/check.sh'])
         self.assertEqual((a.check, a.check_where), (['bash scripts/check.sh'], 'local'))
+
+    def test_run_repo_timeout_moves_foreground_run_to_background(self):
+        cfg = self.cfg()
+        repo = os.path.join(self.tmp.name, 'repo')
+        os.makedirs(repo)
+        a = cli.parser().parse_args(['run', 'agy', 't', '--repo', repo])
+        self.assertEqual(a.timeout, 60)
+        with mock.patch.object(cli.delegate, 'new_id', return_value='1-2'), \
+                mock.patch.object(cli, 'run_in_background', return_value=0), \
+                mock.patch.object(cli, 'cmd_wait', return_value=124) as wait, \
+                mock.patch('sys.stderr', new_callable=io.StringIO) as err:
+            rc = cli.cmd_run(cfg, a)
+        self.assertEqual(rc, 0)
+        self.assertEqual(a.id, '1-2')
+        self.assertEqual(wait.call_args.args[1].target, '1-2')
+        self.assertIn('left in the background', err.getvalue())
 
 
 if __name__ == '__main__':

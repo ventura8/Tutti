@@ -6,6 +6,15 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Fixed
+
+- `tutti run --repo` no longer has to block until completion in the foreground: it now accepts `--timeout` (seconds, default 60).
+  When that wait is exceeded, the run is left in the background with a run id and can be followed with `tutti wait run <id>`.
+- Background run classification now uses Tutti's explicit marker (`TUTTI_BACKGROUND=job`) instead of any ambient
+  `TUTTI_BACKGROUND`, so interactive `tutti test` runs keep their target records stable even when that env var is present.
+
 ## 0.10.1 (2026-11-15)
 
 ### Security

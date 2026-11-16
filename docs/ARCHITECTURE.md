@@ -13,6 +13,7 @@ coordinator (docs/HOUSEHOLD.md), and only when several people share machines and
                             +-- ship     ship.py: format, commit, checks (local or routed), push, deploy
                             +-- usage    pacing.py: windows, targets, verdicts; a JSON-lines log
                             +-- run      workers.py: the brief, then cursor-agent / agy / claude
+                            |            cli.py: --repo may detach and wait up to --timeout before leaving the run in background
                             |            delegate.py (--repo): worktree, headless worker, diff, routed checks, report
                             +-- pr       review.py: request reviewers, detect none coming, local fallback review via gh
                             +-- ask, code, agent, translate    local.py, translate.py: Ollama's HTTP API
@@ -41,7 +42,7 @@ coordinator (docs/HOUSEHOLD.md), and only when several people share machines and
 | `tutti/conduct.py` | `tutti conduct`, `tutti main`, `tutti handoff`: the main agent's choice and order, the instruction file, the `tutti` shim on its PATH, the watch (panic, limit, switch), the handoff note, the local model's command loop. |
 | `tutti/projects.py` | The dashboard's projects: a folder's repository from its `.git` files, jobs tagged by project, a read-only look at every machine's processes in git repositories and its GPU, a WSL machine's Windows side over plain ssh. |
 | `tutti/state.py` | The dashboard's state as plain data: accounts and pacing, machines, workers, jobs, the summary. Probes are passed in. |
-| `tutti/delegate.py` | `tutti run --repo` and `tutti runs`: the worktree, the headless worker, the diff, the checks (never stopping at the first failure), DENIED tool calls, the coverage note and the report. |
+| `tutti/delegate.py` | `tutti run --repo` and `tutti runs`: the worktree, the headless worker, the diff, the checks (never stopping at the first failure), DENIED tool calls, the coverage note and the report; `cli.py` handles the foreground timeout and background handoff. |
 | `tutti/review.py` | `tutti pr review`: asking Copilot and CodeRabbit through `gh`, reading their answers and limits, skipping a reviewer whose account reads 100 % until its reset, the local fallback review posted as a comment. `gh` is passed in for tests. |
 | `tutti/helper.py` | The reading helper: the per-install key, the bookmarklet page (`/helper`) and the page script for an orchestrator's browser tool; the parser both use is `tutti/web/helper-parse.js`, the bookmarklet's wrapper `tutti/web/helper-bookmarklet.js`. |
 | `tutti/releases.py` | A project's open pull requests (`projects.<n>.repo`, through gh): a release in progress first, CI and review state, cached per repository. |

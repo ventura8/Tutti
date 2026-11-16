@@ -306,7 +306,8 @@ def test_job(cfg, a, machine, device, src, command):
     target = f'machine:{machine["name"]}' + (f' device:{device["name"]}' if device else '')
     if os.environ.get('TUTTI_HH_JOB'):   # a household member's job this owner's Tutti runs: the member's demand, not ours
         target += ' class:member'
-    if os.environ.get('TUTTI_BACKGROUND'):   # started by the autopilot: background demand on a household's shared machine
+    # Only Tutti-started background runs mark demand class; ignore ambient shell vars from the caller.
+    if os.environ.get('TUTTI_BACKGROUND') == 'job':
         target += ' class:background'
     return transfer.Job(cfg, f'test {a.track} on {on}: {" ".join(command)}'[:200], folder='devices' if device else 'tests',
                         target=target, spec={'kind': 'test', 'track': a.track, 'device': bool(device), 'args': args})
@@ -528,6 +529,8 @@ def cmd_run(cfg, a):
     if a.show:
         print(workers.brief(cfg, a.task, a.files))
         return 0
+    if a.repo and not a.bg and not a.id and a.timeout > 0:
+        return run_with_timeout(cfg, a, extra)
     if bridge.jobs_machine(cfg) and not a.input:
         return run_on_jobs_machine(cfg, a, extra)
     if a.repo:
@@ -594,12 +597,28 @@ def run_worker(cfg, a, extra):
     return rc
 
 
+def run_with_timeout(cfg, a, extra):
+    """`tutti run --repo` in foreground with a wait cap: the run starts detached and keeps running after the timeout."""
+    run_id = a.id or delegate.new_id(cfg)
+    a.id = run_id
+    rc = run_in_background(cfg, a, extra)
+    if rc != 0:
+        return rc
+    wait = argparse.Namespace(kind='run', target=run_id, pattern=None, timeout=a.timeout, poll=2, stall=None, stall_file=None)
+    rc = cmd_wait(cfg, wait)
+    if rc == 124:
+        say(f'run {run_id}: still running after {a.timeout:g} s; left in the background (tutti wait run {run_id})')
+        return 0
+    return rc
+
+
 def run_in_background(cfg, a, extra):
     """`tutti run ... --bg`: the same run, detached, its output in the run's log; prints the id and the wait line at once."""
-    run_id = delegate.new_id(cfg)
+    run_id = a.id or delegate.new_id(cfg)
     p = delegate.paths(cfg, run_id)
     argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', a.worker, a.task, *a.files, '--id', run_id]
     argv += ['--repo', a.repo] if a.repo else []
+    argv += ['--timeout', '0']
     argv += [f'--extra={x}' for x in extra]
     argv += [flag for flag, on in (('--no-checks', a.no_checks), ('--discard', a.discard)) if on]
     argv += ['--track', a.track] if a.track else []
@@ -1491,6 +1510,8 @@ def parser():
                                   'a report (tutti runs show <id>)')
     s.add_argument('--track', help='with --repo: reuse or create the worktree <delegate.prefix><track> instead of a new one')
     s.add_argument('--bg', action='store_true', help='with --repo: run detached; prints the id for `tutti wait run <id>`')
+    s.add_argument('--timeout', type=float, default=60,
+                   help='with --repo and no --bg: wait this many seconds, then leave the run in background (0: wait until done)')
     s.add_argument('--no-checks', action='store_true', help='with --repo: skip the checks (the report says nothing was tested)')
     s.add_argument('--discard', action='store_true', help='with --repo: remove a new worktree after the report (the diff file stays)')
     s.add_argument('--check', action='append', metavar='CMD',

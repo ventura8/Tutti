@@ -284,7 +284,8 @@ class DeviceRunTest(unittest.TestCase):
                                 env={**self.env, **kw}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     def test_the_command_gets_the_serial_and_a_job_record(self):
-        p = self.tutti('test', '--device', 'pixel', '--', 'echo serial=$ANDROID_SERIAL')
+        # A caller's ambient env must not reclassify this interactive run as background.
+        p = self.tutti('test', '--device', 'pixel', '--', 'echo serial=$ANDROID_SERIAL', TUTTI_BACKGROUND='1')
         out, err = p.communicate(timeout=60)
         self.assertEqual(p.returncode, 0, err)
         self.assertIn('serial=R58', out)

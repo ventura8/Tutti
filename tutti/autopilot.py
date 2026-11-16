@@ -618,9 +618,9 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
     if jobs:   # the repositories and the workers' sign-ins are on another computer (docs/MOVE.md): the run happens there
         argv = [*argv[:4], 'bridge', 'exec', jobs, '--id', run_id, '--', *argv[4:]]
     with open(p['log'], 'a', encoding='utf8') as log:
-        # TUTTI_BACKGROUND: its runs on a household's shared machines are background demand (docs/HOUSEHOLD.md)
+        # TUTTI_BACKGROUND=job: its runs on a household's shared machines are background demand (docs/HOUSEHOLD.md)
         child = spawn(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True,
-                      env={**os.environ, 'TUTTI_BACKGROUND': '1'})
+                      env={**os.environ, 'TUTTI_BACKGROUND': 'job'})
     with open(p['pid'], 'w', encoding='utf8') as f:
         f.write(f'{child.pid}\n')
     # the repo's gates this attempt runs (acceptance holds them): a result lands only when they are today's (tutti/fill.py)

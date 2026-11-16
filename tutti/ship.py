@@ -123,6 +123,7 @@ def shell(top, command, env):
     the process environment: on Windows `bash` is often WSL, which does not inherit the Windows process environment.
     Exported, not prefixed: `K=v echo "$K"` expands $K before the assignment applies, so a check read it empty. The line
     goes through remote.argv, which sends it base64-encoded on Windows (WSL's bash.exe mangled its quotes)."""
+    env = {**(env or {}), 'TUTTI_NO_DAEMONS': '1'}   # a check never starts a helper loop (tutti/procs.py, t124)
     if env:
         exports = '; '.join(f'export {k}={shlex.quote(str(v))}' for k, v in env.items())
         command = f'{exports}; {command}'

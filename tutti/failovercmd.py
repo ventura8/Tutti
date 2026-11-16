@@ -166,9 +166,23 @@ def _thread(fn):
     return t
 
 
-def loop(cfg, stop=None, sleep=time.sleep):
-    healthy_since, healed = None, 0.0
+def code_stamp(folder=None):
+    """The newest change time of Tutti's own code: a self-update (or a fast-forward of the install tree) changes it."""
+    folder = folder or os.path.dirname(os.path.abspath(__file__))
+    try:
+        return max(os.path.getmtime(os.path.join(folder, n)) for n in os.listdir(folder) if n.endswith('.py'))
+    except (OSError, ValueError):
+        return 0.0
+
+
+def loop(cfg, stop=None, sleep=time.sleep, stamp=code_stamp):
+    """The service's rounds. When Tutti's code changes under it the loop ends, and systemd (Restart=always) starts the new
+    code: a service that ran on for days kept the old code in memory and never ran checks added since (t124)."""
+    healthy_since, healed, started = None, 0.0, stamp()
     while not (stop and stop()):
+        if stamp() != started:
+            say('failover: Tutti\'s code changed (an update): the service starts again on the new code')
+            return 0
         try:
             lines = one_round(cfg, healthy_since=healthy_since)
             healed = heal(cfg, lines, healed, time.time())

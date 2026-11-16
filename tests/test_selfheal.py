@@ -256,6 +256,28 @@ class RoundTest(unittest.TestCase):
         self.assertEqual(failovercmd.heal(cfg, [], last, now + 10, lambda c: ran.append(1) or []), now)   # not due yet
         self.assertEqual(selfheal.view(cfg, now=time.time())['items'][0]['check'], 'state')
 
+    def test_a_stray_is_reaped_within_one_round_of_the_service(self):
+        from unittest import mock
+        from tutti import procs
+        cfg = make()
+        self.assertIn('strays', dict(selfheal.LOOP_CHECKS))
+        stopped = 'stopped keep-awake 4242: its test run is gone'
+        with mock.patch.object(procs, 'daemons_allowed', return_value=True), \
+                mock.patch.object(procs, 'reap', lambda log: [stopped]), \
+                mock.patch.object(selfheal, 'LOOP_CHECKS', (('strays', selfheal.check_strays),)):
+            failovercmd.heal(cfg, [], 0.0, time.time(), start=lambda fn: fn())
+        v = selfheal.view(cfg, now=time.time())
+        self.assertEqual((v['today'], v['items'][0]['check']), (1, 'strays'))
+
+    def test_the_service_loop_ends_when_its_code_changes_so_systemd_starts_the_new_code(self):
+        from unittest import mock
+        stamps, slept = iter([1.0, 1.0, 2.0]), []
+        with mock.patch.object(failovercmd, 'one_round', return_value=[]), mock.patch.object(failovercmd, 'heal', return_value=0.0):
+            self.assertEqual(failovercmd.loop(make(), sleep=slept.append, stamp=lambda: next(stamps)), 0)
+        self.assertEqual(len(slept), 1)
+        self.assertGreater(failovercmd.code_stamp(), 0)
+        self.assertEqual(failovercmd.code_stamp('/nonexistent-folder'), 0.0)
+
     def test_config_errors(self):
         self.assertEqual(selfheal.errors({'selfheal': {'every_seconds': 600}}), [])
         self.assertEqual(len(selfheal.errors({'selfheal': {'every_seconds': 5, 'temp_dirs': 'x'}})), 2)

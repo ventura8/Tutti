@@ -88,3 +88,6 @@ so their `mkdir` lock could never succeed and each spun every 0.1 s), 38 tunnel 
 - the sleep inhibitor is one per Tutti process, taken only while a job runs, and its child is `tail --pid=<tutti>`, so it
   ends with Tutti;
 - the `strays` check (and `tutti reap`) stops what is left, by exact pid, and logs each one.
+- (0.16.2) the failover service restarts itself when Tutti's code changes (an update), so new checks such as `strays`
+  run without a manual restart; and `tutti test` and every check export `TUTTI_NO_DAEMONS=1` inside the command, so an
+  old branch's tests start no helper either.

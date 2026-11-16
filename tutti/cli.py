@@ -1708,6 +1708,27 @@ def cmd_security(cfg, a):
     return 0
 
 
+def cmd_autofix(cfg, a):
+    """`tutti autofix [status|approve <id>|release <repo>|tick]`: review and security fixes, the admin's level, what needs a
+    person (docs/AUTOFIX.md)."""
+    from . import autofix
+    if a.action in ('approve', 'release') and not a.arg:
+        print(f'autofix {a.action}: give the {"task id" if a.action == "approve" else "repo"} (`tutti autofix` lists them)')
+        return 2
+    if a.action == 'approve':
+        ok, msg = autofix.approve(cfg, a.arg)
+    elif a.action == 'release':
+        ok, msg = autofix.retry_release(cfg, a.arg)
+    else:
+        if a.action == 'tick':
+            for e in autofix.tick(cfg):
+                print(e)
+        print(autofix.describe(autofix.view(cfg)))
+        return 0
+    print(msg)
+    return 0 if ok else 1
+
+
 def cmd_scout(cfg, a):
     """`tutti scout list|setup|ask|answer|watch|tick`: helpers that answer on a GitHub issue (docs/SCOUTS.md)."""
     try:
@@ -2009,6 +2030,11 @@ def parser():
                                       '(Dependabot and code-scanning alerts, Cursor and Greptile findings) as autopilot tasks: '
                                       'status, or scan (read every repo now and queue)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'scan'])
+    s = add('autofix', cmd_autofix, 'review and security fixes by themselves (autofix.level: suggest, fix, full_until_review, '
+                                    'full): status, approve <id> (your final review: merge, then release), release <repo> (a '
+                                    'failed release again), tick (one round now)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'approve', 'release', 'tick'])
+    s.add_argument('arg', nargs='?', help='approve: the task id; release: the autopilot repo')
     s = add('scout', cmd_scout, 'scouts, helpers that are not workers (Grok Bot): ask <scout> "<question>" (answered on a GitHub '
                                 'issue), answer <id>, watch [<scout> <watch>], tick (send what is due within the allowance), '
                                 'review <pr> (advisory), trial (the review trial), list, setup')

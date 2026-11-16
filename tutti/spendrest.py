@@ -166,6 +166,24 @@ def seconds(cfg, requests, name):
     return out
 
 
+TRIAGE = ('Triage before a coding agent fixes this in {repo}: "{title}".\nThe report:\n{notes}\n\nIs it real? Explain it in plain '
+          'words, name the file and the concrete fix, and say "Not a problem: <why>" when it is not one. Short.')
+
+
+def triages(cfg, requests, name):
+    """Review and security tasks not started yet, triaged once by the scout `autofix.triage_scout` names (docs/AUTOFIX.md):
+    asked as a second opinion, so the answer joins the task's notes and its first attempt waits for it like a retry does."""
+    from . import autofix
+    if autofix.settings(cfg)['triage_scout'] != name:
+        return []
+    asked = {(r.get('second_opinion') or {}).get('key') for r in requests if r['scout'] == name}
+    return [{'kind': 'second', 'ref': t['id'], 'key': f'{t["id"]}#triage', 'project': config.project_of_repo(cfg, t['repo']),
+             'task': TRIAGE.format(repo=t['repo'], title=t['title'][:200], notes='\n'.join(t.get('notes') or [])[:1500])}
+            for t in backlog.load(cfg)['tasks']
+            if autofix.is_autofix(t) and t['status'] in ('queued', 'candidate') and not t.get('attempts')
+            and f'{t["id"]}#triage' not in asked]
+
+
 def ordered(cfg, items):
     return sorted(items, key=lambda x: (config.project_priority(cfg, x.get('project')), RANK[x['kind']]))
 
@@ -177,7 +195,8 @@ def plan(cfg, sc, requests, acc, now):
     b = week(sc, acc, now) if acc else grokweek.budget(None, now, 1, 95, 6)
     if not on:
         return {'on': False, 'why': why, 'items': [], 'later': 0, 'week': b}
-    items = ordered(cfg, extra_watches(sc, requests, acc, now) + questions(cfg) + seconds(cfg, requests, sc['name']))
+    items = ordered(cfg, extra_watches(sc, requests, acc, now) + questions(cfg) + seconds(cfg, requests, sc['name'])
+                    + triages(cfg, requests, sc['name']))
     if behind(acc):   # the allowance would be lost at the reset: useful scouting of the backlog fills it
         items += ordered(cfg, scouting(cfg, requests, sc['name']))
     target = pacing.parse_time(acc['target']).timestamp()

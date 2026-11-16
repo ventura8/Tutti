@@ -254,6 +254,8 @@ class Collector:
         unblocker.tick_in_background(self.cfg)   # blocked or failing work cleared, local first (docs/TELEMETRY.md, *The unblocker*)
         welcome.tick(self.cfg)   # the owner back: their welcome-back summary
         needs.tick(self.cfg)   # the questions only a person can answer, delivered in batches (docs/NEEDS.md)
+        from . import autofix  # releases after merged fixes; new items that need a person told (docs/AUTOFIX.md)
+        autofix.tick(self.cfg)
         from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)
         hhjobs.tick(self.cfg)
 
@@ -300,6 +302,8 @@ class Collector:
         out['autopilot'] = autopilot.view(self.cfg)
         from . import depbots  # the Dependencies and security card (docs/SECURITY-INTAKE.md)
         out['security'] = depbots.view(self.cfg)
+        from . import autofix  # the review and security fixes' level and what needs a person (the Needs attention tab)
+        out['autofix'] = autofix.view(self.cfg)
         out['household_use'] = householduse.view(self.cfg, self.clock())   # the headline and each machine's use (docs/FLEET.md)
         out['fleet'] = fleet.view(self.cfg)
         out['work_queue'] = workq.view(self.cfg)
@@ -419,6 +423,8 @@ API_REPORT = '/api/report'   # Report a problem (docs/REPORT.md): every signed-i
 API_VPN_STATUS = '/api/vpn/status'   # GET: the Private network card's state, 200 also when no VPN is set up
 API_WORK_MOVE = '/api/work/move'   # work waiting on an away or asleep target moved now (docs/PRESENCE.md)
 ADMIN_PATHS += (API_WORK_MOVE,)   # takes work off a member's computer: an admin's (a viewer gets 403 from the auth hook)
+API_AUTOFIX = '/api/autofix'   # the person's final review (merge and release) and a failed release run again: an admin's
+ADMIN_PATHS += (API_AUTOFIX,)
 BODY_LIMITS[API_SETTINGS] = 65536
 
 
@@ -672,7 +678,24 @@ POSTS = ('/api/reading', '/api/refresh',
          '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
          '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, API_SETUP,
          API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn',
-         API_WORK_MOVE, API_QUEUE, API_REPORT, '/api/ai-assist', API_LIMIT)
+         API_WORK_MOVE, API_QUEUE, API_REPORT, '/api/ai-assist', API_LIMIT, API_AUTOFIX)
+
+
+def save_autofix(collector, raw, gh=None):
+    """(status, answer) for POST /api/autofix {"approve": "<task id>"} (the final review: merged, then released) or
+    {"release": "<repo>"} (a failed release runs again). An admin's: a viewer gets 403 before this runs (ADMIN_PATHS)."""
+    from . import autofix
+    try:
+        data = json.loads(raw or b'null')
+    except ValueError:
+        data = None
+    if isinstance(data, dict) and isinstance(data.get('approve'), str):
+        ok, msg = autofix.approve(collector.cfg, data['approve'], **({'gh': gh} if gh else {}), actor='an admin on the dashboard')
+    elif isinstance(data, dict) and isinstance(data.get('release'), str):
+        ok, msg = autofix.retry_release(collector.cfg, data['release'])
+    else:
+        return 400, {'error': 'send {"approve": "<task id>"} or {"release": "<repo>"} as JSON'}
+    return (200, {'ok': True, 'note': msg}) if ok else (409, {'error': msg})
 BODY_LIMITS[chatrun.API] = chatrun.BODY_LIMIT
 
 
@@ -867,6 +890,7 @@ HANDLERS = {
     API_WORK_MOVE: save_work_move,
     '/api/main': lambda c, b: save_main(c.cfg, b),
     '/api/autopilot': save_autopilot,
+    API_AUTOFIX: save_autofix,
     API_SETTINGS: settings.save,
     API_RESTART: restart_now,
     API_TUTTI_MOVE: move_now,

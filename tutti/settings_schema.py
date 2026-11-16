@@ -30,7 +30,7 @@ SECTIONS = [
      ['machines', 'failover', 'routing.order', 'runner', 'sync', 'files', 'guard']),
     ('devices', 'Devices', 'Android devices for end-to-end runs, and when a run may start on them.', ['devices', 'night']),
     ('autopilot', 'Autopilot', 'Backlog tasks sent to accounts that are behind their pace; retries climb the ladder.',
-     ['autopilot', 'autopilot.repos', 'depbots']),
+     ['autopilot', 'autopilot.repos', 'depbots', 'autofix']),
     ('fleet', 'Local models', 'Every machine\'s Ollama as a worker; they take tasks while the online accounts are spared '
      '(docs/FLEET.md).', ['fleet', 'work_queue']),
     ('dispatch', 'Keep busy', 'Idle devices and machines pull the projects\' pending test shards (docs/DISPATCH.md).', ['dispatch']),
@@ -251,6 +251,20 @@ FIELDS = {
     'depbots.group_trivial': field('Group small bumps', 'Green patch and minor bumps become one task per repo.', 'switch'),
     'depbots.bots': field('Dependency bots', 'Whose pull requests are dependency updates: name, authors, branch prefixes.', **YAML),
     'depbots.scanners': field('Security scanners', 'Whose review comments are security findings: name, authors.', **YAML),
+    'autofix.level': field('Review and security autonomy', 'suggest: tasks only; fix: fixed and landed by the repo\'s land; '
+                           'full_until_review: fixed, checked and reviewed, then it waits for your final approval (Needs attention) '
+                           'before merge and release; full: merged and released by itself (docs/AUTOFIX.md).', 'select',
+                           choices=['suggest', 'fix', 'full_until_review', 'full']),
+    'autofix.reviews': field('Reviews become tasks', 'Open review threads on the autopilot repos\' pull requests (CodeRabbit, '
+                             'Greptile, Copilot, Cursor, the scouts, people with write access) become fix tasks.', 'switch'),
+    'autofix.humans': field('People\'s reviews too', 'Review threads by people with write access to the repository count too.',
+                            'switch'),
+    'autofix.reviewers': field('Reviewer bots', 'The GitHub logins whose review threads are work.', 'list'),
+    'autofix.triage_scout': field('Triage scout', 'Optional: a scout (Grok Bot) that triages each review or security task '
+                                  'before its first attempt; empty: Tutti works without one.', 'text'),
+    'autofix.notify': field('Tell me', 'A new item that needs you goes to your "Needs attention" chat.', 'switch'),
+    'autopilot.repos.*.release': field('Release command', 'Run from the repo after a review or security fix is merged '
+                                       '(autofix.level full or full_until_review); empty: never released by itself.', 'text'),
     'autopilot.max_attempts': field('Most attempts', 'A task is parked after this many attempts in all.', 'number', min=1, unit='attempts'),
     'autopilot.quiet_hours': field('Quiet hours', 'Local-time spans the autopilot must not run in.', 'timespans'),
     'autopilot.fill_room': field('Fill free room', 'Free room on the trigger accounts is filled from the repos\' TODOs, gaps and '

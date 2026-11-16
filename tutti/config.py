@@ -69,6 +69,13 @@ DEFAULTS = {
                          {'name': 'cursor', 'authors': ['cursor[bot]'], 'branch_prefixes': ['cursor/'],
                           'match': r'\bbump\b|\bupgrade\b|\bdependenc|\bcve-|\bghsa-|vulnerab'}],
                 'scanners': [{'name': 'cursor', 'authors': ['cursor[bot]']}, {'name': 'greptile', 'authors': ['greptile-apps[bot]']}]},
+    # autofix: how far review and security tasks go by themselves (tutti/autofix.py, docs/AUTOFIX.md): level suggest, fix
+    # (the default), full_until_review (stops for a person's final approval, then merges and releases) or full; reviews:
+    # open review threads of the reviewers (and, with humans, people with write access) become tasks; triage_scout: a scout
+    # that triages each one first; notify: new items for a person go to the owner's "Needs attention" chat
+    'autofix': {'level': 'fix', 'reviews': True, 'humans': True,
+                'reviewers': ['coderabbitai[bot]', 'greptile-apps[bot]', 'copilot-pull-request-reviewer[bot]', 'Copilot', 'cursor[bot]'],
+                'triage_scout': '', 'notify': True},
     # pacing: the owner's own prompting (tutti/owner.py): the weekly schedule that seeds the learned weekday x hour profile
     # (days, hours of the reserve window, the local window, points per owner hour, the UTC offset; None: this computer's),
     # the mode (auto, active, away, vacation-until-YYYY-MM-DD), the owner hours with no rise after which auto says away,
@@ -463,12 +470,12 @@ def validate(cfg):
     # they import modules that import this one
     from . import autocompact, chat, depbots, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
     errs += dispatch.errors(cfg) + tiers.errors(cfg) + tz.errors(cfg) + presence.errors(cfg)
-    from . import aiassist, needs, selfheal, welcome
+    from . import aiassist, autofix, needs, selfheal, welcome
     errs += selfheal.errors(cfg)
     errs += needs.errors(cfg) + welcome.errors(cfg) + aiassist.errors(cfg) + selfimprove.errors(cfg)
     errs += sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
-        depbots.errors(cfg) + \
+        depbots.errors(cfg) + autofix.errors(cfg) + \
         owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update']) + energy.errors(cfg) + \
         chat.errors(cfg)
 
@@ -530,6 +537,9 @@ def _autopilot_repo_errors(n, r):
     if r.get('land', 'pr') not in ('merge', 'pr', 'branch'):
         errs.append(f'autopilot.repos.{n}.land is {r["land"]!r}: use merge (a reviewed result is merged), pr (a pull request a '
                     'person merges) or branch (it waits for a person)')
+    if not isinstance(r.get('release', ''), str):
+        errs.append(f'autopilot.repos.{n}.release is {r["release"]!r}: the command that releases the repo (run from its folder '
+                    'after a review or security fix is merged, by autofix.level full or full_until_review; docs/AUTOFIX.md)')
     return errs
 
 

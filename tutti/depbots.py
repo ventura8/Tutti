@@ -237,10 +237,83 @@ def _read_alerts(out, slug, s, gh_fn, prs):
     out['alerts'] += from_comments(items, s['scanners'])
 
 
-def read_repo(slug, s, gh_fn=gh):
-    """{prs, alerts, problems, code_scanning, read}: `read` names the sources read without a fault, so a task is dropped only
-    when the source that made it was read and no longer holds it."""
-    out = {'prs': [], 'alerts': [], 'problems': [], 'code_scanning': False, 'read': []}
+THREADS = '''query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {
+  pullRequest(number: $number) { author { login } headRefName url
+    reviewThreads(first: 100) { nodes { id isResolved isOutdated path line
+      comments(first: 1) { nodes { author { login } authorAssociation body url } } } }
+    comments(last: 50) { nodes { id author { login } authorAssociation body url } } } } }'''
+
+
+def reviewer_of(login, assoc, rv):
+    """The reviewer's name when a comment by `login` is review work: a configured reviewer bot, a scout's login, or (with
+    `humans`) a person with write access to the repository. Never a stranger: on a public repository anyone can comment."""
+    who = norm(login)
+    if who in {norm(r) for r in rv['reviewers']} or who in {norm(x) for x in rv.get('scout_logins') or []}:
+        return who
+    return who if rv['humans'] and assoc in ('OWNER', 'MEMBER', 'COLLABORATOR') and not (login or '').endswith('[bot]') else None
+
+
+def first_line(body):
+    return next((ln.strip(' #*>`') for ln in (body or '').splitlines() if ln.strip(' #*>`')), 'review comment')[:120]
+
+
+def from_threads(pr, slug, number, rv, scanners=()):
+    """Review work on one pull request: its open review threads (not resolved, not outdated) and the scouts' tagged review
+    comments (`grok-scout`), each once by thread or comment id. The PR author's own notes, a stranger's words and a scanner's
+    security finding (already a vulnerability task) are left out."""
+    from .review import SCOUT_MARKER
+    author = norm((pr.get('author') or {}).get('login'))
+    scanner_logins = {norm(a) for s in scanners for a in s['authors']}
+    out = []
+    for th in (pr.get('reviewThreads') or {}).get('nodes') or []:
+        c = next(iter((th.get('comments') or {}).get('nodes') or []), None)
+        if th.get('isResolved') or th.get('isOutdated') or not c:
+            continue
+        login = (c.get('author') or {}).get('login') or ''
+        who = reviewer_of(login, c.get('authorAssociation'), rv)
+        if not who or norm(login) == author or (norm(login) in scanner_logins and SECURITY_WORDS.search(c.get('body') or '')):
+            continue
+        where = f'{th.get("path") or "?"}:{th.get("line") or "?"}'
+        out.append({'key': f'review:{slug}#{number}:{th["id"]}', 'reviewer': who, 'number': number, 'where': where,
+                    'title': f'Address review by {who} on #{number}: {first_line(c.get("body"))} ({where})',
+                    'url': c.get('url') or pr.get('url') or '', 'pr': pr.get('url') or '', 'branch': pr.get('headRefName') or '',
+                    'body': (c.get('body') or '')[:1500]})
+    for c in (pr.get('comments') or {}).get('nodes') or []:
+        login = (c.get('author') or {}).get('login') or ''
+        if SCOUT_MARKER not in (c.get('body') or '') or not reviewer_of(login, c.get('authorAssociation'), rv):
+            continue
+        body = (c.get('body') or '').replace(SCOUT_MARKER, '', 1)
+        if re.search(r'\bno findings\b', body, re.I):
+            continue
+        out.append({'key': f'review:{slug}#{number}:{c["id"]}', 'reviewer': 'scout', 'number': number, 'where': 'pull request',
+                    'title': f'Address review by the scout on #{number}: {first_line(body)}', 'url': c.get('url') or '',
+                    'pr': pr.get('url') or '', 'branch': pr.get('headRefName') or '', 'body': body[:1500]})
+    return out
+
+
+def read_reviews(slug, prs, rv, gh_fn, scanners=(), most=30):
+    """(review items, complete?, why) of the open pull requests (at most `most`): complete only when each was read."""
+    owner, _, name = slug.partition('/')
+    out, complete = [], len(prs) <= most
+    for p in prs[:most]:
+        rc, raw, err = gh_fn(['api', 'graphql', '-f', f'query={THREADS}', '-F', f'owner={owner}', '-F', f'name={name}',
+                              '-F', f'number={p["number"]}'])
+        try:
+            pr = ((json.loads(raw or '{}').get('data') or {}).get('repository') or {}).get('pullRequest') if rc == 0 else None
+        except ValueError:
+            pr = None
+        if pr is None:
+            return None, False, err or 'unreadable answer'
+        complete = complete and len((pr.get('reviewThreads') or {}).get('nodes') or []) < 100
+        out += from_threads(pr, slug, p['number'], rv, scanners)
+    return out, complete, ''
+
+
+def read_repo(slug, s, gh_fn=gh, rv=None):
+    """{prs, alerts, reviews, problems, code_scanning, read}: `read` names the sources read without a fault, so a task is
+    dropped only when the source that made it was read and no longer holds it. `rv`: the review intake's settings
+    (tutti/autofix.py), None when it is off."""
+    out = {'prs': [], 'alerts': [], 'reviews': [], 'problems': [], 'code_scanning': False, 'read': []}
     rc, raw, err = gh_fn(['pr', 'list', '-R', slug, '--state', 'open', '--limit', str(PR_LIMIT), '--json',
                           'number,title,headRefName,author,url,labels,statusCheckRollup'])
     try:
@@ -255,6 +328,13 @@ def read_repo(slug, s, gh_fn=gh):
         out['prs'] = bot_prs(prs, s['bots'])
     _read_alerts(out, slug, s, gh_fn, prs)
     out['alerts'] = dedupe(out['alerts'])
+    if rv and 'prs' in out['read']:
+        items, complete, err = read_reviews(slug, prs, rv, gh_fn, s['scanners'])
+        if items is None:
+            out['problems'].append(problem('review threads', slug, err))
+        else:
+            out['reviews'] = items
+            out['read'] += ['reviews'] if complete else []
     return out
 
 
@@ -264,22 +344,32 @@ def due(cfg, now):
     return s.get('enabled', True) and bool(cfg['autopilot']['repos']) and now - last >= s.get('every_minutes', 360) * 60
 
 
+def review_settings(cfg):
+    """The review intake's settings (autofix.reviews, reviewers, humans, and the scouts' GitHub logins), or None when off."""
+    from . import autofix
+    a = autofix.settings(cfg)
+    if not a['reviews']:
+        return None
+    logins = [sc.get('github_login') for sc in (cfg.get('scouts') or {}).values() if isinstance(sc, dict) and sc.get('github_login')]
+    return {'reviewers': a['reviewers'], 'humans': a['humans'], 'scout_logins': logins}
+
+
 def gather(cfg, now, gh_fn=gh, run=subprocess.run, force=False):
     """{repo name: read_repo + slug} when due (or forced), else None. Network: never under the backlog's lock."""
     if not force and not due(cfg, now):
         return None
-    found = {}
+    found, rv = {}, review_settings(cfg)
     for name, repo in cfg['autopilot']['repos'].items():
         slug = repo_slug(repo, run)
         if not slug:
-            found[name] = {'slug': '', 'prs': [], 'alerts': [], 'code_scanning': False, 'read': [],
+            found[name] = {'slug': '', 'prs': [], 'alerts': [], 'reviews': [], 'code_scanning': False, 'read': [],
                            'problems': [f'{name}: no GitHub repository found (no github.com origin in {repo["path"]}): set '
                                         f'autopilot.repos.{name}.github to owner/name']}
             continue
         try:
-            found[name] = {'slug': slug, 'started': time.time(), **read_repo(slug, settings(cfg), gh_fn)}
+            found[name] = {'slug': slug, 'started': time.time(), **read_repo(slug, settings(cfg), gh_fn, rv)}
         except (OSError, ValueError, KeyError, TypeError) as exc:   # one bad repo never stops the others
-            found[name] = {'slug': slug, 'prs': [], 'alerts': [], 'code_scanning': False, 'read': [],
+            found[name] = {'slug': slug, 'prs': [], 'alerts': [], 'reviews': [], 'code_scanning': False, 'read': [],
                            'problems': [f'{slug}: reading it failed ({type(exc).__name__}: {exc}): `tutti security scan` again; '
                                         'if it repeats, `gh auth status`']}
     return found
@@ -316,19 +406,31 @@ def tasks_for(name, scan, check, group_trivial=True):
                     f'security:{"+".join(a["sources"])}', [f'{a["hint"]}. Reports: {" ".join(a["urls"])}', 'Run the check before '
                     'finishing; GitHub closes the alert by itself when the fix is on the default branch.'],
                     a['key'], a['kinds'], -a['severity']))
+    for r in scan.get('reviews') or []:
+        branch = shlex.quote(r['branch'])   # the branch name is the pull request author's text: quoted, never shell syntax
+        out.append((r['title'], 'S', f'review:{r["reviewer"]}',
+                    [f'{r["reviewer"]} asked for this on {r["pr"]} ({r["where"]}): {r["body"]}',
+                     f'Bring the pull request\'s change in first: `git fetch origin {branch} && git diff HEAD...FETCH_HEAD | '
+                     'git apply --3way --index`, then make the change the comment asks for (when it is wrong, change nothing '
+                     f'and say why) and run the check. The task closes when the thread is resolved or outdated. Comment: '
+                     f'{r["url"]}'],
+                    r['key'], ['reviews'], 5))
     return out
 
 
 def _queue(cfg, data, name, scan):
+    from . import autofix  # a review or security task starts as the admin's autofix.level says (a suggestion, or queued)
     check = cfg['autopilot']['repos'][name].get('check') or ''
     live, events = set(), []
     for title, size, source, notes, ref, kinds, rank_ in tasks_for(name, scan, check, settings(cfg).get('group_trivial', True)):
         live.add((name, ref))
-        task, added = backlog.add(data, {**backlog.new_task(name, title, (), check, size, source, notes), 'depbot_ref': ref,
-                                         'depbot_src': kinds, 'rank': rank_})
+        new = backlog.new_task(name, title, (), check, size, source, notes)
+        if autofix.is_autofix(new):
+            new['status'] = autofix.new_status(cfg)
+        task, added = backlog.add(data, {**new, 'depbot_ref': ref, 'depbot_src': kinds, 'rank': rank_})
         if added:
-            events.append(f'depbots: queued {task["id"]} {title}')
-        elif task['status'] == 'queued':
+            events.append(f'depbots: {"suggested" if task["status"] == "candidate" else "queued"} {task["id"]} {title}')
+        elif task['status'] in ('queued', 'candidate'):
             task['notes'] = notes   # the group's member list follows the open pull requests
             task.setdefault('rank', rank_)   # a rank the owner set (Priority up/down) stays
     return live, events
@@ -338,7 +440,7 @@ def gone(t, found, live):
     """A queued task of ours whose every source was read now and no longer holds it. A task queued after this read started
     (a newer scan) is never judged by it."""
     scan = found.get(t['repo'])
-    if not t.get('depbot_ref') or t['status'] != 'queued' or scan is None or (t['repo'], t['depbot_ref']) in live:
+    if not t.get('depbot_ref') or t['status'] not in ('queued', 'candidate') or scan is None or (t['repo'], t['depbot_ref']) in live:
         return False
     if scan.get('started') is not None and float(t.get('added') or 0) >= scan['started']:
         return False
@@ -357,7 +459,8 @@ def apply(cfg, data, found):
     for t in data['tasks']:
         if gone(t, found, live):
             t['status'] = 'dropped'
-            t.setdefault('notes', []).append('dropped by itself: the pull request closed or GitHub marked the alert fixed')
+            t.setdefault('notes', []).append('dropped by itself: the pull request closed, GitHub marked the alert fixed, or the '
+                                             'review thread was resolved or outdated')
             events.append(f'depbots: dropped {t["id"]} (closed or fixed upstream)')
     return events
 
@@ -369,7 +472,7 @@ def summary(found, now):
         slug = scan['slug']
         repos.append({'name': name, 'slug': slug, 'prs': [{k: p[k] for k in ('number', 'title', 'url', 'bot', 'kind', 'failing')}
                                                            for p in scan['prs']],
-                      'alerts': len(scan['alerts']), 'worst': NAMES[worst] if worst is not None else None,
+                      'alerts': len(scan['alerts']), 'reviews': len(scan.get('reviews') or []), 'worst': NAMES[worst] if worst is not None else None,
                       'top': [{'title': a['title'], 'url': a['url'], 'sources': a['sources'], 'severity': NAMES[a['severity']]}
                               for a in scan['alerts'][:5]],
                       'links': {'prs': f'https://github.com/{slug}/pulls?q=is%3Apr+is%3Aopen',
@@ -402,6 +505,7 @@ def view(cfg):
     worst = max((rank(r['worst']) for r in repos if r.get('worst')), default=None)
     return {'enabled': settings(cfg).get('enabled', True), 'read_at': d.get('read_at'), 'repos': repos,
             'prs': sum(len(r['prs']) for r in repos), 'alerts': sum(r['alerts'] for r in repos),
+            'reviews': sum(r.get('reviews') or 0 for r in repos),
             'worst': NAMES[worst] if worst is not None else None, 'problems': [p for r in repos for p in r['problems']]}
 
 

@@ -120,7 +120,9 @@ def fill(cfg, data, states, machines, now, found=None):
 
 
 def land_policy(cfg, task):
-    return (autopilot.settings(cfg)['repos'].get(task['repo']) or {}).get('land', 'pr')
+    """The repo's `land`, except for review and security fixes, whose way the admin's autofix.level sets (tutti/autofix.py)."""
+    from . import autofix
+    return autofix.land_policy(cfg, task, (autopilot.settings(cfg)['repos'].get(task['repo']) or {}).get('land', 'pr'))
 
 
 def review_on(cfg):
@@ -283,6 +285,7 @@ def merge(task, url, base, reviewer, run=git, gh=github.run):
             why = merged.stderr.strip()[:200]
             return 'review', f'retry: reviewed clean by {reviewer}: pull request {url} is open; the merge failed ({why})'
     run(wt, 'push', '-q', 'origin', '--delete', task['branch'])
+    task['merged'] = True
     return 'done', f'reviewed clean by {reviewer} and merged into {base}: {url}'
 
 
@@ -299,6 +302,8 @@ def publish_reviewed(cfg, task, base, reviewer, run=git, gh=github.run):
     if not url:
         return 'review', f'reviewed clean by {reviewer}; {why}'
     task['pr'] = url
+    head = run(wt, 'rev-parse', 'HEAD')   # the reviewed commit: a person's final approval merges only this one
+    task['head'] = (head.stdout or '').strip() if head.returncode == 0 else ''
     if land_policy(cfg, task) != 'merge':
         return 'done', f'reviewed clean by {reviewer}: pull request {url} into {base}, for a person to merge (land: pr)'
     touched = gate_files_touched(cfg, task, base, run)
@@ -403,7 +408,10 @@ def land(cfg, task_id, run=git, gh=github.run, run_worker=None, now=None):
         t = backlog.find(data, task_id)
         if t['status'] != 'review':   # changed by hand (or another land) meanwhile: theirs stands
             return f'{task_id} became {t["status"]} during the review; left as it is ({note})'
-        if task.get('pr'):
-            t['pr'] = task['pr']
+        for k in ('pr', 'head', 'merged'):
+            if task.get(k):
+                t[k] = task[k]
         record(t, status, note, notes, now)
-    return f'{task_id}: {status}: {note}'
+        from . import autofix  # a review or security fix: the person's final review, or the release after its merge
+        after = autofix.after_land(cfg, t, now)
+    return f'{task_id}: {status}: {note}' + ''.join(f'\n{line}' for line in after)

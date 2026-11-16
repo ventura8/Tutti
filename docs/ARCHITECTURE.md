@@ -220,5 +220,11 @@ Settings: `quiet.reserve_gb` (4), `quiet.cpu_quota` (`200%`), `quiet.ollama` (`h
 
 - **Config, not code.** No host, path, account or model name is built in.
 - **No secrets.** Tutti never reads, stores or sends a credential; workers sign in by themselves, once, by a person.
+- **No secret in an environment** (`tutti/secretenv.py`, t116). The few secrets Tutti uses (the Grok scout's webhook key)
+  live in files of mode 600 (`~/.config/tutti/grok.env`) and are read at the point of use. Every command drops them from its
+  own environment at start, so a worker, a restart, self-update, self-heal or failover inherits none; the dashboard runs
+  itself again without them; whatever shows a process's environment masks values whose names look like keys, tokens or
+  secrets. **Agents: never print a process environment** (`env`, `printenv`, `/proc/<pid>/environ`, `ps e`): use
+  `tutti doctor` to inspect.
 - **Refuse early, say why.** Every refusal names what happened, why, and the next step.
 - **Pure core.** Routing, pacing and validation are pure functions; I/O sits at the edge and is thin.

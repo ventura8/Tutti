@@ -6,6 +6,15 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.17.1 (2026-11-16)
+
+### Added
+
+- Tutti's own AI also uses household members' shared machines: a shared machine whose owner shares its model server is a
+  candidate (its models read once a minute), never pre-empted; a paused or busy one is skipped.
+- Sentry triage and scout drafting go through Tutti's own AI: a triage report without TUTTI-TASK lines gets them drafted
+  (local first, online within pacing), and the design review carries focus questions a local model drafted.
+
 ## 0.17.0 (2026-11-16)
 
 ### Added

@@ -419,8 +419,32 @@ def design_text(cfg, summary):
             'stalls, wasted quota or idle capacity the most, each with the evidence. End with one line per change, exactly: '
             'TUTTI-TASK: <the change, one line> || check: <the regression test>.\n\n'
             + online_text(cfg, json.dumps(summary, sort_keys=True), quotes=False)
+            + focus_text(cfg)
             + (('\n\nThe tasks that failed or were parked (titles):\n' + online_text(cfg, '\n'.join(failing_titles(cfg))))
                if may_send_online(cfg, 'code') else ''))
+
+
+def focus_text(cfg):
+    """The scout's question, drafted by Tutti's own AI (draft_focus): the questions a local model found in the numbers."""
+    focus = [str(x)[:200] for x in (read_state(cfg).get('scout_focus') or [])][:3]
+    return ('\n\nLook first at:\n' + online_text(cfg, '\n'.join(f'- {x}' for x in focus))) if focus else ''
+
+
+def draft_focus(cfg, summary, ask, now):
+    """Scout drafting through Tutti's own AI: the best free local model reads the week's numbers and writes the three
+    questions the online design review should answer first (stored; the watch's text adds them). Local only: drafting a
+    question for an online model is not worth an online call. Returns event lines."""
+    prompt = ('Tutti\'s telemetry of the last 7 days (categories and numbers) follows. Write the three questions a design '
+              'reviewer should answer first to cut failures, stalls and wasted quota, one per line starting with Q:.\n\n'
+              + json.dumps(summary, sort_keys=True)[:6000])
+    answer, _who = ask(cfg, prompt, 'scout', online=False)
+    qs = [m.group(1).strip() for m in re.finditer(r'^\s*Q:\s*(.+)$', str(answer or ''), re.M)][:3]
+    if not qs:
+        return []
+    st = read_state(cfg)
+    st.update(scout_focus=qs, scout_focus_at=now)
+    write_state(cfg, st)
+    return [f'ai-assist: {len(qs)} question(s) drafted for the design review']
 
 
 def watches(cfg, sc, summary_fn=None):
@@ -547,6 +571,10 @@ def tick(cfg, now=None, ask=None, store=None):
         return events
     summary = insights.summary(telemetry.read_events(telemetry.folder_of(config.state_dir(cfg))), 7)
     lines, ai_tunes, skipped = self_analysis(cfg, summary, now, ask) if summary['events'] else ([], [], 'no telemetry yet')
+    from . import brain, triage
+    if summary['events'] and ask is ask_local:
+        lines += draft_focus(cfg, summary, brain.ask, now)
+    lines += triage.draft_missing(cfg)
     st = read_state(cfg)
     st.update(last_round=now, skipped=skipped)
     events += lines + tune(cfg, st, rule_tunes(cfg, summary) + ai_tunes, summary, now, store)

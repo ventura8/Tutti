@@ -181,6 +181,12 @@ harnesses the owner picks: the conductor, chat, `tutti run` and `tutti translate
   (the fleet reading, refreshed after every probe, so a new model is a candidate at the next call), ranked by tier and
   parameters scaled by the quantisation (Q8 1.0, Q5-6 0.95, Q4 0.9, below 0.8) plus fleet.score's per-kind bonus. No small
   default wins while a larger model is free.
+- **Household members' machines count too**: a member's machine this login uses (`tutti household machine use`) whose owner
+  shares a model server (`host` and `ollama_port` in the share) adds its models, read from `/api/tags` once a minute. It is
+  never pre-empted (Tutti goes first only on its own machines); a busy or paused one is skipped.
+- **Sentry triage and scout drafting** go through it too: a triage report the scout wrote without TUTTI-TASK lines gets them
+  drafted by the best free model (then online within pacing), and the design review's question carries three focus
+  questions a local model drafted from the week's numbers.
 - A machine whose yield flag is up (its owner's) or a server that does not answer within a second is skipped.
 - **Tutti first** (`preempt`, default true): when the best model is busy with other work (a delegated run, a project task,
   chat), Tutti does not settle for a smaller one. It raises the machine's pre-emption marker; the other work's next request

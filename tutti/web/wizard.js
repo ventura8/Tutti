@@ -145,7 +145,7 @@ function wizStepPanel(step) {
 
 function wizNav(steps) {
     return wizEl('ol', { class: 'wizard__steps', 'aria-label': 'Setup steps' }, ...steps.map((s, i) => wizEl('li', {},
-        wizEl('button', { class: 'wizard__stepbtn', type: 'button', 'aria-current': s.id === WIZ.open ? 'step' : null,
+        wizEl('button', { class: 'wizard__stepbtn view-ok', type: 'button',   // navigation only: a viewer may use it 'aria-current': s.id === WIZ.open ? 'step' : null,
             onclick: () => { WIZ.open = s.id; WIZ.message = ''; drawWizard(true); } },
         wizEl('span', { text: `${i + 1}. ${s.title}` }), wizChip(WIZ_LABEL[s.status] || s.status, WIZ_TONE[s.status] || 'idle')))));
 }

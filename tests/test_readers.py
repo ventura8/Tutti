@@ -152,7 +152,7 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(readers.owner_by_reset('agy-gemini', argon, stale, NOW), 'agy-gemini')          # its reset is past
         two = {**readings, 'agy-other': {'resets': argon + timedelta(minutes=5)}}
         self.assertEqual(readers.owner_by_reset('agy-gemini', argon + timedelta(minutes=4), two), 'agy-other')  # the closest
-        self.assertEqual(readers.owner_by_reset('agy-gemini', argon + timedelta(minutes=11), readings), 'agy-gemini')
+        self.assertEqual(readers.owner_by_reset('agy-gemini', argon + timedelta(minutes=71), readings), 'agy-gemini')
         with tempfile.TemporaryDirectory() as t:
             path = os.path.join(t, 'usage.jsonl')
             readers.record(path, readings, [('agy-gemini', argon, 'run-agy-1:4', 'limit')], NOW)
@@ -163,6 +163,14 @@ class ParseTest(unittest.TestCase):
             readers.record(path, {}, [('agy-gemini', argon, 'run-agy-2:4', 'limit')], NOW + timedelta(minutes=1))
             self.assertEqual(pacing.latest(pacing.read_log(path), 'agy-gemini')['used'], 0.0)
             self.assertEqual(pacing.latest(pacing.read_log(path), 'agy-gemini-argon')['ref'], 'run-agy-2:4')
+
+    def test_an_hour_precise_reset_text_finds_its_cap(self):
+        argon = T('2026-11-21T00:26:39Z')
+        now = T('2026-11-16T11:47:17Z')
+        said = readers.parse_reset('You have hit your weekly limit, it refreshes in 4 days, 13 hours.', now)
+        self.assertEqual(said, T('2026-11-21T00:47:17Z'))   # 21 minutes past the cap's real reset
+        readings = {'agy-gemini': {'resets': now + timedelta(hours=5)}, 'agy-gemini-argon': {'resets': argon}}
+        self.assertEqual(readers.owner_by_reset('agy-gemini', said, readings, now), 'agy-gemini-argon')
 
     def test_a_window_not_started_yet_starts_now(self):
         self.assertEqual(readers.not_started(NOW + timedelta(hours=5, seconds=4), '5h', NOW), NOW + timedelta(hours=5))

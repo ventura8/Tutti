@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.9 (2026-11-16)
+
+### Fixed
+
+- A limit message whose reset is given to the hour ("refreshes in 4 days, 13 hours") still finds its per-model cap: the
+  reset may now be up to 70 minutes from the cap's own (was 10), so Gemini 4 Argon's message no longer lands on agy-gemini.
+
 ## 0.16.8 (2026-11-16)
 
 ### Fixed

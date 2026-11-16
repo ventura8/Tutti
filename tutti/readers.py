@@ -424,7 +424,7 @@ def overrides(newest, used):
     return bool(newest) and newest.get('source') == 'limit message' and abs(float(newest['used']) - used) >= MIN_CHANGE
 
 
-SAME_RESET = timedelta(minutes=10)
+SAME_RESET = timedelta(minutes=70)   # agy says "in 4 days, 13 hours": hour precision, so up to an hour off, plus slack
 
 
 def owner_by_reset(name, reset, readings, now=None):

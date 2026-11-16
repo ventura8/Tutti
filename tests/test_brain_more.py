@@ -18,7 +18,7 @@ class Shared(unittest.TestCase):
         self.addCleanup(brain._TAGS.clear)
         self.cfg = {'project': {'state': tmpdirs.mkdtemp()}, 'ai_assist': {'enabled': True, 'household_models': True},
                     'machines': {'laptop': {'transport': 'local'},
-                                 'ana-pc': {'transport': 'household', 'host': 'ana-pc.example', 'ollama_port': 11434}},
+                                 'ana-pc': {'transport': 'household', 'model_host': 'ana-pc.example', 'ollama_port': 11434}},
                     'workers': {'laptop-local': {'kind': 'ollama', 'host': 'l', 'model': 'small:4b', 'machine': 'laptop'}}}
         self.fleet = {'machines': {'laptop': {'models': [fleet.classify(tags('small:4b')['models'][0])]}}}
 
@@ -43,8 +43,8 @@ class Shared(unittest.TestCase):
     def test_off_by_default_and_a_host_that_is_not_a_plain_name_is_refused(self):
         self.cfg['ai_assist']['household_models'] = False
         self.assertEqual(brain.shared_workers(self.cfg, tags_fn=lambda h: 1 / 0), {})
-        self.assertEqual(brain.shared_host({'transport': 'household', 'host': 'ana@pc.example/x', 'ollama_port': 11434}), '')
-        self.assertEqual(brain.shared_host({'transport': 'household', 'host': '10.0.0.5', 'ollama_port': 11434}), '10.0.0.5:11434')
+        self.assertEqual(brain.shared_host({'transport': 'household', 'model_host': 'ana@pc.example/x', 'ollama_port': 11434}), '')
+        self.assertEqual(brain.shared_host({'transport': 'household', 'model_host': '10.0.0.5', 'ollama_port': 11434}), '10.0.0.5:11434')
 
     def test_a_dead_member_server_is_not_asked_again_for_a_while(self):
         calls = []

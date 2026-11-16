@@ -119,7 +119,7 @@ def draft_prompt(report):
             'high or critical>. Write nothing else, and no line when nothing needs a fix.\n\n' + str(report)[:8000])
 
 
-def draft_missing(cfg, ask=None, now=None):
+def draft_missing(cfg, ask=None):
     """Sentry triage through Tutti's own AI (tutti/brain.py: the best free local model, then online within pacing): a
     report the scout wrote without TUTTI-TASK lines gets them drafted, then fed again. The model is asked outside the scouts'
     lock. Returns event lines."""

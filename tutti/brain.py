@@ -82,7 +82,8 @@ HOST_RX = re.compile(r'^[A-Za-z0-9.-]{1,253}$|^\[?[0-9A-Fa-f:]+\]?$')
 
 def shared_workers(cfg, tags_fn=None, ttl=60, clock=time.monotonic):
     """{<machine>-shared: worker} for every household member's machine this login uses (transport household) whose owner
-    shares its model server (host and ollama_port): its models are read from /api/tags at most once a minute, a second at most."""
+    shares its model server (model_host, ollama_port; no login host kept): its models
+    are read from /api/tags at most once a minute, a second at most."""
     from . import aiassist
     out = {}
     if not aiassist.settings(cfg).get('household_models'):
@@ -107,7 +108,7 @@ def shared_host(m):
     name or IP: no user@, no path)."""
     if not isinstance(m, dict) or m.get('transport') != 'household':
         return ''
-    host, port = str(m.get('host') or ''), m.get('ollama_port')
+    host, port = str(m.get('model_host') or ''), m.get('ollama_port')
     if not HOST_RX.match(host) or isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
         return ''
     return f'{host}:{port}'

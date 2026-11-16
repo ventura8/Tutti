@@ -440,7 +440,8 @@ def draft_focus(cfg, summary, ask, now):
               'reviewer should answer first to cut failures, stalls and wasted quota, one per line starting with Q:.\n\n'
               + json.dumps(summary, sort_keys=True)[:6000])
     answer, _who = ask(cfg, prompt, 'scout', online=False)
-    qs = [m.group(1).strip() for m in re.finditer(r'^\s*Q:\s*(.+)$', str(answer or ''), re.M)][:3]
+    lines = (x.strip() for x in str(answer or '').splitlines())
+    qs = [x[2:].strip() for x in lines if x.startswith('Q:') and x[2:].strip()][:3]
     if not qs:
         return []
     st = read_state(cfg)

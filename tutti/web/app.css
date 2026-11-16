@@ -921,7 +921,7 @@ select { max-width: 100%; text-overflow: clip; }
 .wizard__field { display: grid; gap: 6px; min-width: 0; border: 0; margin: 0; padding: 0; }
 .wizard__field legend, .wizard__field > label { font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
 .wizard__option { display: flex; align-items: flex-start; gap: 10px; min-height: 32px; min-width: 0; }
-.wizard__option input { width: 20px; height: 20px; margin-top: 2px; flex: none; accent-color: var(--accent-line); }
+.wizard__option input { width: 24px; height: 24px; margin: 0; flex: none; accent-color: var(--accent-line); }
 .wizard__option label { min-width: 0; overflow-wrap: anywhere; }
 .wizard__option .row__note { display: inline; }
 .wizard__cmd { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

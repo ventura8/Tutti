@@ -361,6 +361,8 @@ class Roles(unittest.TestCase):
         for d in items:
             card = page.locator(f"#devices > li[data-device='{d['name']}']")
             self.assertEqual(card.count(), 1)
+            if card.get_attribute('data-status') == 'checking':   # not probed yet: no card status to compare
+                continue
             self.assertEqual(card.get_attribute('data-status'), d['card']['status'])
             self.assertIn(d['card']['label'], card.locator('.chip').first.text_content())
             if d['card']['why']:

@@ -36,7 +36,7 @@ def temps(d):
 def _paused(p):
     if p.get('window') == 'planned':
         return 'away later'
-    return 'away' if 'from' in p else 'paused'
+    return 'away' if p.get('from') is not None and p.get('window') != 'over' else 'paused'
 
 
 def card(d, paused=None, warning=None, moved=''):

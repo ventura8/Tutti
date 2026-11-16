@@ -168,13 +168,13 @@ function renderControls(s) {
     // a device's warning and reroute line live on its own card; only machines' and workers' stay in this list
     const onCards = new Set(devices.map((d) => d.name));
     const moved = devices.map((d) => d.card?.moved).filter(Boolean);
-    $('idle-warnings').replaceChildren(...(s.dispatch?.warnings || []).filter((w) => !onCards.has(w.name)).map(idleWarning),
+    $('idle-warnings').replaceChildren(...(s.dispatch?.warnings || []).filter((w) => !(['android', 'tv', 'device'].includes(w.kind) && onCards.has(w.name))).map(idleWarning),
         ...(s.dispatch?.reroute || []).filter((line) => !moved.some((m) => line.endsWith(m)))
             .map((line) => el('li', { class: 'row' }, el('p', { class: 'row__note', text: line }))));
     const c = s.controls || { opt_in: [], paused: [] };
     const paused = new Map(c.paused.map((p) => [`${p.kind}:${p.name}`, p]));
     $('controls-meta').textContent = `${devices.length} device${devices.length === 1 ? '' : 's'} · ${c.paused.length} paused`;
-    $('devices').replaceChildren(...(devices.length ? devices.map((d) => (d.checking ? el('li', { class: 'row' },
+    $('devices').replaceChildren(...(devices.length ? devices.map((d) => (d.checking ? el('li', { class: 'row', 'data-device': d.name, 'data-status': 'checking' },
         el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `on ${d.machine}` })), chip('checking', 'idle')) : device(d, paused.get(`device:${d.name}`))))
         : [el('li', {}, empty('No Android devices', codeText('Press Pair a device, or run ', 'tutti devices pair', '.')))]));
     renderDeviceTools(s);   // devices.js: Pair a device, Pair a TV, Move devices

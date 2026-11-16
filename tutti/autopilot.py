@@ -190,9 +190,17 @@ def step_room(cfg, name, states, running_units, machines=()):
             return 0, f'{name}: at its even-pace line ({s.get("verdict")})'
         room = (s.get('room_tasks') or 0) - used
         return (room, '') if room > 0 else (0, f'{name}: its room is taken by the running tasks')
-    if s.get('verdict') == 'ahead':
+    if s.get('verdict') == 'ahead' and not main_in_panic(cfg, states):
         return 0, f'{name}: ahead of its pace'
+    # the main agent in panic (owner, 2026-11-16): the other accounts take over its bounded work even while ahead of their
+    # own pace, one task at a time; their own panic or spent still stops them (routing.account_unfit above)
     return (1 - used, '') if not used else (0, f'{name}: busy with a task')
+
+
+def main_in_panic(cfg, states):
+    """True while one of the main agent's accounts (autopilot.main_accounts, default: claude) is in panic or spent."""
+    names = (cfg.get('autopilot') or {}).get('main_accounts') or ['claude']
+    return any((states.get(n) or {}).get('panic') or (states.get(n) or {}).get('verdict') == 'spent' for n in names)
 
 
 def machine_capacity(cfg, machines):

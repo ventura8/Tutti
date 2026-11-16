@@ -494,5 +494,14 @@ class DelegateCheckTest(Base):
         self.assertEqual((a.check, a.check_where), (['bash scripts/check.sh'], 'local'))
 
 
+
+class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
+    def test_an_ahead_account_takes_one_task_while_claude_panics(self):
+        from tutti import autopilot
+        states = {'claude': {'panic': True, 'verdict': 'ahead'}, 'cursor': {'verdict': 'ahead'}}
+        self.assertTrue(autopilot.main_in_panic({}, states))
+        self.assertFalse(autopilot.main_in_panic({}, {'claude': {'verdict': 'ahead'}}))
+        self.assertTrue(autopilot.main_in_panic({'autopilot': {'main_accounts': ['codex']}}, {'codex': {'verdict': 'spent'}}))
+
 if __name__ == '__main__':
     unittest.main()

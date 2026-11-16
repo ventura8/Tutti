@@ -282,9 +282,9 @@ class RoundTest(unittest.TestCase):
         os.utime(os.path.join(d, 'web', 'app.js'), (5.0, 5.0))
         self.assertEqual(failovercmd.code_stamp(d), 5.0)   # a subfolder's file counts
         self.assertEqual(failovercmd.code_stamp('/nonexistent-folder'), 0.0)
-        with mock.patch.object(failovercmd.os, 'execv') as execv:
-            failovercmd.reexec()
-        self.assertEqual(execv.call_args.args[0], failovercmd.sys.executable)
+        with mock.patch.object(failovercmd, 'one_round', return_value=[]), mock.patch.object(failovercmd, 'heal', return_value=0.0):
+            stamps = iter([1.0, 2.0])
+            self.assertEqual(failovercmd.loop(make(), stamp=lambda: next(stamps)), failovercmd.RESTART_CODE)
 
     def test_config_errors(self):
         self.assertEqual(selfheal.errors({'selfheal': {'every_seconds': 600}}), [])

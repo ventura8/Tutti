@@ -179,13 +179,12 @@ def code_stamp(folder=None):
     return newest
 
 
-def reexec():
-    os.execv(sys.executable, [sys.executable, *sys.argv])
+RESTART_CODE = 75   # EX_TEMPFAIL: a failure exit, so the service manager starts it again under Restart=always or on-failure
 
 
-def loop(cfg, stop=None, sleep=time.sleep, stamp=code_stamp, restart=reexec):
-    """The service's rounds. When Tutti's code changes under it the process starts itself again in place on the new code,
-    under any service manager: a service that ran on for days kept the old code and never ran checks added since (t124)."""
+def loop(cfg, stop=None, sleep=time.sleep, stamp=code_stamp, restart=lambda: RESTART_CODE):
+    """The service's rounds. When Tutti's code changes under it the loop ends with RESTART_CODE and the service manager
+    starts it on the new code: a service that ran on for days kept the old code and never ran checks added since (t124)."""
     healthy_since, healed, started = None, 0.0, stamp()
     while not (stop and stop()):
         if stamp() != started:
@@ -237,8 +236,7 @@ def cmd_failover(cfg, a):
             say(f'failover: {line}')
         return 0
     if a.action == 'run':
-        loop(cfg)
-        return 0
+        return loop(cfg) or 0
     if a.action == 'leave':
         return leave(cfg)
     if a.action == 'setup':

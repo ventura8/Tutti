@@ -148,6 +148,13 @@ class Tiers(unittest.TestCase):
         stuck = tiers.choose(cfg, 'agy-gemini', behind, spent)
         self.assertEqual(stuck['model'], 'gemini-4-argon-high')
         self.assertIn('no other model of this account has room', stuck['label'])
+        ahead = {'name': 'agy-gemini', 'verdict': 'ahead', 'quota_plan': {'limit': 'w', 'projected': 130}}
+        cfg['accounts']['agy-gemini']['tiers']['cheap'] = {'args': ['--model', 'gemini-4-argon-low'], 'sizes': ['S']}
+        cfg['accounts']['agy-gemini']['args'] = ['--model', 'gemini-3.8-flash-low']
+        self.assertEqual(tiers.choose(cfg, 'agy-gemini', ahead, spent)['model'], 'gemini-3.8-flash-low')   # cheap capped
+        self.assertEqual(tiers.capped_models(cfg, [None, {'verdict': 'spent'}]), {})
+        cfg['accounts']['agy-gemini-argon']['match']['model'] = '(['   # a broken regex caps nothing
+        self.assertEqual(tiers.choose(cfg, 'agy-gemini', ahead, spent)['model'], 'gemini-4-argon-low')
 
     def test_effort_flags_and_unread_states(self):
         cfg = {'accounts': {'claude': {'worker': 'claude', 'tiers': {'strong': {'args': ['--model', 'opus', '--effort', 'high']}}}}}

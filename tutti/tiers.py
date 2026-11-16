@@ -85,8 +85,15 @@ def capped_models(cfg, states):
     return out
 
 
+def _matches(rx, model):
+    try:
+        return bool(re.search(rx, model, re.I))
+    except re.error:   # a broken match.model (config check names it) never stops the scheduling of the others
+        return False
+
+
 def _capped_by(model, capped):
-    return next((n for n, rx in capped.items() if model and re.search(rx, model, re.I)), None)
+    return next((n for n, rx in capped.items() if model and _matches(rx, model)), None)
 
 
 def choose(cfg, name, s, states=None):
@@ -111,7 +118,8 @@ def choose(cfg, name, s, states=None):
 
 
 def _with_room(a, tier, cap, capped, reason):
-    """The first of: the account's own args, then its other tiers, whose model no spent cap holds; else the tier as it was."""
+    """The first of: the account's own args, then its other tiers, whose model no spent cap holds; else the tier as it was.
+    The sizes follow the tier that runs: a run moved off the strong model loses its L/M preference on purpose."""
     tiers = a.get('tiers') or {}
     options = [(None, {})] + [(t, tiers[t]) for t in TIERS if t != tier and tiers.get(t)]
     for t, spec in options:

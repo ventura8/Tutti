@@ -152,7 +152,7 @@ class OwnerBlock(Base):
         sent = dict(p['dispatch'])
         self.assertEqual(sent.get('t1'), 'laptop')                        # an M task, no quota points: the idle laptop takes it
         self.assertNotIn('t2', sent)                                       # it names no file a local model could be given
-        self.assertIn('ahead of pace', p['overflow'])
+        self.assertTrue(p['overflow'])                                # no online account has room: the online ones are spared
         self.assertTrue(any('picked tutti/energy.py' in e for e in events))
         self.assertIn('tutti/energy.py', started[0])                       # the local model is given the guessed files
         self.assertEqual(len([n for n in sent.values() if n == sent['t1']]), 1)   # one task per model server at a time

@@ -250,7 +250,7 @@ class Collector:
         self.scouts_tick()
         dashtelemetry.tick(self.cfg)
         aiassist.tick_in_background(self.cfg)   # off unless an admin opted in
-        unblocker.tick_in_background(self.cfg)   # blocked or failing work cleared, local first (docs/UNBLOCKER.md)
+        unblocker.tick_in_background(self.cfg)   # blocked or failing work cleared, local first (docs/TELEMETRY.md, *The unblocker*)
         welcome.tick(self.cfg)   # the owner back: their welcome-back summary
         needs.tick(self.cfg)   # the questions only a person can answer, delivered in batches (docs/NEEDS.md)
         from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)

@@ -32,7 +32,7 @@ class Base(unittest.TestCase):
     def tick(self, answers=(), **kw):
         asked = []
 
-        def ask(cfg, prompt, purpose, online=True):
+        def ask(cfg, prompt, purpose, online=True, local_first=True):
             asked.append(online)
             a = answers[len(asked) - 1] if len(asked) <= len(answers) else (None, 'no model answered (pc down)')
             return a
@@ -61,7 +61,7 @@ class Finds(Base):
     def test_local_fails_then_online(self):
         self.task('Add --json', attempts=fails('the worker exited 1', 'the worker exited 1', 'the worker exited 1'))
         _, asked = self.tick([(None, 'pc down'), ('ACTION: retry\nWHY: w\nFIX: f', 'agy')])
-        self.assertEqual(asked, [False, True])
+        self.assertEqual(asked, [False, True])   # the second call goes online only (local_first=False)
         self.assertEqual(unblocker.read_log(self.cfg)[-1]['by'], 'online')
 
     def test_a_true_decision_goes_to_the_needs_queue(self):
@@ -96,14 +96,28 @@ class Finds(Base):
 
         class R:
             returncode, stderr = 0, ''
-            stdout = json.dumps([{'databaseId': 7, 'headSha': 'abc123', 'event': 'pull_request', 'displayTitle': 'ci'}])
+
+            def __init__(self, out):
+                self.stdout = json.dumps(out)
+        runs = [{'databaseId': 7, 'headSha': 'abc123', 'event': 'pull_request', 'displayTitle': 'ci'},
+                {'databaseId': 8, 'headSha': 'old999', 'event': 'pull_request', 'displayTitle': 'merged PR'}]
 
         def run(argv, **k):
             calls.append(argv[:3])
-            return R()
+            return R([{'headRefOid': 'abc123'}] if argv[1] == 'pr' else runs if argv[2] == 'list' else [])
         self.tick(run=run)
         self.tick(run=run)
-        self.assertEqual(calls.count(['gh', 'run', 'rerun']), 1)
+        self.assertEqual(calls.count(['gh', 'run', 'rerun']), 1)   # once, and never for the merged PR's old run
+
+
+    def test_a_429_that_is_not_a_limit_is_a_real_failure(self):
+        t = {'id': 't', 'status': 'queued', 'attempts': fails('the worker exited 1 (port 4290)', 'line 429: exited 1', 'exited 1')}
+        self.assertEqual(unblocker.classify(t, NOW), 'failing')
+        t['attempts'] = fails('HTTP 429 Too Many Requests', 'the worker hit its usage limit', 'RESOURCE_EXHAUSTED (code 429)')
+        self.assertEqual(unblocker.classify(t, NOW), 'limit-only')
+
+    def test_a_task_gone_meanwhile_is_left(self):
+        self.assertEqual(unblocker.apply(self.cfg, {'id': 't99', 'kind': 'failing'}, {}, NOW), 'changed meanwhile: left as it is')
 
 
 class Limits(Base):

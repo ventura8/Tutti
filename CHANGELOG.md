@@ -21,7 +21,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   Tutti's own job (12 s)*.
 - The unblocker (backlog t81): each round it clears blocked or failing work itself, local first (usage-limit-only
   failures forgiven, repeated failures diagnosed and retried with the fix, parked questions the history decides, rebase
-  conflicts redone, long backoffs cleared, red PR checks rerun once); only true decisions reach the needs queue; every
+  conflicts redone, red checks of open PRs rerun once); only true decisions reach the needs queue; every
   attempt is logged on the dashboard.
 
 ## 0.16.9 (2026-11-16)

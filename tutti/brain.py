@@ -119,7 +119,7 @@ def best_free(cfg, purpose='other', ps_fn=None, yield_fn=None, fleet_state=None,
     skipped = []
     preempt = preempt_allowed(cfg, purpose) if preempt is None else preempt
     for name, machine, m in rank(candidates(cfg, fleet_state), purpose):
-        why = free_now(cfg, cfg['workers'][name], m['name'], ps_fn, yield_fn)
+        why = free_now(cfg, {**cfg['workers'][name], 'machine': machine}, m['name'], ps_fn, yield_fn)
         if not why:
             return name, machine, m['name'], skipped, ''
         if why.startswith('busy') and preempt:
@@ -133,13 +133,19 @@ def best_free(cfg, purpose='other', ps_fn=None, yield_fn=None, fleet_state=None,
 PREEMPT_MAX_S = 180   # Tutti's own job is bounded, so parking stays cheap; a stale marker older than this is ignored
 
 
-def marker_path(cfg, machine):
-    return os.path.join(config.state_dir(cfg), f'preempt-{re.sub(r"[^A-Za-z0-9_.-]", "_", machine or "here")}.json')
+def marker_dir(cfg):
+    return config.state_dir(cfg)
+
+
+def marker_path(cfg, machine, owner=None):
+    """One marker per job of Tutti's (process and thread): two jobs on one machine never lower each other's."""
+    owner = owner or f'{os.getpid()}-{threading.get_ident()}'
+    return os.path.join(marker_dir(cfg), f'preempt-{re.sub(r"[^A-Za-z0-9_.-]", "_", machine or "here")}--{owner}.json')
 
 
 def park_others(cfg, machine, purpose, now=None):
-    """Raises the machine's pre-emption marker: other work's next model request waits (local.wait_for_preempt) until it is
-    lowered, so its progress (the conversation, the worktree, the run) stays as it is. Returns the marker's path."""
+    """Raises this job's pre-emption marker on the machine: other work's next model request waits (local.wait_for_preempt)
+    while any live marker is up, so its progress (the conversation, the worktree, the run) stays as it is."""
     p = marker_path(cfg, machine)
     with open(p, 'w', encoding='utf8') as f:
         json.dump({'purpose': purpose, 'at': now or time.time(), 'pid': os.getpid()}, f)
@@ -147,13 +153,18 @@ def park_others(cfg, machine, purpose, now=None):
 
 
 def preempted_now(cfg, machine, now=None):
-    """The marker's record while it holds (a live job of Tutti's, not older than PREEMPT_MAX_S), else None."""
-    try:
-        with open(marker_path(cfg, machine), encoding='utf8') as f:
-            rec = json.load(f)
-    except (OSError, ValueError):
-        return None
-    return rec if (now or time.time()) - float(rec.get('at') or 0) < PREEMPT_MAX_S else None
+    """A live marker's record (one not older than PREEMPT_MAX_S) on the machine, else None."""
+    import glob
+    prefix = f'preempt-{re.sub(r"[^A-Za-z0-9_.-]", "_", machine or "here")}--'
+    for p in glob.glob(os.path.join(glob.escape(marker_dir(cfg)), prefix + '*.json')):
+        try:
+            with open(p, encoding='utf8') as f:
+                rec = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if (now or time.time()) - float(rec.get('at') or 0) < PREEMPT_MAX_S:
+            return rec
+    return None
 
 
 def resume_others(cfg, machine):
@@ -218,7 +229,7 @@ def ask_online(cfg, prompt, run=None, pick=None):
     return (r.stdout.strip(), name) if r.returncode == 0 and r.stdout.strip() else (None, f'{name} exited {r.returncode}')
 
 
-def ask(cfg, prompt, purpose='other', online=True, generate=None, ps_fn=None, yield_fn=None, ask_online_fn=None,
+def ask(cfg, prompt, purpose='other', online=True, local_first=True, generate=None, ps_fn=None, yield_fn=None, ask_online_fn=None,
         clock=time.monotonic, fleet_state=None):
     """THE way Tutti asks a model for itself: (answer, who) from the best free local model in the household, then online
     (within pacing) when `online`; (None, why) when local AI is off or nothing answered. Every answer is logged."""
@@ -227,12 +238,13 @@ def ask(cfg, prompt, purpose='other', online=True, generate=None, ps_fn=None, yi
         return None, 'local AI is off (ai_assist.local)'
     generate = generate or local.generate
     tried = []
-    for _ in range(3):   # a model that fails: the next best one
-        name, machine, model, skipped, preempted = best_free(cfg, purpose, ps_fn, yield_fn, fleet_state)
+    may_preempt = None
+    for _ in range(3 if local_first else 0):   # a model that fails: the next best one
+        name, machine, model, skipped, preempted = best_free(cfg, purpose, ps_fn, yield_fn, fleet_state, may_preempt)
         tried += [s for s in skipped if s not in tried]
         if not name:
             break
-        w = {**cfg['workers'][name], 'model': model}
+        w = {**cfg['workers'][name], 'model': model, 'machine': machine}
         t0 = clock()
         if preempted:
             park_others(cfg, machine, purpose)
@@ -241,6 +253,7 @@ def ask(cfg, prompt, purpose='other', online=True, generate=None, ps_fn=None, yi
         except (RuntimeError, OSError, KeyError, ValueError) as e:
             tried.append(f'{model} on {machine}: {type(e).__name__}')
             fleet_state = _without(cfg, fleet_state, machine, model)
+            may_preempt = False if preempted else may_preempt   # other work is parked once per ask, never again after a timeout
             continue
         finally:
             if preempted:

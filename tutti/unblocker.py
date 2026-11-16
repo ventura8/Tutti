@@ -11,7 +11,8 @@ What it finds (`find`, pure):
 - **parked**: a task waiting on a person's answer. The model may pick one of the listed options when the history decides it
   (e.g. retry after a usage limit); otherwise the question stays for the person.
 - **conflict**: a result that no longer rebases onto main: queued again from scratch on the current main.
-- **idle**: queued work held only by a long backoff while machines are free: the backoff is cleared.
+- **idle machines with queued work**: work held back by usage-limit failures is the limit-only case above; any other
+  backoff (pacing, a quota window) is left alone on purpose.
 - **red-ci**: a failed check run on an open pull request of `ai_assist.unblock_repos`: its failed jobs are rerun once per
   head commit (a second red on the same commit is left to the task's own retry).
 
@@ -32,7 +33,7 @@ KEEP = 300
 MAX_PER_ROUND = 3
 COOLDOWN = 6 * 3600
 RECENT = 3
-LIMIT_RX = re.compile(r'usage limit|quota|RESOURCE_EXHAUSTED|429', re.I)
+LIMIT_RX = re.compile(r'usage limit|quota (?:reached|exceeded)|RESOURCE_EXHAUSTED|Too Many Requests|(?:HTTP|status|code)[ :]*429\\b', re.I)
 REAL_RX = re.compile(r'exited|without a report|stuck:|changed nothing|refused|rc=127|failed', re.I)
 REBASE_RX = re.compile(r'does not rebase|rebase conflict|could not apply', re.I)
 ACTION_RX = re.compile(r'^\s*ACTION:\s*(\S+)', re.I | re.M)
@@ -61,8 +62,6 @@ def classify(t, now, questions=()):
         return 'limit-only'
     if len(whys) >= RECENT and all(REAL_RX.search(w) for w in whys):
         return 'failing'
-    if float(t.get('not_before') or 0) - now > 3600:
-        return 'idle'
     return ''
 
 
@@ -116,30 +115,25 @@ def requeue(t, now, note, fresh=False):
 def apply(cfg, item, verdict, now):
     """Writes the action into the backlog; returns the outcome line."""
     with backlog.locked(cfg) as data:
-        t = backlog.find(data, item['id'])
+        t = next((x for x in data['tasks'] if x['id'] == item['id']), None)
         if t is None or classify(t, now, _questions(cfg)) != item['kind']:
             return 'changed meanwhile: left as it is'
         kind = item['kind']
         if kind == 'limit-only':
             requeue(t, now, 'unblocker: the recent failures were usage limits only (the account, not the task): attempts forgiven')
             return 'attempts forgiven, queued for a worker with room'
-        if kind == 'idle':
-            t['not_before'] = now
-            return 'backoff cleared'
         if kind == 'conflict':
             requeue(t, now, 'unblocker: the earlier result no longer rebases onto main: redo it on the current main', fresh=True)
             return 'queued again from scratch on the current main'
         if kind == 'failing' and verdict.get('action') == 'retry':
             requeue(t, now, f'unblocker diagnosis: {verdict["why"]} Fix for this attempt: {verdict["fix"]}')
             return 'diagnosed; queued again with the fix (its next attempt reruns the check)'
-    if kind == 'failing':
+        if kind != 'failing':
+            return 'nothing to do'
         from . import needs
-        with backlog.locked(cfg) as data:
-            t = backlog.find(data, item['id'])
-            needs.ask(cfg, t, f'{item["id"]} keeps failing: {verdict.get("why") or "no diagnosis"}', verdict.get('fix') or 'see its runs',
-                      ['retry', 'retry-from-scratch', 'drop'], 'retry', now=now)
+        needs.ask(cfg, t, f'{item["id"]} keeps failing: {verdict.get("why") or "no diagnosis"}', verdict.get('fix') or 'see its runs',
+                  ['retry', 'retry-from-scratch', 'drop'], 'retry', now=now)
         return 'a person decides: asked in the needs queue'
-    return 'nothing to do'
 
 
 def _questions(cfg):
@@ -162,7 +156,7 @@ def answer_parked(cfg, item, verdict, now):
 # ---- the round
 
 def task_of(cfg, tid):
-    return backlog.find(backlog.load(cfg), tid) or {}
+    return next((x for x in backlog.load(cfg)['tasks'] if x['id'] == tid), {})
 
 
 def needs_model(item):
@@ -178,8 +172,8 @@ def handle(cfg, item, ask, now):
             (q for q in _questions(cfg) if q.get('task') == item['id'] and q.get('status') == 'open'), {}))
         big = t.get('size') == 'L'
         answer, who = ask(cfg, prompt, 'unblock', online=big)
-        if not answer and not big:
-            answer, who = ask(cfg, prompt, 'unblock', online=True)   # local failed: escalate online, within pacing
+        if not answer and not big:   # local failed: escalate online only (the local models were just tried), within pacing
+            answer, who = ask(cfg, prompt, 'unblock', online=True, local_first=False)
         verdict = parse(answer)
         by = ('online' if who and who in _cli_workers(cfg) else 'local') if answer else 'none'
         if not answer:
@@ -198,6 +192,7 @@ def red_ci(cfg, run=subprocess.run, log=()):
     seen = {e.get('id') for e in log}
     out = []
     for repo in aiassist.settings(cfg).get('unblock_repos') or []:
+        heads = open_heads(repo, run)
         try:
             r = run(['gh', 'run', 'list', '--repo', repo, '--status', 'failure', '--limit', '10', '--json',
                      'databaseId,headSha,event,displayTitle'], capture_output=True, text=True, timeout=60)
@@ -206,11 +201,20 @@ def red_ci(cfg, run=subprocess.run, log=()):
             continue
         for x in rows:
             key = f'ci:{repo}:{x.get("headSha", "")[:12]}'
-            if x.get('event') == 'pull_request' and key not in seen:
+            if x.get('event') == 'pull_request' and x.get('headSha') in heads and key not in seen:
                 seen.add(key)
                 out.append({'kind': 'red-ci', 'id': key, 'title': str(x.get('displayTitle') or '')[:120], 'repo': repo,
                             'run': x.get('databaseId')})
     return out
+
+
+def open_heads(repo, run=subprocess.run):
+    """The head commits of the repository's open pull requests: only their runs are rerun (not merged, closed or replaced ones)."""
+    try:
+        r = run(['gh', 'pr', 'list', '--repo', repo, '--state', 'open', '--json', 'headRefOid'], capture_output=True, text=True, timeout=60)
+        return {x.get('headRefOid') for x in json.loads(r.stdout or '[]')} if r.returncode == 0 else set()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return set()
 
 
 def rerun(item, run=subprocess.run):
@@ -232,7 +236,7 @@ def tick(cfg, now=None, ask=None, run=subprocess.run, may_write=None):
     for item in items:
         try:
             res = {'by': 'rule', 'outcome': rerun(item, run)} if item['kind'] == 'red-ci' else handle(cfg, item, ask, now)
-        except (OSError, RuntimeError, ValueError, KeyError) as e:
+        except Exception as e:  # one item's surprise must not end the round: logged, the next items go on
             res = {'by': 'none', 'outcome': f'{type(e).__name__}: {e}'[:200]}
         entry = {'at': now, **{k: item[k] for k in ('kind', 'id', 'title')}, **res}
         write_log(cfg, entry)

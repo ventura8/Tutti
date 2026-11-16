@@ -340,7 +340,8 @@ def _roles(d, readings):
 def device_state(d, readings):
     pol = policy(d)
     st, reason = status(pol, readings, d['serial'])
-    keep = ('battery', 'charging', 'battery_c', 'screen', 'wifi', 'call', 'external_by', 'prep_left',
+    keep = ('battery', 'charging', 'battery_c', 'battery_present', 'temp_skin', 'temp_soc',
+            'screen', 'wifi', 'call', 'external_by', 'prep_left',
             'revived', 'dnd', 'cast')
     return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'kind': d.get('kind', 'phone'), 'status': st,
             'reason': reason, 'hours': d.get('hours'), 'roles': _roles(d, readings),

@@ -353,6 +353,25 @@ class Roles(unittest.TestCase):
                 self.assertIn('Limited hours: none set', card.text_content())
         ctx.close()
 
+    def test_device_cards_match_the_state(self):
+        """One card per device: its pill, why and action are /api/state's devices.items[].card, never a second status."""
+        ctx = new_context(ADMIN)
+        page = open_view(ctx, '#dashboard')
+        items = page.evaluate("fetch('/api/state').then((r) => r.json()).then((s) => s.devices.items)")
+        for d in items:
+            card = page.locator(f"#devices > li[data-device='{d['name']}']")
+            self.assertEqual(card.count(), 1)
+            if card.get_attribute('data-status') == 'checking':   # not probed yet: no card status to compare
+                continue
+            self.assertEqual(card.get_attribute('data-status'), d['card']['status'])
+            self.assertIn(d['card']['label'], card.locator('.chip').first.text_content())
+            if d['card']['why']:
+                self.assertIn(d['card']['why'], card.text_content())
+            if d['card']['action']:
+                self.assertTrue(card.get_by_role('button', name=d['card']['action']['label']).is_visible())
+        self.assertNotIn('2.5 °C', page.text_content('#devices'))   # a TV's battery reading is never its temperature
+        ctx.close()
+
     def test_numbers_have_no_float_noise(self):
         for role in (ADMIN, VIEWER):
             ctx = new_context(role)

@@ -33,6 +33,7 @@ from . import (
     connect,
     controls,
     dashtelemetry,
+    devicecard,
     devicesweb,
     energy,
     fill,
@@ -309,6 +310,7 @@ class Collector:
                                           'why': 'free room on the trigger accounts is filled from the repos\' sources by itself'})
         out['controls']['autocompact'] = autocompact.view(self.cfg)
         out['dispatch'] = keepbusy.view(self.cfg)
+        devicecard.attach(self.cfg, out)   # one card per device: the pause, the idle watchdog and the reroute folded in
         out['presence'] = presence.attach(self.cfg, out, time.time())
         from . import jobmove
         out['presence']['waiting'] = jobmove.waiting(self.cfg)

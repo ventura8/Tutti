@@ -386,8 +386,9 @@ def watch(cfg, st, tgts, pend, p, now, worker_rows=()):
         why = t.get('why') or p['blocked'].get(t['id']) or ''
         what = t.get('what') or describe(cfg, work)
         minutes = int((now - since) // 60)
-        text = f'Idle {minutes} min while {what}: ' + (f'blocked by {why}' if why else 'dispatching')
-        warnings.append({'target': t['id'], 'kind': t['kind'], 'name': t['name'], 'minutes': minutes, 'pending': len(work),
+        from .devicecard import plain_minutes
+        text = f'Idle for {plain_minutes(minutes)} while {what}: ' + (f'blocked by {why}' if why else 'dispatching')
+        warnings.append({'target': t['id'], 'kind': t['kind'], 'name': t['name'], 'minutes': minutes, 'pending': len(work), 'what': what,
                          'state': 'blocked' if why else 'dispatching', 'reason': why, 'text': text,
                          'fix': fix_for(t, why) if why else None})
         if t['id'] not in st['warned']:

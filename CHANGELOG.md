@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.8 (2026-11-16)
+
+### Fixed
+
+- A spent per-model cap (an account with a `match.model` and no worker, such as `agy-gemini-argon`) takes its models out
+  of the tiers until its reset: an agy-gemini run behind its pace names the account's own model or another tier with room
+  (gemini-3.8-flash-high) instead of the capped Gemini 4 Argon, so it no longer fails on Argon's weekly limit.
+
 ## 0.16.7 (2026-11-16)
 
 ### Fixed

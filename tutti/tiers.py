@@ -5,7 +5,11 @@ pace it keeps its own `args`. The aim is the most useful work from the quota tha
 The tiers live per account in the config, never guessed: `accounts.<name>.tiers: {strong: {args: [...], sizes: [L, M]},
 cheap: {args: [...], sizes: [S]}}`. A tier's flags replace the same flags of the account's `args` (`--model x`, `--effort x`);
 the model names come from the worker's own list (`agy models`, `cursor-agent --list-models`, `claude --help`), which
-`tutti doctor` can check. An account without tiers always runs with its own args. Pure."""
+`tutti doctor` can check. An account without tiers always runs with its own args. A per-model cap (an account with a
+`match.model` and no `worker`, e.g. Gemini 4 Argon's weekly limit) that is spent takes its models out of the choice until
+its reset: the next tier, or the account's own args, whose model has room runs instead. Pure."""
+
+import re
 
 TIERS = ('strong', 'cheap')
 ON_PACE = 'on pace'
@@ -68,8 +72,26 @@ def model_effort(args):
     return model, effort
 
 
-def choose(cfg, name, s):
-    """{tier, args, model, effort, sizes, reason, label} for a run on account `name` with pacing state `s` (or None)."""
+def capped_models(cfg, states):
+    """{account: model regex} of the spent per-model caps: accounts with a `match.model` and no `worker` of their own."""
+    rows = states.values() if isinstance(states, dict) else (states or [])
+    accounts = cfg.get('accounts') or {}
+    out = {}
+    for st in rows:
+        a = accounts.get((st or {}).get('name')) or {}
+        model = (a.get('match') or {}).get('model')
+        if model and not a.get('worker') and st.get('verdict') == 'spent':
+            out[st['name']] = model
+    return out
+
+
+def _capped_by(model, capped):
+    return next((n for n, rx in capped.items() if model and re.search(rx, model, re.I)), None)
+
+
+def choose(cfg, name, s, states=None):
+    """{tier, args, model, effort, sizes, reason, label} for a run on account `name` with pacing state `s` (or None);
+    `states` (all accounts' pacing states) lets a spent per-model cap move the run to a model with room."""
     a = (cfg.get('accounts') or {}).get(name) or {}
     pace, why = pace_of(s) if s else (ON_PACE, 'no pacing state')
     tier = {'behind': 'strong', 'ahead': 'cheap'}.get(pace)
@@ -79,9 +101,28 @@ def choose(cfg, name, s):
     reason = f'{name} {pace}: {why}'
     if tier and not spec:
         reason += f' (no accounts.{name}.tiers.{tier}: its own args)'
+    capped = capped_models(cfg, states)
+    cap = _capped_by(model, capped)
+    if cap:
+        tier, spec, args, model, effort, reason = _with_room(a, tier, cap, capped, reason)
     short = '/'.join(x for x in (model, effort) if x) or 'its default model'
     return {'tier': tier if spec else 'default', 'args': args, 'model': model, 'effort': effort,
             'sizes': list(spec.get('sizes') or []), 'reason': reason, 'label': f'{short}: {reason}'}
+
+
+def _with_room(a, tier, cap, capped, reason):
+    """The first of: the account's own args, then its other tiers, whose model no spent cap holds; else the tier as it was."""
+    tiers = a.get('tiers') or {}
+    options = [(None, {})] + [(t, tiers[t]) for t in TIERS if t != tier and tiers.get(t)]
+    for t, spec in options:
+        args = merge(list(a.get('args') or []), list(spec.get('args') or []))
+        model, effort = model_effort(args)
+        if not _capped_by(model, capped):
+            return t, spec, args, model, effort, f'{reason}; {cap} is spent: {model or "its default model"} instead'
+    spec = tiers.get(tier) or {}
+    args = merge(list(a.get('args') or []), list(spec.get('args') or []))
+    model, effort = model_effort(args)
+    return tier, spec, args, model, effort, f'{reason}; {cap} is spent and no other model of this account has room'
 
 
 def errors(cfg):

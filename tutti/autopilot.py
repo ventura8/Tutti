@@ -398,7 +398,7 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     going = {}
     for t in running:
         going[t['repo']] = going.get(t['repo'], 0) + 1
-    prefer = {n: tiers.choose(cfg, n, states.get(n))['sizes'] for n in names if n in cfg['accounts']}
+    prefer = {n: tiers.choose(cfg, n, states.get(n), states)['sizes'] for n in names if n in cfg['accounts']}
     queued.sort(key=lambda t: (not t.get('urgent'), t.get('rank', 0)))   # the dashboard's Run now and Priority up/down
     from . import fleet
     over = fleet.overflow(cfg, states, rooms, [n for n in names if is_local(cfg, n)])
@@ -603,7 +603,7 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
     """Starts `tutti run <worker> <brief> --repo <repo> --track ap-<task>` in the background; marks the task running. An
     account's model and effort follow its pace (tutti/tiers.py): stronger while behind, cheaper while ahead."""
     step = step_of(cfg, step_name)
-    choice = tiers.choose(cfg, step['account'], (states or {}).get(step['account'])) if step['account'] else None
+    choice = tiers.choose(cfg, step['account'], (states or {}).get(step['account']), states) if step['account'] else None
     if choice:
         step = {**step, 'args': choice['args']}
     repo = settings(cfg)['repos'][task['repo']]

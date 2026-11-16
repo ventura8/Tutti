@@ -129,6 +129,26 @@ class Tiers(unittest.TestCase):
         same = tiers.choose(TIERED, 'agy-claude', plan_state('on pace', projected=95))
         self.assertEqual((same['tier'], same['args'][1]), ('default', 'claude-sonnet-5-5-medium'))
 
+    def test_a_spent_per_model_cap_moves_the_run_to_a_model_with_room(self):
+        cfg = {'accounts': {'agy-gemini': {'worker': 'agy', 'args': ['--model', 'gemini-3.8-flash-high'], 'tiers': {
+            'strong': {'args': ['--model', 'gemini-4-argon-high'], 'sizes': ['L', 'M']},
+            'cheap': {'args': ['--model', 'gemini-3.8-flash-low'], 'sizes': ['S']}}},
+            'agy-gemini-argon': {'match': {'command': 'agy', 'model': 'argon'}}}}
+        behind = {'name': 'agy-gemini', 'verdict': 'behind', 'quota_plan': {'limit': 'w', 'projected': 10}}
+        spent = {'agy-gemini': behind, 'agy-gemini-argon': {'name': 'agy-gemini-argon', 'verdict': 'spent'}}
+        c = tiers.choose(cfg, 'agy-gemini', behind, spent)
+        self.assertEqual((c['tier'], c['model']), ('default', 'gemini-3.8-flash-high'))
+        self.assertIn('agy-gemini-argon is spent: gemini-3.8-flash-high instead', c['label'])
+        free = {**spent, 'agy-gemini-argon': {'name': 'agy-gemini-argon', 'verdict': 'behind'}}
+        self.assertEqual(tiers.choose(cfg, 'agy-gemini', behind, free)['model'], 'gemini-4-argon-high')
+        self.assertEqual(tiers.choose(cfg, 'agy-gemini', behind, list(spent.values()))['model'], 'gemini-3.8-flash-high')
+        cfg['accounts']['agy-gemini']['args'] = ['--model', 'gemini-4-argon-low']   # own args capped too: the cheap tier
+        self.assertEqual(tiers.choose(cfg, 'agy-gemini', behind, spent)['model'], 'gemini-3.8-flash-low')
+        cfg['accounts']['agy-gemini']['tiers'].pop('cheap')
+        stuck = tiers.choose(cfg, 'agy-gemini', behind, spent)
+        self.assertEqual(stuck['model'], 'gemini-4-argon-high')
+        self.assertIn('no other model of this account has room', stuck['label'])
+
     def test_effort_flags_and_unread_states(self):
         cfg = {'accounts': {'claude': {'worker': 'claude', 'tiers': {'strong': {'args': ['--model', 'opus', '--effort', 'high']}}}}}
         c = tiers.choose(cfg, 'claude', {'name': 'claude', 'verdict': 'late'})

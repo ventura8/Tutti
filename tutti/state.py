@@ -248,7 +248,7 @@ def next_worker(cfg, accounts):
         return {'worker': None, 'account': None, 'args': [], 'reason': reason}
     acc = cfg['accounts'][best['name']]
     from . import tiers
-    choice = tiers.choose(cfg, best['name'], best)   # stronger while behind its binding limit, cheaper while ahead
+    choice = tiers.choose(cfg, best['name'], best, accounts)   # stronger while behind its binding limit, cheaper while ahead
     return {'worker': acc['worker'], 'account': best['name'], 'args': choice['args'], 'reason': f'{reason}; {choice["label"]}'}
 
 

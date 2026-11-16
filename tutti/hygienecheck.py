@@ -65,16 +65,16 @@ def check(ctx):
     for name, m in (cfg.get('machines') or {}).items():
         if m.get('transport', 'ssh') not in KINDS:
             continue
+        entry = data.setdefault(name, {})
+        if m.get('transport') == 'wsl':   # first: a hung WSL cannot answer the look below (its flag: the last one seen)
+            out += wsl_round(ctx, m, entry, held_by(entry, leases.get(name, 0)))
         r = sh(m, hygiene.measure_script(m), 60)
         if r.returncode != 0 or 'HOST ' not in (r.stdout or ''):
             continue   # unreachable: the probe already shows it offline
         meas = hygiene.parse_measure(r.stdout, ctx.now)
-        entry = data.setdefault(name, {})
         out += flag_round(ctx, m, meas, entry)
         held = held_by(entry, leases.get(name, 0))
         out += disk_round(ctx, m, meas, entry)
-        if m.get('transport') == 'wsl':
-            out += wsl_round(ctx, m, entry, held)
         out += clean_round(ctx, m, meas, entry, held)
     hygiene.write(cfg, data)
     return out
@@ -93,14 +93,21 @@ def flag_round(ctx, m, meas, entry):
     if not f:
         entry['flag'] = None
         return []
-    alive = meas['pid_alive'] if f['host'] and f['host'] == meas['host'] else (
-        durable.pid_alive(int(f['pid'])) if f['pid'] and f['host'] == socket.gethostname() else None)
-    why = hygiene.stale_flag(f, ctx.now, alive, hygiene.idle(meas))
+    why = hygiene.stale_flag(f, ctx.now, owner_alive(f, meas), hygiene.idle(meas))
     if why and (getattr(ctx, 'set_yield', None) or _set_yield)(m, False) == 0:
         entry['flag'] = None
         return [f'{m["name"]}: {why}: lowered']
     entry['flag'] = {k: f[k] for k in ('owner', 'reason', 'at', 'expires', 'legacy')}
     return []
+
+
+def owner_alive(f, meas):
+    """True or False when the flag's owner process can be looked at (on the flagged machine or here), else None."""
+    if f['host'] and f['host'] == meas['host']:
+        return meas['pid_alive']
+    if f['pid'] and f['host'] == socket.gethostname():
+        return durable.pid_alive(int(f['pid']))
+    return None
 
 
 def disk_round(ctx, m, meas, entry):
@@ -172,9 +179,13 @@ def wsl_round(ctx, m, entry, held):
     return [f'{m["name"]}: WSL hung (Windows answered, WSL did not): shut down and started again']
 
 
+LOW_EVERY = 3600   # under CLEAN_PCT % free the clean-up runs again at most hourly, not every round
+
+
 def due(entry, meas, now):
     low = any(d['pct'] < hygiene.CLEAN_PCT for d in hygiene.work_disks(meas).values())
-    return low or now - float(entry.get('cleaned_at') or 0) >= hygiene.CLEAN_EVERY
+    since = now - float(entry.get('cleaned_at') or 0)
+    return since >= (LOW_EVERY if low else hygiene.CLEAN_EVERY)
 
 
 def clean_round(ctx, m, meas, entry, held):
@@ -218,7 +229,8 @@ def local_files(ctx, done):
         done.append(f'{len(files)} old log(s)')
     root = config.expand((ctx.cfg.get('project') or {}).get('worktrees') or '')
     remove = getattr(ctx, 'remove_worktree', None) or hygiene.remove_worktree
-    trees = [p for p in hygiene.old_worktrees(root, ctx.now) if remove(p)] if root else []
+    busy = (getattr(ctx, 'busy_dirs', None) or hygiene.busy_dirs)()
+    trees = [p for p in hygiene.old_worktrees(root, ctx.now, busy) if remove(p)] if root else []
     if trees:
         done.append(f'{len(trees)} old run worktree(s)')
     return size / 1e9
@@ -226,7 +238,7 @@ def local_files(ctx, done):
 
 def windows_round(ctx, m, entry, done):
     """A WSL machine's Windows side: APK outputs and caches; Remote Desktop traces on the owner's yes. Returns GB freed."""
-    roots = [p[m['name']] for p in (ctx.cfg.get('projects') or {}).values()
+    roots = [p['windows'][m['name']] for p in (ctx.cfg.get('projects') or {}).values()
              if isinstance(p, dict) and isinstance(p.get('windows'), dict) and p['windows'].get(m['name'])]
     gb = 0.0
     try:

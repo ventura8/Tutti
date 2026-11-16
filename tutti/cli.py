@@ -736,28 +736,35 @@ def cmd_agent(cfg, a):
 
 def cmd_yield(cfg, a):
     """A flag carries its owner, reason, pid and expiry (docs/SELFHEAL.md): `renew` moves the expiry; an expired one is lowered."""
-    from . import hygiene
     names = [a.machine] if a.machine else list(cfg['machines'])
     if a.action != 'status':
-        if not a.machine:
-            say(f'name the machine: tutti yield {a.action} --machine <name> (a flag is raised on one machine, never on all by default)')
-            return 2
-        m = machine_of(cfg, a.machine)
-        note = ('unload ' if a.unload else '') + a.note
-        if a.action == 'renew':
-            old = remote.yield_note(m)
-            if old is None:
-                say(f'{a.machine} has no yield flag up: nothing to renew (raise one with tutti yield on --machine {a.machine})')
-                return 1
-            text = hygiene.renewed(old, time.time(), a.hours)
-        else:
-            text = hygiene.flag_text(a.owner, note, a.hours, a.pid or None)
-        if remote.set_yield(m, a.action != 'off', text) != 0:
-            say(f'could not change the yield flag on {a.machine}: check that the machine is reachable (tutti machines)')
-            return 1
+        code = change_yield(cfg, a)
+        if code:
+            return code
     for name in names:
         note = remote.yield_note(machine_of(cfg, name))
         print(f'{name:12} {"free" if note is None else "YIELD " + yield_line(note)}'.rstrip())
+    return 0
+
+
+def change_yield(cfg, a):
+    """Raises, renews or lowers one machine's flag; 0, or the exit code after saying why not."""
+    from . import hygiene
+    if not a.machine:
+        say(f'name the machine: tutti yield {a.action} --machine <name> (a flag is raised on one machine, never on all by default)')
+        return 2
+    m = machine_of(cfg, a.machine)
+    if a.action == 'renew':
+        old = remote.yield_note(m)
+        if old is None:
+            say(f'{a.machine} has no yield flag up: nothing to renew (raise one with tutti yield on --machine {a.machine})')
+            return 1
+        text = hygiene.renewed(old, time.time(), a.hours)
+    else:
+        text = hygiene.flag_text(a.owner, ('unload ' if a.unload else '') + a.note, a.hours, a.pid or None)
+    if remote.set_yield(m, a.action != 'off', text) != 0:
+        say(f'could not change the yield flag on {a.machine}: check that the machine is reachable (tutti machines)')
+        return 1
     return 0
 
 

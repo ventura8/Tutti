@@ -46,13 +46,14 @@ def make(machines, extra=None):
 class Machine:
     """A fake machine: answers the measure, the image listing and the clean-up; records every script."""
 
-    def __init__(self, meas, images='', freed_kb=0, rmi=()):
+    def __init__(self, meas, images='', freed_kb=0, rmi=(), down=False):
+        self.down = down
         self.meas, self.images, self.freed, self.rmi, self.scripts = meas, images, freed_kb, rmi, []
 
     def __call__(self, m, script, timeout=120):
         self.scripts.append(script)
         if script.startswith('y='):
-            return done(self.meas)
+            return done('', 255) if self.down else done(self.meas)
         if script == hygiene.IMAGES_SCRIPT:
             return done(self.images)
         if 'FREED' in script:
@@ -91,7 +92,8 @@ def ctx(cfg, sh, win=None, questions=(), lowered=None):
     c = SimpleNamespace(cfg=cfg, now=NOW, sh=sh, win=win or Windows(), questions=lambda cfg: list(questions),
                         offer=lambda cfg, key, q, why: offered.append((key, q)),
                         set_yield=lambda m, on, note='': lowered.append(m['name']) or 0,
-                        ask=lambda cfg, key, q, why: asked.append((key, q)), remove_worktree=lambda p: False)
+                        ask=lambda cfg, key, q, why: asked.append((key, q)), remove_worktree=lambda p: False,
+                        busy_dirs=lambda: set())
     return c, asked, offered, lowered
 
 
@@ -217,10 +219,32 @@ class Check(unittest.TestCase):
         self.assertTrue(any('WSL hung' in x for x in lines))
         self.assertIn('restarted', hygiene.read(cfg)['pc']['wsl'])
 
+    def test_a_hung_wsl_whose_look_fails_is_still_restarted(self):
+        cfg = make({'pc': {'transport': 'wsl', 'host': 'pc.example', 'wsl_helper': '/opt/run64.sh'}})
+        win = Windows(hung=True)
+        c, *_ = ctx(cfg, Machine(measure(), down=True), win)
+        hygienecheck.check(c)
+        self.assertIn('wsl --shutdown', win.calls)
+
+    def test_low_space_cleans_at_most_hourly(self):
+        meas = hygiene.parse_measure(measure(disks=(('/home/u', 500, 50),)))
+        self.assertFalse(hygienecheck.due({'cleaned_at': NOW - 600}, meas, NOW))
+        self.assertTrue(hygienecheck.due({'cleaned_at': NOW - 4000}, meas, NOW))
+
+    def test_a_projects_windows_folder_reaches_the_apk_clean_up(self):
+        cfg = make({'pc': {'transport': 'wsl', 'host': 'pc.example', 'wsl_helper': '/opt/run64.sh'}},
+                   {'projects': {'radio': {'windows': {'pc': 'C:\\Radio'}}}})
+        win = Windows(freed=2e9)
+        c, *_ = ctx(cfg, Machine(measure()), win)
+        lines = hygienecheck.check(c)
+        self.assertIn(hygiene.windows_clean(['C:\\Radio']), win.calls)
+        self.assertTrue(any('reclaimed 2.0 GB' in x for x in lines), lines)
+
     def test_a_hung_wsl_is_left_while_a_flag_holds_it(self):
         cfg = make({'pc': {'transport': 'wsl', 'host': 'pc.example', 'wsl_helper': '/opt/run64.sh'}})
         win = Windows(hung=True)
-        c, *_ = ctx(cfg, Machine(measure(hygiene.flag_text('ro', 'judge', now=NOW), mtime=NOW)), win)
+        c, *_ = ctx(cfg, Machine(measure(hygiene.flag_text('ro', 'judge', now=NOW), mtime=NOW), down=True), win)
+        hygiene.write(cfg, {'pc': {'flag': {'owner': 'ro', 'reason': 'judge', 'at': NOW, 'expires': NOW + 3600}}})   # last round's look
         hygienecheck.check(c)
         self.assertNotIn('wsl --shutdown', win.calls)
         self.assertIn('not restarted', hygiene.read(cfg)['pc']['wsl'])
@@ -231,6 +255,40 @@ class Check(unittest.TestCase):
         sh.meas = ''
         c, *_ = ctx(cfg, lambda m, s, t=0: done('', 255) if m['name'] == 'pc' else self.fail('the phone was probed'))
         self.assertEqual(hygienecheck.check(c), [])
+
+
+class Worktrees(unittest.TestCase):
+    def test_an_old_run_worktree_is_a_candidate_unless_a_process_works_in_it(self):
+        root = tmpdirs.mkdtemp()
+        old = os.path.join(root, 'tutti-run-a')
+        os.makedirs(os.path.join(old, 'sub'))
+        os.makedirs(os.path.join(root, 'mine'))
+        later = time.time() + 30 * 86400
+        self.assertEqual(hygiene.old_worktrees(root, later), [old])
+        self.assertEqual(hygiene.old_worktrees(root, later, {os.path.join(old, 'sub')}), [])
+        self.assertEqual(hygiene.old_worktrees(root, time.time()), [])
+
+
+class Created(unittest.TestCase):
+    def test_both_time_formats_and_the_zero_time(self):
+        a = hygiene.parse_created('2026-11-01 10:00:00 +0200 EET')
+        b = hygiene.parse_created('2026-11-01T08:00:00.123456789Z')
+        self.assertAlmostEqual(a, b, delta=1)
+        self.assertIsNone(hygiene.parse_created('0001-01-01T00:00:00Z'))
+        self.assertIsNone(hygiene.parse_created('soon'))
+
+    def test_a_base_image_pulled_today_is_not_old(self):
+        listing = 'IMAGES\nsha256:p\tpostgres\t16\t2026-01-01 10:00:00 +0000 UTC\nTAGS\n' \
+            f'sha256:p\t{time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(NOW - 3600))}\n'
+        self.assertEqual(hygiene.images_to_delete(listing, [], NOW), [])
+
+
+class PowerShell(unittest.TestCase):
+    def test_every_script_has_balanced_braces(self):
+        import base64
+        for c in (hygiene.windows_clean(['C:\\p']), hygiene.TRACE_SIZE, hygiene.TRACE_DELETE, hygiene.COMPACT):
+            text = base64.b64decode(c.split()[-1]).decode('utf-16-le')
+            self.assertEqual(text.count('{'), text.count('}'), text)
 
 
 class MeasureScript(unittest.TestCase):

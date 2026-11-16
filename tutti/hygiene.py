@@ -20,10 +20,12 @@ The decisions are pure; every shell call goes through injected runners, so tests
 import base64
 import json
 import os
+import re
 import shlex
 import socket
 import subprocess
 import time
+from datetime import datetime
 
 from . import config, durable
 
@@ -38,6 +40,9 @@ IDLE_RATIO = 0.25          # load under this share of its cores: the machine is 
 COMPACT_GB = 5             # a WSL disk is compacted after a prune that freed at least this much
 TRACE_ASK_GB = 2           # Remote Desktop traces at least this big are offered for deletion
 STATE = 'hygiene.json'
+WIN_C = '/mnt/c'
+NONE = '<none>'
+WIN_DOWN = 'windows down'
 WEEK = 7 * 86400
 
 
@@ -101,8 +106,18 @@ def measure_script(machine):
             'p=$(grep -o \'"pid": *[0-9]*\' "$y" | grep -o "[0-9]*$"); '
             '[ -n "$p" ] && { [ -d "/proc/$p" ] && echo "PID alive" || echo "PID gone"; }; fi; '
             'echo "HOST $(hostname)"; echo "LOAD $(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo 0) $(nproc 2>/dev/null || echo 1)"; '
-            'for p in "$HOME" /tmp /mnt/c; do [ -d "$p" ] && df -Pk "$p" 2>/dev/null | '
+            'for p in "$HOME" /mnt/c; do [ -d "$p" ] && df -Pk "$p" 2>/dev/null | '
             'awk -v p="$p" \'NR==2{print "DF", p, $2, $4}\'; done; true')
+
+
+def _flag_line(out, w, lines, i, now):
+    out['flag'] = parse_flag(lines[i + 1] if i + 1 < len(lines) else '', float(w[1]), now)
+
+
+def _df_line(out, w):
+    size, free = _num(w[2]) / 1048576, _num(w[3]) / 1048576
+    pct = round(100 * free / size, 1) if size else 100.0
+    out['disks'][w[1]] = {'size_gb': round(size, 1), 'free_gb': round(free, 1), 'pct': pct}
 
 
 def parse_measure(text, now=None):
@@ -110,21 +125,18 @@ def parse_measure(text, now=None):
     lines = (text or '').splitlines()
     out = {'flag': None, 'pid_alive': None, 'host': '', 'load': None, 'cores': 1, 'disks': {}}
     for i, ln in enumerate(lines):
-        w = ln.split()
-        if not w:
-            continue
-        if w[0] == 'FLAG' and len(w) > 1:
-            out['flag'] = parse_flag(lines[i + 1] if i + 1 < len(lines) else '', float(w[1]), now)
-        elif w[0] == 'PID' and len(w) > 1:
+        w = ln.split() + ['', '', '']
+        tag = w[0]
+        if tag == 'FLAG' and w[1]:
+            _flag_line(out, w, lines, i, now)
+        elif tag == 'PID' and w[1]:
             out['pid_alive'] = w[1] == 'alive'
-        elif w[0] == 'HOST' and len(w) > 1:
+        elif tag == 'HOST' and w[1]:
             out['host'] = w[1]
-        elif w[0] == 'LOAD' and len(w) > 2:
+        elif tag == 'LOAD' and w[2]:
             out['load'], out['cores'] = _num(w[1]), max(1, int(_num(w[2]) or 1))
-        elif w[0] == 'DF' and len(w) > 3:
-            size, free = _num(w[2]) / 1048576, _num(w[3]) / 1048576
-            out['disks'][w[1]] = {'size_gb': round(size, 1), 'free_gb': round(free, 1),
-                                  'pct': round(100 * free / size, 1) if size else 100.0}
+        elif tag == 'DF' and w[3]:
+            _df_line(out, w)
     return out
 
 
@@ -140,8 +152,8 @@ def idle(m):
 
 
 def work_disks(m):
-    """The disks work fills: the home disk and a WSL machine's Windows C: (/tmp is often memory)."""
-    return {p: d for p, d in m['disks'].items() if p != '/tmp'} or m['disks']
+    """The disks work fills: the home disk and a WSL machine's Windows C:."""
+    return m['disks']
 
 
 def disk_level(m):
@@ -150,12 +162,16 @@ def disk_level(m):
     if not disks:
         return 'ok', None, '', None
     path, d = min(disks.items(), key=lambda kv: kv[1]['free_gb'])
-    level = 'stop' if d['free_gb'] < STOP_GB else 'warn' if d['free_gb'] < WARN_GB else 'ok'
+    level = 'ok'
+    if d['free_gb'] < WARN_GB:
+        level = 'warn'
+    if d['free_gb'] < STOP_GB:
+        level = 'stop'
     return level, d['free_gb'], path, d['pct']
 
 
 def label(path):
-    return 'Windows C:' if path == '/mnt/c' else 'the temp folder' if path == '/tmp' else 'its home disk'
+    return 'Windows C:' if path == WIN_C else 'its home disk'
 
 
 # ---- what may never be deleted, and what may
@@ -163,63 +179,95 @@ def label(path):
 def keep_images(cfg):
     """Every image the config names (`image:` or `images:` anywhere, `selfheal.keep_images`): never deleted."""
     out = set()
-
-    def walk(x):
-        if isinstance(x, dict):
-            for k, v in x.items():
-                if k in ('image', 'images', 'keep_images'):
-                    out.update([v] if isinstance(v, str) else [s for s in v if isinstance(s, str)] if isinstance(v, list) else [])
-                walk(v)
-        elif isinstance(x, list):
-            for v in x:
-                walk(v)
-    walk({k: v for k, v in cfg.items() if not str(k).startswith('_')})
+    walk_images({k: v for k, v in cfg.items() if not str(k).startswith('_')}, out)
     return sorted(i for i in out if i)
 
 
+def _names(v):
+    if isinstance(v, str):
+        return [v]
+    return [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
+
+
+def walk_images(x, out):
+    if isinstance(x, list):
+        for v in x:
+            walk_images(v, out)
+        return
+    if not isinstance(x, dict):
+        return
+    for k, v in x.items():
+        if k in ('image', 'images', 'keep_images'):
+            out.update(_names(v))
+        walk_images(v, out)
+
+
+def split_ref(ref):
+    """`repo[:tag][@digest]` -> (repo, tag or ''); a registry's port is not a tag."""
+    name = ref.split('@')[0]
+    if ':' not in name.split('/')[-1]:
+        return name, ''
+    base, _, tag = name.rpartition(':')
+    return base, tag
+
+
 def _protected(repo, tag, keep):
-    for k in keep:
-        base, _, want = k.split('@')[0].rpartition(':') if ':' in k.split('@')[0].split('/')[-1] else (k.split('@')[0], '', '')
-        if repo == base and (not want or want == tag):
-            return True
-    return False
+    return any(repo == base and want in ('', tag) for base, want in map(split_ref, keep))
 
 
 IMAGES_SCRIPT = ('command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || exit 0; '
                  'echo IMAGES; docker images --no-trunc --format \'{{.ID}}\t{{.Repository}}\t{{.Tag}}\t{{.CreatedAt}}\'; '
-                 'echo USED; docker ps -aq | xargs -r docker inspect --format \'{{.Image}}\' 2>/dev/null; true')
+                 'echo USED; docker ps -aq | xargs -r docker inspect --format \'{{.Image}}\' 2>/dev/null; '
+                 # when each image was last pulled or tagged here: a base image built long ago but pulled today is not old
+                 'echo TAGS; docker images -q --no-trunc | sort -u | xargs -r docker image inspect '
+                 '--format \'{{.Id}}\t{{.Metadata.LastTagTime}}\' 2>/dev/null; true')
 
 
 def parse_created(text):
-    """`2026-11-01 10:00:00 +0200 EET` -> epoch seconds, None when unreadable."""
+    """`2026-11-01 10:00:00 +0200 EET` (docker images) or `2026-11-16T10:00:00.123+02:00` (inspect) -> epoch seconds, None
+    when unreadable or unset (docker's zero time, year 1)."""
+    text = (text or '').strip()
     try:
-        return time.mktime(time.strptime(' '.join(text.split()[:2]), '%Y-%m-%d %H:%M:%S'))
+        if 'T' in text[:11]:
+            at = datetime.fromisoformat(re.sub(r'(\.\d{6})\d+', r'\1', text.replace('Z', '+00:00')))
+        else:
+            at = datetime.strptime(' '.join(text.split()[:3]), '%Y-%m-%d %H:%M:%S %z')
     except ValueError:
         return None
+    return at.timestamp() if at.year > 1970 else None
+
+
+def parse_images(listing):
+    """(rows [(id, repo, tag, created)], used ids, {id: last tag time}) from IMAGES_SCRIPT's output."""
+    rows, used, tagged, part = [], set(), {}, ''
+    for ln in (listing or '').splitlines():
+        if ln in ('IMAGES', 'USED', 'TAGS'):
+            part = ln
+        elif part == 'IMAGES' and ln.count('\t') >= 3:
+            rows.append(ln.split('\t')[:4])
+        elif part == 'USED' and ln.strip():
+            used.add(ln.strip())
+        elif part == 'TAGS' and '\t' in ln:
+            iid, at = ln.split('\t', 1)
+            tagged[iid] = parse_created(at)
+    return rows, used, tagged
 
 
 def images_to_delete(listing, keep, now, days=IMAGE_DAYS):
-    """[(ref, why)] from IMAGES_SCRIPT's output: dangling images, and unused ones older than `days`; never a kept one or one
-    a container (running or stopped) uses. A pinned image pulled by its digest has no tag but a name: it is never dangling."""
-    used, rows, part = set(), [], ''
-    for ln in (listing or '').splitlines():
-        if ln in ('IMAGES', 'USED'):
-            part = ln
-            continue
-        if part == 'USED' and ln.strip():
-            used.add(ln.strip())
-        elif part == 'IMAGES' and ln.count('\t') >= 3:
-            rows.append(ln.split('\t'))
-    kept_ids = {i for i, r, t, _ in rows if _protected(r, t, keep)}
+    """[(ref, why)]: dangling images, and unused ones neither built nor pulled here for `days`; never a kept one or one a
+    container (running or stopped) uses. A pinned image pulled by its digest has no tag but a name: it is never dangling."""
+    rows, used, tagged = parse_images(listing)
+    skip = used | {i for i, r, t, _ in rows if _protected(r, t, keep)}
     out = []
     for iid, repo, tag, created in rows:
-        if iid in used or iid in kept_ids:
+        if iid in skip:
             continue
-        at = parse_created(created)
-        if repo == '<none>' and tag == '<none>':
+        if repo == NONE and tag == NONE:
             out.append((iid, 'dangling'))
-        elif at is not None and now - at > days * 86400:
-            out.append((f'{repo}:{tag}' if tag != '<none>' else iid, f'unused, {int((now - at) // 86400)} days old'))
+            continue
+        ages = [x for x in (parse_created(created), tagged.get(iid)) if x is not None]
+        if ages and now - max(ages) > days * 86400:
+            out.append((f'{repo}:{tag}' if tag != NONE else iid, f'unused, {int((now - max(ages)) // 86400)} days old'))
     return [x for i, x in enumerate(out) if x not in out[:i]]
 
 
@@ -274,13 +322,29 @@ def old_worktrees(root, now, busy=(), days=OLD_DAYS):
     out = []
     for n in names:
         p = os.path.join(root, n)
-        if not n.startswith('tutti-run-') or not os.path.isdir(p) or p in busy:
+        if not n.startswith('tutti-run-') or not os.path.isdir(p) or in_use(p, busy):
             continue
         marks = [os.path.join(p, x) for x in ('.git', 'HEAD') if os.path.exists(os.path.join(p, x))]
-        stamp = max(os.path.getmtime(p), *(os.path.getmtime(x) for x in marks))
+        stamp = max([os.path.getmtime(p), *(os.path.getmtime(x) for x in marks)])
         if now - stamp > days * 86400:
             out.append(p)
     return out
+
+
+def busy_dirs(proc='/proc'):
+    """The working folders of this user's live processes: a worktree one of them works in is never removed."""
+    out = set()
+    for n in os.listdir(proc) if os.path.isdir(proc) else []:
+        if n.isdigit():
+            try:
+                out.add(os.readlink(os.path.join(proc, n, 'cwd')))
+            except OSError:
+                continue
+    return out
+
+
+def in_use(path, busy):
+    return any(b == path or b.startswith(path + os.sep) for b in busy)
 
 
 def remove_worktree(path, run=subprocess.run):
@@ -305,7 +369,7 @@ def ps(script):
 
 TRACE_DIR = "Join-Path $env:TEMP 'DiagOutputDir\\RdClientAutoTrace'"
 TRACE_SIZE = ps(f'$p={TRACE_DIR}; if (Test-Path $p) {{ (Get-ChildItem $p -Recurse -File -ErrorAction SilentlyContinue | '
-                'Measure-Object Length -Sum).Sum }} else {{ 0 }}')
+                'Measure-Object Length -Sum).Sum } else { 0 }')
 TRACE_DELETE = ps(f'$p={TRACE_DIR}; Get-ChildItem $p -ErrorAction SilentlyContinue | '
                   'Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; '
                   "'done'")
@@ -321,7 +385,7 @@ def windows_clean(apk_roots, keep=2):
               'Where-Object { Test-Path $_ } | '
               'ForEach-Object { Get-ChildItem $_ -Recurse -File -Filter *.apk -ErrorAction SilentlyContinue } | '
               f'Sort-Object LastWriteTime -Descending | Select-Object -Skip {int(keep)} | '
-              'Remove-Item -Force -ErrorAction SilentlyContinue }}; '
+              'Remove-Item -Force -ErrorAction SilentlyContinue }; '
               'if (Get-Command npm -ErrorAction SilentlyContinue) { npm cache clean --force *> $null }; '
               'if (Get-Command dotnet -ErrorAction SilentlyContinue) { dotnet nuget locals all --clear *> $null }; '
               '"FREED $((Get-PSDrive C).Free - $b)"')
@@ -348,15 +412,15 @@ def wsl_state(win, timeout=30):
     try:
         r = win('echo ok', 20)
     except (OSError, subprocess.SubprocessError):
-        return 'windows down'
+        return WIN_DOWN
     if r.returncode != 0 or 'ok' not in (r.stdout or ''):
-        return 'windows down'
+        return WIN_DOWN
     try:
         win('wsl -e true', timeout)
     except subprocess.TimeoutExpired:
         return 'hung'
     except (OSError, subprocess.SubprocessError):
-        return 'windows down'
+        return WIN_DOWN
     return 'ok'
 
 

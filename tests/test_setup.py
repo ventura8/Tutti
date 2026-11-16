@@ -411,7 +411,8 @@ class SelfUpdate(unittest.TestCase):
         self.assertEqual(waited, list(install.SUMS_WAITS))
 
     def test_sums_not_uploaded_yet_are_asked_again(self):
-        answers = [urllib.error.HTTPError('u', 404, 'Not Found', None, None), urllib.error.HTTPError('u', 404, 'Not Found', None, None), f'{"0" * 64}  tutti-1.0.0.tar.gz\n']
+        missing = urllib.error.HTTPError('u', 404, 'Not Found', None, None)
+        answers = [missing, missing, f'{"0" * 64}  tutti-1.0.0.tar.gz\n']
 
         def late(url, dest=None):
             a = answers.pop(0)

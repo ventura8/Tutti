@@ -79,7 +79,7 @@ DEFAULTS = {
     'welcome': {'enabled': True, 'away_hours': None, 'ai': True},
     # failover: the backup main machine (tutti/failover.py, docs/FAILOVER.md): backup '' elects one, 'none' turns it off; the
     # main is silent `minutes` before the backup takes over; Tutti returns after `failback_minutes` healthy; the state's budget
-    'failover': {'backup': '', 'minutes': 3, 'failback_minutes': 5, 'sync_seconds': 60, 'dir': '~/.tutti-failover', 'reach': {},
+    'failover': {'backup': '', 'minutes': 5, 'failback_minutes': 5, 'sync_seconds': 60, 'dir': '~/.tutti-failover', 'reach': {},
                  'addresses': {}, 'budget_mb': 50, 'delta_kb': 512, 'runs_keep': 200, 'runs_days': 14, 'log_mb': 2, 'junk_days': 3},
     # ai_assist: Tutti uses AI, local and online, to make itself better (tutti/aiassist.py, docs/TELEMETRY.md, *AI assist*);
     # off until an admin opts in; local, online and online_code (code to online models) are separate switches

@@ -6,6 +6,16 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.3 (2026-11-16)
+
+### Fixed
+
+- After a failback the main machine was read-only for a round ("this machine is not the active main machine now (Tutti is
+  back on laptop)"): it resumed without a lease. It now resumes with a fresh lease at once (the backup has just stepped
+  down). A test runs the whole cycle: take-over, failback, writes allowed on the main.
+- A busy main no longer loses its backup: the heartbeat goes first and on its own (one retry, ssh waits up to 15 s), the
+  state copy only after it, and the default grace (`failover.minutes`) is 5 minutes instead of 3.
+
 ## 0.16.2 (2026-11-16)
 
 ### Fixed

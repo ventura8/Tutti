@@ -379,7 +379,7 @@ self_improve:
   max_new_per_day: 3
   # home: tool
 # failover: a backup main machine takes over when this one is away (docs/FAILOVER.md); '' elects one, none turns it off
-failover: {backup: '', minutes: 3, failback_minutes: 5, sync_seconds: 60, budget_mb: 50}
+failover: {backup: '', minutes: 5, failback_minutes: 5, sync_seconds: 60, budget_mb: 50}
 # Self-healing (docs/SELFHEAL.md): every every_seconds, on each machine running the failover round, Tutti installs declared
 # needs, restarts ollama, tunnels and adb, cleans its own temp folders (and temp_dirs), restores state and config, self-updates.
 # Needs are declared per project, suite or worker, pinned, e.g. projects.app.tests.e2e.needs:

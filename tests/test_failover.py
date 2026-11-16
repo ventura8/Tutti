@@ -20,7 +20,7 @@ CONFIG = {
     },
     'workers': {'w': {'kind': 'cli', 'command': ['true', '{prompt}']}},
 }
-OPTS = {**failover.DEFAULTS}
+OPTS = {**failover.DEFAULTS, 'minutes': 3}   # the timings below assume a 3-minute lease
 
 
 def make_cfg(me=None, backup=''):
@@ -278,6 +278,87 @@ class EdgeTest(unittest.TestCase):
         c.post = lambda *a, **k: (_ for _ in ()).throw(coordinator.Unreachable('down'))
         with self.assertRaises(coordinator.Unreachable):
             c.call('/x')
+
+
+class FullCycleTest(unittest.TestCase):
+    """The real round (main_round with a fake ssh) through take-over and failback: the main may write right after it resumes."""
+
+    def test_takeover_then_failback_and_the_main_writes_at_once(self):
+        main, nuc = make_cfg(backup='nuc'), make_cfg(me='nuc', backup='nuc')
+        old, failover.STARTED = failover.STARTED, 0.0   # the backup has been watching since long before this clock
+        self.addCleanup(setattr, failover, 'STARTED', old)
+        clock = {'now': 1000.0, 'link': True}
+
+        def ssh(argv, **k):
+            ok = type('R', (), {'returncode': 0, 'stdout': '', 'stderr': ''})
+            if not clock['link']:
+                return type('R', (), {'returncode': 255, 'stdout': '', 'stderr': ''})()
+            if argv[0] == 'rsync':
+                return ok()
+            words = argv[-1].split()
+            rec, act = failover.read(nuc), words[words.index('failover') + 1]
+            if act == 'beat':
+                rec, ans = failover.on_beat(rec, json.loads(k['input']), clock['now'])
+            elif act == 'hand-back':
+                rec, ans = failover.on_hand_back(rec, 'laptop', int(words[words.index('--term') + 1]))
+            else:
+                ans = {'term': rec.get('term', 0), 'active': rec.get('active')}
+            failover.write(nuc, rec)
+            r = ok()
+            r.stdout = json.dumps(ans)
+            return r
+
+        def step(seconds, healthy=None):
+            for _ in range(int(seconds // 60)):
+                failover.main_round(main, 'nuc', clock['now'], ssh, healthy)
+                failover.backup_round(nuc, clock['now'], start=lambda c: None, alive=lambda c: None, stop=lambda c: None)
+                clock['now'] += 60
+
+        step(120)
+        self.assertTrue(failover.may_write(main, clock['now']))
+        clock['link'] = False
+        step(600)
+        self.assertEqual(failover.read(nuc)['active'], 'nuc')
+        self.assertFalse(failover.may_write(main, clock['now']))
+        clock['link'] = True
+        start = clock['now']
+        acts = []
+        while not acts or acts[-1] != 'resumed':        # read-only, catch-up, then the hand-back
+            acts.append(failover.main_round(main, 'nuc', clock['now'], ssh, start)[0])
+            self.assertFalse(failover.may_write(main, clock['now'] + 1) and acts[-1] != 'resumed')
+            clock['now'] += 60
+            self.assertLess(len(acts), 20)
+        self.assertEqual(acts[0], 'step-down')
+        self.assertEqual(failover.read(main)['active'], 'laptop')
+        self.assertTrue(failover.may_write(main, clock['now'] - 59))   # right after the resume, not one round later
+        self.assertFalse(failover.may_write(nuc, clock['now']))
+        for _ in range(10):   # the backup never takes over again on its old heartbeat: it waits for a new one
+            self.assertEqual(failover.backup_round(nuc, clock['now'], start=lambda c: None, alive=lambda c: None,
+                                                   stop=lambda c: None)[0], 'stand-by')
+            clock['now'] += 60
+
+    def test_a_failed_copy_does_not_cost_the_lease(self):
+        main = make_cfg(backup='nuc')
+
+        def ssh(argv, **k):
+            if argv[0] == 'rsync':
+                return type('R', (), {'returncode': 23, 'stdout': '', 'stderr': ''})()
+            return type('R', (), {'returncode': 0, 'stdout': json.dumps({'ok': True, 'term': 0, 'active': 'laptop'}), 'stderr': ''})()
+        act, _line, _sent = failover.main_round(main, 'nuc', 1000.0, ssh)
+        self.assertEqual(act, 'serve')
+        self.assertTrue(failover.may_write(main, 1001.0))
+        for t in (1060.0, 1120.0):
+            failover.main_round(main, 'nuc', t, ssh)
+        act, line, _sent = failover.main_round(main, 'nuc', 1180.0, ssh)
+        self.assertEqual(act, 'copy-failing')
+        self.assertIn('failed 4 times in a row', line)
+        self.assertTrue(failover.may_write(main, 1181.0))
+
+    def test_the_default_grace_is_the_same_everywhere(self):
+        example = yaml.safe_load(open(os.path.join(config.ROOT, 'tutti.config.example.yaml'), encoding='utf8'))
+        self.assertEqual(failover.DEFAULTS['minutes'], config.DEFAULTS['failover']['minutes'])
+        self.assertEqual(failover.DEFAULTS['minutes'], example['failover']['minutes'])
+        self.assertEqual(failover.lease_seconds(failover.DEFAULTS), 300)
 
 
 class BudgetTest(unittest.TestCase):

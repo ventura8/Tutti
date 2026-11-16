@@ -25,8 +25,9 @@ from . import config, durable
 
 FILE = 'failover.json'          # this machine's term record: never synced
 BEAT = 'failover-beat.json'     # on the backup: the main's last heartbeat
+COPY_WARN = 3                   # copies in a row that failed before every round says so
 MARGIN = 30                     # seconds: the main stops before, the backup starts after, the lease's end
-DEFAULTS = {'backup': '', 'main': '', 'minutes': 3, 'failback_minutes': 5, 'sync_seconds': 60, 'dir': '~/.tutti-failover',
+DEFAULTS = {'backup': '', 'main': '', 'minutes': 5, 'failback_minutes': 5, 'sync_seconds': 60, 'dir': '~/.tutti-failover',
             'reach': {}, 'addresses': {}}
 # never copied to the backup: logs, caches, screenshots, live processes' files, other copies (the runs index runs.jsonl goes)
 SYNC_EXCLUDE = ['/snapshots/', '*.corrupt',
@@ -222,13 +223,13 @@ def remote_dir(cfg):
     return opts(cfg)['dir'].rstrip('/')
 
 
-def remote_cmd(cfg, backup, args, run=subprocess.run, inp=None):
+def remote_cmd(cfg, backup, args, run=subprocess.run, inp=None, timeout=60):
     """`tutti failover <args>` on the backup over ssh, its JSON answer, or None when it could not be reached."""
     d = remote_dir(cfg)
     line = f'{d}/tutti/bin/tutti --config {d}/tutti.config.yaml failover {" ".join(args)} --json'
     try:
-        r = run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', ssh_of(cfg, backup), line], capture_output=True, text=True,
-                input=inp, timeout=60)
+        r = run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', ssh_of(cfg, backup), line], capture_output=True, text=True,
+                input=inp, timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         return None
     if r.returncode != 0:
@@ -241,7 +242,7 @@ def remote_cmd(cfg, backup, args, run=subprocess.run, inp=None):
 
 def rsync(src, dst, run=subprocess.run):
     excl = [f'--exclude={x}' for x in SYNC_EXCLUDE]
-    ssh = ['-e', 'ssh -o BatchMode=yes -o ConnectTimeout=5']
+    ssh = ['-e', 'ssh -o BatchMode=yes -o ConnectTimeout=15']
     r = run(['rsync', '-az', '--delete', '--chmod=Du=rwx,go=,Fu=rw,go=', '--stats', *ssh, *excl, src, dst], capture_output=True, text=True,
             timeout=300)
     sent = 0
@@ -340,23 +341,36 @@ def backup_round(cfg, now=None, start=start_dashboard, alive=recorded_pid, stop=
     return act, line
 
 
-def main_round(cfg, backup, now=None, run=subprocess.run, healthy_since=None):
-    """The main's round: push, heartbeat, decide; catch-up and hand-back when the backup serves. Returns (action, line, bytes)."""
-    now = now or time.time()
-    o, rec, mine = opts(cfg), read(cfg), me(cfg)
+def exchange(cfg, backup, rec, mine, o, run):
+    """The main's talk with the backup: (record, the backup's answer or None, bytes copied)."""
     sent = 0
     if rec.get('active', mine) == mine:
-        ok, sent = push(cfg, backup, run)
+        # the heartbeat first and on its own: a busy main (a slow or failed copy) still keeps its lease; one retry
         beat = {'term': int(rec.get('term') or 0), 'from': mine, 'lease_seconds': lease_seconds(o)}
-        answer = remote_cmd(cfg, backup, ['beat'], run, inp=json.dumps(beat)) if ok else None
+        answer = remote_cmd(cfg, backup, ['beat'], run, inp=json.dumps(beat))
+        if answer is None:   # one short retry: a round stays well inside the lease even with a dead backup
+            answer = remote_cmd(cfg, backup, ['beat'], run, inp=json.dumps(beat), timeout=20)
+        if answer is not None and answer.get('ok'):
+            copied, sent = push(cfg, backup, run)
+            rec = {**rec, 'copy_failures': 0 if copied else int(rec.get('copy_failures') or 0) + 1}
     else:
         answer = remote_cmd(cfg, backup, ['status'], run)
         if answer is not None:
             answer = {'ok': answer.get('active') == mine, 'term': answer.get('term') or 0, 'active': answer.get('active')}
+    return rec, answer, sent
+
+
+def main_round(cfg, backup, now=None, run=subprocess.run, healthy_since=None):
+    """The main's round: push, heartbeat, decide; catch-up and hand-back when the backup serves. Returns (action, line, bytes)."""
+    now = now or time.time()
+    o, rec, mine = opts(cfg), read(cfg), me(cfg)
+    rec, answer, sent = exchange(cfg, backup, rec, mine, o, run)
     new, act = main_decide(rec, mine, answer, now, healthy_since, o)
-    if act == 'adopt':
+    if act == 'serve' and int(rec.get('copy_failures') or 0) >= COPY_WARN:
+        act = 'copy-failing'   # the lease is kept (the main is fine); every round says what is wrong and where to look
+    elif act == 'adopt':
         if pull(cfg, backup, run)[0]:
-            new = {**new, 'active': mine, 'caught_up': False}
+            new = {**new, 'active': mine, 'caught_up': False, 'lease_until': now + lease_seconds(o) - MARGIN}
             act = 'resumed'
         else:
             act = 'catch-up'
@@ -365,7 +379,9 @@ def main_round(cfg, backup, now=None, run=subprocess.run, healthy_since=None):
     elif act == 'hand-back':
         back = remote_cmd(cfg, backup, ['hand-back', '--to', mine, '--term', str(new['term'])], run)
         if back and back.get('ok') and pull(cfg, backup, run)[0]:
-            new = {'term': back['term'], 'active': mine, 'lease_until': None, 'caught_up': False}
+            # the backup has just stepped down and stands by (it never takes over before a new heartbeat): the main may act
+            # at once, not only after its next round (the bug of 2026-11-16: writes refused for a round after the failback)
+            new = {'term': back['term'], 'active': mine, 'lease_until': now + lease_seconds(o) - MARGIN, 'caught_up': False}
             act = 'resumed'
     write(cfg, new)
     return act, describe_action(act, cfg, backup, new), sent
@@ -381,6 +397,8 @@ def describe_action(act, cfg, backup, rec):
         'catch-up': f'{main} is back and copying what changed on {backup}; Tutti returns to {main} once it has been healthy for a '
                     f'few minutes',
         'hand-back': f'{main} asked {backup} to hand Tutti back',
+        'copy-failing': f'{main} is the main, but copying its state to {backup} failed {rec.get("copy_failures")} times in a row '
+                        f'(a full disk or permissions there?): {backup} would take over with old data; check `ssh {backup} df -h`',
         'adopt': f'{backup} handed Tutti back; {main} copies the last changes first',
         'resumed': f'Tutti is back on {main} (term {rec.get("term")})',
     }.get(act, act)

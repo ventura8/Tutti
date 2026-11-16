@@ -262,6 +262,8 @@ class Collector:
             try:
                 self.reload()   # time-bound switches (planned absences, blocked hours) apply as the clock passes them
                 self.refresh()
+                from . import quietmode  # this computer's person first: Tutti's own jobs calmed or stopped, models unloaded
+                quietmode.guard_round(self.cfg)
                 from . import failover  # only the active main machine acts; a fenced one only shows (docs/FAILOVER.md)
                 if failover.may_write(self.cfg):
                     self.acting_rounds()

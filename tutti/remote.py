@@ -274,7 +274,13 @@ def lock_files(machine):
 
 # Seconds since a person last used the machine's graphical session (logind's idle hint of its x11 or wayland sessions; the
 # smallest wins), `-` when it has none (a headless machine: nobody at its keyboard). tutti/share.py backs off while it is short.
-IDLE = ('i=-; now=$(date +%s); for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk \'{print $1}\'); do '
+IDLE = ('i=-; now=$(date +%s); '
+        # GNOME (X11 and Wayland) never sets logind's idle hint: its Mutter idle monitor answers instead (2026-11-16)
+        'g=$(DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}" gdbus call --session '
+        '--dest org.gnome.Mutter.IdleMonitor --object-path /org/gnome/Mutter/IdleMonitor/Core '
+        '--method org.gnome.Mutter.IdleMonitor.GetIdletime 2>/dev/null | tr -dc 0-9 | sed "s/^64//"); '
+        '[ -n "$g" ] && i=$(( g / 1000 )); '
+        'for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk \'{print $1}\'); do '
         # POSIX sh, no `< <( )`: an ssh command runs in the remote user's login shell, which may be dash or another sh
         'T=$(loginctl show-session "$s" -p Type --value 2>/dev/null); H=$(loginctl show-session "$s" -p IdleHint --value 2>/dev/null); '
         'S=$(loginctl show-session "$s" -p IdleSinceHint --value 2>/dev/null); '

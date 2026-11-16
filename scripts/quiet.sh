@@ -6,6 +6,7 @@
 dir="${QUIET_DIR:-${TMPDIR:-/tmp}/tutti-quiet}"
 mkdir -p "$dir"
 log="$dir/$(date +%s)-$$.log"
+echo "$$" > "$log.pid"   # the exact pid quiet mode calms or stops (tutti/quietmode.py)
 printf '%s\n' "$*" > "$log.cmd"   # what ran, for `tutti dashboard`
 export TUTTI_PROGRESS_FILE="$log.progress"   # `tutti progress <n>/<m>` inside the job writes here; the dashboard shows it
 "$@" > "$log" 2>&1

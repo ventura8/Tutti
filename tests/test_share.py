@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest import mock
 
 from tests.test_autopilot import FREE, Base
 from tutti import fleet, householduse, local, remote, routing, share, state
@@ -31,7 +32,7 @@ class Share(Base):
 
     def test_someone_at_the_keyboard_and_quiet_hours_lower_the_share(self):
         m = {'use_pct': 100, 'quiet_hours': ['00:00-23:59']}
-        self.assertEqual(share.pct({'use_pct': 100}, None, NIGHT, idle_s=20), (30, 'someone is at its keyboard'))
+        self.assertEqual(share.pct({'use_pct': 100}, None, NIGHT, idle_s=20), (0, 'someone is at its keyboard'))
         self.assertEqual(share.pct({'use_pct': 100}, None, NIGHT, idle_s=3600), (100, ''))
         self.assertEqual(share.pct(m, None, NIGHT)[0], 50)
         self.assertEqual(share.pct({'use_pct': 80, 'in_use_pct': 10}, {'reason': 'too hot: CPU 99 C'}, NIGHT, idle_s=1)[0], 10)
@@ -42,13 +43,18 @@ class Share(Base):
         self.assertEqual(share.scaled(4, 0), 0)
 
     def test_idle_time_is_read_from_the_session_when_there_is_no_xprintidle(self):
-        def run(argv, **k):
-            return SimpleNamespace(returncode=0, stdout='IdleHint=yes\nIdleSinceHint=1000000000\n')
-        self.assertEqual(share.idle_seconds(run, clock=lambda: 1100.0), 100.0)
-        busy = share.idle_seconds(lambda argv, **k: SimpleNamespace(returncode=0, stdout='IdleHint=no\nIdleSinceHint=5\n'))
-        self.assertEqual(busy, 0.0)
-        never = share.idle_seconds(lambda argv, **k: SimpleNamespace(returncode=0, stdout='IdleHint=no\nIdleSinceHint=0\n'))
-        self.assertIsNone(never)                                           # a desktop that never sets the hint: not known
+        def fake(hint, since):
+            def run(argv, **k):
+                if 'list-sessions' in argv:
+                    return SimpleNamespace(returncode=0, stdout='2 1000 me seat0 1 user tty2 no -\n')
+                if 'show-session' in argv:
+                    return SimpleNamespace(returncode=0, stdout=f'Type=x11\nIdleHint={hint}\nIdleSinceHint={since}\nLockedHint=no\n')
+                return SimpleNamespace(returncode=1, stdout='')   # no GNOME idle monitor, no xprintidle
+            return run
+        with mock.patch('shutil.which', lambda n: None):
+            self.assertEqual(share.idle_seconds(fake('yes', 1000000000), clock=lambda: 1100.0), 100.0)
+            self.assertEqual(share.idle_seconds(fake('no', 5)), 0.0)
+            self.assertIsNone(share.idle_seconds(fake('no', 0)))           # a desktop that never sets the hint: not known
 
 
 class KeepAlive(Base):
@@ -134,7 +140,7 @@ class RemoteIdle(Base):
     def test_a_remote_machine_in_use_lowers_its_share(self):
         m = {'name': 'pc', 'transport': 'wsl', 'host': 'pc.example', 'slots': 4, 'min_free_gb': 6}
         row = state.machine_state(m, routing.Probe(True, 4, 0.1, 16), 1, NIGHT.replace(hour=12), idle_s=10)
-        self.assertEqual((row['use_pct'], row['free']), (30, 1))
+        self.assertEqual((row['use_pct'], row['free']), (0, 0))   # a person there: no new work
 
     def idle_in(self, shell, sessions):
         """The IDLE script run by `shell` with a fake loginctl: {session: (type, hint, since_us)}."""
@@ -146,6 +152,10 @@ class RemoteIdle(Base):
                 f.write('#!/bin/sh\nif [ "$1" = list-sessions ]; then printf "%s\\n" ' + ' '.join(sessions) + '; exit 0; fi\n'
                         'case "$2" in ' + cases + ' esac\n')
             os.chmod(fake, 0o755)
+            nogdbus = os.path.join(d, 'gdbus')   # no GNOME idle monitor in these cases
+            with open(nogdbus, 'w', encoding='utf8') as f:
+                f.write('#!/bin/sh\nexit 1\n')
+            os.chmod(nogdbus, 0o755)
             env = {**os.environ, 'PATH': d + os.pathsep + os.environ['PATH']}
             r = subprocess.run([shell, '-c', remote.IDLE + 'echo "$i"'], env=env, capture_output=True, text=True, check=False)
             return r.returncode, r.stdout.strip(), r.stderr

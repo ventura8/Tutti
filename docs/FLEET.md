@@ -92,8 +92,11 @@ that cannot be used names the real reason.
 autopilot's gate slots), this computer's cores in the adaptive limit (`tutti/parallel.py`) and a local model's threads. The
 share drops by itself, to the lowest that applies:
 
-- `in_use_pct` (30) while someone uses the machine: its keyboard or mouse within `in_use_minutes` (5), read with
-  `xprintidle` or the login session's idle hint. This is read on this computer only.
+- `in_use_pct` (0: no new work, it goes to the other machines) while someone uses the machine: its keyboard or mouse
+  within `in_use_minutes` (5) on an unlocked screen, read from GNOME's idle monitor (`org.gnome.Mutter.IdleMonitor`
+  `GetIdletime` over the session D-Bus, X11 and Wayland), else `xprintidle`, else a login session's idle hint. GNOME never
+  sets logind's idle hint, so before 0.17.4 a GNOME Wayland laptop never read as in use. See *Quiet mode* in
+  docs/ARCHITECTURE.md for what else happens while a person is here.
 - `quiet_pct` (50) in its quiet hours (`machines.<m>.quiet_hours`, else `autopilot.quiet_hours`): fans and noise at night.
 - `hot_pct` (50) while it is hot (its `heat` cap reached).
 

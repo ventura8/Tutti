@@ -30,7 +30,7 @@ SECTIONS = [
      ['machines', 'failover', 'routing.order', 'runner', 'sync', 'files', 'guard']),
     ('devices', 'Devices', 'Android devices for end-to-end runs, and when a run may start on them.', ['devices', 'night']),
     ('autopilot', 'Autopilot', 'Backlog tasks sent to accounts that are behind their pace; retries climb the ladder.',
-     ['autopilot', 'autopilot.repos']),
+     ['autopilot', 'autopilot.repos', 'depbots']),
     ('fleet', 'Local models', 'Every machine\'s Ollama as a worker; they take tasks while the online accounts are spared '
      '(docs/FLEET.md).', ['fleet', 'work_queue']),
     ('dispatch', 'Keep busy', 'Idle devices and machines pull the projects\' pending test shards (docs/DISPATCH.md).', ['dispatch']),
@@ -245,6 +245,12 @@ FIELDS = {
                                 '(docs/AUTOPILOT.md).', **YAML),
     'autopilot.no_progress': field('Park after', 'A task with the same failure this many times waits for you.', 'number', min=1,
                                unit='attempts'),
+    'depbots.enabled': field('Dependency bots and security', 'Dependabot and Cursor pull requests and the repos\' vulnerability '
+                             'reports become tasks (docs/SECURITY-INTAKE.md).', 'switch'),
+    'depbots.every_minutes': field('Read every', 'How often the autopilot reads them.', 'number', min=15, unit='minutes'),
+    'depbots.group_trivial': field('Group small bumps', 'Green patch and minor bumps become one task per repo.', 'switch'),
+    'depbots.bots': field('Dependency bots', 'Whose pull requests are dependency updates: name, authors, branch prefixes.', **YAML),
+    'depbots.scanners': field('Security scanners', 'Whose review comments are security findings: name, authors.', **YAML),
     'autopilot.max_attempts': field('Most attempts', 'A task is parked after this many attempts in all.', 'number', min=1, unit='attempts'),
     'autopilot.quiet_hours': field('Quiet hours', 'Local-time spans the autopilot must not run in.', 'timespans'),
     'autopilot.fill_room': field('Fill free room', 'Free room on the trigger accounts is filled from the repos\' TODOs, gaps and '

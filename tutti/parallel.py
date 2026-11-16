@@ -93,6 +93,13 @@ def line(p):
     """The dashboard's line: running N of M possible: limited by <reason>."""
     if not p:
         return 'not measured yet'
+    why = p.get('why', '')
+    local_running = max(0, int(p.get('local_running', 0) or 0))
+    local_limit = max(local_running, int(p.get('local_limit', local_running) or 0))
+    if p.get('by') == 'accounts' and re.search(r'room in the accounts for 0 more', why):
+        why = 'accounts spent'
+    if local_running:
+        return f'online {p["running"]} of {p["limit"]} ({why}); local {local_running} of {local_limit} (one per model server)'
     return f'running {p["running"]} of {p["limit"]} possible: limited by {p["by"]} ({p["why"]})'
 
 

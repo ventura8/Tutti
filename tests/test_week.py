@@ -124,6 +124,11 @@ class Parallel(unittest.TestCase):
         capped = parallel.limit({**self.CFG, 'autopilot': {'max_parallel': 4}}, 1, 40, {'mem_gb': 30.0, 'cores': 16, 'load': 0.0}, 9)
         self.assertEqual((capped['limit'], capped['by']), (4, 'cap'))
 
+    def test_local_runs_are_shown_separately_when_accounts_are_spent(self):
+        p = {'running': 0, 'limit': 0, 'by': 'accounts', 'why': 'room in the accounts for 0 more',
+             'local_running': 3, 'local_limit': 3}
+        self.assertEqual(parallel.line(p), 'online 0 of 0 (accounts spent); local 3 of 3 (one per model server)')
+
     def test_heavy_gates_go_to_the_nuc_and_light_ones_stay_while_memory_lasts(self):
         here = {'mem_gb': 10.0}
         self.assertEqual(parallel.check_where(self.CFG, 'local', 'npx eslint . && npx tsc', here), 'route')

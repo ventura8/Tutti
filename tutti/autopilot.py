@@ -355,10 +355,13 @@ def capacity_now(cfg, running, machines, now, room=None):
         return (0, 0), {'state': 'waiting', 'reason': 'machines not probed yet'}
     slots, why = machine_capacity(cfg, machines)
     online = [t for t in running if not is_local(cfg, t.get('step'))]
+    local_running = max(0, len(running) - len(online))
     lim = parallel.limit(cfg, len(online), room, cfg.get('_host'), slots)
+    lim['local_running'] = local_running
     cfg['_parallel'], cfg['_parallel_limit'] = lim, lim['limit']
     free = lim['others'] - len(online)   # the accounts' room is the ladder's own business (assign): it names each step
     servers = sum(1 for n in ladder(cfg) if is_local(cfg, n))   # one task per model server
+    lim['local_limit'] = max(servers, local_running)
     local = (servers if slots is None else slots) if servers else 0
     if free <= 0 and local <= 0:
         reason = why if lim['by'] == 'gates' and why else parallel.line(lim)

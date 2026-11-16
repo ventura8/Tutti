@@ -417,7 +417,9 @@ _win_watts = {}
 
 
 def windows_cpu_w(machine):
-    """The CPU package power in W of a WSL machine's Windows side from LibreHardwareMonitor's last reading, or None."""
+    """The CPU package power in W of a WSL machine's Windows side from LibreHardwareMonitor (read with the temperature,
+    at most every WIN_TEMP_SECONDS), or None."""
+    windows_temp(machine)
     return _win_watts.get(machine['name'])
 
 
@@ -440,7 +442,8 @@ def windows_temp(machine, clock=time.time, timeout=30, lhm_fn=None, ensure_fn=No
         return hit[1]
     from . import winhelpers
     t, w = (lhm_fn or _lhm_read)(machine, timeout)
-    _win_watts[machine['name']] = w
+    if w is not None:   # one failed read keeps the last good wattage
+        _win_watts[machine['name']] = w
     if t is not None and 20 <= t <= 110:
         _win_temps[machine['name']] = (clock(), (t, ''))
         return t, ''

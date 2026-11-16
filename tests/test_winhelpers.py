@@ -25,6 +25,10 @@ class WinHelpersTest(unittest.TestCase):
     def test_lhm_cpu_temperature_and_package_power_in_any_locale(self):
         self.assertEqual(winhelpers.parse_lhm(lhm()), (56.3, 87.6))
         self.assertEqual(winhelpers.parse_lhm(lhm('61.5 °C', '40.0 W')), (61.5, 40.0))
+        intel = json.dumps({'Children': [{'Text': 'CPU Package', 'Type': 'Power', 'SensorId': '/intelcpu/0/power/0', 'Value': '65,0 W'},
+                                         {'Text': 'CPU Package', 'Type': 'Temperature', 'SensorId': '/intelcpu/0/temperature/8',
+                                          'Value': '70,0 °C'}]})
+        self.assertEqual(winhelpers.parse_lhm(intel), (70.0, 65.0))
         self.assertEqual(winhelpers.parse_lhm(''), (None, None))
         self.assertEqual(winhelpers.parse_lhm(json.dumps({'Children': []})), (None, None))
 
@@ -34,6 +38,9 @@ class WinHelpersTest(unittest.TestCase):
         self.assertEqual(remote.windows_temp(m, clock=lambda: 0, lhm_fn=lambda mm, t: (58.9, 86.2), ensure_fn=ensured.append),
                          (58.9, ''))
         self.assertEqual((remote.windows_cpu_w(m), ensured), (86.2, []))
+        remote._win_temps.clear()
+        remote.windows_temp(m, clock=lambda: 500, lhm_fn=lambda mm, t: (58.0, None), ensure_fn=ensured.append)
+        self.assertEqual(remote._win_watts['pc'], 86.2)   # a read without watts keeps the last good one
 
     def test_no_lhm_installs_it_and_falls_back(self):
         m = {'name': 'pc2', 'host': 'pc.example'}
@@ -83,6 +90,11 @@ class WinHelpersTest(unittest.TestCase):
         self.assertTrue(sent[0][0].endswith('-Command -'))
         self.assertTrue(sent[0][1].startswith('iex ') and sent[0][1].count('\n') == 1)
         self.assertIn('Tutti sensors', winhelpers.SETUP)
+        self.assertIn('key="listenerIp" value="127.0.0.1"', winhelpers.LHM_CONFIG)   # the sensor server is never on the LAN
+        failing = mock.Mock(return_value=mock.Mock(returncode=1))
+        self.assertIsNone(winhelpers.ensure({'name': 'y', 'host': 'h'}, run=failing, clock=lambda: 10_000))
+        self.assertIsNone(winhelpers.ensure({'name': 'y', 'host': 'h'}, run=failing, clock=lambda: 10_000 + winhelpers.RETRY))
+        self.assertEqual(failing.call_count, 2)   # a failure is retried after RETRY s, not an hour
         self.assertIsNone(winhelpers.ensure({'name': 'x', 'host': 'h'}, run=mock.Mock(side_effect=OSError), clock=lambda: 10_000))
 
 

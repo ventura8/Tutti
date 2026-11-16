@@ -77,6 +77,7 @@ if ($exe) {
 READ_LHM = 'curl.exe -s --max-time 5 http://127.0.0.1:8085/data.json'
 READ_IDLE = 'type "%LOCALAPPDATA%\\tutti\\idle.txt"'
 EVERY = 3600
+RETRY = 600
 STALE = 120
 _done = {}
 
@@ -99,9 +100,12 @@ def ensure(machine, run=None, clock=time.time):
         # on stdin: the encoded form is longer than cmd.exe's 8191-character line
         r = run([*remote.SSH, *remote.QUICK, machine['host'], 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command -'],
                 input=setup_script(), capture_output=True, text=True, timeout=600, check=False)
-        return r.returncode
     except (OSError, subprocess.SubprocessError):
+        r = None
+    if r is None or r.returncode != 0:
+        _done[machine['name']] = clock() - EVERY + RETRY   # failed: try again in RETRY s, not an hour
         return None
+    return r.returncode
 
 
 def parse_idle(text, now):
@@ -137,7 +141,7 @@ def parse_lhm(text):
             continue
         if n.get('Type') == 'Temperature' and re.search(r'Tctl|Package|Core Max', name):
             temps.append(_num(n.get('Value')))
-        elif n.get('Type') == 'Power' and name == 'Package':
+        elif n.get('Type') == 'Power' and re.fullmatch(r'(CPU )?Package', name):   # AMD: Package, Intel: CPU Package
             watts.append(_num(n.get('Value')))
     temps, watts = [t for t in temps if t is not None], [w for w in watts if w is not None]
     return (max(temps) if temps else None), (sum(watts) if watts else None)

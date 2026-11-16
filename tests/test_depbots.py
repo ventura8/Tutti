@@ -19,7 +19,8 @@ PRS = [
      'url': 'https://github.com/o/r/pull/4', 'statusCheckRollup': []},
     {'number': 5, 'title': 'Bump coverage from 7.16.1 to 7.16.2', 'headRefName': 'dependabot/pip/coverage',
      'author': {'login': 'app/dependabot'}, 'url': 'https://github.com/o/r/pull/5', 'statusCheckRollup': []},
-    {'number': 6, 'title': 'feat: owner work', 'headRefName': 'feat/x', 'author': {'login': 'someone'}, 'url': 'u6', 'statusCheckRollup': []},
+    {'number': 6, 'title': 'feat: owner work', 'headRefName': 'feat/x', 'author': {'login': 'someone'}, 'url': 'u6',
+     'statusCheckRollup': []},
 ]
 DEP = [{'html_url': 'https://github.com/o/r/security/dependabot/1', 'dependency': {'package': {'ecosystem': 'npm', 'name': 'lodash'},
         'manifest_path': 'package-lock.json'},

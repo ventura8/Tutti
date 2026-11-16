@@ -15,7 +15,8 @@ DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 RESTART = {'host', 'dashboard.port', 'dashboard.bind', 'dashboard.origins', 'auth.client_id', 'auth.session_hours',
            'project.state', 'household.port', 'household.bind', 'telemetry.endpoint', 'telemetry.environment'}
 # Named entries: each one is drawn as its own group of fields
-ENTRIES = ('machines', 'devices', 'workers', 'accounts', 'projects', 'scouts', 'autopilot.repos', 'scouts.*.watches')
+ENTRIES = ('machines', 'devices', 'workers', 'accounts', 'projects', 'scouts', 'autopilot.repos', 'scouts.*.watches',
+           'review.repos')
 # About people, not this system: shown on the Manage tab (users, roles, invites, the household, each user's schedule and
 # main agent; tutti/manage.py), never in Settings
 MANAGED = ('user', 'household', 'pacing', 'main.agent')
@@ -37,7 +38,7 @@ SECTIONS = [
     ('presence', 'Presence', 'Devices and machines that come and go: away, asleep, moving work and Wake-on-LAN (docs/PRESENCE.md).',
      ['presence']),
     ('autocompact', 'Autocompact', 'When a worker\'s context is compacted.', ['autocompact']),
-    ('review', 'Review', '`tutti pr review`: who reviews a pull request and who steps in when no one answers.', ['review']),
+    ('review', 'Review', '`tutti pr review`: who reviews a pull request and who steps in when no one answers.', ['review', 'review.repos']),
     ('scouts', 'Scouts', 'Helpers that are not workers (Grok Bot): questions, watches and reviews.', ['scouts']),
     ('telemetry', 'Telemetry and self-improvement', 'Crash reports and usage statistics, and the fixes they turn into.',
      ['telemetry', 'self_improve', 'ai_assist', 'welcome']),
@@ -334,9 +335,22 @@ FIELDS = {
                                    min=10, max=95),
     'autocompact.context_tokens': field('Window', 'When workers.<name>.context_tokens does not say.', 'number', unit='tokens', min=1000),
     # review
-    'review.reviewers': field('Reviewers', 'Who to ask for a pull request review.', 'list', choices=['copilot', 'coderabbit']),
+    'review.reviewers': field('Reviewers', 'Who to ask for a pull request review.', 'list', choices=['copilot', 'coderabbit', 'greptile']),
     'review.timeout_minutes': field('Wait for them', '0: do not wait, fall back at once.', **MIN),
     'review.poll_seconds': field(LOOK_EVERY, 'How often to look for their answer.', **SEC),
+    'review.coderabbit': field('When CodeRabbit is limited', 'wait: no merge until it reviews (asked again when its limit passes); '
+                               'fallback: another reviewer stands in, CodeRabbit is asked again later; skip: never asked; '
+                               'skip-when-unavailable: merge on the other reviews.', 'select',
+                               choices=['wait', 'fallback', 'skip', 'skip-when-unavailable'], default='wait'),
+    'review.greptile': field('When Greptile is limited', 'The same choices as for CodeRabbit, for Greptile.', 'select',
+                             choices=['wait', 'fallback', 'skip', 'skip-when-unavailable'], default='wait'),
+    'review.repos.*.greptile': field('Greptile for this repo', 'Overrides the household policy for one owner/name.', 'select',
+                                     choices=['wait', 'fallback', 'skip', 'skip-when-unavailable']),
+    'review.repos.*.coderabbit': field('CodeRabbit for this repo', 'Overrides the household policy for one owner/name.', 'select',
+                                       choices=['wait', 'fallback', 'skip', 'skip-when-unavailable']),
+    'review.rounds': field('Review rounds (admin)', 'How many rounds (ask, fix the findings, ask again) each reviewer gets per pull '
+                           'request: copilot, coderabbit, greptile, a scout (grok) and local (the fallback worker). 1 each by default; 0: '
+                           'not called.', **YAML, default={}),
     'review.fallback': field('Fallback reviewers', 'Cheap workers that review when no one answers.', 'list', choices_from='workers'),
     # scouts
     'scouts.*.kind': field('Kind', 'grok-bot-webhook: Grok Bot\'s webhook routine.', 'select', choices=['grok-bot-webhook']),

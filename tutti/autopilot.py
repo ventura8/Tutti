@@ -1144,6 +1144,11 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
                      'failure(s))' for t in data['tasks'] if t['status'] == 'queued' and float(t.get('not_before') or 0) > now
                      and t['id'] not in hold})
         events += mirrored + events_spare
+        try:   # a review bot asked again where its rate limit has passed (review.coderabbit / review.greptile: wait or fallback)
+            from . import review
+            events += review.rerequest_due(cfg)
+        except Exception as e:   # a broken queue never stops the round; it is logged as an event
+            events.append(f'review bot re-requests could not run ({e}): the next round tries again')
         started = []
         if on:
             filled = fill.fill(cfg, data, states, machines, now, found)

@@ -63,7 +63,8 @@ class ScoutReviewer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             log = os.path.join(d, 'usage.jsonl')
             pacing.append_log(log, 'copilot', 100, now - timedelta(hours=1), resets=now + timedelta(days=10))
-            cfg = {'review': {'reviewers': ['copilot', 'coderabbit', 'grok'], 'timeout_minutes': 1, 'poll_seconds': 1, 'fallback': []},
+            cfg = {'review': {'reviewers': ['copilot', 'coderabbit', 'grok'], 'timeout_minutes': 1, 'poll_seconds': 1, 'fallback': [],
+                              'coderabbit': 'fallback'},   # the owner's policy: grok stands in (0.20.0)
                    'scouts': {'grok': {}}, 'usage': {'log': log}, 'project': {'state': d}, 'workers': {}, 'accounts': {}}
             later = (now + timedelta(seconds=5)).isoformat()
             comments = [{'user': {'login': 'coderabbitai[bot]'}, 'created_at': later, 'body': 'Review limit reached'},

@@ -302,6 +302,15 @@ review:
   reviewers: [copilot, coderabbit]
   timeout_minutes: 15
   fallback: [cursor, agy]
+  # when CodeRabbit (or greptile:) answers "Review limit reached ... available in N minutes":
+  #   wait (default): no merge until it reviews; Tutti asks it again right after N minutes
+  #   fallback: another reviewer (review.fallback, a scout) reviews now; CodeRabbit is asked again later, findings in a follow-up
+  #   skip: never asked;  skip-when-unavailable: asked, and when limited the other reviews are enough
+  coderabbit: wait
+  greptile: wait
+  # repos: {octo/my-app: {coderabbit: fallback, greptile: skip}}   # a per-repo override
+  # rounds per pull request (ask, fix the findings, ask again), per reviewer; 1 each by default, 0: not called (admin only)
+  # rounds: {coderabbit: 1, greptile: 1, copilot: 1, grok: 1, local: 1}
 
 # `tutti conduct`: another agent as the main (conductor) agent; who takes over when its quota is in panic (docs/CONDUCT.md)
 main:

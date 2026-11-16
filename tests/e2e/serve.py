@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import yaml
 from test_auth import jwks_doc, rsa_key
 
-from tutti import auth, config, dashboard, pacing, routing, state
+from tutti import auth, config, dashboard, energy, pacing, routing, state
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CLIENT = '1234567890-abcdefgh12345678.apps.googleusercontent.com'
@@ -39,6 +39,9 @@ def write_config(home):
         raw = yaml.safe_load(f)
     raw['auth'] = {'client_id': CLIENT}
     raw['fleet'] = {'enabled': False}   # no tunnel is ever started from a test
+    # a dedicated desktop session on gpu-box's computer with its own model worker: it must fold into gpu-box's one card
+    raw['machines']['gpu-box-desktop'] = {**raw['machines']['gpu-box'], 'dedicated': True}
+    raw['workers']['big-desktop'] = {**raw['workers']['big'], 'machine': 'gpu-box-desktop', 'host': '127.0.0.1:11453'}
     raw['dashboard'].update(probe_seconds=3600, watch_scripts=[], watch_agents=[], task_globs=[])   # this host's processes stay out
     path = os.path.join(home, 'tutti.config.yaml')
     with open(path, 'w', encoding='utf8') as f:
@@ -79,6 +82,22 @@ def probe(machine):
     return routing.Probe(True, 2, 0.333333333, 4, False, 48123, mem_gb=6.66666666667)
 
 
+POWER = {'gpu-box.example': '== nvidia\nNVIDIA GeForce RTX 5090, 75.91, 12, 600.00\n== end',
+         'local': '== intel\nFailed to initialize PMU! (Permission denied)\n== denied\nrapl\n'
+                  '== lspci\n00:02.0 VGA compatible controller: Intel Corporation Arrow Lake-P [Arc Pro 130T/140T] (rev 03)\n== end'}
+
+
+def power(machine, _on):
+    text = POWER.get(machine.get('host'))
+    return energy.parse_power(text) if text else None
+
+
+def ollama(host, path):
+    if path == '/api/tags':
+        return {'models': [{'name': 'qwen3.8:27b-q8_0'}, {'name': 'qwen3.5:9b'}]}
+    return {'models': [{'name': 'qwen3.5:9b', 'size_vram': 7257834123}]} if host.endswith('11436') else {'models': []}
+
+
 def available(worker):
     if worker.get('kind') == 'ollama':
         return False, f'{worker.get("host")} does not answer (connection refused): start the model server or its tunnel'
@@ -92,7 +111,7 @@ def main(folder):
     seed_jobs(cfg, datetime.now(timezone.utc))
     collector = dashboard.Collector(cfg, probe_fn=probe, available_fn=available, stored_fn=lambda m: None, reader=Readers(),
                                     activity_fn=lambda *a, **k: {}, prs_fn=lambda c: {}, readings_fn=lambda m, d: {'state': 'unreachable'},
-                                    power_fn=lambda m, on: None, ollama_fn=lambda h, p: None)
+                                    power_fn=power, ollama_fn=ollama)
     collector.refresh()
     httpd = dashboard.server(cfg, 0, collector)
     key = rsa_key()

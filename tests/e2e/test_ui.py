@@ -372,6 +372,35 @@ class Roles(unittest.TestCase):
         self.assertNotIn('2.5 °C', page.text_content('#devices'))   # a TV's battery reading is never its temperature
         ctx.close()
 
+    def test_local_model_cards_match_the_state(self):
+        """One Local models card per computer, as /api/state's local_models.cards (a dedicated desktop session folds into its
+        host's card); the GPU, measured or estimated, the models and the period table fit their card at laptop and phone width."""
+        for width in ('laptop', 'phone'):
+            ctx = new_context(ADMIN, width)
+            page = open_view(ctx, '#dashboard')
+            cards = page.evaluate("fetch('/api/state').then((r) => r.json()).then((s) => s.local_models.cards)")
+            names = [c['name'] for c in cards]
+            self.assertNotIn('gpu-box-desktop', names)
+            self.assertEqual(page.locator('#local-models > article').count(), len(cards))
+            for c in cards:
+                card = page.locator(f"#local-models > article[data-machine='{c['name']}']")
+                text = card.text_content()
+                self.assertIn(c['gpu'], text)
+                self.assertNotIn('GPU not read', text)
+                self.assertIn('GPU', text)
+                self.assertIn('measured' if c['gpu_measured'] else 'estimated', text)
+                for m in c['installed']:
+                    self.assertIn(m, text)
+                fits = card.evaluate("(a) => [...a.querySelectorAll('.local__periods td, .local__periods th')].every((t) => "
+                                     "t.getClientRects().length === 1 && t.scrollWidth <= t.clientWidth + 1) "
+                                     "&& a.scrollWidth <= a.clientWidth + 1")
+                self.assertTrue(fits, f"{c['name']} at {width}: a table cell wraps or the card overflows")
+            box = {c['name']: c for c in cards}['gpu-box']
+            self.assertEqual(box['workers'], ['big', 'big-desktop'])
+            self.assertTrue(box['gpu_measured'])
+            self.assertIn('qwen3.5:9b', page.locator("#local-models > article[data-machine='gpu-box']").text_content())
+            ctx.close()
+
     def test_numbers_have_no_float_noise(self):
         for role in (ADMIN, VIEWER):
             ctx = new_context(role)

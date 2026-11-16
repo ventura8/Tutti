@@ -250,6 +250,17 @@ def merge(base, over):
     return out
 
 
+def physical(cfg, name):
+    """The machine whose card a name counts on: a dedicated pseudo-machine (machines.<m>.dedicated, a desktop session for UI
+    runs) on the same computer as a regular machine (the same host; `local` is this computer) is that machine, so it gets no
+    card of its own and its power and energy are never counted twice."""
+    m = cfg['machines'].get(name)
+    if not m or not m.get('dedicated'):
+        return name
+    return next((n for n, o in cfg['machines'].items() if n != name and not o.get('dedicated') and o.get('host') == m.get('host')),
+                name)
+
+
 def machine_of(cfg, name, own):
     """One machine with its defaults (a Termux machine's own), its name and its runner merged over the shared one."""
     android = own.get('transport') == 'android'

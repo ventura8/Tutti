@@ -32,6 +32,15 @@ def script_output(**parts):
 
 
 class Power(unittest.TestCase):
+    def test_gpu_name_from_lspci_and_what_was_denied(self):
+        lspci = '00:02.0 VGA compatible controller: Intel Corporation Arrow Lake-P [Arc Pro 130T/140T] (rev 03)'
+        r = energy.parse_power(script_output(intel='Failed to initialize PMU! (Permission denied)', denied='rapl', lspci=lspci))
+        self.assertEqual(r['gpu'], 'Intel Corporation Arrow Lake-P [Arc Pro 130T/140T]')
+        self.assertEqual(len(r['denied']), 2)
+        self.assertIn('cap_perfmon', r['denied'][0])
+        self.assertEqual(energy.parse_power(script_output(nvidia=NVIDIA))['denied'], [])
+        self.assertIsNone(energy.lspci_gpu('00:1f.3 Audio device: Intel'))
+
     def test_nvidia_sums_watts_and_takes_the_busiest_gpu(self):
         r = energy.parse_nvidia(NVIDIA)
         self.assertAlmostEqual(r['gpu_w'], 432.6)
@@ -191,6 +200,35 @@ class Cards(unittest.TestCase):
         self.assertEqual(h['pc'], {'workers': ['big'], 'ollama': '127.0.0.1:1', 'on': '127.0.0.1:11434'})   # its own curl too
         self.assertEqual(h['this computer']['workers'], ['small'])
         self.assertEqual(h['nas'], {'workers': [], 'ollama': None, 'on': '127.0.0.1:11434'})
+
+    def test_a_dedicated_desktop_folds_into_its_host_and_is_probed_once(self):
+        self.cfg['machines']['pc-desktop'] = config.machine_of(self.cfg, 'pc-desktop', {'host': 'pc.example', 'dedicated': True})
+        self.cfg['machines']['lone'] = config.machine_of(self.cfg, 'lone', {'host': 'lone.example', 'dedicated': True})
+        self.cfg['workers']['big-desk'] = {'kind': 'ollama', 'host': '127.0.0.1:3', 'machine': 'pc-desktop'}
+        self.assertEqual(config.physical(self.cfg, 'pc-desktop'), 'pc')
+        self.assertEqual(config.physical(self.cfg, 'lone'), 'lone')   # no regular machine on its computer: its own
+        h = energy.hosts(self.cfg)
+        self.assertNotIn('pc-desktop', h)
+        self.assertEqual(h['pc']['workers'], ['big', 'big-desk'])
+        calls = []
+
+        def power(m, on):
+            calls.append(m['name'])
+            return None if calls.count(m['name']) == 1 else {'gpu': 'G', 'gpu_w': 5.0, 'util': 1, 'source': 'x', 'cpu_w': None}
+        r = energy.probe_all(self.cfg, power, lambda host, path: None)
+        self.assertEqual(calls.count('pc'), 2)   # one retry after a miss
+        self.assertEqual(r['pc']['gpu_w'], 5.0)
+
+    def test_models_read_when_the_power_is_not(self):
+        r = energy.probe_all(self.cfg, lambda m, on: None, lambda host, path: {'models': [{'name': 'm:1'}]})
+        self.assertTrue(r['pc']['power_unread'])
+        c = energy.card(self.cfg, 'pc', energy.hosts(self.cfg)['pc'], r['pc'], None, {}, [], time.time(), energy.tariff(self.cfg),
+                        False, {'big': (True, 'ok')})
+        self.assertEqual((c['status'], c['installed'], c['reachable']), ('available', ['m:1'], False))
+        self.assertIn('ssh', c['reason'])
+        here = energy.worker_status(('available', ''), ['small'], None, None, 'local')
+        self.assertEqual(here[0], 'offline')
+        self.assertNotIn('ssh', here[1])
 
     def test_a_run_is_logged_counted_and_priced(self):
         now = time.time()

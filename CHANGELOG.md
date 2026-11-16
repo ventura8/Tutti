@@ -6,6 +6,17 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.19.1 (2026-11-16)
+
+### Security
+
+- The Grok key never travels in a process environment (t116; it leaked into agent transcripts three times). Tutti reads
+  `~/.config/tutti/grok.env` at the point of use; every command drops `TUTTI_GROK_KEY`/`TUTTI_GROK_URL` from its own
+  environment at start (children, restarts, self-update, self-heal and failover inherit none); the dashboard re-executes
+  itself without them; `tutti scout setup grok` no longer sources the file from `~/.profile` and removes the old line;
+  process listings mask secret-looking values; `tutti doctor` names a key still exported in the shell. A test starts a
+  real dashboard with the key set and checks its `/proc` environ.
+
 ## 0.19.0 (2026-11-16)
 
 ### Added

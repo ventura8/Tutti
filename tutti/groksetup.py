@@ -1,9 +1,9 @@
 """`tutti scout setup grok`: the owner's guided setup of a Grok Bot scout, in a real terminal, with minimum input. It shows
 the in-app steps (with the routine's text ready to copy), asks for the webhook URL and the key (hidden), saves both to
-~/.config/tutti/grok.env (mode 600), sources that file from ~/.profile once, adds the scout to the config when missing,
+~/.config/tutti/grok.env (mode 600), removes an older setup's source line from ~/.profile, adds the scout to the config when missing,
 restarts a running dashboard by pid and sends a test question. The key is never echoed, printed or logged.
 
-Tutti itself reads the env file when the variables are missing (`load_env`), so a restart never depends on the shell."""
+Tutti reads the file at the point of use (`secretenv.get`), never through an exported variable (backlog t116)."""
 import getpass
 import os
 import re
@@ -14,7 +14,7 @@ import sys
 import time
 from urllib.parse import urlparse
 
-from . import config, scoutcmd, scouts
+from . import config, scoutcmd, scouts, secretenv
 from .review import gh
 
 FILE = 'grok.env'
@@ -22,6 +22,7 @@ URL_ENV, KEY_ENV = 'TUTTI_GROK_URL', 'TUTTI_GROK_KEY'
 HOST_SUFFIX = 'cursor.sh'          # the routine's "POST to" address is https://api2.cursor.sh/automations/webhook/...
 PROC = '/proc'
 TEST_QUESTION = "Say hello and name today's date"
+COMMENT = "# Tutti: the Grok Bot scout's webhook"
 EXPORT_RX = re.compile(r'\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)')
 
 
@@ -46,17 +47,6 @@ def read_env_file(path):
                 continue
             out[m.group(1)] = parts[0] if parts else ''
     return out
-
-
-def load_env(env=None, path=None):
-    """Fills the variables the env file holds and `env` lacks (never overrides one already set). Returns the names filled."""
-    env = os.environ if env is None else env
-    filled = []
-    for k, v in read_env_file(path or env_path(env)).items():
-        if not env.get(k, '').strip() and v:
-            env[k] = v
-            filled.append(k)
-    return filled
 
 
 def check_url(url):
@@ -86,18 +76,20 @@ def profile_line(path):
     return f'[ -f {shown} ] && . {shown}'
 
 
-def add_to_profile(path, profile=None):
-    """Adds the guarded source line to ~/.profile once; True when it was added."""
+def remove_from_profile(path, profile=None):
+    """Removes the source line (and its comment) an older setup added to ~/.profile: the key must not sit in every shell's
+    environment, where an agent printing `env` would show it. True when something was removed."""
     profile = profile or os.path.expanduser('~/.profile')
     try:
         with open(profile, encoding='utf8') as f:
-            text = f.read()
+            lines = f.read().splitlines(keepends=True)
     except OSError:
-        text = ''
-    if path in text or profile_line(path) in text:
         return False
-    with open(profile, 'a', encoding='utf8') as f:
-        f.write(('' if not text or text.endswith('\n') else '\n') + f'# Tutti: the Grok Bot scout\'s webhook\n{profile_line(path)}\n')
+    keep = [ln for ln in lines if not (path in ln or profile_line(path) in ln or ln.strip() == COMMENT)]
+    if len(keep) == len(lines):
+        return False
+    with open(profile, 'w', encoding='utf8') as f:
+        f.write(''.join(keep))
     return True
 
 
@@ -167,7 +159,7 @@ def dashboard_pids(proc=PROC):
 
 
 def restart_dashboard(pid, proc=PROC, kill=os.kill, spawn=subprocess.Popen, sleep=time.sleep, log=None):
-    """Stops the dashboard `pid` and starts the same command in the same folder, with this process's (loaded) environment."""
+    """Stops the dashboard `pid` and starts the same command in the same folder, with this environment minus every secret."""
     with open(os.path.join(proc, str(pid), 'cmdline'), 'rb') as f:
         argv = [a.decode() for a in f.read().split(b'\0') if a]
     cwd = os.readlink(os.path.join(proc, str(pid), 'cwd'))
@@ -177,7 +169,7 @@ def restart_dashboard(pid, proc=PROC, kill=os.kill, spawn=subprocess.Popen, slee
             break
         sleep(0.1)
     with open(log or os.devnull, 'a', encoding='utf8') as out:   # the child has its own copy of the descriptor
-        child = spawn(argv, cwd=cwd, env=dict(os.environ), stdout=out, stderr=out, stdin=subprocess.DEVNULL, start_new_session=True)
+        child = spawn(argv, cwd=cwd, env=secretenv.scrubbed(), stdout=out, stderr=out, stdin=subprocess.DEVNULL, start_new_session=True)
     return child.pid
 
 
@@ -226,16 +218,15 @@ def run(cfg, name='grok', io=None, gh_fn=gh, post_fn=scouts.post, profile=None, 
     url, key = ask_url(input_fn, out), ask_key(getpass_fn, out)
     path = env_path()
     save_env(path, url, key)
-    os.environ[URL_ENV], os.environ[KEY_ENV] = url, key
-    print(f'Saved to {path} (only you can read it).', file=out)
-    if add_to_profile(path, profile):
-        print('Added a line to ~/.profile so new shells have the two variables.', file=out)
+    print(f'Saved to {path} (only you can read it; Tutti reads it when it asks, never through the environment).', file=out)
+    if remove_from_profile(path, profile):
+        print('Removed the old line from ~/.profile: the key no longer sits in every shell\'s environment.', file=out)
     if add_scout(cfg, name, repos[0]):
         print(f'Added the scout "{name}" to {cfg["_path"]}.', file=out)
         cfg = config.load(cfg['_path'])
     for pid in dashboard_pids(proc):
         new = restart(pid, proc=proc)
-        print(f'Restarted the dashboard (pid {pid} -> {new}) with the variables loaded.', file=out)
+        print(f'Restarted the dashboard (pid {pid} -> {new}).', file=out)
     print(f'Sending a test question: "{TEST_QUESTION}" (the answer can take a few minutes)...', file=out, flush=True)
     a = type('A', (), {'scout': name, 'task': TEST_QUESTION, 'skill': None, 'queue': False, 'repo': None, 'key_stdin': False,
                        'no_wait': False, 'timeout': None})()

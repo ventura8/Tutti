@@ -15,7 +15,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
-from . import durable, pacing
+from . import durable, pacing, secretenv
 from .review import documents, gh
 
 try:
@@ -195,19 +195,17 @@ def errors(cfg):
 
 def missing_env(sc, env=None):
     """The environment variables a scout still needs (names only)."""
-    env = os.environ if env is None else env
-    return [sc[k] for k in ('url_env', 'key_env') if not env.get(sc[k], '').strip()]
+    return [sc[k] for k in ('url_env', 'key_env') if not secretenv.get(sc[k], env).strip()]
 
 
 def secrets(sc, env=None, key_stdin=None):
     """(url, key) from the environment; the key may come from stdin instead. Raises with the variable's name, never a value."""
-    env = os.environ if env is None else env
-    url = env.get(sc['url_env'], '').strip()
-    key = (key_stdin if key_stdin is not None else env.get(sc['key_env'], '')).strip()
+    url = secretenv.get(sc['url_env'], env).strip()   # from ~/.config/tutti/grok.env at the point of use, never inherited
+    key = (key_stdin if key_stdin is not None else secretenv.get(sc['key_env'], env)).strip()
     if not url or not key:
         gone = [sc['url_env']] if not url else []
         gone += [] if key else [sc['key_env'] + (' (or --key-stdin)' if key_stdin is None else ' (stdin was empty)')]
-        raise ScoutError(f'scout {sc["name"]} is not set up: {", ".join(gone)} not set in this shell; follow `tutti scout setup '
+        raise ScoutError(f'scout {sc["name"]} is not set up: {", ".join(gone)} not in ~/.config/tutti/grok.env; follow `tutti scout setup '
                          f'{sc["name"]}` (the routine\'s webhook URL and key go into these variables)')
     check_url(url, sc)
     return url, key[len('Bearer '):].strip() if key.startswith('Bearer ') else key

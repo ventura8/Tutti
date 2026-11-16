@@ -30,7 +30,6 @@ from . import (
     files,
     github,
     githubcmd,
-    groksetup,
     handover,
     helper,
     householdcmd,
@@ -45,6 +44,7 @@ from . import (
     routing,
     scoutcmd,
     scouts,
+    secretenv,
     selfimprove,
     ship,
     state,
@@ -128,7 +128,7 @@ def config_problems(a):
 
 def cmd_doctor(cfg, a):
     from . import diskroom, stuck
-    problems = doctor.check_git() + config_problems(a) + (diskroom.problems(cfg) if cfg else [])
+    problems = doctor.check_git() + config_problems(a) + secretenv.doctor_problems() + (diskroom.problems(cfg) if cfg else [])
     problems += [w for w in [stuck.check(remote.ROOT)] if w]   # merged versions no release publishes (docs/INSTALL.md)
     if cfg:   # the state's size against its budget, and the backup main machine (docs/FAILOVER.md)
         from . import failover, failovercmd, statebudget
@@ -1930,11 +1930,16 @@ def on_client(cfg, a, argv):
 
 
 def main(argv=None):
+    real = argv is None
     argv = sys.argv[1:] if argv is None else argv
     a = parser().parse_args(argv)
     if a.fn in (cmd_doctor, cmd_setup, cmd_self_update):  # they must work before any config exists
         return a.fn(None, a)
-    groksetup.load_env()   # the scout's webhook variables from ~/.config/tutti/grok.env, when the shell lacks them
+    # secrets are read from their files at the point of use, never inherited (docs/ARCHITECTURE.md, t116); the dashboard runs
+    # again without them so its own /proc environ holds none
+    if real and a.fn is cmd_dashboard and not a.once:
+        secretenv.reexec_clean()
+    secretenv.scrub_self()
     try:
         cfg = config.load(a.config)
         os.environ['TUTTI_CONFIG'] = cfg['_path']

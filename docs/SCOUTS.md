@@ -194,12 +194,14 @@ while the scout is not set up). It:
 2. asks for the webhook's **POST to** address (checked: `https://`, Grok Bot's host `…cursor.sh`) and the key with
    hidden input (never echoed, printed or logged; a pasted `Bearer ` prefix is dropped);
 3. saves both to `~/.config/tutti/grok.env` (mode 600, `export TUTTI_GROK_URL=…` and `export TUTTI_GROK_KEY=…`,
-   shell-quoted) and adds `[ -f ~/.config/tutti/grok.env ] && . ~/.config/tutti/grok.env` to `~/.profile` once;
+   shell-quoted) and removes the `. ~/.config/tutti/grok.env` line an older setup added to `~/.profile`;
 4. adds the `grok` scout to the config when it is missing, restarts a running dashboard (by its pid, same command and
-   folder, with the variables loaded) and sends the test question "Say hello and name today's date", printing the answer.
+   folder, with no secret in its environment) and sends the test question "Say hello and name today's date", printing the answer.
 
-Tutti reads `~/.config/tutti/grok.env` itself (`$XDG_CONFIG_HOME/tutti/grok.env`) whenever the two variables are missing,
-so a dashboard restarted from any shell still has them; a variable already set in the shell wins. Without a terminal
+Tutti reads `~/.config/tutti/grok.env` itself (`$XDG_CONFIG_HOME/tutti/grok.env`) at the point of use, and the file wins
+over the shell. The key never travels in a process environment (backlog t116): every Tutti command drops `TUTTI_GROK_KEY`
+and `TUTTI_GROK_URL` from its own environment at start, so nothing it launches inherits them, and the dashboard runs
+itself again without them, so `/proc/<pid>/environ` holds neither. `tutti doctor` names a key still exported in the shell. Without a terminal
 (from an agent's tool) the command explains it needs one and prints the line to run.
 
 By hand, `tutti scout setup` and the dashboard's Scouts card show the same steps:
@@ -214,9 +216,9 @@ By hand, `tutti scout setup` and the dashboard's Scouts card show the same steps
    the issue; if the task cannot be done, comment why. For reviews, `reply_to.how` asks for one comment on the pull
    request whose first line is `grok-scout`.
 5. Open the routine (the bot's name, **Details**, the routine): its **Webhook** section shows **POST to** and the header.
-6. Put the URL in `TUTTI_GROK_URL` and the key (after `Bearer `) in `TUTTI_GROK_KEY`, e.g. in `~/.profile`; never in the
-   config, a repository or a chat.
-7. Restart the dashboard from a shell that has both variables; test with `tutti scout ask grok "Say hello"`.
+6. Put the URL in `TUTTI_GROK_URL` and the key (after `Bearer `) in `TUTTI_GROK_KEY` in `~/.config/tutti/grok.env`
+   (mode 600, `export NAME='value'` lines); never in `~/.profile`, the config, a repository or a chat.
+7. Test with `tutti scout ask grok "Say hello"`.
 8. Optional: read Grok Bot's weekly meter with the reading helper so scouts are paced against it.
 
 Grok Bot's **Test** button runs the routine for real and spends usage.

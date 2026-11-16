@@ -16,6 +16,8 @@ import re
 import signal
 import time
 
+from . import secretenv
+
 MARK = 'TUTTI_PROC'
 NO_DAEMONS = 'TUTTI_NO_DAEMONS'   # tests and scripts/check.sh: no helper process is started at all
 CLAIM = re.compile(r'devices/([^/"\s]+)/users/claim-')
@@ -51,7 +53,7 @@ def info(pid, proc=PROC):
         return None
     pairs = (e.split(b'=', 1) for e in env.split(b'\0') if b'=' in e)
     return {'pid': int(pid), 'ppid': ppid, 'uid': uid, 'argv': [a.decode('utf8', 'replace') for a in cmd.split(b'\0') if a],
-            'env': {k.decode('utf8', 'replace'): v.decode('utf8', 'replace') for k, v in pairs}}
+            'env': secretenv.mask({k.decode('utf8', 'replace'): v.decode('utf8', 'replace') for k, v in pairs})}   # t116
 
 
 def kind(p):

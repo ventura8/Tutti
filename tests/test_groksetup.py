@@ -72,9 +72,8 @@ class GrokSetup(unittest.TestCase):
         self.assertEqual(groksetup.read_env_file(p), {groksetup.URL_ENV: URL, groksetup.KEY_ENV: KEY})
         self.assertEqual(posted[0][1], KEY)
         self.assertIn('grok', config.load(self.cfg_path)['scouts'])
-        self.assertFalse(groksetup.add_to_profile(p, self.profile))
-        with open(self.profile, encoding='utf8') as f:
-            self.assertEqual(f.read().count('grok.env ]'), 1)
+        self.assertFalse(os.path.exists(self.profile))   # the key never goes into every shell's environment (t116)
+        self.assertNotIn(groksetup.KEY_ENV, os.environ)
 
     def test_no_tty_prints_the_command(self):
         out = io.StringIO()
@@ -82,14 +81,15 @@ class GrokSetup(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn('tutti scout setup grok', out.getvalue())
 
-    def test_load_env_fills_only_missing(self):
+    def test_old_profile_line_is_removed(self):
         p = groksetup.env_path()
-        groksetup.save_env(p, URL, "it's a key")
-        env = {groksetup.URL_ENV: 'https://already.cursor.sh/x'}
-        self.assertEqual(groksetup.load_env(env, p), [groksetup.KEY_ENV])
-        self.assertEqual(env[groksetup.KEY_ENV], "it's a key")
-        self.assertEqual(env[groksetup.URL_ENV], 'https://already.cursor.sh/x')
-        self.assertEqual(groksetup.load_env({}, os.path.join(self.tmp, 'none')), [])
+        with open(self.profile, 'w', encoding='utf8') as f:
+            f.write(f'x=1\n{groksetup.COMMENT}\n{groksetup.profile_line(p)}\n')
+        self.assertTrue(groksetup.remove_from_profile(p, self.profile))
+        with open(self.profile, encoding='utf8') as f:
+            self.assertEqual(f.read(), 'x=1\n')
+        self.assertFalse(groksetup.remove_from_profile(p, self.profile))
+        self.assertFalse(groksetup.remove_from_profile(p, os.path.join(self.tmp, 'none')))
 
     def test_check_url(self):
         self.assertIsNone(groksetup.check_url(URL))

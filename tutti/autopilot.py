@@ -176,6 +176,10 @@ def step_room(cfg, name, states, running_units, machines=()):
     s = states.get(name)
     if not s:
         return 0, f'{name}: no pacing state yet'
+    if takes_over(cfg, name, s, states):
+        # the main agent in panic (owner, 2026-11-16): the other accounts take over its bounded work one task at a time,
+        # even while ahead of their own pace or past their planned room; only their own panic or a spent quota stops them
+        return (1 - used, '') if not used else (0, f'{name}: busy with a task (taking over from the main agent)')
     unfit = routing.account_unfit(s)
     if unfit:
         return 0, f'{name}: {unfit}'
@@ -190,16 +194,28 @@ def step_room(cfg, name, states, running_units, machines=()):
             return 0, f'{name}: at its even-pace line ({s.get("verdict")})'
         room = (s.get('room_tasks') or 0) - used
         return (room, '') if room > 0 else (0, f'{name}: its room is taken by the running tasks')
-    if s.get('verdict') == 'ahead' and not main_in_panic(cfg, states):
+    if s.get('verdict') == 'ahead':
         return 0, f'{name}: ahead of its pace'
-    # the main agent in panic (owner, 2026-11-16): the other accounts take over its bounded work even while ahead of their
-    # own pace, one task at a time; their own panic or spent still stops them (routing.account_unfit above)
     return (1 - used, '') if not used else (0, f'{name}: busy with a task')
 
 
-def main_in_panic(cfg, states):
-    """True while one of the main agent's accounts (autopilot.main_accounts, default: claude) is in panic or spent."""
+def main_accounts(cfg):
+    """The main agent's accounts (autopilot.main_accounts, a name or a list; default: claude)."""
     names = (cfg.get('autopilot') or {}).get('main_accounts') or ['claude']
+    return [names] if isinstance(names, str) else list(names)
+
+
+def takes_over(cfg, name, s, states):
+    """True when `name` (not a main account, itself neither in panic nor spent) takes work while the main agent panics."""
+    if name in main_accounts(cfg) or not main_in_panic(cfg, states):
+        return False
+    used = s.get('used')
+    return not (s.get('panic') or s.get('verdict') == 'spent' or (used is not None and used >= s.get('panic_at', 95)))
+
+
+def main_in_panic(cfg, states):
+    """True while one of the main agent's accounts is in panic or spent."""
+    names = main_accounts(cfg)
     return any((states.get(n) or {}).get('panic') or (states.get(n) or {}).get('verdict') == 'spent' for n in names)
 
 

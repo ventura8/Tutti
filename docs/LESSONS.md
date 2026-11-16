@@ -423,3 +423,9 @@ machine it runs on.
 `workers.run` stopped a CLI at the autocompact threshold with `terminate()`, which signals the CLI only; whatever it had
 started kept running (the test's `sleep 20`, a real agent's tool processes). Stop a worker with `handover.end_tree(pid)`: the
 process and its descendants, by their exact pids.
+
+## A killed shell loop leaves its child (2026-11-16)
+
+Stopping a test's leftover loop by pid once was not enough: between the scan and the kill the loop had already started its
+next `sleep` or fake `adb`, which carried the same marker and lived on until self-heal stopped it (about 129 a day).
+`tests/run.py` now scans and stops again until nothing of the test is left.

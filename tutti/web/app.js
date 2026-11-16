@@ -603,6 +603,7 @@ function machine(m) {
         chip(m.status, MACHINE_TONE[m.status]),
         stats,
         presenceBits(m.presence),   // controls.js: Here / Away since 18:40 (left with its owner), today's strip
+        hygieneBits(m.name),   // hygiene.js: its yield flag's owner and age, free space, WSL, the week's clean-up
         el('p', { class: 'row__note', text: m.status === 'paused' ? 'Yield flag is up: Tutti sends it nothing new until it is lowered.' : m.reason }),
         use && use.idle_why ? el('p', { class: 'row__note', text: `Idle: ${use.idle_why}` }) : null,
         limitForm(m),

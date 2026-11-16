@@ -6,6 +6,26 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.18.0 (2026-11-16)
+
+### Added
+
+- Yield flags have an owner, a reason and an expiry (default 4 h, `tutti yield renew`); the self-heal round lowers an
+  expired one, or one whose owner's process is gone while the machine is idle. The machine card shows owner and age
+  (backlog t135: a flag stayed up 15 h on an idle PC).
+- A hung WSL (Windows answers, `wsl -e true` times out) is restarted when no flag or lease holds the machine (t136).
+- Disk watch on every machine, the Windows C: of WSL machines too: a warning under 15 GB with the biggest reclaimable
+  items, no new work under 8 GB (t137).
+- Self-cleaning, daily or under 20 % free and never while the machine is held: Docker build cache, dangling and old unused
+  images (never one the config names, t140), old logs, run worktrees and caches, old APK outputs and npm/NuGet caches on
+  Windows, Remote Desktop traces on the owner's yes, the WSL disk compacted; "Reclaimed N GB this week" (t138, t139).
+
+### Fixed
+
+- Tutti's own tests no longer leave helper processes behind (about 129 a day that self-heal then stopped): the test runner
+  stops a test's leftovers by exact pid again until none is left, so a loop's next `sleep` or fake `adb`, started between
+  two scans, is stopped too.
+
 ## 0.17.4 (2026-11-16)
 
 ### Fixed
@@ -1550,6 +1570,7 @@ Token and runtime savings (measured on the owner's setup, before → after).
 - A retry whose steps above all had no room waited while the steps below had room: t13 to t15 had failed on agy-gemini and
   agy-claude, so only cursor (ahead of its pace) and the PC (yielding) could take them and both agy accounts sat idle. A
   retry now falls back to the steps below, strongest first, and the stopped line names every step, the ones with room too.
+
 ## 0.1.21 (2026-11-14)
 
 ### Added

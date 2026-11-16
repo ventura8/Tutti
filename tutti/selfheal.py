@@ -368,6 +368,12 @@ def check_update(ctx, update=None, release=None):
     return [f'self-update: {msg}'] if code == 0 and '->' in msg else []
 
 
+def check_hygiene(ctx):
+    """Yield flags that expired, a hung WSL, every machine's disks and the daily clean-up (tutti/hygienecheck.py)."""
+    from . import hygienecheck
+    return hygienecheck.check(ctx)
+
+
 def check_strays(ctx):
     """Tutti's own helper processes that nothing owns any more (tutti/procs.py), stopped by exact pid. Never in tests."""
     from . import procs
@@ -379,7 +385,7 @@ def check_strays(ctx):
 CHECKS = (('ollama', check_ollama), ('strays', check_strays), ('needs', check_needs), ('workers', check_workers),
           ('tunnels', check_tunnels),
           ('adb', check_adb), ('disk', check_disk), ('state', check_state), ('config', check_config),
-          ('dashboard', check_dashboard), ('update', check_update))
+          ('dashboard', check_dashboard), ('update', check_update), ('hygiene', check_hygiene))
 
 
 EVERY_SECONDS = 300   # how often the failover service's loop runs the checks (selfheal.every_seconds)
@@ -412,6 +418,8 @@ def errors(cfg):
     errs = []
     if not isinstance(sh.get('every_seconds', 300), (int, float)) or sh.get('every_seconds', 300) < 30:
         errs.append(f'selfheal.every_seconds is {sh.get("every_seconds")!r}: a number of seconds, 30 or more (default 300)')
+    if not isinstance(sh.get('keep_images', []), list):
+        errs.append('selfheal.keep_images is not a list: write the images the clean-up must never delete, e.g. [my-image:local]')
     if not isinstance(sh.get('temp_dirs', []), list):
         errs.append('selfheal.temp_dirs is not a list: write the extra temp folders Tutti cleans, e.g. [~/.cache/my-tmp]')
     return errs + deps.errors(cfg)

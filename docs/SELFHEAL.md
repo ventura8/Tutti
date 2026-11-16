@@ -68,6 +68,27 @@ workers:
 A download is never piped into a shell, and nothing runs before its checksum matches. An unpinned need is a config error
 naming the fix (`tutti config`).
 
+## Yield flags, disks and clean-up (0.18.0)
+
+The `hygiene` check (tutti/hygiene.py, tutti/hygienecheck.py) runs on the main machine each round and looks at every
+local, ssh and WSL machine once (its flag, load and disks):
+
+- **Yield flags** expire (default 4 h, `tutti yield renew`), and one whose owner's process is gone is lowered once the
+  machine is idle. The card shows owner, reason and age.
+- **A hung WSL** (Windows answers ssh, `wsl -e true` times out) is shut down and started again, never while a yield
+  flag or a lease holds the machine; the card says *WSL hung: restarted* or why it was left.
+- **Disks**: warn under 15 GB free (biggest reclaimable items on the card), no new work under 8 GB, one question in
+  Needs you.
+- **Clean-up**, daily or when a work disk is under 20 % free, never while a flag or lease holds the machine: Docker
+  build cache beyond 20 GB, dangling images, unused images older than 7 days, but **never an image the config names**
+  (any `image:` / `images:` key, e.g. `runner.image`, and `selfheal.keep_images`; naming a repository without a tag keeps
+  every tag and digest of it) and never one a container uses; ~/.cache/tutti-* folders untouched for 7 days; on the main
+  machine Tutti's run and quiet logs and clean `tutti-run-*` worktrees untouched for 14 days. On a WSL machine's Windows
+  side: APK outputs under each project's `windows:` folder (`*\build\outputs`, the newest 2 kept), the npm and NuGet
+  caches; Remote Desktop traces (`%TEMP%\DiagOutputDir\RdClientAutoTrace`) are offered in Needs you and deleted only on
+  *delete*; after a prune of 5 GB or more on an idle machine the WSL disk is compacted (`Optimize-VHD`, else set sparse).
+  The card shows *Reclaimed N GB this week*.
+
 ## Temp janitor (backlog t86)
 
 Every round removes Tutti's own left-over temp folders of this user in which nothing changed for 2 hours (the newest

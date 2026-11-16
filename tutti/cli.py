@@ -735,19 +735,41 @@ def cmd_agent(cfg, a):
 
 
 def cmd_yield(cfg, a):
+    """A flag carries its owner, reason, pid and expiry (docs/SELFHEAL.md): `renew` moves the expiry; an expired one is lowered."""
+    from . import hygiene
     names = [a.machine] if a.machine else list(cfg['machines'])
     if a.action != 'status':
         if not a.machine:
-            say('name the machine: tutti yield on --machine <name> (a flag is raised on one machine, never on all by default)')
+            say(f'name the machine: tutti yield {a.action} --machine <name> (a flag is raised on one machine, never on all by default)')
             return 2
+        m = machine_of(cfg, a.machine)
         note = ('unload ' if a.unload else '') + a.note
-        if remote.set_yield(machine_of(cfg, a.machine), a.action == 'on', note) != 0:
+        if a.action == 'renew':
+            old = remote.yield_note(m)
+            if old is None:
+                say(f'{a.machine} has no yield flag up: nothing to renew (raise one with tutti yield on --machine {a.machine})')
+                return 1
+            text = hygiene.renewed(old, time.time(), a.hours)
+        else:
+            text = hygiene.flag_text(a.owner, note, a.hours, a.pid or None)
+        if remote.set_yield(m, a.action != 'off', text) != 0:
             say(f'could not change the yield flag on {a.machine}: check that the machine is reachable (tutti machines)')
             return 1
     for name in names:
         note = remote.yield_note(machine_of(cfg, name))
-        print(f'{name:12} {"free" if note is None else "YIELD " + note}'.rstrip())
+        print(f'{name:12} {"free" if note is None else "YIELD " + yield_line(note)}'.rstrip())
     return 0
+
+
+def yield_line(note, now=None):
+    from . import hygiene
+    now = now or time.time()
+    f = hygiene.parse_flag(note, now, now)
+    if f['legacy']:
+        return f['reason'] or '(no reason given)'
+    left = f['expires'] - now
+    return (f'{f["owner"] or "owner unknown"}: {f["reason"] or "no reason given"} · up {hygiene.age_text(f["age_s"])} · '
+            + (f'expires in {hygiene.age_text(left)}' if left > 0 else 'expired: lowered at the next self-heal round'))
 
 
 def progress_target(cfg, job):
@@ -1621,9 +1643,12 @@ def parser():
     s.add_argument('--rounds', type=int, default=4)
     s.add_argument('--dir', default='.')
     s = add('yield', cmd_yield, 'raise or lower a machine\'s yield flag: while it is up, tutti sends that machine nothing new')
-    s.add_argument('action', choices=['on', 'off', 'status'])
+    s.add_argument('action', choices=['on', 'off', 'renew', 'status'])
     s.add_argument('--machine')
-    s.add_argument('--note', default='')
+    s.add_argument('--note', default='', help='the reason, shown on the machine card')
+    s.add_argument('--owner', default='', help='who holds the machine (default: this user)')
+    s.add_argument('--hours', type=float, default=4, help='expires after this many hours unless renewed (default 4)')
+    s.add_argument('--pid', type=int, default=0, help='the owner\'s process: once it is gone and the machine idle, the flag goes')
     s.add_argument('--unload', action='store_true', help='also ask local-model workers to unload their models')
     s = add('quiet', cmd_quiet, 'run a command, keep its log, print only the exit code (and a short failure summary); niced and '
               'CPU-capped while a person is here. `tutti quiet status` exits 0 while quiet; `wait [s]` waits; `guard` one round')

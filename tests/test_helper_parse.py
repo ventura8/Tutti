@@ -63,6 +63,15 @@ class HelperParse(unittest.TestCase):
         r = self.parse([{'account': 'x', 'label': None}], text='Sign in to continue\nEmail\n')
         self.assertEqual(r['missing'], ['x'])
 
+    def test_dollar_amount_is_converted_to_percent_and_uses_limits_reset(self):
+        r = self.parse([{'account': 'pro', 'label': 'Pro Models'}], text='Pro Models\n$12.50 of $50\nlimits reset on Dec 2\n')
+        self.assertEqual((r['readings'][0]['used'], r['readings'][0]['resets']), (25.0, '2026-12-02T00:00:00.000Z'))
+        self.assertEqual(r['missing'], [])
+
+    def test_zero_dollar_limit_is_not_a_reading(self):
+        r = self.parse([{'account': 'pro', 'label': 'Pro Models'}], text='Pro Models\n$12.50 of $0\n')
+        self.assertEqual((r['readings'], r['missing']), ([], ['Pro Models']))
+
     def test_the_bookmarklet_opens_the_dashboard_with_the_readings(self):
         with open(FIXTURE, encoding='utf8') as f:
             page = f.read()

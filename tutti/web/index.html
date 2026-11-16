@@ -32,6 +32,7 @@
     <script src="where.js?v=__TUTTI_VERSION__" defer></script>
     <script src="vpn.js?v=__TUTTI_VERSION__" defer></script>
     <script src="qr.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="admin.js?v=__TUTTI_VERSION__" defer></script>
     <script src="users.js?v=__TUTTI_VERSION__" defer></script>
     <script src="report.js?v=__TUTTI_VERSION__" defer></script>
     <script src="chat.js?v=__TUTTI_VERSION__" defer></script>
@@ -71,6 +72,7 @@
             <a class="tabs__tab" href="#dashboard" data-view="dashboard">Dashboard</a>
             <a class="tabs__tab" href="#settings" data-view="settings">Settings</a>
             <a class="tabs__tab" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
+            <a class="tabs__tab" href="#admin" data-view="admin" id="admin-tab" data-admin hidden>Admin</a>
         </nav>
     </header>
 
@@ -491,6 +493,24 @@
                 <ul id="audit" class="list" aria-label="Who changed which role, and when"></ul>
             </section>
         <div id="users-manage"></div>
+      </div>
+
+      <!-- The admin-only Admin tab (admin.js, GET /api/admin; docs/ADMIN.md): costs per provider and account, this month,
+           the forecast and the month history, usage against limits, and every admin control in one list. -->
+      <div id="admin-view" class="users-view" hidden>
+            <section class="card span-full" id="costs-card" aria-labelledby="costs-h">
+                <header class="card__head">
+                    <h2 id="costs-h">Costs</h2>
+                    <p class="card__meta" id="costs-meta"></p>
+                </header>
+                <ul id="costs" class="list" aria-label="Cost per provider and account"></ul>
+                <h3 class="card__sub">Month by month</h3>
+                <ul id="costs-history" class="list" aria-label="Monthly totals"></ul>
+            </section>
+            <section class="card span-full" id="admin-controls-card" aria-labelledby="admin-controls-h">
+                <header class="card__head"><h2 id="admin-controls-h">Admin controls</h2></header>
+                <ul id="admin-controls" class="list" aria-label="Where each admin control lives"></ul>
+            </section>
       </div>
 
       <div id="settings-view" class="settings" hidden>

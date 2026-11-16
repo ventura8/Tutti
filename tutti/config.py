@@ -120,6 +120,7 @@ DEFAULTS = {
     # [{hours: '23-07', price: 0.9}] (local hours); prefer_cheap_hours: local-model autopilot runs wait for the cheap ones;
     # include_idle: count the draw while Tutti keeps a model loaded (keep_alive_minutes after its last run); compare_with:
     # the cloud API priced for the same tokens; machines: per machine {base_w, gpu, gpu_tdp_w, cpu_tdp_w, ollama}
+    'costs': {'currency': '', 'subscriptions': {}, 'metered': {}},
     'energy': {'country': '', 'currency': '', 'price_per_kwh': None, 'tariff': [], 'prefer_cheap_hours': False, 'include_idle': True,
                'keep_alive_minutes': 5, 'compare_with': 'claude-sonnet', 'machines': {}},
     # browser: the household's work browser (tutti/browser.py, docs/BROWSER.md), the one Chrome every user's and worker's

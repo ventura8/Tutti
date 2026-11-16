@@ -6,6 +6,18 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.18.0 (2026-11-16)
+
+### Added
+
+- The dashboard's **Admin** tab (admins only; LAN and VPN like the rest of the dashboard, `GET /api/admin`): costs per
+  provider and account (subscription fees and pay-per-use spend from the new `costs:` settings, each machine's electricity
+  from the Local models estimate), this month so far, the forecast for the month, the month-by-month totals (kept in the
+  state folder, 24 months), usage against each account's limit, and every admin control with a link to where it lives
+  (priorities, machine limits, night mode, backup main, GitHub, accounts, opt-in and paid workers, self-update, needs your
+  input, users). Tutti never reads a bill or a key: an unpriced account shows "not configured" and which setting fills it
+  (docs/ADMIN.md).
+
 ## 0.17.2 (2026-11-16)
 
 ### Fixed

@@ -21,6 +21,8 @@ ENTRIES = ('machines', 'devices', 'workers', 'accounts', 'projects', 'scouts', '
 MANAGED = ('user', 'household', 'pacing', 'main.agent')
 SECTIONS = [
     ('accounts', 'Accounts and readings', 'The quotas Tutti paces and where their readings come from.', ['accounts', 'usage']),
+    ('costs', 'Costs', 'What the household spends: subscription fees and pay-per-use spend, for the Admin tab (docs/ADMIN.md).',
+     ['costs']),
     ('energy', 'Energy', 'Local models\' estimated energy cost: your electricity price and currency (docs/ENERGY.md).', ['energy']),
     ('workers', 'Workers', 'The agents and local models Tutti can brief, and the order `tutti run auto` tries them.',
      ['workers', 'routing.workers', 'brief']),
@@ -119,6 +121,9 @@ FIELDS = {
     'accounts.*.costs_money': field('Costs money per use', 'Kept off until you turn it on.', 'switch', default=False),
     'accounts.*.enabled': field('On', 'Off takes it out of pacing, routing and the dashboard.', 'switch'),
     'accounts.*.opt_in': field('Opt-in', 'Off until you turn it on, without costing money.', 'switch', default=False),
+    'costs.currency': field('Currency', 'The Admin tab\'s totals; empty: the energy currency.', 'text'),
+    'costs.subscriptions': field('Subscriptions', 'Monthly fees by name: {claude: {monthly: 90, currency: USD}}.', **YAML),
+    'costs.metered': field('Pay-per-use', 'Spent this month by name, from its billing page: {copilot: {month_to_date: 4.2}}.', **YAML),
     'usage.log': field('Usage log', 'The file every reading is appended to.', 'text', default='~/.local/state/tutti/usage.jsonl'),
     # workers
     'workers.*.kind': field('Kind', 'cli: another vendor\'s agent; ollama: a local model server.', 'select', choices=['cli', 'ollama']),

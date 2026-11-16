@@ -28,6 +28,7 @@ from . import (
     bridge,
     browsercmd,
     chatrun,
+    costs,
     conduct,
     config,
     connect,
@@ -399,8 +400,9 @@ API_PAIR, API_MOVE = '/api/devices/pair', '/api/devices/move'
 API_QUEUE = '/api/queue'   # the Queued list's actions: an admin's (Run now, Move to, Cancel, Priority up or down)
 API_TUTTI_MOVE = '/api/move'   # Tutti itself to another machine (docs/MOVE.md); API_MOVE moves a device
 # these change the config or the queue: an admin's
+API_ADMIN = '/api/admin'   # GET, admins only: the Admin tab's costs and controls (tutti/costs.py)
 API_LIMIT = '/api/machine-limit'   # a machine's limited-usage window (tutti/share.py), from its card
-ADMIN_PATHS = (API_LIMIT, API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE,
+ADMIN_PATHS = (API_ADMIN, API_LIMIT, API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE,
                '/api/ai-assist')
 API_REPORT = '/api/report'   # Report a problem (docs/REPORT.md): every signed-in user, viewers included
 API_VPN_STATUS = '/api/vpn/status'   # GET: the Private network card's state, 200 also when no VPN is set up
@@ -966,6 +968,8 @@ def route(collector, path, token=''):
             JSON_TYPE, 'no-store'
     if path == API_SETTINGS:
         return 200, safe_json(settings.view(collector.cfg, getattr(collector, 'env', None))), JSON_TYPE, 'no-store'
+    if path == API_ADMIN:
+        return 200, safe_json(costs.view(collector.cfg, collector.snapshot())), JSON_TYPE, 'no-store'
     if path == API_VPN_STATUS:   # read-only, for every viewer: the card's state on page load (a POST was an admin's: 403)
         return (*[200, safe_json(vpncmd.api(collector.cfg, {'action': 'status'})[1])], JSON_TYPE, 'no-store')
     if path in ('/helper', '/helper.html'):

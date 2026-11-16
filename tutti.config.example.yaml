@@ -222,6 +222,13 @@ update: {auto: true, every_hours: 24, packages: [cursor], programs: [gemini]}
 usage:
   log: ~/.local/state/tutti/usage.jsonl
 
+# What the household spends, for the dashboard's Admin tab (docs/ADMIN.md). Tutti never reads a bill or a key: fill these
+# from your own billing pages. An account without an entry shows as "not configured".
+costs:
+  currency: ''                         # the totals' currency; empty: the energy currency
+  subscriptions: {}                    # {claude: {monthly: 90, currency: USD}, cursor: {monthly: 20, currency: USD}}
+  metered: {}                          # pay-per-use this month: {copilot: {month_to_date: 4.2, currency: USD}}
+
 # Local models' estimated energy cost (docs/ENERGY.md), shown under Usage & pacing. Everything is optional: the country and
 # currency are detected (time zone, then locale) and the price starts from a typical household tariff, marked estimated.
 energy:

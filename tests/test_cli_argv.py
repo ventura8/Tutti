@@ -14,9 +14,16 @@ class DispatcherArgvTest(unittest.TestCase):
         self.assertEqual(a.who, 'dispatch-RoRadio')
         self.assertEqual(a.names, ['pixeltablet', 'googletv', '--', 'powershell.exe -NoProfile -Command run'])
 
-    def test_a_lease_with_the_command_before_the_options_still_parses(self):
-        a = cli.parse(['devices', 'lease', 'pixel', '--', 'echo hi'])
-        self.assertEqual(a.names, ['pixel', 'echo hi'])   # argparse drops this `--`; cmd_lease takes words after the device
+    def test_the_commands_own_flags_stay_in_the_command(self):
+        a = cli.parse(['devices', 'lease', 'pixel', '--who', 's', '--', 'powershell.exe', '-NoProfile', '-x', '--minutes', '5'])
+        self.assertEqual(a.minutes, 120)   # the command's --minutes is not Tutti's
+        self.assertEqual(a.names, ['pixel', '--', 'powershell.exe', '-NoProfile', '-x', '--minutes', '5'])
+
+    def test_both_orders_give_one_shape(self):
+        before = cli.parse(['devices', 'lease', 'pixel', '--', 'echo', 'hi'])
+        after = cli.parse(['devices', 'lease', 'pixel', '--who', 's', '--', 'echo', 'hi'])
+        self.assertEqual(before.names, after.names)
+        self.assertEqual(before.names, ['pixel', '--', 'echo', 'hi'])
 
     def test_test_drops_a_leading_double_dash(self):
         a = cli.parse(['test', '--on', 'w5090-win', 'RoRadio', '--', 'echo', 'hi'])

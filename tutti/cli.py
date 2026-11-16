@@ -2201,13 +2201,17 @@ def parse(argv):
     """The parsed command line. `tutti devices lease <d> [<d2>] --runner <m> --who <s> -- <command>` (the dispatcher's own
     form) puts the command after the options: argparse fills `names` before them and then refused the rest as
     'unrecognized arguments', so every dispatched RoRadio shard failed before it ran (2026-11-16). Those words join
-    `names`, where the lease splits devices from the command at `--`. `tutti test <track> -- <command>` drops the `--`."""
-    a, extra = parser().parse_known_args(argv)
-    if extra:
-        if getattr(a, 'cmd', None) == 'devices' and getattr(a, 'action', None) == 'lease':
-            a.names = [*(a.names or []), *extra]
-        else:
-            parser().error('unrecognized arguments: ' + ' '.join(extra))
+    `names`, where the lease splits devices from the command at `--`. `tutti test <track> -- <command>` drops the `--`.
+    A lease's argv is split at its first bare `--` before parsing, so the command's own words (`-NoProfile`, `-x`) are
+    never read as Tutti's options, and both orders give one shape: the devices, `--`, then the command's words."""
+    args = list(argv)
+    command = None
+    if args[:2] == ['devices', 'lease'] and '--' in args:
+        cut = args.index('--')
+        args, command = args[:cut], args[cut + 1:]
+    a = parser().parse_args(args)
+    if command is not None:
+        a.names = [*(a.names or []), '--', *command]
     if getattr(a, 'cmd', None) == 'test' and a.command and a.command[0] == '--':
         a.command = a.command[1:]
     return a

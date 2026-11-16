@@ -73,12 +73,22 @@ dashboard's **Set up** card lists each default with a **Change** link. `--ask` a
 - installs the dashboard as a login service: a `systemd --user` unit (`tutti-dashboard.service`), a launchd agent
   (`~/Library/LaunchAgents/io.github.tutti.dashboard.plist`) or a Windows scheduled task at logon (`tutti-dashboard`,
   no console window). WSL without systemd gets the exact steps to turn it on;
-- on the first run, opens the dashboard so you can install it as an app (the browser's menu, *Install*);
+- on the first run, gives the dashboard's link so you can install it as an app (the browser's menu, *Install*); its
+  Setup wizard opens first (*The setup wizard* below);
 - runs `tutti doctor` and fixes what it can: a first `git` in PATH that cannot do HTTPS (a tool's bundled git, say) gets
   a `~/.local/bin/git` wrapper that runs the working one;
 - saves what it found and what is left to `<state>/setup.json`: the dashboard's **Set up** card.
 
 Running it again only fills what is missing: no entry is added twice, an unchanged service file is not rewritten.
+
+## The setup wizard
+
+What `tutti setup` cannot decide for you (which machine is the main one and which the backup, plans, Copilot, which
+repositories to manage, phones, the household) is one visual wizard: the dashboard's **Setup wizard** (opens by itself
+on the first run, and from Settings, *Setup wizard*, at any time) and the same wizard in a terminal, `tutti setup --tui`
+(`--plain` for one question at a time). `tutti setup` in a terminal with no browser (an ssh session) offers it. Every
+step is prefilled with what was found, applied with one click, resumable and idempotent. See
+[SETUP-WIZARD.md](SETUP-WIZARD.md).
 
 ## The rule for every setup
 

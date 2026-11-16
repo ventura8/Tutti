@@ -41,6 +41,7 @@
     <script src="welcome.js?v=__TUTTI_VERSION__" defer></script>
     <script src="needs.js?v=__TUTTI_VERSION__" defer></script>
     <script src="github.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="wizard.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
     <a class="skip" href="#main">Skip to the content</a>
@@ -518,9 +519,21 @@
                 <label class="sr-only" for="settings-search">Search the settings</label>
                 <input id="settings-search" class="setting__input settings__search" type="search" placeholder="Search settings" autocomplete="off">
                 <label class="settings__changed"><input id="settings-changed" type="checkbox"> Changed from default</label>
+                <a class="btn btn--tonal" id="settings-wizard" href="#setup">Setup wizard</a>
             </div>
         </header>
         <div id="settings-body" class="settings__body"></div>
+      </div>
+
+      <!-- The Setup wizard (wizard.js, GET and POST /api/wizard; docs/SETUP-WIZARD.md): the first run opens it, Settings links it. -->
+      <div id="wizard-view" class="wizard" hidden>
+        <header class="settings__head">
+            <h2 id="wizard-title">Set up Tutti</h2>
+            <p class="card__meta" id="wizard-meta"></p>
+            <button class="btn btn--text" id="wizard-detect" type="button" hidden>Check again</button>
+        </header>
+        <output class="setting__msg wizard__msg" id="wizard-msg" aria-live="polite"></output>
+        <div id="wizard-body" class="wizard__body"></div>
       </div>
     </main>
 

@@ -69,6 +69,7 @@ from . import (
     update,
     vpncmd,
     welcome,
+    wizard,
     workers,
     workq,
 )
@@ -849,6 +850,7 @@ def _self_posts():
     from . import mainmachine, manage
     return {mainmachine.API: lambda c, h, b: mainmachine.post(c, h, b), manage.API: lambda c, h, b: manage.act_post(c, h, b),
             chatrun.API: chatrun.handle,   # the Chat: every user's own conversations, each action with its own role check
+            wizard.API: lambda c, h, b: wizard.post(c, h, b),   # the Setup wizard: its own admin check (docs/SETUP-WIZARD.md)
             welcome.API: lambda c, h, b: welcome.post(c, h, b),   # Welcome back: the viewer's own summary and switch
             '/api/browser': browsercmd.post,   # the work browser: any signed-in user, for the admin's sites
             needs.API: lambda c, h, b: needs.post(c, h, b),   # questions: the viewer's own answers and settings
@@ -1016,6 +1018,9 @@ def get(collector, path, token, headers):
         return code, body, JSON_TYPE, 'no-cache', extra
     if path == needs.API:   # the viewer's own questions (an admin: everyone's) and notify settings
         code, answer = needs.get(collector, headers)
+        return code, safe_json(answer), JSON_TYPE, 'no-store', None
+    if path == wizard.API:   # the Setup wizard: a viewer sees the household-wide steps locked (tutti/wizard.py)
+        code, answer = wizard.get(collector, headers)
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
     if path == welcome.API:   # the viewer's own summary: per user, never in the shared /api/state
         code, answer = welcome.get(collector, headers)

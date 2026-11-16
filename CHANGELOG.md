@@ -6,6 +6,20 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.24.0 (2026-11-16)
+
+### Added
+
+- The setup wizard (docs/SETUP-WIZARD.md): one step engine (`tutti/wizard.py`) behind the dashboard's Setup wizard
+  (`#setup`, opens by itself on the first run and from Settings) and `tutti setup --tui` (full screen, or `--plain` one
+  question at a time; offered by `tutti setup` in a terminal with no browser). Steps: welcome; the main and backup main
+  machines from the config and the discovered ones (ssh config, Tailscale, LAN), with the failover service installed on
+  request; machine shares and quiet hours; accounts and agents with each sign-in's state and the tool's own sign-in,
+  plans, Copilot opt-in and the local model; GitHub (`gh`, Tutti's App) and the repositories to manage or clone;
+  Android pairing; integrations (Linear, Slack, Discord placeholders, `wizard.register` for the change that adds them);
+  the household invite; review. Prefilled, resumable (`<state>/wizard.json`), idempotent, admin-only for household
+  steps; no credential passes through it.
+
 ## 0.23.4 (2026-11-16)
 
 ### Fixed

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import yaml
 from test_auth import jwks_doc, rsa_key
 
-from tutti import auth, config, dashboard, energy, pacing, routing, state
+from tutti import auth, config, dashboard, energy, pacing, routing, state, wizard
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CLIENT = '1234567890-abcdefgh12345678.apps.googleusercontent.com'
@@ -104,6 +104,19 @@ def available(worker):
     return True, 'ok'
 
 
+WIZARD_FOUND = {
+    'agents': [{'name': 'claude', 'bin': 'claude', 'login': 'yes', 'plan': None, 'login_command': ['claude', '/login']},
+               {'name': 'cursor', 'bin': 'cursor-agent', 'login': 'no', 'plan': None, 'login_command': ['cursor-agent', 'login']},
+               {'name': 'copilot', 'bin': 'copilot', 'login': 'unknown', 'plan': None, 'login_command': ['copilot']}],
+    'ollama': ['qwen3.5:9b'], 'gpus': [], 'git': True, 'gh': 'no', 'home': '/nonexistent',
+    'machines': [{'name': 'spare-box-with-a-long-name', 'host': 'spare-box-with-a-long-name.example', 'source': 'ssh'},
+                 {'name': 'tablet', 'host': 'tablet.example', 'source': 'tailscale', 'online': False, 'os': 'android'}],
+    'devices': [{'serial': 'R58M00TEST01', 'state': 'unauthorized', 'model': 'Pixel_9'}],
+    'repos': [{'name': 'example-app', 'path': '~/Projects/example-app', 'when': 0, 'priority': 0}],
+    'remote_repos': [{'name': 'other-app', 'repo': 'someone/other-app'}],
+}
+
+
 def main(folder):
     path = write_config(os.path.abspath(folder))
     cfg = config.load(path)
@@ -112,6 +125,8 @@ def main(folder):
     collector = dashboard.Collector(cfg, probe_fn=probe, available_fn=available, stored_fn=lambda m: None, reader=Readers(),
                                     activity_fn=lambda *a, **k: {}, prs_fn=lambda c: {}, readings_fn=lambda m, d: {'state': 'unreachable'},
                                     power_fn=power, ollama_fn=ollama)
+    collector.wizard_detect = lambda: WIZARD_FOUND   # the Setup wizard's detection: canned, never this computer's
+    wizard.mark(cfg, 'welcome')   # past the first run: the page opens on its default view (the wizard has its own tests)
     collector.refresh()
     httpd = dashboard.server(cfg, 0, collector)
     key = rsa_key()

@@ -98,7 +98,8 @@ TOOLS = [
     # all household work through Tutti (docs/INTAKE.md): a session's own work as tasks, leases, usage and questions
     tool('backlog_claim', 'Claim a backlog task you (this session) will do yourself, so the household sees who works on it and the '
          'autopilot leaves it alone. Mention its id (t123) in every commit.',
-         {'id': _s('the task id (t123)'), 'who': _s('this session\'s name, e.g. claude-laptop-map')}, required=('id', 'who'), mutating=True),
+         {'id': _s('the task id (t123)'), 'who': _s('this session\'s name, e.g. claude-laptop-map')}, required=('id', 'who'),
+         mutating=True),
     tool('backlog_update', 'Record progress on a task: a note the dashboard and the next worker see.',
          {'id': _s('the task id'), 'note': _s('what was done or what is next')}, required=('id', 'note'), mutating=True),
     tool('backlog_release', 'Give a claimed task back to the queue (the autopilot may then run it).',

@@ -1226,7 +1226,8 @@ def session_change(task, a):
         if task['status'] == 'claimed' and task.get('claimed_by') != who:
             raise backlog.BacklogError(f'{task["id"]} is claimed by {task["claimed_by"]}: pick another task, or ask them to release it')
         if task['status'] not in ('queued', 'claimed', 'needs-person', 'review', 'candidate'):
-            raise backlog.BacklogError(f'{task["id"]} is {task["status"]}: only an open task is claimed (`tutti backlog retry` reopens one)')
+            raise backlog.BacklogError(f'{task["id"]} is {task["status"]}: only an open task is claimed '
+                                       '(`tutti backlog retry` reopens one)')
         task.update(status='claimed', claimed_by=who, claimed_at=time.time(), parked=None)
     else:
         if task['status'] != 'claimed':

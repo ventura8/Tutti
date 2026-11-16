@@ -3,7 +3,8 @@
 Every public surface of Tutti in one place: the `tutti` command, the dashboard's HTTP API, the household coordinator's
 calls, the MCP server, the config file and the Python package. The CLI, MCP and config parts are generated from the code
 (`python3 -m tutti.apidoc --write`); `tests/test_apidoc.py` fails when a CLI subcommand, an HTTP route or an MCP tool exists
-in the code but not here, or when a generated part is stale.
+in the code but not here, or when a generated part is stale. For HTTP routes only their presence is checked (each must open a table row); their methods,
+roles and JSON shapes below are written by hand from the handlers.
 
 Hosts in the examples are generic (`127.0.0.1`, `build1.example`); tokens are placeholders. Nothing here is a real address.
 
@@ -92,7 +93,8 @@ dashboard refuses to start otherwise. Do not publish it through a public tunnel.
 | `/api/me/schedule` | GET | viewer (self) | `{"sub": "<id>", "schedule": {...}}`: one's own pacing schedule. |
 | `/helper` | GET | admin | The reading helper page (bookmarklets that post usage readings). |
 | `/settings` | GET | admin | The Settings page. |
-| `/login`, `/invite` | GET | anyone | The sign-in page (Google), and the page an invite link opens. |
+| `/login` | GET | anyone | The sign-in page (Google). |
+| `/invite` | GET | anyone | The page an invite link opens. |
 
 `/api/state` keys: `autopilot`, `config`, `controls`, `devices`, `disk`, `dispatch`, `failover`, `fleet`, `generated_at`,
 `household`, `household_use`, `hygiene`, `jobs`, `local_models`, `machines`, `main`, `outside`, `presence`, `probe_error`,
@@ -194,6 +196,10 @@ for `POST` to `/mcp` on `127.0.0.1:4779` (`mcp.http_port`, `mcp.bind`: loopback,
 wildcard is refused with exit 2). Over HTTP every request needs `Authorization: Bearer <token>`, the token in
 `<state>/mcp-token` (mode 600, made on first use); a request whose `Origin` is another site gets 403. `tutti connect`
 writes the server into each agent's config (docs/CONNECT.md).
+
+| Route | Method | Who | Answer |
+| --- | --- | --- | --- |
+| `/mcp` | POST | bearer token | One JSON-RPC message in, its answer out (202 and no body for a notification). 401 without the token, 403 for another site's `Origin`, 400 for an empty or over-1-MB body, 404 for another path. |
 
 Methods: `initialize` (server info and instructions), `tools/list`, `tools/call`, `ping`; other methods answer `-32601`, a
 line that is not JSON `-32700`. A call answers `{"content": [{"type": "text", "text": "<what the command prints>"}],

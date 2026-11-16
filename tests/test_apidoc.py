@@ -27,6 +27,8 @@ class ApiDocTest(unittest.TestCase):
         self.assertIn('CLI subcommand `tutti dashboard`', found)
         self.assertIn('HTTP route `/api/chat`', found)
         self.assertIn(f'MCP tool `{tool}`', found)
+        prose = text.replace('| `/api/queue` |', '| queue |') + '\nsee `/api/queue` in prose'
+        self.assertIn('HTTP route `/api/queue`', apidoc.missing(prose))   # a route must open a table row, not just be named
 
     def test_a_stale_part_is_found_and_rewritten(self):
         with open(apidoc.DOC, encoding='utf8') as f:
@@ -38,6 +40,7 @@ class ApiDocTest(unittest.TestCase):
         self.assertIn('a generated part is stale: run `python3 -m tutti.apidoc --write`', apidoc.problems(path))
         self.assertEqual(apidoc.main(['--write'], path), 0)
         self.assertEqual(apidoc.problems(path), [])
+        self.assertEqual(apidoc.main(['--check'], path), 0)
 
     def test_lost_markers_are_named(self):
         with self.assertRaises(ValueError) as e:

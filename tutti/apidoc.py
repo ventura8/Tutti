@@ -1,8 +1,9 @@
 """docs/API.md, kept true to the code: its generated parts (the CLI, the MCP tools, the config keys) come from the code itself,
 and every CLI subcommand, HTTP route and MCP tool the code has must appear in it (tests/test_apidoc.py).
 
-`python3 -m tutti.apidoc --write` rewrites the generated parts between their markers; `--check` (exit 1) names what is
-stale or missing. The hand-written parts (the HTTP API, the overview) stay as they are."""
+`python3 -m tutti.apidoc --write` rewrites the generated parts between their markers; without `--write` (or with `--check`) it
+only checks, and exits 1 naming what is stale or missing. For the HTTP routes only their presence is checked (each must open a
+row of a table): their methods, roles and JSON shapes are written by hand. The hand-written parts stay as they are."""
 import argparse
 import os
 import re
@@ -42,8 +43,8 @@ def option_rows(p):
         name = ', '.join(a.option_strings) if a.option_strings else a.dest
         if a.choices and not a.option_strings:
             name += ' {' + ','.join(str(c) for c in a.choices) + '}'
-        default = '' if a.option_strings and isinstance(a, (argparse._StoreTrueAction, argparse._StoreFalseAction)) else \
-            shown(a.default if a.default is not argparse.SUPPRESS else None)
+        switch = isinstance(a, (argparse._StoreTrueAction, argparse._StoreFalseAction))
+        default = '' if switch or a.default is argparse.SUPPRESS else shown(a.default)
         rows.append(f'| `{cell(name)}` | {cell(a.help or "")} | {default} |')
     return rows
 
@@ -61,12 +62,15 @@ def cli_command(name, p, depth=3):
 
 
 def cli_section():
+    old = os.environ.get('COLUMNS')
     os.environ['COLUMNS'] = '120'   # argparse wraps its usage line to the terminal: the same width everywhere
-    p = cli.parser()
-    out = []
-    for name, sp in subparsers_of(p).choices.items():
-        out += cli_command(name, sp)
-    return out
+    try:
+        return [line for name, sp in subparsers_of(cli.parser()).choices.items() for line in cli_command(name, sp)]
+    finally:
+        if old is None:
+            del os.environ['COLUMNS']
+        else:
+            os.environ['COLUMNS'] = old
 
 
 def cli_names():
@@ -75,24 +79,29 @@ def cli_names():
 
 # ---- the MCP tools
 
+def param_row(k, v, req):
+    kind = v.get('type', '') + (' of ' + v['items']['type'] if v.get('type') == 'array' else '')
+    enum = f'; one of: {", ".join(v["enum"])}.' if v.get('enum') else ''
+    return f'| `{k}` | {kind} | {"yes" if k in req else "no"} | {cell(v.get("description", ""))}{enum} |'
+
+
+def need_of(t):
+    if t['name'] == 'away_mode':
+        return 'admin role (also for the status)'
+    return 'any role (read-only)' if t['annotations']['readOnlyHint'] else 'admin role (changes something)'
+
+
+def mcp_tool(t):
+    out = [f'### `{t["name"]}`', '', cell(t['description']), '', f'Needs: {need_of(t)}.', '']
+    props, req = t['inputSchema']['properties'], t['inputSchema'].get('required', [])
+    if not props:
+        return out + ['No parameters.', '']
+    rows = [param_row(k, v, req) for k, v in props.items()]
+    return out + ['| Parameter | Type | Required | Meaning |', '| --- | --- | --- | --- |', *rows, '']
+
+
 def mcp_section():
-    out = []
-    for t in mcpserver.TOOLS:
-        need = 'admin role (changes something)' if not t['annotations']['readOnlyHint'] else 'any role (read-only)'
-        if t['name'] == 'away_mode':
-            need = 'admin role (also for the status)'
-        out += [f'### `{t["name"]}`', '', cell(t['description']), '', f'Needs: {need}.', '']
-        props, req = t['inputSchema']['properties'], t['inputSchema'].get('required', [])
-        if props:
-            out += ['| Parameter | Type | Required | Meaning |', '| --- | --- | --- | --- |']
-            for k, v in props.items():
-                kind = v.get('type', '') + (' of ' + v['items']['type'] if v.get('type') == 'array' else '')
-                enum = f'; one of: {", ".join(v["enum"])}.' if v.get('enum') else ''
-                out.append(f'| `{k}` | {kind} | {"yes" if k in req else "no"} | {cell(v.get("description", ""))}{enum} |')
-            out.append('')
-        else:
-            out += ['No parameters.', '']
-    return out
+    return [line for t in mcpserver.TOOLS for line in mcp_tool(t)]
 
 
 # ---- the config keys
@@ -188,7 +197,7 @@ def render(text):
 def missing(text):
     """[what the code has that docs/API.md does not name]."""
     out = [f'CLI subcommand `tutti {n}`' for n in cli_names() if f'`tutti {n}`' not in text]
-    out += [f'HTTP route `{r}`' for r in http_routes() if f'`{r}`' not in text]
+    out += [f'HTTP route `{r}`' for r in http_routes() if not re.search(r'^\|[^|\n]*`' + re.escape(r) + '`', text, re.M)]
     out += [f'MCP tool `{t["name"]}`' for t in mcpserver.TOOLS if f'`{t["name"]}`' not in text]
     return out
 
@@ -205,6 +214,7 @@ def problems(path=DOC):
 def main(argv=None, path=DOC):
     a = argparse.ArgumentParser(prog='python3 -m tutti.apidoc', description=__doc__.splitlines()[0])
     a.add_argument('--write', action='store_true', help='rewrite the generated parts of docs/API.md')
+    a.add_argument('--check', action='store_true', help='only check (the default): exit 1 naming what is stale or missing')
     args = a.parse_args(argv)
     if args.write:
         with open(path, encoding='utf8') as f:

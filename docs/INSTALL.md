@@ -71,7 +71,7 @@ dashboard's **Set up** card lists each default with a **Change** link. `--ask` a
 - at the end, lists once what only you can do, sign-ins first, and opens **each tool's own sign-in** one after another
   (`cursor-agent login`, `claude /login`, `gh auth login --web`, ...). Tutti never sees, asks for or stores a credential;
 - installs the dashboard as a login service: a `systemd --user` unit (`tutti-dashboard.service`), a launchd agent
-  (`~/Library/LaunchAgents/io.github.tutti.dashboard.plist`) or a Windows scheduled task at logon (`tutti-dashboard`,
+  (`~/Library/LaunchAgents/io.github.tutti.dashboard.plist`) or a Windows scheduled task at system startup (SYSTEM, highest rights; needs an admin shell) (`tutti-dashboard`,
   no console window). WSL without systemd gets the exact steps to turn it on;
 - on the first run, opens the dashboard so you can install it as an app (the browser's menu, *Install*);
 - runs `tutti doctor` and fixes what it can: a first `git` in PATH that cannot do HTTPS (a tool's bundled git, say) gets

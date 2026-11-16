@@ -147,8 +147,9 @@ def windows_launcher(tutti):
 
 
 def schtasks_args(vbs):
-    """The scheduled task: at this user's logon, with the user's own rights (no admin)."""
-    return ['schtasks', '/Create', '/F', '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TN', SERVICE, '/TR', f'wscript.exe "{vbs}"']
+    """The scheduled task: at system startup (SYSTEM account), with highest privileges."""
+    return ['schtasks', '/Create', '/F', '/SC', 'ONSTART', '/RU', 'SYSTEM', '/RL', 'HIGHEST', '/TN', SERVICE,
+            '/TR', f'wscript.exe "{vbs}"']
 
 
 def service_plan(platform, home_dir, env=None, tutti=None):

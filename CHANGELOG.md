@@ -4,7 +4,10 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 ## 0.9.3 (2026-11-15)
 
+### Changed
 
+- The Windows service is a scheduled task at system startup (`/SC ONSTART /RU SYSTEM /RL HIGHEST`), like systemd linger.
+  Creating it needs an admin shell.
 
 ### Security
 

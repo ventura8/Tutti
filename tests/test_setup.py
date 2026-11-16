@@ -227,8 +227,9 @@ class Service(unittest.TestCase):
         self.assertEqual(names, ['dashboard.cmd', 'dashboard.vbs'])
         self.assertIn('self-update --auto', files[0][1])
         self.assertIn(', 0, False', files[1][1])   # no console window
-        self.assertIn('ONLOGON', cmds[0])
-        self.assertIn('LIMITED', cmds[0])   # the user's own rights, no admin
+        self.assertIn('ONSTART', cmds[0])
+        self.assertIn('HIGHEST', cmds[0])
+        self.assertIn('SYSTEM', cmds[0])   # runs at boot, no login needed
 
     def test_install_once_then_unchanged(self):
         ran = []

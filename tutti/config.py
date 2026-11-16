@@ -67,7 +67,7 @@ DEFAULTS = {
     'depbots': {'enabled': True, 'every_minutes': 360, 'group_trivial': True,
                 'bots': [{'name': 'dependabot', 'authors': ['dependabot[bot]'], 'branch_prefixes': ['dependabot/']},
                          {'name': 'cursor', 'authors': ['cursor[bot]'], 'branch_prefixes': ['cursor/'],
-                          'match': r'bump|upgrade|update|depend|vulnerab|cve|ghsa|security|patch'}],
+                          'match': r'\bbump\b|\bupgrade\b|\bdependenc|\bcve-|\bghsa-|vulnerab'}],
                 'scanners': [{'name': 'cursor', 'authors': ['cursor[bot]']}, {'name': 'greptile', 'authors': ['greptile-apps[bot]']}]},
     # pacing: the owner's own prompting (tutti/owner.py): the weekly schedule that seeds the learned weekday x hour profile
     # (days, hours of the reserve window, the local window, points per owner hour, the UTC offset; None: this computer's),

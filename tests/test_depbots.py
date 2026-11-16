@@ -31,20 +31,25 @@ CODE = [{'html_url': 'https://github.com/o/r/security/code-scanning/7',
          'description': 'SQL injection'},
          'most_recent_instance': {'location': {'path': 'db.py', 'start_line': 9}}, 'tool': {'name': 'CodeQL'}}]
 COMMENTS = [{'user': {'login': 'cursor[bot]'}, 'body': '**High: path traversal** in the upload handler',
-             'path': 'up.py', 'html_url': 'c1'},
-            {'user': {'login': 'greptile-apps[bot]'}, 'body': 'Consider renaming this variable', 'path': 'a.py', 'html_url': 'c2'},
+             'path': 'up.py', 'html_url': 'c1', 'position': 3},
+            {'user': {'login': 'greptile-apps[bot]'}, 'body': 'Consider renaming this variable', 'path': 'a.py',
+             'html_url': 'c2', 'position': 1},
             {'user': {'login': 'greptile-apps[bot]'}, 'body': '**High: path traversal** in the upload handler',
-             'path': 'up.py', 'html_url': 'c3'}]
+             'path': 'up.py', 'html_url': 'c3', 'position': 3}]
 
 
-def fake_gh(fail=None):
+def fake_gh(fail=None, prs=None, dep=None):
     def gh(args):
         if args[0] == 'pr':
-            return 0, json.dumps(PRS), ''
+            return 0, json.dumps(PRS if prs is None else prs), ''
         path = args[-1]
-        for key, data in (('dependabot', DEP), ('code-scanning', CODE), ('pulls/comments', COMMENTS)):
+        for key, data in (('dependabot', DEP if dep is None else dep), ('code-scanning', CODE), ('/comments', COMMENTS)):
             if key in path:
-                return (1, '', fail[key]) if fail and key in fail else (0, json.dumps(data), '')
+                if fail and key in fail:
+                    return 1, '', fail[key]
+                if key == '/comments':   # one page per open pull request; the same finding on #1 only
+                    return 0, json.dumps(COMMENTS if '/pulls/1/' in path else []), ''
+                return 0, json.dumps([data]), ''   # --slurp: a list of pages
         return 1, '', 'unknown'
     return gh
 
@@ -90,13 +95,17 @@ class DepbotsTest(unittest.TestCase):
             group = [t for t in data['tasks'] if t['source'] == 'depbot:group'][0]
             self.assertIn('git fetch origin dependabot/pip/ruff-0.17.4', group['notes'][0])
             self.assertEqual(depbots.apply(cfg, data, found), [])   # a second read queues nothing twice
+            found['r']['prs'].append({**found['r']['prs'][0], 'number': 9, 'url': 'https://github.com/o/r/pull/9'})
+            depbots.apply(cfg, data, found)   # a bump joins the group: the same task, its notes follow
+            self.assertEqual(group['status'], 'queued')
+            self.assertEqual(len(group['notes']), 3)
             found['r']['alerts'] = []
             depbots.apply(cfg, data, found)
             dropped = [t for t in data['tasks'] if t['status'] == 'dropped']
             self.assertEqual(len(dropped), 3)
             depbots.save(cfg, found, 1000.0)
             v = depbots.view(cfg)
-            self.assertEqual((v['prs'], v['alerts'], v['worst']), (4, 0, None))
+            self.assertEqual((v['prs'], v['alerts'], v['worst']), (5, 0, None))
             self.assertEqual(backlog.key_of(data['tasks'][0])[0], 'r')
 
     def test_unread_repo_keeps_its_tasks_and_bad_config(self):
@@ -107,6 +116,40 @@ class DepbotsTest(unittest.TestCase):
         self.assertEqual(data['tasks'][0]['status'], 'queued')
         cfg['depbots'] = {'bots': [{'name': 'x'}], 'every_minutes': 1}
         self.assertEqual(len(depbots.errors(cfg)), 2)
+
+
+class PartialReadTest(unittest.TestCase):
+    def cfg(self, d):
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg['project']['state'] = d
+        cfg['autopilot']['repos'] = {'r': {'path': d, 'github': 'o/r'}}
+        return cfg
+
+    def test_a_failed_alert_read_keeps_its_tasks(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg, data = self.cfg(d), {'next': 1, 'tasks': []}
+            depbots.apply(cfg, data, depbots.gather(cfg, 1.0, fake_gh(), force=True))
+            dep = [t for t in data['tasks'] if t['depbot_ref'].startswith('dep:')][0]
+            found = depbots.gather(cfg, 2.0, fake_gh({'dependabot': 'HTTP 403'}), force=True)
+            self.assertNotIn('dependabot', found['r']['read'])
+            depbots.apply(cfg, data, found)
+            self.assertEqual(dep['status'], 'queued')   # unread is not fixed
+            depbots.apply(cfg, data, depbots.gather(cfg, 3.0, fake_gh(dep=[]), force=True))
+            self.assertEqual(dep['status'], 'dropped')  # read and gone: fixed
+
+    def test_bad_output_and_wording(self):
+        def broken(args):
+            return (0, 'not json', '') if args[0] == 'pr' else (0, '[[]]', '')
+        scan = depbots.read_repo('o/r', S, broken)
+        self.assertNotIn('prs', scan['read'])
+        self.assertIn('unreadable', scan['problems'][0])
+        tidy = [{'user': {'login': 'cursor[bot]'}, 'body': 'A high-level note on the CVE-2026-2 handling', 'position': 1}]
+        self.assertEqual(depbots.from_comments(tidy, S['scanners'])[0]['severity'], 2)   # "high-level" is not a label
+        pr = {'title': 'Update the README', 'headRefName': 'cursor/update-readme', 'author': {'login': 'cursor[bot]'}}
+        self.assertIsNone(depbots.classify_pr(pr, S['bots']))
+        self.assertTrue(depbots.failing([{'conclusion': 'TIMED_OUT'}]))
+        self.assertTrue(depbots.failing([{'state': 'ERROR'}]))
+        self.assertFalse(depbots.failing([{'conclusion': 'SUCCESS'}]))
 
 
 if __name__ == '__main__':

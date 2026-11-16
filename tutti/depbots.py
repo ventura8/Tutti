@@ -27,6 +27,10 @@ SEVERITY = {'critical': 4, 'high': 3, 'moderate': 2, 'medium': 2, 'low': 1, 'war
 NAMES = {4: 'critical', 3: 'high', 2: 'medium', 1: 'low', 0: 'info'}
 SECURITY_WORDS = re.compile(r'\b(security|vulnerab\w*|cve-\d+|ghsa-|injection|xss|csrf|ssrf|rce|secret|credential|unsafe '
                             r'deserial\w*|path traversal|auth\w* bypass)\b', re.I)
+LABEL = re.compile(r'^\W*(?:severity:?\W*)?(critical|high|medium|moderate|low)\b', re.I)
+FAILED = {'FAILURE', 'TIMED_OUT', 'CANCELLED', 'STARTUP_FAILURE', 'ACTION_REQUIRED', 'ERROR'}
+SOURCES = ('prs', 'dependabot', 'code-scanning', 'comments')
+GROUP = 'Land the open patch and minor dependency bumps'
 VERSIONS = re.compile(r'from v?(\d+)(?:\.(\d+))?\S* to v?(\d+)(?:\.(\d+))?', re.I)
 
 
@@ -99,6 +103,7 @@ def from_dependabot(items, slug):
         pkg = (dep.get('package') or {}).get('name') or '?'
         fix = ((a.get('security_vulnerability') or {}).get('first_patched_version') or {}).get('identifier')
         out.append({'key': f'dep:{(dep.get("package") or {}).get("ecosystem", "")}:{pkg}', 'source': 'github-dependabot',
+                    'kind': 'dependabot',
                     'severity': rank(adv.get('severity')), 'title': f'{pkg}: {adv.get("summary") or adv.get("ghsa_id") or "advisory"}',
                     'url': a.get('html_url') or f'https://github.com/{slug}/security/dependabot', 'path': dep.get('manifest_path', ''),
                     'hint': f'upgrade {pkg} to {fix} or later (or pin it there with an override)' if fix else
@@ -112,7 +117,8 @@ def from_code_scanning(items, slug):
         rule = a.get('rule') or {}
         loc = (a.get('most_recent_instance') or {}).get('location') or {}
         sev = rule.get('security_severity_level') or rule.get('severity')
-        out.append({'key': f'rule:{rule.get("id", "?")}:{loc.get("path", "")}', 'source': 'github-code-scanning', 'severity': rank(sev),
+        out.append({'key': f'rule:{rule.get("id", "?")}:{loc.get("path", "")}', 'source': 'github-code-scanning', 'kind': 'code-scanning',
+                    'severity': rank(sev),
                     'title': f'{rule.get("description") or rule.get("id")} in {loc.get("path", "?")}:{loc.get("start_line", "?")}',
                     'url': a.get('html_url') or f'https://github.com/{slug}/security/code-scanning', 'path': loc.get('path', ''),
                     'hint': f'fix the {(a.get("tool") or {}).get("name", "scanner")} finding {rule.get("id", "")}'})
@@ -128,9 +134,10 @@ def from_comments(comments, scanners):
         name, body = by.get(norm((c.get('user') or {}).get('login'))), c.get('body') or ''
         if not name or not SECURITY_WORDS.search(body):
             continue
-        sev = re.search(r'\b(critical|high|medium|moderate|low)\b', body, re.I)
+        sev = LABEL.match(body)   # only a leading label or badge: "high-level" in the text is not a severity
         first = next((ln.strip(' #*>`') for ln in body.splitlines() if ln.strip(' #*>`')), 'security finding')[:120]
-        out.append({'key': f'scan:{c.get("path", "")}:{first.lower()}', 'source': name, 'severity': rank(sev.group(1)) if sev else 2,
+        out.append({'key': f'scan:{c.get("path", "")}:{first.lower()}', 'source': name, 'kind': 'comments',
+                    'severity': rank(sev.group(1)) if sev else 2,
                     'title': f'{first} ({c.get("path") or "pull request"})', 'url': c.get('html_url', ''), 'path': c.get('path', ''),
                     'hint': f'{name} reported this on a pull request review'})
     return out
@@ -142,10 +149,11 @@ def dedupe(alerts):
     for a in alerts:
         k = seen.get(a['key'])
         if k is None:
-            seen[a['key']] = {**a, 'sources': [a['source']], 'urls': [a['url']]}
+            seen[a['key']] = {**a, 'sources': [a['source']], 'urls': [a['url']], 'kinds': [a['kind']]}
             continue
         k['sources'] = sorted({*k['sources'], a['source']})
         k['urls'] = [*k['urls'], a['url']]
+        k['kinds'] = sorted({*k['kinds'], a['kind']})
         if a['severity'] > k['severity']:
             k.update(severity=a['severity'], title=a['title'], hint=a['hint'])
     return sorted(seen.values(), key=lambda a: (-a['severity'], a['key']))
@@ -165,40 +173,81 @@ def problem(kind, slug, err):
     return f'{slug}: reading {kind} failed ({(err or "no output")[:160]}): `gh auth status` shows whether gh is signed in'
 
 
-def _api(gh_fn, path):
-    rc, out, err = gh_fn(['api', '--paginate', path])
+def _api(gh_fn, path, pages=None):
+    """(items, '') of a list endpoint, every page (`--slurp`: a JSON list of pages, never text joined by a regex), else
+    (None, why)."""
+    rc, out, err = gh_fn(['api', '--paginate', '--slurp', path] if pages is None else ['api', path])
     if rc != 0:
         return None, err or out
     try:
-        return json.loads(re.sub(r'\]\s*\[', ',', out.strip()) or '[]'), ''
+        data = json.loads(out or '[]')
     except ValueError as exc:
         return None, f'unreadable answer ({exc})'
+    if pages is None and data and all(isinstance(p, list) for p in data):
+        data = [x for p in data for x in p]
+    return (data, '') if isinstance(data, list) else (None, 'not a list')
+
+
+def failing(checks):
+    return any((c.get('conclusion') or c.get('state') or '').upper() in FAILED for c in checks or [])
+
+
+def bot_prs(prs, bots):
+    out = []
+    for pr in prs:
+        bot = classify_pr(pr, bots)
+        if bot:
+            out.append({'number': pr['number'], 'title': pr['title'], 'branch': pr['headRefName'], 'url': pr['url'], 'bot': bot,
+                        'kind': bump_kind(pr['title']), 'failing': failing(pr.get('statusCheckRollup'))})
+    return out
+
+
+def open_comments(slug, prs, gh_fn, most=30):
+    """Review comments on the open pull requests only (a finding on a merged one is history), current ones only."""
+    out = []
+    for pr in prs[:most]:
+        items, err = _api(gh_fn, f'repos/{slug}/pulls/{pr["number"]}/comments?per_page=100', pages=1)
+        if items is None:
+            return None, err
+        out += [c for c in items if c.get('position') is not None or c.get('line') is not None]
+    return out, ''
+
+
+def _read_alerts(out, slug, s, gh_fn, prs):
+    for kind, path, parse in (('dependabot', f'repos/{slug}/dependabot/alerts?state=open&per_page=100', from_dependabot),
+                              ('code-scanning', f'repos/{slug}/code-scanning/alerts?state=open&per_page=100', from_code_scanning)):
+        items, err = _api(gh_fn, path)
+        if items is None:
+            out['problems'] += [p for p in [problem(kind, slug, err)] if p]
+            continue
+        out['read'].append(kind)
+        out['alerts'] += parse(items, slug)
+    out['code_scanning'] = 'code-scanning' in out['read']
+    items, err = open_comments(slug, prs, gh_fn)
+    if items is None:
+        out['problems'].append(problem('review comments', slug, err))
+    else:
+        out['read'].append('comments')
+        out['alerts'] += from_comments(items, s['scanners'])
 
 
 def read_repo(slug, s, gh_fn=gh):
-    """{prs, alerts, problems, code_scanning} of one repository."""
-    out = {'prs': [], 'alerts': [], 'problems': [], 'code_scanning': True}
+    """{prs, alerts, problems, code_scanning, read}: `read` names the sources read without a fault, so a task is dropped only
+    when the source that made it was read and no longer holds it."""
+    out = {'prs': [], 'alerts': [], 'problems': [], 'code_scanning': False, 'read': []}
     rc, raw, err = gh_fn(['pr', 'list', '-R', slug, '--state', 'open', '--limit', '100', '--json',
                           'number,title,headRefName,author,url,labels,statusCheckRollup'])
-    if rc != 0:
+    try:
+        prs = json.loads(raw or '[]') if rc == 0 else None
+    except ValueError as exc:
+        prs, err = None, f'unreadable answer ({exc})'
+    if prs is None:
         out['problems'].append(problem('pull requests', slug, err))
-        return out
-    for pr in json.loads(raw or '[]'):
-        bot = classify_pr(pr, s['bots'])
-        if bot:
-            checks = pr.get('statusCheckRollup') or []
-            out['prs'].append({'number': pr['number'], 'title': pr['title'], 'branch': pr['headRefName'], 'url': pr['url'], 'bot': bot,
-                               'kind': bump_kind(pr['title']),
-                               'failing': any((c.get('conclusion') or '').upper() == 'FAILURE' for c in checks)})
-    items, err = _api(gh_fn, f'repos/{slug}/dependabot/alerts?state=open&per_page=100')
-    out['alerts'] += from_dependabot(items, slug) if items is not None else []
-    out['problems'] += [p for p in [problem('dependabot', slug, err)] if items is None and p]
-    items, err = _api(gh_fn, f'repos/{slug}/code-scanning/alerts?state=open&per_page=100')
-    out['alerts'] += from_code_scanning(items, slug) if items is not None else []
-    out['code_scanning'] = items is not None
-    out['problems'] += [p for p in [problem('code-scanning', slug, err)] if items is None and p]
-    items, err = _api(gh_fn, f'repos/{slug}/pulls/comments?sort=created&direction=desc&per_page=100')
-    out['alerts'] += from_comments(items, s['scanners']) if items is not None else []
+        prs = []
+    else:
+        out['read'].append('prs')
+        out['prs'] = bot_prs(prs, s['bots'])
+    _read_alerts(out, slug, s, gh_fn, prs)
     out['alerts'] = dedupe(out['alerts'])
     return out
 
@@ -217,11 +266,16 @@ def gather(cfg, now, gh_fn=gh, run=subprocess.run, force=False):
     for name, repo in cfg['autopilot']['repos'].items():
         slug = repo_slug(repo, run)
         if not slug:
-            found[name] = {'slug': '', 'prs': [], 'alerts': [], 'code_scanning': False,
+            found[name] = {'slug': '', 'prs': [], 'alerts': [], 'code_scanning': False, 'read': [],
                            'problems': [f'{name}: no GitHub repository found (no github.com origin in {repo["path"]}): set '
                                         f'autopilot.repos.{name}.github to owner/name']}
             continue
-        found[name] = {'slug': slug, **read_repo(slug, settings(cfg), gh_fn)}
+        try:
+            found[name] = {'slug': slug, **read_repo(slug, settings(cfg), gh_fn)}
+        except (OSError, ValueError, KeyError, TypeError) as exc:   # one bad repo never stops the others
+            found[name] = {'slug': slug, 'prs': [], 'alerts': [], 'code_scanning': False, 'read': [],
+                           'problems': [f'{slug}: reading it failed ({type(exc).__name__}: {exc}): `tutti security scan` again; '
+                                        'if it repeats, `gh auth status`']}
     return found
 
 
@@ -233,25 +287,49 @@ def pr_note(pr, check):
 
 
 def tasks_for(name, scan, check, group_trivial=True):
-    """[(title, size, source, notes, ref)] for one repo's scan: ref is the pull request url or the alert key."""
+    """[(title, size, source, notes, ref, kinds)] for one repo's scan: ref is the pull request url, `group:<repo>` or the alert
+    key; kinds are the sources that made it."""
     out, trivial = [], []
     for pr in scan['prs']:
         if group_trivial and pr['kind'] in ('patch', 'minor') and not pr['failing']:
             trivial.append(pr)
             continue
         size = 'M' if pr['kind'] in ('major', 'group') or pr['failing'] else 'S'
-        out.append((f'Dependency update: {pr["title"]} (#{pr["number"]})', size, f'depbot:{pr["bot"]}', [pr_note(pr, check)], pr['url']))
+        out.append((f'Dependency update: {pr["title"]} (#{pr["number"]})', size, f'depbot:{pr["bot"]}', [pr_note(pr, check)],
+                    pr['url'], ['prs']))
     if len(trivial) == 1:
         pr = trivial[0]
-        out.append((f'Dependency update: {pr["title"]} (#{pr["number"]})', 'S', f'depbot:{pr["bot"]}', [pr_note(pr, check)], pr['url']))
+        out.append((f'Dependency update: {pr["title"]} (#{pr["number"]})', 'S', f'depbot:{pr["bot"]}', [pr_note(pr, check)],
+                    pr['url'], ['prs']))
     elif trivial:
-        out.append(('Land the open patch and minor dependency bumps', 'S', 'depbot:group', [pr_note(p, check) for p in trivial],
-                    ' '.join(p['url'] for p in trivial)))
+        out.append((GROUP, 'S', 'depbot:group', [pr_note(p, check) for p in trivial], f'group:{name}', ['prs']))
     for a in scan['alerts']:
         out.append((f'Fix {NAMES[a["severity"]]} vulnerability: {a["title"]}', 'M' if a['severity'] >= 3 else 'S',
                     f'security:{"+".join(a["sources"])}', [f'{a["hint"]}. Reports: {" ".join(a["urls"])}', 'Run the check before '
-                    'finishing; GitHub closes the alert by itself when the fix is on the default branch.'], a['key']))
+                    'finishing; GitHub closes the alert by itself when the fix is on the default branch.'], a['key'], a['kinds']))
     return out
+
+
+def _queue(cfg, data, name, scan):
+    check = cfg['autopilot']['repos'][name].get('check') or ''
+    live, events = set(), []
+    for title, size, source, notes, ref, kinds in tasks_for(name, scan, check, settings(cfg).get('group_trivial', True)):
+        live.add(ref)
+        task, added = backlog.add(data, {**backlog.new_task(name, title, (), check, size, source, notes), 'depbot_ref': ref,
+                                         'depbot_src': kinds})
+        if added:
+            events.append(f'depbots: queued {task["id"]} {title}')
+        elif task['status'] == 'queued' and task.get('notes') != notes:
+            task['notes'] = notes   # the group's member list follows the open pull requests
+    return live, events
+
+
+def gone(t, found, live):
+    """A queued task of ours whose every source was read now and no longer holds it."""
+    scan = found.get(t['repo'])
+    if not t.get('depbot_ref') or t['status'] != 'queued' or scan is None or t['depbot_ref'] in live:
+        return False
+    return all(k in scan.get('read', []) for k in t.get('depbot_src') or ['prs'])
 
 
 def apply(cfg, data, found):
@@ -260,19 +338,11 @@ def apply(cfg, data, found):
         return []
     events, live = [], set()
     for name, scan in found.items():
-        if scan['problems'] and not scan['prs'] and not scan['alerts']:
-            live |= {t.get('depbot_ref') for t in data['tasks'] if t['repo'] == name}   # unread: keep its tasks
-            continue
-        check = cfg['autopilot']['repos'][name].get('check') or ''
-        for title, size, source, notes, ref in tasks_for(name, scan, check, settings(cfg).get('group_trivial', True)):
-            live.add(ref)
-            task, added = backlog.add(data, {**backlog.new_task(name, title, (), check, size, source, notes), 'depbot_ref': ref})
-            if added:
-                events.append(f'depbots: queued {task["id"]} {title}')
-            elif task['status'] == 'queued' and task.get('notes') != notes:
-                task['notes'] = notes   # the group's member list follows the open pull requests
+        got, ev = _queue(cfg, data, name, scan)
+        live |= got
+        events += ev
     for t in data['tasks']:
-        if t.get('depbot_ref') and t['status'] == 'queued' and t['repo'] in found and t['depbot_ref'] not in live:
+        if gone(t, found, live):
             t['status'] = 'dropped'
             t.setdefault('notes', []).append('dropped by itself: the pull request closed or GitHub marked the alert fixed')
             events.append(f'depbots: dropped {t["id"]} (closed or fixed upstream)')
@@ -289,7 +359,7 @@ def summary(found, now):
                       'alerts': len(scan['alerts']), 'worst': NAMES[worst] if worst is not None else None,
                       'top': [{'title': a['title'], 'url': a['url'], 'sources': a['sources'], 'severity': NAMES[a['severity']]}
                               for a in scan['alerts'][:5]],
-                      'links': {'prs': f'https://github.com/{slug}/pulls?q=is%3Apr+is%3Aopen+author%3Aapp%2Fdependabot',
+                      'links': {'prs': f'https://github.com/{slug}/pulls?q=is%3Apr+is%3Aopen',
                                 'security': f'https://github.com/{slug}/security'} if slug else {},
                       'code_scanning': scan['code_scanning'], 'problems': scan['problems']})
     return {'read_at': now, 'repos': repos}

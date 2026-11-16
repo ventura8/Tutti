@@ -12,7 +12,7 @@ token of its own and never prints one.
 | Cursor's dependency agent (Anybump, cloud agents) | pull requests by `cursor[bot]` on `cursor/...` branches | `gh pr list`, kept when the title or branch reads as a bump, upgrade, CVE or security fix (`depbots.bots[].match`) |
 | GitHub Dependabot alerts | the repository's Security tab | `gh api repos/<o>/<r>/dependabot/alerts` |
 | Code scanning (CodeQL and others) | the Security tab | `gh api repos/<o>/<r>/code-scanning/alerts` |
-| Cursor Security Review / Bugbot | review comments by `cursor[bot]`; there is no alerts API | `gh api repos/<o>/<r>/pulls/comments`, kept when the comment reads as a security finding |
+| Cursor Security Review / Bugbot | review comments by `cursor[bot]`; there is no alerts API | `gh api repos/<o>/<r>/pulls/<n>/comments` for the open pull requests only (current comments, at most 30 pull requests), kept when the comment reads as a security finding; the severity is only a leading label |
 | Greptile | review comments by `greptile-apps[bot]`; Greptile publishes no separate report | the same comments, same filter |
 
 The repo's GitHub name is `autopilot.repos.<name>.github`, else its `origin` remote. Bots and scanners are config
@@ -27,7 +27,8 @@ The repo's GitHub name is `autopilot.repos.<name>.github`, else its `origin` rem
 - Green patch and minor bumps: one task per repo, `Land the open patch and minor dependency bumps`, listing them all.
 - Reports: deduped per package (Dependabot), rule and file (code scanning) or file and first line (Cursor, Greptile),
   ranked critical, high, medium, low, queued worst first as `Fix <severity> vulnerability: <title>`.
-- A queued task whose pull request closed or whose alert GitHub marked fixed is dropped by itself. GitHub closes a
+- A queued task whose pull request closed or whose alert GitHub marked fixed is dropped by itself, and only when the
+  source that made it was read without a fault: an unreadable source (403, a bad answer) keeps its tasks. GitHub closes a
   Dependabot or code-scanning alert when the fix reaches the default branch.
 
 The autopilot reads every `depbots.every_minutes` (default 360) while it is on; `tutti security scan` reads now and

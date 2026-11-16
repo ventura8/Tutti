@@ -1103,7 +1103,14 @@ def local_share(cfg, here, machines):
     row = next((m for m in machines or () if m.get('name') == name), None)
     if not here or not row or row.get('use_pct') is None:
         return here
-    return {**here, 'cores': max(1, share.scaled(here['cores'], row['use_pct']))}
+    cores = max(1, share.scaled(here['cores'], row['use_pct']))
+    out = {**here, 'cores': cores}
+    # The load on Tutti's cores is what is left after the owner's: the cores outside its share are the owner's, so only the
+    # load beyond them counts. The whole machine's load against Tutti's one core left no room at all (load 5.5 of 1 core,
+    # agy-gemini idle, 2026-11-16), while an owner who really uses the machine (load above their cores) still leaves none.
+    if here.get('load') is not None:
+        out['load'] = max(0.0, here['load'] - max(0, here['cores'] - cores))
+    return out
 
 
 def repo_files(cfg, run=subprocess.run):

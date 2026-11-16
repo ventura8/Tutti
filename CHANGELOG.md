@@ -14,7 +14,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   from a job's "limit reached" while `agy /usage` reads it at 0 %.
 - A limit message goes to the account with the most specific `match.model` (`gemini-4-argon` beats `gemini`), so a
   per-model cap such as Gemini 4 Argon's weekly limit can have its own account and not block the other Gemini models.
-- `tutti self-update` asks again with backoff (15, 30, 60, 120 s) while the latest release's `SHA256SUMS` is still being
+- `tutti self-update` asks again with backoff (15, 30, 60, 120 s) on a 404 while the latest release's `SHA256SUMS` is still being
   uploaded, instead of failing with a 404 right after a release.
 
 ## 0.16.5 (2026-11-16)

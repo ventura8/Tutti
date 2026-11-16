@@ -8,6 +8,7 @@ import stat
 import tarfile
 import tempfile
 import unittest
+import urllib.error
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -402,10 +403,15 @@ class SelfUpdate(unittest.TestCase):
         code, msg = install.self_update('/nowhere', '1.0.0', offline, sleep=waited.append)
         self.assertEqual(code, 1)
         self.assertIn('offline', msg)
+        self.assertEqual(waited, [])
+
+        def never(url, dest=None):
+            raise urllib.error.HTTPError(url, 404, 'Not Found', None, None)
+        self.assertEqual(install.self_update('/nowhere', '1.0.0', never, sleep=waited.append)[0], 1)
         self.assertEqual(waited, list(install.SUMS_WAITS))
 
     def test_sums_not_uploaded_yet_are_asked_again(self):
-        answers = [OSError('HTTP Error 404: Not Found'), OSError('HTTP Error 404: Not Found'), f'{"0" * 64}  tutti-1.0.0.tar.gz\n']
+        answers = [urllib.error.HTTPError('u', 404, 'Not Found', None, None), urllib.error.HTTPError('u', 404, 'Not Found', None, None), f'{"0" * 64}  tutti-1.0.0.tar.gz\n']
 
         def late(url, dest=None):
             a = answers.pop(0)

@@ -421,7 +421,7 @@ def worth_keeping(last, used, resets, now):
 def overrides(newest, used):
     """A reader's reading replaces a newer entry of another source (a limit message) that says something else: the CLI's own
     answer is the truth now, so an old "spent" from a job's output must not outlive it."""
-    return bool(newest) and newest.get('source') != 'reader' and abs(float(newest['used']) - used) >= MIN_CHANGE
+    return bool(newest) and newest.get('source') == 'limit message' and abs(float(newest['used']) - used) >= MIN_CHANGE
 
 
 def record(path, readings, hits, now):

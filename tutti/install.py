@@ -331,8 +331,8 @@ def fetch_sums(fetch_fn, waits=SUMS_WAITS, sleep=time.sleep):
     for wait in (*waits, None):
         try:
             return fetch_fn(f'{RELEASES}/latest/download/{SUMS}')
-        except OSError:
-            if wait is None:
+        except OSError as e:
+            if wait is None or getattr(e, 'code', None) != 404:   # offline or another error: say so at once
                 raise
             sleep(wait)
 

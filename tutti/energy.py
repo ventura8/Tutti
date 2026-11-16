@@ -597,6 +597,9 @@ def probe_all(cfg, power_fn, ollama_fn):
         h = found[name]
         machine = cfg['machines'].get(name) or config.machine_of(cfg, name, {'host': 'local'})
         r = power_fn(machine, h['on'])
+        if r is not None and r.get('cpu_w') is None and machine.get('transport') == 'wsl':   # no RAPL in WSL: LibreHardwareMonitor's
+            from . import remote
+            r['cpu_w'] = remote.windows_cpu_w(machine)
         if r is not None and h['ollama']:   # from here through the worker's host; the machine's own curl when that is down
             ps, tags = ollama_fn(h['ollama'], '/api/ps'), ollama_fn(h['ollama'], '/api/tags')
             r['ps'], r['tags'] = ps if ps is not None else r.get('ps'), tags if tags is not None else r.get('tags')

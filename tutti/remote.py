@@ -311,15 +311,23 @@ def parse_query_user(text):
 _win_idle = {}
 
 
-def windows_idle(machine, clock=time.time, timeout=20):
-    """Seconds since the person at a WSL machine's Windows console last used it (`query user` over its plain ssh), asked at
-    most every WIN_TEMP_SECONDS; None when it cannot be told."""
+def windows_idle(machine, clock=time.time, timeout=20, run=None, ensure_fn=None):
+    """Seconds since the person at a WSL machine's Windows console last used it, asked at most every WIN_TEMP_SECONDS;
+    None when nobody (locked, or cannot be told). Read from the presence helper Tutti starts in the console session
+    (tutti/winhelpers.py): `query user` says IDLE TIME `none` for a console session however long it sat untouched, and
+    GetLastInputInfo from the ssh session sees only that session. `query user` stays the fallback while the helper starts."""
+    from . import winhelpers
     hit = _win_idle.get(machine['name'])
     if hit and clock() - hit[0] < WIN_TEMP_SECONDS:
         return hit[1]
+    run = run or subprocess.run
     try:
-        r = subprocess.run([*SSH, *QUICK, machine['host'], 'query user'], capture_output=True, text=True, timeout=timeout, check=False)
-        value = parse_query_user(r.stdout)
+        r = run([*SSH, *QUICK, machine['host'], winhelpers.READ_IDLE], capture_output=True, text=True, timeout=timeout, check=False)
+        value = winhelpers.parse_idle(r.stdout, clock())
+        if value is False:
+            (ensure_fn or winhelpers.ensure)(machine)
+            r = run([*SSH, *QUICK, machine['host'], 'query user'], capture_output=True, text=True, timeout=timeout, check=False)
+            value = parse_query_user(r.stdout)
     except (OSError, subprocess.SubprocessError):
         value = None
     _win_idle[machine['name']] = (clock(), value)
@@ -405,11 +413,37 @@ def parse_win_temp(text):
     return t, ''
 
 
-def windows_temp(machine, clock=time.time, timeout=30):
-    """(CPU degrees C or None, why not) of a WSL machine's Windows side, asked at most every WIN_TEMP_SECONDS."""
+_win_watts = {}
+
+
+def windows_cpu_w(machine):
+    """The CPU package power in W of a WSL machine's Windows side from LibreHardwareMonitor's last reading, or None."""
+    return _win_watts.get(machine['name'])
+
+
+def _lhm_read(machine, timeout):
+    """(degrees C or None, watts or None) from LibreHardwareMonitor's data.json on 127.0.0.1:8085 (tutti/winhelpers.py)."""
+    from . import winhelpers
+    try:
+        r = subprocess.run([*SSH, *QUICK, machine['host'], winhelpers.READ_LHM], capture_output=True, text=True, timeout=timeout, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None, None
+    return winhelpers.parse_lhm(r.stdout)
+
+
+def windows_temp(machine, clock=time.time, timeout=30, lhm_fn=None, ensure_fn=None):
+    """(CPU degrees C or None, why not) of a WSL machine's Windows side, asked at most every WIN_TEMP_SECONDS:
+    LibreHardwareMonitor's JSON first (installed and started by Tutti when missing), else WMI and ACPI."""
     hit = _win_temps.get(machine['name'])
     if hit and clock() - hit[0] < WIN_TEMP_SECONDS:
         return hit[1]
+    from . import winhelpers
+    t, w = (lhm_fn or _lhm_read)(machine, timeout)
+    _win_watts[machine['name']] = w
+    if t is not None and 20 <= t <= 110:
+        _win_temps[machine['name']] = (clock(), (t, ''))
+        return t, ''
+    (ensure_fn or winhelpers.ensure)(machine)
     packed = base64.b64encode(WIN_TEMP.encode('utf-16le')).decode()
     try:
         r = subprocess.run([*SSH, *QUICK, machine['host'],

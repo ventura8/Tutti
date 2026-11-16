@@ -1,0 +1,90 @@
+"""Windows helpers: presence from the console session's own input, and LibreHardwareMonitor's CPU reading."""
+import json
+import unittest
+from unittest import mock
+
+from tutti import remote, winhelpers
+
+
+def lhm(temp='56,3 °C', power='87,6 W'):
+    cpu = {'Text': 'AMD Ryzen', 'Children': [
+        {'Text': 'Core (Tctl/Tdie)', 'Type': 'Temperature', 'SensorId': '/amdcpu/0/temperature/2', 'Value': temp},
+        {'Text': 'CCD1 (Tdie)', 'Type': 'Temperature', 'SensorId': '/amdcpu/0/temperature/3', 'Value': '99,0 °C'},
+        {'Text': 'Package', 'Type': 'Power', 'SensorId': '/amdcpu/0/power/0', 'Value': power},
+        {'Text': 'Core #1 (SMU)', 'Type': 'Power', 'SensorId': '/amdcpu/0/power/1', 'Value': '3,0 W'}]}
+    gpu = {'Text': 'GPU Hot Spot', 'Type': 'Temperature', 'SensorId': '/gpu-nvidia/0/temperature/0', 'Value': '70,0 °C'}
+    return json.dumps({'Children': [{'Children': [cpu, gpu]}]})
+
+
+class WinHelpersTest(unittest.TestCase):
+    def setUp(self):
+        remote._win_temps.clear()
+        remote._win_idle.clear()
+        winhelpers._done.clear()
+
+    def test_lhm_cpu_temperature_and_package_power_in_any_locale(self):
+        self.assertEqual(winhelpers.parse_lhm(lhm()), (56.3, 87.6))
+        self.assertEqual(winhelpers.parse_lhm(lhm('61.5 °C', '40.0 W')), (61.5, 40.0))
+        self.assertEqual(winhelpers.parse_lhm(''), (None, None))
+        self.assertEqual(winhelpers.parse_lhm(json.dumps({'Children': []})), (None, None))
+
+    def test_windows_temp_prefers_lhm_and_keeps_its_watts(self):
+        m = {'name': 'pc', 'host': 'pc.example'}
+        ensured = []
+        self.assertEqual(remote.windows_temp(m, clock=lambda: 0, lhm_fn=lambda mm, t: (58.9, 86.2), ensure_fn=ensured.append),
+                         (58.9, ''))
+        self.assertEqual((remote.windows_cpu_w(m), ensured), (86.2, []))
+
+    def test_no_lhm_installs_it_and_falls_back(self):
+        m = {'name': 'pc2', 'host': 'pc.example'}
+        ensured = []
+        with mock.patch.object(remote.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout='S ACPI\nT 16.9\n')):
+            t, why = remote.windows_temp(m, clock=lambda: 0, lhm_fn=lambda mm, t: (None, None), ensure_fn=ensured.append)
+        self.assertIsNone(t)
+        self.assertIn('placeholder', why)
+        self.assertEqual(ensured, [m])
+
+    def test_idle_file_locked_stale_or_missing(self):
+        self.assertEqual(winhelpers.parse_idle('2515 0 1000', 1030), 2515.0)
+        self.assertIsNone(winhelpers.parse_idle('3 1 1000', 1030))           # locked: nobody at the keyboard
+        self.assertIs(winhelpers.parse_idle('3 0 1000', 2000), False)        # stale: the helper stopped
+        self.assertIs(winhelpers.parse_idle('The system cannot find the file specified.', 0), False)
+
+    def test_presence_comes_from_the_console_helper_not_query_user(self):
+        m = {'name': 'pc', 'host': 'pc.example'}
+        calls = []
+
+        def run(argv, **kw):
+            calls.append(argv[-1])
+            return mock.Mock(returncode=0, stdout='2515 0 1000\n')
+        self.assertEqual(remote.windows_idle(m, clock=lambda: 1010, run=run, ensure_fn=calls.append), 2515.0)
+        self.assertEqual(calls, [winhelpers.READ_IDLE])
+
+    def test_without_the_helper_it_is_installed_and_query_user_answers_meanwhile(self):
+        m = {'name': 'pc', 'host': 'pc.example'}
+        ensured = []
+        out = {winhelpers.READ_IDLE: '', 'query user': ' ventu  console  1  Active  1:05  12.11.2026 19:23\n'}
+
+        def run(argv, **kw):
+            return mock.Mock(returncode=0, stdout=out[argv[-1]])
+        self.assertEqual(remote.windows_idle(m, clock=lambda: 0, run=run, ensure_fn=ensured.append), 3900.0)
+        self.assertEqual(ensured, [m])
+
+    def test_ensure_sends_the_setup_on_stdin_once_an_hour(self):
+        m = {'name': 'pc', 'host': 'pc.example'}
+        sent = []
+
+        def run(argv, **kw):
+            sent.append((argv[-1], kw['input']))
+            return mock.Mock(returncode=0)
+        self.assertEqual(winhelpers.ensure(m, run=run, clock=lambda: 10_000), 0)
+        self.assertIsNone(winhelpers.ensure(m, run=run, clock=lambda: 10_100))
+        self.assertEqual(len(sent), 1)
+        self.assertTrue(sent[0][0].endswith('-Command -'))
+        self.assertTrue(sent[0][1].startswith('iex ') and sent[0][1].count('\n') == 1)
+        self.assertIn('Tutti sensors', winhelpers.SETUP)
+        self.assertIsNone(winhelpers.ensure({'name': 'x', 'host': 'h'}, run=mock.Mock(side_effect=OSError), clock=lambda: 10_000))
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -36,8 +36,9 @@ class TempsTest(unittest.TestCase):
             return mock.Mock(returncode=0, stdout='S ACPI\nT 55\n')
         m = {'name': 'pc', 'host': 'pc.example'}
         with mock.patch.object(remote.subprocess, 'run', fake_run):
-            self.assertEqual(remote.windows_temp(m, clock=lambda: 0), (55.0, ''))
-            self.assertEqual(remote.windows_temp(m, clock=lambda: 30), (55.0, ''))
+            kw = {'lhm_fn': lambda mm, t: (None, None), 'ensure_fn': lambda mm: None}
+            self.assertEqual(remote.windows_temp(m, clock=lambda: 0, **kw), (55.0, ''))
+            self.assertEqual(remote.windows_temp(m, clock=lambda: 30, **kw), (55.0, ''))
         self.assertEqual(len(calls), 1)
 
     def test_the_probe_fills_a_wsl_cpu_from_windows(self):

@@ -425,7 +425,8 @@ def _lhm_read(machine, timeout):
     """(degrees C or None, watts or None) from LibreHardwareMonitor's data.json on 127.0.0.1:8085 (tutti/winhelpers.py)."""
     from . import winhelpers
     try:
-        r = subprocess.run([*SSH, *QUICK, machine['host'], winhelpers.READ_LHM], capture_output=True, text=True, timeout=timeout, check=False)
+        r = subprocess.run([*SSH, *QUICK, machine['host'], winhelpers.READ_LHM],
+                           capture_output=True, text=True, timeout=timeout, check=False)
     except (OSError, subprocess.SubprocessError):
         return None, None
     return winhelpers.parse_lhm(r.stdout)

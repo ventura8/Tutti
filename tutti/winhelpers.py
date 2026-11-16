@@ -19,7 +19,8 @@ IDLE_PS1 = r'''Add-Type @"
 using System; using System.Runtime.InteropServices;
 public class TuttiIdle { [StructLayout(LayoutKind.Sequential)] public struct I { public uint s; public uint t; }
 [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref I i);
-public static double Sec() { I i = new I(); i.s = 8; GetLastInputInfo(ref i); return unchecked((uint)Environment.TickCount - i.t) / 1000.0; } }
+public static double Sec() { I i = new I(); i.s = 8; GetLastInputInfo(ref i);
+    return unchecked((uint)Environment.TickCount - i.t) / 1000.0; } }
 "@
 $d = Join-Path $env:LOCALAPPDATA 'tutti'; New-Item -ItemType Directory -Force $d | Out-Null
 while ($true) {
@@ -39,23 +40,26 @@ $d = Join-Path $env:LOCALAPPDATA 'tutti'; New-Item -ItemType Directory -Force $d
 $ps1 = Join-Path $d 'idle.ps1'
 [IO.File]::WriteAllText($ps1, [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__IDLE__')))
 $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-$set = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
+$set = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
 $trig = New-ScheduledTaskTrigger -AtLogOn -User $me
 $p = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited
-$a = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ps1`""
-Register-ScheduledTask -TaskName 'Tutti presence' -Action $a -Trigger $trig -Principal $p -Settings $set -Force | Out-Null
+$a = New-ScheduledTaskAction -Execute 'conhost.exe' `
+    -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ps1`""
+Register-ScheduledTask -TaskName 'Tutti presence' -Action $a -Trigger $trig -Principal $p -Settings $set -Force |
+    Out-Null
 if (-not (Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*tutti\idle.ps1*' })) {
     Start-ScheduledTask -TaskName 'Tutti presence'; 'started presence' }
-$exe = Get-ChildItem -Recurse -Filter LibreHardwareMonitor.exe -ErrorAction SilentlyContinue `
-    (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'), "$env:ProgramFiles\LibreHardwareMonitor", "$env:ProgramData\chocolatey\lib" |
-    Select-Object -First 1 -ExpandProperty FullName
+function FindLhm { Get-ChildItem -Recurse -Filter LibreHardwareMonitor.exe -ErrorAction SilentlyContinue `
+    (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'), "$env:ProgramFiles\LibreHardwareMonitor", `
+    "$env:ProgramData\chocolatey\lib" | Select-Object -First 1 -ExpandProperty FullName }
+$exe = FindLhm
 if (-not $exe) {
     winget install --id LibreHardwareMonitor.LibreHardwareMonitor -e --silent --source winget --disable-interactivity `
         --accept-package-agreements --accept-source-agreements | Out-Null
-    if ($LASTEXITCODE -ne 0 -and (Get-Command choco -ErrorAction SilentlyContinue)) { choco install librehardwaremonitor -y --no-progress | Out-Null }
-    $exe = Get-ChildItem -Recurse -Filter LibreHardwareMonitor.exe -ErrorAction SilentlyContinue `
-        (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'), "$env:ProgramFiles\LibreHardwareMonitor", "$env:ProgramData\chocolatey\lib" |
-        Select-Object -First 1 -ExpandProperty FullName
+    if ($LASTEXITCODE -ne 0 -and (Get-Command choco -ErrorAction SilentlyContinue)) {
+        choco install librehardwaremonitor -y --no-progress | Out-Null }
+    $exe = FindLhm
 }
 if ($exe) {
     $cfg = Join-Path (Split-Path $exe) 'LibreHardwareMonitor.config'
@@ -63,8 +67,10 @@ if ($exe) {
         Get-Process LibreHardwareMonitor -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep 2
         [IO.File]::WriteAllText($cfg, '__LHMCFG__') }
     $p2 = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Highest
-    Register-ScheduledTask -TaskName 'Tutti sensors' -Action (New-ScheduledTaskAction -Execute $exe) -Trigger $trig -Principal $p2 -Settings $set -Force | Out-Null
-    if (-not (Get-Process LibreHardwareMonitor -ErrorAction SilentlyContinue)) { Start-ScheduledTask -TaskName 'Tutti sensors'; 'started sensors' }
+    Register-ScheduledTask -TaskName 'Tutti sensors' -Action (New-ScheduledTaskAction -Execute $exe) -Trigger $trig `
+        -Principal $p2 -Settings $set -Force | Out-Null
+    if (-not (Get-Process LibreHardwareMonitor -ErrorAction SilentlyContinue)) {
+        Start-ScheduledTask -TaskName 'Tutti sensors'; 'started sensors' }
 } else { 'no LibreHardwareMonitor: winget and choco failed' }
 '''
 

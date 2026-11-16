@@ -1,10 +1,11 @@
 """A machine's share for Tutti (docs/FLEET.md, *The machine's share*): `machines.<m>.use_pct` (default 100) caps how much of
 the machine's slots, cores and model threads Tutti's work uses. The share drops by itself while:
-- someone uses the machine (a person at this computer's keyboard: in_use_pct, default 30);
+- someone uses the machine (a person at this computer's keyboard: in_use_pct, default 0: no new work there, it goes to the other machines);
 - it is in its quiet hours (machines.<m>.quiet_hours, else autopilot.quiet_hours: quiet_pct, default 50);
 - it runs hot (its heat cap reached: hot_pct, default 50).
 Its yield flag still takes it out entirely (the PC is RoRadio's), as the governor's memory floor does.
 Pure: pct, scaled, cap_free; the I/O: idle_seconds (this computer's keyboard and mouse)."""
+import os
 import re
 import shutil
 import subprocess
@@ -12,7 +13,7 @@ import time
 
 from . import planner
 
-DEFAULTS = {'use_pct': 100, 'in_use_pct': 30, 'quiet_pct': 50, 'hot_pct': 50, 'in_use_minutes': 5}
+DEFAULTS = {'use_pct': 100, 'in_use_pct': 0, 'quiet_pct': 50, 'hot_pct': 50, 'in_use_minutes': 5}
 LIMIT_PCT = 60   # machines.<m>.limit.pct when a window is set without one
 DAYS = ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')
 WINDOW = re.compile(r'([01]\d|2[0-3])-([01]\d|2[0-4])')
@@ -100,9 +101,62 @@ def cap_free(slots, free, share):
     return max(0, min(free, scaled(slots, share) - busy))
 
 
+def mutter_idle(run=subprocess.run):
+    """Seconds since the last keyboard or mouse input on a GNOME session (X11 or Wayland) from Mutter's idle monitor over
+    the session D-Bus, or None (no GNOME, no gdbus, no session bus). GNOME never sets logind's IdleSinceHint, so on a
+    Wayland laptop this is the only way to tell (the 2026-11-16 laptop: quiet mode never saw the owner)."""
+    if not shutil.which('gdbus'):
+        return None
+    env = dict(os.environ)
+    bus = f'/run/user/{os.getuid()}/bus' if hasattr(os, 'getuid') else ''
+    if not env.get('DBUS_SESSION_BUS_ADDRESS') and bus and os.path.exists(bus):
+        env['DBUS_SESSION_BUS_ADDRESS'] = f'unix:path={bus}'   # a systemd user service or ssh shell may lack it
+    try:
+        r = run(['gdbus', 'call', '--session', '--dest', 'org.gnome.Mutter.IdleMonitor', '--object-path',
+                 '/org/gnome/Mutter/IdleMonitor/Core', '--method', 'org.gnome.Mutter.IdleMonitor.GetIdletime'],
+                capture_output=True, text=True, timeout=5, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r'uint64 (\d+)', r.stdout or '')
+    return int(m.group(1)) / 1000 if r.returncode == 0 and m else None
+
+
+def graphical_sessions(run=subprocess.run):
+    """[{Type, IdleHint, IdleSinceHint, LockedHint}] of this user's x11 and wayland logind sessions (any session, not
+    `self`: the dashboard runs outside one)."""
+    try:
+        r = run(['loginctl', 'list-sessions', '--no-legend'], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    out = []
+    for sid in (line.split()[0] for line in (r.stdout or '').splitlines() if line.split()):
+        try:
+            s = run(['loginctl', 'show-session', sid, '-p', 'Type', '-p', 'IdleHint', '-p', 'IdleSinceHint', '-p', 'LockedHint'],
+                    capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        v = dict(line.split('=', 1) for line in (s.stdout or '').splitlines() if '=' in line)
+        if v.get('Type') in ('x11', 'wayland'):
+            out.append(v)
+    return out
+
+
+def screen_locked(run=subprocess.run):
+    """True when every graphical session here is locked (nobody can be using it), False when one is unlocked, None when
+    there is none."""
+    sessions = graphical_sessions(run)
+    return all(s.get('LockedHint') == 'yes' for s in sessions) if sessions else None
+
+
 def idle_seconds(run=subprocess.run, clock=time.time):
-    """Seconds since this computer's keyboard or mouse was last used, or None when it cannot be told: xprintidle (X11),
-    else the logind session's idle hint."""
+    """Seconds since this computer's keyboard or mouse was last used, or None when it cannot be told: GNOME's idle monitor
+    (X11 and Wayland), xprintidle (X11), else a logind session's idle hint. A locked screen reads as idle for a day."""
+    sessions = graphical_sessions(run)
+    if sessions and all(s.get('LockedHint') == 'yes' for s in sessions):
+        return 86400.0
+    v = mutter_idle(run)
+    if v is not None:
+        return v
     if shutil.which('xprintidle'):
         try:
             r = run(['xprintidle'], capture_output=True, text=True, timeout=5)
@@ -110,16 +164,10 @@ def idle_seconds(run=subprocess.run, clock=time.time):
                 return int(r.stdout.strip()) / 1000
         except (OSError, subprocess.SubprocessError):
             pass
-    try:
-        r = run(['loginctl', 'show-session', 'self', '-p', 'IdleHint', '-p', 'IdleSinceHint'], capture_output=True, text=True,
-                timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    values = dict(line.split('=', 1) for line in r.stdout.splitlines() if '=' in line)
-    since = values.get('IdleSinceHint', '')
-    if not (since.isdigit() and int(since)):
+    known = [s for s in sessions if s.get('IdleSinceHint', '').isdigit() and int(s['IdleSinceHint'])]
+    if not known:
         return None   # a desktop that never sets the hint: not known (it would read "in use" for ever)
-    return 0.0 if values.get('IdleHint') == 'no' else max(0.0, clock() - int(since) / 1e6)
+    return min(0.0 if s.get('IdleHint') == 'no' else max(0.0, clock() - int(s['IdleSinceHint']) / 1e6) for s in known)
 
 
 def limit_change(cfg, name, window, pct=None):

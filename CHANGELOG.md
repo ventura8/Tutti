@@ -6,6 +6,21 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.17.4 (2026-11-16)
+
+### Fixed
+
+- Quiet mode now sees a person at a GNOME Wayland laptop. GNOME never sets logind's idle hint and the dashboard runs outside
+  a login session (`loginctl show-session self` fails), so the idle time was always unknown and the "someone is at its
+  keyboard" share never applied. It is now read from GNOME's idle monitor (`org.gnome.Mutter.IdleMonitor.GetIdletime`
+  over the session D-Bus), here and on remote machines; a locked screen reads as away.
+- While a person is at a machine, Tutti starts no new work there (`in_use_pct` 0, was 30): it goes to the other machines.
+- The dashboard's quiet guard, every probe: Tutti's own `tutti quiet` jobs here (exact pids from their `.pid` file and their
+  process trees) get nice 19 and idle I/O, are stopped with SIGSTOP while free memory is under the 4 GB kept for the
+  person (`quiet.reserve_gb`) and continued after; the local Ollama models are unloaded.
+- `tutti quiet status` (exit 0 while quiet, 1 when free), `tutti quiet wait [s]` and `tutti quiet guard`: one signal any
+  script or agent can obey; commands run by `tutti quiet` while quiet run niced in a CPU-capped `systemd-run --user` scope.
+
 ## 0.17.3 (2026-11-16)
 
 ### Fixed

@@ -223,6 +223,7 @@ with a QR code (`web/qr.js`, drawn on the page) and the household command.
   - the nonce, against this browser's login cookie;
   - `email_verified`.
 - **The session.** The server then sets `tutti_session_<port>`, a random 256-bit id: HttpOnly, SameSite=Strict, Path=/.
+  - On loopback, requests for `localhost` and `[::1]` are redirected to `127.0.0.1`, so one host gets the session cookie.
   - Over https it is also `Secure` and named with the `__Host-` prefix.
   - Over plain http on a LAN IP it is neither: a browser drops a Secure cookie that came over http.
   - CSRF stays enforced either way.

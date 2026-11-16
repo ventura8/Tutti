@@ -269,7 +269,9 @@ class ServerTest(unittest.TestCase):
 
     def test_other_hosts_and_paths_outside_the_app_are_refused(self):
         self.assertEqual(self.get('/api/state', host='attacker.example')[0].status, 403)
-        self.assertEqual(self.get('/', host=f'localhost:{self.port}')[0].status, 200)
+        r, _ = self.get('/', host=f'localhost:{self.port}')
+        self.assertEqual(r.status, 302)
+        self.assertEqual(r.getheader('Location'), f'http://127.0.0.1:{self.port}/')
         self.assertEqual(self.get('/../tutti/cli.py')[0].status, 404)
         self.assertEqual(self.get('/nope.js')[0].status, 404)
         self.assertEqual(self.get('/api/health')[0].status, 200)

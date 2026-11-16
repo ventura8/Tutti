@@ -292,7 +292,9 @@ class DeviceRunTest(unittest.TestCase):
         logs = [f for f in os.listdir(folder) if f.endswith('.log')]
         self.assertEqual(len(logs), 1)
         with open(os.path.join(folder, logs[0] + '.target')) as f:
-            self.assertEqual(f.read().split(), ['machine:here', 'device:pixel'])
+            words = f.read().split()
+        self.assertEqual(words[:2], ['machine:here', 'device:pixel'])
+        self.assertTrue(all(w.startswith('class:') for w in words[2:]))
         with open(os.path.join(folder, logs[0])) as f:
             self.assertIn('serial=R58', f.read())
 

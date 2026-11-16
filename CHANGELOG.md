@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.10.2 (2026-11-16)
+
+### Fixed
+
+- Dashboard sign-in now canonicalises loopback host names: requests to `localhost` or `[::1]` redirect to
+  `http://127.0.0.1:<port>` before auth, so Google sign-in and the session cookie stay on one origin. The sign-in page
+  now says this clearly.
+
 ## 0.10.1 (2026-11-15)
 
 ### Security

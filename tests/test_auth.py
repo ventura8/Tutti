@@ -406,6 +406,15 @@ class ServerTest(unittest.TestCase):
         self.assertFalse(json.loads(self.get('/api/auth/me')[1])['signed_in'])
         self.assertEqual(self.post('/api/autopilot', {'enabled': True})[0].status, 401)
 
+    def test_localhost_redirects_to_the_canonical_loopback_origin(self):
+        c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+        c.request('GET', '/login?x=1', headers={'Host': f'localhost:{self.port}'})
+        r = c.getresponse()
+        r.read()
+        c.close()
+        self.assertEqual(r.status, 302)
+        self.assertEqual(r.getheader('Location'), f'http://127.0.0.1:{self.port}/login?x=1')
+
     def test_a_pending_user_is_blocked(self):
         self.assertEqual(self.get('/api/state', self.pending)[0].status, 403)
         r, page = self.get('/', self.pending)

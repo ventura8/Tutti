@@ -28,6 +28,14 @@ function fail(text) {
     $('login-error').hidden = false;
 }
 
+function showCanonicalOrigin() {
+    if (location.hostname !== '127.0.0.1') return;
+    const host = location.port ? `127.0.0.1:${location.port}` : '127.0.0.1';
+    $('login-canonical').textContent =
+        `This dashboard keeps sign-in on http://${host}; localhost and [::1] redirect here so one session cookie is reused.`;
+    $('login-canonical').hidden = false;
+}
+
 async function post(path, body, token) {
     const res = await fetch(path, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': token || '' }, body: JSON.stringify(body),
@@ -151,6 +159,7 @@ function showJoin() {
 }
 
 async function start() {
+    showCanonicalOrigin();
     showJoin();
     const me = await fetch('/api/auth/me', { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
     if (!me) { fail('The dashboard is not answering: start it again (`tutti dashboard`), then reload.'); return; }

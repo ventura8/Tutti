@@ -345,6 +345,13 @@ def allowed_host(host, port, origins=()):
     return host in (f'127.0.0.1:{port}', f'localhost:{port}', f'[::1]:{port}') or host in {urlsplit(o).netloc for o in origins}
 
 
+def canonical_redirect(host, port, path):
+    """The canonical loopback URL for this request, or None when no redirect is needed."""
+    if host not in (f'localhost:{port}', f'[::1]:{port}'):
+        return None
+    return f'http://127.0.0.1:{port}{path}'
+
+
 def bind_of(cfg):
     return (cfg.get('dashboard') or {}).get('bind') or BIND
 
@@ -1085,11 +1092,21 @@ def make_handler(collector, token):
         def fail(self, code, text):
             self.send(code, json.dumps({'error': text}).encode(), JSON_TYPE)
 
+        def moved(self, where):
+            self.send_response(302)
+            for k, v in response_headers(302, b'', JSON_TYPE, 'no-store', {'Location': where}):
+                self.send_header(k, v)
+            self.end_headers()
+
         def do_HEAD(self):
             self.do_GET()
 
         def do_GET(self):
-            if not allowed_host(self.headers.get('Host', ''), self.server.server_address[1], reach_origins(collector)):
+            host, port = self.headers.get('Host', ''), self.server.server_address[1]
+            where = canonical_redirect(host, port, self.path)
+            if where:
+                return self.moved(where)
+            if not allowed_host(host, port, reach_origins(collector)):
                 return self.fail(403, 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)')
             path = self.path.split('?', 1)[0]
             self.send(*reported('dashboard-get', authweb.get, getattr(self.server, 'auth', None), path, self.headers,

@@ -571,7 +571,7 @@ function pips(m) {
 
 function slotText(m) {
     if (m.free === null) return `${plural(m.slots, 'slot')}`;
-    const held = m.held_back ? ` (${m.held_back} held back: ${m.status === 'paused' ? 'yield flag' : `share ${tuttiPct(m.use_pct)}`})` : '';
+    const held = m.held_back ? ` (${m.held_back} held back: ${m.use_why || `share ${tuttiPct(m.use_pct)}`})` : '';
     return `${m.free} of ${plural(m.slots, 'slot')} free${held}`;
 }
 

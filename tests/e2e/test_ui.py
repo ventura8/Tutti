@@ -340,9 +340,12 @@ class Roles(unittest.TestCase):
         for i, m in enumerate(items):
             card = cards.nth(i)
             self.assertEqual(card.locator('.pip').count(), m['slots'])
-            self.assertEqual(card.locator(".pip[data-busy='true']").count(), m['busy'])
-            self.assertEqual(card.locator(".pip[data-held='true']").count(), m['held_back'])
-            self.assertIn(f"{m['free']} of {m['slots']} slot", card.text_content())
+            if m['free'] is None:   # not reachable: dashed boxes and the slot count only
+                self.assertEqual(card.locator(".pip[data-off='true']").count(), m['slots'])
+            else:
+                self.assertEqual(card.locator(".pip[data-busy='true']").count(), m['busy'])
+                self.assertEqual(card.locator(".pip[data-held='true']").count(), m['held_back'])
+                self.assertIn(f"{m['free']} of {m['slots']} slot", card.text_content())
             win = card.get_by_label(f"{m['name']}: limited hours, HH-HH")
             self.assertTrue(win.is_editable())
             if not m.get('limit'):

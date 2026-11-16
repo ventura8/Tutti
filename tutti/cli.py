@@ -809,8 +809,8 @@ def cmd_selfheal(cfg, a):
     if a.json:
         print(json.dumps(v))
         return 0
-    say(f'self-healed: {v["today"]} today')
-    for r in v['items']:
+    say(f'self-healed: {v["today"]} repair(s) today, {v["tidied"]} routine clean-up(s)')
+    for r in [*v['items'], *v['tidy_items']]:
         say(f'  {time.strftime("%H:%M", time.localtime(r["at"]))} {r["host"]} {r["check"]}: {r["what"]}')
     return 0
 

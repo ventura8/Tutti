@@ -331,7 +331,8 @@ def test_on_runner(cfg, a, runner):
 
     from . import devicescmd
     holds = list(getattr(a, 'hold_device', None) or [])
-    lease = argparse.Namespace(names=[a.device, *holds, '--', command_line([w for w in a.command if w != '--'])], runner=runner,
+    words = a.command[1:] if a.command[:1] == ['--'] else a.command   # only a leading separator: the command keeps its own
+    lease = argparse.Namespace(names=[a.device, *holds, '--', command_line(words)], runner=runner,
                                who=f'test-{a.track}', minutes=None, action='claim')
     return devicescmd.lease_on_runner(cfg, lease)
 
@@ -357,10 +358,13 @@ def late_options(a):
 
 
 def command_line(words):
-    """One shell line from the command words: a single word is the line as written (a quoted string); several are quoted
-    each (shlex.join), so an argument with spaces or quotes reaches the machine whole."""
+    """One shell line from the command words: a single word is the line as written (a quoted string); of several, a word
+    with a space or a quote is quoted (it reaches the machine whole) and every other word stays raw, so `&&`, `|`, `>`
+    and `$ANDROID_SERIAL` keep working as before."""
     import shlex
-    return words[0] if len(words) == 1 else shlex.join(words)
+    if len(words) == 1:
+        return words[0]
+    return ' '.join(shlex.quote(w) if re.search(r'[\s\'"]', w) or not w else w for w in words)
 
 
 WINDOWS_PATH = re.compile(r'^([A-Za-z]):[\\/](.*)$')

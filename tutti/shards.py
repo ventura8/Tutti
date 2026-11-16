@@ -116,8 +116,8 @@ def started_marker():
 
 # a run whose filter matched no test (`0 tests match`, `No tests found`): a FAIL in every suite (verdict.none replaces it,
 # '' turns it off)
-NO_TESTS = (r'\b0 tests? (?:match|matched|ran|run|found|executed)\b|\bno tests? (?:match|matched|found|ran|to run)\b'
-            r'|\b(?:total|tests run): 0\b')
+NO_TESTS = r'\b0 tests? (?:match|matched|found|executed)\b|\bno tests? (?:match|matched|found|to run)\b'
+NO_TESTS_TAIL = 30   # only the end of the log: a summary, never one empty module's line earlier in a multi-module run
 
 
 def _after_start(s, log):
@@ -141,7 +141,8 @@ def judge(s, log, rc):
         if m:
             return f'{REQUEUE} the run printed "{m.group(0)[:120]}": queued again, not a failure'
     v = s.get('verdict') or {}
-    if rc in (0, None) and re.search(v.get('none', NO_TESTS) or r'$^', log or '', re.I):
+    tail = '\n'.join((log or '').splitlines()[-NO_TESTS_TAIL:])
+    if rc in (0, None) and re.search(v.get('none', NO_TESTS) or r'$^', tail, re.I):
         return 1   # a filter that matched no test passed nothing: a FAIL, never a green run
     if rc not in (0, None) or not v:
         return rc

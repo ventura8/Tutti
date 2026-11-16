@@ -126,10 +126,6 @@ class YieldTest(unittest.TestCase):
             self.assertEqual(devicescmd.lease_on_runner(cfg, a), 3)
 
 
-if __name__ == '__main__':
-    unittest.main()
-
-
 class TestCommandWords(unittest.TestCase):
     def test_options_after_the_track_are_options(self):
         from tutti import cli
@@ -138,6 +134,7 @@ class TestCommandWords(unittest.TestCase):
         cli.late_options(a)
         self.assertEqual((a.on, a.fetch, a.command), ('w5090-win', ['C:\\x\\r.txt'], ['pwsh', '-c', 'a b']))
         self.assertEqual(cli.command_line(a.command), "pwsh -c 'a b'")
+        self.assertEqual(cli.command_line(['make', '&&', 'run', '$ANDROID_SERIAL', '--', '-x']), 'make && run $ANDROID_SERIAL -- -x')
         self.assertEqual(cli.command_line(['echo "x y"']), 'echo "x y"')
 
     def test_windows_paths_and_the_project_tree(self):
@@ -163,3 +160,7 @@ class TestCommandWords(unittest.TestCase):
             self.assertEqual(cli.fetch_windows({'name': 'pc'}, 'C:\\a\\res.txt', d), 0)
             with open(os.path.join(d, 'res.txt'), 'rb') as f:
                 self.assertEqual(f.read(), b'ok')
+
+
+if __name__ == '__main__':
+    unittest.main()

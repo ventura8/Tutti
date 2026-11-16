@@ -118,8 +118,8 @@ A suite can also say how to build and how to read its output:
 - `prepare: {run, where}`: the build, run once per commit before any shard of the suite (`tutti dispatch build`). Its shards
   wait until it passes. A failed build holds them with its reason and is tried again after 30 minutes or on a new commit.
 - `verdict: {pass, fail, none}` (regexes): for a runner that always exits 0. The run fails when `fail` matches, or when
-  `pass` never appears. A run whose filter matched no test (`0 tests match`, `No tests found`, `Total: 0`) fails in every
-  suite, whatever its exit code: `none` replaces that pattern, `none: ''` turns it off.
+  `pass` never appears. A run whose filter matched no test (`0 tests match`, `No tests found`) fails in every
+  suite, whatever its exit code (read in the last 30 lines, the summary): `none` replaces that pattern, `none: ''` turns it off.
 - `started: {pattern, within_seconds}`: the tests must start in time. The clock starts at the device lock's
   `tutti: device ready` line. A run that never starts is stopped and queued again, not counted as a failure, and the device
   is left alone for `dispatch.requeue_cooldown_minutes` (10).
@@ -160,8 +160,8 @@ tutti test RoRadio --device pixeltablet -- 'powershell.exe -NoProfile -Command "
 
 `tutti test <Project> --on <machine> -- <command>` with `projects.<p>.windows.<machine>: C:\...` runs in that Windows
 tree as it is (seen from WSL as `/mnt/c/...`), never synced. Options may follow the track (`tutti test RoRadio --on
-w5090-win --fetch C:\R\out.txt -- <command>`); several command words are quoted one by one (`shlex.join`), one word is
-the line as written; a `--fetch` of a Windows path is copied from where it is.
+w5090-win --fetch C:\R\out.txt -- <command>`); of several command words, one with a space or a quote is quoted and the
+others stay raw (`&&`, `|`, `$VAR` still work); one word is the line as written; a `--fetch` of a Windows path is copied from where it is.
 
 ## Dedicated machines
 

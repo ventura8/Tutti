@@ -69,7 +69,9 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(shards.judge(s, '[E2E] 0 tests match "Foo"\n[E2E] summary', 0), 1)
         self.assertEqual(shards.judge({}, 'No tests found for filter', 0), 1)
         self.assertEqual(shards.judge({}, '12 tests ran', 0), 0)
-        self.assertEqual(shards.judge({'verdict': {'none': ''}}, '0 tests ran', 0), 0)
+        early = 'module-a: No tests found\n' + 'ok\n' * 40 + 'BUILD SUCCESSFUL'
+        self.assertEqual(shards.judge({}, early, 0), 0)   # one empty module early in the log is not the summary
+        self.assertEqual(shards.judge({'verdict': {'none': ''}}, '0 tests matched', 0), 0)
 
     def test_another_app_counts_only_after_the_runner_started(self):
         s = {'started': {'pattern': 'Unlocked; running', 'within_seconds': 180}, 'requeue_on': ['Another app in front']}

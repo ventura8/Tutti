@@ -18,7 +18,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   (`value: keep` prep items), whatever the test changed them to.
 - `projects.<p>.runner`: the default runner of a project's suites; a runner lease checks the runner's adb reaches each
   device (`get-state`) before running, and `tutti test <Project> --device <d> -- <command>` runs there unsynced.
-- `tutti test`: options may follow the track; several command words keep their quoting (`shlex.join`); a project's
+- `tutti test`: options may follow the track; a command word with a space or quote is quoted, the others stay raw; a project's
   `windows.<machine>` tree is used as it is with `--on <machine>`; `--fetch` of a Windows path copies it from where it is.
 - `machines.<m>.dedicated`: a machine only the suites naming it use (never the work queue or an open suite), for a
   Windows desktop's UI runs beside the same PC's container machine.
@@ -26,7 +26,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Changed
 
-- A run whose filter matched no test (`0 tests match`, `No tests found`) is a FAIL in every suite, even with exit 0
+- A run whose filter matched no test (`0 tests match`, `No tests found`) is a FAIL in every suite, even with exit 0 (the last 30 lines)
   (`verdict.none` replaces the pattern).
 - `requeue_on` patterns count only after the suite's `started` line: an app in front while the runner was still starting is
   no reason to queue again.

@@ -6,6 +6,16 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.23.5 (2026-11-16)
+
+### Added
+
+- docs/API.md: the API reference. Every `tutti` subcommand with its arguments and defaults, the exit codes, the dashboard's
+  HTTP routes (method, role, request and answer JSON, errors; LAN or VPN only), the household coordinator's calls, the MCP
+  tools with their parameters and roles, every config key with its type, default and who may change it, and the Python
+  modules. The CLI, MCP and config parts are generated from the code (`python3 -m tutti.apidoc --write`), and
+  tests/test_apidoc.py fails when a subcommand, route or tool is missing from it or a generated part is stale.
+
 ## 0.23.4 (2026-11-16)
 
 ### Fixed

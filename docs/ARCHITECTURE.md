@@ -114,6 +114,8 @@ flowchart TD
 
 ## Modules
 
+The public surfaces (the CLI, the HTTP routes, the MCP tools, the config keys) are listed in [API.md](API.md).
+
 | File | Owns |
 | --- | --- |
 | `tutti/config.py` | Finding (`$TUTTI_CONFIG`, then `$XDG_CONFIG_HOME/tutti/config.yaml`, then the nearest file), loading, defaulting and validating; `write_text` saves through a symlink into the real file, atomically. Every error names its key and the fix. |
@@ -121,6 +123,7 @@ flowchart TD
 | `tutti/configone.py` | One config per user: other copies that differ (doctor, Settings) and their merge into the one in use, each copy then a symlink to it. |
 | `tutti/devicecard.py` | One card per Android device on the dashboard: its one status (the pause switch and the idle watchdog folded in), why, what waits on it, its action, its reroute line, plain durations and temperatures labelled by sensor (skin or SoC, battery only when present). |
 | `tutti/power.py` | Measured machine power (a short benchmark, weekly), headroom now and the effective power dispatch orders by; heavy shards to strong machines, light to weak; a task's difficulty matched to the weakest local model tier that meets it, escalated after a failure. |
+| `tutti/apidoc.py` | docs/API.md's generated parts (CLI, MCP tools, config keys, from the code) and its check that every CLI subcommand, HTTP route and MCP tool is documented (`python3 -m tutti.apidoc --write`). |
 | `tutti/routing.py` | Pure fall-over logic over `Probe`s. No I/O, so it is unit-tested exhaustively. |
 | `tutti/remote.py` | Transports (`local`, `ssh`, `wsl`), the probe, the tree copy, the runner line, the yield flag. |
 | `tutti/pacing.py` | Quota windows, the target time, the verdict and the report. Pure apart from the log file. |

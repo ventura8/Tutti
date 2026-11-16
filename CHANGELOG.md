@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.21.3 (2026-11-16)
+
+### Fixed
+
+- The Windows clean-up no longer runs `dotnet nuget locals all --clear`, which emptied the global packages folder that
+  builds compile against (RoRadio's pipeline then failed with WMC0621, GenXbf.dll missing). It clears only NuGet's
+  http-cache and temp folders.
+
 ## 0.21.2 (2026-11-16)
 
 ### Fixed

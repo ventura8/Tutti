@@ -1,6 +1,7 @@
 """Machine hygiene (tutti/hygiene.py, tutti/hygienecheck.py): yield flags expire, a hung WSL is restarted, disks are watched
 and cleaned, never an image a project needs and never while the machine is held. Fake machines only: no shell reaches a
 real machine or Docker."""
+import base64
 import json
 import os
 import subprocess
@@ -340,6 +341,16 @@ class YieldCli(unittest.TestCase):
         with mock.patch.object(cli, 'say') as say:
             self.assertEqual(cli.cmd_yield(cfg, a), 1)
         self.assertIn('tutti yield on', say.call_args[0][0])
+
+
+class NugetPackagesKept(unittest.TestCase):
+    def test_the_windows_clean_never_empties_the_nuget_packages_folder(self):
+        command = hygiene.windows_clean([])
+        self.assertIn('-EncodedCommand ', command)
+        script = base64.b64decode(command.split('-EncodedCommand ', 1)[1]).decode('utf-16-le')
+        self.assertNotIn('locals all', script)
+        self.assertNotIn('global-packages', script)
+        self.assertIn('locals http-cache --clear', script)
 
 
 if __name__ == '__main__':

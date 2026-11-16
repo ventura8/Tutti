@@ -11,7 +11,8 @@ POLL = 5
 
 def wrap(command, user, cwd='', before=''):
     """The bash line (run in the PC's WSL, with Windows interop) that runs `command` (a cmd.exe line) in `user`'s
-    interactive session and exits with its exit code. `before` runs first in bash (a yield-flag check); what it puts in $tutti_after runs at the end."""
+    interactive session and exits with its exit code. `before` runs first in bash (a yield-flag check);
+    what it puts in $tutti_after runs at the end."""
     q = shlex.quote
     name = 'tutti-ui-$$'
     d = f'/mnt/c/Users/{user}/AppData/Local/Temp/{name}'

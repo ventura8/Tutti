@@ -414,5 +414,107 @@ class Roles(unittest.TestCase):
             ctx.close()
 
 
+def wizard_steps(page):
+    page.wait_for_selector('#wizard-step-h', state='visible')
+    return page.locator('.wizard__stepbtn').count()
+
+
+def open_step(page, i):
+    page.locator('.wizard__stepbtn').nth(i).click()
+    page.wait_for_timeout(100)
+
+
+class SetupWizard(unittest.TestCase):
+    """The Setup wizard (#setup, docs/SETUP-WIZARD.md): every step at every width and theme, axe, the keyboard, Apply's
+    good and bad answers, and a viewer's locked steps."""
+    maxDiff = None
+
+    def test_every_step_width_and_theme(self):
+        problems = {}
+        for width in WIDTHS:
+            for theme in THEMES:
+                ctx = new_context(ADMIN, width, theme)
+                page = open_view(ctx, '#setup')
+                for i in range(wizard_steps(page)):
+                    open_step(page, i)
+                    found = page.evaluate('tuttiChecks.layout()')
+                    if found:
+                        problems[f'step {i + 1} {width} {theme}'] = found
+                    if width in ('phone', 'laptop'):
+                        found = axe(page)
+                        if found:
+                            problems[f'axe step {i + 1} {width} {theme}'] = found
+                    shot(page, f'admin-wizard-{i + 1}-{width}-{theme}')
+                self.assertEqual(page.errors, [], f'script errors on the wizard at {width} {theme}')
+                ctx.close()
+        self.assertEqual(problems, {})
+
+    def test_settings_links_the_wizard_and_the_main_step_lists_discovered_machines(self):
+        ctx = new_context(ADMIN)
+        page = open_view(ctx, '#settings')
+        page.click('#settings-wizard')
+        wizard_steps(page)
+        self.assertTrue(page.is_visible('#wizard-view'))
+        self.assertFalse(page.is_visible('#settings-view'))
+        open_step(page, 1)
+        text = page.text_content('#wizard-body')
+        for name in ('builder', 'gpu-box', 'spare-box-with-a-long-name'):
+            self.assertIn(name, text)
+        self.assertIn('ssh-copy-id tablet.example', text)   # on Tailscale only: needs ssh first, with the command
+        self.assertNotIn('token', text.lower())
+        ctx.close()
+
+    def test_keyboard_reaches_every_control_of_a_step_and_never_traps(self):
+        ctx = new_context(ADMIN)
+        page = open_view(ctx, '#setup')
+        wizard_steps(page)
+        open_step(page, 2)
+        want = page.evaluate('tuttiChecks.tabbables()')
+        page.evaluate('tuttiChecks.startAtTop()')
+        reached = []
+        for _ in range(2 * len(want) + 10):
+            page.keyboard.press('Tab')
+            at = page.evaluate('tuttiChecks.active()')
+            if at == 'body' or (reached and at == reached[0]):
+                break
+            self.assertTrue(page.evaluate('tuttiChecks.focusShown()'), f'no focus indicator on {at}')
+            reached.append(at)
+        else:
+            self.fail('a keyboard trap in the wizard')
+        self.assertEqual([w for w in want if w not in reached], [])
+        ctx.close()
+
+    def test_a_bad_value_is_refused_with_its_reason_and_a_skip_is_recorded(self):
+        ctx = new_context(ADMIN)
+        page = open_view(ctx, '#setup')
+        wizard_steps(page)
+        open_step(page, 2)   # machines
+        page.fill('#wiz-machines-builder-quiet_hours', '25:00-07:00')
+        page.click('#wizard-apply')
+        page.wait_for_function("document.getElementById('wizard-msg').dataset.tone === 'bad'")
+        self.assertIn('machines.builder.quiet_hours', page.text_content('#wizard-msg'))
+        open_step(page, 5)   # devices
+        page.click('#wizard-skip')
+        page.wait_for_function("document.getElementById('wizard-msg').dataset.tone === 'ok'")
+        self.assertIn('skipped', page.text_content('#wizard-msg'))
+        self.assertIn('Skipped', page.locator('.wizard__stepbtn').nth(5).text_content())
+        ctx.close()
+
+    def test_a_viewer_sees_household_steps_locked_and_cannot_post(self):
+        ctx = new_context(VIEWER)
+        page = open_view(ctx, '#setup')
+        wizard_steps(page)
+        open_step(page, 1)
+        self.assertIn('Admin only', page.text_content('#wizard-body'))
+        self.assertEqual(page.locator('#wizard-apply').count(), 0)
+        self.assertFalse(page.is_visible('#wizard-detect'))
+        html = page.request.get(f'{World.dash.base}/').text()
+        csrf = re.search(r'name="tutti-token" content="([^"]*)"', html).group(1)
+        r = page.request.post(f'{World.dash.base}/api/wizard', data='{"step": "main", "data": {"main": "builder"}}',
+                              headers={'Content-Type': 'application/json', 'Origin': World.dash.base, 'X-Tutti-Token': csrf})
+        self.assertEqual(r.status, 403)
+        ctx.close()
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -902,3 +902,28 @@ summary { padding-block: 2px; }
 /* a select with a long option ("No: they wait for my welcome-back summary") never runs past its box on a phone */
 select { max-width: 100%; text-overflow: clip; }
 .device__notes { grid-column: 1 / -1; list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; }
+
+/* ---- the Setup wizard (#setup, wizard.js): the steps beside the open one on a wide screen, above it on a phone */
+.wizard { max-width: 1100px; margin: 0 auto; display: grid; gap: var(--gap); }
+.wizard[hidden] { display: none; }
+.wizard__msg:empty { display: none; }
+.wizard__body { display: grid; gap: var(--gap); grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 900px) { .wizard__body { grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr); } }
+.wizard__steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.wizard__stepbtn {
+    width: 100%; min-height: 44px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px;
+    padding: 6px 12px; font: inherit; text-align: start; color: var(--on-surface); background: var(--surface-1);
+    border: 1px solid var(--outline-2); border-radius: var(--r-m); cursor: pointer; overflow-wrap: anywhere;
+}
+.wizard__stepbtn[aria-current='step'] { border-color: var(--accent-line); background: var(--accent-c); font-weight: 600; }
+.wizard__step h3 { font-size: 1.125rem; font-weight: 600; }
+.wizard__form { display: grid; gap: 16px; margin-top: 16px; }
+.wizard__field { display: grid; gap: 6px; min-width: 0; border: 0; margin: 0; padding: 0; }
+.wizard__field legend, .wizard__field > label { font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
+.wizard__option { display: flex; align-items: flex-start; gap: 10px; min-height: 32px; min-width: 0; }
+.wizard__option input { width: 20px; height: 20px; margin-top: 2px; flex: none; accent-color: var(--accent-line); }
+.wizard__option label { min-width: 0; overflow-wrap: anywhere; }
+.wizard__option .row__note { display: inline; }
+.wizard__cmd { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wizard__cmd code { overflow-wrap: anywhere; min-width: 0; }
+.wizard__actions { display: flex; flex-wrap: wrap; gap: 8px 12px; }

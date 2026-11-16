@@ -102,6 +102,24 @@ class ParseTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'command.data.groups'):
             readers.agy_usage({'response': 'text'}, '3p-5h')
 
+    def test_a_disabled_bucket_without_reset_time_waits_for_the_weekly(self):
+        live = {'command': {'name': 'usage', 'data': {'groups': [
+            {'name': 'Gemini Models', 'buckets': [bucket('gemini-5h', 1, '2026-11-16T17:00:00Z'),
+                                                  bucket('gemini-weekly', 1, '2026-11-21T12:00:00Z')]},
+            {'name': 'Claude and GPT models', 'buckets': [
+                {'id': '3p-5h', 'disabled': True, 'remaining_fraction': 1},
+                bucket('3p-weekly', 0, '2026-11-21T12:09:39Z')]},
+        ]}}}
+        self.assertEqual(readers.agy_usage(live, '3p-5h'), (100.0, T('2026-11-21T12:09:39Z')))
+        self.assertEqual(readers.agy_usage(live, 'gemini-5h')[0], 0.0)
+        lone = {'command': {'data': {'groups': [{'buckets': [{'id': 'x', 'remaining_fraction': 0.5}]}]}}}
+        self.assertEqual(readers.agy_usage(lone, 'x'), (50.0, None))
+        live_no_reset = {'command': {'data': {'groups': [{'buckets': [{'id': 'x', 'remaining_fraction': 0.5},
+                                                                     bucket('x-weekly', 1, '2026-11-21T12:00:00Z')]}]}}}
+        self.assertEqual(readers.agy_usage(live_no_reset, 'x'), (50.0, None))
+        with self.assertRaises(KeyError):
+            readers.agy_usage({'command': {'data': {'groups': [{'buckets': [{'id': 'x'}]}]}}}, 'x')
+
     def test_a_window_not_started_yet_starts_now(self):
         self.assertEqual(readers.not_started(NOW + timedelta(hours=5, seconds=4), '5h', NOW), NOW + timedelta(hours=5))
         self.assertEqual(readers.not_started(NOW + timedelta(hours=2), '5h', NOW), NOW + timedelta(hours=2))
@@ -179,6 +197,15 @@ class ReadersTest(unittest.TestCase):
         self.assertIn('accounts.cursor.plan', out['cursor']['problem'])
         r2 = self.fake({'agy': ({'command': {'data': {'groups': []}}}, None), 'cursor-agent': ({'subscriptionTier': 'Pro'}, None)})
         self.assertIn('accounts.agy-claude.reader: no bucket', r2.read_all()['agy-claude']['problem'])
+        r3 = self.fake({'agy': ({'command': {'data': {'groups': []}}}, None), 'cursor-agent': ({'subscriptionTier': 'Pro'}, None)})
+        with mock.patch.object(r3, 'read', side_effect=lambda n, *a, **k: (_ for _ in ()).throw(RuntimeError('boom'))
+                               if n == 'cursor' else {'problem': None}):
+            out = r3.read_all()
+        self.assertIn('boom', out['cursor']['problem'])
+        self.assertIn('agy-gemini', out)
+        self.assertEqual(readers.Readers.parse({'bucket': 'x'}, {'window': '5h'},
+                                               {'command': {'data': {'groups': [{'buckets': [{'id': 'x', 'remaining_fraction': 1}]}]}}},
+                                               NOW), (0.0, None))
 
     def test_record_keeps_only_readings_that_say_something_new_and_each_limit_once(self):
         path = self.cfg['usage']['log']

@@ -122,9 +122,20 @@ def agy_usage(data, bucket):
         for b in (g or {}).get('buckets') or []:
             seen.append(str(b.get('id')))
             if b.get('id') == bucket:
-                used = round(100.0 * (1.0 - float(b['remaining_fraction'])), 1)
-                return used, pacing.parse_time(b['reset_time'])
+                return bucket_usage(g, b)
     raise ValueError(f'no bucket "{bucket}" in the answer; the buckets are {", ".join(seen) or "(none)"}')
+
+
+def bucket_usage(group, b):
+    """(used %, reset) of one agy bucket. A `disabled` bucket (agy turns the 5h window off while the group's weekly is spent)
+    counts as 100 % used until the group's weekly bucket resets; any other bucket without `reset_time` reads with reset None."""
+    used = 100.0 if b.get('disabled') else round(100.0 * (1.0 - float(b['remaining_fraction'])), 1)
+    reset = b.get('reset_time')
+    if b.get('disabled'):
+        weekly = [w['reset_time'] for w in (group or {}).get('buckets') or []
+                  if w is not b and 'weekly' in str(w.get('id')) and w.get('reset_time')]
+        reset = max(weekly, key=pacing.parse_time) if weekly else reset
+    return used, pacing.parse_time(reset) if reset else None
 
 
 def github_premium(data, allowance, now):
@@ -325,12 +336,23 @@ class Readers:
                 return used, None
         else:
             used, resets = agy_usage(data, r['bucket'])
+        if resets is None:
+            return used, None
         return used, not_started(resets, a.get('window'), now)
 
     def read_all(self, now=None, force=False):
         """Every account with a reader or plan. Pass the `now` the readings will be recorded at."""
         accounts = {n: a or {} for n, a in self.cfg['accounts'].items()}
-        return {n: self.read(n, a, now, force) for n, a in accounts.items() if a.get('reader') or a.get('plan')}
+        out = {}
+        for n, a in accounts.items():
+            if not (a.get('reader') or a.get('plan')):
+                continue
+            try:
+                out[n] = self.read(n, a, now, force)
+            except Exception as e:   # one broken account never stops the others' readings
+                out[n] = {'plan': None, 'used': None, 'resets': None, 'every_minutes': None,
+                          'problem': f'accounts.{n}: {type(e).__name__}: {e}'}
+        return out
 
     def scan_jobs(self, now, folder=None):
         """[(account, reset, ref, text)] for limit messages in recent `tutti quiet` logs of CLI-agent jobs not scanned yet."""

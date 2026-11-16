@@ -17,6 +17,11 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   (local first, online within pacing; only lines naming an issue in the report, held for the owner's approval), and the
   design review carries focus questions a local model drafted once a day.
 
+### Fixed
+
+- The unblocker forgives usage-limit attempts at most once a day per task, and only an hour after the last limit: forgiving
+  faster fed a loop on a capped model (t12 went from 13 to 18 attempts on a spent per-model cap within the hour).
+
 ## 0.17.0 (2026-11-16)
 
 ### Added

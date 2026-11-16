@@ -120,6 +120,16 @@ class Finds(Base):
         self.assertEqual(unblocker.apply(self.cfg, {'id': 't99', 'kind': 'failing'}, {}, NOW), 'changed meanwhile: left as it is')
 
 
+    def test_usage_limits_are_forgiven_once_a_day_and_only_after_they_settle(self):
+        tid = self.task('Add tests', attempts=[{**a, 'at': NOW - 600} for a in fails('usage limit', 'usage limit', 'usage limit')])
+        self.assertEqual(unblocker.find(backlog.load(self.cfg), NOW), [])   # the last limit is 10 minutes old
+        t = self.get(tid)
+        log = [{'id': tid, 'at': NOW - 3600}]
+        self.assertEqual(unblocker.find(backlog.load(self.cfg), NOW + 3600, log), [])   # forgiven an hour ago
+        self.assertEqual(len(unblocker.find(backlog.load(self.cfg), NOW + 2 * 86400, log)), 1)
+        self.assertEqual(t['status'], 'queued')
+
+
 class Limits(Base):
     def test_only_the_active_main_acts(self):
         self.task('X', attempts=fails('usage limit', 'usage limit', 'usage limit'))

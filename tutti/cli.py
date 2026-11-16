@@ -1225,14 +1225,19 @@ def session_change(task, a):
             raise backlog.BacklogError(f'claim: say who works on it: tutti backlog claim {task["id"]} --who <session>')
         if task['status'] == 'claimed' and task.get('claimed_by') != who:
             raise backlog.BacklogError(f'{task["id"]} is claimed by {task["claimed_by"]}: pick another task, or ask them to release it')
-        if task['status'] not in ('queued', 'claimed', 'needs-person', 'review', 'candidate'):
-            raise backlog.BacklogError(f'{task["id"]} is {task["status"]}: only an open task is claimed '
-                                       '(`tutti backlog retry` reopens one)')
-        task.update(status='claimed', claimed_by=who, claimed_at=time.time(), parked=None)
+        fixes = {'needs-person': f'answer its question first (tutti needs answer {task.get("question") or "<id>"})',
+                 'candidate': f'accept it first (tutti backlog accept {task["id"]})'}
+        if task['status'] not in ('queued', 'claimed', 'review'):
+            raise backlog.BacklogError(f'{task["id"]} is {task["status"]}: only a queued or reviewed task is claimed; '
+                                       + fixes.get(task['status'], '`tutti backlog retry` reopens one'))
+        task.update(status='claimed', claimed_by=who, claimed_at=time.time(), closed_at=None)
     else:
         if task['status'] != 'claimed':
             raise backlog.BacklogError(f'{task["id"]} is {task["status"]}, not claimed: nothing to release')
-        task.update(status='queued', claimed_by=None)
+        if task.get('claimed_by') != who:
+            raise backlog.BacklogError(f'{task["id"]} is claimed by {task.get("claimed_by")}, not {who or "(no --who)"}: only that '
+                                       'session releases it')
+        task.update(status='queued', claimed_by=None, closed_at=time.time())
     print(f'{task["id"]}: {task["status"]}' + (f' by {who}' if task['status'] == 'claimed' else ''))
     return 0
 
@@ -1255,14 +1260,19 @@ def cmd_lease(cfg, a):
                 lease = intake.claim(data, a.kind, a.name, who, a.task, a.minutes, now)
             else:
                 lease = intake.release(data, a.kind, a.name, who)
+            if a.kind == 'device':   # the device's own lease too; refused there, the session lease is not kept either
+                from . import devicescmd
+                rc = devicescmd.cmd_claim(cfg, argparse.Namespace(action=a.action, names=[a.name], who=who, minutes=a.minutes))
+                if rc not in (0, None):
+                    key = intake.lease_key(a.kind, a.name)
+                    if a.action == 'claim':
+                        data.pop(key)
+                    else:
+                        data[key] = lease
+                    return rc
     except intake.IntakeError as e:
         say(str(e))
         return 2
-    if a.kind == 'device':   # the device's own lease too, so its settings stay while the session uses it
-        from . import devicescmd
-        rc = devicescmd.cmd_claim(cfg, argparse.Namespace(action=a.action, names=[a.name], who=who, minutes=a.minutes))
-        if rc not in (0, None):
-            return rc
     print(f'{a.kind} {a.name}: {"leased to " + who if a.action == "claim" else "released"}'
           + (f' for {lease["task"]}' if lease.get('task') else ' (no task: it shows as work outside Tutti)'))
     return 0

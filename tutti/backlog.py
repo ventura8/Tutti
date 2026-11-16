@@ -23,7 +23,7 @@ SIZES = {'S': 1, 'M': 2, 'L': 3}   # what a task costs in bounded-task units of 
 # suggestion (a scout's Sentry triage while self-improvement is off) that waits for `tutti backlog accept <id>`; claimed: a
 # session (a Claude Code window, a person's agent) works on it by hand through `tutti backlog claim` (docs/INTAKE.md)
 STATUSES = ('candidate', 'queued', 'claimed', 'running', 'review', 'needs-person', 'done', 'dropped')
-OPEN = ('queued', 'running')
+OPEN = ('queued', 'claimed', 'running')
 TODO_RX = r'\b(TODO|FIXME)\(([A-Za-z0-9_.@-]+)\):?\s*(.*)'
 TODO_ERE = r'(TODO|FIXME)\([A-Za-z0-9_.@-]+\)'   # the same for git grep -E
 

@@ -23,6 +23,7 @@ WINDOW_HOURS = 24          # how far back the guard looks
 CACHE_SECONDS = 300        # git is read at most this often for the dashboard
 TASK_RX = re.compile(r'\b(t\d{1,6})\b')
 TUTTI_BRANCHES = ('autopilot/', 'tutti/', 'ap-', 'tutti-run-')
+TUTTI_REFS = [f'refs/{k}/{b}*' for k in ('heads', 'remotes/*') for b in TUTTI_BRANCHES]
 BOT_AUTHORS = ('[bot]', 'dependabot', 'renovate')
 MARK_START = '<!-- tutti:all-work-through-tutti -->'
 MARK_END = '<!-- /tutti:all-work-through-tutti -->'
@@ -183,7 +184,7 @@ def outside_leases(leases, tasks, now):
 
 
 def parse_log(text):
-    """Commits from `git log --source --format=%H%x1f%ct%x1f%an%x1f%D, %S%x1f%B%x1e` (%S: the branch it was reached by)."""
+    """Commits from `git log --source --format=%H%x1f%ct%x1f%an%x1f%S%x1f%B%x1e` (%S: the branch it was reached by)."""
     out = []
     for rec in text.split('\x1e'):
         parts = rec.strip('\n').split('\x1f')
@@ -197,8 +198,9 @@ def parse_log(text):
 
 def scan_repo(path, hours=WINDOW_HOURS, run=subprocess.run):
     try:
-        p = run(['git', '-C', path, 'log', '--all', '--source', f'--since={hours} hours ago',
-                 '--format=%H%x1f%ct%x1f%an%x1f%D, %S%x1f%B%x1e'],
+        # Tutti's own branches left out: a hand commit reached through one of them never passes for Tutti's
+        p = run(['git', '-C', path, 'log', *[f'--exclude={x}' for x in TUTTI_REFS], '--all', '--source', f'--since={hours} hours ago',
+                 '--format=%H%x1f%ct%x1f%an%x1f%S%x1f%B%x1e'],
                 capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -231,8 +233,30 @@ def view(cfg, now=None, run=subprocess.run):
     hit = _CACHE.get(key)
     if hit and now - hit['at'] < CACHE_SECONDS:
         return hit
-    _CACHE[key] = report(cfg, now, run)
+    _CACHE[key] = public(report(cfg, now, run))
     return _CACHE[key]
+
+
+def public(r):
+    """What the dashboard shows: no commit bodies."""
+    return {**r, 'commits': [{k: v for k, v in c.items() if k != 'text'} for c in r['commits']]}
+
+
+def refresh_in_background(cfg, every=CACHE_SECONDS):
+    """The dashboard's loop: git is read off the request path, so a slow repo never stalls a snapshot."""
+    import threading
+
+    def loop():
+        while True:
+            _CACHE.pop(cfg.get('_path'), None)
+            view(cfg)
+            time.sleep(every)
+    threading.Thread(target=loop, name='tutti-intake', daemon=True).start()
+
+
+def cached(cfg):
+    """The last view, or an empty one while the first read runs."""
+    return _CACHE.get(cfg.get('_path')) or {'commits': [], 'leases': [], 'unreadable': [], 'at': 0, 'hours': WINDOW_HOURS}
 
 
 def lines(r):

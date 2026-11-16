@@ -278,6 +278,9 @@ class Collector:
         recovery.on_start(self.cfg)   # a power-off's torn writes repaired, orphaned runs marked interrupted (docs/PRESENCE.md)
         threading.Thread(target=self.loop, name='tutti-probes', daemon=True).start()
         sleepwatch.start_in_background(self.cfg)
+        from . import intake
+        if not os.environ.get('TUTTI_NO_DAEMONS'):
+            intake.refresh_in_background(self.cfg)   # Work outside Tutti: git read off the snapshot's path
         needs.backfill_in_background(self.cfg)   # tasks parked before the queue existed get their question (docs/NEEDS.md)
 
     def snapshot(self):
@@ -307,7 +310,7 @@ class Collector:
         out['setup'] = setupcmd.read_report(self.cfg)
         out['work_browser'] = browsercmd.view(self.cfg)
         from . import intake  # the intake guard (docs/INTAKE.md): commits and leases no Tutti task explains
-        out['outside'] = intake.view(self.cfg)
+        out['outside'] = intake.cached(self.cfg)
         out['releases_stuck'] = stuck.cached(config.ROOT)   # merged versions no release publishes: never silent
         from . import sharing  # the household (docs/HOUSEHOLD.md): its members, shared machines' use per member, fairness
         out['household'] = sharing.view(self.cfg, self.clock())

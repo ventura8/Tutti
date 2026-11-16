@@ -41,7 +41,8 @@ copy of it and leaves the rest of the file as it was. Commit it like any other c
 | Finish | `backlog_complete` | `tutti backlog done <id>` |
 | See the gaps | `outside_work` | `tutti intake` |
 
-- A **claimed** task belongs to that session: the autopilot does not start it; `release` gives it back to the queue.
+- A **claimed** task belongs to that session: the autopilot does not start it; only that session's `release` gives it
+  back to the queue. A parked task is answered first, a candidate accepted first.
 - Name the task id (`t123`) in every commit: that is how the intake guard links the commit to the task.
 - A question asked with `ask_owner` parks the task in the needs queue (docs/NEEDS.md); the owner's answer brings it back
   to the same session as claimed, with the answer in its notes, never to the autopilot.
@@ -62,16 +63,16 @@ copy of it and leaves the rest of the file as it was. Commit it like any other c
 4. leaves the rest to the autopilot's rounds: the attempt recorded, a pass committed on `autopilot/<id>-...` and a pull
    request per the repo's review and release policy, a failure retried on the claude account or parked as a question.
 
-The task shows on the dashboard like any other. `--no-backlog` runs Claude untracked, the old way; the repo must be
-under `autopilot.repos` (by name or folder), otherwise the run is refused with the fix.
+The task shows on the dashboard like any other. The repo must be under `autopilot.repos` (by name or folder), otherwise
+the run is refused with the fix; `--no-backlog` runs Claude untracked, the old way, on any repo.
 
 ## Work outside Tutti
 
 `tutti intake` and the dashboard's **Work outside Tutti** card list, for the last 24 hours:
 
 - commits in every `autopilot.repos` repository (every branch) that no task explains: a commit is linked when it names a
-  backlog task id, is an autopilot commit, sits on a Tutti branch (`autopilot/`, `tutti/`, `ap-`), or was made while a
-  task of that repo was claimed or running, or during a lease for an open task. Bots (Dependabot, Renovate, `[bot]`) are
+  backlog task id, is an autopilot commit, is reachable only from Tutti branches (`autopilot/`, `tutti/`, `ap-`), or was made while a
+  task of that repo was claimed or running (until it was released or closed), or during a lease for an open task. Bots (Dependabot, Renovate, `[bot]`) are
   left out;
 - live machine and device leases with no task, or whose task is no longer open;
 - repositories whose git could not be read, with the config key to fix.

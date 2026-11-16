@@ -68,6 +68,13 @@ class Sessions(Base):
             self.assertEqual(self.cli(cfg, 'backlog', 'claim', 't1'), 2)   # no --who
         self.cli(cfg, 'backlog', 'claim', 't1', '--who', 'a')
         self.assertEqual(self.cli(cfg, 'backlog', 'claim', 't1', '--who', 'b'), 2)   # someone else's
+        self.assertEqual(self.cli(cfg, 'backlog', 'release', 't1', '--who', 'b'), 2)   # only the claimer releases
+        self.cli(cfg, 'backlog', 'add', 'app', 'Fix it')   # the same title while claimed is no new task
+        self.assertEqual(len(backlog.load(cfg)['tasks']), 1)
+        self.cli(cfg, 'backlog', 'add', 'app', 'Parked one')
+        with backlog.locked(cfg) as data:
+            data['tasks'][1]['status'] = 'needs-person'
+        self.assertEqual(self.cli(cfg, 'backlog', 'claim', 't2', '--who', 'a'), 2)   # answer it first
         self.assertEqual(self.cli(cfg, 'backlog', 'note', 't1'), 2)   # no --note
         self.cli(cfg, 'backlog', 'done', 't1')
         self.assertEqual(self.cli(cfg, 'backlog', 'claim', 't1', '--who', 'a'), 2)   # not open
@@ -122,6 +129,13 @@ class Leases(Base):
         self.assertEqual(claim.call_args[0][1].names, ['phone'])
         with mock.patch.object(devicescmd, 'cmd_claim', return_value=3):
             self.assertEqual(self.cli(cfg, 'lease', 'release', 'device', 'phone', '--who', 'a'), 3)
+        self.assertIn('device:phone', intake.read_leases(cfg))   # a refused release keeps the lease
+        self.cli(cfg, 'lease', 'release', 'machine', 'nuc', '--who', 'a')
+        with mock.patch.object(devicescmd, 'cmd_claim', return_value=0):
+            self.cli(cfg, 'lease', 'release', 'device', 'phone', '--who', 'a')
+        with mock.patch.object(devicescmd, 'cmd_claim', return_value=3):
+            self.assertEqual(self.cli(cfg, 'lease', 'claim', 'device', 'phone', '--who', 'b', '--task', 't1'), 3)
+        self.assertEqual(intake.read_leases(cfg), {})   # a refused claim keeps no lease
 
 
 class ClaudeWorker(Base):
@@ -209,10 +223,14 @@ class Guard(Base):
         self.commit('fix: the legend (t1)', now - 600)
         self.commit('chore: quick hack', now - 500)
         self.commit('fix: x', now - 400, branch='autopilot/t9-x')
+        git(self.repo, 'checkout', '-q', 'main')
+        self.commit('chore: another hack', now - 300)
+        git(self.repo, 'checkout', '-q', '-B', 'autopilot/t10-y')   # a hand commit an autopilot branch also reaches
+        git(self.repo, 'checkout', '-q', 'main')
         with intake.leases_locked(cfg) as data:
             intake.claim(data, 'machine', 'nuc', 'a', '', 30, now)
         r = intake.report(cfg, now)
-        self.assertEqual([c['subject'] for c in r['commits']], ['chore: quick hack'])
+        self.assertEqual([c['subject'] for c in r['commits']], ['chore: another hack', 'chore: quick hack'])
         self.assertEqual([v['why'] for v in r['leases']], ['leased for no task'])
         self.assertIn('quick hack', intake.lines(r))
         self.assertEqual(self.cli(cfg, 'intake', '--strict'), 1)
@@ -237,7 +255,9 @@ class Guard(Base):
         self.assertEqual(run.call_count, 1)
         intake.view(cfg, T0 + intake.CACHE_SECONDS + 1, run)
         self.assertEqual(run.call_count, 2)
+        self.assertEqual(intake.cached(cfg)['at'], T0 + intake.CACHE_SECONDS + 1)
         intake._CACHE.clear()
+        self.assertEqual(intake.cached(cfg)['commits'], [])
 
 
 class Snippet(Base):

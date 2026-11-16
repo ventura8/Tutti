@@ -19,6 +19,85 @@ coordinator (docs/HOUSEHOLD.md), and only when several people share machines and
                             +-- yield, machines, guard, tunnel, quiet, wait
 ```
 
+## The system at a glance
+
+Each part below has its own page; this is how they fit together.
+
+- **Main and backup machine** ([FAILOVER.md](FAILOVER.md)). One machine is the *main*: it runs the dashboard, the
+  autopilot and dispatch. A backup keeps a copy of the state (rsync from the main) and watches the main's heartbeat. When
+  the main is gone it takes over under a new *term* with a lease; when the main comes back it hands back. Only the holder
+  of the current lease writes (`failover.may_write` gates the autopilot, dispatch and the coordinator), so two machines
+  never act at once.
+- **Dispatcher** ([DISPATCH.md](DISPATCH.md), `tutti/dispatch.py`, `tutti/workq.py`). Pending work is every test shard
+  not yet passed on a project's latest commit, plus queued backlog tasks. Each round, every free device, machine slot and
+  worker takes the next item by project priority, under a lease that expires if its holder dies, so the item is retried
+  elsewhere.
+- **Workers and accounts** ([WORKERS.md](WORKERS.md), [USAGE-PACING.md](USAGE-PACING.md)). A worker is a CLI agent
+  (cursor-agent, agy, claude, copilot) or a local model, signed in once by a person on an account. Pacing reads each
+  account's quota windows; `tiers.py` picks model and effort by pace, `planner.py` spends the quota that expires first,
+  and the unblocker forgives tasks that only hit usage limits.
+- **Machines and leases** ([MACHINES.md](MACHINES.md), [FLEET.md](FLEET.md), [DEVICES.md](DEVICES.md)). Machines are
+  reached over `ssh`, WSL or locally; Android devices over adb. `routing.py` picks the first fit machine from probes
+  (free slots, load, yield flag); `slot.sh` holds a slot lock on the machine. In a household, shared machines are split by
+  fair share and leased through the coordinator ([HOUSEHOLD.md](HOUSEHOLD.md)). Presence says which target is here.
+- **Brain and local AI** (`tutti/brain.py`, `tutti/local.py`). Every internal use of a model goes through `brain.ask`:
+  the best free local model in the household (Ollama) first, a CLI worker only as a fallback. A test fails any module that
+  calls a model directly.
+- **Self-heal** ([SELFHEAL.md](SELFHEAL.md)). Every few minutes, inside the failover round, a list of checks with a
+  repair each (missing needs, signed-out workers, Ollama, tunnels, adb, disk, broken state or config). A repair is done
+  and logged; only what a person must do becomes one item in Needs you ([NEEDS.md](NEEDS.md)).
+- **Dashboard** ([DASHBOARD.md](DASHBOARD.md), [CHAT.md](CHAT.md)). `tutti dashboard`: a local HTTP server and PWA,
+  never on the internet (`netpolicy.py`: LAN or VPN addresses only). Google sign-in names the administrator
+  ([AUTH.md](AUTH.md)). It runs the rounds (probes, autopilot, dispatch, work queue) and shows `/api/state`.
+- **Config** (`tutti/config.py`, `settings_schema.py`). One `tutti.config.yaml` per user: machines, workers, accounts,
+  projects and their tests, ship steps. Settings edits it in place, with backups; every error names its key and the fix.
+- **State files** (below). No database: JSON and JSON-lines files under `<state>`, written atomically and fsynced
+  (`durable.py`), snapshotted by the watchdog and kept within a size budget (`statebudget.py`).
+- **GitHub connection** ([GITHUB.md](GITHUB.md), `tutti/github.py`). One client for every GitHub call: the person's own
+  device-flow connection through Tutti's GitHub App, else the household's, else `gh`. No webhooks: Tutti polls with
+  ETags and respects the rate limit, so the dashboard stays off the internet.
+
+### Diagrams
+
+```mermaid
+flowchart LR
+    owner[Owner or main agent] --> cli[bin/tutti cli.py]
+    owner --> dash[Dashboard on LAN/VPN]
+    cli --> cfg[(tutti.config.yaml)]
+    dash --> rounds[Rounds: autopilot, dispatch, work queue]
+    rounds --> workers[CLI workers and local models]
+    rounds --> machines[Machines over ssh/WSL/local]
+    rounds --> devices[Android devices over adb]
+    workers --> brain[brain.ask: local model first]
+    rounds --> state[(State files under state dir)]
+    rounds --> gh[github.py: App, household, gh]
+    selfheal[Self-heal checks] --> state
+```
+
+```mermaid
+sequenceDiagram
+    participant M as Main
+    participant B as Backup
+    M->>B: push state (rsync) and heartbeat
+    B-->>M: acknowledge, main keeps its lease
+    Note over M: main goes silent, lease expires
+    B->>B: raise term, start dashboard and autopilot
+    M->>B: main returns, sees higher term, stays read-only
+    B->>M: hand-back: backup stops, term rises
+    M->>M: copy last changes, resume with a fresh lease
+```
+
+```mermaid
+sequenceDiagram
+    participant D as Dispatcher round
+    participant Q as Pending work
+    participant T as Free target
+    D->>Q: shards not passed on latest commit, queued tasks
+    D->>T: lease the next item by project priority
+    T-->>D: result (pass, fail with retries left)
+    Note over D,T: a lease whose holder dies expires and the item goes elsewhere
+```
+
 ## Modules
 
 | File | Owns |
@@ -62,6 +141,12 @@ coordinator (docs/HOUSEHOLD.md), and only when several people share machines and
 | `tutti/netpolicy.py` | Never on the internet: the addresses a household's coordinator, the dashboard and `tutti mcp --http` may listen on and join links may name (localhost, RFC 1918, 100.64/10, fc00::/7, WireGuard interfaces); `auto` binds; a public address or a wildcard raises `PublicAddress` with the fix. |
 | `tutti/fairshare.py` | Fair shares of shared machines, pure: weighted water-filling, interactive before background, the starvation rule, hour weights from a member's 7 x 24 profile, the household plan, Jain's index; the member's grant cache and `limit` (what a shared machine leaves free for it). `sharing.limit_items` and `sharing.limited_probe` apply it to the autopilot's machines and to `tutti test`'s routing. |
 | `tutti/chat.py`, `tutti/chatrun.py`, `tutti/web/chat.js` | The dashboard's Chat (docs/CHAT.md): conversations per user in `<state>/chat/` (600), requests parsed into the MCP tools' calls, the role checks, the model order, the facts and the built-in answers (pure); the answer threads, Ollama and CLI streaming, Undo, the audit lines and `POST /api/chat` (I/O); the page's safe Markdown and composer. |
+| `tutti/dispatch.py`, `tutti/workq.py` | Keep busy: the pending-work model (shards not passed on the latest commit, queued tasks), leases on devices, slots and workers; the compute work queue by project priority. |
+| `tutti/brain.py` | Tutti's own AI, local first: the one `ask` every internal model use goes through. |
+| `tutti/selfheal.py` | The self-heal checks and repairs, `<state>/selfheal.jsonl`. |
+| `tutti/github.py`, `tutti/githubcmd.py` | The one GitHub client (device flow, the App, ETags, rate limit) and `tutti github`. |
+| `tutti/tiers.py`, `tutti/planner.py`, `tutti/unblocker.py` | Model and effort by pace; spending the quota that expires first; clearing blocked or limit-only work. |
+| `tutti/durable.py`, `tutti/presence.py` | Power-off-safe writes of state files; whether each machine, device and model server is here. |
 | `tutti/dashboard.py`, `tutti/dashtelemetry.py`, `tutti/web/` | `tutti dashboard`: the 127.0.0.1 HTTP server, background probes, `/api/state` and the PWA shell. |
 | `scripts/slot.sh` | The slot queue, copied to each machine on every run. |
 | `scripts/memguard.sh`, `quiet.sh`, `tunnel.sh`, `wsl-run64.sh` | The memory guard, quiet runs, the tunnel loop, the WSL shim. |

@@ -23,7 +23,17 @@ def paths(cfg):
     return out
 
 
-def reading(path, statvfs=os.statvfs):
+def portable_statvfs(path):
+    """os.statvfs where it exists; on Windows (no statvfs) the same fields from shutil.disk_usage, with no file-slot limit."""
+    if hasattr(os, 'statvfs'):
+        return os.statvfs(path)
+    import shutil
+    from types import SimpleNamespace
+    u = shutil.disk_usage(path)
+    return SimpleNamespace(f_bavail=u.free, f_blocks=u.total, f_frsize=1, f_favail=0, f_files=0)
+
+
+def reading(path, statvfs=portable_statvfs):
     """(free space %, free file slots %, device, free GB) of the disk holding `path`, or None when it cannot be read."""
     try:
         s = statvfs(path)
@@ -35,7 +45,7 @@ def reading(path, statvfs=os.statvfs):
     return space, slots, dev, s.f_bavail * s.f_frsize / 1e9
 
 
-def problems(cfg, statvfs=os.statvfs):
+def problems(cfg, statvfs=portable_statvfs):
     """Plain sentences, one per disk under LOW_PCT % free space or free file slots: what, why it matters, the fix."""
     out, seen = [], set()
     for label, path in paths(cfg).items():

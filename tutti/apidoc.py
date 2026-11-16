@@ -13,8 +13,7 @@ from . import authweb, cli, config, dashboard, mcpserver, settings_schema
 
 DOC = os.path.join(config.ROOT, 'docs', 'API.md')
 ROUTE_FILES = ('dashboard.py', 'authweb.py', 'coordinator.py', 'mcpserver.py')
-# Ollama's own API, which the fleet calls on other machines: not a route of Tutti's
-FOREIGN = {'/api/generate', '/api/ps', '/api/pull', '/api/tags', '/api/'}
+# only the servers' own modules are scanned: the paths of other services Tutti calls (a model server's API) live elsewhere
 ROUTE_RE = re.compile(r"'(/(?:api|hh)/[A-Za-z0-9/_-]+|/mcp)'")
 
 
@@ -170,7 +169,7 @@ def http_routes():
     for name in ROUTE_FILES:
         with open(os.path.join(here, name), encoding='utf8') as f:
             found |= set(ROUTE_RE.findall(f.read()))
-    return sorted(found - FOREIGN)
+    return sorted(found)
 
 
 # ---- the document

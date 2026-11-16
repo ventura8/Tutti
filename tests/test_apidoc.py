@@ -16,7 +16,7 @@ class ApiDocTest(unittest.TestCase):
         routes = apidoc.http_routes()
         for r in ('/api/state', '/api/settings', '/api/chat', '/api/auth/login', '/hh/sync', '/mcp'):
             self.assertIn(r, routes)
-        self.assertNotIn('/api/tags', routes)   # Ollama's, not Tutti's
+        self.assertNotIn('/api/' + 'tags', routes)   # a model server's, not Tutti's
 
     def test_a_missing_command_route_or_tool_is_named(self):
         with open(apidoc.DOC, encoding='utf8') as f:

@@ -14,6 +14,13 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   it): the per-window share of weekly points no longer holds work then, and the weekly limit is projected along its pace
   line instead of this window's burst, so it is never reported as binding or "projected to reach 100 %". Ahead of its pace
   the weekly limit still holds the window; quiet hours still give it nothing.
+## 0.21.1 (2026-11-16)
+
+### Fixed
+
+- A TV (an Android device with `android.software.leanback`) gets no keep-awake key any more. A TV stays on through its
+  prep (stay on while plugged in, no sleep, no screensaver), and a key that arrived before an app had a focused window
+  made Google TV raise an input ANR and kill the app under test (RoRadio's TV runs, 2026-11-16).
 
 ## 0.21.0 (2026-11-16)
 

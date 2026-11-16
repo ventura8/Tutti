@@ -164,7 +164,8 @@ def resume(t, q, choice, now):
     if choice == 'drop':
         t['status'] = 'dropped'
         return
-    t['status'] = 'queued'
+    # a session's own task (`tutti needs ask`, docs/INTAKE.md) goes back to that session, never to the autopilot
+    t['status'] = 'claimed' if t.pop('resume_claimed', None) and t.get('claimed_by') else 'queued'
     t['resume_from'] = len(t.get('attempts') or [])   # park_reason counts from here
     if choice == 'retry-from-scratch':
         t['fresh'] = True

@@ -6,6 +6,22 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.22.0 (2026-11-16)
+
+### Added
+
+- All household work through Tutti (docs/INTAKE.md, `tutti/intake.py`, `tutti/claudework.py`, backlog t156). The MCP
+  server gains the tools a session needs: `backlog_claim`, `backlog_update`, `backlog_release`, `backlog_complete`,
+  `lease_claim`, `lease_release`, `leases`, `usage_report`, `ask_owner`, `claude_task` and `outside_work`, each mapped to
+  a CLI command: `tutti backlog claim|release|note`, `tutti lease claim|release|list`, `tutti needs ask`, `tutti intake`.
+  A claimed task belongs to its session (the autopilot leaves it alone; an owner's answer brings it back to the session).
+- Claude as a Tutti worker: `tutti run claude "<task>" --repo <repo>` adds a backlog task pinned to the claude worker,
+  starts `claude -p` in its worktree when the claude account has room (queued while it is in panic or spent) and lets the
+  autopilot collect it, publish it and apply the repo's review policy. `--no-backlog` runs it untracked.
+- The intake guard: the dashboard's **Work outside Tutti** card and `tutti intake [--strict]` list commits in the
+  autopilot repos and leases of the last 24 h that no Tutti task explains.
+- `tutti connect --repo <path>` adds the "All work goes through Tutti" section to a household repo's AGENTS.md (or
+  CLAUDE.md); the connected agents' guide names the new tools.
 ## 0.21.3 (2026-11-16)
 
 ### Fixed

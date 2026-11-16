@@ -24,13 +24,17 @@ BIN = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
 TIMEOUT = 120          # seconds a read or a quick change may take; long work runs detached and is polled with job_status
 HTTP_PORT = 4779
 # tool arguments that land as positional words of a `tutti` command: one that starts with "-" would be read as an option
-POSITIONAL = ('repo', 'project', 'track', 'scout', 'mode', 'machine', 'device', 'skill')   # names: free text goes after `--`
+POSITIONAL = ('repo', 'project', 'track', 'scout', 'mode', 'machine', 'device', 'skill', 'id', 'who', 'kind', 'name', 'task',
+              'account', 'percent')   # names: free text goes after `--`
 MAX_BODY = 1 << 20
 
 INSTRUCTIONS = ('Tutti runs bounded coding tasks on cheaper workers (cursor-agent, Antigravity, local models) and shared '
                 'machines, paced against each account\'s usage. Hand off a task when it is bounded (one change with a clear '
                 'check: a fix, a test, a refactor of a few files) and you are ahead of your pace; keep judgement, design '
-                'and anything the user is waiting on. Call handoff_advice first, then delegate_task, then poll job_status.')
+                'and anything the user is waiting on. Call handoff_advice first, then delegate_task, then poll job_status. All '
+                'household work goes through Tutti: claim the backlog task you work on (backlog_add, backlog_claim), lease a machine '
+                'or device for it (lease_claim), name the task id in commits, ask the owner with ask_owner, schedule Claude-only '
+                'work with claude_task, and close it with backlog_complete.')
 
 
 def _s(desc, **extra):
@@ -91,6 +95,42 @@ TOOLS = [
     tool('away_mode', 'Set the owner\'s mode for pacing: active, away (the rest of today), auto, or vacation until a date. While '
          'away, Tutti fills the owner\'s room with backlog work. With no mode it only shows the status (still needs admin).',
          {'mode': _s('active, away, auto or vacation-until-YYYY-MM-DD; empty for the status')}, mutating=True),
+    # all household work through Tutti (docs/INTAKE.md): a session's own work as tasks, leases, usage and questions
+    tool('backlog_claim', 'Claim a backlog task you (this session) will do yourself, so the household sees who works on it and the '
+         'autopilot leaves it alone. Mention its id (t123) in every commit.',
+         {'id': _s('the task id (t123)'), 'who': _s('this session\'s name, e.g. claude-laptop-map')}, required=('id', 'who'),
+         mutating=True),
+    tool('backlog_update', 'Record progress on a task: a note the dashboard and the next worker see.',
+         {'id': _s('the task id'), 'note': _s('what was done or what is next')}, required=('id', 'note'), mutating=True),
+    tool('backlog_release', 'Give a claimed task back to the queue (the autopilot may then run it).',
+         {'id': _s('the task id'), 'who': _s('the session that claimed it')}, required=('id', 'who'), mutating=True),
+    tool('backlog_complete', 'Mark a task done (merged or otherwise finished).', {'id': _s('the task id')}, required=('id',),
+         mutating=True),
+    tool('lease_claim', 'Lease a machine or an Android device for a task before using it, so no one else takes it and the use '
+         'is linked to the task.',
+         {'kind': _s('machine or device', enum=['machine', 'device']), 'name': _s('its name (see machines / devices)'),
+          'who': _s('this session\'s name'), 'task': _s('the backlog task id it is for'),
+          'minutes': {'type': 'integer', 'description': 'how long (default 120)'}},
+         required=('kind', 'name', 'who', 'task'), mutating=True),
+    tool('lease_release', 'Release a machine or device lease when done with it.',
+         {'kind': _s('machine or device', enum=['machine', 'device']), 'name': _s('its name'), 'who': _s('the session that leased it')},
+         required=('kind', 'name', 'who'), mutating=True),
+    tool('leases', 'The machine and device leases sessions hold, with their tasks.'),
+    tool('usage_report', 'Report a usage reading you saw for an account (its usage page or /usage): the pacing uses it.',
+         {'account': _s('the account name (see usage)'), 'percent': _s('used percent of the window, e.g. 42')},
+         required=('account', 'percent'), mutating=True),
+    tool('ask_owner', 'Ask the owner a question on one of your tasks; it joins the needs queue (dashboard, chat, welcome back) '
+         'and the answer comes back on the task (pending_questions / the task\'s notes). Keep working on other things meanwhile.',
+         {'task': _s('the task id'), 'question': _s('the question, self-contained'),
+          'options': {'type': 'array', 'items': {'type': 'string'}, 'description': 'answers to pick from; the first is the default'},
+          'why': _s('why only the owner can answer')}, required=('task', 'question'), mutating=True),
+    tool('claude_task', 'Schedule Claude-only work (the browser, judgement, visual checks) as a Tutti task: a backlog item pinned '
+         'to the claude worker, run headless (`claude -p`) in its own worktree when the claude account has room, then the '
+         'repo\'s review and release policy. Returns the task id (and the run id when it started).',
+         {'repo': _s('a repo name under autopilot.repos'), 'task': _s('the task, self-contained'),
+          'size': _s('S, M or L', enum=['S', 'M', 'L'])}, required=('repo', 'task'), mutating=True),
+    tool('outside_work', 'Work outside Tutti: commits in the household\'s repos and leases of the last 24 h that no Tutti task '
+         'explains. Link yours by claiming a task and naming its id in the commit.'),
 ]
 BY_NAME = {t['name']: t for t in TOOLS}
 
@@ -142,6 +182,19 @@ def argv_of(name, a):
         'scout_ask': lambda: (['scout', '--no-wait'] + (['--skill', a['skill']] if a.get('skill') else [])
                               + ['--', 'ask', a['scout'], a['question']]),
         'away_mode': lambda: ['owner', 'mode', a['mode']] if a.get('mode') else ['owner', 'status'],
+        'backlog_claim': lambda: ['backlog', '--who', a['who'], 'claim', a['id']],
+        'backlog_update': lambda: ['backlog', f'--note={a["note"]}', 'note', a['id']],
+        'backlog_release': lambda: ['backlog', '--who', a['who'], 'release', a['id']],
+        'backlog_complete': lambda: ['backlog', 'done', a['id']],
+        'lease_claim': lambda: ['lease', '--who', a['who'], '--task', a['task'], '--minutes', str(int(a.get('minutes') or 120)),
+                                'claim', a['kind'], a['name']],
+        'lease_release': lambda: ['lease', '--who', a['who'], 'release', a['kind'], a['name']],
+        'leases': lambda: ['lease', 'list'],
+        'usage_report': lambda: ['usage', 'log', a['account'], str(a['percent'])],
+        'ask_owner': lambda: (['needs'] + [f'--option={o}' for o in scopes(a.get('options'))]
+                              + ([f'--why={a["why"]}'] if a.get('why') else []) + ['--', 'ask', a['task'], a['question']]),
+        'claude_task': lambda: ['run', '--repo', a['repo'], '--size', a.get('size') or 'S', '--', 'claude', a['task']],
+        'outside_work': lambda: ['intake'],
     }
     return table[name]() if name in table else None
 

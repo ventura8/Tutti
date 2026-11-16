@@ -540,6 +540,8 @@ def cmd_run(cfg, a):
         return 0
     if bridge.jobs_machine(cfg) and not a.input:
         return run_on_jobs_machine(cfg, a, extra)
+    if a.repo and a.worker == 'claude' and not a.id and not a.track and not a.no_backlog:
+        return run_claude(cfg, a)
     if a.repo:
         return run_delegated(cfg, a, extra)
     with job_inputs(cfg, machine_of(cfg, a.on) if a.input else None, a.input) as base:
@@ -547,6 +549,26 @@ def cmd_run(cfg, a):
             names = ', '.join(os.path.basename(os.path.abspath(p).rstrip(os.sep)) for p in a.input)
             a.task += f'\n\nInput files ({names}) are on the machine {a.on} in {base}.'
         return run_worker(cfg, a, extra)
+
+
+def run_claude(cfg, a):
+    """`tutti run claude "<task>" --repo <repo>`: a backlog task pinned to Claude, under its account's pace (tutti/claudework.py).
+    --repo is a repo name under autopilot.repos, or its folder."""
+    from . import claudework
+    repos = cfg['autopilot']['repos']
+    name = a.repo if a.repo in repos else next((n for n, r in repos.items()
+                                                if os.path.realpath(config.expand(r['path'])) == os.path.realpath(a.repo)), None)
+    if not name:
+        say(f'run claude: {a.repo} is not under autopilot.repos, so Tutti cannot track it; add it there, or run untracked with '
+            '--no-backlog')
+        return 2
+    try:
+        tid, run, why = claudework.start(cfg, name, a.task, size=a.size, check=(a.check or [''])[0])
+    except (claudework.ClaudeError, backlog.BacklogError) as e:
+        say(f'run claude: {e}')
+        return 2
+    print(f'{tid}: {why}' + (f'; run {run} (tutti runs show {run})' if run else '; the autopilot starts it when claude has room'))
+    return 0
 
 
 def jobs_args(a, extra, run_id):
@@ -1177,6 +1199,8 @@ def task_change(task, a):
     if task['status'] == 'running':
         raise backlog.BacklogError(f'{task["id"]} is running (run {task.get("run")}): wait for it '
                                    f'(tutti wait run {task.get("run")}), then {a.action} it')
+    if a.action in ('claim', 'release', 'note'):
+        return session_change(task, a)
     if a.action == 'accept':
         if task['status'] != 'candidate':
             raise backlog.BacklogError(f'{task["id"]} is {task["status"]}, not a candidate: only a suggested task is accepted')
@@ -1185,8 +1209,81 @@ def task_change(task, a):
         task['notes'] = [*task.get('notes', []), *(a.note or [])]
         task.update(status='queued', parked=None)
     else:
-        task['status'] = 'dropped' if a.action == 'rm' else 'done'
+        task.update(status='dropped' if a.action == 'rm' else 'done', closed_at=time.time())
     print(f'{task["id"]}: {task["status"]}')
+
+
+def session_change(task, a):
+    """claim, release or note of a task a session works on by hand (docs/INTAKE.md)."""
+    who = a.who or os.environ.get('TUTTI_SESSION') or ''
+    if a.action == 'note':
+        if not a.note:
+            raise backlog.BacklogError(f'note: give the progress with --note "<text>": tutti backlog note {task["id"]} --note "..."')
+        task['notes'] = [*task.get('notes', []), *a.note]
+    elif a.action == 'claim':
+        if not who:
+            raise backlog.BacklogError(f'claim: say who works on it: tutti backlog claim {task["id"]} --who <session>')
+        if task['status'] == 'claimed' and task.get('claimed_by') != who:
+            raise backlog.BacklogError(f'{task["id"]} is claimed by {task["claimed_by"]}: pick another task, or ask them to release it')
+        fixes = {'needs-person': f'answer its question first (tutti needs answer {task.get("question") or "<id>"})',
+                 'candidate': f'accept it first (tutti backlog accept {task["id"]})'}
+        if task['status'] not in ('queued', 'claimed', 'review'):
+            raise backlog.BacklogError(f'{task["id"]} is {task["status"]}: only a queued or reviewed task is claimed; '
+                                       + fixes.get(task['status'], '`tutti backlog retry` reopens one'))
+        task.update(status='claimed', claimed_by=who, claimed_at=time.time(), closed_at=None)
+    else:
+        if task['status'] != 'claimed':
+            raise backlog.BacklogError(f'{task["id"]} is {task["status"]}, not claimed: nothing to release')
+        if task.get('claimed_by') != who:
+            raise backlog.BacklogError(f'{task["id"]} is claimed by {task.get("claimed_by")}, not {who or "(no --who)"}: only that '
+                                       'session releases it')
+        task.update(status='queued', claimed_by=None, closed_at=time.time())
+    print(f'{task["id"]}: {task["status"]}' + (f' by {who}' if task['status'] == 'claimed' else ''))
+    return 0
+
+
+def cmd_lease(cfg, a):
+    """`tutti lease claim|release|list` (docs/INTAKE.md): a session's lease on a machine or a device, for a task."""
+    from . import intake
+    now = time.time()
+    who = a.who or os.environ.get('TUTTI_SESSION') or ''
+    try:
+        if a.action == 'list':
+            print(intake.lease_lines(intake.read_leases(cfg), now))
+            return 0
+        if not (a.kind and a.name):
+            raise intake.IntakeError(f'name what: tutti lease {a.action} device|machine <name> --who <session>')
+        if not intake.known(cfg, a.kind, a.name):
+            raise intake.IntakeError(f'no {a.kind} "{a.name}" in {cfg["_path"]}: `tutti {a.kind}s` lists them')
+        with intake.leases_locked(cfg) as data:
+            if a.action == 'claim':
+                lease = intake.claim(data, a.kind, a.name, who, a.task, a.minutes, now)
+            else:
+                lease = intake.release(data, a.kind, a.name, who)
+            if a.kind == 'device':   # the device's own lease too; refused there, the session lease is not kept either
+                from . import devicescmd
+                rc = devicescmd.cmd_claim(cfg, argparse.Namespace(action=a.action, names=[a.name], who=who, minutes=a.minutes))
+                if rc not in (0, None):
+                    key = intake.lease_key(a.kind, a.name)
+                    if a.action == 'claim':
+                        data.pop(key)
+                    else:
+                        data[key] = lease
+                    return rc
+    except intake.IntakeError as e:
+        say(str(e))
+        return 2
+    print(f'{a.kind} {a.name}: {"leased to " + who if a.action == "claim" else "released"}'
+          + (f' for {lease["task"]}' if lease.get('task') else ' (no task: it shows as work outside Tutti)'))
+    return 0
+
+
+def cmd_intake(cfg, a):
+    """`tutti intake`: work outside Tutti (docs/INTAKE.md): commits and leases no Tutti task explains."""
+    from . import intake
+    r = intake.report(cfg)
+    print(json.dumps(r, indent=1) if a.json else intake.lines(r))
+    return 1 if (r['commits'] or r['leases']) and a.strict else 0
 
 
 def cmd_owner(cfg, a):
@@ -1386,11 +1483,33 @@ def cmd_needs(cfg, a):
         for line in needs.backfill(cfg) or ['every parked task already has its question']:
             print(line)
         return 0
+    if a.action == 'ask':
+        return needs_ask(cfg, a)
     if a.action == 'answer':
         ok, why = needs.answer(cfg, a.id or '', a.choice, role, needs.OWNER)
         print(why) if ok else say(why)
         return 0 if ok else 2
     print(needs.lines_for_agent(cfg, role, needs.OWNER))
+    return 0
+
+
+def needs_ask(cfg, a):
+    """`tutti needs ask <task> "<question>" [--option o]...`: a session's question for the owner, on its task (docs/INTAKE.md)."""
+    from . import needs
+    if not (a.id and a.choice):
+        say('needs ask: name the task and the question: tutti needs ask t12 "Which colour?" --option red --option blue')
+        return 2
+    try:
+        with backlog.locked(cfg) as data:
+            t = backlog.find(data, a.id)
+            if t['status'] in ('running', 'done', 'dropped'):
+                raise backlog.BacklogError(f'{t["id"]} is {t["status"]}: a question goes on an open task (claimed or queued)')
+            t['resume_claimed'] = t['status'] == 'claimed'
+            q = needs.ask(cfg, t, a.choice, a.why or 'asked by the session working on it', a.option or [], (a.option or [''])[0])
+    except backlog.BacklogError as e:
+        say(str(e))
+        return 2
+    print(f'{q["id"]}: asked on {t["id"]}; the owner answers on the dashboard, in chat or with `tutti needs answer {q["id"]}`')
     return 0
 
 
@@ -1630,6 +1749,8 @@ def parser():
                    help='with --repo: the target repo\'s own check instead of delegate.checks (repeat it)')
     s.add_argument('--check-where', default='local', choices=['local', 'route'],
                    help='with --check: run it here (local, the default) or on a routed machine (route)')
+    s.add_argument('--no-backlog', action='store_true', help='claude with --repo: run it untracked (no backlog task, no pacing)')
+    s.add_argument('--size', default='S', choices=list(backlog.SIZES), help='claude with --repo: the task\'s size (default S)')
     s.add_argument('--remote-track', help=argparse.SUPPRESS)
     s.add_argument('--account', help=argparse.SUPPRESS)   # the autopilot's account of a shared worker (agy-gemini, agy-claude)
     s.add_argument('--id', help=argparse.SUPPRESS)
@@ -1741,8 +1862,10 @@ def parser():
     s = add('backlog', cmd_backlog, 'the autopilot\'s queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> '
                                     '(FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, '
                                     'accept <id> (a suggested candidate)')
-    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept'])
-    s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done, accept: the task id')
+    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note'])
+    s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: '
+                                           'the task id')
+    s.add_argument('--who', help='claim: the session that works on it by hand (default $TUTTI_SESSION)')
     s.add_argument('title', nargs='?')
     s.add_argument('--scope', action='append', metavar='PATH', help='a path the task may change (repeat it)')
     s.add_argument('--check', help='the acceptance check (default: the repo\'s check)')
@@ -1750,6 +1873,17 @@ def parser():
     s.add_argument('--source', default='orchestrator')
     s.add_argument('--note', action='append', help='a note for the worker (retry: the reviewer\'s notes)')
     s.add_argument('--all', action='store_true', help='list: also done and dropped tasks')
+    s = add('lease', cmd_lease, 'a session\'s lease on a machine or a device for a task (docs/INTAKE.md): claim, release, list')
+    s.add_argument('action', nargs='?', default='list', choices=['claim', 'release', 'list'])
+    s.add_argument('kind', nargs='?', choices=['machine', 'device'])
+    s.add_argument('name', nargs='?')
+    s.add_argument('--who', help='the session (default $TUTTI_SESSION)')
+    s.add_argument('--task', help='claim: the backlog task it is for (t123); without one it shows as work outside Tutti')
+    s.add_argument('--minutes', type=int, default=120, help='claim: how long (default 120)')
+    s = add('intake', cmd_intake, 'work outside Tutti: commits in the autopilot repos and leases that no Tutti task explains '
+                                  '(the last 24 h; docs/INTAKE.md)')
+    s.add_argument('--json', action='store_true')
+    s.add_argument('--strict', action='store_true', help='exit 1 when anything is outside Tutti')
     s = add('owner', cmd_owner, 'the owner\'s own prompting: status, mode auto|active|away|vacation-until-YYYY-MM-DD|config, or '
                                 'window <YYYY-MM-DD> <HH-HH|off|config> (one day\'s own owner hours)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'mode', 'window'])
@@ -1822,9 +1956,11 @@ def parser():
     s = add('needs', cmd_needs, 'the questions only you can answer (a parked task\'s next step, a worker\'s question): list, '
                                  'answer <id> [choice] (empty: the default); the task resumes; backfill (tasks parked before the queue get '
                                  'their question; also at the dashboard\'s start) (docs/NEEDS.md)')
-    s.add_argument('action', nargs='?', default='list', choices=['list', 'answer', 'backfill'])
-    s.add_argument('id', nargs='?', help='answer: the question id (q1, q2, ...)')
-    s.add_argument('choice', nargs='?', help='answer: one of its options, or your own words')
+    s.add_argument('action', nargs='?', default='list', choices=['list', 'answer', 'backfill', 'ask'])
+    s.add_argument('id', nargs='?', help='answer: the question id (q1, q2, ...); ask: the task id')
+    s.add_argument('choice', nargs='?', help='answer: one of its options, or your own words; ask: the question')
+    s.add_argument('--option', action='append', help='ask: an answer the owner can pick (repeat it; the first is the default)')
+    s.add_argument('--why', help='ask: why it needs the owner')
     s = add('welcome', cmd_welcome, 'welcome back: what happened while you were away (shipped, running, failed, usage, what '
                                      'needs you): show (the latest), miss (What did I miss? since the last one), on, off')
     s.add_argument('action', nargs='?', default='show', choices=['show', 'miss', 'on', 'off'])
@@ -1872,6 +2008,8 @@ def parser():
     s.add_argument('--undo', action='store_true', help='remove Tutti from the agent (or all), restoring its config otherwise untouched')
     s.add_argument('--status', action='store_true', help='show each agent\'s state; change nothing')
     s.add_argument('--test', action='store_true', help='with the status: start each connected agent\'s server and list its tools')
+    s.add_argument('--repo', help='a household repo\'s folder: add the "all work goes through Tutti" section to its AGENTS.md '
+                                  '(or CLAUDE.md) instead (docs/INTAKE.md)')
     s.add_argument('--json', action='store_true')
     s = add('move', move.cmd, 'move Tutti (the dashboard, the state, the loops) to another machine: preflight, copy, cut-over, '
                               'clients and members repointed; --dry-run shows the plan, --rollback brings it back (docs/MOVE.md)')

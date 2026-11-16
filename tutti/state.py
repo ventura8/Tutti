@@ -163,6 +163,15 @@ def machine_status(m, p, reason):
     return 'free' if not reason else 'loaded'
 
 
+def slots_why(m):
+    """Where the machine's slot count comes from, in plain words."""
+    if m.get('slots_from') == 'locks':
+        return f'one slot per lock file it shares ({", ".join(m["locks"])}): machines.{m["name"]}.locks'
+    if m.get('slots_from') == 'default':
+        return f'the default; set machines.{m["name"]}.slots to change it'
+    return f'machines.{m["name"]}.slots'
+
+
 def machine_state(m, p, rank, now=None, idle_s=None, quiet_hours=None):
     """One machine as the dashboard shows it, from its config and a probe (routing.Probe). Its free slots are capped at its
     share for Tutti (tutti/share.py: use_pct, lower while someone uses it, in quiet hours or hot)."""
@@ -171,11 +180,15 @@ def machine_state(m, p, rank, now=None, idle_s=None, quiet_hours=None):
     status = machine_status(m, p, reason)
     slots = int(m['slots'])
     pct, pct_why = share.pct(m, {'reason': reason}, now, idle_s, quiet_hours)
+    if p.reachable and p.yielding:   # the yield flag takes it out entirely, whoever is at its keyboard
+        pct, pct_why = 0, 'its yield flag is up' + (f'; also {pct_why}' if pct_why else '')
     free = share.cap_free(slots, min(p.free, slots), pct) if p.reachable else None
     if p.reachable and status == 'free' and not free:
         status, reason = 'busy', f'its share for Tutti is {pct} %' + (f' ({pct_why})' if pct_why else '') + ': no slot left at it'
+    busy = None if free is None else slots - min(p.free, slots)
     return {'name': m['name'], 'transport': m['transport'], 'host': m.get('host', 'local'), 'slots': slots, 'free': free,
-            'busy': None if free is None else slots - min(p.free, slots), 'load': p.load if p.reachable else None,
+            'busy': busy, 'held_back': None if free is None else max(0, slots - busy - free), 'slots_why': slots_why(m),
+            'load': p.load if p.reachable else None,
             'cores': p.cores if p.reachable else None,
             'reachable': p.reachable, 'paused': p.yielding, 'status': status, 'reason': reason or 'fit: takes the next run', 'rank': rank,
             'min_free_gb': m['min_free_gb'], 'temp_c': p.temp if p.reachable else None, 'heat': m.get('heat'),

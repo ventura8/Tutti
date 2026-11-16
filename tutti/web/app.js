@@ -559,14 +559,24 @@ function ownerPanel(o) {
 
 // ---- machines
 
+// One box per slot: busy (filled), held back by its share or its yield flag (crossed), free (empty)
 function pips(m) {
-    return el('span', { class: 'pips', role: 'img', 'aria-label': m.free === null ? `${m.slots} slots, not reachable` : `${m.busy} of ${m.slots} slots busy` },
-        Array.from({ length: m.slots }, (_, i) => el('span', { class: 'pip', 'data-busy': String(m.free !== null && i < m.busy), 'data-off': String(m.free === null) })));
+    const held = m.held_back || 0;
+    const label = m.free === null ? `${m.slots} slots, not reachable`
+        : `${m.busy} busy, ${m.free} free${held ? `, ${held} held back` : ''} of ${m.slots} slots`;
+    return el('span', { class: 'pips', role: 'img', 'aria-label': label },
+        ...Array.from({ length: m.slots }, (_, i) => el('span', { class: 'pip', 'data-busy': String(m.free !== null && i < m.busy),
+            'data-held': String(m.free !== null && i >= m.busy && i < m.busy + held), 'data-off': String(m.free === null) })));
+}
+
+function slotText(m) {
+    if (m.free === null) return `${plural(m.slots, 'slot')}`;
+    const held = m.held_back ? ` (${m.held_back} held back: ${m.use_why || `share ${tuttiPct(m.use_pct)}`})` : '';
+    return `${m.free} of ${plural(m.slots, 'slot')} free${held}`;
 }
 
 function machine(m) {
-    const stats = el('div', { class: 'row__stats' }, pips(m),
-        el('span', { text: m.free === null ? `${m.slots} slots` : `${m.free} of ${m.slots} slots free` }));
+    const stats = el('div', { class: 'row__stats' }, pips(m), el('span', { title: `Slots: ${m.slots_why || ''}`, text: slotText(m) }));
     if (m.load !== null) {
         const bar = el('span');
         bar.style.width = tuttiCssPct((m.load / m.cores) * 100);
@@ -580,10 +590,12 @@ function machine(m) {
     if ((m.cast_roles || []).length) stats.append(el('span', { text: 'Cast sender', title: 'Chrome, Chromium or the desktop sender (checked daily; machines.<m>.roles overrides)' }));
     if (m.heat?.cap_c !== undefined) stats.append(el('span', { class: 'temp', title: 'machines.<m>.heat (Settings): one run at the cap, none at the stop',
         text: `heat cap ${m.heat.cap_c} °C · stop ${m.heat.stop_c ?? '–'} °C` }));
-    if (m.temp_note && (m.temp_c === null || m.temp_c === undefined)) stats.append(el('span', { class: 'temp', title: m.temp_note, text: 'CPU temperature not readable' }));
+    if (m.temp_note && (m.temp_c === null || m.temp_c === undefined)) stats.append(el('span', { class: 'temp', title: m.temp_note,
+        text: /LibreHardwareMonitor/.test(m.temp_note) ? 'CPU °C: start LibreHardwareMonitor on Windows to read it' : 'CPU °C not readable' }));
     if (m.rank) stats.append(el('span', { text: `#${m.rank} in routing` }));
     if (m.use_pct !== undefined && m.use_pct !== null) stats.append(el('span', { title: 'machines.<m>.use_pct (Settings)',
         text: `Tutti's share ${tuttiPct(m.use_pct)}${m.use_why ? ` (${m.use_why})` : ''}` }));
+    if (m.slots_why && !/\.slots$/.test(m.slots_why)) stats.append(el('span', { class: 'row__note', text: `${plural(m.slots, 'slot')}: ${m.slots_why}` }));
     const use = (ui.last?.household_use?.machines || []).find((u) => u.name === m.name);
     if (use && use.hour !== null) stats.append(el('span', { text: `used ${tuttiPct(use.hour)} last hour · ${tuttiPct(use.day)} today` }));
     return el('li', { class: 'row' },
@@ -601,7 +613,7 @@ function machine(m) {
 // A machine's limited-usage window (machines.<m>.limit, tutti/share.py): a daily window when Tutti uses at most pct % of it
 function limitForm(m) {
     const lim = m.limit || {};
-    const win = el('input', { type: 'text', class: 'field', size: 6, placeholder: '18-01', value: lim.window || '',
+    const win = el('input', { type: 'text', class: 'field', size: 8, placeholder: 'none', value: lim.window || '',
         'aria-label': `${m.name}: limited hours, HH-HH` });
     const pct = el('input', { type: 'number', class: 'field', min: 1, max: 100, step: 5, value: String(lim.pct ?? 60),
         'aria-label': `${m.name}: the most Tutti uses then, percent` });
@@ -611,7 +623,8 @@ function limitForm(m) {
         await refresh();
     }).catch((err) => showBanner(el('strong', { text: `${fail} ` }), err.message));
     return el('div', { class: 'row__stats' },
-        el('span', { class: 'row__note', text: lim.window ? `Limited hours ${lim.window} at ${lim.pct ?? 60} %${m.limited ? ' (now)' : ''}:` : 'Limited hours:' }),
+        el('span', { class: 'row__note', text: lim.window ? `Limited hours ${lim.window} at ${lim.pct ?? 60} %${m.limited ? ' (now)' : ''}:`
+            : 'Limited hours: none set (type HH-HH, e.g. 18-01, to add):' }),
         win, pct, el('span', { text: '%' }),
         el('button', { class: 'btn btn--tonal', type: 'button', text: 'Save',
             onclick: () => save({ machine: m.name, window: win.value.trim(), pct: pct.value.trim() === '' ? null : Number(pct.value) },
@@ -644,10 +657,12 @@ function storedFiles(name, st) {
 function renderSelfHeal(h) {
     const box = $('machines-selfheal');
     if (!box || !h) return;
-    const head = `Self-healed: ${h.today} today`;
-    if (!h.items.length) { box.replaceChildren(el('p', { class: 'row__note', text: `${head}. Nothing needed repairing.` })); return; }
+    const tidied = h.tidied ? ` · ${h.tidied} routine clean-up${h.tidied === 1 ? '' : 's'} (finished runs' helpers, old temp folders)` : '';
+    const head = `Self-healed: ${plural(h.today, 'repair')} today${tidied}`;
+    const rows = [...h.items, ...(h.tidy_items || [])];
+    if (!rows.length) { box.replaceChildren(el('p', { class: 'row__note', text: `${head}. Nothing needed repairing.` })); return; }
     const d = el('details', { class: 'stored', keep: 'selfheal' });
-    d.append(el('summary', { text: head }), el('ul', { class: 'stored__list' }, ...h.items.map((r) => el('li', {},
+    d.append(el('summary', { text: head }), el('ul', { class: 'stored__list' }, ...rows.map((r) => el('li', {},
         el('span', { class: 'stored__name', text: `${r.host} · ${r.check}` }),
         el('span', { text: `${r.what} · ${relative(new Date(r.at * 1000).toISOString())}` })))));
     const hadFocus = box.contains(document.activeElement);

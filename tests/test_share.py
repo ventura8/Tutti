@@ -31,7 +31,7 @@ class Share(Base):
 
     def test_someone_at_the_keyboard_and_quiet_hours_lower_the_share(self):
         m = {'use_pct': 100, 'quiet_hours': ['00:00-23:59']}
-        self.assertEqual(share.pct({'use_pct': 100}, None, NIGHT, idle_s=20), (30, 'someone is using it'))
+        self.assertEqual(share.pct({'use_pct': 100}, None, NIGHT, idle_s=20), (30, 'someone is at its keyboard'))
         self.assertEqual(share.pct({'use_pct': 100}, None, NIGHT, idle_s=3600), (100, ''))
         self.assertEqual(share.pct(m, None, NIGHT)[0], 50)
         self.assertEqual(share.pct({'use_pct': 80, 'in_use_pct': 10}, {'reason': 'too hot: CPU 99 C'}, NIGHT, idle_s=1)[0], 10)

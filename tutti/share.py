@@ -73,7 +73,7 @@ def pct(machine, row=None, now=None, idle_s=None, quiet_hours=None):
     (None: not known); `now` a UTC datetime for the quiet hours."""
     share, why = int(setting(machine, 'use_pct')), []
     if idle_s is not None and idle_s < setting(machine, 'in_use_minutes') * 60:
-        share, why = min(share, int(setting(machine, 'in_use_pct'))), why + ['someone is using it']
+        share, why = min(share, int(setting(machine, 'in_use_pct'))), why + ['someone is at its keyboard']
     hours = (machine or {}).get('quiet_hours') or quiet_hours
     if now is not None and hours and planner.quiet(now, hours):
         share, why = min(share, int(setting(machine, 'quiet_pct'))), why + ['quiet hours']

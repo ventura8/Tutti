@@ -329,6 +329,30 @@ class Roles(unittest.TestCase):
         self.assertTrue(re.search(r'guest@example\.com', page.text_content('#users')))
         ctx.close()
 
+    def test_machine_cards_match_the_probe(self):
+        """Each card's slot boxes equal its busy, held-back and free slots from /api/state; the text agrees; an empty limit
+        says none and stays editable for an admin."""
+        ctx = new_context(ADMIN)
+        page = open_view(ctx, '#dashboard')
+        items = page.evaluate("fetch('/api/state').then((r) => r.json()).then((s) => s.machines.items)")
+        cards = page.locator('#machines > li')
+        self.assertEqual(cards.count(), len(items))
+        for i, m in enumerate(items):
+            card = cards.nth(i)
+            self.assertEqual(card.locator('.pip').count(), m['slots'])
+            if m['free'] is None:   # not reachable: dashed boxes and the slot count only
+                self.assertEqual(card.locator(".pip[data-off='true']").count(), m['slots'])
+            else:
+                self.assertEqual(card.locator(".pip[data-busy='true']").count(), m['busy'])
+                self.assertEqual(card.locator(".pip[data-held='true']").count(), m['held_back'])
+                self.assertIn(f"{m['free']} of {m['slots']} slot", card.text_content())
+            win = card.get_by_label(f"{m['name']}: limited hours, HH-HH")
+            self.assertTrue(win.is_editable())
+            if not m.get('limit'):
+                self.assertEqual((win.input_value(), win.get_attribute('placeholder')), ('', 'none'))
+                self.assertIn('Limited hours: none set', card.text_content())
+        ctx.close()
+
     def test_numbers_have_no_float_noise(self):
         for role in (ADMIN, VIEWER):
             ctx = new_context(role)

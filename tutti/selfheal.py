@@ -74,12 +74,19 @@ def trim(cfg):
         os.replace(log_path(cfg) + '.tmp', log_path(cfg))
 
 
+TIDY_CHECKS = ('strays', 'disk')   # routine clean-up (left-over helpers of finished runs, old temp folders), not a repair
+
+
 def view(cfg, now=None):
-    """{today: N, items: [the latest 30 of today]}: what the dashboard shows."""
+    """{today: real repairs today, tidied: routine clean-ups today, items: the latest 30 repairs, tidy_items: the latest 10
+    clean-ups}: what the dashboard shows. Stopping a finished test run's helper or removing an old temp folder is housekeeping,
+    so it is counted apart from repairs (a broken state file put back, a worker or tunnel started again)."""
     now = now or time.time()
     start = time.mktime(time.localtime(now)[:3] + (0, 0, 0, 0, 0, -1))
     today = [r for r in durable.read_jsonl(log_path(cfg)) if isinstance(r, dict) and r.get('at', 0) >= start]
-    return {'today': len(today), 'items': today[-30:][::-1]}
+    fixed = [r for r in today if r.get('check') not in TIDY_CHECKS]
+    tidy = [r for r in today if r.get('check') in TIDY_CHECKS]
+    return {'today': len(fixed), 'tidied': len(tidy), 'items': fixed[-30:][::-1], 'tidy_items': tidy[-10:][::-1]}
 
 
 # ---- the checks: each returns lines (repairs done); a person's step goes to ctx.ask

@@ -17,10 +17,10 @@ import time
 from . import config
 
 FORWARD = ('backlog', 'autopilot', 'pause', 'resume', 'optin', 'usage', 'main', 'owner', 'dispatch', 'selfimprove', 'scout', 'runs',
-           'wait', 'household', 'user', 'run', 'job', 'bridge')
+           'wait', 'household', 'user', 'run', 'job', 'bridge', 'security')
 READ_ONLY = {'usage': ('show', None), 'backlog': ('list', None), 'autopilot': ('status', None), 'runs': None, 'main': None,
              'owner': None, 'dispatch': ('status', None), 'household': ('status', None), 'user': ('show', None),
-             'selfimprove': ('status', None)}
+             'selfimprove': ('status', None), 'security': ('status', None)}
 UNREACHABLE = 255          # ssh's own exit code: the host could not be reached
 FENCED = 75                # tutti/failover.py's: the host answered but is not the active main machine now
 MIRROR = 'host-mirror'

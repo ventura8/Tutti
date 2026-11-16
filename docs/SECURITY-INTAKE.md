@@ -27,8 +27,10 @@ The repo's GitHub name is `autopilot.repos.<name>.github`, else its `origin` rem
 - Green patch and minor bumps: one task per repo, `Land the open patch and minor dependency bumps`, listing them all.
 - Reports: deduped per package (Dependabot), rule and file (code scanning) or file and first line (Cursor, Greptile),
   ranked critical, high, medium, low, queued worst first as `Fix <severity> vulnerability: <title>`.
-- A queued task whose pull request closed or whose alert GitHub marked fixed is dropped by itself, and only when the
-  source that made it was read without a fault: an unreadable source (403, a bad answer) keeps its tasks. GitHub closes a
+- A queued task whose pull request closed or whose alert GitHub marked fixed is dropped by itself, only by a read that
+  started after it was queued, and only when the
+  source that made it was read in full: an unreadable or capped source (403, a bad answer, 500+ open pull requests,
+  more than 30 open pull requests or a full page of comments) keeps its tasks. Reports are ranked worst first (`rank`). GitHub closes a
   Dependabot or code-scanning alert when the fix reaches the default branch.
 
 The autopilot reads every `depbots.every_minutes` (default 360) while it is on; `tutti security scan` reads now and

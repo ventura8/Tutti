@@ -100,6 +100,10 @@ class DepbotsTest(unittest.TestCase):
             self.assertEqual(group['status'], 'queued')
             self.assertEqual(len(group['notes']), 3)
             found['r']['alerts'] = []
+            found['r']['started'] = data['tasks'][-1]['added'] - 1   # an older read never drops a newer task
+            depbots.apply(cfg, data, found)
+            self.assertEqual([t for t in data['tasks'] if t['status'] == 'dropped'], [])
+            found['r']['started'] = data['tasks'][-1]['added'] + 1
             depbots.apply(cfg, data, found)
             dropped = [t for t in data['tasks'] if t['status'] == 'dropped']
             self.assertEqual(len(dropped), 3)
@@ -150,6 +154,32 @@ class PartialReadTest(unittest.TestCase):
         self.assertTrue(depbots.failing([{'conclusion': 'TIMED_OUT'}]))
         self.assertTrue(depbots.failing([{'state': 'ERROR'}]))
         self.assertFalse(depbots.failing([{'conclusion': 'SUCCESS'}]))
+        note = depbots.pr_note({'bot': 'dependabot', 'url': 'u', 'branch': 'dependabot/x;id;#'}, '')
+        self.assertIn("'dependabot/x;id;#'", note)   # quoted: never shell syntax
+
+    def test_incomplete_reads_prove_nothing(self):
+        many = [{**PRS[0], 'number': n} for n in range(depbots.PR_LIMIT)]
+        self.assertNotIn('prs', depbots.read_repo('o/r', S, fake_gh(prs=many))['read'])
+        self.assertNotIn('comments', depbots.read_repo('o/r', S, fake_gh(prs=many[:31]))['read'])
+        def no_list(args):
+            return (1, '', 'HTTP 502') if args[0] == 'pr' else (0, '[[]]', '')
+        self.assertEqual(depbots.read_repo('o/r', S, no_list)['read'], ['dependabot', 'code-scanning'])
+
+    def test_refs_are_per_repo_and_reports_rank_first(self):
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg['autopilot']['repos'] = {'a': {'path': '/a'}, 'b': {'path': '/b'}}
+        alert = {'key': 'dep:npm:x', 'source': 'github-dependabot', 'kind': 'dependabot', 'severity': 4, 'title': 'x', 'url': 'u',
+                 'path': '', 'hint': 'h', 'sources': ['github-dependabot'], 'urls': ['u'], 'kinds': ['dependabot']}
+        both = {n: {'slug': f'o/{n}', 'prs': [], 'alerts': [alert], 'problems': [], 'read': list(depbots.SOURCES), 'started': 0}
+                for n in ('a', 'b')}
+        data = {'next': 1, 'tasks': []}
+        depbots.apply(cfg, data, both)
+        self.assertEqual(data['tasks'][0]['rank'], -4)
+        for t in data['tasks']:
+            t['added'] = 0
+        both['a'] = {**both['a'], 'alerts': [], 'started': 1}
+        depbots.apply(cfg, data, both)
+        self.assertEqual([t['status'] for t in data['tasks']], ['dropped', 'queued'])   # b's alert does not keep a's task
 
 
 if __name__ == '__main__':

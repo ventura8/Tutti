@@ -16,6 +16,7 @@ bump is on the base. The plan is pure; `gather` does the reading and runs outsid
 import json
 import os
 import re
+import shlex
 import subprocess
 import time
 
@@ -30,6 +31,7 @@ SECURITY_WORDS = re.compile(r'\b(security|vulnerab\w*|cve-\d+|ghsa-|injection|xs
 LABEL = re.compile(r'^\W*(?:severity:?\W*)?(critical|high|medium|moderate|low)\b', re.I)
 FAILED = {'FAILURE', 'TIMED_OUT', 'CANCELLED', 'STARTUP_FAILURE', 'ACTION_REQUIRED', 'ERROR'}
 SOURCES = ('prs', 'dependabot', 'code-scanning', 'comments')
+PR_LIMIT = 500
 GROUP = 'Land the open patch and minor dependency bumps'
 VERSIONS = re.compile(r'from v?(\d+)(?:\.(\d+))?\S* to v?(\d+)(?:\.(\d+))?', re.I)
 
@@ -203,14 +205,16 @@ def bot_prs(prs, bots):
 
 
 def open_comments(slug, prs, gh_fn, most=30):
-    """Review comments on the open pull requests only (a finding on a merged one is history), current ones only."""
-    out = []
+    """(current review comments on the open pull requests, complete?): a finding on a merged one is history. Complete only when
+    every open pull request was read in full (at most `most`, one page each), else absence proves nothing."""
+    out, complete = [], len(prs) <= most
     for pr in prs[:most]:
         items, err = _api(gh_fn, f'repos/{slug}/pulls/{pr["number"]}/comments?per_page=100', pages=1)
         if items is None:
-            return None, err
+            return None, False, err
+        complete = complete and len(items) < 100
         out += [c for c in items if c.get('position') is not None or c.get('line') is not None]
-    return out, ''
+    return out, complete, ''
 
 
 def _read_alerts(out, slug, s, gh_fn, prs):
@@ -223,19 +227,21 @@ def _read_alerts(out, slug, s, gh_fn, prs):
         out['read'].append(kind)
         out['alerts'] += parse(items, slug)
     out['code_scanning'] = 'code-scanning' in out['read']
-    items, err = open_comments(slug, prs, gh_fn)
+    if 'prs' not in out['read']:
+        return   # no inventory of open pull requests: their comments are unread, never "none"
+    items, complete, err = open_comments(slug, prs, gh_fn)
     if items is None:
         out['problems'].append(problem('review comments', slug, err))
-    else:
-        out['read'].append('comments')
-        out['alerts'] += from_comments(items, s['scanners'])
+        return
+    out['read'] += ['comments'] if complete else []
+    out['alerts'] += from_comments(items, s['scanners'])
 
 
 def read_repo(slug, s, gh_fn=gh):
     """{prs, alerts, problems, code_scanning, read}: `read` names the sources read without a fault, so a task is dropped only
     when the source that made it was read and no longer holds it."""
     out = {'prs': [], 'alerts': [], 'problems': [], 'code_scanning': False, 'read': []}
-    rc, raw, err = gh_fn(['pr', 'list', '-R', slug, '--state', 'open', '--limit', '100', '--json',
+    rc, raw, err = gh_fn(['pr', 'list', '-R', slug, '--state', 'open', '--limit', str(PR_LIMIT), '--json',
                           'number,title,headRefName,author,url,labels,statusCheckRollup'])
     try:
         prs = json.loads(raw or '[]') if rc == 0 else None
@@ -245,7 +251,7 @@ def read_repo(slug, s, gh_fn=gh):
         out['problems'].append(problem('pull requests', slug, err))
         prs = []
     else:
-        out['read'].append('prs')
+        out['read'] += ['prs'] if len(prs) < PR_LIMIT else []   # a capped list is not proof that a pull request closed
         out['prs'] = bot_prs(prs, s['bots'])
     _read_alerts(out, slug, s, gh_fn, prs)
     out['alerts'] = dedupe(out['alerts'])
@@ -271,7 +277,7 @@ def gather(cfg, now, gh_fn=gh, run=subprocess.run, force=False):
                                         f'autopilot.repos.{name}.github to owner/name']}
             continue
         try:
-            found[name] = {'slug': slug, **read_repo(slug, settings(cfg), gh_fn)}
+            found[name] = {'slug': slug, 'started': time.time(), **read_repo(slug, settings(cfg), gh_fn)}
         except (OSError, ValueError, KeyError, TypeError) as exc:   # one bad repo never stops the others
             found[name] = {'slug': slug, 'prs': [], 'alerts': [], 'code_scanning': False, 'read': [],
                            'problems': [f'{slug}: reading it failed ({type(exc).__name__}: {exc}): `tutti security scan` again; '
@@ -280,14 +286,16 @@ def gather(cfg, now, gh_fn=gh, run=subprocess.run, force=False):
 
 
 def pr_note(pr, check):
-    return (f'{pr["bot"]} opened {pr["url"]} on branch {pr["branch"]}. Bring its change in first: '
-            f'`git fetch origin {pr["branch"]} && git diff HEAD...FETCH_HEAD | git apply --3way --index`, then run the check '
+    branch = shlex.quote(pr['branch'])   # a branch name is the bot's text: quoted, never shell syntax
+    return (f'{pr["bot"]} opened {pr["url"]} on branch {branch}. Bring its change in first: '
+            f'`git fetch origin {branch} && git diff HEAD...FETCH_HEAD | git apply --3way --index`, then run the check '
             f'({check or "the repo check"}) and fix what breaks: code, the lockfile, an override or a pin. Keep the bump. '
             'When the result lands on the base, the bot closes its pull request by itself.')
 
 
 def tasks_for(name, scan, check, group_trivial=True):
-    """[(title, size, source, notes, ref, kinds)] for one repo's scan: ref is the pull request url, `group:<repo>` or the alert
+    """[(title, size, source, notes, ref, kinds, rank)] for one repo's scan (rank: the autopilot's ascending order, worst
+    report first, bumps after the reports): ref is the pull request url, `group:<repo>` or the alert
     key; kinds are the sources that made it."""
     out, trivial = [], []
     for pr in scan['prs']:
@@ -296,38 +304,43 @@ def tasks_for(name, scan, check, group_trivial=True):
             continue
         size = 'M' if pr['kind'] in ('major', 'group') or pr['failing'] else 'S'
         out.append((f'Dependency update: {pr["title"]} (#{pr["number"]})', size, f'depbot:{pr["bot"]}', [pr_note(pr, check)],
-                    pr['url'], ['prs']))
+                    pr['url'], ['prs'], 10))
     if len(trivial) == 1:
         pr = trivial[0]
         out.append((f'Dependency update: {pr["title"]} (#{pr["number"]})', 'S', f'depbot:{pr["bot"]}', [pr_note(pr, check)],
-                    pr['url'], ['prs']))
+                    pr['url'], ['prs'], 10))
     elif trivial:
-        out.append((GROUP, 'S', 'depbot:group', [pr_note(p, check) for p in trivial], f'group:{name}', ['prs']))
+        out.append((GROUP, 'S', 'depbot:group', [pr_note(p, check) for p in trivial], f'group:{name}', ['prs'], 10))
     for a in scan['alerts']:
         out.append((f'Fix {NAMES[a["severity"]]} vulnerability: {a["title"]}', 'M' if a['severity'] >= 3 else 'S',
                     f'security:{"+".join(a["sources"])}', [f'{a["hint"]}. Reports: {" ".join(a["urls"])}', 'Run the check before '
-                    'finishing; GitHub closes the alert by itself when the fix is on the default branch.'], a['key'], a['kinds']))
+                    'finishing; GitHub closes the alert by itself when the fix is on the default branch.'],
+                    a['key'], a['kinds'], -a['severity']))
     return out
 
 
 def _queue(cfg, data, name, scan):
     check = cfg['autopilot']['repos'][name].get('check') or ''
     live, events = set(), []
-    for title, size, source, notes, ref, kinds in tasks_for(name, scan, check, settings(cfg).get('group_trivial', True)):
-        live.add(ref)
+    for title, size, source, notes, ref, kinds, rank_ in tasks_for(name, scan, check, settings(cfg).get('group_trivial', True)):
+        live.add((name, ref))
         task, added = backlog.add(data, {**backlog.new_task(name, title, (), check, size, source, notes), 'depbot_ref': ref,
-                                         'depbot_src': kinds})
+                                         'depbot_src': kinds, 'rank': rank_})
         if added:
             events.append(f'depbots: queued {task["id"]} {title}')
-        elif task['status'] == 'queued' and task.get('notes') != notes:
+        elif task['status'] == 'queued':
             task['notes'] = notes   # the group's member list follows the open pull requests
+            task.setdefault('rank', rank_)   # a rank the owner set (Priority up/down) stays
     return live, events
 
 
 def gone(t, found, live):
-    """A queued task of ours whose every source was read now and no longer holds it."""
+    """A queued task of ours whose every source was read now and no longer holds it. A task queued after this read started
+    (a newer scan) is never judged by it."""
     scan = found.get(t['repo'])
-    if not t.get('depbot_ref') or t['status'] != 'queued' or scan is None or t['depbot_ref'] in live:
+    if not t.get('depbot_ref') or t['status'] != 'queued' or scan is None or (t['repo'], t['depbot_ref']) in live:
+        return False
+    if scan.get('started') is not None and float(t.get('added') or 0) >= scan['started']:
         return False
     return all(k in scan.get('read', []) for k in t.get('depbot_src') or ['prs'])
 

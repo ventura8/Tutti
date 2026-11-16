@@ -402,12 +402,14 @@ class ServerTest(unittest.TestCase):
         self.assertIn(b'tutti-nonce', page)
         self.assertIn('accounts.google.com/gsi/client', r.getheader('Content-Security-Policy'))
         self.assertEqual(self.get('/api/state')[0].status, 401)
+        self.assertEqual(self.get('/api/events')[0].status, 401)
         self.assertEqual(self.get('/app.css')[0].status, 200)
         self.assertFalse(json.loads(self.get('/api/auth/me')[1])['signed_in'])
         self.assertEqual(self.post('/api/autopilot', {'enabled': True})[0].status, 401)
 
     def test_a_pending_user_is_blocked(self):
         self.assertEqual(self.get('/api/state', self.pending)[0].status, 403)
+        self.assertEqual(self.get('/api/events', self.pending)[0].status, 403)
         r, page = self.get('/', self.pending)
         self.assertIn(b'tutti-nonce', page)   # the waiting page, not the dashboard
         self.assertNotIn(b'id="usage"', page)

@@ -145,7 +145,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 - [docs/USAGE-PACING.md](docs/USAGE-PACING.md): the pacing rule and its arithmetic.
 - [docs/MACHINES.md](docs/MACHINES.md): slots, routing, heat and memory guards, the yield flag, peers.
 - [docs/AUTH.md](docs/AUTH.md): sign-in with Google, roles, invites, sessions and CSRF, recovery, and the household's interface.
-- [docs/DASHBOARD.md](docs/DASHBOARD.md): the local dashboard, its data sources and `/api/state`.
+- [docs/DASHBOARD.md](docs/DASHBOARD.md): the local dashboard, its data sources, SSE and `/api/state`.
 - [docs/FLEET.md](docs/FLEET.md): every machine's Ollama as a worker, capability routing, overflow from paced accounts, the governor and the block resolver.
 - [docs/ENERGY.md](docs/ENERGY.md): local models' power, energy and estimated cost: the method, the price tables and their sources.
 - [docs/MOVE.md](docs/MOVE.md): `tutti move`: Tutti from a laptop to an always-on machine and back; clients and the bridge.

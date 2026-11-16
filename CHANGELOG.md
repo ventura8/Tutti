@@ -6,6 +6,8 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 ### Added
 
+- Dashboard pushes state using server-sent events (/api/events) and the browser falls back to polling /api/state if the
+  connection fails or times out; polling is disabled while the stream is active.
 - Local models as first-class workers (docs/FLEET.md). Every machine's Ollama is read at each probe and its models are
   classed (tier, kinds). A machine with models and no worker gets `<machine>-local` through a tunnel, and `tutti fleet`
   lists them.

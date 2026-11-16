@@ -62,6 +62,7 @@ class Base(unittest.TestCase):
                              'fill_room': False, 'auto_review': False, **ap}}
         cfg = config.normalise(raw)
         cfg['_path'] = os.path.join(self.tmp.name, 'tutti.config.yaml')
+        cfg['_host'] = {'mem_gb': 16.0, 'cores': 8, 'load': 0.1}
         return cfg
 
 

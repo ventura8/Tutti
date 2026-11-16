@@ -87,7 +87,9 @@ button keeps the keyboard focus. Cards in a row stretch to the same height.
 | Running jobs, Finished jobs | Running and stalled jobs in their own card; finished ones (passed, failed, ended) at the bottom. A running job shows its progress (see *Progress* below: a bar with its percentage and where the number comes from, or its elapsed time when nothing can say) and, under it, what it has done so far: the step, tokens and tool calls, AI credits, the account it spends with that account's % used, tests passed and failed, files changed (+/−), bytes copied. A finished job shows no bar: its result (passed, failed with the exit code, or ended), how long it took and the same facts, with the report's path. `<project.state>`: `quiet/*.log` (`tutti quiet`), `ship-*.log` (quiet ship checks), `files/*.log` (`tutti files send` and `--input`, with the bytes copied in MB), `runs/*.log` (`tutti run --repo`), `waits/*.json` (`tutti wait`), `conduct/current.json` (a running `tutti conduct`), `llm-busy-*` (local-model jobs) and `tunnel-*.pid`. Running, **stalled** (its log has not changed for `dashboard.stall_minutes`), failed (with its exit code), done, or ended (a run from before 0.1.4, whose result was not recorded). Each opens to the end of its log. |
 
 Machines and workers are probed in the background every `dashboard.probe_seconds` (ssh answers can be slow); the
-rest is read on each request. The page polls `/api/state` every `dashboard.refresh_seconds` and pauses while hidden.
+rest is read on each request. The page subscribes to `/api/events` (Server-Sent Events) and pushes new state data when probes
+complete or settings change, falling back to polling `/api/state` every `dashboard.refresh_seconds` if the stream fails or
+times out (polling is disabled while the stream is active).
 
 ## Queued
 
@@ -371,6 +373,12 @@ Material 3 tokens over the OS light or dark scheme. The accent is the OS accent 
 (CSS `AccentColor`); otherwise Tutti's indigo, and the footer says which. The accent only paints indicators and tonal
 backgrounds; text stays on the neutral colours, so any accent keeps its contrast. Keyboard: Tab through everything,
 `R` refreshes, `1`–`5` pick the job filter. Layout from a phone to 4K.
+
+## `/api/events`
+
+Server-Sent Events endpoint (`Content-Type: text/event-stream`, `Cache-Control: no-cache`) pushing the state JSON
+(`data: <json>\n\n`) on connection and whenever probes or dashboard actions update the state. The browser subscribes to this
+endpoint and automatically falls back to polling `/api/state` if disconnected or timed out.
 
 ## `/api/state`
 

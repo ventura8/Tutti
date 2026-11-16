@@ -223,6 +223,37 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(s['workers']['items'][0]['ready'])
         self.assertIn('jobs', s)
 
+    def test_api_events_pushes_state_over_sse(self):
+        c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=5)
+        c.request('GET', '/api/events', headers={'Host': f'127.0.0.1:{self.port}'})
+        r = c.getresponse()
+        self.assertEqual(r.status, 200)
+        self.assertEqual(r.getheader('Content-Type'), 'text/event-stream')
+        self.assertEqual(r.getheader('Cache-Control'), 'no-cache')
+        line = r.fp.readline()
+        self.assertTrue(line.startswith(b'data: '))
+        data = json.loads(line[len(b'data: '):])
+        self.assertIn('summary', data)
+        self.httpd.collector.notify()
+        line2 = r.fp.readline()
+        if line2 == b'\n':
+            line2 = r.fp.readline()
+        self.assertTrue(line2.startswith(b'data: '))
+        c.close()
+
+    def test_api_events_head(self):
+        c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=5)
+        c.request('HEAD', '/api/events', headers={'Host': f'127.0.0.1:{self.port}'})
+        r = c.getresponse()
+        self.assertEqual(r.status, 200)
+        self.assertEqual(r.getheader('Content-Type'), 'text/event-stream')
+        c.close()
+
+    def test_api_events_route(self):
+        code, body, ctype, cache = dashboard.route(self.httpd.collector, '/api/events')
+        self.assertEqual((code, ctype, cache), (200, 'text/event-stream', 'no-cache'))
+        self.assertTrue(body.startswith(b'data: '))
+
     def test_api_state_answers_304_when_unchanged_and_gzips_when_asked(self):
         with mock.patch.object(dashboard, 'STATE_FRESH', 600):   # a slow test machine must not build a new answer in between
             self.check_304_and_gzip()

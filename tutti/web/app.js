@@ -1,4 +1,5 @@
-// Tutti dashboard: polls /api/state and renders it with DOM nodes and textContent only (no HTML from data).
+// Tutti dashboard: pushes state with server-sent events, falls back to polling /api/state, and renders it with DOM
+// nodes and textContent only (no HTML from data).
 'use strict';
 
 const $ = (id) => document.getElementById(id);
@@ -8,7 +9,10 @@ const VERDICT_TONE = { 'on pace': 'ok', ahead: 'warn', behind: 'warn', late: 'ba
 const MACHINE_TONE = { free: 'ok', loaded: 'warn', busy: 'accent', paused: 'warn', offline: 'bad', held: 'warn', off: 'idle' };
 const JOB_TONE = { running: 'accent', stalled: 'warn', failed: 'bad', done: 'ok', ended: 'idle' };
 const storedOpen = new Set();   // machines whose stored-files list is open: kept across re-renders
-const ui = { filter: 'all', project: '', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false, seq: 0, editing: new Map(), accounts: new Map(), expanded: new Set() };
+const ui = {
+    filter: 'all', project: '', open: new Set(), last: null, fetchedAt: 0, timer: 0, failing: false,
+    seq: 0, editing: new Map(), accounts: new Map(), expanded: new Set(), sse: null, sseActive: false, sseTimer: 0,
+};
 const TOKEN = document.querySelector('meta[name="tutti-token"]')?.content || '';
 const PAGE_VERSION = document.querySelector('meta[name="tutti-version"]')?.content || '';
 const RELOADED_FOR = 'tutti-reloaded-for';   // sessionStorage: the version this tab already reloaded for (never a loop)
@@ -1153,7 +1157,17 @@ function live() {
     }
 }
 
+function applyState(data) {
+    ui.fetchedAt = Date.now();
+    ui.last = data;
+    ui.failing = false;
+    render();
+    void selfUpdate(data.version);
+    live();
+}
+
 async function refresh(how) {
+    if (how === 'poll' && ui.sseActive) return;
     clearTimeout(ui.timer);
     // Only the newest request may publish its answer and schedule the next poll: a Refresh click during a slow
     // request must not start a second polling loop or let the older answer overwrite the newer one.
@@ -1187,7 +1201,60 @@ async function refresh(how) {
     }
     live();
     const every = (ui.last?.refresh_seconds || 10) * 1000;
-    if (!document.hidden) ui.timer = setTimeout(() => refresh('poll'), ui.failing ? Math.min(every, 5000) : every);
+    if (!document.hidden && !ui.sseActive) ui.timer = setTimeout(() => refresh('poll'), ui.failing ? Math.min(every, 5000) : every);
+}
+
+function resetSseWatchdog() {
+    clearTimeout(ui.sseTimer);
+    ui.sseTimer = setTimeout(() => {
+        if (ui.sse) {
+            ui.sse.close();
+            ui.sse = null;
+        }
+        fallbackToPolling();
+    }, 35000);
+}
+
+function fallbackToPolling() {
+    ui.sseActive = false;
+    clearTimeout(ui.timer);
+    void refresh('poll');
+    setTimeout(subscribeEvents, 5000);
+}
+
+function subscribeEvents() {
+    if (typeof EventSource === 'undefined') {
+        if (!ui.timer) void refresh('poll');
+        return;
+    }
+    if (ui.sse) {
+        if (ui.sse.readyState === EventSource.OPEN && ui.sseActive) return;
+        ui.sse.close();
+    }
+    const es = new EventSource('/api/events');
+    ui.sse = es;
+    resetSseWatchdog();
+    es.addEventListener('open', () => {
+        ui.sseActive = true;
+        clearTimeout(ui.timer);
+        resetSseWatchdog();
+    });
+    es.addEventListener('ping', () => resetSseWatchdog());
+    es.addEventListener('message', (e) => {
+        resetSseWatchdog();
+        ui.sseActive = true;
+        clearTimeout(ui.timer);
+        try {
+            const data = JSON.parse(e.data);
+            if (data && typeof data === 'object') applyState(data);
+        } catch {}
+    });
+    es.addEventListener('error', () => {
+        clearTimeout(ui.sseTimer);
+        es.close();
+        ui.sse = null;
+        fallbackToPolling();
+    });
 }
 
 function accentNote() {
@@ -1378,9 +1445,10 @@ document.addEventListener('DOMContentLoaded', () => {
     $('update-now').addEventListener('click', updateNow);
     $('job-project').addEventListener('change', (e) => { ui.project = e.target.value; render(); });
     document.addEventListener('keydown', keys);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && !ui.sseActive) void refresh(); });
     setInterval(live, 1000);
     accentNote();
     install();
+    subscribeEvents();
     void refresh();
 });

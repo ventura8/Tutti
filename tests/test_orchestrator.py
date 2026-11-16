@@ -524,7 +524,7 @@ class DiscoverTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.cfg = config.normalise({'project': {'state': self.tmp.name}, 'dashboard': {
-            'watch_scripts': ['nuc-test.sh'], 'watch_agents': ['agy'], 'task_globs': [os.path.join(self.tmp.name, 'tasks', '*.output')]}})
+            'watch_scripts': ['nuc-test.sh'], 'watch_agents': [], 'task_globs': [os.path.join(self.tmp.name, 'tasks', '*.output')]}})
 
     def tearDown(self):
         self.tmp.cleanup()

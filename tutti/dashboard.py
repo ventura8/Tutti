@@ -101,6 +101,18 @@ class Collector:
         self.env = os.environ   # the scouts' webhook variables (names only ever leave this process)
         self.update_error = None
         self.updating = threading.Lock()   # one update round at a time in this dashboard (the daily one or a click)
+        self.update_cond = threading.Condition()
+        self.version = 0
+
+    def notify(self):
+        """Invalidate the state cache and wake up all SSE subscribers."""
+        cache = getattr(self, 'state_cache', None)
+        if cache:
+            with cache.lock:
+                cache.at = None
+        with self.update_cond:
+            self.version += 1
+            self.update_cond.notify_all()
 
     def read_usage(self, force=False):
         """The automatic readings: each account's reader (cached per command unless `force`) and limit messages in recent job
@@ -117,6 +129,7 @@ class Collector:
         found = self.read_usage(force=True)
         with self.lock:
             self.probes = {**self.probes, 'readers': found}
+        self.notify()
         return found
 
     def refresh(self):
@@ -140,6 +153,7 @@ class Collector:
             fresh['error'] = f'automatic usage readings failed ({e}): fix the usage log, the next probe tries again'
         with self.lock:
             self.probes = fresh
+        self.notify()
         return fresh
 
     def autopilot_tick(self):
@@ -274,6 +288,7 @@ class Collector:
                 self.cfg = fresh
                 if hasattr(self.reader, 'cfg'):
                     self.reader.cfg = fresh
+        self.notify()
         return self.cfg
 
 
@@ -613,7 +628,10 @@ def post(collector, headers, path, port, token, read):
     limit = BODY_LIMITS.get(path, MAX_BODY)
     if not 0 < size <= limit:
         return 413, {'error': f'send a small JSON object (at most {limit} bytes)'}
-    return dispatch(collector, path, read(size))
+    code, ans = dispatch(collector, path, read(size))
+    if code < 400 and hasattr(collector, 'notify'):
+        collector.notify()
+    return code, ans
 
 
 def start_update(collector, _body):
@@ -832,6 +850,8 @@ def route(collector, path, token=''):
     """(status, body, content type, cache control) for a GET of `path`."""
     if path == '/api/state':
         return 200, safe_json(collector.snapshot()), JSON_TYPE, 'no-store'
+    if path == '/api/events':
+        return 200, b'data: ' + safe_json(collector.snapshot()) + b'\n\n', 'text/event-stream', 'no-cache'
     if path == '/api/health':   # `started` changes when the process starts again (Settings' Restart waits for it)
         return 200, json.dumps({'ok': True, 'started': STARTED, 'host': socket.gethostname(), 'version': __version__}).encode(), \
             JSON_TYPE, 'no-store'
@@ -870,6 +890,8 @@ def get(collector, path, token, headers):
     if path == '/api/state':
         code, body, extra = state_response(collector, headers)
         return code, body, JSON_TYPE, 'no-cache', extra
+    if path == '/api/events':
+        return 200, b'data: ' + safe_json(collector.snapshot()) + b'\n\n', 'text/event-stream', 'no-cache', {'Connection': 'keep-alive'}
     refused = authorize(collector, headers) if path in ADMIN_PATHS else None
     if refused:
         return refused[0], json.dumps({'error': refused[1]}).encode(), JSON_TYPE, 'no-store', None
@@ -880,7 +902,7 @@ def response_headers(code, body, ctype, cache, extra=None):
     """[(name, value)] of every answer. A 304 states no Content-Length: it would have to be the full answer's."""
     extra = extra or {}
     out = [(k, x) for k, v in extra.items() for x in (v if isinstance(v, list) else [v])] + [('Content-Type', ctype)]
-    out += [] if code == 304 else [('Content-Length', str(len(body)))]
+    out += [] if code == 304 or ctype == 'text/event-stream' else [('Content-Length', str(len(body)))]
     # the sign-in page sets its own CSP (Google's script and frame) and referrer policy
     return out + [('Cache-Control', cache), ('X-Content-Type-Options', 'nosniff')] + \
         [(k, v) for k, v in (('Referrer-Policy', 'no-referrer'), ('Content-Security-Policy', CSP)) if k not in extra]
@@ -911,6 +933,13 @@ class Server(ThreadingHTTPServer):
     def verify_request(self, request, client_address):
         return private_client(client_address[0])
 
+    def server_close(self):
+        collector = getattr(self, 'collector', None)
+        if collector and hasattr(collector, 'stop'):
+            collector.stop.set()
+            collector.notify()
+        super().server_close()
+
 
 class AuthRequired(Exception):
     """The dashboard would be reachable by others without sign-in."""
@@ -938,10 +967,52 @@ def make_handler(collector, token):
         def do_HEAD(self):
             self.do_GET()
 
+        def send_event(self, data):
+            try:
+                self.wfile.write(data)
+                self.wfile.flush()
+                return True
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                return False
+
+        def stream_events(self):
+            self.send_response(200)
+            for k, v in response_headers(200, b'', 'text/event-stream', 'no-cache', {'Connection': 'keep-alive'}):
+                self.send_header(k, v)
+            self.end_headers()
+            if self.command == 'HEAD':
+                return
+            last_version = -1
+            while not collector.stop.is_set():
+                with collector.update_cond:
+                    if last_version == collector.version:
+                        if not collector.update_cond.wait(timeout=15.0):
+                            if not self.send_event(b': keepalive\nevent: ping\ndata: {}\n\n'):
+                                break
+                            continue
+                    last_version = collector.version
+                try:
+                    snap = safe_json(collector.snapshot())
+                except Exception as e:
+                    telemetry.capture_exception(type(e), e, e.__traceback__, where='dashboard-events')
+                    break
+                if not self.send_event(b'data: ' + snap + b'\n\n'):
+                    break
+
         def do_GET(self):
             if not allowed_host(self.headers.get('Host', ''), self.server.server_address[1], reach_origins(collector)):
                 return self.fail(403, 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)')
             path = self.path.split('?', 1)[0]
+            if path == '/api/events':
+                auth = getattr(self.server, 'auth', None)
+                if auth is not None:
+                    _, user = authweb.current(auth, self.headers)
+                    if not user:
+                        return self.fail(401, 'sign in first: open the dashboard')
+                    if user['role'] == 'pending':
+                        return self.fail(403, 'an admin has not approved you yet: ask them to approve you in the Users card')
+                self.stream_events()
+                return
             self.send(*reported('dashboard-get', authweb.get, getattr(self.server, 'auth', None), path, self.headers,
                                 lambda tok: get(collector, path, tok, self.headers), token))
 

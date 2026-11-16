@@ -102,7 +102,8 @@ The yield flag still takes the machine out entirely (the PC is RoRadio's): its s
 "Tutti's share N %" and why. Its slot boxes are one per slot: filled for a busy slot, hatched for one held back by the
 share or the yield flag, empty for a free one, so they always add up to "F of N slots free". When the slot count does not
 come from `machines.<m>.slots` (one slot per shared lock file, or the default), the card says where it comes from. A
-Windows PC's CPU temperature needs LibreHardwareMonitor running there; without it the card says so. GPU power limits need root, so Tutti does not change them.
+Windows PC's CPU temperature comes from LibreHardwareMonitor or OpenHardwareMonitor when one runs there, else from its
+ACPI thermal zone; without a valid reading (20 to 110 C) the card says so and names LibreHardwareMonitor as the fix. GPU power limits need root, so Tutti does not change them.
 
 ## Model servers kept alive
 

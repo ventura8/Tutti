@@ -13,8 +13,8 @@ On 2026-11-16 a yield flag stayed up 15 h on an idle PC, the PC's C: ran full, w
 - once a day, or under CLEAN_PCT % free, the clean-up: Docker build cache over CACHE_KEEP_GB, dangling images, unused images
   older than IMAGE_DAYS (never an image the config names: `image:` / `images:` anywhere in it, `selfheal.keep_images`),
   Tutti's old runs, logs, worktrees and ~/.cache/tutti-* folders; on Windows old APK outputs (the newest 2 kept), the npm
-  and NuGet caches; Remote Desktop traces only on the owner's yes; a WSL disk compacted after a big prune. Never while a
-  yield flag or lease holds the machine.
+  cache and NuGet's download caches (never its packages folder); Remote Desktop traces only on the owner's yes; a WSL
+  disk compacted after a big prune. Never while a yield flag or lease holds the machine.
 
 The decisions are pure; every shell call goes through injected runners, so tests use fake machines."""
 import base64
@@ -387,7 +387,10 @@ def windows_clean(apk_roots, keep=2):
               f'Sort-Object LastWriteTime -Descending | Select-Object -Skip {int(keep)} | '
               'Remove-Item -Force -ErrorAction SilentlyContinue }; '
               'if (Get-Command npm -ErrorAction SilentlyContinue) { npm cache clean --force *> $null }; '
-              'if (Get-Command dotnet -ErrorAction SilentlyContinue) { dotnet nuget locals all --clear *> $null }; '
+              # never `locals all`: it empties the global packages folder that builds compile against (RoRadio's
+              # pipeline failed with WMC0621, GenXbf.dll gone, after a clean-up on 2026-11-16); only download caches go
+              'if (Get-Command dotnet -ErrorAction SilentlyContinue) { '
+              'dotnet nuget locals http-cache --clear *> $null; dotnet nuget locals temp --clear *> $null }; '
               '"FREED $((Get-PSDrive C).Free - $b)"')
 
 

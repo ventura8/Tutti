@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import time
+import base64
 import unittest
 from argparse import Namespace
 from types import SimpleNamespace
@@ -342,5 +343,16 @@ class YieldCli(unittest.TestCase):
         self.assertIn('tutti yield on', say.call_args[0][0])
 
 
+
+class NugetPackagesKept(unittest.TestCase):
+    def test_the_windows_clean_never_empties_the_nuget_packages_folder(self):
+        encoded = hygiene.windows_clean([]).rsplit(' ', 1)[-1]
+        script = base64.b64decode(encoded).decode('utf-16-le')
+        self.assertNotIn('locals all', script)
+        self.assertNotIn('global-packages', script)
+        self.assertIn('locals http-cache --clear', script)
+
+
 if __name__ == '__main__':
     unittest.main()
+

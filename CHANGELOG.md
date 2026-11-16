@@ -6,6 +6,34 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.23.0 (2026-11-16)
+
+### Added
+
+- Device classes (`tutti/devclass.py`, `device_classes.<kind>.deny`, docs/DISPATCH.md): a per-class list of adb commands
+  never run on that kind of device. A TV by default never gets `wm size`/`wm density`, the rotation settings or
+  `cmd device_state`; a matching prep item is dropped, a run naming one is refused, and the run's script is told
+  `TUTTI_DEVICE_CLASS` and `TUTTI_DEVICE_DENY`.
+- A phone's or tablet's rotation, screen timeout and screensaver are read before a run and put back after it
+  (`value: keep` prep items), whatever the test changed them to.
+- `projects.<p>.runner`: the default runner of a project's suites; a runner lease checks the runner's adb reaches each
+  device (`get-state`) before running, and `tutti test <Project> --device <d> -- <command>` runs there unsynced.
+- `tutti test`: options may follow the track; a command word with a space or quote is quoted, the others stay raw; a project's
+  `windows.<machine>` tree is used as it is with `--on <machine>`; `--fetch` of a Windows path copies it from where it is.
+- Windows desktop runs (`tutti/winsession.py`, suite `desktop: {user, dir, before}`): a UI suite runs in the logged-on
+  user's interactive session through a one-time `schtasks /ru <user> /it` task, its output followed and its exit code
+  returned, instead of ssh's session 0 where UI automation finds no input desktop.
+- `machines.<m>.dedicated`: a machine only the suites naming it use (never the work queue or an open suite), for a
+  Windows desktop's UI runs beside the same PC's container machine.
+- `shards_from` names join a suite's listed `shards`, which keep their own options (a TV-only class beside discovered ones).
+
+### Changed
+
+- A run whose filter matched no test (`0 tests match`, `No tests found`) is a FAIL in every suite, even with exit 0 (the last 30 lines)
+  (`verdict.none` replaces the pattern).
+- `requeue_on` patterns count only after the suite's `started` line: an app in front while the runner was still starting is
+  no reason to queue again.
+
 ## 0.22.0 (2026-11-16)
 
 ### Added

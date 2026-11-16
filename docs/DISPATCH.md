@@ -117,13 +117,66 @@ A suite can also say how to build and how to read its output:
 
 - `prepare: {run, where}`: the build, run once per commit before any shard of the suite (`tutti dispatch build`). Its shards
   wait until it passes. A failed build holds them with its reason and is tried again after 30 minutes or on a new commit.
-- `verdict: {pass, fail}` (regexes): for a runner that always exits 0. The run fails when `fail` matches, or when `pass`
-  never appears.
+- `verdict: {pass, fail, none}` (regexes): for a runner that always exits 0. The run fails when `fail` matches, or when
+  `pass` never appears. A run whose filter matched no test (`0 tests match`, `No tests found`) fails in every
+  suite, whatever its exit code (read in the last 30 lines, the summary): `none` replaces that pattern, `none: ''` turns it off.
 - `started: {pattern, within_seconds}`: the tests must start in time. The clock starts at the device lock's
   `tutti: device ready` line. A run that never starts is stopped and queued again, not counted as a failure, and the device
   is left alone for `dispatch.requeue_cooldown_minutes` (10).
 - `requeue_on: [regex]`: output that means "not the test's fault", such as another app in front. The shard is queued
-  again, with the same cooldown.
+  again, with the same cooldown. With `started` set, only the output after the started line counts: an app in front while
+  the runner was still installing or unlocking is not a reason.
+- `shards_from: {run, where}`: a command that prints shard names, one per line (for example the test classes ending in
+  `UITest` or `E2ETest`). Asked with the commit check; the names it prints join the listed `shards`, and a listed shard
+  keeps its options (`{name: TvRemoteE2ETest, devices: [googletv]}`).
+
+## Device classes
+
+Some adb commands are unsafe on some kinds of device (`tutti/devclass.py`). By default a TV (`kind: tv`, Android's
+leanback) never gets `wm size`, `wm density`, the rotation settings (`user_rotation`, `accelerometer_rotation`) or
+`cmd device_state`: a panel with no rotation or fold can stay broken until a person resets it. Tutti applies the list
+three ways: a prep item that matches is dropped, a run whose own command line names one is refused (exit 5, the reason
+printed), and the run's command gets `TUTTI_DEVICE_CLASS` and `TUTTI_DEVICE_DENY` (one regex) so the project's script can
+skip them too (a Windows script reached through WSL needs them in `WSLENV`). Replace a class's list in the config:
+
+```yaml
+device_classes:
+  tv: {deny: ['\bwm\s+(?:size|density)\b', '\bcmd\s+device_state\b']}
+  phone: {deny: []}
+```
+
+A TV gets no keep-awake key either (0.21.1).
+
+## A project's runner and its own work tree
+
+`projects.<p>.runner: <machine>` is the default `runner` of every suite of the project: a device run leases the device,
+connects the runner's own adb to it over the LAN, checks `adb get-state` answers `device` there (else the run never starts,
+with the reason), then runs the command on the runner. `tutti test <Project> --device <d> -- <command>` goes the same way,
+in the project's own tree, nothing synced:
+
+```bash
+tutti test MyApp --device tablet -- 'powershell.exe -NoProfile -Command "& C:\R\scripts\android\run-e2e.ps1 -Serial $env:ANDROID_SERIAL -Filter ReadabilityUITest"'
+```
+
+`tutti test <Project> --on <machine> -- <command>` with `projects.<p>.windows.<machine>: C:\...` runs in that Windows
+tree as it is (seen from WSL as `/mnt/c/...`), never synced. Options may follow the track (`tutti test MyApp --on
+pc --fetch C:\R\out.txt -- <command>`); of several command words, one with a space or a quote is quoted and the
+others stay raw (`&&`, `|`, `$VAR` still work); one word is the line as written; a `--fetch` of a Windows path is copied from where it is.
+
+## Windows desktop runs
+
+A job that reaches a Windows PC over ssh runs in session 0, where UI automation (Appium, WinAppDriver) finds no input
+desktop. A suite with `desktop: {user, dir, before}` runs its `run` (a cmd.exe line) in the logged-on user's interactive
+session (`tutti/winsession.py`): a one-time scheduled task created with `schtasks /create /ru <user> /it` (no password
+asked or stored), started at once; its output goes to a log Tutti follows, its exit code to a file Tutti waits for, and
+the task and its folder are removed however the run ends. `before` is a bash line run first in WSL (a yield-flag check
+that exits 3 with a requeue line); a clean-up it needs goes in `$tutti_after`, run when the task ends. The user must be logged on with the desktop unlocked.
+
+## Dedicated machines
+
+`machines.<m>.dedicated: true` keeps a machine for the suites that name it under their `machines:` (for example a
+Windows desktop entry with a shell runner for one project's UI pipeline and emulators). The work queue never routes a
+job there, and a suite open to every machine never takes it. Give it `slots: 1` so its suites never overlap.
 
 A project can name a report file: `projects.<p>.report: {path, where}`. Each time a shard or a build ends, its results on
 the latest commit are written there as Markdown: the counts, the builds, and each failed shard with why and the end of its
@@ -148,6 +201,10 @@ A wireless-debugging serial (`<name>._adb-tls-connect._tcp`) whose port changed 
 look it up in `adb mdns services` and `adb connect` to today's ip:port, so no port is written in the config.
 
 ## Prep and restore
+
+A phone or tablet also has items that are only read and put back (`value: keep`): the rotation settings, the screen
+timeout and the screensaver. Tutti never sets them; a test that rotates the screen or shortens the timeout leaves the
+device as it found it.
 
 Every device run is a device session (`devices.external_wrap`, `tutti/prep.py`). In order:
 

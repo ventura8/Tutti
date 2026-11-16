@@ -51,6 +51,14 @@ function tuttiTariffLine(t) {
     return `Electricity ${t.price} ${t.currency}/kWh (${est}${t.country || 'unknown country'}, found from ${t.how})${t.periods?.length ? ' · time-of-day tariff' : ''}`;
 }
 
+// Each model's measured tier (tutti/power.py): easy tasks go to the weakest tier that can do them, hard ones to the strongest
+function modelTiers(fleet, machine) {
+    const models = (fleet?.workers || []).filter((w) => w.machine === machine).flatMap((w) => w.models || []);
+    const seen = new Set();
+    return models.filter((m) => m.rank_tier && !seen.has(m.name) && seen.add(m.name)).map((m) => el('p', { class: 'account__auto',
+        text: `${m.name}: ${m.rank_tier} tier (${m.rank_why})${m.tokens_s ? ` · ${m.tokens_s} tok/s` : ''}` }));
+}
+
 function renderLocalModels(s) {
     const lm = s.local_models;
     const box = document.getElementById('local-models');
@@ -76,6 +84,7 @@ function renderLocalModels(s) {
             el('div', { class: 'account__top' }, el('h3', { class: 'account__name', text: v.title }), chip(v.status, v.tone)),
             el('p', { class: 'account__by', text: v.gpu }),
             ...v.models.map((m) => el('p', { class: 'account__auto', text: m })),
+            ...modelTiers(s.fleet, c.machine || c.name),
             el('p', { class: 'account__auto', text: v.power }),
             table,
             el('p', { class: 'account__auto', text: `Per job ${v.perJob} · per busy hour ${v.perHour}` }),

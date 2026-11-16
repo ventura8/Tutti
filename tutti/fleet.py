@@ -95,14 +95,21 @@ def score(model, kind):
     return TIERS[model['tier']]['rank'] * 100 + bonus + model['params_b']
 
 
-def model_for(worker, task):
-    """The worker's model that takes this task ({name, tier, ...}) or None: its kind and size must fit the model's tier. The
-    configured model wins when it fits; else the best scored of the machine's installed models."""
+def model_for(worker, task, rates=None):
+    """The worker's model that takes this task ({name, tier, ...}) or None: its kind and size must fit the model's tier. Among
+    those, the weakest measured tier that meets the task's difficulty (tutti/power.py: size, plus one per failed attempt), so
+    the strong models stay free for hard work; the configured model wins a tie, else the best scored."""
+    from . import power
     kind, size = kind_of(task), task.get('size') or 'S'
     models = worker.get('models') or [classify({'name': worker['model']}) or {}]
     ok = [m for m in models if m and kind in m['kinds'] and size in TIERS[m['tier']]['sizes']]
     if not ok:
         return None
+    ok = [m for m in ok if m['kinds'] == ['translations']] if kind == 'translations' and any(
+        m['kinds'] == ['translations'] for m in ok) else ok   # a translator beats any general model at translations
+    need = power.difficulty(task)
+    fit = min(power.prefer(power.model_tier(m, rates)[0], need) for m in ok)
+    ok = [m for m in ok if power.prefer(power.model_tier(m, rates)[0], need) == fit]
     own = next((m for m in ok if m['name'] == worker.get('model')), None)
     best = max(ok, key=lambda m: score(m, kind))
     return own if own and score(own, kind) >= score(best, kind) - 10 else best
@@ -186,19 +193,26 @@ def watts_of(cfg, machine):
     return float(m.get('base_w') or 0) + float(m.get('gpu_tdp_w') or 150) + float(m.get('cpu_tdp_w') or 0)
 
 
-def order(cfg, names, task, machines):
-    """Local steps that can take the task, best first: an idle machine, then the strongest model tier for it, then the lowest
-    energy cost."""
+def order(cfg, names, task, machines, rates=None):
+    """Local steps that can take the task, best first: an idle machine, then the model tier that suits the task's difficulty
+    (tutti/power.py: the weakest tier that meets it, so hard work finds the strong models free; a failure escalates), then
+    for easy work the weaker machine and for hard work the stronger one (measured power), then the lowest energy cost."""
+    from . import power
     rows = {m.get('name'): m for m in machines or ()}
+    need = power.difficulty(task)
+    rates = power.rates(cfg) if rates is None else rates
     out = []
     for n in names:
         w = cfg['workers'][n]
-        why, model = fits(w, task)
-        if why:
+        model = model_for(w, task, rates)
+        if not model:
             continue
         home = machine_of(cfg, n)
-        idle = (rows.get(home) or {}).get('status') == 'free'
-        out.append(((not idle, -TIERS[model['tier']]['rank'], watts_of(cfg, home)), n))
+        row = rows.get(home) or {}
+        idle = row.get('status') == 'free'
+        strength = float((row.get('power') or {}).get('score') or 0)
+        out.append(((not idle, power.prefer(power.model_tier(model, rates)[0], need), strength if need < 2 else -strength,
+                     watts_of(cfg, home)), n))
     return [n for _, n in sorted(out)]
 
 
@@ -482,6 +496,8 @@ def after_probe(cfg, fresh, now, run=subprocess.run, sh=None):
     the next probe). The household's use recorded. Returns the workers whose tunnel was started."""
     refresh(cfg, fresh.get('energy'), now)
     apply(cfg)
+    from . import power
+    power.after_probe(cfg, fresh.get('machines') or [], now)   # measured power and headroom on every row (dispatch reads it)
     keep_servers(cfg, fresh.get('machines') or [], now, sh)
     ready = {w['name']: w['ready'] for w in (fresh.get('workers') or {}).get('items') or []}
     from . import householduse
@@ -491,15 +507,26 @@ def after_probe(cfg, fresh, now, run=subprocess.run, sh=None):
 
 def view(cfg, now=None):
     """The dashboard's and `tutti fleet`'s rows: every local worker with its machine, models, speed, hardware and kinds."""
+    from . import power
     data = read_state(cfg)
+    rates = power.rates(cfg)
+    speed = data.get('speeds') or {}
     rows = []
     for n in local_names(cfg):
         w = cfg['workers'][n]
         rows.append({'name': n, 'machine': machine_of(cfg, n), 'auto': bool(w.get('auto')), 'model': w.get('model'),
                      'host': w.get('host'), 'num_ctx': w.get('num_ctx'), 'hardware': w.get('hardware') or {},
-                     'models': [{k: m.get(k) for k in ('name', 'tier', 'kinds', 'params_b', 'tokens_s')}
+                     'models': [{**{k: m.get(k) for k in ('name', 'tier', 'kinds', 'params_b')},
+                                 'tokens_s': m.get('tokens_s') or speed.get(m.get('name')), **model_rank(m, rates)}
                                 for m in w.get('models') or [] if m]})
     return {'workers': rows, 'machines': data.get('machines') or {}, 'servers': data.get('servers') or {}}
+
+
+def model_rank(m, rates):
+    """{rank_tier, rank_why}: the measured tier (tutti/power.py: light, mid, strong) a task's difficulty is matched to."""
+    from . import power
+    tier, why = power.model_tier(m, rates)
+    return {'rank_tier': power.TIER_NAMES[tier], 'rank_why': why}
 
 
 def describe(v):
@@ -516,5 +543,6 @@ def describe(v):
         lines.append(f'{r["name"]:14} {r["machine"]:8} {origin}  {r["host"]}  ctx {r["num_ctx"] or "-"}  {where}')
         for m in r['models']:
             speed = f'{m["tokens_s"]} tok/s' if m.get('tokens_s') else 'speed not measured yet'
-            lines.append(f'    {m["name"]:28} {m["tier"]:6} {m["params_b"]:g}B  {speed}  {", ".join(m["kinds"])}')
+            lines.append(f'    {m["name"]:28} {m.get("rank_tier", m["tier"]):6} {m["params_b"]:g}B  {speed}  {", ".join(m["kinds"])}'
+                         + (f'  ({m["rank_why"]})' if m.get('rank_why') else ''))
     return '\n'.join(lines)

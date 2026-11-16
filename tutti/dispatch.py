@@ -22,7 +22,7 @@ try:
 except ImportError:   # Windows: no flock; the dashboard is the only writer there
     fcntl = None
 
-from . import calls, config, controls, devices, durable, presence, priority, shards, telemetry
+from . import calls, config, controls, devices, durable, power, presence, priority, shards, telemetry
 
 FILE = 'dispatch.json'
 TARGET_KINDS = ('android', 'tv', 'machine')   # tv: a device of kind tv (a Cast receiver); only suites that name it use it
@@ -251,8 +251,10 @@ def targets(devices_rows, machine_rows, st, held=None, gone=None):
         tid = f'machine:{m["name"]}'
         busy = m.get('status') == 'busy' or leased.count(tid) >= max(m.get('free') or 0, 1)
         why = '' if m.get('status') == 'free' else f'{m["name"]} is {m.get("status")}: {m.get("reason")}'
+        pw = m.get('power') or {}
         out.append(_absent({'id': tid, 'kind': 'machine', 'name': m['name'], 'busy': busy, 'blocked': '' if busy else why,
-                            'zone': m.get('zone') or ''}, gone))
+                            'zone': m.get('zone') or '', 'power': pw.get('score', 0), 'room': pw.get('room', 1.0),
+                            'effective': pw.get('effective', 0)}, gone))
     return out
 
 
@@ -309,14 +311,17 @@ def ready_work(cfg, t, work, free, taken):
     return [], 'its shards also need ' + ', '.join(sorted({n for x in work for n in x.get('holds') or []})) + ', which is busy or held'
 
 
-def choices(cfg, t, pend, place, taken, free, on, quiet):
+def choices(cfg, t, pend, place, taken, free, on, quiet, best=0):
     """(the shards this target may start now, why it is blocked or ''); (None, '') when it has nothing to do (busy, or no
-    compatible work)."""
+    compatible work). By measured power (tutti/power.py): a strong machine takes heavy shards first, a weak one light ones."""
     work, why = staying(cfg, t, [w for w in pend if compatible(t, w) and (w['project'], w['key']) not in taken], place)
     if not why and (t['busy'] or not work or t['id'] in taken):
         return None, ''
     why = why or blocked_by(cfg, t, work, on, quiet)
-    return ([], why) if why else ready_work(cfg, t, work, free, taken)
+    if why:
+        return [], why
+    ready, why = ready_work(cfg, t, work, free, taken)
+    return power.suited(t, ready, best) if ready else (ready, why)
 
 
 def plan(cfg, st, tgts, pend, on, quiet='', place=None):
@@ -325,13 +330,16 @@ def plan(cfg, st, tgts, pend, on, quiet='', place=None):
     first, and a long shard (suite `minutes` >= presence.long_minutes) never goes to a target likely to leave or sleep soon."""
     out, taken = {'assign': [], 'blocked': {}}, set()
     place = place or {}
-    tgts = sorted(tgts, key=lambda t: -(place.get(t['id']) or {}).get('stay', 1.0))
+    # the most always-on first, then the strongest by measured power and headroom (tutti/power.py)
+    tgts = sorted(tgts, key=lambda t: (-round((place.get(t['id']) or {}).get('stay', 1.0), 1), -float(t.get('effective') or 0)))
     running = {}
     for lease in st['leases'].values():
         running[lease['project']] = running.get(lease['project'], 0) + 1
     free = {t['id'] for t in tgts if not t['busy'] and not t['blocked']}
+    # the strongest machine Tutti may use (busy or free): a machine under half of it is weak (tutti/power.py)
+    best = max([float(t.get('power') or 0) for t in tgts if t['kind'] == 'machine' and not t['blocked']] or [0])
     for t in tgts:
-        ready, why = choices(cfg, t, pend, place, taken, free, on, quiet)
+        ready, why = choices(cfg, t, pend, place, taken, free, on, quiet, best)
         if ready is None:
             continue
         if why:
@@ -340,6 +348,7 @@ def plan(cfg, st, tgts, pend, on, quiet='', place=None):
         w = pick(cfg, ready, running)
         taken |= {(w['project'], w['key']), t['id'], *(f'device:{n}' for n in w.get('holds') or [])}
         running[w['project']] = running.get(w['project'], 0) + 1
+        t['why'] = power.pick_why(t, w, best)
         out['assign'].append((t, w))
     return out
 
@@ -597,7 +606,7 @@ def start(cfg, st, target, w, now, spawn=subprocess.Popen):
     commit = st['projects'][w['project']].get('commit')
     st['leases'][lid] = {'id': lid, 'project': w['project'], 'key': w['key'], 'commit': commit, 'target': target['id'],
                          'kind': target['kind'], 'name': target['name'], 'pid': child.pid, 'started': now,
-                         'holds': list(w.get('holds') or []), 'extra': w.get('extra', ''), 'log': p['log'],
+                         'holds': list(w.get('holds') or []), 'why': target.get('why', ''), 'extra': w.get('extra', ''), 'log': p['log'],
                          'boot': durable.boot_id()}
     st['projects'][w['project']]['shards'][w['key']].update(status='running', lease=lid, target=target['id'], at=now)
     st['idle'].pop(target['id'], None)
@@ -1029,6 +1038,6 @@ def describe_view(v):
         counts = ', '.join(f'{n} {k}' for k, n in sorted(p['counts'].items())) or 'no shards'
         lines.append(f'  {p["name"]} (priority {p["priority"]}) @ {p["commit"] or "(no commit: projects.<p>.commit)"}: {counts}')
         lines += [f'    failed {f["key"]} ({f["attempts"]} attempt(s)): {f["why"]}' for f in p['failed']]
-    lines += [f'  running {x["project"]} {x["key"]} on {x["target"]}' for x in v['leases']]
+    lines += [f'  running {x["project"]} {x["key"]} on {x["target"]}' + (f' ({x["why"]})' if x.get('why') else '') for x in v['leases']]
     lines += [f'  ! {w["text"]}' for w in v['warnings']]
     return '\n'.join(lines)

@@ -55,6 +55,22 @@ Projects take turns by a **weighted fair share**: `tutti/priority.py` with `conf
 autopilot and the Settings tab use. A project's weight is `1 / (priority + 1)`, and a project without a priority comes last.
 The next shard goes to the project with the least running work per unit of weight; a tie goes to the higher priority. Priorities 0, 1 and 2 split six free targets 3 : 2 : 1, so no project starves.
 
+## Machine power
+
+Every machine gets a measured power score (`tutti/power.py`): a two-second benchmark (one core hashing 256 MB, the cores
+and threads, total memory, GPU memory, an NPU, a 64 MB synced disk write) runs in the background once the machine is
+free, and again every `power.bench_days` (default 7); results are in `power.json` in the state folder. Points: CPU (one
+core's MB/s / 100 per core, a hyper-thread a third), memory (2 per GB), GPU (8 per GB of VRAM, 20 for an NPU), disk (up
+to 100). At each probe the score is scaled by the headroom now (load per core, free memory under 4 GB, heat at its cap,
+Tutti's share: quiet, presence and limited hours) into the effective power.
+
+The dispatcher orders free targets by how likely they are to stay, then by effective power. A heavy shard (kind or key
+e2e, build, suite, full, docker, integration, or `minutes` of 15 or more) goes to a strong machine first, a light one to a
+weak machine first (a machine whose effective power is under half the strongest usable machine's). A weak machine under
+30 % free takes no heavy shard: it waits for a stronger one, and the blocked line says so. Each lease keeps why it went
+where it did; the Machines card shows the power, the free share and the effective power, and the running shards' reasons.
+Until a machine is measured its score is 0 and the old order holds.
+
 ## Leases and the heartbeat
 
 A shard runs as `tutti dispatch run <lease>`, which wraps `tutti test --device <d>` (or `--on <machine>`). The device's

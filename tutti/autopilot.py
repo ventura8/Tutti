@@ -617,9 +617,14 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
     if step['kind'] == 'ollama':
         from . import fleet
         argv += [s for s in fleet.task_files(task) if not os.path.isdir(os.path.join(repo_path(cfg, task), s))]
-        model = fleet.model_for(cfg['workers'][step['worker']], task)   # the model the scheduler checked to fit
+        from . import power
+        model = fleet.model_for(cfg['workers'][step['worker']], task, power.rates(cfg))   # the model the scheduler checked to fit
         if model:
             step = {**step, 'args': [*step['args'], '--model', model['name']]}
+            tier, why = power.model_tier(model, power.rates(cfg))
+            task['picked'] = (f'{model["name"]} ({power.TIER_NAMES[tier]} tier: {why}) for a difficulty-'
+                              f'{power.difficulty(task)} task on {step_name}')
+            task['model'] = model['name']
     argv += ['--repo', repo_path(cfg, task), '--track', TRACK_PREFIX + task['id'], '--id', run_id,
              '--remote-track', cfg['delegate']['remote_track']]
     if check:
@@ -638,6 +643,9 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
     with open(p['pid'], 'w', encoding='utf8') as f:
         f.write(f'{child.pid}\n')
     # the repo's gates this attempt runs (acceptance holds them): a result lands only when they are today's (tutti/fill.py)
+    if step['kind'] != 'ollama':
+        task.pop('picked', None)
+        task.pop('model', None)
     task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now, gates=(repo.get('check') or '').strip(),
                 boot=durable.boot_id(), checkpoint=now,
                 choice={k: choice[k] for k in ('tier', 'model', 'effort', 'label')} if choice else None)
@@ -690,7 +698,8 @@ def attempt_of(cfg, task, report, now):
         sig, why = '', 'passed'
     from . import aiassist  # with AI assist on: flaky or environment retries on the same step once; real escalates
     return {'class': aiassist.attempt_class(cfg, ok, failing[-1]),
-            'run': task['run'], 'step': task.get('step'), 'worker': task.get('worker'), 'at': now, 'ok': ok, 'started': task.get('started'),
+            'run': task['run'], 'step': task.get('step'), 'worker': task.get('worker'), 'model': task.get('model'), 'at': now, 'ok': ok,
+            'started': task.get('started'),
             'signature': sig, 'why': why, 'stat': (report or {}).get('stat', ''), 'diff': (report or {}).get('diff'),
             'tail': '' if report and report['rc'] == 0 else failing[-1][-TAIL_CHARS:], 'gates': task.get('gates') if ok else None}
 
@@ -1192,7 +1201,7 @@ def last_line(path):
 
 def task_view(cfg, t, now):
     v = {k: t.get(k) for k in ('id', 'repo', 'title', 'status', 'size', 'source', 'step', 'run', 'branch', 'pr', 'publish_note',
-                               'parked', 'diff', 'worktree', 'landing', 'choice')}
+                               'parked', 'diff', 'worktree', 'landing', 'choice', 'picked')}
     v['attempt_count'] = len(t['attempts'])
     v['history'] = [{'step': a['step'], 'ok': a['ok'], 'why': a['why'][:200], 'signature': a['signature'], 'run': a['run']}
                     for a in t['attempts']]

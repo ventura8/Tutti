@@ -88,14 +88,24 @@ sequenceDiagram
 ```
 
 ```mermaid
-sequenceDiagram
-    participant D as Dispatcher round
-    participant Q as Pending work
-    participant T as Free target
-    D->>Q: shards not passed on latest commit, queued tasks
-    D->>T: lease the next item by project priority
-    T-->>D: result (pass, fail with retries left)
-    Note over D,T: a lease whose holder dies expires and the item goes elsewhere
+flowchart TD
+    probe["Probe round<br/>load, free memory, heat, share"] --> bench{"benchmark missing<br/>or older than 7 days?"}
+    bench -- "yes, machine free" --> run["power.measure in the background<br/>CPU, cores, RAM, VRAM, NPU, disk"]
+    run --> pj[("power.json")]
+    bench -- no --> ann
+    pj --> ann["power.annotate: score x headroom = effective"]
+    ann --> plan["dispatch.plan: always-on first,<br/>then strongest effective first"]
+    plan --> kind{"shard heavy?<br/>e2e, build, docker, long"}
+    kind -- "heavy" --> strong["strong machine takes it first"]
+    kind -- "light" --> weak["weaker machine takes it first"]
+    weak -. "weak and under 30 % free" .-> wait["heavy waits for a stronger one"]
+    strong --> lease["lease, why recorded, run"]
+    weak --> lease
+    lease -->|"result: pass, or fail with retries left"| plan
+    task["Autopilot task"] --> diff["difficulty: size S/M/L,<br/>+1 per failed attempt"]
+    diff --> tier["fleet.order and model_for:<br/>weakest model tier that meets it,<br/>easy on weaker machines, hard on stronger"]
+    hist[("task history: pass rate per model")] --> tier
+    tier --> local["local model run; a failure escalates a tier"]
 ```
 
 ## Modules
@@ -106,6 +116,7 @@ sequenceDiagram
 | `tutti/diskroom.py` | Room on the temp folder and the work disk: low free space or file slots warn (doctor, Machines card) and stop new work. |
 | `tutti/configone.py` | One config per user: other copies that differ (doctor, Settings) and their merge into the one in use, each copy then a symlink to it. |
 | `tutti/devicecard.py` | One card per Android device on the dashboard: its one status (the pause switch and the idle watchdog folded in), why, what waits on it, its action, its reroute line, plain durations and temperatures labelled by sensor (skin or SoC, battery only when present). |
+| `tutti/power.py` | Measured machine power (a short benchmark, weekly), headroom now and the effective power dispatch orders by; heavy shards to strong machines, light to weak; a task's difficulty matched to the weakest local model tier that meets it, escalated after a failure. |
 | `tutti/routing.py` | Pure fall-over logic over `Probe`s. No I/O, so it is unit-tested exhaustively. |
 | `tutti/remote.py` | Transports (`local`, `ssh`, `wsl`), the probe, the tree copy, the runner line, the yield flag. |
 | `tutti/pacing.py` | Quota windows, the target time, the verdict and the report. Pure apart from the log file. |

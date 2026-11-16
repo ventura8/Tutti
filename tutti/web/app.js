@@ -593,10 +593,12 @@ function machine(m) {
     if (m.temp_note && (m.temp_c === null || m.temp_c === undefined)) stats.append(el('span', { class: 'temp', title: m.temp_note,
         text: /LibreHardwareMonitor/.test(m.temp_note) ? 'CPU °C: start LibreHardwareMonitor on Windows to read it' : 'CPU °C not readable' }));
     if (m.rank) stats.append(el('span', { text: `#${m.rank} in routing` }));
+    stats.append(powerSpan(m.power));
     if (m.use_pct !== undefined && m.use_pct !== null) stats.append(el('span', { title: 'machines.<m>.use_pct (Settings)',
         text: `Tutti's share ${tuttiPct(m.use_pct)}${m.use_why ? ` (${m.use_why})` : ''}` }));
     if (m.slots_why && !/\.slots$/.test(m.slots_why)) stats.append(el('span', { class: 'row__note', text: `${plural(m.slots, 'slot')}: ${m.slots_why}` }));
     const use = (ui.last?.household_use?.machines || []).find((u) => u.name === m.name);
+    const shards = (ui.last?.dispatch?.leases || []).filter((x) => x.name === m.name && x.why);
     if (use && use.hour !== null) stats.append(el('span', { text: `used ${tuttiPct(use.hour)} last hour · ${tuttiPct(use.day)} today` }));
     return el('li', { class: 'row' },
         el('div', { class: 'row__name' }, m.name, el('span', { class: 'row__kind', text: `${m.transport} · ${m.host}` })),
@@ -606,9 +608,19 @@ function machine(m) {
         hygieneBits(m.name),   // hygiene.js: its yield flag's owner and age, free space, WSL, the week's clean-up
         el('p', { class: 'row__note', text: m.status === 'paused' ? 'Yield flag is up: Tutti sends it nothing new until it is lowered.' : m.reason }),
         use && use.idle_why ? el('p', { class: 'row__note', text: `Idle: ${use.idle_why}` }) : null,
+        ...shards.map((x) => el('p', { class: 'row__note', text: `Running ${x.project} ${x.key}: ${x.why}` })),
         limitForm(m),
         m.household_use ? el('p', { class: 'row__note household-only', text: busyFor(m) }) : null,
         storedFiles(m.name, m.stored));
+}
+
+// Measured power (tutti/power.py): the benchmark's score, what is free now and the two together; dispatch orders by it
+function powerSpan(p) {
+    if (!p || !p.score) return el('span', { title: 'A short benchmark runs once the machine is free', text: 'power: not measured yet' });
+    const b = p.bench || {};
+    const title = `CPU ${p.parts.cpu} + memory ${p.parts.memory} + GPU ${p.parts.gpu} + disk ${p.parts.disk} points · ${b.cores} cores / ${b.threads} threads, `
+        + `${b.mem_gb} GB, ${b.vram_gb} GB VRAM${b.npu ? ', NPU' : ''}, one core ${b.cpu_mbs} MB/s, disk ${b.disk_mbs} MB/s`;
+    return el('span', { title, text: `power ${p.score} · ${tuttiPct(p.room * 100)} free now · effective ${p.effective}` });
 }
 
 // A machine's limited-usage window (machines.<m>.limit, tutti/share.py): a daily window when Tutti uses at most pct % of it
@@ -932,7 +944,8 @@ function taskNote(t) {
     if (t.status === 'running') {
         const credits = t.credits ? ` · ${t.credits} credits` : '';
         const choice = t.choice?.label ? ` · ${t.choice.label}` : '';   // the model and effort its pace chose, and why
-        return `run ${t.run} on ${t.step}${choice} · ${duration(t.elapsed)}${credits} · ${t.last_line || 'started'}`;
+        const picked = t.picked ? ` · picked ${t.picked}` : '';   // a local model: its tier and the task's difficulty (tutti/power.py)
+        return `run ${t.run} on ${t.step}${choice}${picked} · ${duration(t.elapsed)}${credits} · ${t.last_line || 'started'}`;
     }
     if (t.status === 'needs-person') return `Needs a person: ${t.parked}`;
     if (t.status === 'review' && t.landing) return `The reviewer is reading it (since ${relative(new Date(t.landing.at * 1000).toISOString())})`;

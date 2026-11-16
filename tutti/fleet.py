@@ -272,7 +272,8 @@ def entries(cfg, readings, now, old=None):
         out[name] = {'models': models, 'gpu': r.get('gpu') or '', 'npu': r.get('npu') or '', 'cpu': r.get('cpu') or '',
                      'loaded': loaded, 'updated': now, 'stale': False}
     for name, e in old.items():
-        out.setdefault(name, {**e, 'stale': True})
+        if config.physical(cfg, name) == name:   # a dedicated pseudo-machine's old entry goes: its host's models are the same
+            out.setdefault(name, {**e, 'stale': True})
     return out
 
 

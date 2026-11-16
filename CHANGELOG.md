@@ -6,13 +6,24 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
-## 0.23.2 (2026-11-16)
+## 0.23.3 (2026-11-16)
 
 ### Fixed
 
 - While the main agent's account (autopilot.main_accounts, default claude) is in panic or spent, the other online
   accounts take over its bounded work one task at a time even when they are ahead of their own pace; their own panic or
   spent still stops them. Before, Cursor sat idle as "ahead of its pace" while Claude was in panic.
+
+## 0.23.2 (2026-11-16)
+
+### Fixed
+
+- Local models: a dedicated pseudo-machine (`laptop-desktop`, `nuc-desktop`, `w5090-win`) no longer gets a card of its
+  own with its host's models and power counted twice; its workers join the host's card and it is probed once.
+- Local models: a failed power read is retried once and the models are still read from the worker's host; this computer's
+  card never blames ssh. The GPU name falls back to `lspci`; the power line says measured or estimated per part, and a
+  refused reading (intel_gpu_top without CAP_PERFMON, root-only RAPL) names its one-time fix.
+- Local models: the period table no longer wraps its headers and numbers; it scrolls inside its card on a phone.
 
 ## 0.23.1 (2026-11-16)
 

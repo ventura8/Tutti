@@ -114,6 +114,11 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(readers.agy_usage(live, 'gemini-5h')[0], 0.0)
         lone = {'command': {'data': {'groups': [{'buckets': [{'id': 'x', 'remaining_fraction': 0.5}]}]}}}
         self.assertEqual(readers.agy_usage(lone, 'x'), (50.0, None))
+        live_no_reset = {'command': {'data': {'groups': [{'buckets': [{'id': 'x', 'remaining_fraction': 0.5},
+                                                                     bucket('x-weekly', 1, '2026-11-21T12:00:00Z')]}]}}}
+        self.assertEqual(readers.agy_usage(live_no_reset, 'x'), (50.0, None))
+        with self.assertRaises(KeyError):
+            readers.agy_usage({'command': {'data': {'groups': [{'buckets': [{'id': 'x'}]}]}}}, 'x')
 
     def test_a_window_not_started_yet_starts_now(self):
         self.assertEqual(readers.not_started(NOW + timedelta(hours=5, seconds=4), '5h', NOW), NOW + timedelta(hours=5))

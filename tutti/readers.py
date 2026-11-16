@@ -128,12 +128,13 @@ def agy_usage(data, bucket):
 
 def bucket_usage(group, b):
     """(used %, reset) of one agy bucket. A `disabled` bucket (agy turns the 5h window off while the group's weekly is spent)
-    counts as 100 % used until the group's weekly bucket resets; a bucket without `reset_time` borrows that reset too, or None."""
-    used = 100.0 if b.get('disabled') else round(100.0 * (1.0 - float(b.get('remaining_fraction') or 0)), 1)
+    counts as 100 % used until the group's weekly bucket resets; any other bucket without `reset_time` reads with reset None."""
+    used = 100.0 if b.get('disabled') else round(100.0 * (1.0 - float(b['remaining_fraction'])), 1)
     reset = b.get('reset_time')
-    if b.get('disabled') or not reset:
-        weekly = [w.get('reset_time') for w in (group or {}).get('buckets') or [] if 'weekly' in str(w.get('id')) and w.get('reset_time')]
-        reset = weekly[0] if weekly else reset
+    if b.get('disabled'):
+        weekly = [w['reset_time'] for w in (group or {}).get('buckets') or []
+                  if w is not b and 'weekly' in str(w.get('id')) and w.get('reset_time')]
+        reset = max(weekly, key=pacing.parse_time) if weekly else reset
     return used, pacing.parse_time(reset) if reset else None
 
 

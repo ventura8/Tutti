@@ -130,6 +130,8 @@ FIELDS = {
     'workers.*.opt_in': field('Opt-in', 'Off until you turn it on, without costing money.', 'switch', default=False),
     'workers.*.host': field('Server', 'The model server, host:port.', 'text'),
     'workers.*.model': field('Model', 'The model\'s name on the server.', 'text'),
+    'workers.*.keep_alive': field('Keep alive', 'Ollama keep_alive (for example -1 for indefinite, 5m, 300).', 'text'),
+    'workers.*.pinned': field('Pinned', 'Keeps this model loaded indefinitely; idle unload never unloads it.', 'switch', default=False),
     'workers.*.threads': field('Threads', 'CPU threads the model may use.', 'number', min=1),
     'workers.*.num_ctx': field('Context', 'The model\'s context window.', 'number', unit='tokens', min=512),
     'workers.*.context_tokens': field('Context window', 'Used by autocompact when the worker does not say.', 'number', unit='tokens',
@@ -298,6 +300,8 @@ FIELDS = {
                              'number', min=1024, step=1),
     'fleet.memory_floor_gb': field('Keep memory free (GB)', 'No local model runs on this computer with less memory free.',
                                    'number', min=0, step=0.5),
+    'fleet.idle_unload_minutes': field('Idle unload after', 'A keep_alive -1 model is unloaded after this idle time unless pinned.',
+                                       **MIN),
     # energy (docs/ENERGY.md)
     'energy.price_per_kwh': field('Price per kWh', 'From your bill, in your currency. Empty: a typical price, shown as estimated.',
                                   'number', min=0, step=0.01),

@@ -231,7 +231,8 @@ class ReadingsScriptTest(unittest.TestCase):
         self.lock = os.path.join(self.tmp.name, 'd.lock')
 
     def read(self, **env):
-        r = subprocess.run(['bash', READINGS], env={**os.environ, 'DEVICE_SERIAL': 'R58', 'DEVICE_LOCK': self.lock, 'ADB': self.adb, **env},
+        base = {k: v for k, v in os.environ.items() if k not in ('TUTTI_BACKGROUND', 'TUTTI_HH_JOB')}
+        r = subprocess.run(['bash', READINGS], env={**base, 'DEVICE_SERIAL': 'R58', 'DEVICE_LOCK': self.lock, 'ADB': self.adb, **env},
                            capture_output=True, text=True, timeout=30, check=True)
         return devices.parse_readings(r.stdout)
 
@@ -277,7 +278,8 @@ class DeviceRunTest(unittest.TestCase):
             json.dump({'project': {'state': os.path.join(t, 'state'), 'worktrees': t},
                        'machines': {'here': {'host': 'local', 'slots': 1, 'min_free_gb': 0, 'lock_prefix': os.path.join(t, 'slot-')}},
                        'devices': {'pixel': {'serial': 'R58', 'lock': self.lock}}}, f)
-        self.env = {**os.environ, 'PATH': f'{bindir}:{os.environ["PATH"]}', 'SLOT_POLL': '0.1'}
+        base = {k: v for k, v in os.environ.items() if k not in ('TUTTI_BACKGROUND', 'TUTTI_HH_JOB')}
+        self.env = {**base, 'PATH': f'{bindir}:{os.environ["PATH"]}', 'SLOT_POLL': '0.1'}
 
     def tutti(self, *args, **kw):
         return subprocess.Popen([sys.executable, os.path.join(ROOT, 'bin', 'tutti'), '--config', self.cfg, *args], cwd=self.tree,

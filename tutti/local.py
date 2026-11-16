@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 
@@ -14,6 +15,8 @@ from . import config, remote, waiting
 
 FENCE = re.compile(r'```[a-zA-Z]*\n(.*?)```', re.S)
 FILE_BLOCK = re.compile(r'=== FILE: (\S+) ===\n```[a-zA-Z]*\n(.*?)```', re.S)
+IDLE_STATE = 'local-idle.json'
+_IDLE_LOCK = threading.Lock()
 
 
 def log(msg):
@@ -48,6 +51,123 @@ def post(host, payload, timeout):
                                  {'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
+
+
+def model_name(name):
+    return name if ':' in name else f'{name}:latest'
+
+
+def model_key(host, model):
+    return f'{host}::{model_name(model)}'
+
+
+def idle_path(cfg):
+    return os.path.join(config.state_dir(cfg), IDLE_STATE)
+
+
+def idle_read(cfg):
+    try:
+        with open(idle_path(cfg), encoding='utf8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def idle_write(cfg, data):
+    path = idle_path(cfg)
+    tmp = f'{path}.{os.getpid()}.tmp'
+    with open(tmp, 'w', encoding='utf8') as f:
+        json.dump(data, f)
+    os.replace(tmp, path)
+
+
+def idle_minutes(cfg):
+    value = ((cfg.get('fleet') or {}).get('idle_unload_minutes'))
+    if value is None:
+        return 15.0
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return 15.0
+
+
+def indefinite(keep_alive):
+    return str(keep_alive).strip() == '-1'
+
+
+def effective_keep_alive(worker):
+    if worker.get('pinned'):
+        return -1
+    if 'keep_alive' in worker:
+        return worker['keep_alive']
+    return None
+
+
+def ollama_workers(cfg):
+    return [w for w in (cfg.get('workers') or {}).values() if (w or {}).get('kind') == 'ollama' and w.get('host') and w.get('model')]
+
+
+def idle_policies(cfg):
+    out = {}
+    for w in ollama_workers(cfg):
+        key = model_key(w['host'], w['model'])
+        out.setdefault(key, {'host': w['host'], 'model': model_name(w['model']), 'indefinite': False, 'pinned': False})
+        out[key]['indefinite'] = out[key]['indefinite'] or indefinite(w.get('keep_alive'))
+        out[key]['pinned'] = out[key]['pinned'] or bool(w.get('pinned'))
+    return out
+
+
+def note_used(cfg, worker, now=None):
+    host, model = worker.get('host'), worker.get('model')
+    if not host or not model:
+        return
+    at = float(time.time() if now is None else now)
+    key = model_key(host, model)
+    with _IDLE_LOCK:
+        state = idle_read(cfg)
+        state[key] = {'last_used': at}
+        idle_write(cfg, state)
+
+
+def unload_idle_models(cfg, now=None, ps_fn=ollama_get, post_fn=post):
+    minutes = idle_minutes(cfg)
+    if minutes <= 0:
+        return []
+    at = float(time.time() if now is None else now)
+    limit = at - minutes * 60.0
+    policies = idle_policies(cfg)
+    if not policies:
+        return []
+    with _IDLE_LOCK:
+        state, changed = idle_read(cfg), False
+        loaded_by_host, unloaded = {}, []
+        for key, policy in policies.items():
+            if policy['pinned'] or not policy['indefinite']:
+                continue
+            last = (state.get(key) or {}).get('last_used')
+            if not isinstance(last, (int, float)) or last > limit:
+                continue
+            host = policy['host']
+            if host not in loaded_by_host:
+                ps = ps_fn(host, '/api/ps', timeout=3) or {}
+                loaded_by_host[host] = {model_name(str(m.get('name') or m.get('model') or ''))
+                                        for m in (ps.get('models') or []) if isinstance(m, dict)}
+            loaded = loaded_by_host[host]
+            if policy['model'] not in loaded:
+                continue
+            try:
+                post_fn(host, {'model': policy['model'], 'keep_alive': 0}, 60)
+            except OSError as e:
+                log(f'idle unload of {policy["model"]} skipped: {e}')
+                continue
+            loaded.discard(policy['model'])
+            unloaded.append(policy['model'])
+            state.pop(key, None)
+            changed = True
+        if changed:
+            idle_write(cfg, state)
+    return unloaded
 
 
 _YIELD = {}
@@ -114,6 +234,7 @@ def generate(cfg, worker, prompt, wait=False, low_priority=False, timeout=1800, 
     wait_for_yield(cfg, worker)
     if not own:
         wait_for_preempt(cfg, worker)
+    unload_idle_models(cfg)
     while low_priority and others_busy(cfg):
         time.sleep(5)
     options = {'temperature': worker.get('temperature', 0.1), 'num_ctx': worker.get('num_ctx', 16384)}
@@ -121,10 +242,16 @@ def generate(cfg, worker, prompt, wait=False, low_priority=False, timeout=1800, 
     if threads:
         options['num_thread'] = threads
     payload = {'model': worker['model'], 'prompt': prompt, 'stream': False, 'think': False, 'options': options}
+    keep_alive = effective_keep_alive(worker)
+    if keep_alive is not None:
+        payload['keep_alive'] = keep_alive
     tries = 0
     while True:
         try:
-            return _timed(cfg, worker, lambda: post(worker['host'], payload, timeout))['response'].strip()
+            answer = _timed(cfg, worker, lambda: post(worker['host'], payload, timeout))['response'].strip()
+            note_used(cfg, worker)
+            unload_idle_models(cfg)
+            return answer
         except OSError as e:
             if not wait:
                 raise RuntimeError(f'the model server {worker["host"]} ({worker["model"]}) did not answer: {e}. Start it, or its '

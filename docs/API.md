@@ -534,6 +534,8 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `workers.*.opt_in` | switch | `False` | Opt-in: Off until you turn it on, without costing money. | admin |
 | `workers.*.host` | text |  | Server: The model server, host:port. | admin |
 | `workers.*.model` | text |  | Model: The model's name on the server. | admin |
+| `workers.*.keep_alive` | text |  | Keep alive: Ollama keep_alive (for example -1 for indefinite, 5m, 300). | admin |
+| `workers.*.pinned` | switch | `False` | Pinned: Keeps this model loaded indefinitely; idle unload never unloads it. | admin |
 | `workers.*.threads` | number |  | Threads: CPU threads the model may use. | admin |
 | `workers.*.num_ctx` | number (tokens) |  | Context: The model's context window. | admin |
 | `workers.*.context_tokens` | number (tokens) |  | Context window: Used by autocompact when the worker does not say. | admin |
@@ -665,6 +667,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `fleet.enabled` | switch | `True` | Use every machine's models: Find each machine's Ollama and make it a worker. | admin |
 | `fleet.port_base` | number | `11450` | Tunnel ports from: Another machine's Ollama is reached on this port and the next ones. | admin |
 | `fleet.memory_floor_gb` | number | `3` | Keep memory free (GB): No local model runs on this computer with less memory free. | admin |
+| `fleet.idle_unload_minutes` | number (minutes) | `15` | Idle unload after: A keep_alive -1 model is unloaded after this idle time unless pinned. | admin |
 | `energy.price_per_kwh` | number |  | Price per kWh: From your bill, in your currency. Empty: a typical price, shown as estimated. | admin |
 | `energy.currency` | text |  | Currency: Empty: from your country (time zone, then locale). | admin |
 | `energy.country` | text |  | Country: Two letters (RO, DE, US). Empty: detected from the time zone, then the locale. | admin |

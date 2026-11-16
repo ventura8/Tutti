@@ -80,9 +80,11 @@ workers:
     kind: ollama
     host: 127.0.0.1:11436
     model: your-coder-model:27b
+    keep_alive: -1                    # keep loaded; fleet.idle_unload_minutes unloads it after idle unless pinned
     threads: 8
     num_ctx: 32768
     machine: gpu-box                  # honours that machine's yield flag
+    pinned: true                      # always stay loaded; idle unload ignores it
     tunnel: {ssh: gpu-box.example, remote: '127.0.0.1:11434'}
   small: {kind: ollama, host: '127.0.0.1:11434', model: 'your-small-model:9b', threads: 4}
 
@@ -340,6 +342,9 @@ projects:
 
 # Keep busy (docs/DISPATCH.md): idle devices and machines pull pending test shards by themselves; on by default
 dispatch: {enabled: true, idle_minutes: 5, lease_minutes: 10, retries: 2}
+
+# Local-model fleet defaults (docs/FLEET.md): keep_alive -1 models are unloaded after this idle time unless pinned
+fleet: {enabled: true, port_base: 11450, memory_floor_gb: 3, idle_unload_minutes: 15}
 
 # Presence (docs/PRESENCE.md): devices and machines that come and go. A target missing for grace_seconds is away or asleep
 # (a machine silent in its night hours is asleep; a device missing while its owner's laptop, devices.<d>.with, is away left

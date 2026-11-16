@@ -147,8 +147,13 @@ runs a round every `update.every_hours` (24) unless `update.auto: false`, and sh
 ## Local models
 
 `kind: ollama` workers need `host` (`name:port`, plain HTTP; write `https://name:port` for a TLS proxy) and `model`; optional `threads`, `num_ctx`, `machine` (to honour that machine's
-yield flag) and `tunnel`. `tutti workers` marks an ollama worker ready only when `GET /api/tags` lists its model;
+yield flag), `keep_alive`, `pinned` and `tunnel`. `tutti workers` marks an ollama worker ready only when `GET /api/tags` lists its model;
 otherwise it shows `model missing: <name>` and `OLLAMA_HOST=<host> ollama pull <name>` (an untagged model means `:latest`).
+- A worker with `keep_alive: -1` is still unloaded after `fleet.idle_unload_minutes` of idle time (default 15) to free RAM,
+  unless it also has `pinned: true`.
+- `pinned: true` keeps the model loaded indefinitely by forcing `keep_alive: -1` on requests, regardless of the configured
+  keep_alive value.
+- The idle timer is per model, reset when a request completes for that model.
 
 - `tutti ask <worker> "<question>" [files]`: short answers about big inputs. Ask for short answers.
 - `tutti code <worker> <file> "<instruction>" [context files]`: rewrites one file in place.

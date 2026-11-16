@@ -151,7 +151,8 @@ DEFAULTS = {
     # work_queue: compute jobs for machines whose model is busy or missing (docs/FLEET.md, The work queue): each job {name, run,
     # project, repo, where (route, here or a machine), heavy, every (commit or 6h), ref, share, findings {pattern, title, size}}
     'work_queue': {'enabled': True, 'jobs': []},
-    'fleet': {'enabled': True, 'port_base': 11450, 'memory_floor_gb': 3},
+    # idle_unload_minutes: models with keep_alive -1 are unloaded after this idle time unless pinned
+    'fleet': {'enabled': True, 'port_base': 11450, 'memory_floor_gb': 3, 'idle_unload_minutes': 15},
     # host: where Tutti runs (docs/MOVE.md), written by `tutti move`: the machine that serves the dashboard and keeps the
     # state, this computer's own name (me), and on a client how to reach the host (ssh, config, tutti, state, usage_log),
     # the stable name members use (address) and its port; on the host, jobs: the client whose repositories and sign-ins

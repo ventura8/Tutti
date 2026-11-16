@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.7] - 2026-11-17
+
+### Fixed
+
+- Local models: a worker with `keep_alive: -1` is no longer kept loaded forever by default. If it stays idle for
+  `fleet.idle_unload_minutes` (15 by default) Tutti unloads it to free RAM; `pinned: true` keeps it loaded indefinitely
+  regardless of `keep_alive`.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

@@ -188,6 +188,66 @@ class LocalTest(unittest.TestCase):
             self.assertEqual(local.apply_blocks(answer, ['a.py'], d), ['a.py'])
             self.assertEqual(os.listdir(d), ['a.py'])
 
+    def test_idle_unload_unloads_indefinite_models_after_timeout(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = config.normalise({'project': {'state': d},
+                                    'workers': {'w': {'kind': 'ollama', 'host': '127.0.0.1:11434', 'model': 'm', 'keep_alive': -1}}})
+            local.note_used(cfg, cfg['workers']['w'], now=0)
+            calls = []
+            unloaded = local.unload_idle_models(cfg, now=16 * 60,
+                                                ps_fn=lambda *_args, **_kw: {'models': [{'name': 'm:latest'}]},
+                                                post_fn=lambda host, payload, timeout: calls.append((host, payload, timeout)) or {})
+            self.assertEqual(unloaded, ['m:latest'])
+            self.assertEqual(calls, [('127.0.0.1:11434', {'model': 'm:latest', 'keep_alive': 0}, 60)])
+
+    def test_idle_unload_skips_pinned_models(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = config.normalise({'project': {'state': d},
+                                    'workers': {'w': {'kind': 'ollama', 'host': '127.0.0.1:11434', 'model': 'm',
+                                                      'keep_alive': -1, 'pinned': True}}})
+            local.note_used(cfg, cfg['workers']['w'], now=0)
+            calls = []
+            unloaded = local.unload_idle_models(cfg, now=30 * 60,
+                                                ps_fn=lambda *_args, **_kw: {'models': [{'name': 'm:latest'}]},
+                                                post_fn=lambda host, payload, timeout: calls.append((host, payload, timeout)) or {})
+            self.assertEqual(unloaded, [])
+            self.assertEqual(calls, [])
+
+    def test_idle_timer_resets_on_completion(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = config.normalise({'project': {'state': d}, 'fleet': {'idle_unload_minutes': 1},
+                                    'workers': {'w': {'kind': 'ollama', 'host': '127.0.0.1:11434', 'model': 'm', 'keep_alive': -1}}})
+            local.note_used(cfg, cfg['workers']['w'], now=10)
+            self.assertEqual(local.unload_idle_models(cfg, now=69,
+                                                      ps_fn=lambda *_args, **_kw: {'models': [{'name': 'm:latest'}]},
+                                                      post_fn=lambda *_args, **_kw: {}), [])
+            calls = []
+            local.unload_idle_models(cfg, now=71, ps_fn=lambda *_args, **_kw: {'models': [{'name': 'm:latest'}]},
+                                     post_fn=lambda host, payload, timeout: calls.append((host, payload, timeout)) or {})
+            self.assertEqual(calls, [('127.0.0.1:11434', {'model': 'm:latest', 'keep_alive': 0}, 60)])
+
+    def test_generate_passes_keep_alive_to_ollama(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = config.normalise({'project': {'state': d}})
+            worker = {'kind': 'ollama', 'host': '127.0.0.1:11434', 'model': 'm', 'keep_alive': -1}
+            with mock.patch('tutti.local.unload_idle_models', return_value=[]), \
+                    mock.patch('tutti.local.note_used'), \
+                    mock.patch('tutti.local.post', return_value={'response': 'ok'}) as post:
+                self.assertEqual(local.generate(cfg, worker, 'hello'), 'ok')
+            payload = post.call_args.args[1]
+            self.assertEqual(payload.get('keep_alive'), -1)
+
+    def test_generate_forces_keep_alive_for_pinned_model(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = config.normalise({'project': {'state': d}})
+            worker = {'kind': 'ollama', 'host': '127.0.0.1:11434', 'model': 'm', 'keep_alive': 0, 'pinned': True}
+            with mock.patch('tutti.local.unload_idle_models', return_value=[]), \
+                    mock.patch('tutti.local.note_used'), \
+                    mock.patch('tutti.local.post', return_value={'response': 'ok'}) as post:
+                self.assertEqual(local.generate(cfg, worker, 'hello'), 'ok')
+            payload = post.call_args.args[1]
+            self.assertEqual(payload.get('keep_alive'), -1)
+
 
 class TranslateTest(unittest.TestCase):
     def test_validators(self):

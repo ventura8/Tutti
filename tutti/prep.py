@@ -34,7 +34,10 @@ VOLUME = {'name': 'media volume', 'read': 'cmd media_session volume --stream 3 -
           'set': 'cmd media_session volume --stream 3 --set {value}', 'value': 2, 'cap': True}
 DEFAULTS = {
     'phone': [{'setting': 'system screen_brightness_mode', 'value': 0}, {'setting': 'system screen_brightness', 'value': linear_brightness(30)}, VOLUME],
-    'tv': [{'setting': 'secure screensaver_enabled', 'value': 0}, {'setting': 'secure screensaver_activate_on_sleep', 'value': 0},
+    # a TV dims too (owner 2026-11-16): a panel TV takes it; a streamer's HDMI output ignores it, and it is put back either way
+    'tv': [{'setting': 'system screen_brightness_mode', 'value': 0},
+           {'setting': 'system screen_brightness', 'value': linear_brightness(30)},
+           {'setting': 'secure screensaver_enabled', 'value': 0}, {'setting': 'secure screensaver_activate_on_sleep', 'value': 0},
            {'setting': 'system screen_off_timeout', 'value': 1800000}, VOLUME],
 }
 # Read before a run and put back after it, never set by Tutti (value: keep): a test that rotates the screen, changes the

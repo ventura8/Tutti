@@ -22,5 +22,14 @@ class PerceptualBrightnessTest(unittest.TestCase):
         self.assertEqual(item['value'], prep.linear_brightness(30))
 
 
+    def test_a_tv_gets_the_same_brightness(self):
+        item = [x for x in prep.DEFAULTS['tv'] if x.get('setting') == 'system screen_brightness'][0]
+        self.assertEqual(item['value'], prep.linear_brightness(30))
+
+    def test_a_tv_keeps_its_brightness_items_after_the_deny_list(self):
+        names = [x['name'] for x in prep.items({'name': 'tv', 'kind': 'tv'}, False)]
+        self.assertIn('screen_brightness', names)
+
+
 if __name__ == '__main__':
     unittest.main()

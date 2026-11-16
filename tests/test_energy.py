@@ -225,7 +225,11 @@ class Cards(unittest.TestCase):
         c = energy.card(self.cfg, 'pc', energy.hosts(self.cfg)['pc'], r['pc'], None, {}, [], time.time(), energy.tariff(self.cfg),
                         False, {'big': (True, 'ok')})
         self.assertEqual((c['status'], c['installed'], c['reachable']), ('available', ['m:1'], False))
-        self.assertIn('ssh', c['reason'])
+        self.assertIn('its power was not read', c['reason'])
+        alone = energy.card(self.cfg, 'pc', energy.hosts(self.cfg)['pc'], r['pc'], None, {}, [], time.time(),
+                            energy.tariff(self.cfg), False, None)
+        self.assertEqual(alone['status'], 'available')   # models read, no worker probe: still not "models not read"
+        self.assertEqual(config.physical({'machines': {'a': {'dedicated': True}, 'b': {}}}, 'a'), 'a')   # no host: no fold
         here = energy.worker_status(('available', ''), ['small'], None, None, 'local')
         self.assertEqual(here[0], 'offline')
         self.assertNotIn('ssh', here[1])

@@ -388,11 +388,14 @@ class Roles(unittest.TestCase):
                 self.assertIn(c['gpu'], text)
                 self.assertNotIn('GPU not read', text)
                 self.assertIn('GPU', text)
-                self.assertIn('measured' if c['gpu_measured'] else 'estimated', text)
+                power = card.locator('.account__auto', has_text=' W now').text_content()
+                self.assertRegex(power, r'GPU \d+ W ' + ('measured' if c['gpu_measured'] else 'estimated'))
+                self.assertEqual(power.startswith('≈'), not c['gpu_measured'])
                 for m in c['installed']:
                     self.assertIn(m, text)
                 fits = card.evaluate("(a) => [...a.querySelectorAll('.local__periods td, .local__periods th')].every((t) => "
-                                     "t.getClientRects().length === 1 && t.scrollWidth <= t.clientWidth + 1) "
+                                     "getComputedStyle(t).whiteSpace === 'nowrap' && t.scrollWidth <= t.clientWidth + 1 "
+                                     "&& t.getBoundingClientRect().height < 2 * parseFloat(getComputedStyle(t).fontSize) * 1.6) "
                                      "&& a.scrollWidth <= a.clientWidth + 1")
                 self.assertTrue(fits, f"{c['name']} at {width}: a table cell wraps or the card overflows")
             box = {c['name']: c for c in cards}['gpu-box']

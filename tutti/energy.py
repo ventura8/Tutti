@@ -524,7 +524,8 @@ def unread(transport):
     """Why a machine's power and models were not read, by how it is reached."""
     if transport == 'local':
         return 'its power and models were not read: the reading on this computer did not finish (the next probe tries again)'
-    return 'its power and models were not read: the machine did not answer over ssh (`tutti machines`)'
+    return ('its power and models were not read: the machine did not answer over ssh or its reading timed out '
+            '(`tutti machines`; the next probe tries again)')
 
 
 def worker_status(machine, names, ready, reading, transport='ssh'):
@@ -573,7 +574,10 @@ def card(cfg, name, host, reading, item, store, runs, now, t, busy_now, ready=No
     transport = (cfg['machines'].get(name) or {}).get('transport') or ('local' if name == 'this computer' else 'ssh')
     power_read = reading is not None and not r.get('power_unread')
     status, why = worker_status(availability(item), host['workers'], ready, reading if power_read else None, transport)
-    if status == 'available' and not power_read and any((ready or {}).get(n, (False,))[0] for n in host['workers']):
+    if status == 'offline' and not power_read and (r.get('tags') or r.get('ps')):   # the models answered: only the power is missing
+        status, why = 'available', ''
+    if status == 'available' and not power_read and (r.get('tags') or r.get('ps')
+                                                     or any((ready or {}).get(n, (False,))[0] for n in host['workers'])):
         why = unread(transport).replace('its power and models were not read', 'its power was not read')
     return {'name': name, 'workers': host['workers'], 'gpu': r.get('gpu') or mcfg.get('gpu') or 'GPU not read',
             'installed': sorted(x.get('name') for x in ((r.get('tags') or {}).get('models') or []) if isinstance(x, dict)),

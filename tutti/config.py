@@ -255,7 +255,7 @@ def physical(cfg, name):
     runs) on the same computer as a regular machine (the same host; `local` is this computer) is that machine, so it gets no
     card of its own and its power and energy are never counted twice."""
     m = cfg['machines'].get(name)
-    if not m or not m.get('dedicated'):
+    if not m or not m.get('dedicated') or not m.get('host'):
         return name
     return next((n for n, o in cfg['machines'].items() if n != name and not o.get('dedicated') and o.get('host') == m.get('host')),
                 name)

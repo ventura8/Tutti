@@ -46,5 +46,18 @@ class DiskRoomTest(unittest.TestCase):
         self.assertIn('file slots', stop['reason'])
 
 
+
+class WindowsHasNoStatvfs(unittest.TestCase):
+    def test_free_space_is_read_from_disk_usage_where_statvfs_is_missing(self):
+        from collections import namedtuple
+        from unittest import mock
+        usage = namedtuple('usage', 'total used free')(1000, 900, 100)
+        real = diskroom.os
+        fake = mock.Mock(spec=[n for n in dir(real) if n != 'statvfs'])
+        fake.stat, fake.path = real.stat, real.path
+        with mock.patch.object(diskroom, 'os', fake), mock.patch('shutil.disk_usage', return_value=usage):
+            space, slots, _dev, _gb = diskroom.reading('/')
+        self.assertEqual((space, slots), (10.0, 100.0))
+
 if __name__ == '__main__':
     unittest.main()

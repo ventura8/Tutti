@@ -267,12 +267,12 @@ def janitor(roots, now, uid=None, stale=STALE_SECONDS):
     return gone
 
 
-def check_disk(ctx, statvfs=os.statvfs):
+def check_disk(ctx, statvfs=None):
     """Tutti's own temp folders and caches cleaned every round; still low afterwards, the admin is asked to make room."""
     from . import diskroom
     n = janitor(temp_roots(ctx.cfg), ctx.now)
     out = [f'removed {n} left-over Tutti temp folder(s)'] if n else []
-    for line in diskroom.problems(ctx.cfg, statvfs):
+    for line in diskroom.problems(ctx.cfg, statvfs or diskroom.portable_statvfs):
         ctx.ask(ctx.cfg, f'disk:{line[:40]}', f'Make room on {_me(ctx.cfg)}: {line}',
                 'Tutti already removed its own temp files and caches; the rest is not Tutti\'s to delete.')
     return out

@@ -56,7 +56,8 @@ A person installs each CLI and signs in once. Tutti never types a credential.
 ## One entry point
 
 An orchestrator never starts `cursor-agent`, `agy` or `copilot` itself: `tutti run auto "<task>" --repo <repo>` picks the
-account with room (behind its line first, never one ahead while another is behind, never panic or spent), runs it
+account with room (behind its line first, never one ahead while another is behind, never panic or spent). Tasks of type
+`visual` (or task text that names that type) run only on `routing.visual_workers` (default: `[claude]`). It runs the pick
 headless with its allow list, logs the run with its account (`<state>/runs.jsonl`) and reads limit messages. The
 dashboard flags agent processes it finds working outside a Tutti folder.
 

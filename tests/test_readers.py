@@ -358,6 +358,31 @@ class RouteByReadingsTest(unittest.TestCase):
         self.assertEqual(self.pick([], order=['cursor', 'agy'])['account'], 'cursor')
         self.assertEqual(self.pick([], order=['agy'])['account'], 'agy-claude')
 
+    def test_visual_tasks_use_only_visual_workers(self):
+        with tempfile.TemporaryDirectory() as folder:
+            accounts = {'claude': {'window': '7d', 'resets': '2026-01-12T00:00Z', 'worker': 'claude'},
+                        'cursor': {'window': 'monthly', 'resets': '2026-02-01T00:00Z', 'worker': 'cursor'}}
+            workers_ = {'claude': {'kind': 'cli', 'command': ['claude', '-p', '{prompt}']},
+                        'cursor': {'kind': 'cli', 'command': ['cursor-agent', '-p', '{prompt}']}}
+            cfg = cfg_of(folder, accounts, workers_)
+            cfg['routing']['workers'] = ['cursor', 'claude']
+            states = [pacing.account_state(n, a, [], NOW) for n, a in cfg['accounts'].items()]
+            self.assertEqual(state.next_worker(cfg, states)['worker'], 'cursor')
+            pick = state.next_worker(cfg, states, task_type='visual')
+            self.assertEqual((pick['worker'], pick['account']), ('claude', 'claude'))
+            named = state.next_worker(cfg, states, task="Routing: tasks of type 'visual' run on Claude")
+            self.assertEqual(named['worker'], 'claude')
+
+    def test_visual_tasks_refuse_non_claude_fallback(self):
+        with tempfile.TemporaryDirectory() as folder:
+            accounts = {'cursor': {'window': 'monthly', 'resets': '2026-02-01T00:00Z', 'worker': 'cursor'}}
+            workers_ = {'cursor': {'kind': 'cli', 'command': ['cursor-agent', '-p', '{prompt}']}}
+            cfg = cfg_of(folder, accounts, workers_)
+            states = [pacing.account_state('cursor', cfg['accounts']['cursor'], [], NOW)]
+            pick = state.next_worker(cfg, states, task_type='visual')
+            self.assertIsNone(pick['worker'])
+            self.assertIn('visual tasks run only on claude', pick['reason'])
+
     def test_run_auto_uses_the_pick_and_refuses_when_nothing_has_room(self):
         with tempfile.TemporaryDirectory() as folder:
             script = os.path.join(folder, 'agent')
@@ -385,6 +410,11 @@ class RouteByReadingsTest(unittest.TestCase):
         errs = '\n'.join(config.validate(bad))
         for text in ('routing.workers names "ghost"', 'accounts.a.worker names "ghost"', 'accounts.a.args'):
             self.assertIn(text, errs)
+        bad_visual = config.normalise({'routing': {'visual_workers': 'claude'}})
+        self.assertIn('routing.visual_workers', '\n'.join(config.validate(bad_visual)))
+        not_claude = config.normalise({'workers': {'cursor': {'kind': 'cli', 'command': ['cursor-agent', '-p', '{prompt}']}},
+                                       'routing': {'visual_workers': ['cursor']}})
+        self.assertIn('not a Claude CLI worker', '\n'.join(config.validate(not_claude)))
 
 
 class ProgressTest(unittest.TestCase):

@@ -28,7 +28,7 @@ DEFAULTS = {
     # computer's IANA zone (tutti/tz.py), daylight saving included; an IANA name such as Europe/Bucharest overrides it
     'time': {'zone': 'auto'},
     'runner': {'kind': 'shell', 'memory_gb': 12, 'cpus': 8, 'env': {}, 'args': [], 'prelude': ''},
-    'routing': {'order': []},
+    'routing': {'order': [], 'visual_workers': ['claude']},
     'sync': {'exclude': ['/.git', '.env', '.env.*', '*.key', '*.pem'], 'ensure_dirs': []},
     'workers': {},
     'devices': {},
@@ -407,6 +407,15 @@ def validate(cfg):
     for name, m in cfg['machines'].items():
         errs += _machine_errors(name, m)
     errs += [f'routing.order names "{n}", which is not under machines:' for n in cfg['routing']['order'] if n not in cfg['machines']]
+    visual = cfg['routing'].get('visual_workers')
+    if not isinstance(visual, list) or not all(isinstance(w, str) and w for w in visual):
+        errs.append(f'routing.visual_workers is {visual!r}: a list of worker names, e.g. [claude]')
+    else:
+        for w in visual:
+            worker = cfg['workers'].get(w) or {}
+            cmd = worker.get('command') or []
+            if worker and (worker.get('kind') != 'cli' or not cmd or cmd[0] != 'claude'):
+                errs.append(f'routing.visual_workers names "{w}", which is not a Claude CLI worker (command starts with claude):')
     errs += [f'machines.{n}.via names "{m["via"]}", which is not under machines: (the client this machine is reached through)'
              for n, m in cfg['machines'].items() if m.get('via') and m['via'] not in cfg['machines']]
     from . import move

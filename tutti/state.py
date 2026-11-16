@@ -239,13 +239,43 @@ def worker_accounts(cfg):
     return sorted(names, key=lambda n: pos.get(cfg['accounts'][n]['worker'], 0))
 
 
-def next_worker(cfg, accounts):
+VISUAL_TASK = re.compile(r'\b(?:task(?:s)?\s+of\s+type|task[_ -]?type|type)\s*[:=]?\s*[\'"]?visual\b', re.I)
+
+
+def visual_task(task, task_type):
+    """True when this task is the visual kind (set explicitly or named in the task text)."""
+    if isinstance(task_type, str) and task_type.strip().lower() == 'visual':
+        return True
+    return bool(VISUAL_TASK.search(task or ''))
+
+
+def pickable_accounts(cfg, accounts, task='', task_type=''):
+    """(account names, reason suffix) for this task kind; visual tasks are restricted by routing.visual_workers."""
+    names = worker_accounts(cfg)
+    if not visual_task(task, task_type):
+        return names, ''
+    raw = (cfg.get('routing') or {}).get('visual_workers')
+    allowed_names = [w for w in (raw if isinstance(raw, list) and raw else ['claude']) if isinstance(w, str) and w]
+    # Owner rule: visual work must run on Claude workers only.
+    allowed = {w for w in allowed_names if (cfg.get('workers', {}).get(w) or {}).get('command', [''])[0] == 'claude'}
+    picked = [n for n in names if (cfg['accounts'].get(n) or {}).get('worker') in allowed]
+    if picked:
+        return picked, ''
+    workers = ', '.join(sorted(allowed)) or 'no Claude worker'
+    return [], f'visual tasks run only on {workers}; set routing.visual_workers to the worker names for Claude accounts'
+
+
+def next_worker(cfg, accounts, task='', task_type=''):
     """Where the next agent job goes, from the latest readings: {worker, account, args, reason}, worker None when none has room."""
     by_name = {a['name']: a for a in accounts}
-    states = [by_name[n] for n in worker_accounts(cfg) if n in by_name]
+    picked, rule = pickable_accounts(cfg, accounts, task, task_type)
+    states = [by_name[n] for n in picked if n in by_name]
+    if not states:
+        reason = rule or 'no account names a worker (accounts.<name>.worker)'
+        return {'worker': None, 'account': None, 'args': [], 'reason': reason}
     best, reason = routing.pick_account(states)
     if not best:
-        return {'worker': None, 'account': None, 'args': [], 'reason': reason}
+        return {'worker': None, 'account': None, 'args': [], 'reason': f'{rule}; {reason}' if rule else reason}
     acc = cfg['accounts'][best['name']]
     from . import tiers
     choice = tiers.choose(cfg, best['name'], best)   # stronger while behind its binding limit, cheaper while ahead

@@ -510,17 +510,17 @@ def cmd_workers(cfg, a):
     return 0
 
 
-def choose_worker(cfg, now):
+def choose_worker(cfg, now, task='', task_type=''):
     """`tutti run auto`: the worker whose account has room, from the latest readings (panic and spent accounts are skipped)."""
     entries = pacing.read_log(usage_log_path(cfg))
     accounts = [pacing.account_state(n, x, entries, now, *pacing.plan_args(cfg)) for n, x in cfg['accounts'].items()]
-    return state.next_worker(cfg, accounts)
+    return state.next_worker(cfg, accounts, task, task_type)
 
 
 def cmd_run(cfg, a):
     extra = []
     if a.worker == 'auto':
-        pick = choose_worker(cfg, datetime.now(timezone.utc))
+        pick = choose_worker(cfg, datetime.now(timezone.utc), a.task, a.task_type)
         if not pick['worker']:
             say(f'run auto: {pick["reason"]}')
             return 3
@@ -1530,6 +1530,7 @@ def parser():
                    help='with --check: run it here (local, the default) or on a routed machine (route)')
     s.add_argument('--remote-track', help=argparse.SUPPRESS)
     s.add_argument('--account', help=argparse.SUPPRESS)   # the autopilot's account of a shared worker (agy-gemini, agy-claude)
+    s.add_argument('--task-type', help=argparse.SUPPRESS)
     s.add_argument('--id', help=argparse.SUPPRESS)
     s.add_argument('--extra', action='append', help=argparse.SUPPRESS)
     s = add('pr', cmd_pr, 'pull requests: `pr review <n>` asks the reviewers, says when none will come, and falls back to a local '

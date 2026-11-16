@@ -137,6 +137,8 @@ FIELDS = {
                            choices_from='machines'),
     'workers.*.tunnel': field('Tunnel', 'An ssh tunnel to the model server: {ssh, remote}.', **YAML),
     'routing.workers': field('Worker order', '`tutti run auto` tries these in order, skipping spent ones.', 'list', choices_from='workers'),
+    'routing.visual_workers': field('Visual task workers', 'Tasks of type visual run only on these Claude workers (default: [claude]).',
+                                    'list', choices_from='workers'),
     'brief.rules': field('Rules in every brief', 'Added to every brief (the standing ones are always added).', 'list', item='rule'),
     # main agent
     'main.target_pct': field('Target', 'The % of the main agent\'s quota to use by its spend-by time; the owner\'s reserve still holds.',

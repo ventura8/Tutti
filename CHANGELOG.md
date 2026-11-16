@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Fixed
+
+- `tutti run auto` now enforces visual-task routing before account pacing: tasks marked `visual` route only to workers in
+  `routing.visual_workers` (new setting, default `[claude]`), so they never fall back to agy, Cursor, Grok or local
+  models. The task text form "task type visual" is recognized too.
+
 ## 0.13.0 (2026-11-15)
 
 ### Added

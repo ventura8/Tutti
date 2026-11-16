@@ -57,6 +57,7 @@ runner:
 
 routing:
   workers: [agy, cursor, copilot]     # `tutti run auto`: the agent accounts in this order, skipping panic and spent ones
+  visual_workers: [claude]            # tasks of type visual run only on these workers (by default: Claude accounts only)
   order: [builder, gpu-box]           # first fit wins; when none is fit the run queues on the first
 
 sync:

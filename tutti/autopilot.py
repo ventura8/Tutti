@@ -479,9 +479,10 @@ def park_reason(cfg, task):
     s = settings(cfg)
     tries = task['attempts'][int(task.get('resume_from') or 0):]   # counted afresh after a person's answer (tutti/needs.py)
     cap = attempt_cap(s['max_attempts'], task)
-    if len(tries) >= cap:
+    counted = [a for a in tries if not str(a.get('why') or '').startswith(QUOTA_SIDE)]   # an account's quota is not the task's
+    if len(counted) >= cap:
         return 'max_attempts', (f'{len(task["attempts"])} attempts without a pass (autopilot.max_attempts is {s["max_attempts"]}'
-                                + (f'; {len(tries)} of {cap} since a person\'s retry)' if cap != s['max_attempts'] else ')'))
+                                + (f'; {len(counted)} of {cap} since a person\'s retry)' if cap != s['max_attempts'] else ')'))
     again = repeated(tries)
     if again and not again['why'].startswith(WORKER_SIDE) and len({a['step'] for a in tries[-REPEAT:]}) > 1:
         return 'no_progress', (f'no progress: it failed the same way {REPEAT} times in a row on different workers, so the task or '

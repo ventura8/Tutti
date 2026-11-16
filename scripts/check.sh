@@ -10,7 +10,12 @@ export TUTTI_NO_DAEMONS=1   # no real keep-awake loop, tunnel or sleep inhibitor
 if ! python3 -c 'import playwright, axe_playwright_python' 2> /dev/null; then
 	venv="${XDG_CACHE_HOME:-$HOME/.cache}/tutti/check-venv"
 	[ -x "$venv/bin/python3" ] || python3 -m venv "$venv"
-	"$venv/bin/python3" -m pip install -q --require-hashes -r requirements-dev.txt
+	stamp="$venv/.requirements-dev.sha256"   # pip runs only when requirements-dev.txt changed
+	want="$(sha256sum requirements-dev.txt | cut -d' ' -f1)"
+	if [ "$(cat "$stamp" 2> /dev/null)" != "$want" ]; then
+		"$venv/bin/python3" -m pip install -q --require-hashes -r requirements-dev.txt
+		echo "$want" > "$stamp"
+	fi
 	PATH="$venv/bin:$PATH"
 	export PATH
 fi

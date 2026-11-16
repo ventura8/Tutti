@@ -82,6 +82,9 @@ class Park(Base):
     def test_a_usage_limit_does_not_wear_a_step_out(self):
         quota = {**failed('g', 'q'), 'why': 'the worker hit its usage limit'}
         self.assertEqual(autopilot.worn_out([quota, dict(quota)]), set())
+        cfg = self.cfg()
+        most = autopilot.settings(cfg)['max_attempts']
+        self.assertEqual(autopilot.park_reason(cfg, task(attempts=[{**quota, 'step': f's{i}'} for i in range(most)]))[0], '')
         self.assertEqual(autopilot.worn_out([failed('g'), failed('g')]), {'g'})
 
     def test_a_late_answer_leaves_a_task_that_no_longer_waits(self):

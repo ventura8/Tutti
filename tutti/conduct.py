@@ -438,7 +438,10 @@ def local_reply(worker, messages, timeout=600):
     req = urllib.request.Request(config.ollama_url(worker['host'], '/api/chat'), data=json.dumps(body).encode(),
                                  headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return (json.loads(r.read().decode()).get('message') or {}).get('content') or ''
+        answer = json.loads(r.read().decode())
+    message = answer.get('message') if isinstance(answer, dict) else None
+    content = message.get('content') if isinstance(message, dict) else None
+    return content if isinstance(content, str) else ''
 
 
 LOCAL_PROTOCOL = ('You cannot run a shell yourself. To run one of Tutti\'s commands, answer with exactly one line '

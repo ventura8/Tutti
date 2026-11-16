@@ -4,6 +4,11 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 ## 0.1.63 (2026-11-14)
 
+### Fixed
+
+- A malformed Cursor usage answer or Ollama chat answer (a list, a string, a wrong-typed field) no longer raises
+  `AttributeError`; usage raises `ValueError` and chat gives an empty reply.
+
 ### Added
 
 - Local models as first-class workers (docs/FLEET.md). Every machine's Ollama is read at each probe and its models are

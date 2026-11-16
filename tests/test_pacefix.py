@@ -268,6 +268,12 @@ class CursorReader(unittest.TestCase):
         with self.assertRaises(ValueError):
             cursorusage.parse(data, 'nope')
 
+    def test_malformed_answers_raise_value_error_not_attribute_error(self):
+        for bad in (None, [], 'text', {'planUsage': 'x'}, {'planUsage': []}):
+            with self.assertRaises(ValueError):
+                cursorusage.parse(bad, 'autoPercentUsed')
+        self.assertIsNone(cursorusage.parse({'planUsage': {'autoPercentUsed': 1}, 'billingCycleEnd': []}, 'autoPercentUsed')[1])
+
     def test_problems_say_what_to_do_and_never_the_token(self):
         self.assertIn('cursor-agent login', cursorusage.fetch(os.path.join(self.tmp.name, 'none.json'))[1])
 

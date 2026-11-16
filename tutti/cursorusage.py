@@ -56,9 +56,11 @@ def fetch(path=LOGIN_FILE, opener=urllib.request.urlopen):
 
 def parse(data, field):
     """(used %, reset datetime or None) from fetch's answer."""
-    v = ((data or {}).get('planUsage') or {}).get(field)
+    data = data if isinstance(data, dict) else {}
+    plan = data.get('planUsage')
+    v = plan.get(field) if isinstance(plan, dict) else None
     if isinstance(v, bool) or not isinstance(v, (int, float)):
         raise ValueError(f'no "{field}" in Cursor\'s usage answer (it has {", ".join(FIELDS)})')
-    end = (data or {}).get('billingCycleEnd')
+    end = data.get('billingCycleEnd')
     reset = datetime.fromtimestamp(int(end) / 1000, timezone.utc) if str(end or '').isdigit() else None
     return round(float(v), 1), reset

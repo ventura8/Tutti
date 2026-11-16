@@ -1757,6 +1757,10 @@ def parser():
                                                                                'server (`tutti connect --all`)')
     s.add_argument('--from-dashboard', action='store_true', help='run by the dashboard\'s Set up card: the login service is '
                                                                  'enabled for the next login, not started next to that dashboard')
+    s.add_argument('--tui', action='store_true', help='then open the setup wizard in this terminal (main and backup machines, '
+                                                      'accounts, GitHub, repositories, devices; docs/SETUP-WIZARD.md)')
+    s.add_argument('--plain', action='store_true', help='with --tui: one numbered question at a time instead of the full screen '
+                                                        '(the friendliest for a screen reader)')
     s = add('self-update', cmd_self_update, 'install the newest signed and checksummed release of Tutti (release installs)')
     s.add_argument('--insecure-skip-verify', action='store_true',
                    help='offline only: install without checking the release\'s Sigstore signature (a loud warning; never with --auto)')

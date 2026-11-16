@@ -372,8 +372,26 @@ def finish(cfg, rows, choices, steps, path, out):
     return report
 
 
-def run(a, probe=None, asker=None, platform=None, home_dir=None, runner=subprocess.run, out=sys.stdout):
-    """The whole first run; every step skips what is already done."""
+def offer_tui(out, read=input, browser=None):
+    """In a terminal with no browser (an ssh session, a server): offers the setup wizard right here (docs/SETUP-WIZARD.md)."""
+    from . import wizardtui
+    if (wizardtui.has_browser() if browser is None else browser):
+        return False
+    print('no browser here for the dashboard\'s Setup wizard; the same wizard runs in this terminal', file=out)
+    try:
+        return not read('Open the setup wizard here? [Y/n] ').strip().lower().startswith('n')
+    except EOFError:
+        return False
+
+
+def open_wizard(path, plain_mode=False):
+    from . import wizardtui
+    return wizardtui.main(path, plain_mode=plain_mode)
+
+
+def run(a, probe=None, asker=None, platform=None, home_dir=None, runner=subprocess.run, out=sys.stdout, wizard_fn=open_wizard):
+    """The whole first run; every step skips what is already done. `--tui` (or a terminal with no browser, when the person
+    says yes) ends in the setup wizard."""
     path = a.config or config.find() or config.xdg_config_path()
     text = open(path, encoding='utf8').read() if os.path.exists(path) else ''
     probe = probe or setup.Probe()
@@ -392,11 +410,14 @@ def run(a, probe=None, asker=None, platform=None, home_dir=None, runner=subproce
     steps = human_steps(rows, found) + restarts
     finish(cfg, rows, choices, steps, path, out)
     interactive = sys.stdin.isatty() and not a.from_dashboard
+    if getattr(a, 'tui', False) or (interactive and offer_tui(out)):
+        return wizard_fn(path, plain_mode=getattr(a, 'plain', False))   # the wizard runs each sign-in itself
     if interactive and steps:
         sign_ins(steps, runner, out)
     if interactive and first and svc[0] == 'ok':
         # the dashboard's link, for the owner to open (Tutti never opens their browser by itself: docs/BROWSER.md)
-        print(f'open the dashboard: http://127.0.0.1:{cfg["dashboard"]["port"]}/ (install it as an app from the browser\'s menu)', file=out)
+        print(f'open the dashboard: http://127.0.0.1:{cfg["dashboard"]["port"]}/ (install it as an app from the browser\'s menu); '
+              'its Setup wizard opens first', file=out)
     if a.join:
         from . import cli  # cli imports this module
         return cli.main(['--config', path, 'household', 'join', a.join])

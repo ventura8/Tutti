@@ -26,6 +26,7 @@ FAKE_ADB = textwrap.dedent('''\
       "settings delete") rm -f "$FAKE/settings/$4";;
       "cmd media_session") if [ "$6" = --get ]; then echo "volume is $(cat "$FAKE/settings/vol") in range [0..15]";
                            else echo "$7" > "$FAKE/settings/vol"; fi;;
+      "pm has-feature") echo false;;
       "input keyevent") echo "key $3 $(date +%s.%N)" >> "$FAKE/log";;
       "install -r") echo "start $$" >> "$FAKE/log"; sleep 0.5; echo "end $$" >> "$FAKE/log";;
     esac

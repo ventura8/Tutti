@@ -111,7 +111,8 @@ def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None):
     left = give - spent
     own_left = 100 - (own['used'] or 0)
     left_own = own_left if per is None else min(own_left, left * 100 / per) if per else 0.0
-    if on_pace and room > 0 and own_left > 0 and caps[0] != 0:   # use it or lose it: the window's unused room is spent while the week is behind
+    # use it or lose it: the window's unused room is spent while the week is at or behind its pace
+    if on_pace and room > 0 and own_left > 0 and caps[0] != 0:
         left, left_own = max(left, 0.1), own_left
     task = float(a.get('task_pct', TASK_PCT))
     tasks = max(0, int(left_own // task)) if left > 0 and task > 0 else 0

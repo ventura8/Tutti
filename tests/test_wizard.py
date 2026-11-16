@@ -278,6 +278,16 @@ class Api(Base):
         self.assertEqual(code, 409)
         self.assertIn('machines.here.use_pct', answer['error'])
 
+    def test_with_sign_in_the_signed_in_role_decides(self):
+        c = SimpleNamespace(cfg=self.cfg(), wizard_detect=lambda: self.found, signed=True)
+        c.who = lambda h: {'sub': 'g', 'role': 'viewer'}
+        self.assertFalse(wizard.get(c, {})[1]['admin'])
+        self.assertEqual(wizard.post(c, {}, b'{"step": "welcome"}')[0], 403)
+        c.who = lambda h: None   # nobody signed in: never the owner by default
+        self.assertFalse(wizard.is_admin(c, {}))
+        c.who = lambda h: {'sub': 'o', 'role': 'admin'}
+        self.assertTrue(wizard.get(c, {})[1]['admin'])
+
     def test_detection_is_cached_and_detect_runs_it_again(self):
         calls = []
         c = SimpleNamespace(cfg=self.cfg(), wizard_detect=lambda: calls.append(1) or self.found, authorize=None)

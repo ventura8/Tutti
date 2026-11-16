@@ -569,6 +569,13 @@ def apply(cfg, found, sid, data, run=subprocess.run, installer=install_failover)
 
 
 def is_admin(collector, headers):
+    """With sign-in on, the signed-in user's role (collector.who, docs/AUTH.md); a role check plugged in as
+    collector.authorize; without either, this computer's owner, an admin."""
+    who = getattr(collector, 'who', None)
+    if callable(who):
+        w = who(headers)
+        if w or getattr(collector, 'signed', False):
+            return bool(w) and w.get('role') == 'admin'
     check = getattr(collector, 'authorize', None)
     return not callable(check) or check(headers, 'admin') is None
 

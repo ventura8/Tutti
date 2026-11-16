@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.21.2 (2026-11-16)
+
+### Fixed
+
+- The planner spends a short window's unused room while its weekly limit is at or behind its pace line (use it or lose
+  it): the per-window share of weekly points no longer holds work then, and the weekly limit is projected along its pace
+  line instead of this window's burst, so it is never reported as binding or "projected to reach 100 %". Ahead of its pace
+  the weekly limit still holds the window; quiet hours still give it nothing.
 ## 0.21.1 (2026-11-16)
 
 ### Fixed

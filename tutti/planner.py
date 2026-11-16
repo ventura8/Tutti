@@ -103,12 +103,20 @@ def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None):
     caps = [c for _, _, c in windows]
     give = allowance(room, caps)
     spent = max(0.0, lim['used'] - at_start)
-    headroom = projection_room(lim, budget, now)
+    on_pace = at_or_behind(lim)
+    # on or behind its pace line the weekly limit is projected along that line, never from this window's short burst
+    headroom = max(0.0, float(lim['expected']) - lim['used']) if on_pace else projection_room(lim, budget, now)
     if headroom is not None and headroom > 0:   # joint: more than an even share while the limit's projection still fits
         give = min(room, max(give, spent + headroom), caps[0] if caps[0] is not None else room)
     left = give - spent
     own_left = 100 - (own['used'] or 0)
     left_own = own_left if per is None else min(own_left, left * 100 / per) if per else 0.0
+    # use it or lose it: the window's unused room is spent while the week is at or behind its pace
+    use_room = on_pace and room > spent and own_left > 0 and caps[0] != 0
+    if use_room:   # bounded by the limit's weekly room (and the window's capacity), never past the budget
+        weekly = min(room, caps[0]) if caps[0] is not None else room
+        left = weekly - spent
+        left_own = own_left if not per else min(own_left, left * 100 / per)
     task = float(a.get('task_pct', TASK_PCT))
     tasks = max(0, int(left_own // task)) if left > 0 and task > 0 else 0
     return {'limit': lim['name'], 'expires': own['target'], 'resets': own.get('reset'),
@@ -118,6 +126,11 @@ def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None):
             'owner_reserve': round(kept, 1) if owner else None, 'mode': owner['mode'] if owner else None,
             'projected': None if headroom is None else round(budget - headroom, 1), 'limit_verdict': lim.get('verdict'),
             'limit_reset': lim.get('reset')}
+
+
+def at_or_behind(lim):
+    """True when the limit's used % is at or under its pace line (`expected`), so it cannot be what holds a window."""
+    return lim.get('expected') is not None and lim.get('used') is not None and float(lim['used']) <= float(lim['expected'])
 
 
 def projection_room(lim, budget, now):

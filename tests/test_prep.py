@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from tutti import devices, dispatch, prep
 
@@ -123,14 +124,25 @@ class PrepTest(unittest.TestCase):
         self.assertEqual(prep.errors('devices.tv', None), [])
 
 
+
+class TvGetsNoKeepAwakeKey(unittest.TestCase):
+    DEVICE = {'name': 'googletv', 'serial': 'x:5555', 'adb': 'adb'}
+
+    def check(self, script):
+        self.assertIn('pm has-feature android.software.leanback', script)
+        self.assertIn('= false ] && k=1 || k=0', script)
+        self.assertLess(script.index('|| k=0'), script.index('[ $k = 0 ]'))
+        self.assertLess(script.index('[ $k = 0 ]'), script.index('KEYCODE_UNKNOWN'))
+
+    def test_a_runs_keep_awake_loop_skips_the_key_on_a_tv(self):
+        from tutti import prep
+        self.check(prep.keep_awake(self.DEVICE))
+
+    def test_a_leases_keep_awake_loop_skips_the_key_on_a_tv(self):
+        from tutti import prep
+        with mock.patch('tutti.procs.daemons_allowed', return_value=True):
+            self.check(prep.lease_script(self.DEVICE, '/tmp/x/claim-1', 10, 'test'))
+
 if __name__ == '__main__':
     unittest.main()
 
-
-class TvGetsNoKeepAwakeKey(unittest.TestCase):
-    def test_the_keep_awake_loop_asks_leanback_and_skips_the_key_on_a_tv(self):
-        from tutti import prep
-        loop = prep.keep_awake({'name': 'googletv', 'serial': 'x:5555', 'adb': 'adb'})
-        self.assertIn('pm has-feature android.software.leanback', loop)
-        self.assertIn('[ $k = 0 ]', loop)
-        self.assertLess(loop.index('k=0'), loop.index('KEYCODE_UNKNOWN'))

@@ -321,9 +321,9 @@ def person_recent(device):
 
 
 def not_tv(device):
-    """A shell test: true unless the device is a TV (leanback). A TV stays on through its prep (stay_on, no screensaver),
+    """A shell test: true only when the device says it is not a TV (an answer of `false`; no answer counts as a TV). A TV stays on through its prep (stay_on, no screensaver),
     and a key sent before an app has a focused window makes Google TV raise an input ANR and kill it (RoRadio, 2026-11-16)."""
-    return f'[ "$({_adb(device)} pm has-feature android.software.leanback 2>/dev/null | tr -d "\\r")" != true ]'
+    return f'[ "$({_adb(device)} pm has-feature android.software.leanback 2>/dev/null | tr -d "\\r")" = false ]'
 
 
 def keep_awake(device):

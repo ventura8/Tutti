@@ -151,7 +151,7 @@ class ParseTest(unittest.TestCase):
             path = os.path.join(t, 'usage.jsonl')
             readers.record(path, readings, [('agy-gemini', argon, 'run-agy-1:4', 'limit')], NOW)
             self.assertEqual(pacing.latest(pacing.read_log(path), 'agy-gemini')['used'], 0.0)
-            readers.record(path, {}, [('agy-gemini', argon, 'run-agy-2:4', 'limit')], NOW)   # a run: the log's readings place it
+            readers.record(path, {}, [('agy-gemini', argon, 'run-agy-2:4', 'limit')], NOW + timedelta(minutes=1))   # a run: the log's readings place it
             self.assertEqual(pacing.latest(pacing.read_log(path), 'agy-gemini')['used'], 0.0)
             self.assertEqual(pacing.latest(pacing.read_log(path), 'agy-gemini-argon')['ref'], 'run-agy-2:4')
 

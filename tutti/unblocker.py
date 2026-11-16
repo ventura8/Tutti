@@ -48,7 +48,7 @@ def recent_whys(t, n=RECENT):
     return [str(x.get('why') or '') for x in a if not x.get('ok')][-n:]
 
 
-def classify(t, now, questions=()):
+def classify(t, questions=()):
     """The kind of block a task is in, or ''."""
     st = t.get('status')
     if st == 'needs-person':
@@ -70,7 +70,7 @@ def find(data, now, log=(), limit=MAX_PER_ROUND):
     tried = {e.get('id'): float(e.get('at') or 0) for e in log}
     out = []
     for t in data.get('tasks') or []:
-        kind = classify(t, now, data.get('questions') or [])
+        kind = classify(t, data.get('questions') or [])
         if kind and now - tried.get(t['id'], 0) >= COOLDOWN:
             out.append({'kind': kind, 'id': t['id'], 'title': str(t.get('title') or '')[:120]})
     return out[:limit]
@@ -116,7 +116,7 @@ def apply(cfg, item, verdict, now):
     """Writes the action into the backlog; returns the outcome line."""
     with backlog.locked(cfg) as data:
         t = next((x for x in data['tasks'] if x['id'] == item['id']), None)
-        if t is None or classify(t, now, _questions(cfg)) != item['kind']:
+        if t is None or classify(t, _questions(cfg)) != item['kind']:
             return 'changed meanwhile: left as it is'
         kind = item['kind']
         if kind == 'limit-only':

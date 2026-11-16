@@ -112,9 +112,9 @@ class Finds(Base):
 
     def test_a_429_that_is_not_a_limit_is_a_real_failure(self):
         t = {'id': 't', 'status': 'queued', 'attempts': fails('the worker exited 1 (port 4290)', 'line 429: exited 1', 'exited 1')}
-        self.assertEqual(unblocker.classify(t, NOW), 'failing')
+        self.assertEqual(unblocker.classify(t), 'failing')
         t['attempts'] = fails('HTTP 429 Too Many Requests', 'the worker hit its usage limit', 'RESOURCE_EXHAUSTED (code 429)')
-        self.assertEqual(unblocker.classify(t, NOW), 'limit-only')
+        self.assertEqual(unblocker.classify(t), 'limit-only')
 
     def test_a_task_gone_meanwhile_is_left(self):
         self.assertEqual(unblocker.apply(self.cfg, {'id': 't99', 'kind': 'failing'}, {}, NOW), 'changed meanwhile: left as it is')

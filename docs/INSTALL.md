@@ -104,6 +104,9 @@ Sign-ins need a terminal, because each tool's own sign-in runs there: the card s
 
 ## Updates
 
+Right after a release its assets take a few minutes to upload; `self-update` asks for `SHA256SUMS` again with backoff
+(15, 30, 60, 120 s) before it gives up.
+
 Tutti updates itself, on by default: at every login (the service runs `tutti self-update --auto` before the dashboard)
 and once a day from the running dashboard, which then restarts in place; the open page reloads itself for the new
 version. An update reads the latest release's `SHA256SUMS`, downloads the newer tarball, checks it, installs its

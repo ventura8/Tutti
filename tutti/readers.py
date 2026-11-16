@@ -105,9 +105,10 @@ def match_account(accounts, cmd_text, around):
     if len(fits) <= 1:
         return fits[0][0] if fits else None
     both = f'{cmd_text}\n{around}'
-    named = [n for n, m in fits if m.get('model') and re.search(m['model'], both, re.I)]
-    if len(named) == 1:
-        return named[0]
+    named = [(n, re.search(m['model'], both, re.I)) for n, m in fits if m.get('model')]
+    named = sorted(((n, len(x.group(0))) for n, x in named if x), key=lambda t: -t[1])
+    if named and (len(named) == 1 or named[0][1] > named[1][1]):
+        return named[0][0]   # the most specific model wins: `gemini-4-argon` beats `gemini` for a per-model cap
     fallback = [n for n, m in fits if m.get('fallback')]
     return fallback[0] if fallback else None
 
@@ -417,13 +418,20 @@ def worth_keeping(last, used, resets, now):
     return used > 0 and (not old or abs(pacing.parse_time(old) - resets) >= RESET_MOVED)
 
 
+def overrides(newest, used):
+    """A reader's reading replaces a newer entry of another source (a limit message) that says something else: the CLI's own
+    answer is the truth now, so an old "spent" from a job's output must not outlive it."""
+    return bool(newest) and newest.get('source') != 'reader' and abs(float(newest['used']) - used) >= MIN_CHANGE
+
+
 def record(path, readings, hits, now):
     """Appends the readers' readings that say something new and the limit messages not logged yet. Returns the lines written."""
     entries = pacing.read_log(path)
     refs = {e.get('ref') for e in entries if e.get('ref')}
     written = []
     for name, r in readings.items():
-        if r.get('used') is None or not worth_keeping(_last_auto(entries, name), r['used'], r['resets'], now):
+        if r.get('used') is None or not (worth_keeping(_last_auto(entries, name), r['used'], r['resets'], now)
+                                         or overrides(pacing.latest(entries, name), r['used'])):
             continue
         written.append(pacing.append_log(path, name, r['used'], now, 'read automatically', resets=r['resets'], source='reader'))
     for name, reset, ref, _text in hits:

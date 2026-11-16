@@ -398,9 +398,23 @@ class SelfUpdate(unittest.TestCase):
 
         def offline(url, dest=None):
             raise OSError('no network')
-        code, msg = install.self_update('/nowhere', '1.0.0', offline)
+        waited = []
+        code, msg = install.self_update('/nowhere', '1.0.0', offline, sleep=waited.append)
         self.assertEqual(code, 1)
         self.assertIn('offline', msg)
+        self.assertEqual(waited, list(install.SUMS_WAITS))
+
+    def test_sums_not_uploaded_yet_are_asked_again(self):
+        answers = [OSError('HTTP Error 404: Not Found'), OSError('HTTP Error 404: Not Found'), f'{"0" * 64}  tutti-1.0.0.tar.gz\n']
+
+        def late(url, dest=None):
+            a = answers.pop(0)
+            if isinstance(a, OSError):
+                raise a
+            return a
+        waited = []
+        self.assertEqual(install.self_update('/nowhere', '9.9.9', late, sleep=waited.append)[0], 0)
+        self.assertEqual(waited, [15, 30])
 
     def test_daily_only_for_an_enabled_release_install(self):
         import threading

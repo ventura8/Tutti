@@ -6,6 +6,17 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.6 (2026-11-16)
+
+### Fixed
+
+- A reader's reading now replaces a newer limit message that says something else: agy-gemini no longer stays at 100 %
+  from a job's "limit reached" while `agy /usage` reads it at 0 %.
+- A limit message goes to the account with the most specific `match.model` (`gemini-4-argon` beats `gemini`), so a
+  per-model cap such as Gemini 4 Argon's weekly limit can have its own account and not block the other Gemini models.
+- `tutti self-update` asks again with backoff (15, 30, 60, 120 s) while the latest release's `SHA256SUMS` is still being
+  uploaded, instead of failing with a 404 right after a release.
+
 ## 0.16.5 (2026-11-16)
 
 ### Fixed

@@ -424,6 +424,34 @@ def overrides(newest, used):
     return bool(newest) and newest.get('source') == 'limit message' and abs(float(newest['used']) - used) >= MIN_CHANGE
 
 
+SAME_RESET = timedelta(minutes=10)
+
+
+def owner_by_reset(name, reset, readings, now=None):
+    """The account a limit message really belongs to: agy's message names no model, but its reset is the spent cap's own. When
+    the matched account's reading resets elsewhere (in the future) and another reading resets then (a per-model cap such as
+    Gemini 4 Argon's weekly), the message goes to the one whose reset is closest. Readings whose reset is past say nothing."""
+    def gap(r):
+        live = r and r.get('resets') and (now is None or r['resets'] > now)
+        return abs(r['resets'] - reset) if live else None
+    if not reset:
+        return name
+    own = gap(readings.get(name))
+    if own is None or own <= SAME_RESET:
+        return name
+    near = sorted((g, n) for n, r in readings.items() if n != name and (g := gap(r)) is not None and g <= SAME_RESET)
+    return near[0][1] if near else name
+
+
+def last_resets(entries):
+    """{account: {'resets'}} from each account's newest reader entry: a run's limit message is placed without a fresh reading."""
+    out = {}
+    for e in entries:
+        if e.get('source') == 'reader' and e.get('resets') and e['at'] >= out.get(e['account'], {}).get('at', ''):
+            out[e['account']] = {'at': e['at'], 'resets': pacing.parse_time(e['resets'])}
+    return out
+
+
 def record(path, readings, hits, now):
     """Appends the readers' readings that say something new and the limit messages not logged yet. Returns the lines written."""
     entries = pacing.read_log(path)
@@ -437,6 +465,7 @@ def record(path, readings, hits, now):
     for name, reset, ref, _text in hits:
         if ref in refs:
             continue
+        name = owner_by_reset(name, reset, {**last_resets(entries), **readings}, now)
         refs.add(ref)
         note = f'a limit message in {ref}' + ('' if reset else ' (no reset time in it: the window rule applies)')
         written.append(pacing.append_log(path, name, 100, now, note, resets=reset, source='limit message', ref=ref))

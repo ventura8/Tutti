@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.7 (2026-11-16)
+
+### Fixed
+
+- A limit message that names no model goes to the account whose cap resets at the time it names: agy's "weekly limit"
+  message for Gemini 4 Argon now marks `agy-gemini-argon` spent, not every Gemini model.
+
 ## 0.16.6 (2026-11-16)
 
 ### Fixed

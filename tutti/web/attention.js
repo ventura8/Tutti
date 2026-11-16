@@ -4,6 +4,7 @@
 const TUTTI_ATTENTION_ORDER = ['needs-person', 'panic', 'stalled', 'offline', 'down', 'reading', 'review', 'outside'];
 
 function tuttiAttention(s) {
+    s = s && typeof s === 'object' ? s : {};
     const items = [];
     const ap = s.autopilot || {};
     for (const t of ap.parked || []) {

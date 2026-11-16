@@ -494,5 +494,33 @@ class DelegateCheckTest(Base):
         self.assertEqual((a.check, a.check_where), (['bash scripts/check.sh'], 'local'))
 
 
+
+class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
+    CFG = {'accounts': {'claude': {'worker': 'claude'}, 'cursor': {'worker': 'cursor'}},
+           'workers': {'claude': {'kind': 'cli'}, 'cursor': {'kind': 'cli'}}, 'autopilot': {}}
+
+    def room(self, states, name='cursor', running=None):
+        from tutti import autopilot
+        with mock.patch.object(autopilot, 'costs_money', return_value=False), \
+                mock.patch.object(autopilot, 'trigger_accounts', return_value=[]):
+            return autopilot.step_room(self.CFG, name, states, running or {})
+
+    def test_an_ahead_account_takes_one_task_only_while_the_main_agent_panics(self):
+        ahead = {'verdict': 'ahead', 'used': 40}
+        self.assertEqual(self.room({'claude': {'panic': True, 'used': 96}, 'cursor': ahead})[0], 1)
+        self.assertEqual(self.room({'claude': {'verdict': 'ahead', 'used': 50}, 'cursor': ahead})[0], 0)
+        self.assertEqual(self.room({'claude': {'panic': True, 'used': 96}, 'cursor': ahead}, running={'cursor': 1})[0], 0)
+
+    def test_its_own_panic_or_spent_quota_still_stops_it_and_the_main_account_never_takes_over(self):
+        panic = {'claude': {'panic': True, 'used': 96}}
+        self.assertEqual(self.room({**panic, 'cursor': {'panic': True, 'used': 96}})[0], 0)
+        self.assertEqual(self.room({**panic, 'cursor': {'verdict': 'spent', 'used': 100}})[0], 0)
+        self.assertEqual(self.room(panic, name='claude')[0], 0)
+
+    def test_main_accounts_may_be_a_single_name(self):
+        from tutti import autopilot
+        self.assertEqual(autopilot.main_accounts({'autopilot': {'main_accounts': 'codex'}}), ['codex'])
+
+
 if __name__ == '__main__':
     unittest.main()

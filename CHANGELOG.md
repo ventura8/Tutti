@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.23.3 (2026-11-16)
+
+### Fixed
+
+- While the main agent's account (autopilot.main_accounts, default claude) is in panic or spent, the other online
+  accounts take over its bounded work one task at a time even when they are ahead of their own pace; their own panic or
+  spent still stops them. Before, Cursor sat idle as "ahead of its pace" while Claude was in panic.
+
 ## 0.23.2 (2026-11-16)
 
 ### Fixed

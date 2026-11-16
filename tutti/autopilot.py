@@ -1103,7 +1103,14 @@ def local_share(cfg, here, machines):
     row = next((m for m in machines or () if m.get('name') == name), None)
     if not here or not row or row.get('use_pct') is None:
         return here
-    return {**here, 'cores': max(1, share.scaled(here['cores'], row['use_pct']))}
+    cores = max(1, share.scaled(here['cores'], row['use_pct']))
+    out = {**here, 'cores': cores}
+    # Only the load beyond the owner's cores counts against Tutti's share. The share is already scaled down by the owner's
+    # presence (tutti/share.py), so an idle owner gives Tutti a larger share instead; an owner who really uses the machine
+    # (load above their cores) still leaves Tutti no room.
+    if here.get('load') is not None:
+        out['load'] = max(0.0, here['load'] - max(0, here['cores'] - cores))
+    return out
 
 
 def repo_files(cfg, run=subprocess.run):

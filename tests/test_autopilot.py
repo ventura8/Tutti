@@ -522,5 +522,25 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
         self.assertEqual(autopilot.main_accounts({'autopilot': {'main_accounts': 'codex'}}), ['codex'])
 
 
+
+class LocalShareLoad(unittest.TestCase):
+    def share(self, here, use_pct):
+        from tutti import autopilot, fleet
+        with mock.patch.object(fleet, 'machine_of', return_value='laptop'):
+            return autopilot.local_share({}, here, [{'name': 'laptop', 'use_pct': use_pct}])
+
+    def test_the_owners_load_on_their_own_cores_does_not_hold_tuttis_share(self):
+        out = self.share({'cores': 16, 'load': 5.5}, 6)
+        self.assertEqual(out['cores'], 1)
+        self.assertEqual(out['load'], 0.0)
+
+    def test_an_owner_using_more_than_their_cores_still_leaves_no_room(self):
+        out = self.share({'cores': 16, 'load': 17.0}, 6)
+        self.assertEqual(out['load'], 2.0)
+
+    def test_unknown_load_or_share_is_left_as_is(self):
+        self.assertIsNone(self.share({'cores': 16, 'load': None}, 6)['load'])
+        self.assertEqual(self.share({'cores': 16, 'load': 3.0}, None), {'cores': 16, 'load': 3.0})
+
 if __name__ == '__main__':
     unittest.main()

@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.23.4 (2026-11-16)
+
+### Fixed
+
+- With a person at the main machine, Tutti's share there was one core and the whole machine's load counted against it,
+  so online-worker runs (agy, cursor), which barely use the machine, were held ("load 5.5 of 1 cores"). Only the load
+  beyond the person's cores now counts against Tutti's share.
+
 ## 0.23.3 (2026-11-16)
 
 ### Fixed

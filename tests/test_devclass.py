@@ -1,4 +1,4 @@
-"""The RoRadio harness pieces made generic (0.22.0): per device class command deny lists (tutti/devclass.py), prep items
+"""A device project's harness pieces made generic (0.23.0): per device class command deny lists (tutti/devclass.py), prep items
 that are only read and put back (rotation, timeout, screensaver), a run whose filter matched no test as a FAIL, requeue
 patterns read only after the runner started, and shards_from joining the listed shards. Pure: no adb, no ssh."""
 import re
@@ -30,6 +30,8 @@ class DenyList(unittest.TestCase):
         self.assertTrue(devclass.errors({'device_classes': 3}))
         self.assertIn('device_classes.tv', devclass.errors({'device_classes': {'tv': {'deny': 'x'}}})[0])
         self.assertIn('deny[0]', devclass.errors({'device_classes': {'tv': {'deny': ['(']}}})[0])
+        self.assertIn('empty', devclass.errors({'device_classes': {'tv': {'deny': ['']}}})[0])
+        self.assertTrue(devclass.denied(['', r'\bwm size\b'], 'wm size 1x1'))
 
     def test_a_run_naming_a_denied_command_is_refused_on_a_tv(self):
         wrap = devices.external_wrap([TV], 'adb shell wm size 800x600 && run-tests')

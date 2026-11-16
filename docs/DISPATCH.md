@@ -155,12 +155,12 @@ with the reason), then runs the command on the runner. `tutti test <Project> --d
 in the project's own tree, nothing synced:
 
 ```bash
-tutti test RoRadio --device pixeltablet -- 'powershell.exe -NoProfile -Command "& C:\R\scripts\android\run-e2e.ps1 -Serial $env:ANDROID_SERIAL -Filter ReadabilityUITest"'
+tutti test MyApp --device tablet -- 'powershell.exe -NoProfile -Command "& C:\R\scripts\android\run-e2e.ps1 -Serial $env:ANDROID_SERIAL -Filter ReadabilityUITest"'
 ```
 
 `tutti test <Project> --on <machine> -- <command>` with `projects.<p>.windows.<machine>: C:\...` runs in that Windows
-tree as it is (seen from WSL as `/mnt/c/...`), never synced. Options may follow the track (`tutti test RoRadio --on
-w5090-win --fetch C:\R\out.txt -- <command>`); of several command words, one with a space or a quote is quoted and the
+tree as it is (seen from WSL as `/mnt/c/...`), never synced. Options may follow the track (`tutti test MyApp --on
+pc --fetch C:\R\out.txt -- <command>`); of several command words, one with a space or a quote is quoted and the
 others stay raw (`&&`, `|`, `$VAR` still work); one word is the line as written; a `--fetch` of a Windows path is copied from where it is.
 
 ## Windows desktop runs

@@ -6,7 +6,7 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
-## 0.22.0 (2026-11-16)
+## 0.23.0 (2026-11-16)
 
 ### Added
 
@@ -33,6 +33,11 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   (`verdict.none` replaces the pattern).
 - `requeue_on` patterns count only after the suite's `started` line: an app in front while the runner was still starting is
   no reason to queue again.
+
+## 0.22.0 (2026-11-16)
+
+### Added
+
 - All household work through Tutti (docs/INTAKE.md, `tutti/intake.py`, `tutti/claudework.py`, backlog t156). The MCP
   server gains the tools a session needs: `backlog_claim`, `backlog_update`, `backlog_release`, `backlog_complete`,
   `lease_claim`, `lease_release`, `leases`, `usage_report`, `ask_owner`, `claude_task` and `outside_work`, each mapped to

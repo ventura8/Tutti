@@ -324,12 +324,18 @@ def test_job(cfg, a, machine, device, src, command):
 
 
 def test_on_runner(cfg, a, runner):
-    """`tutti test <Project> --device <d> -- <command>` for a project with `runner:` (RoRadio: the PC): the device is
+    """`tutti test <Project> --device <d> -- <command>` for a project with `runner:` (a PC that builds and runs the tests): the device is
     leased and the runner's own adb connected to it, and the command runs there in the project's own tree (its `windows:`
     path), never synced from here (docs/DISPATCH.md, *A suite on a runner machine*)."""
     import argparse
 
-    from . import devicescmd
+    from . import devicescmd, shards
+    why = shards.empty_filter(command_line(a.command)) or \
+        ('--input and --fetch need a synced tree: on a project runner the command reads and writes its own tree'
+         if a.input or a.fetch else '')
+    if why:
+        say(f'test: refused: {why}')
+        return 2
     holds = list(getattr(a, 'hold_device', None) or [])
     words = a.command[1:] if a.command[:1] == ['--'] else a.command   # only a leading separator: the command keeps its own
     lease = argparse.Namespace(names=[a.device, *holds, '--', command_line(words)], runner=runner,
@@ -342,7 +348,7 @@ TEST_LISTS = {'--fetch': 'fetch', '--input': 'input', '--hold-device': 'hold_dev
 
 
 def late_options(a):
-    """Options written after the track (`tutti test RoRadio --on w5090-win -- cmd`) are taken as options, up to a `--`
+    """Options written after the track (`tutti test MyApp --on pc -- cmd`) are taken as options, up to a `--`
     or the first word that is not one of them; the rest is the command, and a lone `--` before it is dropped."""
     words, i = list(a.command or []), 0
     while i < len(words) and (words[i] in TEST_OPTIONS or words[i] in TEST_LISTS) and i + 1 < len(words):
@@ -386,10 +392,13 @@ def windows_tree(cfg, a):
 def test_in_windows_tree(cfg, a, tree):
     import shlex
     machine = cfg['machines'][a.on]
+    if a.input:
+        say('test: refused: --input needs a synced tree; the project\'s own work tree is used as it is (copy the file there)')
+        return 2
     say(f'test: {a.on} (the project\'s own work tree {tree}, nothing synced)')
     rc = remote.sh(machine, f'cd {shlex.quote(tree)} && {command_line(a.command)}').returncode
-    for p in a.fetch or []:
-        fetch_windows(machine, p)
+    for p in a.fetch or []:   # a relative path is under the project's tree
+        fetch_windows(machine, p if WINDOWS_PATH.match(str(p)) or str(p).startswith('/') else f'{tree}/{p}')
     return rc
 
 
@@ -410,7 +419,7 @@ def fetch_windows(machine, path, dest='.'):
 
 def cmd_test(cfg, a):
     late_options(a)
-    if a.on and a.on in cfg['machines'] and windows_tree(cfg, a) and a.command:
+    if a.on and a.on in cfg['machines'] and windows_tree(cfg, a) and a.command and not a.device:
         return test_in_windows_tree(cfg, a, windows_tree(cfg, a))
     if not a.command and not (a.device and a.track):
         say('name the command: tutti test <track> <command ...> (or one quoted string); '

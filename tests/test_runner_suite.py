@@ -74,13 +74,18 @@ class RunnerTest(unittest.TestCase):
 
     def test_a_project_runner_is_its_suites_default_and_test_goes_there_unsynced(self):
         from tutti import cli
-        cfg = {'projects': {'RoRadio': {'runner': 'pc', 'tests': {'e2e': {'run': 'x {shard}', 'shards': ['A']}}}}}
+        cfg = {'projects': {'MyApp': {'runner': 'pc', 'tests': {'e2e': {'run': 'x {shard}', 'shards': ['A']}}}}}
         self.assertEqual(dispatch.suites(cfg)[0]['runner'], 'pc')
         seen = []
         with mock.patch.object(devicescmd, 'lease_on_runner', lambda c, a: seen.append((a.runner, a.names)) or 0):
-            a = SimpleNamespace(track='RoRadio', device='pixeltablet', command=['--', 'pwsh', 'x'], on=None, hold_device=None)
+            a = SimpleNamespace(track='MyApp', device='pixeltablet', command=['--', 'pwsh', 'x'], on=None, hold_device=None,
+                                input=None, fetch=None)
             self.assertEqual(cli.cmd_test(cfg, a), 0)
         self.assertEqual(seen, [('pc', ['pixeltablet', '--', 'pwsh x'])])
+        a.command, a.fetch = ['pwsh', 'x'], ['r.xml']
+        self.assertEqual(cli.cmd_test(cfg, a), 2)   # --fetch needs a synced tree
+        a.command, a.fetch = ['run', '--filter', ''], None
+        self.assertEqual(cli.cmd_test(cfg, a), 2)   # an empty filter never runs
 
 
 class IdleLeaseTest(unittest.TestCase):
@@ -141,9 +146,9 @@ class TestCommandWords(unittest.TestCase):
         from tutti import cli
         self.assertEqual(cli.wsl_path('C:\\Users\\v\\R-tr'), '/mnt/c/Users/v/R-tr')
         self.assertEqual(cli.wsl_path('/home/x'), '/home/x')
-        cfg = {'projects': {'RoRadio': {'windows': {'w5090-win': 'C:\\R'}}}, 'machines': {'w5090-win': {'transport': 'wsl'}}}
+        cfg = {'projects': {'MyApp': {'windows': {'pc': 'C:\\R'}}}, 'machines': {'pc': {'transport': 'wsl'}}}
         ran = []
-        a = SimpleNamespace(track='RoRadio', command=['--on', 'w5090-win', 'pwsh', 'x y'], dir=None, on=None, device=None,
+        a = SimpleNamespace(track='MyApp', command=['--on', 'pc', 'pwsh', 'x y'], dir=None, on=None, device=None,
                             wait_minutes=30, fetch=None, input=None, hold_device=None)
         with mock.patch('tutti.remote.sh', lambda m, line, **k: ran.append(line) or SimpleNamespace(returncode=0)):
             self.assertEqual(cli.cmd_test(cfg, a), 0)

@@ -1,6 +1,6 @@
 """Per device class command allow-list (docs/DISPATCH.md, *Device classes*): some adb commands are unsafe on some kinds of
 device. On a TV (Android's leanback) `wm size`/`wm density`, the rotation settings and `cmd device_state` change a panel
-that has no rotation or fold and may leave it unusable until a person resets it (RoRadio, 2026-11-16). Tutti never runs a
+that has no rotation or fold and may leave it unusable until a person resets it (2026-11-16). Tutti never runs a
 denied command itself (a prep item that matches is dropped), refuses a run whose own command line names one, and tells the
 project's script through TUTTI_DEVICE_CLASS and TUTTI_DEVICE_DENY (a regex) so it can skip them too. `device_classes.<kind>.deny`
 in the config replaces a kind's list; `deny: []` allows everything. Pure."""
@@ -29,9 +29,9 @@ def pattern(rules):
 
 
 def denied(rules, text):
-    """The first rule `text` breaks, or ''."""
+    """The first rule `text` breaks, or ''. An empty rule is never a rule (errors() refuses it in the config)."""
     for r in rules:
-        if re.search(r, text or ''):
+        if r and re.search(r, text or ''):
             return r
     return ''
 
@@ -70,6 +70,9 @@ def errors(cfg):
             errs.append(f'device_classes.{k} is {v!r}: write it as {{deny: [<regex of a command never run on a {k}>]}}')
             continue
         for i, r in enumerate(v.get('deny') or []):
+            if not str(r).strip():
+                errs.append(f'device_classes.{k}.deny[{i}] is empty: it would match every command; remove it')
+                continue
             try:
                 re.compile(str(r))
             except re.error:

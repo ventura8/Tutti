@@ -26,7 +26,7 @@ DEFAULTS = {
            {'setting': 'system screen_off_timeout', 'value': 1800000}, VOLUME],
 }
 # Read before a run and put back after it, never set by Tutti (value: keep): a test that rotates the screen, changes the
-# screen timeout or the screensaver leaves the device as it found it (RoRadio, 2026-11-16). A TV's rotation keys are on its
+# screen timeout or the screensaver leaves the device as it found it (a project's runs, 2026-11-16). A TV's rotation keys are on its
 # deny list (tutti/devclass.py), so they are dropped there.
 KEEP = 'keep'
 RESTORE = [{'setting': 'system accelerometer_rotation', 'value': KEEP}, {'setting': 'system user_rotation', 'value': KEEP},
@@ -336,7 +336,7 @@ def person_recent(device):
 def not_tv(device):
     """A shell test: true only when the device says it is not a TV (an answer of `false`; no answer counts as a TV).
     A TV stays on through its prep (stay_on, no screensaver),
-    and a key sent before an app has a focused window makes Google TV raise an input ANR and kill it (RoRadio, 2026-11-16)."""
+    and a key sent before an app has a focused window makes Google TV raise an input ANR and kill it (a project's runs, 2026-11-16)."""
     return f'[ "$({_adb(device)} pm has-feature android.software.leanback 2>/dev/null | tr -d "\\r")" = false ]'
 
 

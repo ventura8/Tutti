@@ -120,6 +120,25 @@ class ParseTest(unittest.TestCase):
         with self.assertRaises(KeyError):
             readers.agy_usage({'command': {'data': {'groups': [{'buckets': [{'id': 'x'}]}]}}}, 'x')
 
+    def test_the_most_specific_model_names_the_account(self):
+        accounts = {**ACCOUNTS, 'agy-gemini-argon': {'window': 'weekly', 'match': {'command': r'\bagy\b', 'model': 'gemini-4-argon'}}}
+        self.assertEqual(readers.match_account(accounts, 'agy -m gemini-4-argon -p x', 'limit'), 'agy-gemini-argon')
+        self.assertEqual(readers.match_account(accounts, 'agy -m gemini-3-flash -p x', 'limit'), 'agy-gemini')
+        tie = {**ACCOUNTS, 'agy-other': {'match': {'command': r'\bagy\b', 'model': 'gemini'}}}
+        self.assertEqual(readers.match_account(tie, 'agy -m gemini -p x', 'limit'), 'agy-gemini')   # a tie: the fallback
+
+    def test_a_reader_reading_overrides_a_newer_limit_message(self):
+        with tempfile.TemporaryDirectory() as t:
+            path = os.path.join(t, 'usage.jsonl')
+            pacing.append_log(path, 'agy-gemini', 0, NOW - timedelta(minutes=30), source='reader')
+            pacing.append_log(path, 'agy-gemini', 100, NOW - timedelta(minutes=10), source='limit message', ref='r1')
+            reading = {'agy-gemini': {'used': 0.0, 'resets': NOW + timedelta(hours=4)}}
+            self.assertEqual(len(readers.record(path, reading, [], NOW)), 1)
+            self.assertEqual(pacing.latest(pacing.read_log(path), 'agy-gemini')['used'], 0.0)
+            self.assertEqual(readers.record(path, reading, [], NOW + timedelta(minutes=1)), [])
+            pacing.append_log(path, 'agy-gemini', 60, NOW + timedelta(minutes=2), 'by hand')
+            self.assertEqual(readers.record(path, reading, [], NOW + timedelta(minutes=3)), [])   # a person's reading stays
+
     def test_a_window_not_started_yet_starts_now(self):
         self.assertEqual(readers.not_started(NOW + timedelta(hours=5, seconds=4), '5h', NOW), NOW + timedelta(hours=5))
         self.assertEqual(readers.not_started(NOW + timedelta(hours=2), '5h', NOW), NOW + timedelta(hours=2))

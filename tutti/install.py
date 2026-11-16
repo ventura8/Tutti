@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.request
 
 from . import __version__
@@ -321,13 +322,29 @@ def requirements(home_dir, version_dir):
     return subprocess.run(argv, check=False, capture_output=True, text=True).returncode == 0
 
 
-def self_update(home_dir=None, current=__version__, fetch_fn=fetch, check_only=False, skip_verify=False, verify_fn=None):
+SUMS_WAITS = (15, 30, 60, 120)   # seconds: the release workflow uploads the assets a few minutes after the release appears
+
+
+def fetch_sums(fetch_fn, waits=SUMS_WAITS, sleep=time.sleep):
+    """The latest release's SHA256SUMS, asked again with backoff while it is missing: right after a release,
+    releases/latest already points at it but its assets are still being uploaded (a 404 for a few minutes)."""
+    for wait in (*waits, None):
+        try:
+            return fetch_fn(f'{RELEASES}/latest/download/{SUMS}')
+        except OSError as e:
+            if wait is None or getattr(e, 'code', None) != 404:   # offline or another error: say so at once
+                raise
+            sleep(wait)
+
+
+def self_update(home_dir=None, current=__version__, fetch_fn=fetch, check_only=False, skip_verify=False, verify_fn=None,
+                sleep=time.sleep):
     """(code, message). Installs the newest release when it is newer than `current`: sums, their signature (Sigstore, by
     the release workflow on the release's tag), download, checksum, unpack, requirements, then `current` moves. Any failure
     leaves the running version in place. `skip_verify` (--insecure-skip-verify) skips the signature, loudly."""
     home_dir = home_dir or home()
     try:
-        sums_text = fetch_fn(f'{RELEASES}/latest/download/{SUMS}')
+        sums_text = fetch_sums(fetch_fn, sleep=sleep)
         sums = parse_sums(sums_text)
     except OSError as e:
         return 1, f'self-update: could not read {RELEASES}/latest ({e}); offline? It tries again at the next login.'

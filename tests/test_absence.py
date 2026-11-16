@@ -52,6 +52,16 @@ class AbsenceTest(unittest.TestCase):
         self.assertIn('back early: presence saw it again', done[0])
         self.assertEqual(controls.read(self.tmp)['paused'], {})
 
+    def test_an_open_end_closes_when_it_stays_here_without_ever_looking_away(self):
+        """The owner's case: away "until it is seen again", yet the phone stayed here (adb ready) for a day."""
+        self.plan(NOW, None)
+        here = {'targets': {'device:pixel9pro': {'state': 'present', 'since': NOW - HOUR}}}
+        controls.planned_round(self.cfg, here, NOW + HOUR)   # an hour in: may still be leaving
+        self.assertIn('device:pixel9pro', controls.read(self.tmp)['paused'])
+        done = controls.planned_round(self.cfg, here, NOW + 24 * HOUR)
+        self.assertIn('back early: presence saw it again', done[0])
+        self.assertEqual(controls.read(self.tmp)['paused'], {})
+
     def test_times_are_read_in_local_time_and_a_bad_one_says_the_forms(self):
         self.assertEqual(controls.parse_when('now', now=NOW), NOW)
         t = controls.parse_when('07:00', now=NOW)

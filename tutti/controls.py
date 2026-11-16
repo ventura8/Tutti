@@ -112,6 +112,8 @@ def parse_when(text, now=None, after=None):
                          '(local time)') from e
     return tz.to_utc(local, tz.zone_name()).timestamp()
 
+SEEN_BACK_MINUTES = 120   # an open-ended absence ends once seen here this long after it started (it never looked away)
+
 
 def window(v, now):
     """'planned' (it starts later), 'active' or 'over' for a pause; one without `from` is always active."""
@@ -136,7 +138,11 @@ def planned_round(cfg, pst, now, stop_fn=None, say=lambda m: None):
             if state == 'active' and now >= v['from']:
                 if rec.get('state') in ('away', 'asleep'):
                     v['seen_away'] = True
-                back = v.get('until') is None and v.get('seen_away') and rec.get('state') == 'present'
+                # open-ended ("until it is seen again"): back once presence saw it away and then here, or saw it here for
+                # SEEN_BACK_MINUTES after the absence started (it never looked away: the owner kept it, or came back first)
+                here_since = max(v['from'], rec.get('since') or 0)
+                back = v.get('until') is None and rec.get('state') == 'present' and (
+                    v.get('seen_away') or now - here_since >= SEEN_BACK_MINUTES * 60)
                 if not v.get('handed'):
                     v['handed'] = True
                     kind, _, name = k.partition(':')

@@ -6,6 +6,20 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.17.3 (2026-11-16)
+
+### Fixed
+
+- Devices and controls: one card per device with one status. A device whose only runner is unavailable shows the same
+  blocked pill and reason on its card (never "ready" under a "blocked" summary); the card holds why, what waits on it, its
+  one action (Resume, Check again now, else Pause), where its shards went while away, its readings, and hours, Do Not
+  Disturb, Cast and night mode as separate sentences. Device warnings and reroute lines are no longer repeated above the
+  cards, and devices no longer repeat in the Pause list. Idle times read in plain words ("1 day 14 h", not "2298 min").
+- An absence "until it is seen again" resumes by itself once the device is seen here for 2 hours, even if presence never
+  saw it away first (pixel9pro stayed paused for a day while adb was ready).
+- Device temperature from real sensors, labelled: the thermal HAL's skin sensor, else the SoC, battery only when the
+  device has one (a Google TV no longer shows its meaningless 2.5 °C battery reading); "not readable" only when none answers.
+
 ## 0.17.2 (2026-11-16)
 
 ### Fixed

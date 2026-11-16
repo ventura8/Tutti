@@ -102,7 +102,7 @@ class DispatchTest(Base):
         self.tick(cfg, [held], now=NOW + 6 * 60, spawn=spawn)
         w = dispatch.view(cfg)['warnings'][0]
         self.assertEqual(spawn.calls, [])
-        self.assertIn('Idle 6 min while Radio has 3 e2e shards pending: blocked by pixel is paused', w['text'])
+        self.assertIn('Idle for 6 min while Radio has 3 e2e shards pending: blocked by pixel is paused', w['text'])
         self.assertEqual(w['fix'], {'action': 'resume', 'kind': 'device', 'name': 'pixel', 'label': 'Resume pixel'})
         self.assertIn(w['text'], [e['text'] for e in dispatch.view(cfg)['events']])
 

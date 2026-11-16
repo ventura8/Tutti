@@ -88,7 +88,7 @@ narrow with nothing beside it; one column on a phone. Phone (375 px) to 4K (2560
 5. **Autopilot**, full width (its state, runs, queue and latest decisions, each list folded).
 6. **Projects**, full width, in columns.
 7. **Scouts**, full width: each scout, its meter, watches, recent questions and the review trial (*Scouts* below).
-8. **Devices and controls**, full width: the Android devices, pause or resume grouped as Work machines, Android devices, Local agents, Online agents (workers, accounts, scouts), then the opt-in switches (*Controls* below).
+8. **Devices and controls**, full width: the Android devices, pause or resume grouped as Work machines, Termux machines, Local agents, Online agents (workers, accounts, scouts), then the opt-in switches (*Controls* below).
 9. **Finished jobs** at the bottom: All, Failed, Done (keys 1 to 3); two columns from 1800 px.
 
 Long lists fold after a few items with **Show N more** (and **Show fewer**); what is open stays open across polls, and the
@@ -150,8 +150,15 @@ See [TELEMETRY.md](TELEMETRY.md).
 
 ## Controls
 
-The *Devices and controls* card: the Android devices (connected, battery, charging, battery temperature, screen, Wi-Fi,
-busy or ready and why), and the owner's switches.
+The *Devices and controls* card: one card per Android device (`tutti/devicecard.py`, `devices.items[].card` in
+`/api/state`), and the owner's switches. A device's card holds its one status pill (paused, away, blocked, idle while work
+waits, busy, ready, offline: the idle watchdog's verdict and the pause switch are folded in, so the card never says ready
+while a summary says blocked), why, what waits on it, its one action (Resume, the watchdog's fix such as Check again now,
+else Pause), where its shards went while it was away, its readings, and its blocked hours, Do Not Disturb, Cast and night
+mode as separate short lines. Durations are plain (`1 day 14 h`, never `2298 min`). The temperature is a real sensor,
+labelled: the thermal HAL's skin sensor, else the hottest SoC/CPU sensor (`dumpsys thermalservice`, else `/sys` thermal
+zones), plus the battery only when the device has one (a TV's battery reading is never shown); "temperature not readable"
+only when no sensor answers. Only machines' and workers' idle warnings stay in the list above the cards.
 
 - **Pause or resume** any machine, Android device, worker (a local model or a CLI agent: agy, cursor, claude, copilot) or
   account. A paused item takes nothing new: routing, the autopilot, `tutti run auto`, conduct's fallbacks and

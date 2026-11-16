@@ -21,10 +21,11 @@ async function control(body, failText) {
 
 function deviceStats(d) {
     const parts = [];
-    if (d.battery !== null && d.battery !== undefined) parts.push(`battery ${tuttiPct(d.battery)}`);
+    if (d.battery !== null && d.battery !== undefined && d.battery_present !== 0 && d.kind !== 'tv') parts.push(`battery ${tuttiPct(d.battery)}`);
     if (d.charging === 1) parts.push('charging');
-    else if (d.charging === 0) parts.push('on battery');
-    if (d.battery_c !== null && d.battery_c !== undefined) parts.push(`${d.battery_c} °C`);
+    else if (d.charging === 0 && d.battery_present !== 0 && d.kind !== 'tv') parts.push('on battery');
+    const temps = d.card?.temps || [];
+    parts.push(...(temps.length ? temps : d.status === 'offline' ? [] : ['temperature not readable']));
     if (d.screen === 1) parts.push('screen on');
     else if (d.screen === 0) parts.push('screen off');
     if (d.wifi === 1) parts.push('Wi-Fi');
@@ -32,25 +33,39 @@ function deviceStats(d) {
     return el('div', { class: 'row__stats' }, ...parts.map((t) => el('span', { text: t })));
 }
 
-function device(d) {
-    return el('li', { class: 'row' },
+// The card's one action (/api/state devices.items[].card.action): Resume, the idle watchdog's fix (Check again now...), else Pause.
+function deviceAction(d) {
+    const a = d.card?.action;
+    if (a) return el('button', { class: 'btn btn--tonal', type: 'button', onclick: async () => { await fixIdle(a); } }, a.label);
+    return el('button', { class: 'btn btn--tonal', type: 'button', title: 'It takes nothing new; what runs now finishes',
+        onclick: async () => { await control({ action: 'pause', kind: 'device', name: d.name }, `device ${d.name} was not paused.`); } }, 'Pause');
+}
+
+// One card per device: one status (the same pill everywhere), why, what waits on it, its action, stats, hours and night mode.
+function device(d, paused) {
+    const c = d.card || { status: d.status, label: DEVICE_CHIP[d.status] || d.status, tone: DEVICE_TONE[d.status], why: d.reason };
+    const why = paused ? pausedBy(paused) : c.why;
+    return el('li', { class: 'row', 'data-device': d.name, 'data-status': c.status },
         el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `adb ${d.serial} · on ${d.machine}` })),
-        chip(DEVICE_CHIP[d.status] || d.status, DEVICE_TONE[d.status]),
+        chip(c.label, c.tone),
+        el('div', { class: 'row__stats' }, deviceAction(d)),
         deviceStats(d),
         presenceBits(d.presence),
-        el('p', { class: 'row__note', text: d.reason }),
+        why ? el('p', { class: 'row__note device__why', text: why }) : null,
+        c.waiting ? el('p', { class: 'row__note device__waiting', text: `Waiting for it: ${c.waiting}.` }) : null,
+        c.moved ? el('p', { class: 'row__note device__moved', text: `While away: ${c.moved}.` }) : null,
         blockedHours(d));
 }
 
-// The device's recurring blocked hours (devices.<d>.hours): shown with a link to change them in Settings.
+// The device's recurring blocked hours (devices.<d>.hours), Do Not Disturb, Cast and night mode: one short sentence each.
 function blockedHours(d) {
     const h = d.hours;
-    const link = el('a', { class: 'link', href: `#settings/devices.${d.name}.hours`, text: h ? 'Change' : 'Set blocked hours' });
-    const text = h ? `Not used ${h.window}${h.days ? ` on ${h.days.join(', ')}` : ' every day'} (local time). ` : 'No blocked hours. ';
-    const dnd = d.dnd_now || d.dnd_schedule ? ` Do Not Disturb ${d.dnd_now ? 'on now' : 'off now'}${d.dnd_schedule ? `, usually ${d.dnd_schedule}` : ''}.` : '';
-    const cast = (d.roles || []).length ? ` Cast: ${d.roles.map((r) => r.replace('cast-', '')).join(' and ')}.` : '';
-    const night = d.night ? ` Night mode ${d.night.hours} (1 % brightness, volume 0). ` : '';
-    return el('p', { class: 'row__note' }, text, link, dnd, cast, night, d.night ? el('a', { class: 'link', href: '#settings/night.enabled', text: 'Change' }) : null);
+    const bits = [el('span', {}, h ? `Not used ${h.window}${h.days ? ` on ${h.days.join(', ')}` : ' every day'} (local time). ` : 'No blocked hours. ',
+        el('a', { class: 'link', href: `#settings/devices.${d.name}.hours`, text: h ? 'Change' : 'Set blocked hours' }))];
+    if (d.dnd_now || d.dnd_schedule) bits.push(el('span', { text: `Do Not Disturb: ${d.dnd_now ? 'on now' : 'off now'}${d.dnd_schedule ? `, usually ${d.dnd_schedule}` : ''}.` }));
+    if ((d.roles || []).length) bits.push(el('span', { text: `Cast: ${d.roles.map((r) => r.replace('cast-', '')).join(' and ')}.` }));
+    if (d.night) bits.push(el('span', {}, `Night mode: ${d.night.hours} (1 % brightness, volume 0). `, el('a', { class: 'link', href: '#settings/night.enabled', text: 'Change' })));
+    return el('ul', { class: 'device__notes', 'aria-label': `${d.name}: hours and modes` }, ...bits.map((b) => el('li', { class: 'row__note' }, b)));
 }
 
 function pausedBy(p) {
@@ -150,13 +165,17 @@ function probedOr(items, configured, probed) {
 function renderControls(s) {
     const probed = Boolean(s.machines?.probed_at);
     const devices = probedOr(s.devices?.items || [], s.devices?.configured, probed);
-    $('idle-warnings').replaceChildren(...(s.dispatch?.warnings || []).map(idleWarning),
-        ...(s.dispatch?.reroute || []).map((line) => el('li', { class: 'row' }, el('p', { class: 'row__note', text: line }))));
+    // a device's warning and reroute line live on its own card; only machines' and workers' stay in this list
+    const onCards = new Set(devices.map((d) => d.name));
+    const moved = devices.map((d) => d.card?.moved).filter(Boolean);
+    $('idle-warnings').replaceChildren(...(s.dispatch?.warnings || []).filter((w) => !onCards.has(w.name)).map(idleWarning),
+        ...(s.dispatch?.reroute || []).filter((line) => !moved.some((m) => line.endsWith(m)))
+            .map((line) => el('li', { class: 'row' }, el('p', { class: 'row__note', text: line }))));
     const c = s.controls || { opt_in: [], paused: [] };
     const paused = new Map(c.paused.map((p) => [`${p.kind}:${p.name}`, p]));
     $('controls-meta').textContent = `${devices.length} device${devices.length === 1 ? '' : 's'} · ${c.paused.length} paused`;
     $('devices').replaceChildren(...(devices.length ? devices.map((d) => (d.checking ? el('li', { class: 'row' },
-        el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `on ${d.machine}` })), chip('checking', 'idle')) : device(d)))
+        el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `on ${d.machine}` })), chip('checking', 'idle')) : device(d, paused.get(`device:${d.name}`))))
         : [el('li', {}, empty('No Android devices', codeText('Press Pair a device, or run ', 'tutti devices pair', '.')))]));
     renderDeviceTools(s);   // devices.js: Pair a device, Pair a TV, Move devices
     const seen = new Set();
@@ -173,13 +192,12 @@ function renderControls(s) {
         return w.ready ? 'ready' : 'down';
     };
     const local = (w) => w.kind !== 'cli';
-    const leftover = (kinds) => c.paused.filter((p) => kinds.includes(p.kind)).map((p) => row(p.kind, p.name));
+    const leftover = (kinds) => c.paused.filter((p) => kinds.includes(p.kind) && !(p.kind === 'device' && onCards.has(p.name))).map((p) => row(p.kind, p.name));
     // a paused worker or account is out of the config's lists until resumed: listed from the switches, in its group
     const groups = [
         ['Work machines', 'No work machines in the config.', [
             ...machines.filter((m) => m.transport !== 'android').map((m) => row('machine', m.name, m.status))]],
-        ['Android devices', 'No Android devices or Termux machines.', [
-            ...devices.map((d) => row('device', d.name, d.status)),
+        ['Termux machines', 'No Termux machines; each Android device pauses on its own card above.', [
             ...machines.filter((m) => m.transport === 'android').map((m) => row('machine', m.name, m.status)), ...leftover(['device'])]],
         ['Local agents', 'No local models (Ollama, llama.cpp) configured.', workers.filter(local).map((w) => row('worker', w.name, ready(w)))],
         ['Online agents', 'No online agents configured.', [

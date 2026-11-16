@@ -46,9 +46,28 @@ on() { timeout 20 "$adb" -s "$DEVICE_SERIAL" shell "$@" 2> /dev/null | tr -d '\r
 [[ "${WAKE:-0}" = 1 ]] && on input keyevent KEYCODE_WAKEUP > /dev/null
 on dumpsys battery | awk -F': *' '
 	/^ *(AC|USB|Wireless|Dock) powered:/ { if ($2 == "true") p = 1 }
+	/^ *present:/ { print "battery_present=" ($2 == "true" ? 1 : 0) }
 	/^ *level:/ { print "battery=" $2 }
 	/^ *temperature:/ { print "battery_c=" $2 / 10 }
 	END { print "charging=" (p ? 1 : 0) }'
+# the device's own temperature (a TV has no battery): the thermal HAL's skin sensor (type 3 named *SKIN*), else the hottest
+# CPU/SoC sensor (type 0); without the HAL, /sys thermal zones whose type names skin, soc or cpu (millidegrees)
+t=$(on dumpsys thermalservice | awk '
+	/Current temperatures from HAL/ { h = 1; next }
+	h && !/Temperature\{/ { h = 0 }
+	h { v = $0; sub(/.*mValue=/, "", v); sub(/,.*/, "", v); n = $0; sub(/.*mName=/, "", n); sub(/,.*/, "", n)
+		ty = $0; sub(/.*mType=/, "", ty); sub(/,.*/, "", ty); v += 0
+		if (v < 5 || v > 110) next
+		if (ty == 3 && toupper(n) ~ /SKIN/ && !sk) sk = v
+		if (ty == 0 && v > soc) soc = v }
+	END { if (sk) print "temp_skin=" sk; if (soc) print "temp_soc=" soc }')
+if [[ -z "$t" ]]; then
+	t=$(on "for z in /sys/class/thermal/thermal_zone*; do echo \$(cat \$z/type) \$(cat \$z/temp); done" 2> /dev/null | awk '
+		{ v = $2 / 1000; n = tolower($1); if (v < 5 || v > 110) next
+		  if (n ~ /skin/ && !sk) sk = v; if (n ~ /soc|cpu/ && v > soc) soc = v }
+		END { if (sk) print "temp_skin=" sk; if (soc) print "temp_soc=" soc }')
+fi
+[[ -n "$t" ]] && echo "$t"
 w=$(on dumpsys power | grep -m1 -o 'mWakefulness=[A-Za-z]*')
 w=${w#mWakefulness=}
 if [[ "$w" = Awake ]]; then echo "screen=1"; elif [[ -n "$w" ]]; then echo "screen=0"; fi

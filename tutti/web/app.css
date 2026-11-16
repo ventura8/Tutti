@@ -900,3 +900,4 @@ summary { padding-block: 2px; }
 #my-main-machine:empty { display: none; }
 /* a select with a long option ("No: they wait for my welcome-back summary") never runs past its box on a phone */
 select { max-width: 100%; text-overflow: clip; }
+.device__notes { grid-column: 1 / -1; list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; }

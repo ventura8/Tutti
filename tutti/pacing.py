@@ -243,10 +243,10 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
         from tutti import planner  # planner imports pacing: imported here, when a plan is wanted
         a = {**a, 'target_pct': target_of(name, a, owner)}
         own = account_state(name, {k: v for k, v in a.items() if k != 'limits'}, entries, now)
-        ctx = owner_mod.context(owner, owner_readings(entries, owner['accounts'], now), now) \
-            if owner and name in owner['accounts'] else None
+        ctx = owner_mod.context(owner, owner_readings(entries, owner['accounts'], now), now) if owner else None
+        owner_alone = ctx if owner and name in owner['accounts'] else None
         if not a.get('limits'):
-            return planner.plan_alone(own, a, now, owner=ctx)
+            return planner.plan_alone(own, a, now, owner=owner_alone)
         lims = [account_state(n, accounts.get(n), entries, now) for n in a['limits'] if n in accounts]
         return planner.bind(own, lims, a, accounts, quiet_hours, now, owner=ctx)
     src = a.get('source', 'its dashboard')

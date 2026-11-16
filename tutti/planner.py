@@ -8,7 +8,7 @@ never more than the window itself has left. A window that cannot run gets nothin
 An account without limits has one window: its room until its target. Re-planned at every probe from fresh readings.
 
 Pure: datetimes in, plain dicts out. Points are percentages of the limit's quota unless named `own`."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from tutti import tz
 from tutti.pacing import TASK_PCT, parse_time
@@ -88,12 +88,266 @@ def timeline(own, lim, hours, per_window):
     return out or [(start, reset, None)]
 
 
+LIGHT_LOAD_THRESHOLD = 1.0
+LIGHT_THRESHOLD = 1.0
+AWAY_PRESENCE_THRESHOLD = 0.25
+
+
+def _tuple_time(slot):
+    return (slot[0], slot[1]) if len(slot) > 1 else (slot[0], slot[0])
+
+
+def _dict_time(slot):
+    s = slot.get('start', slot.get('time', slot.get('hour', 0)))
+    return s, slot.get('end', s)
+
+
+def _slot_time(slot):
+    if isinstance(slot, tuple):
+        return _tuple_time(slot)
+    if isinstance(slot, dict):
+        return _dict_time(slot)
+    return slot, slot
+
+
+def _in_window(win, hour):
+    a, b = (int(x) for x in str(win).split('-'))
+    if a <= b:
+        return a <= hour < b
+    return hour >= a or hour < b
+
+
+def _schedule_rate(sched, hour, weekday):
+    if not sched:
+        return 0.0
+    days = sched.get('days', ('mon', 'tue', 'wed', 'thu', 'fri'))
+    day_name = ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')[weekday]
+    if day_name not in days:
+        return 0.0
+    if not _in_window(sched.get('window', '01-14'), hour):
+        return 0.0
+    return float(sched.get('rate', 1.0))
+
+
+def _profile_rate(owner, weekday, hour):
+    prof = owner.get('profile') or owner.get('reserve')
+    if prof:
+        return float(prof[weekday][hour])
+    return _schedule_rate(owner.get('schedule'), hour, weekday)
+
+
+def _owner_away(owner):
+    if not owner:
+        return True
+    return isinstance(owner, dict) and owner.get('mode') in ('away', 'vacation')
+
+
+def _int_presence(owner, hour):
+    prof = owner.get('profile') or owner.get('reserve')
+    if prof:
+        return float(prof[0][hour])
+    return _schedule_rate(owner.get('schedule'), hour, 0)
+
+
+def _hour_presence(owner, t):
+    if _owner_away(owner):
+        return 0.0
+    if isinstance(t, int):
+        return _int_presence(owner, t)
+    from tutti import tz
+    lt = tz.local(t, owner.get('offset', 0))
+    return _profile_rate(owner, lt.weekday(), lt.hour)
+
+
+def _window_presence(owner, start, end):
+    if not isinstance(start, datetime) or start == end:
+        return _hour_presence(owner, start)
+    total, count, t = 0.0, 0, start
+    while t < end:
+        total += _hour_presence(owner, t)
+        count += 1
+        t += timedelta(hours=1)
+    return total / max(1, count)
+
+
+def _parse_presence(p):
+    if isinstance(p, (int, float)):
+        return float(p)
+    return 0.0 if str(p).lower() in ('low', 'away', 'off', 'none', '0', '0.0') else 1.0
+
+
+def _dict_presence(slot):
+    if 'presence' in slot:
+        return _parse_presence(slot['presence'])
+    if 'away' in slot:
+        return 0.0 if slot['away'] else 1.0
+    return None
+
+
+def _slot_presence(slot, owner):
+    if isinstance(slot, dict):
+        dp = _dict_presence(slot)
+        if dp is not None:
+            return dp
+    start, end = _slot_time(slot)
+    return _window_presence(owner, start, end)
+
+
+def is_away(slot, owner=None, threshold=AWAY_PRESENCE_THRESHOLD):
+    return _slot_presence(slot, owner) <= threshold
+
+
+def _tuple_cap(slot):
+    if len(slot) > 2 and slot[2] is not None:
+        return float(slot[2])
+    return float('inf')
+
+
+def _dict_cap(slot):
+    c = slot.get('capacity', slot.get('cap'))
+    if c is not None:
+        return float(c)
+    return float('inf')
+
+
+def _slot_cap(slot):
+    if isinstance(slot, tuple):
+        return _tuple_cap(slot)
+    if isinstance(slot, dict):
+        return _dict_cap(slot)
+    return float('inf')
+
+
+def _add_share(pool, share, alloc):
+    for i in pool:
+        alloc[i] += share
+
+
+def _distribute_step(rem, pool, caps, max_per, alloc):
+    share = rem / len(pool)
+    limits = {i: min(caps[i], max_per) for i in pool}
+    hit = [i for i in pool if alloc[i] + share >= limits[i]]
+    if not hit:
+        _add_share(pool, share, alloc)
+        return 0.0
+    for i in hit:
+        rem -= (limits[i] - alloc[i])
+        alloc[i] = limits[i]
+        pool.remove(i)
+    return max(0.0, rem)
+
+
+def _distribute(amount, indices, caps, max_per=float('inf')):
+    alloc = {i: 0.0 for i in indices}
+    rem, pool = float(amount), list(indices)
+    while rem > 1e-9:
+        if not pool:
+            break
+        rem = _distribute_step(rem, pool, caps, max_per, alloc)
+    return alloc, rem
+
+
+def _round_balance(out, away, extra, rem):
+    if rem < 1e-6 and away:
+        diff = round(extra - sum(out), 3)
+        if abs(diff) > 1e-9:
+            out[away[0]] = round(out[away[0]] + diff, 3)
+
+
+def _sync_dict_slots(slots, out):
+    for s, v in zip(slots, out):
+        if isinstance(s, dict):
+            s['allocated'] = s['extra'] = v
+
+
+def _away_slots(slots, caps, owner):
+    return sorted([i for i, s in enumerate(slots) if is_away(s, owner) if caps[i] > 0],
+                  key=lambda i: _slot_presence(slots[i], owner))
+
+
+def _sched_slots(slots, caps, owner):
+    return [i for i, s in enumerate(slots) if not is_away(s, owner) if caps[i] > 0]
+
+
+def _second_pass(rem, targets, away, sched, caps, light_threshold):
+    if rem > 1e-9 and targets is away:
+        return _distribute(rem, sched, caps, max_per=light_threshold)
+    return {}, rem
+
+
+def place_extra_spend(extra, slots, owner=None, light_threshold=LIGHT_LOAD_THRESHOLD):
+    """Allocates agy's extra spend above even-share baseline to time slots, prioritizing away hours while keeping
+    scheduled hours below the light load threshold."""
+    if not slots or extra <= 0:
+        return [0.0] * len(slots)
+    caps = [_slot_cap(s) for s in slots]
+    away = _away_slots(slots, caps, owner)
+    sched = _sched_slots(slots, caps, owner)
+    targets = away if away else sched
+    alloc1, rem = _distribute(extra, targets, caps)
+    alloc2, rem = _second_pass(rem, targets, away, sched, caps, light_threshold)
+    out = [round(alloc1.get(i, 0.0) + alloc2.get(i, 0.0), 3) for i in range(len(slots))]
+    _round_balance(out, away, extra, rem)
+    _sync_dict_slots(slots, out)
+    return out
+
+
+def _kept_reserve(owner, now, target, name):
+    if not owner or not now:
+        return 0.0
+    if owner.get('accounts') and name not in owner['accounts']:
+        return 0.0
+    from tutti import owner as owner_mod
+    return owner_mod.reserve_until(owner, now, target)
+
+
+def _window_allowance(room, caps, spent, headroom, windows, owner):
+    give = allowance(room, caps)
+    if headroom is None or headroom <= 0:
+        return give
+    alloc = place_extra_spend(headroom, windows, owner)[0] if owner else headroom
+    cap0 = caps[0] if caps[0] is not None else room
+    return min(room, max(give, spent + alloc), cap0)
+
+
+def _tasks_from_left(left, left_own, task):
+    if left <= 0 or task <= 0:
+        return 0
+    return max(0, int(left_own // task))
+
+
+def _calc_left_own(own_left, left, per):
+    if per is None:
+        return own_left
+    if not per:
+        return 0.0
+    return min(own_left, left * 100 / per)
+
+
+def _is_owner_acc(owner, name):
+    if not owner or not owner.get('accounts'):
+        return True
+    return name in owner['accounts']
+
+
+def _projected_end(headroom, budget):
+    if headroom is None:
+        return None
+    return round(budget - headroom, 1)
+
+
+def _owner_reserve_field(owner, is_owner, kept):
+    if owner and is_owner and kept:
+        return round(kept, 1)
+    return None
+
+
 def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None):
     """The plan of one short window under its limit: {expires, allowance, this_window, left, tasks, lose, why}. With `owner`
     (tutti/owner.py) the owner's expected burn until the limit's target is kept out of the budget."""
-    from tutti import owner as owner_mod
     start = parse_time(own['window_start'])
-    kept = owner_mod.reserve_until(owner, now, parse_time(lim['target'])) if owner and now else 0.0
+    target = parse_time(lim['target'])
+    kept = _kept_reserve(owner, now, target, own.get('name'))
     budget = float(lim_cfg.get('target_pct', 100)) * lim['share'] - float(lim_cfg.get('reserve', 0)) - kept
     at, known = used_at(lim, start)
     at_start = min(budget, at)
@@ -101,22 +355,23 @@ def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None):
     windows = timeline(own, lim, hours, per)
     room = max(0.0, budget - at_start)
     caps = [c for _, _, c in windows]
-    give = allowance(room, caps)
     spent = max(0.0, lim['used'] - at_start)
     headroom = projection_room(lim, budget, now)
-    if headroom is not None and headroom > 0:   # joint: more than an even share while the limit's projection still fits
-        give = min(room, max(give, spent + headroom), caps[0] if caps[0] is not None else room)
+    give = _window_allowance(room, caps, spent, headroom, windows, owner)
     left = give - spent
     own_left = 100 - (own['used'] or 0)
-    left_own = own_left if per is None else min(own_left, left * 100 / per) if per else 0.0
+    left_own = _calc_left_own(own_left, left, per)
     task = float(a.get('task_pct', TASK_PCT))
-    tasks = max(0, int(left_own // task)) if left > 0 and task > 0 else 0
+    tasks = _tasks_from_left(left, left_own, task)
+    is_owner = _is_owner_acc(owner, own.get('name'))
+    runnable_cnt = sum(1 for c in caps if c != 0)
     return {'limit': lim['name'], 'expires': own['target'], 'resets': own.get('reset'),
-            'windows': len(windows), 'runnable': sum(1 for *_, c in windows if c != 0),
+            'windows': len(windows), 'runnable': runnable_cnt,
             'per_window': round(room / max(1, len(windows)), 1), 'allowance': round(give, 1), 'this_window': round(spent, 1),
             'left': round(left, 1), 'tasks': tasks, 'lose': round(max(0.0, left_own), 1), 'window_points': per,
-            'owner_reserve': round(kept, 1) if owner else None, 'mode': owner['mode'] if owner else None,
-            'projected': None if headroom is None else round(budget - headroom, 1), 'limit_verdict': lim.get('verdict'),
+            'owner_reserve': _owner_reserve_field(owner, is_owner, kept),
+            'mode': owner.get('mode') if isinstance(owner, dict) else None,
+            'projected': _projected_end(headroom, budget), 'limit_verdict': lim.get('verdict'),
             'limit_reset': lim.get('reset')}
 
 

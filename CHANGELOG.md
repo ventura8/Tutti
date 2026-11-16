@@ -6,6 +6,9 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 ### Added
 
+- Planner: agy's extra spend above even-share baseline is placed using the owner-activity profile, prioritizing the
+  owner's away hours while keeping the main agent's scheduled hours light (t39).
+
 - Limited hours for any machine (docs/FLEET.md, *Limited hours*). In a daily window (days and hours, past midnight too) Tutti
   uses at most `pct` % (default 60) of it: fewer slots, fewer model threads, a lower adaptive limit and no new heavy jobs.
   Set it with `tutti machine limit <m> <HH-HH> [pct] | off`, the machine card, or Settings. `main: true` follows the main

@@ -297,7 +297,7 @@ def context(owner, readings, now):
     return {**prof, 'dates': dates, 'rate': sched.get('rate', DEFAULT['rate']),
             'offset': offset, 'zone': offset if isinstance(offset, str) else tz.label(offset),
             'utc_offset': tz.offset_hours(offset, now), 'mode': mode, 'set_mode': owner['mode'], 'until': until, 'today': day,
-            'today_line': ownerday.line(day)}
+            'today_line': ownerday.line(day), 'accounts': owner.get('accounts')}
 
 
 def spendable(left, now, target):

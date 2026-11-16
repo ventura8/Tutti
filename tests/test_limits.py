@@ -32,9 +32,9 @@ def r(at, used, account='agy-weekly'):
     return {'at': at, 'account': account, 'used': used, 'note': ''}
 
 
-def state(weekly, five_used=30, now=NOW, accounts=ACCOUNTS, hours=None):
+def state(weekly, five_used=30, now=NOW, accounts=ACCOUNTS, hours=None, owner=None):
     entries = [r(at, u) for at, u in weekly] + [r(now.isoformat(), five_used, 'agy')]
-    return pacing.account_state('agy', accounts['agy'], entries, now, accounts, hours)
+    return pacing.account_state('agy', accounts['agy'], entries, now, accounts, hours, owner=owner)
 
 
 class Allowance(unittest.TestCase):
@@ -276,6 +276,65 @@ class LimitsConfig(unittest.TestCase):
         self.assertIn('HH:MM-HH:MM', config.quiet_hours_errors(['10pm-6am'])[0])
         cfg = config.normalise({'accounts': {'cursor': {'window': 'monthly', 'reserve': -5}}})
         self.assertTrue(any('reserve' in e for e in config.validate(cfg)))
+
+
+class OwnerExtraSpend(unittest.TestCase):
+    """The planner allocates agy's extra spend above even-share baseline using the owner activity profile."""
+
+    def test_allocates_extra_spend_to_away_hours_prioritized(self):
+        sched = {'days': ['mon', 'tue', 'wed', 'thu', 'fri'], 'window': '09-17', 'rate': 1.5, 'utc_offset': 0}
+        owner_ctx = {'schedule': sched, 'mode': 'auto', 'offset': 0}
+        t_away1 = T('2026-01-05T02:00Z')
+        t_sched = T('2026-01-05T11:00Z')
+        t_away2 = T('2026-01-05T22:00Z')
+        slots = [(t_away1, t_away1 + timedelta(hours=5), 10.0),
+                 (t_sched, t_sched + timedelta(hours=5), 10.0),
+                 (t_away2, t_away2 + timedelta(hours=5), 10.0)]
+        extra = 6.0
+        allocs = planner.place_extra_spend(extra, slots, owner_ctx)
+        self.assertAlmostEqual(sum(allocs), extra, places=2)
+        self.assertGreater(allocs[0], 0.0)
+        self.assertGreater(allocs[2], 0.0)
+        self.assertEqual(allocs[0], 3.0)
+        self.assertEqual(allocs[2], 3.0)
+        self.assertLessEqual(allocs[1], planner.LIGHT_LOAD_THRESHOLD)
+        self.assertEqual(allocs[1], 0.0)
+
+    def test_scheduled_hours_remain_below_light_threshold_when_away_capped(self):
+        sched = {'days': ['mon'], 'window': '09-17', 'rate': 1.0, 'utc_offset': 0}
+        owner_ctx = {'schedule': sched, 'mode': 'auto', 'offset': 0}
+        t_away = T('2026-01-05T02:00Z')
+        t_sched = T('2026-01-05T10:00Z')
+        slots = [(t_away, t_away + timedelta(hours=5), 1.0),
+                 (t_sched, t_sched + timedelta(hours=5), 10.0)]
+        extra = 4.0
+        allocs = planner.place_extra_spend(extra, slots, owner_ctx, light_threshold=0.5)
+        self.assertEqual(allocs[0], 1.0)
+        self.assertLessEqual(allocs[1], 0.5)
+
+    def test_dict_slots_with_presence_and_away_fields(self):
+        slots = [
+            {'time': 2, 'presence': 0.0, 'capacity': 10.0},
+            {'time': 11, 'presence': 1.5, 'capacity': 10.0},
+            {'time': 22, 'presence': 'low', 'capacity': 10.0},
+        ]
+        extra = 8.0
+        allocs = planner.place_extra_spend(extra, slots)
+        self.assertAlmostEqual(sum(allocs), extra, places=2)
+        self.assertEqual(allocs[0], 4.0)
+        self.assertEqual(allocs[2], 4.0)
+        self.assertEqual(allocs[1], 0.0)
+        self.assertEqual(slots[0]['allocated'], 4.0)
+        self.assertEqual(slots[1]['allocated'], 0.0)
+
+    def test_plan_limited_keeps_scheduled_window_light(self):
+        now = T('2026-01-05T10:00Z')
+        sched = {'days': ['mon', 'tue', 'wed', 'thu', 'fri'], 'window': '09-17', 'rate': 1.0, 'utc_offset': 0}
+        owner_ctx = {'schedule': sched, 'mode': 'auto', 'offset': 0}
+        weekly = [('2026-01-04T00:00Z', 10), ('2026-01-05T00:00Z', 20), (now.isoformat(), 20)]
+        alone = state(weekly, five_used=0, now=now)
+        s = state(weekly, five_used=0, now=now, owner=owner_ctx)
+        self.assertLess(s['quota_plan']['allowance'], alone['quota_plan']['allowance'])
 
 
 if __name__ == '__main__':

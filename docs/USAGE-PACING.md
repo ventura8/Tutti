@@ -140,6 +140,8 @@ small, and stays simple enough to check by hand:
 - **Both limits together.** An even share is a floor, not a cap: while the limit's projection (its last day's rate carried
   to its reset) ends under its budget, this window may also spend the difference, up to what the window itself holds. Early
   in the week a window can take far more than 1/33 of the weekly quota, and it is never cut off while the week still fits.
+  The extra spend above the even-share baseline is placed using the owner-activity profile, prioritized into the owner's
+  away hours while keeping the main agent's scheduled hours light.
 - **Each window keeps its own badge.** The 5 h window's verdict is its own line's; the card's Do line and the Decision say
   which limit binds and why (`5h window has room; the limit agy-claude-weekly (ahead of its pace; projected to end at 104 %)
   is binding: new work waits for the 00:55 (UTC+2) reset`). The Do line always comes from the plan, so it never says "spending

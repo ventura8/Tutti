@@ -1,38 +1,38 @@
 # Tutti
 
-*Tutti* (music): everyone plays together. One orchestrating agent, many cheaper workers, a few shared machines, and the
-rules that keep them from stepping on each other.
+*Tutti* (music): everyone plays together. Tutti lets one household share its AI subscriptions, local models,
+computers and Android devices for software work, without anyone stepping on anyone else.
 
-Tutti is a small toolkit for AI-assisted work on a software project when you have more than one model subscription and
-more than one computer. It grew out of one project's working day and keeps only what proved useful.
+> **Status: 0.17.x** (see [CHANGELOG.md](CHANGELOG.md) and the [releases](https://github.com/ventura8/Tutti/releases)).
+> Linux first; the installer also covers macOS, WSL and Windows. **Licence:** MIT.
 
-> **Status: v0.1.36.** Linux first; the installer and `tutti setup` also cover macOS, WSL and Windows. The npm package `tutti-agents` is not published yet (until then: the install line, uv or pipx).
-> **Licence:** MIT (see `LICENSE`).
+## What Tutti does, in plain words
 
-## The ideas
-
-- **The orchestrator.** One capable agent (for example Claude Code) writes specs, briefs workers, reviews diffs and
-  ships. It spends its own tokens on judgement, not on bulk.
-- **Any agent can conduct.** `tutti conduct --main <agent> "<goal>"` makes Cursor, Antigravity, the Copilot CLI or a
-  local model the orchestrator, with Tutti's commands as its tools; when its quota is in panic another takes over with a
-  written handoff note. See [docs/CONDUCT.md](docs/CONDUCT.md).
-- **Workers.** Bounded tasks go to cheaper hands: other vendors' CLI agents (Claude `claude`, Cursor `cursor-agent`,
-  Google Antigravity `agy`) and local models served by Ollama. Every worker gets its own worktree and a precise brief,
-  and never commits. The rule is **review the diff, then gate it**. See [docs/WORKERS.md](docs/WORKERS.md).
-- **Remote test machines with slot queues.** Lint, tests and builds run on other machines, behind a queue: at most N
-  heavy runs at once and only with enough free memory. A run that waits is normal, not a hang.
-- **Fall-over routing.** `tutti test` picks the first fit machine: the quiet build box first, a shared machine only
-  when the first is full and the shared one is idle enough. See [docs/MACHINES.md](docs/MACHINES.md).
-- **Usage pacing.** Spend every quota fully about 1 hour before its reset (override per account with `lead_hours`). Not
-  earlier (work stalls), not later (quota is wasted). `tutti usage` says whether each account is ahead, behind or on
-  pace, and what to do. A planner spends what expires soonest first: agy's 5 h windows share their weekly quota over the
-  windows left that can run, so as little as possible expires unused. See [docs/USAGE-PACING.md](docs/USAGE-PACING.md).
-- **Peer coordination.** Two orchestrator sessions can share accounts and machines: lock files are the only signal,
-  limits live in one shared file, and each session's risky actions need its own owner's approval.
-- **The yield flag.** A file on a shared machine that says "this machine is mine for now". While it exists Tutti
-  sends that machine nothing new; local-model workers pause, and unload their models when the flag asks for it.
-- **Translation with mandatory QA.** Local models translate; no string is written before it passes mechanical
-  validators and a back-translation check by a second model. What fails is held for a human, never shipped.
+- **One main agent, many helpers.** A capable agent (Claude Code, or any other, [docs/CONDUCT.md](docs/CONDUCT.md))
+  plans and reviews; bounded tasks go to cheaper workers (other CLI agents, local models), each in its own worktree,
+  and every diff is reviewed and checked before it lands ([docs/WORKERS.md](docs/WORKERS.md)).
+- **Accounts and usage pacing.** Tutti reads how much of each subscription is used, paces work so quota lasts until
+  each reset, and moves work to an account or model with room when one runs out ([docs/USAGE-PACING.md](docs/USAGE-PACING.md)).
+- **The best local AI in the house.** Tutti's own AI always uses the best free model on any household machine, falls
+  back online only within pacing, and briefly goes first on that model; other work waits a few seconds and loses
+  nothing ([docs/FLEET.md](docs/FLEET.md), [docs/TELEMETRY.md](docs/TELEMETRY.md#ai-assist)).
+- **Machines that stay yours.** Tests and builds run on other machines through slots and leases. Each machine can have
+  limited hours and a night mode; Android devices can have blocked hours; work pauses when someone is at the keyboard,
+  and a machine's yield flag gives it back at once. Machines can take Cast roles, and work follows devices when they
+  move ([docs/MACHINES.md](docs/MACHINES.md), [docs/DEVICES.md](docs/DEVICES.md), [docs/DISPATCH.md](docs/DISPATCH.md),
+  [docs/PRESENCE.md](docs/PRESENCE.md)).
+- **A main and a backup main.** One always-on machine runs Tutti; a backup takes over if it goes down and hands back
+  when it returns, never both at once ([docs/FAILOVER.md](docs/FAILOVER.md), [docs/MOVE.md](docs/MOVE.md)).
+- **The unblocker and the needs-input queue.** Stuck or failing work is retried with a fix, rebased or rerun by Tutti
+  itself; only real decisions reach *Needs you* ([docs/NEEDS.md](docs/NEEDS.md), [docs/AUTOPILOT.md](docs/AUTOPILOT.md)).
+- **It looks after itself.** Self-heal installs declared dependencies, restarts services, cleans old temp folders and
+  applies updates; routine clean-ups are counted apart from real repairs ([docs/SELFHEAL.md](docs/SELFHEAL.md)).
+- **GitHub connection.** Connect GitHub once from the dashboard ([docs/GITHUB.md](docs/GITHUB.md)).
+- **Dashboard and chat.** A web dashboard on your LAN or VPN only, never on the public internet, with Google sign-in
+  and roles. It opens on **Chat** (ask "why is the NUC idle?" or queue work), then Dashboard (usage, jobs, needs),
+  **Machines** cards (slots busy, held back or free, and why) and Settings. An **Admin** tab is coming
+  ([docs/DASHBOARD.md](docs/DASHBOARD.md), [docs/CHAT.md](docs/CHAT.md), [docs/NETWORK.md](docs/NETWORK.md),
+  [docs/AUTH.md](docs/AUTH.md)).
 
 ## Install
 
@@ -51,7 +51,7 @@ irm https://github.com/ventura8/Tutti/releases/latest/download/bootstrap.ps1 -Ou
 It installs Tutti and what it needs (Python through uv, gh) in your user space, checking every download's SHA-256,
 then runs `tutti setup`, which asks nothing: it finds your agents and their sign-ins, GPUs and local models, machines, Android devices and
 git projects, writes the config, opens each tool's own sign-in, starts the dashboard at login and turns on automatic
-updates. Run `tutti setup` again any time: it only fills what is missing. Details, uv and pipx, and the household's
+updates; `tutti self-update` keeps it current (on by default). Run `tutti setup` again any time: it only fills what is missing. Details, uv and pipx, and the household's
 `--join`: [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Quick start: use Tutti from your own agent

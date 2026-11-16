@@ -191,7 +191,8 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
             kept.append(line.rstrip('\n'))
             if watch.line(line) and p.poll() is None:   # only a run still going is stopped; a final status line is not
                 stopped = True
-                p.terminate()
+                from . import handover
+                handover.end_tree(p.pid)   # the CLI and what it started (by their exact pids): no child outlives the stop (t128)
                 try:
                     p.wait(timeout=TERM_WAIT)
                 except subprocess.TimeoutExpired:   # it ignored SIGTERM: the restart must not hang on it

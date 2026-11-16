@@ -647,6 +647,18 @@ def set_state_switch(cfg, name, on):
     telemetry.record('feature', 'aiassist.switch', switch=name, on=bool(on))
 
 
+def brain_errors(s):
+    """The keys of Tutti's own AI and the unblocker (tutti/brain.py, tutti/unblocker.py)."""
+    errs = []
+    repos = s.get('unblock_repos', [])
+    if not (isinstance(repos, list) and all(isinstance(x, str) and '/' in x for x in repos)):
+        errs.append(f'ai_assist.unblock_repos is {repos!r}: a list of GitHub repositories such as [owner/name]')
+    pre = s.get('preempt', True)
+    if not isinstance(pre, bool) and not (isinstance(pre, list) and all(isinstance(x, str) for x in pre)):
+        errs.append(f'ai_assist.preempt is {pre!r}: true, false, or a list of purposes such as [needs, welcome]')
+    return errs
+
+
 def errors(cfg):
     s = cfg.get('ai_assist')
     if s is None:
@@ -658,12 +670,7 @@ def errors(cfg):
     for k in ('every_hours', 'max_proposals'):
         if k in s and (isinstance(s[k], bool) or not isinstance(s[k], (int, float)) or s[k] <= 0):
             errs.append(f'ai_assist.{k} is {s[k]!r}: a number above 0')
-    repos = s.get('unblock_repos', [])
-    if not (isinstance(repos, list) and all(isinstance(x, str) and '/' in x for x in repos)):
-        errs.append(f'ai_assist.unblock_repos is {s["unblock_repos"]!r}: a list of GitHub repositories such as [owner/name]')
-    pre = s.get('preempt', True)
-    if not isinstance(pre, bool) and not (isinstance(pre, list) and all(isinstance(x, str) for x in pre)):
-        errs.append(f'ai_assist.preempt is {s["preempt"]!r}: true, false, or a list of purposes such as [needs, welcome]')
+    errs += brain_errors(s)
     if s.get('local_worker') and s['local_worker'] not in (cfg.get('workers') or {}):
         errs.append(f'ai_assist.local_worker names "{s["local_worker"]}", which is not under workers:')
     return errs

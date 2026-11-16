@@ -24,6 +24,11 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   conflicts redone, red checks of open PRs rerun once); only true decisions reach the needs queue; every
   attempt is logged on the dashboard.
 
+### Fixed
+
+- A CLI worker stopped at the autocompact threshold no longer leaves its children running: the stop ends its whole
+  process tree by exact pids (t128; `test_perf` left a `sleep 20` behind under load).
+
 ## 0.16.9 (2026-11-16)
 
 ### Fixed

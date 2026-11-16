@@ -37,7 +37,10 @@ def quant_factor(quant):
     """How much of a model's size its quantisation keeps: 8 bits or more 1.0, 5-6 bits 0.95, 4 bits 0.9, fewer 0.8; unknown 0.9."""
     hit = QUANT_BITS.search(str(quant or ''))
     bits = int(hit.group(1)) if hit else 4
-    return 1.0 if bits >= 8 else 0.95 if bits >= 5 else 0.9 if bits == 4 else 0.8
+    for least, factor in ((8, 1.0), (5, 0.95), (4, 0.9)):
+        if bits >= least:
+            return factor
+    return 0.8
 
 
 def capability(model, purpose='other'):
@@ -60,17 +63,27 @@ def candidates(cfg, fleet_state=None):
     machines = (fleet_state if fleet_state is not None else fleet.read_state(cfg)).get('machines') or {}
     out, seen = [], set()
     for name, w in (cfg.get('workers') or {}).items():
-        if not isinstance(w, dict) or w.get('kind') != 'ollama' or w.get('enabled') is False:
+        if not is_local(w):
             continue
         machine = fleet.machine_of(cfg, name)
-        e = machines.get(machine) or {}
-        models = [m for m in (e.get('models') if not e.get('stale') else None) or w.get('models') or [] if isinstance(m, dict)]
-        models = models or [as_model(w.get('model') or '')]
-        for m in models:
-            if m.get('name') and (machine, m['name']) not in seen:
+        for m in models_of(w, machines.get(machine) or {}):
+            if (machine, m['name']) not in seen:
                 seen.add((machine, m['name']))
                 out.append((name, machine, m))
     return out
+
+
+def is_local(w):
+    return isinstance(w, dict) and w.get('kind') == 'ollama' and w.get('enabled') is not False
+
+
+def models_of(w, entry):
+    """The machine's models now (its fresh fleet entry), else the worker's last known ones, else its own model."""
+    fresh = None if entry.get('stale') else entry.get('models')
+    models = [m for m in fresh or w.get('models') or [] if isinstance(m, dict) and m.get('name')]
+    if models or not w.get('model'):
+        return models
+    return [as_model(w['model'])]
 
 
 def rank(cands, purpose='other'):
@@ -79,11 +92,6 @@ def rank(cands, purpose='other'):
 
 
 # ---- the edge: is it free now, ask it
-
-def busy(worker, model, ps):
-    """True when the server is already running a different model (asking would wait for a swap)."""
-    return bool(others(model, ps))
-
 
 def others(model, ps):
     """The models the server is running other than `model` (other work's)."""
@@ -186,19 +194,20 @@ def online_pick(cfg, available=None, room=None):
     room = room or (lambda n: review.worker_room(cfg, n, _entries(cfg), _now()))
     why = []
     for n in names:
-        w = ws.get(n)
-        if not w or w.get('kind') != 'cli' or w.get('costs_money') or w.get('enabled') is False:
-            why.append(f'{n}: not a subscription CLI worker')
-            continue
-        if not available(w)[0]:
-            why.append(f'{n}: not installed')
-            continue
-        args, reason = room(n)
-        if args is None:
-            why.append(f'{n}: {reason}')
-            continue
-        return n, args
+        args, reason = online_room(ws.get(n), n, available, room)
+        if args is not None:
+            return n, args
+        why.append(f'{n}: {reason}')
     return None, '; '.join(why) or 'no CLI worker'
+
+
+def online_room(w, n, available, room):
+    """(args, '') when the worker may answer now, else (None, why)."""
+    if not w or w.get('kind') != 'cli' or w.get('costs_money') or w.get('enabled') is False:
+        return None, 'not a subscription CLI worker'
+    if not available(w)[0]:
+        return None, 'not installed'
+    return room(n)
 
 
 def _entries(cfg):
@@ -238,28 +247,13 @@ def ask(cfg, prompt, purpose='other', online=True, local_first=True, generate=No
         return None, 'local AI is off (ai_assist.local)'
     generate = generate or local.generate
     tried = []
-    may_preempt = None
+    probe = {'ps_fn': ps_fn, 'yield_fn': yield_fn, 'fleet_state': fleet_state, 'preempt': None}
     for _ in range(3 if local_first else 0):   # a model that fails: the next best one
-        name, machine, model, skipped, preempted = best_free(cfg, purpose, ps_fn, yield_fn, fleet_state, may_preempt)
-        tried += [s for s in skipped if s not in tried]
-        if not name:
+        name, answer = ask_one(cfg, prompt, purpose, generate, probe, tried, clock)
+        if answer is not None or not name:
+            if answer is not None:
+                return answer, name
             break
-        w = {**cfg['workers'][name], 'model': model, 'machine': machine}
-        t0 = clock()
-        if preempted:
-            park_others(cfg, machine, purpose)
-        try:
-            answer = generate(cfg, w, prompt, timeout=PREEMPT_MAX_S if preempted else 600, own=True)
-        except (RuntimeError, OSError, KeyError, ValueError) as e:
-            tried.append(f'{model} on {machine}: {type(e).__name__}')
-            fleet_state = _without(cfg, fleet_state, machine, model)
-            may_preempt = False if preempted else may_preempt   # other work is parked once per ask, never again after a timeout
-            continue
-        finally:
-            if preempted:
-                resume_others(cfg, machine)
-        record(cfg, purpose, 'local', model, machine, clock() - t0, parked=preempted)
-        return answer, name
     if online:
         t0 = clock()
         answer, who = (ask_online_fn or ask_online)(cfg, prompt)
@@ -268,6 +262,33 @@ def ask(cfg, prompt, purpose='other', online=True, local_first=True, generate=No
             return answer, who
         tried.append(who)
     return None, 'no model answered (' + ('; '.join(tried) or 'no ollama worker in the config') + ')'
+
+
+def ask_one(cfg, prompt, purpose, generate, probe, tried, clock):
+    """One try on the best model now: (worker, answer); (worker, None) after a failure (the next try skips that model and
+    never parks other work again), (None, None) when no model is free."""
+    name, machine, model, skipped, preempted = best_free(cfg, purpose, probe['ps_fn'], probe['yield_fn'], probe['fleet_state'],
+                                                         probe['preempt'])
+    tried += [x for x in skipped if x not in tried]
+    if not name:
+        return None, None
+    w = {**cfg['workers'][name], 'model': model, 'machine': machine}
+    t0 = clock()
+    if preempted:
+        park_others(cfg, machine, purpose)
+    try:
+        answer = generate(cfg, w, prompt, timeout=PREEMPT_MAX_S if preempted else 600, own=True)
+    except (RuntimeError, OSError, KeyError, ValueError) as e:
+        tried.append(f'{model} on {machine}: {type(e).__name__}')
+        probe['fleet_state'] = _without(cfg, probe['fleet_state'], machine, model)
+        if preempted:
+            probe['preempt'] = False   # other work is parked once per ask, never again after a timeout
+        return name, None
+    finally:
+        if preempted:
+            resume_others(cfg, machine)
+    record(cfg, purpose, 'local', model, machine, clock() - t0, parked=preempted)
+    return name, answer
 
 
 def _without(cfg, fleet_state, machine, model):
@@ -316,7 +337,8 @@ def summary(log, now, days=7):
     recent = [e for e in log if e.get('at', 0) >= now - days * 86400]
     by = {}
     for e in recent:
-        by.setdefault(e.get('purpose') or 'other', {'local': 0, 'online': 0})[e.get('where') == 'online' and 'online' or 'local'] += 1
+        where = 'online' if e.get('where') == 'online' else 'local'
+        by.setdefault(e.get('purpose') or 'other', {'local': 0, 'online': 0})[where] += 1
     parks = [f"parked {e['parked'].replace('busy with ', '')} on {e['machine']} for Tutti's own job ({e['seconds']:g} s)"
              for e in recent if e.get('parked')][-5:][::-1]
     where = [e.get('where') for e in recent]
@@ -327,6 +349,8 @@ def summary(log, now, days=7):
 def view(cfg, now=None, ps_fn=None, yield_fn=None):
     """The dashboard card: the best free model now (one line) and the week's use."""
     name, machine, model, skipped, _p = best_free(cfg, 'other', ps_fn, yield_fn, preempt=False)
-    line = f"Tutti's own AI: {model} on {machine} (best free)" if name else "Tutti's own AI: no local model free now" + (
-        f' ({skipped[0]})' if skipped else '')
+    if name:
+        line = f"Tutti's own AI: {model} on {machine} (best free)"
+    else:
+        line = "Tutti's own AI: no local model free now" + ''.join(f' ({x})' for x in skipped[:1])
     return {'line': line, 'model': model, 'machine': machine, 'skipped': skipped[:5], **summary(read_log(cfg), now or time.time())}

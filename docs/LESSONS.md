@@ -417,3 +417,9 @@ machine it runs on.
 - **One argv string is at most 128 KB** (2026-11-15): a test that passed the Settings data to `node -e` broke when the schema grew (E2BIG, "Argument list too long"). Pass big scripts through stdin (`node -`).
 
 - **A hand-over must hand over the right to act, not only the role** (2026-11-16): the failback set the main active with no lease, so it refused writes until its next heartbeat. Test the first moment after every state change, not only the steady state. And a heartbeat that waits behind a bulk copy fails under load: send it first and on its own.
+
+## A stopped CLI's children outlived it (2026-11-16, t128)
+
+`workers.run` stopped a CLI at the autocompact threshold with `terminate()`, which signals the CLI only; whatever it had
+started kept running (the test's `sleep 20`, a real agent's tool processes). Stop a worker with `handover.end_tree(pid)`: the
+process and its descendants, by their exact pids.

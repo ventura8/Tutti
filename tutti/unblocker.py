@@ -167,19 +167,28 @@ def handle(cfg, item, ask, now):
     """One item: the model when it needs judgement (local first, online only when local fails or the task is size L)."""
     by, verdict = 'rule', {}
     if needs_model(item):
-        t = task_of(cfg, item['id'])
-        prompt = diagnose_prompt(t) if item['kind'] == 'failing' else decide_prompt(t, next(
-            (q for q in _questions(cfg) if q.get('task') == item['id'] and q.get('status') == 'open'), {}))
-        big = t.get('size') == 'L'
-        answer, who = ask(cfg, prompt, 'unblock', online=big)
-        if not answer and not big:   # local failed: escalate online only (the local models were just tried), within pacing
-            answer, who = ask(cfg, prompt, 'unblock', online=True, local_first=False)
-        verdict = parse(answer)
-        by = ('online' if who and who in _cli_workers(cfg) else 'local') if answer else 'none'
+        answer, who = judge(cfg, item, ask)
         if not answer:
-            return {'by': by, 'outcome': f'no model answered ({who}): left as it is'}
+            return {'by': 'none', 'outcome': f'no model answered ({who}): left as it is'}
+        verdict = parse(answer)
+        by = 'online' if who in _cli_workers(cfg) else 'local'
     outcome = answer_parked(cfg, item, verdict, now) if item['kind'] == 'parked' else apply(cfg, item, verdict, now)
     return {'by': by, 'outcome': outcome, 'why': verdict.get('why', '')}
+
+
+def judge(cfg, item, ask):
+    """(answer, who): local first; online only when local failed (asked once more, online only) or the task is size L."""
+    t = task_of(cfg, item['id'])
+    if item['kind'] == 'failing':
+        prompt = diagnose_prompt(t)
+    else:
+        q = next((x for x in _questions(cfg) if x.get('task') == item['id'] and x.get('status') == 'open'), {})
+        prompt = decide_prompt(t, q)
+    big = t.get('size') == 'L'
+    answer, who = ask(cfg, prompt, 'unblock', online=big)
+    if not answer and not big:
+        answer, who = ask(cfg, prompt, 'unblock', online=True, local_first=False)
+    return answer, who
 
 
 def _cli_workers(cfg):

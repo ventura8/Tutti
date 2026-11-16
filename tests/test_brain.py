@@ -69,7 +69,7 @@ class BestFree(Base):
 
     def test_off_never_asks(self):
         self.cfg['ai_assist']['local'] = False
-        self.assertEqual(brain.ask(self.cfg, 'p', generate=lambda *a, **k: 1 / 0)[0], None)
+        self.assertIsNone(brain.ask(self.cfg, 'p', generate=lambda *a, **k: 1 / 0)[0])
 
 
 class Preempt(Base):

@@ -20,6 +20,10 @@ def host_for(cfg, name, adb=None):
 def ensure_adb(host, install, say_fn=say):
     """adb's path on the machine; with `install` a user-space copy when there is none. '' when it is still missing."""
     path = host.path()
+    from . import vpn
+    if vpn.is_wsl() or (getattr(host, 'machine', {}) or {}).get('transport') == 'wsl':
+        say_fn(vpn.windows_adb_warning())
+        return path or ''
     if path or not install:
         return path
     say_fn(f'installing Android platform-tools on {host.name} (~/.local/share/tutti/platform-tools)')

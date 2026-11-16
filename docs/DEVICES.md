@@ -35,6 +35,7 @@ When a device is plugged in by USB, Tutti opens its Developer options page itsel
 
 The adb used is found by itself: `devices.<name>.adb`, else PATH, `~/Android/Sdk/platform-tools`, Tutti's own copy in
 `~/.local/share/tutti/platform-tools` (`--install-adb` downloads it, user space only), or a Windows SDK seen from WSL.
+In a WSL environment, Tutti recommends using Windows `adb.exe` directly instead of installing ADB in WSL.
 Wireless pairing needs platform-tools 31 or newer.
 
 ## Ports change: the mDNS name is the serial

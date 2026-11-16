@@ -91,16 +91,18 @@ def script_jobs(cfg, now, stall, proc=PROC, procs=None):
     """The configured scripts and agent CLIs that are running, one job per outermost process."""
     names = set(cfg['dashboard'].get('watch_scripts') or [])
     agents = set(cfg['dashboard'].get('watch_agents') or [])
-    found = {}
+    scripts_found, agents_found = {}, {}
     for pid, argv in procs if procs is not None else processes(proc):
         if os.path.basename(argv[0]) == 'timeout':
             continue
         name, rest = program(argv)
         if name in names:
-            found[pid] = lambda pid=pid, name=name, args=argv[rest:]: script_job(proc, pid, name, args, now, stall)
+            scripts_found[pid] = lambda pid=pid, name=name, args=argv[rest:]: script_job(proc, pid, name, args, now, stall)
         elif name in agents and os.path.basename(argv[0]) == name:
-            found[pid] = lambda pid=pid, name=name: agent_job(proc, pid, name, now, cfg)
-    return [found[pid]() for pid in outermost(proc, set(found))]
+            agents_found[pid] = lambda pid=pid, name=name: agent_job(proc, pid, name, now, cfg)
+    return [scripts_found[pid]() for pid in outermost(proc, set(scripts_found))] + [
+        agents_found[pid]() for pid in outermost(proc, set(agents_found))
+    ]
 
 
 def script_job(proc, pid, name, args, now, stall):

@@ -113,6 +113,38 @@ class Detection(unittest.TestCase):
     def test_cert_name_quoted(self):
         self.assertIn("'a;b'", vpn.cert_command('a;b', '/s'))
 
+    def test_wsl_probe_parsed(self):
+        f = vpn.parse_probe('OS=Linux\nWSL=1\nTS=\n')
+        self.assertTrue(f['wsl'])
+        self.assertFalse(f['tailscale'])
+        f2 = vpn.parse_probe(NO_VPN)
+        self.assertFalse(f2['wsl'])
+
+    def test_is_wsl_detection(self):
+        with tempfile.TemporaryDirectory() as d:
+            p_ver = os.path.join(d, 'proc_version')
+            os_rel = os.path.join(d, 'os_release')
+            with open(p_ver, 'w', encoding='utf8') as f:
+                f.write('Linux version 5.15.153.1-microsoft-standard-WSL2\n')
+            self.assertTrue(vpn.is_wsl(proc_version=p_ver, os_release=os_rel))
+            with open(p_ver, 'w', encoding='utf8') as f:
+                f.write('Linux version 6.8.0-generic (buildd@canonical)\n')
+            self.assertFalse(vpn.is_wsl(proc_version=p_ver, os_release=os_rel))
+            with open(os_rel, 'w', encoding='utf8') as f:
+                f.write('NAME="Ubuntu"\nWSL=1\n')
+            self.assertTrue(vpn.is_wsl(proc_version=p_ver, os_release=os_rel))
+            self.assertFalse(vpn.is_wsl(proc_version='/no/such/file', os_release='/no/such/release'))
+
+    def test_wsl_warnings(self):
+        self.assertIn('Tailscale on the Windows host', vpn.wsl_warning())
+        self.assertIn('Windows adb.exe', vpn.windows_adb_warning())
+
+    def test_windows_adb_detection(self):
+        self.assertTrue(vpn.is_windows_adb('/mnt/c/platform-tools/adb.exe'))
+        self.assertTrue(vpn.is_windows_adb('C:\\Windows\\adb.exe'))
+        self.assertFalse(vpn.is_windows_adb('/usr/bin/adb'))
+        self.assertFalse(vpn.is_windows_adb(''))
+
 
 class Install(unittest.TestCase):
     def test_per_os(self):
@@ -121,6 +153,11 @@ class Install(unittest.TestCase):
         self.assertIn('Tailscale.Tailscale', vpn.install_tailscale('windows')[0])
         self.assertIn('dnf', vpn.install_wireguard('linux', 'dnf')[0])
         self.assertIn('WireGuard.WireGuard', vpn.install_wireguard('windows')[0])
+
+    def test_install_tailscale_wsl_skipped(self):
+        cmd, warning = vpn.install_tailscale('linux', wsl=True)
+        self.assertEqual(cmd, '')
+        self.assertIn('Tailscale on the Windows host', warning)
 
     def test_authkey_only_on_stdin(self):
         self.assertIn('file:/dev/stdin', vpn.up_command(authkey=True))
@@ -179,6 +216,34 @@ class Plan(unittest.TestCase):
     def test_joined_machines_get_tailnet_name_with_lan_fallback(self):
         hosts = vpn.suggested_hosts({'box': {'host': '192.168.1.5', 'transport': 'ssh'}}, {'box': vpn.parse_probe(TS_UP)})
         self.assertEqual(hosts, {'box': {'host': 'box.tail0.ts.net', 'lan': '192.168.1.5'}})
+
+    def test_tailscale_plan_wsl_skips_install_and_warns(self):
+        facts = {'wsl-box.example': {**vpn.parse_probe(NO_VPN), 'wsl': True, 'tailscale': False}}
+        auto, you = vpn.tailscale_plan(facts, {})
+        self.assertEqual(auto, [])
+        self.assertEqual(len(you), 1)
+        self.assertEqual(you[0]['id'], 'wsl-wsl-box.example')
+        self.assertIn('Tailscale on the Windows host', you[0]['detail'])
+        self.assertNotIn('install-wsl-box.example', [s['id'] for s in you])
+        self.assertNotIn('join-wsl-box.example', [s['id'] for s in you])
+
+    def test_adb_setup_wsl_skips_and_warns(self):
+        from tutti import adbhost, devicescmd
+        machine = {'transport': 'wsl', 'host': 'wsl-box.example', 'wsl_helper': '/bin/true'}
+        host = adbhost.Host('wsl-box', machine, sh=FakeSh())
+        rc, out = host.install_tools()
+        self.assertEqual(rc, 1)
+        self.assertIn('Windows adb.exe', out)
+        msgs = []
+        path = devicescmd.ensure_adb(host, install=True, say_fn=msgs.append)
+        self.assertEqual(path, '')
+        self.assertTrue(any('Windows adb.exe' in m for m in msgs))
+
+    def test_cmd_vpn_wsl_warning_displayed(self):
+        cfg = write_cfg(LAN_CFG)
+        sh, out = FakeSh(probe='OS=Linux\nWSL=1\n'), io.StringIO()
+        self.assertEqual(vpncmd.cmd_vpn(cfg, args(), sh=sh, out=out), 0)
+        self.assertIn('Tailscale on the Windows host', out.getvalue())
 
 
 class WireGuardKeys(unittest.TestCase):

@@ -120,6 +120,9 @@ class Host:
 
     def install_tools(self):
         """Installs Android platform-tools in user space (~/.local/share/tutti/platform-tools) on a Linux machine."""
+        from . import vpn
+        if vpn.is_wsl() or (getattr(self, 'machine', {}) or {}).get('transport') == 'wsl':
+            return 1, vpn.windows_adb_warning()
         body = (f'd={USER_TOOLS}; mkdir -p "$d" && t=$(mktemp -d) && curl -fsSL {PLATFORM_TOOLS_URL} -o "$t/pt.zip" && '
                 'python3 -c "import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$t/pt.zip" "$t" && '
                 'cp -r "$t/platform-tools/." "$d/" && chmod +x "$d/adb" && rm -rf "$t" && "$d/adb" version | head -1')

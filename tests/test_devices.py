@@ -277,7 +277,8 @@ class DeviceRunTest(unittest.TestCase):
             json.dump({'project': {'state': os.path.join(t, 'state'), 'worktrees': t},
                        'machines': {'here': {'host': 'local', 'slots': 1, 'min_free_gb': 0, 'lock_prefix': os.path.join(t, 'slot-')}},
                        'devices': {'pixel': {'serial': 'R58', 'lock': self.lock}}}, f)
-        self.env = {**os.environ, 'PATH': f'{bindir}:{os.environ["PATH"]}', 'SLOT_POLL': '0.1'}
+        self.env = {k: v for k, v in os.environ.items() if k not in ('TUTTI_BACKGROUND', 'TUTTI_HH_JOB')}
+        self.env.update({'PATH': f'{bindir}:{os.environ["PATH"]}', 'SLOT_POLL': '0.1'})
 
     def tutti(self, *args, **kw):
         return subprocess.Popen([sys.executable, os.path.join(ROOT, 'bin', 'tutti'), '--config', self.cfg, *args], cwd=self.tree,

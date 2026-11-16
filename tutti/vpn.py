@@ -9,6 +9,7 @@ in one short checklist in the best order. No credential, auth key or private key
 import json
 import re
 import shlex
+import shutil
 
 PROVIDERS = ('tailscale', 'wireguard')
 SUGGESTED = 'tailscale'   # what `tutti vpn setup` offers first (docs/NETWORK.md, *Which one*): no router change, works behind CGNAT
@@ -21,6 +22,7 @@ ADMIN_KEYS = 'https://login.tailscale.com/admin/settings/keys'
 # One look at a machine: prints KEY=value lines and the Tailscale status JSON between markers. Read-only; never asks for a password.
 PROBE = r'''
 os=$(uname -s 2>/dev/null); echo "OS=$os"
+grep -qiE 'microsoft|wsl' /proc/version /etc/os-release 2>/dev/null && echo "WSL=1"
 ts=$(command -v tailscale || command -v tailscale.exe); echo "TS=${ts:+1}"
 command -v wg >/dev/null 2>&1 && echo "WG=1"
 if [ "$(id -u)" = 0 ] || sudo -n true 2>/dev/null; then echo "SUDO=1"; fi
@@ -33,8 +35,8 @@ fi
 
 
 def parse_probe(text):
-    """{'os', 'tailscale': bool, 'wg': bool, 'sudo': bool, 'pkg', 'state', 'dns_name', 'ips', 'magicdns', 'funnel'} from PROBE's
-    output; a machine that did not answer gives {'reachable': False}."""
+    """{'os', 'tailscale': bool, 'wg': bool, 'sudo': bool, 'pkg', 'wsl': bool, 'state', 'dns_name', 'ips', 'magicdns',
+    'funnel'} from PROBE's output; a machine that did not answer gives {'reachable': False}."""
     if not text or 'OS=' not in text:
         return {'reachable': False}
     kv, blocks, cur = {}, {}, None
@@ -49,7 +51,8 @@ def parse_probe(text):
     st = _json(blocks.get('status'))
     me = st.get('Self') or {}
     return {'reachable': True, 'os': os_name(kv.get('OS', '')), 'tailscale': kv.get('TS') == '1', 'wg': kv.get('WG') == '1',
-            'sudo': kv.get('SUDO') == '1', 'pkg': kv.get('PKG', ''), 'state': st.get('BackendState') or ('' if st else 'unknown'),
+            'sudo': kv.get('SUDO') == '1', 'pkg': kv.get('PKG', ''), 'wsl': kv.get('WSL') == '1',
+            'state': st.get('BackendState') or ('' if st else 'unknown'),
             'dns_name': (me.get('DNSName') or '').rstrip('.'), 'ips': me.get('TailscaleIPs') or [],
             'magicdns': bool((st.get('CurrentTailnet') or {}).get('MagicDNSEnabled')), 'funnel': _json(blocks.get('funnel'))}
 
@@ -84,8 +87,10 @@ def play_store(serial, package, adb='adb'):
 
 # ---- install commands: the official package or installer, one exact line per OS
 
-def install_tailscale(os_, pkg=''):
+def install_tailscale(os_, pkg='', wsl=False):
     """(command, link) to install Tailscale; Linux uses Tailscale's own script, which adds its repository and package."""
+    if wsl or (os_ == 'linux' and is_wsl()):
+        return '', wsl_warning()
     if os_ == 'macos':
         return 'brew install --cask tailscale', 'https://tailscale.com/download/mac'
     if os_ == 'windows' or pkg == 'winget.exe':
@@ -180,6 +185,9 @@ def tailscale_plan(machines, phones):
         if not f.get('reachable'):
             auto.append(step(f'reach-{name}', 'tutti', f'{name}: not reachable now', 'it is checked again on the next run'))
             continue
+        if f.get('wsl'):
+            you.append(step(f'wsl-{name}', 'you', f'{name}: Tailscale on Windows host', wsl_warning()))
+            continue
         if not f['tailscale']:
             cmd, url = install_tailscale(f['os'], f['pkg'])
             if f['sudo'] and f['os'] == 'linux':
@@ -216,3 +224,35 @@ def suggested_hosts(machines_cfg, facts):
             continue
         out[name] = {'host': f['dns_name'], 'lan': m.get('lan') or m.get('host')}
     return out
+
+
+def is_wsl(proc_version='/proc/version', os_release='/etc/os-release'):
+    """Detect if we are running inside WSL by checking /proc/version or /etc/os-release for Microsoft/WSL strings."""
+    for path in (proc_version, os_release):
+        try:
+            with open(path, encoding='utf-8') as f:
+                content = f.read().lower()
+            if 'microsoft' in content or 'wsl' in content:
+                return True
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+    return False
+
+
+def is_windows_adb(adb_path=None):
+    """Detect if we are using Windows ADB (adb.exe) by checking the path."""
+    p = adb_path or shutil.which('adb')
+    if not p:
+        return False
+    p = p.lower()
+    return p.endswith('.exe') or 'exe' in p or 'windows' in p
+
+
+def wsl_warning():
+    """Return a warning message for WSL environments."""
+    return 'WARNING: You are running inside WSL. Please use Tailscale on the Windows host instead of inside WSL.'
+
+
+def windows_adb_warning():
+    """Return a warning message for Windows ADB environments."""
+    return 'WARNING: You are using Windows ADB (adb.exe). Please use the Windows adb.exe directly instead of installing ADB in WSL.'

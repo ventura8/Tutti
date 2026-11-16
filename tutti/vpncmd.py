@@ -288,6 +288,8 @@ def cmd_vpn(cfg, a, sh=remote.sh, opener=None, out=sys.stdout):
     if a.authkey:
         return authkey(cfg, a.authkey, sh, out)
     say(f'vpn: {provider} (optional: Tutti works on the LAN and with your own VPN; vpn.prefer in Settings switches it)', out)
+    if vpn.is_wsl() or any(f.get('wsl') for f in facts.values()):
+        say(vpn.wsl_warning(), out)
     stop = funnel_steps(cfg, facts)
     if a.dry_run:
         auto, you = plan_only(cfg, provider, facts, phones)

@@ -4,6 +4,12 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 ## 0.9.3 (2026-11-15)
 
+### Added
+
+- WSL environment detection for VPN and ADB: `tutti vpn setup` detects WSL machines and recommends Tailscale on the Windows
+  host instead of inside WSL, skipping installation and join steps. ADB setup warns and recommends using Windows `adb.exe`
+  directly rather than installing ADB inside WSL.
+
 
 
 ### Security

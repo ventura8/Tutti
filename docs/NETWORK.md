@@ -42,6 +42,10 @@ can, and writes the few steps only a person can do into one checklist, in the be
 Creating the Tailscale account and signing in are always your clicks; Tutti never handles a password. An auth key is read
 with hidden input, sent on stdin (`--auth-key=file:/dev/stdin`), and never logged or stored.
 
+In a WSL environment, Tutti detects WSL (checking `/proc/version` or `/etc/os-release`), skips installing or configuring
+Tailscale inside WSL, and recommends running Tailscale on the Windows host instead. For ADB, it recommends using the Windows
+`adb.exe` instead of installing ADB in WSL.
+
 After joining, machine entries keep the LAN as the fallback:
 
 ```yaml

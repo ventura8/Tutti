@@ -332,6 +332,10 @@ class FullCycleTest(unittest.TestCase):
         self.assertEqual(failover.read(main)['active'], 'laptop')
         self.assertTrue(failover.may_write(main, clock['now'] - 59))   # right after the resume, not one round later
         self.assertFalse(failover.may_write(nuc, clock['now']))
+        for _ in range(10):   # the backup never takes over again on its old heartbeat: it waits for a new one
+            self.assertEqual(failover.backup_round(nuc, clock['now'], start=lambda c: None, alive=lambda c: None,
+                                                   stop=lambda c: None)[0], 'stand-by')
+            clock['now'] += 60
 
     def test_a_failed_copy_does_not_cost_the_lease(self):
         main = make_cfg(backup='nuc')
@@ -343,6 +347,18 @@ class FullCycleTest(unittest.TestCase):
         act, _line, _sent = failover.main_round(main, 'nuc', 1000.0, ssh)
         self.assertEqual(act, 'serve')
         self.assertTrue(failover.may_write(main, 1001.0))
+        for t in (1060.0, 1120.0):
+            failover.main_round(main, 'nuc', t, ssh)
+        act, line, _sent = failover.main_round(main, 'nuc', 1180.0, ssh)
+        self.assertEqual(act, 'copy-failing')
+        self.assertIn('failed 4 times in a row', line)
+        self.assertTrue(failover.may_write(main, 1181.0))
+
+    def test_the_default_grace_is_the_same_everywhere(self):
+        example = yaml.safe_load(open(os.path.join(config.ROOT, 'tutti.config.example.yaml'), encoding='utf8'))
+        self.assertEqual(failover.DEFAULTS['minutes'], config.DEFAULTS['failover']['minutes'])
+        self.assertEqual(failover.DEFAULTS['minutes'], example['failover']['minutes'])
+        self.assertEqual(failover.lease_seconds(failover.DEFAULTS), 300)
 
 
 class BudgetTest(unittest.TestCase):

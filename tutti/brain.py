@@ -62,15 +62,66 @@ def candidates(cfg, fleet_state=None):
     from . import fleet
     machines = (fleet_state if fleet_state is not None else fleet.read_state(cfg)).get('machines') or {}
     out, seen = [], set()
-    for name, w in (cfg.get('workers') or {}).items():
+    for name, w in [*(cfg.get('workers') or {}).items(), *shared_workers(cfg).items()]:
         if not is_local(w):
             continue
-        machine = fleet.machine_of(cfg, name)
+        machine = w.get('machine') if w.get('household') else fleet.machine_of(cfg, name)
         for m in models_of(w, machines.get(machine) or {}):
             if (machine, m['name']) not in seen:
                 seen.add((machine, m['name']))
                 out.append((name, machine, m))
     return out
+
+
+SHARED = '-shared'
+_TAGS = {}
+_TAGS_LOCK = threading.Lock()
+MISS_TTL = 600   # a member's model server that did not answer is asked again after 10 minutes, not every minute
+HOST_RX = re.compile(r'^[A-Za-z0-9.-]{1,253}$|^\[?[0-9A-Fa-f:]+\]?$')
+
+
+def shared_workers(cfg, tags_fn=None, ttl=60, clock=time.monotonic):
+    """{<machine>-shared: worker} for every household member's machine this login uses (transport household) whose owner
+    shares its model server (model_host, ollama_port; no login host kept): its models
+    are read from /api/tags at most once a minute, a second at most."""
+    from . import aiassist
+    out = {}
+    if not aiassist.settings(cfg).get('household_models'):
+        return out   # opt-in: prompts would go to a machine another member controls
+    for name, m in (cfg.get('machines') or {}).items():
+        host = shared_host(m)
+        if not host:
+            continue
+        with _TAGS_LOCK:
+            at, models = _TAGS.get(host, (None, None))
+            if at is None or clock() - at >= (ttl if models else MISS_TTL):
+                models = shared_models(host, tags_fn)
+                _TAGS[host] = (clock(), models)
+        if models:
+            out[name + SHARED] = {'kind': 'ollama', 'host': host, 'machine': name, 'household': True, 'models': models,
+                                  'model': models[0]['name']}
+    return out
+
+
+def shared_host(m):
+    """host:port of a member's shared model server, or '' (not a household machine, no server, or a host that is not a plain
+    name or IP: no user@, no path)."""
+    if not isinstance(m, dict) or m.get('transport') != 'household':
+        return ''
+    host, port = str(m.get('model_host') or ''), m.get('ollama_port')
+    if not HOST_RX.match(host) or isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
+        return ''
+    return f'{host}:{port}'
+
+
+def shared_models(host, tags_fn=None):
+    from . import fleet, local
+    tags = (tags_fn or (lambda h: local.ollama_get(h, '/api/tags', timeout=1)))(host) or {}
+    return [c for c in (fleet.classify(m) for m in tags.get('models') or [] if isinstance(m, dict)) if c]
+
+
+def worker_of(cfg, name):
+    return (cfg.get('workers') or {}).get(name) or shared_workers(cfg).get(name) or {}
 
 
 def is_local(w):
@@ -104,7 +155,9 @@ def free_now(cfg, worker, model, ps_fn=None, yield_fn=None):
     """('' when free, else why): yield flag up, no answer within a second, or another model running."""
     from . import local
     machine = cfg['machines'].get(worker.get('machine', ''))
-    if machine and (yield_fn or local.yield_cached)(machine) is not None:
+    if machine and machine.get('transport') == 'household' and machine.get('paused'):
+        return 'paused by its owner'
+    if machine and machine.get('transport') != 'household' and (yield_fn or local.yield_cached)(machine) is not None:
         return 'its machine yields to its owner'
     ps = (ps_fn or (lambda w: local.ollama_get(w['host'], '/api/ps', timeout=1)))(worker)
     if ps is None:
@@ -127,10 +180,10 @@ def best_free(cfg, purpose='other', ps_fn=None, yield_fn=None, fleet_state=None,
     skipped = []
     preempt = preempt_allowed(cfg, purpose) if preempt is None else preempt
     for name, machine, m in rank(candidates(cfg, fleet_state), purpose):
-        why = free_now(cfg, {**cfg['workers'][name], 'machine': machine}, m['name'], ps_fn, yield_fn)
+        why = free_now(cfg, {**worker_of(cfg, name), 'machine': machine}, m['name'], ps_fn, yield_fn)
         if not why:
             return name, machine, m['name'], skipped, ''
-        if why.startswith('busy') and preempt:
+        if why.startswith('busy') and preempt and name in cfg['workers']:   # never another member's machine: only ours
             return name, machine, m['name'], skipped, why
         skipped.append(f'{m["name"]} on {machine}: {why}')
     return None, None, None, skipped, ''
@@ -272,7 +325,7 @@ def ask_one(cfg, prompt, purpose, generate, probe, tried, clock):
     tried += [x for x in skipped if x not in tried]
     if not name:
         return None, None
-    w = {**cfg['workers'][name], 'model': model, 'machine': machine}
+    w = {**worker_of(cfg, name), 'model': model, 'machine': machine}
     t0 = clock()
     if preempted:
         park_others(cfg, machine, purpose)

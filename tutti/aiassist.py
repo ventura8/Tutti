@@ -32,7 +32,7 @@ from . import backlog, config, insights, scrub, telemetry
 FILE = 'ai-assist.json'
 DEFAULTS = {'enabled': False, 'local': True, 'online': False, 'online_code': False, 'auto_tune': True, 'every_hours': 6,
             'max_proposals': 5, 'local_worker': '', 'scout': '', 'research_every': '7d', 'online_worker': '', 'preempt': True,
-            'unblock': True, 'unblock_repos': []}   # online_worker: a CLI worker, or auto
+            'unblock': True, 'unblock_repos': [], 'household_models': False}   # online_worker: a CLI worker, or auto
 SWITCHES = ('enabled', 'local', 'online', 'online_code', 'auto_tune')
 CLASSES = ('flaky', 'environment', 'real')
 WATCH_PREFIX = 'tutti-ai-'
@@ -419,8 +419,35 @@ def design_text(cfg, summary):
             'stalls, wasted quota or idle capacity the most, each with the evidence. End with one line per change, exactly: '
             'TUTTI-TASK: <the change, one line> || check: <the regression test>.\n\n'
             + online_text(cfg, json.dumps(summary, sort_keys=True), quotes=False)
+            + focus_text(cfg)
             + (('\n\nThe tasks that failed or were parked (titles):\n' + online_text(cfg, '\n'.join(failing_titles(cfg))))
                if may_send_online(cfg, 'code') else ''))
+
+
+def focus_text(cfg):
+    """The scout's question, drafted by Tutti's own AI (draft_focus): the questions a local model found in the numbers."""
+    focus = [str(x)[:200] for x in (read_state(cfg).get('scout_focus') or [])][:3]
+    return ('\n\nLook first at:\n' + online_text(cfg, '\n'.join(f'- {x}' for x in focus))) if focus else ''
+
+
+def draft_focus(cfg, summary, ask, now):
+    """Scout drafting through Tutti's own AI: the best free local model reads the week's numbers and writes the three
+    questions the online design review should answer first (stored; the watch's text adds them). Local only: drafting a
+    question for an online model is not worth an online call. At most once a day. Returns event lines."""
+    if now - float(read_state(cfg).get('scout_focus_at') or 0) < DAY:
+        return []
+    prompt = ('Tutti\'s telemetry of the last 7 days (categories and numbers) follows. Write the three questions a design '
+              'reviewer should answer first to cut failures, stalls and wasted quota, one per line starting with Q:.\n\n'
+              + json.dumps(summary, sort_keys=True)[:6000])
+    answer, _who = ask(cfg, prompt, 'scout', online=False)
+    lines = (x.strip() for x in str(answer or '').splitlines())
+    qs = [x[2:].strip() for x in lines if x.startswith('Q:') and x[2:].strip()][:3]
+    if not qs:
+        return []
+    st = read_state(cfg)
+    st.update(scout_focus=qs, scout_focus_at=now)
+    write_state(cfg, st)
+    return [f'ai-assist: {len(qs)} question(s) drafted for the design review']
 
 
 def watches(cfg, sc, summary_fn=None):
@@ -547,6 +574,10 @@ def tick(cfg, now=None, ask=None, store=None):
         return events
     summary = insights.summary(telemetry.read_events(telemetry.folder_of(config.state_dir(cfg))), 7)
     lines, ai_tunes, skipped = self_analysis(cfg, summary, now, ask) if summary['events'] else ([], [], 'no telemetry yet')
+    if ask is ask_local:   # an injected ask (a test, a caller) never reaches the real models below
+        from . import brain, triage
+        lines += draft_focus(cfg, summary, brain.ask, now) if summary['events'] else []
+        lines += triage.draft_missing(cfg)
     st = read_state(cfg)
     st.update(last_round=now, skipped=skipped)
     events += lines + tune(cfg, st, rule_tunes(cfg, summary) + ai_tunes, summary, now, store)

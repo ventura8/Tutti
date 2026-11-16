@@ -6,6 +6,22 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.17.1 (2026-11-16)
+
+### Added
+
+- Tutti's own AI may also use household members' shared machines (opt-in, `ai_assist.household_models`: its prompts then
+  go to a machine another person controls): a shared machine whose owner shares its model server is a candidate (its models
+  read once a minute, a dead one every 10 minutes), never pre-empted; a paused or busy one is skipped.
+- Sentry triage and scout drafting go through Tutti's own AI: a triage report without TUTTI-TASK lines gets them drafted
+  (local first, online within pacing; only lines naming an issue in the report, held for the owner's approval), and the
+  design review carries focus questions a local model drafted once a day.
+
+### Fixed
+
+- The unblocker forgives usage-limit attempts at most once a day per task, and only an hour after the last limit: forgiving
+  faster fed a loop on a capped model (t12 went from 13 to 18 attempts on a spent per-model cap within the hour).
+
 ## 0.17.0 (2026-11-16)
 
 ### Added

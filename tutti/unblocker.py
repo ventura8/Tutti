@@ -65,13 +65,25 @@ def classify(t, questions=()):
     return ''
 
 
+LIMIT_COOLDOWN = 24 * 3600   # attempts forgiven at most once a day: forgiving faster only feeds a loop on a capped account
+LIMIT_SETTLE = 3600   # and only an hour after the last limit, so the account (or its per-model cap) had time to move on
+
+
+def due(t, kind, tried, now):
+    """Whether the item may be tried now: its cooldown is over (and a usage-limit one has settled)."""
+    if kind != 'limit-only':
+        return now - tried >= COOLDOWN
+    last = max((float(a.get('at') or 0) for a in t.get('attempts') or []), default=0)
+    return now - tried >= LIMIT_COOLDOWN and now - last >= LIMIT_SETTLE
+
+
 def find(data, now, log=(), limit=MAX_PER_ROUND):
-    """[{kind, id, title}] to try this round: never one tried within COOLDOWN."""
+    """[{kind, id, title}] to try this round: never one tried within its cooldown."""
     tried = {e.get('id'): float(e.get('at') or 0) for e in log}
     out = []
     for t in data.get('tasks') or []:
         kind = classify(t, data.get('questions') or [])
-        if kind and now - tried.get(t['id'], 0) >= COOLDOWN:
+        if kind and due(t, kind, tried.get(t['id'], 0), now):
             out.append({'kind': kind, 'id': t['id'], 'title': str(t.get('title') or '')[:120]})
     return out[:limit]
 

@@ -11,6 +11,12 @@ ACTIONS = ('status', 'init', 'join', 'leave', 'code', 'serve', 'project', 'machi
 MACHINE_ACTIONS = ('share', 'unshare', 'use', 'pause', 'resume')
 
 
+def model_server(view):
+    """The owner's shared model server (no login host): Tutti's own AI may use it, only with ai_assist.household_models."""
+    ok = view.get('host') and view.get('ollama_port')
+    return {'model_host': view['host'], 'ollama_port': view['ollama_port']} if ok else {}
+
+
 def say(msg):
     sys.stderr.write(f'tutti: {msg}\n')
 
@@ -321,7 +327,8 @@ def use_machine(cfg, name, a, out, c, probe_fn):
     folder = config.state_dir(cfg)
     used = dict(users.read(folder).get('household_machines') or {})
     used[name] = {'transport': hhjobs.TRANSPORT, 'slots': view['slots'], 'household_owner': view['owner'],
-                  'household_state': folder}
+                  'household_state': folder,
+                  **model_server(view)}
     users.write(folder, household_machines=used)
     print(f'{name} ({view["owner"]}\'s) is now one of your machines for tests, gates and builds: {view["owner"]}\'s Tutti '
           'runs them there (your code goes as a WIP ref of the repository; no login or credential of yours goes to the '

@@ -78,5 +78,5 @@ never relax a check.
 ## The formatter and other pure parts
 
 `web/format.js`, `web/attention.js`, `web/energy.js`, `web/household.js` and `web/settings.js` are pure enough to run in
-node: their unit tests (`tests/test_dashui.py`, `tests/test_layout.py`, `tests/test_energy.py`, ...) load them with
+node: their unit tests (`tests/test_format.py`, `tests/test_dashui.py`, `tests/test_layout.py`, `tests/test_energy.py`, ...) load them with
 `format.js` first and pin `LC_ALL=en_US.UTF-8` where a number's form matters.

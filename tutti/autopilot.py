@@ -179,7 +179,9 @@ def step_room(cfg, name, states, running_units, machines=()):
     if takes_over(cfg, name, s, states):
         # the main agent in panic (owner, 2026-11-16): the other accounts take over its bounded work one task at a time,
         # even while ahead of their own pace or past their planned room; only their own panic or a spent quota stops them
-        return (1 - used, '') if not used else (0, f'{name}: busy with a task (taking over from the main agent)')
+        # owner, 2026-11-16 (prio 0): up to the account's own panic line, as many tasks as its measured cost per task fits
+        room = takeover_room(cfg, name, s) - used
+        return (room, '') if room > 0 else (0, f'{name}: its room up to its panic line is taken (taking over from the main agent)')
     unfit = routing.account_unfit(s)
     if unfit:
         return 0, f'{name}: {unfit}'
@@ -203,6 +205,16 @@ def main_accounts(cfg):
     """The main agent's accounts (autopilot.main_accounts, a name or a list; default: claude)."""
     names = (cfg.get('autopilot') or {}).get('main_accounts') or ['claude']
     return [names] if isinstance(names, str) else list(names)
+
+
+def takeover_room(cfg, name, s):
+    """Tasks an account may run while it takes over: what fits between its use and its panic line at its cost per task
+    (accounts.<name>.task_pct, else the default); at least one while any headroom is left."""
+    from .pacing import TASK_PCT
+    used = s.get('used') or 0
+    task = float(((cfg.get('accounts') or {}).get(name) or {}).get('task_pct') or TASK_PCT)
+    left = s.get('panic_at', 95) - used
+    return max(1, int(left // task)) if left > 0 else 0
 
 
 def takes_over(cfg, name, s, states):

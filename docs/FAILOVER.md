@@ -27,7 +27,7 @@ only to the backup. Each round sends only what changed; `tutti failover` shows t
 ## Failing over
 
 Each push ends with a heartbeat the backup acknowledges. The main holds a **lease** while acknowledgements come: it may act
-only for `failover.minutes` (3) minus 30 s after the last one. The backup takes over only after `failover.minutes` plus 30 s
+only for `failover.minutes` (5) minus 30 s after the last one. The backup takes over only after `failover.minutes` plus 30 s
 of silence, or at once when the main says it is shutting down (`tutti failover leave`, the service's stop step). Taking over
 raises the **term** and starts the backup's dashboard (with its coordinator and autopilot).
 
@@ -41,7 +41,11 @@ themselves when one does not answer or says it is not active. A computer that is
 A main that comes back sees the backup's higher term: it stays **read-only** (no autopilot, no coordinator writes) and copies
 what changed on the backup. Once it has been healthy for `failover.failback_minutes` (5) and caught up, it asks for the
 hand-back: the backup stops (its dashboard, by the pid it recorded), the term rises again, the main copies the last changes
-and resumes. Between the two steps nobody serves.
+and resumes at once with a fresh lease (the backup has just stepped down and stands by). Between the two steps nobody
+serves.
+
+A busy main keeps its lease: the heartbeat goes first, on its own (retried once, ssh waits up to 15 s), and the state copy
+follows only after it; a slow or failed copy never costs the lease.
 
 ## Why split brain cannot happen
 
@@ -55,7 +59,7 @@ and resumes. Between the two steps nobody serves.
   scouts, updates, needs) is off, and commands that change the state exit with code 75, which clients treat like an
   unreachable host and try the next one.
 
-The cost of this guarantee: when the backup is down, the main turns read-only after 3 minutes. Start the backup again, or
+The cost of this guarantee: when the backup is down, the main turns read-only after 5 minutes. Start the backup again, or
 `tutti main backup none` if it is gone for good. `tutti doctor` and the Machines card say which.
 
 ## Light and self-healing

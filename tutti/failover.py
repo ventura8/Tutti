@@ -26,7 +26,7 @@ from . import config, durable
 FILE = 'failover.json'          # this machine's term record: never synced
 BEAT = 'failover-beat.json'     # on the backup: the main's last heartbeat
 MARGIN = 30                     # seconds: the main stops before, the backup starts after, the lease's end
-DEFAULTS = {'backup': '', 'main': '', 'minutes': 3, 'failback_minutes': 5, 'sync_seconds': 60, 'dir': '~/.tutti-failover',
+DEFAULTS = {'backup': '', 'main': '', 'minutes': 5, 'failback_minutes': 5, 'sync_seconds': 60, 'dir': '~/.tutti-failover',
             'reach': {}, 'addresses': {}}
 # never copied to the backup: logs, caches, screenshots, live processes' files, other copies (the runs index runs.jsonl goes)
 SYNC_EXCLUDE = ['/snapshots/', '*.corrupt',
@@ -227,7 +227,7 @@ def remote_cmd(cfg, backup, args, run=subprocess.run, inp=None):
     d = remote_dir(cfg)
     line = f'{d}/tutti/bin/tutti --config {d}/tutti.config.yaml failover {" ".join(args)} --json'
     try:
-        r = run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', ssh_of(cfg, backup), line], capture_output=True, text=True,
+        r = run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', ssh_of(cfg, backup), line], capture_output=True, text=True,
                 input=inp, timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
@@ -241,7 +241,7 @@ def remote_cmd(cfg, backup, args, run=subprocess.run, inp=None):
 
 def rsync(src, dst, run=subprocess.run):
     excl = [f'--exclude={x}' for x in SYNC_EXCLUDE]
-    ssh = ['-e', 'ssh -o BatchMode=yes -o ConnectTimeout=5']
+    ssh = ['-e', 'ssh -o BatchMode=yes -o ConnectTimeout=15']
     r = run(['rsync', '-az', '--delete', '--chmod=Du=rwx,go=,Fu=rw,go=', '--stats', *ssh, *excl, src, dst], capture_output=True, text=True,
             timeout=300)
     sent = 0
@@ -346,9 +346,13 @@ def main_round(cfg, backup, now=None, run=subprocess.run, healthy_since=None):
     o, rec, mine = opts(cfg), read(cfg), me(cfg)
     sent = 0
     if rec.get('active', mine) == mine:
-        ok, sent = push(cfg, backup, run)
+        # the heartbeat first and on its own: a busy main (a slow or failed copy) still keeps its lease; one retry
         beat = {'term': int(rec.get('term') or 0), 'from': mine, 'lease_seconds': lease_seconds(o)}
-        answer = remote_cmd(cfg, backup, ['beat'], run, inp=json.dumps(beat)) if ok else None
+        answer = remote_cmd(cfg, backup, ['beat'], run, inp=json.dumps(beat))
+        if answer is None:
+            answer = remote_cmd(cfg, backup, ['beat'], run, inp=json.dumps(beat))
+        if answer is not None and answer.get('ok'):
+            sent = push(cfg, backup, run)[1]
     else:
         answer = remote_cmd(cfg, backup, ['status'], run)
         if answer is not None:
@@ -356,7 +360,7 @@ def main_round(cfg, backup, now=None, run=subprocess.run, healthy_since=None):
     new, act = main_decide(rec, mine, answer, now, healthy_since, o)
     if act == 'adopt':
         if pull(cfg, backup, run)[0]:
-            new = {**new, 'active': mine, 'caught_up': False}
+            new = {**new, 'active': mine, 'caught_up': False, 'lease_until': now + lease_seconds(o) - MARGIN}
             act = 'resumed'
         else:
             act = 'catch-up'
@@ -365,7 +369,9 @@ def main_round(cfg, backup, now=None, run=subprocess.run, healthy_since=None):
     elif act == 'hand-back':
         back = remote_cmd(cfg, backup, ['hand-back', '--to', mine, '--term', str(new['term'])], run)
         if back and back.get('ok') and pull(cfg, backup, run)[0]:
-            new = {'term': back['term'], 'active': mine, 'lease_until': None, 'caught_up': False}
+            # the backup has just stepped down and stands by (it never takes over before a new heartbeat): the main may act
+            # at once, not only after its next round (the bug of 2026-11-16: writes refused for a round after the failback)
+            new = {'term': back['term'], 'active': mine, 'lease_until': now + lease_seconds(o) - MARGIN, 'caught_up': False}
             act = 'resumed'
     write(cfg, new)
     return act, describe_action(act, cfg, backup, new), sent

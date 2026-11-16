@@ -211,8 +211,12 @@ person frees space (docs/SELFHEAL.md, *Yield flags, disks and clean-up*).
 - **Heat.** The probe also reads the CPU, the hottest `/sys/class/thermal/thermal_zone*/temp`, and the hottest GPU
   (`nvidia-smi`, which WSL keeps in `/usr/lib/wsl/lib`, else an `amdgpu`, `xe` or `i915` hwmon sensor); `tutti machines`
   and the dashboard show both. WSL has no thermal zones, so a WSL machine's CPU is read from Windows over its plain ssh
-  (PowerShell, read-only, every 2 minutes at most): LibreHardwareMonitor's or OpenHardwareMonitor's CPU sensor when one
-  runs, else the ACPI thermal zone. A desktop's ACPI zone is often a fixed placeholder (about 17 C): a value under 20 C or
+  (every 2 minutes at most): LibreHardwareMonitor's `data.json` on 127.0.0.1:8085 (CPU Tctl or Package temperature and
+  package power), else WMI (Open/LibreHardwareMonitor) or the ACPI thermal zone. Tutti installs LibreHardwareMonitor
+  itself (`tutti/winhelpers.py`: winget, else choco) and starts it minimised at logon through a scheduled task with highest
+  privileges, created once from the elevated ssh session: no prompt, no person. The same setup starts a hidden presence
+  helper in the console session (GetLastInputInfo and the lock state into `%LOCALAPPDATA%\tutti\idle.txt`), because
+  `query user` reports a console session's IDLE TIME as `none` however long it sat untouched. A desktop's ACPI zone is often a fixed placeholder (about 17 C): a value under 20 C or
   over 110 C is shown as "CPU temperature not readable" with the reason, never as a number. Heat limits apply to the
   hotter of CPU and GPU. `heat: {cap_c: 85, stop_c: 98, hot_slots: 1}`: at `cap_c` or more the machine takes a run only while fewer
   than `hot_slots` run there; at `stop_c` or more it takes nothing new. A machine without a `heat` block gets

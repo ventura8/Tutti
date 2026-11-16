@@ -113,5 +113,26 @@ class Dedicated(unittest.TestCase):
         self.assertEqual(workq.assign(cfg, [{'name': 'j'}], rows, set(), None), [])
 
 
+class DesktopSession(unittest.TestCase):
+    def test_a_windows_ui_run_goes_through_an_interactive_scheduled_task(self):
+        from tutti import winsession
+        line = winsession.wrap('pwsh -c ".\\build.ps1 pipeline"', 'ventu', 'C:\\R', before='test -e x && exit 3')
+        self.assertTrue(line.startswith('test -e x && exit 3; '))
+        for part in ('/ru ventu /it', 'schtasks.exe /run', 'schtasks.exe /delete', 'rc.txt', 'cd /d C:\\R', 'trap'):
+            self.assertIn(part, line)
+        self.assertNotIn('/rp', line)
+        subprocess.run(['bash', '-n', '-c', line], check=True)
+
+    def test_the_dispatcher_wraps_a_desktop_suite_and_checks_its_config(self):
+        from tutti import winsession
+        self.assertEqual(winsession.errors('k', None), [])
+        self.assertTrue(winsession.errors('k', {'dir': 'x'}))
+        cfg = {'projects': {'R': {'tests': {'p': {'run': 'pwsh {shard}', 'desktop': {'user': 'ventu'}, 'shards': ['a'],
+                                                  'targets': ['machine']}}}}, 'machines': {}, '_path': '/x'}
+        s = dispatch.suites(cfg)[0]
+        argv = dispatch.test_argv(cfg, {'kind': 'machine', 'name': 'win'}, {**s, 'dir': '/tmp'}, 'a')
+        self.assertIn('/ru ventu /it', argv[-1])
+
+
 if __name__ == '__main__':
     unittest.main()

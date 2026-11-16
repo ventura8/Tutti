@@ -62,7 +62,7 @@ def suites(cfg):
                         'shards_from': s.get('shards_from'), 'prepare': s.get('prepare'), 'verdict': s.get('verdict'),
                         'requires': s.get('requires'), 'pair': s.get('pair'), 'runner': s.get('runner') or (p or {}).get('runner'),
                         'started': s.get('started'), 'requeue_on': list(s.get('requeue_on') or []),
-                        'dir': s.get('dir'), 'devices': s.get('devices'), 'machines': s.get('machines'),
+                        'dir': s.get('dir'), 'desktop': s.get('desktop'), 'devices': s.get('devices'), 'machines': s.get('machines'),
                         'pause': s.get('pause'), 'resume': s.get('resume'),
                         'retries': s.get('retries', retries), 'minutes': float(s.get('minutes') or 0)})
     return out
@@ -98,6 +98,8 @@ def _suite_errors(cfg, key, s):
         errs += shards.suite_errors(cfg, key, s, _where_errors)
     if 'shards_from' in s:
         errs += _where_errors(cfg, f'{key}.shards_from', s['shards_from'])
+    from . import winsession
+    errs += winsession.errors(f'{key}.desktop', s.get('desktop'))
     errs += [f'{key}.{k} is {s[k]!r}: a command (run with ANDROID_SERIAL set when a phone call comes)' for k in ('pause', 'resume')
              if k in s and not (isinstance(s[k], str) and s[k].strip())]
     if 'retries' in s and (isinstance(s['retries'], bool) or not isinstance(s['retries'], int) or s['retries'] < 0):
@@ -902,6 +904,10 @@ def test_argv(cfg, lease, s, shard):
     track = f'dispatch-{s["project"]}-{s["name"]}'.lower().replace(' ', '-')
     holds = [x for n in lease.get('holds') or [] for x in ('--hold-device', n)]
     command = s['run'].replace('{shard}', shard).replace('{extra}', lease.get('extra') or '')
+    if s.get('desktop'):   # a Windows UI run: in the logged-on user's interactive session, not ssh's session 0
+        from . import winsession
+        dk = s['desktop']
+        command = winsession.wrap(command, dk['user'], dk.get('dir', ''), (dk.get('before') or '').replace('{shard}', shard))
     empty = shards.empty_filter(command)
     if empty:
         raise config.ConfigError(f'{s["project"]} {s["name"]}/{shard}: {empty}')

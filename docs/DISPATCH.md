@@ -163,6 +163,15 @@ tree as it is (seen from WSL as `/mnt/c/...`), never synced. Options may follow 
 w5090-win --fetch C:\R\out.txt -- <command>`); of several command words, one with a space or a quote is quoted and the
 others stay raw (`&&`, `|`, `$VAR` still work); one word is the line as written; a `--fetch` of a Windows path is copied from where it is.
 
+## Windows desktop runs
+
+A job that reaches a Windows PC over ssh runs in session 0, where UI automation (Appium, WinAppDriver) finds no input
+desktop. A suite with `desktop: {user, dir, before}` runs its `run` (a cmd.exe line) in the logged-on user's interactive
+session (`tutti/winsession.py`): a one-time scheduled task created with `schtasks /create /ru <user> /it` (no password
+asked or stored), started at once; its output goes to a log Tutti follows, its exit code to a file Tutti waits for, and
+the task and its folder are removed however the run ends. `before` is a bash line run first in WSL (a yield-flag check
+that exits 3 with a requeue line). The user must be logged on with the desktop unlocked.
+
 ## Dedicated machines
 
 `machines.<m>.dedicated: true` keeps a machine for the suites that name it under their `machines:` (for example a

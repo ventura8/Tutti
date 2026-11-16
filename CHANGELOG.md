@@ -20,6 +20,9 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   device (`get-state`) before running, and `tutti test <Project> --device <d> -- <command>` runs there unsynced.
 - `tutti test`: options may follow the track; a command word with a space or quote is quoted, the others stay raw; a project's
   `windows.<machine>` tree is used as it is with `--on <machine>`; `--fetch` of a Windows path copies it from where it is.
+- Windows desktop runs (`tutti/winsession.py`, suite `desktop: {user, dir, before}`): a UI suite runs in the logged-on
+  user's interactive session through a one-time `schtasks /ru <user> /it` task, its output followed and its exit code
+  returned, instead of ssh's session 0 where UI automation finds no input desktop.
 - `machines.<m>.dedicated`: a machine only the suites naming it use (never the work queue or an open suite), for a
   Windows desktop's UI runs beside the same PC's container machine.
 - `shards_from` names join a suite's listed `shards`, which keep their own options (a TV-only class beside discovered ones).

@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.5 (2026-11-16)
+
+### Fixed
+
+- `tutti usage refresh` no longer crashes on agy's disabled `3p-5h` bucket (no `reset_time` while the 3p weekly is spent):
+  a disabled bucket reads 100 % used until its group's weekly reset, a bucket without a reset reads with none, and one
+  broken account no longer stops the other accounts' readings.
+
 ## 0.16.4 (2026-11-16)
 
 ### Fixed

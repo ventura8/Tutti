@@ -272,8 +272,9 @@ def lease_script(device, claim, minutes, who):
            f'if [ -z "$live" ]; then rm -f {pid}; {release_script(device)} > /dev/null; rmdir {lock}; break; fi; rmdir {lock}; fi; ')
     # one loop per device: a loop that awake.pid does not name (a second one) ends at its next round
     mine = f'[ "$(cat {pid} 2>/dev/null)" = "$$" ] || break; '
-    loop = (f'sleep 1; while :; do {mine}{live}{end}'
-            f'{person_recent(device)} || {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; sleep {KEEP_AWAKE_SECONDS}; done')
+    loop = (f'sleep 1; {not_tv(device)} && k=1 || k=0; while :; do {mine}{live}{end}'
+            f'{{ {person_recent(device)} || [ $k = 0 ]; }} || {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; '
+            f'sleep {KEEP_AWAKE_SECONDS}; done')
     # a person's touch noticed while the lease's loop lives (it ends with the loop's pid file): Tutti then sends no key
     watch = (f'while [ -e {pid} ]; do if {_adb(device).replace("timeout 20 ", "timeout 30 ")} getevent -qc 1 2>/dev/null | grep -q .; '
              f'then mkdir -p "$(dirname {person_path(device)})"; date +%s > {person_path(device)}; sleep 1; fi; done')
@@ -319,10 +320,18 @@ def person_recent(device):
     return f'{{ [ -e {p} ] && [ $(( $(date +%s) - $(cat {p} 2>/dev/null || echo 0) )) -lt {idle_seconds(device)} ]; }}'
 
 
+def not_tv(device):
+    """A shell test: true only when the device says it is not a TV (an answer of `false`; no answer counts as a TV).
+    A TV stays on through its prep (stay_on, no screensaver),
+    and a key sent before an app has a focused window makes Google TV raise an input ANR and kill it (RoRadio, 2026-11-16)."""
+    return f'[ "$({_adb(device)} pm has-feature android.software.leanback 2>/dev/null | tr -d "\\r")" = false ]'
+
+
 def keep_awake(device):
     """The keep-awake loop of a run (backgrounded by the caller): a harmless key every 15 s while the run lasts."""
     # no key while a person uses it: Tutti stops sending input and leaves the device alone
-    return (f'while :; do {person_recent(device)} || {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; '
+    return (f'{not_tv(device)} && k=1 || k=0; while :; do '
+            f'{{ {person_recent(device)} || [ $k = 0 ]; }} || {_adb(device)} input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; '
             f'sleep {KEEP_AWAKE_SECONDS}; done')
 
 

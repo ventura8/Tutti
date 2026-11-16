@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.21.1 (2026-11-16)
+
+### Fixed
+
+- A TV (an Android device with `android.software.leanback`) gets no keep-awake key any more. A TV stays on through its
+  prep (stay on while plugged in, no sleep, no screensaver), and a key that arrived before an app had a focused window
+  made Google TV raise an input ANR and kill the app under test (RoRadio's TV runs, 2026-11-16).
+
 ## 0.21.0 (2026-11-16)
 
 ### Added

@@ -319,7 +319,7 @@ class Roles(unittest.TestCase):
     def test_an_admin_sees_every_admin_control(self):
         ctx = new_context(ADMIN)
         page = open_view(ctx, '#dashboard')
-        self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard', 'Settings', 'Users'])
+        self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard', 'Settings', 'Users', 'Admin'])
         hidden = [c for c in ADMIN_CONTROLS if not page.is_visible(c)]
         self.assertEqual(hidden, [])
         go(page, '#settings')

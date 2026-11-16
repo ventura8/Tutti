@@ -199,10 +199,10 @@ class TabTest(unittest.TestCase):
         with open(os.path.join(WEB, 'index.html'), encoding='utf8') as f:
             return f.read()
 
-    def test_one_users_tab_for_admins_only(self):
+    def test_one_users_tab_and_one_admin_tab_for_admins_only(self):
         page = self.page()
         tabs = re.findall(r'<a class="tabs__tab"[^>]*>([^<]+)</a>', page)
-        self.assertEqual(tabs, ['Chat', 'Dashboard', 'Settings', 'Users'])   # the Chat first: the default view (docs/CHAT.md)
+        self.assertEqual(tabs, ['Chat', 'Dashboard', 'Settings', 'Users', 'Admin'])   # the Chat first: the default view (docs/CHAT.md)
         self.assertRegex(page, r'<a class="tabs__tab" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>')
         self.assertEqual(page.count('id="users-view"'), 1)   # one place: the sign-in's Users tab, the household drawn into it
         self.assertIn('<div id="users-manage"></div>', page)

@@ -21,9 +21,9 @@ ENTRIES = ('machines', 'devices', 'workers', 'accounts', 'projects', 'scouts', '
 MANAGED = ('user', 'household', 'pacing', 'main.agent')
 SECTIONS = [
     ('accounts', 'Accounts and readings', 'The quotas Tutti paces and where their readings come from.', ['accounts', 'usage']),
+    ('energy', 'Energy', 'Local models\' estimated energy cost: your electricity price and currency (docs/ENERGY.md).', ['energy']),
     ('costs', 'Costs', 'What the household spends: subscription fees and pay-per-use spend, for the Admin tab (docs/ADMIN.md).',
      ['costs']),
-    ('energy', 'Energy', 'Local models\' estimated energy cost: your electricity price and currency (docs/ENERGY.md).', ['energy']),
     ('workers', 'Workers', 'The agents and local models Tutti can brief, and the order `tutti run auto` tries them.',
      ['workers', 'routing.workers', 'brief']),
     ('main', 'Main agent', 'Who conducts `tutti conduct` and who takes over when its quota runs out.', ['main']),

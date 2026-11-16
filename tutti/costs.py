@@ -153,7 +153,8 @@ def controls(snap):
         {'name': 'Opt-in and paid workers', 'state': ', '.join(f'{o.get("name")}: {"on" if o.get("on") else "off"}' for o in opt) or 'none',
          'href': '#settings/optins'},
         {'name': 'Self-update', 'state': up.get('current') or up.get('version') or 'see Updates', 'href': '#settings/update'},
-        {'name': 'Needs your input', 'state': f'{len(needs.get("items") or [])} waiting' if needs else 'see Needs you', 'href': '#dashboard'},
+        {'name': 'Needs your input', 'state': f'{len(needs.get("items") or [])} waiting' if needs else 'see Needs you',
+         'href': '#dashboard'},
         {'name': 'Users and invites', 'state': 'people and roles', 'href': '#users'},
     ]
 

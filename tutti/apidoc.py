@@ -9,7 +9,7 @@ import os
 import re
 import sys
 
-from . import authweb, cli, config, dashboard, mcpserver, settings_schema
+from . import authweb, cli, config, dashboard, devices, mcpserver, settings_schema
 
 DOC = os.path.join(config.ROOT, 'docs', 'API.md')
 ROUTE_FILES = ('dashboard.py', 'authweb.py', 'coordinator.py', 'mcpserver.py')
@@ -109,6 +109,11 @@ def default_of(path, f):
     if 'default' in f:
         return f['default']
     parts = path.split('.')
+    if len(parts) == 4 and parts[2] == 'policy':   # a device's or a Termux machine's policy: the defaults of its use
+        key = parts[3]
+        if parts[0] == 'machines':
+            return f'{devices.TERMUX_POLICY[key]} (Termux)'
+        return f'{devices.E2E_POLICY[key]} (phone, tablet), {devices.TV_POLICY[key]} (tv)'
     if '*' in parts:
         head = parts[0]
         base = settings_schema.ENTRY_DEFAULTS.get(head)

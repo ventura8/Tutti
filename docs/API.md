@@ -48,6 +48,7 @@ Every `tutti` command uses the same codes:
 | 1 | Failed, with the reason and the next step on stderr (a config error, a refused ship, a missing task, a failed check). |
 | 2 | Refused before it started: wrong arguments (argparse), an unknown name, a public address for a server. |
 | 3 | Nothing to do it with: no worker has room (`run auto`), a test target that cannot be picked, a page still loading. |
+| 4 | `tutti pr review`: a reviewer the policy waits for (`review.coderabbit` or `review.greptile`: `wait`) is rate-limited; nothing merged, ask again later. |
 | 75 | This machine is not the active main machine now (docs/FAILOVER.md): a client tries the next one. |
 | 124 | `tutti wait`: the thing waited for did not appear within `--timeout`. |
 | 125 | `tutti wait`: the job looks stalled (`--stall`). |
@@ -58,10 +59,11 @@ Every `tutti` command uses the same codes:
 
 `tutti dashboard` serves the page and its JSON API on `127.0.0.1:4777` (`dashboard.port`, `dashboard.bind`).
 
-**Never on the internet.** The server drops a connection from any public address before reading it: it answers loopback,
-the private ranges (RFC 1918, 100.64.0.0/10, fc00::/7) and so a LAN or a VPN only, whatever port forward or proxy someone
-sets up. Binding to another address than loopback, or naming `dashboard.origins`, needs sign-in (`tutti auth setup`): the
-dashboard refuses to start otherwise. Do not publish it through a public tunnel.
+**Never on the internet.** The server drops a connection whose peer has a public address before reading it: it answers
+loopback and the private ranges (RFC 1918, 100.64.0.0/10, fc00::/7), so a LAN or a VPN, and a port forward to it is refused.
+The check is on the immediate peer only: a reverse proxy on this computer or the LAN that forwards public traffic would pass
+it (sign-in still applies), so never put the dashboard behind a public proxy or tunnel. Binding to another address than loopback, or naming `dashboard.origins`, needs sign-in (`tutti auth setup`): the
+dashboard refuses to start otherwise.
 
 ### Requests and answers
 
@@ -609,11 +611,11 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `devices.*.model` | text |  | Model: Set by `tutti devices pair`; a move checks the device it reaches is this one. | admin |
 | `devices.*.capabilities` | list |  | Capabilities: Set by `tutti devices pair`: camera, telephony, touchscreen, tv... | admin |
 | `devices.*.adb` | text |  | adb: The adb on its machine; empty: found by itself (PATH, the Android SDK, Tutti's own copy). | admin |
-| `devices.*.policy.min_battery` | number (%) |  | Lowest battery: A run starts only above this charge. | admin |
+| `devices.*.policy.min_battery` | number (%) | `30 (phone, tablet), 0 (tv)` | Lowest battery: A run starts only above this charge. | admin |
 | `devices.*.policy.require_charging` | switch | `False` | Only while charging: A run starts only while the device charges. | admin |
-| `devices.*.policy.max_battery_c` | number (°C) |  | Hottest battery: No new run at or above this battery temperature. | admin |
+| `devices.*.policy.max_battery_c` | number (°C) | `42 (phone, tablet), 0 (tv)` | Hottest battery: No new run at or above this battery temperature. | admin |
 | `devices.*.policy.wifi_only` | switch | `False` | Wi-Fi only: A run starts only while the device is on Wi-Fi. | admin |
-| `devices.*.policy.screen` | select wake, off, any |  | Screen: What a run does with the screen. | admin |
+| `devices.*.policy.screen` | select wake, off, any | `wake (phone, tablet), any (tv)` | Screen: What a run does with the screen. | admin |
 | `autopilot.enabled` | switch | `False` | Autopilot: Sends backlog tasks to accounts that are behind their pace. | admin |
 | `autopilot.accounts` | list |  | Trigger accounts: Their pace starts the autopilot. | admin |
 | `autopilot.ladder` | list |  | Retry ladder: Attempt n starts at step n; the last step repeats. | admin |
@@ -824,11 +826,11 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `vpn.wireguard.subnet` | text | `auto` | WireGuard subnet: auto: a free private /24, never 100.64.0.0/10. | admin |
 | `vpn.wireguard.hub` | select |  | WireGuard hub: The always-on Tutti host. Empty: the dashboard's computer. | admin |
 | `vpn.wireguard.endpoint` | text |  | Hub's public name: For use away from home. Empty: its LAN address. | admin |
-| `machines.*.policy.min_battery` | number (%) |  | Lowest battery: A run starts only above this charge. | admin |
+| `machines.*.policy.min_battery` | number (%) | `50 (Termux)` | Lowest battery: A run starts only above this charge. | admin |
 | `machines.*.policy.require_charging` | switch | `False` | Only while charging: A run starts only while the device charges. | admin |
-| `machines.*.policy.max_battery_c` | number (°C) |  | Hottest battery: No new run at or above this battery temperature. | admin |
+| `machines.*.policy.max_battery_c` | number (°C) | `40 (Termux)` | Hottest battery: No new run at or above this battery temperature. | admin |
 | `machines.*.policy.wifi_only` | switch | `False` | Wi-Fi only: A run starts only while the device is on Wi-Fi. | admin |
-| `machines.*.policy.screen` | select wake, off, any |  | Screen: What a run does with the screen. | admin |
+| `machines.*.policy.screen` | select wake, off, any | `off (Termux)` | Screen: What a run does with the screen. | admin |
 | `machines` | dict |  | (no Settings line: see tutti.config.example.yaml) | admin |
 | `workers` | dict |  | (no Settings line: see tutti.config.example.yaml) | admin |
 | `devices` | dict |  | (no Settings line: see tutti.config.example.yaml) | admin |

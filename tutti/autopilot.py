@@ -1124,13 +1124,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     filled = None
     found = fill.gather(cfg, backlog.load(cfg), states, machines, now) if on else None   # the repos' commands: never under the lock
     from . import depbots  # dependency bots and vulnerability reports (docs/SECURITY-INTAKE.md): gh reads, never under the lock
-    try:
-        sec = depbots.gather(cfg, now) if on else None
-        if sec is not None:
-            depbots.save(cfg, sec, now)
-    except (OSError, ValueError) as exc:
-        sec = None
-        telemetry.record('error', 'depbots.gather', reason=type(exc).__name__)
+    sec = depbots.round_read(cfg, now, on, telemetry.record)
     from . import sharing  # sharing imports backlog and coordinator; a household of one makes no call
     cfg['_spare_accounts'] = sharing.spare_accounts(cfg, states, now)
     if beat is not None:

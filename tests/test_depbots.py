@@ -9,26 +9,31 @@ from tutti import backlog, config, depbots
 
 S = config.DEFAULTS['depbots']
 PRS = [
-    {'number': 1, 'title': 'Bump ruff from 0.17.2 to 0.17.4', 'headRefName': 'dependabot/pip/ruff-0.17.4', 'author': {'login': 'app/dependabot'},
-     'url': 'https://github.com/o/r/pull/1', 'statusCheckRollup': []},
+    {'number': 1, 'title': 'Bump ruff from 0.17.2 to 0.17.4', 'headRefName': 'dependabot/pip/ruff-0.17.4',
+     'author': {'login': 'app/dependabot'}, 'url': 'https://github.com/o/r/pull/1', 'statusCheckRollup': []},
     {'number': 2, 'title': 'Bump pillow from 12.3.0 to 13.0.0', 'headRefName': 'dependabot/pip/pillow-13.0.0',
      'author': {'login': 'app/dependabot'}, 'url': 'https://github.com/o/r/pull/2', 'statusCheckRollup': []},
-    {'number': 3, 'title': 'Upgrade lodash to fix CVE-2026-1', 'headRefName': 'cursor/anybump-lodash', 'author': {'login': 'cursor[bot]'},
-     'url': 'https://github.com/o/r/pull/3', 'statusCheckRollup': [{'conclusion': 'FAILURE'}]},
+    {'number': 3, 'title': 'Upgrade lodash to fix CVE-2026-1', 'headRefName': 'cursor/anybump-lodash',
+     'author': {'login': 'cursor[bot]'}, 'url': 'https://github.com/o/r/pull/3', 'statusCheckRollup': [{'conclusion': 'FAILURE'}]},
     {'number': 4, 'title': 'Refactor the parser', 'headRefName': 'cursor/refactor', 'author': {'login': 'cursor[bot]'},
      'url': 'https://github.com/o/r/pull/4', 'statusCheckRollup': []},
-    {'number': 5, 'title': 'Bump coverage from 7.16.1 to 7.16.2', 'headRefName': 'dependabot/pip/coverage', 'author': {'login': 'app/dependabot'},
-     'url': 'https://github.com/o/r/pull/5', 'statusCheckRollup': []},
+    {'number': 5, 'title': 'Bump coverage from 7.16.1 to 7.16.2', 'headRefName': 'dependabot/pip/coverage',
+     'author': {'login': 'app/dependabot'}, 'url': 'https://github.com/o/r/pull/5', 'statusCheckRollup': []},
     {'number': 6, 'title': 'feat: owner work', 'headRefName': 'feat/x', 'author': {'login': 'someone'}, 'url': 'u6', 'statusCheckRollup': []},
 ]
 DEP = [{'html_url': 'https://github.com/o/r/security/dependabot/1', 'dependency': {'package': {'ecosystem': 'npm', 'name': 'lodash'},
-        'manifest_path': 'package-lock.json'}, 'security_advisory': {'severity': 'high', 'summary': 'Prototype pollution'},
+        'manifest_path': 'package-lock.json'},
+        'security_advisory': {'severity': 'high', 'summary': 'Prototype pollution'},
         'security_vulnerability': {'first_patched_version': {'identifier': '4.17.22'}}}]
-CODE = [{'html_url': 'https://github.com/o/r/security/code-scanning/7', 'rule': {'id': 'py/sql-injection', 'security_severity_level': 'critical',
-         'description': 'SQL injection'}, 'most_recent_instance': {'location': {'path': 'db.py', 'start_line': 9}}, 'tool': {'name': 'CodeQL'}}]
-COMMENTS = [{'user': {'login': 'cursor[bot]'}, 'body': '**High: path traversal** in the upload handler', 'path': 'up.py', 'html_url': 'c1'},
+CODE = [{'html_url': 'https://github.com/o/r/security/code-scanning/7',
+         'rule': {'id': 'py/sql-injection', 'security_severity_level': 'critical',
+         'description': 'SQL injection'},
+         'most_recent_instance': {'location': {'path': 'db.py', 'start_line': 9}}, 'tool': {'name': 'CodeQL'}}]
+COMMENTS = [{'user': {'login': 'cursor[bot]'}, 'body': '**High: path traversal** in the upload handler',
+             'path': 'up.py', 'html_url': 'c1'},
             {'user': {'login': 'greptile-apps[bot]'}, 'body': 'Consider renaming this variable', 'path': 'a.py', 'html_url': 'c2'},
-            {'user': {'login': 'greptile-apps[bot]'}, 'body': '**High: path traversal** in the upload handler', 'path': 'up.py', 'html_url': 'c3'}]
+            {'user': {'login': 'greptile-apps[bot]'}, 'body': '**High: path traversal** in the upload handler',
+             'path': 'up.py', 'html_url': 'c3'}]
 
 
 def fake_gh(fail=None):
@@ -62,7 +67,8 @@ class DepbotsTest(unittest.TestCase):
         self.assertEqual(scan['problems'], [])
 
     def test_unreadable_alerts_name_the_fix(self):
-        scan = depbots.read_repo('o/r', S, fake_gh({'dependabot': 'HTTP 403: Dependabot alerts are disabled', 'code-scanning': 'HTTP 404: no analysis found'}))
+        scan = depbots.read_repo('o/r', S, fake_gh({'dependabot': 'HTTP 403: Dependabot alerts are disabled',
+                                                   'code-scanning': 'HTTP 404: no analysis found'}))
         self.assertEqual(len(scan['problems']), 1)
         self.assertIn('https://github.com/o/r/settings/security_analysis', scan['problems'][0])
         self.assertFalse(scan['code_scanning'])

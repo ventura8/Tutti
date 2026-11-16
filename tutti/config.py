@@ -465,7 +465,8 @@ def validate(cfg):
     errs += selfheal.errors(cfg)
     errs += needs.errors(cfg) + welcome.errors(cfg) + aiassist.errors(cfg) + selfimprove.errors(cfg)
     errs += sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
-    return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + depbots.errors(cfg) + \
+    return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
+        depbots.errors(cfg) + \
         owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update']) + energy.errors(cfg) + \
         chat.errors(cfg)
 

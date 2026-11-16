@@ -188,7 +188,8 @@ def read_repo(slug, s, gh_fn=gh):
         if bot:
             checks = pr.get('statusCheckRollup') or []
             out['prs'].append({'number': pr['number'], 'title': pr['title'], 'branch': pr['headRefName'], 'url': pr['url'], 'bot': bot,
-                               'kind': bump_kind(pr['title']), 'failing': any((c.get('conclusion') or '').upper() == 'FAILURE' for c in checks)})
+                               'kind': bump_kind(pr['title']),
+                               'failing': any((c.get('conclusion') or '').upper() == 'FAILURE' for c in checks)})
     items, err = _api(gh_fn, f'repos/{slug}/dependabot/alerts?state=open&per_page=100')
     out['alerts'] += from_dependabot(items, slug) if items is not None else []
     out['problems'] += [p for p in [problem('dependabot', slug, err)] if items is None and p]
@@ -227,7 +228,7 @@ def gather(cfg, now, gh_fn=gh, run=subprocess.run, force=False):
 def pr_note(pr, check):
     return (f'{pr["bot"]} opened {pr["url"]} on branch {pr["branch"]}. Bring its change in first: '
             f'`git fetch origin {pr["branch"]} && git diff HEAD...FETCH_HEAD | git apply --3way --index`, then run the check '
-            f'({check or "the repo\'s check"}) and fix what breaks: code, the lockfile, an override or a pin. Keep the bump. '
+            f'({check or "the repo check"}) and fix what breaks: code, the lockfile, an override or a pin. Keep the bump. '
             'When the result lands on the base, the bot closes its pull request by itself.')
 
 
@@ -286,7 +287,8 @@ def summary(found, now):
         repos.append({'name': name, 'slug': slug, 'prs': [{k: p[k] for k in ('number', 'title', 'url', 'bot', 'kind', 'failing')}
                                                            for p in scan['prs']],
                       'alerts': len(scan['alerts']), 'worst': NAMES[worst] if worst is not None else None,
-                      'top': [{k: a[k] for k in ('title', 'url', 'sources')} | {'severity': NAMES[a['severity']]} for a in scan['alerts'][:5]],
+                      'top': [{'title': a['title'], 'url': a['url'], 'sources': a['sources'], 'severity': NAMES[a['severity']]}
+                              for a in scan['alerts'][:5]],
                       'links': {'prs': f'https://github.com/{slug}/pulls?q=is%3Apr+is%3Aopen+author%3Aapp%2Fdependabot',
                                 'security': f'https://github.com/{slug}/security'} if slug else {},
                       'code_scanning': scan['code_scanning'], 'problems': scan['problems']})
@@ -318,6 +320,19 @@ def view(cfg):
     return {'enabled': settings(cfg).get('enabled', True), 'read_at': d.get('read_at'), 'repos': repos,
             'prs': sum(len(r['prs']) for r in repos), 'alerts': sum(r['alerts'] for r in repos),
             'worst': NAMES[worst] if worst is not None else None, 'problems': [p for r in repos for p in r['problems']]}
+
+
+def round_read(cfg, now, on, record=None):
+    """The autopilot round's read: None when off, not due or failed (the failure is recorded), else the saved scan."""
+    try:
+        found = gather(cfg, now) if on else None
+    except (OSError, ValueError) as exc:
+        if record:
+            record('error', 'depbots.gather', reason=type(exc).__name__)
+        return None
+    if found is not None:
+        save(cfg, found, now)
+    return found
 
 
 def scan_now(cfg, gh_fn=gh, run=subprocess.run, now=None):

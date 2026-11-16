@@ -8,7 +8,7 @@ import unittest
 import tmpdirs
 import yaml
 
-from tutti import aiassist, config, coordinator, failover, failovercmd, statebudget, watchdog
+from tutti import config, coordinator, failover, failovercmd, statebudget, watchdog
 
 CONFIG = {
     'project': {'state': 'STATE'},
@@ -421,35 +421,6 @@ class WatchdogTest(unittest.TestCase):
         self.assertEqual(watchdog.round_services(False, lambda: False, lambda: started.append(1)), [])
         self.assertEqual(watchdog.round_services(True, lambda: True, lambda: started.append(1)), [])
         self.assertEqual(started, [1])
-
-
-class LocalModelTest(unittest.TestCase):
-    CFG = {'ai_assist': {'enabled': True, 'local': True}, 'machines': {}, 'workers': {
-        'laptop': {'kind': 'ollama', 'host': 'l', 'model': 'qwen3.5:9b'},
-        'nuc': {'kind': 'ollama', 'host': 'n', 'model': 'deepseek-coder-v2:latest', 'size_b': 16},
-        'pc': {'kind': 'ollama', 'host': 'p', 'model': 'qwen3.8:27b-q8_0'}}}
-
-    def setUp(self):
-        self.CFG = {**self.CFG, 'project': {'state': tmpdirs.mkdtemp()}}
-
-    def test_the_largest_model_comes_first_whichever_machine_it_is_on(self):
-        self.assertEqual(aiassist.local_workers(self.CFG), ['pc', 'nuc', 'laptop'])
-
-    def test_a_busy_or_down_machine_is_skipped_quickly_then_the_next(self):
-        answer, who = aiassist.ask_local(self.CFG, 'p', available=lambda w: (w['host'] != 'p', ''),
-                                         generate=lambda c, w, p, **k: f'from {w["host"]}', busy_fn=lambda w: w['host'] == 'n')
-        self.assertEqual((answer, who), ('from l', 'laptop'))
-
-    def test_with_every_local_model_busy_it_goes_online(self):
-        answer, who = aiassist.ask_local(self.CFG, 'p', available=lambda w: (True, ''), generate=None, busy_fn=lambda w: True,
-                                         online=lambda c, p: ('online answer', 'grok'))
-        self.assertEqual((answer, who), ('online answer', 'grok'))
-
-    def test_busy_means_another_model_is_loaded(self):
-        w = {'host': 'x', 'model': 'qwen3:27b'}
-        self.assertTrue(aiassist.busy(w, {'models': [{'name': 'llama3:8b'}]}))
-        self.assertFalse(aiassist.busy(w, {'models': [{'name': 'qwen3:27b'}]}))
-        self.assertFalse(aiassist.busy(w, {'models': []}))
 
 
 if __name__ == '__main__':

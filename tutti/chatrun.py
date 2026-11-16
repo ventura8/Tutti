@@ -97,6 +97,8 @@ def stream_of(cand, cfg, messages, cancel):
     effort = cand.get('effort', 'auto')
     if cand['kind'] == 'ollama':
         think, ctx = chatctl.ollama_options(w, effort)
+        from . import local
+        local.wait_for_preempt(cfg, w)   # Tutti's own short job holds this model: the chat's next turn waits, nothing is lost
         return ollama_stream(w, messages, cancel, tools=chat.ollama_tools() if cand.get('tools') else None, think=think, num_ctx=ctx)
     return cli_stream(w, messages, cancel, extra=chatctl.cli_args(w, effort))
 

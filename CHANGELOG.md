@@ -6,6 +6,24 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.17.0 (2026-11-16)
+
+### Added
+
+- Tutti's own AI is local first and always the best free model in the household (backlog t80): one helper
+  (`tutti/brain.py`) for every internal model use ranks every model on every machine by capability (tier, parameters,
+  quantisation, task kind), skips down or yielding machines within a second, picks up a new bigger model at once, and falls
+  back online (`ai_assist.online_worker: auto`: a subscription worker with room) within pacing. A test fails any module
+  that calls a model directly. The dashboard shows *Tutti's own AI: <model> on <machine> (best free)* with the week's local
+  and online calls and energy.
+- Tutti first on the best model (`ai_assist.preempt`, default on; off or a list of kinds in Settings): other work on that
+  model waits between its requests while Tutti's short job runs, then goes on with nothing lost; shown as *parked … for
+  Tutti's own job (12 s)*.
+- The unblocker (backlog t81): each round it clears blocked or failing work itself, local first (usage-limit-only
+  failures forgiven, repeated failures diagnosed and retried with the fix, parked questions the history decides, rebase
+  conflicts redone, long backoffs cleared, red PR checks rerun once); only true decisions reach the needs queue; every
+  attempt is logged on the dashboard.
+
 ## 0.16.9 (2026-11-16)
 
 ### Fixed

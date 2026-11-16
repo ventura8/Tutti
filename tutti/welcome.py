@@ -266,7 +266,7 @@ def ai_intro(cfg, f, since, ask=None):
     prompt = ('Write a short welcome-back note (at most 4 sentences, plain words, no lists, no markdown) for a person returning '
               f'to their AI coding helper Tutti after being away since {iso(since)}. Say what shipped, what is running and what '
               'failed, from these facts only:\n' + '\n'.join(lines or ['nothing happened']))
-    answer, _who = (ask or aiassist.ask_local)(cfg, prompt)
+    answer, _who = (ask or (lambda c, p: aiassist.ask_local(c, p, 'welcome')))(cfg, prompt)
     return answer.strip()[:1200] if answer else None
 
 

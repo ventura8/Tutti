@@ -31,7 +31,8 @@ from . import backlog, config, insights, scrub, telemetry
 
 FILE = 'ai-assist.json'
 DEFAULTS = {'enabled': False, 'local': True, 'online': False, 'online_code': False, 'auto_tune': True, 'every_hours': 6,
-            'max_proposals': 5, 'local_worker': '', 'scout': '', 'research_every': '7d', 'online_worker': ''}
+            'max_proposals': 5, 'local_worker': '', 'scout': '', 'research_every': '7d', 'online_worker': '', 'preempt': True,
+            'unblock': True, 'unblock_repos': []}   # online_worker: a CLI worker, or auto
 SWITCHES = ('enabled', 'local', 'online', 'online_code', 'auto_tune')
 CLASSES = ('flaky', 'environment', 'real')
 WATCH_PREFIX = 'tutti-ai-'
@@ -102,78 +103,12 @@ def online_text(cfg, text, quotes=True):
     return scrub.text(text, hosts=hosts, limit=6000, quotes=quotes)
 
 
-# ---- local models (through the worker registry: workers of kind ollama)
+# ---- models: every call goes through tutti/brain.py (the best free local model in the household, then online)
 
-def model_size(worker):
-    """The model's size in billions of parameters: `size_b` when the worker says it, else read from its tag (qwen3:27b -> 27)."""
-    if worker.get('size_b'):
-        return float(worker['size_b'])
-    import re
-    m = re.search(r'(\d+(?:\.\d+)?)b\b', str(worker.get('model') or '').lower().split(':', 1)[-1])
-    return float(m.group(1)) if m else 0.0
-
-
-def local_workers(cfg):
-    """The ollama workers, best first (backlog t80): the chosen one, then the largest model (the strongest machine's: the PC's
-    before the NUC's before the laptop's, as their models measure), then those that say they analyse, then config order."""
-    ws = {n: w for n, w in (cfg.get('workers') or {}).items() if isinstance(w, dict) and w.get('kind') == 'ollama'
-          and w.get('enabled') is not False}
-    first = settings(cfg)['local_worker']
-    order = list(ws)
-    return sorted(ws, key=lambda n: (n != first, -model_size(ws[n]), 'analysis' not in (ws[n].get('capabilities') or ()), order.index(n)))
-
-
-def busy(worker, ps=None):
-    """True when the model server is already running another model (asking it would wait for a swap): skipped at once."""
-    from . import local
-    ps = ps if ps is not None else local.ollama_get(worker['host'], '/api/ps', timeout=1)
-    loaded = [m.get('name') or m.get('model') for m in (ps or {}).get('models') or []]
-    want = str(worker.get('model') or '')
-    want = want if ':' in want else f'{want}:latest'
-    return bool(loaded) and want not in [x if ':' in str(x) else f'{x}:latest' for x in loaded]
-
-
-def ask_online(cfg, prompt, run=None):
-    """The online fallback: `ai_assist.online_worker` (a cli worker that costs nothing per use), only when online is allowed."""
-    name = settings(cfg).get('online_worker') or ''
-    w = (cfg.get('workers') or {}).get(name)
-    if not name or not may_send_online(cfg, 'telemetry') or not w or w.get('kind') != 'cli' or w.get('costs_money'):
-        return None, 'no online model to ask (ai_assist.online_worker, online on)'
-    import subprocess
-    run = run or subprocess.run
-    argv = [x.replace('{prompt}', online_text(cfg, prompt)) for x in w['command']]
-    try:
-        r = run(argv, capture_output=True, text=True, timeout=600)
-    except (OSError, subprocess.SubprocessError) as e:
-        return None, f'{name}: {type(e).__name__}'
-    return (r.stdout.strip(), name) if r.returncode == 0 and r.stdout.strip() else (None, f'{name} exited {r.returncode}')
-
-
-def ask_local(cfg, prompt, available=None, generate=None, busy_fn=None, online=None):
-    """(answer, worker) from the best local model that is up and free, every household machine's (t80), then online; (None, why)
-    when AI is off or none answers."""
-    if not switch(cfg, 'local'):
-        return None, 'local AI is off'
-    from . import local, workers
-    available, generate = available or (lambda w: workers.available(w, timeout=1)), generate or local.generate
-    busy_fn = busy_fn or busy
-    tried = []
-    for name in local_workers(cfg):
-        w = cfg['workers'][name]
-        if not available(w)[0]:
-            tried.append(f'{name} down')
-            continue
-        if busy_fn(w):
-            tried.append(f'{name} busy')
-            continue
-        try:
-            return generate(cfg, w, prompt, low_priority=True, timeout=600), name
-        except (RuntimeError, OSError, KeyError, ValueError) as e:   # ValueError: a reply that is not JSON or cut short
-            tried.append(f'{name}: {type(e).__name__}')
-    answer, who = (online or ask_online)(cfg, prompt)
-    if answer:
-        return answer, who
-    return None, 'no local model answered (' + (', '.join(tried) or 'no ollama worker in the config') + f'); {who}'
+def ask_local(cfg, prompt, purpose='self-improve', **kw):
+    """(answer, who) from tutti/brain.py's ask: the one helper for Tutti's own model use (backlog t80)."""
+    from . import brain
+    return brain.ask(cfg, prompt, purpose, **kw)
 
 
 # ---- smarter decisions: the cheap fallbacks (pure)
@@ -655,7 +590,28 @@ def view(cfg, summary=None):
             'recent': props[-5:][::-1], 'tuned': (st.get('tuned') or [])[-10:][::-1],
             'tune_proposals': live_proposals(st)[-5:],
             'gains': gains(cfg, st, summary or cached_summary(cfg) or {}), 'last_round': st.get('last_round'),
-            'skipped': st.get('skipped') or ''}
+            'skipped': st.get('skipped') or '', 'brain': _brain_view(cfg), 'unblocker': _unblocker_view(cfg)}
+
+
+_BRAIN_CACHE = {}
+
+
+def _brain_view(cfg, ttl=60, clock=time.monotonic):
+    """tutti/brain.py's card (it probes each model server, a second at most each): once a minute."""
+    from . import brain
+    at, v = _BRAIN_CACHE.get('v', (None, None))
+    if at is None or clock() - at >= ttl:
+        try:
+            v = brain.view(cfg)
+        except (OSError, KeyError, ValueError) as e:
+            v = {'line': f"Tutti's own AI: could not read the fleet ({type(e).__name__})", 'parks': []}
+        _BRAIN_CACHE['v'] = (clock(), v)
+    return v
+
+
+def _unblocker_view(cfg):
+    from . import unblocker
+    return unblocker.view(cfg)
 
 
 def save(collector, raw):
@@ -702,6 +658,12 @@ def errors(cfg):
     for k in ('every_hours', 'max_proposals'):
         if k in s and (isinstance(s[k], bool) or not isinstance(s[k], (int, float)) or s[k] <= 0):
             errs.append(f'ai_assist.{k} is {s[k]!r}: a number above 0')
+    repos = s.get('unblock_repos', [])
+    if not (isinstance(repos, list) and all(isinstance(x, str) and '/' in x for x in repos)):
+        errs.append(f'ai_assist.unblock_repos is {s["unblock_repos"]!r}: a list of GitHub repositories such as [owner/name]')
+    pre = s.get('preempt', True)
+    if not isinstance(pre, bool) and not (isinstance(pre, list) and all(isinstance(x, str) for x in pre)):
+        errs.append(f'ai_assist.preempt is {s["preempt"]!r}: true, false, or a list of purposes such as [needs, welcome]')
     if s.get('local_worker') and s['local_worker'] not in (cfg.get('workers') or {}):
         errs.append(f'ai_assist.local_worker names "{s["local_worker"]}", which is not under workers:')
     return errs

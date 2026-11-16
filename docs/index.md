@@ -6,6 +6,7 @@ across a household or a small team: one orchestrator, many workers, with queues,
 - **Source code and install:** <https://github.com/ventura8/Tutti> ([how to install](INSTALL.md))
 - **Sign-in with Google:** the dashboard uses it to know who is the administrator. See [AUTH.md](AUTH.md).
 - **Architecture:** [ARCHITECTURE.md](ARCHITECTURE.md)
+- **API reference:** [API.md](API.md): the CLI, the dashboard's HTTP API, the MCP tools and the config file
 - **Privacy policy:** [PRIVACY.md](PRIVACY.md)
 - **Terms of use:** [TERMS.md](TERMS.md)
 - **Report a problem:** the dashboard's **Report a problem** button, `tutti report`, or

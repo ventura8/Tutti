@@ -1123,6 +1123,14 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     from . import fill  # fill imports this module
     filled = None
     found = fill.gather(cfg, backlog.load(cfg), states, machines, now) if on else None   # the repos' commands: never under the lock
+    from . import depbots  # dependency bots and vulnerability reports (docs/SECURITY-INTAKE.md): gh reads, never under the lock
+    try:
+        sec = depbots.gather(cfg, now) if on else None
+        if sec is not None:
+            depbots.save(cfg, sec, now)
+    except (OSError, ValueError) as exc:
+        sec = None
+        telemetry.record('error', 'depbots.gather', reason=type(exc).__name__)
     from . import sharing  # sharing imports backlog and coordinator; a household of one makes no call
     cfg['_spare_accounts'] = sharing.spare_accounts(cfg, states, now)
     if beat is not None:
@@ -1154,6 +1162,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
             filled = fill.fill(cfg, data, states, machines, now, found)
             events += [f'fill_room: {filled["note"]}'] if filled['added'] else []
             events += fill.review_round(cfg, data, now, is_alive, spawn)
+            events += depbots.apply(cfg, data, sec)
         p = plan(cfg, data['tasks'], states, machines, on, datetime.fromtimestamp(now, timezone.utc), hold)
         telemetry.record('feature', 'autopilot.plan', state=p['state'], dispatch=len(p['dispatch']), waiting=len(p['waiting']),
                          collected=len(events))

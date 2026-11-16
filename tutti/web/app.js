@@ -1084,6 +1084,31 @@ function renderScouts(s) {
     $('scouts').replaceChildren(...parts);
 }
 
+// ---- dependencies and security (docs/SECURITY-INTAKE.md)
+
+function securityRepo(r) {
+    const head = `${r.name}: ${r.prs.length} dependency pull request(s), ${r.alerts} vulnerability report(s)` + (r.worst ? `, worst ${r.worst}` : '');
+    const links = Object.entries(r.links || {}).map(([k, href]) => el('a', { href, target: '_blank', rel: 'noopener', text: k === 'prs' ? 'Pull requests' : 'Security tab' }));
+    const top = r.top.map((t) => el('li', {}, el('span', { class: 'chip', text: t.severity }), ' ',
+        el('a', { href: t.url, target: '_blank', rel: 'noopener', text: t.title }), ` (${t.sources.join(', ')})`));
+    const prs = r.prs.map((p) => el('li', {}, el('a', { href: p.url, target: '_blank', rel: 'noopener', text: `#${p.number} ${p.title}` }),
+        ` (${p.bot}, ${p.kind}${p.failing ? ', checks failing' : ''})`));
+    return el('div', { class: 'row' }, el('p', { text: head }), el('p', { class: 'row__note' }, ...links.flatMap((a, i) => (i ? [' · ', a] : [a]))),
+        top.length ? el('ul', { class: 'list' }, ...top) : '', prs.length ? el('ul', { class: 'list' }, ...prs) : '',
+        ...r.problems.map((p) => el('p', { class: 'row__note', text: `Needs the owner: ${p}` })));
+}
+
+function renderSecurity(s) {
+    const v = s.security;
+    if (!v || !$('security')) return;
+    $('security-meta').textContent = v.read_at ? `${v.prs} pull request(s), ${v.alerts} report(s), worst: ${v.worst || 'none'}` : 'not read yet';
+    if (!v.read_at) {
+        $('security').replaceChildren(empty('Nothing read yet', 'The autopilot reads every repo\'s Dependabot and Cursor pull requests and its alerts every few hours; tutti security scan reads them now.'));
+        return;
+    }
+    $('security').replaceChildren(...v.repos.map(securityRepo));
+}
+
 // ---- jobs
 
 const LAYER = { exact: 'exact', shape: 'known phases', estimate: 'estimated from earlier runs', agent: 'agent estimate', elapsed: 'elapsed, no estimate yet' };
@@ -1325,6 +1350,7 @@ function render() {
     renderPresence(s);   // controls.js: work waiting on away or asleep targets, the host's warning
     renderAutopilot(s);
     renderScouts(s);
+    renderSecurity(s);
     renderMain(s);
     renderWorkers(s);
     renderVersions(s);

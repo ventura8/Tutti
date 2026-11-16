@@ -61,6 +61,14 @@ DEFAULTS = {
     # auto_review: a result to review is reviewed by review.fallback and landed by its repo's `land` (merge, pr or branch)
     'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'max_parallel': None, 'no_progress': 3, 'max_attempts': 12, 'repos': {},
                   'checkpoint_minutes': 5, 'quiet_hours': [], 'fill_room': True, 'auto_review': True, 'stuck_minutes': 30},
+    # depbots: dependency bots' pull requests and vulnerability reports as autopilot tasks (tutti/depbots.py,
+    # docs/SECURITY-INTAKE.md): the bots whose pull requests are dependency updates (authors or branch prefixes; match: a
+    # regex the title or branch must hold), the scanners whose review comments are security findings, how often to read
+    'depbots': {'enabled': True, 'every_minutes': 360, 'group_trivial': True,
+                'bots': [{'name': 'dependabot', 'authors': ['dependabot[bot]'], 'branch_prefixes': ['dependabot/']},
+                         {'name': 'cursor', 'authors': ['cursor[bot]'], 'branch_prefixes': ['cursor/'],
+                          'match': r'bump|upgrade|update|depend|vulnerab|cve|ghsa|security|patch'}],
+                'scanners': [{'name': 'cursor', 'authors': ['cursor[bot]']}, {'name': 'greptile', 'authors': ['greptile-apps[bot]']}]},
     # pacing: the owner's own prompting (tutti/owner.py): the weekly schedule that seeds the learned weekday x hour profile
     # (days, hours of the reserve window, the local window, points per owner hour, the UTC offset; None: this computer's),
     # the mode (auto, active, away, vacation-until-YYYY-MM-DD), the owner hours with no rise after which auto says away,
@@ -451,13 +459,13 @@ def validate(cfg):
     errs += _dashboard_errors(cfg['dashboard']) + _auth_errors(cfg.get('auth'))
     errs += files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
     # they import modules that import this one
-    from . import autocompact, chat, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
+    from . import autocompact, chat, depbots, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
     errs += dispatch.errors(cfg) + tiers.errors(cfg) + tz.errors(cfg) + presence.errors(cfg)
     from . import aiassist, needs, selfheal, welcome
     errs += selfheal.errors(cfg)
     errs += needs.errors(cfg) + welcome.errors(cfg) + aiassist.errors(cfg) + selfimprove.errors(cfg)
     errs += sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
-    return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
+    return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + depbots.errors(cfg) + \
         owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update']) + energy.errors(cfg) + \
         chat.errors(cfg)
 

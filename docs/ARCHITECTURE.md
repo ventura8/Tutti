@@ -72,6 +72,9 @@ flowchart LR
     rounds --> state[(State files under state dir)]
     rounds --> gh[github.py: App, household, gh]
     selfheal[Self-heal checks] --> state
+    rounds --> depbots[depbots.py: Dependabot and Cursor PRs, alerts, Cursor and Greptile findings]
+    depbots -->|gh pr list, gh api| gh
+    depbots -->|deduped, ranked tasks| backlogq[(backlog.json)]
 ```
 
 ```mermaid
@@ -136,6 +139,7 @@ flowchart TD
 | `tutti/review.py` | `tutti pr review`: asking Copilot, CodeRabbit and Greptile through `gh`, the review policy (wait, fallback, skip, skip-when-unavailable) with its re-request queue (run by the autopilot round), the rounds per reviewer, reading their answers and limits, skipping a reviewer whose account reads 100 % until its reset, the local fallback review posted as a comment. `gh` is passed in for tests. |
 | `tutti/helper.py` | The reading helper: the per-install key, the bookmarklet page (`/helper`) and the page script for an orchestrator's browser tool; the parser both use is `tutti/web/helper-parse.js`, the bookmarklet's wrapper `tutti/web/helper-bookmarklet.js`. |
 | `tutti/releases.py` | A project's open pull requests (`projects.<n>.repo`, through gh): a release in progress first, CI and review state, cached per repository. |
+| `tutti/depbots.py` | Dependency bots and vulnerability reports (docs/SECURITY-INTAKE.md): open Dependabot and Cursor dependency pull requests, Dependabot and code-scanning alerts and Cursor's and Greptile's security review comments read through `gh` outside the backlog's lock; pure classification, grouping of trivial bumps, dedupe and ranking; tasks queued and dropped when the pull request closes or the alert is fixed; `tutti security` and the dashboard card. |
 | `tutti/scouts.py`, `tutti/scoutcmd.py` | Scouts (helpers that are not workers, docs/SCOUTS.md): config checks, the webhook POST (the key only in its header, from an environment variable or stdin), the issue and its answer through `gh`, the pure plan paced by the scout's account, the round and the view; `scoutcmd.py` is `tutti scout`. |
 | `tutti/trial.py` | A scout's review trial: asked beside `tutti pr review`, findings per reviewer, real or noise, the verdict. |
 | `tutti/scrub.py` | What telemetry may keep, pure: categories only as field values; free text with home folders, hosts, IPs, e-mails, URLs, tokens, keys and quoted fragments replaced. |
@@ -219,6 +223,7 @@ Settings: `quiet.reserve_gb` (4), `quiet.cpu_quota` (`200%`), `quiet.ollama` (`h
 - `<project.state>/llm-busy-<pid>`: a live local-model job; low-priority jobs wait for these to go.
 - `<project.state>/tunnel-<worker>.pid|.log`, `quiet/*.log`, `ship-*.log`, each run log with its result `<log>.rc` and
   command `<log>.cmd`; `waits/<pid>.json` while a `tutti wait` runs. `tutti dashboard` reads all of these.
+- `<project.state>/depbots.json`: the last read of dependency pull requests and vulnerability reports per repo (counts, worst severity, links, what needs the owner).
 - `<project.state>/scouts.json`: every scout request (question, watch, review), its issue and answer; never a key or URL.
 - `<project.state>/review-trial.json`: the review trial's pull requests, findings and verdict.
 - `<project.state>/telemetry/`: `events.jsonl` (rotated), `consent.json` (sending yes or no, the random install id),

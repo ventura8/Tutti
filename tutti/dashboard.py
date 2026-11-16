@@ -295,6 +295,8 @@ class Collector:
                                                   worker_items=out['workers']['items'] if probes.get('workers') else None),
                                'error': probes.get('energy_error')}
         out['autopilot'] = autopilot.view(self.cfg)
+        from . import depbots  # the Dependencies and security card (docs/SECURITY-INTAKE.md)
+        out['security'] = depbots.view(self.cfg)
         out['household_use'] = householduse.view(self.cfg, self.clock())   # the headline and each machine's use (docs/FLEET.md)
         out['fleet'] = fleet.view(self.cfg)
         out['work_queue'] = workq.view(self.cfg)

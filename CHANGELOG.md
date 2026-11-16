@@ -6,6 +6,19 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.21.0 (2026-11-16)
+
+### Added
+
+- Dependency updates and vulnerability reports as autopilot tasks (`tutti/depbots.py`, `tutti security [scan]`,
+  docs/SECURITY-INTAKE.md): for every autopilot repo, open GitHub Dependabot pull requests and Cursor's dependency
+  pull requests (`cursor[bot]`, `cursor/` branches, dependency or security titles) become tasks that bring the bot's
+  branch in, run the repo's check and fix what breaks; green patch and minor bumps are grouped into one task. Dependabot
+  and code-scanning alerts and the security findings Cursor (Security Review, Bugbot) and Greptile post as review comments
+  are deduped per package, rule and file, ranked by severity and queued worst first. Tasks drop by themselves when the pull
+  request closes or GitHub marks the alert fixed. The dashboard's Dependencies and security card shows counts, the worst
+  severity, links and, for an unreadable source, the exact settings link or `gh auth refresh -s security_events`.
+
 ## 0.20.0 (2026-11-16)
 
 ### Added

@@ -1463,6 +1463,28 @@ def cmd_selfimprove(cfg, a):
     return 0
 
 
+def cmd_security(cfg, a):
+    """`tutti security [status|scan]`: dependency bots' pull requests and vulnerability reports (docs/SECURITY-INTAKE.md)."""
+    from . import depbots
+    if a.action == 'scan':
+        _, events = depbots.scan_now(cfg)
+        for e in events:
+            print(e)
+    v = depbots.view(cfg)
+    if not v['read_at']:
+        print('nothing read yet: `tutti security scan` reads every autopilot repo now')
+        return 0
+    print(f'{v["prs"]} dependency pull request(s), {v["alerts"]} vulnerability report(s), worst: {v["worst"] or "none"}')
+    for r in v['repos']:
+        print(f'  {r["name"]} ({r["slug"] or "no GitHub repo"}): {len(r["prs"])} pull request(s), {r["alerts"]} report(s)'
+              f'{", worst " + r["worst"] if r["worst"] else ""}')
+        for t in r['top']:
+            print(f'    {t["severity"]:8} {t["title"]}  {t["url"]}')
+    for p in v['problems']:
+        print(f'needs the owner: {p}')
+    return 0
+
+
 def cmd_scout(cfg, a):
     """`tutti scout list|setup|ask|answer|watch|tick`: helpers that answer on a GitHub issue (docs/SCOUTS.md)."""
     try:
@@ -1745,6 +1767,10 @@ def parser():
     s.add_argument('action', nargs='?', default='status', choices=['status', 'tick'])
     s = add('fleet', cmd_fleet, 'the household\'s local models as workers: every machine\'s Ollama, its models, their kinds, '
                                 'speed and hardware (docs/FLEET.md)')
+    s = add('security', cmd_security, 'dependency bots\' pull requests (Dependabot, Cursor) and vulnerability reports '
+                                      '(Dependabot and code-scanning alerts, Cursor and Greptile findings) as autopilot tasks: '
+                                      'status, or scan (read every repo now and queue)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'scan'])
     s = add('scout', cmd_scout, 'scouts, helpers that are not workers (Grok Bot): ask <scout> "<question>" (answered on a GitHub '
                                 'issue), answer <id>, watch [<scout> <watch>], tick (send what is due within the allowance), '
                                 'review <pr> (advisory), trial (the review trial), list, setup')

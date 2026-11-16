@@ -42,6 +42,10 @@ class WorktreeTest(unittest.TestCase):
         self.assertEqual(worktree.share(self.wt, ['node_modules'], say=lambda m: None), [])
         self.assertEqual(worktree.share(self.main, ['node_modules'], say=lambda m: None), [])
 
+    def test_default_share_covers_root_packages_and_functions(self):
+        from tutti import config
+        self.assertEqual(config.DEFAULTS['ship']['share'], ['node_modules', 'packages/*/node_modules', 'functions/node_modules'])
+
     def test_docker_mount_names_the_common_git_dir(self):
         c = os.path.realpath(os.path.join(self.main, '.git'))
         self.assertEqual(os.path.realpath(worktree.docker_mount(self.wt).split(':')[-1]), c)

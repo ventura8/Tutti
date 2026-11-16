@@ -34,7 +34,8 @@ DEFAULTS = {
     'devices': {},
     'brief': {'rules': []},
     'accounts': {},
-    'ship': {'protected': ['main', 'master'], 'add': ['.'], 'checks': [], 'full_checks': []},
+    'ship': {'protected': ['main', 'master'], 'add': ['.'], 'checks': [], 'full_checks': [],
+             'share': ['node_modules', 'packages/*/node_modules', 'functions/node_modules']},
     # watch_scripts: script names whose running processes are jobs; watch_agents: agent CLIs shown by process; task_globs:
     # an agent session's background task outputs (shown by time only); shapes: a job kind's known phases or counted lines
     # (docs/DASHBOARD.md, *Progress*); typical_minutes: the rough estimate for an agent kind before any run of it finished

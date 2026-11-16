@@ -6,6 +6,8 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 ### Added
 
+- `ship.share` defaults to the root, `packages/*` and `functions` node_modules, hard-linked into every worktree Tutti creates
+  (autopilot, `run --dir`, ship), so knip and tsc never see a tree without dependencies.
 - Local models as first-class workers (docs/FLEET.md). Every machine's Ollama is read at each probe and its models are
   classed (tier, kinds). A machine with models and no worker gets `<machine>-local` through a tunnel, and `tutti fleet`
   lists them.

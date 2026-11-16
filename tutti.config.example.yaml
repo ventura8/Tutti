@@ -231,7 +231,7 @@ ship:
   protected: [main, master]           # never committed to by accident
   format: ''                          # a command; TUTTI_CHANGED holds the uncommitted files
   add: [.]
-  share: [node_modules]               # a linked worktree gets these from the main checkout (hard links) when missing
+  share: [node_modules, 'packages/*/node_modules', functions/node_modules]  # a linked worktree gets these from the main checkout (hard links) when missing
   trailer: ''                         # for example a Co-Authored-By line
   base: origin/main                   # TUTTI_CHANGED for the checks = files changed since this ref
   checks:                             # targeted: only what changed

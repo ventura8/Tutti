@@ -505,11 +505,18 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
                 mock.patch.object(autopilot, 'trigger_accounts', return_value=[]):
             return autopilot.step_room(self.CFG, name, states, running or {})
 
-    def test_an_ahead_account_takes_one_task_only_while_the_main_agent_panics(self):
+    def test_an_ahead_account_takes_tasks_only_while_the_main_agent_panics(self):
         ahead = {'verdict': 'ahead', 'used': 40}
-        self.assertEqual(self.room({'claude': {'panic': True, 'used': 96}, 'cursor': ahead})[0], 1)
+        self.assertGreaterEqual(self.room({'claude': {'panic': True, 'used': 96}, 'cursor': ahead})[0], 1)
         self.assertEqual(self.room({'claude': {'verdict': 'ahead', 'used': 50}, 'cursor': ahead})[0], 0)
-        self.assertEqual(self.room({'claude': {'panic': True, 'used': 96}, 'cursor': ahead}, running={'cursor': 1})[0], 0)
+        self.assertEqual(self.room({'claude': {'panic': True, 'used': 96}, 'cursor': {'verdict': 'ahead', 'used': 94}}, running={'cursor': 1})[0], 0)
+
+    def test_it_fills_up_to_its_own_panic_line(self):
+        from tutti import autopilot
+        acc = {'accounts': {'cursor': {'task_pct': 2}}}
+        self.assertEqual(autopilot.takeover_room(acc, 'cursor', {'used': 35, 'panic_at': 95}), 30)
+        self.assertEqual(autopilot.takeover_room(acc, 'cursor', {'used': 94, 'panic_at': 95}), 1)
+        self.assertEqual(autopilot.takeover_room(acc, 'cursor', {'used': 95, 'panic_at': 95}), 0)
 
     def test_its_own_panic_or_spent_quota_still_stops_it_and_the_main_account_never_takes_over(self):
         panic = {'claude': {'panic': True, 'used': 96}}

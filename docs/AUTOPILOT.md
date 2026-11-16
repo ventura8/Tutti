@@ -75,6 +75,9 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
   a reviewer's `retry` of a passed task stays on its step. A step that has no room now is skipped upwards; when no step
   above has room, the retry falls back to the steps below, strongest first (0.1.23: before, retries waited behind a
   paced cursor and a yielding PC while agy-gemini and agy-claude had room).
+  While the main agent (`autopilot.main_accounts`, default `claude`) is in panic or spent, every other account takes its
+  work up to its own panic line: as many tasks as fit between its use and `panic_at` at its cost per task (`task_pct`),
+  even while ahead of its pace; only its own panic or a spent quota stops it.
   An account outside `autopilot.accounts` takes one task at a time and only while it is not ahead of its pace; a worker
   without an account (a local model) one at a time, never while its machine is paused (yield flag) or offline, and only for a task whose scope names files (it edits only those). The
   ladder names accounts, not a worker that accounts share (`agy-claude`, not `agy`), so each step's pace, panic and model

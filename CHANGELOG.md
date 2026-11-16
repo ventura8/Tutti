@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.6] - 2026-11-16
+
+### Fixed
+
+- While the main agent is in panic, the other accounts fill their room up to their own panic line (tasks that fit at
+  their cost per task), not one task at a time (owner, prio 0).
+
 ## 0.23.5 (2026-11-16)
 
 ### Added

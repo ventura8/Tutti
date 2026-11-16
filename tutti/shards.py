@@ -85,7 +85,8 @@ def suite_errors(cfg, key, s, where_errors):
     v = s.get('verdict')
     if v is not None:
         if not isinstance(v, dict) or not set(v) <= {'pass', 'fail', 'none'}:
-            errs.append(f'{key}.verdict is {v!r}: write it as {{pass: <regex a passing run prints>, fail: <regex of a failure>, none: <regex of no test run>}}')
+            errs.append(f'{key}.verdict is {v!r}: write it as {{pass: <regex a passing run prints>, fail: <regex of a failure>, '
+                        'none: <regex of no test run>}}')
         else:
             errs += [e for k in v for e in _regex(f'{key}.verdict.{k}', v[k])]
     st = s.get('started')

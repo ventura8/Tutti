@@ -320,7 +320,8 @@ def room_reason(name, room, queued):
         return why or f'{name}: no room'
     big = max((units(t) for t in queued), default=0)
     return f'{name}: room for {units_free}, but ' + (f'the queued tasks need {big}' if big > units_free else
-                                                      'no queued task may go there (a fresh task goes only to autopilot.accounts)')
+                                                      'no queued task may go there (each one failed there the same way twice, '
+                                                      'or is a fresh task and it is not in autopilot.accounts)')
 
 
 def waiting_of(tasks, unchecked, hold):
@@ -428,6 +429,9 @@ WORKER_LIMIT = re.compile(r'quota (?:reached|exceeded|exhausted)|usage limit|res
 WORKER_TIMEOUT = re.compile(r'print timeout|timed? ?out after|the turn still in progress', re.I)
 WORKER_SIDE = ('the worker hit its usage limit', 'the worker ran out of time', 'the worker\'s CLI refused a command',
                'the worker exited')
+# an account's usage limit is the account's state, not the task's: its room says when it may take work again, so a step that
+# failed only that way stays a candidate (agy-gemini with room for 50 took no task, 2026-11-16)
+QUOTA_SIDE = ('the worker hit its usage limit',)
 RUN_END = re.compile(r'^run \S+: \S+ exit -?\d+')   # Tutti's summary after the worker's own output (the task's text is in it)
 REPEAT = 2   # the same failure this many times in a row: on one step, that step is dropped; across steps, the task is parked
 
@@ -474,8 +478,11 @@ def park_reason(cfg, task):
     `no_progress` times in a row on the strongest step, or max_attempts reached."""
     s = settings(cfg)
     tries = task['attempts'][int(task.get('resume_from') or 0):]   # counted afresh after a person's answer (tutti/needs.py)
-    if len(tries) >= s['max_attempts']:
-        return 'max_attempts', f'{len(tries)} attempts without a pass (autopilot.max_attempts is {s["max_attempts"]})'
+    cap = attempt_cap(s['max_attempts'], task)
+    counted = [a for a in tries if not str(a.get('why') or '').startswith(QUOTA_SIDE)]   # an account's quota is not the task's
+    if len(counted) >= cap:
+        return 'max_attempts', (f'{len(task["attempts"])} attempts without a pass (autopilot.max_attempts is {s["max_attempts"]}'
+                                + (f'; {len(counted)} of {cap} since a person\'s retry)' if cap != s['max_attempts'] else ')'))
     again = repeated(tries)
     if again and not again['why'].startswith(WORKER_SIDE) and len({a['step'] for a in tries[-REPEAT:]}) > 1:
         return 'no_progress', (f'no progress: it failed the same way {REPEAT} times in a row on different workers, so the task or '
@@ -493,6 +500,12 @@ def park_reason(cfg, task):
     return '', ''
 
 
+def attempt_cap(most, task):
+    """The attempts a task gets in its current round: max_attempts at first, half of it (at least one) after a person's retry,
+    so the total stays bounded (t30 and t35 reached 12 and 14 with max_attempts 8, 2026-11-16)."""
+    return most if not task.get('resume_from') else max(1, (most + 1) // 2)
+
+
 def repeated(tries):
     """The last attempt when the last REPEAT attempts failed with one signature, else None."""
     last = tries[-REPEAT:]
@@ -506,7 +519,8 @@ def worn_out(tries):
     """The steps whose last REPEAT attempts of this task failed the same way: sending it there again burns quota for nothing."""
     out = set()
     for step in {a.get('step') for a in tries}:
-        if repeated([a for a in tries if a.get('step') == step]):
+        again = repeated([a for a in tries if a.get('step') == step])
+        if again and not again.get('why', '').startswith(QUOTA_SIDE):
             out.add(step)
     return out
 

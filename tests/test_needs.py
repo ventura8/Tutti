@@ -66,6 +66,27 @@ class Park(Base):
         self.assertEqual(autopilot.park_reason(cfg, t), ('', ''))   # counted afresh: it gets its tries again
         self.assertFalse(needs.answer(cfg, 'q1', 'drop')[0])   # answered once
 
+    def test_a_retry_gets_half_the_attempts_so_the_total_stays_bounded(self):
+        cfg = self.cfg()
+        most = autopilot.settings(cfg)['max_attempts']
+        t = task(attempts=[failed('b', f's{i}') for i in range(most)])
+        self.assertEqual(autopilot.park_reason(cfg, t)[0], 'max_attempts')
+        t['resume_from'] = most
+        t['attempts'] += [failed('b', f'r{i}') for i in range((most + 1) // 2 - 1)]
+        self.assertEqual(autopilot.park_reason(cfg, t), ('', ''))
+        t['attempts'].append(failed('c', 'last'))
+        cause, why = autopilot.park_reason(cfg, t)
+        self.assertEqual(cause, 'max_attempts')
+        self.assertIn('since a person', why)
+
+    def test_a_usage_limit_does_not_wear_a_step_out(self):
+        quota = {**failed('g', 'q'), 'why': 'the worker hit its usage limit'}
+        self.assertEqual(autopilot.worn_out([quota, dict(quota)]), set())
+        cfg = self.cfg()
+        most = autopilot.settings(cfg)['max_attempts']
+        self.assertEqual(autopilot.park_reason(cfg, task(attempts=[{**quota, 'step': f's{i}'} for i in range(most)]))[0], '')
+        self.assertEqual(autopilot.worn_out([failed('g'), failed('g')]), {'g'})
+
     def test_a_late_answer_leaves_a_task_that_no_longer_waits(self):
         cfg = self.cfg()
         t = task()

@@ -5,6 +5,20 @@ cd "$(dirname "$0")/.."
 export TUTTI_TELEMETRY=off   # the smoke runs below are not usage: record nothing
 export TUTTI_OFFLINE=1      # nothing here asks GitHub (the releases-stuck check, tutti/stuck.py)
 export TUTTI_NO_DAEMONS=1   # no real keep-awake loop, tunnel or sleep inhibitor outlives a check (tutti/procs.py)
+# the dev tools (Playwright, axe) from requirements-dev.txt: when this python3 lacks them (a machine's system Python, a
+# work-queue job), a venv of their own in the cache, installed with hashes and reused (t75/t76/t89, 2026-11-16)
+if ! python3 -c 'import playwright, axe_playwright_python' 2> /dev/null; then
+	venv="${XDG_CACHE_HOME:-$HOME/.cache}/tutti/check-venv"
+	[ -x "$venv/bin/python3" ] || python3 -m venv "$venv"
+	stamp="$venv/.requirements-dev.sha256"   # pip runs only when requirements-dev.txt changed
+	want="$(sha256sum requirements-dev.txt | cut -d' ' -f1)"
+	if [ "$(cat "$stamp" 2> /dev/null)" != "$want" ]; then
+		"$venv/bin/python3" -m pip install -q --require-hashes -r requirements-dev.txt
+		echo "$want" > "$stamp"
+	fi
+	PATH="$venv/bin:$PATH"
+	export PATH
+fi
 shellcheck scripts/*.sh install/*.sh
 if command -v ruff > /dev/null; then ruff check . bin/tutti; else echo "ruff is not installed here: skipped (CI runs it)"; fi
 # its own temp folder, removed at the end: a test's leftovers never reach /tmp (tests/run.py fails a test that leaves any)

@@ -6,6 +6,17 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.4 (2026-11-16)
+
+### Fixed
+
+- The autopilot's retry cap holds: after a person's retry a task gets half of `autopilot.max_attempts` more, not a full
+  new round (tasks reached 12 and 14 attempts with a cap of 8).
+- A step that failed a task only because its account hit its usage limit stays a candidate once the account has room
+  again (agy-gemini had room for 50 and took nothing); the stopped line now names the real reason.
+- `scripts/check.sh` makes its own venv from `requirements-dev.txt` when the machine's python3 lacks Playwright, so
+  the work-queue job `tutti-check` runs on a plain system Python.
+
 ## 0.16.3 (2026-11-16)
 
 ### Fixed

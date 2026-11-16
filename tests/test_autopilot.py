@@ -509,7 +509,8 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
         ahead = {'verdict': 'ahead', 'used': 40}
         self.assertGreaterEqual(self.room({'claude': {'panic': True, 'used': 96}, 'cursor': ahead})[0], 1)
         self.assertEqual(self.room({'claude': {'verdict': 'ahead', 'used': 50}, 'cursor': ahead})[0], 0)
-        self.assertEqual(self.room({'claude': {'panic': True, 'used': 96}, 'cursor': {'verdict': 'ahead', 'used': 94}}, running={'cursor': 1})[0], 0)
+        near = {'claude': {'panic': True, 'used': 96}, 'cursor': {'verdict': 'ahead', 'used': 94}}
+        self.assertEqual(self.room(near, running={'cursor': 1})[0], 0)
 
     def test_it_fills_up_to_its_own_panic_line(self):
         from tutti import autopilot

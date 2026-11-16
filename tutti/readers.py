@@ -424,6 +424,30 @@ def overrides(newest, used):
     return bool(newest) and newest.get('source') == 'limit message' and abs(float(newest['used']) - used) >= MIN_CHANGE
 
 
+SAME_RESET = timedelta(minutes=10)
+
+
+def owner_by_reset(name, reset, readings):
+    """The account a limit message really belongs to: agy's message names no model, but its reset is the spent cap's own. When
+    the matched account's reading resets elsewhere and exactly one other reading resets then (a per-model cap such as Gemini 4
+    Argon's weekly), the message is that account's."""
+    def near(r):
+        return bool(r and r.get('resets')) and abs(r['resets'] - reset) <= SAME_RESET
+    if not reset or near(readings.get(name)):
+        return name
+    others = [n for n, r in readings.items() if n != name and near(r)]
+    return others[0] if len(others) == 1 else name
+
+
+def last_resets(entries):
+    """{account: {'resets'}} from each account's newest reader entry: a run's limit message is placed without a fresh reading."""
+    out = {}
+    for e in entries:
+        if e.get('source') == 'reader' and e.get('resets') and e['at'] >= out.get(e['account'], {}).get('at', ''):
+            out[e['account']] = {'at': e['at'], 'resets': pacing.parse_time(e['resets'])}
+    return out
+
+
 def record(path, readings, hits, now):
     """Appends the readers' readings that say something new and the limit messages not logged yet. Returns the lines written."""
     entries = pacing.read_log(path)
@@ -437,6 +461,7 @@ def record(path, readings, hits, now):
     for name, reset, ref, _text in hits:
         if ref in refs:
             continue
+        name = owner_by_reset(name, reset, {**last_resets(entries), **readings})
         refs.add(ref)
         note = f'a limit message in {ref}' + ('' if reset else ' (no reset time in it: the window rule applies)')
         written.append(pacing.append_log(path, name, 100, now, note, resets=reset, source='limit message', ref=ref))

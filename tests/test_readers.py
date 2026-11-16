@@ -139,6 +139,22 @@ class ParseTest(unittest.TestCase):
             pacing.append_log(path, 'agy-gemini', 60, NOW + timedelta(minutes=2), 'by hand')
             self.assertEqual(readers.record(path, reading, [], NOW + timedelta(minutes=3)), [])   # a person's reading stays
 
+    def test_a_limit_message_goes_to_the_cap_that_resets_then(self):
+        argon = NOW + timedelta(days=4, hours=12)
+        readings = {'agy-gemini': {'used': 0.0, 'resets': NOW + timedelta(hours=5)},
+                    'agy-gemini-argon': {'used': 100.0, 'resets': argon}}
+        self.assertEqual(readers.owner_by_reset('agy-gemini', argon + timedelta(seconds=30), readings), 'agy-gemini-argon')
+        self.assertEqual(readers.owner_by_reset('agy-gemini', NOW + timedelta(hours=5), readings), 'agy-gemini')
+        self.assertEqual(readers.owner_by_reset('agy-gemini', None, readings), 'agy-gemini')
+        self.assertEqual(readers.owner_by_reset('agy-gemini', NOW + timedelta(days=2), readings), 'agy-gemini')
+        with tempfile.TemporaryDirectory() as t:
+            path = os.path.join(t, 'usage.jsonl')
+            readers.record(path, readings, [('agy-gemini', argon, 'run-agy-1:4', 'limit')], NOW)
+            self.assertEqual(pacing.latest(pacing.read_log(path), 'agy-gemini')['used'], 0.0)
+            readers.record(path, {}, [('agy-gemini', argon, 'run-agy-2:4', 'limit')], NOW)   # a run: the log's readings place it
+            self.assertEqual(pacing.latest(pacing.read_log(path), 'agy-gemini')['used'], 0.0)
+            self.assertEqual(pacing.latest(pacing.read_log(path), 'agy-gemini-argon')['ref'], 'run-agy-2:4')
+
     def test_a_window_not_started_yet_starts_now(self):
         self.assertEqual(readers.not_started(NOW + timedelta(hours=5, seconds=4), '5h', NOW), NOW + timedelta(hours=5))
         self.assertEqual(readers.not_started(NOW + timedelta(hours=2), '5h', NOW), NOW + timedelta(hours=2))

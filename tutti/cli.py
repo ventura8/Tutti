@@ -2197,10 +2197,26 @@ def on_client(cfg, a, argv):
     return 1
 
 
+def parse(argv):
+    """The parsed command line. `tutti devices lease <d> [<d2>] --runner <m> --who <s> -- <command>` (the dispatcher's own
+    form) puts the command after the options: argparse fills `names` before them and then refused the rest as
+    'unrecognized arguments', so every dispatched RoRadio shard failed before it ran (2026-11-16). Those words join
+    `names`, where the lease splits devices from the command at `--`. `tutti test <track> -- <command>` drops the `--`."""
+    a, extra = parser().parse_known_args(argv)
+    if extra:
+        if getattr(a, 'cmd', None) == 'devices' and getattr(a, 'action', None) == 'lease':
+            a.names = [*(a.names or []), *extra]
+        else:
+            parser().error('unrecognized arguments: ' + ' '.join(extra))
+    if getattr(a, 'cmd', None) == 'test' and a.command and a.command[0] == '--':
+        a.command = a.command[1:]
+    return a
+
+
 def main(argv=None):
     real = argv is None
     argv = sys.argv[1:] if argv is None else argv
-    a = parser().parse_args(argv)
+    a = parse(argv)
     if a.fn in (cmd_doctor, cmd_setup, cmd_self_update):  # they must work before any config exists
         return a.fn(None, a)
     # secrets are read from their files at the point of use, never inherited (docs/ARCHITECTURE.md, t116); the dashboard runs

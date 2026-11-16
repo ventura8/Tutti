@@ -1079,7 +1079,12 @@ def local_share(cfg, here, machines):
     row = next((m for m in machines or () if m.get('name') == name), None)
     if not here or not row or row.get('use_pct') is None:
         return here
-    return {**here, 'cores': max(1, share.scaled(here['cores'], row['use_pct']))}
+    cores = max(1, share.scaled(here['cores'], row['use_pct']))
+    # The load at the same share as the cores: the whole machine's load against Tutti's share of its cores left no room at
+    # all whenever someone used the computer (load 5.5 of 1 core), and no worker ran, agy-gemini included (2026-11-16).
+    load = here.get('load')
+    scaled_load = None if load is None else load * cores / max(1, here['cores'])
+    return {**here, 'cores': cores, 'load': scaled_load}
 
 
 def repo_files(cfg, run=subprocess.run):

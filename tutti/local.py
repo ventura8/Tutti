@@ -96,9 +96,24 @@ def threads_at_share(cfg, worker, now=None, idle_fn=None):
     return max(1, share.scaled(base, pct))   # a share of 0 still sends one thread, never Ollama's all
 
 
-def generate(cfg, worker, prompt, wait=False, low_priority=False, timeout=1800):
-    """One answer from the worker's model. wait=True retries forever while the host is down (for runs that must not skip)."""
+def wait_for_preempt(cfg, worker, poll=2, sleep=time.sleep):
+    """While Tutti's own job holds this machine's best model (tutti/brain.py's pre-emption), other work waits here between
+    its requests: nothing is killed, its state stays where it is, and it goes on as soon as the marker is lowered."""
+    from . import brain
+    waited = 0.0
+    machine = worker.get('machine') or next((n for n, m in (cfg.get('machines') or {}).items() if m.get('transport') == 'local'), '')
+    while brain.preempted_now(cfg, machine) is not None:
+        sleep(poll)
+        waited += poll
+    return waited
+
+
+def generate(cfg, worker, prompt, wait=False, low_priority=False, timeout=1800, own=False):
+    """One answer from the worker's model. wait=True retries forever while the host is down (for runs that must not skip).
+    own=True: Tutti's own job (tutti/brain.py), which never waits for its own pre-emption marker."""
     wait_for_yield(cfg, worker)
+    if not own:
+        wait_for_preempt(cfg, worker)
     while low_priority and others_busy(cfg):
         time.sleep(5)
     options = {'temperature': worker.get('temperature', 0.1), 'num_ctx': worker.get('num_ctx', 16384)}

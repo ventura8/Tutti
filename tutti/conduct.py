@@ -545,6 +545,8 @@ def run_local(cfg, agent, text, run, watch, out=None, reply_fn=local_reply):
     for _ in range(settings(cfg)['rounds']):
         # Tutti holds this conversation, so it compacts it itself at autocompact.threshold_pct of the model's window
         messages = autocompact.compact_messages(cfg, cfg['workers'][agent], messages)
+        if reply_fn is local_reply:
+            local.wait_for_preempt(cfg, cfg['workers'][agent])   # Tutti's own short job first; the conversation waits as it is
         reply = None if stopped(watch) else wait_reply(pool, reply_fn, cfg['workers'][agent], messages, watch)
         if reply is None:
             return 1, kept

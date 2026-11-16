@@ -70,7 +70,7 @@ def classify(m):
     kinds = ('translations',) if TRANSLATOR.search(name) else TIERS[tier]['kinds']
     return {'name': name, 'params_b': p, 'family': (m.get('details') or {}).get('family') or '', 'tier': tier,
             'kinds': list(kinds), 'code': bool(CODER.search(name)) and not TRANSLATOR.search(name),
-            'size_gb': round((m.get('size') or 0) / 2 ** 30, 1)}
+            'size_gb': round((m.get('size') or 0) / 2 ** 30, 1), 'quant': (m.get('details') or {}).get('quantization_level') or ''}
 
 
 def kind_of(task):

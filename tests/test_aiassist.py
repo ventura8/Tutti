@@ -142,39 +142,11 @@ class LocalOnly(Base):
 
 
 class Fallbacks(Base):
-    def test_no_model_up_answers_none_with_the_reason(self):
-        cfg = self.cfg(enabled=True)
-        answer, why = aiassist.ask_local(cfg, 'p', available=lambda w: (False, 'down'), generate=None)
-        self.assertIsNone(answer)
-        self.assertIn('pc down', why)
-
-    def test_a_model_that_fails_hands_over_to_the_next_and_the_analyst_goes_first(self):
-        cfg = self.cfg(enabled=True)
-        self.assertEqual(aiassist.local_workers(cfg), ['lap', 'pc'])
-        calls = []
-
-        def gen(cfg, w, prompt, **kw):
-            calls.append(w['model'])
-            if w['model'] == 'n':
-                raise RuntimeError('gone')
-            return 'ok'
-        self.assertEqual(aiassist.ask_local(cfg, 'p', available=lambda w: (True, ''), generate=gen), ('ok', 'pc'))
-        self.assertEqual(calls, ['n', 'm'])
-
     def test_a_rate_limit_stays_real_whatever_the_model_says(self):
         cfg = self.cfg(enabled=True)
         t = {'attempts': [{'ok': False, 'tail': 'Error: 429 Too Many Requests: rate limit reached'}]}
         aiassist.examine_attempt(cfg, t, fake_ask('CLASS: flaky\nSUMMARY: try later'))
         self.assertEqual(t['attempts'][-1]['class'], 'real')
-
-    def test_a_reply_that_is_not_json_hands_over_to_the_next_model(self):
-        cfg = self.cfg(enabled=True)
-
-        def gen(cfg, w, prompt, **kw):
-            if w['model'] == 'n':
-                raise ValueError('Expecting value: line 1 column 1')
-            return 'ok'
-        self.assertEqual(aiassist.ask_local(cfg, 'p', available=lambda w: (True, ''), generate=gen), ('ok', 'pc'))
 
     def test_a_config_false_beats_the_dashboards_switch(self):
         cfg = self.cfg(enabled=False)
@@ -193,10 +165,6 @@ class Fallbacks(Base):
         self.assertEqual(aiassist.decisions(cfg, ask, NOW + 60), [])
         self.assertEqual(len(ask.prompts), 1)
         self.assertEqual(backlog.load(cfg)['tasks'][0]['sized'], 'heuristic')
-
-    def test_off_never_asks_a_model(self):
-        cfg = self.cfg(enabled=True, local=False)
-        self.assertEqual(aiassist.ask_local(cfg, 'p', available=lambda w: 1 / 0), (None, 'local AI is off'))
 
     def test_quick_classes(self):
         self.assertEqual(aiassist.classify_quick('Error: connect ETIMEDOUT 10.0.0.1:443'), 'flaky')

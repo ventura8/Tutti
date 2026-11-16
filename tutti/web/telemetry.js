@@ -136,7 +136,13 @@ function renderAiAssist(a) {
         el('div', { class: 'row__name' }, `${t.path}: ${t.old} → ${t.new}`, el('span', { class: 'row__kind', text: t.why })),
         t.undone ? chip('undone', 'idle') : el('button', { class: 'btn', type: 'button', 'data-control': 'aiassist-undo',
             onclick: () => void telemetrySwitch('/api/ai-assist', { undo: t.id }, 'The change was not undone.') }, 'Undo')));
+    const brain = a.brain || { line: '', parks: [] };
+    const ub = a.unblocker || { recent: [] };
     $('aiassist').replaceChildren(
+        el('p', { class: 'row__name', 'data-field': 'brain-line', text: brain.line }),
+        el('p', { class: 'row__note', text: `This week: ${brain.local || 0} local, ${brain.online || 0} online, ${brain.wh || 0} Wh` }),
+        insightRows('Parked for Tutti\'s own job', brain.parks || [], (p) => p),
+        insightRows('Unblocker', ub.recent, (e) => `${e.id} (${e.kind}, ${e.by}): ${e.outcome}`),
         el('p', { class: 'row__note' }, ...['local', 'online', 'online_code', 'auto_tune'].map((k) => aiSwitch(k, a.switches[k]))),
         insightRows('Measured gains', a.gains, (g) => g),
         insightRows('Latest proposals', a.recent, (p) => `${p.title} (${p.by})`),

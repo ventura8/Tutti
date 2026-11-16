@@ -279,7 +279,7 @@ def backfill(cfg, ask_fn=None, now=None):
     waiting = [dict(t) for t in backlog.load(cfg)['tasks'] if t['status'] == 'needs-person' and not t.get('question')][:BACKFILL_MAX]
     if not waiting:
         return []
-    ask_fn = ask_fn or aiassist.ask_local
+    ask_fn = ask_fn or (lambda c, p: aiassist.ask_local(c, p, 'needs'))
     worded = {}
     for t in waiting:
         try:

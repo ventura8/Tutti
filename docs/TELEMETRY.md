@@ -161,10 +161,51 @@ ai_assist:
   auto_tune: true      # small parameter changes apply by themselves, undoable (default true)
   every_hours: 6       # the self-analysis round
   max_proposals: 5
-  local_worker: ''     # the ollama worker to ask first; empty: one that lists `analysis` under capabilities, then config order
+  local_worker: ''     # kept for old configs: the most capable free model always wins (below)
+  online_worker: auto  # the online fallback: a subscription CLI worker, or auto (the first with room within pacing)
+  preempt: true        # Tutti's own short jobs go first on the best model (false, or a list of kinds)
+  unblock: true        # the unblocker (below)
+  unblock_repos: []    # owner/name: failed pull-request checks rerun once per commit
   scout: ''            # the research scout; empty: the one with the research skill
   research_every: 7d
 ```
+
+### Tutti's own AI: the best free local model, always
+
+Every internal use of a model (a needs-question's wording, the welcome-back summary, Sentry triage, a scout's draft, task
+sizing, chat compaction, self-improvement proposals, the unblocker's diagnosis) goes through one helper,
+`tutti/brain.py`'s `ask`. `tests/test_brain.py` fails if any other module calls a model itself (the exceptions are the agent
+harnesses the owner picks: the conductor, chat, `tutti run` and `tutti translate`).
+
+- **Best** means the most capable model that is up and free now on *any* household machine: every model each machine has
+  (the fleet reading, refreshed after every probe, so a new model is a candidate at the next call), ranked by tier and
+  parameters scaled by the quantisation (Q8 1.0, Q5-6 0.95, Q4 0.9, below 0.8) plus fleet.score's per-kind bonus. No small
+  default wins while a larger model is free.
+- A machine whose yield flag is up (its owner's) or a server that does not answer within a second is skipped.
+- **Tutti first** (`preempt`, default true): when the best model is busy with other work (a delegated run, a project task,
+  chat), Tutti does not settle for a smaller one. It raises the machine's pre-emption marker; the other work's next request
+  waits (`local.wait_for_preempt`), keeping its conversation, worktree and run as they are; Tutti's job runs (bounded to
+  180 s) and the marker is lowered, so the other work goes on with nothing lost. A stale marker counts for 180 s at most.
+- No local model: the online fallback (`online_worker`; `auto` is the first subscription CLI worker whose account has room
+  within pacing), scrubbed as above.
+- The dashboard's AI assist card shows *Tutti's own AI: <model> on <machine> (best free)*, the week's local and online
+  calls with their watt-hours (`brain-use.json`), and lines such as *parked coder:7b work on pc for Tutti's own job (12 s)*.
+
+### The unblocker
+
+Each round (every 10 minutes, on the active main machine only) `tutti/unblocker.py` looks for blocked or failing work and
+clears what it can, at most 3 items a round and each at most once in 6 hours:
+
+| Found | What it does |
+| --- | --- |
+| a task whose recent failures are all usage limits | forgives those attempts and clears the backoff (no model needed) |
+| the same real failure again and again | the best free local model diagnoses the last failure; the task is queued again with the fix in its notes, so its next attempt edits a worktree and reruns the check. Local fails or the task is size L: an online agent, within pacing |
+| a parked task whose question the history decides | answers it (e.g. retry after usage limits); a real choice stays for the person |
+| a result that no longer rebases | queued again from scratch on the current main |
+| a failed PR check in `unblock_repos` | its failed jobs rerun once per commit |
+
+Idle machines with queued work: work held back by usage-limit failures is the first row; any other backoff (pacing, a quota window) is left alone on purpose. Only true decisions reach the needs queue. It never kills a process (the autopilot's watchdog ends a stuck run by its exact
+pid). Every attempt (what, local, online or rule, the outcome) is in `unblock.json` and on the AI assist card.
 
 What it does (`tutti/aiassist.py`, tested in `tests/test_aiassist.py`):
 

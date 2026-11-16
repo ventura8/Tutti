@@ -390,8 +390,17 @@ FIELDS = {
                                  '(logged, undo on the dashboard); larger ones wait for you.', 'switch'),
     'ai_assist.every_hours': field(LOOK_EVERY, 'How often the local model analyses the telemetry.', **HRS),
     'ai_assist.max_proposals': field('Proposals a round', 'At most this many; the day\'s task cap still holds.', 'number', min=1),
-    'ai_assist.local_worker': field('Local model', 'The ollama worker to ask first (empty: the first one up).', 'select',
-                                    choices_from='workers'),
+    'ai_assist.local_worker': field('Local model', 'Kept for old configs: Tutti\'s own AI now always takes the most capable '
+                                    'free model in the household (tutti/brain.py).', 'select', choices_from='workers'),
+    'ai_assist.online_worker': field('Online fallback', 'A subscription CLI worker asked when no local model answers, or auto: '
+                                     'the first one with room within pacing. Empty: no online fallback.', 'text'),
+    'ai_assist.preempt': field('Tutti first on the best model', 'true: Tutti\'s own short jobs park other work on the best local '
+                               'model (it waits, nothing is lost) and resume it after; false: never; or a list of the kinds that '
+                               'may (needs, welcome, triage, sizing, compaction, scout, self-improve, unblock, conductor).', **YAML),
+    'ai_assist.unblock': field('Unblocker', 'Each round Tutti finds blocked or failing work and clears what it can itself, '
+                               'local models first; only true decisions reach you.', 'switch', default=True),
+    'ai_assist.unblock_repos': field('Rerun red CI in', 'owner/name repositories whose failed pull-request checks the unblocker '
+                                     'reruns once per commit.', 'list', item='repository'),
     'ai_assist.scout': field('Research scout', 'The scout that researches (empty: the one with the research skill).', 'select',
                              choices_from='scouts'),
     'ai_assist.research_every': field('Research every', 'How often the online research and design review run, e.g. 7d.', 'text'),

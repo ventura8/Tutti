@@ -11,13 +11,14 @@ POLL = 5
 
 def wrap(command, user, cwd='', before=''):
     """The bash line (run in the PC's WSL, with Windows interop) that runs `command` (a cmd.exe line) in `user`'s
-    interactive session and exits with its exit code. `before` runs first in bash (a yield-flag check)."""
+    interactive session and exits with its exit code. `before` runs first in bash (a yield-flag check); what it puts in $tutti_after runs at the end."""
     q = shlex.quote
     name = 'tutti-ui-$$'
     d = f'/mnt/c/Users/{user}/AppData/Local/Temp/{name}'
     cd = f'cd /d {cwd}\r\n' if cwd else ''
     body = f'@echo off\r\n{cd}{command} > "%~dp0out.log" 2>&1\r\necho %ERRORLEVEL% > "%~dp0rc.txt"\r\n'
-    clean = f'schtasks.exe /delete /f /tn {name} > /dev/null 2>&1; rm -rf {d}'
+    # `before` may leave its own clean-up in $tutti_after (a trap of its own would be replaced by this one)
+    clean = f'schtasks.exe /delete /f /tn {name} > /dev/null 2>&1; rm -rf {d}; eval "${{tutti_after:-:}}"'
     return (f'{before + "; " if before else ""}d={d}; mkdir -p "$d" && printf %s {q(body)} > "$d/run.cmd" && '
             f'trap {q(clean)} EXIT && '
             f'schtasks.exe /create /f /tn {name} /ru {q(user)} /it /sc once /st 00:00 /tr "$(wslpath -w "$d")\\run.cmd" > /dev/null && '

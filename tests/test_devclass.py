@@ -122,6 +122,7 @@ class DesktopSession(unittest.TestCase):
             self.assertIn(part, line)
         self.assertNotIn('/rp', line)
         subprocess.run(['bash', '-n', '-c', line], check=True)
+        self.assertIn('tutti_after', line)
 
     def test_the_dispatcher_wraps_a_desktop_suite_and_checks_its_config(self):
         from tutti import winsession

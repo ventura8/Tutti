@@ -944,13 +944,14 @@ usage: tutti setup [-h] [--yes] [--ask] [--no-service] [--join JOIN] [--no-conne
 install the newest signed and checksummed release of Tutti (release installs)
 
 ```text
-usage: tutti self-update [-h] [--insecure-skip-verify] [--check] [--auto]
+usage: tutti self-update [-h] [--insecure-skip-verify] [--check] [--stage-only] [--auto]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
 | `--insecure-skip-verify` | offline only: install without checking the release's Sigstore signature (a loud warning; never with --auto) |  |
 | `--check` | only say whether a newer release is out |  |
+| `--stage-only` | verify and stage the release in a separate environment without activating it |  |
 | `--auto` | quiet no-op when turned off (self_update.enabled) or not a release install |  |
 
 ### `tutti machines`

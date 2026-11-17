@@ -633,7 +633,7 @@ def api(collector, headers, raw, flows=None):
         data = json.loads(raw or b'{}')
     except ValueError:
         data = None
-    action = (data or {}).get('action')
+    action = data.get('action') if isinstance(data, dict) else None
     who = getattr(collector, 'who', lambda _h: None)(headers)
     sub = (who or {}).get('sub') or 'owner'
     flows = flows or flows_of(collector.cfg)

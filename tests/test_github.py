@@ -259,6 +259,7 @@ class GitHubTest(unittest.TestCase):
         self.assertTrue(github.api(c, {}, b'{"action": "poll"}', flows)[1]['pending'])
         self.assertEqual(github.api(c, {}, b'{"action": "bogus"}', flows)[0], 400)
         self.assertEqual(github.api(c, {}, b'not json', flows)[0], 400)
+        self.assertEqual(github.api(c, {}, b'[1]', flows)[0], 400)   # a JSON array is invalid here; never AttributeError
         self.assertFalse(github.api(c, {}, b'{"action": "disconnect"}', flows)[1]['removed'])
         self.assertFalse(github.api(c, {}, b'{"action": "status"}', flows)[1]['connected'])
         gone = SimpleNamespace(cfg=self.cfg, who=lambda h: None)

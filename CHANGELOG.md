@@ -14,6 +14,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   inhibitor (`TUTTI_NO_DAEMONS`), and `tests/run.py` fails a test that leaves a process behind. A device's keep-awake loop
   is one per device and ends when its folder is gone; a tunnel's loop is one per tunnel (`flock`); the sleep inhibitor is
   one per Tutti process, held only while a job runs and ended with Tutti (`tail --pid`), never `sleep infinity`.
+- Dashboard API: `POST /api/github` now treats non-object JSON bodies as invalid requests and returns 400 instead of
+  crashing with `AttributeError`; a regression test covers JSON arrays.
 
 ### Added
 

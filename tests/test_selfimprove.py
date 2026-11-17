@@ -290,6 +290,36 @@ class Rounds(Base):
         self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'review')
         self.assertEqual(len(spawn.calls), calls_before)
 
+    def test_regular_task_is_reviewed_again_at_the_fixed_head_before_merge(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        spawn = finished_review()
+        requested = FakeGh(pr(reviewDecision='CHANGES_REQUESTED'))
+        selfimprove.tick(cfg, NOW, run=requested, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 1, run=requested, spawn=spawn)
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
+        with backlog.locked(cfg) as data:
+            data['tasks'][0]['status'] = 'review'  # the worker fixed and pushed the existing PR
+        fixed = FakeGh(pr(headRefOid='fixed123'))
+        selfimprove.tick(cfg, NOW + 2, run=fixed, spawn=spawn)
+        self.assertFalse([c for c in fixed.calls if c[1:3] == ['pr', 'merge']])
+        self.assertEqual(selfimprove.read_state(cfg)['reviews']['octo/tutti#7']['sha'], 'fixed123')
+        selfimprove.tick(cfg, NOW + 3, run=fixed, spawn=spawn)
+        [merge] = [c for c in fixed.calls if c[1:3] == ['pr', 'merge']]
+        self.assertEqual(merge[merge.index('--match-head-commit') + 1], 'fixed123')
+
+    def test_regular_task_missing_a_fresh_review_never_merges(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        gh = FakeGh(pr())
+        selfimprove.tick(cfg, NOW, run=gh, spawn=finished_review('1'))
+        selfimprove.tick(cfg, NOW + 1, run=gh, spawn=finished_review('1'))
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
     def test_open_threads_or_a_project_without_authority_never_merge(self):
         cfg = self.cfg()
         self.add_review_task(cfg, 'app', 3)

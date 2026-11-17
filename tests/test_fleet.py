@@ -1,9 +1,9 @@
-import unittest
 """The household's local models as workers (tutti/fleet.py) and the block resolver (tutti/resolver.py): discovery from the
 machines' readings, capability routing, the governor, overflow routing within one tick, fallback to the cloud, and the
 owner's one action. Throwaway repositories and fake spawns only; no machine or model server is called."""
 import os
 import subprocess
+import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
 

@@ -4,7 +4,9 @@
 
 1. `shellcheck` on the scripts and the installer;
 2. `ruff` (CI always has it; locally it is skipped when not installed);
-3. the unit tests, `python3 -m unittest discover -s tests`, in a temp `XDG_CONFIG_HOME` (never the owner's `grok.env`);
+3. the unit tests, `python3 tests/run.py`, in a temp `XDG_CONFIG_HOME` (never the owner's `grok.env`); the runner also
+   drops host `TUTTI_*` (except its own markers); a failure exits non-zero and stops the script (`set -e`), so a release
+   or CI run cannot pass with failing tests;
 4. the dashboard's browser tests, `tests/e2e` (below);
 5. a CLI smoke test of the example config.
 
@@ -12,7 +14,9 @@ CI (`.github/workflows/ci.yml`) runs `scripts/check.sh` on every pull request an
 hard gate. Install the pinned tools once with `python3 -m pip install -r requirements-dev.txt`.
 
 Rules for every test: a change in behaviour comes with a good case and a bad one; nothing runs against a real machine
-(tests use the `local` transport and temp folders); hosts are `*.example`.
+(tests use the `local` transport and temp folders); hosts are `*.example`. A test that isolates the environment passes a
+dict with its own temporary `XDG_CONFIG_HOME` (never `{}`, which must not fall back to the host `~/.config/tutti`) and
+drops host `TUTTI_*` variables; scout and device tests use a mock `grok.env` / mock device config only (t276).
 
 ## Browser tests
 

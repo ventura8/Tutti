@@ -15,6 +15,17 @@ sys.path[:0] = [HERE, os.path.dirname(HERE)]   # the tests' helpers, then the tu
 tmpdirs = importlib.import_module('tmpdirs')   # the module the tests import (tests/ is on the path, as discover does)
 os.environ['TUTTI_NO_DAEMONS'] = '1'   # no real keep-awake loop, tunnel or inhibitor from a test (tutti/procs.py)
 
+# A laptop's exported TUTTI_* / TUTTI_CONFIG must not reach the suite (t276); check.sh also sets a temp XDG_CONFIG_HOME.
+_KEEP_TUTTI = frozenset({'TUTTI_NO_DAEMONS', 'TUTTI_TEST_ROOT', 'TUTTI_TELEMETRY', 'TUTTI_OFFLINE'})
+
+
+def isolate_host():
+    """Drop host Tutti variables; always use a temp XDG so ~/.config/tutti (and a host XDG_CONFIG_HOME) is never opened."""
+    os.environ['XDG_CONFIG_HOME'] = tempfile.mkdtemp(prefix='tutti-test-xdg-')
+    for k in list(os.environ):
+        if k.startswith('TUTTI_') and k not in _KEEP_TUTTI:
+            del os.environ[k]
+
 
 # Python's own helpers of this runner (started once by the first multiprocessing test, they end with it)
 RUNNER_HELPERS = ('multiprocessing.resource_tracker', 'multiprocessing.forkserver')
@@ -87,6 +98,7 @@ ROOT = os.environ.get('TUTTI_TEST_ROOT', '')
 
 if __name__ == '__main__':
     # made here, not on import: a test's spawned child imports this file again
+    isolate_host()
     ROOT = os.environ['TUTTI_TEST_ROOT'] = os.environ['TMPDIR'] = tempfile.mkdtemp(prefix='tutti-tests-')
     suite = unittest.defaultTestLoader.discover(HERE, top_level_dir=HERE)
     result = unittest.TextTestRunner(resultclass=Guarded).run(suite)

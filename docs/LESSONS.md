@@ -283,6 +283,8 @@ owner saved a DSN, four tests posted to the real Sentry and failed (403) on the 
 
 **Rule.** A test that isolates the environment passes a dict that names its own temporary `XDG_CONFIG_HOME` (never `{}`)
 and patches `os.environ` to drop every `TUTTI_*` variable, so nothing on the machine can make it send or fail.
+`secretenv.get` / `file_names` also refuse the host file when an explicit env omits `XDG_CONFIG_HOME`, and
+`tests/run.py` drops host `TUTTI_*` at start (t276: scout/device tests on a laptop with a real `grok.env`).
 
 ## GitHub answers 201 to a review request it drops (2026-11-14)
 

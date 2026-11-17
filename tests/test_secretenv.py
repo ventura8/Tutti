@@ -38,6 +38,16 @@ class SecretEnv(unittest.TestCase):
         self.assertEqual(secretenv.scrub_self(env), ['TUTTI_GROK_KEY'])
         self.assertEqual(secretenv.scrub_self(env), [])
 
+    def test_an_explicit_env_without_xdg_never_reads_the_host_file(self):
+        # good: values from the dict; bad: env={} used to fall back to ~/.config/tutti/grok.env (t276 / LESSONS 2026-11-14)
+        self.assertEqual(secretenv.get('TUTTI_GROK_KEY', {'TUTTI_GROK_KEY': FAKE}), FAKE)
+        self.assertEqual(secretenv.get('TUTTI_GROK_KEY', {}), '')
+        self.assertEqual(secretenv.get('TUTTI_GROK_URL', {'OTHER': '1'}), '')
+        self.assertEqual(secretenv.get('TUTTI_GROK_KEY', {'XDG_CONFIG_HOME': ''}), '')
+        self.assertEqual(secretenv.file_names({}), set())
+        self.assertEqual(secretenv.file_names({'OTHER': '1'}), set())
+        self.assertEqual(secretenv.file_names({'XDG_CONFIG_HOME': ''}), set())
+
     def test_reexec_only_when_something_was_dropped(self):
         calls = []
         secretenv.reexec_clean(['/x', 'a'], lambda p, a: calls.append(a), {**self.env, 'TUTTI_GROK_KEY': FAKE})

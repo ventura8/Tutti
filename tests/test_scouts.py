@@ -1,5 +1,6 @@
 """Scouts (Grok Bot's webhook routine) and the review trial, against a fake webhook (a real HTTP server on 127.0.0.1) and a
-fake `gh` that keeps issues and comments in memory. Nothing leaves the machine; no real key, routine or repository is used."""
+fake `gh` that keeps issues and comments in memory. Nothing leaves the machine; no real key, routine, repository or host
+`~/.config/tutti/grok.env` is used (every env dict names a temporary `XDG_CONFIG_HOME`)."""
 import io
 import json
 import os
@@ -10,12 +11,12 @@ from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
+from unittest import mock
 
-from tutti import cli, config, dashboard, pacing, routing, scoutcmd, scouts, state, trial
+from tutti import cli, config, dashboard, groksetup, pacing, routing, scoutcmd, scouts, state, trial
 
 KEY = 'test-key-not-real'
 REPO = 'octo/app'
-ENV = {'TUTTI_GROK_URL': '', 'TUTTI_GROK_KEY': KEY}
 HOUR = 3600
 
 
@@ -103,9 +104,19 @@ def acc(verdict='on pace', used=30.0, panic=False, room=0):
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        self.xdg = os.path.join(self.tmp.name, 'xdg')
+        os.makedirs(os.path.join(self.xdg, 'tutti'))
         self.gh = FakeGh()
         self.hook = FakeHook(self.gh)
-        self.env = {**ENV, 'TUTTI_GROK_URL': self.hook.url}
+        # hermetic: never the owner's grok.env (secretenv reads the file under XDG_CONFIG_HOME first)
+        groksetup.save_env(os.path.join(self.xdg, 'tutti', 'grok.env'), self.hook.url, KEY)
+        self.env = {'XDG_CONFIG_HOME': self.xdg, 'TUTTI_GROK_URL': self.hook.url, 'TUTTI_GROK_KEY': KEY}
+        self.empty = {'XDG_CONFIG_HOME': os.path.join(self.tmp.name, 'empty-xdg')}
+        clean = {k: v for k, v in os.environ.items() if not k.startswith('TUTTI_')}
+        keep = {k: os.environ[k] for k in ('TUTTI_TEST_ROOT', 'TUTTI_TELEMETRY', 'TUTTI_OFFLINE') if k in os.environ}
+        patcher = mock.patch.dict(os.environ, {**clean, **keep, **self.env, 'TUTTI_NO_DAEMONS': '1'}, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         self.hook.close()
@@ -147,19 +158,31 @@ class ConfigTest(unittest.TestCase):
 class SecretsTest(unittest.TestCase):
     SC = {'name': 'grok', 'url_env': 'TUTTI_GROK_URL', 'key_env': 'TUTTI_GROK_KEY'}
 
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        # no grok.env under this XDG: values come only from the dict passed to secrets(); host TUTTI_* stay out of os.environ
+        self.base = {'XDG_CONFIG_HOME': os.path.join(self.tmp.name, 'xdg')}
+        clean = {k: v for k, v in os.environ.items() if not k.startswith('TUTTI_')}
+        keep = {k: os.environ[k] for k in ('TUTTI_TEST_ROOT', 'TUTTI_TELEMETRY', 'TUTTI_OFFLINE') if k in os.environ}
+        patcher = mock.patch.dict(os.environ, {**clean, **keep, **self.base, 'TUTTI_NO_DAEMONS': '1'}, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_missing_variables_are_named_never_their_values(self):
         with self.assertRaises(scouts.ScoutError) as e:
-            scouts.secrets(self.SC, {'TUTTI_GROK_KEY': KEY})
+            scouts.secrets(self.SC, {**self.base, 'TUTTI_GROK_KEY': KEY})
         self.assertIn('TUTTI_GROK_URL', str(e.exception))
         self.assertNotIn(KEY, str(e.exception))
 
     def test_the_key_from_stdin_and_a_pasted_bearer_prefix(self):
-        url, key = scouts.secrets(self.SC, {'TUTTI_GROK_URL': 'https://hooks.example/r'}, key_stdin=f'Bearer {KEY}\n')
+        url, key = scouts.secrets(self.SC, {**self.base, 'TUTTI_GROK_URL': 'https://hooks.example/r'},
+                                  key_stdin=f'Bearer {KEY}\n')
         self.assertEqual((url, key), ('https://hooks.example/r', KEY))
 
     def test_plain_http_is_refused_except_on_this_computer(self):
         with self.assertRaises(scouts.ScoutError) as e:
-            scouts.secrets(self.SC, {'TUTTI_GROK_URL': 'http://hooks.example/r', 'TUTTI_GROK_KEY': KEY})
+            scouts.secrets(self.SC, {**self.base, 'TUTTI_GROK_URL': 'http://hooks.example/r', 'TUTTI_GROK_KEY': KEY})
         self.assertIn('https://', str(e.exception))
         self.assertNotIn(KEY, str(e.exception))
 
@@ -169,14 +192,8 @@ class AskTest(Base):
         a = SimpleNamespace(scout='grok', task='What changed in mapbox-gl 4?', repo=None, skill='research', queue=False,
                             key_stdin=False, no_wait=False, timeout=0.005, **kw)
         out = io.StringIO()
-        old = dict(os.environ)
-        os.environ.update(self.env)
-        try:
-            with redirect_stdout(out):
-                rc = scoutcmd.ask(cfg, a, self.gh, scouts.post)
-        finally:
-            os.environ.clear()
-            os.environ.update(old)
+        with redirect_stdout(out):
+            rc = scoutcmd.ask(cfg, a, self.gh, scouts.post)
         return rc, out.getvalue()
 
     def test_ask_opens_an_issue_fires_the_webhook_and_returns_the_answer(self):
@@ -312,7 +329,7 @@ class TickTest(Base):
 
     def test_no_round_without_the_variables_or_with_auto_off(self):
         cfg = self.cfg(watches={'deps': {'every': '7d', 'task': 't'}})
-        self.assertEqual(scouts.tick(cfg, {}, env={}, gh_fn=self.gh), [])
+        self.assertEqual(scouts.tick(cfg, {}, env=self.empty, gh_fn=self.gh), [])
         off = self.cfg(auto=False, watches={'d': {'every': '1d', 'task': 't'}})
         self.assertEqual(scouts.tick(off, {}, env=self.env, gh_fn=self.gh), [])
         self.assertEqual(self.hook.calls, [])
@@ -320,7 +337,7 @@ class TickTest(Base):
 
 class ViewTest(Base):
     def test_not_set_up_shows_missing_names_and_the_owner_steps(self):
-        v = scouts.view(self.cfg(), {'grok-bot': acc()}, env={})
+        v = scouts.view(self.cfg(), {'grok-bot': acc()}, env=self.empty)
         self.assertEqual(v['items'][0]['missing'], ['TUTTI_GROK_URL', 'TUTTI_GROK_KEY'])
         self.assertTrue(any('POST to' in s for s in v['setup']))
         self.assertNotIn(KEY, json.dumps(scouts.view(self.cfg(), {}, env=self.env)))
@@ -348,7 +365,7 @@ class ViewTest(Base):
         cfg = self.cfg(review_trial={'repos': [REPO], 'prs': 2})
         c = dashboard.Collector(cfg, probe_fn=lambda m: routing.Probe(True, 1, 0.5, 4, False), available_fn=lambda w: (True, ''),
                                 activity_fn=lambda *a: {}, prs_fn=lambda c: {})
-        c.env = {}
+        c.env = dict(self.empty)   # never {}: that fell back to the host grok.env (t276)
         snap = c.snapshot()
         self.assertFalse(snap['scouts']['items'][0]['ready'])
         self.assertEqual(snap['scouts']['trial'][0]['limit'], 2)
@@ -373,7 +390,7 @@ class TrialTest(Base):
 
     def test_a_scout_failure_never_blocks_the_review(self):
         said = []
-        r = trial.in_trial(self.cfg(), REPO, 7, said.append, gh_fn=self.gh, env={})
+        r = trial.in_trial(self.cfg(), REPO, 7, said.append, gh_fn=self.gh, env=self.empty)
         self.assertIsNone(r)
         self.assertIn('the review goes on without it', said[0])
 
@@ -476,7 +493,10 @@ class CliTest(unittest.TestCase):
                     'kind': 'grok-bot-webhook', 'url_env': 'TUTTI_TEST_NO_URL', 'key_env': 'TUTTI_TEST_NO_KEY',
                     'reply': {'github_repo': REPO}}}}, f)
             out = io.StringIO()
-            with redirect_stdout(out):
+            clean = {k: v for k, v in os.environ.items() if not k.startswith('TUTTI_')}
+            keep = {k: os.environ[k] for k in ('TUTTI_TEST_ROOT', 'TUTTI_TELEMETRY', 'TUTTI_OFFLINE') if k in os.environ}
+            env = {**clean, **keep, 'XDG_CONFIG_HOME': os.path.join(d, 'xdg'), 'TUTTI_NO_DAEMONS': '1'}
+            with mock.patch.dict(os.environ, env, clear=True), redirect_stdout(out):
                 self.assertEqual(cli.main(['--config', path, 'scout', 'list']), 0)
                 self.assertEqual(cli.main(['--config', path, 'scout', 'setup']), 0)
                 self.assertEqual(cli.main(['--config', path, 'scout', 'ask', 'nope', 'x']), 2)

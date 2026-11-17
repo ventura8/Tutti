@@ -186,9 +186,13 @@ class ServerTest(unittest.TestCase):
         log = os.path.join(folder, 'usage.jsonl')
         now = pacing.parse_time(time.strftime('%Y-%m-%dT%H:%MZ', time.gmtime()))
         pacing.append_log(log, 'claude', 97, now - timedelta(minutes=5))
-        cls.cfg = cfg_of({'machines': {'here': {'host': 'local'}}, 'workers': {'cursor': {'kind': 'cli', 'command': ['x', '{prompt}']}},
-                          'accounts': {'claude': {'window': '7d', 'resets': (now + timedelta(days=3)).isoformat()}},
-                          'usage': {'log': log}}, folder)
+        # host not local: share.idle_seconds() must not turn a mocked free probe into busy on this laptop (t276)
+        cls.cfg = cfg_of({
+            'machines': {'here': {'host': 'pc.example'}},
+            'workers': {'cursor': {'kind': 'cli', 'command': ['x', '{prompt}']}},
+            'accounts': {'claude': {'window': '7d', 'resets': (now + timedelta(days=3)).isoformat()}},
+            'usage': {'log': log},
+        }, folder)
         collector = dashboard.Collector(cls.cfg, probe_fn=lambda m: routing.Probe(True, 1, 0.5, 4, False),
                                         available_fn=lambda w: (True, 'ok'), stored_fn=lambda m: None)
         collector.refresh()

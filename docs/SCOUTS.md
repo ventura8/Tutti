@@ -199,10 +199,11 @@ while the scout is not set up). It:
    folder, with no secret in its environment) and sends the test question "Say hello and name today's date", printing the answer.
 
 Tutti reads `~/.config/tutti/grok.env` itself (`$XDG_CONFIG_HOME/tutti/grok.env`) at the point of use, and the file wins
-over the shell. The key never travels in a process environment (backlog t116): every Tutti command drops `TUTTI_GROK_KEY`
-and `TUTTI_GROK_URL` from its own environment at start, so nothing it launches inherits them, and the dashboard runs
-itself again without them, so `/proc/<pid>/environ` holds neither. `tutti doctor` names a key still exported in the shell. Without a terminal
-(from an agent's tool) the command explains it needs one and prints the line to run.
+over the shell. An explicit env dict without `XDG_CONFIG_HOME` (tests) never opens the host file. The key never travels in a
+process environment (backlog t116): every Tutti command drops `TUTTI_GROK_KEY` and `TUTTI_GROK_URL` from its own environment
+at start, so nothing it launches inherits them, and the dashboard runs itself again without them, so `/proc/<pid>/environ`
+holds neither. `tutti doctor` names a key still exported in the shell. Without a terminal (from an agent's tool) the
+command explains it needs one and prints the line to run.
 
 By hand, `tutti scout setup` and the dashboard's Scouts card show the same steps:
 

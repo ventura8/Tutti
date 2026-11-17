@@ -36,19 +36,36 @@ def owned(name, env=None):
     return name in OWNED or name in file_names(env)
 
 
+def _secret_folders(env):
+    """Folders whose secret files may be read. An explicit `env` without a non-empty `XDG_CONFIG_HOME` reads none
+    (never the host `~/.config/tutti`; LESSONS 2026-11-14 / t276)."""
+    if env is None:
+        return [config.xdg_tutti_dir(os.environ)]
+    if env.get('XDG_CONFIG_HOME'):
+        return [config.xdg_tutti_dir(env)]
+    return []
+
+
 def file_names(env=None):
     from . import groksetup
-    return {k for f in FILES for k in groksetup.read_env_file(os.path.join(config.xdg_tutti_dir(env), f))}
+    return {k for folder in _secret_folders(env) for f in FILES
+            for k in groksetup.read_env_file(os.path.join(folder, f))}
 
 
 def get(name, env=None):
-    """The secret `name`: from its file first (the point of use), else from `env` (a test, or an old shell export)."""
+    """The secret `name`: from its file first (the point of use), else from `env` (a test, or an old shell export).
+
+    An explicit `env` without `XDG_CONFIG_HOME` never reads the host's `~/.config/tutti` (LESSONS 2026-11-14: `env={}`
+    used to fall back there and make laptop-only test failures). Pass a temporary `XDG_CONFIG_HOME` when the file should
+    be read."""
     from . import groksetup
-    for f in FILES:
-        v = groksetup.read_env_file(os.path.join(config.xdg_tutti_dir(env), f)).get(name, '')
-        if v.strip():
-            return v
-    return (os.environ if env is None else env).get(name, '')
+    source = os.environ if env is None else env
+    for folder in _secret_folders(env):
+        for f in FILES:
+            v = groksetup.read_env_file(os.path.join(folder, f)).get(name, '')
+            if v.strip():
+                return v
+    return source.get(name, '')
 
 
 def scrub_self(env=None):

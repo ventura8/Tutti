@@ -7,6 +7,15 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.24.2] - 2026-11-17
+
+### Fixed
+
+- Unit tests no longer read the host's `~/.config/tutti/grok.env` or `$TUTTI_*` / device config: `secretenv.get` /
+  `file_names` ignore the host file when an explicit env dict omits `XDG_CONFIG_HOME`, `tests/run.py` drops host `TUTTI_*`
+  at start, and `test_scouts` / `test_devices` use a temporary XDG home and mock device config; the dashboard ServerTest
+  uses a non-local host so laptop idle share cannot turn a mocked free probe into busy (t276).
+
 ## [0.24.1] - 2026-11-17
 
 ### Added

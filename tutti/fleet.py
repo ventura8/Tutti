@@ -70,7 +70,8 @@ def classify(m):
     if not name or NOT_TEXT.search(name):
         return None
     p = params_b(m)
-    tier = 'huge' if p >= 60 else 'strong' if p >= 14 else 'normal' if p >= 7 or not p else 'small'   # a size it does not show: a usual 7-9B
+    # a size it does not show: a usual 7-9B
+    tier = 'huge' if p >= 60 else 'strong' if p >= 14 else 'normal' if p >= 7 or not p else 'small'
     kinds = ('translations',) if TRANSLATOR.search(name) else TIERS[tier]['kinds']
     return {'name': name, 'params_b': p, 'family': (m.get('details') or {}).get('family') or '', 'tier': tier,
             'kinds': list(kinds), 'code': bool(CODER.search(name)) and not TRANSLATOR.search(name),

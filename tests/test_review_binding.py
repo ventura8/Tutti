@@ -2,6 +2,7 @@
 import json
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest import mock
@@ -26,7 +27,7 @@ class Binding(unittest.TestCase):
     def test_immutable_local_diff_even_when_branch_moves_away_and_back(self):
         calls = []
         base, head = 'b' * 40, 'a' * 40
-        file = {'filename': 'x.py', 'patch': '@@ -1 +1 @@\n-old\n+new', 'additions': 1, 'deletions': 1}
+        file = {'filename': 'x.py', 'status': 'modified', 'patch': '@@ -1 +1 @@\n-old\n+new', 'additions': 1, 'deletions': 1}
         def gh(args):
             calls.append(args)
             value = ({'base': {'sha': base}, 'head': {'sha': head}, 'changed_files': 1}
@@ -43,6 +44,13 @@ class Binding(unittest.TestCase):
             with self.subTest(change=change):
                 with mock.patch.dict(file, change), self.assertRaises(RuntimeError):
                     review.immutable_diff('o/r', 1, (base, head), gh)
+
+        with mock.patch.dict(file, {'status': 'renamed', 'previous_filename': 'old.py'}):
+            text = review.immutable_diff('o/r', 1, (base, head), gh)
+            self.assertIn('Previous file: "old.py"', text)
+            self.assertIn('Change: renamed', text)
+        with mock.patch.dict(file, {'status': 'renamed'}), self.assertRaises(RuntimeError):
+            review.immutable_diff('o/r', 1, (base, head), gh)
 
     def test_fallback_review_uses_recorded_revisions_and_rechecks_afterward(self):
         head, base = 'a' * 40, 'b' * 40
@@ -69,6 +77,47 @@ class Binding(unittest.TestCase):
             self.assertTrue(review.round_left(cfg, 'o/r', 1, 'local', head=first))
             self.assertEqual(review.round_left(cfg, 'o/r', 1, 'local', head=second), '')
             self.assertNotEqual(review.exhausted_round_result(first, 'rounds are done'), 0)
+
+    def test_abandoned_invocation_refunds_only_its_own_local_round_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {'project': {'state': d}, 'review': {'rounds': {'local': 1}}}
+            rev, other, token = f'{"a" * 40}..{"b" * 40}', f'{"c" * 40}..{"d" * 40}', 'a' * 32
+            review.count_round(cfg, 'o/r', 1, 'local', head=rev, invocation=token)
+            review.count_round(cfg, 'o/r', 1, 'local', head=other)
+            self.assertFalse(review.settle_round(cfg, 'o/r', 1, token, other, refund=True))
+            self.assertTrue(review.settle_round(cfg, 'o/r', 1, token, rev, refund=True))
+            self.assertTrue(review.settle_round(cfg, 'o/r', 1, token, rev, refund=True))
+            self.assertEqual(review.round_left(cfg, 'o/r', 1, 'local', head=rev), '')
+            self.assertTrue(review.round_left(cfg, 'o/r', 1, 'local', head=other))
+            review.count_round(cfg, 'o/r', 1, 'local', head=rev, invocation=token)
+            self.assertTrue(review.settle_round(cfg, 'o/r', 1, token, rev))
+            self.assertTrue(review.round_left(cfg, 'o/r', 1, 'local', head=rev))
+
+    @unittest.skipIf(review.fcntl is None, 'process locks are unavailable')
+    def test_simultaneous_rounds_do_not_lose_accounting(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {'project': {'state': d}, 'review': {'rounds': {'local': 40}}}
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                list(pool.map(lambda _: review.count_round(cfg, 'o/r', 1, 'local', head='base..head'), range(32)))
+            data, _ = review.rounds_done(cfg, 'o/r', 1)
+            self.assertEqual(data['o/r#1@base..head']['local'], 32)
+
+    def test_provider_rounds_are_scoped_to_revision_pair_and_limit_refunds_match(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {'project': {'state': d}, 'review': {'reviewers': ['coderabbit'], 'rounds': {'coderabbit': 1}}}
+            now, old, new = datetime.now(timezone.utc), 'base1..head1', 'base2..head2'
+            def ask(rev):
+                return review.ask_all(cfg, 'o/r', 1, now, {}, lambda _: None, lambda _: None, rev)[0]
+            with mock.patch.object(review, 'request_any', return_value=''), \
+                 mock.patch.object(review, 'skipped_until', return_value=None):
+                self.assertEqual(ask(old), ['coderabbit'])
+                self.assertEqual(ask(old), [])
+                self.assertEqual(ask(new), ['coderabbit'])
+            with mock.patch.object(review, 'events', return_value=[]), \
+                 mock.patch.object(review, 'note_limited', return_value=now):
+                review.note_all_limited(cfg, 'o/r', 1, {'coderabbit': 'limited'}, now, {}, lambda _: None, lambda _: None, new)
+            self.assertEqual(review.round_left(cfg, 'o/r', 1, 'coderabbit', head=new), '')
+            self.assertTrue(review.round_left(cfg, 'o/r', 1, 'coderabbit', head=old))
 
     def test_stale_or_missing_revisions_and_old_rounds_fail_closed(self):
         head, base = 'a' * 40, 'b' * 40

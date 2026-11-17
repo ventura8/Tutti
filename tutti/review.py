@@ -1,6 +1,7 @@
 """`tutti pr review <number>`: ask the automated reviewers, find out when none will come, and fall back to a cheap local
 review that is posted to the pull request. Reviewers are GitHub's Copilot code review and CodeRabbit; both may be absent,
 rate-limited (CodeRabbit's free plan says "Review limit reached") or simply never answer. Everything goes through `gh`."""
+import contextlib
 import hashlib
 import json
 import os
@@ -10,7 +11,12 @@ import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 
-from . import github, pacing, routing, state, tz, workers
+from . import durable, github, pacing, routing, state, tz, workers
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 COPILOT_LOGINS = ('copilot-pull-request-reviewer[bot]', 'copilot-pull-request-reviewer', 'Copilot')
 # the names the REST API has taken; 'Copilot' first (PRs #9-#20 of the Tutti repository). The answer is checked: GitHub
@@ -202,13 +208,19 @@ def immutable_diff(repo, number, revisions, gh_fn):
         patches = []
         for item in files:
             name, patch = item['filename'], item['patch']
+            status = item.get('status')
+            previous = item.get('previous_filename')
             additions, deletions = item['additions'], item['deletions']
             if (not isinstance(name, str) or not name or '\n' in name or not isinstance(patch, str) or not patch or
+                    status not in ('added', 'modified', 'removed', 'renamed', 'copied', 'changed') or
+                    (status in ('renamed', 'copied') and
+                     (not isinstance(previous, str) or not previous or '\n' in previous)) or
                     not isinstance(additions, int) or not isinstance(deletions, int) or
                     sum(line.startswith('+') for line in patch.splitlines()) != additions or
                     sum(line.startswith('-') for line in patch.splitlines()) != deletions):
                 raise ValueError('missing or incomplete text patch')
-            patches.append(f'File: {json.dumps(name)}\n{patch}\n')
+            origin = f'\nPrevious file: {json.dumps(previous)}' if status in ('renamed', 'copied') else ''
+            patches.append(f'Change: {status}\nFile: {json.dumps(name)}{origin}\n{patch}\n')
         return '\n'.join(patches)
     except (KeyError, TypeError, ValueError):
         raise RuntimeError('review: complete immutable diff unavailable (binary, truncated, or changed); '
@@ -424,22 +436,68 @@ def round_left(cfg, repo, number, who, head=None):
     return '' if used < allowed else f'its {allowed} review round(s) on this pull request are done (review.rounds)'
 
 
-def count_round(cfg, repo, number, who, step=1, head=None):
-    data, key = rounds_done(cfg, repo, number)
-    key = f'{key}@{head}' if head else key
-    data.setdefault(key, {})[who] = max(0, int(data.get(key, {}).get(who) or 0) + step)
+@contextlib.contextmanager
+def locked_rounds(cfg, require_lock=False):
+    """Serialize review accounting across simultaneous PRs; corrupt state must never be overwritten."""
     path = rounds_path(cfg)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path + '.tmp', 'w', encoding='utf8') as f:
-        json.dump(data, f, indent=1)
-    os.replace(path + '.tmp', path)
+    if fcntl is None and require_lock:
+        raise RuntimeError('review: process locks are unavailable; cannot safely account for review rounds')
+    with open(path + '.lock', 'a', encoding='utf8') as lock:
+        if fcntl:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            with open(path, encoding='utf8') as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            data = {}
+        if not isinstance(data, dict):
+            raise ValueError('review: round accounting is corrupt; inspect the state before retrying')
+        yield data
+        durable.dump_json(path, data, indent=1)
+
+
+def count_round(cfg, repo, number, who, step=1, head=None, invocation=None):
+    key = f'{repo}#{number}' + (f'@{head}' if head else '')
+    with locked_rounds(cfg, require_lock=bool(invocation)) as data:
+        if invocation:
+            if not re.fullmatch(r'[0-9a-f]{32}', invocation):
+                raise ValueError('review: invalid invocation ID; cannot safely account for the local round')
+            pending = data.setdefault('_pending', {})
+            if not isinstance(pending, dict) or invocation in pending:
+                raise ValueError('review: duplicate or corrupt pending review round')
+            pending[invocation] = {'key': key, 'who': who}
+        data.setdefault(key, {})[who] = max(0, int(data.get(key, {}).get(who) or 0) + step)
+
+
+def settle_round(cfg, repo, number, invocation, head, refund=False):
+    """Remove this exact invocation marker, optionally refunding only its abandoned local round."""
+    if not isinstance(invocation, str) or not re.fullmatch(r'[0-9a-f]{32}', invocation):
+        return False
+    key = f'{repo}#{number}@{head}'
+    with locked_rounds(cfg, require_lock=True) as data:
+        pending = data.get('_pending', {})
+        if not isinstance(pending, dict):
+            return False
+        entry = pending.get(invocation)
+        if entry is None:
+            return True   # the invocation died before charging a local round
+        if entry != {'key': key, 'who': 'local'} or not isinstance(data.get(key), dict):
+            return False
+        if refund:
+            value = data[key].get('local')
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                return False
+            data[key]['local'] = value - 1
+        del pending[invocation]
+    return True
 
 
 def request_any(cfg, repo, number, who, gh_fn=gh):
     return ask_scout(cfg, repo, number, who, gh_fn) if who in (cfg.get('scouts') or {}) else request(repo, number, who, gh_fn)
 
 
-def ask_all(cfg, repo, number, since, policy, gh_fn, say):
+def ask_all(cfg, repo, number, since, policy, gh_fn, say, revision_key=None):
     """Asks every reviewer its policy and rounds allow. Returns (asked, absent {who: why}, held {bot: until})."""
     try:
         entries = pacing.read_log(state.usage_log_path(cfg))
@@ -447,7 +505,7 @@ def ask_all(cfg, repo, number, since, policy, gh_fn, say):
         entries = []
     asked, absent, held = [], {}, {}
     for who in cfg['review']['reviewers']:
-        why_not = 'review policy: skip' if policy.get(who) == 'skip' else round_left(cfg, repo, number, who)
+        why_not = 'review policy: skip' if policy.get(who) == 'skip' else round_left(cfg, repo, number, who, head=revision_key)
         if why_not:
             say(f'review: {who} is not asked: {why_not}')
             continue
@@ -461,19 +519,19 @@ def ask_all(cfg, repo, number, since, policy, gh_fn, say):
             say(f'review: {who} will not come: {why}')
         else:
             asked.append(who)
-            count_round(cfg, repo, number, who)
+            count_round(cfg, repo, number, who, head=revision_key)
             say(f'review: asked {who}')
     return asked, absent, held
 
 
-def note_all_limited(cfg, repo, number, found, since, held, gh_fn, say):
+def note_all_limited(cfg, repo, number, found, since, held, gh_fn, say, revision_key=None):
     """Each rate-limited reviewer: no round counted, its account noted until its reset, a bot's reset kept in `held`."""
     limited = [w for w, s in found.items() if s == 'limited']
     if not limited:
         return
     evs, now = events(repo, number, gh_fn), datetime.now(timezone.utc)
     for w in limited:
-        count_round(cfg, repo, number, w, -1)   # a limit answer is no round
+        count_round(cfg, repo, number, w, -1, head=revision_key)   # a limit answer is no round
         reset = note_limited(cfg, repo, number, w, evs, since, now)
         say(f'review: {w} is rate-limited: skipped until {tz.show(reset)}')
         if w in BOTS:
@@ -540,13 +598,14 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
         say('review: expected base and head cannot be verified: provide both commit IDs and review again')
         return 1
     since = datetime.now(timezone.utc) if expected_head else datetime.now(timezone.utc).replace(microsecond=0)
+    revision_key = f'{expected_base}..{expected_head}' if expected_head else None
     policy = {b: coderabbit_policy(cfg, repo, b) for b in BOTS}
-    asked, absent, held = ask_all(cfg, repo, number, since, policy, gh_fn, say)
+    asked, absent, held = ask_all(cfg, repo, number, since, policy, gh_fn, say, revision_key)
     timeout = float(r['timeout_minutes'] if timeout_minutes is None else timeout_minutes) * 60
     authors = {w: scout_author(cfg, w, gh_fn) for w in asked if w in (cfg.get('scouts') or {})}
     found = (wait_for(repo, number, asked, since, timeout, float(r['poll_seconds']), gh_fn, authors=authors,
                       expected_head=expected_head, **kw) if asked else {})
-    note_all_limited(cfg, repo, number, found, since, held, gh_fn, say)
+    note_all_limited(cfg, repo, number, found, since, held, gh_fn, say, revision_key)
     if hold_for_bots(cfg, repo, number, held, policy, say):
         return 4
     if any(s == 'reviewed' for s in found.values()):
@@ -557,7 +616,6 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
         return 0
     lines = absence_lines(found, absent, timeout)
     say('review: no automated review will come: ' + '; '.join(lines or ['no reviewer configured (review.reviewers)']))
-    revision_key = f'{expected_base}..{expected_head}' if expected_head else None
     spent = round_left(cfg, repo, number, 'local', head=revision_key)
     if spent:   # its rounds done: the earlier rounds were the review; 0 rounds: no one reviews, a person does
         say(f'review: no local review either: {spent}')
@@ -567,7 +625,8 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
         say(f'review: no fallback worker can review either ({args}): review the diff yourself')
         return 1
     say(f'review: a local review by {name} {" ".join(args)}'.rstrip())
-    count_round(cfg, repo, number, 'local', head=revision_key)
+    invocation = os.environ.get('TUTTI_REVIEW_INVOCATION') if revision_key else None
+    count_round(cfg, repo, number, 'local', head=revision_key, invocation=invocation)
     text = local_review(cfg, repo, number, name, args, gh_fn, revisions=revisions)
     if not revisions_match(repo, number, expected_head, revisions, gh_fn, say):
         return 1

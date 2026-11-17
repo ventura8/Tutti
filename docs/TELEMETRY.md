@@ -132,12 +132,13 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
    Tutti checks every page of review threads; missing, malformed, partial or cyclic results block a merge until GitHub can
    return a complete list. This check alone does not bind the destination branch atomically at merge time.
    Each review has its own completion file and a per-PR process lock. If no result arrives after the review timeout and
-   the recorded process is provably dead on this boot, Tutti retries at most twice; a held lock, unknown PID, another boot,
+   the recorded process is provably dead on this boot, Tutti retries at most twice and refunds only that invocation's
+   unfinished local review allowance; a held lock, unknown PID, another boot,
    or an unsupported process lock waits for inspection instead of risking overlapping reviews. Older records with no
    verifiable process identity also wait; an operator must confirm the old review is no longer running before clearing
    the stale record. Automatic review requires bot evidence on the exact head and ignores dismissed reviews and scout
    comments without commit identity. The local fallback reviews immutable base/head patches, verifying the complete file
-   count and line totals; binary, missing, oversized or truncated patches block automatic merging. Local rounds are
+   count, change and rename paths, and line totals; binary, missing, oversized or truncated patches block automatic merging. Provider and local rounds are
    counted per base/head pair and an exhausted round never counts as a successful new review. The head and base are checked again
    after review, and a previously stored unbound result cannot authorize a merge. Before requesting a merge, Tutti
    rechecks the recorded base and requires classic branch protection with strict up-to-date required status checks

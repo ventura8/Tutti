@@ -412,6 +412,34 @@ class Rounds(Base):
                 self.assertIn(key, selfimprove.read_state(cfg)['reviews'])
                 self.assertEqual(backlog.load(cfg)['tasks'][0]['review_restart_count'], selfimprove.REVIEW_RESTARTS)
 
+    @unittest.skipIf(selfimprove.fcntl is None, 'process locks are unavailable')
+    def test_dead_review_refunds_only_its_abandoned_local_round(self):
+        from tutti import review
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh, spawn = FakeGh(pr()), mock.Mock(return_value=SimpleNamespace(pid=1234))
+        with mock.patch.object(selfimprove.durable, 'boot_id', return_value='test-boot'), \
+             mock.patch.object(selfimprove, 'review_process_dead', return_value=True):
+            selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+            record = selfimprove.read_state(cfg)['reviews']['octo/tutti#7']
+            revision = f'{record["base"]}..{record["sha"]}'
+            review.count_round(cfg, 'octo/tutti', 7, 'local', head=revision, invocation=record['invocation'])
+            selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
+            self.assertNotIn('octo/tutti#7', selfimprove.read_state(cfg)['reviews'])
+            self.assertEqual(review.rounds_done(cfg, 'octo/tutti', 7)[0][f'octo/tutti#7@{revision}']['local'], 0)
+
+    @unittest.skipIf(selfimprove.fcntl is None, 'process locks are unavailable')
+    def test_result_written_during_recovery_is_not_discarded(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh, spawn = FakeGh(pr()), mock.Mock(return_value=SimpleNamespace(pid=1234))
+        with mock.patch.object(selfimprove.durable, 'boot_id', return_value='test-boot'), \
+             mock.patch.object(selfimprove, 'review_process_dead', return_value=True):
+            selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+            with mock.patch.object(selfimprove, 'review_result', side_effect=[None, '3']):
+                selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
+            self.assertIn('octo/tutti#7', selfimprove.read_state(cfg)['reviews'])
+
     def test_unknown_pid_boot_or_permission_never_counts_as_dead(self):
         with mock.patch.object(selfimprove.durable, 'boot_id', return_value='current'):
             self.assertIsNone(selfimprove.review_process_dead({'pid': None, 'boot': 'current'}))

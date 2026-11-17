@@ -509,7 +509,8 @@ def request_review(cfg, repo, number, spawn=subprocess.Popen, invocation=None, e
     try:
         with open(log, 'a', encoding='utf8') as f:
             child = spawn(['sh', '-c', script, 'review', *argv], stdout=f, stderr=f, stdin=subprocess.DEVNULL,
-                          start_new_session=True, pass_fds=(lock,), env={**os.environ, 'RC_FILE': rc})
+                          start_new_session=True, pass_fds=(lock,),
+                          env={**os.environ, 'RC_FILE': rc, 'TUTTI_REVIEW_INVOCATION': invocation})
         pid = getattr(child, 'pid', None)
         return {'started': True, 'pid': pid, 'boot': durable.boot_id(), 'invocation': invocation}
     finally:
@@ -598,11 +599,23 @@ def recover_review(cfg, task, reviews, key, pol, number, now):
     if lock is None:
         task['self_improve'] = 'review process lock is held or unavailable: cannot safely retry'
         return
-    os.close(lock)
     count = task.get('review_restart_count', 0)
-    if not isinstance(count, int) or isinstance(count, bool) or count < 0 or count >= REVIEW_RESTARTS:
-        task['self_improve'] = 'review failed to finish repeatedly: inspect its log before another retry'
+    try:
+        if review_result(cfg, pol['repo'], number, record.get('invocation')) is not None:
+            return   # the review finished between the first result check and taking its lock
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0 or count >= REVIEW_RESTARTS:
+            task['self_improve'] = 'review failed to finish repeatedly: inspect its log before another retry'
+            return
+        from . import review
+        revision = f'{record.get("base")}..{record.get("sha")}'
+        if not review.settle_round(cfg, pol['repo'], number, record.get('invocation'), revision, refund=True):
+            task['self_improve'] = 'review round accounting could not be verified: inspect it before retrying'
+            return
+    except (OSError, ValueError, RuntimeError):
+        task['self_improve'] = 'review round accounting could not be verified: inspect it before retrying'
         return
+    finally:
+        os.close(lock)
     task['review_restart_count'] = count + 1
     task['self_improve'] = 'review ended without a result: the next round safely retries it'
     reviews.pop(key, None)
@@ -717,6 +730,16 @@ def pending_review(cfg, t, pr, key, reviews, pol, number, now):
     """Wait for this invocation, re-review a new head, or safely schedule recovery of a dead process."""
     record = reviews[key] if isinstance(reviews[key], dict) else {}
     result = review_result(cfg, pol['repo'], number, record.get('invocation'))
+    if result is not None and record.get('bound_revision'):
+        from . import review
+        try:
+            revision = f'{record.get("base")}..{record.get("sha")}'
+            if not review.settle_round(cfg, pol['repo'], number, record.get('invocation'), revision):
+                t['self_improve'] = 'review round accounting could not be verified: inspect it before proceeding'
+                return True, None
+        except (OSError, ValueError, RuntimeError):
+            t['self_improve'] = 'review round accounting could not be verified: inspect it before proceeding'
+            return True, None
     if not record.get('bound_revision'):
         if result is not None:
             reviews.pop(key, None)

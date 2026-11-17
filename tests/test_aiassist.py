@@ -142,11 +142,12 @@ class LocalOnly(Base):
 
 
 class Fallbacks(Base):
-    def test_a_rate_limit_stays_real_whatever_the_model_says(self):
+    def test_a_rate_limit_stays_environment_whatever_the_model_says(self):
+        # t260: was 'real' so the ladder moved on; now environment (not the task), still escalates via QUOTA_SIDE
         cfg = self.cfg(enabled=True)
         t = {'attempts': [{'ok': False, 'tail': 'Error: 429 Too Many Requests: rate limit reached'}]}
         aiassist.examine_attempt(cfg, t, fake_ask('CLASS: flaky\nSUMMARY: try later'))
-        self.assertEqual(t['attempts'][-1]['class'], 'real')
+        self.assertEqual(t['attempts'][-1]['class'], 'environment')
 
     def test_a_config_false_beats_the_dashboards_switch(self):
         cfg = self.cfg(enabled=False)
@@ -170,9 +171,23 @@ class Fallbacks(Base):
         self.assertEqual(aiassist.classify_quick('Error: connect ETIMEDOUT 10.0.0.1:443'), 'flaky')
         self.assertEqual(aiassist.classify_quick('bash: ruff: command not found'), 'environment')
         self.assertEqual(aiassist.classify_quick('OSError: [Errno 28] No space left on device'), 'environment')
+        for env in ('HTTP 429: rate limit reached', "You've hit your usage limit",
+                    'the worker\'s CLI refused a command: tool read_file auto-denied',
+                    'jetski: a tool required the "command" permission'):
+            self.assertEqual(aiassist.classify_quick(env), 'environment', env)
         for real in ('AssertionError: 3 != 4', "AssertionError: 'room' != 'zoom'", 'test_retry_after_timeout FAILED',
-                     'HTTP 429: rate limit reached', 'bloom filter killed the test'):
+                     'bloom filter killed the test', 'AssertionError: expected status 429, got 500',
+                     'test_handles_http_429 FAILED'):
             self.assertEqual(aiassist.classify_quick(real), 'real', real)
+            self.assertIsNone(aiassist.RATE_RX.search(real), real)   # model CLASS: real must still be allowed
+
+    def test_an_assertion_about_429_is_not_a_usage_limit(self):
+        # CodeRabbit on #616: bare 429 in test output must not force environment over CLASS: real
+        cfg = self.cfg(enabled=True)
+        tail = 'AssertionError: expected status 429, got 500'
+        t = {'attempts': [{'ok': False, 'tail': tail, 'class': 'real', 'step': 'agy', 'why': 'x'}]}
+        self.assertTrue(aiassist.examine_attempt(cfg, t, fake_ask('CLASS: real\nSUMMARY: the handler returned 500')))
+        self.assertEqual(t['attempts'][-1]['class'], 'real')
 
     def test_the_class_comes_from_the_class_line_only(self):
         self.assertEqual(aiassist.parse_class('CLASS: flaky\nSUMMARY: a real bug'), 'flaky')
@@ -226,6 +241,28 @@ class Escalation(Base):
         self.assertEqual(self.next_step(cfg, ['bash: npx: command not found']), 'one')
         self.assertEqual(self.next_step(cfg, ['AssertionError: 3 != 4']), 'two')
         self.assertEqual(self.next_step(cfg, ['Connection reset by peer', 'Connection reset by peer']), 'two')   # once only
+
+    def test_a_usage_limit_is_environment_but_still_leaves_the_spent_step(self):
+        cfg = self.ladder(enabled=True)
+        self.assertEqual(aiassist.classify_quick("You've hit your usage limit"), 'environment')
+        # the account is spent: escalate even though the class is environment (t260)
+        attempts = [{'step': 'one', 'ok': False, 'class': 'environment', 'why': 'the worker hit its usage limit'}]
+        self.assertEqual(autopilot.candidates(cfg, {'repo': 'app', 'attempts': attempts})[0], 'two')
+
+    def test_a_cli_refusal_is_environment_but_still_leaves_the_step(self):
+        # CodeRabbit on #616: first CLI refusal must advance like a usage limit, not stay on the same step
+        cfg = self.ladder(enabled=True)
+        why = "the worker's CLI refused a command: tool read_file auto-denied"
+        attempts = [{'step': 'one', 'ok': False, 'class': 'environment', 'why': why}]
+        self.assertEqual(autopilot.candidates(cfg, {'repo': 'app', 'attempts': attempts})[0], 'two')
+
+    def test_a_model_cannot_reclassify_usage_limit_or_cli_refusal_as_real(self):
+        # t260: examine_attempt must keep ENV_SIDE as environment whatever CLASS the model answers
+        cfg = self.cfg(enabled=True)
+        for tail in ("You've hit your usage limit", 'tool read_file auto-denied'):
+            t = {'attempts': [{'ok': False, 'tail': tail, 'class': 'environment', 'step': 'agy', 'why': 'x'}]}
+            self.assertTrue(aiassist.examine_attempt(cfg, t, fake_ask('CLASS: real\nSUMMARY: ignore')))
+            self.assertEqual(t['attempts'][-1]['class'], 'environment', tail)
 
     def test_with_ai_assist_off_the_ladder_is_unchanged(self):
         cfg = self.ladder()

@@ -294,6 +294,19 @@ class FailureTest(Base):
         t = task('t1', attempts=[quota, {**quota, 'step': 'agy-claude'}])
         self.assertEqual(autopilot.should_park(cfg, t), '')            # the worker's own problem: never parks the task
 
+    def test_env_side_failures_do_not_count_or_park_on_the_strongest_step(self):
+        # t260: usage limits, CLI refusals and no-report must not fill max_attempts or park as no_progress
+        cfg = self.cfg(max_attempts=2, no_progress=2)
+        quota = {**attempt('pc', 'q'), 'why': 'the worker hit its usage limit'}
+        self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=[quota, quota])), '')
+        refused = {**attempt('pc', 'r'), 'why': "the worker's CLI refused a command: tool read_file auto-denied"}
+        self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=[refused, refused])), '')
+        norep = {**attempt('pc', 'n'), 'why': 'the run ended without a report'}
+        self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=[norep, norep])), '')
+        # a real failure still parks once the cap of counted attempts is reached
+        real = [attempt('cursor', 's1'), attempt('cursor', 's2')]
+        self.assertIn('max_attempts', autopilot.should_park(cfg, task('t1', attempts=real)))
+
     def test_a_worker_exit_says_whether_it_was_its_limit_or_its_time(self):
         r = {'worker_rc': 3}
         self.assertEqual(autopilot.signature(r, {}, 'Individual quota reached. Resets in 147h44m29s.')[1], 'the worker hit its usage limit')
@@ -303,6 +316,26 @@ class FailureTest(Base):
         # a task about rate limits, quoted in Tutti's summary, is not the worker's limit
         summary = 'boom\nrun 1-2: agy exit 3; 0 file(s) changed\ntask      Add a rate limit to the API'
         self.assertEqual(autopilot.signature(r, {}, summary)[1], 'the worker exited 3')
+        # no report after a usage limit in the log is still the account's limit (t260)
+        self.assertEqual(autopilot.signature(None, {}, "You've hit your usage limit. Resets in 3h.")[1],
+                         'the worker hit its usage limit')
+        self.assertEqual(autopilot.signature(None, {}, 'worker crashed')[1], 'the run ended without a report')
+
+    def test_an_http_429_worker_exit_is_excluded_from_attempt_count(self):
+        # CodeRabbit on #616: attempt_of must normalise HTTP 429 to the quota why so park_reason does not count it
+        cfg = self.cfg(max_attempts=2)
+        runs = delegate.runs_dir(cfg)
+        os.makedirs(runs, exist_ok=True)
+        with open(os.path.join(runs, '1-1.log'), 'w', encoding='utf8') as f:
+            f.write('HTTP 429 Too Many Requests\n')
+        t = {**task('t1'), 'run': '1-1', 'step': 'pc', 'worker': 'pc', 'model': '', 'started': 0, 'gates': None}
+        a = autopilot.attempt_of(cfg, t, {'rc': 1, 'worker_rc': 1, 'checks': [], 'changed': ['a'], 'stat': '', 'diff': None}, 0)
+        self.assertEqual(a['why'], 'the worker hit its usage limit')
+        self.assertTrue(autopilot.env_failure(a['why']))
+        self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=[a, dict(a)])), '')
+        # a bare 429 in a check assertion is still a real attempt
+        bare = autopilot.signature({'worker_rc': 1}, {}, 'AssertionError: expected status 429, got 500')[1]
+        self.assertEqual(bare, 'the worker exited 1')
 
     def test_an_exhausted_ladder_parks_even_when_the_last_two_differ(self):
         cfg = self.cfg(ladder=['agy-gemini', 'agy-claude'])

@@ -189,7 +189,13 @@ def cmd_self_update(cfg, a):
     skip = bool(getattr(a, 'insecure_skip_verify', False)) and not a.auto   # never unattended
     if skip:
         say(f'self-update: {install.SKIP_WARNING}')
-    code, msg = install.self_update(home_dir, check_only=a.check, skip_verify=skip)
+    if getattr(a, 'stage_only', False):
+        if a.check or skip or a.auto:
+            say('self-update: --stage-only requires signature verification and cannot be combined with --check or --auto')
+            return 2
+        code, msg = install.stage_update(home_dir)
+    else:
+        code, msg = install.self_update(home_dir, check_only=a.check, skip_verify=skip)
     say(msg)
     return code
 
@@ -1765,6 +1771,7 @@ def parser():
     s.add_argument('--insecure-skip-verify', action='store_true',
                    help='offline only: install without checking the release\'s Sigstore signature (a loud warning; never with --auto)')
     s.add_argument('--check', action='store_true', help='only say whether a newer release is out')
+    s.add_argument('--stage-only', action='store_true', help='verify and stage the release in a separate environment without activating it')
     s.add_argument('--auto', action='store_true', help='quiet no-op when turned off (self_update.enabled) or not a release install')
     s = add('machines', cmd_machines, 'probe every machine: free slots, load, yield flag (add-android: set up a Termux machine)')
     s.add_argument('action', nargs='?', choices=['add-android'], help='print the one-time Termux setup and the config lines')

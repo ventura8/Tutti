@@ -113,6 +113,11 @@ version. An update reads the latest release's `SHA256SUMS`, downloads the newer 
 requirements and only then moves `current`; any failure leaves the running version in place. `tutti self-update
 --check` only says whether one is out. Opt out with `self_update: {enabled: false}` in the config.
 
+`tutti self-update --stage-only` verifies the signed release and checksum, then prepares a unique private staging directory
+with the release and its own Python environment. It never changes `current` or the shared environment; the printed path
+is for inspection, not automatic activation. Staging alone does not provide uninterrupted dashboard updates. Remove an
+unneeded staging directory when finished. It cannot be combined with `--check`, `--auto`, or `--insecure-skip-verify`.
+
 ### How a release is checked
 
 A checksum alone only proves the files match each other. Every release's `SHA256SUMS` is also **signed with Sigstore,

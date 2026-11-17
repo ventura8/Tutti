@@ -12,9 +12,9 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest import mock
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest import mock
 
 from tutti import chat, chatctl, chatrun, controls, dashboard, move
 
@@ -1168,7 +1168,6 @@ class ChatCliArgs(unittest.TestCase):
         self.assertEqual(chatctl.chat_args({'command': ['cursor-agent'], 'chat_args': []}), [])
 
     def test_the_chat_work_folder_is_under_the_state_dir(self):
-        import tempfile
         from tutti import chatrun
         with tempfile.TemporaryDirectory() as d:
             with mock.patch('tutti.config.state_dir', return_value=d):

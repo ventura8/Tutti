@@ -242,6 +242,91 @@ class Sleep(Base):
         self.assertEqual(sleepwatch.max_delay(lambda *a, **k: SimpleNamespace(stdout='t 5000000')), 4.0)
         self.assertIsNone(sleepwatch.parse('something else'))
 
+    def _popen_lines(self, lines):
+        """Fake Popen: only the gdbus monitor yields lines; inhibit is a silent delay lock."""
+        def popen(argv, **kw):
+            out = iter(lines) if argv[:2] == ['gdbus', 'monitor'] else None
+            return SimpleNamespace(argv=argv, stdout=out, terminate=mock.Mock())
+        return popen
+
+    def _watch_lines(self, lines, cfg, down, up, popen=None):
+        """Feed fake gdbus PrepareForSleep lines into watch; no real logind."""
+        sleepwatch.watch(cfg, popen=popen or self._popen_lines(lines), delay=lambda: 4.0, down=down, up=up)
+
+    def test_rapid_sleep_wake_cycles_keep_host_presence_in_step(self):
+        """Duplicate and rapid PrepareForSleep edges (fake logind) never double-handover or leave a stale host."""
+        cfg = self.cfg()
+        os.makedirs(self.state, exist_ok=True)
+        # three full cycles with a duplicate sleep and a duplicate wake in the middle
+        flags = ['true', 'true', 'false', 'false', 'true', 'false', 'true', 'false']
+        lines = [f'/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep ({v},)\n' for v in flags]
+        edges = []
+
+        def down(c, w, b):
+            sleepwatch.going_down(c, w, b, running=lambda *a: [], end=lambda p: None)
+            edges.append(('down', presence.read(c)['targets'][sleepwatch.HOST]['state']))
+
+        def up(c):
+            sleepwatch.woke(c, start=lambda *a: 'log')
+            edges.append(('up', presence.read(c)['targets'][sleepwatch.HOST]['state']))
+
+        self._watch_lines(lines, cfg, down, up)
+        self.assertEqual(edges, [('down', presence.ASLEEP), ('up', presence.PRESENT)] * 3)
+        self.assertEqual(presence.read(cfg)['targets'][sleepwatch.HOST]['state'], presence.PRESENT)
+        self.assertEqual(presence.read(cfg)['resume'], [])
+
+    def test_a_sleep_with_no_delay_lock_still_marks_the_host_asleep(self):
+        """When the inhibit spawn fails, the sleep edge still updates presence (lock must not gate the latch)."""
+        cfg = self.cfg()
+        os.makedirs(self.state, exist_ok=True)
+        lines = ['/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (true,)\n',
+                 '/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (false,)\n']
+        n, seen = {'i': 0}, []
+        base = self._popen_lines(lines)
+
+        def popen(argv, **kw):
+            n['i'] += 1
+            if n['i'] == 1:   # first inhibit fails
+                raise OSError('no systemd-inhibit')
+            return base(argv, **kw)
+
+        def down(c, w, b):
+            sleepwatch.going_down(c, w, b, running=lambda *a: [], end=lambda p: None)
+            seen.append(presence.read(c)['targets'][sleepwatch.HOST]['state'])
+
+        self._watch_lines(lines, cfg, down, lambda c: sleepwatch.woke(c, start=lambda *a: 'log'), popen=popen)
+        self.assertEqual(seen, [presence.ASLEEP])
+        self.assertEqual(presence.read(cfg)['targets'][sleepwatch.HOST]['state'], presence.PRESENT)
+
+    def test_a_leading_wake_and_shutdown_edges_stay_latched(self):
+        """A PrepareForSleep(false) before any sleep is ignored; shutdown true/false still flips host presence once each."""
+        cfg = self.cfg()
+        os.makedirs(self.state, exist_ok=True)
+        lines = [
+            '/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (false,)\n',
+            '/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForShutdown (true,)\n',
+            '/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForShutdown (true,)\n',
+            '/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForShutdown (false,)\n',
+        ]
+        edges = []
+
+        def down(c, w, b):
+            sleepwatch.going_down(c, w, b, running=lambda *a: [], end=lambda p: None)
+            edges.append(('down', w, presence.read(c)['targets'][sleepwatch.HOST]['state']))
+
+        def up(c):
+            sleepwatch.woke(c, start=lambda *a: 'log')
+            edges.append(('up', presence.read(c)['targets'][sleepwatch.HOST]['state']))
+
+        self._watch_lines(lines, cfg, down, up)
+        self.assertEqual(edges, [('down', 'shutdown', presence.ASLEEP), ('up', presence.PRESENT)])
+        self.assertEqual(presence.read(cfg)['targets'][sleepwatch.HOST]['state'], presence.PRESENT)
+
+    def test_parse_accepts_gdbus_prepare_for_sleep_shapes(self):
+        self.assertEqual(sleepwatch.parse('PrepareForSleep (true,)'), ('sleep', True))
+        self.assertEqual(sleepwatch.parse('PrepareForSleep (false)'), ('sleep', False))
+        self.assertEqual(sleepwatch.parse('PrepareForShutdown(true,)'), ('shutdown', True))
+
 
 WRITER = '''
 import os, sys, random

@@ -34,10 +34,13 @@ how often the target was here at each hour.
   - stops its running jobs, as "stop now" does, keeping each agent run's partial work on `tutti/handoff/<track>`;
   - requeues its dispatch leases, with no attempt counted;
   - notes the jobs to start again;
-  - flushes its state.
+  - flushes its state and marks `host:this` **asleep**.
 
-  Then it lets go of the lock. On wake, or at the next start, the noted jobs start again. Turn this off with
-  `presence.sleep_watch: false`.
+  Then it lets go of the lock. On wake (`PrepareForSleep(false)`), or at the next start, the host is **present** again and
+  the noted jobs start again. Sleep and wake are edge-latched: a duplicate signal, or a rapid suspend/resume burst, never
+  double-hands work over and never leaves the host stuck asleep or present. The latch does not depend on the delay lock
+  still being alive, so a failed `systemd-inhibit` spawn still updates presence. Covered by unit tests that feed fake
+  gdbus `PrepareForSleep` lines (including rapid cycles); turn the watcher off with `presence.sleep_watch: false`.
 - **Learned profiles.** Each target keeps a 7 × 24 profile (hours present out of hours seen, by local weekday and hour in the target's own zone), as the
   owner's profile does. A long shard (suite `minutes` of at least `presence.long_minutes`, default 30) never goes to a
   target that usually leaves or sleeps in the hours the shard would take: its share present must stay above

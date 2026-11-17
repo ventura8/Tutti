@@ -118,25 +118,44 @@ def _resume_run(cfg, spec, j, start):
     return start(cfg, args, f'run-{track}')
 
 
+def _inhibit(popen):
+    """A fresh delay lock process, or None when spawn fails (presence still follows the next edge)."""
+    with contextlib.suppress(Exception):
+        return popen(INHIBIT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return None
+
+
+def _drop(lock):
+    """Ends the delay lock so the OS can sleep; returns None."""
+    with contextlib.suppress(Exception):
+        lock and lock.terminate()
+    return None
+
+
+def _edge(cfg, what, going, asleep, lock, popen, delay, down, up):
+    """One PrepareForSleep/Shutdown edge: sleep → hand over and drop the lock; wake → resume and take it again.
+    Duplicate signals (same side as the latch) are ignored so rapid cycles never double-handover or leave a stale host."""
+    if going == asleep:
+        return asleep, lock
+    if going:
+        with contextlib.suppress(Exception):
+            down(cfg, what, delay())
+        return True, _drop(lock)
+    with contextlib.suppress(Exception):
+        up(cfg)
+    return False, lock or _inhibit(popen)
+
+
 def watch(cfg, popen=subprocess.Popen, delay=max_delay, down=going_down, up=woke):
     """Holds the delay lock and follows logind's signals until the monitor ends."""
-    lock = popen(INHIBIT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    lock, asleep = _inhibit(popen), False
     mon = popen(MONITOR, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     try:
         for line in mon.stdout:
             sig = parse(line)
             if not sig:
                 continue
-            what, going = sig
-            if going and lock:
-                with contextlib.suppress(Exception):
-                    down(cfg, what, delay())
-                lock.terminate()   # let go: the OS goes on now
-                lock = None
-            elif not going:
-                with contextlib.suppress(Exception):
-                    up(cfg)
-                lock = lock or popen(INHIBIT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            asleep, lock = _edge(cfg, sig[0], sig[1], asleep, lock, popen, delay, down, up)
     finally:
         for p in (lock, mon):
             with contextlib.suppress(Exception):

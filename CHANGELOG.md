@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.10.1 (unreleased)
+
+### Fixed
+
+- Presence sleep watcher (t51): logind `PrepareForSleep` / `PrepareForShutdown` edges are latched, so rapid or duplicate
+  suspend/resume signals never double-handover and never leave `host:this` stuck asleep or present; a missing delay lock
+  no longer skips the sleep edge. Unit tests feed fake gdbus lines (owner: no real laptop suspend required).
+
 ## 0.10.0 (2026-11-15)
 
 ### Added

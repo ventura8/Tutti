@@ -2,6 +2,17 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## A laptop suspend task cannot be finished by a worktree agent (t51, 2026-11-17)
+
+**What happened.** Twelve autopilot attempts at "try the logind sleep watcher on real hardware" changed nothing: the
+worker cannot suspend the machine it runs on, and a sandbox has no logind sleep cycle to observe.
+
+**Why.** Acceptance asked for a real lid-close. The code path (`PrepareForSleep` → presence) is pure once the gdbus line
+is parsed; the hardware step taught nothing the agent could edit.
+
+**Rule.** For logind (and similar OS signals), feed fake monitor lines in unit tests. Ask a person for a hardware log
+only when the parser's real wire format is unknown; do not block the fix on a suspend/resume the agent cannot run.
+
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
 **What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:

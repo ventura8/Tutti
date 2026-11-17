@@ -7,6 +7,13 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.27.6] - 2026-11-18
+
+### Fixed
+
+- CI installs only the Chromium headless shell needed by the browser suite and shows installation progress, reducing
+  downloads and making browser setup timeouts diagnosable without skipping browser tests (t331).
+
 ## [0.27.5] - 2026-11-18
 
 ### Fixed

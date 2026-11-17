@@ -323,9 +323,11 @@ def opt_out(cfg):
         return {**out, 'paused': e['paused']} if e.get('paused') else out
     cfg['off'] = [entry('worker', n, 'workers') for n in off_workers] + [entry('account', n, 'accounts') for n in off_accounts]
     cfg['disabled_accounts'], cfg['disabled_workers'] = off_accounts, off_workers
+    paused_workers = {n for n, w in cfg['workers'].items() if (w or {}).get('paused')}
+    off_steps = paused_workers | {n for n, a in cfg['accounts'].items()
+                                  if (a or {}).get('paused') or (a or {}).get('worker') in paused_workers}
     cfg['accounts'] = {n: a for n, a in cfg['accounts'].items() if n not in off_accounts}
     cfg['workers'] = {n: w for n, w in cfg['workers'].items() if n not in off_workers}
-    off_steps = set(off_accounts) | set(off_workers)
     cfg['autopilot']['ladder'] = [n for n in cfg['autopilot'].get('ladder') or [] if n not in off_steps]
     gone = set(off_workers)
     cfg['routing']['workers'] = [w for w in cfg['routing'].get('workers') or [] if w not in gone]

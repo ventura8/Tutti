@@ -435,3 +435,9 @@ next `sleep` or fake `adb`, which carried the same marker and lived on until sel
 `scripts/check.sh` stopped at shellcheck on a machine without it, and an agent edited a throwaway copy of the script to
 skip that line. Even in a scratch clone that weakens the check. The fix is to install the tool, not skip it: check.sh now
 puts a pinned shellcheck (`shellcheck-py`, hashed) in its venv, and a missing tool is reported, never commented out.
+
+## A limit's panic is not the window's panic (2026-11-17, t272)
+
+agy-gemini's 5 h window reset to 0 % while its weekly limit was still in panic. `planner.bind` copied the weekly's panic
+onto the window whenever `used` was not None, so the worker showed `panic: 0 % used before the target time`. Panic follows
+only the window's own reading; a limit in panic still closes the window, and `account_unfit` names the limit.

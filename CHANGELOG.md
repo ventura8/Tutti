@@ -7,6 +7,15 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.24.2] - 2026-11-17
+
+### Fixed
+
+- A 5 h window under a weekly limit no longer inherits the limit's panic flag: after the window resets, a fresh reading
+  below `panic_at` (including the synthetic 0 % before the next reader) clears panic. Before, agy-gemini showed
+  `panic: 0 % used before the target time` while its weekly limit was still in panic (t272). The limit still closes the
+  window; the unfit reason names the limit.
+
 ## [0.24.1] - 2026-11-17
 
 ### Added

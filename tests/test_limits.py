@@ -227,6 +227,37 @@ class ReviewCases(unittest.TestCase):
         self.assertFalse(s['panic'])
         self.assertIn('its limit w: panic', routing.account_unfit(s))
 
+    def test_a_fresh_zero_after_reset_is_not_panic_when_the_weekly_is(self):
+        # live bug 2026-11-17: agy-gemini at 0 % after its 5 h reset still showed "panic: 0 % used" because bind
+        # copied the weekly's panic whenever used was not None
+        lim = {'name': 'agy-weekly', 'state': 'ok', 'panic': True, 'verdict': 'ahead', 'window': '7d',
+               'action': 'panic: 97.8 % used before the target time', 'used': 97.8, 'panic_at': 95}
+        own = {'name': 'agy', 'state': 'ok', 'panic': False, 'verdict': 'behind', 'used': 0.0, 'panic_at': 95,
+               'room_tasks': 10, 'action': 'use it'}
+        s = planner.bind(own, [lim], {}, {}, None, NOW)
+        self.assertFalse(s['panic'])
+        self.assertEqual(s['used'], 0.0)
+        self.assertIsNone(s['room_tasks'])
+        self.assertEqual(s['bound_by'], 'agy-weekly')
+        why = routing.account_unfit(s)
+        self.assertIn('its limit agy-weekly: panic', why)
+        self.assertNotIn('panic: 0 %', why)
+        still = planner.bind({**own, 'used': 50.0}, [lim], {}, {}, None, NOW)
+        self.assertFalse(still['panic'])
+        hot = planner.bind({**own, 'panic': True, 'used': 96.0}, [lim], {}, {}, None, NOW)
+        self.assertTrue(hot['panic'])
+
+    def test_after_reset_zero_with_a_panicking_weekly_through_account_state(self):
+        # old 5 h window ended; no reading yet in the new one (after_reset → 0 %); weekly still in panic
+        accounts = {'agy': {**FIVE}, 'agy-weekly': {**WEEK, 'panic_at': 95}}
+        entries = [r('2026-01-05T23:00Z', 97, 'agy-weekly'), r('2026-01-05T23:00Z', 90, 'agy')]
+        s = pacing.account_state('agy', accounts['agy'], entries, NOW, accounts)
+        self.assertTrue(s.get('after_reset') or s['used'] == 0.0)
+        self.assertEqual(s['used'], 0.0)
+        self.assertFalse(s['panic'])
+        self.assertEqual(s['bound_by'], 'agy-weekly')
+        self.assertNotIn('panic: 0 %', routing.account_unfit(s))
+
     def test_the_limit_with_the_fewest_tasks_binds(self):
         # two limits: one roomy, one with its window share nearly used; the second binds even with more points left
         roomy = {**WEEK}

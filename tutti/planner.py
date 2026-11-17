@@ -289,9 +289,9 @@ def bind(own, limits, a, accounts, hours, now, owner=None):
     out = {**own, 'limits': limits, 'bound_by': None, 'quota_plan': None}
     for lim in limits:
         if lim['state'] == 'ok' and (lim['panic'] or lim['verdict'] == 'spent'):
-            # panic moves over only with a reading of the window itself; the limit's own check still closes an unread one
-            panic = own['panic'] or (lim['panic'] and own['used'] is not None)
-            out.update(verdict='spent' if lim['verdict'] == 'spent' else out['verdict'], panic=panic,
+            # a limit spent or in panic closes the window; panic stays the window's own reading (a fresh 0 % after
+            # reset is not panic: copying the limit's flag made agy-gemini show "panic: 0 % used", 2026-11-17)
+            out.update(verdict='spent' if lim['verdict'] == 'spent' else out['verdict'], panic=own['panic'],
                        bound_by=lim['name'], room_tasks=None, action=f'{lim["name"]} ({lim["window"]}) closes it: {lim["action"]}')
             return out
     ok = [lim for lim in limits if lim['state'] == 'ok']

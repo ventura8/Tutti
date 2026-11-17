@@ -176,8 +176,18 @@ class Fallbacks(Base):
                     'jetski: a tool required the "command" permission'):
             self.assertEqual(aiassist.classify_quick(env), 'environment', env)
         for real in ('AssertionError: 3 != 4', "AssertionError: 'room' != 'zoom'", 'test_retry_after_timeout FAILED',
-                     'bloom filter killed the test'):
+                     'bloom filter killed the test', 'AssertionError: expected status 429, got 500',
+                     'test_handles_http_429 FAILED'):
             self.assertEqual(aiassist.classify_quick(real), 'real', real)
+            self.assertIsNone(aiassist.RATE_RX.search(real), real)   # model CLASS: real must still be allowed
+
+    def test_an_assertion_about_429_is_not_a_usage_limit(self):
+        # CodeRabbit on #616: bare 429 in test output must not force environment over CLASS: real
+        cfg = self.cfg(enabled=True)
+        tail = 'AssertionError: expected status 429, got 500'
+        t = {'attempts': [{'ok': False, 'tail': tail, 'class': 'real', 'step': 'agy', 'why': 'x'}]}
+        self.assertTrue(aiassist.examine_attempt(cfg, t, fake_ask('CLASS: real\nSUMMARY: the handler returned 500')))
+        self.assertEqual(t['attempts'][-1]['class'], 'real')
 
     def test_the_class_comes_from_the_class_line_only(self):
         self.assertEqual(aiassist.parse_class('CLASS: flaky\nSUMMARY: a real bug'), 'flaky')
@@ -237,6 +247,13 @@ class Escalation(Base):
         self.assertEqual(aiassist.classify_quick("You've hit your usage limit"), 'environment')
         # the account is spent: escalate even though the class is environment (t260)
         attempts = [{'step': 'one', 'ok': False, 'class': 'environment', 'why': 'the worker hit its usage limit'}]
+        self.assertEqual(autopilot.candidates(cfg, {'repo': 'app', 'attempts': attempts})[0], 'two')
+
+    def test_a_cli_refusal_is_environment_but_still_leaves_the_step(self):
+        # CodeRabbit on #616: first CLI refusal must advance like a usage limit, not stay on the same step
+        cfg = self.ladder(enabled=True)
+        why = "the worker's CLI refused a command: tool read_file auto-denied"
+        attempts = [{'step': 'one', 'ok': False, 'class': 'environment', 'why': why}]
         self.assertEqual(autopilot.candidates(cfg, {'repo': 'app', 'attempts': attempts})[0], 'two')
 
     def test_a_model_cannot_reclassify_usage_limit_or_cli_refusal_as_real(self):

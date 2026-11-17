@@ -321,6 +321,22 @@ class FailureTest(Base):
                          'the worker hit its usage limit')
         self.assertEqual(autopilot.signature(None, {}, 'worker crashed')[1], 'the run ended without a report')
 
+    def test_an_http_429_worker_exit_is_excluded_from_attempt_count(self):
+        # CodeRabbit on #616: attempt_of must normalise HTTP 429 to the quota why so park_reason does not count it
+        cfg = self.cfg(max_attempts=2)
+        runs = delegate.runs_dir(cfg)
+        os.makedirs(runs, exist_ok=True)
+        with open(os.path.join(runs, '1-1.log'), 'w', encoding='utf8') as f:
+            f.write('HTTP 429 Too Many Requests\n')
+        t = {**task('t1'), 'run': '1-1', 'step': 'pc', 'worker': 'pc', 'model': '', 'started': 0, 'gates': None}
+        a = autopilot.attempt_of(cfg, t, {'rc': 1, 'worker_rc': 1, 'checks': [], 'changed': ['a'], 'stat': '', 'diff': None}, 0)
+        self.assertEqual(a['why'], 'the worker hit its usage limit')
+        self.assertTrue(autopilot.env_failure(a['why']))
+        self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=[a, dict(a)])), '')
+        # a bare 429 in a check assertion is still a real attempt
+        bare = autopilot.signature({'worker_rc': 1}, {}, 'AssertionError: expected status 429, got 500')[1]
+        self.assertEqual(bare, 'the worker exited 1')
+
     def test_an_exhausted_ladder_parks_even_when_the_last_two_differ(self):
         cfg = self.cfg(ladder=['agy-gemini', 'agy-claude'])
         a, b = attempt('agy-gemini', 'x'), attempt('agy-claude', 'y')

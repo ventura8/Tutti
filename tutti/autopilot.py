@@ -282,10 +282,10 @@ def _candidates(cfg, t, over='', machines=()):
         return [n for n in steps if not is_local(cfg, n)] + [n for n in locals_ if n != last['step']]
     at = steps.index(last['step']) if last['step'] in steps else -1
     # a stronger model does not fix a dropped connection or a full disk: the same step once more, then up the ladder
-    # a usage limit is environment but the account is spent: move on (t260), never retry the same spent step
+    # ENV_SIDE (usage limit, CLI refusal, no-report) is environment but not the task: move on (t260), never retry that step
     again = len(t['attempts']) > 1 and t['attempts'][-2].get('step') == last['step']
     stay = last['ok'] or (last.get('class') in ('flaky', 'environment') and not again
-                          and not str(last.get('why') or '').startswith(QUOTA_SIDE))
+                          and not env_failure(last.get('why')))
     start = max(min(at + (0 if stay else 1), len(steps) - 1), 0)
     # the steps above first; then the ones below, strongest first, so a retry never waits while only a weaker step has room
     # (agy's accounts sat idle behind a paced cursor and a yielding PC, 2026-11-14)
@@ -466,7 +466,9 @@ def normalise_tail(text):
 
 
 # How a worker's own failure reads in its run log: the worker is the problem there, not the task (another step is tried).
-WORKER_LIMIT = re.compile(r'quota (?:reached|exceeded|exhausted)|usage limit|resource[_ ]exhausted|rate[ -]?limit', re.I)
+# HTTP 429 Too Many Requests is a limit; a bare "429" in a test or assertion is not (aiassist.LIMIT_429)
+WORKER_LIMIT = re.compile(r'quota (?:reached|exceeded|exhausted)|usage limit|resource[_ ]exhausted|rate[ -]?limit|'
+                          r'HTTP[ /]?429\b|429 Too Many Requests', re.I)
 WORKER_TIMEOUT = re.compile(r'print timeout|timed? ?out after|the turn still in progress', re.I)
 WORKER_SIDE = ('the worker hit its usage limit', 'the worker ran out of time', 'the worker\'s CLI refused a command',
                'the worker exited')

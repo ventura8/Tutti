@@ -11,9 +11,10 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
-- A worker's usage limit, a run that ended without a report right after a limit, and a CLI permission refusal are the
-  worker's or account's problem, not the task's: they are class `environment`, never count toward `max_attempts`, and
-  the next attempt moves to another step (t260: 167 such attempts parked 149 tasks as needing a person overnight).
+- A worker's usage limit (including `HTTP 429 Too Many Requests` in the worker log), a run that ended without a report
+  right after a limit, and a CLI permission refusal are the worker's or account's problem, not the task's: they are class
+  `environment`, never count toward `max_attempts`, and the next attempt moves to another step (t260: 167 such attempts
+  parked 149 tasks as needing a person overnight). A bare `429` in an assertion or a test name is not a usage limit.
 
 ## [0.24.1] - 2026-11-17
 

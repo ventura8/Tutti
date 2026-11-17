@@ -51,13 +51,17 @@ MAX_AUTO_PER_DAY = 2
 # refusal is environment (t260), never flaky or real; a usage limit still moves the ladder on (the account is spent).
 FLAKY_RX = re.compile(r'\b(ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED)\b|Connection reset by peer|Temporary failure in name '
                       r'resolution|503 Service Unavailable|Read timed out|net::ERR_[A-Z_]+')
-ENV_RX = re.compile(r': command not found\b|is not on PATH|^ModuleNotFoundError: |No space left on device|\bENOSPC\b|'
-                    r'Cannot connect to the Docker daemon|\bOut of memory\b|\bOOM[- ]kill|Killed\s*$|'
-                    r'usage limit|quota (?:reached|exceeded|exhausted)|resource[_ ]exhausted|rate[ -]?limit|\b429\b|'
-                    r'refused a command|auto-denied|required the .+ permission', re.I | re.M)
+# HTTP 429 / Too Many Requests: a real limit diagnostic, never a bare status in an assertion or a test name
+LIMIT_429 = r'HTTP[ /]?429\b|429 Too Many Requests'
+ENV_RX = re.compile(
+    (r': command not found\b|is not on PATH|^ModuleNotFoundError: |No space left on device|\bENOSPC\b|'
+     r'Cannot connect to the Docker daemon|\bOut of memory\b|\bOOM[- ]kill|Killed\s*$|'
+     r'usage limit|quota (?:reached|exceeded|exhausted)|resource[_ ]exhausted|rate[ -]?limit|')
+    + LIMIT_429 + r'|refused a command|auto-denied|required the .+ permission', re.I | re.M)
 # forced environment even when a local model answers CLASS: real (usage limit, quota, CLI permission refusal)
-RATE_RX = re.compile(r'\b429\b|rate[ -]?limit|quota (?:reached|exceeded|exhausted)|usage limit|'
-                     r'resource[_ ]exhausted|refused a command|auto-denied|required the .+ permission', re.I)
+RATE_RX = re.compile(
+    (r'rate[ -]?limit|quota (?:reached|exceeded|exhausted)|usage limit|resource[_ ]exhausted|')
+    + LIMIT_429 + r'|refused a command|auto-denied|required the .+ permission', re.I)
 SWITCH_DOWN = 1800   # after no local model answered, decisions wait this long before asking again
 PER_ROUND = 5   # failures examined and tasks sharpened per round
 _running = threading.Lock()

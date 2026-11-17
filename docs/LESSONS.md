@@ -11,7 +11,9 @@ Each entry: what happened, why, and the rule it left behind. Add a lesson in the
 counter did not exclude ENV_SIDE failures (usage limit, CLI refusal, no-report after a limit).
 
 **Rule.** A usage limit, a CLI permission refusal, and a run that ended without a report are **environment**: they do not
-count toward `max_attempts` and never park as no-progress. A usage limit still escalates (the account is spent).
+count toward `max_attempts` and never park as no-progress. A usage limit or CLI refusal still escalates (the account or
+CLI is spent). Match a real limit diagnostic (`HTTP 429`, `Too Many Requests`), never a bare `429` in an assertion or a
+test name.
 
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 

@@ -86,9 +86,10 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
   strongest step, or `max_attempts` attempts (default 12), parks the task as **needs a person** with a summary on the
   dashboard. The signature is a hash of how it failed (worker exit, refused command, no change, or the failing check's last
   lines with numbers masked), so a flaky number does not count as progress. A worker's exit says whether it hit its
-  usage limit or ran out of time. A usage limit, a CLI permission refusal, or a run that ended without a report (including
-  after a limit that killed the process before a report) is **environment**: it does not count toward `max_attempts` and
-  never parks the task as no progress (the account or the CLI is the problem, not the task).
+  usage limit or ran out of time. A usage limit (including `HTTP 429 Too Many Requests` in the worker's own lines), a CLI
+  permission refusal, or a run that ended without a report (including after a limit that killed the process before a
+  report) is **environment**: it does not count toward `max_attempts` and never parks the task as no progress (the account
+  or the CLI is the problem, not the task). A bare `429` in an assertion or a test name is not a usage limit.
 - **The same failure twice stops it from burning quota.** Twice in a row on one step: that step is not given the task
   again (when no step is left, it is parked). Twice in a row on different workers, for a failure that is not the
   worker's own (its limit, its time, a refused tool, any other exit): the task or its check is the problem, and it is

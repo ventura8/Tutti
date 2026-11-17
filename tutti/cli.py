@@ -169,6 +169,12 @@ def cmd_setup(cfg, a):
         return 1
 
 
+def _stage_self_update(install, home_dir, a, skip):
+    if a.check or skip or a.auto:
+        return 2, 'self-update: --stage-only requires signature verification and cannot be combined with --check or --auto'
+    return install.stage_update(home_dir)
+
+
 def cmd_self_update(cfg, a):
     """`tutti self-update [--check|--auto]`: the newest checksummed release (docs/INSTALL.md, *Updates*)."""
     from . import install
@@ -190,10 +196,7 @@ def cmd_self_update(cfg, a):
     if skip:
         say(f'self-update: {install.SKIP_WARNING}')
     if getattr(a, 'stage_only', False):
-        if a.check or skip or a.auto:
-            say('self-update: --stage-only requires signature verification and cannot be combined with --check or --auto')
-            return 2
-        code, msg = install.stage_update(home_dir)
+        code, msg = _stage_self_update(install, home_dir, a, skip)
     else:
         code, msg = install.self_update(home_dir, check_only=a.check, skip_verify=skip)
     say(msg)

@@ -421,8 +421,9 @@ class SelfUpdate(unittest.TestCase):
     def test_staging_cleans_unexpected_failure_and_ignores_package_manager_overrides(self):
         with tempfile.TemporaryDirectory() as t:
             tarball, _ = release(t, '9.9.9')
+            create_venv = mock.Mock(side_effect=RuntimeError('unexpected'))
             with self.assertRaisesRegex(RuntimeError, 'unexpected'):
-                install.stage_release(t, tarball, '9.9.9', create_venv=mock.Mock(side_effect=RuntimeError('unexpected')))
+                install.stage_release(t, tarball, '9.9.9', create_venv=create_venv)
             self.assertFalse(any(x.startswith('staged-') for x in os.listdir(t)))
         env = install.stage_env({'PATH': '/example', 'PIP_TARGET': '/active', 'UV_CONFIG_FILE': '/bad',
                                  'PYTHONPATH': '/active', 'VIRTUAL_ENV': '/active'})

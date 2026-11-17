@@ -34,6 +34,13 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - Codex setup uses `--approve-for-me`, which routes approval requests through automatic review with the workspace-write
   sandbox.
 
+## [0.25.4] - 2026-11-17
+
+### Fixed
+
+- Pausing an account or worker removes it from the active autopilot ladder and account list until resumed, so a pause no longer prevents
+  configuration reloads and Chat responses (t321).
+
 ## [0.25.3] - 2026-11-17
 
 ### Fixed

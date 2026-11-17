@@ -163,6 +163,18 @@ class SecretsTest(unittest.TestCase):
         self.assertIn('https://', str(e.exception))
         self.assertNotIn(KEY, str(e.exception))
 
+    def test_an_explicit_empty_value_stays_missing_even_if_a_file_has_a_value(self):
+        with tempfile.TemporaryDirectory() as d:
+            td = os.path.join(d, 'tutti')
+            os.makedirs(td)
+            with open(os.path.join(td, 'grok.env'), 'w', encoding='utf8') as f:
+                f.write("export TUTTI_GROK_URL='https://hooks.example/r'\n")
+                f.write(f"export TUTTI_GROK_KEY='{KEY}'\n")
+            env = {'XDG_CONFIG_HOME': d, 'TUTTI_GROK_URL': '', 'TUTTI_GROK_KEY': KEY}
+            with self.assertRaises(scouts.ScoutError) as e:
+                scouts.secrets(self.SC, env)
+        self.assertIn('TUTTI_GROK_URL', str(e.exception))
+
 
 class AskTest(Base):
     def ask(self, cfg, **kw):
@@ -365,6 +377,7 @@ class TrialTest(Base):
         cfg = self.cfg()
         r = self.review(cfg, 7)
         self.assertEqual(r['status'], 'waiting')
+        self.assertEqual(trial.load(cfg)['scouts']['grok']['prs'][0]['scout_status'], 'waiting')
         body = self.hook.calls[0]['body']
         self.assertEqual((body['reply_to']['issue'], body['skill']), (7, 'review'))
         self.assertIn('grok-scout', body['task'])

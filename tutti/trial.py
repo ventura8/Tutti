@@ -151,8 +151,9 @@ def settle(cfg, name, key, r, new):
         p = next((x for x in e['prs'] if x['key'] == key), None)
         if p is None:
             return
-        if r['status'] == 'waiting':
+        if r['status'] in ('waiting', 'answered'):
             p['request'] = r['id']
+            p['scout_status'] = r['status']
         elif new and not p.get('request'):
             e['prs'].remove(p)
 

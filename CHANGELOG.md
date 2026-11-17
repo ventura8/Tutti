@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.24.4] - 2026-11-17
+
+### Fixed
+
+- `test_dashboard.ServerTest` no longer uses a `host: local` machine: real keyboard idle made status `busy` and failed
+  `tutti-check` (t141; docs/LESSONS.md, *Dashboard free/busy*).
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

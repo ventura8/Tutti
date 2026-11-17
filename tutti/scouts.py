@@ -193,15 +193,22 @@ def errors(cfg):
     return [e for name, sc in s.items() for e in _one_errors(cfg, name, sc)] + triage.errors(cfg)
 
 
+def _value_of(name, env=None):
+    """A scout variable's value: an explicit env mapping wins (even when empty), else the secret file lookup."""
+    if env is not None and name in env:
+        return str(env.get(name) or '')
+    return secretenv.get(name, env)
+
+
 def missing_env(sc, env=None):
     """The environment variables a scout still needs (names only)."""
-    return [sc[k] for k in ('url_env', 'key_env') if not secretenv.get(sc[k], env).strip()]
+    return [sc[k] for k in ('url_env', 'key_env') if not _value_of(sc[k], env).strip()]
 
 
 def secrets(sc, env=None, key_stdin=None):
     """(url, key) from the environment; the key may come from stdin instead. Raises with the variable's name, never a value."""
-    url = secretenv.get(sc['url_env'], env).strip()   # from ~/.config/tutti/grok.env at the point of use, never inherited
-    key = (key_stdin if key_stdin is not None else secretenv.get(sc['key_env'], env)).strip()
+    url = _value_of(sc['url_env'], env).strip()   # from ~/.config/tutti/grok.env at the point of use, never inherited
+    key = (key_stdin if key_stdin is not None else _value_of(sc['key_env'], env)).strip()
     if not url or not key:
         gone = [sc['url_env']] if not url else []
         gone += [] if key else [sc['key_env'] + (' (or --key-stdin)' if key_stdin is None else ' (stdin was empty)')]

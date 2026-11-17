@@ -12,7 +12,9 @@ CI (`.github/workflows/ci.yml`) runs `scripts/check.sh` on every pull request an
 hard gate. Install the pinned tools once with `python3 -m pip install -r requirements-dev.txt`.
 
 Rules for every test: a change in behaviour comes with a good case and a bad one; nothing runs against a real machine
-(tests use the `local` transport and temp folders); hosts are `*.example`.
+(tests use the `local` transport and temp folders); hosts are `*.example`. A test that asserts machine status must not
+use `host: local` (that reads this computer's keyboard idle and can flip free to busy; docs/LESSONS.md, *Dashboard
+free/busy*).
 
 ## Browser tests
 

@@ -2,6 +2,22 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## Dashboard free/busy flipped when someone used the keyboard (2026-11-16, t141)
+
+**What happened.** The work-queue job `tutti-check` failed on `b09825e` with `failures=1, skipped=1`:
+`test_dashboard.ServerTest.test_api_state_carries_the_real_data` expected machine `here` status `free` and saw `busy`.
+
+**Why.** `ServerTest` built a local machine (`host: local`). `machines_state` calls `share.idle_seconds()` for any local
+transport. When a person used the keyboard within `in_use_minutes` (default 5), `share.pct` drops to `in_use_pct` (default
+0), `cap_free` returns 0, and status becomes `busy`. Away from the keyboard (or idle unknown) it stays `free`.
+
+**Reproduce.** With a Probe of one free slot: `state.machine_state(m, p, 1, now, idle_s=10, …)['status']` is `busy`;
+`idle_s=3600` or `None` is `free`.
+
+**Rule.** A unit test that asserts machine status must not use a `host: local` machine (that reads real keyboard idle);
+use an `*.example` host so `idle_s` stays unknown. Do not remove host `skipUnless` / `skipTest` guards to chase
+`skipped=0` on a work-queue machine that lacks a tool.
+
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
 **What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:

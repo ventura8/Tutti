@@ -17,7 +17,7 @@ import time
 
 PAIRING, CONNECT = '_adb-tls-pairing._tcp', '_adb-tls-connect._tcp'
 FLOWS = ('qr', 'code', 'usb')
-KINDS = ('phone', 'tablet', 'tv')
+KINDS = ('phone', 'tablet', 'tv', 'watch')
 MIN_ADB = 31   # platform-tools 31: `adb mdns services` and mDNS auto-connect (`adb pair` is 30)
 OUR_PREFIX = 'tutti-'
 

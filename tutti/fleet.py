@@ -178,8 +178,12 @@ def overflow(cfg, states, rooms, local_names):
     from . import autopilot
     names = [n for n in dict.fromkeys([*autopilot.ladder(cfg), *autopilot.trigger_accounts(cfg)])
              if n not in local_names and n in cfg['accounts']]
-    ahead = [n for n in names if (states.get(n) or {}).get('verdict') in ('ahead', 'panic', 'spent') or (states.get(n) or {}).get('panic')]
-    if ahead:
+    only_panic = (cfg.get('autopilot') or {}).get('spare_only_panic', False)   # owner, 2026-11-17: ahead is no reason to spare
+    held = ('panic', 'spent') if only_panic else ('ahead', 'panic', 'spent')
+    ahead = [n for n in names if (states.get(n) or {}).get('verdict') in held or (states.get(n) or {}).get('panic')]
+    # one account ahead or in panic gets no room of its own (step_room); the others with room keep working. Sparing them all
+    # left Cursor, Grok and agy idle while claude sat at 98 % and 184 tasks waited (owner, 2026-11-17)
+    if ahead and len(ahead) == len(names):
         return f'{", ".join(ahead)} ahead of pace'
     trig = [n for n in autopilot.trigger_accounts(cfg) if n in cfg['accounts']]
     if trig and sum(max(0, (rooms.get(n) or (0, ''))[0]) for n in trig) <= 0:

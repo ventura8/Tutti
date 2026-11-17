@@ -17,7 +17,7 @@ TERMUX_POLICY = {'min_battery': 50, 'require_charging': True, 'max_battery_c': 4
 SCREENS = ('wake', 'off', 'any')
 # A TV (a Cast receiver: devices.<d>.kind: tv) runs on mains power and has no battery or call state to read.
 TV_POLICY = {'min_battery': 0, 'require_charging': False, 'max_battery_c': 0, 'wifi_only': False, 'screen': 'any'}
-KINDS = ('phone', 'tablet', 'tv')
+KINDS = ('phone', 'tablet', 'tv', 'watch')
 
 # Termux's own readings, through the Termux:API app (`pkg install termux-api`): the same keys as device-readings.sh, each
 # line starting `R `. termux-* commands hang when the Termux:API app is missing, so each has a timeout; /sys is the fallback.
@@ -80,7 +80,7 @@ def errors(cfg):
         from . import prep
         errs += prep.errors(where, d.get('prep'))
         if d.get('kind', 'phone') not in KINDS:
-            errs.append(f'{where}.kind is {d["kind"]!r}: use phone, tablet or tv (a Cast receiver: only suites with targets: [tv] use it)')
+            errs.append(f'{where}.kind is {d["kind"]!r}: use phone, tablet, tv or watch (a Cast receiver: only suites with targets: [tv] use it)')
         if 'calls' in d and not isinstance(d['calls'], bool):
             errs.append(f'{where}.calls is {d["calls"]!r}: use true or false (false: no phone-call check, e.g. a tablet with no SIM)')
         if 'external_lock' in d and not (isinstance(d['external_lock'], str) and d['external_lock'].strip()):

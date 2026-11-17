@@ -2,7 +2,7 @@
 #   uv tool install git+https://github.com/ventura8/Tutti     or     pipx install git+https://github.com/ventura8/Tutti
 # The machine scripts (scripts/*.sh) ship inside the package as tutti/scripts; the version is tutti/__init__.py's.
 [build-system]
-requires = ["setuptools==80.9.0"]
+requires = ["setuptools==83.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]

@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.7] - 2026-11-16
+
+### Fixed
+
+- Packaging security: bumped the build backend pin to `setuptools==83.0.0` so source distributions use a version that
+  includes the MANIFEST exclusion bypass fix for Unicode-normalization collisions.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

@@ -144,6 +144,13 @@ class MainAgentTest(unittest.TestCase):
             self.assertEqual(users.kind_of(cfg, 'pc'), 'local')
             self.assertIsNone(users.kind_of(cfg, 'nobody'))
 
+    def test_kind_of_ollama_before_cli_name_prefix(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self.load(d)
+            cfg['workers']['claude-local'] = {'kind': 'ollama', 'host': 'localhost:11434', 'model': 'm'}
+            self.assertEqual(users.kind_of(cfg, 'claude-local'), 'local')
+            self.assertEqual(users.kind_of(cfg, 'claude'), 'claude')
+
 
 class MembershipFileTest(unittest.TestCase):
     def test_the_membership_is_mode_600_and_leaving_removes_it(self):

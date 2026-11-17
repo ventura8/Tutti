@@ -453,6 +453,49 @@ class RoleHandOffTest(Folder):
         self.assertIsNone(conduct.hand_off_role(self.cfg, self.states(**{'agy-claude': 10, 'agy-gemini': 10}),
                                                 chat_fn=lambda *a: self.fail('no note')))
 
+    def test_usage_pct_change_stays_the_same_episode(self):
+        notes = []
+        spent99 = self.states(**{'agy-claude': {'used': 99, 'verdict': 'spent', 'panic': False},
+                                 'agy-gemini': {'used': 99, 'verdict': 'spent', 'panic': False},
+                                 'cursor': {'used': 100, 'verdict': 'spent', 'panic': False}})
+        self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z',
+                                                         'worker': 'cursor', 'enabled': True}},
+                          main={'agent': 'agy', 'fallback': ['cursor'], 'check_seconds': 0.05})
+        line = conduct.hand_off_role(self.cfg, spent99, connect_fn=lambda *a, **k: [],
+                                     chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('no agent in main.fallback has room', line)
+        spent100 = self.states(**{'agy-claude': {'used': 100, 'verdict': 'spent', 'panic': False},
+                                  'agy-gemini': {'used': 100, 'verdict': 'spent', 'panic': False},
+                                  'cursor': {'used': 100, 'verdict': 'spent', 'panic': False}})
+        self.assertIsNone(conduct.hand_off_role(self.cfg, spent100, chat_fn=lambda cfg, text: notes.append(text)))
+        self.assertEqual(len(notes), 1)
+
+    def test_recovery_clears_the_handoff_record_so_a_later_panic_notes_again(self):
+        notes, panic = [], self.states(**{'agy-claude': 99, 'agy-gemini': 97})
+        line = conduct.hand_off_role(self.cfg, panic, connect_fn=lambda *a, **k: [],
+                                     chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('handed from agy to cursor', line)
+        self.assertTrue(os.path.exists(conduct.role_path(self.cfg)))
+        conduct.choose(self.cfg, 'agy')   # owner puts the recovered agent back as main
+        self.assertIsNone(conduct.hand_off_role(self.cfg, self.states(**{'agy-claude': 10, 'agy-gemini': 10}),
+                                                chat_fn=lambda *a: self.fail('no note while healthy')))
+        self.assertFalse(os.path.exists(conduct.role_path(self.cfg)))
+        again = conduct.hand_off_role(self.cfg, panic, connect_fn=lambda *a, **k: [],
+                                      chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('handed from agy to cursor', again)
+        self.assertEqual(len(notes), 2)
+
+    def test_deliver_role_note_goes_to_the_signed_in_owners_partition(self):
+        from tutti import chat
+        with mock.patch('tutti.auth.enabled', return_value=True), \
+             mock.patch('tutti.auth.Users') as Users:
+            Users.return_value.all.return_value = {'g-owner': {'role': 'admin', 'created': 1}}
+            conduct.deliver_role_note(self.cfg, 'role moved')
+        store = chat.Store(config.state_dir(self.cfg))
+        owner = store.load('g-owner')['conversations']
+        self.assertTrue(any(c.get('title') == conduct.CHAT_TITLE for c in owner))
+        self.assertEqual(store.load('local')['conversations'], [])
+
 
 if __name__ == '__main__':
     unittest.main()

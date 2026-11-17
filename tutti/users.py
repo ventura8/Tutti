@@ -253,10 +253,10 @@ def worker_for(cfg, kind):
 def kind_of(cfg, worker):
     """The MAIN_KINDS kind of this worker (by name or program; `local`: a local model), else None."""
     w = (cfg.get('workers') or {}).get(worker) or {}
+    if w.get('kind') == 'ollama':
+        return 'local'
     prog = os.path.basename(str((w.get('command') or [''])[0]))
     for kind, (names, _target) in MAIN_KINDS.items():
-        if kind == 'local' and w.get('kind') == 'ollama':
-            return kind
         if worker == kind or prog in names or any(worker.startswith(x) for x in names):
             return kind
     return None

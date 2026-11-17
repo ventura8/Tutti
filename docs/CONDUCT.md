@@ -67,10 +67,13 @@ worker in `main.fallback` that has room:
 1. The choice is written (`tutti main <agent>` / `user.json`'s `main_agent`), so the next goal and the owner's reserve
    follow the new agent.
 2. `tutti connect` runs for that agent's kind (Cursor, Antigravity, …; nothing to connect for a local model).
-3. A note goes to the Chat under **Main agent hand-off**: who left, why (panic or spent), and who took over.
+3. A note goes to the owner's Chat under **Main agent hand-off** (the first admin's partition when sign-in is on, else
+   `local`): who left, why (panic or spent), and who took over.
 
-The same panic episode is noted once. When no fallback has room, the note says so and the role stays put until one does.
-Bounded autopilot work still moves to other accounts while the main agent panics (docs/AUTOPILOT.md).
+The same panic episode is noted once (keyed on from/to and the panic start, not the formatted usage text). When the
+current main recovers, the saved record is cleared so a later panic can note again. When no fallback has room, the note
+says so and the role stays put until one does. Bounded autopilot work still moves to other accounts while the main agent
+panics (docs/AUTOPILOT.md).
 
 ## The config
 

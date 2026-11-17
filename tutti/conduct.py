@@ -776,10 +776,20 @@ def role_note(frm, to, why, connect_note=''):
     return f'{base}. {connect_note}'.rstrip('. ')
 
 
+def owner_chat_sub(cfg):
+    """Chat partition the signed-in owner reads (first admin's Google sub); `local` when sign-in is off or none yet."""
+    from . import auth
+    if not auth.enabled(cfg):
+        return 'local'
+    admins = sorted((u.get('created') or 0, sub) for sub, u in auth.Users(config.state_dir(cfg)).all().items()
+                    if u.get('role') == 'admin')
+    return admins[0][1] if admins else 'local'
+
+
 def deliver_role_note(cfg, text):
     """One assistant message in the owner's "Main agent hand-off" chat (made once)."""
     from . import chat
-    store, sub = chat.Store(config.state_dir(cfg)), 'local'   # the owner's chat key (tutti/needs.py chat_sub)
+    store, sub = chat.Store(config.state_dir(cfg)), owner_chat_sub(cfg)
     conv = next((c for c in store.load(sub)['conversations'] if c.get('title') == CHAT_TITLE), None)
     cid = (conv or store.create(sub, title=CHAT_TITLE))['id']
     store.put_message(sub, cid, {'id': chat.new_id('m'), 'role': 'assistant', 'text': text, 'at': chat.now_iso(),
@@ -796,9 +806,18 @@ def connect_role(cfg, worker, connect_fn=None):
     return users.connect_main(cfg, target, connect_fn)
 
 
-def already_noted(cfg, frm, to, why):
+def already_noted(cfg, frm, to):
+    """True when this from→to episode was already noted. Identity is from/to plus the panic start (`at`), not the why text
+    (usage percentages in the reason must not open a new note)."""
     last = read_json(role_path(cfg)) or {}
-    return last.get('from') == frm and last.get('to') == to and last.get('why') == why
+    return last.get('from') == frm and last.get('to') == to and bool(last.get('at'))
+
+
+def clear_role_record(cfg, frm):
+    """Drop the saved hand-off record when `frm` recovered and the record belongs to it."""
+    path = role_path(cfg)
+    if (read_json(path) or {}).get('from') == frm and os.path.exists(path):
+        os.remove(path)
 
 
 def take_role(cfg, to, connect_fn=None):
@@ -815,7 +834,10 @@ def hand_off_role(cfg, states=None, connect_fn=None, chat_fn=None, now=None):
     states = states if states is not None else account_states(cfg, now)
     frm = current(cfg)
     to, why = pick_role(cfg, states)
-    if not why or already_noted(cfg, frm, to, why):
+    if not why:
+        clear_role_record(cfg, frm)
+        return None
+    if already_noted(cfg, frm, to):
         return None
     connect_note = take_role(cfg, to, connect_fn) if to else ''
     text = role_note(frm, to, why, connect_note)

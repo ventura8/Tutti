@@ -1,9 +1,10 @@
 """Local models: what each machine running them serves, the power it draws and the estimated energy cost (docs/ENERGY.md).
 
-Readings come from POWER_SCRIPT on the machine (nvidia-smi, rocm-smi, xpu-smi, intel_gpu_top, the hwmon and RAPL energy
-counters) and from Ollama's /api/ps and /api/tags. Where nothing is readable the power is estimated from the GPU's known TDP
-and its utilisation. Every figure is an estimate; the card says which parts were measured. Pure: text and numbers in, plain
-dicts out; the I/O is remote.power_readings, local.ollama_get and the collector."""
+Readings come from power_script, run inside remote.probe's one ssh call per machine (with the heat probe and projects'
+activity_script); remote.power_readings returns that stashed round, and Ollama's /api/ps and /api/tags are read from here.
+Where nothing is readable the power is estimated from the GPU's known TDP and its utilisation. Every figure is an estimate;
+the card says which parts were measured. Pure: text and numbers in, plain dicts out; the I/O is remote.probe /
+remote.power_readings, local.ollama_get and the collector."""
 import functools
 import json
 import os
@@ -587,8 +588,14 @@ def sample(cfg, readings, now, max_gap):
     return store
 
 
+def from_probe(machine):
+    """Power reading remote.probe left for this machine, or None when it was not probed this round."""
+    from . import remote
+    return remote.round_power(machine)
+
+
 def probe_all(cfg, power_fn, ollama_fn):
-    """{machine: reading or None} for every machine running local models, read at once: power over its ssh (power_fn), the
+    """{machine: reading or None} for every machine running local models: power from the probe round (power_fn), the
     models over the worker's host from here (ollama_fn), or the machine's own curl (energy.machines.<m>.ollama)."""
     from concurrent.futures import ThreadPoolExecutor
     found = hosts(cfg)

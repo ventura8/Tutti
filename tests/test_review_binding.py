@@ -61,6 +61,15 @@ class Binding(unittest.TestCase):
             gh = mock.Mock(side_effect=[metadata(head), metadata(head)])
             self.assertEqual(review.review(cfg, 1, 'o/r', gh_fn=gh, say=lambda _: None, expected_head=head), 0)
 
+    def test_local_rounds_distinguish_heads_without_reusing_old_success(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {'project': {'state': d}, 'review': {'rounds': {'local': 1}}}
+            first, second = 'a' * 40, 'b' * 40
+            review.count_round(cfg, 'o/r', 1, 'local', head=first)
+            self.assertTrue(review.round_left(cfg, 'o/r', 1, 'local', head=first))
+            self.assertEqual(review.round_left(cfg, 'o/r', 1, 'local', head=second), '')
+            self.assertNotEqual(review.exhausted_round_result(first, 'rounds are done'), 0)
+
     def test_stale_or_missing_revisions_and_old_rounds_fail_closed(self):
         head = 'a' * 40
         def gh(_args):

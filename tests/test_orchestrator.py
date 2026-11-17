@@ -623,13 +623,15 @@ class AccountsTest(unittest.TestCase):
     def test_paused_ladder_account_is_temporarily_skipped_and_returns_when_resumed(self):
         raw = {'accounts': {'meter': {'worker': 'cli', 'paused': {'by': 'owner'}}},
                'workers': {'cli': {'kind': 'cli', 'command': ['agent', '{prompt}']}},
-               'autopilot': {'ladder': ['meter']}}
+               'autopilot': {'ladder': ['meter'], 'accounts': ['meter']}}
         paused = config.normalise(raw)
         self.assertEqual(paused['autopilot']['ladder'], [])
+        self.assertEqual(paused['autopilot']['accounts'], [])
         self.assertFalse(config.validate(paused))
         del raw['accounts']['meter']['paused']
         resumed = config.normalise(raw)
         self.assertEqual(resumed['autopilot']['ladder'], ['meter'])
+        self.assertEqual(resumed['autopilot']['accounts'], ['meter'])
         self.assertFalse(config.validate(resumed))
         raw['autopilot']['ladder'].append('unknown')
         self.assertTrue(any('unknown' in e for e in config.validate(config.normalise(raw))))

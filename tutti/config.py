@@ -329,6 +329,7 @@ def opt_out(cfg):
     cfg['accounts'] = {n: a for n, a in cfg['accounts'].items() if n not in off_accounts}
     cfg['workers'] = {n: w for n, w in cfg['workers'].items() if n not in off_workers}
     cfg['autopilot']['ladder'] = [n for n in cfg['autopilot'].get('ladder') or [] if n not in off_steps]
+    cfg['autopilot']['accounts'] = [n for n in cfg['autopilot'].get('accounts') or [] if n not in off_steps]
     gone = set(off_workers)
     cfg['routing']['workers'] = [w for w in cfg['routing'].get('workers') or [] if w not in gone]
     for section in ('main', 'review'):

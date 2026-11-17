@@ -150,7 +150,7 @@ See [TELEMETRY.md](TELEMETRY.md).
 
 ## Controls
 
-Paused accounts and workers are skipped in the active autopilot ladder. Their configured positions return on resume;
+Paused accounts and workers are skipped in the active autopilot ladder and trigger account list. Their configured positions return on resume;
 pausing them does not invalidate the configuration or interrupt dashboard and Chat reloads.
 
 The *Devices and controls* card: one card per Android device (`tutti/devicecard.py`, `devices.items[].card` in

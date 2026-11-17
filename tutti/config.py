@@ -143,8 +143,8 @@ DEFAULTS = {
     # auth: sign-in with Google for the dashboard (docs/AUTH.md): the OAuth client ID (public; `tutti auth setup` saves it in
     # the state folder instead) and how long a session lasts
     'auth': {'client_id': '', 'session_hours': 72},
-    'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
-             'command_timeout': 3600},
+    'main': {'agent': 'claude', 'preferred': '', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30,
+             'rounds': 12, 'command_timeout': 3600},
     # fleet: the household's local models as workers (docs/FLEET.md): every machine's Ollama is read and a machine with models
     # but no configured ollama worker gets `<machine>-local` (a tunnel from port_base on); memory_floor_gb: this computer
     # runs no local model with less memory free; enabled: false turns the discovery and the overflow routing off
@@ -625,6 +625,12 @@ def _main_errors(cfg):
     if not isinstance(fallback, list):
         return [f'main.fallback is {fallback!r}: a list of workers, e.g. [agy, cursor]']
     errs = [f'main.fallback names "{n}", which is not under workers:' for n in fallback if n not in cfg['workers']]
+    # main.agent may be a worker or auto (Tutti picks); a missing worker name is left to runtime (current/choose),
+    # so a default of claude on a config without that worker still loads (tests and lean configs).
+    preferred = m.get('preferred') or ''
+    if preferred and preferred not in cfg['workers']:
+        errs.append(f'main.preferred names "{preferred}", which is not under workers: '
+                    'set it to a worker, or leave it empty (defaults to the first of main.fallback, else claude)')
     errs += target_errors('main.target_pct', m.get('target_pct'))
     commands = m.get('commands') if isinstance(m.get('commands'), dict) else {}
     errs += [f'main.commands.{n}: "{n}" is not under workers:' for n in commands if n not in cfg['workers']]

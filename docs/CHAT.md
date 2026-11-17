@@ -41,6 +41,17 @@ The server decides, for every action, with `auth.act_for` (and so `auth.may_act_
 - Conversations are private: each user sees only their own. Admins have **Household activity**: the actions the chat took
   for each member, from the audit log, never anyone's messages.
 
+## Main agent (admins)
+
+The Chat header has a **main agent** selector (admins only; the same code as `tutti main <agent|auto>` and the Dashboard
+tab's Switch, `POST /api/main`):
+
+- **Auto (now: &lt;agent&gt;)**: Tutti keeps `main.preferred` while it has room, else the first worker in `main.fallback`
+  with room, and switches back to preferred after a fresh reading below `panic_at` (docs/CONDUCT.md).
+- **Each worker** by name: pins that agent as both preferred and current (leaves auto).
+
+Viewers do not see the control; the server refuses a non-admin `POST /api/main` when sign-in is on.
+
 ## Which model answers
 
 The picker above the conversation chooses who answers, per conversation; the last choice is the default for new chats

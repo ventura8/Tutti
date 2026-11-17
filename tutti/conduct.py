@@ -103,23 +103,87 @@ def choice_record(cfg):
     return read_json(choice_path(cfg)) or {}
 
 
+AUTO = 'auto'   # main.agent: auto — preferred while it has room, else the first main.fallback with room
+
+
 def chosen(cfg):
     """The owner's switch (the dashboard or `tutti main <agent>`), when it names a worker; else None."""
     c = choice_record(cfg)
     return c.get('agent') if c.get('agent') in cfg['workers'] else None
 
 
+def is_auto(cfg):
+    """True when main.agent is auto: Tutti picks the current main itself."""
+    return settings(cfg).get('agent') == AUTO
+
+
+def _first_worker(cfg, names):
+    """The first name in `names` that is a configured worker, or ''."""
+    for name in names:
+        if name in cfg['workers']:
+            return name
+    return ''
+
+
+def preferred(cfg):
+    """The owner's lasting main agent (main.preferred / user.json preferred_main).
+    Default: the file's main.agent when it is a worker, else the first of main.fallback, else claude."""
+    from . import users
+    saved = users.read(config.state_dir(cfg)).get('preferred_main') or ''
+    configured = settings(cfg).get('preferred') or ''
+    agent = settings(cfg).get('agent') or ''
+    pinned = agent if agent != AUTO else ''
+    return _first_worker(cfg, [saved, configured, pinned, *(settings(cfg).get('fallback') or []), 'claude'])
+
+
 def current(cfg):
-    """The main agent now: the owner's switch, else main.agent from the config."""
-    return chosen(cfg) or settings(cfg)['agent']
+    """The main agent now: the owner's switch, else a real main.agent, else preferred (when auto)."""
+    c = chosen(cfg)
+    if c:
+        return c
+    agent = settings(cfg).get('agent')
+    if agent in cfg['workers']:
+        return agent
+    if agent == AUTO:
+        return preferred(cfg) or next(iter(cfg['workers']), '')
+    return agent or ''
 
 
-def choose(cfg, agent, now=None):
-    """Records the owner's switch; a running conductor hands over to it at its next check."""
-    if agent not in cfg['workers']:
-        raise ConductError(f'"{agent}" is not a worker in {cfg["_path"]}: the main agent can be {", ".join(candidates(cfg)) or "(none)"}')
-    now = now or datetime.now(timezone.utc)
+def _write_choice(cfg, agent, now):
     write_json(choice_path(cfg), {'agent': agent, 'at': now.isoformat(), 'rev': uuid.uuid4().hex})
+
+
+def set_auto(cfg, now=None):
+    """Turn on auto mode (`tutti main auto`): main.agent becomes auto; current starts at preferred.
+    Records preferred from the lasting choice before flipping the mode (so a prior main.agent is kept)."""
+    from . import users
+    now = now or datetime.now(timezone.utc)
+    want = preferred(cfg)
+    users.write(config.state_dir(cfg), main_agent=AUTO, **({'preferred_main': want} if want else {}))
+    cfg.setdefault('main', {})['agent'] = AUTO
+    if want:
+        cfg['main']['preferred'] = want
+    if want in cfg['workers']:
+        _write_choice(cfg, want, now)
+    return AUTO
+
+
+def choose(cfg, agent, now=None, owner=True):
+    """Records the current main agent; a running conductor hands over to it at its next check.
+    Owner switches (`owner=True`) also set preferred main and leave auto; automatic hand-offs leave preferred and auto alone.
+    `agent` may be `auto` (same as `tutti main auto`)."""
+    if agent == AUTO:
+        return set_auto(cfg, now=now)
+    if agent not in cfg['workers']:
+        names = ', '.join([AUTO, *candidates(cfg)]) if candidates(cfg) else AUTO
+        raise ConductError(f'"{agent}" is not a worker in {cfg["_path"]}: the main agent can be {names}')
+    now = now or datetime.now(timezone.utc)
+    _write_choice(cfg, agent, now)
+    if owner:
+        from . import users
+        users.write(config.state_dir(cfg), main_agent=agent, preferred_main=agent)
+        cfg.setdefault('main', {})['agent'] = agent
+        cfg['main']['preferred'] = agent
     return agent
 
 
@@ -730,14 +794,23 @@ def main_state(cfg, states):
     if last and last.get('status') == 'running' and not pid_alive(last.get('pid')):
         last = {**last, 'status': 'ended without a record (its process is gone)'}
     running = last if last and last.get('status') == 'running' else None
-    return {'agent': current(cfg), 'configured': settings(cfg)['agent'], 'chosen': chosen(cfg), 'fallback': settings(cfg)['fallback'],
-            'choices': [{'name': n, 'kind': cfg['workers'][n]['kind'], 'out': out_reason(cfg, n, states) or None} for n in candidates(cfg)],
+    return {'agent': current(cfg), 'preferred': preferred(cfg), 'auto': is_auto(cfg),
+            'configured': settings(cfg)['agent'], 'chosen': chosen(cfg), 'fallback': settings(cfg)['fallback'],
+            'choices': [{'name': n, 'kind': cfg['workers'][n]['kind'], 'out': out_reason(cfg, n, states) or None}
+                        for n in candidates(cfg)],
             'running': running, 'last': None if running else last}
+
+
+def _main_src(m):
+    if m['chosen'] and not m['auto']:
+        return ' (switched by the owner)'
+    return ' (auto)' if m['auto'] else ' (main.agent in the config)'
 
 
 def describe(cfg):
     m = main_state(cfg, account_states(cfg))
-    lines = [f'main agent: {m["agent"]}' + (' (switched by the owner)' if m['chosen'] else ' (main.agent in the config)'),
+    pref = f', preferred {m["preferred"]}' if m.get('preferred') and m['preferred'] != m['agent'] else ''
+    lines = [f'main agent: {m["agent"]}' + _main_src(m) + pref,
              f'fallback: {", ".join(m["fallback"]) or "(none: set main.fallback)"}']
     lines += [f'  {c["name"]:12} {c["kind"]:7} {"OUT: " + c["out"] if c["out"] else "has room"}' for c in m['choices']]
     r = m['running'] or m['last']
@@ -747,7 +820,8 @@ def describe(cfg):
     return '\n'.join(lines)
 
 
-# ---- automatic MAIN AGENT ROLE hand-off (panic or spent → next in main.fallback)
+# ---- automatic MAIN AGENT ROLE hand-off (panic or spent → next in main.fallback;
+#      with auto: preferred while it has room, else first fallback; preferred restores after reset)
 
 
 CHAT_TITLE = 'Main agent hand-off'
@@ -757,22 +831,60 @@ def role_path(cfg):
     return os.path.join(state_folder(cfg), 'role-handoff.json')
 
 
+def pick_auto(cfg, states, skip=()):
+    """Preferred while it has room; else the first worker in main.fallback with room. None when none."""
+    want = preferred(cfg)
+    if want and want not in skip and want in cfg['workers'] and not out_reason(cfg, want, states):
+        return want
+    fallback = [n for n in settings(cfg)['fallback'] if n in cfg['workers']]
+    to, _skipped = next_agent(fallback, set(skip), lambda n: out_reason(cfg, n, states))
+    return to
+
+
 def pick_role(cfg, states):
-    """When the current main agent is out (panic or spent), the next worker in main.fallback with room and why; else
-    (None, why-or-''). Pure: no files, no connect."""
+    """When the current main agent is out (panic or spent), who takes over and why; else (None, '').
+    Auto: preferred while it has room, else the first main.fallback with room. Pure: no files, no connect."""
     frm = current(cfg)
     why = out_reason(cfg, frm, states)
     if not why:
         return None, ''
+    if is_auto(cfg):
+        return pick_auto(cfg, states, {frm}), why
     fallback = [n for n in settings(cfg)['fallback'] if n in cfg['workers']]
     to, _skipped = next_agent(fallback, {frm}, lambda n: out_reason(cfg, n, states))
     return to, why
 
 
-def role_note(frm, to, why, connect_note=''):
+def _fresh_below_panic(s):
+    """True for a real reading below panic_at (not the synthetic after_reset 0 %)."""
+    if s.get('after_reset') or s.get('used') is None or not s.get('reading_at'):
+        return False
+    return s['used'] < s.get('panic_at', 95)
+
+
+def limit_reset(cfg, agent, states):
+    """True when `agent` has room and at least one of its accounts shows a real reading below panic_at
+    (not the synthetic after_reset 0 %). An agent with no accounts is ready whenever it is not out."""
+    if out_reason(cfg, agent, states):
+        return False
+    names = accounts_of(cfg, agent)
+    if not names:
+        return True
+    by_name = {s['name']: s for s in states}
+    return any(_fresh_below_panic(by_name.get(n) or {}) for n in names)
+
+
+def role_note(frm, to, why, connect_note='', auto=False):
     """The chat / event line for a MAIN AGENT ROLE hand-off."""
+    none = 'no agent has room' if auto else 'no agent in main.fallback has room'
     base = (f'MAIN AGENT ROLE handed from {frm} to {to}: {why}' if to else
-            f'MAIN AGENT ROLE stays with {frm} (out: {why}); no agent in main.fallback has room')
+            f'MAIN AGENT ROLE stays with {frm} (out: {why}); {none}')
+    return f'{base}. {connect_note}'.rstrip('. ')
+
+
+def restore_note(frm, to, connect_note=''):
+    """The chat / event line when the preferred main's limit has reset."""
+    base = f'MAIN AGENT ROLE restored to {to} (preferred; limit reset). Was {frm}'
     return f'{base}. {connect_note}'.rstrip('. ')
 
 
@@ -813,25 +925,62 @@ def already_noted(cfg, frm, to):
     return last.get('from') == frm and last.get('to') == to and bool(last.get('at'))
 
 
-def clear_role_record(cfg, frm):
-    """Drop the saved hand-off record when `frm` recovered and the record belongs to it."""
+def clear_role_record(cfg, frm=None):
+    """Drop the saved hand-off record (when `frm` is set, only if the record belongs to it)."""
     path = role_path(cfg)
-    if (read_json(path) or {}).get('from') == frm and os.path.exists(path):
+    if not os.path.exists(path):
+        return
+    if frm is None or (read_json(path) or {}).get('from') == frm:
         os.remove(path)
 
 
-def take_role(cfg, to, connect_fn=None):
-    """Persists the MAIN AGENT ROLE on `to`, switches the conductor choice, connects it. Returns the connect note."""
+def keep_preferred(cfg, agent):
+    """Ensure preferred_main is set before an automatic hand-off overwrites the current main."""
     from . import users
-    users.write(config.state_dir(cfg), main_agent=to)
-    choose(cfg, to)
+    folder = config.state_dir(cfg)
+    if not users.read(folder).get('preferred_main'):
+        users.write(folder, preferred_main=agent)
+
+
+def take_role(cfg, to, connect_fn=None):
+    """Persists the current MAIN AGENT ROLE on `to` (preferred and auto unchanged), connects it. Returns the connect note."""
+    choose(cfg, to, owner=False)
     return connect_role(cfg, to, connect_fn)
 
 
+def restore_preferred(cfg, states, connect_fn=None, chat_fn=None, now=None):
+    """When current ≠ preferred and preferred has a fresh reading below panic_at, switch current back.
+    Returns the event line, or None."""
+    want, cur = preferred(cfg), current(cfg)
+    if not want or want == cur or want not in cfg['workers']:
+        return None
+    if not limit_reset(cfg, want, states):
+        return None
+    connect_note = take_role(cfg, want, connect_fn)
+    text = restore_note(cur, want, connect_note)
+    (chat_fn or deliver_role_note)(cfg, text)
+    clear_role_record(cfg)
+    return text
+
+
+def _note_hand_off(cfg, frm, to, why, connect_fn, chat_fn, now):
+    """Persist a panic/spent hand-off (or a stay-put note), connect, and chat. Returns the event line."""
+    keep_preferred(cfg, frm)
+    connect_note = take_role(cfg, to, connect_fn) if to else ''
+    text = role_note(frm, to, why, connect_note, auto=is_auto(cfg))
+    (chat_fn or deliver_role_note)(cfg, text)
+    write_json(role_path(cfg), {'from': frm, 'to': to, 'why': why,
+                                'at': (now or datetime.now(timezone.utc)).isoformat()})
+    return text
+
+
 def hand_off_role(cfg, states=None, connect_fn=None, chat_fn=None, now=None):
-    """When the main agent's accounts are in panic or spent, hands the MAIN AGENT ROLE to the next in main.fallback,
-    connects it, and writes a chat note. Returns the event line, or None when nothing changes."""
+    """Restore preferred main after its limit resets; else when the current main is in panic or spent, hand the role
+    to the next with room (auto: preferred then first fallback; else main.fallback). Returns the event line, or None."""
     states = states if states is not None else account_states(cfg, now)
+    restored = restore_preferred(cfg, states, connect_fn=connect_fn, chat_fn=chat_fn, now=now)
+    if restored:
+        return restored
     frm = current(cfg)
     to, why = pick_role(cfg, states)
     if not why:
@@ -839,10 +988,5 @@ def hand_off_role(cfg, states=None, connect_fn=None, chat_fn=None, now=None):
         return None
     if already_noted(cfg, frm, to):
         return None
-    connect_note = take_role(cfg, to, connect_fn) if to else ''
-    text = role_note(frm, to, why, connect_note)
-    (chat_fn or deliver_role_note)(cfg, text)
-    write_json(role_path(cfg), {'from': frm, 'to': to, 'why': why,
-                                'at': (now or datetime.now(timezone.utc)).isoformat()})
-    return text
+    return _note_hand_off(cfg, frm, to, why, connect_fn, chat_fn, now)
 

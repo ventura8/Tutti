@@ -416,7 +416,7 @@ API_TUTTI_MOVE = '/api/move'   # Tutti itself to another machine (docs/MOVE.md);
 # these change the config or the queue: an admin's
 API_LIMIT = '/api/machine-limit'   # a machine's limited-usage window (tutti/share.py), from its card
 ADMIN_PATHS = (API_LIMIT, API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE,
-               '/api/ai-assist')
+               '/api/ai-assist', '/api/main')
 API_REPORT = '/api/report'   # Report a problem (docs/REPORT.md): every signed-in user, viewers included
 API_VPN_STATUS = '/api/vpn/status'   # GET: the Private network card's state, 200 also when no VPN is set up
 API_WORK_MOVE = '/api/work/move'   # work waiting on an away or asleep target moved now (docs/PRESENCE.md)
@@ -507,16 +507,17 @@ def save_reading(cfg, raw, now=None):
 
 
 def save_main(cfg, raw):
-    """(status, answer) for POST /api/main {"agent": <worker>}: the owner's switch of the main agent."""
+    """(status, answer) for POST /api/main {"agent": <worker|auto>}: the owner's switch of the main agent (admin only).
+    Same code path as `tutti main <agent|auto>`."""
     try:
         data = json.loads(raw or b'null')
         agent = data.get('agent') if isinstance(data, dict) else None
         conduct.choose(cfg, agent)
     except ValueError:
-        return 400, {'error': 'send {"agent": "<worker>"} as JSON'}
+        return 400, {'error': 'send {"agent": "<worker|auto>"} as JSON'}
     except conduct.ConductError as e:
         return 400, {'error': str(e)}
-    return 200, {'ok': True, 'agent': agent}
+    return 200, {'ok': True, 'agent': agent, 'current': conduct.current(cfg), 'auto': conduct.is_auto(cfg)}
 
 
 def save_owner(collector, raw):

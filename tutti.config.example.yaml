@@ -313,8 +313,11 @@ review:
   # rounds: {coderabbit: 1, greptile: 1, copilot: 1, grok: 1, local: 1}
 
 # `tutti conduct`: another agent as the main (conductor) agent; who takes over when its quota is in panic (docs/CONDUCT.md)
+# agent: a worker, or auto (preferred while it has room, else the first of fallback with room). preferred: lasting choice
+# (empty: this file's agent when that is a worker, else the first of fallback, else claude). See docs/CONDUCT.md.
 main:
-  agent: claude
+  agent: auto
+  preferred: claude
   fallback: [agy, cursor, small]
   commands:
     claude: [claude, -p, '{prompt}', --permission-mode, acceptEdits, --allowedTools, 'Bash(tutti:*)']

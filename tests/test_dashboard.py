@@ -167,6 +167,14 @@ class MachinesWorkersTest(unittest.TestCase):
         self.assertEqual((ms['a']['rank'], ms['c']['rank']), (1, None))
         self.assertEqual((ms['b']['busy'], ms['d']['free']), (2, None))
 
+    def test_machine_environments_name_their_physical_card(self):
+        self.cfg['machines']['pc'] = config.machine_of(self.cfg, 'pc', {'host': 'pc.example'})
+        self.cfg['machines']['pc-desktop'] = config.machine_of(self.cfg, 'pc-desktop', {'host': 'pc.example', 'dedicated': True})
+        probes = {'pc.example': routing.Probe(True, 2, 0.1, 8)}
+        ms = {m['name']: m for m in state.machines_state(self.cfg, lambda m: probes.get(m['host'], routing.Probe()))}
+        self.assertEqual(ms['pc']['physical'], 'pc')
+        self.assertEqual(ms['pc-desktop']['physical'], 'pc')
+
     def test_workers_and_known_agents(self):
         w = state.workers_state(self.cfg, lambda x: (x['kind'] == 'ollama', 'note'), which=lambda c: c == 'claude' and '/bin/claude')
         by = {x['name']: x for x in w['items']}

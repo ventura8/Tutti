@@ -50,7 +50,7 @@ dashboard's **Set up** card lists each default with a **Change** link. `--ask` a
 
 | What | How |
 | --- | --- |
-| Agents: `claude`, `cursor-agent`, `agy`, `copilot` | on PATH; each becomes a worker entry |
+| Agents: `claude`, `codex`, `cursor-agent`, `agy`, `copilot` | on PATH; each becomes a worker entry |
 | Their sign-in | the tool's own status command (`cursor-agent status`) or whether its login file exists; no credential file is ever opened |
 | Plans | where the tool prints one (`cursor-agent about`); otherwise one question with a default |
 | Local models | `ollama list`; the first becomes the `local` worker |
@@ -64,7 +64,7 @@ dashboard's **Set up** card lists each default with a **Change** link. `--ask` a
 
 - connects every agent it found to Tutti's MCP server (`tutti connect --all`, docs/CONNECT.md; `--no-connect` skips it; the restarts an agent needs join the one list at the end);
 - writes `~/.config/tutti/config.yaml` (or the config Tutti already finds) with the found entries and sensible defaults:
-  the main agent (Claude first, then Cursor, Antigravity, Copilot), `machines.here`, the workers, accounts with an
+  the main agent (Claude first, then Codex, Cursor, Antigravity, Copilot), `machines.here`, the workers, accounts with an
   estimated reset, the projects with their priorities, `self_update: {enabled: true}`. An existing config keeps every
   comment and line: entries are only added, and the old file is kept as `config.yaml.bak`. The result is checked by
   `tutti config`'s own rules before it is written;

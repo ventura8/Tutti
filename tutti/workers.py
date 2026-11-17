@@ -13,7 +13,8 @@ import urllib.request
 from . import config, inuse
 
 STANDING = ['Work only inside the current directory.', 'Do not commit, push or deploy: leave your edits uncommitted for review.',
-            'Do not read or print secrets (.env files, tokens, keys).']
+            'Do not read or print secrets (.env files, tokens, keys).',
+            'This task is already managed by Tutti: do not call its MCP tools for claiming, leasing, delegating or reporting.']
 
 
 def brief(cfg, task, files=()):

@@ -106,8 +106,8 @@ FIELDS = {
     'accounts.*.reading_file': field('Reading file', 'A file your own tool writes {"used": 42} to.', 'text'),
     'accounts.*.stale_hours': field('Reading goes stale after', 'A reading by hand older than this gets a reminder.', **HRS),
     'accounts.*.args': field('Extra worker flags', 'Added when `tutti run auto` or conduct picks this account.', **CMD),
-    'accounts.*.reader': field('Automatic reader', 'A command that prints the usage and the bucket to read from it, or '
-                               '{format: cursor-api, field: autoPercentUsed} for Cursor.', **YAML),
+    'accounts.*.reader': field('Automatic reader', 'A command that prints usage, or format: cursor-api, codex-app-server '
+                               'or browser-usage for a scoped usage page.', **YAML),
     'accounts.*.tiers': field('Models by pace', 'Behind its limit: the strong tier\'s flags and the large tasks; ahead: the cheap '
                               'tier\'s and the small ones ({strong: {args: [--model, x], sizes: [L, M]}, cheap: ...}).', **YAML),
     'accounts.*.limits': field('Bounded by', 'Longer quotas that bound this one (a weekly over a 5-hour window).', 'list',
@@ -136,10 +136,12 @@ FIELDS = {
     'workers.*.num_ctx': field('Context', 'The model\'s context window.', 'number', unit='tokens', min=512),
     'workers.*.context_tokens': field('Context window', 'Used by autocompact when the worker does not say.', 'number', unit='tokens',
                                       min=1000),
-    'workers.*.machine': field('Machine', 'Its yield flag is honoured: the worker waits while the machine yields.', 'select',
-                           choices_from='machines'),
+    'workers.*.machine': field('Machine', 'Where this worker runs (Codex on the laptop): yield, pause, heat and quiet hours '
+                               'are honoured; Move work knows the host.', 'select', choices_from='machines'),
     'workers.*.tunnel': field('Tunnel', 'An ssh tunnel to the model server: {ssh, remote}.', **YAML),
-    'routing.workers': field('Worker order', '`tutti run auto` tries these in order, skipping spent ones.', 'list', choices_from='workers'),
+    'routing.workers': field('Worker order', '`tutti run auto` prefers these first (order only; every account that names a '
+                            'worker still joins, so Codex is not left out when the list is only cursor and agy).', 'list',
+                            choices_from='workers'),
     'brief.rules': field('Rules in every brief', 'Added to every brief (the standing ones are always added).', 'list', item='rule'),
     # main agent
     'main.target_pct': field('Target', 'The % of the main agent\'s quota to use by its spend-by time; the owner\'s reserve still holds.',

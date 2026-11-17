@@ -40,6 +40,10 @@ class PlanTest(unittest.TestCase):
         self.assertNotIn('other', p)
         self.assertEqual(len(p), 3)
 
+    def test_codex_uses_its_own_updater(self):
+        cfg = config.normalise({'workers': {'codex': {'kind': 'cli', 'command': ['codex', 'exec', '{prompt}']}}})
+        self.assertEqual(update.programs(cfg)['codex'], {'version': '', 'update': 'codex update'})
+
     def test_parse_keeps_only_marked_rows_and_shortens_versions(self):
         row = '\t'.join([update.MARK, 'copilot', 'updated', 'GitHub Copilot CLI 1.0.112.', 'GitHub Copilot CLI 1.0.113.', 'done'])
         text = f'noise\n{row}\n{update.MARK}\tbad\n'
@@ -332,6 +336,20 @@ class WslTest(unittest.TestCase):
 
 
 class SecondReviewTest(unittest.TestCase):
+    def test_codex_updater_falls_back_to_npm_for_older_versions(self):
+        with tempfile.TemporaryDirectory() as t:
+            folder = os.path.join(t, 'lib', 'node_modules', '@example', 'codex')
+            os.makedirs(folder)
+            prog = fake(folder, 'codex', 'if [ "$1" = --help ]; then echo "Commands: exec"; else echo 1.0; fi')
+            text = update.script({prog: {'version': '', 'update': update.default_update(prog)}}, [], check=True)
+            out = subprocess.run(['bash', '-c', text], capture_output=True, text=True, check=True)
+            [row] = update.parse(out.stdout)
+            self.assertIn('npm install -g', row['detail'])
+            fake(folder, 'codex', 'if [ "$1" = --help ]; then echo "  update  Update Codex"; else echo 1.0; fi')
+            out = subprocess.run(['bash', '-c', text], capture_output=True, text=True, check=True)
+            [row] = update.parse(out.stdout)
+            self.assertIn('codex update', row['detail'])
+
     def test_an_opt_out_holds_whatever_the_worker_order(self):
         for order in (('a', 'b'), ('b', 'a')):
             spec = {'a': {'kind': 'cli', 'command': ['agy'], 'update': False}, 'b': {'kind': 'cli', 'command': ['agy']}}

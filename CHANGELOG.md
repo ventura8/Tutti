@@ -7,6 +7,33 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.26.0] - 2026-11-17
+
+### Added
+
+- OpenAI Codex CLI as a coding worker: `tutti setup` finds `codex` on PATH (`codex exec --skip-git-repo-check`), the
+  example config wires `workers.codex` (with `machine:` for the login host), `accounts.codex`, and puts Codex on the
+  autopilot ladder and accounts so jobs run on the machine where Codex is signed in (t297).
+- A CLI worker with `workers.<name>.machine` waits while that machine yields, is paused, hot or in quiet hours (the same
+  governor local models use), so Codex on the laptop respects the laptop's yield flag (t297).
+- `tutti update` uses Codex CLI's own `codex update` command.
+- Codex usage is read from Codex CLI's account rate limits; accounts with a usage URL and no reader (including Grok Bot)
+  are automatically read from the scoped Work browser every 15 minutes (t297/t282). Existing Codex accounts also
+  receive the Codex CLI reader automatically without a setup migration. The reader keeps the app-server connection open
+  through initialization and the usage response (t316).
+- Machine state identifies each environment's physical parent, and the Machines tab nests dedicated WSL/desktop
+  environments within one physical-machine card (t313).
+
+### Fixed
+
+- Codex setup records the local machine, automatic worker selection respects its governor, and remote usage requires
+  the account's login host so a different account's limits are never substituted (t316).
+- `routing.workers` is a preference order only: every account that names a worker still joins `tutti run auto`. Codex
+  (and any other worker left off the list) was skipped entirely when the list was only cursor and agy, so a behind Codex
+  account never ran while Cursor was ahead (t297).
+- Codex setup uses `--approve-for-me`, which routes approval requests through automatic review with the workspace-write
+  sandbox.
+
 ## [0.25.6] - 2026-11-17
 
 ### Fixed

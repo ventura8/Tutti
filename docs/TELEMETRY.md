@@ -117,7 +117,9 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
 6. **Merge** (only a project with `merge: true`): when every check is green and at least one passed (CI, Sonar), the
    review run ended well, no review asks for changes or is still required, no review thread is open, and GitHub found it
    mergeable. Never with `--admin`, and only at the head commit the gates saw (`--match-head-commit`). Changes requested
-   send the task back to the autopilot, and its next push is reviewed again.
+   send the task back to the autopilot, and its next push is reviewed again. Existing PRs from ordinary backlog tasks
+   follow this loop too when their project explicitly enables both self-improvement tasks and merging. The retry pushes
+   to the existing PR; projects without both permissions retain their existing review and publishing behavior.
    Tutti checks every page of review threads; missing, malformed, partial or cyclic results block a merge until GitHub can
    return a complete list. This check alone does not bind the destination branch atomically at merge time.
 7. **Release** (only with `release: true` and a `release_command`): a batched patch release when fixes were merged and

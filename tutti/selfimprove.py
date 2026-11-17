@@ -116,13 +116,14 @@ def may_add(pol, cfg):
 def pr_plan(cfg, task, repo):
     """(mode 'draft'|'ready'|None, base or None, why) of a passed task's pull request. A self-improvement task gets a ready
     pull request; its base must not be a protected branch unless the project may merge (then the default branch is fine)."""
-    if task.get('source') not in SOURCES or not task.get('pr_mode'):
+    pol = policy_of_repo(cfg, task.get('repo')) or {**POLICY}
+    retry_existing = bool(task.get('pr') and pol['tasks'] and pol['merge'])
+    if (task.get('source') not in SOURCES or not task.get('pr_mode')) and not retry_existing:
         return ('draft', repo.get('base') or None, '') if repo.get('pr') == 'draft' else (None, None, '')
-    pol = policy_of_repo(cfg, task['repo']) or {**POLICY}
     base = pol['base'] or repo.get('base') or ''
     protected = set((cfg.get('ship') or {}).get('protected') or ['main', 'master'])
     if pol['merge']:
-        return task['pr_mode'], base or None, ''
+        return task.get('pr_mode') or 'ready', base or None, ''
     if not base or base in protected:
         return None, None, (' (no pull request: this project may not merge, so it needs self_improve.base, a work branch that '
                             'is not ' + '/'.join(sorted(protected)) + ')')
@@ -483,7 +484,9 @@ def tick(cfg, now=None, run=github.run, spawn=subprocess.Popen):
     events = analyse(cfg, now) + user_reports(cfg, now, run) + accept_waiting(cfg)
     st = read_state(cfg)
     with backlog.locked(cfg) as data:
-        for t in [t for t in data['tasks'] if t.get('source') in SOURCES and t['status'] == 'review' and t.get('pr')]:
+        for t in [t for t in data['tasks'] if t['status'] == 'review' and t.get('pr') and
+                  (t.get('source') in SOURCES or ((policy_of_repo(cfg, t['repo']) or {}).get('tasks') and
+                                                 (policy_of_repo(cfg, t['repo']) or {}).get('merge')))]:
             line = advance(cfg, t, st, now, run, spawn)
             if line:
                 events.append(line)

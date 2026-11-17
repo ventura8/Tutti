@@ -7,6 +7,13 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [Unreleased]
+
+### Fixed
+
+- Ordinary backlog pull requests in projects opted in to autonomous tasks and merges return for requested review fixes
+  and are reviewed again before merging (t179).
+
 ## [0.27.13] - 2026-11-18
 
 ### Fixed

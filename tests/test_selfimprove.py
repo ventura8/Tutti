@@ -267,6 +267,29 @@ class Rounds(Base):
         self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
         self.assertEqual(selfimprove.read_state(cfg)['reviews'], {})   # the pushed fix is reviewed again
 
+    def test_regular_task_review_is_retried_only_for_an_opted_in_project(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        gh, spawn = FakeGh(pr(reviewDecision='CHANGES_REQUESTED')), finished_review()
+        selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
+        task = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(task['status'], 'queued')
+        self.assertEqual(selfimprove.pr_plan(cfg, task, {})[0], 'ready')
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
+        cfg = self.cfg()
+        cfg['projects']['Tutti']['self_improve']['merge'] = False
+        self.assertEqual(selfimprove.pr_plan(cfg, task, {})[0], None)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0]['status'] = 'review'
+        calls_before = len(spawn.calls)
+        selfimprove.tick(cfg, NOW + 7200, run=gh, spawn=spawn)
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'review')
+        self.assertEqual(len(spawn.calls), calls_before)
+
     def test_open_threads_or_a_project_without_authority_never_merge(self):
         cfg = self.cfg()
         self.add_review_task(cfg, 'app', 3)

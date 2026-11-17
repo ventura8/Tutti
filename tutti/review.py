@@ -103,7 +103,7 @@ def request_by_graphql(repo, number, gh_fn=gh):
     return any(((n or {}).get('requestedReviewer') or {}).get('login') in COPILOT_LOGINS for n in nodes)
 
 
-def events(repo, number, gh_fn=gh):
+def events(repo, number, gh_fn=gh, expected_head=None):
     """[(login, time, text, kind)] of the pull request's reviews (kind 'review') and comments ('comment'). The time is the
     latest of created and updated: CodeRabbit edits its summary comment in place to say "Review limit reached"."""
     out = []
@@ -115,7 +115,11 @@ def events(repo, number, gh_fn=gh):
             raise RuntimeError(f'reading {path} failed ({err}): check `gh auth status`')
         pages = documents(text)
         for item in (x for page in pages for x in (page if isinstance(page, list) else [page])):
-            times = [pacing.parse_time(item[k]) for k in (when, 'updated_at') if item.get(k)]
+            if expected_head and kind == 'review' and (item.get('commit_id') != expected_head or
+                    item.get('state') not in ('APPROVED', 'CHANGES_REQUESTED', 'COMMENTED')):
+                continue
+            times = [pacing.parse_time(item[k]) for k in ((when,) if expected_head and kind == 'review' else
+                     (when, 'updated_at')) if item.get(k)]
             if times:
                 out.append(((item.get('user') or {}).get('login', ''), max(times), item.get('body') or '', kind))
     return out
@@ -124,12 +128,14 @@ def events(repo, number, gh_fn=gh):
 SCOUT_MARKER = 'grok-scout'   # the first line of a scout's review comment (tutti/scouts.py REVIEW_MARKER)
 
 
-def status(who, evs, since, author=None):
+def status(who, evs, since, author=None, expected_head=None):
     """'reviewed' (a pull request review after `since`), 'limited' (it answered that it will not review now) or 'pending'.
     A comment is never a review: CodeRabbit acknowledges a request ("Action not completed", "Review triggered") in one.
     A scout (any other name) posts as the GitHub account connected to it (`author`: the owner's, or scouts.<name>.github_login):
     its review is a comment by that account whose first line is the marker; anyone else's marker counts for nothing."""
     if who != 'copilot' and who not in BOTS:
+        if expected_head:
+            return 'pending'  # scout comments carry no immutable commit evidence
         found = any(t >= since and body.lstrip().lower().startswith(SCOUT_MARKER) and (author is None or login == author)
                     for login, t, body, _k in evs)
         return 'reviewed' if found else 'pending'
@@ -142,12 +148,13 @@ def status(who, evs, since, author=None):
     return 'pending'
 
 
-def wait_for(repo, number, asked, since, timeout_s, poll_s, gh_fn=gh, clock=time.monotonic, sleep=time.sleep, authors=None):
+def wait_for(repo, number, asked, since, timeout_s, poll_s, gh_fn=gh, clock=time.monotonic, sleep=time.sleep, authors=None,
+             expected_head=None):
     """Polls until a reviewer reviewed, or every asked reviewer is limited, or the time is up. Returns {who: status}."""
     end = clock() + timeout_s
     while True:
-        evs = events(repo, number, gh_fn)
-        found = {w: status(w, evs, since, (authors or {}).get(w)) for w in asked}
+        evs = events(repo, number, gh_fn, expected_head)
+        found = {w: status(w, evs, since, (authors or {}).get(w), expected_head) for w in asked}
         if any(s == 'reviewed' for s in found.values()) or all(s == 'limited' for s in found.values()) or clock() >= end:
             return found
         sleep(poll_s)
@@ -181,11 +188,41 @@ def worker_room(cfg, name, entries, now):
     return list((cfg['accounts'][best['name']] or {}).get('args') or []), ''
 
 
-def local_review(cfg, repo, number, name, args, gh_fn=gh, run_worker=None):
+def immutable_diff(repo, number, revisions, gh_fn):
+    """Only use complete textual compare patches for immutable commits; binary/truncated diffs fail closed."""
+    rc, raw, _err = gh_fn(['api', f'repos/{repo}/pulls/{number}'])
+    rc2, comparison, _err2 = gh_fn(['api', f'repos/{repo}/compare/{revisions[0]}...{revisions[1]}?per_page=100'])
+    try:
+        pr, data = json.loads(raw), json.loads(comparison)
+        count, files = pr['changed_files'], data['files']
+        if (rc or rc2 or pr['base']['sha'] != revisions[0] or pr['head']['sha'] != revisions[1] or
+                isinstance(count, bool) or not isinstance(count, int) or
+                not 0 < count <= 300 or not isinstance(files, list) or len(files) != count):
+            raise ValueError('revision or file count mismatch')
+        patches = []
+        for item in files:
+            name, patch = item['filename'], item['patch']
+            additions, deletions = item['additions'], item['deletions']
+            if (not isinstance(name, str) or not name or '\n' in name or not isinstance(patch, str) or not patch or
+                    not isinstance(additions, int) or not isinstance(deletions, int) or
+                    sum(line.startswith('+') for line in patch.splitlines()) != additions or
+                    sum(line.startswith('-') for line in patch.splitlines()) != deletions):
+                raise ValueError('missing or incomplete text patch')
+            patches.append(f'File: {json.dumps(name)}\n{patch}\n')
+        return '\n'.join(patches)
+    except (KeyError, TypeError, ValueError):
+        raise RuntimeError('review: complete immutable diff unavailable (binary, truncated, or changed); '
+                           'retry or review manually') from None
+
+
+def local_review(cfg, repo, number, name, args, gh_fn=gh, run_worker=None, revisions=None):
     """The fallback: the pull request's diff in an empty folder, the worker asked to review it. Returns the review text."""
-    rc, diff, err = gh_fn(['pr', 'diff', str(number), '--repo', repo])
-    if rc != 0:
-        raise RuntimeError(f'gh pr diff {number} failed ({err})')
+    if revisions:
+        diff = immutable_diff(repo, number, revisions, gh_fn)
+    else:
+        rc, diff, err = gh_fn(['pr', 'diff', str(number), '--repo', repo])
+        if rc != 0:
+            raise RuntimeError(f'gh pr diff {number} failed ({err})')
     with tempfile.TemporaryDirectory(prefix='tutti-review-') as d:
         with open(os.path.join(d, 'pr.diff'), 'w', encoding='utf8') as f:
             f.write(diff)
@@ -376,18 +413,20 @@ def rounds_done(cfg, repo, number):
     return data if isinstance(data, dict) else {}, f'{repo}#{number}'
 
 
-def round_left(cfg, repo, number, who):
+def round_left(cfg, repo, number, who, head=None):
     """'' when `who` may review repo#number once more, else why not."""
     allowed = rounds_allowed(cfg, who)
     if allowed <= 0:
         return 'review.rounds says 0 (not called)'
     data, key = rounds_done(cfg, repo, number)
+    key = f'{key}@{head}' if head else key
     used = int((data.get(key) or {}).get(who) or 0)
     return '' if used < allowed else f'its {allowed} review round(s) on this pull request are done (review.rounds)'
 
 
-def count_round(cfg, repo, number, who, step=1):
+def count_round(cfg, repo, number, who, step=1, head=None):
     data, key = rounds_done(cfg, repo, number)
+    key = f'{key}@{head}' if head else key
     data.setdefault(key, {})[who] = max(0, int(data.get(key, {}).get(who) or 0) + step)
     path = rounds_path(cfg)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -454,38 +493,87 @@ def hold_for_bots(cfg, repo, number, held, policy, say):
     return bool(waiting)
 
 
-def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh, say=print, **kw):
+def review_revisions(repo, number, gh_fn=gh):
+    """Read immutable base and head IDs; malformed or inaccessible metadata cannot authorize a review."""
+    rc, out, _err = gh_fn(['api', f'repos/{repo}/pulls/{number}'])
+    try:
+        data = json.loads(out) if rc == 0 else {}
+        base, head = data['base']['sha'], data['head']['sha']
+        if all(isinstance(value, str) and re.fullmatch(r'[0-9a-f]{40}', value) for value in (base, head)):
+            return base, head
+    except (ValueError, TypeError, KeyError):
+        pass
+    return None
+
+
+def initial_review_revisions(repo, number, gh_fn, expected_head):
+    return review_revisions(repo, number, gh_fn) if expected_head else None
+
+
+def absence_lines(found, absent, timeout):
+    return [f'{w}: {"said it will not review now (limit reached)" if result == "limited" else f"no review within {timeout / 60:g} min"}'
+            for w, result in found.items()] + [f'{w}: {why}' for w, why in absent.items()]
+
+
+def exhausted_round_result(expected_head, spent):
+    return 0 if not expected_head and 'are done' in spent else 1
+
+
+def valid_review_start(expected_head, revisions):
+    return not expected_head or bool(revisions and revisions[-1] == expected_head)
+
+
+def revisions_match(repo, number, expected_head, revisions, gh_fn, say):
+    if expected_head and review_revisions(repo, number, gh_fn) != revisions:
+        say('review: pull request revisions changed: review again')
+        return False
+    return True
+
+
+def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh, say=print, expected_head=None, **kw):
     """The whole flow. Returns 0 when a reviewer answered or the fallback review was posted, 4 while a `wait` bot is
     rate-limited, 3 when the local review has findings, 1 otherwise."""
     r = cfg['review']
     repo = repo_of(pr_repo, gh_fn)
-    since = datetime.now(timezone.utc).replace(microsecond=0)
+    revisions = initial_review_revisions(repo, number, gh_fn, expected_head)
+    if not valid_review_start(expected_head, revisions):
+        say('review: pull request head cannot be verified: review again after it settles')
+        return 1
+    since = datetime.now(timezone.utc) if expected_head else datetime.now(timezone.utc).replace(microsecond=0)
     policy = {b: coderabbit_policy(cfg, repo, b) for b in BOTS}
     asked, absent, held = ask_all(cfg, repo, number, since, policy, gh_fn, say)
     timeout = float(r['timeout_minutes'] if timeout_minutes is None else timeout_minutes) * 60
     authors = {w: scout_author(cfg, w, gh_fn) for w in asked if w in (cfg.get('scouts') or {})}
-    found = wait_for(repo, number, asked, since, timeout, float(r['poll_seconds']), gh_fn, authors=authors, **kw) if asked else {}
+    found = (wait_for(repo, number, asked, since, timeout, float(r['poll_seconds']), gh_fn, authors=authors,
+                      expected_head=expected_head, **kw) if asked else {})
     note_all_limited(cfg, repo, number, found, since, held, gh_fn, say)
     if hold_for_bots(cfg, repo, number, held, policy, say):
         return 4
     if any(s == 'reviewed' for s in found.values()):
+        if not revisions_match(repo, number, expected_head, revisions, gh_fn, say):
+            return 1
         say(f'review: {", ".join(w for w, s in found.items() if s == "reviewed")} reviewed pull request {number}: '
             'read and resolve its threads')
         return 0
-    lines = [f'{w}: {"said it will not review now (limit reached)" if s == "limited" else f"no review within {timeout / 60:g} min"}'
-             for w, s in found.items()] + [f'{w}: {why}' for w, why in absent.items()]
+    lines = absence_lines(found, absent, timeout)
     say('review: no automated review will come: ' + '; '.join(lines or ['no reviewer configured (review.reviewers)']))
-    spent = round_left(cfg, repo, number, 'local')
+    spent = round_left(cfg, repo, number, 'local', head=expected_head)
     if spent:   # its rounds done: the earlier rounds were the review; 0 rounds: no one reviews, a person does
         say(f'review: no local review either: {spent}')
-        return 0 if 'are done' in spent else 1
+        return exhausted_round_result(expected_head, spent)
     name, args = pick_fallback(cfg)
     if not name:
         say(f'review: no fallback worker can review either ({args}): review the diff yourself')
         return 1
     say(f'review: a local review by {name} {" ".join(args)}'.rstrip())
-    count_round(cfg, repo, number, 'local')
-    text = local_review(cfg, repo, number, name, args, gh_fn)
+    count_round(cfg, repo, number, 'local', head=expected_head)
+    text = local_review(cfg, repo, number, name, args, gh_fn, revisions=revisions)
+    if not revisions_match(repo, number, expected_head, revisions, gh_fn, say):
+        return 1
+    return finish_local_review(repo, number, name, text, lines, post, gh_fn, say)
+
+
+def finish_local_review(repo, number, name, text, lines, post, gh_fn, say):
     body = (f'### Local review by {name}\n\nNo automated review arrived ({"; ".join(lines) or "none configured"}), so Tutti asked a '
             f'local worker. Findings are suggestions to verify, not a verdict.\n\n{text}\n')
     if post:

@@ -483,7 +483,7 @@ def review_lock(cfg, repo, number):
         return None
 
 
-def request_review(cfg, repo, number, spawn=subprocess.Popen, invocation=None):
+def request_review(cfg, repo, number, spawn=subprocess.Popen, invocation=None, expected_head=None):
     """`tutti pr review <n>` in the background: asks the AI reviewers and falls back to a cheap worker's review; its exit
     code lands in the .rc file once it has finished."""
     invocation = invocation or secrets.token_hex(16)
@@ -494,6 +494,8 @@ def request_review(cfg, repo, number, spawn=subprocess.Popen, invocation=None):
     if lock is None:
         return {'started': False}
     argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'pr', 'review', str(number), '--repo', repo]
+    if expected_head:
+        argv.extend(['--expected-head', expected_head])
     script = 'rc=0; "$@" || rc=$?; echo $rc > "$RC_FILE"'
     try:
         with open(log, 'a', encoding='utf8') as f:
@@ -613,15 +615,19 @@ def ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn):
         offset = os.path.getsize(log)
     except OSError:
         offset = 0
+    head = pr.get('headRefOid')
+    if not isinstance(head, str) or not head:
+        t['self_improve'] = 'review head is missing or invalid: the next round tries again'
+        return None
     try:
-        started = request_review(cfg, pol['repo'], number, spawn)
+        started = request_review(cfg, pol['repo'], number, spawn, expected_head=head)
     except (OSError, subprocess.SubprocessError):
         t['self_improve'] = 'the review could not start: check the worker and the next round will retry'
         return None
     if not started.get('started'):
         t['self_improve'] = 'review is already running or its process lock is unavailable: the next round tries again'
         return None
-    reviews[key] = {'at': now, 'sha': pr.get('headRefOid') or '', 'log_offset': offset, **started}
+    reviews[key] = {'at': now, 'sha': head, 'log_offset': offset, 'bound_revision': True, **started}
     return f'{t["id"]}: AI reviews asked on {key}'
 
 
@@ -701,6 +707,13 @@ def pending_review(cfg, t, pr, key, reviews, pol, number, now):
     """Wait for this invocation, re-review a new head, or safely schedule recovery of a dead process."""
     record = reviews[key] if isinstance(reviews[key], dict) else {}
     result = review_result(cfg, pol['repo'], number, record.get('invocation'))
+    if not record.get('bound_revision'):
+        if result is not None:
+            reviews.pop(key, None)
+            t['self_improve'] = 'old review lacks commit evidence: the next round requests a fresh review'
+        else:
+            t['self_improve'] = 'old review cannot be verified: wait for it to finish before requesting a fresh review'
+        return True, None
     if pushed_since_review(reviews, key, pr):
         if result is None:
             recover_review(cfg, t, reviews, key, pol, number, now)

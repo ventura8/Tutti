@@ -250,6 +250,18 @@ def worker_for(cfg, kind):
     return None
 
 
+def kind_of(cfg, worker):
+    """The MAIN_KINDS kind of this worker (by name or program; `local`: a local model), else None."""
+    w = (cfg.get('workers') or {}).get(worker) or {}
+    if w.get('kind') == 'ollama':
+        return 'local'
+    prog = os.path.basename(str((w.get('command') or [''])[0]))
+    for kind, (names, _target) in MAIN_KINDS.items():
+        if worker == kind or prog in names or any(worker.startswith(x) for x in names):
+            return kind
+    return None
+
+
 def set_main_agent(cfg, kind, connect_fn=None):
     """Makes `kind` this user's main agent (kept in user.json, so the config file is untouched); the planner's owner reserve
     moves to the accounts behind it. Then `tutti connect` for it. Returns (worker name, a note)."""

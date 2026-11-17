@@ -7,6 +7,21 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.24.1] - 2026-11-17
+
+### Added
+
+- When the main agent's accounts (`main.agent`, or the owner's switch) are in panic or spent, Tutti hands the main agent
+  role to the next worker in `main.fallback` that has room: it keeps the choice, runs `tutti connect` for that agent, and
+  writes a Chat note under **Main agent hand-off** (owner, 2026-11-16, Claude in panic). One note per episode; with no
+  fallback free, the note says so and the role stays put. See docs/CONDUCT.md.
+
+### Fixed
+
+- Main-agent hand-off: Chat note goes to the signed-in owner's partition (not always `local`); episode identity is from/to
+  and the panic start (not usage % in the why text); the record clears when that main recovers; an Ollama worker whose
+  name starts with a CLI kind (e.g. `claude-local`) is classified as `local` before name matching.
+
 ## 0.24.0 (2026-11-17)
 
 ### Added

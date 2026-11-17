@@ -524,6 +524,19 @@ class RoleHandOffTest(Folder):
         self.assertEqual(conduct.current(self.cfg), 'cursor')
         self.assertEqual(conduct.preferred(self.cfg), 'local')
 
+    def test_auto_moves_a_leftover_stand_in_to_the_first_fallback_with_room(self):
+        # owner, 2026-11-17: auto showed "main agent: pc" (a local stand-in from an earlier hand-off) while cursor had room
+        self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z',
+                                                         'worker': 'cursor', 'enabled': True}},
+                          main={'agent': 'auto', 'preferred': 'agy', 'fallback': ['cursor', 'local'],
+                                'check_seconds': 0.05})
+        conduct.choose(self.cfg, 'local', owner=False)
+        self.assertEqual(conduct.current(self.cfg), 'local')
+        panic = self.states(**{'agy-claude': 99, 'agy-gemini': 97, 'cursor': {'used': 10, 'panic': False, 'verdict': 'on pace'}})
+        line = conduct.hand_off_role(self.cfg, panic, connect_fn=lambda *a, **k: [], chat_fn=lambda cfg, text: None)
+        self.assertIn('to cursor', line)
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+
     def test_auto_keeps_preferred_while_room_else_first_fallback_and_restores(self):
         self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z',
                                                          'worker': 'cursor', 'enabled': True}},

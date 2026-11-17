@@ -7,6 +7,19 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.25.2] - 2026-11-17
+
+### Fixed
+
+- Auto main agent always holds the best agent with room: a stand-in left over from an earlier hand-off (a local model)
+  gives way to the preferred agent or the first `main.fallback` with room, not only when it runs out (the dashboard showed
+  "main agent: pc (auto)" while cursor had room).
+
+### Added
+
+- Chat's model picker has **Auto: the main agent**: the main agent now answers first (Cursor while Claude is out,
+  Claude after its reset), the others only when it cannot.
+
 ## [0.25.1] - 2026-11-17
 
 ### Fixed

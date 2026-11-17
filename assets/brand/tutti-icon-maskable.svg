@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="tutti-maskable-title tutti-maskable-desc">
+  <title id="tutti-maskable-title">Tutti Maskable App Icon</title>
+  <desc id="tutti-maskable-desc">Maskable PWA icon for Tutti with full-bleed background and central safe-zone padding around the conductor and ensemble mark.</desc>
+  <defs>
+    <style>
+      :root {
+        --bg-start: #0F172A;
+        --bg-end: #1E1B4B;
+        --stave: #475569;
+        --baton: #F8FAFC;
+        --conductor-core: #FBBF24;
+        --conductor-ring: #F59E0B;
+        --worker-emerald: #10B981;
+        --worker-indigo: #6366F1;
+        --worker-coral: #F43F5E;
+      }
+    </style>
+    <linearGradient id="bg-grad-maskable" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="var(--bg-start)" />
+      <stop offset="100%" stop-color="var(--bg-end)" />
+    </linearGradient>
+  </defs>
+
+  <!-- Full-bleed background for PWA maskable icon -->
+  <rect x="0" y="0" width="512" height="512" fill="url(#bg-grad-maskable)" />
+
+  <!-- Safe-zone artwork: scaled to 76% around center (256, 256) so all elements sit well within the 80% PWA safe circle (radius 204.8px) -->
+  <g transform="translate(256, 256) scale(0.76) translate(-256, -256)">
+    <!-- Subtle curved musical staves across the ensemble arc -->
+    <g fill="none" stroke="var(--stave)" stroke-width="7" stroke-linecap="round" opacity="0.6">
+      <path d="M 88 308 Q 256 364 424 308" />
+      <path d="M 96 344 Q 256 400 416 344" />
+      <path d="M 112 380 Q 256 436 400 380" />
+    </g>
+
+    <!-- T-bar / Conductor podium beam at top -->
+    <path d="M 136 144 H 376" fill="none" stroke="var(--conductor-ring)" stroke-width="26" stroke-linecap="round" />
+
+    <!-- Orchestration baton lines from Conductor (256, 144) to the 3 Ensemble Workers -->
+    <g fill="none" stroke="var(--baton)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 256 144 L 136 324" opacity="0.9" />
+      <path d="M 256 144 L 256 364" />
+      <path d="M 256 144 L 376 324" opacity="0.9" />
+    </g>
+
+    <!-- Conductor Node (Apex) -->
+    <circle cx="256" cy="144" r="48" fill="var(--bg-start)" stroke="var(--conductor-ring)" stroke-width="15" />
+    <circle cx="256" cy="144" r="25" fill="var(--conductor-core)" />
+
+    <!-- Ensemble Worker 1 (Left - Emerald) -->
+    <circle cx="136" cy="324" r="38" fill="var(--bg-start)" stroke="var(--worker-emerald)" stroke-width="15" />
+    <circle cx="136" cy="324" r="17" fill="var(--worker-emerald)" />
+
+    <!-- Ensemble Worker 2 (Center - Indigo) -->
+    <circle cx="256" cy="364" r="40" fill="var(--bg-start)" stroke="var(--worker-indigo)" stroke-width="15" />
+    <circle cx="256" cy="364" r="19" fill="var(--worker-indigo)" />
+
+    <!-- Ensemble Worker 3 (Right - Coral) -->
+    <circle cx="376" cy="324" r="38" fill="var(--bg-start)" stroke="var(--worker-coral)" stroke-width="15" />
+    <circle cx="376" cy="324" r="17" fill="var(--worker-coral)" />
+  </g>
+</svg>

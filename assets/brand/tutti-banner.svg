@@ -1,0 +1,223 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" width="1280" height="400" role="img" aria-labelledby="banner-light-title banner-light-desc">
+  <title id="banner-light-title">Tutti — One conductor. Every agent. Every machine.</title>
+  <desc id="banner-light-desc">Tutti orchestrates AI coding agents across machines: one conductor node (Claude Code) directing CLI workers (Cursor, Antigravity), local models (Ollama), and remote slot-queued build machines along flowing musical staves while pacing quotas.</desc>
+  <defs>
+    <style>
+      :root {
+        --bg-0: #F8FAFC;
+        --bg-1: #FFFFFF;
+        --bg-subtle: #F1F5F9;
+        --border: #E2E8F0;
+        --border-strong: #CBD5E1;
+        --stave: #CBD5E1;
+        --text-primary: #0F172A;
+        --text-secondary: #334155;
+        --text-muted: #64748B;
+        --conductor: #D97706;
+        --conductor-bright: #F59E0B;
+        --conductor-bg: #FEF3C7;
+        --worker-indigo: #4F46E5;
+        --worker-indigo-bg: #EEF2FF;
+        --worker-emerald: #059669;
+        --worker-emerald-bg: #ECFDF5;
+        --worker-coral: #E11D48;
+        --worker-coral-bg: #FFF1F2;
+        --worker-cyan: #0891B2;
+        --worker-cyan-bg: #ECFEFF;
+        --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
+      }
+      .sans { font-family: var(--font-sans); }
+      .mono { font-family: var(--font-mono); }
+    </style>
+    <linearGradient id="canvas-light" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="var(--bg-0)" />
+      <stop offset="55%" stop-color="var(--bg-1)" />
+      <stop offset="100%" stop-color="var(--bg-subtle)" />
+    </linearGradient>
+    <linearGradient id="badge-grad-light" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#1E1B4B" />
+    </linearGradient>
+  </defs>
+
+  <!-- Outer Banner Card -->
+  <rect x="0" y="0" width="1280" height="400" rx="20" fill="url(#canvas-light)" />
+  <rect x="1" y="1" width="1278" height="398" rx="19" fill="none" stroke="var(--border)" stroke-width="2" />
+
+  <!-- Background 5-line Musical Stave (Score & Routing Plane) -->
+  <g fill="none" stroke="var(--stave)" stroke-width="1.5" opacity="0.75">
+    <path d="M 480 120 C 660 120, 740 88, 920 88 L 1236 88" />
+    <path d="M 480 160 C 660 160, 740 144, 920 144 L 1236 144" />
+    <path d="M 480 200 C 660 200, 740 200, 920 200 L 1236 200" />
+    <path d="M 480 240 C 660 240, 740 256, 920 256 L 1236 256" />
+    <path d="M 480 280 C 660 280, 740 312, 920 312 L 1236 312" />
+  </g>
+
+  <!-- Musical Measure Bar Lines on the Stave -->
+  <g stroke="var(--border-strong)" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.8">
+    <line x1="556" y1="108" x2="556" y2="292" />
+    <line x1="772" y1="90" x2="772" y2="310" />
+    <line x1="908" y1="68" x2="908" y2="332" />
+  </g>
+
+  <!-- ==================== LEFT COLUMN: BRAND & MESSAGE ==================== -->
+
+  <!-- Top Category Pill -->
+  <rect x="64" y="54" width="242" height="28" rx="14" fill="var(--conductor-bg)" stroke="var(--conductor-bright)" stroke-width="1" />
+  <circle cx="82" cy="68" r="5" fill="var(--conductor)" />
+  <text x="96" y="72" class="mono" font-size="11" font-weight="700" fill="var(--conductor)" letter-spacing="0.8">ENSEMBLE AI ORCHESTRATION</text>
+
+  <!-- Brand Emblem (Mini App Icon) -->
+  <g transform="translate(64, 114)">
+    <rect x="0" y="0" width="84" height="84" rx="20" fill="url(#badge-grad-light)" />
+    <path d="M 22 24 H 62" stroke="var(--conductor-bright)" stroke-width="4.5" stroke-linecap="round" />
+    <path d="M 42 24 L 22 56 M 42 24 L 42 62 M 42 24 L 62 56" stroke="#F8FAFC" stroke-width="3" stroke-linecap="round" />
+    <circle cx="42" cy="24" r="7.5" fill="#0F172A" stroke="var(--conductor-bright)" stroke-width="3" />
+    <circle cx="42" cy="24" r="3.5" fill="#FBBF24" />
+    <circle cx="22" cy="56" r="6" fill="#0F172A" stroke="#10B981" stroke-width="2.8" />
+    <circle cx="42" cy="62" r="6.5" fill="#0F172A" stroke="#6366F1" stroke-width="2.8" />
+    <circle cx="62" cy="56" r="6" fill="#0F172A" stroke="#F43F5E" stroke-width="2.8" />
+  </g>
+
+  <!-- Bespoke Vector Wordmark: "Tutti" (hand-crafted geometric paths, no external font dependency) -->
+  <g aria-label="Tutti" fill="none" stroke="var(--text-primary)" stroke-linecap="round" stroke-linejoin="round">
+    <!-- T -->
+    <path d="M 170 126 H 228" stroke-width="15" />
+    <path d="M 199 126 V 192" stroke-width="15" />
+    <!-- u -->
+    <path d="M 244 146 V 175 C 244 187, 252 193, 264 193 C 276 193, 284 187, 284 175 V 146" stroke-width="14" />
+    <path d="M 284 146 V 192" stroke-width="14" />
+    <!-- t (first) -->
+    <path d="M 316 128 V 181 C 316 189, 321 193, 330 193 H 335" stroke-width="14" />
+    <!-- t (second) -->
+    <path d="M 358 128 V 181 C 358 189, 363 193, 372 193 H 377" stroke-width="14" />
+    <!-- Shared musical-beam crossbar across both 't's -->
+    <path d="M 302 147 H 380" stroke="var(--conductor)" stroke-width="12" />
+    <!-- i stem -->
+    <path d="M 402 147 V 192" stroke-width="14" />
+    <!-- i dot (Conductor node) -->
+    <circle cx="402" cy="124" r="8.5" fill="var(--conductor-bright)" stroke="var(--conductor)" stroke-width="2.5" />
+  </g>
+
+  <!-- Tagline (Safe System Font Stack) -->
+  <text x="64" y="242" class="sans" font-size="22" font-weight="700" fill="var(--text-primary)" letter-spacing="-0.3">One conductor. Every agent. Every machine.</text>
+  <text x="64" y="272" class="sans" font-size="14.5" font-weight="500" fill="var(--text-secondary)">Specs and diff gates from one orchestrator. Bounded worktrees, slot queues, and quota pacing.</text>
+
+  <!-- 3 Architectural Pillar Chips -->
+  <g transform="translate(64, 304)">
+    <!-- Chip 1 -->
+    <rect x="0" y="0" width="144" height="34" rx="8" fill="var(--bg-1)" stroke="var(--border-strong)" stroke-width="1.2" />
+    <circle cx="18" cy="17" r="5" fill="var(--conductor)" />
+    <text x="30" y="21" class="mono" font-size="11.5" font-weight="600" fill="var(--text-primary)">spec · diff gate</text>
+
+    <!-- Chip 2 -->
+    <rect x="156" y="0" width="160" height="34" rx="8" fill="var(--bg-1)" stroke="var(--border-strong)" stroke-width="1.2" />
+    <circle cx="174" cy="17" r="5" fill="var(--worker-indigo)" />
+    <text x="186" y="21" class="mono" font-size="11.5" font-weight="600" fill="var(--text-primary)">isolated worktrees</text>
+
+    <!-- Chip 3 -->
+    <rect x="328" y="0" width="164" height="34" rx="8" fill="var(--bg-1)" stroke="var(--border-strong)" stroke-width="1.2" />
+    <circle cx="346" cy="17" r="5" fill="var(--worker-emerald)" />
+    <text x="358" y="21" class="mono" font-size="11.5" font-weight="600" fill="var(--text-primary)">-3h quota pacing</text>
+  </g>
+
+  <!-- ==================== RIGHT COLUMN: ORCHESTRATION GRAPH ==================== -->
+
+  <!-- Flowing Orchestration Curves from Conductor (650, 200) to 4 Worker/Machine Nodes -->
+  <g fill="none" stroke-width="3.2" stroke-linecap="round">
+    <!-- Curve 1 -> CLI Worker 1 (Cursor / Claude) at (940, 74) -->
+    <path d="M 696 184 C 780 184, 810 74, 928 74" stroke="var(--worker-indigo)" />
+    <!-- Curve 2 -> CLI Worker 2 (Google Antigravity) at (940, 158) -->
+    <path d="M 696 195 C 780 195, 810 158, 928 158" stroke="var(--worker-emerald)" />
+    <!-- Curve 3 -> Local Model Worker (Ollama) at (940, 242) -->
+    <path d="M 696 205 C 780 205, 810 242, 928 242" stroke="var(--worker-coral)" />
+    <!-- Curve 4 -> Remote Build & Slot Queue Machine at (940, 326) -->
+    <path d="M 696 216 C 780 216, 810 326, 928 326" stroke="var(--worker-cyan)" />
+  </g>
+
+  <!-- In-flight Brief / Beat Pulses on the Staves -->
+  <circle cx="812" cy="116" r="5.5" fill="var(--bg-1)" stroke="var(--worker-indigo)" stroke-width="3" />
+  <circle cx="834" cy="171" r="5.5" fill="var(--bg-1)" stroke="var(--worker-emerald)" stroke-width="3" />
+  <circle cx="798" cy="226" r="5.5" fill="var(--bg-1)" stroke="var(--worker-coral)" stroke-width="3" />
+  <circle cx="822" cy="285" r="5.5" fill="var(--bg-1)" stroke="var(--worker-cyan)" stroke-width="3" />
+
+  <!-- CONDUCTOR NODE (Hub at x=646, y=200) -->
+  <g transform="translate(646, 200)">
+    <!-- Outer Halo -->
+    <circle cx="0" cy="0" r="62" fill="var(--conductor-bg)" opacity="0.65" />
+    <circle cx="0" cy="0" r="50" fill="var(--bg-1)" stroke="var(--conductor)" stroke-width="3.5" />
+    <circle cx="0" cy="0" r="40" fill="none" stroke="var(--conductor-bright)" stroke-width="1.5" stroke-dasharray="5 4" />
+    <!-- Geometric Baton / Podium Icon inside Conductor -->
+    <path d="M -16 -12 H 16" stroke="var(--conductor)" stroke-width="4" stroke-linecap="round" />
+    <path d="M 0 -12 L -14 14 M 0 -12 L 0 18 M 0 -12 L 14 14" stroke="var(--text-primary)" stroke-width="2.8" stroke-linecap="round" />
+    <circle cx="0" cy="-12" r="5.5" fill="var(--conductor-bright)" stroke="var(--conductor)" stroke-width="2" />
+    <circle cx="-14" cy="14" r="3.5" fill="var(--worker-emerald)" />
+    <circle cx="0" cy="18" r="3.5" fill="var(--worker-indigo)" />
+    <circle cx="14" cy="14" r="3.5" fill="var(--worker-coral)" />
+
+    <!-- Conductor Label Pill below Hub -->
+    <rect x="-68" y="62" width="136" height="44" rx="10" fill="var(--bg-1)" stroke="var(--conductor)" stroke-width="1.8" />
+    <text x="0" y="81" text-anchor="middle" class="mono" font-size="11.5" font-weight="700" fill="var(--conductor)">CONDUCTOR</text>
+    <text x="0" y="97" text-anchor="middle" class="sans" font-size="11" font-weight="600" fill="var(--text-secondary)">Claude Code · ship</text>
+  </g>
+
+  <!-- WORKER NODE 1: CLI Agents (Cursor / Claude) -->
+  <g transform="translate(928, 42)">
+    <rect x="0" y="0" width="296" height="64" rx="12" fill="var(--bg-1)" stroke="var(--border-strong)" stroke-width="1.5" />
+    <rect x="0" y="0" width="8" height="64" rx="4" fill="var(--worker-indigo)" />
+    <circle cx="34" cy="32" r="16" fill="var(--worker-indigo-bg)" stroke="var(--worker-indigo)" stroke-width="2" />
+    <!-- Git Worktree Branch Icon -->
+    <path d="M 30 24 V 40 M 30 28 C 30 32, 38 30, 38 36" fill="none" stroke="var(--worker-indigo)" stroke-width="2.2" stroke-linecap="round" />
+    <circle cx="30" cy="24" r="2.5" fill="var(--worker-indigo)" />
+    <circle cx="38" cy="36" r="2.5" fill="var(--worker-indigo)" />
+    <text x="62" y="27" class="sans" font-size="13.5" font-weight="700" fill="var(--text-primary)">CLI Worker · cursor-agent</text>
+    <text x="62" y="46" class="mono" font-size="11" font-weight="500" fill="var(--text-muted)">wt/feat-a · brief + diff review</text>
+    <!-- Quota Pace Pill -->
+    <rect x="224" y="12" width="58" height="20" rx="10" fill="var(--worker-indigo-bg)" />
+    <text x="253" y="26" text-anchor="middle" class="mono" font-size="10" font-weight="700" fill="var(--worker-indigo)">ON PACE</text>
+  </g>
+
+  <!-- WORKER NODE 2: CLI Agent (Google Antigravity) -->
+  <g transform="translate(928, 126)">
+    <rect x="0" y="0" width="296" height="64" rx="12" fill="var(--bg-1)" stroke="var(--border-strong)" stroke-width="1.5" />
+    <rect x="0" y="0" width="8" height="64" rx="4" fill="var(--worker-emerald)" />
+    <circle cx="34" cy="32" r="16" fill="var(--worker-emerald-bg)" stroke="var(--worker-emerald)" stroke-width="2" />
+    <!-- Verified Diff Gate Icon -->
+    <path d="M 27 32 L 32 37 L 41 27" fill="none" stroke="var(--worker-emerald)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+    <text x="62" y="27" class="sans" font-size="13.5" font-weight="700" fill="var(--text-primary)">CLI Worker · agy</text>
+    <text x="62" y="46" class="mono" font-size="11" font-weight="500" fill="var(--text-muted)">wt/feat-b · gated check pass</text>
+    <!-- Quota Pace Pill -->
+    <rect x="224" y="12" width="58" height="20" rx="10" fill="var(--worker-emerald-bg)" />
+    <text x="253" y="26" text-anchor="middle" class="mono" font-size="10" font-weight="700" fill="var(--worker-emerald)">-3h TARGET</text>
+  </g>
+
+  <!-- WORKER NODE 3: Local Models (Ollama) -->
+  <g transform="translate(928, 210)">
+    <rect x="0" y="0" width="296" height="64" rx="12" fill="var(--bg-1)" stroke="var(--border-strong)" stroke-width="1.5" />
+    <rect x="0" y="0" width="8" height="64" rx="4" fill="var(--worker-coral)" />
+    <circle cx="34" cy="32" r="16" fill="var(--worker-coral-bg)" stroke="var(--worker-coral)" stroke-width="2" />
+    <!-- Harmonic Waveform / Local Node Icon -->
+    <path d="M 26 32 V 28 M 30 36 V 26 M 34 39 V 25 M 38 36 V 26 M 42 32 V 28" fill="none" stroke="var(--worker-coral)" stroke-width="2.2" stroke-linecap="round" />
+    <text x="62" y="27" class="sans" font-size="13.5" font-weight="700" fill="var(--text-primary)">Local Models · ollama</text>
+    <text x="62" y="46" class="mono" font-size="11" font-weight="500" fill="var(--text-muted)">code · agent · translate QA</text>
+    <!-- Yield Status Pill -->
+    <rect x="224" y="12" width="58" height="20" rx="10" fill="var(--worker-coral-bg)" />
+    <text x="253" y="26" text-anchor="middle" class="mono" font-size="10" font-weight="700" fill="var(--worker-coral)">YIELD OFF</text>
+  </g>
+
+  <!-- WORKER NODE 4: Remote Test Machines & Slot Queues -->
+  <g transform="translate(928, 294)">
+    <rect x="0" y="0" width="296" height="64" rx="12" fill="var(--bg-1)" stroke="var(--border-strong)" stroke-width="1.5" />
+    <rect x="0" y="0" width="8" height="64" rx="4" fill="var(--worker-cyan)" />
+    <circle cx="34" cy="32" r="16" fill="var(--worker-cyan-bg)" stroke="var(--worker-cyan)" stroke-width="2" />
+    <!-- Slot Queue Bars Icon -->
+    <rect x="27" y="25" width="14" height="5" rx="1.5" fill="var(--worker-cyan)" />
+    <rect x="27" y="33" width="9" height="5" rx="1.5" fill="var(--worker-cyan)" />
+    <text x="62" y="27" class="sans" font-size="13.5" font-weight="700" fill="var(--text-primary)">Remote Machines · slot.sh</text>
+    <text x="62" y="46" class="mono" font-size="11" font-weight="500" fill="var(--text-muted)">fall-over route · memguard</text>
+    <!-- Slots Pill -->
+    <rect x="224" y="12" width="58" height="20" rx="10" fill="var(--worker-cyan-bg)" />
+    <text x="253" y="26" text-anchor="middle" class="mono" font-size="10" font-weight="700" fill="var(--worker-cyan)">SLOTS 2/3</text>
+  </g>
+</svg>

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="tutti-icon-title tutti-icon-desc">
+  <title id="tutti-icon-title">Tutti App Icon</title>
+  <desc id="tutti-icon-desc">A golden conductor node at the apex of a T-shaped baton directing three worker nodes across flowing musical stave arcs.</desc>
+  <defs>
+    <style>
+      :root {
+        --bg-start: #0F172A;
+        --bg-end: #1E1B4B;
+        --card-stroke: #334155;
+        --stave: #475569;
+        --baton: #F8FAFC;
+        --conductor-core: #FBBF24;
+        --conductor-ring: #F59E0B;
+        --worker-emerald: #10B981;
+        --worker-indigo: #6366F1;
+        --worker-coral: #F43F5E;
+      }
+    </style>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="var(--bg-start)" />
+      <stop offset="100%" stop-color="var(--bg-end)" />
+    </linearGradient>
+  </defs>
+
+  <!-- Material-style rounded square background -->
+  <rect x="32" y="32" width="448" height="448" rx="104" fill="url(#bg-grad)" />
+  <rect x="34" y="34" width="444" height="444" rx="102" fill="none" stroke="var(--card-stroke)" stroke-width="4" opacity="0.6" />
+
+  <!-- Subtle curved musical staves across the ensemble arc -->
+  <g fill="none" stroke="var(--stave)" stroke-width="6" stroke-linecap="round" opacity="0.55">
+    <path d="M 88 308 Q 256 364 424 308" />
+    <path d="M 96 344 Q 256 400 416 344" />
+    <path d="M 112 380 Q 256 436 400 380" />
+  </g>
+
+  <!-- T-bar / Conductor podium beam at top -->
+  <path d="M 136 144 H 376" fill="none" stroke="var(--conductor-ring)" stroke-width="24" stroke-linecap="round" />
+
+  <!-- Orchestration baton lines from Conductor (256, 144) to the 3 Ensemble Workers -->
+  <g fill="none" stroke="var(--baton)" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 256 144 L 136 324" opacity="0.9" />
+    <path d="M 256 144 L 256 364" />
+    <path d="M 256 144 L 376 324" opacity="0.9" />
+  </g>
+
+  <!-- Conductor Node (Apex) -->
+  <circle cx="256" cy="144" r="46" fill="var(--bg-start)" stroke="var(--conductor-ring)" stroke-width="14" />
+  <circle cx="256" cy="144" r="24" fill="var(--conductor-core)" />
+
+  <!-- Ensemble Worker 1 (Left - Emerald) -->
+  <circle cx="136" cy="324" r="36" fill="var(--bg-start)" stroke="var(--worker-emerald)" stroke-width="14" />
+  <circle cx="136" cy="324" r="16" fill="var(--worker-emerald)" />
+
+  <!-- Ensemble Worker 2 (Center - Indigo, forms the base of the 'T') -->
+  <circle cx="256" cy="364" r="38" fill="var(--bg-start)" stroke="var(--worker-indigo)" stroke-width="14" />
+  <circle cx="256" cy="364" r="18" fill="var(--worker-indigo)" />
+
+  <!-- Ensemble Worker 3 (Right - Coral) -->
+  <circle cx="376" cy="324" r="36" fill="var(--bg-start)" stroke="var(--worker-coral)" stroke-width="14" />
+  <circle cx="376" cy="324" r="16" fill="var(--worker-coral)" />
+</svg>

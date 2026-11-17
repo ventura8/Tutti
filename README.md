@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/tutti-banner-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/tutti-banner.svg">
+    <img alt="Tutti — One conductor. Every agent. Every machine." src="assets/brand/tutti-banner.svg" width="100%">
+  </picture>
+</p>
+
 # Tutti
 
 *Tutti* (music): everyone plays together. One orchestrating agent, many cheaper workers, a few shared machines, and the

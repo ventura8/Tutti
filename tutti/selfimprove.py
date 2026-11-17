@@ -22,7 +22,7 @@ import secrets
 import subprocess
 import sys
 import time
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from . import backlog, config, durable, github, insights, remote, telemetry
 
@@ -374,7 +374,7 @@ def changes_on_head(repo, number, head, run=github.run):
 
 def pr_state(repo, number, run=github.run):
     pr = gh_json(['pr', 'view', str(number), '--repo', repo, '--json',
-                  'state,isDraft,reviewDecision,mergeable,statusCheckRollup,baseRefName,headRefOid'], run)
+                  'state,isDraft,reviewDecision,mergeable,statusCheckRollup,baseRefName,baseRefOid,headRefOid'], run)
     if pr is None:
         return None
     count = open_threads(repo, number, run)
@@ -483,7 +483,7 @@ def review_lock(cfg, repo, number):
         return None
 
 
-def request_review(cfg, repo, number, spawn=subprocess.Popen, invocation=None, expected_head=None):
+def request_review(cfg, repo, number, spawn=subprocess.Popen, invocation=None, expected_head=None, expected_base=None):
     """`tutti pr review <n>` in the background: asks the AI reviewers and falls back to a cheap worker's review; its exit
     code lands in the .rc file once it has finished."""
     invocation = invocation or secrets.token_hex(16)
@@ -496,6 +496,8 @@ def request_review(cfg, repo, number, spawn=subprocess.Popen, invocation=None, e
     argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'pr', 'review', str(number), '--repo', repo]
     if expected_head:
         argv.extend(['--expected-head', expected_head])
+    if expected_base:
+        argv.extend(['--expected-base', expected_base])
     script = 'rc=0; "$@" || rc=$?; echo $rc > "$RC_FILE"'
     try:
         with open(log, 'a', encoding='utf8') as f:
@@ -602,7 +604,8 @@ def recover_review(cfg, task, reviews, key, pol, number, now):
 def pushed_since_review(reviews, key, pr):
     """True when the open pull request's head is not the commit the reviews were asked on."""
     asked = reviews[key] if isinstance(reviews[key], dict) else {}
-    return pr.get('state') == 'OPEN' and bool(pr.get('headRefOid')) and asked.get('sha') != pr['headRefOid']
+    return pr.get('state') == 'OPEN' and (not pr.get('headRefOid') or not pr.get('baseRefOid') or
+                                           asked.get('sha') != pr['headRefOid'] or asked.get('base') != pr['baseRefOid'])
 
 
 def ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn):
@@ -615,19 +618,19 @@ def ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn):
         offset = os.path.getsize(log)
     except OSError:
         offset = 0
-    head = pr.get('headRefOid')
-    if not isinstance(head, str) or not head:
+    head, base = pr.get('headRefOid'), pr.get('baseRefOid')
+    if not isinstance(head, str) or not head or not isinstance(base, str) or not base:
         t['self_improve'] = 'review head is missing or invalid: the next round tries again'
         return None
     try:
-        started = request_review(cfg, pol['repo'], number, spawn, expected_head=head)
+        started = request_review(cfg, pol['repo'], number, spawn, expected_head=head, expected_base=base)
     except (OSError, subprocess.SubprocessError):
         t['self_improve'] = 'the review could not start: check the worker and the next round will retry'
         return None
     if not started.get('started'):
         t['self_improve'] = 'review is already running or its process lock is unavailable: the next round tries again'
         return None
-    reviews[key] = {'at': now, 'sha': head, 'log_offset': offset, 'bound_revision': True, **started}
+    reviews[key] = {'at': now, 'sha': head, 'base': base, 'log_offset': offset, 'bound_revision': True, **started}
     return f'{t["id"]}: AI reviews asked on {key}'
 
 
@@ -732,6 +735,18 @@ def pending_review(cfg, t, pr, key, reviews, pol, number, now):
     return False, result
 
 
+def strict_base_protection(repo, branch, run):
+    """Require server-enforced up-to-date status checks; inaccessible or unprotected branches fail closed."""
+    if not isinstance(branch, str) or not branch:
+        return False
+    protection = gh_json(['api', f'repos/{repo}/branches/{quote(branch, safe="")}/protection/required_status_checks'], run)
+    if not isinstance(protection, dict) or protection.get('strict') is not True:
+        return False
+    contexts, checks = protection.get('contexts'), protection.get('checks')
+    return bool((isinstance(contexts, list) and any(isinstance(c, str) and c for c in contexts)) or
+                (isinstance(checks, list) and any(isinstance(c, dict) and c.get('context') for c in checks)))
+
+
 def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
     """One self-improvement task in review with a pull request: ask for reviews once, then merge when the gates allow."""
     pol = policy_of_repo(cfg, t['repo'])
@@ -764,11 +779,14 @@ def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
     if not pr.get('headRefOid'):
         t['self_improve'] = 'GitHub did not say which commit the pull request is at: not merged; the next round looks again'
         return None
-    return merge_now(t, st, pol, number, key, pr['headRefOid'], now, run)
+    return merge_now(t, st, pol, number, key, pr['headRefOid'], pr.get('baseRefName'), now, run)
 
 
-def merge_now(t, st, pol, number, key, head, now, run):
+def merge_now(t, st, pol, number, key, head, base, now, run):
     """The squash merge of the reviewed, green head; the event, or None when GitHub refused it."""
+    if not strict_base_protection(pol['repo'], base, run):
+        t['self_improve'] = 'strict up-to-date required checks could not be verified on the base: not merged'
+        return None
     # --match-head-commit: a commit pushed after the gates were read is never merged with them
     done = run(['gh', 'pr', 'merge', str(number), '--repo', pol['repo'], '--squash', '--delete-branch', '--match-head-commit',
                 str(head)], capture_output=True, text=True)

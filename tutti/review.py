@@ -519,8 +519,8 @@ def exhausted_round_result(expected_head, spent):
     return 0 if not expected_head and 'are done' in spent else 1
 
 
-def valid_review_start(expected_head, revisions):
-    return not expected_head or bool(revisions and revisions[-1] == expected_head)
+def valid_review_start(expected_head, expected_base, revisions):
+    return not expected_head or bool(revisions and revisions == (expected_base, expected_head))
 
 
 def revisions_match(repo, number, expected_head, revisions, gh_fn, say):
@@ -530,13 +530,13 @@ def revisions_match(repo, number, expected_head, revisions, gh_fn, say):
     return True
 
 
-def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh, say=print, expected_head=None, **kw):
+def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh, say=print, expected_head=None, expected_base=None, **kw):
     """The whole flow. Returns 0 when a reviewer answered or the fallback review was posted, 4 while a `wait` bot is
     rate-limited, 3 when the local review has findings, 1 otherwise."""
     r = cfg['review']
     repo = repo_of(pr_repo, gh_fn)
     revisions = initial_review_revisions(repo, number, gh_fn, expected_head)
-    if not valid_review_start(expected_head, revisions):
+    if not valid_review_start(expected_head, expected_base, revisions):
         say('review: pull request head cannot be verified: review again after it settles')
         return 1
     since = datetime.now(timezone.utc) if expected_head else datetime.now(timezone.utc).replace(microsecond=0)

@@ -21,7 +21,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - A changes-requested decision only on an older PR head waits for an updated reviewer decision rather than repeatedly
   requeuing already-resolved work; missing review evidence still blocks merging (t179).
 - Automatic reviews bind provider decisions and complete local text patches to immutable commits; unknown, dismissed,
-  binary or incomplete evidence cannot authorize a merge (t179).
+  binary or incomplete evidence cannot authorize a merge. Automatic merges also require verified strict up-to-date
+  branch checks and a matching reviewed base (t179).
 - Reviews use invocation-specific completion files and a per-PR process lock; a provably dead review without a result
   can restart twice without confusing an earlier result with the current head. Retry pushes verify every effective origin
   URL matches the PR repository before touching the branch (t179).

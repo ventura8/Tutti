@@ -20,7 +20,7 @@ GREEN = [{'conclusion': 'SUCCESS', 'name': 'ci'}, {'conclusion': 'SUCCESS', 'nam
 
 def pr(**kw):
     return {'state': 'OPEN', 'isDraft': False, 'reviewDecision': 'APPROVED', 'open_threads': 0, 'mergeable': 'MERGEABLE',
-            'statusCheckRollup': GREEN, 'headRefOid': 'abc123', 'url': 'https://github.com/octo/tutti/pull/7',
+            'statusCheckRollup': GREEN, 'headRefOid': 'abc123', 'baseRefOid': 'base123', 'baseRefName': 'main', 'url': 'https://github.com/octo/tutti/pull/7',
             'headRefName': 'autopilot/t1-fix-the-crash', 'isCrossRepository': False,
             'body': 'Backlog task t1 (mcp), done by a worker.', **kw}
 
@@ -187,6 +187,8 @@ class FakeGh:
         self.calls.append(args)
         if args[1:3] == ['pr', 'view']:
             return SimpleNamespace(returncode=0, stdout=json.dumps(self.view), stderr='')
+        if args[1:2] == ['api'] and '/protection/required_status_checks' in args[2]:
+            return SimpleNamespace(returncode=0, stdout=json.dumps({'strict': True, 'contexts': ['ci']}), stderr='')
         if args[1:3] == ['api', 'graphql']:
             if any('reviews(first:' in str(arg) for arg in args):
                 body = {'data': {'repository': {'pullRequest': {'reviews': {
@@ -206,6 +208,24 @@ class Rounds(Base):
             t.update(status='review', pr=f'https://github.com/octo/{repo}/pull/{number}', pr_mode='ready', project='Tutti')
             added, _ = backlog.add(data, t)
             added['branch'] = f'autopilot/{added["id"]}-{autopilot.slug(added["title"])}'
+
+    def test_strict_base_protection_fails_closed(self):
+        def response(value, code=0):
+            return lambda *_args, **_kwargs: SimpleNamespace(returncode=code, stdout=json.dumps(value), stderr='')
+        gate = selfimprove.strict_base_protection
+        self.assertTrue(gate('o/r', 'main', response({'strict': True, 'contexts': ['ci']})))
+        for value, code in [({}, 0), ({'strict': False, 'contexts': ['ci']}, 0),
+                            ({'strict': True, 'contexts': []}, 0), ({'strict': True, 'contexts': ['ci']}, 1)]:
+            self.assertFalse(gate('o/r', 'main', response(value, code)))
+        self.assertFalse(gate('o/r', '', response({'strict': True, 'contexts': ['ci']})))
+
+    def test_review_base_change_requires_new_review(self):
+        record = {'o/r#7': {'sha': 'head', 'base': 'old-base'}}
+        self.assertFalse(selfimprove.pushed_since_review(record, 'o/r#7',
+                         {'state': 'OPEN', 'headRefOid': 'head', 'baseRefOid': 'old-base'}))
+        self.assertTrue(selfimprove.pushed_since_review(record, 'o/r#7',
+                        {'state': 'OPEN', 'headRefOid': 'head', 'baseRefOid': 'new-base'}))
+        self.assertTrue(selfimprove.pushed_since_review(record, 'o/r#7', {'state': 'OPEN', 'headRefOid': 'head'}))
 
     def test_review_thread_gate_reads_all_pages_and_fails_closed_on_bad_pagination(self):
         def page(nodes, more, cursor):

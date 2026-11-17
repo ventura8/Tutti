@@ -139,7 +139,11 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
    comments without commit identity. The local fallback reviews immutable base/head patches, verifying the complete file
    count and line totals; binary, missing, oversized or truncated patches block automatic merging. Local rounds are
    counted per head and an exhausted round never counts as a successful new review. The head and base are checked again
-   after review, and a previously stored unbound result cannot authorize a merge.
+   after review, and a previously stored unbound result cannot authorize a merge. Before requesting a merge, Tutti
+   rechecks the recorded base and requires classic branch protection with strict up-to-date required status checks;
+   unknown protection and rulesets it cannot verify block the merge. GitHub's merge API can condition on the head but
+   has no base-SHA compare-and-swap, so server-side enforcement is still necessary and there is no atomic base guarantee.
+   Repositories without this strict protection must configure it before autonomous merges can proceed.
 7. **Release** (only with `release: true` and a `release_command`): a batched patch release when fixes were merged and
    the last release (or failed try) is `release_every_hours` (24) ago. A release counts only once its command exits 0; a
    failed one leaves its fixes for the next. Tutti's own is `scripts/release-patch.sh`: it bumps the patch,

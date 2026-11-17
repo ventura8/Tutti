@@ -56,10 +56,10 @@ class Binding(unittest.TestCase):
              mock.patch.object(review, 'local_review', return_value='No findings.') as local, \
              mock.patch.object(review, 'comment'):
             gh = mock.Mock(side_effect=[metadata(head), metadata('c' * 40)])
-            self.assertEqual(review.review(cfg, 1, 'o/r', gh_fn=gh, say=lambda _: None, expected_head=head), 1)
+            self.assertEqual(review.review(cfg, 1, 'o/r', gh_fn=gh, say=lambda _: None, expected_head=head, expected_base=base), 1)
             self.assertEqual(local.call_args.kwargs['revisions'], (base, head))
             gh = mock.Mock(side_effect=[metadata(head), metadata(head)])
-            self.assertEqual(review.review(cfg, 1, 'o/r', gh_fn=gh, say=lambda _: None, expected_head=head), 0)
+            self.assertEqual(review.review(cfg, 1, 'o/r', gh_fn=gh, say=lambda _: None, expected_head=head, expected_base=base), 0)
 
     def test_local_rounds_distinguish_heads_without_reusing_old_success(self):
         with tempfile.TemporaryDirectory() as d:
@@ -71,13 +71,13 @@ class Binding(unittest.TestCase):
             self.assertNotEqual(review.exhausted_round_result(first, 'rounds are done'), 0)
 
     def test_stale_or_missing_revisions_and_old_rounds_fail_closed(self):
-        head = 'a' * 40
+        head, base = 'a' * 40, 'b' * 40
         def gh(_args):
             return 0, json.dumps({'base': {'sha': 'b' * 40}, 'head': {'sha': 'c' * 40}}), ''
         with tempfile.TemporaryDirectory() as d:
             cfg = {'review': {'reviewers': [], 'rounds': {'local': 1}, 'timeout_minutes': 0, 'poll_seconds': 1},
                    'project': {'state': d}}
-            self.assertEqual(review.review(cfg, 1, 'o/r', gh_fn=gh, say=lambda _: None, expected_head=head), 1)
+            self.assertEqual(review.review(cfg, 1, 'o/r', gh_fn=gh, say=lambda _: None, expected_head=head, expected_base=base), 1)
         self.assertEqual(review.exhausted_round_result(head, 'its 1 review round(s) on this pull request are done'), 1)
         self.assertFalse(review.revisions_match('o/r', 1, head, ('b' * 40, head), gh, lambda _: None))
         self.assertEqual(review.status('scout', [('owner', datetime.now(timezone.utc), 'grok-scout', 'comment')],

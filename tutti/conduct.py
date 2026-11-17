@@ -19,7 +19,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from . import autocompact, compact, config, delegate, inuse, local, pacing, readers, remote, routing, workers
+from . import autocompact, compact, config, delegate, inuse, local, mainorder, pacing, readers, remote, routing, workers
+from .mainorder import AUTO
 
 # The commands a main agent is told about, in the order of the instruction file: (subcommand, the line it calls, what for).
 TOOLS = (
@@ -104,20 +105,32 @@ def choice_record(cfg):
 
 
 def chosen(cfg):
-    """The owner's switch (the dashboard or `tutti main <agent>`), when it names a worker; else None."""
+    """The owner's switch (the dashboard or `tutti main <agent>`), when it names a worker or `auto`; else None."""
     c = choice_record(cfg)
-    return c.get('agent') if c.get('agent') in cfg['workers'] else None
+    return c.get('agent') if c.get('agent') in cfg['workers'] or c.get('agent') == AUTO else None
 
 
 def current(cfg):
-    """The main agent now: the owner's switch, else main.agent from the config."""
+    """The main agent now: the owner's switch, else main.agent from the config (`auto`: the first with room of the order)."""
     return chosen(cfg) or settings(cfg)['agent']
 
 
+def names_for(cfg, main=None, fallback=None):
+    """The agents to try, in order. A named agent: it, then `fallback` (else main.fallback). `auto`: the main order
+    (tutti/mainorder.py), or with an explicit `fallback` its first agent and then that list."""
+    lead = main or current(cfg)
+    if lead == AUTO:
+        auto = mainorder.order(cfg)
+        return auto if fallback is None else order(auto[0] if auto else None, fallback)
+    return order(lead, settings(cfg)['fallback'] if fallback is None else fallback)
+
+
 def choose(cfg, agent, now=None):
-    """Records the owner's switch; a running conductor hands over to it at its next check."""
-    if agent not in cfg['workers']:
-        raise ConductError(f'"{agent}" is not a worker in {cfg["_path"]}: the main agent can be {", ".join(candidates(cfg)) or "(none)"}')
+    """Records the owner's switch (`auto` gives the choice back to the order); a running conductor hands over to a named
+    agent at its next check."""
+    if agent not in cfg['workers'] and agent != AUTO:
+        raise ConductError(f'"{agent}" is not a worker in {cfg["_path"]}: the main agent can be auto or '
+                           f'{", ".join(candidates(cfg)) or "(none)"}')
     now = now or datetime.now(timezone.utc)
     write_json(choice_path(cfg), {'agent': agent, 'at': now.isoformat(), 'rev': uuid.uuid4().hex})
     return agent
@@ -360,12 +373,15 @@ class Watch:
         self.started = started_choice if isinstance(started_choice, dict) else {'agent': started_choice}
         self.reason = None
         self.stop = threading.Event()
+        self.stop_file = os.environ.get('TUTTI_STOP_FILE')   # a takeover's: the session took its task back (tutti/continuity.py)
 
     def check(self):
+        if self.stop_file and os.path.exists(self.stop_file):
+            return 'handback', 'the session that claimed the task took it back'
         rec = choice_record(self.cfg)
         c = chosen(self.cfg)
         new = (rec.get('rev'), rec.get('at'), c) != (self.started.get('rev'), self.started.get('at'), self.started.get('agent'))
-        if c and c != self.agent and new:
+        if c and c != AUTO and c != self.agent and new:   # a switch to auto keeps the agent that has room
             return 'switch', f'the owner switched the main agent to {c}'
         why = self.out_fn(self.agent)
         return ('panic', why) if why else None
@@ -684,8 +700,7 @@ NO_ROOM = 'stopped: no main agent has room'
 
 def conduct(cfg, goal, main=None, fallback=None, cwd='.', commands=(), say=print, out=None, out_fn=None, run_fn=run_agent):
     """Runs the goal with the main agent, handing over on panic, limit or a switch. Returns (exit code, the run record)."""
-    s = settings(cfg)
-    names = order(main or current(cfg), s['fallback'] if fallback is None else fallback)
+    names = names_for(cfg, main, fallback)
     unknown = [n for n in names if n not in cfg['workers']]
     if unknown:
         raise ConductError(f'main agent "{unknown[0]}" is not a worker in {cfg["_path"]}: add it under workers:, '
@@ -705,6 +720,10 @@ def conduct(cfg, goal, main=None, fallback=None, cwd='.', commands=(), say=print
         rc, lines, reason = take_turn(cfg, run, agent, handoff, commands, now, say, out_fn, out, run_fn)
         if not reason:
             rc, run['status'] = outcome(cfg, agent, rc, lines, run)
+            break
+        if reason[0] == 'handback':   # the task's own session continues: a note for it, no next agent
+            _note, run['agents'][-1]['handoff'] = hand_over(run, agent, 'the session that claimed the task', reason[1], lines)
+            rc, run['status'] = 0, 'handed back'
             break
         names, handoff = handover_step(cfg, run, names, tried, agent, reason, lines, out_fn, say)
     run['ended'] = datetime.now(timezone.utc).isoformat()
@@ -730,16 +749,22 @@ def main_state(cfg, states):
     if last and last.get('status') == 'running' and not pid_alive(last.get('pid')):
         last = {**last, 'status': 'ended without a record (its process is gone)'}
     running = last if last and last.get('status') == 'running' else None
-    return {'agent': current(cfg), 'configured': settings(cfg)['agent'], 'chosen': chosen(cfg), 'fallback': settings(cfg)['fallback'],
-            'choices': [{'name': n, 'kind': cfg['workers'][n]['kind'], 'out': out_reason(cfg, n, states) or None} for n in candidates(cfg)],
+    agent = current(cfg)
+    now_agent, _skipped = next_agent(names_for(cfg), [], lambda n: out_reason(cfg, n, states))
+    auto = {'name': AUTO, 'kind': 'auto', 'out': None, 'now': now_agent}
+    return {'agent': agent, 'configured': settings(cfg)['agent'], 'chosen': chosen(cfg), 'fallback': settings(cfg)['fallback'],
+            'order': names_for(cfg), 'answers_now': now_agent,
+            'choices': [auto] + [{'name': n, 'kind': cfg['workers'][n]['kind'], 'out': out_reason(cfg, n, states) or None}
+                                 for n in candidates(cfg)],
             'running': running, 'last': None if running else last}
 
 
 def describe(cfg):
     m = main_state(cfg, account_states(cfg))
     lines = [f'main agent: {m["agent"]}' + (' (switched by the owner)' if m['chosen'] else ' (main.agent in the config)'),
-             f'fallback: {", ".join(m["fallback"]) or "(none: set main.fallback)"}']
-    lines += [f'  {c["name"]:12} {c["kind"]:7} {"OUT: " + c["out"] if c["out"] else "has room"}' for c in m['choices']]
+             f'order: {", ".join(m["order"]) or "(no workers)"}; the one with room now: {m["answers_now"] or "none"}']
+    lines += [f'  {c["name"]:12} {c["kind"]:7} {"OUT: " + c["out"] if c["out"] else "has room"}' for c in m['choices']
+              if c['kind'] != 'auto']
     r = m['running'] or m['last']
     if r:
         who = r['agents'][-1]['agent'] if r.get('agents') else '-'

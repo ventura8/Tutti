@@ -9,6 +9,10 @@ function tuttiAttention(s) {
     for (const t of ap.parked || []) {
         items.push({ kind: 'needs-person', tone: 'bad', title: t.title, note: `${t.id} · ${t.repo}: ${t.parked || 'parked after its attempts'}`, task: t });
     }
+    for (const t of s.main?.continuity?.tasks || []) {   // a session ran out of tokens: its task, and what only you can do on it
+        for (const n of t.needs || []) items.push({ kind: 'needs-person', tone: 'bad', title: `${t.id}: ${t.agent || 'the conductor'} needs you`, note: n });
+        if (t.state === 'orphaned') items.push({ kind: 'stalled', tone: 'warn', title: `${t.id} stalled: its session ran out of tokens`, note: t.waiting || t.reason || '' });
+    }
     for (const a of s.usage?.accounts || []) {
         if (a.panic) items.push({ kind: 'panic', tone: 'bad', title: `${a.name} is in panic (${tuttiPct(a.used)} used)`, note: `Do: ${a.action}` });
         else if (a.reader_problem) items.push({ kind: 'reading', tone: 'warn', title: `${a.name}: automatic reading failed`, note: a.reader_problem });

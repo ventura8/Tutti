@@ -582,6 +582,20 @@ def page_reading(cfg, path, text, now):
     return 1 if missing else 0
 
 
+def limit_percent(a):
+    """The reading to log: `--limit spent` means the window is used up, whatever percent was given."""
+    return max(float(a.percent), 100.0) if getattr(a, 'limit', None) == 'spent' else float(a.percent)
+
+
+def log_reading(cfg, path, a, now):
+    """`usage log`: the reading, and with --limit and --session a connected session's limit event (tutti/continuity.py)."""
+    pacing.append_log(path, a.account, limit_percent(a), now, a.note, resets=a.resets)
+    if a.limit and a.session:
+        from . import continuity
+        continuity.beat(cfg, a.session, a.account)
+        continuity.limit_event(cfg, a.session, a.account, a.limit)
+
+
 def cmd_usage(cfg, a):
     path = usage_log_path(cfg)
     now = pacing.parse_time(a.at) if a.at else datetime.now(timezone.utc)
@@ -602,7 +616,7 @@ def cmd_usage(cfg, a):
             names = ', '.join(cfg['accounts']) or NONE
             say(f'usage: tutti usage log <account> <percent> [--resets <ISO time>]; the accounts are {names}')
             return 2
-        pacing.append_log(path, a.account, float(a.percent), now, a.note, resets=a.resets)
+        log_reading(cfg, path, a, now)
     entries = pacing.read_log(path)
     states = state.usage_state(cfg, now)['accounts']   # the owner's reserve and the scouts, as the dashboard shows them
     print(pacing.report(cfg['accounts'], entries, now, cfg['autopilot'].get('quiet_hours'), states))
@@ -1254,12 +1268,54 @@ def cmd_main(cfg, a):
 
 
 def cmd_handoff(cfg, a):
+    """`tutti handoff done|next "<text>"` inside `tutti conduct`; with `--task <id>` (or $TUTTI_TASK) the task's living note:
+    done, next, blockers, branch, worktree, verify, or `show` (docs/CONDUCT.md, *When a session runs out of tokens*)."""
+    task_id = a.task or os.environ.get('TUTTI_TASK')
+    run_dir = os.environ.get('TUTTI_CONDUCT')
+    if not task_id or (a.section in ('done', 'next') and run_dir and not a.task):
+        if a.section not in ('done', 'next') or not a.text:
+            say('handoff: name the task: tutti handoff <section> --task <id> "<text>" (show: tutti handoff show --task <id>)')
+            return 2
+        try:
+            path = conduct.note_progress(run_dir, a.section, a.text)
+        except conduct.ConductError as e:
+            say(str(e))
+            return 2
+        say(f'handoff: noted under {a.section} in {path}')
+        if not task_id:
+            return 0
+    return task_handoff(cfg, task_id, a)
+
+
+def task_handoff(cfg, task_id, a):
+    from . import continuity
     try:
-        path = conduct.note_progress(os.environ.get('TUTTI_CONDUCT'), a.section, a.text)
-    except conduct.ConductError as e:
+        if a.section == 'show':
+            print(continuity.note_text(backlog.find(backlog.load(cfg), task_id)), end='')
+            return 0
+        with backlog.locked(cfg) as data:
+            continuity.set_note(backlog.find(data, task_id), a.section, a.text, a.who or os.environ.get('TUTTI_SESSION') or '')
+    except (backlog.BacklogError, continuity.ContinuityError) as e:
         say(str(e))
         return 2
-    say(f'handoff: noted under {a.section} in {path}')
+    if a.who or os.environ.get('TUTTI_SESSION'):
+        continuity.beat(cfg, a.who or os.environ.get('TUTTI_SESSION'))
+    say(f'handoff: {task_id} {a.section} noted')
+    return 0
+
+
+def cmd_continuity(cfg, a):
+    """`tutti continuity [status|check] [--dry-run]`: the claimed tasks orphaned by quota and the takeovers (docs/CONDUCT.md)."""
+    from . import continuity
+    if a.action == 'check':
+        lines = continuity.tick(cfg, dry=a.dry_run)
+        print('\n'.join(lines) or 'continuity: no claimed task is orphaned by quota')
+        return 0
+    v = continuity.view(cfg, conduct.account_states(cfg))
+    rows = [f'{r["id"]:6} {r["state"]:11} {r.get("from") or "-":24} {r.get("agent") or "-":10} {r.get("reason") or ""}'
+            + (f'; waiting: {r["waiting"]}' if r.get('waiting') else '') for r in v['tasks']]
+    print(('continuity: on' if v['enabled'] else 'continuity: off (main.continuity.enabled)') + '\n'
+          + ('\n'.join(rows) or 'no task is orphaned or taken over'))
     return 0
 
 
@@ -1294,17 +1350,21 @@ def backlog_change(cfg, a, data):
         added = backlog.seed(data, a.repo, repo_of(cfg, a.repo))
         print('\n'.join(f'{t["id"]}: {t["title"][:100]}' for t in added) or f'seed: nothing new found in {a.repo}')
     else:
-        task_change(backlog.find(data, a.repo), a)   # rm, retry and done take the task id in the first argument
+        task_change(backlog.find(data, a.repo), a, cfg)   # rm, retry and done take the task id in the first argument
     return 0
 
 
-def task_change(task, a):
+def task_change(task, a, cfg=None):
     """rm, retry or done of one task; never while its run is going."""
     if task['status'] == 'running':
         raise backlog.BacklogError(f'{task["id"]} is running (run {task.get("run")}): wait for it '
                                    f'(tutti wait run {task.get("run")}), then {a.action} it')
     if a.action in ('claim', 'release', 'note'):
-        return session_change(task, a)
+        note = take_back(cfg, task, a) if a.action == 'claim' and cfg else None
+        rc = session_change(task, a)
+        if a.action == 'claim' and cfg:
+            claimed(cfg, task, a, note)
+        return rc
     if a.action == 'accept':
         if task['status'] != 'candidate':
             raise backlog.BacklogError(f'{task["id"]} is {task["status"]}, not a candidate: only a suggested task is accepted')
@@ -1315,6 +1375,32 @@ def task_change(task, a):
     else:
         task.update(status='dropped' if a.action == 'rm' else 'done', closed_at=time.time())
     print(f'{task["id"]}: {task["status"]}')
+
+
+def take_back(cfg, task, a):
+    """A claim of a task Tutti took over (tutti/continuity.py): the original session takes it back when its account has room;
+    the answer then carries the conductor's note. Refused (with the note) while the conductor owns it."""
+    from . import continuity
+    who = a.who or os.environ.get('TUTTI_SESSION') or ''
+    try:
+        return continuity.hand_back(cfg, task, who, conduct.account_states(cfg))
+    except continuity.ContinuityError as e:
+        raise backlog.BacklogError(str(e)) from e
+
+
+def claimed(cfg, task, a, note):
+    """After a claim: the session's account and a heartbeat (continuity), and the note it continues from."""
+    from . import continuity
+    if getattr(a, 'account', None):
+        task['claim_account'] = a.account
+    if (task.get('continuity') or {}).get('state') == 'orphaned':   # its session is back before anyone took it over
+        task.pop('continuity')
+    continuity.beat(cfg, task.get('claimed_by'), getattr(a, 'account', None))
+    if note:
+        print('\nTaken back from Tutti\'s takeover; continue from this note (and the conductor\'s last handoff in the tree):\n')
+        print(note, end='')
+    elif task.get('handoff'):
+        print('\n' + continuity.note_text(task), end='')
 
 
 def session_change(task, a):
@@ -1833,6 +1919,9 @@ def parser():
     s.add_argument('--at', help='the time of the reading or of the report (ISO 8601, UTC by default)')
     s.add_argument('--note', default='')
     s.add_argument('--resets', help='usage log: the reset time the usage page shows (ISO 8601); it anchors the window from then on')
+    s.add_argument('--limit', choices=['spent', 'panic'], help='usage log: the session saw this account spent or in panic '
+                                                               '(with --session, a limit event for main-session continuity)')
+    s.add_argument('--session', help='usage log --limit: the connected session that saw it (its backlog_claim name)')
     add('workers', cmd_workers, 'list the workers and whether each is ready')
     s = add('run', cmd_run, 'brief a CLI worker (cursor, agy, claude; `auto`: the one whose account has room) in a worktree; '
                             'it must not commit')
@@ -1960,9 +2049,17 @@ def parser():
     s.add_argument('--fallback', help='comma-separated workers that take over in turn (default: main.fallback)')
     s.add_argument('--dir', default='.', help='the project folder the main agent works in (default: here)')
     s.add_argument('--show', action='store_true', help='print the instruction file and stop')
-    s = add('handoff', cmd_handoff, 'inside `tutti conduct`: record a finished step (done) or the next one (next) for the handoff note')
-    s.add_argument('section', choices=['done', 'next'])
-    s.add_argument('text')
+    s = add('handoff', cmd_handoff, 'record a finished step (done) or the next one (next) for the handoff note: inside `tutti '
+                                    'conduct` its run\'s note; with --task a claimed task\'s living note (also blockers, branch, '
+                                    'worktree, verify; show prints it)')
+    s.add_argument('section', choices=['done', 'next', 'blockers', 'branch', 'worktree', 'verify', 'show'])
+    s.add_argument('text', nargs='?', default='')
+    s.add_argument('--task', help='the backlog task whose note this is (default $TUTTI_TASK)')
+    s.add_argument('--who', help='the session writing it (default $TUTTI_SESSION); counts as its heartbeat')
+    s = add('continuity', cmd_continuity, 'main-session continuity: the claimed tasks orphaned when their session ran out of '
+                                          'tokens, and Tutti\'s takeovers (status; check takes them over now, --dry-run lists)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'check'])
+    s.add_argument('--dry-run', action='store_true', help='check: list the orphaned tasks, take none over')
     s = add('backlog', cmd_backlog, 'the autopilot\'s queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> '
                                     '(FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, '
                                     'accept <id> (a suggested candidate)')
@@ -1970,6 +2067,7 @@ def parser():
     s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: '
                                            'the task id')
     s.add_argument('--who', help='claim: the session that works on it by hand (default $TUTTI_SESSION)')
+    s.add_argument('--account', help='claim: the account that session spends (its quota decides when Tutti takes the task over)')
     s.add_argument('title', nargs='?')
     s.add_argument('--scope', action='append', metavar='PATH', help='a path the task may change (repeat it)')
     s.add_argument('--check', help='the acceptance check (default: the repo\'s check)')

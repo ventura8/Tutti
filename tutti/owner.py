@@ -371,7 +371,8 @@ def owner_of(cfg, folder):
     p = cfg.get('pacing') or {}
     saved = read(folder)
     sched = {**DEFAULT, **(p.get('schedule') or {}), **{k: saved[k] for k in ('days', 'window', 'hours') if k in saved}}
-    agent = (cfg.get('main') or {}).get('agent')
+    from . import mainorder
+    agent = mainorder.primary(cfg)   # main.agent auto: the agent the owner prompts first (Claude when it is a worker)
     accounts = p.get('accounts')
     if accounts is None:   # no main agent: no account is the owner's
         accounts = [n for n, a in cfg['accounts'].items() if agent and (n == agent or (a or {}).get('worker') == agent)]

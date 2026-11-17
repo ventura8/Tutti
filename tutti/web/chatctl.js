@@ -45,10 +45,38 @@ function popupFor(text, caret) {
 const shortNum = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n || 0));
 
 // The usage line under the composer: tokens in and out, and what they would cost at API prices (local models: free).
+function money(v, cur) {
+    if (v === null || v === undefined) return '';
+    const n = v < 0.01 ? '<0.01' : v.toFixed(2);
+    return cur ? `${n} ${cur}` : `$${n}`;
+}
+
+// The costs of a total (a conversation's or a day's): tokens, cached, wall time, quota points, money, energy (docs/CHAT.md).
+function costParts(u) {
+    const est = u.estimated ? ' (estimated)' : '';
+    const parts = [`${shortNum(u.in || 0)} in · ${shortNum(u.out || 0)} out${est}`];
+    if (u.cached) parts.push(`${shortNum(u.cached)} cached`);
+    if (u.seconds) parts.push(`${u.seconds < 60 ? Math.round(u.seconds) + ' s' : Math.round(u.seconds / 60) + ' min'}`);
+    if (u.quota_pct) parts.push(`${u.quota_pct} % of quota`);
+    if (u.money_usd) parts.push(`${money(u.money_usd)} charged`);
+    else if (u.usd > 0) parts.push(`≈ ${money(u.usd)} at API prices`);
+    if (u.wh) parts.push(`${u.wh < 1 ? u.wh.toFixed(2) : Math.round(u.wh)} Wh${u.energy_cost ? ' ≈ ' + money(u.energy_cost, u.currency) : ''} (estimated)`);
+    return parts;
+}
+
 function usageText(u) {
-    if (!u || !(u.in || u.out)) return 'No tokens used yet';
-    const cost = u.usd > 0 ? ` · ≈ $${u.usd < 0.01 ? '<0.01' : u.usd.toFixed(2)} at API prices` : ' · local: no cost';
-    return `${shortNum(u.in)} in · ${shortNum(u.out)} out${cost}`;
+    const today = CHAT.today && (CHAT.today.in || CHAT.today.out) ? ` — today: ${costParts(CHAT.today).join(' · ')}` : '';
+    if (!u || !(u.in || u.out)) return `No tokens used yet in this chat${today}`;
+    return `This chat: ${costParts(u).join(' · ')}${today}`;
+}
+
+// One answer's line: who answered, its tokens, time, quota share, money and energy.
+function turnCostText(u) {
+    const who = [u.agent, u.account && u.account !== u.agent ? `(${u.account} account)` : ''].filter(Boolean).join(' ');
+    const parts = costParts(u);
+    if (u.cached === null || u.cached === undefined) parts.push('cached: not reported');
+    if (u.price_estimated) parts.push('energy price: your country\'s typical one');
+    return [who, ...parts].filter(Boolean).join(' · ');
 }
 
 // ---- the pickers
@@ -57,7 +85,7 @@ const ctl = { popup: null, items: [], active: -1, timer: 0 };
 
 function currentSettings() {
     const s = { ...(CHAT.defaults || {}), ...(CHAT.settings || {}) };
-    return { model: s.model || 'auto', effort: s.effort || 'auto', mode: s.mode || 'auto' };
+    return { model: s.model || 'main', effort: s.effort || 'auto', mode: s.mode || 'auto' };
 }
 
 function fillSelect(box, options, value) {

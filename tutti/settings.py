@@ -166,7 +166,7 @@ class View:
                'in_file': value is not MISSING, 'restart': key in RESTART,
                **{k: spec[k] for k in ('unit', 'min', 'max', 'step', 'choices', 'item', 'suggest', 'setup') if k in spec}}
         if 'choices_from' in spec:
-            out['choices'] = self.names(spec['choices_from'])
+            out['choices'] = [*spec.get('extra_choices', []), *self.names(spec['choices_from'])]
         if control == 'secret' or is_secret(path[-1]):
             return {**out, 'control': 'secret', 'set': self.secret_set(path, value), 'setup': spec.get('setup') or setup_for(path)}
         if value is MISSING:

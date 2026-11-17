@@ -187,7 +187,7 @@ async function loadList() {
         const data = await chatApi({ action: 'list', query: CHAT.query });
         Object.assign(CHAT, { list: data.conversations, suggestions: data.suggestions, role: data.role, limits: data.limits, host: data.host || '', failed: '',
             models: data.models || [], defaults: data.defaults || {}, modes: data.modes || {}, efforts: data.efforts || [],
-            compactDefault: data.compact_default || 60 });
+            compactDefault: data.compact_default || 60, today: data.today || null });
         if (typeof drawControls === 'function') drawControls();
     } catch (err) {
         CHAT.failed = err.message;
@@ -309,6 +309,7 @@ function chatMessage(m, opts) {
     (m.attachments || []).length ? el('ul', { class: 'msg__files', 'aria-label': 'Attached' }, ...m.attachments.map((a) => el('li', { class: 'chip', text: `${a.name} · ${Math.ceil(a.size / 1024)} KB` }))) : null,
     ...(m.cards || []).map((c) => actionCard(m, c)),
     m.note ? el('p', { class: 'msg__note', role: 'note', text: m.note }) : null,
+    !mine && m.usage && typeof turnCostText === 'function' ? el('p', { class: 'msg__cost', 'aria-label': 'What this answer cost', text: turnCostText(m.usage) }) : null,
     (m.try || []).length ? el('div', { class: 'chat__suggestions', role: 'group', 'aria-label': 'Do it' },
         ...m.try.map((t) => el('button', { class: 'chip chat__suggest', type: 'button', text: t, title: 'Send this request', onclick: () => send(t) }))) : null,
     messageActions(m, opts));
@@ -540,6 +541,8 @@ function onEvent(e, local, answer) {
         answer.model = e.model;
     } else if (e.type === 'usage') {
         CHAT.conv.usage = e.total;
+        if (e.day) CHAT.today = e.day;
+        if (answer && e.usage) { answer.usage = e.usage; paint(answer); }
         if (typeof drawUsage === 'function') drawUsage();
     } else if (e.type === 'compacted') {
         CHAT.conv.summary = { upto: e.upto };

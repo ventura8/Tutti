@@ -8,7 +8,7 @@ import subprocess
 
 MODES = {'auto': 'Autonomous', 'ask': 'Ask before acting', 'plan': 'Plan review'}
 EFFORTS = ('auto', 'low', 'medium', 'high', 'max')
-DEFAULTS = {'model': 'auto', 'effort': 'auto', 'mode': 'auto'}
+DEFAULTS = {'model': 'main', 'effort': 'auto', 'mode': 'auto'}   # model main: "Auto: main agent" (docs/CHAT.md)
 ROUNDS = {'auto': 4, 'low': 2, 'medium': 4, 'high': 6, 'max': 8}   # tool rounds an answer may take
 CTX_BASE = 16384
 CTX_MAX = 65536
@@ -128,6 +128,9 @@ def cost_usd(kind, tokens_in, tokens_out, prices=(3.0, 15.0)):
     return round(tokens_in / 1e6 * prices[0] + tokens_out / 1e6 * prices[1], 4)
 
 
+SUMMED = ('in', 'out', 'cached', 'seconds', 'quota_pct', 'money_usd', 'wh', 'energy_cost')
+
+
 def add_usage(conv, usage):
     """Adds one answer's usage to the conversation's totals and keeps the latest context share."""
     total = conv.setdefault('usage', {'in': 0, 'out': 0, 'usd': 0.0, 'context_pct': 0})
@@ -135,7 +138,80 @@ def add_usage(conv, usage):
     total['out'] += usage.get('out', 0)
     total['usd'] = round(total['usd'] + usage.get('usd', 0.0), 4)
     total['context_pct'] = usage.get('context_pct', total['context_pct'])
+    add_costs(total, usage)
     return total
+
+
+def add_costs(total, usage):
+    """Sums a turn's costs (docs/CHAT.md, *What each answer cost*) into a total: tokens, cached tokens, wall time, quota share,
+    money, energy. A total is estimated when any of its turns was; the currency is the energy price's."""
+    for k in SUMMED[2:]:
+        if usage.get(k) is not None:
+            total[k] = round((total.get(k) or 0) + usage[k], 4)
+    total['turns'] = (total.get('turns') or 0) + 1
+    total['estimated'] = bool(total.get('estimated') or usage.get('estimated') or usage.get('energy_estimated'))
+    if usage.get('currency'):
+        total['currency'] = usage['currency']
+    return total
+
+
+def add_day(data, usage, day):
+    """Adds the turn to the user's total of that day (`data['usage_days']`, the last 31 days kept). Returns the day's total."""
+    days = data.setdefault('usage_days', {})
+    total = days.setdefault(day, {'in': 0, 'out': 0, 'usd': 0.0})
+    total['in'] += usage.get('in', 0)
+    total['out'] += usage.get('out', 0)
+    total['usd'] = round(total['usd'] + usage.get('usd', 0.0), 4)
+    add_costs(total, usage)
+    for old in sorted(days)[:-31]:
+        days.pop(old)
+    return total
+
+
+def local_energy(cfg, cand, seconds, tariff):
+    """(Wh, cost in the tariff's currency) of a local model's answer: the machine's whole-system power while busy
+    (energy.watts with no live reading: its GPU and CPU TDP and base draw, so always an estimate) times the wall time."""
+    from . import energy
+    w = (cfg.get('workers') or {}).get(cand.get('worker')) or {}
+    mcfg = (cfg.get('machines') or {}).get(w.get('machine') or '') or {}
+    watts, _parts, _measured = energy.watts(None, mcfg, True)
+    wh = watts * max(0.0, seconds) / 3600
+    return round(wh, 3), round(wh / 1000 * float(tariff.get('price') or 0), 5)
+
+
+def turn_cost(cfg, cand, usage, seconds, tariff=None, quota_pct=None):
+    """What one answer cost, for its line in the chat: who answered (agent, account), tokens in, out and cached (`cached`
+    None: the agent does not report it), `estimated` when the counts are Tutti's own guess, wall time, the share of the
+    account's quota (`quota_pct`, from the pacing readings before and after; None when no reading moved), money for a
+    pay-per-use account, and for a local model its energy in Wh and what that cost at energy.price_per_kwh
+    (`energy_estimated`: always, the power is the machine's rated draw; `price_estimated` when the price is the detected
+    country's typical one). Never a secret: names and numbers only."""
+    local = cand.get('kind') == 'ollama'
+    acct = cand.get('account')
+    conf = ((cfg.get('accounts') or {}).get(acct) or {}) if acct else {}
+    w = (cfg.get('workers') or {}).get(cand.get('worker')) or {}
+    out = {'agent': cand.get('worker'), 'account': acct, 'label': cand.get('label'), 'in': usage.get('in', 0),
+           'out': usage.get('out', 0), 'cached': usage.get('cached'), 'estimated': bool(usage.get('estimated')),
+           'seconds': round(max(0.0, seconds), 2), 'quota_pct': None if local else quota_pct, 'money_usd': None,
+           'wh': None, 'energy_cost': None, 'currency': None, 'energy_estimated': None}
+    if not local and (conf.get('costs_money') or w.get('costs_money')):
+        out['money_usd'] = cost_usd('cli', out['in'], out['out'])
+    if local and tariff:
+        out['wh'], out['energy_cost'] = local_energy(cfg, cand, seconds, tariff)
+        # the power is the machine's rated draw, not a meter: always estimated; the price too unless it is the owner's own
+        out.update(currency=tariff.get('currency'), energy_estimated=True, price_estimated=bool(tariff.get('estimated')))
+    return out
+
+
+def quota_share(before, after, account):
+    """The points of an account's quota an answer used: the rise of its used % between the readings before and after, or
+    None (no reading moved, or no account)."""
+    if not account:
+        return None
+    a, b = (before or {}).get(account), (after or {}).get(account)
+    if a is None or b is None or b <= a:
+        return None
+    return round(b - a, 2)
 
 
 # ---- auto-compaction

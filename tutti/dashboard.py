@@ -254,6 +254,11 @@ class Collector:
         unblocker.tick_in_background(self.cfg)   # blocked or failing work cleared, local first (docs/TELEMETRY.md, *The unblocker*)
         welcome.tick(self.cfg)   # the owner back: their welcome-back summary
         needs.tick(self.cfg)   # the questions only a person can answer, delivered in batches (docs/NEEDS.md)
+        from . import continuity  # a connected session out of tokens: its claimed tasks go on (docs/CONDUCT.md)
+        try:
+            continuity.tick(self.cfg)
+        except (OSError, ValueError, KeyError) as e:
+            print(f'continuity: the round failed ({e}); it runs again next round', file=sys.stderr)
         from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)
         hhjobs.tick(self.cfg)
 
@@ -289,6 +294,8 @@ class Collector:
         out = state.assemble(self.cfg, probes)
         state.with_readers(out['usage'], probes.get('readers'))
         out['main'] = conduct.main_state(self.cfg, out['usage']['accounts'])
+        from . import continuity
+        out['main']['continuity'] = continuity.view(self.cfg, out['usage']['accounts'])
         projects.tag(self.cfg, out['jobs']['items'])
         out['projects'] = projects.projects_state(self.cfg, out['jobs']['items'], out['machines']['items'], probes.get('activity'),
                                                   out['main']['running'], out['generated_at'])

@@ -896,18 +896,34 @@ function mainRun(m) {
         el('p', { class: 'row__note', text: `${turns || 'no agent started'} · since ${relative(r.started)}` }));
 }
 
+const CONTINUITY_TONE = { orphaned: 'bad', 'taken-over': 'accent', ended: 'warn' };
+const CONTINUITY_TEXT = { orphaned: 'orphaned by quota', 'taken-over': 'taken over', ended: 'takeover ended' };
+
+// A connected session's task that stalled when it ran out of tokens, and who continues it (tutti/continuity.py).
+function continuityRow(t) {
+    const who = t.agent ? `${t.agent} continues it for ${t.from}` : (t.waiting ? `waiting: ${t.waiting}` : 'Tutti takes it over next round');
+    return el('div', { class: 'row' },
+        el('div', { class: 'row__name' }, `${t.id}`, el('span', { class: 'row__kind', text: t.title || '' })),
+        chip(CONTINUITY_TEXT[t.state] || t.state, CONTINUITY_TONE[t.state] || 'warn'),
+        el('p', { class: 'row__note', text: [t.reason, who, ...(t.needs || []).map((n) => `needs you: ${n}`)].filter(Boolean).join(' · ') }));
+}
+
+function choiceText(c, m) {
+    if (c.kind === 'auto') return `auto: the main agent with room${c.now ? ` (now ${c.now})` : ''}`;
+    return [`${c.name} (${c.kind === 'ollama' ? 'local model' : 'cli'})`, c.out && `out: ${c.out}`].filter(Boolean).join(' · ');
+}
+
 function renderMain(s) {
     const m = s.main;
     if (!m) return;
-    $('main-meta').textContent = m.chosen ? `${m.agent} · switched here` : `${m.agent} · from the config`;
+    const now = m.agent === 'auto' && m.answers_now ? ` (now ${m.answers_now})` : '';
+    $('main-meta').textContent = m.chosen ? `${m.agent}${now} · switched here` : `${m.agent}${now} · from the config`;
     const pick = $('main-pick');
     if (document.activeElement !== pick) {
-        pick.replaceChildren(...m.choices.map((c) => el('option', {
-            value: c.name, selected: c.name === m.agent,
-            text: [`${c.name} (${c.kind === 'ollama' ? 'local model' : 'cli'})`, c.out && `out: ${c.out}`].filter(Boolean).join(' · '),
-        })));
+        pick.replaceChildren(...m.choices.map((c) => el('option', { value: c.name, selected: c.name === m.agent, text: choiceText(c, m) })));
     }
-    $('main-run').replaceChildren(mainRun(m));
+    const tasks = m.continuity?.tasks || [];
+    $('main-run').replaceChildren(mainRun(m), ...tasks.map(continuityRow));
 }
 
 async function switchMain(e) {

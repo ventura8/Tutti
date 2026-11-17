@@ -25,7 +25,7 @@ TIMEOUT = 120          # seconds a read or a quick change may take; long work ru
 HTTP_PORT = 4779
 # tool arguments that land as positional words of a `tutti` command: one that starts with "-" would be read as an option
 POSITIONAL = ('repo', 'project', 'track', 'scout', 'mode', 'machine', 'device', 'skill', 'id', 'who', 'kind', 'name', 'task',
-              'account', 'percent')   # names: free text goes after `--`
+              'account', 'percent', 'agent', 'section', 'state')   # names: free text goes after `--`
 MAX_BODY = 1 << 20
 
 INSTRUCTIONS = ('Tutti runs bounded coding tasks on cheaper workers (cursor-agent, Antigravity, local models) and shared '
@@ -34,7 +34,9 @@ INSTRUCTIONS = ('Tutti runs bounded coding tasks on cheaper workers (cursor-agen
                 'and anything the user is waiting on. Call handoff_advice first, then delegate_task, then poll job_status. All '
                 'household work goes through Tutti: claim the backlog task you work on (backlog_add, backlog_claim), lease a machine '
                 'or device for it (lease_claim), name the task id in commits, ask the owner with ask_owner, schedule Claude-only '
-                'work with claude_task, and close it with backlog_complete.')
+                'work with claude_task, and close it with backlog_complete. So your work survives your quota: name your account in '
+                'backlog_claim, keep task_handoff current after every step, and report usage_report with state spent when you hit '
+                'your limit; Tutti then continues the task with another main agent, and backlog_claim takes it back later.')
 
 
 def _s(desc, **extra):
@@ -71,6 +73,9 @@ TOOLS = [
                                                             'description': 'paths the task may change'},
           'check': _s('the acceptance check command (default: the repo\'s check)')},
          required=('repo', 'title'), mutating=True),
+    tool('main_agent', 'The main agent: with no agent, who it is, the order and who has room now; with an agent, switch to it '
+         '(auto: the first with room, the default; a running conductor hands over to a named one).',
+         {'agent': _s('optional: auto or a worker name')}, mutating=True),
     tool('usage', 'Usage and pacing of every account: used percent, the target for now, the reset time and the verdict.'),
     tool('machines', 'The machines Tutti can use: free slots, load, memory, the yield flag.'),
     tool('devices', 'The Android devices for end-to-end tests: connection, battery, charging, heat, lock.'),
@@ -97,9 +102,22 @@ TOOLS = [
          {'mode': _s('active, away, auto or vacation-until-YYYY-MM-DD; empty for the status')}, mutating=True),
     # all household work through Tutti (docs/INTAKE.md): a session's own work as tasks, leases, usage and questions
     tool('backlog_claim', 'Claim a backlog task you (this session) will do yourself, so the household sees who works on it and the '
-         'autopilot leaves it alone. Mention its id (t123) in every commit.',
-         {'id': _s('the task id (t123)'), 'who': _s('this session\'s name, e.g. claude-laptop-map')}, required=('id', 'who'),
+         'autopilot leaves it alone. Mention its id (t123) in every commit. Name the account you spend: if you run out of '
+         'tokens, Tutti continues the task with another main agent and you take it back later with this same call (its answer '
+         'is the handoff note to continue from).',
+         {'id': _s('the task id (t123)'), 'who': _s('this session\'s name, e.g. claude-laptop-map'),
+          'account': _s('the account this session spends (see usage), e.g. claude')}, required=('id', 'who'),
          mutating=True),
+    tool('task_handoff', 'Keep a claimed task\'s living handoff note current (after every step): done, next, blockers, branch, '
+         'worktree, verify (how to check it). If you run out of tokens, the agent that takes over starts from it. With no '
+         'text: show the note.',
+         {'id': _s('the task id'), 'who': _s('this session\'s name'),
+          'section': _s('which part', enum=['done', 'next', 'blockers', 'branch', 'worktree', 'verify', 'show']),
+          'text': _s('what to write (empty for show)')}, required=('id', 'who', 'section'), mutating=True),
+    tool('session_heartbeat', 'Tell Tutti this session is alive (every Tutti call that names you counts too), the account it '
+         'spends and, when you know it, the path of your transcript or log (Tutti reads its end for a usage-limit message).',
+         {'who': _s('this session\'s name'), 'account': _s('the account it spends'),
+          'transcript': _s('optional: a transcript or log file Tutti may read')}, required=('who',), mutating=True),
     tool('backlog_update', 'Record progress on a task: a note the dashboard and the next worker see.',
          {'id': _s('the task id'), 'note': _s('what was done or what is next')}, required=('id', 'note'), mutating=True),
     tool('backlog_release', 'Give a claimed task back to the queue (the autopilot may then run it).',
@@ -116,8 +134,12 @@ TOOLS = [
          {'kind': _s('machine or device', enum=['machine', 'device']), 'name': _s('its name'), 'who': _s('the session that leased it')},
          required=('kind', 'name', 'who'), mutating=True),
     tool('leases', 'The machine and device leases sessions hold, with their tasks.'),
-    tool('usage_report', 'Report a usage reading you saw for an account (its usage page or /usage): the pacing uses it.',
-         {'account': _s('the account name (see usage)'), 'percent': _s('used percent of the window, e.g. 42')},
+    tool('usage_report', 'Report a usage reading you saw for an account (its usage page or /usage): the pacing uses it. When '
+         'you hit your own limit (or are about to), report it with state spent or panic and your name: Tutti then continues '
+         'your claimed tasks with another main agent.',
+         {'account': _s('the account name (see usage)'), 'percent': _s('used percent of the window, e.g. 42'),
+          'state': _s('optional: spent (the limit is reached) or panic', enum=['spent', 'panic']),
+          'who': _s('optional: this session\'s name (with state)')},
          required=('account', 'percent'), mutating=True),
     tool('ask_owner', 'Ask the owner a question on one of your tasks; it joins the needs queue (dashboard, chat, welcome back) '
          'and the answer comes back on the task (pending_questions / the task\'s notes). Keep working on other things meanwhile.',
@@ -138,6 +160,8 @@ BY_NAME = {t['name']: t for t in TOOLS}
 def is_mutating(name, args):
     if name == 'away_mode':
         return bool((args or {}).get('mode'))
+    if name == 'main_agent':
+        return bool((args or {}).get('agent'))
     return not BY_NAME[name]['annotations']['readOnlyHint']
 
 
@@ -182,7 +206,10 @@ def argv_of(name, a):
         'scout_ask': lambda: (['scout', '--no-wait'] + (['--skill', a['skill']] if a.get('skill') else [])
                               + ['--', 'ask', a['scout'], a['question']]),
         'away_mode': lambda: ['owner', 'mode', a['mode']] if a.get('mode') else ['owner', 'status'],
-        'backlog_claim': lambda: ['backlog', '--who', a['who'], 'claim', a['id']],
+        'main_agent': lambda: ['main', a['agent']] if a.get('agent') else ['main'],
+        'backlog_claim': lambda: (['backlog', '--who', a['who']] + (['--account', a['account']] if a.get('account') else [])
+                                  + ['claim', a['id']]),
+        'task_handoff': lambda: ['handoff', '--task', a['id'], '--who', a['who'], '--', a['section'], a.get('text') or ''],
         'backlog_update': lambda: ['backlog', f'--note={a["note"]}', 'note', a['id']],
         'backlog_release': lambda: ['backlog', '--who', a['who'], 'release', a['id']],
         'backlog_complete': lambda: ['backlog', 'done', a['id']],
@@ -190,7 +217,8 @@ def argv_of(name, a):
                                 'claim', a['kind'], a['name']],
         'lease_release': lambda: ['lease', '--who', a['who'], 'release', a['kind'], a['name']],
         'leases': lambda: ['lease', 'list'],
-        'usage_report': lambda: ['usage', 'log', a['account'], str(a['percent'])],
+        'usage_report': lambda: (['usage'] + ([f'--limit={a["state"]}'] if a.get('state') else [])
+                                 + ([f'--session={a["who"]}'] if a.get('who') else []) + ['log', a['account'], str(a['percent'])]),
         'ask_owner': lambda: (['needs'] + [f'--option={o}' for o in scopes(a.get('options'))]
                               + ([f'--why={a["why"]}'] if a.get('why') else []) + ['--', 'ask', a['task'], a['question']]),
         'claude_task': lambda: ['run', '--repo', a['repo'], '--size', a.get('size') or 'S', '--', 'claude', a['task']],
@@ -257,6 +285,17 @@ def handoff_advice(cfg):
     return max(rc1, rc2), f'{usage}\n\n{main}\n\n{rule}'
 
 
+def beat(cfg, args, name):
+    """The session's heartbeat (tutti/continuity.py); a state folder that cannot be written never fails the call."""
+    from . import continuity
+    try:
+        continuity.beat(cfg, args['who'].strip(), args.get('account') if name in ('session_heartbeat', 'backlog_claim') else None,
+                        args.get('transcript') if name == 'session_heartbeat' else None)
+    except (OSError, KeyError, TypeError):
+        return False
+    return True
+
+
 def call(cfg, name, args, role, popen=subprocess.Popen, runner=None):
     """(is_error, text) of one tool call; refused without the role a change needs."""
     if name not in BY_NAME:
@@ -270,7 +309,11 @@ def call(cfg, name, args, role, popen=subprocess.Popen, runner=None):
     flag = next((k for k in POSITIONAL if isinstance(args.get(k), str) and args[k].lstrip().startswith('-')), None)
     if flag:
         return True, f'{name}: {flag} may not start with "-" (it would be read as an option of the tutti command)'
-    if name == 'test_on':
+    if isinstance(args.get('who'), str) and args['who'].strip():
+        beat(cfg, args, name)   # every call that names its session is a sign of life (main-session continuity)
+    if name == 'session_heartbeat':
+        rc, text = 0, f'{args["who"]}: alive' + (f', spending {args["account"]}' if args.get('account') else '')
+    elif name == 'test_on':
         rc, text = start_test(cfg, args, popen)
     elif name == 'job_status':
         rc, text = job_status(cfg, args)

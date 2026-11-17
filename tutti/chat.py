@@ -110,7 +110,7 @@ class Store:
                         'preview': (hit or last)[:120], 'count': len(c['messages'])})
         return sorted(out, key=lambda c: c['updated'] or '', reverse=True)
 
-    def create(self, sub, title='', model='auto', messages=None):
+    def create(self, sub, title='', model='main', messages=None):
         conv = {'id': new_id('c'), 'title': clean_title(title), 'created': now_iso(self.clock), 'updated': now_iso(self.clock),
                 'model': model, 'messages': list(messages or [])}
         self.change(sub, lambda d: d['conversations'].insert(0, conv))
@@ -191,7 +191,7 @@ class Store:
             raise ChatError('That message is gone: reload the chat.')
         kept = [{**m, 'id': new_id('m'), 'cards': []} if m['role'] == 'assistant' else {**m, 'id': new_id('m')}
                 for m in conv['messages'][:ids.index(mid) + 1]]
-        new = self.create(sub, f'Branch of {conv.get("title") or "a chat"}', conv.get('model') or 'auto', kept)
+        new = self.create(sub, f'Branch of {conv.get("title") or "a chat"}', conv.get('model') or DEFAULT_PICK, kept)
 
         def go(d):
             c = self.conversation(d, new['id'])
@@ -568,7 +568,9 @@ def machine_out(name, snap, own_machine=None):
     return None
 
 
-PICKS = {'auto': 'Auto: local first, then online', 'local': 'Local models only', 'online': 'Online agents only'}
+PICKS = {'main': 'Auto: main agent (the one with room now)', 'auto': 'Auto: local first, then online',
+         'local': 'Local models only', 'online': 'Online agents only'}
+DEFAULT_PICK = 'main'
 TOOL_PARAMS_B = 7.0   # a local model this large or larger is given the tools; a smaller one only talks
 
 
@@ -627,14 +629,25 @@ def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
     return local, online
 
 
-def candidates(cfg, snap, user, owner_sub=None, own_machine=None, pick='auto'):
+def main_pool(cfg, local, online):
+    """"Auto: main agent": the main agent's order (tutti/mainorder.py: the owner's switch or main.agent, then main.fallback,
+    Claude, Antigravity, Cursor, the other agents, the local models). Each turn takes the first with room, so a conversation
+    goes on with the next agent, history and summary included, when the one before is in panic, spent or hit its limit."""
+    from . import conduct, mainorder  # conduct imports config, which imports this module
+    lead = conduct.chosen(cfg) if cfg.get('project') else None
+    rank = {n: i for i, n in enumerate(mainorder.order(cfg, lead))}
+    every = online + local
+    return sorted(every, key=lambda c: rank.get(c['worker'], len(rank) + every.index(c)))
+
+
+def candidates(cfg, snap, user, owner_sub=None, own_machine=None, pick=DEFAULT_PICK):
     """The models that may answer this user, in order, and why the others may not: ([{kind, worker, label, ...}], [why]).
 
     `pick`: auto (the household's local models first, by capability, then online accounts with room), local, online, or one
     worker's name. Local models run on machines that are here, not paused, not lent out and never the user's own; online
     accounts are the owner's own or shared (`accounts.<n>.share_spare`): another member's private quota is never spent."""
     local, online = all_models(cfg, snap, user, owner_sub, own_machine)
-    pool = {'local': local, 'online': online}.get(pick, local + online)
+    pool = {'local': local, 'online': online, 'main': main_pool(cfg, local, online)}.get(pick, local + online)
     if pick not in PICKS:
         pool = [c for c in local + online if c['worker'] == pick] or [{'worker': pick, 'why': f'{pick} is not a model here'}]
     out, before = [], []

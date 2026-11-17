@@ -162,6 +162,24 @@ class Job:
                 return
 
 
+def used_now(cfg):
+    """{account: used %} from the latest pacing readings ({} when they cannot be read)."""
+    from . import conduct
+    try:
+        return {s['name']: s.get('used') for s in conduct.account_states(cfg) if s.get('used') is not None}
+    except (OSError, ValueError, KeyError):
+        return {}
+
+
+def tariff_now(cfg):
+    """The energy price per kWh (tutti/energy.py), or None when it cannot be worked out."""
+    from . import energy
+    try:
+        return energy.tariff(cfg)
+    except (OSError, ValueError, KeyError):
+        return None
+
+
 class Engine:
     """The chat for one dashboard: the store, the live jobs, the snapshot and config it answers from."""
 
@@ -173,6 +191,7 @@ class Engine:
         self.streams = streams or stream_of
         self.owner_fn = owner_fn or (lambda: None)
         self.own_machine_fn = own_machine_fn or (lambda user: None)
+        self.used_fn, self.tariff_fn = used_now, tariff_now   # the quota readings and the energy price (tests replace them)
         self.jobs, self.lock, self.act_lock, self.plans_running = {}, threading.Lock(), threading.Lock(), set()
 
     # -- reading
@@ -314,10 +333,14 @@ class Engine:
         if not usage:
             return
 
+        day = datetime.fromtimestamp(self.clock()).date().isoformat()
+
         def go(d):
-            return dict(chatctl.add_usage(self.store.conversation(d, job.cid), usage))
+            conv = dict(chatctl.add_usage(self.store.conversation(d, job.cid), usage))
+            return conv, dict(chatctl.add_day(d, usage, day))
         try:
-            job.emit('usage', usage=usage, total=self.store.change(job.sub, go))
+            total, today = self.store.change(job.sub, go)
+            job.emit('usage', usage=usage, total=total, day=today)
         except chat.ChatError:
             return
 
@@ -532,6 +555,7 @@ class Engine:
         False when the model gave nothing at all."""
         msgs = list(messages)
         job.usage = {'in': 0, 'out': 0}
+        job.started, job.quota_before = time.monotonic(), (self.used_fn(cfg) if cand['kind'] != 'ollama' else {})
         for rnd in range(chatctl.ROUNDS.get(getattr(job, 'effort', 'auto'), ROUNDS)):
             if job.msg['text'] and not job.msg['text'].endswith('\n\n'):   # each round's text its own paragraph
                 job.msg['text'] += '\n\n'
@@ -570,7 +594,11 @@ class Engine:
         """The answer's tokens (the model's own counts, else an estimate), its cost at API prices and the context share."""
         u = job.usage
         win = chatctl.window(cand, cfg, getattr(job, 'effort', 'auto'))
-        job.msg['usage'] = {'in': u['in'], 'out': u['out'], 'usd': chatctl.cost_usd(cand['kind'], u['in'], u['out']),
+        local = cand['kind'] == 'ollama'
+        seconds = time.monotonic() - getattr(job, 'started', time.monotonic())
+        share = None if local else chatctl.quota_share(getattr(job, 'quota_before', {}), self.used_fn(cfg), cand.get('account'))
+        cost = chatctl.turn_cost(cfg, cand, u, seconds, self.tariff_fn(cfg) if local else None, share)
+        job.msg['usage'] = {**cost, 'usd': chatctl.cost_usd(cand['kind'], u['in'], u['out']),
                             'context_pct': min(100, round(100 * u.get('last_in', u['in']) / win)) if win else 0,
                             'window': win, 'estimated': u.get('estimated', False)}
 
@@ -820,7 +848,8 @@ def _list(engine, user, data, snap):
                  'host': (snap or {}).get('where', {}).get('machine') or (snap or {}).get('where', {}).get('hostname'),
                 'models': chat.choices(engine.cfg_fn(), snap or {}, user, engine.owner_fn(), engine.own_machine_fn(user)),
                 'defaults': chatctl.resolve(data_of(engine, user), None), 'modes': chatctl.MODES, 'efforts': list(chatctl.EFFORTS),
-                'compact_default': (engine.cfg_fn().get('autocompact') or {}).get('threshold_pct') or 60}
+                'compact_default': (engine.cfg_fn().get('autocompact') or {}).get('threshold_pct') or 60,
+                'today': (data_of(engine, user).get('usage_days') or {}).get(datetime.fromtimestamp(engine.clock()).date().isoformat())}
 
 
 def data_of(engine, user):

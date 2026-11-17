@@ -142,7 +142,11 @@ FIELDS = {
     # main agent
     'main.target_pct': field('Target', 'The % of the main agent\'s quota to use by its spend-by time; the owner\'s reserve still holds.',
                              **PCT),
-    'main.agent': field('Main agent', 'The worker that conducts the next goal.', 'select', choices_from='workers'),
+    'main.agent': field('Main agent', 'auto (the default): the first with room of Claude, Takes over, the other agents and the '
+                        'local models; or one worker that conducts the next goal.', 'select', choices_from='workers',
+                        extra_choices=['auto']),
+    'main.continuity': field('When a session runs out of tokens', 'enabled, silent_minutes (silence while its account is out '
+                             'that counts as stopped), limit_grace_minutes, takeover_order (default: the main order).', **YAML),
     'main.fallback': field('Takes over', 'In this order, when the main agent\'s quota is in panic.', 'list', choices_from='workers'),
     'main.commands': field('Commands when conducting', 'A command per agent; default: its worker command.', **YAML),
     'main.ask_first': field('Ask first', 'Extra actions the conductor must ask you about.', 'list', item='action'),

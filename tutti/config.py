@@ -143,8 +143,11 @@ DEFAULTS = {
     # auth: sign-in with Google for the dashboard (docs/AUTH.md): the OAuth client ID (public; `tutti auth setup` saves it in
     # the state folder instead) and how long a session lasts
     'auth': {'client_id': '', 'session_hours': 72},
-    'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
-             'command_timeout': 3600},
+    # main.agent auto: the first main agent with room (Claude, main.fallback, the other agents, local models; tutti/mainorder.py).
+    # continuity: a connected session's claimed task is taken over when the session runs out of tokens (docs/CONDUCT.md)
+    'main': {'agent': 'auto', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
+             'command_timeout': 3600,
+             'continuity': {'enabled': True, 'silent_minutes': 20, 'takeover_order': [], 'limit_grace_minutes': 2}},
     # fleet: the household's local models as workers (docs/FLEET.md): every machine's Ollama is read and a machine with models
     # but no configured ollama worker gets `<machine>-local` (a tunnel from port_base on); memory_floor_gb: this computer
     # runs no local model with less memory free; enabled: false turns the discovery and the overflow routing off
@@ -626,6 +629,11 @@ def _main_errors(cfg):
     rounds = m.get('rounds')
     if isinstance(rounds, bool) or not isinstance(rounds, int) or rounds < 1:
         errs.append(f'main.rounds is {rounds!r}: use a whole number, 1 or more (a local model\'s answers before it is stopped)')
+    from . import continuity  # it imports this module
+    errs += continuity.errors(m)
+    order = (m.get('continuity') or {}).get('takeover_order') if isinstance(m.get('continuity'), dict) else None
+    errs += [f'main.continuity.takeover_order names "{n}", which is not under workers:' for n in order or []
+             if isinstance(n, str) and n not in cfg['workers']]
     return errs
 
 

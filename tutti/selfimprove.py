@@ -380,13 +380,18 @@ def request_review(cfg, repo, number, spawn=subprocess.Popen):
               env={**os.environ, 'RC_FILE': rc})
 
 
-def review_finished(cfg, repo, number):
-    """True once `tutti pr review` ended well (its .rc file says 0)."""
+def review_result(cfg, repo, number):
+    """The finished review's exit code, or None while it has no readable result."""
     try:
         with open(review_files(cfg, repo, number)[1], encoding='utf8') as f:
-            return f.read().strip() == '0'
+            return f.read().strip()
     except OSError:
-        return False
+        return None
+
+
+def review_finished(cfg, repo, number):
+    """True once `tutti pr review` ended well (its .rc file says 0)."""
+    return review_result(cfg, repo, number) == '0'
 
 
 def pushed_since_review(reviews, key, pr):
@@ -427,8 +432,9 @@ def requeue_review(t, key, reviews, pol):
     reviews.pop(key, None)
 
 
-def handle_blocked_review(t, pr, key, reviews, pol):
-    if pr.get('reviewDecision') == 'CHANGES_REQUESTED' and t['status'] == 'review':
+def handle_blocked_review(t, pr, key, reviews, pol, result):
+    # A stale GitHub decision must not trigger another retry while the newly requested review is still running.
+    if result in ('0', '3') and pr.get('reviewDecision') == 'CHANGES_REQUESTED' and t['status'] == 'review':
         requeue_review(t, key, reviews, pol)
 
 
@@ -454,13 +460,14 @@ def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
         reviews.pop(key, None)   # commits pushed after the review are never merged unreviewed: the next round asks again
         t['self_improve'] = 'new commits since the AI reviews: they are asked again'
         return None
-    ok, why = may_merge(pol, pr, review_finished(cfg, pol['repo'], number))
+    result = review_result(cfg, pol['repo'], number)
+    ok, why = may_merge(pol, pr, result == '0')
     t['self_improve'] = why or 'merging'
     if pr.get('state') == 'MERGED':
         t['status'] = 'done'
         return None
     if not ok:
-        handle_blocked_review(t, pr, key, reviews, pol)
+        handle_blocked_review(t, pr, key, reviews, pol, result)
         return None
     if not pr.get('headRefOid'):
         t['self_improve'] = 'GitHub did not say which commit the pull request is at: not merged; the next round looks again'

@@ -288,6 +288,19 @@ class Rounds(Base):
         self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
         self.assertEqual(selfimprove.read_state(cfg)['reviews'], {})   # the pushed fix is reviewed again
 
+    def test_stale_changes_requested_waits_for_the_new_review_to_finish(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh = FakeGh(pr(reviewDecision='CHANGES_REQUESTED'))
+        selfimprove.tick(cfg, NOW, run=gh, spawn=lambda *_a, **_kw: None)
+        selfimprove.tick(cfg, NOW + 1, run=gh, spawn=lambda *_a, **_kw: None)
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'review')
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+        with open(selfimprove.review_files(cfg, 'octo/tutti', 7)[1], 'w', encoding='utf8') as f:
+            f.write('0\n')
+        selfimprove.tick(cfg, NOW + 2, run=gh, spawn=finished_review())
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
+
     def test_regular_task_review_is_retried_only_for_an_opted_in_project(self):
         cfg = self.cfg()
         self.add_review_task(cfg)

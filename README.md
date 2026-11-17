@@ -28,8 +28,9 @@ computers and Android devices for software work, without anyone stepping on anyo
 - **It looks after itself.** Self-heal installs declared dependencies, restarts services, cleans old temp folders and
   applies updates; routine clean-ups are counted apart from real repairs ([docs/SELFHEAL.md](docs/SELFHEAL.md)).
 - **GitHub connection.** Connect GitHub once from the dashboard ([docs/GITHUB.md](docs/GITHUB.md)).
-- **Dashboard and chat.** A web dashboard on your LAN or VPN only, never on the public internet, with Google sign-in
-  and roles. It opens on **Chat** (ask "why is the NUC idle?" or queue work), then Dashboard (usage, jobs, needs),
+- **Dashboard and chat.** Chat serializes same-host storage updates across processes that support its lock. A web
+  dashboard on your LAN or VPN only, never on the public internet, with Google sign-in and roles. It opens on **Chat**
+  (ask "why is the NUC idle?" or queue work), then Dashboard (usage, jobs, needs),
   **Machines** cards (one per physical computer, with WSL and desktop environments nested under it; slots busy, held back or free, and why) and Settings. An **Admin** tab is coming
   ([docs/DASHBOARD.md](docs/DASHBOARD.md), [docs/CHAT.md](docs/CHAT.md), [docs/NETWORK.md](docs/NETWORK.md),
   [docs/AUTH.md](docs/AUTH.md)).

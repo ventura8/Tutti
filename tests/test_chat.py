@@ -9,6 +9,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -57,6 +58,78 @@ class Storage(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.dir)
+
+    def test_two_processes_preserve_all_chat_storage_updates(self):
+        code = ('import sys,time\nfrom tutti import chat\ns=chat.Store(sys.argv[1])\n'
+                'def add(d):\n n=d.get("counter",0); time.sleep(0.002); d["counter"]=n+1\n'
+                'for _ in range(20): s.change("member",add)\n')
+        jobs = [subprocess.Popen([sys.executable, '-c', code, self.dir], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                for _ in range(2)]
+        def cleanup():
+            for p in jobs:
+                if p.poll() is None:
+                    p.kill()
+                p.wait(timeout=5)
+        self.addCleanup(cleanup)
+        for p in jobs:
+            out, err = p.communicate(timeout=15)
+            self.assertEqual(p.returncode, 0, (out, err))
+        self.assertEqual(self.store.load('member')['counter'], 40)
+
+    def test_store_lock_reentrant_and_crash_releases_it(self):
+        alias = os.path.join(self.dir, 'chat', '..', 'chat')
+        with chat.store_locked(self.store.folder), chat.store_locked(alias):
+            self.store.create('member')
+        signal = os.path.join(self.dir, 'locked')
+        code = ('import sys,time\nfrom tutti import chat\n'
+                'with chat.store_locked(sys.argv[1]):\n open(sys.argv[2],"w").close(); time.sleep(30)\n')
+        proc = subprocess.Popen([sys.executable, '-c', code, self.store.folder, signal])
+        def cleanup():
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=5)
+        self.addCleanup(cleanup)
+        deadline = time.monotonic() + 5
+        while not os.path.exists(signal) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(os.path.exists(signal), 'child never acquired the Chat store lock')
+        proc.kill()
+        proc.wait(timeout=5)
+        self.assertTrue(self.store.create('member')['id'])
+
+    def test_attachment_write_waits_for_clear_transaction(self):
+        signal = os.path.join(self.dir, 'blob-started')
+        code = ('import sys\nfrom tutti import chat\nopen(sys.argv[2],"w").close()\n'
+                'chat.Store(sys.argv[1]).put_blob("member", "image-data")\n')
+        with chat.store_locked(self.store.folder):
+            proc = subprocess.Popen([sys.executable, '-c', code, self.dir, signal])
+            def cleanup():
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait(timeout=5)
+            self.addCleanup(cleanup)
+            deadline = time.monotonic() + 5
+            while not os.path.exists(signal) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(os.path.exists(signal), 'child never attempted the attachment write')
+            with self.assertRaises(subprocess.TimeoutExpired):
+                proc.wait(timeout=0.1)
+            self.store.clear('member')
+        self.assertEqual(proc.wait(timeout=5), 0)
+        [ref] = os.listdir(self.store.blobs('member'))
+        self.assertEqual(self.store.blob('member', ref), 'image-data')
+
+    @unittest.skipUnless(hasattr(os, 'O_NOFOLLOW'), 'the platform does not support no-follow file opens')
+    def test_store_lock_refuses_a_symlink(self):
+        os.makedirs(self.store.folder)
+        target = os.path.join(self.dir, 'outside')
+        with open(target, 'w', encoding='utf8') as f:
+            f.write('unchanged')
+        os.symlink(target, os.path.join(self.store.folder, '.chat.lock'))
+        with self.assertRaises(OSError):
+            self.store.create('member')
+        with open(target, encoding='utf8') as f:
+            self.assertEqual(f.read(), 'unchanged')
 
     def test_each_user_has_their_own_file_readable_only_by_tutti(self):
         conv = self.store.create('a')
@@ -292,6 +365,195 @@ class ApiBase(unittest.TestCase):
 
 
 class Api(ApiBase):
+    def test_clear_waits_until_attachment_send_is_registered(self):
+        engine = self.engine({})
+        blob_written, release, cleared = threading.Event(), threading.Event(), threading.Event()
+        original = engine.store.put_blob
+        def put_blob(sub, data):
+            ref = original(sub, data)
+            blob_written.set()
+            if not release.wait(5):
+                raise RuntimeError('send was not released')
+            return ref
+        def clear():
+            chat.Store(self.dir).clear(VIEWER['sub'])
+            cleared.set()
+        image = {'name': 's.png', 'type': 'image/png', 'data': base64.b64encode(b'png').decode()}
+        errors = []
+        def send():
+            try:
+                engine.send(VIEWER, None, 'see', [image])
+            except Exception as e:
+                errors.append(e)
+        with mock.patch.object(engine.store, 'put_blob', side_effect=put_blob), mock.patch.object(engine, '_answer'):
+            sender = threading.Thread(target=send, daemon=True)
+            sender.start()
+            try:
+                self.assertTrue(blob_written.wait(5))
+                clearer = threading.Thread(target=clear, daemon=True)
+                clearer.start()
+                self.assertFalse(cleared.wait(0.1))
+            finally:
+                release.set()
+                sender.join(5)
+            clearer.join(5)
+        self.assertFalse(sender.is_alive())
+        self.assertFalse(clearer.is_alive())
+        self.assertFalse(errors)
+        self.assertTrue(cleared.is_set())
+        self.assertEqual(engine.store.load(VIEWER['sub'])['conversations'], [])
+
+    @unittest.skipUnless(os.name == 'posix' and hasattr(os, 'O_NOFOLLOW'), 'requires the same-host answer lock')
+    def test_answer_owner_survives_other_engine_reads_and_crash_is_recovered(self):
+        engine = self.engine({})
+        conversation = engine.store.create(VIEWER['sub'])
+        code = ("import sys; from tutti import chat,chatrun; "
+                "store=chat.Store(sys.argv[1]); "
+                "msg={'id':'m123456789abc','role':'assistant','text':'partial','status':'streaming'}; "
+                "fd=chatrun.save_owned_answer(store, sys.argv[2], sys.argv[3], msg); "
+                "print('ready' if fd is not None else 'unsupported', flush=True); sys.stdin.read()")
+        child = subprocess.Popen([sys.executable, '-c', code, self.dir, VIEWER['sub'], conversation['id']],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), 'ready')
+            self.assertEqual(engine.conversation(VIEWER, conversation['id'])['messages'][-1]['status'], 'streaming')
+            child.kill()
+            child.wait(timeout=5)
+            self.assertEqual(engine.conversation(VIEWER, conversation['id'])['messages'][-1]['status'], 'stopped')
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5)
+            child.stdin.close()
+            child.stdout.close()
+            child.stderr.close()
+
+    @unittest.skipUnless(os.name == 'posix' and hasattr(os, 'O_NOFOLLOW'), 'requires the same-host answer lock')
+    def test_answer_owner_is_acquired_before_message_becomes_visible(self):
+        engine = self.engine({})
+        conversation = engine.store.create(VIEWER['sub'])
+        original = engine.store.put_message
+        def inspect_before_save(sub, cid, message):
+            self.assertEqual(message['owner_protocol'], 1)
+            self.assertFalse(chat.answer_orphaned(engine.store.folder, message))
+            return original(sub, cid, message)
+        answer = {'id': 'm123456789abc', 'role': 'assistant', 'text': '', 'status': 'streaming'}
+        with mock.patch.object(engine.store, 'put_message', side_effect=inspect_before_save):
+            fd = chatrun.save_owned_answer(engine.store, VIEWER['sub'], conversation['id'], answer)
+        self.assertIsNotNone(fd)
+        chatrun.close_owner(fd)
+
+    def test_legacy_stream_is_not_assumed_orphaned(self):
+        engine = self.engine({})
+        conversation = engine.store.create(VIEWER['sub'])
+        engine.store.put_message(VIEWER['sub'], conversation['id'],
+                                 {'id': 'm123456789abc', 'role': 'assistant', 'text': '', 'status': 'streaming'})
+        self.assertEqual(engine.conversation(VIEWER, conversation['id'])['messages'][-1]['status'], 'streaming')
+
+    def test_failed_thread_start_releases_answer_owner(self):
+        engine = self.engine({})
+        with mock.patch('tutti.chatrun.threading.Thread.start', side_effect=RuntimeError('cannot start')):
+            with self.assertRaisesRegex(RuntimeError, 'cannot start'):
+                engine.send(VIEWER, None, 'hello')
+        answer = engine.store.load(VIEWER['sub'])['conversations'][0]['messages'][-1]
+        self.assertEqual(answer['status'], 'failed')
+        if answer.get('owner_protocol') == 1:
+            self.assertTrue(chat.answer_orphaned(engine.store.folder, answer))
+        self.assertFalse(engine.live_ids())
+
+    def test_edit_and_retry_cannot_discard_a_streaming_answer(self):
+        engine = self.engine({})
+        with mock.patch.object(engine, '_answer'):
+            job = engine.send(VIEWER, None, 'hello')
+        messages = engine.store.get(VIEWER['sub'], job.cid)['messages']
+        for options in ({'retry': messages[-1]['id']}, {'edit': messages[0]['id']}):
+            with self.assertRaisesRegex(chat.ChatError, 'still running'):
+                engine.send(VIEWER, job.cid, 'again', **options)
+        self.assertEqual(len(engine.store.get(VIEWER['sub'], job.cid)['messages']), 2)
+        chatrun.close_owner(job.owner_fd)
+
+    def test_undo_crash_does_not_repeat_the_external_action(self):
+        engine = self.engine({})
+        events = self.send(engine, VIEWER, 'add task in map: one')
+        card = next(e['card'] for e in events if e['type'] == 'card')
+        body = {'action': 'undo', 'conversation': events[0]['conversation'],
+                'message': events[-1]['message']['id'], 'card': card['id']}
+        code = ("import json,sys,time; from tests.test_chat import config_for,VIEWER; from tutti import chatrun; "
+                "runner=lambda p,a: (print('running',flush=True),time.sleep(30), (0,'ok'))[-1]; "
+                "engine=chatrun.Engine(lambda: config_for(sys.argv[1]),lambda: {},folder=sys.argv[1],runner=runner); "
+                "chatrun.post(engine,VIEWER,json.loads(sys.argv[2]))")
+        child = subprocess.Popen([sys.executable, '-c', code, self.dir, json.dumps(body)],
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), 'running')
+            child.kill()
+            child.wait(timeout=5)
+            saved = engine.store.get(VIEWER['sub'], body['conversation'])['messages'][-1]['cards'][0]
+            self.assertEqual(saved['state'], 'undoing')
+            self.assertEqual(chatrun.post(engine, VIEWER, body)[0], 409)
+            self.assertEqual(self.calls.count(['backlog', 'rm', 't60']), 0)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5)
+            child.stdout.close()
+            child.stderr.close()
+
+    def test_other_process_can_read_while_undo_waits_and_cannot_repeat_it(self):
+        engine = self.engine({})
+        events = self.send(engine, VIEWER, 'add task in map: one')
+        card = next(e['card'] for e in events if e['type'] == 'card')
+        body = {'action': 'undo', 'conversation': events[0]['conversation'],
+                'message': events[-1]['message']['id'], 'card': card['id']}
+        entered, release = threading.Event(), threading.Event()
+        def slow_runner(path, argv):
+            entered.set()
+            release.wait(5)
+            return 0, 'removed'
+        engine.runner = slow_runner
+        result = []
+        worker = threading.Thread(target=lambda: result.append(chatrun.post(engine, VIEWER, body)[0]), daemon=True)
+        worker.start()
+        try:
+            self.assertTrue(entered.wait(5))
+            code = ('import json,sys; from tutti import chat; '
+                    'd=chat.Store(sys.argv[1]).load(sys.argv[2]); '
+                    'print(d["conversations"][0]["messages"][-1]["cards"][0]["state"])')
+            child = subprocess.run([sys.executable, '-c', code, self.dir, VIEWER['sub']], capture_output=True, text=True, timeout=3)
+            self.assertEqual((child.returncode, child.stdout.strip()), (0, 'undoing'), child.stderr)
+            self.assertEqual(chatrun.post(self.engine({}), VIEWER, body)[0], 409)
+        finally:
+            release.set()
+            worker.join(5)
+        self.assertEqual(result, [200])
+
+    def test_another_engine_does_not_stop_a_live_response(self):
+        engine, other = self.engine({}), self.engine({})
+        with mock.patch.object(engine, '_answer'):
+            job = engine.send(VIEWER, None, 'hello')
+        message = other.conversation(VIEWER, job.cid)['messages'][-1]
+        self.assertEqual(message['status'], 'streaming')
+        chatrun.close_owner(job.owner_fd)
+
+    def test_two_engines_cannot_undo_the_same_action_twice(self):
+        first, second = self.engine({}), self.engine({})
+        events = self.send(first, VIEWER, 'add task in map: one')
+        card = next(e['card'] for e in events if e['type'] == 'card')
+        body = {'action': 'undo', 'conversation': events[0]['conversation'],
+                'message': events[-1]['message']['id'], 'card': card['id']}
+        start, results = threading.Barrier(2), []
+        def undo(engine):
+            start.wait(timeout=5)
+            results.append(chatrun.post(engine, VIEWER, body)[0])
+        threads = [threading.Thread(target=undo, args=(engine,), daemon=True) for engine in (first, second)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+            self.assertFalse(thread.is_alive(), 'undo did not finish')
+        self.assertEqual(sorted(results), [200, 409])
+        self.assertEqual(self.calls.count(['backlog', 'rm', 't60']), 1)
+
     def test_send_streams_the_answer_and_names_the_model(self):
         eng = self.engine({'pc': ['The NUC ', 'is free.']})
         events = self.send(eng, ADMIN, 'why is the NUC idle?')

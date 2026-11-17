@@ -210,8 +210,12 @@ Under the message box, as in a chat IDE, each starting at Auto:
 
 `<state>/chat/<hash of the user's id>.json`, mode 600 in a 700 folder, one file per user, written whole (a temporary file,
 then a rename). It holds the conversations: messages, attachments, the model that answered and the action cards. It
-survives restarts (an answer cut off by one is marked stopped, with Retry) and `tutti move` carries it with the state
-folder. **Clear my chat history** deletes the user's file; the work it queued and the audit log's lines stay.
+survives restarts and `tutti move` carries it with the state folder. On supported same-host file systems, a versioned
+answer lock identifies a stopped owner after a crash; legacy answers and cases where the lock cannot be checked stay
+streaming rather than being declared interrupted without evidence. Chat uses a same-host file lock for read-modify-write transactions, so two local processes that both support the
+lock do not overwrite each other's updates. Older versions do not take this lock. It does not preserve a live answer across
+a server restart or coordinate a second host; Chat still needs a single live owner of its answer jobs. **Clear my chat
+history** deletes the user's file; the work it queued and the audit log's lines stay.
 
 ## API
 
@@ -245,3 +249,9 @@ chat:
   viewer_projects: []       # empty: every project under autopilot.repos
   history_turns: 10         # earlier messages a model sees
 ```
+
+Undo reserves the card before calling an external tool, without holding the Chat storage lock during that call. If the
+process crashes or the result is ambiguous, the card remains in an uncertain state: inspect the external result before
+trying again. This avoids repeating an action that may already have succeeded. Answer lock files remain in the private
+Chat folder. They do not transfer streams, fence another host, or protect against an older running engine which ignores
+the protocol. A supervisor must stop legacy engines before enabling overlapping versions.

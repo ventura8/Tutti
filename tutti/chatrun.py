@@ -2,6 +2,7 @@
 closes), the models (Ollama's streaming chat, a CLI worker), the tools (the same calls as the MCP server's), Undo, the audit
 log and the HTTP actions. tutti/chat.py holds the pure part."""
 import json
+import os
 import queue
 import re
 import subprocess
@@ -149,6 +150,23 @@ def job_ref(text):
 # ---- the answer jobs
 
 
+
+def close_owner(fd):
+    if fd is not None:
+        os.close(fd)
+
+
+def save_owned_answer(store, sub, cid, answer):
+    fd = chat.answer_owner(store.folder, answer['id'], create=True)
+    if fd is not None:
+        answer['owner_protocol'] = 1
+    try:
+        store.put_message(sub, cid, answer)
+    except BaseException:
+        close_owner(fd)
+        raise
+    return fd
+
 class Job:
     """One answer being written: its events (`delta`, `card`, `done`) for any page that follows it, and its stop flag."""
 
@@ -198,8 +216,9 @@ class Engine:
             return {j.msg['id'] for j in self.jobs.values() if not j.finished}
 
     def conversation(self, user, cid):
-        data = self.store.interrupted(user['sub'], self.live_ids())
-        return self.store.conversation(data, cid)
+        with chat.store_locked(self.store.folder):
+            data = self.store.interrupted(user['sub'], self.live_ids(), lambda m: chat.answer_orphaned(self.store.folder, m))
+            return self.store.conversation(data, cid)
 
     def done_today(self, user):
         midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
@@ -217,12 +236,16 @@ class Engine:
     def send(self, user, cid, text, attachments=(), edit=None, retry=None, model=None, settings=None):
         """Starts an answer; returns its Job. `edit`: a user message id to replace (and what followed it); `retry`: an
         assistant message id to answer again."""
-        sub = user['sub']
         if settings:   # checked before anything is stored: a bad value leaves no orphan message
             try:
                 chatctl.check(settings, lambda pick: chat.valid_pick(pick, self.cfg_fn()))
             except chatctl.ControlError as e:
                 raise chat.ChatError(str(e)) from e
+        with chat.store_locked(self.store.folder):
+            return self._send_locked(user, cid, text, attachments, edit, retry, model, settings)
+
+    def _send_locked(self, user, cid, text, attachments, edit, retry, model, settings):
+        sub = user['sub']
         if retry:
             conv = self.store.get(sub, cid)
             ids = [m['id'] for m in conv['messages']]
@@ -246,13 +269,23 @@ class Engine:
             self.set_settings(user, cid, settings)
         answer = {'id': chat.new_id('m'), 'role': 'assistant', 'text': '', 'at': chat.now_iso(self.clock), 'status': 'streaming',
                   'model': None, 'cards': []}
-        self.store.put_message(sub, cid, answer)
+        owner_fd = save_owned_answer(self.store, sub, cid, answer)
         job = Job(sub, cid, answer)
+        job.owner_fd = owner_fd
         job.emit('start', conversation=cid, prompt=prompt, message=answer)
         with self.lock:
             self.jobs = {k: j for k, j in self.jobs.items() if not j.finished}
             self.jobs[answer['id']] = job
-        threading.Thread(target=self._answer, args=(job, user, prompt), daemon=True, name='tutti-chat').start()
+        try:
+            threading.Thread(target=self._answer, args=(job, user, prompt), daemon=True, name='tutti-chat').start()
+        except BaseException:
+            with self.lock:
+                self.jobs.pop(answer['id'], None)
+            close_owner(job.owner_fd)
+            job.owner_fd = None
+            answer.update(status='failed', note='The answer could not start. Retry; check the dashboard log if this continues.')
+            self.store.update_message(sub, cid, answer)
+            raise
         return job
 
     def set_settings(self, user, cid, changes):
@@ -319,6 +352,8 @@ class Engine:
                 self.store.update_message(job.sub, job.cid, msg)   # a chat deleted or edited meanwhile is left as it is
                 self._save_usage(job)
             finally:
+                close_owner(job.owner_fd)
+                job.owner_fd = None
                 job.emit('done', message=msg)   # always: a page following the answer must never wait forever
 
     def settings_of(self, job):
@@ -779,16 +814,16 @@ class Engine:
         """Takes back what a card (or one step of a plan) did."""
         cfg = self.cfg_fn()
 
-        def find(d):
+        def find(d, state='done'):
             c = self.store.conversation(d, cid)
             m = next((x for x in c['messages'] if x['id'] == mid), None)
             k = next((x for x in (m or {}).get('cards') or [] if x['id'] == kid), None)
             if k and step:
                 k = next((x for x in k.get('steps') or [] if x['id'] == step), None)
-            if not k or not k.get('undo') or k.get('state') != 'done':
+            if not k or not k.get('undo') or k.get('state') != state:
                 raise chat.ChatError('That can no longer be undone (it was undone already, or it never finished).')
             return k
-        with self.store.lock:
+        with chat.store_locked(self.store.folder):
             card = find(self.store.load(user['sub']))
             back = card['undo']
             target = chat.HOUSEHOLD if back['tool'] == 'control' else user
@@ -796,14 +831,25 @@ class Engine:
                 auth.act_for(self.folder, user, target, PREFIX + 'undo ' + card['label'][:80], detail=card['label'], clock=self.clock)
             except auth.AuthError as e:
                 raise chat.ChatError('Only an admin can undo that.') from e
-            ok, text, _ = run_tool(cfg, back, self.runner)
-            if not ok:
-                raise chat.ChatError(f'Undo did not work: {plain(text, False)}')
 
-            def mark(d):
-                k = find(d)
-                k.update(state='undone', undo=None, text=plain(text, True))
-            self.store.change(user['sub'], mark)
+            def claim(d):
+                find(d).update(state='undoing', text='Undo is running. If it is interrupted, check the result before retrying.')
+            self.store.change(user['sub'], claim)
+        # External work can take minutes; do not hold the global Chat store lock while it runs. A crash leaves
+        # undoing visible and prevents an unsafe retry: the external action may already have taken effect.
+        ok, text, _ = run_tool(cfg, back, self.runner)
+
+        def mark(d):
+            k = find(d, 'undoing')
+            if k:
+                if ok:
+                    k.update(state='undone', undo=None, text=plain(text, True))
+                else:
+                    k.update(state='undo_uncertain', text='Undo did not complete reliably. Check the result before taking further action: '
+                             + plain(text, False))
+        self.store.change(user['sub'], mark)
+        if not ok:
+            raise chat.ChatError(f'Undo did not complete reliably; check the result before retrying: {plain(text, False)}')
         return plain(text, True)
 
 

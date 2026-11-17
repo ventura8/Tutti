@@ -4,12 +4,14 @@ which model answers, the facts it answers from and the prompts it suggests. I/O 
 The chat runs on the household host, inside the dashboard: a user's own computer can be off. Its answers come from the
 dashboard's last snapshot and a model of the household (local models first, then an account with room that the asking user
 owns or that its owner shares); never another member's private quota."""
+import contextlib
 import hashlib
 import json
 import os
 import re
 import secrets
 import shutil
+import stat
 import tempfile
 import threading
 import time
@@ -29,6 +31,78 @@ WORK_TOOLS = ('backlog_add',)
 HOUSEHOLD_TOOLS = ('control',)                              # changes the household: admins only
 HOUSEHOLD = {'sub': 'household', 'email': None}              # the target of a household action (auth.may_act_for: admins only)
 DIR_MODE, FILE_MODE = 0o700, 0o600
+
+_STORE_THREADS = threading.RLock()
+_STORE_LOCAL = threading.local()
+
+
+@contextlib.contextmanager
+def store_locked(folder):
+    """Serialize Chat storage transactions across Store instances and processes on the same host."""
+    # The in-process lock makes the flock safe for different Store instances, and tracks same-thread re-entry per path.
+    from . import auth
+    path = os.path.realpath(folder)
+    with _STORE_THREADS:
+        held = getattr(_STORE_LOCAL, 'held', set())
+        if path in held:
+            yield
+            return
+        os.makedirs(path, mode=DIR_MODE, exist_ok=True)
+        os.chmod(path, DIR_MODE)
+        try:
+            fd = os.open(os.path.join(path, '.chat.lock'), os.O_RDWR | os.O_CREAT | getattr(os, 'O_NOFOLLOW', 0), FILE_MODE)
+        except OSError as e:
+            raise OSError(f'Chat storage lock could not be opened ({e}): check the Chat state folder and .chat.lock') from e
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise OSError('Chat storage lock is not a regular file: remove the invalid .chat.lock')
+            if hasattr(os, 'fchmod'):
+                os.fchmod(fd, FILE_MODE)
+            auth._lock(fd)
+            _STORE_LOCAL.held = held | {path}
+            yield
+        finally:
+            _STORE_LOCAL.held = held
+            os.close(fd)
+
+
+def answer_owner(folder, mid, create=False):
+    """Try the version-1 same-host answer lock; return its open fd, or None if unavailable or unsupported."""
+    try:
+        import fcntl
+    except ImportError:
+        return None   # fail closed on platforms where the ownership protocol is not implemented
+    if not re.fullmatch(r'm[0-9a-f]{12}', mid):
+        return None
+    flags = os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0)
+    if not getattr(os, 'O_NOFOLLOW', 0):
+        return None
+    if create:
+        flags |= os.O_CREAT | os.O_EXCL
+    try:
+        fd = os.open(os.path.join(folder, '.answer-' + mid), flags, FILE_MODE)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            os.close(fd)
+            return None
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fd
+    except OSError:
+        os.close(fd)
+        return None
+
+
+def answer_orphaned(folder, msg):
+    """Only an explicitly versioned lock which exists and is unlocked proves a same-host owner is gone."""
+    if msg.get('owner_protocol') != 1:
+        return False
+    fd = answer_owner(folder, msg.get('id', ''))
+    if fd is None:
+        return False
+    os.close(fd)
+    return True
 
 
 class ChatError(Exception):
@@ -56,35 +130,35 @@ class Store:
     then a rename), so a crash never leaves half a file. `tutti move` carries it with the state folder."""
 
     def __init__(self, folder, clock=time.time):
-        self.folder, self.clock, self.lock = os.path.join(folder, 'chat'), clock, threading.RLock()
+        self.folder, self.clock = os.path.join(folder, 'chat'), clock
 
     def path(self, sub):
         return os.path.join(self.folder, user_key(sub) + '.json')
 
     def load(self, sub):
-        try:
-            with open(self.path(sub), encoding='utf8') as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            data = {}
-        if not isinstance(data, dict) or not isinstance(data.get('conversations', []), list):
-            data = {}   # a damaged file: start again rather than fail every request of this user
-        data.setdefault('conversations', [])
-        return data
+        with store_locked(self.folder):
+            try:
+                with open(self.path(sub), encoding='utf8') as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                data = {}
+            if not isinstance(data, dict) or not isinstance(data.get('conversations', []), list):
+                data = {}   # a damaged file: start again rather than fail every request of this user
+            data.setdefault('conversations', [])
+            return data
 
     def save(self, sub, data):
-        os.makedirs(self.folder, mode=DIR_MODE, exist_ok=True)
-        os.chmod(self.folder, DIR_MODE)
-        data['conversations'] = sorted(data['conversations'], key=lambda c: c.get('updated') or '', reverse=True)[:MAX_CONVERSATIONS]
-        fd, tmp = tempfile.mkstemp(dir=self.folder, prefix='.chat-')
-        with os.fdopen(fd, 'w', encoding='utf8') as f:
-            json.dump(data, f)
-        os.chmod(tmp, FILE_MODE)
-        os.replace(tmp, self.path(sub))
+        with store_locked(self.folder):
+            data['conversations'] = sorted(data['conversations'], key=lambda c: c.get('updated') or '', reverse=True)[:MAX_CONVERSATIONS]
+            fd, tmp = tempfile.mkstemp(dir=self.folder, prefix='.chat-')
+            with os.fdopen(fd, 'w', encoding='utf8') as f:
+                json.dump(data, f)
+            os.chmod(tmp, FILE_MODE)
+            os.replace(tmp, self.path(sub))
 
     def change(self, sub, fn):
         """fn(data) under the lock, then saved; returns what fn returns."""
-        with self.lock:
+        with store_locked(self.folder):
             data = self.load(sub)
             out = fn(data)
             self.save(sub, data)
@@ -133,7 +207,7 @@ class Store:
 
     def clear(self, sub):
         """Every conversation of this user, gone: the file itself is removed, and the images beside it."""
-        with self.lock:
+        with store_locked(self.folder):
             try:
                 os.remove(self.path(sub))
             except FileNotFoundError:
@@ -147,22 +221,24 @@ class Store:
         """Keeps an image (base64) in its own file beside the user's chats, so the conversations stay small; its ref."""
         ref = hashlib.sha256(data.encode()).hexdigest()[:24]
         folder = self.blobs(sub)
-        os.makedirs(folder, mode=DIR_MODE, exist_ok=True)
-        path = os.path.join(folder, ref)
-        if not os.path.exists(path):
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, FILE_MODE)
-            with os.fdopen(fd, 'w', encoding='ascii') as f:
-                f.write(data)
+        with store_locked(self.folder):
+            os.makedirs(folder, mode=DIR_MODE, exist_ok=True)
+            path = os.path.join(folder, ref)
+            if not os.path.exists(path):
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, FILE_MODE)
+                with os.fdopen(fd, 'w', encoding='ascii') as f:
+                    f.write(data)
         return ref
 
     def blob(self, sub, ref):
         if not re.fullmatch(r'[0-9a-f]{24}', str(ref or '')):
             return None
-        try:
-            with open(os.path.join(self.blobs(sub), ref), encoding='ascii') as f:
-                return f.read()
-        except OSError:
-            return None
+        with store_locked(self.folder):
+            try:
+                with open(os.path.join(self.blobs(sub), ref), encoding='ascii') as f:
+                    return f.read()
+            except OSError:
+                return None
 
     def get(self, sub, cid):
         return self.conversation(self.load(sub), cid)
@@ -228,20 +304,27 @@ class Store:
             ids = [m['id'] for m in c['messages']]
             if mid not in ids:
                 raise ChatError('That message is gone: reload the chat.')
-            c['messages'] = c['messages'][:ids.index(mid) + (1 if keep else 0)]
+            end = ids.index(mid) + (1 if keep else 0)
+            if any(m.get('status') == 'streaming' for m in c['messages'][end:]):
+                raise ChatError('An answer is still running or its status is unknown: wait for it or stop it before retrying or editing.')
+            c['messages'] = c['messages'][:end]
         self.change(sub, go)
 
-    def interrupted(self, sub, live_ids):
+    def interrupted(self, sub, live_ids, orphaned=None):
         """Answers left `streaming` by a restart (no live job writes them): marked stopped, so the page offers Retry."""
+        def eligible(m):
+            return (m.get('status') == 'streaming' and m['id'] not in live_ids
+                    and (orphaned is None or orphaned(m)))
+
         def go(d):
             for c in d['conversations']:
                 for m in c['messages']:
-                    if m.get('status') == 'streaming' and m['id'] not in live_ids:
+                    if eligible(m):
                         m['status'] = 'stopped'
                         m['note'] = 'This answer was cut off when Tutti restarted. Retry to get a full one.'
-        with self.lock:
+        with store_locked(self.folder):
             data = self.load(sub)
-            if any(m.get('status') == 'streaming' and m['id'] not in live_ids for c in data['conversations'] for m in c['messages']):
+            if any(eligible(m) for c in data['conversations'] for m in c['messages']):
                 go(data)
                 self.save(sub, data)
             return data

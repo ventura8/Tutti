@@ -943,10 +943,11 @@ def deliver_role_note(cfg, text):
     """One assistant message in the owner's "Main agent hand-off" chat (made once)."""
     from . import chat
     store, sub = chat.Store(config.state_dir(cfg)), owner_chat_sub(cfg)
-    conv = next((c for c in store.load(sub)['conversations'] if c.get('title') == CHAT_TITLE), None)
-    cid = (conv or store.create(sub, title=CHAT_TITLE))['id']
-    store.put_message(sub, cid, {'id': chat.new_id('m'), 'role': 'assistant', 'text': text, 'at': chat.now_iso(),
-                                 'status': 'done', 'model': 'tutti', 'cards': []})
+    with chat.store_locked(store.folder):
+        conv = next((c for c in store.load(sub)['conversations'] if c.get('title') == CHAT_TITLE), None)
+        cid = (conv or store.create(sub, title=CHAT_TITLE))['id']
+        store.put_message(sub, cid, {'id': chat.new_id('m'), 'role': 'assistant', 'text': text, 'at': chat.now_iso(),
+                                     'status': 'done', 'model': 'tutti', 'cards': []})
 
 
 def connect_role(cfg, worker, connect_fn=None):

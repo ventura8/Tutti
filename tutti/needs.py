@@ -382,10 +382,11 @@ def deliver_chat(cfg, key, qs):
     """The batch as one message in the user's "Questions from Tutti" conversation (made once)."""
     from . import chat
     store, sub = chat.Store(config.state_dir(cfg)), chat_sub(key)
-    conv = next((c for c in store.load(sub)['conversations'] if c.get('title') == 'Questions from Tutti'), None)
-    cid = (conv or store.create(sub, title='Questions from Tutti'))['id']
-    store.put_message(sub, cid, {'id': chat.new_id('m'), 'role': 'assistant', 'text': batch_text(qs), 'at': chat.now_iso(),
-                                 'status': 'done', 'model': 'tutti', 'cards': []})
+    with chat.store_locked(store.folder):
+        conv = next((c for c in store.load(sub)['conversations'] if c.get('title') == 'Questions from Tutti'), None)
+        cid = (conv or store.create(sub, title='Questions from Tutti'))['id']
+        store.put_message(sub, cid, {'id': chat.new_id('m'), 'role': 'assistant', 'text': batch_text(qs), 'at': chat.now_iso(),
+                                     'status': 'done', 'model': 'tutti', 'cards': []})
 
 
 def tick(cfg, now=None, at_work_fn=None, send=None):

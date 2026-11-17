@@ -7,6 +7,15 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [Unreleased]
+
+### Fixed
+
+- Chat storage transactions use a same-host cross-process lock, preventing concurrent dashboard processes from losing
+  each other's updates. Versioned same-host answer locks protect live answers from another upgraded engine; legacy
+  processes and stream handover require a separate supervisor. Undo no longer holds the store lock during external work
+  and does not automatically retry an uncertain result (t326).
+
 ## [0.27.1] - 2026-11-17
 
 ### Fixed

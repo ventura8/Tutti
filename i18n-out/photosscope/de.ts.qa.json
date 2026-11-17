@@ -1,0 +1,169 @@
+{
+ "policy": "validators+back-translation/v3",
+ "folder": "photosscope",
+ "locale": "de",
+ "models": {
+  "translate": "translategemma:27b-it-q8_0",
+  "backTranslate": "qwen3.5:9b",
+  "judge2": "qwen3.8:27b-q8_0"
+ },
+ "sourceSha256": "b47319ce4b7ffaaed43b074bb891e0d5fa6dd8713ab1c8735d31fdc3b9e12475",
+ "entries": {
+  "layers.photos": {
+   "en": "Photos",
+   "tr": "Fotos",
+   "bt": "Photos",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Fotos",
+     "bt": "Photos",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Fotos",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.options": {
+   "en": "Photo options",
+   "tr": "Fotooptionen",
+   "bt": "Photo options",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Fotooptionen",
+     "bt": "Photo options",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Fotooptionen",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.all": {
+   "en": "All photos",
+   "tr": "Alle Fotos",
+   "bt": "All photos",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Alle Fotos",
+     "bt": "All photos",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Alle Fotos",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.near": {
+   "en": "Only near the selected year",
+   "tr": "Nur rund um das gewählte Jahr",
+   "bt": "Only around the selected year",
+   "reason": "Adds \"around\" which changes the meaning from a specific year to an approximate range.",
+   "tries": [
+    {
+     "tr": "Nur rund um das gewählte Jahr",
+     "bt": "Only around the selected year",
+     "ok": false,
+     "why": "Adds \"around\" which changes the meaning from a specific year to an approximate range.",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "pending-judge2",
+   "finalFlags": [
+    "meaning"
+   ],
+   "alternatives": [
+    "Nur rund um das gewählte Jahr"
+   ],
+   "draft": "Nur rund um das gewählte Jahr",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.window": {
+   "en": "How many years around it",
+   "tr": "Wie viele Jahre davor und danach",
+   "bt": "How many years before and after",
+   "reason": "OK",
+   "tries": [
+    {
+     "tr": "Wie viele Jahre davor und danach",
+     "bt": "How many years before and after",
+     "ok": true,
+     "why": "OK",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Wie viele Jahre davor und danach",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.years": {
+   "en": "±{years} years",
+   "tr": "±{years} Jahre",
+   "bt": "±{years} years",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "±{years} Jahre",
+     "bt": "±{years} years",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "±{years} Jahre",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.nearOn": {
+   "en": "Only the photos within {years} years of the selected year",
+   "tr": "Nur Fotos bis {years} Jahre um das gewählte Jahr",
+   "bt": "Photos only up to {years} years around the selected year",
+   "reason": "Adds \"up to\" and changes meaning from \"within range of\" to \"before\".",
+   "tries": [
+    {
+     "tr": "Nur Fotos bis {years} Jahre um das gewählte Jahr",
+     "bt": "Photos only up to {years} years around the selected year",
+     "ok": false,
+     "why": "Adds \"up to\" and changes meaning from \"within range of\" to \"before\".",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "pending-judge2",
+   "finalFlags": [
+    "meaning"
+   ],
+   "alternatives": [
+    "Nur Fotos bis {years} Jahre um das gewählte Jahr"
+   ],
+   "draft": "Nur Fotos bis {years} Jahre um das gewählte Jahr",
+   "policy": "validators+back-translation/v3"
+  }
+ },
+ "fileSha256": "be6199ab5471a97e1a1d3a67feb91ceb8ac4f9015f74c46e3eb8260a67bbd1d4",
+ "passed": 5,
+ "held": 0,
+ "pendingJudge2": 2,
+ "status": "pass",
+ "at": "2026-11-16 01:44:19"
+}

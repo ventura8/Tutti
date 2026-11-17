@@ -1,0 +1,43 @@
+{
+ "folder": "photosscope",
+ "locale": "hi",
+ "source": "/tmp/claude-1000/-home-sergiu-alexandrescu-Projects-bucurestiuldisparut-github-io/bcb523ba-b76b-40f0-a1d6-8fa274148f48/scratchpad/photosscope/en.ts",
+ "at": "2026-11-16 01:43:52",
+ "entries": {
+  "layers.photos": {
+   "en": "Photos",
+   "tr": "तस्वीरें",
+   "errs": []
+  },
+  "photosScope.options": {
+   "en": "Photo options",
+   "tr": "तस्वीरों के विकल्प",
+   "errs": []
+  },
+  "photosScope.all": {
+   "en": "All photos",
+   "tr": "सभी तस्वीरें",
+   "errs": []
+  },
+  "photosScope.near": {
+   "en": "Only near the selected year",
+   "tr": "केवल चुने गए वर्ष के आसपास",
+   "errs": []
+  },
+  "photosScope.window": {
+   "en": "How many years around it",
+   "tr": "आसपास कितने वर्ष",
+   "errs": []
+  },
+  "photosScope.years": {
+   "en": "±{years} years",
+   "tr": "±{years} वर्ष",
+   "errs": []
+  },
+  "photosScope.nearOn": {
+   "en": "Only the photos within {years} years of the selected year",
+   "tr": "केवल चुने गए वर्ष से {years} वर्ष के भीतर की तस्वीरें",
+   "errs": []
+  }
+ }
+}

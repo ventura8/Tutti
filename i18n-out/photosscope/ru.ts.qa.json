@@ -1,0 +1,164 @@
+{
+ "policy": "validators+back-translation/v3",
+ "folder": "photosscope",
+ "locale": "ru",
+ "models": {
+  "translate": "translategemma:27b-it-q8_0",
+  "backTranslate": "qwen3.5:9b",
+  "judge2": "qwen3.8:27b-q8_0"
+ },
+ "sourceSha256": "b47319ce4b7ffaaed43b074bb891e0d5fa6dd8713ab1c8735d31fdc3b9e12475",
+ "entries": {
+  "layers.photos": {
+   "en": "Photos",
+   "tr": "Фотографии",
+   "bt": "Photos",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Фотографии",
+     "bt": "Photos",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Фотографии",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.options": {
+   "en": "Photo options",
+   "tr": "Настройки фотографий",
+   "bt": "Photo settings",
+   "reason": "Adds \"settings\" instead of \"options\", changing the specific UI term.",
+   "tries": [
+    {
+     "tr": "Настройки фотографий",
+     "bt": "Photo settings",
+     "ok": false,
+     "why": "Adds \"settings\" instead of \"options\", changing the specific UI term.",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "pending-judge2",
+   "finalFlags": [
+    "meaning"
+   ],
+   "alternatives": [
+    "Настройки фотографий"
+   ],
+   "draft": "Настройки фотографий",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.all": {
+   "en": "All photos",
+   "tr": "Все фотографии",
+   "bt": "All photos",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Все фотографии",
+     "bt": "All photos",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Все фотографии",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.near": {
+   "en": "Only near the selected year",
+   "tr": "Только рядом с выбранным годом",
+   "bt": "Only near the selected year",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Только рядом с выбранным годом",
+     "bt": "Only near the selected year",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Только рядом с выбранным годом",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.window": {
+   "en": "How many years around it",
+   "tr": "Сколько лет вокруг",
+   "bt": "How many years around",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Сколько лет вокруг",
+     "bt": "How many years around",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Сколько лет вокруг",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.years": {
+   "en": "±{years} years",
+   "tr": "±{years} лет",
+   "bt": "±{years} years",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "±{years} лет",
+     "bt": "±{years} years",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "±{years} лет",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.nearOn": {
+   "en": "Only the photos within {years} years of the selected year",
+   "tr": "Только фотографии в пределах {years} лет от выбранного года",
+   "bt": "Photos only within {years} years of the selected year",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Только фотографии в пределах {years} лет от выбранного года",
+     "bt": "Photos only within {years} years of the selected year",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Только фотографии в пределах {years} лет от выбранного года",
+   "policy": "validators+back-translation/v3"
+  }
+ },
+ "fileSha256": "7678903efb5b6ba4fd26c04c57109ad9e90504656768ec5815c091d1b5e9d3d9",
+ "passed": 6,
+ "held": 0,
+ "pendingJudge2": 1,
+ "status": "pass",
+ "at": "2026-11-16 04:25:27"
+}

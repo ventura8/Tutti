@@ -226,6 +226,21 @@ class TranslateTest(unittest.TestCase):
             os.remove(os.path.join(d, 'fr.qa.json'))
             self.assertIn('no QA report', translate.check(out))
 
+    def test_picker_prefers_the_largest_free_local_model(self):
+        cfg = {'workers': {'pc': {'kind': 'ollama', 'model': 'qwen:7b', 'machine': 'pc'},
+                           'nuc': {'kind': 'ollama', 'model': 'deepseek:32b', 'machine': 'nuc'},
+                           'laptop': {'kind': 'ollama', 'model': 'phi:3b', 'machine': 'laptop'}},
+               'machines': {'pc': {'name': 'pc', 'slots': 1}, 'nuc': {'name': 'nuc', 'slots': 1},
+                            'laptop': {'name': 'laptop', 'slots': 1}},
+               'translate': {'translator': 'pc', 'judge': 'nuc'}}
+        rows = {'pc': {'status': 'free', 'mem_free_gb': 16.0}, 'nuc': {'status': 'free', 'mem_free_gb': 16.0},
+                'laptop': {'status': 'free', 'mem_free_gb': 16.0}}
+        picked, model = translate._pick_local_worker(cfg, ['pc', 'nuc', 'laptop'], translate._task('judge2'), rows)
+        self.assertEqual((picked, model), ('nuc', 'deepseek:32b'))
+        rows['nuc']['status'] = 'busy'
+        picked, model = translate._pick_local_worker(cfg, ['pc', 'nuc', 'laptop'], translate._task('translate'), rows)
+        self.assertEqual((picked, model), ('pc', 'qwen:7b'))
+
 
 if __name__ == '__main__':
     unittest.main()

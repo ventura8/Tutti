@@ -1,0 +1,164 @@
+{
+ "policy": "validators+back-translation/v3",
+ "folder": "photosscope",
+ "locale": "it",
+ "models": {
+  "translate": "translategemma:27b-it-q8_0",
+  "backTranslate": "qwen3.5:9b",
+  "judge2": "qwen3.8:27b-q8_0"
+ },
+ "sourceSha256": "b47319ce4b7ffaaed43b074bb891e0d5fa6dd8713ab1c8735d31fdc3b9e12475",
+ "entries": {
+  "layers.photos": {
+   "en": "Photos",
+   "tr": "Foto",
+   "bt": "Photo",
+   "reason": "omits plural 's' in 'Photos', changing meaning from multiple photos to a single photo.",
+   "tries": [
+    {
+     "tr": "Foto",
+     "bt": "Photo",
+     "ok": false,
+     "why": "omits plural 's' in 'Photos', changing meaning from multiple photos to a single photo.",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "pending-judge2",
+   "finalFlags": [
+    "meaning"
+   ],
+   "alternatives": [
+    "Foto"
+   ],
+   "draft": "Foto",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.options": {
+   "en": "Photo options",
+   "tr": "Opzioni delle foto",
+   "bt": "Photo options",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Opzioni delle foto",
+     "bt": "Photo options",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Opzioni delle foto",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.all": {
+   "en": "All photos",
+   "tr": "Tutte le foto",
+   "bt": "All photos",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Tutte le foto",
+     "bt": "All photos",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Tutte le foto",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.near": {
+   "en": "Only near the selected year",
+   "tr": "Solo vicino all’anno scelto",
+   "bt": "Only near the selected year",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Solo vicino all’anno scelto",
+     "bt": "Only near the selected year",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Solo vicino all’anno scelto",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.window": {
+   "en": "How many years around it",
+   "tr": "Quanti anni intorno",
+   "bt": "How many years around",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Quanti anni intorno",
+     "bt": "How many years around",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Quanti anni intorno",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.years": {
+   "en": "±{years} years",
+   "tr": "±{years} anni",
+   "bt": "±{years} years",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "±{years} anni",
+     "bt": "±{years} years",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "±{years} anni",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.nearOn": {
+   "en": "Only the photos within {years} years of the selected year",
+   "tr": "Solo le foto entro {years} anni dall’anno scelto",
+   "bt": "Photos only within {years} years of the selected year",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Solo le foto entro {years} anni dall’anno scelto",
+     "bt": "Photos only within {years} years of the selected year",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Solo le foto entro {years} anni dall’anno scelto",
+   "policy": "validators+back-translation/v3"
+  }
+ },
+ "fileSha256": "906822f167d00ab49fdafde5d5823955b442d21fd28f21f53cb29d55facb558d",
+ "passed": 6,
+ "held": 0,
+ "pendingJudge2": 1,
+ "status": "pass",
+ "at": "2026-11-16 04:25:21"
+}

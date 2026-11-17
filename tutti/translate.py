@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import time
 
 from . import local
 
@@ -73,6 +74,80 @@ def save(path, obj):
     os.replace(path + '.tmp', path)
 
 
+def _stage(role, prompt):
+    if role == 'translator':
+        return 'translate'
+    return 'judge2' if prompt.lstrip().startswith('Original:') else 'back-translate'
+
+
+def _task(stage):
+    names = {'translate': 'ltrans translate stage', 'back-translate': 'ltrans back-translation stage',
+             'judge2': 'ltrans second judge stage'}
+    return {'title': names[stage], 'scope': ['locale.json'], 'size': 'S'}
+
+
+def _machine_rows(cfg, names, probe_fn):
+    from . import fleet, state
+    rows = {}
+    for name in names:
+        machine = fleet.machine_of(cfg, name)
+        spec = (cfg.get('machines') or {}).get(machine)
+        if machine in rows or not spec:
+            continue
+        rows[machine] = state.machine_state(spec, probe_fn(spec), None)
+    return rows
+
+
+def _pick_local_worker(cfg, names, task, rows):
+    from . import fleet
+    choices = []
+    machines = list(rows.values())
+    for name in names:
+        worker = cfg['workers'].get(name) or {}
+        if worker.get('kind') != 'ollama' or worker.get('enabled') is False:
+            continue
+        machine = fleet.machine_of(cfg, name)
+        row = rows.get(machine) or {}
+        blocked = fleet.governor(cfg, name, machines, mem_gb=row.get('mem_free_gb'), hardware=worker.get('hardware') or {})
+        if blocked:
+            continue
+        why, model = fleet.fits(worker, task)
+        if why or not model:
+            continue
+        free = row.get('status') == 'free'
+        choices.append((not free, -(model.get('params_b') or 0.0), fleet.watts_of(cfg, machine), name, model['name']))
+    if not choices:
+        return None, None
+    _, _, _, worker_name, model_name = min(choices)
+    return worker_name, model_name
+
+
+def _picker(cfg, t, probe_ttl=15, clock=time.time, probe_fn=None):
+    from . import fleet, remote
+    local_names = fleet.local_names(cfg)
+    fallback = {r: t.get(r, '') for r in ('translator', 'judge')}
+    cache = {'at': 0.0, 'rows': {}}
+    probe = probe_fn or remote.probe
+
+    def rows():
+        if not cache['rows'] or clock() - cache['at'] >= probe_ttl:
+            cache['rows'] = _machine_rows(cfg, local_names, probe)
+            cache['at'] = clock()
+        return cache['rows']
+
+    def generate(role, prompt):
+        worker_name, model_name = _pick_local_worker(cfg, local_names, _task(_stage(role, prompt)), rows())
+        chosen = worker_name
+        worker = cfg['workers'].get(chosen)
+        if not worker or worker.get('kind') != 'ollama':
+            raise RuntimeError(f'translate.{role} is not a usable local model worker: choose an ollama worker in the config')
+        active = {**worker, '_name': chosen}
+        if model_name:
+            active['model'] = model_name
+        return local.generate(cfg, active, prompt, wait=True, low_priority=t.get('low_priority', False))
+    return generate
+
+
 def translate_one(gen, key, source, language, src_language, keep, feedback=''):
     names = f' Never translate these names: {", ".join(keep)}.' if keep else ''
     return gen('translator', f'Translate this user-interface text from {src_language} to {language}. Keep every {{placeholder}} '
@@ -105,8 +180,7 @@ def qa_string(gen, key, source, language, src_language, keep, retries=2):
 def run(cfg, source_path, locale, out_dir, gen=None):
     """Translates and QAs one catalogue into out_dir. Incremental: a string whose source text already passed is kept."""
     t = cfg.get('translate') or {}
-    workers = {'translator': cfg['workers'][t['translator']], 'judge': cfg['workers'][t['judge']]}
-    gen = gen or (lambda role, prompt: local.generate(cfg, workers[role], prompt, wait=True, low_priority=t.get('low_priority', False)))
+    gen = gen or _picker(cfg, t)
     language, src_language, keep = (t.get('languages') or {}).get(locale, locale), t.get('source_language', 'English'), t.get('keep', [])
     os.makedirs(out_dir, exist_ok=True)
     out, report_path = os.path.join(out_dir, f'{locale}.json'), os.path.join(out_dir, f'{locale}.qa.json')

@@ -1,0 +1,174 @@
+{
+ "policy": "validators+back-translation/v3",
+ "folder": "photosscope",
+ "locale": "zh",
+ "models": {
+  "translate": "translategemma:27b-it-q8_0",
+  "backTranslate": "qwen3.5:9b",
+  "judge2": "qwen3.8:27b-q8_0"
+ },
+ "sourceSha256": "b47319ce4b7ffaaed43b074bb891e0d5fa6dd8713ab1c8735d31fdc3b9e12475",
+ "entries": {
+  "layers.photos": {
+   "en": "Photos",
+   "tr": "照片",
+   "bt": "Photos",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "照片",
+     "bt": "Photos",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "照片",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.options": {
+   "en": "Photo options",
+   "tr": "照片选项",
+   "bt": "Photo options",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "照片选项",
+     "bt": "Photo options",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "照片选项",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.all": {
+   "en": "All photos",
+   "tr": "全部照片",
+   "bt": "All Photos",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "全部照片",
+     "bt": "All Photos",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "全部照片",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.near": {
+   "en": "Only near the selected year",
+   "tr": "仅显示所选年份附近",
+   "bt": "Show only near selected year",
+   "reason": "adds action \"Show\" not present in original instruction.",
+   "tries": [
+    {
+     "tr": "仅显示所选年份附近",
+     "bt": "Show only near selected year",
+     "ok": false,
+     "why": "adds action \"Show\" not present in original instruction.",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "pending-judge2",
+   "finalFlags": [
+    "meaning"
+   ],
+   "alternatives": [
+    "仅显示所选年份附近"
+   ],
+   "draft": "仅显示所选年份附近",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.window": {
+   "en": "How many years around it",
+   "tr": "前后多少年",
+   "bt": "Before and after how many years",
+   "reason": "Adds \"before\" and \"after\", changing meaning from approximate range to specific temporal boundaries.",
+   "tries": [
+    {
+     "tr": "前后多少年",
+     "bt": "Before and after how many years",
+     "ok": false,
+     "why": "Adds \"before\" and \"after\", changing meaning from approximate range to specific temporal boundaries.",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "pending-judge2",
+   "finalFlags": [
+    "meaning"
+   ],
+   "alternatives": [
+    "前后多少年"
+   ],
+   "draft": "前后多少年",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.years": {
+   "en": "±{years} years",
+   "tr": "±{years} 年",
+   "bt": "±{years} years",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "±{years} 年",
+     "bt": "±{years} years",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "±{years} 年",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.nearOn": {
+   "en": "Only the photos within {years} years of the selected year",
+   "tr": "仅显示所选年份前后 {years} 年内的照片",
+   "bt": "Show photos only within {years} years before and after the selected year",
+   "reason": "Adds action \"Show\" and specifies \"before and after\" instead of just \"within\".",
+   "tries": [
+    {
+     "tr": "仅显示所选年份前后 {years} 年内的照片",
+     "bt": "Show photos only within {years} years before and after the selected year",
+     "ok": false,
+     "why": "Adds action \"Show\" and specifies \"before and after\" instead of just \"within\".",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "pending-judge2",
+   "finalFlags": [
+    "meaning"
+   ],
+   "alternatives": [
+    "仅显示所选年份前后 {years} 年内的照片"
+   ],
+   "draft": "仅显示所选年份前后 {years} 年内的照片",
+   "policy": "validators+back-translation/v3"
+  }
+ },
+ "fileSha256": "1737e50960b8b8de7b41dcd0aaaa47130ed5476c708fe4f3260b40f9dad40287",
+ "passed": 4,
+ "held": 0,
+ "pendingJudge2": 3,
+ "status": "pass",
+ "at": "2026-11-16 04:25:14"
+}

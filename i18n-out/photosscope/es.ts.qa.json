@@ -1,0 +1,164 @@
+{
+ "policy": "validators+back-translation/v3",
+ "folder": "photosscope",
+ "locale": "es",
+ "models": {
+  "translate": "translategemma:27b-it-q8_0",
+  "backTranslate": "qwen3.5:9b",
+  "judge2": "qwen3.8:27b-q8_0"
+ },
+ "sourceSha256": "b47319ce4b7ffaaed43b074bb891e0d5fa6dd8713ab1c8735d31fdc3b9e12475",
+ "entries": {
+  "layers.photos": {
+   "en": "Photos",
+   "tr": "Fotos",
+   "bt": "Photos",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Fotos",
+     "bt": "Photos",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Fotos",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.options": {
+   "en": "Photo options",
+   "tr": "Opciones de las fotos",
+   "bt": "Photo options",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Opciones de las fotos",
+     "bt": "Photo options",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Opciones de las fotos",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.all": {
+   "en": "All photos",
+   "tr": "Todas las fotos",
+   "bt": "All photos",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Todas las fotos",
+     "bt": "All photos",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Todas las fotos",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.near": {
+   "en": "Only near the selected year",
+   "tr": "Solo cerca del año elegido",
+   "bt": "Only near the selected year",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Solo cerca del año elegido",
+     "bt": "Only near the selected year",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Solo cerca del año elegido",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.window": {
+   "en": "How many years around it",
+   "tr": "Cuántos años alrededor",
+   "bt": "How many years around",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "Cuántos años alrededor",
+     "bt": "How many years around",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "Cuántos años alrededor",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.years": {
+   "en": "±{years} years",
+   "tr": "±{years} años",
+   "bt": "±{years} years",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "±{years} años",
+     "bt": "±{years} years",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "±{years} años",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.nearOn": {
+   "en": "Only the photos within {years} years of the selected year",
+   "tr": "Solo las fotos a {years} años o menos del año elegido",
+   "bt": "Photos only from {years} years or less than the selected year",
+   "reason": "Adds \"from\" and \"or than\", changing meaning from \"within\" to \"less than\".",
+   "tries": [
+    {
+     "tr": "Solo las fotos a {years} años o menos del año elegido",
+     "bt": "Photos only from {years} years or less than the selected year",
+     "ok": false,
+     "why": "Adds \"from\" and \"or than\", changing meaning from \"within\" to \"less than\".",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "pending-judge2",
+   "finalFlags": [
+    "meaning"
+   ],
+   "alternatives": [
+    "Solo las fotos a {years} años o menos del año elegido"
+   ],
+   "draft": "Solo las fotos a {years} años o menos del año elegido",
+   "policy": "validators+back-translation/v3"
+  }
+ },
+ "fileSha256": "bc9bb76af40740f189bebd45890ba2fe37e1cf93fad269b3e78ac35d8226f085",
+ "passed": 6,
+ "held": 0,
+ "pendingJudge2": 1,
+ "status": "pass",
+ "at": "2026-11-16 04:25:23"
+}

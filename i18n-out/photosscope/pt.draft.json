@@ -1,0 +1,43 @@
+{
+ "folder": "photosscope",
+ "locale": "pt",
+ "source": "/tmp/claude-1000/-home-sergiu-alexandrescu-Projects-bucurestiuldisparut-github-io/bcb523ba-b76b-40f0-a1d6-8fa274148f48/scratchpad/photosscope/en.ts",
+ "at": "2026-11-16 01:43:52",
+ "entries": {
+  "layers.photos": {
+   "en": "Photos",
+   "tr": "Fotos",
+   "errs": []
+  },
+  "photosScope.options": {
+   "en": "Photo options",
+   "tr": "Opções das fotos",
+   "errs": []
+  },
+  "photosScope.all": {
+   "en": "All photos",
+   "tr": "Todas as fotos",
+   "errs": []
+  },
+  "photosScope.near": {
+   "en": "Only near the selected year",
+   "tr": "Só perto do ano escolhido",
+   "errs": []
+  },
+  "photosScope.window": {
+   "en": "How many years around it",
+   "tr": "Quantos anos em volta",
+   "errs": []
+  },
+  "photosScope.years": {
+   "en": "±{years} years",
+   "tr": "±{years} anos",
+   "errs": []
+  },
+  "photosScope.nearOn": {
+   "en": "Only the photos within {years} years of the selected year",
+   "tr": "Só as fotos a até {years} anos do ano escolhido",
+   "errs": []
+  }
+ }
+}

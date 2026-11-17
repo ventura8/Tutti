@@ -1,0 +1,43 @@
+{
+ "folder": "photosscope",
+ "locale": "ko",
+ "source": "/tmp/claude-1000/-home-sergiu-alexandrescu-Projects-bucurestiuldisparut-github-io/bcb523ba-b76b-40f0-a1d6-8fa274148f48/scratchpad/photosscope/en.ts",
+ "at": "2026-11-16 01:43:52",
+ "entries": {
+  "layers.photos": {
+   "en": "Photos",
+   "tr": "사진",
+   "errs": []
+  },
+  "photosScope.options": {
+   "en": "Photo options",
+   "tr": "사진 옵션",
+   "errs": []
+  },
+  "photosScope.all": {
+   "en": "All photos",
+   "tr": "모든 사진",
+   "errs": []
+  },
+  "photosScope.near": {
+   "en": "Only near the selected year",
+   "tr": "선택한 연도 근처만",
+   "errs": []
+  },
+  "photosScope.window": {
+   "en": "How many years around it",
+   "tr": "앞뒤 몇 년",
+   "errs": []
+  },
+  "photosScope.years": {
+   "en": "±{years} years",
+   "tr": "±{years}년",
+   "errs": []
+  },
+  "photosScope.nearOn": {
+   "en": "Only the photos within {years} years of the selected year",
+   "tr": "선택한 연도에서 {years}년 이내의 사진만",
+   "errs": []
+  }
+ }
+}

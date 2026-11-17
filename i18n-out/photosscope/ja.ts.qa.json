@@ -1,0 +1,179 @@
+{
+ "policy": "validators+back-translation/v3",
+ "folder": "photosscope",
+ "locale": "ja",
+ "models": {
+  "translate": "translategemma:27b-it-q8_0",
+  "backTranslate": "qwen3.5:9b",
+  "judge2": "qwen3.8:27b-q8_0"
+ },
+ "sourceSha256": "b47319ce4b7ffaaed43b074bb891e0d5fa6dd8713ab1c8735d31fdc3b9e12475",
+ "entries": {
+  "layers.photos": {
+   "en": "Photos",
+   "tr": "写真",
+   "bt": "Photo",
+   "reason": "omits plural 's' in 'Photos', changing meaning from multiple photos to a single photo.",
+   "tries": [
+    {
+     "tr": "写真",
+     "bt": "Photo",
+     "ok": false,
+     "why": "omits plural 's' in 'Photos', changing meaning from multiple photos to a single photo.",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "pending-judge2",
+   "finalFlags": [
+    "meaning"
+   ],
+   "alternatives": [
+    "写真"
+   ],
+   "draft": "写真",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.options": {
+   "en": "Photo options",
+   "tr": "写真のオプション",
+   "bt": "Photo options",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "写真のオプション",
+     "bt": "Photo options",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "写真のオプション",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.all": {
+   "en": "All photos",
+   "tr": "すべての写真",
+   "bt": "All photos",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "すべての写真",
+     "bt": "All photos",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "すべての写真",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.near": {
+   "en": "Only near the selected year",
+   "tr": "選んだ年の前後だけ",
+   "bt": "Only before and after the selected year",
+   "reason": "Adds \"before and after\" which changes the meaning from only near to a broader range.",
+   "tries": [
+    {
+     "tr": "選んだ年の前後だけ",
+     "bt": "Only before and after the selected year",
+     "ok": false,
+     "why": "Adds \"before and after\" which changes the meaning from only near to a broader range.",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "pending-judge2",
+   "finalFlags": [
+    "meaning"
+   ],
+   "alternatives": [
+    "選んだ年の前後だけ"
+   ],
+   "draft": "選んだ年の前後だけ",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.window": {
+   "en": "How many years around it",
+   "tr": "前後何年",
+   "bt": "Before and after how many years",
+   "reason": "Adds \"before\" and changes meaning from approximate range to specific before/after limits.",
+   "tries": [
+    {
+     "tr": "前後何年",
+     "bt": "Before and after how many years",
+     "ok": false,
+     "why": "Adds \"before\" and changes meaning from approximate range to specific before/after limits.",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "pending-judge2",
+   "finalFlags": [
+    "meaning"
+   ],
+   "alternatives": [
+    "前後何年"
+   ],
+   "draft": "前後何年",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.years": {
+   "en": "±{years} years",
+   "tr": "±{years}年",
+   "bt": "±{years} years",
+   "reason": "back-translation has the same content words",
+   "tries": [
+    {
+     "tr": "±{years}年",
+     "bt": "±{years} years",
+     "ok": true,
+     "why": "back-translation has the same content words",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "passed",
+   "finalFlags": [],
+   "draft": "±{years}年",
+   "policy": "validators+back-translation/v3"
+  },
+  "photosScope.nearOn": {
+   "en": "Only the photos within {years} years of the selected year",
+   "tr": "選んだ年の前後{years}年以内の写真だけ",
+   "bt": "Photos within {years} years before and after the selected year only",
+   "reason": "Adds \"before and after\" which implies a range around the year, whereas original specifies only photos within that range of the selected year.",
+   "tries": [
+    {
+     "tr": "選んだ年の前後{years}年以内の写真だけ",
+     "bt": "Photos within {years} years before and after the selected year only",
+     "ok": false,
+     "why": "Adds \"before and after\" which implies a range around the year, whereas original specifies only photos within that range of the selected year.",
+     "errs": []
+    }
+   ],
+   "notes": [],
+   "status": "pending-judge2",
+   "finalFlags": [
+    "meaning"
+   ],
+   "alternatives": [
+    "選んだ年の前後{years}年以内の写真だけ"
+   ],
+   "draft": "選んだ年の前後{years}年以内の写真だけ",
+   "policy": "validators+back-translation/v3"
+  }
+ },
+ "fileSha256": "1f07bae4faf1eb48b509eb990e7cccaf9594e72ba78c501bc99c62a31af9bc4f",
+ "passed": 3,
+ "held": 0,
+ "pendingJudge2": 4,
+ "status": "pass",
+ "at": "2026-11-16 04:25:39"
+}

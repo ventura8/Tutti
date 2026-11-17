@@ -605,8 +605,16 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `night.enabled` | switch | `True` | Night mode: While Tutti holds or works an Android device in the night hours: 1 % brightness, every volume at 0 (the alarm stays yours); your own values come back at hand-back. | admin |
 | `night.hours` | text | `22-08` | Night hours: Local hours HH-HH, e.g. 22-08. | admin |
 | `night.devices` | list |  | Night mode on: The devices it applies to; empty: every device. | admin |
-| `devices.*.roles` | list |  | Roles: What the device is for other devices: cast-receiver (a Cast target), cast-sender. | admin |
+| `devices.*.roles` | list |  | Roles (override): The whole list, over what is detected (tutti/roles.py): cast-receiver, cast-sender, android-device, tv-device... | admin |
+| `devices.*.roles_add` | list |  | Roles added: Added to the detected roles (`tutti roles set`). | admin |
+| `devices.*.roles_off` | list |  | Roles removed: Taken from the detected roles (`tutti roles unset`). | admin |
+| `machines.*.roles` | list |  | Roles (override): The whole list, over what is detected: windows-test-runner, ui-desktop, gpu-ai, docker-host... (docs/MACHINES.md, Roles). | admin |
+| `machines.*.roles_add` | list |  | Roles added: Added to the detected roles (`tutti roles set`). | admin |
+| `machines.*.roles_off` | list |  | Roles removed: Taken from the detected roles (`tutti roles unset`). | admin |
 | `devices.*.hours` | yaml |  | Blocked hours: Daily local hours when the device is not used at all, e.g. {window: "22-07", days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none. | admin |
+| `lan_devices.*.roles` | list |  | Roles (override): A media device on the network (by its address): the whole list. | admin |
+| `lan_devices.*.roles_add` | list |  | Roles added: Added to what mDNS and SSDP found, e.g. bluetooth-audio. | admin |
+| `lan_devices.*.roles_off` | list |  | Roles removed: Taken from what mDNS and SSDP found. | admin |
 | `devices.*.kind` | select phone, tablet, tv |  | Kind: Set by `tutti devices pair`: phone, tablet or tv. | admin |
 | `devices.*.model` | text |  | Model: Set by `tutti devices pair`; a move checks the device it reaches is this one. | admin |
 | `devices.*.capabilities` | list |  | Capabilities: Set by `tutti devices pair`: camera, telephony, touchscreen, tv... | admin |
@@ -949,7 +957,8 @@ usage: tutti self-update [-h] [--insecure-skip-verify] [--check] [--auto]
 probe every machine: free slots, load, yield flag (add-android: set up a Termux machine)
 
 ```text
-usage: tutti machines [-h] [--name NAME] [--host HOST] [--user USER] [--port PORT] [{add-android}]
+usage: tutti machines [-h] [--name NAME] [--host HOST] [--user USER] [--port PORT] [--roles] [--refresh]
+                      [{add-android}]
 ```
 
 | Argument | What it does | Default |
@@ -959,6 +968,23 @@ usage: tutti machines [-h] [--name NAME] [--host HOST] [--user USER] [--port POR
 | `--host` | add-android: the device IP address |  |
 | `--user` | add-android: the Termux user (whoami) |  |
 | `--port` | add-android: Termux sshd port (8022) | `8022` |
+| `--roles` | each machine's and device's roles and why (tutti/roles.py) |  |
+| `--refresh` | --roles: probe again now instead of the daily answer |  |
+
+### `tutti roles`
+
+roles of machines and devices: list them, set or unset one (docs/MACHINES.md, Roles)
+
+```text
+usage: tutti roles [-h] [--all] {list,set,unset} [name] [role]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `action {list,set,unset}` |  |  |
+| `name` | a machine, a device, or a network device's address |  |
+| `role` | e.g. windows-test-runner, ui-desktop, gpu-ai, airplay-receiver |  |
+| `--all` | list: also every role Tutti knows and what it means |  |
 
 ### `tutti devices`
 

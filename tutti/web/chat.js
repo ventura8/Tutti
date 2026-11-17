@@ -222,6 +222,17 @@ function drawPrivacy() {
         'account can read. Other members never see them; admins see only the actions the chat took (in the audit log), never your ' +
         'messages. Models of the household answer; nothing is sent elsewhere except to the account that answers.';
     cq('chat-activity-open').hidden = CHAT.role !== 'admin';
+    const wrap = cq('chat-main-wrap');
+    if (wrap) wrap.hidden = CHAT.role !== 'admin';
+}
+
+function renderChatMain(m) {
+    const wrap = cq('chat-main-wrap');
+    const pick = cq('chat-main-pick');
+    if (!wrap || !pick || !m) return;
+    wrap.hidden = CHAT.role !== 'admin';
+    if (document.activeElement === pick) return;
+    if (typeof mainOptions === 'function') pick.replaceChildren(...mainOptions(m));
 }
 
 async function openConv(id, focus = true) {
@@ -789,6 +800,7 @@ function initChat() {
     cq('chat-delete-btn').addEventListener('click', deleteConv);
     cq('chat-clear').addEventListener('click', clearHistory);
     cq('chat-activity-open').addEventListener('click', showActivity);
+    cq('chat-main-pick')?.addEventListener('change', (e) => { if (typeof switchMain === 'function') void switchMain(e); });
     cq('chat-edit-cancel').addEventListener('click', () => { cancelEdit(); cq('chat-input').value = ''; autoGrow(); cq('chat-input').focus(); });
     cq('chat-back').addEventListener('click', () => { document.body.dataset.chatPane = 'list'; cq('chat-new').focus(); });
     let t = 0;

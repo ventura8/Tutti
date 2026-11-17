@@ -7,6 +7,15 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.25.0] - 2026-11-17
+
+### Added
+
+- **Auto main agent** (t275): `main.agent: auto` (or `tutti main auto`, or the selector in the Chat header, admin only)
+  keeps the user's preferred agent (`main.preferred`) as main while it has room, hands the role to the first
+  `main.fallback` worker with room when it panics or is spent, and switches back after its reset. Every switch posts a
+  Chat note and connects the new agent. See docs/CONDUCT.md and docs/CHAT.md.
+
 ## [0.24.3] - 2026-11-17
 
 ### Fixed

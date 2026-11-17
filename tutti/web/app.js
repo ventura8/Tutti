@@ -897,23 +897,30 @@ function mainRun(m) {
         el('p', { class: 'row__note', text: `${turns || 'no agent started'} · since ${relative(r.started)}` }));
 }
 
+function mainOptions(m) {
+    const autoLabel = `Auto (now: ${m.agent})`;
+    const agents = (m.choices || []).map((c) => el('option', {
+        value: c.name, selected: !m.auto && c.name === m.agent,
+        text: [`${c.name} (${c.kind === 'ollama' ? 'local model' : 'cli'})`, c.out && `out: ${c.out}`].filter(Boolean).join(' · '),
+    }));
+    return [el('option', { value: 'auto', selected: Boolean(m.auto), text: autoLabel }), ...agents];
+}
+
 function renderMain(s) {
     const m = s.main;
     if (!m) return;
-    $('main-meta').textContent = m.chosen ? `${m.agent} · switched here` : `${m.agent} · from the config`;
+    const src = m.auto ? 'auto' : (m.chosen ? 'switched here' : 'from the config');
+    $('main-meta').textContent = m.preferred && m.preferred !== m.agent
+        ? `${m.agent} · ${src} · preferred ${m.preferred}` : `${m.agent} · ${src}`;
     const pick = $('main-pick');
-    if (document.activeElement !== pick) {
-        pick.replaceChildren(...m.choices.map((c) => el('option', {
-            value: c.name, selected: c.name === m.agent,
-            text: [`${c.name} (${c.kind === 'ollama' ? 'local model' : 'cli'})`, c.out && `out: ${c.out}`].filter(Boolean).join(' · '),
-        })));
-    }
+    if (document.activeElement !== pick) pick.replaceChildren(...mainOptions(m));
     $('main-run').replaceChildren(mainRun(m));
+    if (typeof renderChatMain === 'function') renderChatMain(m);
 }
 
 async function switchMain(e) {
     e.preventDefault();
-    const agent = $('main-pick').value;
+    const agent = (e.target && e.target.id === 'chat-main-pick' ? e.target : $('main-pick')).value;
     try {
         const res = await fetch('/api/main', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify({ agent }),

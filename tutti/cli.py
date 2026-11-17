@@ -1241,7 +1241,7 @@ def cmd_conduct(cfg, a):
 
 
 def cmd_main(cfg, a):
-    """`tutti main`: the main agent and who has room; `tutti main <agent>` switches it (a running conductor hands over)."""
+    """`tutti main`: the main agent and who has room; `tutti main <agent|auto>` switches it (a running conductor hands over)."""
     if a.agent == 'backup':   # `tutti main backup [<machine>|auto|none]`: the backup main machine (docs/FAILOVER.md)
         from . import failovercmd
         a.machine = a.machine_name
@@ -2164,9 +2164,10 @@ def parser():
     s.add_argument('--device-secret-stdin', action='store_true', help='setup: read that client\'s secret from stdin (never argv)')
     s.add_argument('--tailscale', action='store_true', help='setup: serve the dashboard on this computer\'s Tailscale https '
                                                             'name (tailnet only) and add that origin')
-    s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it; '
+    s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent|auto>` to switch it '
+                              '(auto: preferred while it has room, else the first main.fallback with room); '
                               '`tutti main backup [<machine>|auto|none]`: the backup main machine (docs/FAILOVER.md)')
-    s.add_argument('agent', nargs='?')
+    s.add_argument('agent', nargs='?', help='a worker, auto, or backup')
     s.add_argument('machine_name', nargs='?', help='backup: the machine, auto (Tutti elects one) or none (no failover)')
     s.add_argument('--yes', action='store_true', help='backup: change it although the current backup does not answer')
     from . import failovercmd

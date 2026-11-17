@@ -84,6 +84,17 @@ class Order(unittest.TestCase):
         scripts = re.findall(r'<script src="([a-z0-9-]+)\.js', self.page())
         self.assertEqual(scripts[0], 'format')
 
+    def test_chat_header_has_the_main_agent_selector(self):
+        page = self.page()
+        chat = page[page.index('id="chat-view"'):page.index('id="dashboard-view"')]
+        self.assertIn('id="chat-main-pick"', chat)
+        self.assertIn('id="chat-main-wrap"', chat)
+        with open(os.path.join(dashboard.WEB, 'app.js'), encoding='utf8') as f:
+            app = f.read()
+        self.assertIn("value: 'auto'", app)
+        self.assertIn('Auto (now:', app)
+        self.assertIn('/api/main', dashboard.ADMIN_PATHS)
+
 
 class VpnPost(unittest.TestCase):
     def setUp(self):

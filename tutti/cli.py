@@ -1887,8 +1887,8 @@ def parser():
     s.add_argument('--repo', help='owner/name (default: the repository of the current directory)')
     s.add_argument('--timeout', type=float, help='minutes to wait for the reviewers (default: review.timeout_minutes)')
     s.add_argument('--no-post', action='store_true', help='print the fallback review instead of posting it')
-    s.add_argument('--expected-head', help=argparse.SUPPRESS)
-    s.add_argument('--expected-base', help=argparse.SUPPRESS)
+    s.add_argument('--expected-head', help='require this pull request head commit for the review')
+    s.add_argument('--expected-base', help='require this pull request base commit for the review')
     s = add('job', cmd_job, 'register a script\'s run for the dashboard (`job register --title t`), and its result (`job done --rc n`); '
                             'work waiting on an away or asleep target: `job waiting`, `job move <id> --to <device|machine|auto> '
                             '[--bump]` (now, from its last synced checkpoint; docs/PRESENCE.md)')

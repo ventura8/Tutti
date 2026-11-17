@@ -1201,7 +1201,9 @@ usage: tutti run [-h] [--dir DIR] [--show] [--input PATH] [--on ON] [--repo REPO
 pull requests: `pr review <n>` asks the reviewers, says when none will come, and falls back to a local review by a cheap worker posted to the pull request
 
 ```text
-usage: tutti pr [-h] [--repo REPO] [--timeout TIMEOUT] [--no-post] {review} number
+usage: tutti pr [-h] [--repo REPO] [--timeout TIMEOUT] [--no-post] [--expected-head EXPECTED_HEAD]
+                [--expected-base EXPECTED_BASE]
+                {review} number
 ```
 
 | Argument | What it does | Default |
@@ -1211,6 +1213,8 @@ usage: tutti pr [-h] [--repo REPO] [--timeout TIMEOUT] [--no-post] {review} numb
 | `--repo` | owner/name (default: the repository of the current directory) |  |
 | `--timeout` | minutes to wait for the reviewers (default: review.timeout_minutes) |  |
 | `--no-post` | print the fallback review instead of posting it |  |
+| `--expected-head` | require this pull request head commit for the review |  |
+| `--expected-base` | require this pull request base commit for the review |  |
 
 ### `tutti job`
 

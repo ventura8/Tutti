@@ -520,7 +520,7 @@ def exhausted_round_result(expected_head, spent):
 
 
 def valid_review_start(expected_head, expected_base, revisions):
-    return not expected_head or bool(revisions and revisions == (expected_base, expected_head))
+    return (not expected_head and not expected_base) or bool(revisions and revisions == (expected_base, expected_head))
 
 
 def revisions_match(repo, number, expected_head, revisions, gh_fn, say):
@@ -537,7 +537,7 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
     repo = repo_of(pr_repo, gh_fn)
     revisions = initial_review_revisions(repo, number, gh_fn, expected_head)
     if not valid_review_start(expected_head, expected_base, revisions):
-        say('review: pull request head cannot be verified: review again after it settles')
+        say('review: expected base and head cannot be verified: provide both commit IDs and review again')
         return 1
     since = datetime.now(timezone.utc) if expected_head else datetime.now(timezone.utc).replace(microsecond=0)
     policy = {b: coderabbit_policy(cfg, repo, b) for b in BOTS}

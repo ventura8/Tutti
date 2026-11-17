@@ -339,7 +339,7 @@ class Roles(unittest.TestCase):
         self.assertEqual(cards.count(), len(items))
         for m in items:
             card = page.locator(f"#machines li[data-machine='{m['name']}']")
-            stats = card.locator(':scope > .row__stats')
+            stats = card.locator(':scope > .row__stats').first
             self.assertEqual(stats.locator('.pip').count(), m['slots'])
             if m['free'] is None:   # not reachable: dashed boxes and the slot count only
                 self.assertEqual(stats.locator(".pip[data-off='true']").count(), m['slots'])

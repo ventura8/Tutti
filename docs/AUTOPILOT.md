@@ -82,7 +82,8 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
   local model and all online accounts are unavailable, the autopilot can send at most one small bounded unit per panicked account
   whose current and linked windows have a known task's worth of quota left. It prefers the account with the most remaining
   quota, reserves shared windows across the batch and keeps recent work debited until each window has a newer reading.
-  Stale, estimated or missing readings cannot authorize rescue. It respects quiet windows and never uses a spent or
+  Stale, estimated or missing readings cannot authorize rescue, including a configured linked window removed from the
+  active state by a pause. It respects quiet windows and never uses a spent or
   explicitly paused account. It does not pause accounts.
   An account outside `autopilot.accounts` takes one task at a time and only while it is not ahead of its pace; a worker
   without an account (a local model) one at a time, never while its machine is paused (yield flag) or offline, and only for a task whose scope names files (it edits only those). The

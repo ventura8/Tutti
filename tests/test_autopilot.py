@@ -162,6 +162,21 @@ class PlanTest(Base):
         self.assertEqual(len(p['dispatch']), 1)   # 3 points left, two tasks would cost 4
         self.assertIn('shared quota', p['waiting']['t2'])
 
+    def test_panic_rescue_fails_closed_when_a_configured_linked_window_is_missing(self):
+        cfg = self.cfg(main_accounts=['cursor'])
+        cfg['_main_worker'] = 'local-main'
+        cfg['workers']['local-main'] = {'kind': 'ollama', 'host': '127.0.0.1:1', 'model': 'm:3b'}
+        cfg['_account_limits']['cursor'] = ['weekly']
+        cfg['_account_limits']['weekly'] = ['monthly']
+        states = {n: {**account(n, 'ahead', used=96, panic=True), 'reading_at': '2026-01-01T00:00:00Z'}
+                  for n in ('agy-claude', 'agy-gemini', 'cursor')}
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
+        weekly = {'name': 'weekly', 'used': 96, 'panic': True, 'reading_at': '2026-01-01T00:00:00Z'}
+        states['cursor']['limits'] = [weekly]
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
+        weekly['limits'] = [{'name': 'monthly', 'used': 96, 'panic': True, 'reading_at': '2026-01-01T00:00:00Z'}]
+        self.assertTrue(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
+
     def test_attempt_remains_debited_until_linked_window_is_refreshed(self):
         states = {'cursor': {'reading_at': '2026-01-03T00:00:00Z',
                              'limits': [{'name': 'weekly', 'reading_at': '2026-01-01T00:00:00Z'}]}}

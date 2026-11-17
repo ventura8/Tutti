@@ -288,7 +288,10 @@ def panic_rescue(cfg, name, s, states):
         return False
     from .pacing import TASK_PCT
     cost = float((cfg['accounts'].get(name) or {}).get('task_pct') or TASK_PCT)
-    if not observed_quota(s) or remaining_quota(s) < cost:
+    # A disabled or paused linked account is removed from the active pacing state. Its absence must not turn an
+    # incomplete reading into permission to spend: every configured window needs a current observation.
+    configured = set(configured_windows(cfg, name))
+    if not configured.issubset(quota_windows(name, s)) or not observed_quota(s) or remaining_quota(s) < cost:
         return False
     online = [n for n, a in cfg['accounts'].items() if (cfg['workers'].get((a or {}).get('worker') or n) or {}).get('kind') == 'cli']
     return bool(online) and all(n in states and quota_panic(states[n]) for n in online)

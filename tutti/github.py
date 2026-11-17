@@ -511,13 +511,13 @@ def _api_call(c, args, cwd, stdin):
     raise NotCovered(group)
 
 
-def run(argv, cwd=None, input=None, sub=None, cfg=None, http=None, fallback=subprocess.run, clock=time.time, **kw):
+def run(argv, cwd=None, input=None, sub=None, cfg=None, http=None, fallback=subprocess.run, clock=time.time, gh=gh_token, **kw):
     """subprocess.run for a `gh ...` argv: the API with the person's, the household's or gh's token when one exists; the
     real GitHub CLI for anything the API path does not cover. Never puts a token in argv or the environment."""
     if not argv or argv[0] != 'gh':
         return fallback(argv, cwd=cwd, input=input, **kw)
     cfg = cfg if cfg is not None else _current['cfg']
-    tok = token_for(cfg, sub, http, clock)[0]
+    tok = token_for(cfg, sub, http, clock, gh)[0]
     if tok:
         try:
             return Done(0, _api_call(Client(tok, http, clock), list(argv[1:]), cwd, input))
@@ -527,8 +527,12 @@ def run(argv, cwd=None, input=None, sub=None, cfg=None, http=None, fallback=subp
             return Done(1, '', str(e))
     if argv[1:3] == ['auth', 'status'] and not tok:
         return Done(1, '', 'GitHub is not connected: Connect GitHub on the Me view, or gh auth login')
+    if argv and argv[0] == 'gh' and 'timeout' not in kw:
+        kw['timeout'] = 20
     try:
         return fallback(argv, cwd=cwd, input=input, **kw)
+    except subprocess.TimeoutExpired:
+        return Done(124, '', 'the GitHub CLI timed out: sign in again with `gh auth login`, or use Connect GitHub')
     except FileNotFoundError:
         return Done(127, '', 'the GitHub CLI is not installed and GitHub is not connected: choose Connect GitHub on the Me view')
 
@@ -626,7 +630,7 @@ def flows_of(cfg):
     return _flows[key]
 
 
-def api(collector, headers, raw, flows=None):
+def api(collector, headers, raw, flows=None, gh=gh_token):
     """(status, answer) for POST /api/github {"action": "status"|"start"|"poll"|"disconnect"}: the signed-in person's own
     connection (with sign-in off, the dashboard's owner)."""
     try:
@@ -639,7 +643,7 @@ def api(collector, headers, raw, flows=None):
     flows = flows or flows_of(collector.cfg)
     try:
         if action == 'status':
-            return 200, status(collector.cfg, sub)
+            return 200, status(collector.cfg, sub, gh=gh)
         if action == 'start':
             return 200, {'ok': True, **flows.start(sub)}
         if action == 'poll':

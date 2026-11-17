@@ -435,3 +435,11 @@ next `sleep` or fake `adb`, which carried the same marker and lived on until sel
 `scripts/check.sh` stopped at shellcheck on a machine without it, and an agent edited a throwaway copy of the script to
 skip that line. Even in a scratch clone that weakens the check. The fix is to install the tool, not skip it: check.sh now
 puts a pinned shellcheck (`shellcheck-py`, hashed) in its venv, and a missing tool is reported, never commented out.
+
+## GitHub tests depended on the local CLI login (t133)
+
+**What happened.** Fallback tests could discover an installed, signed-in `gh` before reaching their fake runner.
+
+**Why.** Token lookup and program execution are separate I/O boundaries; only execution was injected.
+
+**Rule.** Inject both boundaries. Do not change process-wide offline settings in a test fixture or override unittest failure helpers.

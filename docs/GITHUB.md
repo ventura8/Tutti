@@ -66,3 +66,6 @@ asks for the client secret to refresh tokens, generate one and store it as the A
 into `release.json` (`github_client_secret`, public-client style like the Google device secret).
 
 Until the App exists, Connect GitHub says so and Tutti keeps using `gh`.
+
+Tests pass `gh=` to `github.run` and `github.api` to replace the CLI token lookup, and `fallback=` to replace
+program execution. Cover both an empty and a fake CLI token without invoking an installed `gh` or changing process environment.

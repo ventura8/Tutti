@@ -5,6 +5,7 @@ import io
 import json
 import os
 import stat
+import subprocess
 import unittest
 from types import SimpleNamespace
 
@@ -79,10 +80,11 @@ class GitHubTest(unittest.TestCase):
         self.cfg = cfg_of(self.folder)
         self.fake = FakeGitHub()
         self.now = [1000.0]
+        github._gh_cache.update(at=-1e9, token='')
         github._etags.clear()
         github._limits.clear()
 
-    def fail(self, argv, **kw):
+    def unexpected_program(self, argv, **kw):
         raise AssertionError(f'the real program was run: {argv[:3]}')
 
     def clock(self):
@@ -156,10 +158,10 @@ class GitHubTest(unittest.TestCase):
             seen.append(argv)
             return SimpleNamespace(returncode=0, stdout='', stderr='')
         github.run(['gh', 'pr', 'merge', 'https://github.com/o/r/pull/7', '--squash'], cfg=self.cfg, sub='u1', http=self.fake,
-                   clock=self.clock, fallback=fallback)
+                   gh=no_gh, clock=self.clock, fallback=fallback)
         self.assertEqual(len(seen), 1)   # never merged through the API without the reviewed commit
-        bad = github.run(['gh', 'pr', 'ready', 'not-a-number'], cfg=self.cfg, sub='u1', http=self.fake, clock=self.clock,
-                         fallback=fallback)
+        bad = github.run(['gh', 'pr', 'ready', 'not-a-number'], cfg=self.cfg, sub='u1', http=self.fake, gh=no_gh,
+                         clock=self.clock, fallback=fallback)
         self.assertEqual(bad.returncode, 1)
 
     def test_a_refused_code_and_an_unset_app_say_what_to_do(self):
@@ -180,7 +182,8 @@ class GitHubTest(unittest.TestCase):
     def test_gh_shaped_calls_are_answered_by_the_api(self):
         self.connect()
         def run(argv, **kw):
-            return github.run(argv, sub='u1', cfg=self.cfg, http=self.fake, clock=self.clock, fallback=self.fail, **kw)
+            return github.run(argv, sub='u1', cfg=self.cfg, http=self.fake, clock=self.clock, gh=no_gh,
+                              fallback=self.unexpected_program, **kw)
         pr = run(['gh', 'pr', 'create', '--repo', 'o/r', '--base', 'main', '--head', 'feat', '--title', 't', '--body', 'b'])
         self.assertEqual((pr.returncode, pr.stdout), (0, 'https://github.com/o/r/pull/7\n'))
         ok = run(['gh', 'pr', 'merge', 'https://github.com/o/r/pull/7', '--squash', '--match-head-commit', 'abc'])
@@ -203,13 +206,20 @@ class GitHubTest(unittest.TestCase):
         def fallback(argv, **kw):
             seen.append(argv)
             return SimpleNamespace(returncode=0, stdout='', stderr='')
-        github.run(['git', 'status'], cfg=self.cfg, fallback=fallback)
-        github.run(['gh', 'api', 'graphql'], cfg=self.cfg, http=self.fake, fallback=fallback)   # no token: the real gh
-        self.assertEqual(seen, [['git', 'status'], ['gh', 'api', 'graphql']])
+        github.run(['git', 'status'], cfg=self.cfg, gh=no_gh, fallback=fallback)
+        github.run(['gh', 'api', 'graphql'], cfg=self.cfg, http=self.fake, gh=no_gh, fallback=fallback)   # no token: the real gh
+        github.run(['gh', 'extension', 'list'], cfg=self.cfg, http=self.fake, gh=lambda: 'fake-gh-token', fallback=fallback)
+        self.assertEqual(seen, [['git', 'status'], ['gh', 'api', 'graphql'], ['gh', 'extension', 'list']])
 
         def missing(argv, **kw):
             raise FileNotFoundError(argv[0])
-        self.assertEqual(github.run(['gh', 'pr', 'list'], cfg=self.cfg, fallback=missing).returncode, 127)
+        self.assertEqual(github.run(['gh', 'pr', 'list'], cfg=self.cfg, gh=no_gh, fallback=missing).returncode, 127)
+
+        def hangs(argv, **kw):
+            raise subprocess.TimeoutExpired(argv, timeout=kw.get('timeout', 0))
+        timed = github.run(['gh', 'repo', 'list'], cfg=self.cfg, gh=no_gh, fallback=hangs)
+        self.assertEqual(timed.returncode, 124)
+        self.assertIn('timed out', timed.stderr)
 
     def test_reads_use_etags_and_a_spent_rate_limit_stops_the_calls(self):
         c = github.Client('t', self.fake, self.clock)
@@ -260,7 +270,7 @@ class GitHubTest(unittest.TestCase):
         self.assertEqual(github.api(c, {}, b'{"action": "bogus"}', flows)[0], 400)
         self.assertEqual(github.api(c, {}, b'not json', flows)[0], 400)
         self.assertFalse(github.api(c, {}, b'{"action": "disconnect"}', flows)[1]['removed'])
-        self.assertFalse(github.api(c, {}, b'{"action": "status"}', flows)[1]['connected'])
+        self.assertFalse(github.api(c, {}, b'{"action": "status"}', flows, gh=no_gh)[1]['connected'])
         gone = SimpleNamespace(cfg=self.cfg, who=lambda h: None)
         self.assertEqual(github.api(gone, {}, b'{"action": "poll"}', flows)[0], 409)   # the owner never started one
 

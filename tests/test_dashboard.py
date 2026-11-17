@@ -96,6 +96,16 @@ class OffAccountCardsTest(unittest.TestCase):
             self.assertEqual(state.worker_accounts(cfg), ['active'])
             self.assertNotIn('stopped', cfg['workers'])
 
+    def test_disabled_account_and_worker_pause_are_both_shown(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cfg = cfg_of({'workers': {'worker': {'paused': {'by': 'owner', 'at': 1, 'note': 'break'}}},
+                          'accounts': {'account': {'worker': 'worker', 'enabled': False}}}, folder)
+            card = state.usage_state(cfg, NOW)['off_accounts'][0]
+            self.assertIn('disabled', card['reason'])
+            self.assertIn('worker worker', card['reason'])
+            self.assertIn('break', card['reason'])
+            self.assertEqual(state.worker_accounts(cfg), [])
+
     def test_all_off_still_provides_display_cards(self):
         with tempfile.TemporaryDirectory() as folder:
             cfg = cfg_of({'accounts': {'disabled': {'enabled': False}}}, folder)

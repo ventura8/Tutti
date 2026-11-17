@@ -67,17 +67,20 @@ def off_account_cards(cfg):
     for entry in cfg.get('off', []):
         if entry['kind'] != 'account':
             continue
+        reasons = []
         if entry.get('paused'):
-            status, reason = 'paused', controls.paused_note(entry)
-        elif entry.get('off_worker'):
+            reasons.append(controls.paused_note(entry))
+        if entry.get('disabled'):
+            reasons.append('costs money per use; opt in through Settings to enable it' if entry.get('costs_money')
+                           else 'disabled or requires opt-in; enable it in Settings')
+        if entry.get('off_worker'):
             worker = entry['off_worker']
-            pause = entry.get('worker_paused')
-            status = 'paused' if pause else 'disabled'
-            reason = f'worker {worker}: ' + (controls.paused_note({'paused': pause}) if pause else 'disabled; enable it in Settings')
-        elif entry.get('costs_money'):
-            status, reason = 'disabled', 'costs money per use; opt in through Settings to enable it'
-        else:
-            status, reason = 'disabled', 'disabled; enable it in Settings'
+            if entry.get('worker_paused'):
+                reasons.append(f'worker {worker}: ' + controls.paused_note({'paused': entry['worker_paused']}))
+            if entry.get('worker_disabled'):
+                reasons.append(f'worker {worker}: disabled or requires opt-in; enable it in Settings')
+        status = 'paused' if entry.get('paused') or entry.get('worker_paused') else 'disabled'
+        reason = '; '.join(reasons) or 'disabled; enable it in Settings'
         result.append({'name': entry['name'], 'status': status, 'reason': reason})
     return result
 

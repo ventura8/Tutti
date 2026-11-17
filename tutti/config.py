@@ -323,10 +323,15 @@ def opt_out(cfg):
         if e.get('paused'):
             out['paused'] = e['paused']
         worker = e.get('worker') if kind == 'account' else None
+        if kind == 'account' and not is_on({k: v for k, v in e.items() if k != 'paused'}):
+            out['disabled'] = True
         if worker in off_workers:
             out['off_worker'] = worker
-            if (cfg['workers'][worker] or {}).get('paused'):
-                out['worker_paused'] = cfg['workers'][worker]['paused']
+            worker_cfg = cfg['workers'][worker] or {}
+            if worker_cfg.get('paused'):
+                out['worker_paused'] = worker_cfg['paused']
+            if not is_on({k: v for k, v in worker_cfg.items() if k != 'paused'}):
+                out['worker_disabled'] = True
         return out
     cfg['off'] = [entry('worker', n, 'workers') for n in off_workers] + [entry('account', n, 'accounts') for n in off_accounts]
     cfg['disabled_accounts'], cfg['disabled_workers'] = off_accounts, off_workers

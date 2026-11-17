@@ -691,7 +691,7 @@ def _regex_errors(key, value):
     return []
 
 
-READER_FORMATS = (None, 'github-premium', 'cursor-api', 'codex-app-server')
+READER_FORMATS = (None, 'github-premium', 'cursor-api', 'codex-app-server', 'browser-usage')
 EXTRA_ACCOUNT_KEYS = {'credits', 'note', 'name'}   # read by the code, not in the Settings tab's schema
 
 
@@ -711,6 +711,11 @@ def reader_problems(name, a):
     if fmt == 'codex-app-server':
         if r.get('bucket') not in (None, 'primary', 'secondary'):
             return [f'{key}.bucket is {r.get("bucket")!r}: use primary or secondary, or omit it to match accounts.{name}.window']
+        return []
+    if fmt == 'browser-usage':
+        url = a.get('usage_url')
+        if not isinstance(url, str) or not url.startswith('https://'):
+            return [f'{key}: give an https:// usage page in accounts.{name}.usage_url']
         return []
     return _command_errors(key, r, 'allowance' if fmt == 'github-premium' else 'bucket')
 

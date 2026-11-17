@@ -25,7 +25,8 @@ function roleFilter(selectId, listId, items) {
     sel.value = chosen;
     sel.onchange = () => roleFilter(selectId, listId, items);
     for (const id of [listId, listId === 'devices' ? 'lan-devices' : null].filter(Boolean)) {
-        for (const li of $(id)?.children || []) li.hidden = Boolean(chosen) && li.dataset.roles !== undefined && !li.dataset.roles.split(' ').includes(chosen);
+        for (const li of $(id)?.children || []) li.hidden = Boolean(chosen) && li.dataset.roles !== undefined
+            && ![li, ...li.querySelectorAll('[data-roles]')].some((row) => row.dataset.roles.split(' ').includes(chosen));
     }
 }
 

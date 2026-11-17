@@ -599,7 +599,7 @@ function machine(m, environments = []) {
     const use = (ui.last?.household_use?.machines || []).find((u) => u.name === m.name);
     const shards = (ui.last?.dispatch?.leases || []).filter((x) => x.name === m.name && x.why);
     if (use && use.hour !== null) stats.append(el('span', { text: `used ${tuttiPct(use.hour)} last hour · ${tuttiPct(use.day)} today` }));
-    return el('li', { class: 'row', 'data-roles': roleNames(m.roles) },
+    return el('li', { class: 'row', 'data-machine': m.name, 'data-roles': roleNames(m.roles) },
         el('div', { class: 'row__name' }, m.name, el('span', { class: 'row__kind', text: `${m.transport} · ${m.host}` })),
         chip(m.status, MACHINE_TONE[m.status]),
         stats,

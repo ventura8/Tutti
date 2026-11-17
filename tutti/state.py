@@ -254,10 +254,14 @@ def worker_accounts(cfg):
     return sorted(names, key=lambda n: pos.get(cfg['accounts'][n]['worker'], len(pos)))
 
 
-def next_worker(cfg, accounts):
+def next_worker(cfg, accounts, machines=None, now=None):
     """Where the next agent job goes, from the latest readings: {worker, account, args, reason}, worker None when none has room."""
     by_name = {a['name']: a for a in accounts}
     states = [by_name[n] for n in worker_accounts(cfg) if n in by_name]
+    if machines is not None:
+        from . import fleet
+        states = [s for s in states if not (cfg['workers'].get(cfg['accounts'][s['name']]['worker']) or {}).get('machine')
+                  or not fleet.governor(cfg, cfg['accounts'][s['name']]['worker'], machines, now)]
     # owner, 2026-11-17: Chat's delegate_task (run auto) also takes over while the main agent panics
     from . import autopilot
     takeover = autopilot.main_in_panic(cfg, by_name)

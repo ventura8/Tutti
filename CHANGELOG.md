@@ -26,6 +26,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
+- Codex setup records the local machine, automatic worker selection respects its governor, and remote usage requires
+  the account's login host so a different account's limits are never substituted (t316).
 - `routing.workers` is a preference order only: every account that names a worker still joins `tutti run auto`. Codex
   (and any other worker left off the list) was skipped entirely when the list was only cursor and agy, so a behind Codex
   account never ran while Cursor was ahead (t297).

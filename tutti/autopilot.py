@@ -1195,6 +1195,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     `beat`: this member's heartbeat for the household coordinator (shared projects only; docs/HOUSEHOLD.md)."""
     from . import state as state_mod
     now = now or time.time()
+    cfg['_now'] = datetime.fromtimestamp(now, timezone.utc)
     is_alive = is_alive or state_mod.alive
     on = enabled(cfg)
     if '_host_raw' not in cfg:

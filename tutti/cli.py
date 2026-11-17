@@ -625,7 +625,8 @@ def choose_worker(cfg, now):
     """`tutti run auto`: the worker whose account has room, from the latest readings (panic and spent accounts are skipped)."""
     entries = pacing.read_log(usage_log_path(cfg))
     accounts = [pacing.account_state(n, x, entries, now, *pacing.plan_args(cfg)) for n, x in cfg['accounts'].items()]
-    return state.next_worker(cfg, accounts)
+    machines = state.machines_state(cfg, remote.probe) if any((w or {}).get('machine') for w in cfg['workers'].values()) else None
+    return state.next_worker(cfg, accounts, machines, now)
 
 
 def cmd_run(cfg, a):

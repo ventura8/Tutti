@@ -123,6 +123,12 @@ def plan(found, raw, asker, now=None):
     x = Additions(raw or {})
     plan_agents(x, found, asker, now)
     plan_machines(x, found, asker)
+    codex = (x.add.get('workers') or {}).get('codex')
+    machines = {**(x.raw.get('machines') or {}), **(x.add.get('machines') or {})}
+    local = next((name for name, machine in machines.items()
+                  if (machine or {}).get('host') == 'local' or (machine or {}).get('transport') == 'local'), None)
+    if codex and local:
+        x.add['workers']['codex'] = {**codex, 'machine': local}
     plan_projects(x, found, asker)
     top = {}
     main = next((n for n in MAIN_ORDER if any(a['name'] == n for a in found['agents'])), None)

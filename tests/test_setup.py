@@ -149,6 +149,13 @@ class ConfigRoundTrip(unittest.TestCase):
         self.assertEqual(entry['usage_url'], 'https://chatgpt.com/codex/settings/usage')
         self.assertEqual(config.reader_problems('codex', {'reader': entry['reader']}), [])
 
+    def test_codex_setup_uses_the_actual_local_machine(self):
+        found = {**self.FOUND, 'agents': [{'name': 'codex', 'bin': 'codex'}], 'machines': [], 'devices': [], 'repos': []}
+        add, _, _ = setupcmd.plan(found, {'machines': {'desk': {'host': 'local'}}}, Asked(), NOW)
+        self.assertEqual(add['workers']['codex']['machine'], 'desk')
+        add, _, _ = setupcmd.plan(found, {'machines': {'remote': {'host': 'remote.example'}}}, Asked(), NOW)
+        self.assertNotIn('machine', add['workers']['codex'])
+
     def test_new_config_checks_out_with_priorities(self):
         add, why, top = setupcmd.plan(self.FOUND, {}, Asked(['max5']), NOW)
         text, stuck = setupcmd.apply('', add, why, top)

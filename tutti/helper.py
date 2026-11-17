@@ -63,7 +63,8 @@ def key_ok(state_dir, given):
 
 def helper_accounts(cfg):
     """Accounts a bookmarklet can read: no reader of their own, and a usage page (usage_url)."""
-    return {n: a['usage_url'] for n, a in cfg['accounts'].items() if (a or {}).get('usage_url') and not (a or {}).get('reader')}
+    return {n: a['usage_url'] for n, a in cfg['accounts'].items() if (a or {}).get('usage_url')
+            and (not (a or {}).get('reader') or (a['reader'] or {}).get('format') == 'browser-usage')}
 
 
 def helper_pages(cfg):

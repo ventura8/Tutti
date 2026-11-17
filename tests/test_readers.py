@@ -12,7 +12,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from datetime import timedelta, timezone
 from unittest import mock
 
-from tutti import browserusage, cli, codexusage, config, dashboard, pacing, readers, routing, state, workers
+from tutti import browserusage, cli, codexusage, config, dashboard, helper, pacing, readers, routing, state, workers
 
 # These tests read times in UTC: the host's detected zone is pinned so they pass anywhere (tests/test_tz.py covers zones)
 _PIN = mock.patch('tutti.tz.host_zone', return_value='UTC')
@@ -287,6 +287,26 @@ class ReadersTest(unittest.TestCase):
             r.read_all()
         self.assertEqual(read.call_count, 1)
 
+    def test_codex_remote_host_requires_explicit_read_on(self):
+        account = {'window': '7d', 'worker': 'codex'}
+        cfg = cfg_of(self.tmp.name, {'codex': account}, {'codex': {'kind': 'cli', 'machine': 'remote', 'command': ['codex']}})
+        cfg['machines']['remote'] = {'host': 'remote.example', 'transport': 'ssh'}
+        with mock.patch('tutti.codexusage.read') as read:
+            result = readers.Readers(cfg).read_all()['codex']
+        self.assertIn('accounts.codex.read_on', result['problem'])
+        read.assert_not_called()
+
+    def test_explicit_browser_reader_requires_https_and_includes_its_account(self):
+        account = {'usage_url': 'https://provider.example/usage', 'reader': {'format': 'browser-usage'}}
+        self.assertEqual(config.reader_problems('a', account), [])
+        self.assertTrue(config.reader_problems('a', {**account, 'usage_url': 'http://provider.example'}))
+        cfg = cfg_of(self.tmp.name, {'a': account})
+        self.assertEqual(helper.helper_pages(cfg)[account['usage_url']][0]['account'], 'a')
+        with mock.patch('tutti.browserusage.read', return_value={'readings': {'a': {'used': 20}}}) as read:
+            result = readers.Readers(cfg).read_all()['a']
+        self.assertEqual(result['used'], 20)
+        read.assert_called_once_with(cfg, account['usage_url'])
+
     def test_usage_page_accounts_are_read_automatically(self):
         account = {'window': '7d', 'usage_url': 'https://cursor.com/dashboard/spending', 'helper_label': 'Grok Bot'}
         cfg = cfg_of(self.tmp.name, {'grok-bot': account})
@@ -546,6 +566,9 @@ class RouteByReadingsTest(unittest.TestCase):
             self.assertEqual(by['codex']['verdict'], 'behind')
             pick = state.next_worker(cfg, accounts)
             self.assertEqual((pick['worker'], pick['account']), ('codex', 'codex'))
+            paused = [{'name': 'laptop', 'status': 'paused'}]
+            self.assertNotEqual(state.next_worker(cfg, accounts, paused, NOW)['worker'], 'codex')
+            self.assertEqual(state.next_worker(cfg, accounts, [{'name': 'laptop', 'status': 'free'}], NOW)['worker'], 'codex')
             self.assertIn('codex is behind', pick['reason'])
             from tutti import autopilot
             self.assertEqual(autopilot.on_machine(cfg, 'codex'), 'laptop')

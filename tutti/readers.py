@@ -264,6 +264,26 @@ def automatic_reader(name, account):
     return None
 
 
+def remote_codex_problem(cfg, name, account):
+    """Refuse a local reading when Codex is signed in on a different machine."""
+    if account.get('_read_here'):
+        return None
+    worker = (cfg.get('workers') or {}).get(account.get('worker') or 'codex') or {}
+    machine = worker.get('machine')
+    host = (cfg.get('machines') or {}).get(machine) or {}
+    if (automatic_reader(name, account) or {}).get('format') == 'codex-app-server' and machine and host.get('transport') != 'local':
+        return f'accounts.{name}.read_on is missing: set it to {machine} to read Codex usage on its login host'
+    return None
+
+
+def account_reader_spec(reader, name, account):
+    if reader.get('format') == 'codex-app-server':
+        return {**reader, 'account': name}
+    if reader.get('format') == 'browser-usage':
+        return {**reader, 'url': account.get('usage_url')}
+    return reader
+
+
 class Readers:
     """Runs each reader command at most every `every_minutes` (default: every probe, `dashboard.probe_seconds`); one run
     serves every account that shares the command. `force` (Refresh readings, `tutti usage refresh`) skips the wait."""
@@ -329,6 +349,10 @@ class Readers:
         """{'plan', 'used', 'resets', 'problem', 'every_minutes'} for one account from its `reader` and `plan` commands."""
         if a.get('read_on'):
             return self.read_there(name, a, force)
+        problem = remote_codex_problem(self.cfg, name, a)
+        if problem:
+            return {'plan': None, 'used': None, 'resets': None, 'every_minutes': 15,
+                    'problem': problem}
         out = {'plan': None, 'used': None, 'resets': None, 'problem': None, 'every_minutes': None}
         if a.get('plan'):
             data, problem = self._answer(a['plan'], force)
@@ -339,7 +363,7 @@ class Readers:
             out['problem'] = problem
         r = automatic_reader(name, a)
         if r:
-            spec = {**r, 'account': name} if r.get('format') == 'codex-app-server' else r
+            spec = account_reader_spec(r, name, a)
             data, problem = self._answer(spec, force)
             out['every_minutes'] = self.interval_minutes(spec)
             if data is not None:

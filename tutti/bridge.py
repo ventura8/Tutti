@@ -402,6 +402,7 @@ class Client:
         if not (readers.automatic_reader(name, a) or a.get('plan')):
             return refuse(f'account "{name}" has no reader, usage page or Codex worker in this computer\'s config')
         a.pop('read_on', None)
+        a['_read_here'] = True   # this bridge is the explicitly selected login host
         out = readers.Readers(self.cfg).read(name, a, force=bool(args.get('force')))
         out['resets'] = out['resets'].isoformat() if out.get('resets') else None
         return 0, out

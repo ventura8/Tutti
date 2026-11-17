@@ -44,6 +44,10 @@ class DetectTest(unittest.TestCase):
         self.assertEqual(sorted(roles.detect_device({'kind': 'tv'}, {})), ['android-device', 'tv-device'])
 
 
+def down(m, script, **kw):
+    return SimpleNamespace(stdout='', returncode=255)   # ssh could not reach the machine
+
+
 class EffectiveTest(unittest.TestCase):
     def test_override_add_and_off(self):
         det = {'docker-host': 'detected: docker', 'main': 'config: here'}
@@ -51,6 +55,9 @@ class EffectiveTest(unittest.TestCase):
         got = roles.effective({'roles_add': ['gpu-ai', 'main'], 'roles_off': ['docker-host']}, det)
         self.assertEqual([(r['role'], r['source']) for r in got], [('main', 'config'), ('gpu-ai', 'set')])
         self.assertEqual(roles.names(roles.effective({'roles': ['ui-desktop']}, det)), ['ui-desktop'])
+        self.assertEqual(roles.effective({'roles': []}, det), [])   # an empty override is no roles
+        self.assertEqual(roles._probe({'transport': 'ssh'}, {'at': 1.0, 'detected': {'x': 'y'}}, 1e6, down, False)[0]['detected'],
+                         {'x': 'y'})
 
     def test_machine_roles_probe_once_a_day_and_keep_an_answer_when_one_fails(self):
         cfg = {'machines': {'pc': {'transport': 'wsl'}, 'nuc': {'transport': 'ssh'}, 'phone': {'transport': 'android'}}}
@@ -86,6 +93,7 @@ class DispatchTest(unittest.TestCase):
         self.assertIn('a list of roles', dispatch._roles_errors('k', 'ui-desktop')[0])
         self.assertIn('not a role', dispatch._roles_errors('k', ['ui-desktop', 'flying-car'])[0])
         self.assertEqual(dispatch._roles_errors('k', ['gpu-ai']), [])
+        self.assertIn('each role is a name', dispatch._roles_errors('k', [{}])[0])
 
 
 SOUNDBAR_TXT = b'\x08_airplay\x04_tcp\x05local\x00' + bytes([14]) + b'model=HT-A7000' + bytes([11]) + b'fmodel=nope'
@@ -155,6 +163,9 @@ class CommandTest(unittest.TestCase):
             roles.edit(path, 'machines', 'pc', 'gpu-ai', False)
             with open(path, encoding='utf8') as f:
                 self.assertNotIn('gpu-ai', f.read().split('roles_off')[0])
+            with open(path, 'a', encoding='utf8') as f:
+                f.write('    roles: [ui-desktop]\n')
+            self.assertEqual(rolescmd.cmd_roles(cfg, ns, out=out.append), 2)   # an override is set: refused
 
 
 if __name__ == '__main__':

@@ -83,6 +83,9 @@ def _roles_errors(key, value):
         return []
     if not isinstance(value, list):
         return [f'{key}.roles is {value!r}: a list of roles, e.g. [windows-test-runner, ui-desktop]']
+    odd = [r for r in value if not isinstance(r, str)]
+    if odd:
+        return [f'{key}.roles has {odd[0]!r}: each role is a name, e.g. ui-desktop']
     bad = roles.unknown(value)
     return [f'{key}.roles names {", ".join(map(str, bad))}: not a role Tutti knows (`tutti roles list --all`)'] if bad else []
 

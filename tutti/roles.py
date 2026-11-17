@@ -166,7 +166,7 @@ def detect_device(d, readings):
 def effective(entry, detected):
     """[{role, why, source}] that count: `roles:` overrides everything; else detected plus `roles_add` minus `roles_off`."""
     entry = entry or {}
-    if entry.get('roles'):
+    if entry.get('roles') is not None:   # `roles: []` is an override too: no roles at all
         return [{'role': r, 'why': 'set by an admin (roles: overrides detection)', 'source': 'set'} for r in entry['roles']]
     off = set(entry.get('roles_off') or [])
     out = [{'role': r, 'why': w, 'source': 'detected' if w.startswith('detected') else 'config'}
@@ -197,6 +197,8 @@ def _probe(m, rec, now, sh, refresh):
         return rec, False
     try:
         r = (sh or remote.sh)(m, MACHINE_PROBE, capture=True, timeout=30)
+        if getattr(r, 'returncode', 0) == 255:   # ssh could not reach it: keep the last answer
+            raise OSError('ssh failed')
         return {'at': now, 'detected': detect_machine(r.stdout)}, True
     except (OSError, ValueError, subprocess.SubprocessError):
         return {**rec, 'at': now}, True
@@ -245,6 +247,8 @@ def edit(path, kind, name, role, on):
     with open(path, encoding='utf8') as f:
         text = f.read()
     entry = (((config.parse(text, path) or {}).get(kind) or {}).get(name)) or {}
+    if entry.get('roles') is not None:
+        raise ValueError(f'{kind}.{name}.roles overrides detection: edit that list instead (Settings, or the config)')
     add, off = list(entry.get('roles_add') or []), list(entry.get('roles_off') or [])
     keep, drop = (add, off) if on else (off, add)
     keep = keep if role in keep else [*keep, role]

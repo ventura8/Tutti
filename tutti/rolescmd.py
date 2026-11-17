@@ -65,7 +65,11 @@ def cmd_roles(cfg, a, out=print):
     if not kind:
         out(f'{a.name} is not a machine, a device or a network device\'s address: `tutti machines --roles` lists them')
         return 2
-    add, off = roles.edit(cfg['_path'], kind, a.name, a.role, a.action == 'set')
+    try:
+        add, off = roles.edit(cfg['_path'], kind, a.name, a.role, a.action == 'set')
+    except ValueError as e:
+        out(str(e))
+        return 2
     out(f'{kind}.{a.name}: roles_add {add or "[]"}, roles_off {off or "[]"}')
     return 0
 

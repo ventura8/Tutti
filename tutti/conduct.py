@@ -846,10 +846,15 @@ def pick_role(cfg, states):
     Auto: preferred while it has room, else the first main.fallback with room. Pure: no files, no connect."""
     frm = current(cfg)
     why = out_reason(cfg, frm, states)
+    if is_auto(cfg):
+        # auto always holds the best agent with room (owner, 2026-11-17): a stand-in left over from an earlier hand-off
+        # (a local model) gives way to the preferred agent or the first fallback with room, not only when it runs out
+        best = pick_auto(cfg, states)
+        if best and best != frm:
+            return best, why or f'auto: {best} is ahead of {frm} in the order and has room'
+        return (None, '') if not why else (pick_auto(cfg, states, {frm}), why)
     if not why:
         return None, ''
-    if is_auto(cfg):
-        return pick_auto(cfg, states, {frm}), why
     fallback = [n for n in settings(cfg)['fallback'] if n in cfg['workers']]
     to, _skipped = next_agent(fallback, {frm}, lambda n: out_reason(cfg, n, states))
     return to, why

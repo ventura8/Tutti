@@ -46,9 +46,10 @@ Each model has a measured tier (`tutti/power.py`): light, mid or strong from its
 down for a 2-3 bit quantisation, then one up at a pass rate of 75 % or more, one down at 25 % or less, over at least four
 attempts in Tutti's own task history (each attempt records its model). A task's difficulty is 0-2: its size (S, M, L), at
 
-Sizes a local model takes (owner, 2026-11-17): a strong model (14B and up) takes S and M tasks, a normal one (7–13B) S only,
-a small one S docs, summaries, triage and translations. An L task always goes to an online account: local models failed
-most of them.
+Sizes a local model takes (owner, 2026-11-17): a huge model (60B and up, such as a 70B on a 48–96 GB card) takes every
+size like an online agent; a strong model (14–59B) takes S and M tasks, a normal one (7–13B) S only,
+a small one S docs, summaries, triage and translations. An L task goes to a huge local model or an online account: smaller
+local models failed most of them.
 
 least 1 for a lint-fix or review, plus one per failed attempt. `model_for` picks the weakest tier that meets the
 difficulty (a translator still wins translations), and `order` puts the steps in that order, easy work on the weaker

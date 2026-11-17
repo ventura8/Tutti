@@ -12,7 +12,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 ### Fixed
 
 - Local models are no longer sent tasks too big for them: a strong local model takes S and M tasks, a normal one S only,
-  and an L task always goes to an online account (the PC's 27B model had been given L features it failed). See docs/FLEET.md.
+  and an L task goes to an online account (the PC's 27B model had been given L features it failed). A new **huge** tier (60B
+  and up, such as a 70B on a 48–96 GB card) takes every size. See docs/FLEET.md.
 
 ## [0.24.2] - 2026-11-17
 

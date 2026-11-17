@@ -237,3 +237,8 @@ class LocalSizes(unittest.TestCase):
         self.assertNotIn('L', fleet.TIERS['strong']['sizes'])
         self.assertEqual(fleet.TIERS['normal']['sizes'], ('S',))
         self.assertEqual(fleet.TIERS['small']['sizes'], ('S',))
+
+    def test_a_70b_model_is_huge_and_takes_an_l_task(self):
+        m = fleet.classify({'name': 'llama3.3:70b', 'details': {'parameter_size': '70.6B'}})
+        self.assertEqual(m['tier'], 'huge')
+        self.assertIn('L', fleet.TIERS['huge']['sizes'])

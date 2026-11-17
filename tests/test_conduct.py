@@ -405,5 +405,54 @@ class CliAndDashboardTest(Folder):
         self.assertIn('main is', config.validate(config.normalise({'main': 'a'}))[-1])
 
 
+class RoleHandOffTest(Folder):
+    def states(self, **rows):
+        out = []
+        for n, v in rows.items():
+            if isinstance(v, dict):
+                out.append({'name': n, 'panic_at': 95, 'used': 0, 'verdict': 'on pace', 'panic': False, **v})
+            else:
+                out.append({'name': n, 'panic': v >= 95, 'used': v, 'verdict': 'late', 'panic_at': 95})
+        return out
+
+    def test_panic_hands_the_role_to_the_next_fallback_connects_and_notes_chat(self):
+        notes, connects = [], []
+        line = conduct.hand_off_role(
+            self.cfg, self.states(**{'agy-claude': 99, 'agy-gemini': 97}),
+            connect_fn=lambda path, names: connects.append(names) or [],
+            chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('MAIN AGENT ROLE handed from agy to cursor', line)
+        self.assertIn('agy-claude: panic', line)
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+        self.assertEqual(connects, [['cursor']])
+        self.assertEqual(notes, [line])
+        self.assertIsNone(conduct.hand_off_role(  # same episode: no second chat note
+            self.cfg, self.states(**{'agy-claude': 99, 'agy-gemini': 97}),
+            connect_fn=lambda *a, **k: connects.append('x') or [],
+            chat_fn=lambda cfg, text: notes.append(text)))
+        self.assertEqual(notes, [line])
+
+    def test_spent_hands_off_and_no_fallback_with_room_notes_once(self):
+        # cursor must be enabled at load time (disabled accounts are stripped from the config)
+        self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z',
+                                                         'worker': 'cursor', 'enabled': True}},
+                          main={'agent': 'agy', 'fallback': ['cursor'], 'check_seconds': 0.05})
+        notes = []
+        spent = self.states(**{'agy-claude': {'used': 100, 'verdict': 'spent', 'panic': False},
+                               'agy-gemini': {'used': 100, 'verdict': 'spent', 'panic': False},
+                               'cursor': {'used': 100, 'verdict': 'spent', 'panic': False}})
+        line = conduct.hand_off_role(self.cfg, spent, connect_fn=lambda *a, **k: [],
+                                     chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('MAIN AGENT ROLE stays with agy', line)
+        self.assertIn('no agent in main.fallback has room', line)
+        self.assertEqual(conduct.current(self.cfg), 'agy')
+        self.assertIsNone(conduct.hand_off_role(self.cfg, spent, chat_fn=lambda cfg, text: notes.append(text)))
+        self.assertEqual(len(notes), 1)
+
+    def test_a_main_with_room_is_left_alone(self):
+        self.assertIsNone(conduct.hand_off_role(self.cfg, self.states(**{'agy-claude': 10, 'agy-gemini': 10}),
+                                                chat_fn=lambda *a: self.fail('no note')))
+
+
 if __name__ == '__main__':
     unittest.main()

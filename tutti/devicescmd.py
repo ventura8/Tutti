@@ -307,7 +307,7 @@ def lease_on_runner(cfg, a):
     print(text.strip())
     if rc != 0:
         return rc
-    addrs = dict(zip(names, (x[5:] for x in text.split() if x.startswith('ADDR=')), strict=False))
+    addrs = dict(zip(names, (x[5:] for x in text.split() if x.startswith('ADDR='))))
     there = adbhost.Host(a.runner, cfg['machines'][a.runner])
     try:
         for addr in addrs.values():

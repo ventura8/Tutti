@@ -131,6 +131,9 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
    as approval or dismisses the decision.
    Tutti checks every page of review threads; missing, malformed, partial or cyclic results block a merge until GitHub can
    return a complete list. This check alone does not bind the destination branch atomically at merge time.
+   Each review has its own completion file and a per-PR process lock. If no result arrives after the review timeout and
+   the recorded process is provably dead on this boot, Tutti retries at most twice; a held lock, unknown PID, another boot,
+   or an unsupported process lock waits for inspection instead of risking overlapping reviews.
 7. **Release** (only with `release: true` and a `release_command`): a batched patch release when fixes were merged and
    the last release (or failed try) is `release_every_hours` (24) ago. A release counts only once its command exits 0; a
    failed one leaves its fixes for the next. Tutti's own is `scripts/release-patch.sh`: it bumps the patch,

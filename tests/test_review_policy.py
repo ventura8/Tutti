@@ -94,6 +94,17 @@ class PolicyTest(unittest.TestCase):
             self.assertIn('could not be asked again', out[0])
             self.assertEqual(len(review.read_queue(cfg)), 1)
 
+    def test_waiting_rerequest_remains_queued_while_a_review_lock_is_held(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = cfg_of(d, 'wait')
+            review.schedule_rerequest(cfg, 'o/r', 7, NOW, 'wait')
+            out = review.rerequest_due(cfg, NOW + timedelta(minutes=1), FakeGh(),
+                                       rerun=lambda *_args: {'started': False})
+            self.assertIn('already running', out[0])
+            self.assertEqual(len(review.read_queue(cfg)), 1)
+            review.rerequest_due(cfg, NOW + timedelta(minutes=2), FakeGh(), rerun=lambda *_args: {'started': True})
+            self.assertEqual(review.read_queue(cfg), [])
+
     def test_skip_never_asks_coderabbit(self):
         with tempfile.TemporaryDirectory() as d:
             fake = limited_gh(copilot_review=True)

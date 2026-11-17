@@ -15,14 +15,21 @@ not protected (main, master: ship.protected) unless the project has `merge`; a m
 with `release`, merged fixes waiting and the last release `release_every_hours` ago. Dedupe: one task per Sentry issue or
 insight; at most `max_new_per_day` new tasks; the autopilot's no-progress guard parks what does not move."""
 import json
+import math
 import os
 import re
+import secrets
 import subprocess
 import sys
 import time
 from urllib.parse import urlsplit
 
-from . import backlog, config, github, insights, remote, telemetry
+from . import backlog, config, durable, github, insights, remote, telemetry
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 FILE = 'self-improve.json'
 SOURCES = ('sentry', 'insight', 'report')
@@ -30,6 +37,8 @@ DEFAULTS = {'enabled': True, 'auto_accept': True, 'every_hours': 6, 'max_new_per
 POLICY = {'tasks': False, 'autopilot_repo': '', 'merge': False, 'release': False, 'release_every_hours': 24, 'release_command': '',
           'base': ''}
 DAY = 86400
+REVIEW_GRACE = 120
+REVIEW_RESTARTS = 2
 
 
 def settings(cfg):
@@ -269,7 +278,10 @@ def user_reports(cfg, now, run=github.run):
 # ---- GitHub (I/O at the edge)
 
 def gh_json(args, run=None):
-    p = (run or github.run)(['gh', *args], capture_output=True, text=True)
+    try:
+        p = (run or github.run)(['gh', *args], capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
     if p.returncode != 0:
         return None
     try:
@@ -411,36 +423,178 @@ def task_pr_problem(cfg, task, run=github.run, allow_merged=False, expected_head
     return ''
 
 
-def review_files(cfg, repo, number):
-    base = os.path.join(config.state_dir(cfg), f'self-improve-review-{repo.replace("/", "-")}-{number}')
-    return base + '.log', base + '.rc'
-
-
-def request_review(cfg, repo, number, spawn=subprocess.Popen):
-    """`tutti pr review <n>` in the background: asks the AI reviewers and falls back to a cheap worker's review; its exit
-    code lands in the .rc file once it has finished."""
-    log, rc = review_files(cfg, repo, number)
-    if os.path.exists(rc):
-        os.remove(rc)
-    argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'pr', 'review', str(number), '--repo', repo]
-    script = 'rc=0; "$@" || rc=$?; echo $rc > "$RC_FILE"'
-    with open(log, 'a', encoding='utf8') as f:
-        spawn(['sh', '-c', script, 'review', *argv], stdout=f, stderr=f, stdin=subprocess.DEVNULL, start_new_session=True,
-              env={**os.environ, 'RC_FILE': rc})
-
-
-def review_result(cfg, repo, number):
-    """The finished review's exit code, or None while it has no readable result."""
+def remote_identity(url):
+    """(host, repository path) for an HTTPS/SSH git remote, without exposing any credential in the URL."""
     try:
-        with open(review_files(cfg, repo, number)[1], encoding='utf8') as f:
-            return f.read().strip()
+        if '://' in url:
+            parts = urlsplit(url)
+            if parts.scheme not in ('https', 'ssh') or not parts.hostname or parts.query or parts.fragment:
+                return None
+            host, path = parts.hostname, parts.path.lstrip('/')
+        else:
+            match = re.fullmatch(r'(?:[^@/:\s]+@)?([^/:\s]+):([^\s]+)', url)
+            if not match:
+                return None
+            host, path = match.groups()
+        path = path.rstrip('/')
+        if path.endswith('.git'):
+            path = path[:-4]
+        return host.casefold(), path.casefold()
+    except ValueError:
+        return None
+
+
+def origin_problem(cfg, task, wt, run):
+    """Every effective origin push URL must target the verified PR's own host and configured repository."""
+    pol = policy_of_repo(cfg, task.get('repo')) or {}
+    try:
+        pr_host = urlsplit(str(task.get('pr') or '')).hostname
+        remote = run(wt, 'remote', 'get-url', '--push', '--all', 'origin')
+    except (OSError, ValueError):
+        return 'cannot verify the worktree origin push repository'
+    if not pr_host or remote.returncode != 0:
+        return 'cannot verify the worktree origin push repository'
+    expected = (pr_host.casefold(), str(pol.get('repo') or '').casefold())
+    urls = (remote.stdout or '').splitlines()
+    if not urls or any(remote_identity(url.strip()) != expected for url in urls):
+        return 'the worktree origin push repository does not match the pull request repository'
+    return ''
+
+
+def review_files(cfg, repo, number, invocation=None):
+    base = os.path.join(config.state_dir(cfg), f'self-improve-review-{repo.replace("/", "-")}-{number}')
+    return base + '.log', base + (f'-{invocation}.rc' if invocation else '.rc')
+
+
+def review_lock(cfg, repo, number):
+    """Take the local per-PR process lock, or None when it is held or cannot safely be used."""
+    if fcntl is None:
+        return None
+    log, _rc = review_files(cfg, repo, number)
+    try:
+        fd = os.open(log + '.lock', os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            return None
+        return fd
     except OSError:
         return None
 
 
-def review_finished(cfg, repo, number):
+def request_review(cfg, repo, number, spawn=subprocess.Popen, invocation=None):
+    """`tutti pr review <n>` in the background: asks the AI reviewers and falls back to a cheap worker's review; its exit
+    code lands in the .rc file once it has finished."""
+    invocation = invocation or secrets.token_hex(16)
+    if not re.fullmatch(r'[0-9a-f]{32}', invocation):
+        return {'started': False}
+    log, rc = review_files(cfg, repo, number, invocation)
+    lock = review_lock(cfg, repo, number)
+    if lock is None:
+        return {'started': False}
+    argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'pr', 'review', str(number), '--repo', repo]
+    script = 'rc=0; "$@" || rc=$?; echo $rc > "$RC_FILE"'
+    try:
+        with open(log, 'a', encoding='utf8') as f:
+            child = spawn(['sh', '-c', script, 'review', *argv], stdout=f, stderr=f, stdin=subprocess.DEVNULL,
+                          start_new_session=True, pass_fds=(lock,), env={**os.environ, 'RC_FILE': rc})
+        pid = getattr(child, 'pid', None)
+        return {'started': True, 'pid': pid, 'boot': durable.boot_id(), 'invocation': invocation}
+    finally:
+        os.close(lock)
+
+
+def review_result(cfg, repo, number, invocation=None):
+    """The finished review's exit code, or None while it has no readable result."""
+    try:
+        if not isinstance(invocation, str) or not re.fullmatch(r'[0-9a-f]{32}', invocation):
+            return None
+        with open(review_files(cfg, repo, number, invocation)[1], encoding='utf8') as f:
+            result = f.read(16).strip()
+            return result if result.isascii() and result.isdigit() and 0 <= int(result) <= 255 else None
+    except OSError:
+        return None
+
+
+def review_finished(cfg, repo, number, invocation=None):
     """True once `tutti pr review` ended well (its .rc file says 0)."""
-    return review_result(cfg, repo, number) == '0'
+    return review_result(cfg, repo, number, invocation) == '0'
+
+
+def review_wake_path(cfg, repo, number):
+    return review_files(cfg, repo, number)[0] + '.wake.json'
+
+
+def rerequest_review(cfg, repo, number, spawn=subprocess.Popen):
+    """Wake a tracked rate-limited review; untracked manual reviews start their own invocation."""
+    key = f'{repo}#{number}'
+    tracked = read_state(cfg).get('reviews') or {}
+    record = tracked.get(key) or {}
+    if not isinstance(record, dict):
+        return {'started': False}
+    token, sha = record.get('invocation'), record.get('sha')
+    if token and sha and review_result(cfg, repo, number, token) == '4':
+        durable.dump_json(review_wake_path(cfg, repo, number), {'invocation': token, 'sha': sha})
+        return {'started': True, 'queued': True}
+    if key in tracked:
+        return {'started': False}
+    return request_review(cfg, repo, number, spawn)
+
+
+def review_woken(cfg, repo, number, record):
+    wake = telemetry.read_json(review_wake_path(cfg, repo, number), {})
+    return bool(isinstance(wake, dict) and record.get('invocation') and record.get('sha') and
+                wake.get('invocation') == record['invocation'] and wake.get('sha') == record['sha'])
+
+
+def review_process_dead(record):
+    """True only when the recorded review process is provably dead on this boot; None is unknown."""
+    pid, boot = record.get('pid'), record.get('boot')
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0 or not boot or boot != durable.boot_id():
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return None
+    try:   # a zombie cannot write a result; a surviving child must still release the per-PR lock
+        with open(f'/proc/{pid}/stat', encoding='utf8') as f:
+            return f.read().rsplit(')', 1)[-1].split()[0] == 'Z'
+    except (OSError, IndexError):
+        return False
+
+
+def recover_review(cfg, task, reviews, key, pol, number, now):
+    """After the deadline, retry only a provably dead local review with no surviving lock holder."""
+    record = reviews.get(key) if isinstance(reviews.get(key), dict) else {}
+    try:
+        started = float(record['at'])
+        timeout = float((cfg.get('review') or {}).get('timeout_minutes', 20))
+        if not math.isfinite(started) or not math.isfinite(timeout) or timeout < 0:
+            raise ValueError('invalid review timing')
+        deadline = started + max(60, timeout * 60) + REVIEW_GRACE
+    except (KeyError, TypeError, ValueError):
+        task['self_improve'] = 'review start time is unknown: cannot safely retry'
+        return
+    if now < deadline:
+        return
+    if review_process_dead(record) is not True:
+        task['self_improve'] = 'review process is active or its state is unknown: cannot safely retry'
+        return
+    lock = review_lock(cfg, pol['repo'], number)
+    if lock is None:
+        task['self_improve'] = 'review process lock is held or unavailable: cannot safely retry'
+        return
+    os.close(lock)
+    count = task.get('review_restart_count', 0)
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0 or count >= REVIEW_RESTARTS:
+        task['self_improve'] = 'review failed to finish repeatedly: inspect its log before another retry'
+        return
+    task['review_restart_count'] = count + 1
+    task['self_improve'] = 'review ended without a result: the next round safely retries it'
+    reviews.pop(key, None)
 
 
 def pushed_since_review(reviews, key, pr):
@@ -459,8 +613,15 @@ def ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn):
         offset = os.path.getsize(log)
     except OSError:
         offset = 0
-    request_review(cfg, pol['repo'], number, spawn)
-    reviews[key] = {'at': now, 'sha': pr.get('headRefOid') or '', 'log_offset': offset}   # the commit and review invocation
+    try:
+        started = request_review(cfg, pol['repo'], number, spawn)
+    except (OSError, subprocess.SubprocessError):
+        t['self_improve'] = 'the review could not start: check the worker and the next round will retry'
+        return None
+    if not started.get('started'):
+        t['self_improve'] = 'review is already running or its process lock is unavailable: the next round tries again'
+        return None
+    reviews[key] = {'at': now, 'sha': pr.get('headRefOid') or '', 'log_offset': offset, **started}
     return f'{t["id"]}: AI reviews asked on {key}'
 
 
@@ -536,6 +697,28 @@ def handle_blocked_review(cfg, t, pr, key, reviews, pol, number, result, run):
         requeue_review(t, key, reviews, pol)
 
 
+def pending_review(cfg, t, pr, key, reviews, pol, number, now):
+    """Wait for this invocation, re-review a new head, or safely schedule recovery of a dead process."""
+    record = reviews[key] if isinstance(reviews[key], dict) else {}
+    result = review_result(cfg, pol['repo'], number, record.get('invocation'))
+    if pushed_since_review(reviews, key, pr):
+        if result is None:
+            recover_review(cfg, t, reviews, key, pol, number, now)
+        else:
+            reviews.pop(key, None)
+            t['self_improve'] = 'new commits since the AI reviews: they are asked again'
+        return True, None
+    if result is None:
+        recover_review(cfg, t, reviews, key, pol, number, now)
+        return True, None
+    if result == '4' and review_woken(cfg, pol['repo'], number, record):
+        reviews.pop(key, None)
+        t['self_improve'] = 'review allowance reset: the next round requests a fresh review'
+        return True, None
+    t.pop('review_restart_count', None)
+    return False, result
+
+
 def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
     """One self-improvement task in review with a pull request: ask for reviews once, then merge when the gates allow."""
     pol = policy_of_repo(cfg, t['repo'])
@@ -554,11 +737,9 @@ def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
     pr = pr_state(pol['repo'], number, run)
     if pr is None:
         return None
-    if pushed_since_review(reviews, key, pr):
-        reviews.pop(key, None)   # commits pushed after the review are never merged unreviewed: the next round asks again
-        t['self_improve'] = 'new commits since the AI reviews: they are asked again'
+    waiting, result = pending_review(cfg, t, pr, key, reviews, pol, number, now)
+    if waiting:
         return None
-    result = review_result(cfg, pol['repo'], number)
     ok, why = may_merge(pol, pr, result == '0')
     t['self_improve'] = why or 'merging'
     if pr.get('state') == 'MERGED':

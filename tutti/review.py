@@ -321,7 +321,7 @@ def rerequest_due(cfg, now=None, gh_fn=gh, rerun=None):
     now = now or datetime.now(timezone.utc)
     if rerun is None:
         from . import selfimprove  # it imports this module
-        rerun = selfimprove.request_review
+        rerun = selfimprove.rerequest_review
     keep, done = [], []
     for i in (i for i in read_queue(cfg) if isinstance(i, dict)):
         try:
@@ -332,8 +332,14 @@ def rerequest_due(cfg, now=None, gh_fn=gh, rerun=None):
             keep.append(i)
             continue
         if i.get('policy') == 'wait':
-            rerun(cfg, i['repo'], i['number'])
-            done.append(f'{i.get("who") or "coderabbit"} limit passed: review of {i["repo"]}#{i["number"]} started again')
+            started = rerun(cfg, i['repo'], i['number'])
+            if isinstance(started, dict) and not started.get('started'):
+                keep.append(i)
+                done.append(f'{i.get("who") or "coderabbit"} review of {i["repo"]}#{i["number"]} is already running or '
+                            'its lock is unavailable; wait')
+                continue
+            verb = 'scheduled again' if isinstance(started, dict) and started.get('queued') else 'started again'
+            done.append(f'{i.get("who") or "coderabbit"} limit passed: review of {i["repo"]}#{i["number"]} {verb}')
             continue
         why = request(i['repo'], i['number'], i.get('who') or 'coderabbit', gh_fn)
         if why:

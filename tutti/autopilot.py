@@ -994,6 +994,7 @@ def publish(cfg, task, report, run=None, gh=None):
         task['review_retry_pending'] = True
         task.pop('review_expected_head', None)
         why = selfimprove.task_pr_problem(cfg, task, gh or github.run)
+        why = why or selfimprove.origin_problem(cfg, task, wt, run)
         if why:
             task['publish_note'] = f'not publishing: {why}'
             return
@@ -1020,6 +1021,7 @@ def retry_head(cfg, task, wt, run, gh):
     """Return the commit to push for a verified existing PR, or a failure reason."""
     from . import selfimprove
     why = selfimprove.task_pr_problem(cfg, task, gh or github.run)
+    why = why or selfimprove.origin_problem(cfg, task, wt, run)
     if why:
         return None, why
     head = run(wt, 'rev-parse', 'HEAD')

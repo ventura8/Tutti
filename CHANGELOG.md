@@ -20,6 +20,9 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   trigger an endless retry loop (t179).
 - A changes-requested decision only on an older PR head waits for an updated reviewer decision rather than repeatedly
   requeuing already-resolved work; missing review evidence still blocks merging (t179).
+- Reviews use invocation-specific completion files and a per-PR process lock; a provably dead review without a result
+  can restart twice without confusing an earlier result with the current head. Retry pushes verify every effective origin
+  URL matches the PR repository before touching the branch (t179).
 
 ## [0.27.13] - 2026-11-18
 

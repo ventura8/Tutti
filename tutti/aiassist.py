@@ -47,13 +47,17 @@ TUNABLE = {
     ('self_improve', 'every_hours'): (2, 24, 2),
 }
 MAX_AUTO_PER_DAY = 2
-# Narrow phrases from the network and the machine, never words a test name or an assertion uses; a rate limit is not
-# flaky: the ladder moves on to another account (the reviewer's finding on #77)
+# Narrow phrases from the network and the machine, never words a test name or an assertion uses. A usage limit or CLI
+# refusal is environment (t260), never flaky or real; a usage limit still moves the ladder on (the account is spent).
 FLAKY_RX = re.compile(r'\b(ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED)\b|Connection reset by peer|Temporary failure in name '
                       r'resolution|503 Service Unavailable|Read timed out|net::ERR_[A-Z_]+')
 ENV_RX = re.compile(r': command not found\b|is not on PATH|^ModuleNotFoundError: |No space left on device|\bENOSPC\b|'
-                    r'Cannot connect to the Docker daemon|\bOut of memory\b|\bOOM[- ]kill|Killed\s*$', re.M)
-RATE_RX = re.compile(r'\b429\b|rate[ -]?limit|quota (exceeded|exhausted)|usage limit', re.I)
+                    r'Cannot connect to the Docker daemon|\bOut of memory\b|\bOOM[- ]kill|Killed\s*$|'
+                    r'usage limit|quota (?:reached|exceeded|exhausted)|resource[_ ]exhausted|rate[ -]?limit|\b429\b|'
+                    r'refused a command|auto-denied|required the .+ permission', re.I | re.M)
+# forced environment even when a local model answers CLASS: real (usage limit, quota, CLI permission refusal)
+RATE_RX = re.compile(r'\b429\b|rate[ -]?limit|quota (?:reached|exceeded|exhausted)|usage limit|'
+                     r'resource[_ ]exhausted|refused a command|auto-denied|required the .+ permission', re.I)
 SWITCH_DOWN = 1800   # after no local model answered, decisions wait this long before asking again
 PER_ROUND = 5   # failures examined and tasks sharpened per round
 _running = threading.Lock()
@@ -114,7 +118,7 @@ def ask_local(cfg, prompt, purpose='self-improve', **kw):
 # ---- smarter decisions: the cheap fallbacks (pure)
 
 def classify_quick(text):
-    """flaky, environment or real, from the failing output alone."""
+    """flaky, environment or real, from the failing output alone. A usage limit or CLI refusal is environment (t260)."""
     if ENV_RX.search(text or ''):
         return 'environment'
     if FLAKY_RX.search(text or ''):
@@ -152,8 +156,8 @@ def criteria_lines(answer, limit=5):
 
 def failure_prompt(tail):
     return ('A coding agent\'s attempt failed. Its failing output follows. Answer in two lines: first CLASS: flaky, environment '
-            'or real (flaky: a dropped connection or a DNS failure; environment: a missing tool, disk, memory or permission; '
-            'a rate limit or a used-up quota is real, never flaky; '
+            'or real (flaky: a dropped connection or a DNS failure; environment: a missing tool, disk, memory, permission, '
+            'a usage limit, a used-up quota, or a CLI permission refusal; '
             'real: the code or the test is wrong). Then SUMMARY: the cause in one sentence a developer can act on.\n\n'
             + (tail or '')[-4000:])
 
@@ -174,8 +178,8 @@ def examine_attempt(cfg, t, ask):
     if answer is None:
         return False
     quick = classify_quick(last['tail'])
-    # a rate limit is never flaky, whatever the model says: the ladder moves on to another account
-    last['class'] = 'real' if RATE_RX.search(last['tail']) else parse_class(answer) or last.get('class') or quick
+    # a usage limit is environment (not the task), never flaky or real, whatever the model says (t260)
+    last['class'] = 'environment' if RATE_RX.search(last['tail']) else parse_class(answer) or last.get('class') or quick
     m = re.search(r'SUMMARY:\s*(.+)', answer)
     if m:
         last['summary'] = m.group(1).strip()[:400]

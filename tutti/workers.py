@@ -82,11 +82,15 @@ def _ollama_model_names(data):
     return {_tagged(m[k]) for m in models if isinstance(m, dict) for k in ('name', 'model') if isinstance(m.get(k), str) and m[k]}
 
 
-def available(worker, timeout=3):
-    """(usable now?, a note). A CLI worker needs its binary on PATH; an ollama worker needs its server and its model."""
+def available(worker, timeout=3, cfg=None, env=None):
+    """(usable now?, a note). A CLI worker needs its binary on PATH; an ollama worker needs its server and its model;
+    a grok worker needs its scout's webhook variables (read through secretenv, never printed)."""
     if worker['kind'] == 'cli':
         exe = shutil.which(worker['command'][0])
         return (True, exe) if exe else (False, f'{worker["command"][0]} is not on PATH: install it and sign in once')
+    if worker['kind'] == 'grok':
+        from . import grokwork
+        return grokwork.available(cfg or {}, worker, env)
     model = worker['model']
     try:
         with urllib.request.urlopen(config.ollama_url(worker['host'], '/api/tags'), timeout=timeout) as r:
@@ -101,15 +105,25 @@ def available(worker, timeout=3):
     return True, f'{model} at {worker["host"]}'
 
 
+def _check_one(cfg, worker, available_fn):
+    """One worker's (ready, note). Injects cfg when the callable takes it (workers.available for kind grok); mocks that only
+    take the worker stay."""
+    if available_fn is None:
+        return available(worker, cfg=cfg)
+    try:
+        return available_fn(worker, cfg=cfg)
+    except TypeError:
+        return available_fn(worker)
+
+
 def statuses(cfg, available_fn=None):
     """{worker: (ready, note)}: every worker asked at once. The one status `tutti workers`, the dashboard's Workers card, its
     Local models cards and Needs you all show (a local model is ready when its server answers through the worker's own host,
     its tunnel included, whatever the machine's ssh probe says)."""
     from concurrent.futures import ThreadPoolExecutor
-    available_fn = available_fn or available
     names = list(cfg['workers'])
     with ThreadPoolExecutor(max_workers=max(1, min(8, len(names)))) as pool:
-        return dict(zip(names, pool.map(lambda n: available_fn(cfg['workers'][n]), names), strict=True))
+        return dict(zip(names, pool.map(lambda n: _check_one(cfg, cfg['workers'][n], available_fn), names), strict=True))
 
 
 def listing(cfg, available_fn=None):
@@ -183,12 +197,16 @@ def stop_tree(p):
         pass
 
 
-def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
+def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None, check=''):
     """Runs a CLI worker on a brief in `cwd` (give each worker its own worktree). Its output is passed through as it comes and
     the last lines are kept, so a limit message in them can be read. Returns (exit code, the last lines); COMPACT_RC when it
-    was stopped at the autocompact threshold (a CLI without native compaction whose output shows its context use)."""
+    was stopped at the autocompact threshold (a CLI without native compaction whose output shows its context use).
+    A grok worker posts the bounded task to the scout webhook instead (tutti/grokwork.py)."""
     from . import autocompact
     worker = cfg['workers'][name]
+    if worker['kind'] == 'grok':
+        from . import grokwork
+        return grokwork.run(cfg, name, task, files, cwd=cwd, out=out or sys.stdout, check=check)
     out = out or sys.stdout
     kept = collections.deque(maxlen=KEEP_LINES)
     argv = grant_tree(with_args(command(worker, brief(cfg, task, files), log), extra), cwd)

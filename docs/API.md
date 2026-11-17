@@ -526,8 +526,9 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `accounts.*.enabled` | switch |  | On: Off takes it out of pacing, routing and the dashboard. | admin |
 | `accounts.*.opt_in` | switch | `False` | Opt-in: Off until you turn it on, without costing money. | admin |
 | `usage.log` | text | `~/.local/state/tutti/usage.jsonl` | Usage log: The file every reading is appended to. | admin |
-| `workers.*.kind` | select cli, ollama |  | Kind: cli: another vendor's agent; ollama: a local model server. | admin |
+| `workers.*.kind` | select cli, ollama, grok |  | Kind: cli: another vendor's agent; ollama: a local model server; grok: Grok Bot via its scout webhook. | admin |
 | `workers.*.command` | list |  | Command: The command line; {prompt} is the brief, {log} a log file per run. | admin |
+| `workers.*.scout` | select |  | Scout: For kind grok: the scout whose webhook receives the coding task. | admin |
 | `workers.*.denied` | text |  | Denied marker: Text in its log that means a headless permission was refused. | admin |
 | `workers.*.costs_money` | switch | `False` | Costs money per use: Kept off until you turn it on. | admin |
 | `workers.*.enabled` | switch |  | On: Off takes it out of routing, conduct and review. | admin |

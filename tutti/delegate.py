@@ -248,12 +248,17 @@ def delegate(cfg, name, task, files, repo, run_id=None, track=None, extra=(), ch
 
 def run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list):
     """(exit code, last lines) of the worker in the worktree. A local model (kind ollama) works through `tutti agent`'s loop on
-    the given files with the first check as its own check."""
-    if cfg['workers'][name]['kind'] != 'ollama':
+    the given files with the first check as its own check. A grok worker posts the task to the scout webhook."""
+    kind = cfg['workers'][name]['kind']
+    check = (check_list or [{}])[0].get('run') or ''
+    if kind == 'grok':
+        from . import grokwork
+        return grokwork.run(cfg, name, task, files, cwd=wt, out=log, check=check)
+    if kind != 'ollama':
         return run_compacting(cfg, name, task, files, wt, log, extra, worker_log)
     from . import fleet, local
     from . import workers as workers_mod
-    check = (check_list or [{}])[0].get('run') or 'true'
+    check = check or 'true'
     w = cfg['workers'][name]
     # the model the scheduler chose (`--extra=--model --extra=<name>`, tutti/autopilot.py), else the one that suits the task's
     # first line; its files in steps the model can hold at once. A failed step ends the run: later steps never build on it

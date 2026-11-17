@@ -8,12 +8,18 @@ to a cheaper worker.
 | Work | Worker | Why |
 | --- | --- | --- |
 | A bounded code task: one file, one test, one review pass | A CLI agent on a flat plan: `cursor-agent`, `agy` | Parallel capacity that costs no orchestrator tokens. |
+| A bounded code task Grok Bot can take | `workers.<n>.kind: grok` (scout webhook; Grok clones on its own computer) | Saves Claude / Cursor tokens; paced on the Grok Bot allowance. |
 | Bulk or repetitive work: log reading, drafts, mechanical rewrites, translation | A local model (Ollama) | Free once the hardware exists. |
 | Work that needs judgement, a browser, or multi-step shipping | A subagent of the orchestrator's own model | Worth the tokens. |
 
-**Grok Bot is a scout, not a worker.** It has no CLI to brief and never gets a worktree or a diff; it answers questions
-(research, browsing, watching changelogs, triage, monitoring, drafting) through a webhook routine, on a GitHub issue. See
-[SCOUTS.md](SCOUTS.md).
+**Grok Bot is a scout and, optionally, a coding worker.** As a scout it answers questions (research, browsing, watching
+changelogs, triage, monitoring, drafting) through a webhook routine on a GitHub issue ([SCOUTS.md](SCOUTS.md)). As a
+coding worker (`workers.<name>.kind: grok`, `scout: <name>`) Tutti posts a bounded task
+`{repo, branch, title, scope, check}` to that scout's webhook; Grok clones on its own computer, does the change, runs the
+check and posts a unified diff as the issue comment; Tutti applies the diff into the worktree. The webhook URL and key
+come only from the environment variables named by the scout (`url_env` / `key_env`, via `secretenv`), and are never
+printed. Put the account on `autopilot.ladder` (e.g. `grok-bot` with `accounts.grok-bot.worker: grok`) to use it as a
+ladder step.
 
 Flat plans have quotas too. Give CLI agents small, high-value tasks and avoid long agentic loops that burn the month
 in a day; `tutti usage` tracks them like any account.
@@ -143,6 +149,22 @@ the package's own apt repository, a source switched off with `Enabled: no`), and
 Ollama workers' models are pulled again through their server (only changed layers download). A worker's `update: false`
 leaves it out; `update: {command: ..., version: ...}` replaces how it is updated (a pipx or pip install, say). The dashboard
 runs a round every `update.every_hours` (24) unless `update.auto: false`, and shows the versions per machine.
+
+## Grok Bot (coding)
+
+```yaml
+workers:
+  grok: {kind: grok, scout: grok}
+accounts:
+  grok-bot:
+    worker: grok
+    # …its weekly meter (same account the scout uses)
+autopilot:
+  ladder: [agy-gemini, cursor, grok-bot, …]
+```
+
+`tutti workers` marks it ready when the scout's `url_env` and `key_env` are set in `~/.config/tutti/grok.env`. A run opens
+a scout issue, POSTs the coding payload (never the key), waits for a fenced diff comment and applies it with `git apply`.
 
 ## Local models
 

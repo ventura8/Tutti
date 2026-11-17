@@ -1,7 +1,9 @@
 # Scouts
 
-A scout is a helper that is **not a worker**. It never gets a worktree, a diff or a check; it is asked a question and
-answers in words. Scouts do what a chat bot with a browser is good at:
+A scout is a helper for questions: it is asked something and answers in words on a GitHub issue. The same Grok Bot
+webhook can also run **coding** tasks when a worker with `kind: grok` points at the scout ([WORKERS.md](WORKERS.md)):
+Tutti then sends `{repo, branch, title, scope, check}` and applies the diff Grok posts back. Scouts do what a chat bot
+with a browser is good at:
 
 - research: compare options, read docs, find the cause of an error message;
 - web browsing: open a page and report what is there;
@@ -89,8 +91,9 @@ The scout's `account` is paced like any other (docs/USAGE-PACING.md). The plan o
 - A send that failed (a refused key, a paused routine) waits an hour before the next try, so a wrong key never opens an
   issue every round.
 
-**A scout takes no backlog tasks.** Its account card never offers bounded tasks or "start more parallel work from the
-backlog"; its Do line says what the scout does with the allowance instead.
+**A scout-only account takes no backlog tasks.** Its account card never offers bounded tasks; its Do line says what the
+scout does with the allowance instead. When the same account's worker is `kind: grok`, it **does** take ladder coding
+tasks (its room stays); scout watches and questions still use the same allowance.
 
 **The week's plan** (`tutti/grokweek.py`, `tutti/spendrest.py`, `scouts.<name>.spend_rest`, on by default; `false` turns it
 off, or `{hours: 6, stop_at: 95, pace_gap_hours: 6, min_gap_hours: 3, burst_per_tick: 10, burst_max_open: 30, review_repos:

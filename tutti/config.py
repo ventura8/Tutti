@@ -432,7 +432,11 @@ def _worker_errors(name, w):
             f'workers.{name}.command is missing: a list such as [cursor-agent, -p, "{{prompt}}"]']
     if kind == 'ollama':
         return [f'workers.{name}.{k} is missing' for k in ('host', 'model') if not w.get(k)]
-    return [f'workers.{name}.kind is {kind!r}: use cli or ollama']
+    if kind == 'grok':
+        scout = (w or {}).get('scout')
+        return [] if isinstance(scout, str) and scout.strip() else [
+            f'workers.{name}.scout is missing: name the scout whose webhook sends the task (e.g. grok)']
+    return [f'workers.{name}.kind is {kind!r}: use cli, ollama or grok']
 
 
 def validate(cfg):
@@ -465,6 +469,9 @@ def validate(cfg):
         errs += _worker_errors(name, w)
         if (w or {}).get('machine') and w['machine'] not in cfg['machines']:
             errs.append(f'workers.{name}.machine names "{w["machine"]}", which is not under machines:')
+        if (w or {}).get('kind') == 'grok' and isinstance(w.get('scout'), str) and w['scout'].strip() and \
+                w['scout'] not in (cfg.get('scouts') or {}):
+            errs.append(f'workers.{name}.scout names "{w["scout"]}", which is not under scouts:')
     errs += [f'routing.workers names "{n}", which is not under workers:' for n in cfg['routing'].get('workers') or []
              if n not in cfg['workers']]
     for name, a in cfg['accounts'].items():

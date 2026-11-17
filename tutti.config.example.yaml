@@ -67,7 +67,8 @@ sync:
 # A machine may override any key with its own `files:`. Secrets (.env*, *token*, keys, service-account JSON) are always refused.
 files: {cache: ~/.cache/tutti/files, budget_gb: 50, keep_free_gb: 2, bwlimit_kbps: 0, compress: false, refuse: []}
 
-# Workers the orchestrator can brief. kind: cli (another vendor's agent) or ollama (a local model server).
+# Workers the orchestrator can brief. kind: cli (another vendor's agent), ollama (a local model server), or grok (Grok Bot
+# via its scout webhook: clones on its own computer; URL/key from the scout's env vars, never printed).
 workers:
   cursor: {kind: cli, command: [cursor-agent, -p, '{prompt}', --trust, --force, --output-format, text]}   # --force: commands run headless
   # Google Antigravity: {log} is a log file per run, where a headless permission denial shows ("soft-denying ...")
@@ -76,6 +77,8 @@ workers:
   # GitHub Copilot CLI: premium requests are paid per use, so costs_money: true keeps it off (out of routing, conduct and
   # review fallbacks, pacing and the dashboard) until enabled: true. Mark every worker or account that can cost money so.
   copilot: {kind: cli, command: [copilot, -p, '{prompt}', --allow-all-tools, --no-ask-user, -s], costs_money: true}
+  # Grok Bot as a coding worker: posts {repo, branch, title, scope, check} to the scout webhook (docs/WORKERS.md).
+  # grok: {kind: grok, scout: grok}
   big:                                # a large model on the GPU box, reached through a tunnel
     kind: ollama
     host: 127.0.0.1:11436
@@ -166,10 +169,12 @@ accounts:
     reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: gemini-weekly}
   # Grok Bot's weekly allowance (Cursor Pro includes it): read from the same spending page by the reading helper. Scouts
   # (below) are paced against it and send nothing once it is used: Grok Bot then pauses, or bills on-demand if allowed.
+  # For ladder coding: uncomment workers.grok above and set worker: grok (docs/WORKERS.md).
   grok-bot:
     window: 7d
     resets: '2026-01-04T00:00Z'
     resets_estimated: true
+    # worker: grok
     usage_url: https://cursor.com/dashboard/spending
     helper_label: Grok Bot
     source: cursor.com/dashboard/spending (Grok Bot, weekly)
@@ -347,15 +352,15 @@ dispatch: {enabled: true, idle_minutes: 5, lease_minutes: 10, retries: 2}
 # (move_after_minutes, urgent jobs only) and Wake-on-LAN (machines.<m>.wol_mac) are off until you turn them on.
 presence: {grace_seconds: 120, night: '23-08', long_minutes: 30, owner_laptop: null, move_after_minutes: null, wake: false}
 
-# Scouts: helpers that are not workers (docs/SCOUTS.md). Grok Bot answers through a webhook routine: Tutti opens an issue,
-# POSTs {task, reply_to} to the routine, and reads the answer the routine posts as a comment. The URL and key live only in
-# the environment variables named here (`tutti scout setup` prints the owner's steps).
+# Scouts: helpers for questions (docs/SCOUTS.md). The same Grok Bot webhook also serves a coding worker when
+# workers.<name>.kind: grok points at this scout (docs/WORKERS.md). Tutti opens an issue, POSTs the payload, and reads the
+# answer as a comment. The URL and key live only in the environment variables named here (`tutti scout setup`).
 scouts:
   grok:
     kind: grok-bot-webhook
     url_env: TUTTI_GROK_URL
     key_env: TUTTI_GROK_KEY
-    account: grok-bot                     # its weekly allowance paces the watches and queued questions
+    account: grok-bot                     # its weekly allowance paces the watches, questions and coding steps
     reply: {github_repo: octo/my-app, issue_label: tutti-scout}
     skills: [research, web-browse, triage, monitoring, drafting]
     timeout_minutes: 20                   # `tutti scout ask` waits this long for the answer

@@ -1,10 +1,11 @@
-"""Scouts: helpers that are not workers. A scout never touches a repository or a diff; it is asked a question (research,
-web browsing, watching changelogs and docs, triage, monitoring, drafting, reproducing a bug in a browser) and its answer
+"""Scouts: question helpers, and the webhook Grok coding workers reuse. A scout is asked a question (research, web
+browsing, watching changelogs and docs, triage, monitoring, drafting, reproducing a bug in a browser) and its answer
 comes back as a comment on a GitHub issue. Today's one kind is Grok Bot's webhook routine (`grok-bot-webhook`): Tutti opens
-the issue, POSTs {task, reply_to} to the routine's URL with `Authorization: Bearer <key>`, the routine posts its answer on the
-issue, and Tutti reads it back through `gh`. The URL and key come from environment variables (or stdin) and are never
-written, logged or printed. The plan of what to send when is pure: the scout's own account (its weekly allowance) decides,
-and nothing is sent once the allowance is used, so a scout never runs into on-demand spend."""
+the issue, POSTs {task, reply_to} (or a coding payload with repo/branch/title/scope/check) to the routine's URL with
+`Authorization: Bearer <key>`, the routine posts its answer on the issue, and Tutti reads it back through `gh`. The URL
+and key come from environment variables (or stdin) and are never written, logged or printed. The plan of what to send
+when is pure: the scout's own account (its weekly allowance) decides, and nothing is sent once the allowance is used, so
+a scout never runs into on-demand spend."""
 import contextlib
 import json
 import os
@@ -43,9 +44,9 @@ SETUP = (
     'Create a bot named "Tutti scout" (new bot, name it, keep it personal: Only me).',
     'In "Connect apps" (sidebar) connect GitHub, and allow it the repository named in scouts.<name>.reply.github_repo.',
     'In the bot\'s chat ask: "Create a routine named Tutti task with a webhook trigger. Instructions: the request body is JSON '
-    'with task and reply_to. Do the task (research, browse, triage, monitor or draft as it asks). Then post the full result as '
-    'one comment on the GitHub issue reply_to.url (repository reply_to.repo, issue number reply_to.issue). Never change code, '
-    'open pull requests, or close the issue. If you cannot do the task, post a comment that says why."',
+    'with task and reply_to. When kind is code (repo/branch/title/scope/check set): clone on your own computer, change only '
+    'scope, run check, post one ```diff comment; never PR, push or close. Otherwise research/browse/triage/monitor/draft and '
+    'post the result as one comment on reply_to.url. Never close the issue. If you cannot, post why."',
     'Open the routine (click the bot\'s name, Details, the routine) and find its Webhook section.',
     'Copy the "POST to" URL into the environment variable named by url_env (e.g. in ~/.profile: export TUTTI_GROK_URL=...).',
     'Copy the key (the part after "Bearer ") into the variable named by key_env (export TUTTI_GROK_KEY=...); never into the '

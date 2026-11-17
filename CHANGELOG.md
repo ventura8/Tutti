@@ -6,6 +6,15 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.26.0] - 2026-11-17
+
+### Added
+
+- Ladder step kind `grok`: Grok Bot as a coding worker. `workers.<name>.kind: grok` with `scout: <name>` posts a bounded
+  task (`repo`, `branch`, `title`, `scope`, `check`) to that scout's webhook (URL and key from env via secretenv, never
+  printed); Grok clones on its own computer and posts a unified diff that Tutti applies. A scout account whose worker is
+  kind `grok` keeps its backlog room on the ladder (t206).
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

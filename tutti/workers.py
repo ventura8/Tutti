@@ -147,7 +147,8 @@ COMPACT_RC = 76   # the run was stopped at the context threshold, to be started 
 
 def grant_tree(argv, cwd):
     """A headless CLI with an allow-list (a JSON settings argument with permissions.allow, as agy's --settings) may read and
-    write its own worktree: `read_file(<tree>)` and `write_file(<tree>)` are added, never a wider grant. Without them agy
+    write its own worktree: `read_file(<tree>)` and `write_file(<tree>)` are added (plus `ReadFile`/`WriteFile` for CLIs
+    that key permissions by tool name), never a wider grant. Without them agy
     auto-denies every file read in headless mode and the run ends with no output (2026-11-14: 23 wasted agy runs)."""
     if not cwd:
         return argv
@@ -163,7 +164,8 @@ def grant_tree(argv, cwd):
         perms = data.get('permissions') if isinstance(data, dict) else None
         allow = perms.get('allow') if isinstance(perms, dict) else None
         if isinstance(allow, list):
-            perms['allow'] = [*allow, *[g for g in (f'read_file({tree})', f'write_file({tree})') if g not in allow]]
+            grants = (f'read_file({tree})', f'write_file({tree})', f'ReadFile({tree})', f'WriteFile({tree})')
+            perms['allow'] = [*allow, *[g for g in grants if g not in allow]]
             a = json.dumps(data, separators=(',', ':'))
         out.append(a)
     return out

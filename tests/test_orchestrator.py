@@ -132,7 +132,8 @@ class WorkerCommandTest(unittest.TestCase):
         argv = ['agy', '-p', 'b', '--settings', '{"permissions":{"allow":["command(git)"]}}']
         out = workers.grant_tree(argv, '/w/tree')
         tree = os.path.abspath('/w/tree')   # the platform's spelling (a drive and backslashes on Windows)
-        self.assertEqual(json.loads(out[4])['permissions']['allow'], ['command(git)', f'read_file({tree})', f'write_file({tree})'])
+        self.assertEqual(json.loads(out[4])['permissions']['allow'],
+                         ['command(git)', f'read_file({tree})', f'write_file({tree})', f'ReadFile({tree})', f'WriteFile({tree})'])
         odd = ['agy', '--settings', '{"permissions":["read"]}']
         self.assertEqual(workers.grant_tree(odd, '/w/tree'), odd)          # no allow list: passed through
         self.assertEqual(workers.grant_tree(out, '/w/tree'), out)              # never twice

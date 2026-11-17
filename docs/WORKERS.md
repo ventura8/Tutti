@@ -33,6 +33,7 @@ output and `{log}` for this pattern and reports every hit as DENIED. All three r
   says `soft-denying tool confirmation "Bash"`. For one run, add `--settings '{"permissions":{"allow":["command(npx)"]}}'`:
   it **replaces** the saved list for that session (agy 1.5.9), so list every command the task needs. Gemini CLI's free
   tier is closed, so Antigravity's CLI is the Google worker; see [LESSONS.md](LESSONS.md).
+  File tools may appear as `read_file(...)`/`write_file(...)` or `ReadFile(...)`/`WriteFile(...)`; allow whichever your CLI asks for.
   agy 1.5.9 headless prints `jetski: ... a tool required the "command" permission ... auto-denied` for a command outside
   the list; match it with `denied: 'auto-denied|soft-denying'`.
   **Claude models in agy** (`--model claude-...`) call one generic `Bash` tool: per-command rules neither allow nor deny it

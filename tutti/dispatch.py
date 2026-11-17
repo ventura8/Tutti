@@ -61,6 +61,7 @@ def suites(cfg):
                         'run': s.get('run', ''), 'shards': shards.names(s), 'shard_opts': shards.options(s),
                         'shards_from': s.get('shards_from'), 'prepare': s.get('prepare'), 'verdict': s.get('verdict'),
                         'requires': s.get('requires'), 'pair': s.get('pair'), 'runner': s.get('runner') or (p or {}).get('runner'),
+                        'roles': list(s.get('roles') or []),
                         'started': s.get('started'), 'requeue_on': list(s.get('requeue_on') or []),
                         'dir': s.get('dir'), 'desktop': s.get('desktop'), 'devices': s.get('devices'), 'machines': s.get('machines'),
                         'pause': s.get('pause'), 'resume': s.get('resume'),
@@ -74,6 +75,19 @@ def _where_errors(cfg, key, v):
     if v.get('where', 'local') != 'local' and v['where'] not in cfg['machines']:
         return [f'{key}.where names "{v["where"]}", which is not under machines: (or use local)']
     return []
+
+
+def _roles_errors(key, value):
+    from . import roles
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        return [f'{key}.roles is {value!r}: a list of roles, e.g. [windows-test-runner, ui-desktop]']
+    odd = [r for r in value if not isinstance(r, str)]
+    if odd:
+        return [f'{key}.roles has {odd[0]!r}: each role is a name, e.g. ui-desktop']
+    bad = roles.unknown(value)
+    return [f'{key}.roles names {", ".join(map(str, bad))}: not a role Tutti knows (`tutti roles list --all`)'] if bad else []
 
 
 def _names_errors(cfg, key, names, section):
@@ -104,6 +118,7 @@ def _suite_errors(cfg, key, s):
              if k in s and not (isinstance(s[k], str) and s[k].strip())]
     if 'retries' in s and (isinstance(s['retries'], bool) or not isinstance(s['retries'], int) or s['retries'] < 0):
         errs.append(f'{key}.retries is {s["retries"]!r}: a whole number, 0 or more')
+    errs += _roles_errors(key, s.get('roles'))
     return errs + _names_errors(cfg, f'{key}.devices', s.get('devices'), 'devices') + \
         _names_errors(cfg, f'{key}.machines', s.get('machines'), 'machines')
 
@@ -215,6 +230,8 @@ def compatible(target, w):
     pair = w.get('pair') if isinstance(w.get('pair'), dict) else {}
     if pair.get('sender') and 'cast-sender' not in (target.get('roles') or []):
         return False   # a Cast suite runs on a sender: a device or a machine with Chrome or the desktop sender
+    if any(r not in (target.get('roles') or []) for r in w.get('roles') or []):
+        return False   # the suite's `roles:` (tutti/roles.py): every one on the target, else it goes elsewhere
     if w.get('pin'):   # an admin moved it (tutti/jobmove.py): to this target, or to any of its kind, over the suite's own list
         return w['pin'] in (ANY, target['id'])
     names = w['devices'] if target['kind'] in DEVICE_KINDS else w['machines']
@@ -681,9 +698,13 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
         tgts = targets(devices_rows, machine_rows, st, held, gone)
         pend = follow_devices(cfg, st, now, pend, devices_rows, gone)
         pend = runners_free(pend, machine_rows)
-        with contextlib.suppress(Exception):   # Cast roles of the machines (tutti/castroles.py), asked once a day
-            from . import castroles
-            mroles = castroles.machine_roles(cfg, now)
+        mroles = {}
+        try:   # the machines' roles (tutti/roles.py), probed once a day; a failure is said, and roles count as none
+            from . import roles as _roles
+            mroles = {n: _roles.names(rs) for n, rs in _roles.machine_roles(cfg, now).items()}
+        except Exception as e:   # any failure here must not stop the round
+            event(st, now, f'machine roles unreadable ({type(e).__name__}: {e}): suites with roles: wait until they are')
+        with contextlib.suppress(Exception):
             droles = {d['name']: d.get('roles') or [] for d in devices_rows or []}
             for t in tgts:
                 t['roles'] = (mroles if t['kind'] == 'machine' else droles).get(t['name'], [])

@@ -19,6 +19,7 @@
     <script src="telemetry.js?v=__TUTTI_VERSION__" defer></script>
     <script src="update.js?v=__TUTTI_VERSION__" defer></script>
     <script src="attention.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="roles.js?v=__TUTTI_VERSION__" defer></script>
     <script src="app.js?v=__TUTTI_VERSION__" defer></script>
     <script src="devices.js?v=__TUTTI_VERSION__" defer></script>
     <script src="controls.js?v=__TUTTI_VERSION__" defer></script>
@@ -207,6 +208,7 @@
                 <div id="machines-disk"></div>
                 <div id="machines-selfheal"></div>
                 <p class="row__note" id="machines-failover"></p>
+                <label class="role-filter" for="machines-role-filter">Role <select id="machines-role-filter"><option value="">All</option></select></label>
                 <ul id="machines" class="list list--grid"></ul>
                 <h3 class="card__sub" id="waiting-h" hidden>Waiting on away or asleep targets</h3>
                 <ul id="waiting" class="list" aria-labelledby="waiting-h"></ul>
@@ -367,7 +369,10 @@
                     <p class="card__meta" id="controls-meta"></p>
                 </header>
                 <ul id="idle-warnings" class="list" aria-label="Idle while work waits"></ul>
+                <label class="role-filter" for="devices-role-filter">Role <select id="devices-role-filter"><option value="">All</option></select></label>
                 <ul id="devices" class="list" aria-label="Android devices"></ul>
+                <h3 class="card__sub" id="lan-devices-h" hidden>On the network</h3>
+                <ul id="lan-devices" class="list" aria-labelledby="lan-devices-h" hidden></ul>
                 <div id="device-actions" class="row" role="group" aria-label="Pair or move devices"></div>
                 <div id="device-tools" aria-live="polite"></div>
                 <h3 class="card__sub">Pause or resume</h3>

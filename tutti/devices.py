@@ -340,8 +340,14 @@ def readings_command(device, scripts_dir, wake=False):
 
 
 def _roles(d, readings):
-    from . import castroles
-    return castroles.roles_of(d, castroles.decide(readings.get('cast')) if readings.get('cast') else [])
+    from . import roles
+    return roles.names(roles.effective(d, roles.detect_device(d, readings)))
+
+
+def role_rows(d, readings):
+    """[{role, why, source}] for the device card's chips."""
+    from . import roles
+    return roles.effective(d, roles.detect_device(d, readings))
 
 
 def device_state(d, readings):
@@ -351,7 +357,7 @@ def device_state(d, readings):
             'screen', 'wifi', 'call', 'external_by', 'prep_left',
             'revived', 'dnd', 'cast')
     return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'kind': d.get('kind', 'phone'), 'status': st,
-            'reason': reason, 'hours': d.get('hours'), 'roles': _roles(d, readings),
+            'reason': reason, 'hours': d.get('hours'), 'roles': _roles(d, readings), 'role_info': role_rows(d, readings),
             'night': (d.get('_night') or {}) if (d.get('_night') or {}).get('on') else None,
             'policy': pol, **{k: readings.get(k) for k in keep}}
 

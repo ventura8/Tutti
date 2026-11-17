@@ -550,7 +550,7 @@ def assemble(cfg, probes, now=None, is_alive=alive):
     return {'version': __version__, 'generated_at': now_dt.isoformat(), 'config': cfg['_path'],
             'refresh_seconds': cfg['dashboard']['refresh_seconds'], 'usage': usage,
             'machines': {'probed_at': iso(probes.get('machines_at')), 'items': machines, 'configured': known['machines']},
-            'devices': {'items': probes.get('devices') or [], 'configured': known['devices']},
+            'devices': {'items': probes.get('devices') or [], 'configured': known['devices'], 'lan': probes.get('lan_devices') or []},
             'workers': {'probed_at': iso(probes.get('workers_at')), **workers, 'off': off_notes(cfg), 'configured': known['workers']},
             'jobs': jobs,
             'summary': {**summary(usage, machines, workers, jobs, next_worker(cfg, usage['accounts'])), 'runs_today': runs_today(cfg)}}
@@ -583,17 +583,26 @@ def runs_today(cfg):
 
 
 def with_cast_roles(cfg, mstate):
-    """Each machine's Cast roles from the daily check (tutti/castroles.py's cache), for the machine card."""
-    import json
+    """Each machine's roles (tutti/roles.py's daily cache plus the config) for the machine card: `roles` as
+    [{role, why, source}] for the chips and their tooltips, `cast_roles` the names as before."""
+    from . import roles
     try:
-        with open(os.path.join(config.state_dir(cfg), 'cast-machines.json'), encoding='utf8') as f:
-            seen = json.load(f)
+        have = roles.cached(cfg)
     except (OSError, ValueError, KeyError):
         return mstate
-    seen = seen if isinstance(seen, dict) else {}
     for m in mstate or []:
-        m['cast_roles'] = ((cfg.get('machines') or {}).get(m['name']) or {}).get('roles') or (seen.get(m['name']) or {}).get('roles') or []
+        m['roles'] = have.get(m['name']) or []
+        m['cast_roles'] = [r['role'] for r in m['roles'] if r['role'].startswith('cast-')]
     return mstate
+
+
+def lan_devices(cfg, now):
+    """Media devices on the network (tutti/lanmedia.py), scanned once a day; [] when the scan fails."""
+    from . import lanmedia
+    try:
+        return lanmedia.devices(cfg, now)
+    except (OSError, ValueError, KeyError):
+        return []
 
 
 def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, stored_fn=None, readings_fn=None):
@@ -601,4 +610,5 @@ def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, 
     return {'machines': with_cast_roles(cfg, machines_state(cfg, probe_fn, stored_fn)), 'machines_at': clock(),
             'devices': devices.dnd_view(cfg, devices.devices_state(cfg, readings_fn or (lambda m, d: {'state': 'unreachable'})),
                                         learn=readings_fn is not None),
-            'workers': workers_state(cfg, available_fn, which), 'workers_at': clock()}
+            'workers': workers_state(cfg, available_fn, which), 'workers_at': clock(),
+            'lan_devices': lan_devices(cfg, clock()) if readings_fn is not None else []}

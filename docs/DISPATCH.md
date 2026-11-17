@@ -269,6 +269,8 @@ round, so the work goes back to the device as soon as it returns. The device car
 
 ## Paired devices (roles)
 
+Roles in general (a suite's `roles:`, every machine's and device's detected roles) are in [MACHINES.md](MACHINES.md#roles).
+
 Cast roles are detected (`tutti/castroles.py`, once a day and at pairing; the device and machine cards show them; an
 admin's `roles:` overrides): a device is a receiver when it is a TV, has the Cast receiver service or Play services'
 mirroring receiver (a Pixel Tablet, a phone), and a sender when it has Play services' Cast and a screen to send from; a

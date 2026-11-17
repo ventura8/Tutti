@@ -82,6 +82,8 @@ POLICY = {
     'policy.screen': field('Screen', 'What a run does with the screen.', 'select', choices=['wake', 'off', 'any']),
 }
 
+ROLES_OVERRIDE, ROLES_ADDED, ROLES_REMOVED = 'Roles (override)', 'Roles added', 'Roles removed'   # tutti/roles.py
+
 FIELDS = {
     # accounts and readings
     'accounts.*.window': field('Window', 'How often the quota resets: 5h, 7d, 2w or monthly.', 'text'),
@@ -225,10 +227,20 @@ FIELDS = {
                            'volume at 0 (the alarm stays yours); your own values come back at hand-back.', 'switch'),
     'night.hours': field('Night hours', 'Local hours HH-HH, e.g. 22-08.', 'text'),
     'night.devices': field('Night mode on', 'The devices it applies to; empty: every device.', 'list', choices_from='devices'),
-    'devices.*.roles': field('Roles', 'What the device is for other devices: cast-receiver (a Cast target), cast-sender.', 'list',
-                             item='role'),
+    'devices.*.roles': field(ROLES_OVERRIDE, 'The whole list, over what is detected (tutti/roles.py): cast-receiver, '
+                             'cast-sender, android-device, tv-device...', 'list', item='role'),
+    'devices.*.roles_add': field(ROLES_ADDED, 'Added to the detected roles (`tutti roles set`).', 'list', item='role'),
+    'devices.*.roles_off': field(ROLES_REMOVED, 'Taken from the detected roles (`tutti roles unset`).', 'list', item='role'),
+    'machines.*.roles': field(ROLES_OVERRIDE, 'The whole list, over what is detected: windows-test-runner, ui-desktop, gpu-ai, '
+                              'docker-host... (docs/MACHINES.md, Roles).', 'list', item='role'),
+    'machines.*.roles_add': field(ROLES_ADDED, 'Added to the detected roles (`tutti roles set`).', 'list', item='role'),
+    'machines.*.roles_off': field(ROLES_REMOVED, 'Taken from the detected roles (`tutti roles unset`).', 'list', item='role'),
     'devices.*.hours': field('Blocked hours', 'Daily local hours when the device is not used at all, e.g. {window: "22-07", '
                              'days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none.', 'yaml'),
+    'lan_devices.*.roles': field(ROLES_OVERRIDE, 'A media device on the network (by its address): the whole list.', 'list',
+                                 item='role'),
+    'lan_devices.*.roles_add': field(ROLES_ADDED, 'Added to what mDNS and SSDP found, e.g. bluetooth-audio.', 'list', item='role'),
+    'lan_devices.*.roles_off': field(ROLES_REMOVED, 'Taken from what mDNS and SSDP found.', 'list', item='role'),
     'devices.*.kind': field('Kind', 'Set by `tutti devices pair`: phone, tablet or tv.', 'select', choices=['phone', 'tablet', 'tv']),
     'devices.*.model': field('Model', 'Set by `tutti devices pair`; a move checks the device it reaches is this one.', 'text'),
     'devices.*.capabilities': field('Capabilities', 'Set by `tutti devices pair`: camera, telephony, touchscreen, tv...', 'list',

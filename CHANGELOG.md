@@ -6,6 +6,23 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+
+## 0.24.0 (2026-11-17)
+
+### Added
+
+- Roles for machines and devices (`tutti/roles.py`, docs/MACHINES.md *Roles*): windows-, linux-, macos- and
+  android-test-runner, android-device, tv-device, emulator-host, ios-webkit-runner, docker-host, build-machine, gpu-ai,
+  ui-desktop, chrome-browser, main, backup-main, vpn-node and the Cast roles, detected once a day (OS, tools, GPU memory,
+  desktop session, device readings) or from the config, each with why. Admins override them (`roles`, `roles_add`,
+  `roles_off` in the config or Settings; `tutti roles set|unset`). A suite's `roles:` sends it only to targets with every
+  one, then the power score picks as before.
+- Media devices on the LAN (`tutti/lanmedia.py`): AirPlay, Cast, Spotify Connect (mDNS) and DLNA renderers (SSDP), e.g.
+  a soundbar, listed under Devices, *On the network*, with airplay-receiver, chromecast-builtin, spotify-connect,
+  dlna-renderer, smart-tv roles.
+- Dashboard: role chips on machine and device cards (tooltip: detected, from the config or set by an admin) and a Role
+  filter; CLI `tutti machines --roles [--refresh]`, `tutti roles list [--all]`.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

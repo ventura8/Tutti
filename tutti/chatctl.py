@@ -101,6 +101,15 @@ def cli_args(worker, effort):
     return [str(a).replace('{effort}', level) for a in tpl or []]
 
 
+def chat_args(worker):
+    """Arguments a CLI agent gets only in Chat (`workers.<n>.chat_args`): Cursor answers in its read-only ask mode by
+    default. In agent mode a chat's "continue" started work and printed nothing before Chat's deadline (owner,
+    2026-11-17); work goes through Tutti's tasks, not the chat process."""
+    if worker.get('chat_args') is not None:
+        return [str(a) for a in worker['chat_args']]
+    return ['--mode', 'ask'] if os.path.basename(str((worker.get('command') or [''])[0])) == 'cursor-agent' else []
+
+
 def window(cand, cfg, effort):
     """The tokens a model reads at most: a local model's num_ctx at this effort, an online agent's context window."""
     w = (cfg.get('workers') or {}).get(cand.get('worker')) or {}

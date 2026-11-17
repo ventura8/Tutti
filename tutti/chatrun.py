@@ -55,13 +55,14 @@ def ollama_stream(worker, messages, cancel, timeout=MODEL_TIMEOUT, tools=None, t
                 return
 
 
-def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.Popen, clock=time.monotonic, extra=()):
+def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.Popen, clock=time.monotonic, extra=(),
+               cwd=None):
     """Yields a CLI worker's answer line by line (`claude -p`, `cursor-agent -p`): the conversation as one prompt. A reader
     thread feeds a queue, so Stop and the deadline are seen even while the worker prints nothing; past the deadline the
     worker is killed and OSError lets the next model answer."""
     prompt = '\n\n'.join(f'{m["role"].upper()}:\n{m["content"]}' for m in messages) + '\n\nASSISTANT:'
     proc = popen(workers.command(worker, prompt) + list(extra), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                 text=True, start_new_session=True)
+                 text=True, start_new_session=True, cwd=cwd)
     lines = queue.Queue()
     threading.Thread(target=_pump, args=(proc.stdout, lines), daemon=True).start()
     deadline, name = clock() + timeout, (worker.get('command') or ['the worker'])[0]
@@ -90,6 +91,15 @@ def _pump(src, lines):
     lines.put(None)
 
 
+def chat_workdir(cfg):
+    """An empty folder of its own for a chat's CLI agent (owner, 2026-11-17): started in the dashboard's home folder,
+    cursor-agent read the whole home before answering and Chat gave up after CLI_TIMEOUT with nothing."""
+    import os
+    path = os.path.join(config.state_dir(cfg), 'chat-work')
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 def stream_of(cand, cfg, messages, cancel):
     """The model's stream at the conversation's effort: a local model thinks and reads more, an online agent gets its own
     effort setting (Claude Code's --effort, or workers.<n>.effort_args)."""
@@ -100,7 +110,7 @@ def stream_of(cand, cfg, messages, cancel):
         from . import local
         local.wait_for_preempt(cfg, w)   # Tutti's own short job holds this model: the chat's next turn waits, nothing is lost
         return ollama_stream(w, messages, cancel, tools=chat.ollama_tools() if cand.get('tools') else None, think=think, num_ctx=ctx)
-    return cli_stream(w, messages, cancel, extra=chatctl.cli_args(w, effort))
+    return cli_stream(w, messages, cancel, extra=chatctl.cli_args(w, effort) + chatctl.chat_args(w), cwd=chat_workdir(cfg))
 
 
 # ---- the tools: the MCP server's own calls, after the chat's role check

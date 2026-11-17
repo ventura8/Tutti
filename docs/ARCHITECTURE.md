@@ -290,3 +290,16 @@ Settings: `quiet.reserve_gb` (4), `quiet.cpu_quota` (`200%`), `quiet.ollama` (`h
   `tutti doctor` to inspect.
 - **Refuse early, say why.** Every refusal names what happened, why, and the next step.
 - **Pure core.** Routing, pacing and validation are pure functions; I/O sits at the edge and is thin.
+
+### Dashboard drain primitive (not yet activated)
+
+`drain.Gate` tracks work registered in one process. Beginning a drain atomically rejects new registered work, lets
+existing work finish, and returns a token; a bounded wait reports success only while that same drain is active. Cancel
+reopens admission without stopping work, and stale tokens cannot cancel a newer drain. Timeout does not reopen it.
+
+This is a building block only: it does not cover any entry point until explicitly wired, route connections, preserve
+streams, fence another host, exclude older dashboard versions, or supervise a process. In particular, a zero count is
+not evidence that the dashboard is safe to restart. A future supervisor must register all relevant work and establish
+exclusive admission, mixed-version exclusion and live stream/job ownership before relying on a drain. A successful
+wait is only a snapshot: the supervisor must retain exclusive authority from that point through routing and handover,
+so no other actor can cancel the drain or reopen admission in between.

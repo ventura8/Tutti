@@ -64,6 +64,9 @@ dashboard flags agent processes it finds working outside a Tutti folder.
 
 `tutti run <worker|auto> "<task>" [files] --repo <repo> [--bg] [--track <name>] [--discard] [--no-checks]`:
 
+`<repo>` is a folder, or a name under `autopilot.repos` (its `path`): a bare name always uses that path, so the run works
+from a non-git cwd (MCP `delegate_task`, chat `/delegate`).
+
 1. a worktree of `<repo>` at its HEAD, detached, at `<project.worktrees>/<delegate.prefix><id>` (or `<prefix><track>`,
    reused when it exists); the dependency folders of `ship.share` are hard-linked from the main checkout;
 2. the worker, headless, in that worktree, on the brief below; its output goes to the run's log;

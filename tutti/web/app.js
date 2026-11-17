@@ -454,6 +454,13 @@ function account(a, now) {
     return card;
 }
 
+function offAccount(a) {
+    return el('article', { class: 'account', 'aria-label': `${a.name}: ${a.status}` },
+        el('div', { class: 'account__top' }, el('h3', { class: 'account__name', text: a.name }),
+            chip(a.status, a.status === 'paused' ? 'warn' : 'idle')),
+        el('p', { class: 'account__by', text: a.reason }));
+}
+
 function renderUsage(s, now, force) {
     const u = s.usage;
     // While a reading is being typed, the cards stay as they are: a poll must not wipe the form or move the focus.
@@ -470,7 +477,8 @@ function renderUsage(s, now, force) {
     const ownCard = (n) => ui.editing.has(n) || byName.get(n)?.needs_reading !== false;
     const inside = new Set(u.accounts.flatMap((a) => (a.limits || []).map((l) => l.name)).filter((n) => !ownCard(n)));
     const shown = u.accounts.filter((a) => !inside.has(a.name));
-    $('usage').replaceChildren(...(shown.length ? shown.map((a) => account(a, now))
+    const cards = [...shown.map((a) => account(a, now)), ...(u.off_accounts || []).map(offAccount)];
+    $('usage').replaceChildren(...(cards.length ? cards
         : [empty('No accounts yet', codeText('Add an accounts: section to the config (see ', 'tutti.config.example.yaml', ').'))]));
     if (u.owner) $('owner').replaceChildren(...ownerPanel(u.owner));
 }

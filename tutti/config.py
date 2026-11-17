@@ -319,14 +319,26 @@ def is_on(entry):
 
 def opt_out(cfg):
     """Takes the accounts and workers that are off out of the config: out of pacing, panic, routing, review and conduct
-    fallbacks and the dashboard (an account's readings stay in the log, unused). An account whose worker is off is off too.
-    `off` lists them for the dashboard's note, with whether they cost money."""
+    fallbacks (an account's readings stay in the log, unused). An account whose worker is off is off too.
+    `off` lists them for display, with their reason for being off."""
     off_workers = sorted(n for n, w in cfg['workers'].items() if not is_on(w))
     off_accounts = sorted(n for n, a in cfg['accounts'].items() if not is_on(a) or (a or {}).get('worker') in off_workers)
     def entry(kind, n, section):
         e = cfg[section][n] or {}
         out = {'name': n, 'kind': kind, 'costs_money': bool(e.get('costs_money'))}
-        return {**out, 'paused': e['paused']} if e.get('paused') else out
+        if e.get('paused'):
+            out['paused'] = e['paused']
+        worker = e.get('worker') if kind == 'account' else None
+        if kind == 'account' and not is_on({k: v for k, v in e.items() if k != 'paused'}):
+            out['disabled'] = True
+        if worker in off_workers:
+            out['off_worker'] = worker
+            worker_cfg = cfg['workers'][worker] or {}
+            if worker_cfg.get('paused'):
+                out['worker_paused'] = worker_cfg['paused']
+            if not is_on({k: v for k, v in worker_cfg.items() if k != 'paused'}):
+                out['worker_disabled'] = True
+        return out
     cfg['off'] = [entry('worker', n, 'workers') for n in off_workers] + [entry('account', n, 'accounts') for n in off_accounts]
     cfg['disabled_accounts'], cfg['disabled_workers'] = off_accounts, off_workers
     paused_workers = {n for n, w in cfg['workers'].items() if (w or {}).get('paused')}

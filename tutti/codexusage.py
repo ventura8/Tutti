@@ -4,8 +4,6 @@ import re
 import subprocess
 from datetime import datetime, timezone
 
-from . import pacing
-
 TIMEOUT = 20
 REQUEST = '\n'.join((
     json.dumps({'id': 1, 'method': 'initialize', 'params': {'clientInfo': {'name': 'tutti', 'version': '0.1.0'}}}),
@@ -63,7 +61,8 @@ def window(rates, account, spec):
         chosen = next((value for name, value in windows if name == wanted), None)
     else:
         desired = {'5h': 300, '7d': 10080}.get(account.get('window'))
-        chosen = min(windows, key=lambda item: abs(int(item[1].get('windowDurationMins') or 0) - desired))[1] if windows and desired else None
+        chosen = (min(windows, key=lambda item: abs(int(item[1].get('windowDurationMins') or 0) - desired))[1]
+                  if windows and desired else None)
         if chosen and desired and abs(int(chosen.get('windowDurationMins') or 0) - desired) > desired * 0.2:
             chosen = None
     if not chosen:

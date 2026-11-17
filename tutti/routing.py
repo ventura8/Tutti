@@ -208,8 +208,28 @@ USE_FIRST = ('late', 'behind')    # quota that will be lost at the reset: spend 
 NORMAL = ('on pace', 'no reading', 'unknown')
 
 
+def missing_limits(cfg, name, state):
+    """Configured linked quota windows absent from this account's pacing state, including paused accounts."""
+    limits = cfg.get('_account_limits') or {n: (a or {}).get('limits') or [] for n, a in (cfg.get('accounts') or {}).items()}
+    expected, pending = set(), list(limits.get(name) or [])
+    while pending:
+        n = pending.pop()
+        if n not in expected:
+            expected.add(n)
+            pending.extend(limits.get(n) or [])
+    found, pending_states = set(), list(state.get('limits') or [])
+    while pending_states:
+        item = pending_states.pop()
+        if isinstance(item, dict):
+            found.add(item.get('name'))
+            pending_states.extend(item.get('limits') or [])
+    return sorted(expected - found)
+
+
 def account_unfit(s):
     """Why an account (a pacing.account_state) must not take new work, or ''."""
+    if s.get('_missing_limits'):
+        return 'missing linked quota state: ' + ', '.join(s['_missing_limits'])
     if s.get('panic'):
         return f'panic: {s["used"]:g} % used before the target time' if s.get('used') is not None else 'panic'
     if s.get('verdict') == 'spent':
@@ -248,6 +268,13 @@ def order(s):
     return (s.get('verdict') == 'ahead', expiry(s), rank(s))
 
 
+def quota_closed(s):
+    """An account or any linked window is in panic or spent, independent of pacing reserves."""
+    used = s.get('used')
+    return bool(s.get('_missing_limits') or s.get('panic') or s.get('verdict') == 'spent' or
+                (used is not None and used >= s.get('panic_at', 95)) or any(quota_closed(x) for x in s.get('limits') or []))
+
+
 def pick_account(states, takeover=False):
     """(the account state to use, why) from states in preference order: never one in panic or spent; first the ones that
     would lose quota at the reset (late, behind), then on pace or unread, then ahead. (None, why) when none has room."""
@@ -255,8 +282,7 @@ def pick_account(states, takeover=False):
     usable = []
     for s in states:
         reason = account_unfit(s)
-        if takeover and reason and not (s.get('panic') or s.get('verdict') == 'spent'
-                                        or (s.get('used') is not None and s['used'] >= s.get('panic_at', 95))):
+        if takeover and reason and not quota_closed(s):
             reason = ''   # the main agent panics: only an account's own panic or a spent quota stops it (autopilot.takes_over)
         if reason:
             skipped.append(f'{s["name"]}: {reason}')

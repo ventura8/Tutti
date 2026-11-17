@@ -682,6 +682,7 @@ def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
                       'params': sizes.get(w.get('model')) or params_b(w.get('model')), 'tools': local_capable(w.get('model'), sizes),
                       'label': f'{w.get("model")} on {where}'})
     local.sort(key=lambda c: -capability(c))
+    from . import routing
     accounts = {a.get('name'): a for a in (snap.get('usage') or {}).get('accounts') or []}
     for name, w in workers.items():
         if (w or {}).get('kind') != 'cli':
@@ -689,6 +690,9 @@ def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
         acc_name = rows.get(name, {}).get('account') or name
         acc, conf = accounts.get(acc_name) or {}, (cfg.get('accounts') or {}).get(acc_name) or {}
         why = cloud_out(name, acc_name, acc, conf, w, paused, rows.get(name, {}), is_owner(user, owner_sub))
+        missing = routing.missing_limits(cfg, acc_name, acc)
+        if not why and missing:
+            why = f'{acc_name}: missing linked quota state ({", ".join(missing)}); resume it or refresh its reading'
         online.append({'kind': 'cli', 'worker': name, 'account': acc_name, 'why': why, 'tools': True,
                        'label': f'{name} ({acc_name} account)'})
     return local, online

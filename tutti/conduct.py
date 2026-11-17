@@ -6,6 +6,7 @@ the owner switches the main agent on the dashboard, Tutti stops it and hands the
 Pure parts (the order, the instruction text, the handoff note, the local model's command check) are unit-tested; the
 process and the files sit in `run_cli`, `run_local` and `conduct`."""
 import json
+import math
 import os
 import re
 import shlex
@@ -234,7 +235,8 @@ def out_reason(cfg, agent, states, machines=None, now=None):
     if linked and not names:
         return f'{agent}: all of its configured accounts are paused or disabled'
     by_name = {s['name']: s for s in states}
-    reasons = [(n, routing.account_unfit(by_name[n])) for n in names if n in by_name]
+    reasons = [(n, routing.account_unfit({**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}))
+               for n in names if n in by_name]
     if any(n not in by_name for n in names):
         return ''
     if not reasons or not all(reason for _, reason in reasons):
@@ -248,7 +250,7 @@ def account_args(cfg, agent, states):
     with its `--settings` while that window has room, on agy-gemini's after."""
     by_name = {x['name']: x for x in states}
     for n in accounts_of(cfg, agent):
-        if n in by_name and not routing.account_unfit(by_name[n]):
+        if n in by_name and not routing.account_unfit({**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}):
             return list((cfg['accounts'][n] or {}).get('args') or [])
     return []
 
@@ -855,7 +857,14 @@ def fallback_order(cfg):
     names += [n for n in cfg['workers'] if n not in names]
     online = [n for n in names if cfg['workers'][n].get('kind') != 'ollama']
     local = [n for n in names if cfg['workers'][n].get('kind') == 'ollama']
-    local.sort(key=lambda n: -fleet.params_b({'name': (cfg['workers'][n] or {}).get('model') or ''}))
+    sizes = cfg.get('_model_sizes') or {}
+    def model_size(name):
+        model = (cfg['workers'][name] or {}).get('model') or ''
+        measured = sizes.get(model)
+        if isinstance(measured, (int, float)) and not isinstance(measured, bool) and math.isfinite(measured) and measured > 0:
+            return measured
+        return fleet.params_b({'name': model})
+    local.sort(key=lambda n: -model_size(n))
     return online + local
 
 

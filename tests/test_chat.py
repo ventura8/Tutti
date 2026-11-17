@@ -177,6 +177,13 @@ class Models(unittest.TestCase):
         panic = snapshot(usage={'accounts': [{'name': 'claude', 'panic': True, 'verdict': 'late'}]})
         self.assertEqual(self.names(panic, user=VIEWER, owner='owner-sub'), ['pc', 'nuc'])
 
+    def test_online_chat_skips_account_with_missing_linked_quota(self):
+        self.cfg.setdefault('_account_limits', {})['claude'] = ['weekly']
+        self.assertNotIn('claude', self.names(snapshot()))
+        snap = snapshot(usage={'accounts': [{'name': 'claude', 'used': 10,
+                                              'limits': [{'name': 'weekly', 'used': 10, 'panic': False}]}]})
+        self.assertIn('claude', self.names(snap))
+
 
 def fake_streams(script):
     """A streams function: each worker's answer from `script` ({worker: [pieces] | OSError})."""

@@ -196,6 +196,9 @@ def account_room(cfg, name, step, states, running_units, machines):
     s = states.get(name)
     if not s:
         return 0, f'{name}: no pacing state yet'
+    missing = routing.missing_limits(cfg, name, s)
+    if missing:
+        return 0, f'{name}: missing linked quota state ({", ".join(missing)}); resume it or refresh its reading'
     if panic_rescue(cfg, name, s, states):
         return (1, '') if not used else (0, f'{name}: its cautious panic-mode task is already running')
     if takes_over(cfg, name, s, states):

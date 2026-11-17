@@ -9,7 +9,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import autopilot, backlog, cli, config, dashboard, delegate, fleet
+from tutti import autopilot, backlog, cli, config, dashboard, delegate, fleet, routing, state
 
 FAKE_WORKER = '''import sys
 prompt = sys.argv[1]
@@ -176,6 +176,25 @@ class PlanTest(Base):
         self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
         weekly['limits'] = [{'name': 'monthly', 'used': 96, 'panic': True, 'reading_at': '2026-01-01T00:00:00Z'}]
         self.assertTrue(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
+
+    def test_missing_linked_window_blocks_normal_and_direct_auto_dispatch(self):
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        cfg['accounts'] = {'agy-gemini': cfg['accounts']['agy-gemini']}
+        cfg['_account_limits']['agy-gemini'] = ['weekly']
+        states = {'agy-gemini': account('agy-gemini')}
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True)['dispatch'], [])
+        picked = state.next_worker(cfg, list(states.values()))
+        self.assertIsNone(picked['worker'])
+        self.assertIn('weekly', picked['reason'])
+        states['agy-gemini']['limits'] = [account('weekly')]
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True)['dispatch'], [('t1', 'agy-gemini')])
+        self.assertEqual(state.next_worker(cfg, list(states.values()))['worker'], 'agy')
+
+    def test_direct_takeover_never_overrides_linked_window_panic(self):
+        s = {**account('cursor', used=None), 'limits': [account('weekly', used=99, panic=True)]}
+        picked, why = routing.pick_account([s], takeover=True)
+        self.assertIsNone(picked)
+        self.assertIn('weekly', why)
 
     def test_attempt_remains_debited_until_linked_window_is_refreshed(self):
         states = {'cursor': {'reading_at': '2026-01-03T00:00:00Z',

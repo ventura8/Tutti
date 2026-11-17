@@ -66,6 +66,13 @@ class OutReasonTest(Folder):
         self.assertEqual(conduct.out_reason(self.cfg, 'local', self.states(local=99)), '')
         self.assertIn('paused or disabled', conduct.out_reason(self.cfg, 'cursor', self.states(cursor=99)))
 
+    def test_main_worker_skips_account_with_missing_linked_quota(self):
+        self.cfg['_account_limits']['agy-claude'] = ['weekly']
+        states = self.states(**{'agy-claude': 10, 'agy-gemini': 99})
+        self.assertIn('weekly', conduct.out_reason(self.cfg, 'agy', states))
+        states[0]['limits'] = [{'name': 'weekly', 'used': 10, 'panic': False}]
+        self.assertEqual(conduct.out_reason(self.cfg, 'agy', states), '')
+
 
 class ChoiceTest(Folder):
     def test_the_switch_wins_over_the_config_and_is_shown(self):
@@ -583,6 +590,15 @@ class RoleHandOffTest(Folder):
         recovered = self.states(**{'agy-claude': 100, 'agy-gemini': 100,
                                     'cursor': {'used': 10, 'verdict': 'on pace', 'panic': False}})
         self.assertEqual(conduct.pick_auto(self.cfg, recovered), 'cursor')
+
+    def test_local_order_prefers_measured_size_and_keeps_unknown_ties_in_order(self):
+        self.cfg['workers'] = {'unknown1': {'kind': 'ollama', 'model': 'model:unknown1'},
+                               'small': {'kind': 'ollama', 'model': 'model:7b'},
+                               'measured': {'kind': 'ollama', 'model': 'model:custom'},
+                               'unknown2': {'kind': 'ollama', 'model': 'model:unknown2'}}
+        self.cfg['main']['fallback'] = ['unknown1', 'small', 'measured', 'unknown2']
+        self.cfg['_model_sizes'] = {'model:custom': 30, 'model:7b': 3}
+        self.assertEqual(conduct.fallback_order(self.cfg), ['measured', 'small', 'unknown1', 'unknown2'])
 
     def test_hot_local_fallback_is_skipped_for_a_cooler_one(self):
         self.cfg = cfg_in(self.dir, workers={'small': {'kind': 'ollama', 'host': '127.0.0.1:2', 'model': 'model:3b', 'machine': 'cool'},

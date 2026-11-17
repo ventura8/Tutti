@@ -72,7 +72,8 @@ Every switch — including switching **back** to preferred after its reset (a fr
 synthetic `after_reset` 0 %) — uses the same hand-off (`deliver_role_note`, `connect_role`).
 
 Paused or disabled accounts remain linked to their worker, so they do not make that worker appear unmetered. When no
-online main has room, Tutti considers the configured local models by model size, skipping machines reported offline,
+online main has room, Tutti considers the configured local models by the fleet's measured parameter count, falling back to
+the size in the model name, skipping machines reported offline,
 paused, hot or busy. When an online choice recovers, auto mode returns to the preferred online order. A missing machine
 probe is treated as not yet available; if model sizes are unknown, the configured order breaks the tie.
 

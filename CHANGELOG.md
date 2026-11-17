@@ -34,6 +34,13 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - Codex setup uses `--approve-for-me`, which routes approval requests through automatic review with the workspace-write
   sandbox.
 
+## [0.25.5] - 2026-11-17
+
+### Fixed
+
+- Explicit test environments without a configuration directory no longer read the user's scout secret file or send
+  scout requests to the live webhook (t323).
+
 ## [0.25.4] - 2026-11-17
 
 ### Fixed

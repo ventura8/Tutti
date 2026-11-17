@@ -14,6 +14,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - Ordinary backlog pull requests in projects opted in to autonomous tasks and merges return for requested review fixes
   and are reviewed again before merging (t179).
 - Review gates check every page of review threads and refuse to merge if pagination cannot be verified (t179).
+- Retry pushes and merges for both self-improvement and ordinary backlog PRs verify the task's original PR and exact
+  fixed head; an unconfirmed or failed retry cannot merge its old head (t179).
 
 ## [0.27.13] - 2026-11-18
 

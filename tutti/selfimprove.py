@@ -327,8 +327,14 @@ def pr_number(url):
     return int(tail) if tail.isdigit() else None
 
 
-def ordinary_pr_problem(cfg, task, run=github.run, allow_merged=False, expected_head=None):
-    """Verify an ordinary task's existing PR belongs to its own generated branch before retry or merge."""
+def guarded_pr(cfg, task):
+    """An existing PR on a project that has explicitly allowed autonomous merging."""
+    pol = policy_of_repo(cfg, task.get('repo')) or {}
+    return bool(task.get('pr') and pol.get('merge'))
+
+
+def task_pr_problem(cfg, task, run=github.run, allow_merged=False, expected_head=None):
+    """Verify a task's existing PR belongs to its own generated branch before retry or merge."""
     from . import autopilot
     pol = policy_of_repo(cfg, task.get('repo')) or {}
     repo, url = str(pol.get('repo') or ''), str(task.get('pr') or '')
@@ -399,25 +405,44 @@ def ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn):
     return f'{t["id"]}: AI reviews asked on {key}'
 
 
+def review_guard(cfg, task, run):
+    """Refuse review or merge until a failed retry has reached the verified original pull request."""
+    pending = task.get('review_retry_pending')
+    expected = task.get('review_expected_head') if pending else None
+    if pending and not expected:
+        return 'the review fix has not been pushed and confirmed'
+    why = task_pr_problem(cfg, task, run, allow_merged=True, expected_head=expected)
+    if not why and pending:
+        task.pop('review_retry_pending', None)
+        task.pop('review_expected_head', None)
+    return why
+
+
+def requeue_review(t, key, reviews, pol):
+    """Give requested changes back to the worker; protect merge-authorised PRs until the fix is confirmed."""
+    t['status'], t['notes'] = 'queued', [*t.get('notes', []), f'Changes requested on {key}: read the review and fix them.']
+    if pol['merge']:
+        t['review_retry_pending'] = True
+        t.pop('review_expected_head', None)
+    reviews.pop(key, None)
+
+
+def handle_blocked_review(t, pr, key, reviews, pol):
+    if pr.get('reviewDecision') == 'CHANGES_REQUESTED' and t['status'] == 'review':
+        requeue_review(t, key, reviews, pol)
+
+
 def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
     """One self-improvement task in review with a pull request: ask for reviews once, then merge when the gates allow."""
     pol = policy_of_repo(cfg, t['repo'])
     number = pr_number(t.get('pr'))
     if not pol or not pol['repo'] or not number:
         return None
-    if t.get('source') not in SOURCES:
-        pending = t.get('review_retry_pending')
-        expected = t.get('review_expected_head') if pending else None
-        if pending and not expected:
-            t['self_improve'] = 'not reviewing or merging: the review fix has not been pushed and confirmed'
-            return None
-        why = ordinary_pr_problem(cfg, t, run, allow_merged=True, expected_head=expected)
+    if pol['merge']:
+        why = review_guard(cfg, t, run)
         if why:
             t['self_improve'] = f'not reviewing or merging: {why}'
             return None
-        if pending:
-            t.pop('review_retry_pending', None)
-            t.pop('review_expected_head', None)
     key = f'{pol["repo"]}#{number}'
     reviews = st.setdefault('reviews', {})
     if key not in reviews:
@@ -434,13 +459,8 @@ def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
     if pr.get('state') == 'MERGED':
         t['status'] = 'done'
         return None
-    if not ok or not pr.get('headRefOid'):
-        if pr.get('reviewDecision') == 'CHANGES_REQUESTED' and t['status'] == 'review':
-            t['status'], t['notes'] = 'queued', [*t.get('notes', []), f'Changes requested on {key}: read the review and fix them.']
-            if t.get('source') not in SOURCES:
-                t['review_retry_pending'] = True
-                t.pop('review_expected_head', None)
-            reviews.pop(key, None)   # the fix pushed onto this pull request is reviewed again before any merge
+    if not ok:
+        handle_blocked_review(t, pr, key, reviews, pol)
         return None
     if not pr.get('headRefOid'):
         t['self_improve'] = 'GitHub did not say which commit the pull request is at: not merged; the next round looks again'

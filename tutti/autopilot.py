@@ -989,15 +989,14 @@ def publish(cfg, task, report, run=None, gh=None):
     repo = settings(cfg)['repos'][task['repo']]
     wt = report['worktree']
     branch = f'autopilot/{task["id"]}-{slug(task["title"])}'
-    if task.get('pr'):
-        from . import selfimprove
-        if task.get('source') not in selfimprove.SOURCES:
-            task['review_retry_pending'] = True
-            task.pop('review_expected_head', None)
-            why = selfimprove.ordinary_pr_problem(cfg, task, gh or github.run)
-            if why:
-                task['publish_note'] = f'not publishing: {why}'
-                return
+    from . import selfimprove
+    if selfimprove.guarded_pr(cfg, task):
+        task['review_retry_pending'] = True
+        task.pop('review_expected_head', None)
+        why = selfimprove.task_pr_problem(cfg, task, gh or github.run)
+        if why:
+            task['publish_note'] = f'not publishing: {why}'
+            return
     task.update(branch=branch, worktree=wt, diff=report['diff'])
     for step in (('checkout', '-q', '-B', branch), ('add', '-A')):
         done = run(wt, *step)
@@ -1017,39 +1016,53 @@ def publish(cfg, task, report, run=None, gh=None):
     open_pr(cfg, task, repo, wt, branch, subject, run, gh)
 
 
+def retry_head(cfg, task, wt, run, gh):
+    """Return the commit to push for a verified existing PR, or a failure reason."""
+    from . import selfimprove
+    why = selfimprove.task_pr_problem(cfg, task, gh or github.run)
+    if why:
+        return None, why
+    head = run(wt, 'rev-parse', 'HEAD')
+    expected = (head.stdout or '').strip()
+    if head.returncode != 0 or not re.fullmatch(r'[0-9a-fA-F]{40}|[0-9a-fA-F]{64}', expected):
+        return None, 'cannot read its commit ID'
+    return expected, ''
+
+
+def retry_pushed(cfg, task, branch, expected, gh):
+    """Keep the retry blocked until GitHub confirms the pushed head on the original PR."""
+    from . import selfimprove
+    task['review_expected_head'] = expected
+    why = selfimprove.task_pr_problem(cfg, task, gh or github.run, expected_head=expected)
+    if not why:
+        task.pop('review_retry_pending', None)
+        task.pop('review_expected_head', None)
+    task['publish_note'] = (f'pushed {branch}; could not confirm the original pull request: {why}' if why else
+                            f'pushed onto the open pull request {task["pr"]}')
+
+
 def open_pr(cfg, task, repo, wt, branch, subject, run=git, gh=None):
     """The committed branch pushed and a pull request opened when the repo or self-improvement asks for one."""
     from . import selfimprove
-    retry_ordinary = bool(task.get('pr') and task.get('source') not in selfimprove.SOURCES)
-    if retry_ordinary:
+    retry_guarded = selfimprove.guarded_pr(cfg, task)
+    if retry_guarded:
         task['review_retry_pending'] = True
         task.pop('review_expected_head', None)
     mode, base, why = selfimprove.pr_plan(cfg, task, repo)
     if not mode:
         task['publish_note'] = f'committed on {branch} in {wt}{why}: review it, then merge or `tutti backlog retry {task["id"]} --note ...`'
         return
-    if retry_ordinary:
-        why = selfimprove.ordinary_pr_problem(cfg, task, gh or github.run)
-        if why:
+    if retry_guarded:
+        expected_head, why = retry_head(cfg, task, wt, run, gh)
+        if not expected_head:
             task['publish_note'] = f'committed on {branch}; not pushed: {why}'
-            return
-        head = run(wt, 'rev-parse', 'HEAD')
-        expected_head = (head.stdout or '').strip()
-        if head.returncode != 0 or not re.fullmatch(r'[0-9a-fA-F]{40}|[0-9a-fA-F]{64}', expected_head):
-            task['publish_note'] = f'committed on {branch}; not pushed: cannot read its commit ID'
             return
     pushed = run(wt, 'push', '-q', '-u', 'origin', branch)
     if pushed.returncode != 0:
         task['publish_note'] = f'committed on {branch}; the push failed ({pushed.stderr.strip()[:200]})'
         return
-    if retry_ordinary:
-        task['review_expected_head'] = expected_head
-        why = selfimprove.ordinary_pr_problem(cfg, task, gh or github.run, expected_head=expected_head)
-        if not why:
-            task.pop('review_retry_pending', None)
-            task.pop('review_expected_head', None)
-        task['publish_note'] = (f'pushed {branch}; could not confirm the original pull request: {why}' if why else
-                                f'pushed onto the open pull request {task["pr"]}')
+    if retry_guarded:
+        retry_pushed(cfg, task, branch, expected_head, gh)
         return
     body = f'Backlog task {task["id"]} ({task["source"]}), done by {task.get("step")} in {len(task["attempts"])} attempt(s).\n\n' \
            f'Check: `{task.get("check") or repo.get("check")}` passed. Opened by `tutti autopilot`' + \

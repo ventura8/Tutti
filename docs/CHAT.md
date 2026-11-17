@@ -1,5 +1,9 @@
 # Chat
 
+Chat binds each online worker to a configured account with a pacing state and passes that account's configured arguments
+to the CLI. When several accounts share a worker, each needs distinct nonempty arguments so Tutti can select one safely;
+paused accounts and accounts whose pacing state is absent are not selected. A worker with no linked account remains unmetered.
+
 The dashboard opens on **Chat**, the first tab, for every signed-in user (viewers too). Ask about the household in plain
 words, or ask for work. The chat runs on the household host, inside `tutti dashboard`, so it answers while your own computer,
 or your main agent's machine, is off.

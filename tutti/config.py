@@ -299,6 +299,8 @@ def normalise(raw):
     cfg['_account_limits'] = {n: list(a.get('limits') or []) for n, a in cfg['accounts'].items()
                               if isinstance(a, dict) and isinstance(a.get('limits') or [], list)}
     cfg['_account_costs'] = {n: a.get('task_pct') for n, a in cfg['accounts'].items() if isinstance(a, dict)}
+    cfg['_account_args'] = {n: list(a.get('args') or []) for n, a in cfg['accounts'].items()
+                            if isinstance(a, dict) and isinstance(a.get('args') or [], list)}
     opt_out(cfg)
     lenient(cfg)
     return cfg

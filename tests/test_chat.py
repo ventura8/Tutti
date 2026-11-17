@@ -2,6 +2,7 @@
 role rules (a viewer cannot change the household), the model order (never the user's own machine, never another member's
 private quota), streaming, stop, Undo, and the page: safe Markdown, keys, accessibility and the phone layout."""
 import base64
+import io
 import json
 import os
 import re
@@ -183,6 +184,52 @@ class Models(unittest.TestCase):
         snap = snapshot(usage={'accounts': [{'name': 'claude', 'used': 10,
                                               'limits': [{'name': 'weekly', 'used': 10, 'panic': False}]}]})
         self.assertIn('claude', self.names(snap))
+
+    def test_shared_worker_uses_healthy_configured_account_without_worker_probe(self):
+        self.cfg['workers']['shared'] = {'kind': 'cli', 'command': ['agent', '--model', 'default', '{prompt}']}
+        self.cfg['accounts'].update({'first': {'worker': 'shared', 'args': ['--model', 'a']},
+                                     'second': {'worker': 'shared', 'args': ['--model', 'b']}})
+        readings = [{'name': 'first', 'used': 100, 'verdict': 'spent'}, {'name': 'second', 'used': 20}]
+        usage = {'accounts': readings}
+        snap = snapshot(workers={'items': []}, usage=usage)
+        online = chat.all_models(self.cfg, snap, ADMIN)[1]
+        shared = next(c for c in online if c['worker'] == 'shared')
+        self.assertEqual((shared['account'], shared['why']), ('second', None))
+        with mock.patch('tutti.chatrun.cli_stream', return_value=iter(())) as call:
+            chatrun.stream_of(shared, self.cfg, [], threading.Event())
+        args = call.call_args.kwargs['extra']
+        seen = []
+        class Process:
+            stdout = io.StringIO('ok\n')
+            returncode = 0
+            def poll(self):
+                return 0
+            def wait(self):
+                return 0
+        def popen(argv, **_kwargs):
+            seen.append(argv)
+            return Process()
+        self.assertEqual(list(chatrun.cli_stream(self.cfg['workers']['shared'], [], threading.Event(), extra=args, popen=popen)), ['ok\n'])
+        self.assertEqual(seen[0][seen[0].index('--model') + 1], 'b')
+
+        snap['controls'] = {'paused': [{'kind': 'account', 'name': 'second'}]}
+        self.assertNotIn('shared', self.names(snap))
+        snap['controls'] = {'paused': []}
+        snap['usage']['accounts'] = []
+        self.assertNotIn('shared', self.names(snap))
+        self.cfg['_account_workers'] = {'first': 'shared', 'second': 'shared'}
+        self.cfg['_account_args'] = {'first': ['--model', 'a'], 'second': ['--model', 'b']}
+        self.cfg['accounts'].pop('second')
+        snap['usage']['accounts'] = readings
+        self.assertNotIn('shared', self.names(snap))
+
+    def test_unmetered_worker_is_available_but_ambiguous_account_args_are_not(self):
+        self.cfg['workers']['free'] = {'kind': 'cli', 'command': ['free']}
+        self.assertIn('free', self.names(snapshot()))
+        self.cfg['workers']['shared'] = {'kind': 'cli', 'command': ['agent']}
+        self.cfg['accounts'].update({'first': {'worker': 'shared'}, 'second': {'worker': 'shared'}})
+        snap = snapshot(usage={'accounts': [{'name': 'first', 'used': 10}, {'name': 'second', 'used': 10}]})
+        self.assertNotIn('shared', self.names(snap))
 
 
 def fake_streams(script):

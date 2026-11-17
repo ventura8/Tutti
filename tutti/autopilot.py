@@ -8,6 +8,7 @@ The plan is pure (plan, signature, brief, should_park); the I/O is in tick, disp
 import contextlib
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -15,7 +16,23 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import backlog, compact, config, delegate, durable, github, planner, priority, remote, routing, telemetry, tiers, tz, worktree
+from . import (
+    backlog,
+    compact,
+    config,
+    delegate,
+    durable,
+    github,
+    pacing,
+    planner,
+    priority,
+    remote,
+    routing,
+    telemetry,
+    tiers,
+    tz,
+    worktree,
+)
 
 try:
     import fcntl
@@ -184,6 +201,9 @@ def step_room(cfg, name, states, running_units, machines=()):
     used = running_units.get(name, 0)
     if not step['account']:
         return local_room(cfg, name, step, used, machines, cfg.get('_now'))
+    missing = routing.missing_limits(cfg, name, states.get(name) or {})
+    if missing:
+        return 0, f'{name}: missing linked quota state ({", ".join(missing)}); resume it or refresh its reading'
     return account_room(cfg, name, step, states, running_units, machines)
 
 
@@ -196,9 +216,6 @@ def account_room(cfg, name, step, states, running_units, machines):
     s = states.get(name)
     if not s:
         return 0, f'{name}: no pacing state yet'
-    missing = routing.missing_limits(cfg, name, s)
-    if missing:
-        return 0, f'{name}: missing linked quota state ({", ".join(missing)}); resume it or refresh its reading'
     if panic_rescue(cfg, name, s, states):
         return (1, '') if not used else (0, f'{name}: its cautious panic-mode task is already running')
     if takes_over(cfg, name, s, states):
@@ -261,7 +278,8 @@ def remaining_quota(s):
     """Smallest known percentage remaining across all windows; unknown or spent is not safe to spend."""
     used = s.get('used')
     plan = s.get('quota_plan') or {}
-    if (isinstance(used, bool) or not isinstance(used, (int, float)) or s.get('verdict') == 'spent'
+    if (isinstance(used, bool) or not isinstance(used, (int, float)) or not math.isfinite(used) or not 0 <= used <= 100
+            or s.get('verdict') == 'spent'
             or (plan.get('limit') and plan.get('allowance') == 0)):
         return 0
     return min([max(0, 100 - used), *(remaining_quota(x) for x in s.get('limits') or [])])
@@ -276,10 +294,19 @@ def quota_windows(name, s):
     return out
 
 
-def observed_quota(s):
-    """A panic fallback requires real readings for every linked window, not reset estimates."""
-    return bool(s.get('reading_at') and not s.get('after_reset') and not s.get('stale') and all(
-        x.get('name') and observed_quota(x) for x in s.get('limits') or []))
+def observed_quota(cfg, name, s, now):
+    """Each quota window needs a recent, real, non-future reading, even if its automatic reader failed."""
+    if name in cfg.get('disabled_accounts', ()) or s.get('after_reset') or s.get('stale') or s.get('selected_source') == 'estimate':
+        return False
+    try:
+        at = pacing.parse_time(s['reading_at'])
+        age = (now - at).total_seconds()
+        hours = float(((cfg.get('accounts') or {}).get(name) or {}).get('stale_hours') or pacing.STALE_HOURS)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+    if not math.isfinite(hours) or hours <= 0 or age < 0 or age >= hours * 3600:
+        return False
+    return all(x.get('name') and observed_quota(cfg, x['name'], x, now) for x in s.get('limits') or [])
 
 
 def panic_rescue(cfg, name, s, states):
@@ -294,7 +321,8 @@ def panic_rescue(cfg, name, s, states):
     # A disabled or paused linked account is removed from the active pacing state. Its absence must not turn an
     # incomplete reading into permission to spend: every configured window needs a current observation.
     configured = set(configured_windows(cfg, name))
-    if not configured.issubset(quota_windows(name, s)) or not observed_quota(s) or remaining_quota(s) < cost:
+    now = cfg.get('_now') or datetime.now(timezone.utc)
+    if not configured.issubset(quota_windows(name, s)) or not observed_quota(cfg, name, s, now) or remaining_quota(s) < cost:
         return False
     online = [n for n, a in cfg['accounts'].items() if (cfg['workers'].get((a or {}).get('worker') or n) or {}).get('kind') == 'cli']
     return bool(online) and all(n in states and quota_panic(states[n]) for n in online)
@@ -497,7 +525,10 @@ def rescue_budgets(cfg, states, tasks, names):
 
 def _ts(iso):
     from . import pacing
-    return pacing.parse_time(iso).timestamp()
+    try:
+        return pacing.parse_time(iso).timestamp()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return 0
 
 
 def configured_windows(cfg, name):

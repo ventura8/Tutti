@@ -468,3 +468,10 @@ finished-jobs filter and the project filter are kept by item id across refreshes
 (sessionStorage); the render's own opening of a fold is not taken for the owner's choice. A class that sets a
 `display` gets a `[hidden]` rule beside it (a test lists them), so the Users view shows only in its tab, for an admin
 with sign-in on.
+
+### Listening on the LAN or VPN
+
+With sign-in configured, `dashboard.bind: auto` listens on 127.0.0.1, available IPv6 localhost, and every detected
+LAN/VPN interface address on the same port. An explicit LAN address or a list of addresses also keeps 127.0.0.1
+available for local sign-in. Public addresses and wildcard binds remain refused. A failed LAN bind closes the other
+listeners and reports the address and port to check; restart after changing the bind setting.

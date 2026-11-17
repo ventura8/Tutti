@@ -413,3 +413,6 @@ suite's own load the adaptive limit left no online slot, and the local model in 
 
 **Rule.** A test that plans or ticks the autopilot sets `cfg['_host']` and `cfg['_host_raw']`. It never measures the
 machine it runs on.
+
+- Multi-address socket tests must use addresses actually assigned to the test host. Mock interface detection for pure
+  list tests; use assigned LAN addresses for HTTP integration and close all sockets on partial startup failure.

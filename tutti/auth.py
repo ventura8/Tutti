@@ -125,13 +125,19 @@ def locked(folder):
 
 # ---- where the dashboard may be reached: this computer, the LAN or a VPN, never the internet (the owner's rule)
 
+def _bind_hosts(bind):
+    if isinstance(bind, list):
+        return [b for b in bind if b not in (None, 'auto')]
+    return [bind] if bind not in (None, 'auto') else []
+
+
 def network_errors(cfg, resolve=None, ifaces=None):
     """What breaks the rule "never on the internet" (tutti/netpolicy.py, shared with the household): dashboard.bind must be
     localhost or a LAN or VPN address of this computer, and every origin's name must resolve only to such addresses."""
     from . import netpolicy
     kw = {'ifaces': ifaces, **({'resolve_fn': resolve} if resolve else {})}
     d = cfg.get('dashboard') or {}
-    checks = [((d.get('bind') or '127.0.0.1'), 'dashboard.bind')]
+    checks = [(b, 'dashboard.bind') for b in _bind_hosts(d.get('bind', '127.0.0.1'))]
     checks += [(urlsplit(o).hostname or '', f'dashboard.origins {o}') for o in extra_origins(cfg)]
     errs = []
     for host, what in checks:

@@ -724,6 +724,12 @@ def _match_errors(key, m):
     return errs + (_regex_errors(f'{key}.match.model', m['model']) if 'model' in m else [])
 
 
+def _bind_ok(bind):
+    if isinstance(bind, list):
+        return bool(bind) and all(isinstance(b, str) and b for b in bind)
+    return isinstance(bind, str) and bool(bind)
+
+
 def _dashboard_errors(d):
     if not isinstance(d, dict):
         return [f'dashboard is {d!r}: write it as a mapping, e.g. dashboard: {{port: 4777}}, or remove the key']
@@ -736,8 +742,9 @@ def _dashboard_errors(d):
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0:
             errs.append(f'dashboard.{key} is {v!r}: use a number above 0')
     bind = d.get('bind')
-    if not isinstance(bind, str) or not bind:
-        errs.append(f'dashboard.bind is {bind!r}: use an address such as 127.0.0.1 (another one needs `tutti auth setup`)')
+    if not _bind_ok(bind):
+        errs.append(f'dashboard.bind is {bind!r}: use an address, or a non-empty list of addresses, such as 127.0.0.1 '
+                    '(another one needs `tutti auth setup`)')
     origins = d.get('origins')
     if not isinstance(origins, list) or not all(isinstance(o, str) and _origin_ok(o.rstrip('/'))
                                                 for o in origins):

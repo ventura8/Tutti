@@ -586,6 +586,7 @@ class DeviceLanTest(unittest.TestCase):
         self.httpd = dashboard.server(self.cfg, 0, collector)
         self.port = self.httpd.server_address[1]
         self.cfg['dashboard']['bind'] = '192.168.1.5'   # served as if on the LAN address (the test socket is loopback)
+        collector.binds = ['127.0.0.1', '192.168.1.5']
         self.now = [time.time()]
         self.google = FakeGoogle()
         self.httpd.auth.jwks = auth.Jwks(fetch=FakeJwks(KEY).fetch)

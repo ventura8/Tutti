@@ -144,15 +144,25 @@ def _is_ip(host):
         return False
 
 
-def errors(key, value, ifaces=None):
-    """A config check of a bind setting that is an address: a public address or a wildcard is named with the fix; an
-    address of this computer's WireGuard (or Tailscale) interface is a VPN address, whatever its range."""
-    if value in (None, 'auto') or not isinstance(value, str):
-        return [] if value in (None, 'auto') else [f'{key} is {value!r}: auto, or a LAN or VPN address of this computer']
-    if value in WILDCARDS:
-        return [f'{key} is "{value}": every interface includes a public one, and {WHY}; write auto instead']
+def _ip_error(key, value, ifaces):
     if _is_ip(value) and not private(value):
         vpn = vpn_addresses(interfaces() if ifaces is None else ifaces)
         if not private(value, vpn):
             return [f'{key} is {value}, a public address, and {WHY}; write auto or a LAN or VPN address']
     return []
+
+
+def _bind_errors(key, value, ifaces):
+    if value in (None, 'auto'):
+        return []
+    if not isinstance(value, str):
+        return [f'{key} is {value!r}: auto, or a LAN or VPN address of this computer']
+    if value in WILDCARDS:
+        return [f'{key} is "{value}": every interface includes a public one, and {WHY}; write auto instead']
+    return _ip_error(key, value, ifaces)
+
+
+def errors(key, value, ifaces=None):
+    """Validate one bind address or a list, allowing localhost and LAN/VPN addresses only."""
+    values = value if isinstance(value, list) else [value]
+    return [error for item in values for error in _bind_errors(key, item, ifaces)]

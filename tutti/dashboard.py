@@ -1,6 +1,7 @@
 """`tutti dashboard`: a local web dashboard (an installable PWA) over the state Tutti already keeps.
 Standard library only: a threaded HTTP server bound to 127.0.0.1, static files from tutti/web, and /api/state as JSON.
 Machines and workers are probed in a background thread (ssh and model servers can be slow); the rest is read per request."""
+import errno
 import gzip
 import hashlib
 import hmac
@@ -344,7 +345,35 @@ def allowed_host(host, port, origins=()):
 
 
 def bind_of(cfg):
-    return (cfg.get('dashboard') or {}).get('bind') or BIND
+    b = (cfg.get('dashboard') or {}).get('bind')
+    return ', '.join(b) if isinstance(b, list) else (b or BIND)
+
+
+def _expand_bind(item, ifaces):
+    from . import netpolicy
+    return netpolicy.binds('auto', 'dashboard.bind', ifaces) if item == 'auto' else [item]
+
+
+def _list_binds(items, ifaces):
+    out = [BIND]
+    for x in items:
+        for a in _expand_bind(x, ifaces):
+            if a not in out:
+                out.append(a)
+    return out
+
+
+def binds_of(cfg, ifaces=None):
+    """The addresses the dashboard listens on: auto is localhost and every LAN/VPN address; a LAN address keeps 127.0.0.1."""
+    from . import netpolicy
+    b = (cfg.get('dashboard') or {}).get('bind') or BIND
+    if b == BIND:
+        return [BIND]
+    if b == 'auto':
+        return netpolicy.binds('auto', 'dashboard.bind', ifaces)
+    if isinstance(b, list):
+        return _list_binds(b, ifaces)
+    return [b] if b in LOOPBACK else [BIND, b]
 
 
 def private_client(addr):
@@ -354,20 +383,26 @@ def private_client(addr):
     return netpolicy.private(addr)
 
 
+def _lan_origin(bind, port):
+    clean = bind.split('%', 1)[0]
+    host = f'[{clean}]' if ':' in clean else clean
+    return f'{authweb.LOCAL_SCHEME}://{host}:{port}'
+
+
 def reach_origins(collector):
     """The non-loopback origins this running server answers: none unless it started with sign-in on (an origin saved later,
     e.g. by `tutti auth setup --tailscale`, never opens a server that runs without sign-in)."""
     if not getattr(collector, 'signed', False):
         return ()
-    bind = bind_of(collector.cfg)
-    host = f'[{bind}]' if ':' in bind else bind
-    lan = [] if bind in LOOPBACK else [f'{authweb.LOCAL_SCHEME}://{host}:{getattr(collector, "port", collector.cfg["dashboard"]["port"])}']
+    port = getattr(collector, 'port', collector.cfg['dashboard']['port'])
+    binds = getattr(collector, 'binds', None) or binds_of(collector.cfg)
+    lan = [_lan_origin(b, port) for b in binds if b.split('%', 1)[0] not in LOOPBACK]
     return [*authweb.origins(collector.cfg), *lan]   # a LAN or VPN bind (netpolicy-checked at start) on plain http
 
 
-def exposed(cfg):
+def exposed(cfg, ifaces=None):
     """True when others may reach the dashboard (a non-loopback bind, or dashboard.origins): sign-in is then required."""
-    return bind_of(cfg) not in LOOPBACK or bool(authweb.origins(cfg))
+    return any(b.split('%', 1)[0] not in LOOPBACK for b in binds_of(cfg, ifaces=ifaces)) or bool(authweb.origins(cfg))
 
 
 def static_path(url_path):
@@ -1026,12 +1061,48 @@ class Server(httpguard.CappedServer):
     dropped too (httpguard.loopback_owner_ok). At most MAX_CONNECTIONS requests at once."""
     max_connections, max_per_client = MAX_CONNECTIONS, 64   # tailscale serve brings every tailnet user from 127.0.0.1
 
+    def __init__(self, *args, **kwargs):
+        self.siblings = []
+        super().__init__(*args, **kwargs)
+
     def verify_request(self, request, client_address):
         if not private_client(client_address[0]):
             return False
         if getattr(self, 'auth', None) is None and client_address[0] in ('127.0.0.1', '::1', '::ffff:127.0.0.1'):
             return httpguard.loopback_owner_ok(client_address, self.server_address)
         return True
+
+    def serve_forever(self, poll_interval=0.5):
+        for s in self.siblings:
+            threading.Thread(target=s.serve_forever, args=(poll_interval,), daemon=True).start()
+        super().serve_forever(poll_interval=poll_interval)
+
+    def shutdown(self):
+        for s in self.siblings:
+            s.shutdown()
+        super().shutdown()
+
+    def server_close(self):
+        for s in self.siblings:
+            s.server_close()
+        super().server_close()
+
+
+class Server6(Server):
+    """The dashboard on an IPv6 address (ULA, link-local with its interface, ::1)."""
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        host, port = self.server_address[:2]
+        if '%' in host:
+            ip, ifname = host.split('%', 1)
+            try:
+                self.socket.bind((ip, port, 0, socket.if_nametoindex(ifname)))
+                self.server_address = self.socket.getsockname()
+                return
+            except (OSError, ValueError):
+                pass
+        super().server_bind()
 
 
 class AuthRequired(Exception):
@@ -1100,25 +1171,74 @@ def make_handler(collector, token):
     return Handler
 
 
-def server(cfg, port, collector=None):
-    """The HTTP server on 127.0.0.1:<port> (0 picks a free port). Not started: call serve_forever()."""
-    collector = collector or Collector(cfg)
+def _make_server(addr, port, handler):
+    cls = Server6 if ':' in addr else Server
+    return cls((addr, port), handler)
+
+
+def _optional_auto_binds(cfg, ifaces):
+    """Auto-derived LAN/VPN addresses that may vanish before bind and are safe to skip."""
+    from . import netpolicy
+    bind = (cfg.get('dashboard') or {}).get('bind') or BIND
+    if bind == 'auto':
+        return {a for a in netpolicy.binds('auto', 'dashboard.bind', ifaces) if a not in LOOPBACK}
+    if not isinstance(bind, list):
+        return set()
+    return {a for x in bind for a in (_expand_bind(x, ifaces) if x == 'auto' else []) if a not in LOOPBACK}
+
+
+def _attach_siblings(httpd, extra_addrs, port, handler, optional=()):
+    optional = set(optional)
+    for addr in extra_addrs:
+        try:
+            httpd.siblings.append(_make_server(addr, port, handler))
+        except OSError as exc:
+            if addr == '::1' and exc.errno in (errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL):
+                continue   # IPv6 loopback is optional on IPv4-only hosts.
+            if addr in optional and exc.errno == errno.EADDRNOTAVAIL:
+                continue   # A stale auto-discovered address: keep serving the reachable ones.
+            httpd.server_close()
+            detail = (f'dashboard.bind: cannot listen on {addr}:{port}: {exc}; '
+                      'check that the address belongs to this computer and the port is free')
+            raise OSError(exc.errno, detail) from exc
+
+
+def _check_auth(cfg, ifaces):
     from . import auth
-    if exposed(cfg):
-        problems = auth.network_errors(cfg)
-        if problems:
-            raise AuthRequired('; '.join(problems))
-    if exposed(cfg) and not auth.enabled(cfg):
+    if not exposed(cfg, ifaces=ifaces):
+        return
+    problems = auth.network_errors(cfg, ifaces=ifaces)
+    if problems:
+        raise AuthRequired('; '.join(problems))
+    if not auth.enabled(cfg):
         raise AuthRequired('dashboard.bind or dashboard.origins lets others reach the dashboard, and sign-in is off: run '
                            '`tutti auth setup` first, or remove dashboard.bind and dashboard.origins to keep it on this computer')
+
+
+def server(cfg, port, collector=None, ifaces=None):
+    """The HTTP server on 127.0.0.1:<port> (0 picks a free port) and any LAN/VPN binds. Not started: call serve_forever()."""
+    from . import netpolicy
+    ifaces = netpolicy.interfaces() if ifaces is None else ifaces
+    collector = collector or Collector(cfg)
+    _check_auth(cfg, ifaces)
     token = secrets.token_urlsafe(24)   # a new one per start: the page loaded from this server sends it back with a POST
-    httpd = Server((bind_of(cfg), port), make_handler(collector, token))
-    httpd.token = token
-    httpd.auth = authweb.Runtime(cfg, httpd.server_address[1]) if auth.enabled(cfg) else None
+    handler = make_handler(collector, token)
+    addrs = binds_of(cfg, ifaces=ifaces)
+    httpd = _make_server(addrs[0], port, handler)
+    port = httpd.server_address[1]
+    _attach_siblings(httpd, addrs[1:], port, handler, optional=_optional_auto_binds(cfg, ifaces))
+    from . import auth
+    httpd.token, httpd.daemon_threads, httpd.collector = token, True, collector
+    try:
+        httpd.auth = authweb.Runtime(cfg, port) if auth.enabled(cfg) else None
+    except Exception:
+        httpd.server_close()
+        raise
+    for s in httpd.siblings:
+        s.token, s.auth, s.collector, s.daemon_threads = token, httpd.auth, collector, True
     collector.signed = httpd.auth is not None
     collector.who = lambda headers: authweb.who(httpd.auth, headers)   # the household's handlers ask who is asking
-    httpd.daemon_threads = True
-    httpd.collector = collector
-    collector.httpd = httpd   # the chat asks the sign-in who owns this host
-    collector.port = httpd.server_address[1]   # the reading helper's bookmarklets open this exact address
+    collector.httpd, collector.port = httpd, port
+    httpd.binds = [httpd.server_address[0], *(s.server_address[0] for s in httpd.siblings)]
+    collector.binds = httpd.binds
     return httpd

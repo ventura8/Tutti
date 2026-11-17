@@ -24,6 +24,7 @@ EXAMPLE = os.path.join(ROOT, 'tutti.config.example.yaml')
 DEFAULTS = {
     'project': {'worktrees': '.', 'state': '~/.local/state/tutti'},
     'machines': {},
+    'hosts': {},
     # time.zone: what local time means (owner hours, quiet hours, tariffs, what the CLI prints): auto detects this
     # computer's IANA zone (tutti/tz.py), daylight saving included; an IANA name such as Europe/Bucharest overrides it
     'time': {'zone': 'auto'},
@@ -282,13 +283,18 @@ def machine_of(cfg, name, own):
 def normalise(raw):
     """Defaults filled in; every machine gets its name, the machine defaults and its own merged runner."""
     if not isinstance(raw, dict):
-        raise ConfigError('the config must be a mapping at the top level (machines:, workers:, accounts:, ...)')
+        raise ConfigError('the config must be a mapping at the top level (hosts:, workers:, accounts:, ...)')
+    if 'hosts' in raw and 'machines' not in raw:
+        raw['machines'] = raw['hosts']
+    elif 'machines' in raw and 'hosts' not in raw:
+        raw['hosts'] = raw['machines']
     cfg = merge(DEFAULTS, raw)
     cfg['_ai_assist_file'] = dict(raw.get('ai_assist') or {}) if isinstance(raw.get('ai_assist'), dict) else {}   # as written
     for name, m in list(cfg['machines'].items()):
         cfg['machines'][name] = machine_of(cfg, name, m or {})
         if cfg['machines'][name].get('via'):   # probed through that client's bridge (tutti/bridge.py)
             cfg['machines'][name]['_state'] = expand(cfg['project']['state'])
+    cfg['hosts'] = cfg['machines']
     if not cfg['routing']['order']:
         cfg['routing']['order'] = list(cfg['machines'])
     # an Android device always routes last: it is the slowest and the one a person may pick up
@@ -879,7 +885,7 @@ def load(path=None, start=None, env=None):
     from . import users  # the household's machines this member shares or uses (docs/HOUSEHOLD.md), kept in user.json
     raw = users.apply(raw, users.read(state or DEFAULTS['project']['state']))
     cfg = normalise(raw)
-    cfg['raw_entries'] = {k: copy.deepcopy((raw or {}).get(k) or {}) for k in ('workers', 'accounts', 'machines')}
+    cfg['raw_entries'] = {k: copy.deepcopy((raw or {}).get(k) or {}) for k in ('workers', 'accounts', 'machines', 'hosts')}
     errs = validate(cfg)
     if errs:
         raise ConfigError(f'{path} has {len(errs)} problem(s):\n  - ' + '\n  - '.join(errs))

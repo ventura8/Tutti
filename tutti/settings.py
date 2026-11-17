@@ -30,7 +30,7 @@ KEEP_BACKUPS = 20
 MAX_DEPTH = 8
 COLLECTION_FIELDS = {'scouts': ['watches']}   # a nested collection drawn as one YAML field of its entry
 FILL_ROOM = 'autopilot.fill_room'
-PAUSABLE = {'machines': 'machine', 'devices': 'device', 'workers': 'worker', 'accounts': 'account'}
+PAUSABLE = {'hosts': 'host', 'machines': 'machine', 'devices': 'device', 'workers': 'worker', 'accounts': 'account'}
 
 
 class SettingsError(Exception):
@@ -523,8 +523,13 @@ def store(cfg, changes, tag=None):
         raise SettingsError(409, 'the config file changed since this page loaded it: reload the Settings tab, then save again')
     new = text
     for path, value in changes:
+        target_path = list(path)
+        if target_path and target_path[0] == 'hosts' and 'hosts:' not in new and 'machines:' in new:
+            target_path[0] = 'machines'
+        elif target_path and target_path[0] == 'machines' and 'machines:' not in new and 'hosts:' in new:
+            target_path[0] = 'hosts'
         try:
-            new = yamledit.edit(new, path, value)
+            new = yamledit.edit(new, target_path, value)
         except yamledit.EditError as e:
             raise SettingsError(422, str(e)) from e
     errs = check(cfg, new)

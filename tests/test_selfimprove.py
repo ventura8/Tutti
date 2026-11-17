@@ -196,6 +196,23 @@ class Rounds(Base):
             added, _ = backlog.add(data, t)
             added['branch'] = f'autopilot/{added["id"]}-{autopilot.slug(added["title"])}'
 
+    def test_review_thread_gate_reads_all_pages_and_fails_closed_on_bad_pagination(self):
+        def page(nodes, more, cursor):
+            return {'data': {'repository': {'pullRequest': {'reviewThreads': {
+                'nodes': nodes, 'pageInfo': {'hasNextPage': more, 'endCursor': cursor}}}}}}
+        results = [page([{'isResolved': True}], True, 'next'), page([{'isResolved': False}], False, None)]
+        def run(args, **_kw):
+            if len(results) == 1:
+                self.assertIn('after=next', args)
+            return SimpleNamespace(returncode=0, stdout=json.dumps(results.pop(0)), stderr='')
+        self.assertEqual(selfimprove.open_threads('octo/tutti', 7, run), 1)
+        broken = page([], True, None)
+        gh = lambda _args, **_kw: SimpleNamespace(returncode=0, stdout=json.dumps(broken), stderr='')
+        self.assertIsNone(selfimprove.open_threads('octo/tutti', 7, gh))
+        malformed = {'data': {'repository': {'pullRequest': {'reviewThreads': {'nodes': []}}}}}
+        gh = lambda _args, **_kw: SimpleNamespace(returncode=0, stdout=json.dumps(malformed), stderr='')
+        self.assertIsNone(selfimprove.open_threads('octo/tutti', 7, gh))
+
     def test_reviews_are_asked_once_then_a_green_pr_is_merged_and_released(self):
         cfg = self.cfg()
         self.add_review_task(cfg)

@@ -116,7 +116,8 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
 5. **Reviews.** `tutti pr review <n>` runs once per pull request (Copilot, CodeRabbit, or a cheap worker's review).
 6. **Merge** (only a project with `merge: true`): when every check is green and at least one passed (CI, Sonar), the
    review run ended well, no review asks for changes or is still required, no review thread is open, and GitHub found it
-   mergeable. Never with `--admin`, and only at the head commit the gates saw (`--match-head-commit`). Changes requested
+   mergeable. Review threads are paginated; an incomplete or invalid thread list blocks merging. Never with `--admin`,
+   and only at the head commit the gates saw (`--match-head-commit`). Changes requested
    send the task back to the autopilot, and its next push is reviewed again. Existing PRs from ordinary backlog tasks
    follow this loop too when their project explicitly enables both self-improvement tasks and merging. The retry pushes
    to the existing PR only after checking its repository, original branch and task marker; a mismatch is not pushed or

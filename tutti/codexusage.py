@@ -39,6 +39,35 @@ def command(cfg, account):
     return [command[0], 'app-server', '--listen', 'stdio://']
 
 
+def exchange(process, lines, executable):
+    """Initialize before requesting limits, while allowing notifications between responses."""
+    requests = REQUEST.splitlines()
+    process.stdin.write(requests[0] + '\n')
+    process.stdin.flush()
+    deadline, initialized = time.monotonic() + TIMEOUT, False
+    while True:
+        try:
+            line = lines.get(timeout=max(0, deadline - time.monotonic()))
+        except queue.Empty as e:
+            raise ValueError(f'{executable} app-server did not return usage within {TIMEOUT} seconds') from e
+        if line is None:
+            raise ValueError('Codex app-server closed without a rate limits response')
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(message, dict):
+            continue
+        if message.get('id') == 1 and not initialized:
+            if message.get('error'):
+                raise ValueError('Codex app-server initialization failed: check the Codex installation')
+            initialized = True
+            process.stdin.write('\n'.join(requests[1:]) + '\n')
+            process.stdin.flush()
+        elif message.get('id') == 2:
+            return response(line)
+
+
 def read(cfg, account, popen=subprocess.Popen):
     """Run one short, read-only account/rateLimits/read request and return both windows."""
     argv = command(cfg, account)
@@ -54,33 +83,8 @@ def read(cfg, account, popen=subprocess.Popen):
         lines.put(None)
 
     threading.Thread(target=collect, daemon=True).start()
-    deadline = time.monotonic() + TIMEOUT
     try:
-        requests = REQUEST.splitlines()
-        process.stdin.write(requests[0] + '\n')
-        process.stdin.flush()
-        initialized = False
-        while True:
-            try:
-                line = lines.get(timeout=max(0, deadline - time.monotonic()))
-            except queue.Empty as e:
-                raise ValueError(f'{argv[0]} app-server did not return usage within {TIMEOUT} seconds') from e
-            if line is None:
-                raise ValueError('Codex app-server closed without a rate limits response')
-            try:
-                message = json.loads(line)
-            except ValueError:
-                continue
-            if not isinstance(message, dict):
-                continue
-            if message.get('id') == 1 and not initialized:
-                if message.get('error'):
-                    raise ValueError('Codex app-server initialization failed: check the Codex installation')
-                initialized = True
-                process.stdin.write('\n'.join(requests[1:]) + '\n')
-                process.stdin.flush()
-            elif message.get('id') == 2:
-                return response(line)
+        return exchange(process, lines, argv[0])
     except OSError as e:
         raise ValueError(f'{argv[0]} app-server communication failed ({e})') from e
     finally:

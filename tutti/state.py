@@ -56,7 +56,30 @@ def usage_state(cfg, now):
     accounts = with_scouts(cfg, accounts, now)
     accounts = with_targets(cfg, accounts, now)
     from . import owner
-    return {'log': path, 'problem': problem, 'accounts': accounts, 'owner': owner.view(cfg, config.state_dir(cfg), entries, now)}
+    return {'log': path, 'problem': problem, 'accounts': accounts, 'off_accounts': off_account_cards(cfg),
+            'owner': owner.view(cfg, config.state_dir(cfg), entries, now)}
+
+
+def off_account_cards(cfg):
+    """Display-only account status; never feed these entries to the router."""
+    from . import controls
+    result = []
+    for entry in cfg.get('off', []):
+        if entry['kind'] != 'account':
+            continue
+        if entry.get('paused'):
+            status, reason = 'paused', controls.paused_note(entry)
+        elif entry.get('off_worker'):
+            worker = entry['off_worker']
+            pause = entry.get('worker_paused')
+            status = 'paused' if pause else 'disabled'
+            reason = f'worker {worker}: ' + (controls.paused_note({'paused': pause}) if pause else 'disabled; enable it in Settings')
+        elif entry.get('costs_money'):
+            status, reason = 'disabled', 'costs money per use; opt in through Settings to enable it'
+        else:
+            status, reason = 'disabled', 'disabled; enable it in Settings'
+        result.append({'name': entry['name'], 'status': status, 'reason': reason})
+    return result
 
 
 def target_facts(cfg):

@@ -7,6 +7,12 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [Unreleased]
+
+### Fixed
+
+- Dashboard shows paused and disabled accounts and their reasons without making them eligible for dispatch (t329).
+
 ## [0.26.0] - 2026-11-17
 
 ### Added

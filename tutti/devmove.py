@@ -23,17 +23,24 @@ class MoveError(Exception):
     """The move cannot start; the message says why and what to do."""
 
 
-def pick(cfg, to, names):
-    """The devices to move: the ones named, or every device not on `to` yet. MoveError for an unknown name or machine."""
+def named(cfg, to, names):
+    """The devices the command is about: the ones named, or every device. MoveError for an unknown name or machine."""
     devs = cfg.get('devices') or {}
     if to not in cfg['machines']:
         raise MoveError(f'no machine "{to}" in {cfg["_path"]}: the machines are {", ".join(cfg["machines"])}')
     for n in names:
         if n not in devs:
             raise MoveError(f'no device "{n}": the devices are {", ".join(devs) or "(none)"}')
-    found = [devs[n] for n in names] if names else [d for d in devs.values() if d['machine'] != to]
-    found = [d for d in found if d['machine'] != to]
+    return [devs[n] for n in names] if names else list(devs.values())
+
+
+def pick(cfg, to, names, none_ok=False):
+    """The devices to move: the ones named, or every device not on `to` yet. MoveError for an unknown name or machine;
+    with none_ok, [] when all are on `to` already (the move then only consolidates: see scan)."""
+    found = [d for d in named(cfg, to, names) if d['machine'] != to]
     if not found:
+        if none_ok:
+            return []
         raise MoveError(f'nothing to move: every device named is already on {to}')
     sources = {d['machine'] for d in found}
     if len(sources) > 1:
@@ -252,6 +259,171 @@ def summary(result, to, src):
         lines.append(f'nothing moved, so {to}\'s adb key was put back as it was')
     return lines
 
+
+# Consolidation: the devices on `to` are connected on `to` only (owner, 2026-11-16: "move the pairing of all devices to the
+# NUC"). Another machine's adb server that still holds a connection to one of them is a stray: it is disconnected (never
+# unpaired), and a Windows runner that runs device suites gets adb_via_device_host (tutti/adbvia.py) instead of its own adb.
+# `adb devices` would start a server where none runs (and that server would auto-connect to what it hears over mDNS), so a
+# machine is asked only when an adb server already listens there.
+LISTED = ('[ -n "$A" ] || exit 127; case "$A" in *.exe) powershell.exe -NoProfile -NonInteractive -Command '
+          '"if (Get-NetTCPConnection -LocalPort 5037 -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 4 }" '
+          '> /dev/null 2>&1 || exit 4;; *) command -v ss > /dev/null || exit 5; '
+          '[ -n "$(ss -ltnH "sport = :5037" 2> /dev/null)" ] || exit 4;; esac; "$A" devices 2>&1 | tr -d "\\r"')
+SKIP = {127: 'no adb there', 4: 'no adb server runs there: it holds no connection', 5: 'cannot tell whether an adb server runs '
+        '(no ss): not touched'}
+
+
+def ssh_host(cfg, name):
+    return str(((cfg.get('machines') or {}).get(name) or {}).get('host') or name)
+
+
+def listed(text):
+    """The serials `adb devices` lists (any state but the header)."""
+    out = []
+    for line in (text or '').splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and not line.startswith(('List of', '*')):
+            out.append(parts[0])
+    return out
+
+
+def match(serials, devs, ips):
+    """[(serial, device name)] of the serials that are one of `devs`: by the mDNS guid in the serial, or by the device's IP
+    (`ips`: {name: {ip}}, from the target's mDNS services)."""
+    out = []
+    for s in serials:
+        host = s.rsplit(':', 1)[0] if ':' in s else ''
+        for d in devs:
+            guid = adbpair.guid_of(d['serial'])
+            if (guid and guid in s) or s == str(d['serial']) or (host and host in ips.get(d['name'], set())):
+                out.append((s, d['name']))
+                break
+    return out
+
+
+def device_runners(cfg):
+    """The machines named as a `runner:` anywhere outside `machines:` (the projects' device suites run there)."""
+    found = set()
+
+    def walk(x):
+        if isinstance(x, dict):
+            for k, v in x.items():
+                if k == 'runner' and isinstance(v, str):
+                    found.add(v)
+                else:
+                    walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+    walk({k: v for k, v in cfg.items() if k not in ('machines', '_path')})
+    return sorted(n for n in found if n in (cfg.get('machines') or {}))
+
+
+def device_ips(target, devs):
+    """{name: {ip}}: each device's addresses, from the target's mDNS services and its own ip:port connections (a TV that
+    stopped announcing still has one there)."""
+    services = target.services()
+    ips = {d['name']: {a.rsplit(':', 1)[0] for inst, svc, a in services
+                       if svc == adbpair.CONNECT and inst == adbpair.guid_of(d['serial'])} for d in devs}
+    hw = {adbpair.guid_of(d['serial'])[4:].rsplit('-', 1)[0]: d['name'] for d in devs if adbpair.guid_of(d['serial'])}
+    for s in listed(target.adb('devices', timeout=30)[1]):
+        name = hw.get(target.adb('-s', s, 'get-serialno', timeout=20)[1].strip()) if ':' in s else None
+        if name:
+            ips[name].add(s.rsplit(':', 1)[0])
+    return ips
+
+
+def runners_to_switch(cfg, here, plan):
+    for r in device_runners(cfg):
+        m = cfg['machines'][r]
+        if ssh_host(cfg, r) == here or m.get('adb_via_device_host'):
+            continue
+        if m.get('transport') != 'wsl':
+            plan['runners_skipped'][r] = 'not a Windows runner through WSL: it keeps its own adb'
+        else:
+            plan['runners'].append(r)
+
+
+def scan(cfg, to, devs, host_fn, target):
+    """What consolidating `devs` (all on `to`) would do: {to, devices, strays: {machine: [(serial, name)]}, skipped:
+    {machine: why}, runners: [machine], runners_skipped: {machine: why}}. `host_fn(name)` gives a machine's adbhost.Host;
+    `target` is `to`'s. Machines on `to`'s own computer are not asked; unreachable ones are skipped with the reason."""
+    plan = {'to': to, 'devices': [d['name'] for d in devs], 'strays': {}, 'skipped': {}, 'runners': [], 'runners_skipped': {}}
+    if not devs:
+        return plan
+    ips = device_ips(target, devs)
+    here = ssh_host(cfg, to)
+    for name in cfg['machines']:
+        if name == to or ssh_host(cfg, name) == here:
+            continue
+        rc, out = host_fn(name).bash(LISTED, timeout=45)
+        hit = match(listed(out), devs, ips) if rc == 0 else []
+        if hit:
+            plan['strays'][name] = hit
+        elif rc:
+            last = (out or '').strip().splitlines()
+            plan['skipped'][name] = SKIP.get(rc) or f'did not answer ({last[-1] if last else f"exit {rc}"})'
+    runners_to_switch(cfg, here, plan)
+    return plan
+
+
+def consolidate_lines(plan):
+    to = plan['to']
+    if not plan['devices']:
+        return []
+    out = [f'consolidate {", ".join(plan["devices"])} on {to}: every other machine lets go of them']
+    for m, hits in plan['strays'].items():
+        out += [f'{m}: adb disconnect {s} ({n}; the pairing stays)' for s, n in hits]
+    for m, why in plan['skipped'].items():
+        out.append(f'{m}: skipped: {why}')
+    out += [f'{r}: set machines.{r}.adb_via_device_host: true (its suites use {to}\'s adb over an ssh tunnel)' for r in plan['runners']]
+    for r, why in plan['runners_skipped'].items():
+        out.append(f'{r}: runner left as it is: {why}')
+    if not plan['strays'] and not plan['runners']:
+        out.append('nothing to consolidate: no other machine holds a connection to them')
+    return out
+
+
+def pending(plan):
+    return bool(plan['strays'] or plan['runners'])
+
+
+def consolidate(cfg, plan, host_fn, say, sleep=None, settle=10):
+    """Disconnects each stray, checks after `settle` s that it stayed away, sets adb_via_device_host on the runners.
+    Returns {'disconnected': {machine: [serial]}, 'back': {machine: [serial]}, 'runners': [machine]}."""
+    done, back = {}, {}
+    for m, hits in plan['strays'].items():
+        h = host_fn(m)
+        for s, n in hits:
+            h.adb('disconnect', s, timeout=30)
+            done.setdefault(m, []).append(s)
+            say(f'{m}: disconnected {s} ({n})')
+    if done:
+        (sleep or time.sleep)(settle)
+        for m, serials in done.items():
+            rc, out = host_fn(m).bash(LISTED, timeout=45)
+            again = [s for s in listed(out) if s in serials] if rc == 0 else []
+            if again:
+                back[m] = again
+    if plan['runners']:
+        with open(cfg['_path'], encoding='utf8') as f:
+            text = f.read()
+        for r in plan['runners']:
+            text = yamledit.edit(text, ['machines', r, 'adb_via_device_host'], True)
+        config.write_text(cfg['_path'], text)
+        for r in plan['runners']:
+            say(f'{r}: adb_via_device_host set: its runs use {plan["to"]}\'s adb')
+    return {'disconnected': done, 'back': back, 'runners': list(plan['runners'])}
+
+
+def consolidate_summary(result, to):
+    n = sum(len(v) for v in result['disconnected'].values())
+    lines = [f'consolidated on {to}: {n} stray connection(s) disconnected; runners switched to {to}\'s adb: '
+             f'{", ".join(result["runners"]) or "none"}']
+    for m, serials in result['back'].items():
+        lines.append(f'{m}: {", ".join(serials)} connected again by itself (its adb server auto-connects to paired devices it '
+                     f'hears over mDNS): set ADB_MDNS_AUTO_CONNECT=0 for that adb server, then run the move again')
+    return lines
 
 
 def save_device(path, devs, machine, serial, info, adb=None, name=None):

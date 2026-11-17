@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import yaml
 from test_auth import jwks_doc, rsa_key
 
-from tutti import auth, config, dashboard, energy, pacing, routing, state
+from tutti import auth, config, dashboard, devicesweb, energy, pacing, routing, state
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CLIENT = '1234567890-abcdefgh12345678.apps.googleusercontent.com'
@@ -104,7 +104,37 @@ def available(worker):
     return True, 'ok'
 
 
+class FakeAdb:
+    """Move devices' adb on a pretend machine: builder still holds a stray connection to the example's phone."""
+
+    def __init__(self, name):
+        self.name = name
+
+    def bash(self, body, **_k):
+        if self.name == 'builder':
+            return 0, 'List of devices attached\nR58M00TEST00\tdevice\n'
+        return 4, ''
+
+    def adb(self, *args, **_k):
+        return 0, ''
+
+    def services(self):
+        return []
+
+
+class FakeMove:
+    """The move started from the page: writes its summary to the log and is done."""
+
+    def __init__(self, argv, stdout, **_k):
+        stdout.write('tutti: builder: disconnected R58M00TEST00 (pixel)\nconsolidated on here: 1 stray connection(s) disconnected\n')
+
+    def poll(self):
+        return 0
+
+
 def main(folder):
+    devicesweb.HOSTS = lambda name, adb=None: FakeAdb(name)   # no adb runs on a real machine
+    devicesweb.POPEN = FakeMove
     path = write_config(os.path.abspath(folder))
     cfg = config.load(path)
     seed(cfg, datetime.now(timezone.utc))

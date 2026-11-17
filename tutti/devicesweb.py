@@ -122,27 +122,78 @@ def pair_post(collector, raw, host_fn=None, start=True):
     return act(cur, data) if act else (200, cur.view())
 
 
-def move_post(collector, raw, hosts_fn=None, popen=subprocess.Popen):
-    """{"to", "devices"?: [...], "dry_run"?: true, "key"?: "replace"}: the plan, or the move started in the background."""
+MOVE = {'proc': None, 'log': ''}
+HOSTS = None   # a test's fake adb hosts: (name, adb=None) -> adbhost.Host-like (tests/e2e/serve.py)
+POPEN = None   # a test's fake process starter (tests/e2e/serve.py)
+
+
+def _hosts(cfg, hosts_fn):
+    return hosts_fn or HOSTS or (lambda n, adb=None: adbhost.Host(n, cfg['machines'][n], adb=adb))
+
+
+def move_plan(cfg, to, names, key, hosts_fn=None):
+    """The dry run: the move's plan and problems (devices not on `to` yet) and the consolidation's (every device on `to`:
+    other machines' stray connections, runners switched to `to`'s adb). `todo` is false when there is nothing to do."""
+    found = devmove.pick(cfg, to, names, none_ok=True)
+    mk = _hosts(cfg, hosts_fn)
+    out = {'plan': [], 'problems': [], 'key': '', 'moves': [d['name'] for d in found]}
+    if found:
+        old, new = mk(found[0]['machine'], found[0].get('adb')), mk(to)
+        pre = devmove.preflight(cfg, to, found, old, new, 'keep' if key == 'keep' else None)
+        out.update(plan=devmove.plan_lines(pre, found), problems=pre['problems'], key=pre['key'])
+    on_to = [d for d in devmove.named(cfg, to, names) if d['machine'] == to]
+    if on_to:
+        target = mk(to, next((d.get('adb') for d in on_to if d.get('adb')), None))
+        cons = devmove.scan(cfg, to, on_to, mk, target)
+        out['plan'] += devmove.consolidate_lines(cons)
+        out['strays'] = {m: [s for s, _ in hits] for m, hits in cons['strays'].items()}
+        out['skipped'], out['runners'] = cons['skipped'], cons['runners']
+        out['todo'] = bool(found) or devmove.pending(cons)
+    else:
+        out.update(strays={}, skipped={}, runners=[], todo=bool(found))
+    if not out['todo']:
+        out['plan'].append(f'nothing to do: every device named is on {to} and connected there only')
+    return out
+
+
+def move_status():
+    """{"running", "exit", "lines"}: the move started from the page, and its log's last lines."""
+    proc, lines = MOVE['proc'], []
+    if MOVE['log'] and os.path.exists(MOVE['log']):
+        with open(MOVE['log'], encoding='utf8', errors='replace') as f:
+            lines = [ln.rstrip() for ln in f.readlines()[-40:]]
+    rc = proc.poll() if proc else None
+    return 200, {'running': bool(proc) and rc is None, 'exit': rc, 'lines': lines}
+
+
+def move_post(collector, raw, hosts_fn=None, popen=None):
+    """{"to", "devices"?: [...], "dry_run"?: true, "key"?: "keep"}: the plan, or the move started in the background;
+    {"action": "status"}: its progress. Admin only (dashboard.ADMIN_PATHS)."""
     data, cfg = _body(raw), collector.cfg
+    if data.get('action') == 'status':
+        return move_status()
     names = [n for n in data.get('devices') or [] if isinstance(n, str)]
+    to = str(data.get('to') or '')
     try:
-        found = devmove.pick(cfg, str(data.get('to') or ''), names)
+        plan = move_plan(cfg, to, names, data.get('key'), hosts_fn)
     except devmove.MoveError as e:
         return 400, {'error': str(e)}
     if data.get('dry_run', True):
-        mk = hosts_fn or (lambda n, adb=None: adbhost.Host(n, cfg['machines'][n], adb=adb))
-        old, new = mk(found[0]['machine'], found[0].get('adb')), mk(data['to'])
-        pre = devmove.preflight(cfg, data['to'], found, old, new, 'keep' if data.get('key') == 'keep' else None)
-        return 200, {'plan': devmove.plan_lines(pre, found), 'problems': pre['problems'], 'key': pre['key']}
+        return 200, plan
+    if plan['problems'] or not plan['todo']:
+        return 409, {'error': 'nothing to do' if not plan['todo'] else 'cannot move yet: ' + '; '.join(plan['problems'])}
+    if MOVE['proc'] and MOVE['proc'].poll() is None:
+        return 409, {'error': 'a move is already running: wait for it to end'}
     from . import remote
     me = [remote.BIN] if os.path.isfile(remote.BIN) else ['-c', 'import sys; from tutti.cli import entry; sys.exit(entry())']
-    argv = [sys.executable, *me, '--config', cfg['_path'], 'devices', 'move', '--to', data['to'], *[d['name'] for d in found]]
+    argv = [sys.executable, *me, '--config', cfg['_path'], 'devices', 'move', '--to', to, *names]
     argv += ['--keep-key'] if data.get('key') == 'keep' else []
     log = os.path.join(config.state_dir(cfg), 'devices-move.log')
+    start = popen or POPEN or subprocess.Popen
     try:
-        with open(log, 'ab') as out:
-            popen(argv, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
+        with open(log, 'w', encoding='utf8') as out:
+            MOVE['proc'] = start(argv, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
+        MOVE['log'] = log
     except OSError as e:
-        return 500, {'error': f'the move could not start ({e}): run `tutti devices move --to {data["to"]}` in a terminal'}
+        return 500, {'error': f'the move could not start ({e}): run `tutti devices move --to {to}` in a terminal'}
     return 202, {'ok': True, 'log': log}

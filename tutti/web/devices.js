@@ -1,7 +1,7 @@
 // devices.js: the Pair a device and Move devices buttons of the Devices card. Pairing: POST /api/devices/pair starts it
 // and the page asks its state every two seconds; the QR code is drawn here from the matrix the dashboard sends (no
-// library). Moving: POST /api/devices/move with dry_run shows the plan and what stops it; Move now starts it in the
-// background. Uses app.js's helpers (el, $, refresh, showBanner, TOKEN).
+// library). Moving: POST /api/devices/move with dry_run shows the plan (the move and the consolidation: other machines'
+// stray connections) and what stops it; Move now asks to confirm, starts it in the background and shows its log. Uses app.js's helpers (el, $, refresh, showBanner, TOKEN).
 'use strict';
 
 async function devicesPost(path, body) {
@@ -72,29 +72,79 @@ async function startPair(kind) {
     if (waiting && !pairing.timer) pairing.timer = setInterval(() => pairAction({ action: 'status' }), 2000);
 }
 
+const moving = { timer: null };
+
+function moveProgress(out) {
+    // the move runs in the background: its log's last lines every two seconds until it ends, then the result
+    const log = el('pre', { id: 'move-log', class: 'row__note', tabindex: '0', 'aria-label': 'The move\'s log' });
+    const said = el('p', { id: 'move-state', class: 'row__note', role: 'status', text: 'Moving…' });
+    out.replaceChildren(said, log);
+    const tick = async () => {
+        try {
+            const r = await devicesPost('/api/devices/move', { action: 'status' });
+            log.textContent = r.lines.join('\n');
+            if (!r.running) {
+                clearInterval(moving.timer);
+                moving.timer = null;
+                said.textContent = r.exit === 0 ? 'Done: the move finished.' : `The move ended with exit ${r.exit}: the log says why.`;
+                refresh();
+            }
+        } catch (err) {
+            clearInterval(moving.timer);
+            moving.timer = null;
+            said.textContent = `The progress could not be read: ${err.message}`;
+        }
+    };
+    moving.timer = setInterval(tick, 2000);
+    tick();
+}
+
+function moveConfirm(out, ask, r) {
+    // a confirm step before anything changes: what moves, what is disconnected, which runners switch
+    const strays = Object.values(r.strays || {}).reduce((n, l) => n + l.length, 0);
+    const what = [r.moves.length ? `move ${r.moves.join(', ')} to ${ask.to}` : '',
+        strays ? `disconnect ${strays} stray connection(s) on other machines` : '',
+        (r.runners || []).length ? `switch ${r.runners.join(', ')} to ${ask.to}'s adb` : ''].filter(Boolean).join('; ');
+    const cancel = el('button', { id: 'move-cancel', class: 'btn btn--small', type: 'button', text: 'Cancel', onclick: () => {
+        out.replaceChildren(el('p', { class: 'row__note', role: 'status', text: 'Cancelled: nothing changed.' }));
+    } });
+    const yes = el('button', { id: 'move-confirm', class: 'btn btn--small', type: 'button', text: 'Yes, do it', onclick: () => {
+        devicesPost('/api/devices/move', { ...ask, dry_run: false }).then(() => moveProgress(out),
+            (err) => out.replaceChildren(el('p', { class: 'row__note', role: 'alert', text: `The move did not start: ${err.message}` })));
+    } });
+    const box = el('div', { id: 'move-ask', role: 'group', 'aria-labelledby': 'move-ask-text' },
+        el('p', { id: 'move-ask-text', class: 'row__note', text: `Confirm: ${what}?` }), yes, cancel);
+    out.append(box);
+    yes.focus();
+}
+
 function moveForm(s) {
     const machines = (s.machines?.items || []).map((m) => m.name);
     const devs = s.devices?.items || [];
-    const to = el('select', { id: 'move-to', 'aria-label': 'Move to the machine' }, ...machines.map((m) => el('option', { value: m, text: m })));
+    const to = el('select', { id: 'move-to' }, ...machines.map((m) => el('option', { value: m, text: m })));
     const boxes = devs.map((d) => el('label', { class: 'row__note' },
         el('input', { type: 'checkbox', value: d.name, checked: true }), ` ${d.name} (on ${d.machine})`));
-    const out = el('div', { role: 'status' });
+    const out = el('div', { id: 'move-out', 'aria-live': 'polite' });
     const chosen = () => boxes.map((b) => b.firstChild).filter((c) => c.checked).map((c) => c.value);
-    const plan = async (key) => {
+    const plan = async () => {
+        const ask = { to: to.value, devices: chosen() };
+        out.replaceChildren(el('p', { class: 'row__note', role: 'status', text: 'Checking every machine…' }));
         try {
-            const r = await devicesPost('/api/devices/move', { to: to.value, devices: chosen(), dry_run: true, key });
-            const move = el('button', { class: 'btn btn--small', type: 'button', text: 'Move now', disabled: r.problems.length > 0,
-                onclick: () => devicesPost('/api/devices/move', { to: to.value, devices: chosen(), dry_run: false, key })
-                    .then((a) => showBanner(el('strong', { text: 'Moving. ' }), `The log is ${a.log}; the card updates when it is done.`),
-                        (err) => showBanner(el('strong', { text: 'The move did not start. ' }), err.message)) });
-            out.replaceChildren(el('ol', { class: 'row__note' }, ...r.plan.map((l) => el('li', { text: l }))),
-                ...r.problems.map((p) => el('p', { class: 'row__note', text: `Cannot move yet: ${p}` })), move);
+            const r = await devicesPost('/api/devices/move', { ...ask, dry_run: true });
+            const go = el('button', { id: 'move-go', class: 'btn btn--small', type: 'button', text: 'Move now',
+                disabled: r.problems.length > 0 || !r.todo, onclick: () => { go.disabled = true; moveConfirm(out, ask, r); } });
+            out.replaceChildren(el('h3', { class: 'row__name', text: 'The plan (dry run: nothing changed yet)' }),
+                el('ol', { id: 'move-plan', class: 'row__note' }, ...r.plan.map((l) => el('li', { text: l }))),
+                ...r.problems.map((p) => el('p', { class: 'row__note', role: 'alert', text: `Cannot move yet: ${p}` })), go);
         } catch (err) {
-            out.replaceChildren(el('p', { class: 'row__note', text: err.message }));
+            out.replaceChildren(el('p', { class: 'row__note', role: 'alert', text: err.message }));
         }
     };
-    $('device-tools').replaceChildren(el('div', { class: 'row' }, el('span', { class: 'row__name', text: 'Move to' }), to), ...boxes,
-        el('button', { class: 'btn btn--small', type: 'button', text: 'Show the plan', onclick: () => plan() }), out);
+    $('device-tools').replaceChildren(
+        el('div', { class: 'row' }, el('label', { class: 'row__name', for: 'move-to', text: 'Move to' }), to),
+        el('fieldset', { class: 'row__note' }, el('legend', { text: 'Devices' }), ...boxes),
+        el('button', { id: 'move-plan-btn', class: 'btn btn--small', type: 'button', text: 'Show the plan', onclick: () => plan() }), out);
+    to.focus();
 }
 
 function renderDeviceTools(s) {

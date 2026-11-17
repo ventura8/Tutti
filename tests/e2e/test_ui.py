@@ -414,5 +414,61 @@ class Roles(unittest.TestCase):
             ctx.close()
 
 
+class MoveDevices(unittest.TestCase):
+    """The admin's Move devices: target and devices chosen, the dry-run plan (with the consolidation's stray connections),
+    a confirm step, progress and the result; keyboard only, axe-clean in both themes; a viewer's POST gets 403."""
+    maxDiff = None
+
+    def open_form(self, theme):
+        ctx = new_context(ADMIN, 'laptop', theme)
+        page = open_view(ctx, '#dashboard')
+        page.get_by_role('button', name='Move devices').click()
+        page.wait_for_selector('#move-to', state='visible')
+        return ctx, page
+
+    def test_dry_run_confirm_progress_and_result_by_keyboard(self):
+        for theme in THEMES:
+            ctx, page = self.open_form(theme)
+            self.assertEqual(page.evaluate('document.activeElement.id'), 'move-to')
+            page.select_option('#move-to', 'here')
+            page.focus('#move-plan-btn')
+            page.keyboard.press('Enter')
+            page.wait_for_selector('#move-plan li')
+            plan = page.text_content('#move-plan')
+            self.assertIn('builder: adb disconnect R58M00TEST00 (pixel; the pairing stays)', plan)
+            self.assertNotIn('nothing to move', plan)
+            self.assertEqual(axe(page), [], f'Move devices plan, {theme}')
+            page.focus('#move-go')
+            page.keyboard.press('Enter')
+            page.wait_for_selector('#move-ask')
+            self.assertEqual(page.evaluate('document.activeElement.id'), 'move-confirm')
+            self.assertIn('disconnect 1 stray connection(s)', page.text_content('#move-ask-text'))
+            self.assertEqual(axe(page), [], f'Move devices confirm, {theme}')
+            page.keyboard.press('Enter')
+            page.wait_for_timeout(4000); print(page.text_content("#move-out"))
+            self.assertIn('consolidated on here', page.text_content('#move-log'))
+            self.assertEqual(axe(page), [], f'Move devices result, {theme}')
+            self.assertEqual(page.errors, [])
+            ctx.close()
+
+    def test_cancel_changes_nothing(self):
+        ctx, page = self.open_form('light')
+        page.select_option('#move-to', 'here')
+        page.click('#move-plan-btn')
+        page.click('#move-go')
+        page.click('#move-cancel')
+        self.assertIn('nothing changed', page.text_content('#move-out'))
+        ctx.close()
+
+    def test_a_viewer_gets_403(self):
+        ctx = new_context(VIEWER)
+        page = open_view(ctx, '#dashboard')
+        status = page.evaluate("""fetch('/api/devices/move', { method: 'POST', headers: { 'Content-Type': 'application/json',
+            'X-Tutti-Token': document.querySelector('meta[name=tutti-token]').content }, body: JSON.stringify({ to: 'here' }) })
+            .then((r) => r.status)""")
+        self.assertEqual(status, 403)
+        ctx.close()
+
+
 if __name__ == '__main__':
     unittest.main()

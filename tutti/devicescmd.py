@@ -99,17 +99,45 @@ def cmd_pair(cfg, a, read_code=input):
 
 
 def cmd_move(cfg, a, read_code=input):
+    """Moves the devices that are not on --to yet, then consolidates every device on --to (devmove.scan): other machines'
+    stray connections disconnected, Windows runners switched to --to's adb. --dry-run prints both plans."""
     try:
-        found = devmove.pick(cfg, a.to, a.names or [])
+        found = devmove.pick(cfg, a.to, a.names or [], none_ok=True)
+        devs = devmove.named(cfg, a.to, a.names or [])
     except devmove.MoveError as e:
         say(str(e))
         return 2
+    rc, moved = move_found(cfg, a, found, read_code) if found else (0, [])
+    if rc and not a.dry_run and not moved:
+        return rc
+    on_to = [d for d in devs if d['machine'] == a.to or d['name'] in moved]
+    if not on_to:
+        if a.dry_run:
+            print('dry run: nothing changed')
+        return rc
+    target = host_for(cfg, a.to, next((d.get('adb') for d in on_to if d['machine'] == a.to and d.get('adb')), None))
+    plan = devmove.scan(cfg, a.to, on_to, lambda n: host_for(cfg, n), target)
+    for line in devmove.consolidate_lines(plan):
+        print(line)
+    if a.dry_run:
+        print('dry run: nothing changed')
+        return rc
+    if not devmove.pending(plan):
+        return rc
+    result = devmove.consolidate(cfg, plan, lambda n: host_for(cfg, n), say)
+    for line in devmove.consolidate_summary(result, a.to):
+        print(line)
+    return rc if not result['back'] else 1
+
+
+def move_found(cfg, a, found, read_code):
+    """The move of the devices not on --to yet: (exit code, [moved]); with --dry-run the code is 1 when something stops it."""
     src = found[0]['machine']
     old = host_for(cfg, src, found[0].get('adb'))
     new = host_for(cfg, a.to)
     if not a.dry_run and not ensure_adb(new, a.install_adb):
         say(f'adb is not on {a.to}: run again with --install-adb (a user-space copy of Android platform-tools)')
-        return 1
+        return 1, []
     choice = 'keep' if a.keep_key else 'repair' if a.repair else None
     pre = devmove.preflight(cfg, a.to, found, old, new, choice)
     for line in devmove.plan_lines(pre, found):
@@ -117,11 +145,8 @@ def cmd_move(cfg, a, read_code=input):
     problems = pre['problems']
     for p in problems:
         say(f'cannot move yet: {p}')
-    if a.dry_run:
-        print('dry run: nothing changed')
-        return 1 if problems else 0
-    if problems:
-        return 1
+    if a.dry_run or problems:
+        return (1 if problems else 0), []
 
     def repair(d):
         print(f'Pair {d["name"]} again on {a.to}:')
@@ -130,10 +155,10 @@ def cmd_move(cfg, a, read_code=input):
         result = devmove.run(cfg, a.to, found, old, new, pre, say=say, pair_fn=repair)
     except (devmove.MoveError, adbpair.PairError) as e:
         say(str(e))
-        return 1
+        return 1, []
     for line in devmove.summary(result, a.to, src):
         print(line)
-    return 0 if not result['stayed'] else 1
+    return (0 if not result['stayed'] else 1), result['moved']
 
 
 def cmd_claim(cfg, a):
@@ -325,9 +350,12 @@ def lease_on_runner(cfg, a):
     if rc != 0:
         return rc
     addrs = dict(zip(names, (x[5:] for x in text.split() if x.startswith('ADDR=')), strict=False))
-    there = adbhost.Host(a.runner, cfg['machines'][a.runner])
-    from . import devclass
+    from . import adbvia, devclass
     found = [cfg['devices'][n] for n in names if n in (cfg.get('devices') or {})]
+    # adb_via_device_host (tutti/adbvia.py): the devices' own machine holds the connections and serves adb to the runner
+    # over an ssh tunnel; they are connected and checked there, and the runner's own adb never pairs or connects
+    via = adbvia.host_of(cfg, a.runner, found)
+    there = adbhost.Host(via, cfg['machines'][via], adb=found[0].get('adb')) if via else adbhost.Host(a.runner, cfg['machines'][a.runner])
     refused = devclass.refusal(found, command)
     try:
         if refused:   # the command names what its device class forbids (a TV: wm size, rotation, cmd device_state)
@@ -341,10 +369,12 @@ def lease_on_runner(cfg, a):
             return 3
         print('tutti: device ready', flush=True)   # the dispatcher's start clock (shards.started_marker)
         with Renewer(cfg, a):
-            return remote.sh(cfg['machines'][a.runner], devclass.export(found) + runner_line(command, addrs)).returncode
+            line = devclass.export(found) + runner_line(adbvia.with_socket(command) if via else command, addrs)
+            return remote.sh(cfg['machines'][a.runner], (adbvia.prefix(cfg, via) if via else '') + line).returncode
     finally:
         for addr in addrs.values():
-            there.adb('disconnect', addr, timeout=30)
+            if not via:   # the device machine keeps its connections: it is the household's one adb host
+                there.adb('disconnect', addr, timeout=30)
         a.action = 'release'
         cmd_claim(cfg, a)
 

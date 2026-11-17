@@ -11,6 +11,7 @@ import unittest
 import urllib.error
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest import mock
 
 import yaml
 
@@ -370,6 +371,77 @@ class SelfUpdate(unittest.TestCase):
             self.assertTrue(install.is_release_install(os.path.join(t, 'home', 'current'), os.path.join(t, 'home')))
             self.assertFalse(install.is_release_install(os.path.join(t, 'home'), os.path.join(t, 'home')))
 
+    def test_stage_only_keeps_active_code_and_environment_and_cleans_failures(self):
+        with tempfile.TemporaryDirectory() as t:
+            tarball, sums = release(t, '9.9.9')
+            home_dir = os.path.join(t, 'home')
+            active = os.path.join(home_dir, 'versions', '1.0.0')
+            shared = os.path.join(home_dir, 'venv')
+            os.makedirs(active)
+            os.makedirs(shared)
+            os.symlink(active, os.path.join(home_dir, 'current'))
+            marker = os.path.join(shared, 'marker')
+            with open(marker, 'w', encoding='utf8') as f:
+                f.write('unchanged')
+
+            def make_venv(path):
+                os.mkdir(path)
+                return True
+
+            with mock.patch.object(install, 'create_stage_venv', side_effect=make_venv), \
+                    mock.patch.object(install, 'stage_requirements', return_value=True) as req:
+                code, msg = install.stage_update(home_dir, '1.0.0', self.fetcher(tarball, sums), verify_fn=lambda *a: '')
+            self.assertEqual(code, 0, msg)
+            [stage] = [os.path.join(home_dir, x) for x in os.listdir(home_dir) if x.startswith('staged-')]
+            self.assertEqual(req.call_args.args, (stage, os.path.join(stage, 'release')))
+            self.assertTrue(os.path.isfile(os.path.join(stage, 'release', 'requirements.txt')))
+            self.assertTrue(os.path.isdir(os.path.join(stage, 'venv')))
+            self.assertEqual(os.path.realpath(os.path.join(home_dir, 'current')), active)
+            with open(marker, encoding='utf8') as f:
+                self.assertEqual(f.read(), 'unchanged')
+
+            with mock.patch.object(install, 'create_stage_venv', return_value=False):
+                code, msg = install.stage_update(home_dir, '1.0.0', self.fetcher(tarball, sums), verify_fn=lambda *a: '')
+            self.assertEqual(code, 1, msg)
+            self.assertEqual([x for x in os.listdir(home_dir) if x.startswith('staged-')], [os.path.basename(stage)])
+            self.assertEqual(os.path.realpath(os.path.join(home_dir, 'current')), active)
+
+    def test_stage_only_requires_signed_checksums(self):
+        with tempfile.TemporaryDirectory() as t:
+            tarball, sums = release(t, '9.9.9')
+            home_dir = os.path.join(t, 'home')
+            code, _ = install.stage_update(home_dir, '1.0.0', self.fetcher(tarball, sums), verify_fn=lambda *a: 'bad signature')
+            self.assertEqual(code, 1)
+            self.assertFalse(any(x.startswith('staged-') for x in os.listdir(home_dir)))
+            code, _ = install.stage_update(home_dir, '1.0.0', self.fetcher(tarball, f'{"0" * 64}  tutti-9.9.9.tar.gz\n'),
+                                           verify_fn=lambda *a: '')
+            self.assertEqual(code, 1)
+            self.assertFalse(any(x.startswith('staged-') for x in os.listdir(home_dir)))
+
+    def test_staging_cleans_unexpected_failure_and_ignores_package_manager_overrides(self):
+        with tempfile.TemporaryDirectory() as t:
+            tarball, _ = release(t, '9.9.9')
+            create_venv = mock.Mock(side_effect=RuntimeError('unexpected'))
+            with self.assertRaisesRegex(RuntimeError, 'unexpected'):
+                install.stage_release(t, tarball, '9.9.9', create_venv=create_venv)
+            self.assertFalse(any(x.startswith('staged-') for x in os.listdir(t)))
+        env = install.stage_env({'PATH': '/example', 'PIP_TARGET': '/active', 'UV_CONFIG_FILE': '/bad',
+                                 'PYTHONPATH': '/active', 'VIRTUAL_ENV': '/active'})
+        self.assertEqual(env, {'PATH': '/example', 'PIP_CONFIG_FILE': os.devnull, 'UV_NO_CONFIG': '1'})
+
+    def test_staged_install_uses_only_its_own_environment(self):
+        with tempfile.TemporaryDirectory() as t, mock.patch.object(install.shutil, 'which', return_value=None), \
+                mock.patch.object(install.subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as run, \
+                mock.patch.dict(os.environ, {'PIP_TARGET': '/active', 'PYTHONPATH': '/active'}):
+            self.assertTrue(install.stage_requirements(t, os.path.join(t, 'release')))
+            argv, kw = run.call_args.args[0], run.call_args.kwargs
+            self.assertTrue(argv[0].startswith(os.path.join(t, 'venv')))
+            self.assertIn('--require-hashes', argv)
+            self.assertIn('--only-binary=:all:', argv)
+            self.assertEqual(kw['cwd'], t)
+            self.assertNotIn('PIP_TARGET', kw['env'])
+            self.assertNotIn('PYTHONPATH', kw['env'])
+
     def test_a_bad_checksum_changes_nothing(self):
         with tempfile.TemporaryDirectory() as t:
             tarball, _ = release(t, '9.9.9')
@@ -674,7 +746,9 @@ class Signature(unittest.TestCase):
     @unittest.skipUnless(shutil.which('gh'), 'needs GitHub\'s CLI')
     def test_the_real_gh_refuses_the_forged_bundle(self):
         sums, bundle = os.path.join(self.FIX, 'SHA256SUMS'), os.path.join(self.FIX, 'forged.sigstore.json')
-        why = install.verify_signature(sums, bundle, '0.5.2', gh=shutil.which('gh'))
+        # Newer gh starts a detached telemetry sender; keep this real verification isolated and leave no child process.
+        with mock.patch.dict(os.environ, {'GH_TELEMETRY': 'disabled'}):
+            why = install.verify_signature(sums, bundle, '0.5.2', gh=shutil.which('gh'))
         if 'too old' in why:
             self.skipTest('this gh has no attestation command')
         self.assertIn('is not signed by ventura8/Tutti', why)

@@ -255,7 +255,11 @@ class Collector:
         welcome.tick(self.cfg)   # the owner back: their welcome-back summary
         needs.tick(self.cfg)   # the questions only a person can answer, delivered in batches (docs/NEEDS.md)
         # main agent in panic or spent: MAIN AGENT ROLE to the next in main.fallback (docs/CONDUCT.md)
-        conduct.hand_off_role(self.cfg, self.snapshot()['usage']['accounts'])
+        snap = self.snapshot()
+        from . import chat
+        self.cfg['_model_sizes'] = chat.fleet_sizes(self.cfg)
+        self.cfg['_worker_readiness'] = {w['name']: w.get('ready') for w in snap['workers']['items']}
+        conduct.hand_off_role(self.cfg, snap['usage']['accounts'], now=datetime.now(timezone.utc), machines=snap['machines']['items'])
         from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)
         hhjobs.tick(self.cfg)
 

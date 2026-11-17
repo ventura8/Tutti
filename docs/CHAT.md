@@ -1,5 +1,12 @@
 # Chat
 
+Chat binds each online worker to a configured account with a pacing state and passes that account's configured arguments
+to the CLI. For a worker shared by multiple accounts, an admin must set `workers.<name>.chat_account_selector` to the CLI
+flag selecting the account or model, and every linked account (including paused ones) must have exactly one distinct value
+for that flag in `accounts.<name>.args`. This is the admin's assertion about the provider's CLI, not provider verification.
+Chat checks the final command before launch and refuses ambiguous bindings. Paused accounts and accounts whose pacing state
+is absent are not selected. A worker with no linked account remains unmetered.
+
 The dashboard opens on **Chat**, the first tab, for every signed-in user (viewers too). Ask about the household in plain
 words, or ask for work. The chat runs on the household host, inside `tutti dashboard`, so it answers while your own computer,
 or your main agent's machine, is off.

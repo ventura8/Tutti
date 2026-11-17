@@ -65,6 +65,36 @@ class Formatter(unittest.TestCase):
                          '1.2 and (2) x12 v1.2.34567 9.9')
 
 
+@unittest.skipUnless(shutil.which('node'), 'node is not installed')
+class OffAccountDisplay(unittest.TestCase):
+    def test_all_off_renders_status_and_reason_without_actions(self):
+        app = os.path.join(dashboard.WEB, 'app.js')
+        script = r"""
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const code = src.slice(src.indexOf('function offAccount('), src.indexOf('// ---- the owner', src.indexOf('function offAccount(')));
+const nodes = {};
+function $(id) { return nodes[id] ||= {replaceChildren(...children) {this.children = children;}}; }
+function el(tag, attrs, ...children) { return {tag, attrs, children}; }
+function chip(text) { return el('span', {text}); }
+function empty(text) { return el('empty', {text}); }
+function codeText() { return ''; }
+function plural() { return ''; }
+const ui = {editing: new Set(), formPending: false};
+const usage = {accounts: [], off_accounts: [{name: 'cursor', status: 'paused', reason: 'rest'}], log: 'log'};
+eval(code + '\nrenderUsage({usage}, 0, false);');
+console.log(JSON.stringify(nodes.usage.children));
+"""
+        out = subprocess.run(['node', '-e', script, app], capture_output=True, text=True, check=True)
+        cards = json.loads(out.stdout)
+        self.assertEqual(len(cards), 1)
+        self.assertIn('cursor', json.dumps(cards))
+        self.assertIn('paused', json.dumps(cards))
+        self.assertIn('rest', json.dumps(cards))
+        self.assertNotIn('button', json.dumps(cards))
+        self.assertNotIn('No accounts yet', json.dumps(cards))
+
+
 class Order(unittest.TestCase):
     def page(self):
         with open(os.path.join(dashboard.WEB, 'index.html'), encoding='utf8') as f:

@@ -528,6 +528,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `usage.log` | text | `~/.local/state/tutti/usage.jsonl` | Usage log: The file every reading is appended to. | admin |
 | `workers.*.kind` | select cli, ollama |  | Kind: cli: another vendor's agent; ollama: a local model server. | admin |
 | `workers.*.command` | list |  | Command: The command line; {prompt} is the brief, {log} a log file per run. | admin |
+| `workers.*.chat_account_selector` | text |  | Chat account selector: The CLI flag an admin asserts selects an account or model. | admin |
 | `workers.*.denied` | text |  | Denied marker: Text in its log that means a headless permission was refused. | admin |
 | `workers.*.costs_money` | switch | `False` | Costs money per use: Kept off until you turn it on. | admin |
 | `workers.*.enabled` | switch |  | On: Off takes it out of routing, conduct and review. | admin |

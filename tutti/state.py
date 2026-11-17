@@ -56,7 +56,33 @@ def usage_state(cfg, now):
     accounts = with_scouts(cfg, accounts, now)
     accounts = with_targets(cfg, accounts, now)
     from . import owner
-    return {'log': path, 'problem': problem, 'accounts': accounts, 'owner': owner.view(cfg, config.state_dir(cfg), entries, now)}
+    return {'log': path, 'problem': problem, 'accounts': accounts, 'off_accounts': off_account_cards(cfg),
+            'owner': owner.view(cfg, config.state_dir(cfg), entries, now)}
+
+
+def off_account_cards(cfg):
+    """Display-only account status; never feed these entries to the router."""
+    from . import controls
+    result = []
+    for entry in cfg.get('off', []):
+        if entry['kind'] != 'account':
+            continue
+        reasons = []
+        if entry.get('paused'):
+            reasons.append(controls.paused_note(entry))
+        if entry.get('disabled'):
+            reasons.append('costs money per use; opt in through Settings to enable it' if entry.get('costs_money')
+                           else 'disabled or requires opt-in; enable it in Settings')
+        if entry.get('off_worker'):
+            worker = entry['off_worker']
+            if entry.get('worker_paused'):
+                reasons.append(f'worker {worker}: ' + controls.paused_note({'paused': entry['worker_paused']}))
+            if entry.get('worker_disabled'):
+                reasons.append(f'worker {worker}: disabled or requires opt-in; enable it in Settings')
+        status = 'paused' if entry.get('paused') or entry.get('worker_paused') else 'disabled'
+        reason = '; '.join(reasons) or 'disabled; enable it in Settings'
+        result.append({'name': entry['name'], 'status': status, 'reason': reason})
+    return result
 
 
 def target_facts(cfg):
@@ -257,7 +283,8 @@ def worker_accounts(cfg):
 def next_worker(cfg, accounts, machines=None, now=None):
     """Where the next agent job goes, from the latest readings: {worker, account, args, reason}, worker None when none has room."""
     by_name = {a['name']: a for a in accounts}
-    states = [by_name[n] for n in worker_accounts(cfg) if n in by_name]
+    states = [{**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}
+              for n in worker_accounts(cfg) if n in by_name]
     if machines is not None:
         from . import fleet
         states = [s for s in states if not (cfg['workers'].get(cfg['accounts'][s['name']]['worker']) or {}).get('machine')

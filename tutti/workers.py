@@ -70,6 +70,16 @@ def with_args(argv, extra):
     return out
 
 
+def selector_value(args, selector):
+    """One explicit selector flag and value, or None for a missing, ambiguous or malformed binding."""
+    if not isinstance(selector, str) or not selector.startswith('-') or selector == '-' or '=' in selector:
+        return None
+    if any(isinstance(arg, str) and arg.startswith(selector + '=') for arg in args):
+        return None
+    values = [value for flag, value in pairs(args) if flag == selector]
+    return values[0] if len(values) == 1 and isinstance(values[0], str) and values[0] else None
+
+
 def _tagged(name):
     """Ollama's own identity for a model: an untagged `llama3` is `llama3:latest`."""
     return name if ':' in name.rsplit('/', 1)[-1] else f'{name}:latest'

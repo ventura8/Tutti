@@ -24,6 +24,8 @@ tutti dashboard --once             # print /api/state as JSON and stop (--no-pro
 Start it in the background with
 `mkdir -p ~/.local/state/tutti && nohup tutti dashboard > ~/.local/state/tutti/dashboard.log 2>&1 &`.
 
+Paused and disabled accounts remain visible in Usage with their status and reason. They stay excluded from routing and do not receive new work.
+
 ## Install it as an app
 
 Open the page in Chrome or Edge and choose **Install app** (the button in the bar, or the browser's install icon). It

@@ -6,6 +6,7 @@ the owner switches the main agent on the dashboard, Tutti stops it and hands the
 Pure parts (the order, the instruction text, the handoff note, the local model's command check) are unit-tested; the
 process and the files sit in `run_cli`, `run_local` and `conduct`."""
 import json
+import math
 import os
 import re
 import shlex
@@ -211,18 +212,36 @@ def yield_reason(cfg, agent):
     return ''
 
 
-def out_reason(cfg, agent, states):
+def out_reason(cfg, agent, states, machines=None, now=None):
     """Why an agent must not conduct now (every account it spends is in panic or spent, or a local model's machine is lent
     out), or ''. No account: never out by quota."""
     lent = yield_reason(cfg, agent)
     if lent:
         return lent
+    readiness = (cfg.get('_worker_readiness') or {}).get(agent)
+    if readiness is False:
+        return f'{agent}: its worker is not ready'
+    worker = cfg['workers'].get(agent) or {}
+    if machines is not None and (worker.get('kind') == 'ollama' or worker.get('machine')):
+        from . import fleet
+        home = fleet.machine_of(cfg, agent)
+        if home and not any(m.get('name') == home for m in machines):
+            return f'{agent}: its machine {home} has not been probed'
+        blocked = fleet.governor(cfg, agent, machines, now, hardware=worker.get('hardware'))
+        if blocked:
+            return blocked
     names = accounts_of(cfg, agent)
+    linked = [n for n, worker in (cfg.get('_account_workers') or {}).items() if worker == agent]
+    if linked and not names:
+        return f'{agent}: all of its configured accounts are paused or disabled'
     by_name = {s['name']: s for s in states}
-    reasons = [routing.account_unfit(by_name[n]) for n in names if n in by_name]
-    if not reasons or not all(reasons):
+    reasons = [(n, routing.account_unfit({**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}))
+               for n in names if n in by_name]
+    if any(n not in by_name for n in names):
         return ''
-    return '; '.join(f'{n}: {r}' for n, r in zip(names, reasons, strict=False))
+    if not reasons or not all(reason for _, reason in reasons):
+        return ''
+    return '; '.join(f'{n}: {reason}' for n, reason in reasons)
 
 
 def account_args(cfg, agent, states):
@@ -231,7 +250,7 @@ def account_args(cfg, agent, states):
     with its `--settings` while that window has room, on agy-gemini's after."""
     by_name = {x['name']: x for x in states}
     for n in accounts_of(cfg, agent):
-        if n in by_name and not routing.account_unfit(by_name[n]):
+        if n in by_name and not routing.account_unfit({**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}):
             return list((cfg['accounts'][n] or {}).get('args') or [])
     return []
 
@@ -831,32 +850,49 @@ def role_path(cfg):
     return os.path.join(state_folder(cfg), 'role-handoff.json')
 
 
-def pick_auto(cfg, states, skip=()):
+def fallback_order(cfg):
+    """Online workers in the user's order, then local models by reported parameter count."""
+    from . import fleet
+    names = [n for n in settings(cfg)['fallback'] if n in cfg['workers']]
+    names += [n for n in cfg['workers'] if n not in names]
+    online = [n for n in names if cfg['workers'][n].get('kind') != 'ollama']
+    local = [n for n in names if cfg['workers'][n].get('kind') == 'ollama']
+    sizes = cfg.get('_model_sizes') or {}
+    def model_size(name):
+        model = (cfg['workers'][name] or {}).get('model') or ''
+        measured = sizes.get(model)
+        if isinstance(measured, (int, float)) and not isinstance(measured, bool) and math.isfinite(measured) and measured > 0:
+            return measured
+        return fleet.params_b({'name': model})
+    local.sort(key=lambda n: -model_size(n))
+    return online + local
+
+
+def pick_auto(cfg, states, skip=(), machines=None, now=None):
     """Preferred while it has room; else the first worker in main.fallback with room. None when none."""
     want = preferred(cfg)
-    if want and want not in skip and want in cfg['workers'] and not out_reason(cfg, want, states):
+    if (want and want not in skip and want in cfg['workers'] and cfg['workers'][want].get('kind') != 'ollama'
+            and not out_reason(cfg, want, states, machines, now)):
         return want
-    fallback = [n for n in settings(cfg)['fallback'] if n in cfg['workers']]
-    to, _skipped = next_agent(fallback, set(skip), lambda n: out_reason(cfg, n, states))
+    to, _skipped = next_agent(fallback_order(cfg), set(skip), lambda n: out_reason(cfg, n, states, machines, now))
     return to
 
 
-def pick_role(cfg, states):
+def pick_role(cfg, states, machines=None, now=None):
     """When the current main agent is out (panic or spent), who takes over and why; else (None, '').
     Auto: preferred while it has room, else the first main.fallback with room. Pure: no files, no connect."""
     frm = current(cfg)
-    why = out_reason(cfg, frm, states)
+    why = out_reason(cfg, frm, states, machines, now)
     if is_auto(cfg):
         # auto always holds the best agent with room (owner, 2026-11-17): a stand-in left over from an earlier hand-off
         # (a local model) gives way to the preferred agent or the first fallback with room, not only when it runs out
-        best = pick_auto(cfg, states)
+        best = pick_auto(cfg, states, machines=machines, now=now)
         if best and best != frm:
             return best, why or f'auto: {best} is ahead of {frm} in the order and has room'
-        return (None, '') if not why else (pick_auto(cfg, states, {frm}), why)
+        return (None, '') if not why else (pick_auto(cfg, states, {frm}, machines, now), why)
     if not why:
         return None, ''
-    fallback = [n for n in settings(cfg)['fallback'] if n in cfg['workers']]
-    to, _skipped = next_agent(fallback, {frm}, lambda n: out_reason(cfg, n, states))
+    to, _skipped = next_agent(fallback_order(cfg), {frm}, lambda n: out_reason(cfg, n, states, machines, now))
     return to, why
 
 
@@ -867,10 +903,10 @@ def _fresh_below_panic(s):
     return s['used'] < s.get('panic_at', 95)
 
 
-def limit_reset(cfg, agent, states):
+def limit_reset(cfg, agent, states, machines=None, now=None):
     """True when `agent` has room and at least one of its accounts shows a real reading below panic_at
     (not the synthetic after_reset 0 %). An agent with no accounts is ready whenever it is not out."""
-    if out_reason(cfg, agent, states):
+    if out_reason(cfg, agent, states, machines, now):
         return False
     names = accounts_of(cfg, agent)
     if not names:
@@ -881,7 +917,7 @@ def limit_reset(cfg, agent, states):
 
 def role_note(frm, to, why, connect_note='', auto=False):
     """The chat / event line for a MAIN AGENT ROLE hand-off."""
-    none = 'no agent has room' if auto else 'no agent in main.fallback has room'
+    none = 'no agent has room'
     base = (f'MAIN AGENT ROLE handed from {frm} to {to}: {why}' if to else
             f'MAIN AGENT ROLE stays with {frm} (out: {why}); {none}')
     return f'{base}. {connect_note}'.rstrip('. ')
@@ -953,13 +989,15 @@ def take_role(cfg, to, connect_fn=None):
     return connect_role(cfg, to, connect_fn)
 
 
-def restore_preferred(cfg, states, connect_fn=None, chat_fn=None, now=None):
+def restore_preferred(cfg, states, connect_fn=None, chat_fn=None, now=None, machines=None):
     """When current ≠ preferred and preferred has a fresh reading below panic_at, switch current back.
     Returns the event line, or None."""
     want, cur = preferred(cfg), current(cfg)
     if not want or want == cur or want not in cfg['workers']:
         return None
-    if not limit_reset(cfg, want, states):
+    if is_auto(cfg) and pick_auto(cfg, states, machines=machines, now=now) != want:
+        return None
+    if not limit_reset(cfg, want, states, machines, now):
         return None
     connect_note = take_role(cfg, want, connect_fn)
     text = restore_note(cur, want, connect_note)
@@ -979,15 +1017,15 @@ def _note_hand_off(cfg, frm, to, why, connect_fn, chat_fn, now):
     return text
 
 
-def hand_off_role(cfg, states=None, connect_fn=None, chat_fn=None, now=None):
+def hand_off_role(cfg, states=None, connect_fn=None, chat_fn=None, now=None, machines=None):
     """Restore preferred main after its limit resets; else when the current main is in panic or spent, hand the role
     to the next with room (auto: preferred then first fallback; else main.fallback). Returns the event line, or None."""
     states = states if states is not None else account_states(cfg, now)
-    restored = restore_preferred(cfg, states, connect_fn=connect_fn, chat_fn=chat_fn, now=now)
+    restored = restore_preferred(cfg, states, connect_fn=connect_fn, chat_fn=chat_fn, now=now, machines=machines)
     if restored:
         return restored
     frm = current(cfg)
-    to, why = pick_role(cfg, states)
+    to, why = pick_role(cfg, states, machines, now)
     if not why:
         clear_role_record(cfg, frm)
         return None

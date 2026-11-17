@@ -187,6 +187,9 @@ class FakeGh:
         self.calls.append(args)
         if args[1:3] == ['pr', 'view']:
             return SimpleNamespace(returncode=0, stdout=json.dumps(self.view), stderr='')
+        if args[1:2] == ['api'] and '/pulls/' in args[2]:
+            detail = {'head': {'sha': self.view.get('headRefOid')}, 'base': {'sha': self.view.get('baseRefOid')}}
+            return SimpleNamespace(returncode=0, stdout=json.dumps(detail), stderr='')
         if args[1:2] == ['api'] and '/protection/required_status_checks' in args[2]:
             return SimpleNamespace(returncode=0, stdout=json.dumps({'strict': True, 'contexts': ['ci']}), stderr='')
         if args[1:3] == ['api', 'graphql']:
@@ -208,6 +211,15 @@ class Rounds(Base):
             t.update(status='review', pr=f'https://github.com/octo/{repo}/pull/{number}', pr_mode='ready', project='Tutti')
             added, _ = backlog.add(data, t)
             added['branch'] = f'autopilot/{added["id"]}-{autopilot.slug(added["title"])}'
+
+    def test_pr_state_rejects_rest_head_mismatch(self):
+        gh = FakeGh(pr())
+        def run(args, **kwargs):
+            if args[1:2] == ['api'] and '/pulls/' in args[2]:
+                return SimpleNamespace(returncode=0, stdout=json.dumps({'head': {'sha': 'different'},
+                                                                       'base': {'sha': 'base'}}), stderr='')
+            return gh(args, **kwargs)
+        self.assertIsNone(selfimprove.pr_state('o/r', 7, run))
 
     def test_strict_base_protection_fails_closed(self):
         def response(value, code=0):

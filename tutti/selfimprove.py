@@ -374,8 +374,15 @@ def changes_on_head(repo, number, head, run=github.run):
 
 def pr_state(repo, number, run=github.run):
     pr = gh_json(['pr', 'view', str(number), '--repo', repo, '--json',
-                  'state,isDraft,reviewDecision,mergeable,statusCheckRollup,baseRefName,baseRefOid,headRefOid'], run)
+                  'state,isDraft,reviewDecision,mergeable,statusCheckRollup,baseRefName,headRefOid'], run)
     if pr is None:
+        return None
+    detail = gh_json(['api', f'repos/{repo}/pulls/{number}'], run)
+    try:
+        if detail['head']['sha'] != pr.get('headRefOid'):
+            return None
+        pr['baseRefOid'] = detail['base']['sha']
+    except (TypeError, KeyError):
         return None
     count = open_threads(repo, number, run)
     pr['threads_verified'] = count is not None

@@ -34,6 +34,13 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - Codex setup uses `--approve-for-me`, which routes approval requests through automatic review with the workspace-write
   sandbox.
 
+## [0.25.6] - 2026-11-17
+
+### Fixed
+
+- `tutti run ... --repo <name>` (and MCP `delegate_task`) resolves a bare name to `autopilot.repos.<name>.path` before
+  creating the worktree, so a hand-off from a non-git cwd no longer fails with "`<name>` is not inside a git work tree".
+
 ## [0.25.5] - 2026-11-17
 
 ### Fixed

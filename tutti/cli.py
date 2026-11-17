@@ -1851,8 +1851,8 @@ def parser():
     s.add_argument('--show', action='store_true', help='print the brief and stop')
     s.add_argument('--input', action='append', metavar='PATH', help='a file or folder to copy to the --on machine first (repeat it)')
     s.add_argument('--on', help='the machine --input files go to')
-    s.add_argument('--repo', help='hand the task off end to end: a worktree of this repo, the worker headless, the diff, the checks, '
-                                  'a report (tutti runs show <id>)')
+    s.add_argument('--repo', help='hand the task off end to end: a worktree of this repo (a folder, or a name under '
+                                  'autopilot.repos), the worker headless, the diff, the checks, a report (tutti runs show <id>)')
     s.add_argument('--track', help='with --repo: reuse or create the worktree <delegate.prefix><track> instead of a new one')
     s.add_argument('--bg', action='store_true', help='with --repo: run detached; prints the id for `tutti wait run <id>`')
     s.add_argument('--no-checks', action='store_true', help='with --repo: skip the checks (the report says nothing was tested)')

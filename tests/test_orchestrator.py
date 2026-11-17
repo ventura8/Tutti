@@ -235,6 +235,28 @@ class DelegateTest(unittest.TestCase):
         with self.assertRaises(ship.ShipError):
             self.run_task(cfg, track='stray')
 
+    def test_repo_name_under_autopilot_resolves_outside_a_git_cwd(self):
+        """`--repo app` uses autopilot.repos.app.path even when cwd is not a git tree (the MCP / chat hand-off case)."""
+        cfg = self.cfg([])
+        cfg['autopilot']['repos'] = {'app': {'path': self.repo, 'check': 'true'}}
+        self.assertEqual(delegate.resolve_repo(cfg, 'app'), os.path.abspath(self.repo))
+        self.assertEqual(delegate.resolve_repo(cfg, self.repo), self.repo)
+        outside = os.path.join(self.tmp.name, 'outside')
+        os.makedirs(outside)
+        here = os.getcwd()
+        try:
+            os.chdir(outside)
+            with self.assertRaises(ship.ShipError) as err:
+                delegate.tree_for(self.cfg([]), 'app', '1-1', say=self.said.append)
+            self.assertIn('not inside a git work tree', str(err.exception))
+            with mock.patch('sys.stdout'):
+                r = delegate.delegate(cfg, 'fake', 'do nothing', [], 'app', say=self.said.append, checks=False)
+        finally:
+            os.chdir(here)
+        self.assertTrue(os.path.exists(os.path.join(r['worktree'], '.git')))
+        with open(os.path.join(delegate.paths(cfg, r['id'])['dir'], 'meta.json'), encoding='utf8') as f:
+            self.assertEqual(os.path.realpath(json.load(f)['repo']), os.path.realpath(self.repo))
+
     def test_wait_run_ends_with_one_line(self):
         cfg = self.cfg([{'run': 'true'}])
         r = self.run_task(cfg)

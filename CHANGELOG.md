@@ -11,6 +11,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
+- Wait for inspection of potentially orphaned local reviewers and reject inconsistent pull request base refs (t179).
+
 - Ordinary backlog pull requests in projects opted in to autonomous tasks and merges return for requested review fixes
   and are reviewed again before merging (t179).
 - Review gates check every page of review threads and refuse to merge if pagination cannot be verified (t179).

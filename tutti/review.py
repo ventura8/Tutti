@@ -470,6 +470,22 @@ def count_round(cfg, repo, number, who, step=1, head=None, invocation=None):
         data.setdefault(key, {})[who] = max(0, int(data.get(key, {}).get(who) or 0) + step)
 
 
+def require_no_local_round(cfg, repo, number, invocation, head):
+    """A pending local worker may outlive its wrapper; do not infer death from its lock."""
+    if not isinstance(invocation, str) or not re.fullmatch(r'[0-9a-f]{32}', invocation):
+        raise ValueError('review: invalid invocation ID; cannot safely inspect the local round')
+    with locked_rounds(cfg, require_lock=True) as data:
+        pending = data.get('_pending', {})
+        if not isinstance(pending, dict):
+            raise ValueError('review: corrupt pending review rounds')
+        entry = pending.get(invocation)
+        if invocation not in pending:
+            return
+        if entry != {'key': f'{repo}#{number}@{head}', 'who': 'local'}:
+            raise ValueError('review: pending local review round does not match invocation')
+        raise ValueError('review: local reviewer may still be running after its parent exited')
+
+
 def settle_round(cfg, repo, number, invocation, head, refund=False):
     """Remove this exact invocation marker, optionally refunding only its abandoned local round."""
     if not isinstance(invocation, str) or not re.fullmatch(r'[0-9a-f]{32}', invocation):

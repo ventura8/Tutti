@@ -379,7 +379,8 @@ def pr_state(repo, number, run=github.run):
         return None
     detail = gh_json(['api', f'repos/{repo}/pulls/{number}'], run)
     try:
-        if detail['head']['sha'] != pr.get('headRefOid'):
+        if (detail['head']['sha'] != pr.get('headRefOid') or not detail['base']['ref'] or
+                detail['base']['ref'] != pr.get('baseRefName')):
             return None
         pr['baseRefOid'] = detail['base']['sha']
     except (TypeError, KeyError):
@@ -608,11 +609,12 @@ def recover_review(cfg, task, reviews, key, pol, number, now):
             return
         from . import review
         revision = f'{record.get("base")}..{record.get("sha")}'
+        review.require_no_local_round(cfg, pol['repo'], number, record.get('invocation'), revision)
         if not review.settle_round(cfg, pol['repo'], number, record.get('invocation'), revision, refund=True):
             task['self_improve'] = 'review round accounting could not be verified: inspect it before retrying'
             return
     except (OSError, ValueError, RuntimeError):
-        task['self_improve'] = 'review round accounting could not be verified: inspect it before retrying'
+        task['self_improve'] = 'review accounting is invalid or a local reviewer may still be running: inspect before retrying'
         return
     finally:
         os.close(lock)

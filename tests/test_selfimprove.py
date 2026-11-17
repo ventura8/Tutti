@@ -188,7 +188,8 @@ class FakeGh:
         if args[1:3] == ['pr', 'view']:
             return SimpleNamespace(returncode=0, stdout=json.dumps(self.view), stderr='')
         if args[1:2] == ['api'] and '/pulls/' in args[2]:
-            detail = {'head': {'sha': self.view.get('headRefOid')}, 'base': {'sha': self.view.get('baseRefOid')}}
+            detail = {'head': {'sha': self.view.get('headRefOid')},
+                      'base': {'sha': self.view.get('baseRefOid'), 'ref': self.view.get('baseRefName')}}
             return SimpleNamespace(returncode=0, stdout=json.dumps(detail), stderr='')
         if args[1:2] == ['api'] and args[2].endswith('/protection'):
             protection = {'required_status_checks': {'strict': True, 'contexts': ['ci']}, 'enforce_admins': {'enabled': True}}
@@ -248,6 +249,19 @@ class Rounds(Base):
         self.assertTrue(selfimprove.pushed_since_review(record, 'o/r#7',
                         {'state': 'OPEN', 'headRefOid': 'head', 'baseRefOid': 'new-base'}))
         self.assertTrue(selfimprove.pushed_since_review(record, 'o/r#7', {'state': 'OPEN', 'headRefOid': 'head'}))
+
+    def test_pr_state_rejects_mismatched_or_unknown_destination(self):
+        for destination in ('other', None, ''):
+            gh = FakeGh(pr())
+            def run(args, gh=gh, destination=destination, **kwargs):
+                result = gh(args, **kwargs)
+                if args[1:3] == ['api', 'repos/octo/tutti/pulls/7']:
+                    data = json.loads(result.stdout)
+                    data['base']['ref'] = destination
+                    result.stdout = json.dumps(data)
+                return result
+            self.assertIsNone(selfimprove.pr_state('octo/tutti', 7, run))
+        self.assertIsNotNone(selfimprove.pr_state('octo/tutti', 7, FakeGh(pr())))
 
     def test_review_thread_gate_reads_all_pages_and_fails_closed_on_bad_pagination(self):
         def page(nodes, more, cursor):
@@ -413,7 +427,7 @@ class Rounds(Base):
                 self.assertEqual(backlog.load(cfg)['tasks'][0]['review_restart_count'], selfimprove.REVIEW_RESTARTS)
 
     @unittest.skipIf(selfimprove.fcntl is None, 'process locks are unavailable')
-    def test_dead_review_refunds_only_its_abandoned_local_round(self):
+    def test_dead_review_waits_for_a_possibly_orphaned_local_worker(self):
         from tutti import review
         cfg = self.cfg()
         self.add_review_task(cfg)
@@ -425,8 +439,9 @@ class Rounds(Base):
             revision = f'{record["base"]}..{record["sha"]}'
             review.count_round(cfg, 'octo/tutti', 7, 'local', head=revision, invocation=record['invocation'])
             selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
-            self.assertNotIn('octo/tutti#7', selfimprove.read_state(cfg)['reviews'])
-            self.assertEqual(review.rounds_done(cfg, 'octo/tutti', 7)[0][f'octo/tutti#7@{revision}']['local'], 0)
+            self.assertIn('octo/tutti#7', selfimprove.read_state(cfg)['reviews'])
+            self.assertEqual(review.rounds_done(cfg, 'octo/tutti', 7)[0][f'octo/tutti#7@{revision}']['local'], 1)
+            self.assertIn('may still be running', backlog.load(cfg)['tasks'][0]['self_improve'])
 
     @unittest.skipIf(selfimprove.fcntl is None, 'process locks are unavailable')
     def test_result_written_during_recovery_is_not_discarded(self):

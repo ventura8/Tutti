@@ -132,8 +132,9 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
    Tutti checks every page of review threads; missing, malformed, partial or cyclic results block a merge until GitHub can
    return a complete list. This check alone does not bind the destination branch atomically at merge time.
    Each review has its own completion file and a per-PR process lock. If no result arrives after the review timeout and
-   the recorded process is provably dead on this boot, Tutti retries at most twice and refunds only that invocation's
-   unfinished local review allowance; a held lock, unknown PID, another boot,
+   the recorded process is provably dead on this boot, Tutti retries at most twice only if no local reviewer was started;
+   a pending local reviewer may have outlived its parent and waits for inspection without refund. Stronger worker
+   containment is needed to recover that case autonomously; a held lock, unknown PID, another boot,
    or an unsupported process lock waits for inspection instead of risking overlapping reviews. Older records with no
    verifiable process identity also wait; an operator must confirm the old review is no longer running before clearing
    the stale record. Automatic review requires bot evidence on the exact head and ignores dismissed reviews and scout
@@ -145,7 +146,9 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
    enforced for administrators and bypass-capable roles, with no configured PR bypass allowances;
    unknown protection and rulesets it cannot verify block the merge. GitHub's merge API can condition on the head but
    has no base-SHA compare-and-swap, so server-side enforcement is still necessary and there is no atomic base guarantee.
-   Repositories without this strict protection must configure it before autonomous merges can proceed.
+   The destination can be retargeted after protection is checked; GitHub does not provide an atomic destination
+   condition for this merge, so this race remains. Repositories without strict protection must configure it before
+   autonomous merges can proceed.
 7. **Release** (only with `release: true` and a `release_command`): a batched patch release when fixes were merged and
    the last release (or failed try) is `release_every_hours` (24) ago. A release counts only once its command exits 0; a
    failed one leaves its fixes for the next. Tutti's own is `scripts/release-patch.sh`: it bumps the patch,

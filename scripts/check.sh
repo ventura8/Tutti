@@ -25,20 +25,13 @@ if command -v ruff > /dev/null; then ruff check . bin/tutti; else echo "ruff is 
 TMPDIR="$(mktemp -d)"
 export TMPDIR
 trap 'rm -rf "$TMPDIR"' EXIT
+XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.env
 # the dashboard in a real browser, every tab: layout, accessibility, roles (docs/TESTING.md, *Browser tests*). A hard gate:
 # Playwright and axe come from requirements-dev.txt; the browser is fetched once (on CI with its system libraries).
 echo "check: installing Playwright's headless Chromium and system dependencies when needed"
 if [ -n "${CI:-}" ]; then
-	# Overlap slow dependency downloads with unit tests; wait for both and propagate either failure.
-	python3 -m playwright install --with-deps --only-shell chromium &
-	install_pid=$!
-	test_result=0
-	XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py || test_result=$?
-	install_result=0
-	wait "$install_pid" || install_result=$?
-	if [ "$test_result" -ne 0 ] || [ "$install_result" -ne 0 ]; then exit 1; fi
+	python3 -m playwright install --with-deps --only-shell chromium
 else
-	XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.env
 	python3 -m playwright install --only-shell chromium
 fi
 echo "check: running dashboard browser tests"

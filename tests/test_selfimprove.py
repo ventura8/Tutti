@@ -8,8 +8,9 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
+from unittest import mock
 
-from tutti import backlog, cli, config, scouts, selfimprove, telemetry, triage
+from tutti import autopilot, backlog, cli, config, scouts, selfimprove, telemetry, triage
 
 NOW = 1_800_000_000.0
 GREEN = [{'conclusion': 'SUCCESS', 'name': 'ci'}, {'conclusion': 'SUCCESS', 'name': 'SonarCloud'}]
@@ -17,7 +18,9 @@ GREEN = [{'conclusion': 'SUCCESS', 'name': 'ci'}, {'conclusion': 'SUCCESS', 'nam
 
 def pr(**kw):
     return {'state': 'OPEN', 'isDraft': False, 'reviewDecision': 'APPROVED', 'open_threads': 0, 'mergeable': 'MERGEABLE',
-            'statusCheckRollup': GREEN, 'headRefOid': 'abc123', **kw}
+            'statusCheckRollup': GREEN, 'headRefOid': 'abc123', 'url': 'https://github.com/octo/tutti/pull/7',
+            'headRefName': 'autopilot/t1-fix-the-crash', 'isCrossRepository': False,
+            'body': 'Backlog task t1 (mcp), done by a worker.', **kw}
 
 
 def finished_review(rc='0'):
@@ -190,7 +193,8 @@ class Rounds(Base):
         with backlog.locked(cfg) as data:
             t = backlog.new_task(repo, 'Fix the crash', source='sentry')
             t.update(status='review', pr=f'https://github.com/octo/{repo}/pull/{number}', pr_mode='ready', project='Tutti')
-            backlog.add(data, t)
+            added, _ = backlog.add(data, t)
+            added['branch'] = f'autopilot/{added["id"]}-{autopilot.slug(added["title"])}'
 
     def test_reviews_are_asked_once_then_a_green_pr_is_merged_and_released(self):
         cfg = self.cfg()
@@ -319,6 +323,86 @@ class Rounds(Base):
         selfimprove.tick(cfg, NOW, run=gh, spawn=finished_review('1'))
         selfimprove.tick(cfg, NOW + 1, run=gh, spawn=finished_review('1'))
         self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
+    def test_regular_task_must_match_its_repository_branch_and_pr_body(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        task = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(selfimprove.ordinary_pr_problem(cfg, task, FakeGh(pr())), '')
+        bad_tasks = [{**task, 'pr': 'https://github.com/other/project/pull/7'},
+                     {**task, 'branch': 'other-branch'}, {**task, 'pr': 'https://[invalid/pull/7'}]
+        for bad in bad_tasks:
+            self.assertTrue(selfimprove.ordinary_pr_problem(cfg, bad, FakeGh(pr())))
+        for bad in (pr(headRefName='other-branch'), pr(isCrossRepository=True), pr(body='unrelated'),
+                    pr(url='https://github.com/other/project/pull/7')):
+            gh = FakeGh(bad)
+            self.assertTrue(selfimprove.ordinary_pr_problem(cfg, task, gh))
+            selfimprove.tick(cfg, NOW, run=gh, spawn=finished_review())
+            self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
+    def test_retry_does_not_push_when_original_pr_branch_is_different(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        task = backlog.load(cfg)['tasks'][0]
+        calls = []
+        def run(*args):
+            calls.append(args)
+            return SimpleNamespace(returncode=0, stdout=('a' * 40 if args[1:3] == ('rev-parse', 'HEAD') else ''), stderr='')
+        gh = FakeGh(pr(headRefName='another-branch'))
+        autopilot.open_pr(cfg, task, {}, '/wt', task['branch'], 'fix', run=run, gh=gh)
+        self.assertEqual(calls, [])
+        self.assertIn('not pushed', task['publish_note'])
+
+        gh = FakeGh(pr(headRefOid='a' * 40))
+        autopilot.open_pr(cfg, task, {}, '/wt', task['branch'], 'fix', run=run, gh=gh)
+        self.assertTrue(any(call[1] == 'push' for call in calls))
+        self.assertIn('pushed onto the open pull request', task['publish_note'])
+        self.assertEqual(task['pr'], 'https://github.com/octo/tutti/pull/7')
+
+    def test_retry_checks_identity_before_changing_the_local_branch(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        task = backlog.load(cfg)['tasks'][0]
+        run = mock.Mock()
+        with mock.patch('tutti.bridge.tools', return_value={}):
+            autopilot.publish(cfg, task, {'worktree': '/wt', 'diff': '/d', 'id': '1-1'}, run=run,
+                              gh=FakeGh(pr(headRefName='unrelated')))
+        run.assert_not_called()
+        self.assertIn('not publishing', task['publish_note'])
+
+    def test_retry_reports_if_pr_closes_after_the_push(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        task = backlog.load(cfg)['tasks'][0]
+        gh = FakeGh(pr())
+        run = mock.Mock()
+        def close(*args):
+            if args[1:3] == ('rev-parse', 'HEAD'):
+                return SimpleNamespace(returncode=0, stdout='a' * 40, stderr='')
+            gh.view = pr(state='CLOSED')
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+        run.side_effect = close
+        autopilot.open_pr(cfg, task, {}, '/wt', task['branch'], 'fix', run=run, gh=gh)
+        self.assertIn('could not confirm', task['publish_note'])
+
+    def test_retry_never_claims_pr_was_updated_without_its_new_head(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        task = backlog.load(cfg)['tasks'][0]
+        def run(*args):
+            return SimpleNamespace(returncode=0, stdout=('a' * 40 if args[1:3] == ('rev-parse', 'HEAD') else ''), stderr='')
+        autopilot.open_pr(cfg, task, {}, '/wt', task['branch'], 'fix', run=run, gh=FakeGh(pr(headRefOid='b' * 40)))
+        self.assertIn('could not confirm', task['publish_note'])
 
     def test_open_threads_or_a_project_without_authority_never_merge(self):
         cfg = self.cfg()

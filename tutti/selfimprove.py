@@ -19,6 +19,7 @@ import os
 import subprocess
 import sys
 import time
+from urllib.parse import urlsplit
 
 from . import backlog, config, github, insights, remote, telemetry
 
@@ -326,6 +327,35 @@ def pr_number(url):
     return int(tail) if tail.isdigit() else None
 
 
+def ordinary_pr_problem(cfg, task, run=github.run, allow_merged=False, expected_head=None):
+    """Verify an ordinary task's existing PR belongs to its own generated branch before retry or merge."""
+    from . import autopilot
+    pol = policy_of_repo(cfg, task.get('repo')) or {}
+    repo, url = str(pol.get('repo') or ''), str(task.get('pr') or '')
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return 'the pull request URL is invalid'
+    path = parts.path.strip('/').split('/')
+    if (parts.scheme != 'https' or not parts.netloc or len(path) != 4 or path[2] != 'pull' or not path[3].isdigit() or
+            '/'.join(path[:2]).casefold() != repo.casefold()):
+        return 'the pull request URL does not name the configured project repository'
+    branch = f'autopilot/{task["id"]}-{autopilot.slug(task["title"])}'
+    if task.get('branch') != branch:
+        return 'the recorded pull request branch does not match this task\'s generated branch'
+    pr = gh_json(['pr', 'view', path[3], '--repo', repo, '--json', 'url,state,headRefName,headRefOid,isCrossRepository,body'], run)
+    if not isinstance(pr, dict):
+        return 'GitHub could not verify the original pull request and branch'
+    allowed_states = ('OPEN', 'MERGED') if allow_merged else ('OPEN',)
+    if (pr.get('url', '').rstrip('/').casefold() != url.rstrip('/').casefold() or pr.get('state') not in allowed_states or
+            pr.get('headRefName') != branch or pr.get('isCrossRepository') is not False or
+            not str(pr.get('body') or '').startswith(f'Backlog task {task["id"]} (')):
+        return 'the original pull request does not match this task, branch and repository'
+    if expected_head and pr.get('headRefOid') != expected_head:
+        return 'GitHub has not confirmed the pushed commit at the original pull request head'
+    return ''
+
+
 def review_files(cfg, repo, number):
     base = os.path.join(config.state_dir(cfg), f'self-improve-review-{repo.replace("/", "-")}-{number}')
     return base + '.log', base + '.rc'
@@ -375,6 +405,11 @@ def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
     number = pr_number(t.get('pr'))
     if not pol or not pol['repo'] or not number:
         return None
+    if t.get('source') not in SOURCES:
+        why = ordinary_pr_problem(cfg, t, run, allow_merged=True)
+        if why:
+            t['self_improve'] = f'not reviewing or merging: {why}'
+            return None
     key = f'{pol["repo"]}#{number}'
     reviews = st.setdefault('reviews', {})
     if key not in reviews:

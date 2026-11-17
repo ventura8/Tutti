@@ -989,6 +989,13 @@ def publish(cfg, task, report, run=None, gh=None):
     repo = settings(cfg)['repos'][task['repo']]
     wt = report['worktree']
     branch = f'autopilot/{task["id"]}-{slug(task["title"])}'
+    if task.get('pr'):
+        from . import selfimprove
+        if task.get('source') not in selfimprove.SOURCES:
+            why = selfimprove.ordinary_pr_problem(cfg, task, gh or github.run)
+            if why:
+                task['publish_note'] = f'not publishing: {why}'
+                return
     task.update(branch=branch, worktree=wt, diff=report['diff'])
     for step in (('checkout', '-q', '-B', branch), ('add', '-A')):
         done = run(wt, *step)
@@ -1015,9 +1022,25 @@ def open_pr(cfg, task, repo, wt, branch, subject, run=git, gh=None):
     if not mode:
         task['publish_note'] = f'committed on {branch} in {wt}{why}: review it, then merge or `tutti backlog retry {task["id"]} --note ...`'
         return
+    retry_ordinary = bool(task.get('pr') and task.get('source') not in selfimprove.SOURCES)
+    if retry_ordinary:
+        why = selfimprove.ordinary_pr_problem(cfg, task, gh or github.run)
+        if why:
+            task['publish_note'] = f'committed on {branch}; not pushed: {why}'
+            return
+        head = run(wt, 'rev-parse', 'HEAD')
+        expected_head = (head.stdout or '').strip()
+        if head.returncode != 0 or not re.fullmatch(r'[0-9a-fA-F]{40}|[0-9a-fA-F]{64}', expected_head):
+            task['publish_note'] = f'committed on {branch}; not pushed: cannot read its commit ID'
+            return
     pushed = run(wt, 'push', '-q', '-u', 'origin', branch)
     if pushed.returncode != 0:
         task['publish_note'] = f'committed on {branch}; the push failed ({pushed.stderr.strip()[:200]})'
+        return
+    if retry_ordinary:
+        why = selfimprove.ordinary_pr_problem(cfg, task, gh or github.run, expected_head=expected_head)
+        task['publish_note'] = (f'pushed {branch}; could not confirm the original pull request: {why}' if why else
+                                f'pushed onto the open pull request {task["pr"]}')
         return
     body = f'Backlog task {task["id"]} ({task["source"]}), done by {task.get("step")} in {len(task["attempts"])} attempt(s).\n\n' \
            f'Check: `{task.get("check") or repo.get("check")}` passed. Opened by `tutti autopilot`' + \

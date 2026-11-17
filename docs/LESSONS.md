@@ -2,6 +2,17 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## `tutti dispatch build` hid failing builds behind exit 0 (2026-11-17)
+
+**What happened.** `tutti dispatch build <project> <suite> <rc file>` always exited `0`, even when the suite's build command
+failed and wrote a non-zero code to the rc file.
+
+**Why.** The CLI wrapper ignored `shards.run_prepare(...)`'s return code and returned success unconditionally, so callers
+could not see that the build command itself failed.
+
+**Rule.** A command wrapper returns the wrapped command's exit code unless it has an explicit, documented contract not to.
+`dispatch build` still writes its rc file for the dispatcher, and now also reports failure to its caller.
+
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
 **What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:

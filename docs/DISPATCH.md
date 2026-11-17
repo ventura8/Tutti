@@ -99,8 +99,9 @@ shards:
 
 A suite can also say how to build and how to read its output:
 
-- `prepare: {run, where}`: the build, run once per commit before any shard of the suite (`tutti dispatch build`). Its shards
-  wait until it passes. A failed build holds them with its reason and is tried again after 30 minutes or on a new commit.
+- `prepare: {run, where}`: the build, run once per commit before any shard of the suite (`tutti dispatch build`). The command
+  writes the build rc to the rc file and exits with that same code. Its shards wait until it passes. A failed build holds
+  them with its reason and is tried again after 30 minutes or on a new commit.
 - `verdict: {pass, fail}` (regexes): for a runner that always exits 0. The run fails when `fail` matches, or when `pass`
   never appears.
 - `started: {pattern, within_seconds}`: the tests must start in time. The clock starts at the device lock's

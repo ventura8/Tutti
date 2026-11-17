@@ -1,0 +1,1 @@
+{"project": {"state": "tmp_state"}, "machines": {"local": {"transport": "local"}}, "projects": {"Radio": {"tests": {"e2e": {"kind": "e2e", "targets": ["machine"], "run": "echo \"hello\"", "prepare": {"run": "echo \"preparing\"", "where": "not-existing-machine"}}}}}}

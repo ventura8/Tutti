@@ -1,6 +1,8 @@
 """Suites in depth (tutti/shards.py with the dispatcher): a shard's own devices, extra arguments and held devices, the build
 once per commit before any shard, judging a run's output (verdict, started, requeue_on), the cooldown after a requeue,
 other tools' lock files around a device run, and the project's report. Fake spawns and local bash only."""
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -10,7 +12,7 @@ import time
 import unittest
 from types import SimpleNamespace
 
-from tutti import config, devices, dispatch, shards
+from tutti import cli, config, devices, dispatch, shards
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NOW = float(int(time.time()))
@@ -127,6 +129,26 @@ class BuildTest(Base):
         self.assertEqual(shards.run_prepare(cfg, 'Radio', 'e2e', rc), 3)
         with open(rc, encoding='utf8') as f:
             self.assertEqual(f.read(), '3\n')
+
+    def test_dispatch_build_command_returns_the_build_exit_code_and_records_it(self):
+        cfg = self.cfg({'prepare': {'run': 'exit 3'}})
+        rc_path = os.path.join(self.tmp.name, 'build.rc')
+        args = ['--config', cfg['_path'], 'dispatch', 'build', 'Radio', 'e2e', rc_path]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            rc = cli.main(args)
+        self.assertEqual(rc, 3)
+        with open(rc_path, encoding='utf8') as f:
+            self.assertEqual(f.read(), '3\n')
+
+    def test_dispatch_build_command_records_a_successful_build(self):
+        cfg = self.cfg({'prepare': {'run': 'exit 0'}})
+        rc_path = os.path.join(self.tmp.name, 'ok.rc')
+        args = ['--config', cfg['_path'], 'dispatch', 'build', 'Radio', 'e2e', rc_path]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            rc = cli.main(args)
+        self.assertEqual(rc, 0)
+        with open(rc_path, encoding='utf8') as f:
+            self.assertEqual(f.read(), '0\n')
 
 
 class JudgeTest(Base):

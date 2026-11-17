@@ -117,6 +117,8 @@ requirements and only then moves `current`; any failure leaves the running versi
 with the release and its own Python environment. It never changes `current` or the shared environment; the printed path
 is for inspection, not automatic activation. Staging alone does not provide uninterrupted dashboard updates. Remove an
 unneeded staging directory when finished. It cannot be combined with `--check`, `--auto`, or `--insecure-skip-verify`.
+The environment-creation and dependency-install processes do not yet have a bounded, cross-platform descendant cleanup:
+if they hang, staging does not recover automatically. Do not use this command as an unattended refresh mechanism.
 
 ### How a release is checked
 

@@ -45,6 +45,7 @@ SECTIONS = [
     ('projects', 'Projects and repos', 'Your projects, their checks, shipping, delegation, tests and translation.',
      ['projects', 'ship', 'delegate', 'test', 'translate']),
     ('optins', 'Opt-ins', 'Everything that is off until you turn it on: what costs money per use, and Android runs.', []),
+    ('backup', 'Backup', 'Config, secrets and state backups.', ['backup']),
     ('update', 'Updates', 'Tutti itself (`tutti self-update`) and the worker CLIs on every machine (`tutti update`).',
      ['self_update', 'update']),
     ('browser', 'Work browser', 'The household\'s one Chrome for every browser task; sites signed in there are shared by '
@@ -438,6 +439,11 @@ FIELDS = {
     'projects.*.checks': field('Checks', '`tutti run --repo` in this repo runs these.', **YAML),
     'projects.*.sentry': field('Sentry project', '{org, project}: a daily Sentry triage by a scout.', **YAML),
     'projects.*.self_improve': field('Self-improvement here', 'tasks, autopilot_repo, base, merge, release.', **YAML),
+    # backup
+    'backup.enabled': field('Backup', 'Backup everything (config, secrets, state) daily.', 'switch', default=True),
+    'backup.retention_days': field('Retention days', 'Keep backups for this many days.', 'number', min=1, default=30),
+    'backup.schedule': field('Schedule', 'Cron expression for backup frequency.', 'text', default='0 0 * * *'),
+    'backup.targets': field('Targets', 'Backup targets: local disk, NAS (SMB/NFS/WebDAV/SFTP), Google Drive, OneDrive.', **YAML),
     'ship.protected': field('Protected branches', 'Never committed to by accident.', 'list', item='branch'),
     'ship.format': field('Formatter', 'A command; TUTTI_CHANGED holds the uncommitted files.', 'text', default=''),
     'ship.add': field('Add', 'Paths `git add` takes.', 'list', item='path'),

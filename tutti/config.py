@@ -92,6 +92,8 @@ DEFAULTS = {
     # main is silent `minutes` before the backup takes over; Tutti returns after `failback_minutes` healthy; the state's budget
     'failover': {'backup': '', 'minutes': 5, 'failback_minutes': 5, 'sync_seconds': 60, 'dir': '~/.tutti-failover', 'reach': {},
                  'addresses': {}, 'budget_mb': 50, 'delta_kb': 512, 'runs_keep': 200, 'runs_days': 14, 'log_mb': 2, 'junk_days': 3},
+    # backup: daily backups (enabled, retention days, schedule, targets)
+    'backup': {'enabled': True, 'retention_days': 30, 'schedule': '0 0 * * *', 'targets': {}},
     # ai_assist: Tutti uses AI, local and online, to make itself better (tutti/aiassist.py, docs/TELEMETRY.md, *AI assist*);
     # off until an admin opts in; local, online and online_code (code to online models) are separate switches
     'ai_assist': {'enabled': False, 'local': True, 'online': False, 'online_code': False, 'auto_tune': True, 'every_hours': 6,
@@ -472,14 +474,14 @@ def validate(cfg):
     errs += _dashboard_errors(cfg['dashboard']) + _auth_errors(cfg.get('auth'))
     errs += files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
     # they import modules that import this one
-    from . import autocompact, chat, depbots, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
+    from . import autocompact, backup, chat, depbots, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
     errs += dispatch.errors(cfg) + tiers.errors(cfg) + tz.errors(cfg) + presence.errors(cfg)
     from . import aiassist, needs, selfheal, welcome
     errs += selfheal.errors(cfg)
     errs += needs.errors(cfg) + welcome.errors(cfg) + aiassist.errors(cfg) + selfimprove.errors(cfg)
     errs += sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
-    return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
-        depbots.errors(cfg) + \
+    return errs + autocompact.errors(cfg) + backup.errors(cfg['backup']) + _main_errors(cfg) + \
+        _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + depbots.errors(cfg) + \
         owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update']) + energy.errors(cfg) + \
         chat.errors(cfg)
 

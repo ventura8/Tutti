@@ -1,7 +1,9 @@
 """Read Codex subscription limits through Codex CLI's app-server, without reading its auth files."""
 import json
-import re
+import queue
 import subprocess
+import threading
+import time
 from datetime import datetime, timezone
 
 TIMEOUT = 20
@@ -37,20 +39,59 @@ def command(cfg, account):
     return [command[0], 'app-server', '--listen', 'stdio://']
 
 
-def read(cfg, account, run=subprocess.run):
+def read(cfg, account, popen=subprocess.Popen):
     """Run one short, read-only account/rateLimits/read request and return both windows."""
     argv = command(cfg, account)
     try:
-        result = run(argv, input=REQUEST, capture_output=True, text=True, timeout=TIMEOUT, check=False)
-    except subprocess.TimeoutExpired as e:
-        raise ValueError(f'{argv[0]} app-server did not return usage within {TIMEOUT} seconds') from e
+        process = popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     except OSError as e:
         raise ValueError(f'{argv[0]} app-server could not start ({e})') from e
-    if result.returncode:
-        detail = (result.stderr or '').strip().splitlines()
-        detail = re.sub(r'(?i)(bearer\s+)[^\s]+', r'\1[redacted]', detail[-1][:160]) if detail else ''
-        raise ValueError(f'{argv[0]} app-server exited {result.returncode}' + (f': {detail}' if detail else ''))
-    return response(result.stdout or '')
+    lines = queue.Queue()
+
+    def collect():
+        for line in process.stdout:
+            lines.put(line)
+        lines.put(None)
+
+    threading.Thread(target=collect, daemon=True).start()
+    deadline = time.monotonic() + TIMEOUT
+    try:
+        requests = REQUEST.splitlines()
+        process.stdin.write(requests[0] + '\n')
+        process.stdin.flush()
+        initialized = False
+        while True:
+            try:
+                line = lines.get(timeout=max(0, deadline - time.monotonic()))
+            except queue.Empty as e:
+                raise ValueError(f'{argv[0]} app-server did not return usage within {TIMEOUT} seconds') from e
+            if line is None:
+                raise ValueError('Codex app-server closed without a rate limits response')
+            try:
+                message = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(message, dict):
+                continue
+            if message.get('id') == 1 and not initialized:
+                if message.get('error'):
+                    raise ValueError('Codex app-server initialization failed: check the Codex installation')
+                initialized = True
+                process.stdin.write('\n'.join(requests[1:]) + '\n')
+                process.stdin.flush()
+            elif message.get('id') == 2:
+                return response(line)
+    except OSError as e:
+        raise ValueError(f'{argv[0]} app-server communication failed ({e})') from e
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        process.stdin.close()
+        process.stdout.close()
 
 
 def window(rates, account, spec):

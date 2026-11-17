@@ -19,7 +19,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - `tutti update` uses Codex CLI's own `codex update` command.
 - Codex usage is read from Codex CLI's account rate limits; accounts with a usage URL and no reader (including Grok Bot)
   are automatically read from the scoped Work browser every 15 minutes (t297/t282). Existing Codex accounts also
-  receive the Codex CLI reader automatically without a setup migration (t316).
+  receive the Codex CLI reader automatically without a setup migration. The reader keeps the app-server connection open
+  through initialization and the usage response (t316).
 - Machine state identifies each environment's physical parent, and the Machines tab nests dedicated WSL/desktop
   environments within one physical-machine card (t313).
 

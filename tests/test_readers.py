@@ -3,6 +3,7 @@ import http.client
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -73,13 +74,23 @@ class ParseTest(unittest.TestCase):
 
     def test_codex_usage_starts_the_configured_cli_app_server_with_a_read_only_request(self):
         rates = {'secondary': {'usedPercent': 45, 'windowDurationMins': 10080, 'resetsAt': 1768176000}}
-        output = json.dumps({'id': 2, 'result': {'rateLimits': rates}})
-        run = mock.Mock(return_value=type('Result', (), {'returncode': 0, 'stdout': output, 'stderr': ''})())
+        script = ('import json,sys\n'
+                  'assert json.loads(input())["method"] == "initialize"\n'
+                  'print(json.dumps({"id":1,"result":{}}), flush=True)\n'
+                  'assert json.loads(input())["method"] == "initialized"\n'
+                  'assert json.loads(input())["method"] == "account/rateLimits/read"\n'
+                  f'print(json.dumps({{"id":2,"result":{{"rateLimits":{rates!r}}}}}), flush=True)\n')
+        def popen(argv, **kwargs):
+            self.assertEqual(argv, ['/opt/codex', 'app-server', '--listen', 'stdio://'])
+            return subprocess.Popen([sys.executable, '-u', '-c', script], **kwargs)
         cfg = {'workers': {'codex': {'command': ['/opt/codex', 'exec', '{prompt}']}}}
-        self.assertEqual(codexusage.read(cfg, {'worker': 'codex'}, run=run), rates)
-        argv = run.call_args.args[0]
-        self.assertEqual(argv, ['/opt/codex', 'app-server', '--listen', 'stdio://'])
-        self.assertIn('account/rateLimits/read', run.call_args.kwargs['input'])
+        self.assertEqual(codexusage.read(cfg, {'worker': 'codex'}, popen=popen), rates)
+
+    def test_codex_usage_reports_a_server_that_closes_early(self):
+        def popen(argv, **kwargs):
+            return subprocess.Popen([sys.executable, '-c', 'pass'], **kwargs)
+        with self.assertRaisesRegex(ValueError, 'closed without a rate limits response'):
+            codexusage.read({}, {}, popen=popen)
 
     def test_browser_usage_uses_the_scoped_visible_page_extractor(self):
         url = 'https://cursor.com/dashboard/spending'

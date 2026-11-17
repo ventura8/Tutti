@@ -9,6 +9,10 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ## [Unreleased]
 
+### Added
+
+- Add an unconnected in-process admission and drain gate for a future dashboard supervisor (t326).
+
 ### Fixed
 
 - Chat storage transactions use a same-host cross-process lock, preventing concurrent dashboard processes from losing

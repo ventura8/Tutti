@@ -187,3 +187,5 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 ```bash
 bash scripts/check.sh    # shellcheck, ruff, the unit tests and a CLI smoke test: what CI runs
 ```
+
+The experimental dashboard drain gate is an internal, unconnected supervisor building block; it does not make live updates safe.

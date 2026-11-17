@@ -18,6 +18,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   fixed head; an unconfirmed or failed retry cannot merge its old head (t179).
 - Posted local-review findings can requeue a fix, while repeated identical findings and review execution failures do not
   trigger an endless retry loop (t179).
+- A changes-requested decision only on an older PR head waits for an updated reviewer decision rather than repeatedly
+  requeuing already-resolved work; missing review evidence still blocks merging (t179).
 
 ## [0.27.13] - 2026-11-18
 

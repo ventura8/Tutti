@@ -176,14 +176,20 @@ class Analysis(Base):
 class FakeGh:
     """`gh pr view`, the review-thread query and `gh pr merge`, answered from memory."""
 
-    def __init__(self, view, threads=0, merge_rc=0):
+    def __init__(self, view, threads=0, merge_rc=0, reviews=None):
         self.view, self.threads, self.merge_rc, self.calls = view, threads, merge_rc, []
+        self.reviews = reviews if reviews is not None else [
+            {'state': 'CHANGES_REQUESTED', 'author': {'login': 'reviewer'}, 'commit': {'oid': 'abc123'}}]
 
     def __call__(self, args, **_kw):
         self.calls.append(args)
         if args[1:3] == ['pr', 'view']:
             return SimpleNamespace(returncode=0, stdout=json.dumps(self.view), stderr='')
         if args[1:3] == ['api', 'graphql']:
+            if any('reviews(first:' in str(arg) for arg in args):
+                body = {'data': {'repository': {'pullRequest': {'reviews': {
+                    'nodes': self.reviews, 'pageInfo': {'hasNextPage': False, 'endCursor': None}}}}}}
+                return SimpleNamespace(returncode=0, stdout=json.dumps(body), stderr='')
             nodes = [{'isResolved': False}] * self.threads
             body = {'data': {'repository': {'pullRequest': {'reviewThreads': {
                 'nodes': nodes, 'pageInfo': {'hasNextPage': False, 'endCursor': None}}}}}}
@@ -303,6 +309,40 @@ class Rounds(Base):
             f.write('0\n')
         selfimprove.tick(cfg, NOW + 2, run=gh, spawn=finished_review())
         self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
+
+    def test_only_current_head_changes_request_requeues_without_open_threads(self):
+        cases = [
+            ([{'state': 'CHANGES_REQUESTED', 'author': {'login': 'bot'}, 'commit': {'oid': 'old'}}], 'review', 'older'),
+            ([{'state': 'CHANGES_REQUESTED', 'author': {'login': 'bot'}, 'commit': {'oid': 'new'}}], 'queued', ''),
+            ([{'state': 'CHANGES_REQUESTED', 'author': None, 'commit': {'oid': 'new'}}], 'review', 'could not be verified'),
+            ([], 'review', 'could not be verified'),
+        ]
+        for reviews, status, reason in cases:
+            with self.subTest(status=status, reason=reason), tempfile.TemporaryDirectory() as folder:
+                cfg = self.cfg()
+                cfg['project']['state'] = folder
+                self.add_review_task(cfg)
+                gh = FakeGh(pr(reviewDecision='CHANGES_REQUESTED', headRefOid='new'), reviews=reviews)
+                spawn = finished_review()
+                selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+                selfimprove.tick(cfg, NOW + 1, run=gh, spawn=spawn)
+                task = backlog.load(cfg)['tasks'][0]
+                self.assertEqual(task['status'], status)
+                if reason:
+                    self.assertIn(reason, task['self_improve'])
+                self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
+    def test_review_states_are_paginated_and_comments_do_not_clear_decisions(self):
+        def page(nodes, more, cursor):
+            return {'data': {'repository': {'pullRequest': {'reviews': {
+                'nodes': nodes, 'pageInfo': {'hasNextPage': more, 'endCursor': cursor}}}}}}
+        def item(state, commit):
+            return {'state': state, 'author': {'login': 'bot'}, 'commit': {'oid': commit}}
+        pages = [page([item('CHANGES_REQUESTED', 'old')], True, 'next'),
+                 page([item('COMMENTED', 'new')], False, None)]
+        def run(_args, **_kw):
+            return SimpleNamespace(returncode=0, stdout=json.dumps(pages.pop(0)), stderr='')
+        self.assertFalse(selfimprove.changes_on_head('octo/tutti', 7, 'new', run))
 
     def test_local_findings_retry_once_and_identical_findings_do_not_repeat(self):
         cfg = self.cfg()

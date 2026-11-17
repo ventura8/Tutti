@@ -281,6 +281,8 @@ def gh_json(args, run=None):
 THREADS_Q = ('query($o:String!,$r:String!,$n:Int!,$after:String){repository(owner:$o,name:$r){pullRequest(number:$n)'
              '{reviewThreads(first:100,after:$after){nodes{isResolved} pageInfo{hasNextPage endCursor}}}}}')
 MAX_THREAD_PAGES = 1000  # fail closed if GitHub cannot provide a finite, verifiable result
+REVIEWS_Q = ('query($o:String!,$r:String!,$n:Int!,$after:String){repository(owner:$o,name:$r){pullRequest(number:$n)'
+             '{reviews(first:100,after:$after){nodes{state author{login} commit{oid}} pageInfo{hasNextPage endCursor}}}}}')
 
 
 def open_threads(repo, number, run=github.run):
@@ -313,12 +315,58 @@ def open_threads(repo, number, run=github.run):
     return None
 
 
+def collect_review_states(nodes, latest):
+    """Update each reviewer's latest decisive state; False when a decisive review lacks its identity."""
+    for item in nodes:
+        state = item['state']
+        if state in ('COMMENTED', 'PENDING'):
+            continue
+        if state not in ('CHANGES_REQUESTED', 'APPROVED', 'DISMISSED'):
+            return False
+        author = item['author']['login']
+        commit = (item.get('commit') or {}).get('oid')
+        if not isinstance(author, str) or not author or (state == 'CHANGES_REQUESTED' and not commit):
+            return False
+        latest[author.casefold()] = (state, commit)
+    return True
+
+
+def changes_on_head(repo, number, head, run=github.run):
+    """True if an active changes-requested review is on head, False if all are older, None if unverified."""
+    if not isinstance(head, str) or not head:
+        return None
+    owner, name = repo.split('/', 1)
+    cursor, seen, latest = None, set(), {}
+    while True:
+        args = ['api', 'graphql', '-f', f'query={REVIEWS_Q}', '-F', f'o={owner}', '-F', f'r={name}', '-F', f'n={number}']
+        if cursor:
+            args += ['-f', f'after={cursor}']
+        page = gh_json(args, run)
+        try:
+            reviews = page['data']['repository']['pullRequest']['reviews']
+            nodes, info = reviews['nodes'], reviews['pageInfo']
+            if not isinstance(nodes, list) or not isinstance(info['hasNextPage'], bool):
+                return None
+            if not collect_review_states(nodes, latest):
+                return None
+            if not info['hasNextPage']:
+                active = [commit for state, commit in latest.values() if state == 'CHANGES_REQUESTED']
+                return any(commit == head for commit in active) if active else None
+            cursor = info['endCursor']
+            if not isinstance(cursor, str) or not cursor or cursor in seen:
+                return None
+            seen.add(cursor)
+        except (TypeError, KeyError, AttributeError):
+            return None
+
+
 def pr_state(repo, number, run=github.run):
     pr = gh_json(['pr', 'view', str(number), '--repo', repo, '--json',
                   'state,isDraft,reviewDecision,mergeable,statusCheckRollup,baseRefName,headRefOid'], run)
     if pr is None:
         return None
     count = open_threads(repo, number, run)
+    pr['threads_verified'] = count is not None
     pr['open_threads'] = 1 if count is None else count   # unknown counts as open: never merge blind
     return pr
 
@@ -458,7 +506,7 @@ def requeue_review(t, key, reviews, pol, finding='Changes requested'):
     reviews.pop(key, None)
 
 
-def handle_blocked_review(cfg, t, pr, key, reviews, pol, number, result):
+def handle_blocked_review(cfg, t, pr, key, reviews, pol, number, result, run):
     # A stale GitHub decision must not trigger another retry while the newly requested review is still running.
     if t['status'] != 'review':
         return
@@ -474,6 +522,17 @@ def handle_blocked_review(cfg, t, pr, key, reviews, pol, number, result):
         t['local_review_fingerprints'] = [*seen, digest][-32:]
         requeue_review(t, key, reviews, pol, finding='Local review found issues')
     elif result == '0' and pr.get('reviewDecision') == 'CHANGES_REQUESTED':
+        if not pr.get('threads_verified'):
+            t['self_improve'] = 'review threads could not be verified: the next round tries again'
+            return
+        if not pr.get('open_threads'):
+            on_head = changes_on_head(pol['repo'], number, pr.get('headRefOid'), run)
+            if on_head is None:
+                t['self_improve'] = 'review decisions could not be verified: the next round tries again'
+                return
+            if not on_head:
+                t['self_improve'] = 'only older reviews request changes: waiting for a reviewer to update the decision'
+                return
         requeue_review(t, key, reviews, pol)
 
 
@@ -506,7 +565,7 @@ def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
         t['status'] = 'done'
         return None
     if not ok:
-        handle_blocked_review(cfg, t, pr, key, reviews, pol, number, result)
+        handle_blocked_review(cfg, t, pr, key, reviews, pol, number, result, run)
         return None
     if not pr.get('headRefOid'):
         t['self_improve'] = 'GitHub did not say which commit the pull request is at: not merged; the next round looks again'

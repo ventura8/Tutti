@@ -125,7 +125,10 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
    the exact pushed head; a failed push cannot cause the old head to be merged. Projects without merge permission retain
    their existing review and publishing behavior. A posted local fallback review with findings is retried once per
    normalized finding fingerprint; repeated identical findings wait for inspection instead of cycling. Review text is
-   untrusted data, never an instruction to execute commands or read credentials.
+   untrusted data, never an instruction to execute commands or read credentials. When all threads are resolved but a
+   changes-requested decision remains, Tutti checks all review records and their commit IDs. A decision only on an older
+   head waits for the reviewer to update it; missing or incomplete evidence also waits. Tutti never treats that inference
+   as approval or dismisses the decision.
    Tutti checks every page of review threads; missing, malformed, partial or cyclic results block a merge until GitHub can
    return a complete list. This check alone does not bind the destination branch atomically at merge time.
 7. **Release** (only with `release: true` and a `release_command`): a batched patch release when fixes were merged and

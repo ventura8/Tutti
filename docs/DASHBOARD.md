@@ -150,6 +150,9 @@ See [TELEMETRY.md](TELEMETRY.md).
 
 ## Controls
 
+Paused accounts and workers are skipped in the active autopilot ladder. Their configured positions return on resume;
+pausing them does not invalidate the configuration or interrupt dashboard and Chat reloads.
+
 The *Devices and controls* card: one card per Android device (`tutti/devicecard.py`, `devices.items[].card` in
 `/api/state`), and the owner's switches. A device's card holds its one status pill (paused, away, blocked, idle while work
 waits, busy, ready, offline: the idle watchdog's verdict and the pause switch are folded in, so the card never says ready

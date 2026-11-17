@@ -7,6 +7,13 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [Unreleased]
+
+### Fixed
+
+- Pausing an account or worker removes it from the active autopilot ladder until resumed, so a pause no longer prevents
+  configuration reloads and Chat responses (t321).
+
 ## [0.25.3] - 2026-11-17
 
 ### Fixed

@@ -303,3 +303,32 @@ not evidence that the dashboard is safe to restart. A future supervisor must reg
 exclusive admission, mixed-version exclusion and live stream/job ownership before relying on a drain. A successful
 wait is only a snapshot: the supervisor must retain exclusive authority from that point through routing and handover,
 so no other actor can cancel the drain or reopen admission in between.
+
+### Proposed dashboard handover boundaries (not implemented)
+
+The dashboard currently owns both the HTTP server and long-lived work. `Collector.start()` launches the probe loop,
+sleepwatch, intake and needs backfill; `acting_rounds()` initiates update, autopilot and work queue, dispatch, scouts,
+telemetry, AI assist, unblocker, welcome, needs, role handoff and household jobs. Update, AI assist and unblocker can
+launch further background threads. HTTP handlers can also start setup, move, dispatch, controls and Chat work. Chat
+`Engine.send` owns its answer thread, model subprocess and event list; confirm, undo and plan operations can run tools,
+and `_follow` can only find jobs in that engine. Work queue, setup and move start subprocesses. A separate process
+session alone does not establish survival when a service manager stops a shared cgroup. The complete admission audit
+must also include every tool reached transitively from the handlers and rounds, and direct CLI/MCP writers; this list is
+not a claim of exhaustive coverage.
+
+A safe design needs a stable owner outside the replaceable HTTP/frontend generation. The owner admits and tracks Chat
+jobs, their event journals, tool operations and background rounds; one fenced scheduler owns acting rounds. A stable
+listener or gateway authenticates and routes requests to that owner and to a healthy frontend generation. Keep the
+owner and its children in a lifecycle/cgroup that an HTTP generation restart cannot stop. During transition, fence all
+legacy instances and other hosts, prevent duplicate schedulers and new untracked work, health-check the replacement,
+then switch routing while existing jobs and streams remain attached to the stable owner. If fencing or health checks
+fail, leave or restore the old generation without stopping its work. The gate in `drain.py` only helps if every relevant
+admission is actually registered and the supervisor holds exclusive authority through the transition.
+
+`replay.ReplayLog` is an unconnected in-process prototype for a job owner's ordered event journal. A client could keep a
+owner-generation and job-scoped sequence cursor and replay missed events after reconnect; a bounded retention gap is explicit and must trigger
+a snapshot/resynchronization, never silent skipping. The prototype is neither a durable journal nor an authenticated
+API, and it does not wire the cursor into Chat or keep a process alive. The bound is a count, not a byte limit, and a saved conversation may lag the stream, so a gap does not guarantee exact
+recovery. A production design still needs event byte limits, authorization on every follow, atomic snapshot/cursor resynchronization, backpressure,
+client retry behavior, crash recovery, and tests spanning process and gateway transitions. Until those prerequisites are
+met, neither a drain nor event replay makes an instant live dashboard restart safe.

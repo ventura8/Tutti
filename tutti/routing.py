@@ -1,4 +1,5 @@
 """Fall-over routing: which machine runs a heavy command. Pure logic; the probes come from the caller."""
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -208,14 +209,50 @@ USE_FIRST = ('late', 'behind')    # quota that will be lost at the reset: spend 
 NORMAL = ('on pace', 'no reading', 'unknown')
 
 
-def account_unfit(s):
-    """Why an account (a pacing.account_state) must not take new work, or ''."""
+def missing_limits(cfg, name, state):
+    """Configured linked quota windows absent from this account's pacing state, including paused accounts."""
+    limits = cfg.get('_account_limits') or {n: (a or {}).get('limits') or [] for n, a in (cfg.get('accounts') or {}).items()}
+    expected, pending = set(), list(limits.get(name) or [])
+    while pending:
+        n = pending.pop()
+        if n not in expected:
+            expected.add(n)
+            pending.extend(limits.get(n) or [])
+    found, pending_states = set(), list(state.get('limits') or [])
+    while pending_states:
+        item = pending_states.pop()
+        if isinstance(item, dict):
+            found.add(item.get('name'))
+            pending_states.extend(item.get('limits') or [])
+    return sorted(expected - found)
+
+
+def invalid_usage(s):
+    used = s.get('used')
+    return used is not None and (isinstance(used, bool) or not isinstance(used, (int, float)) or
+                                 not math.isfinite(used) or not 0 <= used <= 100)
+
+
+def quota_unfit(s):
+    """Why the account's own observed quota cannot be used, or ''."""
+    if s.get('_missing_limits'):
+        return 'missing linked quota state: ' + ', '.join(s['_missing_limits'])
+    if invalid_usage(s):
+        return 'invalid quota reading: refresh this account before using it'
     if s.get('panic'):
         return f'panic: {s["used"]:g} % used before the target time' if s.get('used') is not None else 'panic'
     if s.get('verdict') == 'spent':
         return 'spent until the reset'
     if s.get('used') is not None and s['used'] >= s.get('panic_at', 95):
         return f'{s["used"]:g} % used: at the panic threshold'
+    return ''
+
+
+def account_unfit(s):
+    """Why an account (a pacing.account_state) must not take new work, or ''."""
+    reason = quota_unfit(s)
+    if reason:
+        return reason
     p = s.get('quota_plan')
     if p and not p.get('limit') and p['left'] <= 0:
         return 'its planned room is used (what is left is kept as its reserve or for its spend outside Tutti)'
@@ -248,6 +285,18 @@ def order(s):
     return (s.get('verdict') == 'ahead', expiry(s), rank(s))
 
 
+def quota_closed(s):
+    """An account or any linked window is in panic or spent, independent of pacing reserves."""
+    used = s.get('used')
+    return bool(s.get('_missing_limits') or invalid_usage(s) or s.get('panic') or s.get('verdict') == 'spent' or
+                (used is not None and used >= s.get('panic_at', 95)) or any(quota_closed(x) for x in s.get('limits') or []))
+
+
+def unknown_quota(s):
+    """A takeover must not assume an unmeasured account or linked quota has room."""
+    return s.get('used') is None or invalid_usage(s) or any(unknown_quota(x) for x in s.get('limits') or [])
+
+
 def pick_account(states, takeover=False):
     """(the account state to use, why) from states in preference order: never one in panic or spent; first the ones that
     would lose quota at the reset (late, behind), then on pace or unread, then ahead. (None, why) when none has room."""
@@ -255,8 +304,9 @@ def pick_account(states, takeover=False):
     usable = []
     for s in states:
         reason = account_unfit(s)
-        if takeover and reason and not (s.get('panic') or s.get('verdict') == 'spent'
-                                        or (s.get('used') is not None and s['used'] >= s.get('panic_at', 95))):
+        if takeover and unknown_quota(s) and not quota_closed(s):
+            reason = 'quota is unknown: refresh the account and all linked limits before taking over'
+        elif takeover and reason and not quota_closed(s):
             reason = ''   # the main agent panics: only an account's own panic or a spent quota stops it (autopilot.takes_over)
         if reason:
             skipped.append(f'{s["name"]}: {reason}')

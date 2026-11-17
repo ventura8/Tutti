@@ -295,6 +295,12 @@ def normalise(raw):
     cfg['routing']['order'] = sorted(cfg['routing']['order'], key=lambda n: (cfg['machines'].get(n) or {}).get('transport') == 'android')
     from . import devices  # devices imports this module
     devices.normalise(cfg)
+    cfg['_account_workers'] = {n: ((a or {}).get('worker') or n) for n, a in cfg['accounts'].items()}
+    cfg['_account_limits'] = {n: list(a.get('limits') or []) for n, a in cfg['accounts'].items()
+                              if isinstance(a, dict) and isinstance(a.get('limits') or [], list)}
+    cfg['_account_costs'] = {n: a.get('task_pct') for n, a in cfg['accounts'].items() if isinstance(a, dict)}
+    cfg['_account_args'] = {n: list(a.get('args') or []) for n, a in cfg['accounts'].items()
+                            if isinstance(a, dict) and isinstance(a.get('args') or [], list)}
     opt_out(cfg)
     lenient(cfg)
     return cfg
@@ -445,8 +451,12 @@ def _review_errors(cfg):
 def _worker_errors(name, w):
     kind = (w or {}).get('kind')
     if kind == 'cli':
-        return [] if isinstance(w.get('command'), list) and w['command'] else [
+        errors = [] if isinstance(w.get('command'), list) and w['command'] else [
             f'workers.{name}.command is missing: a list such as [cursor-agent, -p, "{{prompt}}"]']
+        selector = w.get('chat_account_selector')
+        if selector is not None and (not isinstance(selector, str) or not selector.startswith('-') or selector == '-' or '=' in selector):
+            errors.append(f'workers.{name}.chat_account_selector is {selector!r}: use a flag such as --model, without a value')
+        return errors
     if kind == 'ollama':
         return [f'workers.{name}.{k} is missing' for k in ('host', 'model') if not w.get(k)]
     return [f'workers.{name}.kind is {kind!r}: use cli or ollama']

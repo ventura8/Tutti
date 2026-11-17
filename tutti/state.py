@@ -283,7 +283,8 @@ def worker_accounts(cfg):
 def next_worker(cfg, accounts, machines=None, now=None):
     """Where the next agent job goes, from the latest readings: {worker, account, args, reason}, worker None when none has room."""
     by_name = {a['name']: a for a in accounts}
-    states = [by_name[n] for n in worker_accounts(cfg) if n in by_name]
+    states = [{**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}
+              for n in worker_accounts(cfg) if n in by_name]
     if machines is not None:
         from . import fleet
         states = [s for s in states if not (cfg['workers'].get(cfg['accounts'][s['name']]['worker']) or {}).get('machine')

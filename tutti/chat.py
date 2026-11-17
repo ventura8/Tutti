@@ -664,6 +664,38 @@ def capability(cand):
     return cand.get('params') or 0.0
 
 
+def online_model(cfg, name, w, rows, accounts, paused, owner, configured, account_args):
+    """Choose a configured account whose quota can safely be bound to this worker's command."""
+    from . import routing, workers
+    linked = [n for n, worker in configured.items() if worker == name]
+    selector = w.get('chat_account_selector') if len(linked) > 1 else None
+    values = {n: workers.selector_value(account_args.get(n) or [], selector) for n in linked} if selector else {}
+    binding_ok = bool(selector and len(values) == len(linked) and all(values.values()) and len(set(values.values())) == len(linked))
+    options = []
+    for acc_name in linked or [name]:
+        conf = (cfg.get('accounts') or {}).get(acc_name)
+        acc = accounts.get(acc_name)
+        why = cloud_out(name, acc_name, acc or {}, conf or {}, w, paused, rows.get(name, {}), owner)
+        if not why and linked and conf is None:
+            why = f'{acc_name}: its configured account is paused or disabled'
+        if not why and linked and acc is None:
+            why = f'{acc_name}: no pacing state yet; refresh usage before using this account'
+        if not why and len(linked) > 1 and not binding_ok:
+            why = (f'{name}: configure workers.{name}.chat_account_selector and distinct selector values in each linked '
+                   'account args before Chat uses this shared worker')
+        missing = routing.missing_limits(cfg, acc_name, acc or {})
+        if not why and missing:
+            why = f'{acc_name}: missing linked quota state ({", ".join(missing)}); resume it or refresh its reading'
+        if not why and acc and routing.quota_closed(acc):
+            why = f'{acc_name}: a linked quota is in panic or spent'
+        candidate = {'kind': 'cli', 'worker': name, 'account': acc_name, 'why': why, 'tools': True,
+                     'label': f'{name} ({acc_name} account)'}
+        if binding_ok:
+            candidate.update(selector=selector, selector_value=values[acc_name])
+        options.append(candidate)
+    return next((candidate for candidate in options if not candidate['why']), options[0])
+
+
 def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
     """Every model of the household with why it cannot answer now (None when it can): ([local], [online]). Local models
     are sorted by capability (the largest first, as `qwen3.8:27b` on the PC), each marked whether it gets the tools."""
@@ -683,14 +715,12 @@ def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
                       'label': f'{w.get("model")} on {where}'})
     local.sort(key=lambda c: -capability(c))
     accounts = {a.get('name'): a for a in (snap.get('usage') or {}).get('accounts') or []}
+    configured = cfg.get('_account_workers') or {n: (a or {}).get('worker') or n for n, a in (cfg.get('accounts') or {}).items()}
+    account_args = cfg.get('_account_args') or {n: (a or {}).get('args') or [] for n, a in (cfg.get('accounts') or {}).items()}
     for name, w in workers.items():
         if (w or {}).get('kind') != 'cli':
             continue
-        acc_name = rows.get(name, {}).get('account') or name
-        acc, conf = accounts.get(acc_name) or {}, (cfg.get('accounts') or {}).get(acc_name) or {}
-        why = cloud_out(name, acc_name, acc, conf, w, paused, rows.get(name, {}), is_owner(user, owner_sub))
-        online.append({'kind': 'cli', 'worker': name, 'account': acc_name, 'why': why, 'tools': True,
-                       'label': f'{name} ({acc_name} account)'})
+        online.append(online_model(cfg, name, w, rows, accounts, paused, is_owner(user, owner_sub), configured, account_args))
     return local, online
 
 

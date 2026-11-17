@@ -7,12 +7,21 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
-## [0.26.1] - 2026-11-17
+## [0.27.1] - 2026-11-17
 
 ### Fixed
 
 - Dashboard shows paused and disabled accounts and their reasons without making them eligible for dispatch (t329).
 
+## [0.27.0] - 2026-11-17
+
+### Changed
+
+- Main-agent hand-off respects paused account links and machine availability, selects online agents by preference and
+  falls back to the strongest available local model. When online accounts are all in panic, a local main can cautiously
+  delegate one small unit per account with measured quota left, balancing remaining quota without pausing accounts (t322).
+- Chat requires an admin-declared selector with distinct values to route shared-worker accounts, checks the launched
+  command, and refuses ambiguous bindings; the selector is an admin assertion about the CLI, not provider verification.
 ## [0.26.0] - 2026-11-17
 
 ### Added

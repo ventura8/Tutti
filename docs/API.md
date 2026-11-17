@@ -514,7 +514,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `accounts.*.reading_file` | text |  | Reading file: A file your own tool writes {"used": 42} to. | admin |
 | `accounts.*.stale_hours` | number (hours) |  | Reading goes stale after: A reading by hand older than this gets a reminder. | admin |
 | `accounts.*.args` | list |  | Extra worker flags: Added when `tutti run auto` or conduct picks this account. | admin |
-| `accounts.*.reader` | yaml |  | Automatic reader: A command that prints the usage and the bucket to read from it, or {format: cursor-api, field: autoPercentUsed} for Cursor. | admin |
+| `accounts.*.reader` | yaml |  | Automatic reader: A command that prints usage, or format: cursor-api, codex-app-server or browser-usage for a scoped usage page. | admin |
 | `accounts.*.tiers` | yaml |  | Models by pace: Behind its limit: the strong tier's flags and the large tasks; ahead: the cheap tier's and the small ones ({strong: {args: [--model, x], sizes: [L, M]}, cheap: ...}). | admin |
 | `accounts.*.limits` | list |  | Bounded by: Longer quotas that bound this one (a weekly over a 5-hour window). | admin |
 | `accounts.*.window_points` | number |  | Points per window: What one whole window costs of its weekly limit; measured when empty. | admin |

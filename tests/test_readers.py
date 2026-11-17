@@ -406,6 +406,9 @@ class ReadingPostTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
+        cls.browser = mock.patch('tutti.browserusage.read', return_value={'readings': {}})
+        cls.browser.start()
+        cls.addClassCleanup(cls.browser.stop)
         acc = {**ACCOUNTS, 'cursor': {**ACCOUNTS['cursor'], 'usage_url': 'https://provider.example/usage'}}
         cls.cfg = cfg_of(cls.tmp.name, acc)
         collector = dashboard.Collector(cls.cfg, probe_fn=lambda m: routing.Probe(True, 1, 0.5, 4, False),

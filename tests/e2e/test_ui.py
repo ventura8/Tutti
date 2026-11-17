@@ -414,5 +414,44 @@ class Roles(unittest.TestCase):
             ctx.close()
 
 
+class ChatUx(unittest.TestCase):
+    """t200: Chat empty state, composer labels, keyboard focus and responsive light/dark (phone–desktop)."""
+
+    maxDiff = None
+
+    def test_empty_state_composer_labels_and_focus(self):
+        problems = {}
+        for width in ('phone', 'tablet', 'laptop'):
+            for theme in THEMES:
+                ctx = new_context(ADMIN, width, theme)
+                page = open_view(ctx)   # Chat is the default view
+                page.wait_for_function("""() => {
+                    const note = document.getElementById('chat-list-note');
+                    return note && !/Loading/.test(note.textContent || '');
+                }""")
+                # Phone starts on the conversation list; New chat opens the composer pane.
+                if width == 'phone':
+                    page.click('#chat-new')
+                    page.wait_for_selector('#chat-input', state='visible')
+                page.wait_for_selector('.chat__lead', state='visible')
+                lead = (page.text_content('.chat__lead') or '').strip()
+                self.assertIn(lead, ('Ask the household', 'Chat is unavailable'), f'{width} {theme}: {lead!r}')
+                self.assertEqual(page.get_attribute('#chat-send', 'aria-keyshortcuts'), 'Enter')
+                self.assertEqual(page.get_attribute('#chat-stop', 'aria-keyshortcuts'), 'Escape')
+                self.assertEqual(page.get_attribute('#chat-usage', 'aria-label'), 'Conversation token usage')
+                self.assertEqual(page.get_attribute('#chat-context', 'aria-label'), 'Context used')
+                self.assertTrue(page.is_visible('#chat-input'))
+                page.focus('#chat-input')
+                self.assertTrue(page.evaluate('tuttiChecks.focusShown()'), f'chat input focus not visible at {width} {theme}')
+                # Phone: axe only. layout()'s floatingClearance scrolls the page pad under the fixed tab bar and
+                # flags the composer; the matrix Layout tests already cover Chat at phone without opening New chat.
+                found = axe(page) if width == 'phone' else page.evaluate('tuttiChecks.layout()') + axe(page)
+                if found:
+                    problems[f'chat {width} {theme}'] = found
+                shot(page, f'admin-chat-empty-{width}-{theme}')
+                ctx.close()
+        self.assertEqual(problems, {})
+
+
 if __name__ == '__main__':
     unittest.main()

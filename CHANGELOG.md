@@ -6,6 +6,19 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.25.4] - 2026-11-17
+
+### Changed
+
+- Chat UI (t200): clearer message hierarchy and spacing, Tutti/worker identity on every answer, unobtrusive per-answer
+  token/energy/cost chips, stronger empty/loading/error states, tablet breakpoint, and tighter keyboard/screen-reader
+  labels. Colours stay on the dashboard theme tokens (light/dark).
+
+### Fixed
+
+- Scout unit tests (t200): each case uses its own `XDG_CONFIG_HOME`, so a real `~/.config/tutti/grok.env` no longer makes
+  the trial and "not set up" cases fail on a household machine.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

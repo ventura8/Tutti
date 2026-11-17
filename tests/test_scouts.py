@@ -105,7 +105,10 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.gh = FakeGh()
         self.hook = FakeHook(self.gh)
-        self.env = {**ENV, 'TUTTI_GROK_URL': self.hook.url}
+        # Own XDG_CONFIG_HOME: secretenv reads grok.env from there first; env={} would fall through to ~/.config
+        # and the owner's real file would steal the fake hook URL (docs/LESSONS.md, empty-env / grok.env).
+        self.xdg = {'XDG_CONFIG_HOME': self.tmp.name}
+        self.env = {**self.xdg, **ENV, 'TUTTI_GROK_URL': self.hook.url}
 
     def tearDown(self):
         self.hook.close()
@@ -312,7 +315,7 @@ class TickTest(Base):
 
     def test_no_round_without_the_variables_or_with_auto_off(self):
         cfg = self.cfg(watches={'deps': {'every': '7d', 'task': 't'}})
-        self.assertEqual(scouts.tick(cfg, {}, env={}, gh_fn=self.gh), [])
+        self.assertEqual(scouts.tick(cfg, {}, env=self.xdg, gh_fn=self.gh), [])
         off = self.cfg(auto=False, watches={'d': {'every': '1d', 'task': 't'}})
         self.assertEqual(scouts.tick(off, {}, env=self.env, gh_fn=self.gh), [])
         self.assertEqual(self.hook.calls, [])
@@ -320,7 +323,7 @@ class TickTest(Base):
 
 class ViewTest(Base):
     def test_not_set_up_shows_missing_names_and_the_owner_steps(self):
-        v = scouts.view(self.cfg(), {'grok-bot': acc()}, env={})
+        v = scouts.view(self.cfg(), {'grok-bot': acc()}, env=self.xdg)
         self.assertEqual(v['items'][0]['missing'], ['TUTTI_GROK_URL', 'TUTTI_GROK_KEY'])
         self.assertTrue(any('POST to' in s for s in v['setup']))
         self.assertNotIn(KEY, json.dumps(scouts.view(self.cfg(), {}, env=self.env)))
@@ -348,7 +351,7 @@ class ViewTest(Base):
         cfg = self.cfg(review_trial={'repos': [REPO], 'prs': 2})
         c = dashboard.Collector(cfg, probe_fn=lambda m: routing.Probe(True, 1, 0.5, 4, False), available_fn=lambda w: (True, ''),
                                 activity_fn=lambda *a: {}, prs_fn=lambda c: {})
-        c.env = {}
+        c.env = dict(self.xdg)
         snap = c.snapshot()
         self.assertFalse(snap['scouts']['items'][0]['ready'])
         self.assertEqual(snap['scouts']['trial'][0]['limit'], 2)
@@ -373,7 +376,7 @@ class TrialTest(Base):
 
     def test_a_scout_failure_never_blocks_the_review(self):
         said = []
-        r = trial.in_trial(self.cfg(), REPO, 7, said.append, gh_fn=self.gh, env={})
+        r = trial.in_trial(self.cfg(), REPO, 7, said.append, gh_fn=self.gh, env=self.xdg)
         self.assertIsNone(r)
         self.assertIn('the review goes on without it', said[0])
 

@@ -2,6 +2,16 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## Chat "TUI" is not a second product yet (t200, 2026-11-17)
+
+**What happened.** The brief asked for Chat GUI and TUI redesign together. The dashboard Chat already exists; a terminal
+Chat UI does not (the household TUI is still roadmap / t201).
+
+**Why.** Treating "TUI" as in-scope would mean scaffolding a Textual app in the same change as a GUI polish — not bounded.
+
+**Rule.** For Chat UX tasks, ship the dashboard Chat (hierarchy, identity, cost chips, a11y, responsive, themes, empty /
+error / loading). Leave a whole-app TUI to its own task; do not invent a Chat TUI as a side product.
+
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
 **What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:
@@ -283,6 +293,11 @@ owner saved a DSN, four tests posted to the real Sentry and failed (403) on the 
 
 **Rule.** A test that isolates the environment passes a dict that names its own temporary `XDG_CONFIG_HOME` (never `{}`)
 and patches `os.environ` to drop every `TUTTI_*` variable, so nothing on the machine can make it send or fail.
+
+**Also (t200, 2026-11-17).** Scout tests used `env={}` and `self.env` without `XDG_CONFIG_HOME`. `secretenv.get` reads
+`grok.env` from `xdg_tutti_dir(env)` first; with no XDG in the dict that is `~/.config/tutti/grok.env`, so a household
+machine with a real file made "not set up" look ready and the trial post to the owner's webhook (status `failed`) instead
+of the fake hook. Same rule: scout fixtures carry their own `XDG_CONFIG_HOME`.
 
 ## GitHub answers 201 to a review request it drops (2026-11-14)
 

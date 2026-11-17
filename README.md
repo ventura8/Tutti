@@ -165,7 +165,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 - [docs/REPORT.md](docs/REPORT.md): Report a problem, what the report holds and where it goes.
 - [docs/PRIVACY.md](docs/PRIVACY.md) and [docs/TERMS.md](docs/TERMS.md): the privacy policy and terms (also on <https://ventura8.github.io/Tutti/>).
 - [docs/AUTH.md](docs/AUTH.md): sign-in with Google, roles, invites, sessions and CSRF, recovery, and the household's interface.
-- [docs/CHAT.md](docs/CHAT.md): the dashboard's Chat tab, the default view: ask about the household and queue work from any device, answered on the household host.
+- [docs/CHAT.md](docs/CHAT.md): the dashboard's Chat tab, the default view: ask about the household and queue work from any device, answered on the household host (message hierarchy, worker identity, cost chips, keyboard-first, light/dark, phone to desktop).
 - [docs/DASHBOARD.md](docs/DASHBOARD.md): the local dashboard, its data sources and `/api/state`.
 - [docs/TESTING.md](docs/TESTING.md): `scripts/check.sh`, and the dashboard's browser tests (every tab: layout, accessibility, roles).
 - [docs/FLEET.md](docs/FLEET.md): every machine's Ollama as a worker, capability routing, overflow from paced accounts, the governor and the block resolver.

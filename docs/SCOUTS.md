@@ -1,5 +1,8 @@
 # Scouts
 
+Tests that pass an explicit environment without `XDG_CONFIG_HOME` read only that environment; they never fall back to the
+user's scout configuration. Tests that need a secret file provide their own temporary `XDG_CONFIG_HOME`.
+
 A scout is a helper that is **not a worker**. It never gets a worktree, a diff or a check; it is asked a question and
 answers in words. Scouts do what a chat bot with a browser is good at:
 

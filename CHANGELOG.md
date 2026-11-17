@@ -15,6 +15,13 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   falls back to the strongest available local model. When online accounts are all in panic, a local main can cautiously
   delegate one small unit per account with measured quota left, balancing remaining quota without pausing accounts (t322).
 
+## [0.25.5] - 2026-11-17
+
+### Fixed
+
+- Explicit test environments without a configuration directory no longer read the user's scout secret file or send
+  scout requests to the live webhook (t323).
+
 ## [0.25.4] - 2026-11-17
 
 ### Fixed

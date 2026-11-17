@@ -1708,6 +1708,14 @@ def cmd_security(cfg, a):
     return 0
 
 
+def cmd_integrations(cfg, a):
+    """`tutti integrations [linear|slack|discord] [status|setup|test|sync]` (docs/INTEGRATIONS.md)."""
+    from . import integrationscmd
+    rc = integrationscmd.run(cfg, a)
+    telemetry.record('feature', f'integrations.{a.name or "status"}.{a.action}', rc=rc)
+    return rc
+
+
 def cmd_scout(cfg, a):
     """`tutti scout list|setup|ask|answer|watch|tick`: helpers that answer on a GitHub issue (docs/SCOUTS.md)."""
     try:
@@ -2009,6 +2017,11 @@ def parser():
                                       '(Dependabot and code-scanning alerts, Cursor and Greptile findings) as autopilot tasks: '
                                       'status, or scan (read every repo now and queue)')
     s.add_argument('action', nargs='?', default='status', choices=['status', 'scan'])
+    s = add('integrations', cmd_integrations, 'Linear two-way sync and Slack/Discord notifications (docs/INTEGRATIONS.md): '
+                                              '[linear|slack|discord] status, setup (the key or webhook URL from stdin, saved '
+                                              'mode 600, never printed), test, sync (linear)')
+    s.add_argument('name', nargs='?', choices=['status', 'linear', 'slack', 'discord'], help='the integration (none: all)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'setup', 'test', 'sync'])
     s = add('scout', cmd_scout, 'scouts, helpers that are not workers (Grok Bot): ask <scout> "<question>" (answered on a GitHub '
                                 'issue), answer <id>, watch [<scout> <watch>], tick (send what is due within the allowance), '
                                 'review <pr> (advisory), trial (the review trial), list, setup')

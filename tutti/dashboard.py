@@ -256,6 +256,9 @@ class Collector:
         needs.tick(self.cfg)   # the questions only a person can answer, delivered in batches (docs/NEEDS.md)
         from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)
         hhjobs.tick(self.cfg)
+        from . import events, linear  # Linear sync and Slack/Discord messages, each off until enabled (docs/INTEGRATIONS.md)
+        linear.tick(self.cfg)
+        events.tick(self.cfg)
 
     def loop(self):
         while not self.stop.is_set():

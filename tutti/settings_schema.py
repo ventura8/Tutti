@@ -40,6 +40,8 @@ SECTIONS = [
     ('autocompact', 'Autocompact', 'When a worker\'s context is compacted.', ['autocompact']),
     ('review', 'Review', '`tutti pr review`: who reviews a pull request and who steps in when no one answers.', ['review', 'review.repos']),
     ('scouts', 'Scouts', 'Helpers that are not workers (Grok Bot): questions, watches and reviews.', ['scouts']),
+    ('integrations', 'Integrations', 'Linear two-way sync, Slack and Discord notifications; each off until you turn it on. The key '
+     'and webhook URLs are set with `tutti integrations <name> setup`, never here (docs/INTEGRATIONS.md).', ['integrations']),
     ('telemetry', 'Telemetry and self-improvement', 'Crash reports and usage statistics, and the fixes they turn into.',
      ['telemetry', 'self_improve', 'ai_assist', 'welcome']),
     ('projects', 'Projects and repos', 'Your projects, their checks, shipping, delegation, tests and translation.',
@@ -358,6 +360,30 @@ FIELDS = {
                            'request: copilot, coderabbit, greptile, a scout (grok) and local (the fallback worker). 1 each by default; 0: '
                            'not called.', **YAML, default={}),
     'review.fallback': field('Fallback reviewers', 'Cheap workers that review when no one answers.', 'list', choices_from='workers'),
+    # integrations (docs/INTEGRATIONS.md)
+    'integrations.dashboard_url': field('Dashboard address', 'The address Slack and Discord messages link back to (e.g. your '
+                                        'tailnet https:// address); empty: no link.', 'text'),
+    'integrations.linear.enabled': field('Linear sync', 'Labelled Linear issues become tasks; task progress goes back to the issue.',
+                                         'switch'),
+    'integrations.linear.label': field('Linear label', 'The label an issue needs to become a task.', 'text'),
+    'integrations.linear.teams': field('Teams to repos', 'Team key (ENG in ENG-12) to the autopilot repo its issues go to.', **YAML),
+    'integrations.linear.projects': field('Projects to repos', 'A Linear project name to its repo; wins over the team.', **YAML),
+    'integrations.linear.poll_minutes': field(LOOK_EVERY, 'How often Linear is read and updated.', **MIN),
+    'integrations.linear.comment': field('Comment on progress', 'A short comment on the issue at each status change.', 'switch'),
+    'integrations.linear.states': field('State names', 'A task status to a workflow state name (review: In Review); '
+                                        'otherwise the first state of the matching type.', **YAML),
+    'integrations.slack.enabled': field('Slack messages', 'Messages to the Slack channel of the incoming webhook.', 'switch'),
+    'integrations.slack.events': field('Slack events', 'Which events reach Slack.', 'list', choices=['needs-person', 'attention',
+                                       'run-finished', 'run-failed', 'release', 'security']),
+    'integrations.slack.max_per_hour': field('Slack messages per hour', 'The rest are counted in the next message.', 'number', min=0),
+    'integrations.slack.dedupe_hours': field('Slack: same event again after', 'One message per event in this time.', **HRS),
+    'integrations.discord.enabled': field('Discord messages', 'Messages to the Discord channel of the webhook; nobody is pinged.',
+                                          'switch'),
+    'integrations.discord.events': field('Discord events', 'Which events reach Discord.', 'list', choices=['needs-person',
+                                         'attention', 'run-finished', 'run-failed', 'release', 'security']),
+    'integrations.discord.max_per_hour': field('Discord messages per hour', 'The rest are counted in the next message.', 'number',
+                                               min=0),
+    'integrations.discord.dedupe_hours': field('Discord: same event again after', 'One message per event in this time.', **HRS),
     # scouts
     'scouts.*.kind': field('Kind', 'grok-bot-webhook: Grok Bot\'s webhook routine.', 'select', choices=['grok-bot-webhook']),
     'scouts.*.url_env': field('URL variable', 'The environment variable that holds the webhook URL (set by `tutti scout setup`).', 'text'),

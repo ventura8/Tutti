@@ -88,6 +88,16 @@ DEFAULTS = {
     'self_improve': {'enabled': True, 'auto_accept': True, 'every_hours': 6, 'max_new_per_day': 3, 'min_count': 3, 'home': ''},
     # welcome: the welcome-back summary for every user (tutti/welcome.py); away_hours: None is pacing.away_after_hours
     'welcome': {'enabled': True, 'away_hours': None, 'ai': True},
+    # integrations: Linear two-way sync and Slack/Discord notifications (docs/INTEGRATIONS.md); each off until enabled; the
+    # secrets live in ~/.config/tutti/integrations.env (`tutti integrations <name> setup`), never here; dashboard_url: the
+    # address messages link back to
+    'integrations': {'dashboard_url': '',
+                     'linear': {'enabled': False, 'label': 'tutti', 'teams': {}, 'projects': {}, 'poll_minutes': 10, 'comment': True,
+                                'states': {}},
+                     'slack': {'enabled': False, 'events': ['needs-person', 'attention', 'run-finished', 'run-failed', 'release',
+                                                            'security'], 'max_per_hour': 12, 'dedupe_hours': 24},
+                     'discord': {'enabled': False, 'events': ['needs-person', 'attention', 'run-finished', 'run-failed', 'release',
+                                                              'security'], 'max_per_hour': 12, 'dedupe_hours': 24}},
     # failover: the backup main machine (tutti/failover.py, docs/FAILOVER.md): backup '' elects one, 'none' turns it off; the
     # main is silent `minutes` before the backup takes over; Tutti returns after `failback_minutes` healthy; the state's budget
     'failover': {'backup': '', 'minutes': 5, 'failback_minutes': 5, 'sync_seconds': 60, 'dir': '~/.tutti-failover', 'reach': {},
@@ -470,7 +480,12 @@ def validate(cfg):
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \
         depbots.errors(cfg) + \
         owner.schedule_errors(cfg['pacing']) + users.errors(cfg) + _update_errors(cfg['update']) + energy.errors(cfg) + \
-        chat.errors(cfg)
+        chat.errors(cfg) + _integration_errors(cfg)
+
+
+def _integration_errors(cfg):
+    from . import events, linear
+    return events.errors(cfg) + linear.errors(cfg)
 
 
 PACKAGE_NAME = re.compile(r'^[a-z0-9][a-z0-9+.-]*$')

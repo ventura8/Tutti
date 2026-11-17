@@ -312,6 +312,8 @@ def setup_for(path):
         return 'tutti telemetry setup'
     if path and path[0] == 'scouts':
         return 'tutti scout setup grok'
+    if path and path[0] == 'integrations':
+        return 'tutti integrations <linear|slack|discord> setup'
     if path and path[0] in ('user', 'household'):
         return 'tutti household join'
     return 'an environment variable, never this file'
@@ -329,6 +331,11 @@ def secrets_view(cfg, env):
             if var:
                 out.append({'label': f'Scout {name}: {what}', 'set': bool(env.get(var, '').strip()) or var in in_file, 'where': var,
                             'setup': 'tutti scout setup grok'})
+    from . import events, linear, secretenv
+    for name, var in (('linear', linear.settings(cfg)['key_env']), ('slack', events.settings(cfg, 'slack')['webhook_env']),
+                      ('discord', events.settings(cfg, 'discord')['webhook_env'])):
+        out.append({'label': f'{name.title()} ({"API key" if name == "linear" else "webhook URL"})',
+                    'set': bool(secretenv.get(var, env).strip()), 'where': var, 'setup': f'tutti integrations {name} setup'})
     return out   # the household membership is on the Manage tab
 
 

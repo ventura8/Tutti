@@ -71,6 +71,11 @@ the preferred agent while it has room (not panic or spent), else the first worke
 Every switch — including switching **back** to preferred after its reset (a fresh reading below `panic_at`, not the
 synthetic `after_reset` 0 %) — uses the same hand-off (`deliver_role_note`, `connect_role`).
 
+Paused or disabled accounts remain linked to their worker, so they do not make that worker appear unmetered. When no
+online main has room, Tutti considers the configured local models by model size, skipping machines reported offline,
+paused, hot or busy. When an online choice recovers, auto mode returns to the preferred online order. A missing machine
+probe is treated as not yet available; if model sizes are unknown, the configured order breaks the tie.
+
 When every account the current main spends is in **panic** or **spent**, Tutti hands the **MAIN AGENT ROLE** to the next
 agent with room (`auto`: preferred then first fallback; otherwise the next in `main.fallback`):
 

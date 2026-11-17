@@ -53,7 +53,8 @@ The dashboard runs one round after every probe while the autopilot is on (`tutti
 2. **Plan.** Capacity is the **adaptive limit** (`tutti/parallel.py`, below) minus the runs going. Fresh tasks go only to an account of `autopilot.accounts` that is
    **behind** its line (or late), or on pace but still under its line (topped up to it, so the window ends at its target), as many units as its room (`room_tasks`) minus what runs on it and what attempts started
    after its newest reading already spent (that cost stays counted until a new reading shows it). Never an account that
-   costs money, is in panic or is spent. A task without an acceptance check (its own or the repo's) is never sent.
+   costs money or is spent. The cautious panic fallback below applies only when all online accounts are unavailable.
+   A task without an acceptance check (its own or the repo's) is never sent.
 3. **Dispatch.** `tutti run <worker> "<brief>" --repo <path> --track ap-<id> --check "<check>"` in the background, with the
    account's `args` (its model) and its name. Each start is saved at once, so a start that fails leaves the task queued and a
    crash never starts it twice. A local-model worker works through `tutti agent`'s loop on the task's scope files (it may
@@ -77,7 +78,10 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
   paced cursor and a yielding PC while agy-gemini and agy-claude had room).
   While the main agent (`autopilot.main_accounts`, default `claude`) is in panic or spent, every other account takes its
   work up to its own panic line: as many tasks as fit between its use and `panic_at` at its cost per task (`task_pct`),
-  even while ahead of its pace; only its own panic or a spent quota stops it.
+  even while ahead of its pace; its own panic or a spent linked quota stops ordinary dispatch. If the main has moved to a
+  local model and all online accounts are unavailable, Tutti can send at most one small bounded unit per panicked account
+  whose current and linked windows have a known task's worth of quota left. It prefers the account with the most remaining
+  quota, respects quiet windows, and never uses a spent, unknown or explicitly paused account. It does not pause accounts.
   An account outside `autopilot.accounts` takes one task at a time and only while it is not ahead of its pace; a worker
   without an account (a local model) one at a time, never while its machine is paused (yield flag) or offline, and only for a task whose scope names files (it edits only those). The
   ladder names accounts, not a worker that accounts share (`agy-claude`, not `agy`), so each step's pace, panic and model

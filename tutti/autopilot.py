@@ -128,7 +128,8 @@ def step_of(cfg, name):
         if not w:
             return None
         return {'name': name, 'worker': wn, 'kind': w['kind'], 'args': list(a.get('args') or []), 'account': name}
-    if name in cfg['workers'] and not any((a or {}).get('worker') == name for a in cfg['accounts'].values()):
+    linked = (cfg.get('_account_workers') or {}).values()
+    if name in cfg['workers'] and name not in linked and not any((a or {}).get('worker') == name for a in cfg['accounts'].values()):
         return {'name': name, 'worker': name, 'kind': cfg['workers'][name]['kind'], 'args': [], 'account': None}
     return None
 
@@ -173,9 +174,16 @@ def step_room(cfg, name, states, running_units, machines=()):
     used = running_units.get(name, 0)
     if not step['account']:
         return local_room(cfg, name, step, used, machines, cfg.get('_now'))
+    return account_step_room(cfg, name, states, used)
+
+
+def account_step_room(cfg, name, states, used):
+    """Account room after its ladder step and machine have been selected."""
     s = states.get(name)
     if not s:
         return 0, f'{name}: no pacing state yet'
+    if panic_rescue(cfg, name, s, states):
+        return (1, '') if not used else (0, f'{name}: its cautious panic-mode task is already running')
     if takes_over(cfg, name, s, states):
         # the main agent in panic (owner, 2026-11-16): the other accounts take over its bounded work one task at a time,
         # even while ahead of their own pace or past their planned room; only their own panic or a spent quota stops them
@@ -222,13 +230,53 @@ def takes_over(cfg, name, s, states):
     if name in main_accounts(cfg) or not main_in_panic(cfg, states):
         return False
     used = s.get('used')
-    return not (s.get('panic') or s.get('verdict') == 'spent' or (used is not None and used >= s.get('panic_at', 95)))
+    return not (quota_panic(s) or (used is not None and used >= s.get('panic_at', 95)))
+
+
+def quota_panic(s):
+    """Panic or exhaustion in the account or any linked window."""
+    used = s.get('used')
+    return bool(s.get('panic') or s.get('verdict') == 'spent' or
+                (used is not None and used >= s.get('panic_at', 95)) or any(quota_panic(x) for x in s.get('limits') or []))
+
+
+def remaining_quota(s):
+    """Smallest known percentage remaining across all windows; unknown or spent is not safe to spend."""
+    used = s.get('used')
+    plan = s.get('quota_plan') or {}
+    if (isinstance(used, bool) or not isinstance(used, (int, float)) or s.get('verdict') == 'spent'
+            or (plan.get('limit') and plan.get('allowance') == 0)):
+        return 0
+    return min([max(0, 100 - used), *(remaining_quota(x) for x in s.get('limits') or [])])
+
+
+def panic_rescue(cfg, name, s, states):
+    """One bounded task per account when every configured online account is unavailable but measured quota remains."""
+    if not quota_panic(s) or not main_in_panic(cfg, states):
+        return False
+    main = cfg.get('_main_worker') or (cfg.get('main') or {}).get('agent')
+    if (cfg['workers'].get(main) or {}).get('kind') != 'ollama':
+        return False
+    from .pacing import TASK_PCT
+    cost = float((cfg['accounts'].get(name) or {}).get('task_pct') or TASK_PCT)
+    if remaining_quota(s) < cost:
+        return False
+    online = [n for n, a in cfg['accounts'].items() if (cfg['workers'].get((a or {}).get('worker') or n) or {}).get('kind') == 'cli']
+    return bool(online) and all(n in states and quota_panic(states[n]) for n in online)
 
 
 def main_in_panic(cfg, states):
     """True while one of the main agent's accounts is in panic or spent."""
+    agent = cfg.get('_main_worker') or (cfg.get('main') or {}).get('agent')
+    linked = [n for n, w in (cfg.get('_account_workers') or {}).items() if w == agent]
+    if linked and (cfg.get('workers', {}).get(agent) or {}).get('kind') != 'ollama':
+        return all(n in cfg.get('disabled_accounts', ()) or quota_panic(states.get(n) or {}) for n in linked)
     names = main_accounts(cfg)
-    return any((states.get(n) or {}).get('panic') or (states.get(n) or {}).get('verdict') == 'spent' for n in names)
+    if any(n in cfg.get('disabled_accounts', ()) or quota_panic(states.get(n) or {}) for n in names):
+        return True
+    if (cfg.get('workers', {}).get(agent) or {}).get('kind') == 'ollama':
+        return any(quota_panic(states.get(n) or {}) for n in cfg['accounts'])
+    return False
 
 
 def machine_capacity(cfg, machines):
@@ -276,6 +324,8 @@ def _candidates(cfg, t, over='', machines=()):
     if not t['attempts']:
         trig = trigger_accounts(cfg)
         online = [n for n in steps if n in trig] + [n for n in trig if n not in steps]
+        if cfg.get('_main_in_panic'):
+            online += [n for n in steps if n in cfg['accounts'] and n not in online]
         return locals_ + online if over else online + locals_
     last = t['attempts'][-1]
     if is_local(cfg, last['step']) and not last['ok']:
@@ -322,6 +372,10 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
         if free <= 0 and local <= 0:
             break
         steps = sorted(candidates(cfg, t, over, machines), key=tier_last(prefer, t.get('size')))
+        fair = cfg.get('_panic_usage') or {}
+        online = sorted((n for n in steps if n in fair), key=lambda n: fair[n])
+        it = iter(online)
+        steps = [next(it) if n in fair else n for n in steps]
         steps = [n for n in steps if local > 0 and (is_local(cfg, n) or free > 0)]
         pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t)), None)
         if pick is None:
@@ -429,8 +483,11 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     if quiet_stop(cfg, now):
         return {**out, **quiet_stop(cfg, now)}
     used = spent_units(tasks, states)
+    cfg['_main_in_panic'] = main_in_panic(cfg, states)
     names = list(dict.fromkeys([*ladder(cfg), *trigger_accounts(cfg), *cfg.get('_spare_accounts', ())]))
     rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}
+    cfg['_panic_usage'] = {n: 100 - remaining_quota(states[n]) for n in names if n in states and n in cfg['accounts']
+                           and panic_rescue(cfg, n, states[n], states)}
     online_room = sum(max(0, r[0]) for n, r in rooms.items() if not is_local(cfg, n))   # local runs are outside that limit
     free, stop = capacity_now(cfg, running, machines, now, online_room)
     if stop:
@@ -1176,6 +1233,8 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     `beat`: this member's heartbeat for the household coordinator (shared projects only; docs/HOUSEHOLD.md)."""
     from . import state as state_mod
     now = now or time.time()
+    from . import conduct
+    cfg['_main_worker'] = conduct.current(cfg)
     is_alive = is_alive or state_mod.alive
     on = enabled(cfg)
     if '_host_raw' not in cfg:

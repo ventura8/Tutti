@@ -62,9 +62,9 @@ class OutReasonTest(Folder):
         self.assertIn('agy-claude: panic', why)
         self.assertIn('agy-gemini', why)
 
-    def test_an_agent_without_accounts_or_with_disabled_ones_is_never_out(self):
+    def test_an_unmetered_local_agent_is_available_but_a_disabled_account_is_not(self):
         self.assertEqual(conduct.out_reason(self.cfg, 'local', self.states(local=99)), '')
-        self.assertEqual(conduct.out_reason(self.cfg, 'cursor', self.states(cursor=99)), '')
+        self.assertIn('paused or disabled', conduct.out_reason(self.cfg, 'cursor', self.states(cursor=99)))
 
 
 class ChoiceTest(Folder):
@@ -413,6 +413,10 @@ class CliAndDashboardTest(Folder):
 
 
 class RoleHandOffTest(Folder):
+    def setUp(self):
+        super().setUp()
+        self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'worker': 'cursor', 'enabled': True}})
+
     def states(self, **rows):
         out = []
         for n, v in rows.items():
@@ -452,9 +456,8 @@ class RoleHandOffTest(Folder):
                                'cursor': {'used': 100, 'verdict': 'spent', 'panic': False}})
         line = conduct.hand_off_role(self.cfg, spent, connect_fn=lambda *a, **k: [],
                                      chat_fn=lambda cfg, text: notes.append(text))
-        self.assertIn('MAIN AGENT ROLE stays with agy', line)
-        self.assertIn('no agent in main.fallback has room', line)
-        self.assertEqual(conduct.current(self.cfg), 'agy')
+        self.assertIn('MAIN AGENT ROLE handed from agy to local', line)
+        self.assertEqual(conduct.current(self.cfg), 'local')
         self.assertIsNone(conduct.hand_off_role(self.cfg, spent, chat_fn=lambda cfg, text: notes.append(text)))
         self.assertEqual(len(notes), 1)
 
@@ -472,7 +475,7 @@ class RoleHandOffTest(Folder):
                           main={'agent': 'agy', 'fallback': ['cursor'], 'check_seconds': 0.05})
         line = conduct.hand_off_role(self.cfg, spent99, connect_fn=lambda *a, **k: [],
                                      chat_fn=lambda cfg, text: notes.append(text))
-        self.assertIn('no agent in main.fallback has room', line)
+        self.assertIn('handed from agy to local', line)
         spent100 = self.states(**{'agy-claude': {'used': 100, 'verdict': 'spent', 'panic': False},
                                   'agy-gemini': {'used': 100, 'verdict': 'spent', 'panic': False},
                                   'cursor': {'used': 100, 'verdict': 'spent', 'panic': False}})
@@ -569,6 +572,31 @@ class RoleHandOffTest(Folder):
         out = self.states(**{'agy-claude': 99, 'agy-gemini': 99,
                              'cursor': {'used': 20, 'panic': False, 'verdict': 'on pace'}})
         self.assertEqual(conduct.pick_auto(self.cfg, out), 'cursor')
+
+    def test_all_online_spent_uses_strongest_local_and_returns_to_online(self):
+        self.cfg = cfg_in(self.dir, workers={'small': {'kind': 'ollama', 'host': '127.0.0.1:2', 'model': 'model:3b'},
+                                             'strong': {'kind': 'ollama', 'host': '127.0.0.1:3', 'model': 'model:30b'}},
+                          accounts={'cursor': {'window': 'monthly', 'worker': 'cursor', 'enabled': True}},
+                          main={'agent': 'auto', 'preferred': 'agy', 'fallback': ['cursor', 'small', 'strong']})
+        spent = self.states(**{'agy-claude': 100, 'agy-gemini': 100, 'cursor': {'used': 100, 'verdict': 'spent'}})
+        self.assertEqual(conduct.pick_auto(self.cfg, spent), 'strong')
+        recovered = self.states(**{'agy-claude': 100, 'agy-gemini': 100,
+                                    'cursor': {'used': 10, 'verdict': 'on pace', 'panic': False}})
+        self.assertEqual(conduct.pick_auto(self.cfg, recovered), 'cursor')
+
+    def test_hot_local_fallback_is_skipped_for_a_cooler_one(self):
+        self.cfg = cfg_in(self.dir, workers={'small': {'kind': 'ollama', 'host': '127.0.0.1:2', 'model': 'model:3b', 'machine': 'cool'},
+                                             'strong': {'kind': 'ollama', 'host': '127.0.0.1:3', 'model': 'model:30b', 'machine': 'hot'}},
+                          machines={'hot': {'host': 'hot.example'}, 'cool': {'host': 'cool.example'}},
+                          accounts={'cursor': {'window': 'monthly', 'worker': 'cursor', 'enabled': True}},
+                          main={'agent': 'auto', 'preferred': 'agy', 'fallback': ['cursor', 'small', 'strong']})
+        spent = self.states(**{'agy-claude': 100, 'agy-gemini': 100, 'cursor': {'used': 100, 'verdict': 'spent'}})
+        machines = [{'name': 'hot', 'status': 'loaded', 'reason': 'too hot: CPU 99 C'},
+                    {'name': 'cool', 'status': 'free', 'reason': 'fit'}]
+        with mock.patch('tutti.conduct.yield_reason', return_value=''):
+            self.assertEqual(conduct.pick_auto(self.cfg, spent, machines=machines), 'small')
+            self.cfg['_worker_readiness'] = {'small': False, 'strong': True, 'local': False}
+            self.assertIsNone(conduct.pick_auto(self.cfg, spent, machines=machines))
 
     def test_main_auto_on_cli_and_describe(self):
         out = io.StringIO()

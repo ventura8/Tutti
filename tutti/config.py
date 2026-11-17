@@ -295,6 +295,7 @@ def normalise(raw):
     cfg['routing']['order'] = sorted(cfg['routing']['order'], key=lambda n: (cfg['machines'].get(n) or {}).get('transport') == 'android')
     from . import devices  # devices imports this module
     devices.normalise(cfg)
+    cfg['_account_workers'] = {n: ((a or {}).get('worker') or n) for n, a in cfg['accounts'].items()}
     opt_out(cfg)
     lenient(cfg)
     return cfg

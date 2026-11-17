@@ -7,6 +7,14 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [Unreleased]
+
+### Changed
+
+- Main-agent hand-off respects paused account links and machine availability, selects online agents by preference and
+  falls back to the strongest available local model. When online accounts are all in panic, a local main can cautiously
+  delegate one small unit per account with measured quota left, balancing remaining quota without pausing accounts (t322).
+
 ## [0.25.4] - 2026-11-17
 
 ### Fixed

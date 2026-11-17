@@ -140,6 +140,16 @@ class PlanTest(Base):
         self.assertEqual(p['dispatch'], [('t1', 'agy-gemini'), ('t2', 'agy-gemini')])
         self.assertEqual(p['state'], 'dispatching')
 
+    def test_when_all_online_are_in_panic_rescue_spreads_work_to_the_most_remaining_quota(self):
+        cfg = self.cfg(main_accounts=['agy-claude'])
+        cfg['_main_worker'] = 'local-main'
+        cfg['workers']['local-main'] = {'kind': 'ollama', 'host': '127.0.0.1:1', 'model': 'm:3b'}
+        states = {'agy-claude': account('agy-claude', 'ahead', used=99, panic=True),
+                  'agy-gemini': account('agy-gemini', 'ahead', used=97, panic=True),
+                  'cursor': account('cursor', 'ahead', used=95, panic=True)}
+        p = autopilot.plan(cfg, [task('t1'), task('t2')], states, FREE, True)
+        self.assertEqual(p['dispatch'], [('t1', 'cursor'), ('t2', 'agy-gemini')])
+
     def test_an_account_at_its_line_or_in_panic_takes_nothing(self):
         states = self.states(**{'agy-gemini': account('agy-gemini', 'on pace'), 'agy-claude': account('agy-claude', panic=True, used=96)})
         cfg = self.cfg(ladder=['agy-gemini', 'agy-claude'])
@@ -532,11 +542,14 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
     CFG = {'accounts': {'claude': {'worker': 'claude'}, 'cursor': {'worker': 'cursor'}},
            'workers': {'claude': {'kind': 'cli'}, 'cursor': {'kind': 'cli'}}, 'autopilot': {}}
 
-    def room(self, states, name='cursor', running=None):
+    def room(self, states, name='cursor', running=None, local_main=False):
         from tutti import autopilot
+        cfg = self.CFG
+        if local_main:
+            cfg = {**cfg, '_main_worker': 'local', 'workers': {**cfg['workers'], 'local': {'kind': 'ollama'}}}
         with mock.patch.object(autopilot, 'costs_money', return_value=False), \
                 mock.patch.object(autopilot, 'trigger_accounts', return_value=[]):
-            return autopilot.step_room(self.CFG, name, states, running or {})
+            return autopilot.step_room(cfg, name, states, running or {})
 
     def test_an_ahead_account_takes_tasks_only_while_the_main_agent_panics(self):
         ahead = {'verdict': 'ahead', 'used': 40}
@@ -552,11 +565,59 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
         self.assertEqual(autopilot.takeover_room(acc, 'cursor', {'used': 94, 'panic_at': 95}), 1)
         self.assertEqual(autopilot.takeover_room(acc, 'cursor', {'used': 95, 'panic_at': 95}), 0)
 
-    def test_its_own_panic_or_spent_quota_still_stops_it_and_the_main_account_never_takes_over(self):
+    def test_panic_rescue_is_bounded_and_never_uses_spent_or_unknown_quota(self):
         panic = {'claude': {'panic': True, 'used': 96}}
-        self.assertEqual(self.room({**panic, 'cursor': {'panic': True, 'used': 96}})[0], 0)
-        self.assertEqual(self.room({**panic, 'cursor': {'verdict': 'spent', 'used': 100}})[0], 0)
+        self.assertEqual(self.room({**panic, 'cursor': {'panic': True, 'used': 96}}, local_main=True)[0], 1)
+        self.assertEqual(self.room({**panic, 'cursor': {'panic': True, 'used': 96}}, running={'cursor': 1}, local_main=True)[0], 0)
+        self.assertEqual(self.room({**panic, 'cursor': {'panic': True, 'used': 99}}, local_main=True)[0], 0)
+        self.assertEqual(self.room({**panic, 'cursor': {'panic': True, 'used': None}}, local_main=True)[0], 0)
+        self.assertEqual(self.room({**panic, 'cursor': {'verdict': 'spent', 'used': 100}}, local_main=True)[0], 0)
         self.assertEqual(self.room(panic, name='claude')[0], 0)
+
+    def test_a_spent_linked_window_blocks_rescue(self):
+        states = {'claude': {'panic': True, 'used': 96},
+                  'cursor': {'used': 10, 'limits': [{'name': 'weekly', 'used': 100, 'verdict': 'spent'}]}}
+        self.assertEqual(self.room(states, local_main=True)[0], 0)
+
+    def test_paused_account_does_not_turn_its_worker_into_an_unmetered_step(self):
+        from tutti import autopilot
+        cfg = config.normalise({'accounts': {'cursor-other': {'worker': 'cursor', 'paused': {'by': 'owner'}}},
+                                'workers': {'cursor': {'kind': 'cli', 'command': ['cursor-agent', '{prompt}']}}})
+        self.assertIsNone(autopilot.step_of(cfg, 'cursor'))
+
+    def test_current_main_worker_account_triggers_handover(self):
+        from tutti import autopilot
+        cfg = {'accounts': {}, 'workers': {}, 'autopilot': {}, '_main_worker': 'cursor',
+               '_account_workers': {'cursor-other': 'cursor'}}
+        self.assertTrue(autopilot.main_in_panic(cfg, {'cursor-other': {'used': 97, 'panic': True}}))
+
+    def test_main_worker_keeps_room_if_one_of_its_accounts_is_healthy(self):
+        from tutti import autopilot
+        cfg = {'accounts': {}, 'workers': {'cursor': {'kind': 'cli'}}, 'autopilot': {}, '_main_worker': 'cursor',
+               '_account_workers': {'cursor': 'cursor', 'cursor-other': 'cursor'}}
+        states = {'cursor': {'used': 100, 'verdict': 'spent'}, 'cursor-other': {'used': 20}}
+        self.assertFalse(autopilot.main_in_panic(cfg, states))
+        states['cursor-other'] = {'used': 97, 'panic': True}
+        self.assertTrue(autopilot.main_in_panic(cfg, states))
+
+    def test_panic_rescue_waits_for_a_local_main_and_obeys_quiet_windows(self):
+        from tutti import autopilot
+        cfg = {**self.CFG, '_main_worker': 'claude'}
+        states = {'claude': {'panic': True, 'used': 96}, 'cursor': {'panic': True, 'used': 96}}
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
+        cfg = {**cfg, '_main_worker': 'local', 'workers': {**cfg['workers'], 'local': {'kind': 'ollama'}}}
+        self.assertTrue(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
+        quiet = {**states['cursor'], 'quota_plan': {'limit': 'weekly', 'allowance': 0}}
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', quiet, {**states, 'cursor': quiet}))
+
+    def test_panic_rescue_does_not_start_while_an_online_account_is_not_in_panic(self):
+        from tutti import autopilot
+        cfg = {**self.CFG, '_main_worker': 'local',
+               'workers': {**self.CFG['workers'], 'local': {'kind': 'ollama'}, 'other': {'kind': 'cli'}},
+               'accounts': {**self.CFG['accounts'], 'other': {'worker': 'other'}}}
+        states = {'claude': {'panic': True, 'used': 96}, 'cursor': {'panic': True, 'used': 96},
+                  'other': {'used': 40, 'quota_plan': {'left': 0}}}
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
 
     def test_main_accounts_may_be_a_single_name(self):
         from tutti import autopilot

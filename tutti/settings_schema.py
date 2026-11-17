@@ -126,6 +126,7 @@ FIELDS = {
     # workers
     'workers.*.kind': field('Kind', 'cli: another vendor\'s agent; ollama: a local model server.', 'select', choices=['cli', 'ollama']),
     'workers.*.command': field('Command', 'The command line; {prompt} is the brief, {log} a log file per run.', **CMD),
+    'workers.*.chat_account_selector': field('Chat account selector', 'The CLI flag an admin asserts selects an account or model.', 'text'),
     'workers.*.denied': field('Denied marker', 'Text in its log that means a headless permission was refused.', 'text'),
     'workers.*.costs_money': field('Costs money per use', 'Kept off until you turn it on.', 'switch', default=False),
     'workers.*.enabled': field('On', 'Off takes it out of routing, conduct and review.', 'switch'),

@@ -286,7 +286,7 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
     out['projected_end'] = owner_mod.projection(out['readings'], used, now, reset)
     return {**out, 'state': 'ok', 'used': used, 'expected': round(p['expected'], 1), 'tolerance': round(p['tolerance'], 1),
             'verdict': p['verdict'], 'action': action,
-            'panic': is_panic, 'reading_at': parse_time(e['at']).isoformat()}
+            'panic': is_panic, 'reading_at': parse_time(e['at']).isoformat(), 'selected_source': e.get('source')}
 
 
 def report(accounts, entries, now, quiet_hours=None, states=None):

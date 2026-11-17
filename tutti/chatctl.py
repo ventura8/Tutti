@@ -6,7 +6,7 @@ import os
 import re
 import subprocess
 
-MODES = {'auto': 'Autonomous', 'ask': 'Ask before acting', 'plan': 'Plan review'}
+MODES = {'auto': 'Autonomous', 'ask': 'Ask before acting', 'plan': 'Plan review', 'answer': 'Just ask (answers only)'}
 EFFORTS = ('auto', 'low', 'medium', 'high', 'max')
 DEFAULTS = {'model': 'auto', 'effort': 'auto', 'mode': 'auto'}
 ROUNDS = {'auto': 4, 'low': 2, 'medium': 4, 'high': 6, 'max': 8}   # tool rounds an answer may take

@@ -7,11 +7,23 @@ const SLASH = [
     { cmd: '/new', help: 'start a new chat' },
     { cmd: '/model', help: 'who answers: auto, local, online or a model', arg: true },
     { cmd: '/effort', help: 'auto, low, medium, high or max', arg: true },
-    { cmd: '/mode', help: 'auto (autonomous), ask (before acting) or plan (review a plan)', arg: true },
+    { cmd: '/mode', help: 'auto (autonomous), ask (before acting), plan (review a plan) or answer (just ask)', arg: true },
     { cmd: '/clear', help: 'empty this chat (its settings stay)' },
     { cmd: '/help', help: 'commands and keyboard shortcuts' },
+    // work commands, sent to Tutti as a message (tutti/chat.py COMMANDS; owner 2026-11-17)
+    { cmd: '/delegate', help: 'hand work to the best agent now: /delegate [project] what', arg: true, send: true },
+    { cmd: '/task', help: 'queue a task: /task project what', arg: true, send: true },
+    { cmd: '/tasks', help: 'the task queue (/tasks all: with done ones)', send: true },
+    { cmd: '/status', help: 'what is running, or one run: /status [run id]', send: true },
+    { cmd: '/usage', help: 'every account against its pace', send: true },
+    { cmd: '/hosts', help: 'the computers and their state', send: true },
+    { cmd: '/devices', help: 'phones, tablets and TVs', send: true },
+    { cmd: '/pause', help: 'pause a host, device, agent or account', arg: true, send: true },
+    { cmd: '/resume', help: 'resume a host, device, agent or account', arg: true, send: true },
+    { cmd: '/ask', help: 'ask a scout: /ask grok question', arg: true, send: true },
+    { cmd: '/tests', help: 'queue the full test suite: /tests project', arg: true, send: true },
 ];
-const MODE_WORDS = { autonomous: 'auto', auto: 'auto', ask: 'ask', confirm: 'ask', plan: 'plan', review: 'plan' };
+const MODE_WORDS = { autonomous: 'auto', auto: 'auto', ask: 'ask', confirm: 'ask', plan: 'plan', review: 'plan', answer: 'answer', just: 'answer' };
 const SHORTCUTS = [['Enter', 'send'], ['Shift+Enter', 'a new line'], ['Esc', 'stop the answer, or close a list'],
     ['↑ (empty box)', 'edit your last message'], ['/', 'commands; from anywhere in the Chat: go to the message box'],
     ['@', 'add a project, job, machine or file (@project/path) as context'], ['Ctrl+K or ⌘K', 'search your chats'],
@@ -175,6 +187,7 @@ async function runSlash(text) {
     const s = parseSlash(text);
     if (!s) return false;
     if (s.unknown) { say(`${s.cmd} is not a command. Type / to see them.`); return true; }
+    if (SLASH.find((c) => c.cmd === s.cmd)?.send) return false;   // a work command: sent as a message, Tutti runs it
     const arg = s.arg.toLowerCase();
     if (s.cmd === '/new') newChat();
     else if (s.cmd === '/help') shortcutsDialog();

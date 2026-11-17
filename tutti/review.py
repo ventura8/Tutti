@@ -557,7 +557,8 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
         return 0
     lines = absence_lines(found, absent, timeout)
     say('review: no automated review will come: ' + '; '.join(lines or ['no reviewer configured (review.reviewers)']))
-    spent = round_left(cfg, repo, number, 'local', head=expected_head)
+    revision_key = f'{expected_base}..{expected_head}' if expected_head else None
+    spent = round_left(cfg, repo, number, 'local', head=revision_key)
     if spent:   # its rounds done: the earlier rounds were the review; 0 rounds: no one reviews, a person does
         say(f'review: no local review either: {spent}')
         return exhausted_round_result(expected_head, spent)
@@ -566,7 +567,7 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
         say(f'review: no fallback worker can review either ({args}): review the diff yourself')
         return 1
     say(f'review: a local review by {name} {" ".join(args)}'.rstrip())
-    count_round(cfg, repo, number, 'local', head=expected_head)
+    count_round(cfg, repo, number, 'local', head=revision_key)
     text = local_review(cfg, repo, number, name, args, gh_fn, revisions=revisions)
     if not revisions_match(repo, number, expected_head, revisions, gh_fn, say):
         return 1

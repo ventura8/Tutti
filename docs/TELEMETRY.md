@@ -138,7 +138,7 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
    the stale record. Automatic review requires bot evidence on the exact head and ignores dismissed reviews and scout
    comments without commit identity. The local fallback reviews immutable base/head patches, verifying the complete file
    count and line totals; binary, missing, oversized or truncated patches block automatic merging. Local rounds are
-   counted per head and an exhausted round never counts as a successful new review. The head and base are checked again
+   counted per base/head pair and an exhausted round never counts as a successful new review. The head and base are checked again
    after review, and a previously stored unbound result cannot authorize a merge. Before requesting a merge, Tutti
    rechecks the recorded base and requires classic branch protection with strict up-to-date required status checks;
    unknown protection and rulesets it cannot verify block the merge. GitHub's merge API can condition on the head but

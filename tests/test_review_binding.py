@@ -64,7 +64,7 @@ class Binding(unittest.TestCase):
     def test_local_rounds_distinguish_heads_without_reusing_old_success(self):
         with tempfile.TemporaryDirectory() as d:
             cfg = {'project': {'state': d}, 'review': {'rounds': {'local': 1}}}
-            first, second = 'a' * 40, 'b' * 40
+            first, second = f'{"a" * 40}..{"b" * 40}', f'{"c" * 40}..{"b" * 40}'
             review.count_round(cfg, 'o/r', 1, 'local', head=first)
             self.assertTrue(review.round_left(cfg, 'o/r', 1, 'local', head=first))
             self.assertEqual(review.round_left(cfg, 'o/r', 1, 'local', head=second), '')

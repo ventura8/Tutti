@@ -743,13 +743,28 @@ def pending_review(cfg, t, pr, key, reviews, pol, number, now):
 
 
 def strict_base_protection(repo, branch, run):
-    """Require server-enforced up-to-date status checks; inaccessible or unprotected branches fail closed."""
+    """Require strict checks that also apply to admins and bypass-capable roles; unknown protection fails closed."""
     if not isinstance(branch, str) or not branch:
         return False
-    protection = gh_json(['api', f'repos/{repo}/branches/{quote(branch, safe="")}/protection/required_status_checks'], run)
-    if not isinstance(protection, dict) or protection.get('strict') is not True:
+    protection = gh_json(['api', f'repos/{repo}/branches/{quote(branch, safe="")}/protection'], run)
+    if not isinstance(protection, dict):
         return False
-    contexts, checks = protection.get('contexts'), protection.get('checks')
+    admin = protection.get('enforce_admins')
+    checks = protection.get('required_status_checks')
+    reviews = protection.get('required_pull_request_reviews')
+    if not isinstance(admin, dict) or admin.get('enabled') is not True or not isinstance(checks, dict):
+        return False
+    if checks.get('strict') is not True:
+        return False
+    if reviews is not None and not isinstance(reviews, dict):
+        return False
+    if isinstance(reviews, dict) and 'bypass_pull_request_allowances' not in reviews:
+        return False
+    bypass = (reviews or {}).get('bypass_pull_request_allowances')
+    if bypass is not None and (not isinstance(bypass, dict) or
+                               any(k not in bypass or not isinstance(bypass[k], list) or bypass[k] for k in ('users', 'teams', 'apps'))):
+        return False
+    contexts, checks = checks.get('contexts'), checks.get('checks')
     return bool((isinstance(contexts, list) and any(isinstance(c, str) and c for c in contexts)) or
                 (isinstance(checks, list) and any(isinstance(c, dict) and c.get('context') for c in checks)))
 

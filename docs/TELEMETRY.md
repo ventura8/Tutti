@@ -140,7 +140,8 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
    count and line totals; binary, missing, oversized or truncated patches block automatic merging. Local rounds are
    counted per base/head pair and an exhausted round never counts as a successful new review. The head and base are checked again
    after review, and a previously stored unbound result cannot authorize a merge. Before requesting a merge, Tutti
-   rechecks the recorded base and requires classic branch protection with strict up-to-date required status checks;
+   rechecks the recorded base and requires classic branch protection with strict up-to-date required status checks
+   enforced for administrators and bypass-capable roles, with no configured PR bypass allowances;
    unknown protection and rulesets it cannot verify block the merge. GitHub's merge API can condition on the head but
    has no base-SHA compare-and-swap, so server-side enforcement is still necessary and there is no atomic base guarantee.
    Repositories without this strict protection must configure it before autonomous merges can proceed.

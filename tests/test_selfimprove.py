@@ -190,8 +190,9 @@ class FakeGh:
         if args[1:2] == ['api'] and '/pulls/' in args[2]:
             detail = {'head': {'sha': self.view.get('headRefOid')}, 'base': {'sha': self.view.get('baseRefOid')}}
             return SimpleNamespace(returncode=0, stdout=json.dumps(detail), stderr='')
-        if args[1:2] == ['api'] and '/protection/required_status_checks' in args[2]:
-            return SimpleNamespace(returncode=0, stdout=json.dumps({'strict': True, 'contexts': ['ci']}), stderr='')
+        if args[1:2] == ['api'] and args[2].endswith('/protection'):
+            protection = {'required_status_checks': {'strict': True, 'contexts': ['ci']}, 'enforce_admins': {'enabled': True}}
+            return SimpleNamespace(returncode=0, stdout=json.dumps(protection), stderr='')
         if args[1:3] == ['api', 'graphql']:
             if any('reviews(first:' in str(arg) for arg in args):
                 body = {'data': {'repository': {'pullRequest': {'reviews': {
@@ -225,11 +226,20 @@ class Rounds(Base):
         def response(value, code=0):
             return lambda *_args, **_kwargs: SimpleNamespace(returncode=code, stdout=json.dumps(value), stderr='')
         gate = selfimprove.strict_base_protection
-        self.assertTrue(gate('o/r', 'main', response({'strict': True, 'contexts': ['ci']})))
-        for value, code in [({}, 0), ({'strict': False, 'contexts': ['ci']}, 0),
-                            ({'strict': True, 'contexts': []}, 0), ({'strict': True, 'contexts': ['ci']}, 1)]:
+        good = {'required_status_checks': {'strict': True, 'contexts': ['ci']}, 'enforce_admins': {'enabled': True}}
+        self.assertTrue(gate('o/r', 'main', response(good)))
+        for value, code in [({}, 0), ({'rules': [{'type': 'required_status_checks'}]}, 0),
+                            ({**good, 'enforce_admins': {'enabled': False}}, 0),
+                            ({**good, 'enforce_admins': None}, 0),
+                            ({**good, 'required_status_checks': {'strict': False, 'contexts': ['ci']}}, 0),
+                            ({**good, 'required_status_checks': {'strict': True, 'contexts': []}}, 0),
+                            ({**good, 'required_pull_request_reviews': {}}, 0),
+                            ({**good, 'required_pull_request_reviews': {'bypass_pull_request_allowances':
+                                {'users': [], 'teams': [], 'apps': ['bypass-app']}}}, 0),
+                            ({**good, 'required_pull_request_reviews': {'bypass_pull_request_allowances':
+                                {'users': [], 'teams': []}}}, 0), (good, 1)]:
             self.assertFalse(gate('o/r', 'main', response(value, code)))
-        self.assertFalse(gate('o/r', '', response({'strict': True, 'contexts': ['ci']})))
+        self.assertFalse(gate('o/r', '', response(good)))
 
     def test_review_base_change_requires_new_review(self):
         record = {'o/r#7': {'sha': 'head', 'base': 'old-base'}}

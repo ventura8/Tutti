@@ -253,6 +253,17 @@ def key_of(spec):
     return tuple(spec.get('command') or [spec.get('format') or '?', spec.get('url') or '', spec.get('account') or ''])
 
 
+def automatic_reader(name, account):
+    """A provider-specific reader for an existing account that has not set one explicitly."""
+    if account.get('reader'):
+        return account['reader']
+    if account.get('worker') == 'codex' or name == 'codex':
+        return {'format': 'codex-app-server', 'every_minutes': 15}
+    if account.get('usage_url'):
+        return {'format': 'browser-usage', 'url': account['usage_url'], 'every_minutes': 15}
+    return None
+
+
 class Readers:
     """Runs each reader command at most every `every_minutes` (default: every probe, `dashboard.probe_seconds`); one run
     serves every account that shares the command. `force` (Refresh readings, `tutti usage refresh`) skips the wait."""
@@ -304,7 +315,7 @@ class Readers:
         """An account read by the computer that holds its sign-in (accounts.<n>.read_on, set by `tutti move`), through that
         computer's bridge; asked at the reader's own interval like a reader run here."""
         from . import bridge
-        spec = a.get('reader') or a.get('plan') or {}
+        spec = automatic_reader(name, a) or a.get('plan') or {}
         key = ('bridge', name)
         hit = self.cache.get(key)
         if hit and not force and self.clock() - hit[0] < float(self.every_minutes(spec)) * 60 * 0.9:
@@ -326,8 +337,7 @@ class Readers:
             except ValueError as e:
                 problem = f'accounts.{name}.plan: {e}'
             out['problem'] = problem
-        r = a.get('reader') or ({'format': 'browser-usage', 'url': a['usage_url'], 'every_minutes': 15}
-                                if a.get('usage_url') else None)
+        r = automatic_reader(name, a)
         if r:
             spec = {**r, 'account': name} if r.get('format') == 'codex-app-server' else r
             data, problem = self._answer(spec, force)
@@ -370,7 +380,7 @@ class Readers:
         accounts = {n: a or {} for n, a in self.cfg['accounts'].items()}
         out = {}
         for n, a in accounts.items():
-            if not (a.get('reader') or a.get('plan') or a.get('usage_url')):
+            if not (automatic_reader(n, a) or a.get('plan')):
                 continue
             try:
                 out[n] = self.read(n, a, now, force)

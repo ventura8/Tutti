@@ -55,7 +55,7 @@ def account(a, asker, now):
              'resets_estimated': True, 'worker': a['name']}
     if a['name'] == 'codex':
         entry.update({'reader': {'format': 'codex-app-server', 'every_minutes': 15},
-                      'usage_url': 'https://chatgpt.com/codex/settings/usage', 'helper_label': 'Codex'})
+                      'usage_url': 'https://chatgpt.com/codex/settings/usage'})
     spec = setup.AGENTS[a['name']].get('plan')
     if spec:
         return {**entry, 'plan': {**spec, 'every_minutes': 360}}

@@ -169,13 +169,12 @@ accounts:
     resets_estimated: true
     source: agy /usage (Gemini models, weekly)
     reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: gemini-weekly}
-  # Codex CLI reads its own ChatGPT rate limits without spending quota; the scoped page reader is a fallback.
+  # Codex CLI reads its own ChatGPT rate limits without spending quota. Existing accounts with worker: codex get this reader automatically.
   codex:
     window: 7d
     resets: '2026-01-06T00:00Z'
     resets_estimated: true
     usage_url: https://chatgpt.com/codex/settings/usage
-    helper_label: Codex
     reader: {format: codex-app-server, every_minutes: 15}
     source: chatgpt.com/codex/settings/usage
     worker: codex

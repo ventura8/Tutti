@@ -256,6 +256,26 @@ class ReadersTest(unittest.TestCase):
             r.read_all()
             self.assertEqual(read.call_count, 1)
 
+    def test_existing_codex_accounts_get_an_automatic_reader_without_setup_migration(self):
+        account = {'window': '7d', 'worker': 'codex'}
+        cfg = cfg_of(self.tmp.name, {'codex': account}, {'codex': {'command': ['codex', 'exec']}})
+        rates = {'secondary': {'usedPercent': 64, 'windowDurationMins': 10080, 'resetsAt': 1768176000}}
+        with mock.patch('tutti.codexusage.read', return_value=rates) as read:
+            result = readers.Readers(cfg, clock=lambda: self.t[0]).read_all()['codex']
+        self.assertEqual(result['used'], 64.0)
+        self.assertEqual(result['every_minutes'], 15)
+        read.assert_called_once()
+
+    def test_remote_codex_reader_uses_its_automatic_interval(self):
+        account = {'window': '7d', 'worker': 'codex', 'read_on': 'laptop'}
+        cfg = cfg_of(self.tmp.name, {'codex': account})
+        response = {'plan': None, 'used': 64.0, 'resets': T('2026-01-12T00:00Z'), 'problem': None, 'every_minutes': 15}
+        with mock.patch('tutti.bridge.read_account', return_value=response) as read:
+            r = readers.Readers(cfg, clock=lambda: self.t[0])
+            r.read_all()
+            r.read_all()
+        self.assertEqual(read.call_count, 1)
+
     def test_usage_page_accounts_are_read_automatically(self):
         account = {'window': '7d', 'usage_url': 'https://cursor.com/dashboard/spending', 'helper_label': 'Grok Bot'}
         cfg = cfg_of(self.tmp.name, {'grok-bot': account})

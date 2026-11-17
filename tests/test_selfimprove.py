@@ -23,9 +23,12 @@ def pr(**kw):
             'body': 'Backlog task t1 (mcp), done by a worker.', **kw}
 
 
-def finished_review(rc='0'):
+def finished_review(rc='0', fingerprint=None):
     """A spawn that stands for `tutti pr review`: it writes its exit code where the wrapper would."""
     def spawn(argv, **kw):
+        if fingerprint:
+            kw['stdout'].write(f'review: findings-sha256={fingerprint}\n')
+            kw['stdout'].flush()
         if 'RC_FILE' in (kw.get('env') or {}):   # a release starts without one
             with open(kw['env']['RC_FILE'], 'w', encoding='utf8') as f:
                 f.write(rc + '\n')
@@ -300,6 +303,52 @@ class Rounds(Base):
             f.write('0\n')
         selfimprove.tick(cfg, NOW + 2, run=gh, spawn=finished_review())
         self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
+
+    def test_local_findings_retry_once_and_identical_findings_do_not_repeat(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh, digest = FakeGh(pr()), 'a' * 64
+        spawn = finished_review('3', fingerprint=digest)
+        selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 1, run=gh, spawn=spawn)
+        task = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(task['status'], 'queued')
+        self.assertIn('untrusted data', task['notes'][-1])
+        self.assertEqual(task['local_review_fingerprints'], [digest])
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(status='review', review_expected_head='fixed123')
+        fixed = FakeGh(pr(headRefOid='fixed123'))
+        selfimprove.tick(cfg, NOW + 2, run=fixed, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 3, run=fixed, spawn=spawn)
+        task = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(task['status'], 'review')
+        self.assertIn('repeated identical findings', task['self_improve'])
+        self.assertFalse([c for c in fixed.calls if c[1:3] == ['pr', 'merge']])
+
+    def test_local_review_failure_and_missing_fingerprint_never_requeue_or_merge(self):
+        for rc in ('1', '3', '4'):
+            with self.subTest(rc=rc), tempfile.TemporaryDirectory() as folder:
+                cfg = self.cfg()
+                cfg['project']['state'] = folder
+                self.add_review_task(cfg)
+                gh = FakeGh(pr())
+                selfimprove.tick(cfg, NOW, run=gh, spawn=finished_review(rc))
+                selfimprove.tick(cfg, NOW + 1, run=gh, spawn=finished_review(rc))
+                self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'review')
+                self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
+    def test_old_log_fingerprint_cannot_authorize_a_new_local_retry(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        os.makedirs(os.path.dirname(selfimprove.review_files(cfg, 'octo/tutti', 7)[0]), exist_ok=True)
+        with open(selfimprove.review_files(cfg, 'octo/tutti', 7)[0], 'w', encoding='utf8') as f:
+            f.write(f'review: findings-sha256={"a" * 64}\n')
+        gh, spawn = FakeGh(pr()), finished_review('3')
+        selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 1, run=gh, spawn=spawn)
+        task = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(task['status'], 'review')
+        self.assertIn('fingerprint is unavailable', task['self_improve'])
 
     def test_regular_task_review_is_retried_only_for_an_opted_in_project(self):
         cfg = self.cfg()

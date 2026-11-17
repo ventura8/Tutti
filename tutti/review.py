@@ -1,6 +1,7 @@
 """`tutti pr review <number>`: ask the automated reviewers, find out when none will come, and fall back to a cheap local
 review that is posted to the pull request. Reviewers are GitHub's Copilot code review and CodeRabbit; both may be absent,
 rate-limited (CodeRabbit's free plan says "Review limit reached") or simply never answer. Everything goes through `gh`."""
+import hashlib
 import json
 import os
 import re
@@ -488,7 +489,10 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
         say(body)
     from . import fill  # it imports this module
     if not fill.verdict(text)[0]:
-        say('review: the local review has findings: a person reads them before this pull request merges (exit 3)')
+        if post:
+            normalized = '\n'.join(' '.join(line.split()) for line in text.splitlines()).strip()
+            say('review: findings-sha256=' + hashlib.sha256(normalized.encode('utf8')).hexdigest())
+        say('review: the local review has findings: fix them before this pull request merges (exit 3)')
         return 3   # never "reviewed" for an automatic merge (selfimprove.review_finished needs 0)
     return 0
 

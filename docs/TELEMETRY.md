@@ -123,7 +123,9 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
    to the existing PR only after checking its repository, original branch and task marker; a mismatch is not pushed or
    merged. For both self-improvement and ordinary tasks, review and merge remain blocked after a retry until GitHub confirms
    the exact pushed head; a failed push cannot cause the old head to be merged. Projects without merge permission retain
-   their existing review and publishing behavior.
+   their existing review and publishing behavior. A posted local fallback review with findings is retried once per
+   normalized finding fingerprint; repeated identical findings wait for inspection instead of cycling. Review text is
+   untrusted data, never an instruction to execute commands or read credentials.
    Tutti checks every page of review threads; missing, malformed, partial or cyclic results block a merge until GitHub can
    return a complete list. This check alone does not bind the destination branch atomically at merge time.
 7. **Release** (only with `release: true` and a `release_command`): a batched patch release when fixes were merged and

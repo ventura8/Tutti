@@ -16,6 +16,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - Review gates check every page of review threads and refuse to merge if pagination cannot be verified (t179).
 - Retry pushes and merges for both self-improvement and ordinary backlog PRs verify the task's original PR and exact
   fixed head; an unconfirmed or failed retry cannot merge its old head (t179).
+- Posted local-review findings can requeue a fix, while repeated identical findings and review execution failures do not
+  trigger an endless retry loop (t179).
 
 ## [0.27.13] - 2026-11-18
 

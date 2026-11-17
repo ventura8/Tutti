@@ -992,6 +992,8 @@ def publish(cfg, task, report, run=None, gh=None):
     if task.get('pr'):
         from . import selfimprove
         if task.get('source') not in selfimprove.SOURCES:
+            task['review_retry_pending'] = True
+            task.pop('review_expected_head', None)
             why = selfimprove.ordinary_pr_problem(cfg, task, gh or github.run)
             if why:
                 task['publish_note'] = f'not publishing: {why}'
@@ -1018,11 +1020,14 @@ def publish(cfg, task, report, run=None, gh=None):
 def open_pr(cfg, task, repo, wt, branch, subject, run=git, gh=None):
     """The committed branch pushed and a pull request opened when the repo or self-improvement asks for one."""
     from . import selfimprove
+    retry_ordinary = bool(task.get('pr') and task.get('source') not in selfimprove.SOURCES)
+    if retry_ordinary:
+        task['review_retry_pending'] = True
+        task.pop('review_expected_head', None)
     mode, base, why = selfimprove.pr_plan(cfg, task, repo)
     if not mode:
         task['publish_note'] = f'committed on {branch} in {wt}{why}: review it, then merge or `tutti backlog retry {task["id"]} --note ...`'
         return
-    retry_ordinary = bool(task.get('pr') and task.get('source') not in selfimprove.SOURCES)
     if retry_ordinary:
         why = selfimprove.ordinary_pr_problem(cfg, task, gh or github.run)
         if why:
@@ -1038,7 +1043,11 @@ def open_pr(cfg, task, repo, wt, branch, subject, run=git, gh=None):
         task['publish_note'] = f'committed on {branch}; the push failed ({pushed.stderr.strip()[:200]})'
         return
     if retry_ordinary:
+        task['review_expected_head'] = expected_head
         why = selfimprove.ordinary_pr_problem(cfg, task, gh or github.run, expected_head=expected_head)
+        if not why:
+            task.pop('review_retry_pending', None)
+            task.pop('review_expected_head', None)
         task['publish_note'] = (f'pushed {branch}; could not confirm the original pull request: {why}' if why else
                                 f'pushed onto the open pull request {task["pr"]}')
         return

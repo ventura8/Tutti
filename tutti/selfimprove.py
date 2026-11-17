@@ -406,10 +406,18 @@ def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
     if not pol or not pol['repo'] or not number:
         return None
     if t.get('source') not in SOURCES:
-        why = ordinary_pr_problem(cfg, t, run, allow_merged=True)
+        pending = t.get('review_retry_pending')
+        expected = t.get('review_expected_head') if pending else None
+        if pending and not expected:
+            t['self_improve'] = 'not reviewing or merging: the review fix has not been pushed and confirmed'
+            return None
+        why = ordinary_pr_problem(cfg, t, run, allow_merged=True, expected_head=expected)
         if why:
             t['self_improve'] = f'not reviewing or merging: {why}'
             return None
+        if pending:
+            t.pop('review_retry_pending', None)
+            t.pop('review_expected_head', None)
     key = f'{pol["repo"]}#{number}'
     reviews = st.setdefault('reviews', {})
     if key not in reviews:
@@ -429,6 +437,9 @@ def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
     if not ok or not pr.get('headRefOid'):
         if pr.get('reviewDecision') == 'CHANGES_REQUESTED' and t['status'] == 'review':
             t['status'], t['notes'] = 'queued', [*t.get('notes', []), f'Changes requested on {key}: read the review and fix them.']
+            if t.get('source') not in SOURCES:
+                t['review_retry_pending'] = True
+                t.pop('review_expected_head', None)
             reviews.pop(key, None)   # the fix pushed onto this pull request is reviewed again before any merge
         return None
     if not pr.get('headRefOid'):

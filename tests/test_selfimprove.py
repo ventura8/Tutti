@@ -322,7 +322,7 @@ class Rounds(Base):
         selfimprove.tick(cfg, NOW + 1, run=requested, spawn=spawn)
         self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
         with backlog.locked(cfg) as data:
-            data['tasks'][0]['status'] = 'review'  # the worker fixed and pushed the existing PR
+            data['tasks'][0].update(status='review', review_expected_head='fixed123')  # the worker pushed the fix
         fixed = FakeGh(pr(headRefOid='fixed123'))
         selfimprove.tick(cfg, NOW + 2, run=fixed, spawn=spawn)
         self.assertFalse([c for c in fixed.calls if c[1:3] == ['pr', 'merge']])
@@ -330,6 +330,31 @@ class Rounds(Base):
         selfimprove.tick(cfg, NOW + 3, run=fixed, spawn=spawn)
         [merge] = [c for c in fixed.calls if c[1:3] == ['pr', 'merge']]
         self.assertEqual(merge[merge.index('--match-head-commit') + 1], 'fixed123')
+
+    def test_requested_changes_never_merge_the_old_head_if_push_failed_or_is_unconfirmed(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        spawn = finished_review()
+        requested = FakeGh(pr(reviewDecision='CHANGES_REQUESTED'))
+        selfimprove.tick(cfg, NOW, run=requested, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 1, run=requested, spawn=spawn)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0]['status'] = 'review'  # the worker finished but its push failed
+        old = FakeGh(pr())
+        selfimprove.tick(cfg, NOW + 2, run=old, spawn=spawn)
+        self.assertFalse([c for c in old.calls if c[1:3] == ['pr', 'merge']])
+        self.assertTrue(backlog.load(cfg)['tasks'][0]['review_retry_pending'])
+        with backlog.locked(cfg) as data:
+            data['tasks'][0]['review_expected_head'] = 'fixed123'
+        selfimprove.tick(cfg, NOW + 3, run=old, spawn=spawn)  # pushed, but PR still shows the old head
+        self.assertFalse([c for c in old.calls if c[1:3] == ['pr', 'merge']])
+        self.assertTrue(backlog.load(cfg)['tasks'][0]['review_retry_pending'])
+        fixed = FakeGh(pr(headRefOid='fixed123'))
+        selfimprove.tick(cfg, NOW + 4, run=fixed, spawn=spawn)  # PR now shows the fixed head; request a new review
+        self.assertFalse([c for c in fixed.calls if c[1:3] == ['pr', 'merge']])
+        self.assertNotIn('review_retry_pending', backlog.load(cfg)['tasks'][0])
 
     def test_regular_task_missing_a_fresh_review_never_merges(self):
         cfg = self.cfg()

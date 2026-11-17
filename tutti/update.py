@@ -43,6 +43,10 @@ one() {
 		${TUTTI_WIN_PREFIX:-/mnt/[a-z]/}*) row "$p" missing '' '' 'only a Windows copy is on PATH here'; return ;;
 	esac
 	before=$(ver "$p" "$vc")
+	if [ "${p##*/}" = codex ] && [ "$uc" = "$(printf '%q update' "$p")" ] &&
+		! "$p" --help 2>/dev/null | grep -Eq '^[[:space:]]*update([[:space:]]|$)'; then
+		uc=''   # older Codex releases need the npm installation discovery below
+	fi
 	if [ -z "$uc" ]; then
 		real=$(readlink -f "$(command -v "$p")")
 		case "$real" in

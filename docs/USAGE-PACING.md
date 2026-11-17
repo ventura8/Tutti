@@ -74,7 +74,7 @@ The Codex reader keeps its local app-server session open until initialization an
 server cannot answer within 20 seconds, Tutti reports the reader error and retries at its normal interval.
 When the Codex worker is on a remote machine, set `accounts.<name>.read_on` to that machine so the bridge reads the
 correct signed-in account; Tutti refuses to substitute the coordinator's account.
-| Scoped usage page | `usage_url` and, when needed, `helper_label` | Accounts with a usage page and no reader are read automatically every 15 minutes through the Work browser's read-only usage scope. Grok Bot's `helper_label: Grok Bot` selects its weekly meter from Cursor's spending page. Sign in once on the Work browser; no cookies or tokens are read or exported. |
+| Scoped usage page | `usage_url` and, when needed, `helper_label` | Accounts with a usage page and no reader are read automatically every 15 minutes through the Work browser's read-only usage scope, except Codex accounts, which default to the app-server reader. Set `reader.format: browser-usage` to use the browser explicitly. Grok Bot's `helper_label: Grok Bot` selects its weekly meter from Cursor's spending page. Sign in once on the Work browser; no cookies or tokens are read or exported. |
 | Cursor's account call | `reader: {format: cursor-api, field: autoPercentUsed}` (or `apiPercentUsed`) | Both meters of cursor.com/dashboard/spending ("Cursor Models", "Other Models") and the billing cycle's end, from the call the spending page makes (`DashboardService/GetCurrentPeriodUsage` on api2.cursor.sh), signed in with cursor-agent's own login. No quota spent, no owner click; one call serves both accounts. The token is sent only there and never logged or printed; a refused call says to run `cursor-agent login`. |
 | Limit messages | `match: {command: <regex>, model: <regex>, fallback: true}` | A "usage limit reached, try again in 3 h" line in the output of `tutti run` or of a `tutti quiet` job whose command matches logs the account as spent (100 %) until the reset it names. With several accounts on one CLI (`agy`), `model` picks the one the command or the message names; `fallback` takes the rest. |
 
@@ -86,7 +86,8 @@ window from then on: it beats the config's `resets`, which is only a first guess
 `resets_estimated: true`; the dashboard then says "an estimate" until a reading sets it. Automatic readings are kept
 only when they say something new (a point or more, a moved reset, or an hour since the last one).
 
-`usage_url` is the provider's usage page: accounts without their own reader are read automatically in the Work browser.
+`usage_url` is the provider's usage page: accounts without their own reader are read automatically in the Work browser,
+except Codex accounts, which default to the Codex app-server. Set `reader.format: browser-usage` to select the page instead.
 The dashboard's **Add a reading** still opens the page and a short form for a manual correction. `worker` names the worker
 whose card shows this account.
 

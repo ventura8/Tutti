@@ -46,8 +46,11 @@ def exchange(process, lines, executable):
     process.stdin.flush()
     deadline, initialized = time.monotonic() + TIMEOUT, False
     while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError(f'{executable} app-server did not return usage within {TIMEOUT} seconds')
         try:
-            line = lines.get(timeout=max(0, deadline - time.monotonic()))
+            line = lines.get(timeout=remaining)
         except queue.Empty as e:
             raise ValueError(f'{executable} app-server did not return usage within {TIMEOUT} seconds') from e
         if line is None:

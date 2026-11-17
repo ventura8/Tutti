@@ -92,8 +92,16 @@ class ParseTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'closed without a rate limits response'):
             codexusage.read({}, {}, popen=popen)
 
+    def test_codex_deadline_stops_even_if_notifications_are_queued(self):
+        process, lines = mock.Mock(), mock.Mock()
+        lines.get.return_value = '{"method":"notice"}'
+        with mock.patch('tutti.codexusage.time.monotonic', side_effect=[0, 1, 21]):
+            with self.assertRaisesRegex(ValueError, 'did not return usage'):
+                codexusage.exchange(process, lines, 'codex')
+        self.assertEqual(lines.get.call_count, 1)
+
     def test_browser_usage_uses_the_scoped_visible_page_extractor(self):
-        url = 'https://cursor.com/dashboard/spending'
+        url = 'https://cursor.example/dashboard/spending'
         value = {'readings': [{'account': 'grok-bot', 'used': 31.5}], 'missing': [], 'loading': False}
         broker = mock.Mock()
         broker.page.return_value = {'value': value, 'signed_out': False}
@@ -308,7 +316,7 @@ class ReadersTest(unittest.TestCase):
         read.assert_called_once_with(cfg, account['usage_url'])
 
     def test_usage_page_accounts_are_read_automatically(self):
-        account = {'window': '7d', 'usage_url': 'https://cursor.com/dashboard/spending', 'helper_label': 'Grok Bot'}
+        account = {'window': '7d', 'usage_url': 'https://cursor.example/dashboard/spending', 'helper_label': 'Grok Bot'}
         cfg = cfg_of(self.tmp.name, {'grok-bot': account})
         answer = {'readings': {'grok-bot': {'used': 31.5, 'resets': '2026-01-12T00:00Z'}}}
         with mock.patch('tutti.browserusage.read', return_value=answer) as read:
@@ -318,6 +326,22 @@ class ReadersTest(unittest.TestCase):
                              (31.5, T('2026-01-12T00:00Z')))
             r.read_all()
             self.assertEqual(read.call_count, 1)
+
+    def test_browser_bad_reset_does_not_return_a_partial_usage_reading(self):
+        account = {'window': '7d', 'usage_url': 'https://provider.example/usage'}
+        cfg = cfg_of(self.tmp.name, {'a': account})
+        with mock.patch('tutti.browserusage.read', return_value={'readings': {'a': {'used': 20, 'resets': 'invalid'}}}):
+            result = readers.Readers(cfg).read_all()['a']
+        self.assertIsNone(result['used'])
+        self.assertTrue(result['problem'])
+
+    def test_automatic_reader_intervals_reject_invalid_values(self):
+        for fmt in ('codex-app-server', 'browser-usage'):
+            for value in (0, -1, True, '15', float('nan'), float('inf')):
+                account = {'usage_url': 'https://provider.example/usage', 'reader': {'format': fmt, 'every_minutes': value}}
+                self.assertTrue(config.reader_problems('a', account), (fmt, value))
+            account = {'usage_url': 'https://provider.example/usage', 'reader': {'format': fmt, 'every_minutes': 15}}
+            self.assertFalse(config.reader_problems('a', account))
 
     def test_an_unchanged_answer_backs_off_and_a_change_or_force_resets_it(self):
         answers = {'agy': (AGY, None), 'cursor-agent': ({'subscriptionTier': 'Pro'}, None)}

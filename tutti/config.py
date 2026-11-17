@@ -672,6 +672,13 @@ def _account_pace_errors(name, a):
     return errs
 
 
+def _interval_errors(key, spec):
+    every = spec.get('every_minutes', 1)
+    if isinstance(every, bool) or not isinstance(every, (int, float)) or not math.isfinite(every) or every <= 0:
+        return [f'{key}.every_minutes is {every!r}: use a number of minutes above 0']
+    return []
+
+
 def _command_errors(key, spec, needs):
     if not isinstance(spec, dict):
         return [f'{key} is {spec!r}: write it as a mapping with command: [...] and {needs}:']
@@ -682,10 +689,7 @@ def _command_errors(key, spec, needs):
     want = (int, float) if needs == 'allowance' else str
     if isinstance(spec.get(needs), bool) or not isinstance(spec.get(needs), want) or not spec.get(needs):
         errs.append(f'{key}.{needs} is missing (docs/USAGE-PACING.md: Automatic readings)')
-    every = spec.get('every_minutes', 1)
-    if isinstance(every, bool) or not isinstance(every, (int, float)) or not math.isfinite(every) or every <= 0:
-        errs.append(f'{key}.every_minutes is {every!r}: use a number of minutes above 0')
-    return errs
+    return errs + _interval_errors(key, spec)
 
 
 def _regex_errors(key, value):
@@ -716,12 +720,12 @@ def reader_problems(name, a):
     if fmt == 'codex-app-server':
         if r.get('bucket') not in (None, 'primary', 'secondary'):
             return [f'{key}.bucket is {r.get("bucket")!r}: use primary or secondary, or omit it to match accounts.{name}.window']
-        return []
+        return _interval_errors(key, r)
     if fmt == 'browser-usage':
         url = a.get('usage_url')
         if not isinstance(url, str) or not url.startswith('https://'):
             return [f'{key}: give an https:// usage page in accounts.{name}.usage_url']
-        return []
+        return _interval_errors(key, r)
     return _command_errors(key, r, 'allowance' if fmt == 'github-premium' else 'bucket')
 
 

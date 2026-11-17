@@ -336,6 +336,20 @@ class WslTest(unittest.TestCase):
 
 
 class SecondReviewTest(unittest.TestCase):
+    def test_codex_updater_falls_back_to_npm_for_older_versions(self):
+        with tempfile.TemporaryDirectory() as t:
+            folder = os.path.join(t, 'lib', 'node_modules', '@example', 'codex')
+            os.makedirs(folder)
+            prog = fake(folder, 'codex', 'if [ "$1" = --help ]; then echo "Commands: exec"; else echo 1.0; fi')
+            text = update.script({prog: {'version': '', 'update': update.default_update(prog)}}, [], check=True)
+            out = subprocess.run(['bash', '-c', text], capture_output=True, text=True, check=True)
+            [row] = update.parse(out.stdout)
+            self.assertIn('npm install -g', row['detail'])
+            fake(folder, 'codex', 'if [ "$1" = --help ]; then echo "  update  Update Codex"; else echo 1.0; fi')
+            out = subprocess.run(['bash', '-c', text], capture_output=True, text=True, check=True)
+            [row] = update.parse(out.stdout)
+            self.assertIn('codex update', row['detail'])
+
     def test_an_opt_out_holds_whatever_the_worker_order(self):
         for order in (('a', 'b'), ('b', 'a')):
             spec = {'a': {'kind': 'cli', 'command': ['agy'], 'update': False}, 'b': {'kind': 'cli', 'command': ['agy']}}

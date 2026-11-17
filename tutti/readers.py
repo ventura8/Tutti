@@ -372,8 +372,9 @@ class Readers:
                         value = (data.get('readings') or {}).get(name)
                         if not value or value.get('used') is None:
                             raise ValueError(f'no reading for {name}: check the usage page labels in accounts.{name}.helper_label')
-                        out['used'] = float(value['used'])
-                        out['resets'] = pacing.parse_time(value['resets']) if value.get('resets') else None
+                        used = float(value['used'])
+                        resets = pacing.parse_time(value['resets']) if value.get('resets') else None
+                        out['used'], out['resets'] = used, resets
                     else:
                         out['used'], out['resets'] = self.parse(r, a, data, now or datetime.fromtimestamp(self.clock(), timezone.utc))
                 except (ValueError, KeyError, TypeError) as e:

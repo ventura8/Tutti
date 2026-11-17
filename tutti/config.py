@@ -691,7 +691,7 @@ def _regex_errors(key, value):
     return []
 
 
-READER_FORMATS = (None, 'github-premium', 'cursor-api')
+READER_FORMATS = (None, 'github-premium', 'cursor-api', 'codex-app-server')
 EXTRA_ACCOUNT_KEYS = {'credits', 'note', 'name'}   # read by the code, not in the Settings tab's schema
 
 
@@ -707,6 +707,10 @@ def reader_problems(name, a):
         if r.get('field') not in cursorusage.FIELDS:
             return [f'{key}.field is {r.get("field")!r}: one of {", ".join(cursorusage.FIELDS)} '
                     '(autoPercentUsed is "Cursor Models", apiPercentUsed "Other Models")']
+        return []
+    if fmt == 'codex-app-server':
+        if r.get('bucket') not in (None, 'primary', 'secondary'):
+            return [f'{key}.bucket is {r.get("bucket")!r}: use primary or secondary, or omit it to match accounts.{name}.window']
         return []
     return _command_errors(key, r, 'allowance' if fmt == 'github-premium' else 'bucket')
 

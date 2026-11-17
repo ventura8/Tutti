@@ -53,6 +53,9 @@ def account(a, asker, now):
     window = WINDOWS[a['name']]
     entry = {'window': window, 'resets': next_monday(now) if window == '7d' else now.strftime('%Y-%m-01T00:00Z'),
              'resets_estimated': True, 'worker': a['name']}
+    if a['name'] == 'codex':
+        entry.update({'reader': {'format': 'codex-app-server', 'every_minutes': 15},
+                      'usage_url': 'https://chatgpt.com/codex/settings/usage', 'helper_label': 'Codex'})
     spec = setup.AGENTS[a['name']].get('plan')
     if spec:
         return {**entry, 'plan': {**spec, 'every_minutes': 360}}

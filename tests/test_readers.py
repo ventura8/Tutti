@@ -11,7 +11,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from datetime import timedelta, timezone
 from unittest import mock
 
-from tutti import cli, config, dashboard, pacing, readers, routing, state, workers
+from tutti import browserusage, cli, codexusage, config, dashboard, pacing, readers, routing, state, workers
 
 # These tests read times in UTC: the host's detected zone is pinned so they pass anywhere (tests/test_tz.py covers zones)
 _PIN = mock.patch('tutti.tz.host_zone', return_value='UTC')
@@ -57,6 +57,40 @@ def cfg_of(folder, accounts=None, workers_=None):
 
 
 class ParseTest(unittest.TestCase):
+    def test_codex_rate_limits_match_the_configured_window(self):
+        rates = {'primary': {'usedPercent': 28, 'windowDurationMins': 300, 'resetsAt': 1767708000},
+                 'secondary': {'usedPercent': 64, 'windowDurationMins': 10080, 'resetsAt': 1768176000}}
+        self.assertEqual(codexusage.window(rates, {'window': '7d'}, {}),
+                         (64.0, T('2026-01-12T00:00Z')))
+        self.assertEqual(codexusage.window(rates, {'window': '5h'}, {}),
+                         (28.0, T('2026-01-06T14:00Z')))
+
+    def test_codex_app_server_response_ignores_notifications_and_rejects_missing_limits(self):
+        text = '{"method":"account/updated"}\n{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":12}}}}\n'
+        self.assertIn('primary', codexusage.response(text))
+        with self.assertRaisesRegex(ValueError, 'no rateLimits'):
+            codexusage.response('{"id":2,"result":{}}')
+
+    def test_codex_usage_starts_the_configured_cli_app_server_with_a_read_only_request(self):
+        rates = {'secondary': {'usedPercent': 45, 'windowDurationMins': 10080, 'resetsAt': 1768176000}}
+        output = json.dumps({'id': 2, 'result': {'rateLimits': rates}})
+        run = mock.Mock(return_value=type('Result', (), {'returncode': 0, 'stdout': output, 'stderr': ''})())
+        cfg = {'workers': {'codex': {'command': ['/opt/codex', 'exec', '{prompt}']}}}
+        self.assertEqual(codexusage.read(cfg, {'worker': 'codex'}, run=run), rates)
+        argv = run.call_args.args[0]
+        self.assertEqual(argv, ['/opt/codex', 'app-server', '--listen', 'stdio://'])
+        self.assertIn('account/rateLimits/read', run.call_args.kwargs['input'])
+
+    def test_browser_usage_uses_the_scoped_visible_page_extractor(self):
+        url = 'https://cursor.com/dashboard/spending'
+        value = {'readings': [{'account': 'grok-bot', 'used': 31.5}], 'missing': [], 'loading': False}
+        broker = mock.Mock()
+        broker.page.return_value = {'value': value, 'signed_out': False}
+        cfg = {'accounts': {'grok-bot': {'usage_url': url, 'helper_label': 'Grok Bot'}}}
+        with mock.patch('tutti.browsercmd.broker', return_value=broker):
+            self.assertEqual(browserusage.read(cfg, url)['readings']['grok-bot']['used'], 31.5)
+        broker.page.assert_called_once_with('usage-reading', url, 'usage', 'tutti usage reader')
+
     def test_reset_times_in_limit_messages(self):
         self.assertEqual(readers.parse_reset('quota resets at 2026-01-06T15:30:00Z', NOW), T('2026-01-06T15:30Z'))
         self.assertEqual(readers.parse_reset('try again in 3h 12m', NOW), NOW + timedelta(hours=3, minutes=12))
@@ -211,6 +245,28 @@ class ReadersTest(unittest.TestCase):
         self.t[0] += 11 * 60
         r.read_all()
         self.assertEqual(len(self.calls), 4)
+
+    def test_codex_app_server_is_read_automatically_and_cached(self):
+        account = {'window': '7d', 'worker': 'codex', 'reader': {'format': 'codex-app-server', 'every_minutes': 15}}
+        cfg = cfg_of(self.tmp.name, {'codex': account}, {'codex': {'command': ['codex', 'exec']}})
+        rates = {'secondary': {'usedPercent': 64, 'windowDurationMins': 10080, 'resetsAt': 1768176000}}
+        with mock.patch('tutti.codexusage.read', return_value=rates) as read:
+            r = readers.Readers(cfg, clock=lambda: self.t[0])
+            self.assertEqual(r.read_all()['codex']['used'], 64.0)
+            r.read_all()
+            self.assertEqual(read.call_count, 1)
+
+    def test_usage_page_accounts_are_read_automatically(self):
+        account = {'window': '7d', 'usage_url': 'https://cursor.com/dashboard/spending', 'helper_label': 'Grok Bot'}
+        cfg = cfg_of(self.tmp.name, {'grok-bot': account})
+        answer = {'readings': {'grok-bot': {'used': 31.5, 'resets': '2026-01-12T00:00Z'}}}
+        with mock.patch('tutti.browserusage.read', return_value=answer) as read:
+            r = readers.Readers(cfg, clock=lambda: self.t[0])
+            out = r.read_all()
+            self.assertEqual((out['grok-bot']['used'], out['grok-bot']['resets']),
+                             (31.5, T('2026-01-12T00:00Z')))
+            r.read_all()
+            self.assertEqual(read.call_count, 1)
 
     def test_an_unchanged_answer_backs_off_and_a_change_or_force_resets_it(self):
         answers = {'agy': (AGY, None), 'cursor-agent': ({'subscriptionTier': 'Pro'}, None)}

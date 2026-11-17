@@ -575,7 +575,7 @@ function slotText(m) {
     return `${m.free} of ${plural(m.slots, 'slot')} free${held}`;
 }
 
-function machine(m) {
+function machine(m, environments = []) {
     const stats = el('div', { class: 'row__stats' }, pips(m), el('span', { title: `Slots: ${m.slots_why || ''}`, text: slotText(m) }));
     if (m.load !== null) {
         const bar = el('span');
@@ -611,7 +611,9 @@ function machine(m) {
         ...shards.map((x) => el('p', { class: 'row__note', text: `Running ${x.project} ${x.key}: ${x.why}` })),
         limitForm(m),
         m.household_use ? el('p', { class: 'row__note household-only', text: busyFor(m) }) : null,
-        storedFiles(m.name, m.stored));
+        storedFiles(m.name, m.stored),
+        environments.length ? el('ul', { class: 'machine-environments', 'aria-label': `${m.name} environments` },
+            ...environments.map((environment) => machine(environment))) : null);
 }
 
 // Measured power (tutti/power.py): the benchmark's score, what is free now and the two together; dispatch orders by it
@@ -700,7 +702,17 @@ function renderMachines(s) {
     $('machines-disk').replaceChildren(...(s.disk || []).map((t) => el('p', { class: 'row__note', 'data-tone': 'bad', role: 'alert', text: t })));
     // A re-render replaces the rows: the stored-files toggle that had focus gets it back (keyboard users keep their place).
     const focused = document.activeElement?.closest?.('.stored')?.dataset.machine;
-    $('machines').replaceChildren(...(ms.items.length ? ms.items.map(machine)
+    const groups = new Map();
+    for (const m of ms.items) {
+        const key = m.physical || m.name;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(m);
+    }
+    const cards = [...groups].map(([physical, items]) => {
+        const primary = items.find((m) => m.name === physical) || items[0];
+        return machine(primary, items.filter((m) => m !== primary));
+    });
+    $('machines').replaceChildren(...(cards.length ? cards
         : [el('li', {}, ms.probed_at ? empty('No machines', 'Add machines: to the config to route heavy runs.') : empty('Probing machines…', 'ssh answers can take a few seconds.'))]));
     roleFilter('machines-role-filter', 'machines', ms.items);
     if (focused) $('machines').querySelector(`.stored[data-machine="${CSS.escape(focused)}"] > summary`)?.focus({ preventScroll: true });

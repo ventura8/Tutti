@@ -40,6 +40,10 @@ class PlanTest(unittest.TestCase):
         self.assertNotIn('other', p)
         self.assertEqual(len(p), 3)
 
+    def test_codex_uses_its_own_updater(self):
+        cfg = config.normalise({'workers': {'codex': {'kind': 'cli', 'command': ['codex', 'exec', '{prompt}']}}})
+        self.assertEqual(update.programs(cfg)['codex'], {'version': '', 'update': 'codex update'})
+
     def test_parse_keeps_only_marked_rows_and_shortens_versions(self):
         row = '\t'.join([update.MARK, 'copilot', 'updated', 'GitHub Copilot CLI 1.0.112.', 'GitHub Copilot CLI 1.0.113.', 'done'])
         text = f'noise\n{row}\n{update.MARK}\tbad\n'

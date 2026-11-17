@@ -74,7 +74,7 @@ workers:
   cursor: {kind: cli, command: [cursor-agent, -p, '{prompt}', --trust, --force, --output-format, text]}   # --force: commands run headless
   # OpenAI Codex CLI (`codex exec`): sign in once on the machine that runs it (`codex login --device-auth`). `machine:`
   # names that computer (often the laptop): yield/pause/heat are honoured and Move work knows where the login lives.
-  codex: {kind: cli, command: [codex, exec, --skip-git-repo-check, --sandbox, workspace-write, '{prompt}'], machine: here}
+  codex: {kind: cli, command: [codex, exec, --skip-git-repo-check, --approve-for-me, '{prompt}'], machine: here}
   # Google Antigravity: {log} is a log file per run, where a headless permission denial shows ("soft-denying ...")
   agy: {kind: cli, command: [agy, -p, '{prompt}', --print-timeout, 600s, --mode, accept-edits, --log-file, '{log}'], denied: soft-denying}
   claude: {kind: cli, command: [claude, -p, '{prompt}']}
@@ -169,19 +169,19 @@ accounts:
     resets_estimated: true
     source: agy /usage (Gemini models, weekly)
     reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: gemini-weekly}
-  # OpenAI Codex (ChatGPT): log readings from chatgpt.com/codex/settings/usage with `tutti usage log codex <pct>`; the
-  # reading helper can open that page. Sign in once on the machine workers.codex.machine names.
+  # Codex CLI reads its own ChatGPT rate limits without spending quota; the scoped page reader is a fallback.
   codex:
     window: 7d
     resets: '2026-01-06T00:00Z'
     resets_estimated: true
     usage_url: https://chatgpt.com/codex/settings/usage
     helper_label: Codex
+    reader: {format: codex-app-server, every_minutes: 15}
     source: chatgpt.com/codex/settings/usage
     worker: codex
     match: {command: '\bcodex\b'}
-  # Grok Bot's weekly allowance (Cursor Pro includes it): read from the same spending page by the reading helper. Scouts
-  # (below) are paced against it and send nothing once it is used: Grok Bot then pauses, or bills on-demand if allowed.
+  # Grok Bot's weekly allowance (Cursor Pro includes it): read automatically from the visible, scoped spending page.
+  # Scouts (below) are paced against it and send nothing once it is used.
   grok-bot:
     window: 7d
     resets: '2026-01-04T00:00Z'

@@ -106,8 +106,8 @@ FIELDS = {
     'accounts.*.reading_file': field('Reading file', 'A file your own tool writes {"used": 42} to.', 'text'),
     'accounts.*.stale_hours': field('Reading goes stale after', 'A reading by hand older than this gets a reminder.', **HRS),
     'accounts.*.args': field('Extra worker flags', 'Added when `tutti run auto` or conduct picks this account.', **CMD),
-    'accounts.*.reader': field('Automatic reader', 'A command that prints the usage and the bucket to read from it, or '
-                               '{format: cursor-api, field: autoPercentUsed} for Cursor.', **YAML),
+    'accounts.*.reader': field('Automatic reader', 'A command that prints usage, or format: cursor-api, codex-app-server '
+                               'or browser-usage for a scoped usage page.', **YAML),
     'accounts.*.tiers': field('Models by pace', 'Behind its limit: the strong tier\'s flags and the large tasks; ahead: the cheap '
                               'tier\'s and the small ones ({strong: {args: [--model, x], sizes: [L, M]}, cheap: ...}).', **YAML),
     'accounts.*.limits': field('Bounded by', 'Longer quotas that bound this one (a weekly over a 5-hour window).', 'list',

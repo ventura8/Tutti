@@ -80,8 +80,8 @@ class Detection(unittest.TestCase):
         self.assertEqual(found['codex']['login'], 'yes')
         self.assertEqual(found['codex']['login_command'], ['codex', 'login', '--device-auth'])
         self.assertEqual(setup.AGENTS['codex']['worker']['command'][:3], ['codex', 'exec', '--skip-git-repo-check'])
-        self.assertIn('--sandbox', setup.AGENTS['codex']['worker']['command'])
-        self.assertIn('workspace-write', setup.AGENTS['codex']['worker']['command'])
+        self.assertIn('--approve-for-me', setup.AGENTS['codex']['worker']['command'])
+        self.assertNotIn('--dangerously-bypass-approvals-and-sandbox', setup.AGENTS['codex']['worker']['command'])
         self.assertNotIn('copilot', found)
 
     def test_a_signed_in_cursor_and_its_plan(self):
@@ -142,6 +142,12 @@ class ConfigRoundTrip(unittest.TestCase):
              'repos': [{'name': 'app', 'path': '~/Projects/app', 'priority': 0},
                        {'name': 'tool', 'path': '~/Projects/tool', 'priority': 1}]}
     EXISTING = '# my own notes\nmachines:\n  # the quiet one\n  box: {host: box.example}   # keep me\n\n# workers below\nworkers: {}\n'
+
+    def test_codex_setup_includes_automatic_usage_reader(self):
+        entry = setupcmd.account({'name': 'codex'}, Asked(), NOW)
+        self.assertEqual(entry['reader'], {'format': 'codex-app-server', 'every_minutes': 15})
+        self.assertEqual(entry['usage_url'], 'https://chatgpt.com/codex/settings/usage')
+        self.assertEqual(config.reader_problems('codex', {'reader': entry['reader']}), [])
 
     def test_new_config_checks_out_with_priorities(self):
         add, why, top = setupcmd.plan(self.FOUND, {}, Asked(['max5']), NOW)

@@ -217,6 +217,7 @@ def machines_state(cfg, probe_fn, stored_fn=None):
         p = probe_fn(m)
         here = idle if m.get('transport') == 'local' else getattr(p, 'idle_s', None)   # remote: read by its probe
         out = machine_state(m, p, order.index(n) + 1 if n in order else None, now, here, quiet)
+        out['physical'] = config.physical(cfg, n)
         out['idle_s'] = here
         out['stored'] = stored_fn(m) if stored_fn and p.reachable else None
         return out

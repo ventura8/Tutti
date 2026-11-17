@@ -20,6 +20,7 @@ Rules for every test: a change in behaviour comes with a good case and a bad one
 (`axe-playwright-python==0.1.8`), both pinned in `requirements-dev.txt`. `check.sh` fetches the browser once
 (`playwright install --only-shell chromium`; on CI `--with-deps`, which adds its system libraries). The suite launches
 Chromium headlessly, so the separately distributed headed browser is not needed; installation output is visible in CI logs.
+CI overlaps dependency installation with unit tests and requires both to pass before browser tests start.
 
 ```bash
 PYTHONPATH=tests python3 -m unittest discover -s tests/e2e                    # the browser tests alone

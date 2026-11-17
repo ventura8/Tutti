@@ -11,8 +11,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
-- CI installs only the Chromium headless shell needed by the browser suite and shows installation progress, reducing
-  downloads and making browser setup timeouts diagnosable without skipping browser tests (t331).
+- CI installs only the Chromium headless shell needed by the browser suite, overlaps dependency downloads with unit tests
+  and shows installation progress without skipping browser tests (t331).
 
 ## [0.27.5] - 2026-11-18
 

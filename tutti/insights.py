@@ -68,6 +68,8 @@ def summary(events, days=7, now=None):
     failing = sorted(((n, fails[n], runs[n]) for n in fails), key=lambda x: (-x[1] / max(x[2], 1), -x[1]))
     crashes = Counter(f'{e.get("name")} in {e.get("frame") or "?"}' for e in events if e.get('kind') == 'crash')
     panels = Counter(f'{e.get("name")}' + (f' {e["control"]}' if e.get('control') else '') for e in events if e.get('kind') == 'dashboard')
+    idle = Counter(str(e.get('reason') or e.get('outcome') or 'unknown')
+                   for e in events if e.get('kind') == 'feature' and e.get('name') == 'dispatch.idle')
     return {
         'days': days, 'events': len(events), 'commands': sum(runs.values()),
         'most_used': [{'name': n, 'runs': c} for n, c in runs.most_common(TOP)],
@@ -76,6 +78,7 @@ def summary(events, days=7, now=None):
         'wasted': wasted(events)[:TOP],
         'stalls': [{'cause': c, 'count': k} for c, k in causes(events, ('wait.stall', 'job.stall'), 'cause').most_common(TOP)],
         'parked': [{'cause': c, 'count': k} for c, k in causes(events, ('autopilot.park',), 'cause').most_common(TOP)],
+        'idle_with_work': [{'reason': c, 'count': k} for c, k in idle.most_common(TOP)],
         'escalations': sum(1 for e in events if e.get('name') == 'autopilot.escalate'),
         'crashes': [{'where': w, 'count': k} for w, k in crashes.most_common(TOP)],
         'dashboard': [{'name': n, 'uses': k} for n, k in panels.most_common(TOP)],
@@ -95,6 +98,7 @@ def lines(s):
     block('Wasted quota (failed runs)', s['wasted'], lambda r: f'{r["who"]}: {r["runs"]} run(s), {r["minutes"]} min')
     block('Stall causes', s['stalls'], lambda r: f'{r["cause"]}: {r["count"]}')
     block('Parked tasks', s['parked'], lambda r: f'{r["cause"]}: {r["count"]}')
+    block('Idle with work', s.get('idle_with_work') or [], lambda r: f'{r["reason"]}: {r["count"]}')
     out.append(f'Escalations up the ladder: {s["escalations"]}')
     block('Crashes', s['crashes'], lambda r: f'{r["where"]}: {r["count"]}')
     block('Dashboard use', s['dashboard'], lambda r: f'{r["name"]}: {r["uses"]}')

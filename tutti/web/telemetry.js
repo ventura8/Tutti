@@ -70,6 +70,7 @@ function renderInsights(t) {
         insightRows('Most failing', i.most_failing, (r) => `${r.name}: ${r.failed} of ${r.runs}`),
         insightRows('Wasted quota', i.wasted, (r) => `${r.who}: ${r.runs} failed runs, ${r.minutes} min`),
         insightRows('Stall causes', i.stalls, (r) => `${r.cause}: ${r.count}`),
+        insightRows('Idle with work', i.idle_with_work || [], (r) => `${r.reason}: ${r.count}`),
         insightRows('Crashes', i.crashes, (r) => `${r.where}: ${r.count}`));
 }
 

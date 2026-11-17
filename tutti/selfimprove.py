@@ -177,7 +177,8 @@ def room_today(tasks, now, limit):
 # ---- the local analysis: insights into task candidates (pure)
 
 def candidates(summary, min_count):
-    """[{title, sig, why}] from the Insights summary: crashes, commands that fail often, frequent stalls, wasted quota."""
+    """[{title, sig, why}] from the Insights summary: crashes, commands that fail often, frequent stalls, wasted quota,
+    idle capacity with eligible work."""
     out = []
     for c in summary['crashes']:
         out.append({'sig': f'crash:{c["where"]}', 'title': f'Fix the crash {c["where"]} (seen {c["count"]} time(s) in Tutti)',
@@ -194,6 +195,12 @@ def candidates(summary, min_count):
         if w['runs'] >= min_count:
             out.append({'sig': f'wasted:{w["who"]}', 'why': 'quota spent on failed runs',
                         'title': f'Cut failed runs on {w["who"]} ({w["runs"]} runs, {w["minutes"]} min wasted): better briefs or routing'})
+    for i in summary.get('idle_with_work') or []:
+        if i['count'] >= min_count:
+            reason = (i['reason'] or 'unknown')[:80]
+            out.append({'sig': f'idle:{reason}', 'why': 'idle capacity with eligible work waiting',
+                        'title': (f'Stop idle-with-work ({i["count"]} times): a free host or device sat unused while work '
+                                  f'waited ({reason})')})
     return out
 
 

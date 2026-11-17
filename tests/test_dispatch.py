@@ -107,13 +107,14 @@ class DispatchTest(Base):
         self.assertIn(w['text'], [e['text'] for e in dispatch.view(cfg)['events']])
 
     def test_dispatch_off_blocks_every_target_and_offers_the_switch(self):
-        cfg = self.cfg()
+        cfg, spawn = self.cfg(), FakeSpawn()
         dispatch.set_enabled(cfg, False)
-        self.tick(cfg, [phone()])
-        self.tick(cfg, [phone()], now=NOW + 600)
-        w = dispatch.view(cfg)['warnings'][0]
-        self.assertEqual((w['state'], w['fix']['action']), ('blocked', 'dispatch_on'))
-        self.assertFalse(dispatch.view(cfg)['enabled'])
+        self.tick(cfg, [phone()], spawn=spawn)
+        p = self.tick(cfg, [phone()], now=NOW + 600, spawn=spawn)
+        self.assertTrue(dispatch.view(cfg)['enabled'])   # auto-fixed: Keep busy turns back on
+        self.assertTrue(any('auto-fixed' in e['text'] for e in dispatch.view(cfg)['events']))
+        self.assertEqual(len(p['assign']), 1)   # same tick: reclaim re-plans and sends work
+        self.assertEqual(dispatch.idle_with_work(dispatch.read_state(cfg)['warnings']), [])
 
     def test_lint_on_a_phone_is_opt_in(self):
         cfg = self.cfg({'lint': {'kind': 'lint', 'targets': ['android'], 'run': 'lint'}})
@@ -278,6 +279,51 @@ class DashboardTest(Base):
         self.assertFalse(dispatch.settings(cfg)['enabled'])
         self.assertEqual(dashboard.save_dispatch(c, b'{"action": "now"}')[1]['blocked'], {'device:pixel': 'x'})
         self.assertEqual(dashboard.save_dispatch(c, b'{"enabled": "yes"}')[0], 400)
+
+
+class IdleSimTest(Base):
+    """Simulator ticks with fixtures: eligible capacity never sits idle while work waits."""
+
+    def test_ready_phone_with_shards_has_zero_idle_with_work(self):
+        cfg, spawn = self.cfg(), FakeSpawn()
+        p = self.tick(cfg, [phone()], spawn=spawn)
+        self.assertEqual(len(p['assign']), 1)
+        self.assertEqual(dispatch.idle_with_work(dispatch.read_state(cfg)['warnings']), [])
+        # still holding the lease past idle_minutes: busy, not idle-with-work
+        self.tick(cfg, [phone()], now=NOW + 10 * 60, spawn=spawn)
+        self.assertEqual(dispatch.idle_with_work(dispatch.view(cfg)['warnings']), [])
+
+    def test_paused_phone_logs_idle_with_work_and_keeps_the_resume_fix(self):
+        cfg = self.cfg()
+        held = phone('held', 'paused by owner (dashboard) at 10:00')
+        self.tick(cfg, [held])
+        self.tick(cfg, [held], now=NOW + 6 * 60)
+        rows = dispatch.idle_with_work(dispatch.view(cfg)['warnings'])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['state'], 'blocked')
+        self.assertEqual(rows[0]['fix']['action'], 'resume')
+        self.assertIn('paused', rows[0]['reason'])
+
+    def test_keep_busy_off_is_auto_fixed_then_zero_idle_with_work(self):
+        cfg, spawn = self.cfg(), FakeSpawn()
+        dispatch.set_enabled(cfg, False)
+        self.tick(cfg, [phone()], spawn=spawn)
+        p = self.tick(cfg, [phone()], now=NOW + 6 * 60, spawn=spawn)
+        self.assertTrue(dispatch.settings(cfg)['enabled'])
+        self.assertEqual(len(p['assign']), 1)   # auto-fix + re-plan: no idle stretch left open
+        self.assertEqual(dispatch.idle_with_work(dispatch.read_state(cfg)['warnings']), [])
+        self.assertTrue(any('auto-fixed' in e['text'] for e in dispatch.view(cfg)['events']))
+
+    def test_autopilot_off_warning_is_auto_fixed(self):
+        from tutti import autopilot
+        cfg = self.cfg()
+        cfg['autopilot'] = {'enabled': True}
+        autopilot.set_enabled(cfg, False)
+        st = dispatch.read_state(cfg)
+        warnings = [{'target': 'worker:cursor', 'fix': {'action': 'autopilot_on', 'label': 'Turn the autopilot on'}}]
+        dispatch.fix_idle_resources(cfg, st, warnings, NOW)
+        self.assertTrue(autopilot.enabled(cfg))
+        self.assertTrue(any('auto-fixed' in e['text'] for e in st['events']))
 
 
 if __name__ == '__main__':

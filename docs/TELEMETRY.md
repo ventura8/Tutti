@@ -219,8 +219,10 @@ pid). Every attempt (what, local, online or rule, the outcome) is in `unblock.js
 What it does (`tutti/aiassist.py`, tested in `tests/test_aiassist.py`):
 
 1. **Self-analysis** (local). Every `every_hours` a local model reads the Insights summary of the last 7 days (the
-   categories and numbers above, nothing else) and writes ranked `PROPOSAL:` lines. Each becomes a self-improvement task
-   in `self_improve.home` with its evidence and a regression-test-first note, inside the day's cap and the dedupe.
+   categories and numbers above, including **Idle with work** from `dispatch.idle`, nothing else) and writes ranked
+   `PROPOSAL:` lines. Each becomes a self-improvement task in `self_improve.home` with its evidence and a
+   regression-test-first note, inside the day's cap and the dedupe. Recurring idle-with-eligible-work reasons also become
+   candidates directly from the local analysis.
 2. **Smarter decisions** (local, each with a cheap fallback when AI is off or every model is down):
    - a failed autopilot attempt is classified **flaky** (a dropped connection, a DNS failure), **environment** (a missing
      tool, a full disk, out of memory) or **real** (regular expressions at once, a local model's `CLASS:` line later): a

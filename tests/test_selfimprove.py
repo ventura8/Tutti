@@ -131,11 +131,12 @@ class Analysis(Base):
     def summary(self):
         return {'crashes': [{'where': 'KeyError in main', 'count': 2}], 'most_failing': [{'name': 'ship', 'failed': 4, 'runs': 5},
                 {'name': 'run', 'failed': 1, 'runs': 9}], 'stalls': [{'cause': 'run', 'count': 3}],
-                'wasted': [{'who': 'agy', 'runs': 1, 'minutes': 3}]}
+                'wasted': [{'who': 'agy', 'runs': 1, 'minutes': 3}],
+                'idle_with_work': [{'reason': 'pixel is paused', 'count': 3}, {'reason': 'once', 'count': 1}]}
 
     def test_insights_become_candidates_over_the_thresholds(self):
         sigs = [c['sig'] for c in selfimprove.candidates(self.summary(), 3)]
-        self.assertEqual(sigs, ['crash:KeyError in main', 'failing:ship', 'stall:run'])
+        self.assertEqual(sigs, ['crash:KeyError in main', 'failing:ship', 'stall:run', 'idle:pixel is paused'])
 
     def test_tasks_are_deduped_and_rate_limited(self):
         cfg = self.cfg(max_new_per_day=2)

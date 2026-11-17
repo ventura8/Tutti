@@ -6,6 +6,15 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Fixed
+
+- Idle with work (t254): a free host, device or worker that sat unused while eligible work waited is logged with the
+  reason, shown on the dashboard's **Idle with work** list, auto-fixed on the same tick when Keep busy or the autopilot
+  was left off (then re-planned so capacity takes work), and fed into Insights / self-improvement when it recurs.
+  Simulator ticks prove zero Idle with work rows when every free target that may take work does.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

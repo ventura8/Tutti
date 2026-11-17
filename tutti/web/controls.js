@@ -147,11 +147,11 @@ async function fixIdle(f) {
     else if (f.action === 'optin') await control({ action: 'optin', kind: f.kind, name: f.name, on: true }, failText);
 }
 
-// The idle watchdog: a device, machine or worker idle past dispatch.idle_minutes while work waits for it, and why.
+// Idle with work: a device, machine or worker idle past dispatch.idle_minutes while work waits for it, and why.
 function idleWarning(w) {
     return el('li', { class: 'row row--attention', 'data-tone': w.state === 'blocked' ? 'bad' : 'warn' },
         el('div', { class: 'row__name' }, w.name, el('span', { class: 'row__kind', text: w.kind })),
-        chip(w.state, w.state === 'blocked' ? 'bad' : 'warn'),
+        chip(w.state === 'blocked' ? 'Idle with work' : 'dispatching', w.state === 'blocked' ? 'bad' : 'warn'),
         el('div', { class: 'row__stats' }, w.fix
             ? el('button', { class: 'btn btn--tonal', type: 'button', onclick: async () => { await fixIdle(w.fix); } }, w.fix.label) : null),
         el('p', { class: 'row__note', text: w.text }));
@@ -168,9 +168,12 @@ function renderControls(s) {
     // a device's warning and reroute line live on its own card; only machines' and workers' stay in this list
     const onCards = new Set(devices.map((d) => d.name));
     const moved = devices.map((d) => d.card?.moved).filter(Boolean);
-    $('idle-warnings').replaceChildren(...(s.dispatch?.warnings || []).filter((w) => !(['android', 'tv', 'device'].includes(w.kind) && onCards.has(w.name))).map(idleWarning),
-        ...(s.dispatch?.reroute || []).filter((line) => !moved.some((m) => line.endsWith(m)))
-            .map((line) => el('li', { class: 'row' }, el('p', { class: 'row__note', text: line }))));
+    const idleRows = (s.dispatch?.warnings || []).filter((w) => !(['android', 'tv', 'device'].includes(w.kind) && onCards.has(w.name)));
+    const rerouteRows = (s.dispatch?.reroute || []).filter((line) => !moved.some((m) => line.endsWith(m)));
+    const idleHead = $('idle-with-work-h');
+    if (idleHead) idleHead.hidden = !idleRows.length;
+    $('idle-warnings').replaceChildren(...idleRows.map(idleWarning),
+        ...rerouteRows.map((line) => el('li', { class: 'row' }, el('p', { class: 'row__note', text: line }))));
     const c = s.controls || { opt_in: [], paused: [] };
     const paused = new Map(c.paused.map((p) => [`${p.kind}:${p.name}`, p]));
     $('controls-meta').textContent = `${devices.length} device${devices.length === 1 ? '' : 's'} · ${c.paused.length} paused`;

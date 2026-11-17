@@ -4,7 +4,7 @@ reroute lines are folded in here so the card and the summary never disagree."""
 
 TONE = {'ready': 'ok', 'busy': 'accent', 'blocked': 'bad', 'offline': 'bad', 'paused': 'warn', 'away': 'warn',
         'away later': 'warn', 'person': 'warn', 'waiting': 'warn', 'held': 'warn', 'call': 'warn', 'idle': 'warn'}
-LABEL = {'held': 'paused', 'call': 'paused: phone call', 'person': 'in use by a person', 'idle': 'idle while work waits'}
+LABEL = {'held': 'paused', 'call': 'paused: phone call', 'person': 'in use by a person', 'idle': 'Idle with work'}
 
 
 def plain_minutes(minutes):
@@ -54,8 +54,9 @@ def card(d, paused=None, warning=None, moved=''):
     elif warning:
         status = 'idle'
         why = f'idle for {plain_minutes(warning.get("minutes") or 0)}; Keep busy is sending it work'
-    return {'status': status, 'label': LABEL.get(status, status), 'tone': TONE.get(status, 'warn'), 'why': why,
-            'waiting': waiting, 'action': action, 'moved': moved, 'temps': temps(d)}
+    return {'status': status, 'label': 'Idle with work' if status in ('blocked', 'idle') and warning else LABEL.get(status, status),
+            'tone': TONE.get(status, 'warn'), 'why': why, 'waiting': waiting, 'action': action, 'moved': moved,
+            'temps': temps(d)}
 
 
 def attach(cfg, out):

@@ -87,16 +87,21 @@ there, with `tutti job move` or the dashboard's Move now. See [PRESENCE.md](PRES
 
 ## The idle watchdog
 
-A target idle for more than `dispatch.idle_minutes` (default 5) while compatible work waits gets three things:
+A target idle for more than `dispatch.idle_minutes` (default 5) while compatible work waits is an **Idle with work** bug.
+It gets:
 
-- a warning row on the dashboard's Controls card, for example "Idle 12 min while RoRadio has 14 e2e shards pending:
-  blocked by pixel is paused: ...";
-- one line in the dispatch events;
-- one telemetry event (`dispatch.idle`) per idle stretch.
+- a warning row on the dashboard's Controls card under **Idle with work**, for example "Idle 12 min while RoRadio has 14
+  e2e shards pending: blocked by pixel is paused: ...";
+- one line in the dispatch events (and the reason it was not used);
+- one telemetry event (`dispatch.idle`) per idle stretch, with that reason.
 
 The row's button fixes the cause: **Resume** a paused target, **Allow lint and unit runs** (the opt-in), **Turn Keep busy
-on**, **Turn the autopilot on**, or **Check again now** (a round with fresh probes). A worker with quota room shows the same
-row while backlog tasks are queued; the autopilot dispatches to it, so its plan's reason is the one shown.
+on**, **Turn the autopilot on**, or **Check again now** (a round with fresh probes). When the only block is Keep busy or
+the autopilot left off, the same tick turns that switch back on (`dispatch.idle_fix`) and re-plans so a free target takes
+work immediately. Pause and opt-in stay for the owner. Recurring Idle with work reasons also feed the Insights summary
+and become self-improvement tasks. A worker with quota room shows the same row while backlog tasks are queued; the
+autopilot dispatches to it, so its plan's reason is the one shown. Simulator ticks in `tests/test_dispatch.py`
+(`IdleSimTest`) prove zero Idle with work rows when every free target that may take work does.
 
 ## Suites in depth
 

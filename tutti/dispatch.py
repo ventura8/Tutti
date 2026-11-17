@@ -4,8 +4,9 @@ The pending-work model: a project declares its test suites (`projects.<p>.tests`
 (an Android device, a machine) and how it shards. Pending work is every shard not passed on the project's latest commit,
 the failed shards with retries left and, for workers, the queued backlog tasks. The dispatcher pulls a pending shard to
 every free compatible target on each tick (the dashboard's probe round) and whenever a shard ends; a run holds a lease with
-a heartbeat, so a run that crashed frees its target. The idle watchdog warns when a target sits idle for more than
-`dispatch.idle_minutes` while compatible work waits, and says what it does about it: dispatching, or what blocks it.
+a heartbeat, so a run that crashed frees its target. An **Idle with work** event is logged when a target sits idle for
+more than `dispatch.idle_minutes` while compatible work waits (reason, dashboard list, auto-fix for Keep busy /
+autopilot left off).
 
 A test run changes no code, so a project that is read-only for Tutti still gets test runs; the results stay in the state
 folder (`tutti dispatch status`, the dashboard), never in a commit. Pure planning here; spawning and the run wrapper at the end."""
@@ -387,6 +388,35 @@ def fix_for(target, why):
     return {'action': 'dispatch_now', 'label': 'Check again now'}
 
 
+AUTO_FIX = frozenset({'dispatch_on', 'autopilot_on'})   # system switches left off while work waits; pause/opt-in stay for the owner
+
+
+def apply_fix(cfg, fix):
+    """Applies a Keep-busy fix the idle watchdog offered (dispatch on, autopilot on). Pause and opt-in stay for the owner."""
+    from . import autopilot
+    action = fix['action']
+    if action == 'dispatch_on':
+        set_enabled(cfg, True)
+    elif action == 'autopilot_on':
+        autopilot.set_enabled(cfg, True)
+
+
+def fix_idle_resources(cfg, st, warnings, now):
+    """Turns Keep busy / the autopilot back on when an idle target with eligible work was blocked only by that switch.
+    Returns True when at least one switch was turned back on."""
+    fixed = False
+    for w in warnings:
+        fix = w.get('fix') or {}
+        if fix.get('action') not in AUTO_FIX:
+            continue
+        apply_fix(cfg, fix)
+        fixed = True
+        line = f'Idle with work: auto-fixed {w["target"]} ({fix["label"]})'
+        event(st, now, line)
+        telemetry.record('feature', 'dispatch.idle_fix', target=w['target'], action=fix['action'], outcome='applied')
+    return fixed
+
+
 def watch(cfg, st, tgts, pend, p, now, worker_rows=()):
     """The idle watchdog: a target idle past dispatch.idle_minutes while compatible work waits gets a warning row, a log
     line and one telemetry event per idle stretch. Targets that are busy or have nothing to do are not idle."""
@@ -407,16 +437,38 @@ def watch(cfg, st, tgts, pend, p, now, worker_rows=()):
         minutes = int((now - since) // 60)
         from .devicecard import plain_minutes
         text = f'Idle for {plain_minutes(minutes)} while {what}: ' + (f'blocked by {why}' if why else 'dispatching')
-        warnings.append({'target': t['id'], 'kind': t['kind'], 'name': t['name'], 'minutes': minutes, 'pending': len(work), 'what': what,
-                         'state': 'blocked' if why else 'dispatching', 'reason': why, 'text': text,
+        warnings.append({'target': t['id'], 'kind': t['kind'], 'name': t['name'], 'minutes': minutes, 'pending': len(work),
+                         'what': what, 'state': 'blocked' if why else 'dispatching', 'reason': why, 'text': text,
                          'fix': fix_for(t, why) if why else None})
         if t['id'] not in st['warned']:
             st['warned'][t['id']] = now
             event(st, now, text)
             telemetry.record('feature', 'dispatch.idle', target_kind=t['kind'], minutes=minutes, pending=len(work),
-                             outcome='blocked' if why else 'dispatching')
+                             reason=why or 'dispatching', outcome='blocked' if why else 'dispatching')
     st['warnings'] = warnings
     return warnings
+
+
+def reclaim_idle(cfg, st, tgts, pend, p, now, rows, quiet, place):
+    """Idle with work: log it, auto-fix Keep busy / autopilot left off, then re-plan so free targets take work this tick."""
+    warnings = watch(cfg, st, tgts, pend, p, now, rows)
+    if not fix_idle_resources(cfg, st, warnings, now):
+        return p, warnings
+    on = settings(cfg).get('enabled', True) is not False
+    p = plan(cfg, st, tgts, pend, on, quiet, place)
+    return p, watch(cfg, st, tgts, pend, p, now, rows)
+
+
+def quiet_check(cfg, now, low):
+    """Callable for plan(): full-disk or quiet-hours reason, or '' when a target may start work."""
+    def quiet(t):
+        return low[0] if low else quiet_now(cfg, now, t.get('zone') or '')
+    return quiet
+
+
+def idle_with_work(warnings):
+    """Idle-with-eligible-work rows: a free target sat unused while compatible work waited. Empty is the healthy case."""
+    return list(warnings or [])
 
 
 # ---- workers: queued backlog tasks and a ladder step with room
@@ -689,13 +741,13 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
                 t['roles'] = (mroles if t['kind'] == 'machine' else droles).get(t['name'], [])
         from . import diskroom
         low = diskroom.problems(cfg) if '_disk' not in cfg else cfg['_disk']   # a full disk: nothing new starts, as in quiet hours
-        p = plan(cfg, st, tgts, pend, on, lambda t: low[0] if low else quiet_now(cfg, now, t.get('zone') or ''),
-                 presence.placement(cfg, pst, now))
+        quiet, place = quiet_check(cfg, now, low), presence.placement(cfg, pst, now)
+        p = plan(cfg, st, tgts, pend, on, quiet, place)
         for line in presence_io(cfg, pst, now, waiting_since(st, [t for t in tgts if t.get('absent')], pend)):
             event(st, now, line)
         kept = [w for w in st['warnings'] if w['kind'] == 'worker'] if accounts is None else []
-        watch(cfg, st, tgts, pend, p, now, rows)
-        st['warnings'] += kept   # a round without the accounts' readings (a run that ended) keeps the workers' rows
+        p, warnings = reclaim_idle(cfg, st, tgts, pend, p, now, rows, quiet, place)
+        st['warnings'] = warnings + kept   # a round without the accounts' readings keeps the workers' rows
         for t, w in p['assign']:
             try:
                 start(cfg, st, t, w, now, spawn)

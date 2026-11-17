@@ -141,24 +141,26 @@ scout's variables.
 ## Insights and self-improvement
 
 The **Insights** card summarises the local telemetry events of the last 7 days (most used, slowest, most failing, wasted
-quota, stall causes, crashes) and holds the **Send reports** switch (`POST /api/telemetry {"consent": true}`); nothing in
-the card was sent anywhere. The **Self-improvement** card shows each Sentry issue or insight on its way: task, pull
-request, merged, released, and the gate it waits on, with its switch (`POST /api/self-improve {"enabled": false}`). The
-page posts its script errors and the panels and controls used (ids only) to `POST /api/telemetry`, which scrubs them
-before recording. After each probe the dashboard runs one self-improvement round and sends the telemetry queue when due.
-See [TELEMETRY.md](TELEMETRY.md).
+quota, stall causes, Idle with work, crashes) and holds the **Send reports** switch
+(`POST /api/telemetry {"consent": true}`); nothing in the card was sent anywhere. The **Self-improvement** card shows each
+Sentry issue or insight on its way: task, pull request, merged, released, and the gate it waits on, with its switch
+(`POST /api/self-improve {"enabled": false}`). The page posts its script errors and the panels and controls used (ids only)
+to `POST /api/telemetry`, which scrubs them before recording. After each probe the dashboard runs one self-improvement
+round and sends the telemetry queue when due. See [TELEMETRY.md](TELEMETRY.md).
 
 ## Controls
 
 The *Devices and controls* card: one card per Android device (`tutti/devicecard.py`, `devices.items[].card` in
-`/api/state`), and the owner's switches. A device's card holds its one status pill (paused, away, blocked, idle while work
-waits, busy, ready, offline: the idle watchdog's verdict and the pause switch are folded in, so the card never says ready
-while a summary says blocked), why, what waits on it, its one action (Resume, the watchdog's fix such as Check again now,
-else Pause), where its shards went while it was away, its readings, and its blocked hours, Do Not Disturb, Cast and night
-mode as separate short lines. Durations are plain (`1 day 14 h`, never `2298 min`). The temperature is a real sensor,
+`/api/state`), and the owner's switches. A device's card holds its one status pill (paused, away, blocked, Idle with work,
+busy, ready, offline: the Idle with work verdict and the pause switch are folded in, so the card never says ready while a
+summary says blocked), why, what waits on it, its one action (Resume, the Idle with work fix such as Check again now, else
+Pause), where its shards went while it was away, its readings, and its blocked hours, Do Not Disturb, Cast and night mode
+as separate short lines. Durations are plain (`1 day 14 h`, never `2298 min`). The temperature is a real sensor,
 labelled: the thermal HAL's skin sensor, else the hottest SoC/CPU sensor (`dumpsys thermalservice`, else `/sys` thermal
 zones), plus the battery only when the device has one (a TV's battery reading is never shown); "temperature not readable"
-only when no sensor answers. Only machines' and workers' idle warnings stay in the list above the cards.
+only when no sensor answers. **Idle with work** lists machines' and workers' idle warnings above the cards (a free target
+sat unused while compatible work waited, with the reason and a fix button); a device's own card shows the same label.
+When Keep busy or the autopilot was the only block, the next probe turns it back on and sends work in that round.
 
 - **Pause or resume** any machine, Android device, worker (a local model or a CLI agent: agy, cursor, claude, copilot) or
   account. A paused item takes nothing new: routing, the autopilot, `tutti run auto`, conduct's fallbacks and

@@ -745,7 +745,9 @@ class Signature(unittest.TestCase):
     @unittest.skipUnless(shutil.which('gh'), 'needs GitHub\'s CLI')
     def test_the_real_gh_refuses_the_forged_bundle(self):
         sums, bundle = os.path.join(self.FIX, 'SHA256SUMS'), os.path.join(self.FIX, 'forged.sigstore.json')
-        why = install.verify_signature(sums, bundle, '0.5.2', gh=shutil.which('gh'))
+        # Newer gh starts a detached telemetry sender; keep this real verification isolated and leave no child process.
+        with mock.patch.dict(os.environ, {'GH_TELEMETRY': 'disabled'}):
+            why = install.verify_signature(sums, bundle, '0.5.2', gh=shutil.which('gh'))
         if 'too old' in why:
             self.skipTest('this gh has no attestation command')
         self.assertIn('is not signed by ventura8/Tutti', why)

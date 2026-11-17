@@ -58,6 +58,20 @@ first, even if it ran before. When no agent has room the run stops with exit 3.
 The run's record is `<project.state>/conduct/<run>/run.json` (and `conduct/current.json`), which the dashboard's Main agent
 panel shows.
 
+## Automatic MAIN AGENT ROLE hand-off
+
+Outside a `tutti conduct` run, each dashboard round also watches the current main agent (`main.agent`, or the owner's
+switch). When every account it spends is in **panic** or **spent**, Tutti hands the **MAIN AGENT ROLE** to the next
+worker in `main.fallback` that has room:
+
+1. The choice is written (`tutti main <agent>` / `user.json`'s `main_agent`), so the next goal and the owner's reserve
+   follow the new agent.
+2. `tutti connect` runs for that agent's kind (Cursor, Antigravity, …; nothing to connect for a local model).
+3. A note goes to the Chat under **Main agent hand-off**: who left, why (panic or spent), and who took over.
+
+The same panic episode is noted once. When no fallback has room, the note says so and the role stays put until one does.
+Bounded autopilot work still moves to other accounts while the main agent panics (docs/AUTOPILOT.md).
+
 ## The config
 
 ```yaml

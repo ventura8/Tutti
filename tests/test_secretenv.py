@@ -38,6 +38,20 @@ class SecretEnv(unittest.TestCase):
         self.assertEqual(secretenv.scrub_self(env), ['TUTTI_GROK_KEY'])
         self.assertEqual(secretenv.scrub_self(env), [])
 
+    def test_get_with_empty_env_uses_process_xdg_not_home_config(self):
+        # check.sh sets XDG_CONFIG_HOME; scouts tests pass env={} and must not read ~/.config/tutti/grok.env
+        empty = tmpdirs.mkdtemp()
+        old = os.environ.get('XDG_CONFIG_HOME')
+        os.environ['XDG_CONFIG_HOME'] = empty
+        try:
+            self.assertEqual(secretenv.get('TUTTI_GROK_KEY', {}), '')
+            self.assertEqual(secretenv.get('TUTTI_GROK_URL', {}), '')
+        finally:
+            if old is None:
+                os.environ.pop('XDG_CONFIG_HOME', None)
+            else:
+                os.environ['XDG_CONFIG_HOME'] = old
+
     def test_reexec_only_when_something_was_dropped(self):
         calls = []
         secretenv.reexec_clean(['/x', 'a'], lambda p, a: calls.append(a), {**self.env, 'TUTTI_GROK_KEY': FAKE})

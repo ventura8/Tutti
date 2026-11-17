@@ -44,8 +44,12 @@ def file_names(env=None):
 def get(name, env=None):
     """The secret `name`: from its file first (the point of use), else from `env` (a test, or an old shell export)."""
     from . import groksetup
+    # check.sh sets XDG_CONFIG_HOME to a temp dir; tests that pass env={} must still use it, not ~/.config
+    file_env = env
+    if env is not None and not env.get('XDG_CONFIG_HOME') and os.environ.get('XDG_CONFIG_HOME'):
+        file_env = {**env, 'XDG_CONFIG_HOME': os.environ['XDG_CONFIG_HOME']}
     for f in FILES:
-        v = groksetup.read_env_file(os.path.join(config.xdg_tutti_dir(env), f)).get(name, '')
+        v = groksetup.read_env_file(os.path.join(config.xdg_tutti_dir(file_env), f)).get(name, '')
         if v.strip():
             return v
     return (os.environ if env is None else env).get(name, '')

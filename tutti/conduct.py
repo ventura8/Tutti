@@ -746,3 +746,84 @@ def describe(cfg):
         lines.append(f'{"running" if m["running"] else "last"} run {r["id"]}: {r["status"]}, agent {who}, goal: {r["goal"][:80]}')
     return '\n'.join(lines)
 
+
+# ---- automatic MAIN AGENT ROLE hand-off (panic or spent → next in main.fallback)
+
+
+CHAT_TITLE = 'Main agent hand-off'
+
+
+def role_path(cfg):
+    return os.path.join(state_folder(cfg), 'role-handoff.json')
+
+
+def pick_role(cfg, states):
+    """When the current main agent is out (panic or spent), the next worker in main.fallback with room and why; else
+    (None, why-or-''). Pure: no files, no connect."""
+    frm = current(cfg)
+    why = out_reason(cfg, frm, states)
+    if not why:
+        return None, ''
+    fallback = [n for n in settings(cfg)['fallback'] if n in cfg['workers']]
+    to, _skipped = next_agent(fallback, {frm}, lambda n: out_reason(cfg, n, states))
+    return to, why
+
+
+def role_note(frm, to, why, connect_note=''):
+    """The chat / event line for a MAIN AGENT ROLE hand-off."""
+    base = (f'MAIN AGENT ROLE handed from {frm} to {to}: {why}' if to else
+            f'MAIN AGENT ROLE stays with {frm} (out: {why}); no agent in main.fallback has room')
+    return f'{base}. {connect_note}'.rstrip('. ')
+
+
+def deliver_role_note(cfg, text):
+    """One assistant message in the owner's "Main agent hand-off" chat (made once)."""
+    from . import chat
+    store, sub = chat.Store(config.state_dir(cfg)), 'local'   # the owner's chat key (tutti/needs.py chat_sub)
+    conv = next((c for c in store.load(sub)['conversations'] if c.get('title') == CHAT_TITLE), None)
+    cid = (conv or store.create(sub, title=CHAT_TITLE))['id']
+    store.put_message(sub, cid, {'id': chat.new_id('m'), 'role': 'assistant', 'text': text, 'at': chat.now_iso(),
+                                 'status': 'done', 'model': 'tutti', 'cards': []})
+
+
+def connect_role(cfg, worker, connect_fn=None):
+    """`tutti connect` for the worker's main-agent kind, or a short note when there is nothing to connect."""
+    from . import users
+    kind = users.kind_of(cfg, worker)
+    target = users.MAIN_KINDS[kind][1] if kind else None
+    if not target:
+        return 'nothing to connect (a local model, or an unknown kind)'
+    return users.connect_main(cfg, target, connect_fn)
+
+
+def already_noted(cfg, frm, to, why):
+    """True when this same outage was already recorded and the role is still where that note left it."""
+    last = read_json(role_path(cfg)) or {}
+    if last.get('from') != frm or last.get('to') != to or last.get('why') != why:
+        return False
+    return to is None or current(cfg) == to
+
+
+def take_role(cfg, to, connect_fn=None):
+    """Persists the MAIN AGENT ROLE on `to`, switches the conductor choice, connects it. Returns the connect note."""
+    from . import users
+    users.write(config.state_dir(cfg), main_agent=to)
+    choose(cfg, to)
+    return connect_role(cfg, to, connect_fn)
+
+
+def hand_off_role(cfg, states=None, connect_fn=None, chat_fn=None, now=None):
+    """When the main agent's accounts are in panic or spent, hands the MAIN AGENT ROLE to the next in main.fallback,
+    connects it, and writes a chat note. Returns the event line, or None when nothing changes."""
+    states = states if states is not None else account_states(cfg, now)
+    frm = current(cfg)
+    to, why = pick_role(cfg, states)
+    if not why or already_noted(cfg, frm, to, why):
+        return None
+    connect_note = take_role(cfg, to, connect_fn) if to else ''
+    text = role_note(frm, to, why, connect_note)
+    (chat_fn or deliver_role_note)(cfg, text)
+    write_json(role_path(cfg), {'from': frm, 'to': to, 'why': why,
+                                'at': (now or datetime.now(timezone.utc)).isoformat()})
+    return text
+

@@ -6,6 +6,20 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.7] - 2026-11-17
+
+### Added
+
+- When the main agent's accounts (`main.agent`, or the owner's switch) are in panic or spent, Tutti hands the MAIN AGENT
+  ROLE to the next worker in `main.fallback` that has room: persists the choice, runs `tutti connect` for that agent, and
+  writes a Chat note under **Main agent hand-off** (owner, 2026-11-16, Claude in panic). The same episode is noted once;
+  with no fallback free, the note says so and the role stays put. See docs/CONDUCT.md.
+
+### Fixed
+
+- `secretenv.get` with a test `env` that omits `XDG_CONFIG_HOME` still honours the process `XDG_CONFIG_HOME` (what
+  `scripts/check.sh` sets), so a present `~/.config/tutti/grok.env` cannot make scout "not set up" tests look ready.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

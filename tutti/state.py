@@ -13,7 +13,7 @@ from . import __version__, config, controls, devices, pacing, routing, waiting, 
 
 # CLI agents worth knowing about even when the config does not name them yet: the command and how people call it.
 KNOWN_AGENTS = (('claude', 'Claude Code'), ('cursor-agent', 'Cursor'), ('agy', 'Antigravity'), ('copilot', 'GitHub Copilot CLI'),
-                ('gemini', 'Gemini CLI'), ('ollama', 'Ollama'))
+                ('codex', 'OpenAI Codex CLI'), ('gemini', 'Gemini CLI'), ('ollama', 'Ollama'))
 TAIL_LINES = 40
 TAIL_WIDTH = 400
 MAX_JOBS = 40
@@ -244,12 +244,13 @@ def account_of_worker(cfg, name):
 
 
 def worker_accounts(cfg):
-    """Accounts that name a worker, in `routing.workers` order (by worker) when given, else in config order."""
+    """Accounts that name a worker, ordered by `routing.workers` (a preference order, not an allow-list): named workers
+    first in that order, then any other account that names a worker (so a Codex account still joins `tutti run auto`
+    when routing.workers only lists cursor and agy)."""
     names = [n for n, a in cfg['accounts'].items() if (a or {}).get('worker')]
     order = cfg['routing'].get('workers') or []
     pos = {w: i for i, w in enumerate(order)}
-    names = [n for n in names if not order or cfg['accounts'][n]['worker'] in pos]
-    return sorted(names, key=lambda n: pos.get(cfg['accounts'][n]['worker'], 0))
+    return sorted(names, key=lambda n: pos.get(cfg['accounts'][n]['worker'], len(pos)))
 
 
 def next_worker(cfg, accounts):

@@ -17,9 +17,9 @@ import yaml
 from . import config, configmerge, doctor, guided, install, setup
 
 PLANS = {'claude': ('pro', 'max5', 'max20'), 'cursor': ('pro', 'pro+', 'ultra'), 'agy': ('free', 'pro', 'ultra'),
-         'copilot': ('pro', 'pro+')}
-WINDOWS = {'claude': '7d', 'cursor': 'monthly', 'agy': '7d', 'copilot': 'monthly'}
-MAIN_ORDER = ('claude', 'cursor', 'agy', 'copilot')
+         'copilot': ('pro', 'pro+'), 'codex': ('plus', 'pro', 'business', 'enterprise')}
+WINDOWS = {'claude': '7d', 'cursor': 'monthly', 'agy': '7d', 'copilot': 'monthly', 'codex': '7d'}
+MAIN_ORDER = ('claude', 'codex', 'cursor', 'agy', 'copilot')
 
 
 class Asker:
@@ -48,11 +48,11 @@ def next_monday(now):
 
 
 def account(a, asker, now):
-    """The account entry of a found agent: its window, an estimated reset, and its plan: the tool's own plan command
-    where it has one (the card reads it), else the owner's answer as `subscription` (a label)."""
+    """The account entry of a found agent: its window, an estimated reset, the worker that spends it, and its plan: the
+    tool's own plan command where it has one (the card reads it), else the owner's answer as `subscription` (a label)."""
     window = WINDOWS[a['name']]
     entry = {'window': window, 'resets': next_monday(now) if window == '7d' else now.strftime('%Y-%m-01T00:00Z'),
-             'resets_estimated': True}
+             'resets_estimated': True, 'worker': a['name']}
     spec = setup.AGENTS[a['name']].get('plan')
     if spec:
         return {**entry, 'plan': {**spec, 'every_minutes': 360}}
@@ -125,7 +125,7 @@ def plan(found, raw, asker, now=None):
     main = next((n for n in MAIN_ORDER if any(a['name'] == n for a in found['agents'])), None)
     if 'main' not in x.raw and main:
         top['main'] = {'agent': main}
-        x.choices.append(guided.choice('main.agent', main, 'the first found of Claude, Cursor, Antigravity, Copilot'))
+        x.choices.append(guided.choice('main.agent', main, 'the first found of Claude, Codex, Cursor, Antigravity, Copilot'))
     if 'self_update' not in x.raw:
         top['self_update'] = {'enabled': True}
     plan.choices = x.choices   # the defaults picked, for the report (read by write_additions)

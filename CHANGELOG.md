@@ -7,6 +7,25 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.25.4] - 2026-11-17
+
+### Added
+
+- OpenAI Codex CLI as a coding worker: `tutti setup` finds `codex` on PATH (`codex exec --skip-git-repo-check`), the
+  example config wires `workers.codex` (with `machine:` for the login host), `accounts.codex`, and puts Codex on the
+  autopilot ladder and accounts so jobs run on the machine where Codex is signed in (t297).
+- A CLI worker with `workers.<name>.machine` waits while that machine yields, is paused, hot or in quiet hours (the same
+  governor local models use), so Codex on the laptop respects the laptop's yield flag (t297).
+
+### Fixed
+
+- `routing.workers` is a preference order only: every account that names a worker still joins `tutti run auto`. Codex
+  (and any other worker left off the list) was skipped entirely when the list was only cursor and agy, so a behind Codex
+  account never ran while Cursor was ahead (t297).
+- Codex worker launch uses the supported `workspace-write` sandbox. Headless `codex exec` uses `approval_policy=never`
+  by design, so the worker brief keeps tracking and lease MCP mutations with the outer Tutti session, where approvals can
+  be handled.
+
 ## [0.25.3] - 2026-11-17
 
 ### Fixed

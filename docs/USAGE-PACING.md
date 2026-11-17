@@ -114,7 +114,8 @@ dashboard card say "use it: about N bounded task(s) can go to <worker> now".
 
 `tutti run auto "<task>"` reads the latest readings (automatic and typed) and picks the account for the job: never one in
 panic (at or over `panic_at` before its target time) or spent; first one that is `late` or `behind` (quota that would be
-lost at the reset), then `on pace` or unread, then `ahead`; the order of `routing.workers` breaks ties. It runs that
+lost at the reset), then `on pace` or unread, then `ahead`; `routing.workers` is a preference order that breaks ties
+(every account that names a worker still joins; it is not an allow-list). It runs that
 account's `worker` with its `args` (agy: `--model` of the window's model family). When no account has room it exits 3
 and says to use a local model. The dashboard's Quota tile shows where the next agent job goes.
 

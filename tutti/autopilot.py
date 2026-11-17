@@ -163,6 +163,16 @@ def local_room(cfg, name, step, used, machines, now=None):
     return (0, f'{name}: busy with a task') if used else (fleet.UNITS_ANY, '')
 
 
+def cli_host_out(cfg, step, machines):
+    """Why a CLI worker's named machine refuses work now (yield, pause, heat, quiet hours), or ''. Local models use
+    local_room / fleet.governor already; accounts whose worker sets `machine:` get the same gate (Codex on the laptop)."""
+    w = (cfg.get('workers') or {}).get(step['worker']) or {}
+    if step['kind'] != 'cli' or not w.get('machine'):
+        return ''
+    from . import fleet
+    return fleet.governor(cfg, step['worker'], machines, cfg.get('_now')) or ''
+
+
 def step_room(cfg, name, states, running_units, machines=()):
     """(units of room, why not) for one ladder step now. A trigger account (autopilot.accounts) has room only while it is
     behind its line (or late), as much as its readings say; any other account only while it is not ahead of its pace, one task
@@ -173,6 +183,15 @@ def step_room(cfg, name, states, running_units, machines=()):
     used = running_units.get(name, 0)
     if not step['account']:
         return local_room(cfg, name, step, used, machines, cfg.get('_now'))
+    return account_room(cfg, name, step, states, running_units, machines)
+
+
+def account_room(cfg, name, step, states, running_units, machines):
+    """Room for a paced account after its named CLI worker's machine is available."""
+    used = running_units.get(name, 0)
+    blocked = cli_host_out(cfg, step, machines)
+    if blocked:
+        return 0, blocked
     s = states.get(name)
     if not s:
         return 0, f'{name}: no pacing state yet'

@@ -71,11 +71,17 @@ class Detection(unittest.TestCase):
     def test_agents_logins_and_plans(self):
         fake_bin(self.w.bin, 'cursor-agent', 'Not logged in')
         fake_bin(self.w.bin, 'claude')
+        fake_bin(self.w.bin, 'codex', 'Logged in')
         self.w.file('.claude/.credentials.json', '{}')
         found = {a['name']: a for a in setup.agents(self.w.probe)}
         self.assertEqual(found['claude']['login'], 'yes')
         self.assertEqual(found['cursor']['login'], 'no')
         self.assertEqual(found['cursor']['login_command'], ['cursor-agent', 'login'])
+        self.assertEqual(found['codex']['login'], 'yes')
+        self.assertEqual(found['codex']['login_command'], ['codex', 'login', '--device-auth'])
+        self.assertEqual(setup.AGENTS['codex']['worker']['command'][:3], ['codex', 'exec', '--skip-git-repo-check'])
+        self.assertIn('--sandbox', setup.AGENTS['codex']['worker']['command'])
+        self.assertIn('workspace-write', setup.AGENTS['codex']['worker']['command'])
         self.assertNotIn('copilot', found)
 
     def test_a_signed_in_cursor_and_its_plan(self):

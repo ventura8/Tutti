@@ -437,6 +437,42 @@ class RouteByReadingsTest(unittest.TestCase):
         self.assertEqual(self.pick([], order=['cursor', 'agy'])['account'], 'cursor')
         self.assertEqual(self.pick([], order=['agy'])['account'], 'agy-claude')
 
+    def test_codex_joins_run_auto_when_left_off_routing_workers_and_cursor_is_ahead(self):
+        """t297: routing.workers is order only; a behind Codex account on the laptop still wins while Cursor is ahead."""
+        with tempfile.TemporaryDirectory() as folder:
+            wk = {**self.WORKERS, 'codex': {'kind': 'cli', 'command': ['codex', 'exec', '--skip-git-repo-check', '{prompt}'],
+                                            'machine': 'laptop'}}
+            acc = {**self.ROUTED, 'codex': {'window': '7d', 'resets': '2026-01-13T00:00Z', 'worker': 'codex'}}
+            cfg = cfg_of(folder, acc, wk)
+            cfg['machines'] = {'laptop': {'host': 'local', 'slots': 1}}
+            cfg['routing']['workers'] = ['agy', 'cursor']   # codex deliberately omitted: still must join
+            cfg['autopilot'] = {'ladder': ['codex', 'cursor'], 'accounts': ['cursor', 'codex'],
+                                'repos': {'app': {'path': folder, 'check': 'true'}}}
+            entries = [self.r('cursor', 70, '2026-02-01T00:00Z'), self.r('codex', 5, '2026-01-13T00:00Z'),
+                       self.r('agy-claude', 99, '2026-01-06T14:00Z'), self.r('agy-gemini', 99, '2026-01-06T16:00Z')]
+            accounts = [pacing.account_state(n, a, entries, NOW) for n, a in cfg['accounts'].items()]
+            by = {a['name']: a for a in accounts}
+            self.assertEqual(by['cursor']['verdict'], 'ahead')
+            self.assertEqual(by['codex']['verdict'], 'behind')
+            pick = state.next_worker(cfg, accounts)
+            self.assertEqual((pick['worker'], pick['account']), ('codex', 'codex'))
+            self.assertIn('codex is behind', pick['reason'])
+            from tutti import autopilot
+            self.assertEqual(autopilot.on_machine(cfg, 'codex'), 'laptop')
+            room, why = autopilot.step_room(cfg, 'codex', by, {})
+            self.assertGreater(room, 0, why)
+            room, why = autopilot.step_room(cfg, 'cursor', by, {})
+            self.assertEqual(room, 0)
+            self.assertIn('ahead', why)
+            lent = [{'name': 'laptop', 'status': 'paused', 'free': 0, 'reason': 'yield flag is up'}]
+            self.assertEqual(autopilot.step_room(cfg, 'codex', by, {}, lent)[0], 0)
+            t = {'id': 't1', 'repo': 'app', 'title': 'x', 'status': 'queued', 'attempts': [], 'prefer': None, 'size': 'S',
+                 'scope': ['a.py'], 'check': 'true'}
+            self.assertEqual(autopilot.candidates(cfg, t)[:2], ['codex', 'cursor'])
+            free = [{'name': 'laptop', 'status': 'free', 'free': 1, 'reason': 'fit'}]
+            plan = autopilot.plan(cfg, [t], by, free, True, NOW)
+            self.assertEqual(plan.get('dispatch'), [('t1', 'codex')], plan)
+
     def test_run_auto_uses_the_pick_and_refuses_when_nothing_has_room(self):
         with tempfile.TemporaryDirectory() as folder:
             script = os.path.join(folder, 'agent')

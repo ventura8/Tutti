@@ -986,6 +986,8 @@ def restore_preferred(cfg, states, connect_fn=None, chat_fn=None, now=None, mach
     want, cur = preferred(cfg), current(cfg)
     if not want or want == cur or want not in cfg['workers']:
         return None
+    if is_auto(cfg) and pick_auto(cfg, states, machines=machines, now=now) != want:
+        return None
     if not limit_reset(cfg, want, states, machines, now):
         return None
     connect_note = take_role(cfg, want, connect_fn)

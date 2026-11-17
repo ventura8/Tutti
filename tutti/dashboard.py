@@ -257,7 +257,7 @@ class Collector:
         # main agent in panic or spent: MAIN AGENT ROLE to the next in main.fallback (docs/CONDUCT.md)
         snap = self.snapshot()
         self.cfg['_worker_readiness'] = {w['name']: w.get('ready') for w in snap['workers']['items']}
-        conduct.hand_off_role(self.cfg, snap['usage']['accounts'], machines=snap['machines']['items'])
+        conduct.hand_off_role(self.cfg, snap['usage']['accounts'], now=datetime.now(timezone.utc), machines=snap['machines']['items'])
         from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)
         hhjobs.tick(self.cfg)
 

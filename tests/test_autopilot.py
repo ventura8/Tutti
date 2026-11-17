@@ -147,8 +147,42 @@ class PlanTest(Base):
         states = {'agy-claude': account('agy-claude', 'ahead', used=99, panic=True),
                   'agy-gemini': account('agy-gemini', 'ahead', used=97, panic=True),
                   'cursor': account('cursor', 'ahead', used=95, panic=True)}
+        states = {n: {**s, 'reading_at': '2026-01-01T00:00:00Z'} for n, s in states.items()}
         p = autopilot.plan(cfg, [task('t1'), task('t2')], states, FREE, True)
         self.assertEqual(p['dispatch'], [('t1', 'cursor'), ('t2', 'agy-gemini')])
+
+    def test_panic_rescue_reserves_shared_window_for_each_dispatch(self):
+        cfg = self.cfg(main_accounts=['agy-claude'])
+        cfg['_main_worker'] = 'local-main'
+        cfg['workers']['local-main'] = {'kind': 'ollama', 'host': '127.0.0.1:1', 'model': 'm:3b'}
+        weekly = {'name': 'weekly', 'used': 97, 'panic': True, 'reading_at': '2026-01-01T00:00:00Z'}
+        states = {n: {**account(n, 'ahead', used=96, panic=True), 'reading_at': '2026-01-01T00:00:00Z',
+                      'limits': [weekly]} for n in ('agy-claude', 'agy-gemini', 'cursor')}
+        p = autopilot.plan(cfg, [task('t1'), task('t2')], states, FREE, True)
+        self.assertEqual(len(p['dispatch']), 1)   # 3 points left, two tasks would cost 4
+        self.assertIn('shared quota', p['waiting']['t2'])
+
+    def test_attempt_remains_debited_until_linked_window_is_refreshed(self):
+        states = {'cursor': {'reading_at': '2026-01-03T00:00:00Z',
+                             'limits': [{'name': 'weekly', 'reading_at': '2026-01-01T00:00:00Z'}]}}
+        t = task('t1', 'done', [{'step': 'cursor', 'started': 1767312000}])  # 2026-01-02 UTC
+        self.assertEqual(autopilot.spent_units([t], states), {'cursor': 1})
+        states['cursor']['limits'][0]['reading_at'] = '2026-01-03T00:00:00Z'
+        self.assertEqual(autopilot.spent_units([t], states), {})
+
+    def test_paused_accounts_unreported_attempt_still_debits_a_shared_window(self):
+        cfg = self.cfg(main_accounts=['agy-claude'])
+        cfg['_main_worker'] = 'local-main'
+        cfg['workers']['local-main'] = {'kind': 'ollama', 'host': '127.0.0.1:1', 'model': 'm:3b'}
+        cfg['_account_limits']['paused'] = ['weekly']
+        cfg['_account_costs']['paused'] = 2
+        weekly = {'name': 'weekly', 'used': 97, 'panic': True, 'reading_at': '2026-01-01T00:00:00Z'}
+        states = {n: {**account(n, 'ahead', used=96, panic=True), 'reading_at': '2026-01-01T00:00:00Z',
+                      'limits': [weekly]} for n in ('agy-claude', 'agy-gemini', 'cursor')}
+        done = task('old', 'done', [{'step': 'paused', 'started': 1767312000}])
+        self.assertEqual(autopilot.plan(cfg, [done, task('t1')], states, FREE, True)['dispatch'], [])
+        weekly['reading_at'] = '2026-01-03T00:00:00Z'
+        self.assertEqual(len(autopilot.plan(cfg, [done, task('t1')], states, FREE, True)['dispatch']), 1)
 
     def test_an_account_at_its_line_or_in_panic_takes_nothing(self):
         states = self.states(**{'agy-gemini': account('agy-gemini', 'on pace'), 'agy-claude': account('agy-claude', panic=True, used=96)})
@@ -547,6 +581,7 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
         cfg = self.CFG
         if local_main:
             cfg = {**cfg, '_main_worker': 'local', 'workers': {**cfg['workers'], 'local': {'kind': 'ollama'}}}
+            states = {n: {'reading_at': '2026-01-01T00:00:00Z', **s} for n, s in states.items()}
         with mock.patch.object(autopilot, 'costs_money', return_value=False), \
                 mock.patch.object(autopilot, 'trigger_accounts', return_value=[]):
             return autopilot.step_room(cfg, name, states, running or {})
@@ -603,7 +638,8 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
     def test_panic_rescue_waits_for_a_local_main_and_obeys_quiet_windows(self):
         from tutti import autopilot
         cfg = {**self.CFG, '_main_worker': 'claude'}
-        states = {'claude': {'panic': True, 'used': 96}, 'cursor': {'panic': True, 'used': 96}}
+        states = {'claude': {'panic': True, 'used': 96, 'reading_at': '2026-01-01T00:00:00Z'},
+                  'cursor': {'panic': True, 'used': 96, 'reading_at': '2026-01-01T00:00:00Z'}}
         self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
         cfg = {**cfg, '_main_worker': 'local', 'workers': {**cfg['workers'], 'local': {'kind': 'ollama'}}}
         self.assertTrue(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))

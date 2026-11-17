@@ -296,6 +296,9 @@ def normalise(raw):
     from . import devices  # devices imports this module
     devices.normalise(cfg)
     cfg['_account_workers'] = {n: ((a or {}).get('worker') or n) for n, a in cfg['accounts'].items()}
+    cfg['_account_limits'] = {n: list(a.get('limits') or []) for n, a in cfg['accounts'].items()
+                              if isinstance(a, dict) and isinstance(a.get('limits') or [], list)}
+    cfg['_account_costs'] = {n: a.get('task_pct') for n, a in cfg['accounts'].items() if isinstance(a, dict)}
     opt_out(cfg)
     lenient(cfg)
     return cfg

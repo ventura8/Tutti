@@ -597,6 +597,17 @@ class RoleHandOffTest(Folder):
             self.assertEqual(conduct.pick_auto(self.cfg, spent, machines=machines), 'small')
             self.cfg['_worker_readiness'] = {'small': False, 'strong': True, 'local': False}
             self.assertIsNone(conduct.pick_auto(self.cfg, spent, machines=machines))
+            self.cfg['_worker_readiness']['small'] = True
+            self.cfg['machines']['cool']['quiet_hours'] = ['00:00-23:59']
+            now = conduct.datetime(2026, 1, 1, 12, tzinfo=conduct.timezone.utc)
+            self.assertIsNone(conduct.pick_auto(self.cfg, spent, machines=machines, now=now))
+
+    def test_auto_does_not_restore_local_preference_while_an_online_agent_is_available(self):
+        self.cfg = cfg_in(self.dir, main={'agent': 'auto', 'preferred': 'local', 'fallback': ['agy', 'local']})
+        conduct.choose(self.cfg, 'agy', owner=False)
+        states = self.states(**{'agy-claude': 10, 'agy-gemini': 10})
+        self.assertIsNone(conduct.hand_off_role(self.cfg, states, chat_fn=lambda *args: self.fail('unexpected hand-off')))
+        self.assertEqual(conduct.current(self.cfg), 'agy')
 
     def test_main_auto_on_cli_and_describe(self):
         out = io.StringIO()

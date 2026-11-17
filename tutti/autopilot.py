@@ -250,6 +250,21 @@ def remaining_quota(s):
     return min([max(0, 100 - used), *(remaining_quota(x) for x in s.get('limits') or [])])
 
 
+def quota_windows(name, s):
+    """The account and its named linked windows, keyed by their shared identity."""
+    out = {name: s}
+    for limit in s.get('limits') or []:
+        if limit.get('name'):
+            out.update(quota_windows(limit['name'], limit))
+    return out
+
+
+def observed_quota(s):
+    """A panic fallback requires real readings for every linked window, not reset estimates."""
+    return bool(s.get('reading_at') and not s.get('after_reset') and not s.get('stale') and all(
+        x.get('name') and observed_quota(x) for x in s.get('limits') or []))
+
+
 def panic_rescue(cfg, name, s, states):
     """One bounded task per account when every configured online account is unavailable but measured quota remains."""
     if not quota_panic(s) or not main_in_panic(cfg, states):
@@ -259,7 +274,7 @@ def panic_rescue(cfg, name, s, states):
         return False
     from .pacing import TASK_PCT
     cost = float((cfg['accounts'].get(name) or {}).get('task_pct') or TASK_PCT)
-    if remaining_quota(s) < cost:
+    if not observed_quota(s) or remaining_quota(s) < cost:
         return False
     online = [n for n, a in cfg['accounts'].items() if (cfg['workers'].get((a or {}).get('worker') or n) or {}).get('kind') == 'cli']
     return bool(online) and all(n in states and quota_panic(states[n]) for n in online)
@@ -361,6 +376,33 @@ def tier_last(prefer, size):
     return lambda n: bool(prefer.get(n)) and size not in prefer[n]
 
 
+def rescue_cost(cfg, name, size):
+    from .pacing import TASK_PCT
+    cost = (cfg['accounts'].get(name) or {}).get('task_pct') or (cfg.get('_account_costs') or {}).get(name) or TASK_PCT
+    return float(cost) * size
+
+
+def rescue_fits(cfg, name, size):
+    windows = (cfg.get('_panic_windows') or {}).get(name)
+    if not windows:
+        return True
+    budget = cfg.get('_panic_budget') or {}
+    return all(budget.get(w, 0) + 1e-9 >= rescue_cost(cfg, name, size) for w in windows)
+
+
+def rescue_debit(cfg, name, size):
+    budget = cfg.get('_panic_budget') or {}
+    for w in (cfg.get('_panic_windows') or {}).get(name, ()):
+        budget[w] -= rescue_cost(cfg, name, size)
+
+
+def assignment_wait(cfg, name, t, rooms):
+    room, why = rooms.get(name, (0, f'{name}: not on the ladder'))
+    if room >= units(t) and not rescue_fits(cfg, name, units(t)):
+        return f'{name}: shared quota is reserved by recent work; wait for a fresh reading or a reset'
+    return why or f'{name}: too little room for a {t["size"]} task'
+
+
 def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
     """Each queued task, in the order given (by priority, then oldest), to the first of its candidate steps that has room for its
     size. `free`: the online runs that may start, or (online, local): a local model's run is not counted in max_parallel, only
@@ -373,17 +415,20 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
             break
         steps = sorted(candidates(cfg, t, over, machines), key=tier_last(prefer, t.get('size')))
         fair = cfg.get('_panic_usage') or {}
-        online = sorted((n for n in steps if n in fair), key=lambda n: fair[n])
+        budget = cfg.get('_panic_budget') or {}
+        windows = cfg.get('_panic_windows') or {}
+        online = sorted((n for n in steps if n in fair),
+                        key=lambda n: -min((budget.get(w, 0) for w in windows.get(n, ())), default=0))
         it = iter(online)
         steps = [next(it) if n in fair else n for n in steps]
         steps = [n for n in steps if local > 0 and (is_local(cfg, n) or free > 0)]
-        pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t)), None)
+        pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t) and rescue_fits(cfg, n, units(t))), None)
         if pick is None:
-            out['waiting'][t['id']] = '; '.join(rooms.get(n, (0, f'{n}: not on the ladder'))[1] or f'{n}: too little room for a '
-                                                f'{t["size"]} task' for n in steps) or 'no step it may go to'
+            out['waiting'][t['id']] = '; '.join(assignment_wait(cfg, n, t, rooms) for n in steps) or 'no step it may go to'
             continue
         left = 0 if is_local(cfg, pick) else rooms[pick][0] - units(t)   # a model server takes one task at a time
         rooms[pick] = (left, rooms[pick][1] or f'{pick}: its room is taken by the running tasks')
+        rescue_debit(cfg, pick, units(t))
         out['dispatch'].append((t['id'], pick))
         local -= 1   # every run takes a machine slot for its checks
         free -= 0 if is_local(cfg, pick) else 1
@@ -397,15 +442,53 @@ def spent_units(tasks, states):
         if t['status'] == 'running':
             used[t.get('step')] = used.get(t.get('step'), 0) + units(t)
         for a in t['attempts']:
-            read = (states.get(a['step']) or {}).get('reading_at')
-            if a.get('started') and read and a['started'] > _ts(read):
+            windows = quota_windows(a['step'], states.get(a['step']) or {})
+            reads = [x.get('reading_at') for x in windows.values()]
+            if a.get('started') and (not all(reads) or any(a['started'] >= _ts(read) for read in reads)):
                 used[a['step']] = used.get(a['step'], 0) + units(t)
     return used
+
+
+def rescue_budgets(cfg, states, tasks, names):
+    """Reserve shared windows for running and not-yet-reflected attempts, independently for each reading."""
+    if not names:
+        return {}, {}
+    windows, budget, readings = {}, {}, {}
+    for name in (n for n in cfg['accounts'] if n in states):
+        values = quota_windows(name, states[name])
+        windows[name] = list(values)
+        for key, value in values.items():
+            at = value.get('reading_at')
+            remaining = remaining_quota({**value, 'limits': []}) if at and not value.get('after_reset') and not value.get('stale') else 0
+            budget[key] = min(budget.get(key, 100), remaining)
+            readings[key] = min(readings.get(key, _ts(at)), _ts(at)) if at else 0
+    for name in cfg.get('_account_limits') or {}:
+        if name not in windows:
+            windows[name] = configured_windows(cfg, name)
+    for t in tasks:
+        charges = [(t.get('step'), None)] if t.get('status') == 'running' else []
+        charges += [(a.get('step'), a.get('started')) for a in t.get('attempts') or [] if a.get('started')]
+        for name, started in charges:
+            for key in windows.get(name, ()):
+                if key in budget and (started is None or not readings.get(key) or started >= readings[key]):
+                    budget[key] = max(0, budget[key] - rescue_cost(cfg, name, units(t)))
+    return {name: windows[name] for name in names}, budget
 
 
 def _ts(iso):
     from . import pacing
     return pacing.parse_time(iso).timestamp()
+
+
+def configured_windows(cfg, name):
+    """Configured window identities, including those of a paused account."""
+    found, pending = set(), [name]
+    while pending:
+        item = pending.pop()
+        if item not in found:
+            found.add(item)
+            pending.extend((cfg.get('_account_limits') or {}).get(item) or [])
+    return list(found)
 
 
 def room_reason(name, room, queued):
@@ -488,6 +571,7 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}
     cfg['_panic_usage'] = {n: 100 - remaining_quota(states[n]) for n in names if n in states and n in cfg['accounts']
                            and panic_rescue(cfg, n, states[n], states)}
+    cfg['_panic_windows'], cfg['_panic_budget'] = rescue_budgets(cfg, states, tasks, cfg['_panic_usage'])
     online_room = sum(max(0, r[0]) for n, r in rooms.items() if not is_local(cfg, n))   # local runs are outside that limit
     free, stop = capacity_now(cfg, running, machines, now, online_room)
     if stop:

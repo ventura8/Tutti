@@ -71,11 +71,17 @@ class Detection(unittest.TestCase):
     def test_agents_logins_and_plans(self):
         fake_bin(self.w.bin, 'cursor-agent', 'Not logged in')
         fake_bin(self.w.bin, 'claude')
+        fake_bin(self.w.bin, 'codex', 'Logged in')
         self.w.file('.claude/.credentials.json', '{}')
         found = {a['name']: a for a in setup.agents(self.w.probe)}
         self.assertEqual(found['claude']['login'], 'yes')
         self.assertEqual(found['cursor']['login'], 'no')
         self.assertEqual(found['cursor']['login_command'], ['cursor-agent', 'login'])
+        self.assertEqual(found['codex']['login'], 'yes')
+        self.assertEqual(found['codex']['login_command'], ['codex', 'login', '--device-auth'])
+        self.assertEqual(setup.AGENTS['codex']['worker']['command'][:3], ['codex', 'exec', '--skip-git-repo-check'])
+        self.assertIn('--approve-for-me', setup.AGENTS['codex']['worker']['command'])
+        self.assertNotIn('--dangerously-bypass-approvals-and-sandbox', setup.AGENTS['codex']['worker']['command'])
         self.assertNotIn('copilot', found)
 
     def test_a_signed_in_cursor_and_its_plan(self):
@@ -136,6 +142,19 @@ class ConfigRoundTrip(unittest.TestCase):
              'repos': [{'name': 'app', 'path': '~/Projects/app', 'priority': 0},
                        {'name': 'tool', 'path': '~/Projects/tool', 'priority': 1}]}
     EXISTING = '# my own notes\nmachines:\n  # the quiet one\n  box: {host: box.example}   # keep me\n\n# workers below\nworkers: {}\n'
+
+    def test_codex_setup_includes_automatic_usage_reader(self):
+        entry = setupcmd.account({'name': 'codex'}, Asked(), NOW)
+        self.assertEqual(entry['reader'], {'format': 'codex-app-server', 'every_minutes': 15})
+        self.assertEqual(entry['usage_url'], 'https://chatgpt.com/codex/settings/usage')
+        self.assertEqual(config.reader_problems('codex', {'reader': entry['reader']}), [])
+
+    def test_codex_setup_uses_the_actual_local_machine(self):
+        found = {**self.FOUND, 'agents': [{'name': 'codex', 'bin': 'codex'}], 'machines': [], 'devices': [], 'repos': []}
+        add, _, _ = setupcmd.plan(found, {'machines': {'desk': {'host': 'local'}}}, Asked(), NOW)
+        self.assertEqual(add['workers']['codex']['machine'], 'desk')
+        add, _, _ = setupcmd.plan(found, {'machines': {'remote': {'host': 'remote.example'}}}, Asked(), NOW)
+        self.assertNotIn('machine', add['workers']['codex'])
 
     def test_new_config_checks_out_with_priorities(self):
         add, why, top = setupcmd.plan(self.FOUND, {}, Asked(['max5']), NOW)

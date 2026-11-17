@@ -514,7 +514,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `accounts.*.reading_file` | text |  | Reading file: A file your own tool writes {"used": 42} to. | admin |
 | `accounts.*.stale_hours` | number (hours) |  | Reading goes stale after: A reading by hand older than this gets a reminder. | admin |
 | `accounts.*.args` | list |  | Extra worker flags: Added when `tutti run auto` or conduct picks this account. | admin |
-| `accounts.*.reader` | yaml |  | Automatic reader: A command that prints the usage and the bucket to read from it, or {format: cursor-api, field: autoPercentUsed} for Cursor. | admin |
+| `accounts.*.reader` | yaml |  | Automatic reader: A command that prints usage, or format: cursor-api, codex-app-server or browser-usage for a scoped usage page. | admin |
 | `accounts.*.tiers` | yaml |  | Models by pace: Behind its limit: the strong tier's flags and the large tasks; ahead: the cheap tier's and the small ones ({strong: {args: [--model, x], sizes: [L, M]}, cheap: ...}). | admin |
 | `accounts.*.limits` | list |  | Bounded by: Longer quotas that bound this one (a weekly over a 5-hour window). | admin |
 | `accounts.*.window_points` | number |  | Points per window: What one whole window costs of its weekly limit; measured when empty. | admin |
@@ -537,9 +537,9 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `workers.*.threads` | number |  | Threads: CPU threads the model may use. | admin |
 | `workers.*.num_ctx` | number (tokens) |  | Context: The model's context window. | admin |
 | `workers.*.context_tokens` | number (tokens) |  | Context window: Used by autocompact when the worker does not say. | admin |
-| `workers.*.machine` | select |  | Machine: Its yield flag is honoured: the worker waits while the machine yields. | admin |
+| `workers.*.machine` | select |  | Machine: Where this worker runs (Codex on the laptop): yield, pause, heat and quiet hours are honoured; Move work knows the host. | admin |
 | `workers.*.tunnel` | yaml |  | Tunnel: An ssh tunnel to the model server: {ssh, remote}. | admin |
-| `routing.workers` | list |  | Worker order: `tutti run auto` tries these in order, skipping spent ones. | admin |
+| `routing.workers` | list |  | Worker order: `tutti run auto` prefers these first (order only; every account that names a worker still joins, so Codex is not left out when the list is only cursor and agy). | admin |
 | `brief.rules` | list |  | Rules in every brief: Added to every brief (the standing ones are always added). | admin |
 | `main.target_pct` | number (%) |  | Target: The % of the main agent's quota to use by its spend-by time; the owner's reserve still holds. | admin |
 | `main.agent` | select | `claude` | Main agent: The worker that conducts the next goal, or auto: Tutti keeps preferred while it has room, else the first worker in main.fallback with room. | each user (own value) or an admin |

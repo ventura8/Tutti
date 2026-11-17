@@ -22,7 +22,8 @@ from . import config, inuse, local, remote
 STATE_FILE = 'updates-{key}.json'   # one per config: two configs sharing a state folder keep their own rounds
 MARK = 'TUTTI-UPD'
 # the program's own updater; a program without one is updated through npm when npm installed it under a folder the user owns
-SELF_UPDATE = {'cursor-agent': 'update', 'agy': 'update', 'copilot': 'update', 'claude': 'update'}   # program -> its update subcommand
+SELF_UPDATE = {'cursor-agent': 'update', 'agy': 'update', 'copilot': 'update', 'claude': 'update',
+               'codex': 'update'}   # program -> its update subcommand
 RETRY_SECONDS = 3600   # a round that failed as a whole is tried again after an hour, not after every_hours
 TIMEOUT = 600   # seconds for one program's update on a machine
 
@@ -42,6 +43,10 @@ one() {
 		${TUTTI_WIN_PREFIX:-/mnt/[a-z]/}*) row "$p" missing '' '' 'only a Windows copy is on PATH here'; return ;;
 	esac
 	before=$(ver "$p" "$vc")
+	if [ "${p##*/}" = codex ] && [ "$uc" = "$(printf '%q update' "$p")" ] &&
+		! "$p" --help 2>/dev/null | grep -Eq '^[[:space:]]*update([[:space:]]|$)'; then
+		uc=''   # older Codex releases need the npm installation discovery below
+	fi
 	if [ -z "$uc" ]; then
 		real=$(readlink -f "$(command -v "$p")")
 		case "$real" in

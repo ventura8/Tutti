@@ -17,7 +17,7 @@ import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 
-from . import config, cursorusage, pacing
+from . import browserusage, codexusage, config, cursorusage, pacing
 
 READER_TIMEOUT = 90
 SCAN_DAYS = 2
@@ -250,7 +250,38 @@ def run_json(command, timeout=READER_TIMEOUT, cwd=None):
 
 def key_of(spec):
     """The cache key of a reader: its command (one run serves every account that shares it), or its format."""
-    return tuple(spec.get('command') or [spec.get('format') or '?'])
+    return tuple(spec.get('command') or [spec.get('format') or '?', spec.get('url') or '', spec.get('account') or ''])
+
+
+def automatic_reader(name, account):
+    """A provider-specific reader for an existing account that has not set one explicitly."""
+    if account.get('reader'):
+        return account['reader']
+    if account.get('worker') == 'codex' or name == 'codex':
+        return {'format': 'codex-app-server', 'every_minutes': 15}
+    if account.get('usage_url'):
+        return {'format': 'browser-usage', 'url': account['usage_url'], 'every_minutes': 15}
+    return None
+
+
+def remote_codex_problem(cfg, name, account):
+    """Refuse a local reading when Codex is signed in on a different machine."""
+    if account.get('_read_here'):
+        return None
+    worker = (cfg.get('workers') or {}).get(account.get('worker') or 'codex') or {}
+    machine = worker.get('machine')
+    host = (cfg.get('machines') or {}).get(machine) or {}
+    if (automatic_reader(name, account) or {}).get('format') == 'codex-app-server' and machine and host.get('transport') != 'local':
+        return f'accounts.{name}.read_on is missing: set it to {machine} to read Codex usage on its login host'
+    return None
+
+
+def account_reader_spec(reader, name, account):
+    if reader.get('format') == 'codex-app-server':
+        return {**reader, 'account': name}
+    if reader.get('format') == 'browser-usage':
+        return {**reader, 'url': account.get('usage_url')}
+    return reader
 
 
 class Readers:
@@ -276,7 +307,20 @@ class Readers:
         # A little under the interval: a probe that comes a moment early still runs the reader.
         if hit and not force and self.clock() - hit[0] < wait * 0.9:
             return hit[1], hit[2]
-        data, problem = self.cursor() if spec.get('format') == 'cursor-api' else self.run(list(spec['command']))
+        if spec.get('format') == 'cursor-api':
+            data, problem = self.cursor()
+        elif spec.get('format') == 'codex-app-server':
+            try:
+                data, problem = codexusage.read(self.cfg, self.cfg['accounts'].get(spec.get('account'), {})), None
+            except (OSError, ValueError, KeyError, TypeError) as e:
+                data, problem = None, str(e)
+        elif spec.get('format') == 'browser-usage':
+            try:
+                data, problem = browserusage.read(self.cfg, spec['url']), None
+            except (OSError, ValueError, KeyError, TypeError) as e:
+                data, problem = None, str(e)
+        else:
+            data, problem = self.run(list(spec['command']))
         self.runs += 1
         same = hit is not None and not force and problem is None and data is not None and data == hit[1]
         self.backoff[key] = min(BACKOFF_MAX, self.backoff.get(key, 1) * 2) if same else 1
@@ -291,7 +335,7 @@ class Readers:
         """An account read by the computer that holds its sign-in (accounts.<n>.read_on, set by `tutti move`), through that
         computer's bridge; asked at the reader's own interval like a reader run here."""
         from . import bridge
-        spec = a.get('reader') or a.get('plan') or {}
+        spec = automatic_reader(name, a) or a.get('plan') or {}
         key = ('bridge', name)
         hit = self.cache.get(key)
         if hit and not force and self.clock() - hit[0] < float(self.every_minutes(spec)) * 60 * 0.9:
@@ -305,6 +349,10 @@ class Readers:
         """{'plan', 'used', 'resets', 'problem', 'every_minutes'} for one account from its `reader` and `plan` commands."""
         if a.get('read_on'):
             return self.read_there(name, a, force)
+        problem = remote_codex_problem(self.cfg, name, a)
+        if problem:
+            return {'plan': None, 'used': None, 'resets': None, 'every_minutes': 15,
+                    'problem': problem}
         out = {'plan': None, 'used': None, 'resets': None, 'problem': None, 'every_minutes': None}
         if a.get('plan'):
             data, problem = self._answer(a['plan'], force)
@@ -313,23 +361,34 @@ class Readers:
             except ValueError as e:
                 problem = f'accounts.{name}.plan: {e}'
             out['problem'] = problem
-        r = a.get('reader')
+        r = automatic_reader(name, a)
         if r:
-            data, problem = self._answer(r, force)
-            out['every_minutes'] = self.interval_minutes(r)
+            spec = account_reader_spec(r, name, a)
+            data, problem = self._answer(spec, force)
+            out['every_minutes'] = self.interval_minutes(spec)
             if data is not None:
                 try:
-                    out['used'], out['resets'] = self.parse(r, a, data, now or datetime.fromtimestamp(self.clock(), timezone.utc))
+                    if spec.get('format') == 'browser-usage':
+                        value = (data.get('readings') or {}).get(name)
+                        if not value or value.get('used') is None:
+                            raise ValueError(f'no reading for {name}: check the usage page labels in accounts.{name}.helper_label')
+                        used = float(value['used'])
+                        resets = pacing.parse_time(value['resets']) if value.get('resets') else None
+                        out['used'], out['resets'] = used, resets
+                    else:
+                        out['used'], out['resets'] = self.parse(r, a, data, now or datetime.fromtimestamp(self.clock(), timezone.utc))
                 except (ValueError, KeyError, TypeError) as e:
                     problem = f'accounts.{name}.reader: {e}'
-                    self.backoff[key_of(r)] = 1   # an answer it cannot read is asked again at its own interval
+                    self.backoff[key_of(spec)] = 1   # an answer it cannot read is asked again at its own interval
             out['problem'] = problem or out['problem']
         return out
 
     @staticmethod
     def parse(r, a, data, now):
         """(used %, reset) from a reader's answer: GitHub's premium-request report, else agy's /usage buckets."""
-        if r.get('format') == 'github-premium':
+        if r.get('format') == 'codex-app-server':
+            used, resets = codexusage.parse(data, a, r)
+        elif r.get('format') == 'github-premium':
             used, resets = github_premium(data, r['allowance'], now)
         elif r.get('format') == 'cursor-api':
             used, resets = cursorusage.parse(data, r['field'])
@@ -346,7 +405,7 @@ class Readers:
         accounts = {n: a or {} for n, a in self.cfg['accounts'].items()}
         out = {}
         for n, a in accounts.items():
-            if not (a.get('reader') or a.get('plan')):
+            if not (automatic_reader(n, a) or a.get('plan')):
                 continue
             try:
                 out[n] = self.read(n, a, now, force)
@@ -415,7 +474,7 @@ def worth_keeping(last, used, resets, now):
     if abs(float(last['used']) - used) >= MIN_CHANGE or now - pacing.parse_time(last['at']) >= KEEP_EVERY:
         return True
     old = last.get('resets')
-    return used > 0 and (not old or abs(pacing.parse_time(old) - resets) >= RESET_MOVED)
+    return bool(used > 0 and ((not old and resets) or (old and resets and abs(pacing.parse_time(old) - resets) >= RESET_MOVED)))
 
 
 def overrides(newest, used):

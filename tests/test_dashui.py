@@ -84,6 +84,13 @@ class Order(unittest.TestCase):
         scripts = re.findall(r'<script src="([a-z0-9-]+)\.js', self.page())
         self.assertEqual(scripts[0], 'format')
 
+    def test_wsl_and_desktop_environments_render_inside_one_physical_machine_card(self):
+        with open(os.path.join(dashboard.WEB, 'app.js'), encoding='utf8') as f:
+            app = f.read()
+        self.assertIn('const key = m.physical || m.name', app)
+        self.assertIn("class: 'machine-environments'", app)
+        self.assertIn('items.find((m) => m.name === physical)', app)
+
     def test_chat_header_has_the_main_agent_selector(self):
         page = self.page()
         chat = page[page.index('id="chat-view"'):page.index('id="dashboard-view"')]

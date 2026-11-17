@@ -335,17 +335,18 @@ class Roles(unittest.TestCase):
         ctx = new_context(ADMIN)
         page = open_view(ctx, '#dashboard')
         items = page.evaluate("fetch('/api/state').then((r) => r.json()).then((s) => s.machines.items)")
-        cards = page.locator('#machines > li')
+        cards = page.locator('#machines li[data-machine]')
         self.assertEqual(cards.count(), len(items))
-        for i, m in enumerate(items):
-            card = cards.nth(i)
-            self.assertEqual(card.locator('.pip').count(), m['slots'])
+        for m in items:
+            card = page.locator(f"#machines li[data-machine='{m['name']}']")
+            stats = card.locator(':scope > .row__stats').first
+            self.assertEqual(stats.locator('.pip').count(), m['slots'])
             if m['free'] is None:   # not reachable: dashed boxes and the slot count only
-                self.assertEqual(card.locator(".pip[data-off='true']").count(), m['slots'])
+                self.assertEqual(stats.locator(".pip[data-off='true']").count(), m['slots'])
             else:
-                self.assertEqual(card.locator(".pip[data-busy='true']").count(), m['busy'])
-                self.assertEqual(card.locator(".pip[data-held='true']").count(), m['held_back'])
-                self.assertIn(f"{m['free']} of {m['slots']} slot", card.text_content())
+                self.assertEqual(stats.locator(".pip[data-busy='true']").count(), m['busy'])
+                self.assertEqual(stats.locator(".pip[data-held='true']").count(), m['held_back'])
+                self.assertIn(f"{m['free']} of {m['slots']} slot", stats.text_content())
             win = card.get_by_label(f"{m['name']}: limited hours, HH-HH")
             self.assertTrue(win.is_editable())
             if not m.get('limit'):

@@ -13,7 +13,7 @@ from . import __version__, config, controls, devices, pacing, routing, waiting, 
 
 # CLI agents worth knowing about even when the config does not name them yet: the command and how people call it.
 KNOWN_AGENTS = (('claude', 'Claude Code'), ('cursor-agent', 'Cursor'), ('agy', 'Antigravity'), ('copilot', 'GitHub Copilot CLI'),
-                ('gemini', 'Gemini CLI'), ('ollama', 'Ollama'))
+                ('codex', 'OpenAI Codex CLI'), ('gemini', 'Gemini CLI'), ('ollama', 'Ollama'))
 TAIL_LINES = 40
 TAIL_WIDTH = 400
 MAX_JOBS = 40
@@ -217,6 +217,7 @@ def machines_state(cfg, probe_fn, stored_fn=None):
         p = probe_fn(m)
         here = idle if m.get('transport') == 'local' else getattr(p, 'idle_s', None)   # remote: read by its probe
         out = machine_state(m, p, order.index(n) + 1 if n in order else None, now, here, quiet)
+        out['physical'] = config.physical(cfg, n)
         out['idle_s'] = here
         out['stored'] = stored_fn(m) if stored_fn and p.reachable else None
         return out
@@ -244,18 +245,23 @@ def account_of_worker(cfg, name):
 
 
 def worker_accounts(cfg):
-    """Accounts that name a worker, in `routing.workers` order (by worker) when given, else in config order."""
+    """Accounts that name a worker, ordered by `routing.workers` (a preference order, not an allow-list): named workers
+    first in that order, then any other account that names a worker (so a Codex account still joins `tutti run auto`
+    when routing.workers only lists cursor and agy)."""
     names = [n for n, a in cfg['accounts'].items() if (a or {}).get('worker')]
     order = cfg['routing'].get('workers') or []
     pos = {w: i for i, w in enumerate(order)}
-    names = [n for n in names if not order or cfg['accounts'][n]['worker'] in pos]
-    return sorted(names, key=lambda n: pos.get(cfg['accounts'][n]['worker'], 0))
+    return sorted(names, key=lambda n: pos.get(cfg['accounts'][n]['worker'], len(pos)))
 
 
-def next_worker(cfg, accounts):
+def next_worker(cfg, accounts, machines=None, now=None):
     """Where the next agent job goes, from the latest readings: {worker, account, args, reason}, worker None when none has room."""
     by_name = {a['name']: a for a in accounts}
     states = [by_name[n] for n in worker_accounts(cfg) if n in by_name]
+    if machines is not None:
+        from . import fleet
+        states = [s for s in states if not (cfg['workers'].get(cfg['accounts'][s['name']]['worker']) or {}).get('machine')
+                  or not fleet.governor(cfg, cfg['accounts'][s['name']]['worker'], machines, now)]
     # owner, 2026-11-17: Chat's delegate_task (run auto) also takes over while the main agent panics
     from . import autopilot
     takeover = autopilot.main_in_panic(cfg, by_name)

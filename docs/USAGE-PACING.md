@@ -61,14 +61,21 @@ agent's accounts (keep their reader at `every_minutes: 30` or less while the own
 
 ## Automatic readings
 
-Tutti reads what the CLIs print, plus one account call: Cursor's. Four sources, all written to the same usage log as
+Tutti reads CLI usage, scoped usage pages and limit messages. All readings go to the same usage log as
 `tutti usage log`:
 
 | Source | Config | What it gives |
 | --- | --- | --- |
 | A reader command | `reader: {command: [...], bucket: <id>, every_minutes: 10}` | Antigravity: `agy -p /usage --output-format json` lists every quota bucket (`3p-5h` and `gemini-5h`: the two rolling 5-hour windows; `3p-weekly`, `gemini-weekly`) with the share left and the reset time, and spends no quota. One run serves every account that names the same command. |
 | A plan command | `plan: {command: [...], field: <key>}` | A label for the card, such as Cursor's tier from `cursor-agent about --format json` (`subscriptionTier`). Only that field is read. |
-| Cursor's account call | `reader: {format: cursor-api, field: autoPercentUsed}` (or `apiPercentUsed`) | Both meters of cursor.com/dashboard/spending ("Cursor Models", "Other Models") and the billing cycle's end, from the call the spending page makes (`DashboardService/GetCurrentPeriodUsage` on api2.cursor.sh), signed in with cursor-agent's own login (`~/.config/cursor/auth.json`). No quota spent, no owner click; one call serves both accounts. The token is sent only there and never logged or printed; a refused call says to run `cursor-agent login`. Grok Bot's weekly meter is not in this answer: it keeps the reading helper. |
+| Codex CLI app-server | `reader: {format: codex-app-server, every_minutes: 15}` | Codex CLI's `account/rateLimits/read` returns its 5-hour and weekly windows without reading auth files or spending quota. Accounts with `worker: codex` get this reader automatically when `reader` is omitted, including existing configs. Tutti chooses the window closest to `accounts.<name>.window`; `bucket: primary\|secondary` can select one explicitly. |
+
+The Codex reader keeps its local app-server session open until initialization and the rate-limit request finish; if the
+server cannot answer within 20 seconds, Tutti reports the reader error and retries at its normal interval.
+When the Codex worker is on a remote machine, set `accounts.<name>.read_on` to that machine so the bridge reads the
+correct signed-in account; Tutti refuses to substitute the coordinator's account.
+| Scoped usage page | `usage_url` and, when needed, `helper_label` | Accounts with a usage page and no reader are read automatically every 15 minutes through the Work browser's read-only usage scope, except Codex accounts, which default to the app-server reader. Set `reader.format: browser-usage` to use the browser explicitly. Grok Bot's `helper_label: Grok Bot` selects its weekly meter from Cursor's spending page. Sign in once on the Work browser; no cookies or tokens are read or exported. |
+| Cursor's account call | `reader: {format: cursor-api, field: autoPercentUsed}` (or `apiPercentUsed`) | Both meters of cursor.com/dashboard/spending ("Cursor Models", "Other Models") and the billing cycle's end, from the call the spending page makes (`DashboardService/GetCurrentPeriodUsage` on api2.cursor.sh), signed in with cursor-agent's own login. No quota spent, no owner click; one call serves both accounts. The token is sent only there and never logged or printed; a refused call says to run `cursor-agent login`. |
 | Limit messages | `match: {command: <regex>, model: <regex>, fallback: true}` | A "usage limit reached, try again in 3 h" line in the output of `tutti run` or of a `tutti quiet` job whose command matches logs the account as spent (100 %) until the reset it names. With several accounts on one CLI (`agy`), `model` picks the one the command or the message names; `fallback` takes the rest. |
 
 A reader this version cannot read (an unknown `format`, a missing `command` or `bucket`) and an account key it does not
@@ -79,9 +86,10 @@ window from then on: it beats the config's `resets`, which is only a first guess
 `resets_estimated: true`; the dashboard then says "an estimate" until a reading sets it. Automatic readings are kept
 only when they say something new (a point or more, a moved reset, or an hour since the last one).
 
-`usage_url` is the provider's usage page: the dashboard's **Add a reading** opens it and a short form (the percent and
-the reset time, prefilled from the window rule), for what no CLI prints (Cursor's spend this month:
-`https://cursor.com/dashboard/spending`). `worker` names the worker whose card shows this account.
+`usage_url` is the provider's usage page: accounts without their own reader are read automatically in the Work browser,
+except Codex accounts, which default to the Codex app-server. Set `reader.format: browser-usage` to select the page instead.
+The dashboard's **Add a reading** still opens the page and a short form for a manual correction. `worker` names the worker
+whose card shows this account.
 
 Two more sources for what no CLI prints:
 
@@ -90,7 +98,8 @@ Two more sources for what no CLI prints:
   and every dashboard probe log each new version of the file once (`source: file`). `tutti usage log claude 42` does the
   same from a shell.
 - **The reading helper** (docs/DASHBOARD.md): a bookmarklet that reads the spend from the provider's page the owner has
-  open, signed in, and saves it in one click. It reads only the page's visible text, never cookies or tokens.
+  open, signed in, and saves it in one click. It reads only the page's visible text, never cookies or tokens; automatic
+  page readings use that same extractor in the scoped Work browser.
 
 **Opt-in accounts.** `enabled: false` keeps an account (a premium model you use only on request) out of pacing, panic,
 routing and the dashboard; `tutti usage log` still keeps its readings. `note:` is shown on the card (for example "includes
@@ -102,7 +111,7 @@ allowance: 300}` reads the month's premium requests (the gh token needs the `use
 -s user`, a step for the owner). `credits: true` adds the "AI Credits N" that `copilot -p` prints at the end of each run,
 summed over the window from Tutti's own run logs (runs started elsewhere are not in it).
 
-**Stale readings.** An account with no `reader` is read by hand (or by the helper or a file). When it has no reading,
+**Stale readings.** An account with no `reader` or `usage_url` is read by hand (or from a file). When it has no reading,
 or its newest is older than `stale_hours` (default 2; 0 turns the reminder off), `tutti usage` prints
 `reminder: <account>: ...: tutti usage log <account> <percent>` and the dashboard's card shows the same reminder.
 
@@ -114,7 +123,8 @@ dashboard card say "use it: about N bounded task(s) can go to <worker> now".
 
 `tutti run auto "<task>"` reads the latest readings (automatic and typed) and picks the account for the job: never one in
 panic (at or over `panic_at` before its target time) or spent; first one that is `late` or `behind` (quota that would be
-lost at the reset), then `on pace` or unread, then `ahead`; the order of `routing.workers` breaks ties. It runs that
+lost at the reset), then `on pace` or unread, then `ahead`; `routing.workers` is a preference order that breaks ties
+(every account that names a worker still joins; it is not an allow-list). It runs that
 account's `worker` with its `args` (agy: `--model` of the window's model family). When no account has room it exits 3
 and says to use a local model. The dashboard's Quota tile shows where the next agent job goes.
 

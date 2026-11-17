@@ -3,6 +3,7 @@ import http.client
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -11,7 +12,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from datetime import timedelta, timezone
 from unittest import mock
 
-from tutti import cli, config, dashboard, pacing, readers, routing, state, workers
+from tutti import browserusage, cli, codexusage, config, dashboard, helper, pacing, readers, routing, state, workers
 
 # These tests read times in UTC: the host's detected zone is pinned so they pass anywhere (tests/test_tz.py covers zones)
 _PIN = mock.patch('tutti.tz.host_zone', return_value='UTC')
@@ -57,6 +58,58 @@ def cfg_of(folder, accounts=None, workers_=None):
 
 
 class ParseTest(unittest.TestCase):
+    def test_codex_rate_limits_match_the_configured_window(self):
+        rates = {'primary': {'usedPercent': 28, 'windowDurationMins': 300, 'resetsAt': 1767708000},
+                 'secondary': {'usedPercent': 64, 'windowDurationMins': 10080, 'resetsAt': 1768176000}}
+        self.assertEqual(codexusage.window(rates, {'window': '7d'}, {}),
+                         (64.0, T('2026-01-12T00:00Z')))
+        self.assertEqual(codexusage.window(rates, {'window': '5h'}, {}),
+                         (28.0, T('2026-01-06T14:00Z')))
+
+    def test_codex_app_server_response_ignores_notifications_and_rejects_missing_limits(self):
+        text = '{"method":"account/updated"}\n{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":12}}}}\n'
+        self.assertIn('primary', codexusage.response(text))
+        with self.assertRaisesRegex(ValueError, 'no rateLimits'):
+            codexusage.response('{"id":2,"result":{}}')
+
+    def test_codex_usage_starts_the_configured_cli_app_server_with_a_read_only_request(self):
+        rates = {'secondary': {'usedPercent': 45, 'windowDurationMins': 10080, 'resetsAt': 1768176000}}
+        script = ('import json,sys\n'
+                  'assert json.loads(input())["method"] == "initialize"\n'
+                  'print(json.dumps({"id":1,"result":{}}), flush=True)\n'
+                  'assert json.loads(input())["method"] == "initialized"\n'
+                  'assert json.loads(input())["method"] == "account/rateLimits/read"\n'
+                  f'print(json.dumps({{"id":2,"result":{{"rateLimits":{rates!r}}}}}), flush=True)\n')
+        def popen(argv, **kwargs):
+            self.assertEqual(argv, ['/opt/codex', 'app-server', '--listen', 'stdio://'])
+            return subprocess.Popen([sys.executable, '-u', '-c', script], **kwargs)
+        cfg = {'workers': {'codex': {'command': ['/opt/codex', 'exec', '{prompt}']}}}
+        self.assertEqual(codexusage.read(cfg, {'worker': 'codex'}, popen=popen), rates)
+
+    def test_codex_usage_reports_a_server_that_closes_early(self):
+        def popen(argv, **kwargs):
+            return subprocess.Popen([sys.executable, '-c', 'pass'], **kwargs)
+        with self.assertRaisesRegex(ValueError, 'closed without a rate limits response'):
+            codexusage.read({}, {}, popen=popen)
+
+    def test_codex_deadline_stops_even_if_notifications_are_queued(self):
+        process, lines = mock.Mock(), mock.Mock()
+        lines.get.return_value = '{"method":"notice"}'
+        with mock.patch('tutti.codexusage.time.monotonic', side_effect=[0, 1, 21]):
+            with self.assertRaisesRegex(ValueError, 'did not return usage'):
+                codexusage.exchange(process, lines, 'codex')
+        self.assertEqual(lines.get.call_count, 1)
+
+    def test_browser_usage_uses_the_scoped_visible_page_extractor(self):
+        url = 'https://cursor.example/dashboard/spending'
+        value = {'readings': [{'account': 'grok-bot', 'used': 31.5}], 'missing': [], 'loading': False}
+        broker = mock.Mock()
+        broker.page.return_value = {'value': value, 'signed_out': False}
+        cfg = {'accounts': {'grok-bot': {'usage_url': url, 'helper_label': 'Grok Bot'}}}
+        with mock.patch('tutti.browsercmd.broker', return_value=broker):
+            self.assertEqual(browserusage.read(cfg, url)['readings']['grok-bot']['used'], 31.5)
+        broker.page.assert_called_once_with('usage-reading', url, 'usage', 'tutti usage reader')
+
     def test_reset_times_in_limit_messages(self):
         self.assertEqual(readers.parse_reset('quota resets at 2026-01-06T15:30:00Z', NOW), T('2026-01-06T15:30Z'))
         self.assertEqual(readers.parse_reset('try again in 3h 12m', NOW), NOW + timedelta(hours=3, minutes=12))
@@ -212,6 +265,84 @@ class ReadersTest(unittest.TestCase):
         r.read_all()
         self.assertEqual(len(self.calls), 4)
 
+    def test_codex_app_server_is_read_automatically_and_cached(self):
+        account = {'window': '7d', 'worker': 'codex', 'reader': {'format': 'codex-app-server', 'every_minutes': 15}}
+        cfg = cfg_of(self.tmp.name, {'codex': account}, {'codex': {'command': ['codex', 'exec']}})
+        rates = {'secondary': {'usedPercent': 64, 'windowDurationMins': 10080, 'resetsAt': 1768176000}}
+        with mock.patch('tutti.codexusage.read', return_value=rates) as read:
+            r = readers.Readers(cfg, clock=lambda: self.t[0])
+            self.assertEqual(r.read_all()['codex']['used'], 64.0)
+            r.read_all()
+            self.assertEqual(read.call_count, 1)
+
+    def test_existing_codex_accounts_get_an_automatic_reader_without_setup_migration(self):
+        account = {'window': '7d', 'worker': 'codex'}
+        cfg = cfg_of(self.tmp.name, {'codex': account}, {'codex': {'command': ['codex', 'exec']}})
+        rates = {'secondary': {'usedPercent': 64, 'windowDurationMins': 10080, 'resetsAt': 1768176000}}
+        with mock.patch('tutti.codexusage.read', return_value=rates) as read:
+            result = readers.Readers(cfg, clock=lambda: self.t[0]).read_all()['codex']
+        self.assertEqual(result['used'], 64.0)
+        self.assertEqual(result['every_minutes'], 15)
+        read.assert_called_once()
+
+    def test_remote_codex_reader_uses_its_automatic_interval(self):
+        account = {'window': '7d', 'worker': 'codex', 'read_on': 'laptop'}
+        cfg = cfg_of(self.tmp.name, {'codex': account})
+        response = {'plan': None, 'used': 64.0, 'resets': T('2026-01-12T00:00Z'), 'problem': None, 'every_minutes': 15}
+        with mock.patch('tutti.bridge.read_account', return_value=response) as read:
+            r = readers.Readers(cfg, clock=lambda: self.t[0])
+            r.read_all()
+            r.read_all()
+        self.assertEqual(read.call_count, 1)
+
+    def test_codex_remote_host_requires_explicit_read_on(self):
+        account = {'window': '7d', 'worker': 'codex'}
+        cfg = cfg_of(self.tmp.name, {'codex': account}, {'codex': {'kind': 'cli', 'machine': 'remote', 'command': ['codex']}})
+        cfg['machines']['remote'] = {'host': 'remote.example', 'transport': 'ssh'}
+        with mock.patch('tutti.codexusage.read') as read:
+            result = readers.Readers(cfg).read_all()['codex']
+        self.assertIn('accounts.codex.read_on', result['problem'])
+        read.assert_not_called()
+
+    def test_explicit_browser_reader_requires_https_and_includes_its_account(self):
+        account = {'usage_url': 'https://provider.example/usage', 'reader': {'format': 'browser-usage'}}
+        self.assertEqual(config.reader_problems('a', account), [])
+        self.assertTrue(config.reader_problems('a', {**account, 'usage_url': 'http://provider.example'}))
+        cfg = cfg_of(self.tmp.name, {'a': account})
+        self.assertEqual(helper.helper_pages(cfg)[account['usage_url']][0]['account'], 'a')
+        with mock.patch('tutti.browserusage.read', return_value={'readings': {'a': {'used': 20}}}) as read:
+            result = readers.Readers(cfg).read_all()['a']
+        self.assertEqual(result['used'], 20)
+        read.assert_called_once_with(cfg, account['usage_url'])
+
+    def test_usage_page_accounts_are_read_automatically(self):
+        account = {'window': '7d', 'usage_url': 'https://cursor.example/dashboard/spending', 'helper_label': 'Grok Bot'}
+        cfg = cfg_of(self.tmp.name, {'grok-bot': account})
+        answer = {'readings': {'grok-bot': {'used': 31.5, 'resets': '2026-01-12T00:00Z'}}}
+        with mock.patch('tutti.browserusage.read', return_value=answer) as read:
+            r = readers.Readers(cfg, clock=lambda: self.t[0])
+            out = r.read_all()
+            self.assertEqual((out['grok-bot']['used'], out['grok-bot']['resets']),
+                             (31.5, T('2026-01-12T00:00Z')))
+            r.read_all()
+            self.assertEqual(read.call_count, 1)
+
+    def test_browser_bad_reset_does_not_return_a_partial_usage_reading(self):
+        account = {'window': '7d', 'usage_url': 'https://provider.example/usage'}
+        cfg = cfg_of(self.tmp.name, {'a': account})
+        with mock.patch('tutti.browserusage.read', return_value={'readings': {'a': {'used': 20, 'resets': 'invalid'}}}):
+            result = readers.Readers(cfg).read_all()['a']
+        self.assertIsNone(result['used'])
+        self.assertTrue(result['problem'])
+
+    def test_automatic_reader_intervals_reject_invalid_values(self):
+        for fmt in ('codex-app-server', 'browser-usage'):
+            for value in (0, -1, True, '15', float('nan'), float('inf')):
+                account = {'usage_url': 'https://provider.example/usage', 'reader': {'format': fmt, 'every_minutes': value}}
+                self.assertTrue(config.reader_problems('a', account), (fmt, value))
+            account = {'usage_url': 'https://provider.example/usage', 'reader': {'format': fmt, 'every_minutes': 15}}
+            self.assertFalse(config.reader_problems('a', account))
+
     def test_an_unchanged_answer_backs_off_and_a_change_or_force_resets_it(self):
         answers = {'agy': (AGY, None), 'cursor-agent': ({'subscriptionTier': 'Pro'}, None)}
         r = self.fake(answers)
@@ -319,6 +450,9 @@ class ReadingPostTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
+        cls.browser = mock.patch('tutti.browserusage.read', return_value={'readings': {}})
+        cls.browser.start()
+        cls.addClassCleanup(cls.browser.stop)
         acc = {**ACCOUNTS, 'cursor': {**ACCOUNTS['cursor'], 'usage_url': 'https://provider.example/usage'}}
         cls.cfg = cfg_of(cls.tmp.name, acc)
         collector = dashboard.Collector(cls.cfg, probe_fn=lambda m: routing.Probe(True, 1, 0.5, 4, False),
@@ -436,6 +570,45 @@ class RouteByReadingsTest(unittest.TestCase):
         self.assertEqual(self.pick(late)['account'], 'agy-claude')   # 30 min to its reset with 90 % left: late
         self.assertEqual(self.pick([], order=['cursor', 'agy'])['account'], 'cursor')
         self.assertEqual(self.pick([], order=['agy'])['account'], 'agy-claude')
+
+    def test_codex_joins_run_auto_when_left_off_routing_workers_and_cursor_is_ahead(self):
+        """t297: routing.workers is order only; a behind Codex account on the laptop still wins while Cursor is ahead."""
+        with tempfile.TemporaryDirectory() as folder:
+            wk = {**self.WORKERS, 'codex': {'kind': 'cli', 'command': ['codex', 'exec', '--skip-git-repo-check', '{prompt}'],
+                                            'machine': 'laptop'}}
+            acc = {**self.ROUTED, 'codex': {'window': '7d', 'resets': '2026-01-13T00:00Z', 'worker': 'codex'}}
+            cfg = cfg_of(folder, acc, wk)
+            cfg['machines'] = {'laptop': {'host': 'local', 'slots': 1}}
+            cfg['routing']['workers'] = ['agy', 'cursor']   # codex deliberately omitted: still must join
+            cfg['autopilot'] = {'ladder': ['codex', 'cursor'], 'accounts': ['cursor', 'codex'],
+                                'repos': {'app': {'path': folder, 'check': 'true'}}}
+            entries = [self.r('cursor', 70, '2026-02-01T00:00Z'), self.r('codex', 5, '2026-01-13T00:00Z'),
+                       self.r('agy-claude', 99, '2026-01-06T14:00Z'), self.r('agy-gemini', 99, '2026-01-06T16:00Z')]
+            accounts = [pacing.account_state(n, a, entries, NOW) for n, a in cfg['accounts'].items()]
+            by = {a['name']: a for a in accounts}
+            self.assertEqual(by['cursor']['verdict'], 'ahead')
+            self.assertEqual(by['codex']['verdict'], 'behind')
+            pick = state.next_worker(cfg, accounts)
+            self.assertEqual((pick['worker'], pick['account']), ('codex', 'codex'))
+            paused = [{'name': 'laptop', 'status': 'paused'}]
+            self.assertNotEqual(state.next_worker(cfg, accounts, paused, NOW)['worker'], 'codex')
+            self.assertEqual(state.next_worker(cfg, accounts, [{'name': 'laptop', 'status': 'free'}], NOW)['worker'], 'codex')
+            self.assertIn('codex is behind', pick['reason'])
+            from tutti import autopilot
+            self.assertEqual(autopilot.on_machine(cfg, 'codex'), 'laptop')
+            room, why = autopilot.step_room(cfg, 'codex', by, {})
+            self.assertGreater(room, 0, why)
+            room, why = autopilot.step_room(cfg, 'cursor', by, {})
+            self.assertEqual(room, 0)
+            self.assertIn('ahead', why)
+            lent = [{'name': 'laptop', 'status': 'paused', 'free': 0, 'reason': 'yield flag is up'}]
+            self.assertEqual(autopilot.step_room(cfg, 'codex', by, {}, lent)[0], 0)
+            t = {'id': 't1', 'repo': 'app', 'title': 'x', 'status': 'queued', 'attempts': [], 'prefer': None, 'size': 'S',
+                 'scope': ['a.py'], 'check': 'true'}
+            self.assertEqual(autopilot.candidates(cfg, t)[:2], ['codex', 'cursor'])
+            free = [{'name': 'laptop', 'status': 'free', 'free': 1, 'reason': 'fit'}]
+            plan = autopilot.plan(cfg, [t], by, free, True, NOW)
+            self.assertEqual(plan.get('dispatch'), [('t1', 'codex')], plan)
 
     def test_run_auto_uses_the_pick_and_refuses_when_nothing_has_room(self):
         with tempfile.TemporaryDirectory() as folder:

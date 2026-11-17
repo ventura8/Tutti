@@ -568,7 +568,8 @@ def machine_out(name, snap, own_machine=None):
     return None
 
 
-PICKS = {'auto': 'Auto: local first, then online', 'local': 'Local models only', 'online': 'Online agents only'}
+PICKS = {'main': 'Auto: the main agent', 'auto': 'Auto: local first, then online', 'local': 'Local models only',
+         'online': 'Online agents only'}
 TOOL_PARAMS_B = 7.0   # a local model this large or larger is given the tools; a smaller one only talks
 
 
@@ -635,6 +636,13 @@ def candidates(cfg, snap, user, owner_sub=None, own_machine=None, pick='auto'):
     accounts are the owner's own or shared (`accounts.<n>.share_spare`): another member's private quota is never spent."""
     local, online = all_models(cfg, snap, user, owner_sub, own_machine)
     pool = {'local': local, 'online': online}.get(pick, local + online)
+    if pick == 'main':   # the main agent now (tutti/conduct.py: auto, a hand-off or the owner's switch), then the rest as auto
+        from . import conduct
+        try:
+            main = conduct.current(cfg)
+        except (KeyError, TypeError):   # a config without main agents: the same order as auto
+            main = ''
+        pool = [c for c in online + local if c['worker'] == main] + [c for c in local + online if c['worker'] != main]
     if pick not in PICKS:
         pool = [c for c in local + online if c['worker'] == pick] or [{'worker': pick, 'why': f'{pick} is not a model here'}]
     out, before = [], []

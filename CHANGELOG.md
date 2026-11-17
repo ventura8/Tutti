@@ -15,6 +15,11 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   gives way to the preferred agent or the first `main.fallback` with room, not only when it runs out (the dashboard showed
   "main agent: pc (auto)" while cursor had room).
 
+### Added
+
+- Chat's model picker has **Auto: the main agent**: the main agent now answers first (Cursor while Claude is out,
+  Claude after its reset), the others only when it cannot.
+
 ## [0.25.1] - 2026-11-17
 
 ### Fixed

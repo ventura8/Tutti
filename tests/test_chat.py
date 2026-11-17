@@ -396,7 +396,7 @@ class Picker(ApiBase):
         self.assertEqual(eng2.store.get('local', cid)['model'], 'nuc')
         listing = chatrun.post(eng2, ADMIN, {'action': 'list'}, self.snap)[1]
         self.assertEqual(listing['defaults']['model'], 'nuc')
-        self.assertEqual([m['id'] for m in listing['models']][:3], ['auto', 'local', 'online'])
+        self.assertEqual([m['id'] for m in listing['models']][:4], ['main', 'auto', 'local', 'online'])
         self.assertEqual(next(m for m in listing['models'] if m['id'] == 'copilot')['available'], False)
         new = self.send(eng, ADMIN, 'second')[0]['conversation']
         self.assertEqual(eng.store.get('local', new)['model'], 'nuc')
@@ -1172,3 +1172,16 @@ class ChatCliArgs(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with mock.patch('tutti.config.state_dir', return_value=d):
                 self.assertTrue(chatrun.chat_workdir({}).startswith(d))
+
+
+class MainPick(unittest.TestCase):
+    """Owner, 2026-11-17: 'Auto: the main agent' answers with the main agent first."""
+
+    def test_main_pick_puts_the_main_agent_first(self):
+        self.assertIn('main', chat.PICKS)
+        local = [{'worker': 'pc', 'kind': 'ollama', 'label': 'pc', 'why': None}]
+        online = [{'worker': 'cursor', 'kind': 'cli', 'label': 'cursor', 'why': None}]
+        with mock.patch.object(chat, 'all_models', return_value=(local, online)), \
+                mock.patch('tutti.conduct.current', return_value='cursor'):
+            got, _ = chat.candidates({}, {}, {'sub': 'local'}, pick='main')
+        self.assertEqual([c['worker'] for c in got], ['cursor', 'pc'])

@@ -292,6 +292,11 @@ def quota_closed(s):
                 (used is not None and used >= s.get('panic_at', 95)) or any(quota_closed(x) for x in s.get('limits') or []))
 
 
+def unknown_quota(s):
+    """A takeover must not assume an unmeasured account or linked quota has room."""
+    return s.get('used') is None or invalid_usage(s) or any(unknown_quota(x) for x in s.get('limits') or [])
+
+
 def pick_account(states, takeover=False):
     """(the account state to use, why) from states in preference order: never one in panic or spent; first the ones that
     would lose quota at the reset (late, behind), then on pace or unread, then ahead. (None, why) when none has room."""
@@ -299,7 +304,9 @@ def pick_account(states, takeover=False):
     usable = []
     for s in states:
         reason = account_unfit(s)
-        if takeover and reason and not quota_closed(s):
+        if takeover and unknown_quota(s) and not quota_closed(s):
+            reason = 'quota is unknown: refresh the account and all linked limits before taking over'
+        elif takeover and reason and not quota_closed(s):
             reason = ''   # the main agent panics: only an account's own panic or a spent quota stops it (autopilot.takes_over)
         if reason:
             skipped.append(f'{s["name"]}: {reason}')

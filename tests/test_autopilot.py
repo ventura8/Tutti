@@ -198,6 +198,13 @@ class PlanTest(Base):
         self.assertIsNone(picked)
         self.assertIn('weekly', why)
 
+    def test_direct_takeover_rejects_unknown_own_or_linked_usage(self):
+        for s in (account('cursor', used=None),
+                  {**account('cursor', used=20), 'limits': [account('weekly', used=None)]}):
+            picked, why = routing.pick_account([s], takeover=True)
+            self.assertIsNone(picked)
+            self.assertIn('unknown', why)
+
     def test_attempt_remains_debited_until_linked_window_is_refreshed(self):
         states = {'cursor': {'reading_at': '2026-01-03T00:00:00Z',
                              'limits': [{'name': 'weekly', 'reading_at': '2026-01-01T00:00:00Z'}]}}
@@ -637,6 +644,13 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
         self.assertEqual(autopilot.takeover_room(acc, 'cursor', {'used': 35, 'panic_at': 95}), 30)
         self.assertEqual(autopilot.takeover_room(acc, 'cursor', {'used': 94, 'panic_at': 95}), 1)
         self.assertEqual(autopilot.takeover_room(acc, 'cursor', {'used': 95, 'panic_at': 95}), 0)
+        self.assertEqual(autopilot.takeover_room(acc, 'cursor', {'used': None, 'panic_at': 95}), 0)
+
+    def test_takeover_does_not_assume_unknown_account_or_linked_usage_is_zero(self):
+        main = {'panic': True, 'used': 96}
+        for current in ({'verdict': 'on pace', 'used': None},
+                        {'verdict': 'on pace', 'used': 20, 'limits': [{'name': 'weekly', 'used': None}]}):
+            self.assertEqual(self.room({'claude': main, 'cursor': current})[0], 0)
 
     def test_panic_rescue_is_bounded_and_never_uses_spent_or_unknown_quota(self):
         panic = {'claude': {'panic': True, 'used': 96}}

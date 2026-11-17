@@ -204,6 +204,8 @@ def step_room(cfg, name, states, running_units, machines=()):
     missing = routing.missing_limits(cfg, name, states.get(name) or {})
     if missing:
         return 0, f'{name}: missing linked quota state ({", ".join(missing)}); resume it or refresh its reading'
+    if name in states and main_in_panic(cfg, states) and routing.unknown_quota(states[name]):
+        return 0, f'{name}: quota is unknown; refresh the account and all linked limits before taking over'
     return account_room(cfg, name, step, states, running_units, machines)
 
 
@@ -253,7 +255,9 @@ def takeover_room(cfg, name, s):
     """Tasks an account may run while it takes over: what fits between its use and its panic line at its cost per task
     (accounts.<name>.task_pct, else the default); at least one while any headroom is left."""
     from .pacing import TASK_PCT
-    used = s.get('used') or 0
+    used = s.get('used')
+    if used is None or routing.invalid_usage(s):
+        return 0
     task = float(((cfg.get('accounts') or {}).get(name) or {}).get('task_pct') or TASK_PCT)
     left = s.get('panic_at', 95) - used
     return max(1, int(left // task)) if left > 0 else 0
@@ -263,7 +267,7 @@ def takes_over(cfg, name, s, states):
     """True when `name` (not a main account, itself neither in panic nor spent) takes work while the main agent panics."""
     if name in main_accounts(cfg) or not main_in_panic(cfg, states):
         return False
-    return not routing.quota_closed(s)
+    return not (routing.unknown_quota(s) or routing.quota_closed(s))
 
 
 def quota_panic(s):

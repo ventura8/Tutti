@@ -78,7 +78,7 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
   paced cursor and a yielding PC while agy-gemini and agy-claude had room).
   While the main agent (`autopilot.main_accounts`, default `claude`) is in panic or spent, every other account takes its
   work up to its own panic line: as many tasks as fit between its use and `panic_at` at its cost per task (`task_pct`),
-  even while ahead of its pace; its own panic or a spent linked quota stops ordinary dispatch. If the main has moved to a
+  even while ahead of its pace; unknown usage, its own panic or a spent linked quota stops takeover dispatch. If the main has moved to a
   local model and all online accounts are unavailable, the autopilot can send at most one small bounded unit per panicked account
   whose current and linked windows have a known task's worth of quota left. It prefers the account with the most remaining
   quota, reserves shared windows across the batch and keeps recent work debited until each window has a newer reading.

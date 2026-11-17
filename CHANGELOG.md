@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Fixed
+
+- Usage sparklines show a crosshair and local time, exact reset offset, used percentage, pace percentage and quota
+  points on hover, click, touch drag and arrow keys, with a polite screen-reader readout that wraps at phone width.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

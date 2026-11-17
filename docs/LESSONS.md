@@ -435,3 +435,14 @@ next `sleep` or fake `adb`, which carried the same marker and lived on until sel
 `scripts/check.sh` stopped at shellcheck on a machine without it, and an agent edited a throwaway copy of the script to
 skip that line. Even in a scratch clone that weakens the check. The fix is to install the tool, not skip it: check.sh now
 puts a pinned shellcheck (`shellcheck-py`, hashed) in its venv, and a missing tool is reported, never commented out.
+
+## Chart coordinates must use the displayed size (t253, 2026-11-17)
+
+**What happened.** Earlier usage-crosshair edits duplicated a handler outside its function and selected the wrong
+reading with the keyboard at responsive widths.
+
+**Why.** Keyboard selection converted SVG coordinates into screen coordinates without the displayed scale; the
+pointer handler then scaled them again.
+
+**Rule.** Select a reading by index for keyboard input. Convert pointer positions to a chart fraction once, using the
+rendered SVG bounds. Exercise both paths in browser tests at phone width before release.

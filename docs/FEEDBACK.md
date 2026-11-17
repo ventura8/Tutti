@@ -35,3 +35,7 @@ of your project or secrets: describe the setup in general words.
 - 2026-11-14 (owner): "Claude Code: needs-restart" while `claude mcp list` said Connected, and "Claude Desktop (chat):
   not connected" after the app dropped Tutti's entry. Fixed in 0.1.62: the status comes from `claude mcp list`; a dropped
   Desktop entry is put back with a backup.
+
+- 2026-11-17 (owner, t253): usage charts needed exact time and values on hover, click, tap, drag and keyboard, with
+  screen-reader announcements. Shared sparkline interaction now supplies the same readout for every input method;
+  browser coverage includes phone width and both themes. Remote verification remains pending.

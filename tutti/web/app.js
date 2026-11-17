@@ -226,7 +226,7 @@ function sparkline(a, now) {
     if (pts.length) {
         g.append(svg('polyline', { class: 's-line', points: [[0, y(0)], ...pts].map((p) => p.join(',')).join(' ') }));
     }
-    return g;
+    return interactiveSpark(g, a, x, y);
 }
 
 function facts(pairs) {

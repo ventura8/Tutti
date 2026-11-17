@@ -416,3 +416,89 @@ class Roles(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class UsageCrosshair(unittest.TestCase):
+    def chart(self, page, readings=None):
+        page.evaluate("""(readings) => {
+            const a = { name: 'Example', window_start: '2026-01-01T00:00:00Z', reset: '2026-01-02T00:00:00Z',
+                target: '2026-01-01T20:00:00Z', panic_at: 95, readings: readings || [
+                    {at: '2026-01-01T06:00:00Z', used: 12.5}, {at: '2026-01-01T12:00:00Z', used: 37.25},
+                    {at: '2026-01-01T18:00:00Z', used: 62.75}] };
+            document.querySelector('#usage').replaceChildren(sparkline(a, Date.parse(a.target)));
+        }""", readings)
+        return page.locator('.spark-container')
+
+    def assert_reading(self, chart, used, pace, relative):
+        text = chart.locator('.spark-tooltip').text_content()
+        self.assertIn(f'{used}% used', text)
+        self.assertIn(f'{pace}% pace line', text)
+        self.assertIn(f'{used} points', text)
+        self.assertIn(f'{relative} from reset', text)
+        self.assertIn('1/1/2026', text)
+        self.assertEqual(chart.locator('.spark-crosshair').get_attribute('visibility'), 'visible')
+        self.assertEqual(chart.locator('.spark-tooltip').get_attribute('aria-live'), 'polite')
+
+    def test_mouse_click_drag_and_keyboard_at_phone_width_in_both_themes(self):
+        for theme in THEMES:
+            with self.subTest(theme=theme):
+                ctx = new_context(ADMIN, 'phone', theme)
+                self.addCleanup(ctx.close)
+                page = open_view(ctx, '#dashboard')
+                chart = self.chart(page)
+                chart.scroll_into_view_if_needed()
+                rect = chart.locator('svg').bounding_box()
+                def px(fraction, rect=rect):
+                    return rect['x'] + rect['width'] * fraction
+                py = rect['y'] + rect['height'] / 2
+                page.mouse.move(px(0.25), py)
+                self.assert_reading(chart, 12.5, 30, '−18:00:00')
+                self.assertIn('6:00:00', chart.text_content())
+                page.mouse.click(px(0.5), py)
+                self.assert_reading(chart, 37.25, 60, '−12:00:00')
+                page.mouse.down()
+                page.mouse.move(px(0.75), py, steps=5)
+                page.mouse.up()
+                self.assert_reading(chart, 62.75, 90, '−6:00:00')
+                chart.focus()
+                page.keyboard.press('ArrowLeft')
+                self.assert_reading(chart, 37.25, 60, '−12:00:00')
+                page.keyboard.press('ArrowRight')
+                page.keyboard.press('ArrowRight')
+                self.assert_reading(chart, 62.75, 90, '−6:00:00')
+                self.assertEqual(chart.evaluate('(e) => e.scrollWidth <= e.clientWidth'), True)
+                self.assertEqual(page.errors, [])
+
+    def test_touch_tap_and_drag(self):
+        for theme in THEMES:
+            ctx = new_context(ADMIN, 'phone', theme)
+            self.addCleanup(ctx.close)
+            page = open_view(ctx, '#dashboard')
+            chart = self.chart(page)
+            chart.scroll_into_view_if_needed()
+            rect = chart.locator('svg').bounding_box()
+            session = ctx.new_cdp_session(page)
+            def touch(kind, fraction, rect=rect, session=session):
+                points = [] if kind == 'touchEnd' else [{'x': rect['x'] + rect['width'] * fraction,
+                                                        'y': rect['y'] + rect['height'] / 2}]
+                session.send('Input.dispatchTouchEvent', {'type': kind, 'touchPoints': points})
+            touch('touchStart', 0.25)
+            touch('touchEnd', 0.25)
+            self.assert_reading(chart, 12.5, 30, '−18:00:00')
+            touch('touchStart', 0.25)
+            touch('touchMove', 0.5)
+            self.assert_reading(chart, 37.25, 60, '−12:00:00')
+            touch('touchMove', 0.75)
+            touch('touchEnd', 0.75)
+            self.assert_reading(chart, 62.75, 90, '−6:00:00')
+            self.assertEqual(page.errors, [])
+
+    def test_empty_history_is_not_a_keyboard_trap(self):
+        ctx = new_context(ADMIN, 'phone')
+        self.addCleanup(ctx.close)
+        page = open_view(ctx, '#dashboard')
+        chart = self.chart(page, [])
+        page.keyboard.press('ArrowRight')
+        self.assertIsNone(chart.get_attribute('tabindex'))
+        self.assertEqual(chart.locator('.spark-tooltip').text_content(), '')
+        self.assertEqual(page.errors, [])

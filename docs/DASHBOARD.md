@@ -476,3 +476,12 @@ finished-jobs filter and the project filter are kept by item id across refreshes
 (sessionStorage); the render's own opening of a fold is not taken for the owner's choice. A class that sets a
 `display` gets a `[hidden]` rule beside it (a test lists them), so the Users view shows only in its tab, for an admin
 with sign-in on.
+
+### Inspecting usage history
+
+Hover, click or tap a usage sparkline to inspect its nearest recorded point. Drag horizontally to move along the
+readings; vertical swipes still scroll the page. Tab to the chart and use the arrow keys to select readings. The
+crosshair marks both time and value; the readout announces changes politely to screen readers. It shows local date
+and time (including seconds and zone), a signed hours:minutes:seconds offset from reset, used %, the pace line % at
+that instant and quota points used (one point is 1 %). The readout wraps inside the card in both themes at phone
+width. Empty histories remain unfocusable. Browser tests cover mouse, tap, touch drag and keyboard interaction.

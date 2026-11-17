@@ -7,6 +7,23 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.25.3] - 2026-11-17
+
+### Fixed
+
+- Chat's `delegate_task` (and `tutti run auto`) takes over while the main agent panics, like the autopilot does: an
+  account's used-up planned room no longer stops it; only its own panic or a spent quota does. Chat had answered
+  "no agent account has room" while Cursor had room.
+
+### Added
+
+- Chat commands with autocomplete (type `/`): `/delegate [project] what` (also `delegate: ...`), `/task project what`,
+  `/tasks`, `/status`, `/usage`, `/hosts`, `/devices`, `/pause`, `/resume`, `/ask <scout>`, `/tests project`, `/help`.
+  The same words work from other chat apps over MCP.
+- In Autonomous mode a plain request becomes work by itself: the agent delegates it, no command needed. Before it
+  delegates it finds missing details itself and asks the user one short question only when the work cannot start without it.
+- A **Just ask** mode (`/mode answer`): answers only, never starts or proposes work.
+
 ## [0.25.2] - 2026-11-17
 
 ### Fixed

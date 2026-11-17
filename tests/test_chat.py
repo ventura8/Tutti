@@ -559,7 +559,7 @@ class Modes(ToolLoop):
         cid = self.send(eng, ADMIN, 'hi', mode='ask')[0]['conversation']
         self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'get', 'id': cid})[1]['settings']['mode'], 'ask')
         listing = chatrun.post(eng, ADMIN, {'action': 'list'}, self.snap)[1]
-        self.assertEqual((listing['defaults']['mode'], list(listing['modes'])), ('ask', ['auto', 'ask', 'plan']))
+        self.assertEqual((listing['defaults']['mode'], list(listing['modes'])), ('ask', ['auto', 'ask', 'plan', 'answer']))
         self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'settings', 'mode': 'yolo'})[0], 409)
 
 
@@ -1068,7 +1068,11 @@ class ControlsLogic(unittest.TestCase):
         self.assertEqual(jsctl("parseSlash('/new')"), {'cmd': '/new', 'arg': ''})
         self.assertTrue(jsctl("parseSlash('/nope')")['unknown'])
         self.assertIsNone(jsctl("parseSlash('/home/me/log.txt is broken')"))   # a path is a message, not a command
-        self.assertEqual(jsctl("SLASH.map((c) => c.cmd)"), ['/new', '/model', '/effort', '/mode', '/clear', '/help'])
+        self.assertEqual(jsctl("SLASH.filter((c) => !c.send).map((c) => c.cmd)"),
+                         ['/new', '/model', '/effort', '/mode', '/clear', '/help'])
+        # the work commands are sent to Tutti and match the server's (tutti/chat.py COMMANDS)
+        sent = jsctl("SLASH.filter((c) => c.send).map((c) => c.cmd.slice(1))")
+        self.assertEqual(sorted(sent), sorted(k for k in chat.COMMANDS if k != 'help'))
 
     def test_the_popup_offers_commands_at_the_start_and_mentions_anywhere(self):
         self.assertEqual(jsctl("popupFor('/ef', 3)"), {'kind': 'slash', 'query': '/ef', 'start': 0})
@@ -1185,3 +1189,33 @@ class MainPick(unittest.TestCase):
                 mock.patch('tutti.conduct.current', return_value='cursor'):
             got, _ = chat.candidates({}, {}, {'sub': 'local'}, pick='main')
         self.assertEqual([c['worker'] for c in got], ['cursor', 'pc'])
+
+
+class ShortCommands(unittest.TestCase):
+    """Owner, 2026-11-17: /task, /delegate and delegate: in Tutti Chat."""
+    KNOWN = {'projects': ['tutti', 'roradio'], 'scouts': []}
+
+    def test_slash_task_and_delegate_forms(self):
+        got = chat.parse('/task roradio fix the Play rejection', self.KNOWN)
+        self.assertEqual((got['tool'], got['args']['repo'], got['args']['title']), ('backlog_add', 'roradio', 'fix the Play rejection'))
+        got = chat.parse('/delegate roradio: fix the Play rejection', self.KNOWN)
+        self.assertEqual((got['tool'], got['args']['project']), ('delegate_task', 'roradio'))
+        got = chat.parse('delegate: tidy the README', self.KNOWN)
+        self.assertEqual((got['tool'], got['args']['project'], got['args']['task']), ('delegate_task', 'tutti', 'tidy the README'))
+
+    def test_the_other_short_commands(self):
+        known = {**self.KNOWN, 'scouts': ['grok'], 'machine': ['nuc']}
+        self.assertEqual(chat.parse('/usage', known), {'tool': 'usage', 'args': {}})
+        self.assertEqual(chat.parse('/hosts', known)['tool'], 'machines')
+        self.assertEqual(chat.parse('/tasks all', known), {'tool': 'backlog_list', 'args': {'all': True}})
+        self.assertEqual(chat.parse('/status 17', known), {'tool': 'job_status', 'args': {'id': '17'}})
+        self.assertEqual(chat.parse('/ask grok what changed?', known)['args'], {'scout': 'grok', 'question': 'what changed?'})
+        self.assertEqual(chat.parse('/pause nuc', known)['tool'], 'control')
+        self.assertIn('/delegate', chat.parse('/help', known)['answer'])
+        self.assertIn('error', chat.parse('/ask nobody hi', known))
+
+    def test_just_ask_mode_never_starts_work(self):
+        self.assertIn('answer', chatctl.MODES)
+        self.assertIn('Answer only', chatrun.Engine.MODE_NOTE['answer'])
+        self.assertIn('never ask them to type a command', chatrun.Engine.MODE_NOTE['auto'])
+        self.assertIn('only when the work truly cannot start', chatrun.Engine.MODE_NOTE['auto'])

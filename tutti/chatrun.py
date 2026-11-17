@@ -285,8 +285,13 @@ class Engine:
                 self._say(job, reply)
             elif welcome.asks_miss(prompt.get('text')):
                 self._say(job, welcome.chat_answer(cfg, user))
+            elif call and 'answer' in call:   # /help
+                self._say(job, call['answer'])
             elif call and 'error' in call:
                 self._say(job, call['error'], chat.ChatError)
+            elif call and 'tool' in call and self.settings_of(job)['mode'] == 'answer' and chat.model_tools().get(
+                    call['tool'], {}).get('mutating'):
+                self._say(job, 'This chat is in Just ask mode, so I do not start work here. Switch the mode to Autonomous to run it.')
             elif call and self.settings_of(job)['mode'] == 'plan':
                 self._propose(job, user, cfg, [call], None, 'plan')
                 self._say(job, 'Here is the plan. Review it, change a step\'s text or leave steps out, then Run the plan.')
@@ -366,7 +371,13 @@ class Engine:
                         'refused': 'I can\'t do that for you; the card says why.'}[card['state']])
 
     MODE_NOTE = {'auto': 'Mode: autonomous. A tool that changes something runs at once (after the server\'s role checks) and '
-                         'its result comes back to you; say what you did.',
+                         'its result comes back to you; say what you did. When the user asks for work, do it yourself with '
+                         'ACTION delegate_task (or backlog_add for later): never ask them to type a command, and your own '
+                         'command line tool being read-only does not limit ACTION lines. Before you delegate, check the brief is '
+                         'complete: find what you can yourself (the backlog, the repos, the dashboard\'s state, earlier '
+                         'messages, the tools); ask the user one short question only when the work truly cannot start '
+                         'without an answer only they have (a choice of theirs, a credential step, money, taste).',
+                 'answer': 'Mode: just ask. Answer only: never call a tool that changes something; describe what could be done.',
                  'ask': 'Mode: ask before acting. A tool that changes something is only proposed: the user confirms it.',
                  'plan': 'Mode: plan review. Propose every step as tool calls in one go; the user reviews and edits the plan, '
                          'then it runs as a whole.'}
@@ -644,6 +655,9 @@ class Engine:
                 job.msg['cards'].append(card)
                 job.emit('card', card=card)
                 results.append((call['tool'], f'{card["state"]}: {card.get("text") or ""}'))
+            return results, False
+        if mutating and mode == 'answer':   # just ask (owner, 2026-11-17): nothing that changes something runs or is proposed
+            results.extend((c['tool'], 'not run: this chat is in Just ask mode') for c in mutating)
             return results, False
         if mutating:
             self._propose(job, user, cfg, mutating, cand, mode)

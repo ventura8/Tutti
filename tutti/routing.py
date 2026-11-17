@@ -248,13 +248,16 @@ def order(s):
     return (s.get('verdict') == 'ahead', expiry(s), rank(s))
 
 
-def pick_account(states):
+def pick_account(states, takeover=False):
     """(the account state to use, why) from states in preference order: never one in panic or spent; first the ones that
     would lose quota at the reset (late, behind), then on pace or unread, then ahead. (None, why) when none has room."""
     skipped = []
     usable = []
     for s in states:
         reason = account_unfit(s)
+        if takeover and reason and not (s.get('panic') or s.get('verdict') == 'spent'
+                                        or (s.get('used') is not None and s['used'] >= s.get('panic_at', 95))):
+            reason = ''   # the main agent panics: only an account's own panic or a spent quota stops it (autopilot.takes_over)
         if reason:
             skipped.append(f'{s["name"]}: {reason}')
         else:

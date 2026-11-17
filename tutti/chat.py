@@ -295,6 +295,26 @@ DELEGATE = re.compile(r'^(?:please\s+)?(?:delegate|hand\s+off|handoff)\s+(?:in|f
 ASK = re.compile(r'^(?:please\s+)?ask\s+(?:the\s+)?(?:scout\s+)?(?P<scout>[\w.-]+)(?:\s+scout)?\s*[:,–-]?\s*(?P<question>.+)$', re.I | re.S)
 CONTROL = re.compile(r'^(?:please\s+)?(?P<action>pause|resume|unpause)\s+(?:the\s+)?(?P<name>[\w.-]+)\s*[.!]?$', re.I)
 SIZE = re.compile(r'\s*\[size\s+(XS|S|M|L)\]\s*', re.I)
+# short commands (owner, 2026-11-17): /task <project> <title>; /delegate [<project>] <what>; delegate: [<project>:] <what>
+SLASH_TASK = re.compile(r'^/task\s+(?P<project>[\w.-]+)\s*[:,–-]?\s*(?P<title>.+)$', re.I | re.S)
+SLASH_DELEGATE = re.compile(r'^(?:/delegate\s+|delegate\s*:\s*)(?P<rest>.+)$', re.I | re.S)
+# the other short commands: /tasks [all], /status [<run id>], /usage, /hosts, /devices, /pause <name>, /resume <name>,
+# /ask <scout> <question>, /tests <project>, /help
+SLASH = re.compile(r'^/(?P<cmd>[a-z]+)\b\s*(?P<arg>.*)$', re.I | re.S)
+COMMANDS = {
+    'task': '/task <project> <what>: queue a task in a project',
+    'delegate': '/delegate [<project>] <what>: hand work to the best agent now (also "delegate: ...")',
+    'tasks': '/tasks [all]: the task queue',
+    'status': '/status [<run id>]: what is running, or one run',
+    'usage': '/usage: every account against its pace',
+    'hosts': '/hosts: the computers and their state',
+    'devices': '/devices: phones, tablets and TVs',
+    'pause': '/pause <host, device, agent or account>',
+    'resume': '/resume <host, device, agent or account>',
+    'ask': '/ask <scout> <question>: ask a scout such as grok',
+    'tests': '/tests <project>: queue the full test suite',
+    'help': '/help: these commands',
+}
 
 
 def find_name(name, names):
@@ -306,10 +326,56 @@ def find_name(name, names):
     return None
 
 
+def slash_call(cmd, arg, known):
+    """The tool call of a short command other than /task and /delegate, or {'answer': text} for /help."""
+    if cmd == 'help':
+        return {'answer': 'Commands: ' + '; '.join(COMMANDS.values()) + '. Plain words work too.'}
+    simple = {'usage': 'usage', 'hosts': 'machines', 'devices': 'devices'}
+    if cmd in simple:
+        return {'tool': simple[cmd], 'args': {}}
+    if cmd == 'tasks':
+        return {'tool': 'backlog_list', 'args': {'all': arg.lower() == 'all'}}
+    if cmd == 'status':
+        return {'tool': 'job_status', 'args': {'id': arg}}
+    if cmd in ('pause', 'resume') and arg:
+        return control_call(cmd, arg, known)
+    if cmd == 'ask' and ' ' in arg:
+        scout, question = arg.split(' ', 1)
+        name = find_name(scout, known.get('scouts', []))
+        return ({'tool': 'scout_ask', 'args': {'scout': name, 'question': question.strip()}} if name
+                else {'error': f'There is no scout called {scout}. Try /ask grok <question>.'})
+    if cmd == 'tests' and arg:
+        return work('backlog_add', arg, known, lambda p: {'repo': p, 'title': 'Run the full test suite and fix what fails',
+                                                          'size': 'S'})
+    return {'error': f'{COMMANDS[cmd]} needs more: {COMMANDS[cmd].split(":")[0]}'}
+
+
+def short_project(rest, known):
+    """(project, what) of a short command: a leading project name ('roradio: fix ...' or 'roradio fix ...') when it is one,
+    else the household's first project (its top priority in the config's order)."""
+    head, _, tail = rest.strip().partition(' ')
+    name = find_name(head.rstrip(':,'), known.get('projects', []))
+    if name and tail.strip():
+        return name, tail.strip()
+    projects = known.get('projects') or ['']
+    return projects[0], rest.strip()
+
+
 def parse(text, known):
     """The tool call a message asks for, or None. `known` = {projects, scouts, machine, device, worker, account: [names]}.
     {tool, args, label} or {'error': plain text} when the request is clear but names something unknown."""
     text = text.strip()
+    m = SLASH_TASK.match(text)
+    if m:
+        return work('backlog_add', m['project'], known, lambda p: {'repo': p, 'title': SIZE.sub(' ', m['title']).strip(),
+                                                                  **size_of(m['title'])})
+    m = SLASH_DELEGATE.match(text)
+    if m:
+        project, task = short_project(m['rest'], known)
+        return work('delegate_task', project, known, lambda p: {'project': p, 'task': SIZE.sub(' ', task).strip(), **size_of(task)})
+    m = SLASH.match(text)
+    if m and m['cmd'].lower() in COMMANDS:
+        return slash_call(m['cmd'].lower(), m['arg'].strip(), known)
     m = ADD.match(text)
     if m:
         return work('backlog_add', m['project'], known, lambda p: {'repo': p, 'title': SIZE.sub(' ', m['title']).strip(),

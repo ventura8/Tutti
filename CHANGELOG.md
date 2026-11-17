@@ -11,7 +11,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
-- Automatic dashboard page updates wait for unsent Chat drafts, attachments, dialogs and active answers (t326).
+- Automatic dashboard page updates and Settings restarts protect this tab's unsent Chat work and active answers (t326).
 
 ## [0.27.2] - 2026-11-18
 

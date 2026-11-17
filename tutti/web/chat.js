@@ -152,6 +152,7 @@ function ndjson(buffer) {
 const CHAT = {
     list: [], suggestions: [], role: 'admin', limits: { attachment_bytes: 32768, attachments: 3, text: 8000 }, host: '',
     conv: null, query: '', loading: true, failed: '', streaming: null, controller: null, pending: [], stick: true, unseen: 0,
+    readingFiles: 0, pickingFiles: false,
 };
 const CHAT_TOKEN = (typeof document !== 'undefined' && document.querySelector('meta[name="tutti-token"]')?.content) || '';
 const cq = (id) => document.getElementById(id);
@@ -428,10 +429,13 @@ function composerText() { return cq('chat-input').value.replace(/\s+$/, ''); }
 // A version refresh must not discard an unsent draft, attachments, an edit or an active answer.
 function chatRefreshBlocked(state = CHAT, text = cq('chat-input')?.value || '', files = cq('chat-file')?.files?.length || 0,
     dialogOpen = cq('chat-dialog')?.open || false) {
-    return Boolean(state.streaming || state.editing || state.pending?.length || text || files || dialogOpen);
+    const unsent = (state.conv?.messages || []).some((m) => m?.status === 'unsent' || m?.status === 'sending');
+    return Boolean(state.streaming || state.editing || state.pending?.length || state.readingFiles || state.pickingFiles ||
+        unsent || text || files || dialogOpen);
 }
 
 async function send(text, extra = {}) {
+    if (window.tuttiRestarting) { say('The dashboard is restarting. Your draft is still here; send it when it returns.'); return; }
     text = (text ?? composerText()).trim();
     if ((!text && !CHAT.pending.length) || CHAT.streaming) return;
     if (text.startsWith('/') && typeof runSlash === 'function' && await runSlash(text)) {
@@ -657,7 +661,7 @@ function lastUserMessage() {
 
 function onSubmit(e) {
     e.preventDefault();
-    if (CHAT.streaming) return;
+    if (CHAT.streaming || window.tuttiRestarting) return;
     const edit = CHAT.editing;
     cancelEdit();
     void send(undefined, edit ? { edit } : {});
@@ -665,16 +669,25 @@ function onSubmit(e) {
 
 async function onFiles(e) {
     const err = [];
-    for (const file of e.target.files) {
-        if (CHAT.pending.length >= CHAT.limits.attachments) { err.push(`At most ${CHAT.limits.attachments} files per message.`); break; }
-        const why = attachmentError(file, CHAT.limits.attachment_bytes);
-        if (why) { err.push(why); continue; }
-        const item = await readAttachment(file);
-        if (typeof item === 'string') err.push(item); else CHAT.pending.push(item);
+    const files = Array.from(e.target.files || []);
+    CHAT.readingFiles += 1;
+    CHAT.pickingFiles = false;
+    try {
+        for (const file of files) {
+            if (CHAT.pending.length >= CHAT.limits.attachments) { err.push(`At most ${CHAT.limits.attachments} files per message.`); break; }
+            const why = attachmentError(file, CHAT.limits.attachment_bytes);
+            if (why) { err.push(why); continue; }
+            const item = await readAttachment(file);
+            if (typeof item === 'string') err.push(item); else CHAT.pending.push(item);
+        }
+    } catch (error) {
+        err.push(`A file could not be read (${error?.message || 'unknown error'}): attach it again.`);
+    } finally {
+        CHAT.readingFiles -= 1;
+        e.target.value = '';
+        cq('chat-file-error').textContent = err.join(' ');
+        drawPending();
     }
-    e.target.value = '';
-    cq('chat-file-error').textContent = err.join(' ');
-    drawPending();
 }
 
 // A file as an attachment: {name, text} or {name, type, data (base64), size} for an image; a string says why not.
@@ -798,8 +811,9 @@ function initChat() {
     cq('chat-input').addEventListener('input', autoGrow);
     cq('chat-stop').addEventListener('click', stopAnswer);
     cq('chat-new').addEventListener('click', newChat);
-    cq('chat-attach').addEventListener('click', () => cq('chat-file').click());
+    cq('chat-attach').addEventListener('click', () => { CHAT.pickingFiles = true; cq('chat-file').click(); });
     cq('chat-file').addEventListener('change', onFiles);
+    cq('chat-file').addEventListener('cancel', () => { CHAT.pickingFiles = false; });
     cq('chat-log').addEventListener('scroll', onScroll, { passive: true });
     cq('chat-jump').addEventListener('click', jumpLatest);
     cq('chat-rename-btn').addEventListener('click', renameConv);

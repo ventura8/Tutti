@@ -587,7 +587,6 @@ function machine(m) {
         const hot = m.heat?.cap_c !== undefined && t >= m.heat.cap_c;
         stats.append(el('span', { class: 'temp', 'data-tone': hot ? 'warn' : undefined, text: `${label} ${tuttiNum(t, { digits: 0 })} °C` }));
     }
-    if ((m.cast_roles || []).length) stats.append(el('span', { text: 'Cast sender', title: 'Chrome, Chromium or the desktop sender (checked daily; machines.<m>.roles overrides)' }));
     if (m.heat?.cap_c !== undefined) stats.append(el('span', { class: 'temp', title: 'machines.<m>.heat (Settings): one run at the cap, none at the stop',
         text: `heat cap ${m.heat.cap_c} °C · stop ${m.heat.stop_c ?? '–'} °C` }));
     if (m.temp_note && (m.temp_c === null || m.temp_c === undefined)) stats.append(el('span', { class: 'temp', title: m.temp_note,
@@ -600,10 +599,11 @@ function machine(m) {
     const use = (ui.last?.household_use?.machines || []).find((u) => u.name === m.name);
     const shards = (ui.last?.dispatch?.leases || []).filter((x) => x.name === m.name && x.why);
     if (use && use.hour !== null) stats.append(el('span', { text: `used ${tuttiPct(use.hour)} last hour · ${tuttiPct(use.day)} today` }));
-    return el('li', { class: 'row' },
+    return el('li', { class: 'row', 'data-roles': roleNames(m.roles) },
         el('div', { class: 'row__name' }, m.name, el('span', { class: 'row__kind', text: `${m.transport} · ${m.host}` })),
         chip(m.status, MACHINE_TONE[m.status]),
         stats,
+        roleChips(m.name, m.roles, `machines.${m.name}`),   // roles.js: what it is for, each with why
         presenceBits(m.presence),   // controls.js: Here / Away since 18:40 (left with its owner), today's strip
         hygieneBits(m.name),   // hygiene.js: its yield flag's owner and age, free space, WSL, the week's clean-up
         el('p', { class: 'row__note', text: m.status === 'paused' ? 'Yield flag is up: Tutti sends it nothing new until it is lowered.' : m.reason }),
@@ -702,6 +702,7 @@ function renderMachines(s) {
     const focused = document.activeElement?.closest?.('.stored')?.dataset.machine;
     $('machines').replaceChildren(...(ms.items.length ? ms.items.map(machine)
         : [el('li', {}, ms.probed_at ? empty('No machines', 'Add machines: to the config to route heavy runs.') : empty('Probing machines…', 'ssh answers can take a few seconds.'))]));
+    roleFilter('machines-role-filter', 'machines', ms.items);
     if (focused) $('machines').querySelector(`.stored[data-machine="${CSS.escape(focused)}"] > summary`)?.focus({ preventScroll: true });
 }
 

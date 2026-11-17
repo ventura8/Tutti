@@ -119,6 +119,8 @@ The public surfaces (the CLI, the HTTP routes, the MCP tools, the config keys) a
 | File | Owns |
 | --- | --- |
 | `tutti/config.py` | Finding (`$TUTTI_CONFIG`, then `$XDG_CONFIG_HOME/tutti/config.yaml`, then the nearest file), loading, defaulting and validating; `write_text` saves through a symlink into the real file, atomically. Every error names its key and the fix. |
+| `tutti/roles.py` | Roles of machines and devices: the daily probe, the config's roles, an admin's `roles` / `roles_add` / `roles_off`, each with why; `dispatch.compatible` refuses a target without a suite's `roles:`. `tutti/rolescmd.py` is `tutti machines --roles` and `tutti roles`. |
+| `tutti/lanmedia.py` | Media devices on the LAN (AirPlay, Cast, Spotify Connect over mDNS; DLNA over SSDP), scanned once a day, shown under Devices with their roles. |
 | `tutti/diskroom.py` | Room on the temp folder and the work disk: low free space or file slots warn (doctor, Machines card) and stop new work. |
 | `tutti/configone.py` | One config per user: other copies that differ (doctor, Settings) and their merge into the one in use, each copy then a symlink to it. |
 | `tutti/devicecard.py` | One card per Android device on the dashboard: its one status (the pause switch and the idle watchdog folded in), why, what waits on it, its action, its reroute line, plain durations and temperatures labelled by sensor (skin or SoC, battery only when present). |
@@ -203,6 +205,23 @@ flowchart LR
     G --> I{intake guard}
     L --> I
     I -- no task explains it --> D[dashboard: Work outside Tutti]
+```
+
+## Roles and dispatch
+
+```mermaid
+flowchart LR
+    probe[daily probe over ssh / WSL] --> detect[roles.detect_machine]
+    readings[device readings: leanback, Cast] --> ddetect[roles.detect_device]
+    lan[mDNS + SSDP on the LAN] --> lanmedia[lanmedia.devices]
+    cfg[config: main, backup, browser, roles_add / roles_off / roles] --> eff[roles.effective]
+    detect --> eff
+    ddetect --> eff
+    lanmedia --> eff
+    eff --> chips[dashboard chips + Role filter]
+    eff --> compat{dispatch.compatible: every role of the suite?}
+    compat -- yes --> score[power score picks the target]
+    compat -- no --> other[another target, or it waits]
 ```
 
 ## How `tutti test <track> '<cmd>'` flows

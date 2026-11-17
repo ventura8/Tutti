@@ -7,12 +7,26 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
-## [Unreleased]
+## [0.25.6] - 2026-11-17
 
 ### Fixed
 
 - `tutti run ... --repo <name>` (and MCP `delegate_task`) resolves a bare name to `autopilot.repos.<name>.path` before
   creating the worktree, so a hand-off from a non-git cwd no longer fails with "`<name>` is not inside a git work tree".
+
+## [0.25.5] - 2026-11-17
+
+### Fixed
+
+- Explicit test environments without a configuration directory no longer read the user's scout secret file or send
+  scout requests to the live webhook (t323).
+
+## [0.25.4] - 2026-11-17
+
+### Fixed
+
+- Pausing an account or worker removes it from the active autopilot ladder and account list until resumed, so a pause no longer prevents
+  configuration reloads and Chat responses (t321).
 
 ## [0.25.3] - 2026-11-17
 

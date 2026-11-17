@@ -263,15 +263,20 @@ def takes_over(cfg, name, s, states):
     """True when `name` (not a main account, itself neither in panic nor spent) takes work while the main agent panics."""
     if name in main_accounts(cfg) or not main_in_panic(cfg, states):
         return False
-    used = s.get('used')
-    return not (quota_panic(s) or (used is not None and used >= s.get('panic_at', 95)))
+    return not routing.quota_closed(s)
 
 
 def quota_panic(s):
     """Panic or exhaustion in the account or any linked window."""
+    if invalid_quota_tree(s):
+        return False   # malformed state cannot prove that every online account is panicked or spent
     used = s.get('used')
     return bool(s.get('panic') or s.get('verdict') == 'spent' or
                 (used is not None and used >= s.get('panic_at', 95)) or any(quota_panic(x) for x in s.get('limits') or []))
+
+
+def invalid_quota_tree(s):
+    return routing.invalid_usage(s) or any(invalid_quota_tree(x) for x in s.get('limits') or [])
 
 
 def remaining_quota(s):

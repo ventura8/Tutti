@@ -14,6 +14,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - Main-agent hand-off respects paused account links and machine availability, selects online agents by preference and
   falls back to the strongest available local model. When online accounts are all in panic, a local main can cautiously
   delegate one small unit per account with measured quota left, balancing remaining quota without pausing accounts (t322).
+- Chat requires an admin-declared selector with distinct values to route shared-worker accounts, checks the launched
+  command, and refuses ambiguous bindings; the selector is an admin assertion about the CLI, not provider verification.
 ## [0.26.0] - 2026-11-17
 
 ### Added

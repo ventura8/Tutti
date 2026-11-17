@@ -666,8 +666,11 @@ def capability(cand):
 
 def online_model(cfg, name, w, rows, accounts, paused, owner, configured, account_args):
     """Choose a configured account whose quota can safely be bound to this worker's command."""
-    from . import routing
+    from . import routing, workers
     linked = [n for n, worker in configured.items() if worker == name]
+    selector = w.get('chat_account_selector') if len(linked) > 1 else None
+    values = {n: workers.selector_value(account_args.get(n) or [], selector) for n in linked} if selector else {}
+    binding_ok = bool(selector and len(values) == len(linked) and all(values.values()) and len(set(values.values())) == len(linked))
     options = []
     for acc_name in linked or [name]:
         conf = (cfg.get('accounts') or {}).get(acc_name)
@@ -677,16 +680,19 @@ def online_model(cfg, name, w, rows, accounts, paused, owner, configured, accoun
             why = f'{acc_name}: its configured account is paused or disabled'
         if not why and linked and acc is None:
             why = f'{acc_name}: no pacing state yet; refresh usage before using this account'
-        args = account_args.get(acc_name) or []
-        if not why and len(linked) > 1 and (not args or any(account_args.get(n) == args for n in linked if n != acc_name)):
-            why = f'{acc_name}: configure distinct account args so Chat can select this account on {name}'
+        if not why and len(linked) > 1 and not binding_ok:
+            why = (f'{name}: configure workers.{name}.chat_account_selector and distinct selector values in each linked '
+                   'account args before Chat uses this shared worker')
         missing = routing.missing_limits(cfg, acc_name, acc or {})
         if not why and missing:
             why = f'{acc_name}: missing linked quota state ({", ".join(missing)}); resume it or refresh its reading'
         if not why and acc and routing.quota_closed(acc):
             why = f'{acc_name}: a linked quota is in panic or spent'
-        options.append({'kind': 'cli', 'worker': name, 'account': acc_name, 'why': why, 'tools': True,
-                        'label': f'{name} ({acc_name} account)'})
+        candidate = {'kind': 'cli', 'worker': name, 'account': acc_name, 'why': why, 'tools': True,
+                     'label': f'{name} ({acc_name} account)'}
+        if binding_ok:
+            candidate.update(selector=selector, selector_value=values[acc_name])
+        options.append(candidate)
     return next((candidate for candidate in options if not candidate['why']), options[0])
 
 

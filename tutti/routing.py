@@ -1,4 +1,5 @@
 """Fall-over routing: which machine runs a heavy command. Pure logic; the probes come from the caller."""
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -226,16 +227,32 @@ def missing_limits(cfg, name, state):
     return sorted(expected - found)
 
 
-def account_unfit(s):
-    """Why an account (a pacing.account_state) must not take new work, or ''."""
+def invalid_usage(s):
+    used = s.get('used')
+    return used is not None and (isinstance(used, bool) or not isinstance(used, (int, float)) or
+                                 not math.isfinite(used) or not 0 <= used <= 100)
+
+
+def quota_unfit(s):
+    """Why the account's own observed quota cannot be used, or ''."""
     if s.get('_missing_limits'):
         return 'missing linked quota state: ' + ', '.join(s['_missing_limits'])
+    if invalid_usage(s):
+        return 'invalid quota reading: refresh this account before using it'
     if s.get('panic'):
         return f'panic: {s["used"]:g} % used before the target time' if s.get('used') is not None else 'panic'
     if s.get('verdict') == 'spent':
         return 'spent until the reset'
     if s.get('used') is not None and s['used'] >= s.get('panic_at', 95):
         return f'{s["used"]:g} % used: at the panic threshold'
+    return ''
+
+
+def account_unfit(s):
+    """Why an account (a pacing.account_state) must not take new work, or ''."""
+    reason = quota_unfit(s)
+    if reason:
+        return reason
     p = s.get('quota_plan')
     if p and not p.get('limit') and p['left'] <= 0:
         return 'its planned room is used (what is left is kept as its reserve or for its spend outside Tutti)'
@@ -271,7 +288,7 @@ def order(s):
 def quota_closed(s):
     """An account or any linked window is in panic or spent, independent of pacing reserves."""
     used = s.get('used')
-    return bool(s.get('_missing_limits') or s.get('panic') or s.get('verdict') == 'spent' or
+    return bool(s.get('_missing_limits') or invalid_usage(s) or s.get('panic') or s.get('verdict') == 'spent' or
                 (used is not None and used >= s.get('panic_at', 95)) or any(quota_closed(x) for x in s.get('limits') or []))
 
 

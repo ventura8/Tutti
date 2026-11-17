@@ -439,8 +439,12 @@ def _review_errors(cfg):
 def _worker_errors(name, w):
     kind = (w or {}).get('kind')
     if kind == 'cli':
-        return [] if isinstance(w.get('command'), list) and w['command'] else [
+        errors = [] if isinstance(w.get('command'), list) and w['command'] else [
             f'workers.{name}.command is missing: a list such as [cursor-agent, -p, "{{prompt}}"]']
+        selector = w.get('chat_account_selector')
+        if selector is not None and (not isinstance(selector, str) or not selector.startswith('-') or selector == '-' or '=' in selector):
+            errors.append(f'workers.{name}.chat_account_selector is {selector!r}: use a flag such as --model, without a value')
+        return errors
     if kind == 'ollama':
         return [f'workers.{name}.{k} is missing' for k in ('host', 'model') if not w.get(k)]
     return [f'workers.{name}.kind is {kind!r}: use cli or ollama']

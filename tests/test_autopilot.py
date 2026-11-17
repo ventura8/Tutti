@@ -691,11 +691,15 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
         states = {'claude': {'panic': True, 'used': 96, 'reading_at': '2026-01-01T00:30:00Z'},
                   'cursor': {'panic': True, 'used': 96, 'reading_at': '2026-01-01T00:30:00Z', 'stale': False}}
         self.assertTrue(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
-        for change in ({'used': -20}, {'used': 101}, {'used': float('nan')}, {'used': float('inf')},
+        for change in ({'used': -20}, {'used': 101}, {'used': 'unknown'}, {'used': float('nan')}, {'used': float('inf')},
                        {'reading_at': 'invalid'}, {'reading_at': '2026-01-01T02:00:00Z'},
                        {'reading_at': '2025-12-31T20:00:00Z'}, {'selected_source': 'estimate'}):
             bad = {**states['cursor'], **change}
             self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', bad, {**states, 'cursor': bad}), change)
+        bad_main = {**states['claude'], 'used': 'unknown'}
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], {**states, 'claude': bad_main}))
+        bad_link = {**states['cursor'], 'limits': [{'name': 'weekly', 'used': 'unknown'}]}
+        self.assertFalse(autopilot.takes_over(cfg, 'cursor', bad_link, states))
 
     def test_selected_estimate_is_not_mistaken_for_the_older_real_reading(self):
         entries = [{'account': 'cursor', 'at': '2026-01-01T00:20:00Z', 'used': 20, 'source': 'reader'},

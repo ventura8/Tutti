@@ -186,7 +186,8 @@ class Models(unittest.TestCase):
         self.assertIn('claude', self.names(snap))
 
     def test_shared_worker_uses_healthy_configured_account_without_worker_probe(self):
-        self.cfg['workers']['shared'] = {'kind': 'cli', 'command': ['agent', '--model', 'default', '{prompt}']}
+        self.cfg['workers']['shared'] = {'kind': 'cli', 'command': ['agent', '--model', 'default', '{prompt}'],
+                                          'chat_account_selector': '--model'}
         self.cfg['accounts'].update({'first': {'worker': 'shared', 'args': ['--model', 'a']},
                                      'second': {'worker': 'shared', 'args': ['--model', 'b']}})
         readings = [{'name': 'first', 'used': 100, 'verdict': 'spent'}, {'name': 'second', 'used': 20}]
@@ -209,8 +210,13 @@ class Models(unittest.TestCase):
         def popen(argv, **_kwargs):
             seen.append(argv)
             return Process()
-        self.assertEqual(list(chatrun.cli_stream(self.cfg['workers']['shared'], [], threading.Event(), extra=args, popen=popen)), ['ok\n'])
+        self.assertEqual(list(chatrun.cli_stream(self.cfg['workers']['shared'], [], threading.Event(), extra=args, popen=popen,
+                                                  selector=shared['selector'], selector_value=shared['selector_value'])), ['ok\n'])
         self.assertEqual(seen[0][seen[0].index('--model') + 1], 'b')
+        with self.assertRaises(ValueError):
+            list(chatrun.cli_stream(self.cfg['workers']['shared'], [], threading.Event(), extra=['--model', 'wrong'], popen=popen,
+                                     selector=shared['selector'], selector_value=shared['selector_value']))
+        self.assertEqual(len(seen), 1)   # a wrong selector never launches
 
         snap['controls'] = {'paused': [{'kind': 'account', 'name': 'second'}]}
         self.assertNotIn('shared', self.names(snap))
@@ -230,6 +236,12 @@ class Models(unittest.TestCase):
         self.cfg['accounts'].update({'first': {'worker': 'shared'}, 'second': {'worker': 'shared'}})
         snap = snapshot(usage={'accounts': [{'name': 'first', 'used': 10}, {'name': 'second', 'used': 10}]})
         self.assertNotIn('shared', self.names(snap))
+        self.cfg['workers']['shared']['chat_account_selector'] = '--model'
+        for first, second in ((['--model', 'x'], ['--model', 'x']), (['--model', 'x'], ['--other', 'y']),
+                              (['--model', 'x', '--different', 'a'], ['--model', 'x', '--different', 'b']),
+                              (['--model', 'x', '--model', 'y'], ['--model', 'z'])):
+            self.cfg['accounts']['first']['args'], self.cfg['accounts']['second']['args'] = first, second
+            self.assertNotIn('shared', self.names(snap), (first, second))
 
 
 def fake_streams(script):

@@ -56,12 +56,15 @@ def ollama_stream(worker, messages, cancel, timeout=MODEL_TIMEOUT, tools=None, t
 
 
 def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.Popen, clock=time.monotonic, extra=(),
-               cwd=None):
+               cwd=None, selector=None, selector_value=None):
     """Yields a CLI worker's answer line by line (`claude -p`, `cursor-agent -p`): the conversation as one prompt. A reader
     thread feeds a queue, so Stop and the deadline are seen even while the worker prints nothing; past the deadline the
     worker is killed and OSError lets the next model answer."""
     prompt = '\n\n'.join(f'{m["role"].upper()}:\n{m["content"]}' for m in messages) + '\n\nASSISTANT:'
-    proc = popen(workers.with_args(workers.command(worker, prompt), extra), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    argv = workers.with_args(workers.command(worker, prompt), extra)
+    if selector and workers.selector_value(argv, selector) != selector_value:
+        raise ValueError('Chat could not bind the selected account to the worker command: check its selector and account args')
+    proc = popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                  stdin=subprocess.DEVNULL, text=True, start_new_session=True, cwd=cwd)
     lines = queue.Queue()
     threading.Thread(target=_pump, args=(proc.stdout, lines), daemon=True).start()
@@ -112,7 +115,8 @@ def stream_of(cand, cfg, messages, cancel):
         return ollama_stream(w, messages, cancel, tools=chat.ollama_tools() if cand.get('tools') else None, think=think, num_ctx=ctx)
     account = ((cfg.get('accounts') or {}).get(cand.get('account')) or {})
     extra = chatctl.cli_args(w, effort) + chatctl.chat_args(w) + list(account.get('args') or [])
-    return cli_stream(w, messages, cancel, extra=extra, cwd=chat_workdir(cfg))
+    return cli_stream(w, messages, cancel, extra=extra, cwd=chat_workdir(cfg),
+                      selector=cand.get('selector'), selector_value=cand.get('selector_value'))
 
 
 # ---- the tools: the MCP server's own calls, after the chat's role check

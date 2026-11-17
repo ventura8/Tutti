@@ -112,12 +112,40 @@ def statuses(cfg, available_fn=None):
         return dict(zip(names, pool.map(lambda n: available_fn(cfg['workers'][n]), names), strict=True))
 
 
-def listing(cfg, available_fn=None):
+def on_machines(cfg, ready_fn=None):
+    """{worker: {machine: (ready, note)}} of the CLI workers that run on other machines (workers.<w>.machines), each machine
+    asked over its transport whether the CLI answers `--version` and its login files (workers.<w>.login) exist. This computer
+    is answered by `available`."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from . import cliplace, remote
+    ready_fn = ready_fn or remote.cli_ready
+    main = cliplace.main_name(cfg)
+    asks = [(w, m) for w in cfg['workers'] for m in cliplace.machines_of(cfg, w) if m != main]
+    if not asks:
+        return {}
+
+    def one(pair):
+        w, m = pair
+        worker = cfg['workers'][w]
+        logins = worker.get('login') or []
+        return ready_fn(cfg['machines'][m], worker['command'][0], [logins] if isinstance(logins, str) else logins)
+    with ThreadPoolExecutor(max_workers=min(8, len(asks))) as pool:
+        found = list(pool.map(one, asks))
+    out = {}
+    for (w, m), r in zip(asks, found, strict=True):
+        out.setdefault(w, {})[m] = r
+    return out
+
+
+def listing(cfg, available_fn=None, ready_fn=None):
     rows = []
     checks = statuses(cfg, available_fn)
+    away = on_machines(cfg, ready_fn)
     for name, w in cfg['workers'].items():
         ok, note = checks[name]
         rows.append(f'{name:12} {w["kind"]:7} {"ready" if ok else "DOWN":6} {note}')
+        rows += [f'{"":12} {"on " + m:15} {"ready" if r_ok else "DOWN":6} {r_note}' for m, (r_ok, r_note) in away.get(name, {}).items()]
     return '\n'.join(rows) or 'no workers in the config: add a workers: section (tutti.config.example.yaml)'
 
 
@@ -134,10 +162,16 @@ def worker_env(cfg, base=None):
     webhook URL and key (scouts.<name>.url_env, key_env). The worker CLI's own sign-in (its config files, its own API key
     variable) stays."""
     base = os.environ if base is None else base
+    drop = dropped(cfg)
+    return {k: v for k, v in base.items() if k not in drop}
+
+
+def dropped(cfg):
+    """The variables a worker never gets: NOT_FOR_WORKERS and the scouts' webhook URL and key variables."""
     drop = set(NOT_FOR_WORKERS)
     for sc in ((cfg or {}).get('scouts') or {}).values():
         drop |= {sc.get(k) for k in ('url_env', 'key_env') if isinstance(sc, dict) and isinstance(sc.get(k), str)}
-    return {k: v for k, v in base.items() if k not in drop}
+    return drop
 
 
 
@@ -204,6 +238,61 @@ def run(cfg, name, task, files=(), cwd=None, out=None, extra=(), log=None):
             stop_tree(p)
             raise
     return (COMPACT_RC if stopped else p.returncode), list(kept)
+
+
+def remote_script(cfg, name, task, files, path, extra=(), log=None):
+    """The bash line that runs CLI worker `name` headless in `path` on another machine (docs/WORKERS.md, *On another machine*):
+    the same brief, account arguments and allow-list (its own tree granted) as here, the variables a worker never gets unset
+    there too, its process group's id written to `<path>.pid` so a stop ends every child."""
+    from . import autocompact
+    worker = cfg['workers'][name]
+    argv = grant_tree(with_args(command(worker, brief(cfg, task, files), log), extra), path)
+    drop = sorted(dropped(cfg))
+    env = ['env', *[a for k in drop for a in ('-u', k)], 'TUTTI_BACKGROUND=1',
+           *[f'{k}={v}' for k, v in autocompact.env_for(cfg, worker).items()]]
+    q = shlex.quote(path)
+    return f'cd {q} && echo $$ > {shlex.quote(path + ".pid")} && exec {shlex.join([*env, *argv])}'
+
+
+def run_remote(cfg, name, task, files, machine, path, out=None, extra=(), log=None, popen=None, stop=None):
+    """`run` on another machine: the CLI over the machine's transport in its copy at `path`. Returns (exit code, the last
+    lines); remote.DROPPED (255) with a line saying so when the connection failed or dropped (the attempt fails, the next
+    round retries it); COMPACT_RC when it was stopped at the autocompact threshold."""
+    from . import autocompact, remote
+    popen = popen or remote.cli_popen
+    stop = stop or (lambda: remote.cli_stop(machine, path + '.pid'))
+    out = out or sys.stdout
+    kept = collections.deque(maxlen=KEEP_LINES)
+    watch = autocompact.Watch(cfg, cfg['workers'][name])
+    p = popen(machine, remote_script(cfg, name, task, files, path, extra, log))
+    stopped = False
+    try:
+        for line in p.stdout:
+            out.write(line)
+            out.flush()
+            kept.append(line.rstrip('\n'))
+            if watch.line(line) and p.poll() is None:
+                stop()
+                stopped = True
+                out.write(f'tutti: context at {watch.pct:g} % (autocompact.threshold_pct {watch.limit}): stopped on '
+                          f'{machine["name"]}, restarting with a handoff\n')
+                break
+    except KeyboardInterrupt:
+        stop()
+        raise
+    finally:
+        if stopped:
+            p.kill()
+        rc = p.wait()
+    if stopped:
+        return COMPACT_RC, list(kept)
+    if rc == remote.DROPPED:
+        note = (f'tutti: the connection to {machine["name"]} failed or dropped (ssh exit {rc}): this attempt failed; the worker '
+                f'there may still be running in {path} and is stopped')
+        stop()
+        out.write(note + '\n')
+        kept.append(note)
+    return rc, list(kept)
 
 
 def pass_through(p, out, kept, watch):

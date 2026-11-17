@@ -71,7 +71,10 @@ files: {cache: ~/.cache/tutti/files, budget_gb: 50, keep_free_gb: 2, bwlimit_kbp
 workers:
   cursor: {kind: cli, command: [cursor-agent, -p, '{prompt}', --trust, --force, --output-format, text]}   # --force: commands run headless
   # Google Antigravity: {log} is a log file per run, where a headless permission denial shows ("soft-denying ...")
-  agy: {kind: cli, command: [agy, -p, '{prompt}', --print-timeout, 600s, --mode, accept-edits, --log-file, '{log}'], denied: soft-denying}
+  # machines: where the CLI is installed and signed in; the autopilot sends each run to the best fit with room, a machine
+  # nobody uses before one in use (docs/WORKERS.md, *On another machine*). login: a file whose existence means signed in.
+  agy: {kind: cli, command: [agy, -p, '{prompt}', --print-timeout, 600s, --mode, accept-edits, --log-file, '{log}'], denied: soft-denying,
+        machines: [builder, here], login: ~/.gemini/oauth_creds.json}
   claude: {kind: cli, command: [claude, -p, '{prompt}']}
   # GitHub Copilot CLI: premium requests are paid per use, so costs_money: true keeps it off (out of routing, conduct and
   # review fallbacks, pacing and the dashboard) until enabled: true. Mark every worker or account that can cost money so.

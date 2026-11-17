@@ -235,20 +235,82 @@ def write(p, text, mode='w'):
 
 
 def delegate(cfg, name, task, files, repo, run_id=None, track=None, extra=(), checks=True, discard=False, say=None, check_list=None,
-             remote_track=None):
+             remote_track=None, machine=None):
     """The whole hand-off. Returns the report dict (also written to report.json and report.txt). Runs that name the same
     --track share one worktree, so they take turns: the second waits until the first has its report. `check_list` replaces the
-    configured checks (`tutti run --check`: the target repo's own check); `remote_track` the folder routed checks copy into."""
+    configured checks (`tutti run --check`: the target repo's own check); `remote_track` the folder routed checks copy into;
+    `machine` where the CLI runs (workers.<w>.machines; its diff comes back into the worktree here)."""
     if track and not TRACK.match(track):
         raise ship.ShipError(f'refused: --track "{track}" must be one folder name (letters, digits, . _ -), nothing was changed')
     lock = track_lock(cfg, f'tree-{track}', say or (lambda m: sys.stderr.write(f'tutti: {m}\n'))) if track else contextlib.nullcontext()
     with lock:
-        return _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list, remote_track)
+        return _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list, remote_track, machine)
 
 
-def run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list):
+def away_machine(cfg, machine):
+    """The machine's config when a run goes to another machine than this computer, else None."""
+    m = (cfg.get('machines') or {}).get(machine) if machine else None
+    return m if m and m.get('transport') != 'local' else None
+
+
+def run_away(cfg, name, task, files, wt, log, extra, worker_log, machine, track, prepare=None, run=None, diff=None, read=None):
+    """The CLI on another machine (docs/WORKERS.md, *On another machine*): the worktree copied there, the worker run there
+    headless, its whole change brought back as a patch and applied here, so the diff, the checks and the report are as for a
+    run here. A machine that cannot be reached, or a connection that drops, fails the attempt with the step and the cause."""
+    from . import remote
+    prepare, diff, read = prepare or remote.cli_prepare, diff or remote.cli_diff, read or remote.cli_read
+    rtrack = f'cli-{track}'
+    log.write(f'tutti: run: on {machine["name"]}: copying the worktree to {machine["name"]}:{machine["root"]}/{rtrack}\n')
+    log.flush()
+    try:
+        path = prepare(cfg, machine, rtrack, wt)
+    except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+        note = f'tutti: run: {machine["name"]} could not take the run ({e}): this attempt failed; nothing ran there'
+        log.write(note + '\n')
+        return remote.DROPPED, [note]
+    rlog = path + '.worker.log'
+    log.write(f'tutti: run: on {machine["name"]}: {name} works in {path}\n')
+    log.flush()
+
+    def go(cfg_, name_, task_, files_, cwd=None, out=None, extra=(), log=None):
+        return workers.run_remote(cfg_, name_, task_, files_, machine, path, out, extra, rlog if log else None)
+    rc, lines = run_compacting(cfg, name, task, files, wt, log, extra, worker_log, run=run or go)
+    with open(worker_log, 'w', encoding='utf8') as f:
+        f.write(read(machine, rlog))
+    try:
+        patch = diff(machine, path)
+    except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+        note = f'tutti: run: {e}: this attempt failed; its change stays on {machine["name"]} in {path}'
+        log.write(note + '\n')
+        return (rc if rc else remote.DROPPED), [*lines, note]
+    take_patch(wt, patch)
+    log.write(f'tutti: run: on {machine["name"]}: its change is in the worktree here ({len(patch)} bytes of diff)\n')
+    return rc, lines
+
+
+def take_patch(wt, patch):
+    """The worktree here made to hold exactly HEAD plus `patch` (the copy there started from this tree, so the patch holds the
+    tree's own earlier changes too): those are taken back first, then the patch applied."""
+    before = os.path.join(os.path.dirname(wt), f'.{os.path.basename(wt)}.before.patch')
+    try:
+        capture_diff(wt, before)
+        if os.path.getsize(before):
+            ship.git(wt, 'apply', '-R', '--binary', before)
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(before)
+    if patch:
+        r = subprocess.run([worktree.git_bin(), '-C', wt, 'apply', '--binary', '-'], input=patch, capture_output=True)
+        if r.returncode:
+            raise ship.ShipError(f'the change from the other machine does not apply to {wt}: '
+                                 f'{r.stderr.decode("utf8", "replace").strip()[:300]}')
+
+
+def run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list, machine=None, track=None):
     """(exit code, last lines) of the worker in the worktree. A local model (kind ollama) works through `tutti agent`'s loop on
-    the given files with the first check as its own check."""
+    the given files with the first check as its own check. `machine`: another machine's config, where the CLI runs."""
+    if machine and cfg['workers'][name]['kind'] == 'cli':
+        return run_away(cfg, name, task, files, wt, log, extra, worker_log, machine, track)
     if cfg['workers'][name]['kind'] != 'ollama':
         return run_compacting(cfg, name, task, files, wt, log, extra, worker_log)
     from . import fleet, local
@@ -306,7 +368,8 @@ def accounts_of_run(cfg, name, extra=()):
     return given or found
 
 
-def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list=None, remote_track=None):
+def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list=None, remote_track=None,
+              machine=None):
     if run_id and not valid_id(run_id):
         raise ship.ShipError(f'refused: run id "{run_id}" is not <time>-<pid>: let tutti choose it (nothing was changed)')
     run_id = run_id or new_id(cfg)
@@ -325,9 +388,11 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
                                              'track': track or run_id, 'run_id': run_id, 'files': list(files or []),
                                              'checks': [c for c in check_list or [] if c.get('run')]}) + '\n')
         # what the run works on, for the dashboard's projects while it runs
-        write(os.path.join(p['dir'], 'meta.json'), json.dumps({'repo': os.path.abspath(repo), 'worktree': wt}) + '\n')
+        away = away_machine(cfg, machine)
+        write(os.path.join(p['dir'], 'meta.json'), json.dumps({'repo': os.path.abspath(repo), 'worktree': wt,
+                                                               'machine': away['name'] if away else ''}) + '\n')
         worktree.share(wt, cfg['ship'].get('share', []), say)
-        rc, lines = run_worker(cfg, name, task, files, wt, log, extra, p['worker_log'], check_list)
+        rc, lines = run_worker(cfg, name, task, files, wt, log, extra, p['worker_log'], check_list, away, track or run_id)
         changed, stat = capture_diff(wt, p['diff'])
         found = denials(cfg['workers'][name], lines, p['worker_log'])
         r = {'id': run_id, 'worker': name, 'task': task, 'worker_rc': rc, 'worktree': wt, 'created': created, 'diff': p['diff'],

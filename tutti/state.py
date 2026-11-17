@@ -172,14 +172,15 @@ def slots_why(m):
     return f'machines.{m["name"]}.slots'
 
 
-def machine_state(m, p, rank, now=None, idle_s=None, quiet_hours=None):
+def machine_state(m, p, rank, now=None, idle_s=None, quiet_hours=None, present=()):
     """One machine as the dashboard shows it, from its config and a probe (routing.Probe). Its free slots are capped at its
-    share for Tutti (tutti/share.py: use_pct, lower while someone uses it, in quiet hours or hot)."""
+    share for Tutti (tutti/share.py: use_pct, lower while someone uses it, in quiet hours or hot). `present`: other signs
+    someone uses it (share.presence_here); `in_use` says whether anyone does (tutti/cliplace.py sends runs elsewhere)."""
     from . import share
     reason = routing.unfit(m, p)
     status = machine_status(m, p, reason)
     slots = int(m['slots'])
-    pct, pct_why = share.pct(m, {'reason': reason}, now, idle_s, quiet_hours)
+    pct, pct_why = share.pct(m, {'reason': reason}, now, idle_s, quiet_hours, present)
     if p.reachable and p.yielding:   # the yield flag takes it out entirely, whoever is at its keyboard
         pct, pct_why = 0, 'its yield flag is up' + (f'; also {pct_why}' if pct_why else '')
     free = share.cap_free(slots, min(p.free, slots), pct) if p.reachable else None
@@ -196,7 +197,8 @@ def machine_state(m, p, rank, now=None, idle_s=None, quiet_hours=None):
             'containers': list(getattr(p, 'containers', []) or []), 'readings': getattr(p, 'readings', None),
             'owner_paused': m.get('paused'), 'use_pct': pct, 'use_why': pct_why, 'limit': m.get('limit'),
             'limited': share.limited(m, now) is not None, 'zone': getattr(p, 'zone', '') if p.reachable else '',
-            'mem_free_gb': getattr(p, 'mem_gb', None) if p.reachable else None}
+            'mem_free_gb': getattr(p, 'mem_gb', None) if p.reachable else None,
+            'in_use': bool(share.at_keyboard(m, idle_s) or present)}
 
 
 def machines_state(cfg, probe_fn, stored_fn=None):
@@ -209,14 +211,17 @@ def machines_state(cfg, probe_fn, stored_fn=None):
 
     from . import share
     now = datetime.now(timezone.utc)
-    idle = share.idle_seconds() if any(cfg['machines'][n].get('transport') == 'local' for n in names) else None
+    local = next((cfg['machines'][n] for n in names if cfg['machines'][n].get('transport') == 'local'), None)
+    idle = share.idle_seconds() if local else None
+    present = share.presence_here(local) if local else []
     quiet = (cfg.get('autopilot') or {}).get('quiet_hours')
 
     def one(n):
         m = cfg['machines'][n]
         p = probe_fn(m)
         here = idle if m.get('transport') == 'local' else getattr(p, 'idle_s', None)   # remote: read by its probe
-        out = machine_state(m, p, order.index(n) + 1 if n in order else None, now, here, quiet)
+        out = machine_state(m, p, order.index(n) + 1 if n in order else None, now, here, quiet,
+                            present if m.get('transport') == 'local' else ())
         out['idle_s'] = here
         out['stored'] = stored_fn(m) if stored_fn and p.reachable else None
         return out

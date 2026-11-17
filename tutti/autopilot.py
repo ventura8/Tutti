@@ -260,12 +260,23 @@ def pinned(cfg, t, names):
     kind, _, pin = (t.get('pin') or '').partition(':')
     if not pin or kind == 'worker':
         return names
-    return [n for n in names if on_machine(cfg, n) == pin]   # none there: it waits (jobmove refuses such a move)
+    from . import cliplace  # a CLI worker that runs on several machines (workers.<w>.machines) is there too
+    return [n for n in names if on_machine(cfg, n) == pin
+            or pin in cliplace.machines_of(cfg, (step_of(cfg, n) or {}).get('worker') or '')]
 
 
 def on_machine(cfg, step_name):
     """The machine a ladder step's worker runs on, or None."""
     return ((cfg.get('workers') or {}).get((step_of(cfg, step_name) or {}).get('worker') or '') or {}).get('machine')
+
+
+def place_of(cfg, step_name, machines):
+    """(the machine a run of this CLI step goes to, why none) while runs are placed per machine (tutti/cliplace.py), else
+    None. A local model is placed by its own machine (the governor)."""
+    if cfg.get('_places') is None or is_local(cfg, step_name) or (step_of(cfg, step_name) or {}).get('kind') == 'ollama':
+        return None
+    from . import cliplace
+    return cliplace.pick(cfg, (step_of(cfg, step_name) or {}).get('worker') or '', cfg['_places'], machines)
 
 
 def tier_last(prefer, size):
@@ -285,11 +296,17 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
             break
         steps = sorted(candidates(cfg, t, over, machines), key=tier_last(prefer, t.get('size')))
         steps = [n for n in steps if local > 0 and (is_local(cfg, n) or free > 0)]
-        pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t)), None)
+        where = {n: place_of(cfg, n, machines) for n in steps}   # (machine, why none) per step; None: not placed per machine
+        pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t) and (where[n] is None or where[n][0])), None)
         if pick is None:
-            out['waiting'][t['id']] = '; '.join(rooms.get(n, (0, f'{n}: not on the ladder'))[1] or f'{n}: too little room for a '
-                                                f'{t["size"]} task' for n in steps) or 'no step it may go to'
+            out['waiting'][t['id']] = '; '.join(rooms.get(n, (0, f'{n}: not on the ladder'))[1] or
+                                                (f'{n}: no machine has room ({where[n][1]})' if where[n] else '') or
+                                                f'{n}: too little room for a {t["size"]} task' for n in steps) or 'no step it may go to'
             continue
+        if where[pick]:
+            from . import cliplace
+            cliplace.take(cfg['_places'], where[pick][0])
+            out.setdefault('place', {})[t['id']] = where[pick][0]
         left = 0 if is_local(cfg, pick) else rooms[pick][0] - units(t)   # a model server takes one task at a time
         rooms[pick] = (left, rooms[pick][1] or f'{pick}: its room is taken by the running tasks')
         out['dispatch'].append((t['id'], pick))
@@ -359,15 +376,25 @@ def capacity_now(cfg, running, machines, now, room=None):
         return (0, 0), {'state': 'waiting', 'reason': 'machines not probed yet'}
     slots, why = machine_capacity(cfg, machines)
     online = [t for t in running if not is_local(cfg, t.get('step'))]
-    lim = parallel.limit(cfg, len(online), room, cfg.get('_host'), slots)
+    from . import cliplace  # CLI workers on other machines (workers.<w>.machines): each machine's own room counts too
+    places = cliplace.rooms(cfg, machines, cfg.get('_host')) if cliplace.on(cfg) else None
+    cfg['_places'] = places
+    lim = parallel.limit(cfg, len(online), room, cfg.get('_host'), slots, cliplace.elsewhere(cfg, places) if places else 0)
     cfg['_parallel'], cfg['_parallel_limit'] = lim, lim['limit']
     free = lim['others'] - len(online)   # the accounts' room is the ladder's own business (assign): it names each step
     servers = sum(1 for n in ladder(cfg) if is_local(cfg, n))   # one task per model server
     local = (servers if slots is None else slots) if servers else 0
     if free <= 0 and local <= 0:
         reason = why if lim['by'] == 'gates' and why else parallel.line(lim)
+        reason += places_full(places) if lim['by'] in ('cpu', 'memory') else ''
         return (0, 0), {'state': 'running' if running else 'waiting', 'reason': reason}
     return (max(0, free), max(local, max(0, free))), None
+
+
+def places_full(places):
+    """'; no machine a CLI worker runs on has room: <why each>' while runs are placed per machine and none has room, else ''."""
+    full = [w for _, w in (places or {}).values() if w]
+    return f'; no machine a CLI worker runs on has room: {"; ".join(full)}' if full and not any(n for n, _ in places.values()) else ''
 
 
 def plan(cfg, tasks, states, machines, on, now=None, hold=None):
@@ -415,7 +442,7 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
         from . import parallel
         return {**out, 'state': 'running', 'reason': parallel.line(cfg.get('_parallel'))}
     reasons = '; '.join(room_reason(n, r, queued) for n, r in rooms.items()) or 'no ladder step (autopilot.ladder or autopilot.accounts)'
-    return {**out, 'state': 'stopped', 'reason': f'no worker takes a task now: {reasons}'}
+    return {**out, 'state': 'stopped', 'reason': f'no worker takes a task now: {reasons}{places_full(cfg.get("_places"))}'}
 
 
 # ---- failures: a signature, the brief of the next attempt, and when to give up
@@ -602,9 +629,10 @@ def repo_path(cfg, task):
     return config.expand(settings(cfg)['repos'][task['repo']]['path'])
 
 
-def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
+def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, machine=None):
     """Starts `tutti run <worker> <brief> --repo <repo> --track ap-<task>` in the background; marks the task running. An
-    account's model and effort follow its pace (tutti/tiers.py): stronger while behind, cheaper while ahead."""
+    account's model and effort follow its pace (tutti/tiers.py): stronger while behind, cheaper while ahead. `machine`: where
+    the CLI runs (tutti/cliplace.py; `--machine`), when it is not this computer."""
     step = step_of(cfg, step_name)
     choice = tiers.choose(cfg, step['account'], (states or {}).get(step['account']), states) if step['account'] else None
     if choice:
@@ -635,6 +663,9 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
         argv += ['--check', check, '--check-where', parallel.check_where(cfg, repo.get('where', 'local'), check, cfg.get('_host'))]
     argv += [f'--extra={x}' for x in step['args']]
     argv += ['--account', step['account']] if step['account'] else []
+    from . import cliplace
+    away = machine if machine and machine != cliplace.main_name(cfg) else None
+    argv += ['--machine', away] if away else []
     from . import bridge
     jobs = bridge.jobs_machine(cfg)
     if jobs:   # the repositories and the workers' sign-ins are on another computer (docs/MOVE.md): the run happens there
@@ -650,7 +681,7 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
         task.pop('picked', None)
         task.pop('model', None)
     task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now, gates=(repo.get('check') or '').strip(),
-                boot=durable.boot_id(), checkpoint=now,
+                boot=durable.boot_id(), checkpoint=now, machine=away,
                 choice={k: choice[k] for k in ('tier', 'model', 'effort', 'label')} if choice else None)
     return run_id
 
@@ -1167,12 +1198,13 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         for task_id, step in p['dispatch']:
             t = backlog.find(data, task_id)
             try:
-                run_id = dispatch(cfg, t, step, now, spawn, states)
+                run_id = dispatch(cfg, t, step, now, spawn, states, (p.get('place') or {}).get(task_id))
             except OSError as e:
                 events.append(f'{task_id} could not be started on {step} ({e}): it stays queued')
                 continue
             backlog.save(cfg, data)
-            events.append(f'{task_id} sent to {step} (run {run_id}, attempt {len(t["attempts"]) + 1})')
+            on_m = f' on {t["machine"]}' if t.get('machine') else ''
+            events.append(f'{task_id} sent to {step}{on_m} (run {run_id}, attempt {len(t["attempts"]) + 1})')
             if t['repo'] in shared['keys']:
                 started.append(task_id)
     if started:   # shared tasks just started: their leases at full length now, not at the next round

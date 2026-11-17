@@ -84,6 +84,42 @@ prints the id at once; `tutti wait run <id> --timeout 1800` ends with one line (
 exit 125 when the run's log stops changing (`--stall`, default `dashboard.stall_minutes`). The worker never commits:
 apply the patch in your tree (`git apply --index <diff>`), then `tutti ship`.
 
+## On another machine
+
+A CLI worker can run on other machines than this one: list where its CLI is installed and signed in, and the autopilot
+sends each run to the machine that fits best now.
+
+```yaml
+machines:
+  laptop: {transport: local, host: local}
+  nuc: {host: nuc.example}
+workers:
+  agy:
+    kind: cli
+    command: [agy, -p, '{prompt}', --mode, accept-edits, --log-file, '{log}']
+    machines: [nuc, laptop]                  # or machine: nuc; without the key the CLI runs here only
+    login: ~/.gemini/oauth_creds.json        # optional: a file whose existence means "signed in" there (never read)
+```
+
+- **Where a run goes** (`tutti/cliplace.py`): of the worker's machines, one with room, judged on that machine's own share
+  (`machines.<m>.use_pct`, in use, quiet hours, heat), load, cores and free memory (`autopilot.parallel`'s `run_cpu`,
+  `run_gb` and `reserve_gb`). A machine nobody is using comes first, another machine before the main, then the most room.
+  When none has room the task waits and the autopilot says why for each machine.
+- **The run** (`tutti run ... --machine <m>`, which the autopilot adds): the worktree is made here as always, then copied
+  to `<machine root>/cli-<track>` the way `tutti test` copies a tree (the commit pushed over ssh into the machine's bare
+  repository, so a private repository needs no GitHub access there; the files by rsync), given a git repository at that
+  commit, and the CLI runs there headless over the machine's transport (ssh or wsl) with the same brief, account
+  arguments and allow-list (its tree there granted), the variables a worker never gets unset. Its output streams into
+  the run's log here, so the dashboard shows it and its heartbeat as for a run here; its own `{log}` is read back for
+  DENIED lines.
+- **The change comes back**: the whole diff of the copy against its commit is applied to the worktree here, and the diff
+  file, the checks and the report are exactly as for a run here.
+- **A dropped connection** (ssh exit 255), a machine that cannot be reached, or a diff that cannot be read fails the attempt
+  with the step and the cause in the log; the worker there is stopped (its process group), nothing is applied here, and
+  the autopilot's retry rules take over (the same step once more, then up the ladder).
+- `tutti workers` probes each machine over its transport: `<cli> --version` and the existence of the `login` files (only
+  their existence, never their contents), one line per machine under the worker.
+
 ## The brief
 
 `tutti run <worker> "<task>" [files] --dir <worktree>` builds the brief (see it with `--show`):

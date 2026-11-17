@@ -90,7 +90,8 @@ class OneConfigTest(unittest.TestCase):
     def test_doctor_reports_the_divergence_and_merges_on_request(self):
         out, err = io.StringIO(), io.StringIO()
         with mock.patch('os.getcwd', return_value=self.project), contextlib.redirect_stdout(out), \
-                contextlib.redirect_stderr(err), mock.patch.object(cli.doctor, 'check_git', return_value=[]):
+                contextlib.redirect_stderr(err), mock.patch.object(cli.doctor, 'check_git', return_value=[]), \
+                mock.patch('tutti.stuck.check', return_value=''):   # hermetic: a branch's unreleased CHANGELOG version is no problem here
             self.assertEqual(cli.main(['--config', self.mine, 'doctor']), 1)
             self.assertIn('differs from the config in use', err.getvalue())
             self.assertEqual(cli.main(['--config', self.mine, 'doctor', '--merge-configs']), 0)

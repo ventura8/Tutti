@@ -6,6 +6,28 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.24.0 (2026-11-16)
+
+### Added
+
+- CLI workers on other machines (t183, `tutti/cliplace.py`, docs/WORKERS.md, *On another machine*):
+  `workers.<w>.machines: [nuc, laptop]` (or `machine:`) says where the CLI is installed and signed in. The autopilot sends
+  each run to the machine with room that fits best (its own share, heat, load, cores and free memory; a machine nobody uses
+  first, another machine before the main). `tutti run ... --machine <m>` copies the worktree there as `tutti test` does
+  (the commit pushed over ssh: private repositories need no GitHub access there), runs the CLI headless with the same
+  brief and allow-list, streams its output into the run's log, and applies its whole diff to the worktree here; the
+  checks and the report are unchanged. A dropped connection fails the attempt cleanly and stops the worker there.
+- `tutti workers` shows, per machine, whether such a CLI is installed (`<cli> --version`) and signed in (the existence of
+  `workers.<w>.login` files, never their contents), probed over ssh.
+- A VNC viewer or an interactive agent (a terminal process in `machines.<m>.agent_programs` not started by Tutti) makes
+  this computer in use, as its keyboard does: the owner's rule, persons and agents first on a machine in use; Tutti's
+  background work moves to the other machines (docs/FLEET.md, *The machine's share*).
+
+### Changed
+
+- The adaptive parallel limit adds the other machines' own room to its cpu and memory bounds, which measured only this
+  computer: the main in use (share 0 %) no longer stops runs that can go elsewhere.
+
 ## 0.23.1 (2026-11-16)
 
 ### Fixed

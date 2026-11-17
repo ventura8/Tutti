@@ -58,8 +58,18 @@ def host(meminfo='/proc/meminfo'):
     return {'mem_gb': mem, 'cores': os.cpu_count() or 1, 'load': load}
 
 
-def bounds(cfg, running, room, here, gate_slots):
-    """{name: (runs at most, why)} of every bound that is known."""
+def bounds(cfg, running, room, here, gate_slots, elsewhere=0):
+    """{name: (runs at most, why)} of every bound that is known. `elsewhere`: the runs the other machines a CLI worker runs on
+    may take (tutti/cliplace.py), added to the memory and cpu bounds, which measure only this computer: the main in use no
+    longer stops the runs that go to them."""
+    out = _bounds(cfg, running, room, here, gate_slots)
+    for k in ('memory', 'cpu'):
+        if elsewhere and k in out:
+            out[k] = (out[k][0] + elsewhere, f'{out[k][1]}; {elsewhere} more on the other machines')
+    return out
+
+
+def _bounds(cfg, running, room, here, gate_slots):
     s = settings(cfg)
     out = {'ceiling': (int(s['ceiling']), f'autopilot.parallel.ceiling {s["ceiling"]:g}')}
     cap = (cfg.get('autopilot') or {}).get('max_parallel')
@@ -80,9 +90,9 @@ def bounds(cfg, running, room, here, gate_slots):
     return out
 
 
-def limit(cfg, running, room, here, gate_slots):
+def limit(cfg, running, room, here, gate_slots, elsewhere=0):
     """{limit, running, by, why, bounds}: how many runs may go at once now and which bound holds it."""
-    b = bounds(cfg, running, room, here, gate_slots)
+    b = bounds(cfg, running, room, here, gate_slots, elsewhere)
     by = min(b, key=lambda k: b[k][0])
     n = max(0, b[by][0])
     others = max(0, min(v[0] for k, v in b.items() if k != 'accounts'))

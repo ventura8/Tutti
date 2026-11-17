@@ -680,7 +680,8 @@ def jobs_args(a, extra, run_id):
     tail = ['run', a.worker, a.task, *a.files, '--id', run_id]
     tail += ['--repo', a.repo] if a.repo else []
     tail += ['--dir', a.dir] if a.dir else []
-    for flag, value in (('--track', a.track), ('--remote-track', a.remote_track), ('--account', getattr(a, 'account', None))):
+    for flag, value in (('--track', a.track), ('--remote-track', a.remote_track), ('--account', getattr(a, 'account', None)),
+                        ('--machine', getattr(a, 'machine', None))):
         tail += [flag, value] if value else []
     tail += [flag for flag, on in (('--no-checks', a.no_checks), ('--discard', a.discard)) if on]
     for c in a.check or []:
@@ -741,6 +742,7 @@ def run_in_background(cfg, a, extra):
     argv += ['--track', a.track] if a.track else []
     argv += ['--remote-track', a.remote_track] if a.remote_track else []
     argv += ['--account', a.account] if getattr(a, 'account', None) else []
+    argv += ['--machine', a.machine] if getattr(a, 'machine', None) else []
     for c in a.check or []:
         argv += ['--check', c]
     argv += ['--check-where', a.check_where] if a.check else []
@@ -756,11 +758,17 @@ def run_in_background(cfg, a, extra):
 def run_delegated(cfg, a, extra):
     """`tutti run <worker> "<task>" --repo <repo>`: worktree, headless worker, diff, targeted checks, report."""
     extra = [*extra, *(a.extra or [])]
+    from . import cliplace
+    if getattr(a, 'machine', None) and a.machine not in cliplace.machines_of(cfg, a.worker):
+        say(f'run --machine {a.machine}: {a.worker} does not run there; list it in workers.{a.worker}.machines once its CLI is '
+            f'installed and signed in on {a.machine} (now: {", ".join(cliplace.machines_of(cfg, a.worker)) or "none"})')
+        return 2
     if a.bg:
         return run_in_background(cfg, a, extra)
     check_list = [{'run': c, 'where': a.check_where} for c in a.check] if a.check else None
     r = delegate.delegate(cfg, a.worker, a.task, a.files, a.repo, run_id=a.id, track=a.track, extra=extra,
-                          checks=not a.no_checks, discard=a.discard, check_list=check_list, remote_track=a.remote_track)
+                          checks=not a.no_checks, discard=a.discard, check_list=check_list, remote_track=a.remote_track,
+                          machine=getattr(a, 'machine', None))
     with open(delegate.paths(cfg, r['id'])['rc'], 'w', encoding='utf8') as f:
         f.write(f'{r["rc"]}\n')
     with open(delegate.paths(cfg, r['id'])['log'], encoding='utf8', errors='replace') as f:
@@ -1856,6 +1864,8 @@ def parser():
     s.add_argument('--no-backlog', action='store_true', help='claude with --repo: run it untracked (no backlog task, no pacing)')
     s.add_argument('--size', default='S', choices=list(backlog.SIZES), help='claude with --repo: the task\'s size (default S)')
     s.add_argument('--remote-track', help=argparse.SUPPRESS)
+    s.add_argument('--machine', help='with --repo: run the CLI on this machine (one of workers.<worker>.machines); the diff comes '
+                                     'back here and the checks run as usual')
     s.add_argument('--account', help=argparse.SUPPRESS)   # the autopilot's account of a shared worker (agy-gemini, agy-claude)
     s.add_argument('--id', help=argparse.SUPPRESS)
     s.add_argument('--extra', action='append', help=argparse.SUPPRESS)

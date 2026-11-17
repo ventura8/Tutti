@@ -635,6 +635,97 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
     return tee(machine, script, out) if out else sh(machine, script).returncode
 
 
+DROPPED = 255   # ssh's own exit code: the connection failed or dropped (a command's code is never 255 by convention)
+
+
+def git_at_head(root, track):
+    """The bash line that gives a synced copy its own git repository at the pushed commit (sync), index at HEAD."""
+    return (f'{{ [ -d .git ] || {{ rm -f .git; git init -q; }}; }} && git fetch -q --depth 1 {root}/repo.git tutti/{track} && '
+            'git update-ref --no-deref HEAD FETCH_HEAD && git reset -q')
+
+
+def cli_prepare(cfg, machine, track, src):
+    """A CLI worker's tree on the machine (docs/WORKERS.md, *On another machine*): `src` copied as `tutti test` copies it
+    (sync: the commit pushed over ssh, so a private repository needs no GitHub access there), a git repository at that
+    commit, and the copy's absolute path returned. RuntimeError names the step that failed."""
+    sync(cfg, machine, track, src)
+    root = root_path(machine)
+    r = sh(machine, f'cd {root}/{track} && {git_at_head(root, track)} && pwd', capture=True, timeout=300)
+    path = (r.stdout or '').strip().splitlines()[-1:] if r.returncode == 0 else []
+    if not path:
+        raise RuntimeError(f'making the git copy at {machine["name"]}:{machine["root"]}/{track} failed (exit {r.returncode}): '
+                           f'{(r.stderr or "").strip()[:200]}')
+    return path[0]
+
+
+def cli_popen(machine, script):
+    """The CLI's run on the machine, its output (stdout and stderr) on one pipe, read as it comes."""
+    if machine['transport'] != 'local':
+        ensure_master(machine)
+    return subprocess.Popen(argv(machine, script), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, errors='replace', bufsize=1)
+
+
+def cli_stop(machine, pid_file):
+    """Ends the CLI's process group on the machine (its pid written by workers.remote_script), every child with it."""
+    q = shlex.quote(pid_file)
+    try:
+        script = (f'if [ -f {q} ]; then p=$(cat {q}); g=$(ps -o pgid= -p "$p" | tr -d " "); '
+                  f'kill -TERM -- -"$g" 2>/dev/null || kill -TERM "$p" 2>/dev/null; rm -f {q}; fi; true')
+        return sh(machine, script, capture=True, timeout=30).returncode
+    except subprocess.TimeoutExpired:
+        return DROPPED
+
+
+def cli_diff(machine, path):
+    """Everything the worker changed or added in its tree on the machine against HEAD, as one binary patch (bytes); the index is
+    put back. RuntimeError when the machine does not answer: the attempt fails, nothing is applied here."""
+    q = shlex.quote(path)
+    script = f'cd {q} && git add -A && git diff --cached --binary HEAD; rc=$?; git reset -q; exit $rc'
+    if machine['transport'] != 'local':
+        ensure_master(machine)
+    r = subprocess.run(argv(machine, script), capture_output=True, timeout=300)
+    if r.returncode != 0:
+        why = 'the connection dropped' if r.returncode == DROPPED else r.stderr.decode('utf8', 'replace').strip()[:200]
+        raise RuntimeError(f'reading the diff from {machine["name"]} failed (exit {r.returncode}): {why}')
+    return r.stdout
+
+
+def cli_read(machine, path, limit=200000):
+    """The end of a text file on the machine (the CLI's own log), '' when it is missing or the machine does not answer."""
+    r = sh(machine, f'tail -c {int(limit)} {shlex.quote(path)} 2>/dev/null; true', capture=True, timeout=60)
+    return (r.stdout or '') if r.returncode == 0 else ''
+
+
+def cli_ready(machine, program, logins=(), timeout=20):
+    """(ready, note) of a CLI on the machine: `<program> --version` answers, and each login file (workers.<w>.login) exists.
+    Only the files' existence is asked, never their contents."""
+    tests = ' '.join(f'; [ -e {home_path(p)} ] && echo "LOGIN yes" || echo "LOGIN no {shlex.quote(p)}"' for p in logins)
+    q = shlex.quote(program)
+    script = f'if command -v {q} >/dev/null 2>&1; then echo "VERSION $({q} --version 2>&1 | head -1)"; else echo MISSING; fi{tests}'
+    try:
+        r = sh(machine, script, capture=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False, f'{machine["name"]} did not answer within {timeout} s'
+    return parse_ready(machine['name'], program, r.returncode, r.stdout or '')
+
+
+def parse_ready(name, program, rc, text):
+    """cli_ready's answer read: (ready, note)."""
+    if rc == DROPPED:
+        return False, f'{name} does not answer over ssh: check `ssh {name}` and the machine'
+    lines = text.splitlines()
+    if 'MISSING' in lines:
+        return False, f'{program} is not on PATH on {name}: install it there and sign in once'
+    version = next((ln[8:].strip() for ln in lines if ln.startswith('VERSION ')), '')
+    missing = [ln[9:].strip() for ln in lines if ln.startswith('LOGIN no')]
+    if missing:
+        return False, f'{program} {version} is installed on {name} but not signed in ({", ".join(missing)} missing): sign in there once'
+    if not version and rc != 0:
+        return False, f'{program} --version failed on {name} (exit {rc})'
+    return True, f'{program} {version} on {name}'.replace('  ', ' ')
+
+
 def fetch(cfg, machine, track, src, path):
     """Copies a result folder or file (screenshots, videos, reports) from the machine's copy of the tree back into `src`.
     Nothing to do for this computer, where the tree is used in place."""

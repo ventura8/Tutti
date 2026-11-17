@@ -69,12 +69,19 @@ def setting(machine, key):
     return DEFAULTS[key] if v is None else v
 
 
-def pct(machine, row=None, now=None, idle_s=None, quiet_hours=None):
+def at_keyboard(machine, idle_s):
+    """True when a person used the machine's keyboard or mouse within its in_use_minutes."""
+    return idle_s is not None and idle_s < setting(machine, 'in_use_minutes') * 60
+
+
+def pct(machine, row=None, now=None, idle_s=None, quiet_hours=None, present=()):
     """(the share in percent now, why it is lower than use_pct or ''). `idle_s`: seconds since a person last used the machine
-    (None: not known); `now` a UTC datetime for the quiet hours."""
+    (None: not known); `present`: other signs someone uses it (a VNC viewer, an interactive agent: `presence_here`); `now` a
+    UTC datetime for the quiet hours. A machine in use keeps in_use_pct (0: Tutti's background work moves to the others)."""
     share, why = int(setting(machine, 'use_pct')), []
-    if idle_s is not None and idle_s < setting(machine, 'in_use_minutes') * 60:
-        share, why = min(share, int(setting(machine, 'in_use_pct'))), why + ['someone is at its keyboard']
+    used = (['someone is at its keyboard'] if at_keyboard(machine, idle_s) else []) + list(present)
+    if used:
+        share, why = min(share, int(setting(machine, 'in_use_pct'))), why + used
     hours = (machine or {}).get('quiet_hours') or quiet_hours
     if now is not None and hours and planner.quiet(now, hours):
         share, why = min(share, int(setting(machine, 'quiet_pct'))), why + ['quiet hours']
@@ -168,6 +175,60 @@ def idle_seconds(run=subprocess.run, clock=time.time):
     if not known:
         return None   # a desktop that never sets the hint: not known (it would read "in use" for ever)
     return min(0.0 if s.get('IdleHint') == 'no' else max(0.0, clock() - int(s['IdleSinceHint']) / 1e6) for s in known)
+
+
+AGENT_PROGRAMS = ('claude', 'codex', 'cursor-agent', 'agy', 'gemini', 'aider')   # machines.<m>.agent_programs replaces it
+VNC_PORTS = (5900, 5999)
+
+
+def interactive_agents(machine, proc='/proc'):
+    """The interactive agent CLIs a person runs here: a process of this user named in agent_programs that has a terminal
+    and was not started by Tutti (no TUTTI_BACKGROUND in its environment). Only names and the environment's keys are read."""
+    names = set((machine or {}).get('agent_programs') or AGENT_PROGRAMS)
+    found = []
+    try:
+        pids = [p for p in os.listdir(proc) if p.isdigit()]
+    except OSError:
+        return []
+    for pid in pids:
+        try:
+            with open(os.path.join(proc, pid, 'stat'), encoding='utf8', errors='replace') as f:
+                stat = f.read()
+            comm = stat[stat.index('(') + 1:stat.rindex(')')]
+            tty = int(stat[stat.rindex(')') + 2:].split()[4])
+            if comm not in names or not tty or os.stat(os.path.join(proc, pid)).st_uid != os.getuid():
+                continue
+            with open(os.path.join(proc, pid, 'environ'), 'rb') as f:
+                keys = {e.split(b'=', 1)[0] for e in f.read().split(b'\0')}
+        except (OSError, ValueError, IndexError, AttributeError):
+            continue
+        if b'TUTTI_BACKGROUND' not in keys:
+            found.append(comm)
+    return sorted(set(found))
+
+
+def vnc_viewers(run=subprocess.run):
+    """How many VNC viewers are connected here (established TCP on ports 5900-5999), 0 when `ss` is missing."""
+    lo, hi = VNC_PORTS
+    try:
+        r = run(['ss', '-tnH', 'state', 'established', f'( sport >= :{lo} and sport <= :{hi} )'], capture_output=True, text=True,
+                timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    return len([line for line in (r.stdout or '').splitlines() if line.strip()]) if r.returncode == 0 else 0
+
+
+def presence_here(machine, agents_fn=interactive_agents, vnc_fn=vnc_viewers):
+    """[why] someone uses this computer besides its keyboard: a VNC viewer, an interactive agent (the owner, 2026-11-16: quiet
+    mode means persons and agents come first on that machine; Tutti's work moves to the other machines)."""
+    out = []
+    n = vnc_fn()
+    if n:
+        out.append(f'{n} VNC viewer(s) connected')
+    agents = agents_fn(machine)
+    if agents:
+        out.append(f'an interactive agent works there ({", ".join(agents)})')
+    return out
 
 
 def limit_change(cfg, name, window, pct=None):

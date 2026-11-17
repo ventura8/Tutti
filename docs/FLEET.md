@@ -106,7 +106,13 @@ share drops by itself, to the lowest that applies:
   within `in_use_minutes` (5) on an unlocked screen, read from GNOME's idle monitor (`org.gnome.Mutter.IdleMonitor`
   `GetIdletime` over the session D-Bus, X11 and Wayland), else `xprintidle`, else a login session's idle hint. GNOME never
   sets logind's idle hint, so before 0.17.4 a GNOME Wayland laptop never read as in use. See *Quiet mode* in
-  docs/ARCHITECTURE.md for what else happens while a person is here.
+  docs/ARCHITECTURE.md for what else happens while a person is here. On this computer a VNC viewer connected (an
+  established connection on ports 5900-5999) or an interactive agent (a process named in `machines.<m>.agent_programs`,
+  default claude, codex, cursor-agent, agy, gemini, aider, that has a terminal and was not started by Tutti) counts as
+  in use too. **The owner's rule (2026-11-16): a machine in use belongs to the persons and agents at it; Tutti's
+  background work moves to the other machines.** The machine's row says `in_use`, CLI workers that also run elsewhere
+  (`workers.<w>.machines`, docs/WORKERS.md, *On another machine*) go there, and the adaptive limit counts each machine's
+  own room, so the main being in use no longer stops the runs that can go to the others.
 - `quiet_pct` (50) in its quiet hours (`machines.<m>.quiet_hours`, else `autopilot.quiet_hours`): fans and noise at night.
 - `hot_pct` (50) while it is hot (its `heat` cap reached).
 

@@ -456,6 +456,8 @@ def validate(cfg):
             errs.append(f'workers.{name}.machine names "{w["machine"]}", which is not under machines:')
     errs += [f'routing.workers names "{n}", which is not under workers:' for n in cfg['routing'].get('workers') or []
              if n not in cfg['workers']]
+    from . import cliplace
+    errs += cliplace.errors(cfg)
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
     errs += _dashboard_errors(cfg['dashboard']) + _auth_errors(cfg.get('auth'))

@@ -1086,6 +1086,14 @@ def js(expr):
 
 @unittest.skipUnless(shutil.which('node'), 'node is not installed')
 class PageLogic(unittest.TestCase):
+    def test_version_refresh_waits_for_chat_work_but_allows_idle_chat(self):
+        idle = "{streaming:null,editing:null,pending:[]}"
+        self.assertFalse(js(f"chatRefreshBlocked({idle}, '', 0, false)"))
+        for state, text, files, dialog in ((idle, "'draft'", 0, 'false'), (idle, "''", 1, 'false'),
+                                          (idle, "''", 0, 'true'), ("{pending:[{}]}", "''", 0, 'false'),
+                                          ("{streaming:{}}", "''", 0, 'false'), ("{editing:{}}", "''", 0, 'false')):
+            self.assertTrue(js(f'chatRefreshBlocked({state}, {text}, {files}, {dialog})'))
+
     def test_markdown_is_parsed_to_a_tree_with_no_markup_from_text(self):
         text = (r'Hi <script>alert(1)</script> **bold** [x](javascript:alert(1)) [ok](https://example.com)'
                 r'\n\n```sh\nrm -rf <b>\n```\n- one\n- `two`')

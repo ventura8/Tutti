@@ -35,7 +35,9 @@ by itself once `tutti dashboard` runs again.
 It updates itself. The server writes its version into the page (`<meta name="tutti-version">`) and into the service
 worker's cache name, so a dashboard restarted on a new release serves a new `sw.js`. When `/api/state` names another
 version than the open page, the page calls `registration.update()`, asks the waiting worker to `skipWaiting()` (it then
-`clients.claim()`s) and reloads once, never while a reading is being typed or saved (it waits for the next poll). The page
+`clients.claim()`s) and reloads once, waiting for the next poll while a reading is being typed or saved or Chat has a
+draft, attachment, open dialog, edit, or active answer. This protects browser state; it does not make a server restart
+safe for active Chat jobs. The page
 loads its code as `app.js?v=<version>` and the worker matches those exactly, so an old worker never serves old code to a
 new page. It remembers that reload per tab (`sessionStorage`): if the page is still old after
 it, or the browser blocks storage, it never reloads again and says how to reload by hand (`web/update.js`).

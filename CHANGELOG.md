@@ -7,6 +7,12 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [Unreleased]
+
+### Fixed
+
+- Automatic dashboard page updates wait for unsent Chat drafts, attachments, dialogs and active answers (t326).
+
 ## [0.27.2] - 2026-11-18
 
 ### Added

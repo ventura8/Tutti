@@ -425,6 +425,12 @@ function refreshCards() {
 
 function composerText() { return cq('chat-input').value.replace(/\s+$/, ''); }
 
+// A version refresh must not discard an unsent draft, attachments, an edit or an active answer.
+function chatRefreshBlocked(state = CHAT, text = cq('chat-input')?.value || '', files = cq('chat-file')?.files?.length || 0,
+    dialogOpen = cq('chat-dialog')?.open || false) {
+    return Boolean(state.streaming || state.editing || state.pending?.length || text || files || dialogOpen);
+}
+
 async function send(text, extra = {}) {
     text = (text ?? composerText()).trim();
     if ((!text && !CHAT.pending.length) || CHAT.streaming) return;
@@ -819,4 +825,4 @@ function initChat() {
 }
 
 if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('DOMContentLoaded', initChat);
-if (typeof module !== 'undefined') module.exports = { mdParse, mdInline, chatKey, atBottom, attachmentError, ndjson, chatView };
+if (typeof module !== 'undefined') module.exports = { mdParse, mdInline, chatKey, atBottom, attachmentError, ndjson, chatView, chatRefreshBlocked };

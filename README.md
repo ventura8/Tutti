@@ -33,6 +33,7 @@ computers and Android devices for software work, without anyone stepping on anyo
   **Machines** cards (one per physical computer, with WSL and desktop environments nested under it; slots busy, held back or free, and why) and Settings. An **Admin** tab is coming
   ([docs/DASHBOARD.md](docs/DASHBOARD.md), [docs/CHAT.md](docs/CHAT.md), [docs/NETWORK.md](docs/NETWORK.md),
   [docs/AUTH.md](docs/AUTH.md)).
+  Automatic page updates wait for unsent Chat drafts, attachments and active answers.
 
 ## Install
 

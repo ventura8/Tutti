@@ -114,8 +114,14 @@ function hhFrame() {
 function hhRenderUsersTab() {
     hhFrame();
     const list = HH_UT.data || {};
-    $('users-tab-meta').textContent = list.error || `${(list.members || []).length} user(s) in the household`;
-    $('users-tab-list').replaceChildren(...hhUserRows(list).map((r) => el('li', { class: 'row user' },
+    const n = (list.members || []).length;
+    let meta = `${n} ${n === 1 ? 'person' : 'people'} in the household`;
+    if (list.error) meta = `The household did not load: ${list.error}. Reload to try again.`;
+    else if (!HH_UT.data) meta = 'Loading the household…';
+    $('users-tab-meta').textContent = meta;
+    const rows = hhUserRows(list);
+    const empty = HH_UT.data && !list.error && !rows.length ? [el('li', { class: 'row__note', text: 'Nobody has joined yet: invite someone from the Users card.' })] : [];
+    $('users-tab-list').replaceChildren(...empty, ...rows.map((r) => el('li', { class: 'row user' },
         el('div', { class: 'row__name' }, r.name, el('span', { class: 'row__kind', text: `main machine ${r.mainMachine}` })),
         el('p', { class: 'row__note', text: `${r.joined} · ${r.presence} · last seen ${r.seen} · mode ${r.mode} · ${r.schedule}` }),
         el('p', { class: 'row__note', text: r.stats }),
@@ -127,6 +133,7 @@ function hhRenderUsersTab() {
 }
 
 async function hhLoadUsers() {
+    if (!HH_UT.data) hhRenderUsersTab();   // the loading state until the list answers
     try { HH_UT.data = await hhUsersPost({ list: true }); } catch (err) { HH_UT.data = { error: err.message }; }
     hhRenderUsersTab();
 }

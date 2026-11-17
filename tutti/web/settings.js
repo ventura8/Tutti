@@ -340,12 +340,14 @@ async function loadSettings(force) {
     SET.loading = (async () => {
         try {
             const res = await fetch('/api/settings', { cache: 'no-store' });
-            if (!res.ok) throw new Error(`the dashboard answered ${res.status}`);
-            SET.data = await res.json();
+            if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `the dashboard answered ${res.status}`);
+            const data = await res.json();
+            if (data.problem) throw new Error(data.problem);   // the config file does not parse: its plain banner text
+            SET.data = data;
         } catch (err) {
             const box = document.getElementById('settings-body');
             if (box) box.replaceChildren(h('p', { class: 'setting__msg', 'data-tone': 'bad', role: 'alert',
-                text: `The settings did not load (${err.message}): is tutti dashboard running? Reload to try again.` }));
+                text: `The settings did not load. ${err.message.charAt(0).toUpperCase()}${err.message.slice(1)}${/[.!]$/.test(err.message) ? '' : ': check that tutti dashboard runs.'} Reload to try again.` }));
             return;
         } finally {
             SET.loading = null;
@@ -373,7 +375,10 @@ async function showView() {
     }
     if (!settings) return;
     SET.wanted = decodeURIComponent(hash.slice('#settings/'.length));
-    if (!SET.data) await loadSettings();
+    if (!SET.data) {
+        drawSettings();   // "Loading the settings…" until the answer
+        await loadSettings();
+    }
     else drawSettings();
     if (SET.wanted) goTo(SET.wanted);
 }

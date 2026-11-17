@@ -51,7 +51,7 @@ function renderWelcome(summary, enabled) {
     const box = document.getElementById('welcome');
     if (!box || !summary) return;
     welcomeState.shownAt = summary.at;
-    box.replaceChildren(
+    box.replaceChildren(...[   // replaceChildren writes a null as the text "null": the empty groups are dropped first
         welcomeEl('h2', { id: 'welcome-h', text: 'Welcome back' }),
         welcomeEl('p', { text: summary.intro }),
         welcomeNeeds(summary.needs),
@@ -64,7 +64,8 @@ function renderWelcome(summary, enabled) {
             } }, 'Got it'),
             welcomeEl('button', { class: 'btn btn--text', type: 'button', id: 'welcome-toggle', onclick: () => {
                 void welcomePost(enabled ? 'off' : 'on').then(() => { box.hidden = true; }).catch(() => null);
-            } }, enabled ? 'Turn off welcome-back summaries' : 'Turn them on')));
+            } }, enabled ? 'Turn off welcome-back summaries' : 'Turn them on')),
+    ].filter(Boolean));
     box.hidden = false;
 }
 

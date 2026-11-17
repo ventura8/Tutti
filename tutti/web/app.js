@@ -130,9 +130,12 @@ function more(key, nodes, limit, tag = 'li') {
 
 // ---- tiles
 
-function tile(label, value, note, tone) {
+// A tile is a label, a short value and a one-line note; a long explanation (a routing reason, the accounts behind a count)
+// goes into `detail`, a "Details" disclosure, so the headline never wraps over four lines (the owner's 2026-11-16 report).
+function tile(label, value, note, tone, detail) {
+    const more = detail ? el('details', { class: 'tile__more' }, el('summary', { text: 'Details' }), el('p', { class: 'tile__note', text: detail })) : null;
     return el('div', { class: 'tile', 'data-tone': tone }, el('p', { class: 'tile__label', text: label }),
-        el('p', { class: 'tile__value', text: value }), el('p', { class: 'tile__note', text: note }));
+        el('p', { class: 'tile__value', text: value }), el('p', { class: 'tile__note', text: note }), more);
 }
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -140,16 +143,18 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 function nextNote(t) {
     const n = t.next_worker;
     if (!n) return '';
-    if (!n.worker) return ' · no agent account has room';
-    return ` · next agent job: ${[n.worker, ...n.args].join(' ')}`;
+    if (!n.worker) return '. Local models take the work';
+    return `. Next agent job: ${[n.worker, ...n.args].join(' ')}`;
 }
 
 function quotaTile(s) {
     const t = s.summary;
     const read = s.usage.accounts.filter((a) => a.state === 'ok').length;
     const missing = s.usage.accounts.length - read;
-    if (t.panic.length) return tile('Quota', `Panic: ${t.panic.join(', ')}`, 'Nothing new on these accounts until the reset' + nextNote(t), 'bad');
-    if (t.behind.length) return tile('Quota', `Behind: ${t.behind.join(', ')}`, 'Start more parallel work from the backlog' + nextNote(t), 'warn');
+    if (t.panic.length) return tile('Quota', `${plural(t.panic.length, 'account')} at the limit`, 'No new work goes to them until they reset' + nextNote(t), 'bad',
+        `At the limit: ${t.panic.join(', ')}`);
+    if (t.behind.length) return tile('Quota', `${plural(t.behind.length, 'account')} behind`, 'Start more work from the backlog to use them' + nextNote(t), 'warn',
+        `Behind their pace: ${t.behind.join(', ')}`);
     if (!read) return tile('Quota', 'No readings', 'Log one: tutti usage log <account> <percent>', 'warn');
     return tile('Quota', 'On pace', (missing ? `${read} paced · ${missing} without a reading` : `${read} accounts paced`) + nextNote(t));
 }
@@ -157,8 +162,8 @@ function quotaTile(s) {
 function nextTile(t) {
     const n = t.next_worker;
     if (!n) return tile('Next tasks go to', '—', 'No agent account names a worker');
-    if (!n.worker) return tile('Next tasks go to', 'a local model', n.reason, 'warn');
-    return tile('Next tasks go to', n.worker, `${n.account}: ${n.reason}`, 'ok');
+    if (!n.worker) return tile('Next tasks go to', 'a local model', 'Every agent account is at its limit or keeping its reserve', 'warn', n.reason);
+    return tile('Next tasks go to', n.worker, `On the ${n.account} account`, 'ok', n.reason);
 }
 
 function workersNote(t) {
@@ -177,7 +182,7 @@ function renderTiles(s) {
         tile('Free slots', `${t.free_slots} / ${t.slots}`,
             t.machines_offline.length ? `Offline: ${t.machines_offline.join(', ')}` : plural(s.machines.items.length, 'machine'),
             t.machines_offline.length ? 'warn' : undefined),
-        tile('Jobs', `${t.running} running`, t.stalled ? `${t.stalled} stalled: open its log` : 'none stalled', t.stalled ? 'warn' : undefined),
+        tile('Jobs', `${t.running} running`, t.stalled ? `${t.stalled} stalled: open ${t.stalled === 1 ? 'its log' : 'their logs'} under Running jobs` : 'none stalled', t.stalled ? 'warn' : undefined),
         tile('Workers', `${t.workers_ready} / ${t.workers} ready`, workersNote(t), t.workers_ready < t.workers || t.outside ? 'warn' : undefined),
     );
 }
@@ -463,7 +468,7 @@ function renderUsage(s, now, force) {
     }
     ui.formPending = false;
     const stale = u.accounts.filter((a) => a.stale).length;
-    $('usage-meta').textContent = u.problem || (stale ? `${plural(stale, 'account')} need a fresh reading · ` : '') + `Readings from ${u.log}`;
+    $('usage-meta').textContent = u.problem || (stale ? `${plural(stale, 'account')} ${stale === 1 ? 'needs' : 'need'} a fresh reading · ` : '') + `Readings from ${u.log}`;
     // An account that is another's limit (agy's weekly) shows inside that account's card, beside its 5 h window.
     // A limit that needs a reading (or has its form open) keeps its own card too: Add a reading lives there.
     const byName = new Map(u.accounts.map((a) => [a.name, a]));
@@ -934,7 +939,7 @@ const AP_GROUPS = [['running', 'Running', 6], ['queue', 'Queue', 5]];   // resul
 function attemptHistory(t) {
     if (!t.history.length) return null;
     return el('details', { keep: `history:${t.id}` },
-        el('summary', { text: `${t.attempt_count} attempt(s): failure history` }),
+        el('summary', { text: `${plural(t.attempt_count, 'attempt')}: failure history` }),
         el('ol', { class: 'list' }, ...t.history.map((h) => el('li', {
             text: `${h.step}: ${h.ok ? 'passed' : h.why} (run ${h.run}, signature ${h.signature})`,
         }))));
@@ -957,7 +962,7 @@ function apTask(t) {
     return el('li', { class: 'row' },
         el('div', { class: 'row__name', title: t.title }, t.title.length > 110 ? `${t.title.slice(0, 110)}…` : t.title,
             el('span', { class: 'row__kind', text: `${t.id} · ${t.repo}` })),
-        chip(`${t.status} · ${t.attempt_count} attempt(s)`, TASK_TONE[t.status] || 'idle'),
+        chip(`${t.status} · ${plural(t.attempt_count, 'attempt')}`, TASK_TONE[t.status] || 'idle'),
         el('p', { class: 'row__note', text: taskNote(t) }),
         attemptHistory(t));
 }
@@ -1065,7 +1070,7 @@ function trialBlock(t) {
     const verdict = t.verdict ? t.verdict.why : `${t.closed} of ${t.limit} pull requests done; the verdict comes after the last one`;
     return el('div', {},
         el('h3', { class: 'card__sub', text: `Review trial: ${t.scout} (advisory, never blocking)` }),
-        el('p', { class: 'row__note', text: `${verdict} · ${t.unique_real} real finding(s) only ${t.scout} raised` }),
+        el('p', { class: 'row__note', text: `${verdict} · ${plural(t.unique_real, 'real finding')} only ${t.scout} raised` }),
         rows.length ? el('ul', { class: 'list' }, ...rows) : null);
 }
 
@@ -1087,7 +1092,7 @@ function renderScouts(s) {
 // ---- dependencies and security (docs/SECURITY-INTAKE.md)
 
 function securityRepo(r) {
-    const head = `${r.name}: ${r.prs.length} dependency pull request(s), ${r.alerts} vulnerability report(s)` + (r.worst ? `, worst ${r.worst}` : '');
+    const head = `${r.name}: ${plural(r.prs.length, 'dependency pull request')}, ${plural(r.alerts, 'vulnerability report')}` + (r.worst ? `, worst ${r.worst}` : '');
     const links = Object.entries(r.links || {}).map(([k, href]) => el('a', { href, target: '_blank', rel: 'noopener', text: k === 'prs' ? 'Pull requests' : 'Security tab' }));
     const top = r.top.map((t) => el('li', {}, el('span', { class: 'chip', text: t.severity }), ' ',
         el('a', { href: t.url, target: '_blank', rel: 'noopener', text: t.title }), ` (${t.sources.join(', ')})`));
@@ -1101,7 +1106,7 @@ function securityRepo(r) {
 function renderSecurity(s) {
     const v = s.security;
     if (!v || !$('security')) return;
-    $('security-meta').textContent = v.read_at ? `${v.prs} pull request(s), ${v.alerts} report(s), worst: ${v.worst || 'none'}` : 'not read yet';
+    $('security-meta').textContent = v.read_at ? `${plural(v.prs, 'pull request')}, ${plural(v.alerts, 'report')}, worst: ${v.worst || 'none'}` : 'not read yet';
     if (!v.read_at) {
         $('security').replaceChildren(empty('Nothing read yet', 'The autopilot reads every repo\'s Dependabot and Cursor pull requests and its alerts every few hours; tutti security scan reads them now.'));
         return;
@@ -1173,7 +1178,7 @@ function factList(j) {
         [f.account, () => accountText(f.account)],
         [f.tests, () => PASSFAIL('tests', f.tests)],
         [f.checks, () => PASSFAIL('checks', f.checks)],
-        [f.files, () => `${f.files.files} file(s) +${f.files.plus} −${f.files.minus}`],
+        [f.files, () => `${plural(f.files.files, 'file')} +${f.files.plus} −${f.files.minus}`],
         [f.copied, () => `copied ${f.copied.done}/${f.copied.total} ${f.copied.unit}`],
     ];
     return rows.filter(([on]) => on).map(([, text]) => text());

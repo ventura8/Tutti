@@ -75,6 +75,47 @@ admin sees every admin control, the Settings and Users tabs.
 A failure names the role, tab, width and theme, the element (tag, id, classes, text, card) and the numbers. Fix the UI;
 never relax a check.
 
+### The owner's fleet
+
+`tests/e2e/test_owner_fleet.py` runs `serve.py` with `TUTTI_E2E_FLEET=owner`: the shapes of the owner's own dashboard
+(2026-11-16 audit) - seven machines, four accounts at the limit at 97-100 %, eight jobs of which three stalled, long routing
+reasons, and a config edit that does not parse. Every tab and view (Chat, Dashboard, Settings, Users, Household, What did I
+miss?) at 390, 820, 1440 and 3840 px, light and dark:
+
+- the layout checks above, plus `headlinesFit` (no tile value or card title over two lines; a tile note under 140
+  characters: the long explanation goes in the tile's *Details*) and `copyLint` (no leaked `null`/`undefined`/`NaN`, no
+  `: .`, no "1 accounts" or "1 account need", no "3 stalled: open its", no "(s)" plurals: say the count in words);
+- axe, no console or script error, the keyboard reaching the tiles' *Details* with a visible focus;
+- the error and loading states: the config-error banner names the file, the problem with its line and column, and the fix;
+  Settings shows the same words instead of "Failed to fetch", and "Loading the settings…" before its answer.
+
+## Live self-test and learning loop
+
+The mock suite only finds what its fixtures show. `tutti selftest live` runs the same checks against this computer's own
+running dashboard (127.0.0.1:<dashboard.port>) with its real data, and turns each new finding into a mock test.
+
+- **Who:** a read-only identity, `tutti-selftest`, that Tutti mints in its own users file as a *viewer*, with a one-hour
+  session dropped at the end of the run. Never the owner's Google login. It is refused while no admin has signed in (the
+  first sign-in becomes the admin and must be a person). The session id reaches the browser through the environment only.
+- **Read-only, twice:** a viewer cannot change anything (the server refuses it), and `tests/e2e_live/live.py` aborts every
+  request that is not a GET before it leaves the browser. It only navigates, switches Me/Household and opens disclosures.
+- **What:** every tab a viewer sees and the Household view, at phone, tablet, laptop and 4K, light and dark: `checks.js`
+  (layout, clipped text, headlines, copy), axe at phone and laptop, console errors.
+- **Learning:** a finding not seen before (its signature: view, check and text with the numbers taken out) is recorded under
+  `<state>/selftest/` with a screenshot; the `/api/state` JSON it was drawn from, with e-mail addresses and token-like strings
+  redacted, becomes `tests/e2e/fixtures/live-<id>.json`; `tests/e2e/test_live_fixtures.py` replays it in the mock dashboard
+  (its `/api/state` answers that JSON) and fails while the bug reproduces; and a backlog task asks for the fix with that
+  test as its check, so the autopilot fixes it through the normal pull-request flow. A repeat is counted, never filed again.
+- `tutti selftest last` prints the last run (checked views, findings, new and repeat ids, tasks filed).
+
+```bash
+tutti selftest live --python ~/.cache/tutti/check-venv/bin/python3   # the venv scripts/check.sh makes has Playwright and axe
+tutti selftest live --widths phone,laptop                             # a quicker round
+```
+
+Not yet wired: the hourly run when the machine is idle and after a restart, and the dashboard's *Self-test* card and its
+line in What did I miss?; both will read `selftest.last()` (follow-ups in the pull request that added this).
+
 ## The formatter and other pure parts
 
 `web/format.js`, `web/attention.js`, `web/energy.js`, `web/household.js` and `web/settings.js` are pure enough to run in

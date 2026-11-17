@@ -306,7 +306,7 @@ class StaleReadingTest(unittest.TestCase):
         s = pacing.account_state('agy', a, [{'at': NOW.isoformat(), 'account': 'agy', 'used': 0, 'source': 'reader'}], NOW)
         self.assertEqual(s['verdict'], 'behind')
         self.assertGreaterEqual(s['room_tasks'], 1)
-        self.assertIn('bounded task(s) can go to agy', s['action'])
+        self.assertRegex(s['action'], r'bounded tasks? can go to agy')   # a count in words: never "task(s)"
         self.assertTrue(s['auto'])
 
 

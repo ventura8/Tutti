@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlsplit
 
+import yaml
+
 from . import (
     __version__,
     aiassist,
@@ -97,6 +99,18 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
        "manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 
+def config_problem(path, error):
+    """The banner for a config edit that does not load, in plain words: which file, what is wrong (a YAML error's first line
+    and its place), that the last good config still runs, and the fix. A YAML syntax error used to stop the probe outright."""
+    what = str(error).strip()
+    if isinstance(error, yaml.MarkedYAMLError) and error.problem_mark is not None:
+        mark = error.problem_mark
+        what = f'{error.problem or error.context or "a syntax error"} at line {mark.line + 1}, column {mark.column + 1}'
+    what = ' '.join(what.split())
+    return (f'Your config file {path or "tutti.config.yaml"} has an error, so Tutti still uses the last version that worked. '
+            f'The problem: {what}. To fix it, correct the file (`tutti config` checks it); the dashboard picks it up at its next check.')
+
+
 class Collector:
     """Holds the latest probes and refreshes them every `probe_seconds` in a daemon thread."""
 
@@ -154,8 +168,8 @@ class Collector:
         self.config_mtime = mtime
         try:
             self.reload()
-        except (config.ConfigError, OSError, ValueError, TypeError, AttributeError, KeyError) as e:   # any edit a load cannot take
-            self.config_error = f'the config changed and does not load ({e}): the dashboard keeps the last good one until it is fixed'
+        except (config.ConfigError, yaml.YAMLError, OSError, ValueError, TypeError, AttributeError, KeyError) as e:   # any bad edit
+            self.config_error = config_problem(self.cfg.get('_path'), e)
         else:
             self.config_error = None
         return self.config_error
@@ -977,8 +991,11 @@ def route(collector, path, token=''):
     if path == '/api/health':   # `started` changes when the process starts again (Settings' Restart waits for it)
         return 200, json.dumps({'ok': True, 'started': STARTED, 'host': socket.gethostname(), 'version': __version__}).encode(), \
             JSON_TYPE, 'no-store'
-    if path == API_SETTINGS:
-        return 200, safe_json(settings.view(collector.cfg, getattr(collector, 'env', None))), JSON_TYPE, 'no-store'
+    if path == API_SETTINGS:   # a config file that does not parse answers why, in the banner's words, instead of dropping the connection
+        try:
+            return 200, safe_json(settings.view(collector.cfg, getattr(collector, 'env', None))), JSON_TYPE, 'no-store'
+        except (yaml.YAMLError, config.ConfigError) as e:
+            return 200, json.dumps({'problem': config_problem(collector.cfg.get('_path'), e)}).encode(), JSON_TYPE, 'no-store'
     if path == API_VPN_STATUS:   # read-only, for every viewer: the card's state on page load (a POST was an admin's: 403)
         return (*[200, safe_json(vpncmd.api(collector.cfg, {'action': 'status'})[1])], JSON_TYPE, 'no-store')
     if path in ('/helper', '/helper.html'):

@@ -1722,6 +1722,20 @@ usage: tutti needs [-h] [--option OPTION] [--why WHY] [{list,answer,backfill,ask
 | `--option` | ask: an answer the owner can pick (repeat it; the first is the default) |  |
 | `--why` | ask: why it needs the owner |  |
 
+### `tutti selftest`
+
+the dashboard's browser checks on this computer's running dashboard, read-only: live (run now; new findings become fixtures, tests and backlog tasks), last (the last run)
+
+```text
+usage: tutti selftest [-h] [--python PYTHON] [--widths WIDTHS] [{live,last}]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `action {live,last}` |  | `live` |
+| `--python` | live: the Python with Playwright and axe (default: this one; scripts/check.sh makes a venv) |  |
+| `--widths` | live: some of phone,tablet,laptop,4k (default: all four) |  |
+
 ### `tutti welcome`
 
 welcome back: what happened while you were away (shipped, running, failed, usage, what needs you): show (the latest), miss (What did I miss? since the last one), on, off

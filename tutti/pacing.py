@@ -214,7 +214,7 @@ def account_action(name, a, p, used, is_panic, room):
         return (f'panic: {used:g} % used before the target time: nothing new on {name}; '
                 'move bounded work to other accounts and local models')
     if room:
-        return p['action'] + f'; use it: about {room} bounded task(s) can go to {a.get("worker") or name} now'
+        return p['action'] + f'; use it: about {room} bounded {"task" if room == 1 else "tasks"} can go to {a.get("worker") or name} now'
     return p['action']
 
 

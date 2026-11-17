@@ -1617,6 +1617,27 @@ def needs_ask(cfg, a):
     return 0
 
 
+def cmd_selftest(cfg, a):
+    """`tutti selftest live|last` (docs/TESTING.md, *Live self-test and learning loop*): the dashboard's browser checks on
+    this computer's running dashboard as a read-only viewer; new findings become fixtures, tests and backlog tasks."""
+    from . import selftest
+    if a.action == 'last':
+        s = selftest.last(cfg)
+        print(json.dumps(s, indent=1) if s else 'no self-test has run yet: tutti selftest live')
+        return 0
+    try:
+        s, out = selftest.run(cfg, python=a.python, widths=a.widths.split(',') if a.widths else None)
+    except selftest.SelftestError as e:
+        print(f'tutti selftest: {e}', file=sys.stderr)
+        return 2
+    if s.get('error'):
+        print(f'tutti selftest: {s["error"]}', file=sys.stderr)
+        return 2
+    print(f'{s["checked"]} views checked, {s["findings"]} findings ({len(s["new"])} new, {len(s["repeat"])} seen before); '
+          f'tasks filed: {", ".join(s["tasks"]) or "none"}; screenshots and details in {out}')
+    return 0 if s['ok'] else 1
+
+
 def cmd_welcome(cfg, a):
     """`tutti welcome [show|miss|on|off]` (docs/WELCOME.md): the owner's welcome-back summary, What did I miss?, the switch."""
     from . import mcpserver, welcome
@@ -2065,6 +2086,11 @@ def parser():
     s.add_argument('choice', nargs='?', help='answer: one of its options, or your own words; ask: the question')
     s.add_argument('--option', action='append', help='ask: an answer the owner can pick (repeat it; the first is the default)')
     s.add_argument('--why', help='ask: why it needs the owner')
+    s = add('selftest', cmd_selftest, 'the dashboard\'s browser checks on this computer\'s running dashboard, read-only: live '
+                                       '(run now; new findings become fixtures, tests and backlog tasks), last (the last run)')
+    s.add_argument('action', nargs='?', default='live', choices=['live', 'last'])
+    s.add_argument('--python', help='live: the Python with Playwright and axe (default: this one; scripts/check.sh makes a venv)')
+    s.add_argument('--widths', help='live: some of phone,tablet,laptop,4k (default: all four)')
     s = add('welcome', cmd_welcome, 'welcome back: what happened while you were away (shipped, running, failed, usage, what '
                                      'needs you): show (the latest), miss (What did I miss? since the last one), on, off')
     s.add_argument('action', nargs='?', default='show', choices=['show', 'miss', 'on', 'off'])

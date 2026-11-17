@@ -100,7 +100,8 @@ class FollowsConfig(unittest.TestCase):
                 f.write('machines: [not, a, map]\n')
             os.utime(path, (time.time() + 5, time.time() + 5))
             why = c.follow_config()
-            self.assertIn('does not load', why)
+            self.assertIn('has an error, so Tutti still uses the last version that worked', why)   # the banner's plain words
+            self.assertIn('To fix it, correct the file', why)
             self.assertIn('here', c.cfg['machines'])
             self.assertEqual(c.follow_config(), why)   # said at every probe until the file loads again
 

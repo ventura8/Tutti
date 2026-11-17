@@ -254,7 +254,43 @@
         return [];
     }
 
-    window.tuttiChecks = { startAtTop, noHorizontalScroll, insideViewport, noClippedText, noOverlap, targetSize, iconNames, landmarks, liveRegions,
+    // the words on screen: no leaked null/undefined/NaN, no empty list before a full stop, no "1 accounts" or "1 account need"
+    // (the dashboard audit, 2026-11-16: "nullnullnull" under What did I miss?, "Since <time>: .", "1 account need a fresh reading")
+    const COPY = [
+        [/\b(null|undefined|NaN|\[object Object\])\b/, 'a leaked script value'],
+        [/:\s*\.(\s|$)/, 'an empty list before a full stop'],
+        [/(^|[^\d.,])1 (account|job|machine|worker|task|device|user|person|agent)s\b/, 'a plural after 1'],
+        [/(^|[^\d.,])1 (account|job|machine|worker|task|device|user|person|agent) (need|have|are|were)\b/, 'a plural verb after 1'],
+        [/\b([2-9]|\d\d+) (account|job|machine|worker|task|device|user|agent) (needs|has|is|was)\b/, 'a singular verb after a count'],
+        [/\b([2-9]|\d\d+) stalled: open its\b/, '"its" for several'],
+        [/\w\(s\)/, 'a "(s)" plural: say the count in words'],
+    ];
+    function copyLint() {
+        const out = [];
+        for (const { el } of textBoxes()) {
+            const text = [...el.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent).join('').replace(/\s+/g, ' ');
+            for (const [re, what] of COPY) if (re.test(text)) out.push(`${what}: "${text.trim().slice(0, 80)}" at ${where(el)}`);
+        }
+        return [...new Set(out)];
+    }
+
+    // a headline (a tile's value, a card's title) that wraps past two lines is a list crammed into a headline
+    function headlinesFit() {
+        const out = [];
+        for (const el of document.querySelectorAll('.tile__value, .card__head h2')) {
+            if (!visible(el)) continue;
+            const lh = parseFloat(getComputedStyle(el).lineHeight) || 1.25 * parseFloat(getComputedStyle(el).fontSize);
+            const lines = Math.round(el.getBoundingClientRect().height / lh);
+            if (lines > 2) out.push(`a headline over ${lines} lines: ${where(el)}`);
+        }
+        // a tile's note is one or two short sentences: the long explanation belongs in its Details
+        for (const el of document.querySelectorAll('.tile > .tile__note')) {
+            if (visible(el) && el.textContent.length > 140) out.push(`a tile note of ${el.textContent.length} characters: ${where(el)}`);
+        }
+        return out;
+    }
+
+    window.tuttiChecks = { copyLint, headlinesFit, startAtTop, noHorizontalScroll, insideViewport, noClippedText, noOverlap, targetSize, iconNames, landmarks, liveRegions,
         reducedMotion, tabbables: () => tabbables().map(where), focusShown: () => (document.activeElement ? focusShown(document.activeElement) : false),
         active: () => (document.activeElement && document.activeElement !== document.body ? where(document.activeElement) : 'body'), textSpacing,
         layout: () => [...noHorizontalScroll(), ...insideViewport(), ...noClippedText(), ...noOverlap(), ...floatingClearance()] };

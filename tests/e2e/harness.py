@@ -18,10 +18,10 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 class Dashboard:
     """serve.py running in a temp home; `base` is its http://127.0.0.1:<port> address."""
 
-    def __init__(self):
+    def __init__(self, env=None):
         self.tmp = tempfile.TemporaryDirectory(prefix='tutti-e2e-')
         env = {**os.environ, 'TUTTI_NO_DAEMONS': '1', 'HOME': self.tmp.name, 'XDG_CONFIG_HOME': os.path.join(self.tmp.name, '.config'),
-               'TUTTI_TELEMETRY': 'off', 'PYTHONPATH': os.pathsep.join([ROOT, os.path.join(ROOT, 'tests')]), 'TZ': 'UTC'}
+               'TUTTI_TELEMETRY': 'off', 'PYTHONPATH': os.pathsep.join([ROOT, os.path.join(ROOT, 'tests')]), 'TZ': 'UTC', **(env or {})}
         self.proc = subprocess.Popen([sys.executable, os.path.join(HERE, 'serve.py'), self.tmp.name], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, text=True, env=env, cwd=self.tmp.name)
         line = self.proc.stdout.readline()

@@ -253,8 +253,12 @@ def template(f, since):
     if not any(n.values()):
         return f'Welcome back. Nothing happened since {at_text(since)} that needs telling.'
     parts = [f'{n["shipped"]} shipped' if n['shipped'] else '', f'{n["running"]} running' if n['running'] else '',
-             f'{n["failed"]} failed or parked' if n['failed'] else '', f'{n["needs"]} need you' if n['needs'] else '']
-    return 'Welcome back. Since ' + at_text(since) + ': ' + ', '.join(p for p in parts if p) + '.'
+             f'{n["failed"]} failed or parked' if n['failed'] else '',
+             f'{n["needs"]} {"needs" if n["needs"] == 1 else "need"} you' if n['needs'] else '']
+    said = ', '.join(p for p in parts if p)
+    if not said:   # only usage moved: never "Since <time>: ." (the dashboard audit, 2026-11-16)
+        return f'Welcome back. Nothing shipped, ran or failed since {at_text(since)}; the usage is below.'
+    return 'Welcome back. Since ' + at_text(since) + ': ' + said + '.'
 
 
 def ai_intro(cfg, f, since, ask=None):

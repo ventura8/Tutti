@@ -89,7 +89,7 @@ function renderLane(si) {
     const toggle = $('selfimprove-toggle');
     toggle.textContent = si.enabled ? 'Turn off' : 'Turn on';
     toggle.setAttribute('aria-pressed', String(si.enabled));
-    $('selfimprove-meta').textContent = `${si.enabled ? 'on' : 'off'} · ${si.items.length} task(s) from Sentry and the insights`;
+    $('selfimprove-meta').textContent = `${si.enabled ? 'on' : 'off'} · ${si.items.length} ${si.items.length === 1 ? 'task' : 'tasks'} from Sentry and the insights`;
     $('selfimprove').replaceChildren(...(si.items.length ? si.items.map((t) => {
         const [phase, tone] = lanePhase(t);
         return el('li', { class: 'row' },

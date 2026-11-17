@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -1155,3 +1156,20 @@ class PageMarkup(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ChatCliArgs(unittest.TestCase):
+    """Owner, 2026-11-17: Chat's Cursor answers in ask mode, in an empty folder of its own."""
+
+    def test_cursor_answers_in_ask_mode_and_a_setting_wins(self):
+        from tutti import chatctl
+        self.assertEqual(chatctl.chat_args({'command': ['cursor-agent', '-p', '{prompt}']}), ['--mode', 'ask'])
+        self.assertEqual(chatctl.chat_args({'command': ['claude', '-p', '{prompt}']}), [])
+        self.assertEqual(chatctl.chat_args({'command': ['cursor-agent'], 'chat_args': []}), [])
+
+    def test_the_chat_work_folder_is_under_the_state_dir(self):
+        import tempfile
+        from tutti import chatrun
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch('tutti.config.state_dir', return_value=d):
+                self.assertTrue(chatrun.chat_workdir({}).startswith(d))

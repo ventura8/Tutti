@@ -7,6 +7,14 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.25.1] - 2026-11-17
+
+### Fixed
+
+- Chat's online agents answer again: a CLI agent runs in an empty folder of its own under Tutti's state dir, and Cursor
+  answers in its read-only ask mode (`workers.<n>.chat_args`). In agent mode a chat's "continue" started work and printed
+  nothing before Chat's 180 s deadline, so Chat said no model could answer.
+
 ## [0.25.0] - 2026-11-17
 
 ### Added

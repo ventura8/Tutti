@@ -1180,7 +1180,7 @@ usage: tutti run [-h] [--dir DIR] [--show] [--input PATH] [--on ON] [--repo REPO
 | `--show` | print the brief and stop |  |
 | `--input` | a file or folder to copy to the --on machine first (repeat it) |  |
 | `--on` | the machine --input files go to |  |
-| `--repo` | hand the task off end to end: a worktree of this repo, the worker headless, the diff, the checks, a report (tutti runs show <id>) |  |
+| `--repo` | hand the task off end to end: a worktree of this repo (a folder, or a name under autopilot.repos), the worker headless, the diff, the checks, a report (tutti runs show <id>) |  |
 | `--track` | with --repo: reuse or create the worktree <delegate.prefix><track> instead of a new one |  |
 | `--bg` | with --repo: run detached; prints the id for `tutti wait run <id>` |  |
 | `--no-checks` | with --repo: skip the checks (the report says nothing was tested) |  |

@@ -15,6 +15,13 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   falls back to the strongest available local model. When online accounts are all in panic, a local main can cautiously
   delegate one small unit per account with measured quota left, balancing remaining quota without pausing accounts (t322).
 
+## [0.25.6] - 2026-11-17
+
+### Fixed
+
+- `tutti run ... --repo <name>` (and MCP `delegate_task`) resolves a bare name to `autopilot.repos.<name>.path` before
+  creating the worktree, so a hand-off from a non-git cwd no longer fails with "`<name>` is not inside a git work tree".
+
 ## [0.25.5] - 2026-11-17
 
 ### Fixed

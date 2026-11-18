@@ -264,10 +264,10 @@ def takeover_room(cfg, name, s):
 
 
 def takes_over(cfg, name, s, states):
-    """True when `name` (not a main account, itself neither in panic nor spent) takes work while the main agent panics."""
+    """True when `name` (not a main account, itself neither in panic, spent nor ahead) takes work while the main agent panics."""
     if name in main_accounts(cfg) or not main_in_panic(cfg, states):
         return False
-    return not (routing.unknown_quota(s) or routing.quota_closed(s))
+    return not (routing.unknown_quota(s) or routing.quota_closed(s) or s.get('verdict') == 'ahead')
 
 
 def quota_panic(s):
@@ -374,15 +374,15 @@ def is_local(cfg, name):
     return w.get('kind') == 'ollama' and name not in (cfg.get('accounts') or {}) and not w.get('costs_money')
 
 
-def candidates(cfg, t, over='', machines=()):
+def candidates(cfg, t, over='', machines=(), states=None):
     """The steps a task may go to now (below), with the step the dashboard's Move to picked first when it is one of them."""
     worn = worn_out(t['attempts'])   # the same failure twice there: it is not sent there again
-    out = [n for n in _candidates(cfg, t, over, machines) if n not in worn]
+    out = [n for n in _candidates(cfg, t, over, machines, states) if n not in worn]
     want = t.get('prefer')
     return [want, *[n for n in out if n != want]] if want in out else out
 
 
-def _candidates(cfg, t, over='', machines=()):
+def _candidates(cfg, t, over='', machines=(), states=None):
     """The steps a task may go to now, in the order tried. A fresh task: the trigger accounts (autopilot.accounts) and the
     household's local models that fit it (tutti/fleet.py), the local ones first while `over` (the online accounts are ahead of
     their pace or held by the owner's reserve). A retry from one step above its last failed attempt (the same step after a
@@ -390,6 +390,8 @@ def _candidates(cfg, t, over='', machines=()):
     another machine's model. A local model only with file scope and a model that fits the task's kind and size."""
     from . import fleet
     steps = ladder(cfg)
+    if states:
+        steps = [n for n in steps if (states.get(n) or {}).get('verdict') not in ('ahead', 'spent')]
     kind, _, who = (t.get('pin') or '').partition(':')
     if kind == 'worker':   # `tutti run claude` (tutti/claudework.py): only the accounts whose worker that is, ladder or not
         return [n for n in dict.fromkeys([*steps, *cfg['accounts']]) if (step_of(cfg, n) or {}).get('worker') == who]
@@ -465,7 +467,7 @@ def assignment_wait(cfg, name, t, rooms):
     return why or f'{name}: too little room for a {t["size"]} task'
 
 
-def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
+def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), states=None):
     """Each queued task, in the order given (by priority, then oldest), to the first of its candidate steps that has room for its
     size. `free`: the online runs that may start, or (online, local): a local model's run is not counted in max_parallel, only
     in the machines' slots. `prefer`: {step: the sizes its model tier wants} (tutti/tiers.py): a step whose tier names sizes is
@@ -475,7 +477,7 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
     for t in queued:
         if free <= 0 and local <= 0:
             break
-        steps = sorted(candidates(cfg, t, over, machines), key=tier_last(prefer, t.get('size')))
+        steps = sorted(candidates(cfg, t, over, machines, states), key=tier_last(prefer, t.get('size')))
         fair = cfg.get('_panic_usage') or {}
         budget = cfg.get('_panic_budget') or {}
         windows = cfg.get('_panic_windows') or {}
@@ -650,7 +652,7 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     from . import fleet
     over = fleet.overflow(cfg, states, rooms, [n for n in names if is_local(cfg, n)])
     out['overflow'] = over
-    assign(cfg, priority.by_repo(cfg, queued, lambda t: t['repo'], going), rooms, free, out, prefer, over, machines or ())
+    assign(cfg, priority.by_repo(cfg, queued, lambda t: t['repo'], going), rooms, free, out, prefer, over, machines or (), states)
     out['rooms'] = {n: list(r) for n, r in rooms.items()}
     if out['dispatch']:
         return {**out, 'state': 'dispatching', 'reason': f'{len(out["dispatch"])} task(s) sent to ' +

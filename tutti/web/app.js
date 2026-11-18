@@ -481,7 +481,9 @@ function account(a, now) {
         card.append(el('p', { class: 'account__by', text: a.state === 'no reset' ? 'No reset time in the config yet.' : 'No reading in this window yet.' }));
     }
     if (a.reset) card.append(sparkline(a, now));
-    card.append(el('p', { class: 'account__action', text: `Do: ${tuttiTidy(a.action)}` }));
+    const actionText = tuttiTidy(a.action);
+    const label = actionText.includes('shift work') ? 'Doing' : 'Do';
+    card.append(el('p', { class: 'account__action', text: `${label}: ${actionText}` }));
     if (a.quota_plan?.rows?.length) card.append(planFacts(a.quota_plan));
     else if (a.quota_plan?.why) card.append(el('p', { class: 'account__plan', text: `Planner: ${a.quota_plan.why}` }));
     if (a.outlook) {

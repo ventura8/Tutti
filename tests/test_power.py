@@ -3,6 +3,7 @@ to the strongest free machine and light ones to the weaker, a weak busy machine 
 to the weakest model tier that meets it, escalation after a failure. No machine or model server is called."""
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from tutti import dispatch, fleet, power
 
@@ -49,7 +50,7 @@ class Bench(unittest.TestCase):
         self.assertEqual(power.headroom(None), 0.0)
 
     def test_stale_benchmarks_are_measured_once_in_the_background_and_rows_annotated(self):
-        with tempfile.TemporaryDirectory() as d:
+        with tempfile.TemporaryDirectory() as d, patch('tutti.power.host_power.get_power_mode', return_value={'mode': 'test', 'source': 'test'}):
             cfg = {'project': {'state': d}, 'machines': {'pc': {'transport': 'local'}, 'nuc': {'transport': 'local'}}}
             runs = []
             rows = [row('pc', PC), {**row('nuc', NUC), 'status': 'busy'}]

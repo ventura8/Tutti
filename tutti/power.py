@@ -19,7 +19,7 @@ import subprocess
 import threading
 import time
 
-from . import config
+from . import config, host_power
 
 FILE = 'power.json'
 BENCH_DAYS = 7
@@ -293,9 +293,12 @@ def annotate(cfg, rows):
         b = data.get(r.get('name'))
         s = score(b)
         room = headroom(r)
+        name = r.get('name')
+        machine = (cfg.get('machines') or {}).get(name)
         r['power'] = {'score': s, 'parts': parts(b) if b else {}, 'room': room, 'effective': effective(s, room),
                       'bench': {k: b.get(k) for k in ('cores', 'threads', 'mem_gb', 'cpu_mbs', 'disk_mbs', 'vram_gb', 'npu')}
-                      if b else None, 'at': (b or {}).get('at')}
+                      if b else None, 'at': (b or {}).get('at'),
+                      'mode': host_power.get_power_mode(machine)}
     return rows
 
 

@@ -45,8 +45,8 @@ self.addEventListener('fetch', (event) => {
                 await cache.put(event.request, res.clone());
             }
             return res;
-        }).catch(() => cached);
+        }).catch(() => cached || Response.error());
         event.waitUntil(fresh.then(() => undefined, () => undefined));   // keep the worker alive until the cache write ends
         return cached || fresh;
-    }));
+    }).catch(() => Response.error()));
 });

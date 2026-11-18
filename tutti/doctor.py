@@ -3,6 +3,8 @@ import os
 import shutil
 import subprocess
 
+from .install import SERVICES
+
 # what the dynamic loader prints when a program's libraries do not match (a git bundled with another tool, say)
 LOADER_ERRORS = ('error while loading shared libraries', 'symbol lookup error', 'version `', 'cannot open shared object', 'dlopen',
                  'Error loading shared library', 'Error relocating')  # the last two: musl (Alpine)
@@ -62,3 +64,42 @@ def check_git(path=None, probe=probe_https):
         if other != first and os.path.isfile(other) and probe(other)[0]:
             return [f'{problem}; {other} works']
     return [problem]
+
+
+def check_services():
+    """Checks Tutti services are active, linger is enabled and the dashboard is not running outside its service."""
+    problems = []
+    # Check linger
+    try:
+        r = subprocess.run(['loginctl', 'show-user', os.environ.get('USER', ''), '--property=Linger'],
+                           capture_output=True, text=True, check=True)
+        if 'Linger=yes' not in r.stdout:
+            problems.append('linger is off: systemd services will not start at boot; run `loginctl enable-linger`')
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass # not on linux or no systemd
+
+    # Check services
+    for name in SERVICES:
+        # Check active
+        r = subprocess.run(['systemctl', '--user', 'is-active', f'{name}.service'], capture_output=True, text=True)
+        if r.returncode != 0:
+            problems.append(f'service {name} is not active; check `systemctl --user status {name}.service`')
+        # Check TimeoutStopSec
+        r = subprocess.run(['systemctl', '--user', 'show', '-p', 'TimeoutStopUSec', f'{name}.service'], capture_output=True, text=True)
+        if 'TimeoutStopUSec=0' in r.stdout or 'TimeoutStopUSec=' not in r.stdout:
+            problems.append(f'service {name} has no TimeoutStopSec; set it to 30s in the unit file')
+
+    # Check if dashboard is running outside service
+    r = subprocess.run(['pgrep', '-f', 'tutti dashboard'], capture_output=True, text=True)
+    if r.returncode == 0:
+        # Check if it's the service process
+        pids = r.stdout.splitlines()
+        for pid in pids:
+            # check if the process is under systemd
+            try:
+                r = subprocess.run(['systemctl', '--user', 'status', pid], capture_output=True, text=True)
+                if r.returncode != 0:
+                    problems.append(f'dashboard seems to be running outside systemd (pid {pid}); stop it or run it as a service')
+            except Exception:
+                pass
+    return problems

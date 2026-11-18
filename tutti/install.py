@@ -45,6 +45,15 @@ CHANNELS = {
     'npm': {'published': False, 'install': 'npm install -g tutti-agents', 'update': 'npm update -g tutti-agents'},
 }
 
+SERVICES = {
+    'tutti-dashboard': {'description': 'Tutti dashboard (http://127.0.0.1:4777/)',
+                        'exec': 'dashboard', 'restart': 'on-failure'},
+    'tutti-failover': {'description': 'Tutti failover',
+                       'exec': 'failover run', 'restart': 'on-failure'},
+    'tutti-scout': {'description': 'Tutti scout',
+                    'exec': 'scout tick', 'restart': 'on-failure'},
+}
+
 
 def home(env=None, windows=None):
     """The install folder: $TUTTI_HOME, else the per-OS default."""
@@ -114,12 +123,13 @@ def tutti_command(home_dir, windows=False):
     return os.path.join(os.path.expanduser('~'), '.local', 'bin', 'tutti')
 
 
-def systemd_unit(tutti):
-    """The systemd --user unit: update first (opt-out in the config), then the dashboard; restarted when it fails."""
-    return ('[Unit]\nDescription=Tutti dashboard (http://127.0.0.1:4777/)\nAfter=network-online.target\n\n'
+def systemd_unit(name, tutti, info):
+    """The systemd --user unit: update first (opt-out in the config), then the service; restarted when it fails."""
+    exec_cmd = info['exec']
+    return (f'[Unit]\nDescription={info["description"]}\nAfter=network-online.target\n\n'
             '[Service]\n'
-            f"ExecStart=/bin/sh -c '\"{tutti}\" self-update --auto; exec \"{tutti}\" dashboard'\n"
-            'Restart=always\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n')
+            f"ExecStart=/bin/sh -c '\"{tutti}\" self-update --auto; exec \"{tutti}\" {exec_cmd}'\n"
+            f'Restart={info["restart"]}\nRestartSec=10\nTimeoutStopSec=30\n\n[Install]\nWantedBy=default.target\n')
 
 
 def launchd_plist(tutti, log):
@@ -170,11 +180,13 @@ def service_plan(platform, home_dir, env=None, tutti=None):
         log = os.path.join(os.path.expanduser('~'), 'Library', 'Logs', 'tutti-dashboard.log')
         return [(path, launchd_plist(tutti, log))], [['launchctl', 'unload', path], ['launchctl', 'load', '-w', path]]
     config_home = env.get('XDG_CONFIG_HOME') or os.path.join(os.path.expanduser('~'), '.config')
-    path = os.path.join(config_home, 'systemd', 'user', f'{SERVICE}.service')
-    # linger: the user's services start at boot, before anyone logs in, so a power cut or a reboot resumes work by itself
-    return [(path, systemd_unit(tutti))], [['systemctl', '--user', 'daemon-reload'],
-                                           ['systemctl', '--user', 'enable', '--now', f'{SERVICE}.service'],
-                                           ['loginctl', 'enable-linger']]
+    plans, run = [], [['systemctl', '--user', 'daemon-reload']]
+    for name, info in SERVICES.items():
+        path = os.path.join(config_home, 'systemd', 'user', f'{name}.service')
+        plans.append((path, systemd_unit(name, tutti, info)))
+        run.append(['systemctl', '--user', 'enable', '--now', f'{name}.service'])
+    run.append(['loginctl', 'enable-linger'])
+    return plans, run
 
 
 def platform_name(env=None):

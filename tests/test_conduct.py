@@ -8,7 +8,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
-from tutti import cli, conduct, config, dashboard, workers
+from tutti import chat, cli, conduct, config, dashboard, workers
 
 SH = ['sh', '-c']
 ALLOW = '{"permissions":{"allow":["command(ls)"]}}'
@@ -486,7 +486,6 @@ class RoleHandOffTest(Folder):
         self.assertEqual(len(notes), 2)
 
     def test_deliver_role_note_goes_to_the_signed_in_owners_partition(self):
-        from tutti import chat
         with mock.patch('tutti.auth.enabled', return_value=True), \
              mock.patch('tutti.auth.Users') as Users:
             Users.return_value.all.return_value = {'g-owner': {'role': 'admin', 'created': 1}}
@@ -495,6 +494,27 @@ class RoleHandOffTest(Folder):
         owner = store.load('g-owner')['conversations']
         self.assertTrue(any(c.get('title') == conduct.CHAT_TITLE for c in owner))
         self.assertEqual(store.load('local')['conversations'], [])
+
+    def test_new_main_also_out_cascades_to_the_next_fallback(self):
+        self.cfg = cfg_in(self.dir, accounts={
+            'agy-claude': {'window': '5h', 'resets': '2026-01-01T00:00Z', 'worker': 'agy'},
+            'agy-gemini': {'window': '5h', 'resets': '2026-01-01T00:00Z', 'worker': 'agy'},
+            'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z', 'worker': 'cursor', 'enabled': True}},
+            main={'agent': 'agy', 'fallback': ['cursor', 'local'], 'check_seconds': 0.05})
+        notes, home = [], os.path.join(self.dir, 'home')
+        os.makedirs(home, exist_ok=True)
+        first = self.states(**{'agy-claude': 99, 'agy-gemini': 97, 'cursor': 10})
+        self.assertIn('to cursor', conduct.hand_off_role(
+            self.cfg, first, connect_fn=lambda *a, **k: [], chat_fn=lambda c, t: notes.append(t), home=home))
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+        both = self.states(**{'agy-claude': 99, 'agy-gemini': 97, 'cursor': 99})
+        line = conduct.hand_off_role(
+            self.cfg, both, connect_fn=lambda *a, **k: [], chat_fn=lambda c, t: notes.append(t), home=home)
+        self.assertIn('MAIN AGENT ROLE handed from cursor to local', line)
+        self.assertEqual(conduct.current(self.cfg), 'local')
+        self.assertEqual(chat.resolve_pick('main', self.cfg), 'local')
+        self.assertTrue(os.path.isfile(os.path.join(
+            config.state_dir(self.cfg), 'main-handover', 'HANDOVER.md')))
 
 
 if __name__ == '__main__':

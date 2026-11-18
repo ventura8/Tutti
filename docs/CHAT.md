@@ -41,12 +41,35 @@ The server decides, for every action, with `auth.act_for` (and so `auth.may_act_
 - Conversations are private: each user sees only their own. Admins have **Household activity**: the actions the chat took
   for each member, from the audit log, never anyone's messages.
 
+## Main-agent hand-over
+
+When the MAIN AGENT ROLE moves because the current main agent's accounts are in **panic** or **spent** (docs/CONDUCT.md,
+*Automatic MAIN AGENT ROLE hand-off*), the person keeps talking in this Chat:
+
+1. Tutti writes a hand-over package under `<state>/main-handover/`: **HANDOVER.md** (short: who took over, owner rules,
+   open tasks, topic index) plus per-topic files in `handover/`. Secrets are redacted; quiet mode skips heavy transcript I/O.
+2. The package is loaded into a **Main agent hand-off** conversation (the signed-in owner's partition), and the Chat
+   default model becomes **Main agent now**.
+3. The same Markdown is written for the new agent's desktop app (Cursor: `~/.cursor/rules/tutti-handover.md`; Antigravity /
+   Gemini: a marked block in `~/.gemini/GEMINI.md`; Claude / Codex: their instructions file), plus
+   `tutti-handover-transcripts.md` beside that file with imported user/assistant turns for on-demand full context.
+4. Main-agent transcripts (Claude JSONL under `~/.claude/projects`, or `main.transcripts` in the config) are imported
+   incrementally (a cursor per file) as browsable Chat threads: user and assistant text only, tool noise dropped, secrets
+   redacted. Full text stays on demand; the short MD path is preferred while it is smaller (tokens are measured in
+   `metrics.json`).
+
+The Chat header shows **main agent now: &lt;name&gt; (&lt;kind&gt;)**, for example `main agent now: cursor (Cursor)`. Messages
+with the model on **Main agent now** go to whichever worker holds the role after the hand-over. The package is refreshed
+while the previous main stays in panic (Chat is updated only when HANDOVER.md changes). Cascading: if the new main is also
+out, the next worker in `main.fallback` takes the role.
+
 ## Which model answers
 
 The picker above the conversation chooses who answers, per conversation; the last choice is the default for new chats
 (kept in the user's chat file, so it survives restarts and moves):
 
 - **Auto** (the default): the household's local models first, then online agents.
+- **Main agent now**: whichever worker holds the MAIN AGENT ROLE (follows a hand-over).
 - **Local models only**: never an online agent, even when no local model can answer (the built-in answer then says so).
 - **Online agents only**.
 - **One model or agent** by name (each shows "not now" with the reason when it cannot answer).

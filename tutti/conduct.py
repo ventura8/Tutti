@@ -828,20 +828,33 @@ def take_role(cfg, to, connect_fn=None):
     return connect_role(cfg, to, connect_fn)
 
 
-def hand_off_role(cfg, states=None, connect_fn=None, chat_fn=None, now=None):
+def hand_off_role(cfg, states=None, connect_fn=None, chat_fn=None, now=None, home=None):
     """When the main agent's accounts are in panic or spent, hands the MAIN AGENT ROLE to the next in main.fallback,
-    connects it, and writes a chat note. Returns the event line, or None when nothing changes."""
+    connects it, and writes the Chat hand-over package (docs/CHAT.md). Returns the event line, or None when nothing
+    changes. Cascades when the new main is also out. Refreshes the package while a prior main stays in panic."""
+    from . import chathandover
+    if not isinstance(cfg.get('main'), dict):
+        return None
     states = states if states is not None else account_states(cfg, now)
     frm = current(cfg)
     to, why = pick_role(cfg, states)
+    sub = owner_chat_sub(cfg)
     if not why:
+        last = read_json(role_path(cfg)) or {}
+        prev = last.get('from')
+        if prev and out_reason(cfg, prev, states):
+            chathandover.refresh(cfg, prev, last.get('to'), last.get('why') or '', home=home, sub=sub)
+            return None
         clear_role_record(cfg, frm)
         return None
     if already_noted(cfg, frm, to):
+        chathandover.refresh(cfg, frm, to, why, home=home, sub=sub)
         return None
     connect_note = take_role(cfg, to, connect_fn) if to else ''
     text = role_note(frm, to, why, connect_note)
-    (chat_fn or deliver_role_note)(cfg, text)
+    chathandover.deliver(cfg, frm, to, why, home=home, seed=chat_fn is None, sub=sub, note=text)
+    if chat_fn:
+        chat_fn(cfg, text)
     write_json(role_path(cfg), {'from': frm, 'to': to, 'why': why,
                                 'at': (now or datetime.now(timezone.utc)).isoformat()})
     return text

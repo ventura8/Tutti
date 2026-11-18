@@ -568,8 +568,21 @@ def machine_out(name, snap, own_machine=None):
     return None
 
 
-PICKS = {'auto': 'Auto: local first, then online', 'local': 'Local models only', 'online': 'Online agents only'}
+PICKS = {
+    'auto': 'Auto: local first, then online',
+    'main': 'Main agent now (follows the hand-over)',
+    'local': 'Local models only',
+    'online': 'Online agents only',
+}
 TOOL_PARAMS_B = 7.0   # a local model this large or larger is given the tools; a smaller one only talks
+
+
+def resolve_pick(pick, cfg):
+    """`main` follows whoever holds the MAIN AGENT ROLE; other picks are unchanged."""
+    if pick == 'main':
+        from . import chathandover
+        return chathandover.current_agent(cfg) or pick
+    return pick
 
 
 def params_b(model):
@@ -630,13 +643,16 @@ def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
 def candidates(cfg, snap, user, owner_sub=None, own_machine=None, pick='auto'):
     """The models that may answer this user, in order, and why the others may not: ([{kind, worker, label, ...}], [why]).
 
-    `pick`: auto (the household's local models first, by capability, then online accounts with room), local, online, or one
-    worker's name. Local models run on machines that are here, not paused, not lent out and never the user's own; online
-    accounts are the owner's own or shared (`accounts.<n>.share_spare`): another member's private quota is never spent."""
+    `pick`: auto (the household's local models first, by capability, then online accounts with room), main (whoever holds
+    the MAIN AGENT ROLE after a hand-over), local, online, or one worker's name. Local models run on machines that are
+    here, not paused, not lent out and never the user's own; online accounts are the owner's own or shared
+    (`accounts.<n>.share_spare`): another member's private quota is never spent."""
     local, online = all_models(cfg, snap, user, owner_sub, own_machine)
+    want = resolve_pick(pick, cfg)
     pool = {'local': local, 'online': online}.get(pick, local + online)
-    if pick not in PICKS:
-        pool = [c for c in local + online if c['worker'] == pick] or [{'worker': pick, 'why': f'{pick} is not a model here'}]
+    if pick == 'main' or pick not in PICKS:
+        pool = [c for c in local + online if c['worker'] == want] or [
+            {'worker': want, 'why': f'{want} is not a model here'}]
     out, before = [], []
     for c in pool:   # each model knows why the ones ranked before it could not answer: the page says why it fell back
         if c['why']:
@@ -647,9 +663,14 @@ def candidates(cfg, snap, user, owner_sub=None, own_machine=None, pick='auto'):
 
 
 def choices(cfg, snap, user, owner_sub=None, own_machine=None):
-    """The picker's options: the three modes, then every model with whether it can answer now."""
+    """The picker's options: the modes (including Main agent now), then every model with whether it can answer now."""
+    from . import chathandover
     local, online = all_models(cfg, snap, user, owner_sub, own_machine)
-    out = [{'id': k, 'label': v, 'group': 'mode', 'available': True} for k, v in PICKS.items()]
+    main = chathandover.status_for_chat(cfg)
+    out = []
+    for k, v in PICKS.items():
+        label = f'{v}: {main["label"]}' if k == 'main' else v
+        out.append({'id': k, 'label': label, 'group': 'mode', 'available': True})
     for c in local + online:
         out.append({'id': c['worker'], 'label': c['label'], 'group': 'local' if c['kind'] == 'ollama' else 'online',
                     'available': not c['why'], 'why': c['why'], 'tools': c['tools']})

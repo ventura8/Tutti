@@ -187,8 +187,9 @@ async function loadList() {
         const data = await chatApi({ action: 'list', query: CHAT.query });
         Object.assign(CHAT, { list: data.conversations, suggestions: data.suggestions, role: data.role, limits: data.limits, host: data.host || '', failed: '',
             models: data.models || [], defaults: data.defaults || {}, modes: data.modes || {}, efforts: data.efforts || [],
-            compactDefault: data.compact_default || 60 });
+            compactDefault: data.compact_default || 60, mainAgent: data.main_agent || null });
         if (typeof drawControls === 'function') drawControls();
+        drawMainAgent();
     } catch (err) {
         CHAT.failed = err.message;
     }
@@ -196,6 +197,13 @@ async function loadList() {
     drawList();
     drawPrivacy();
     if (!CHAT.conv) drawLog();
+}
+
+function drawMainAgent() {
+    const node = cq('chat-main-agent');
+    if (!node) return;
+    const m = CHAT.mainAgent;
+    node.textContent = m?.label ? `main agent now: ${m.label}` : (m?.name ? `main agent now: ${m.name}` : '');
 }
 
 function drawList() {

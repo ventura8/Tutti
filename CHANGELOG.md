@@ -7,6 +7,19 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.25.0] - 2026-11-17
+
+### Added
+
+- Main-agent ROLE hand-over package for Chat (t196, t221): on panic or spent, Tutti writes HANDOVER.md + topic files,
+  imports transcript threads (incremental, secrets redacted), prepares the new agent's desktop context (Cursor rules /
+  GEMINI / CLAUDE / AGENTS), and Chat shows **main agent now: X (kind)** with a **Main agent now** model pick that
+  follows whoever holds the role. Cascades when the new main is also out; refreshes while panic lasts. See docs/CHAT.md
+  and docs/CONDUCT.md.
+- Main-agent hand-over now also writes an incremental transcript export (`main-handover/TRANSCRIPTS.md`) and copies it to
+  the new main agent desktop context directory as `tutti-handover-transcripts.md`, so the same full conversation turns are
+  available from both Tutti Chat and the next main agent app.
+
 ## [0.24.1] - 2026-11-17
 
 ### Added

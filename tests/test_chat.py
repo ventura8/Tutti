@@ -395,7 +395,7 @@ class Picker(ApiBase):
         self.assertEqual(eng2.store.get('local', cid)['model'], 'nuc')
         listing = chatrun.post(eng2, ADMIN, {'action': 'list'}, self.snap)[1]
         self.assertEqual(listing['defaults']['model'], 'nuc')
-        self.assertEqual([m['id'] for m in listing['models']][:3], ['auto', 'local', 'online'])
+        self.assertEqual([m['id'] for m in listing['models']][:4], ['auto', 'main', 'local', 'online'])
         self.assertEqual(next(m for m in listing['models'] if m['id'] == 'copilot')['available'], False)
         new = self.send(eng, ADMIN, 'second')[0]['conversation']
         self.assertEqual(eng.store.get('local', new)['model'], 'nuc')

@@ -254,7 +254,7 @@ class Collector:
         unblocker.tick_in_background(self.cfg)   # blocked or failing work cleared, local first (docs/TELEMETRY.md, *The unblocker*)
         welcome.tick(self.cfg)   # the owner back: their welcome-back summary
         needs.tick(self.cfg)   # the questions only a person can answer, delivered in batches (docs/NEEDS.md)
-        # main agent in panic or spent: MAIN AGENT ROLE to the next in main.fallback (docs/CONDUCT.md)
+        # main agent in panic or spent: MAIN AGENT ROLE + Chat hand-over package (docs/CHAT.md, docs/CONDUCT.md)
         conduct.hand_off_role(self.cfg, self.snapshot()['usage']['accounts'])
         from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)
         hhjobs.tick(self.cfg)

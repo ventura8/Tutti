@@ -752,6 +752,8 @@ body[data-view-name='chat'] .foot { display: none; }
 .chat__main { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); position: relative; overflow: hidden; }
 .chat__head { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--outline-2); min-width: 0; }
 .chat__title { font-size: 1.0625rem; font-weight: 600; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat__mainagent { flex: none; margin: 0; color: var(--on-surface-2); font-size: 0.8125rem; white-space: nowrap; }
+.chat__mainagent:empty { display: none; }
 .chat__convacts { display: flex; flex: none; gap: 2px; }
 .chat__convacts .btn, .chat__back { white-space: nowrap; }
 .chat__convacts[hidden], .chat__back { display: none; }

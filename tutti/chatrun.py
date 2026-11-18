@@ -812,6 +812,7 @@ def post(engine, user, data, snap=None):
 
 
 def _list(engine, user, data, snap):
+    from . import chathandover
     known = chat.known_names(engine.cfg_fn(), snap or {})
     return 200, {'conversations': engine.store.listing(user['sub'], data.get('query') or ''),
                  'suggestions': chat.suggestions(snap or {}, user, known, engine.cfg_fn()), 'role': user['role'],
@@ -820,7 +821,8 @@ def _list(engine, user, data, snap):
                  'host': (snap or {}).get('where', {}).get('machine') or (snap or {}).get('where', {}).get('hostname'),
                 'models': chat.choices(engine.cfg_fn(), snap or {}, user, engine.owner_fn(), engine.own_machine_fn(user)),
                 'defaults': chatctl.resolve(data_of(engine, user), None), 'modes': chatctl.MODES, 'efforts': list(chatctl.EFFORTS),
-                'compact_default': (engine.cfg_fn().get('autocompact') or {}).get('threshold_pct') or 60}
+                'compact_default': (engine.cfg_fn().get('autocompact') or {}).get('threshold_pct') or 60,
+                'main_agent': chathandover.status_for_chat(engine.cfg_fn())}
 
 
 def data_of(engine, user):

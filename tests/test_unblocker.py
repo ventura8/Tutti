@@ -66,10 +66,10 @@ class Finds(Base):
                 with self.subTest(field=field, action=action):
                     tid = self.task(f'Failing {field} {action}', attempts=fails('exited 1', 'exited 1', 'exited 1'),
                                     not_before=NOW + 500)
-                    def ask(_cfg, _prompt, _purpose, **_kwargs):
+                    def ask(_cfg, _prompt, _purpose, *, task_id=tid, key=field, new_value=value, selected=action, **_kwargs):
                         with backlog.locked(self.cfg) as data:
-                            backlog.find(data, tid)[field] = value
-                        return f'ACTION: {action}\nWHY: old diagnosis\nFIX: old fix', 'pc-local'
+                            backlog.find(data, task_id)[key] = new_value
+                        return f'ACTION: {selected}\nWHY: old diagnosis\nFIX: old fix', 'pc-local'
                     item = {'id': tid, 'kind': 'failing'}
                     result = unblocker.handle(self.cfg, item, ask, NOW)
                     task = self.get(tid)
@@ -92,12 +92,12 @@ class Finds(Base):
     def test_deleted_or_reclassified_task_is_left_alone_and_missing_snapshot_fails_closed(self):
         for change in ('deleted', 'reclassified'):
             tid = self.task(f'Failing {change}', attempts=fails('exited 1', 'exited 1', 'exited 1'))
-            def ask(_cfg, _prompt, _purpose, **_kwargs):
+            def ask(_cfg, _prompt, _purpose, *, task_id=tid, mutation=change, **_kwargs):
                 with backlog.locked(self.cfg) as data:
-                    if change == 'deleted':
-                        data['tasks'] = [t for t in data['tasks'] if t['id'] != tid]
+                    if mutation == 'deleted':
+                        data['tasks'] = [t for t in data['tasks'] if t['id'] != task_id]
                     else:
-                        backlog.find(data, tid)['status'] = 'done'
+                        backlog.find(data, task_id)['status'] = 'done'
                 return 'ACTION: retry\nWHY: old\nFIX: old', 'pc-local'
             result = unblocker.handle(self.cfg, {'id': tid, 'kind': 'failing'}, ask, NOW)
             self.assertIn('changed meanwhile', result['outcome'])

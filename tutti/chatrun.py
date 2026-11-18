@@ -156,10 +156,12 @@ def follow_missing_report(cfg, call, job, result, runner=None):
     while not job.cancel.is_set():
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            return True, 'The report did not arrive before this status check timed out; the run may still be active.', None
+            return False, 'The report did not arrive before this status check timed out; the run may still be active.', None
         if job.cancel.wait(min(STATUS_POLL_SECONDS, remaining)):
             break
         if delegate.load_report(cfg, run_id):
+            if job.cancel.is_set():
+                break
             return run_tool(cfg, call, runner)
     return False, 'Status checking stopped; the delegated run was not stopped.', None
 
@@ -666,6 +668,8 @@ class Engine:
         results += [(c.get('tool') if isinstance(c, dict) else '?', f'skipped: at most {MAX_CALLS} calls at a time; ask again')
                     for c in calls[MAX_CALLS:]]
         for raw in calls[:MAX_CALLS]:
+            if job.cancel.is_set():
+                return results, False
             call = chat.validate(raw, known)
             if isinstance(call, str):
                 results.append(((raw or {}).get('tool') if isinstance(raw, dict) else '?', f'refused: {call}'))
@@ -678,22 +682,29 @@ class Engine:
                 results.append((call['tool'], text if len(text) <= 3000 else '(the start is cut)\n' + text[-3000:]))
             else:
                 mutating.append(call)
+        if job.cancel.is_set():
+            return results, False
         mode = getattr(job, 'mode', 'auto')
         if mode == 'auto' and getattr(job, 'untrusted', False):
             mode = 'ask'   # it read a file, a log or an attachment: their text must not be able to start work by itself
         if mutating and mode == 'auto':   # autonomous: it acts, then shows the card with Undo
-            for call in mutating:
-                card = self.execute(user, cfg, call, self.new_card(call))
-                job.msg['cards'].append(card)
-                job.emit('card', card=card)
-                results.append((call['tool'], f'{card["state"]}: {card.get("text") or ""}'))
-            return results, False
+            return self._run_mutations(job, user, cfg, mutating, results), False
         if mutating and mode == 'answer':   # just ask (owner, 2026-11-17): nothing that changes something runs or is proposed
             results.extend((c['tool'], 'not run: this chat is in Just ask mode') for c in mutating)
             return results, False
         if mutating:
             self._propose(job, user, cfg, mutating, cand, mode)
         return results, bool(mutating)
+
+    def _run_mutations(self, job, user, cfg, calls, results):
+        for call in calls:
+            if job.cancel.is_set():
+                break
+            card = self.execute(user, cfg, call, self.new_card(call))
+            job.msg['cards'].append(card)
+            job.emit('card', card=card)
+            results.append((call['tool'], f'{card["state"]}: {card.get("text") or ""}'))
+        return results
 
     def _propose(self, job, user, cfg, calls, cand, mode):
         """Ask before acting: one card to confirm per call. Plan review: one plan card with every step."""

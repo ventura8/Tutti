@@ -846,10 +846,11 @@ class Rounds(Base):
                 'nodes': nodes, 'pageInfo': {'hasNextPage': more, 'endCursor': cursor}}}}}}
         replies = [page([{'isResolved': True}] * 100, True, 'next'),
                    page([{'isResolved': False}], False, None)]
+        base = FakeGh(pr())
         def gh(args, **_kw):
-            if args[1:3] == ['pr', 'view']:
-                return SimpleNamespace(returncode=0, stdout=json.dumps(pr()), stderr='')
-            return SimpleNamespace(returncode=0, stdout=json.dumps(replies.pop(0)), stderr='')
+            if args[1:3] == ['api', 'graphql']:
+                return SimpleNamespace(returncode=0, stdout=json.dumps(replies.pop(0)), stderr='')
+            return base(args, **_kw)
         result = selfimprove.pr_state('octo/tutti', 7, gh)
         self.assertEqual(result['open_threads'], 1)
         self.assertFalse(selfimprove.may_merge({'merge': True}, result, True)[0])
@@ -862,9 +863,11 @@ class Rounds(Base):
                          page([], 'false', None), page([], True, None),
                          {**page([], False, None), 'errors': [{'message': 'partial response'}]}):
             with self.subTest(response=response):
-                def gh(args, *, reply=response, **_kw):
-                    data = pr() if args[1:3] == ['pr', 'view'] else reply
-                    return SimpleNamespace(returncode=0, stdout=json.dumps(data), stderr='')
+                base = FakeGh(pr())
+                def gh(args, *, reply=response, fallback=base, **_kw):
+                    if args[1:3] == ['api', 'graphql']:
+                        return SimpleNamespace(returncode=0, stdout=json.dumps(reply), stderr='')
+                    return fallback(args, **_kw)
                 self.assertEqual(selfimprove.pr_state('octo/tutti', 7, gh)['open_threads'], 1)
         cyclic = page([], True, 'same')
         def gh_cycle(_args, **_kw):

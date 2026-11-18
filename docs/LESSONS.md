@@ -1,5 +1,8 @@
 # Lessons
 
+- **A local restart does not prove remote work stopped** (t105): startup recovery can repair local state without proving
+  that remote processes or effects ended. Document that limit and test both healthy and interrupted startup behavior.
+
 - **A priority in a task title is not a scheduler setting** (t320): persist approved labels and order tasks by the saved
   level, while keeping explicit run-now behavior and weighted project sharing within a level.
 

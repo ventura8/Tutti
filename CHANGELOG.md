@@ -7,6 +7,12 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## Unreleased
+
+### Changed
+
+- Test healthy and resumed startup recovery, and clarify the limits of recovery after power loss (t105).
+
 ## [0.30.0] - 2026-11-18
 
 ### Added

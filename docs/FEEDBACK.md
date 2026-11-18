@@ -1,5 +1,7 @@
 # Feedback log
 
+Startup recovery needs healthy-state and resume coverage, and must describe the limits of remote stop detection (t105).
+
 Task P0–P5 labels need to be saved and used by dispatch; project priority alone cannot represent task urgency (t320).
 
 Quiet mode: automatic discovery defers potentially heavy gaps commands while the computer is in use (t172).

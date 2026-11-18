@@ -1119,10 +1119,27 @@ def _activity(engine, user, _data, _snap):
     return 200, {'activity': engine.activity()}
 
 
+def _run(engine, user, data, _snap):
+    import subprocess
+    code = data.get('code', '').strip()
+    lang = data.get('lang')
+    if lang != 'bash' or 'scripts/check.sh' not in code:
+        return 200, {'output': f'Running {lang} code not allowed:\n{code}'}
+    
+    # Synchronous execution
+    try:
+        # Running with a long timeout to avoid blocking the server forever, but still blocking for the duration of the script
+        result = subprocess.run(code, shell=True, capture_output=True, text=True, cwd='/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t295', timeout=1800)
+        return 200, {'output': result.stdout + result.stderr}
+    except subprocess.TimeoutExpired:
+        return 200, {'output': 'Execution timed out.'}
+    except Exception as e:
+        return 200, {'output': str(e)}
+
 ACTIONS = {'list': _list, 'get': _get, 'send': _send, 'follow': _follow, 'stop': _stop, 'new': _new, 'rename': _rename,
            'delete': _delete, 'clear': _clear, 'undo': _undo, 'activity': _activity,
            'confirm': _confirm, 'model': _set_model, 'settings': _settings, 'mentions': _mentions, 'branch': _branch,
-           'empty': _empty, 'plan': _plan}
+           'empty': _empty, 'plan': _plan, 'run': _run}
 
 
 # ---- the dashboard's glue

@@ -106,7 +106,18 @@ function codeBlock(code, lang) {
     const pre = el('pre', { class: 'md__pre', tabindex: 0, 'aria-label': lang ? `Code, ${lang}` : 'Code' }, el('code', { text: code }));
     const copy = el('button', { class: 'btn btn--text md__copy', type: 'button', text: 'Copy', 'aria-label': 'Copy the code' });
     copy.addEventListener('click', () => copyText(code, copy));
-    return el('div', { class: 'md__code' }, el('div', { class: 'md__codebar' }, el('span', { text: lang || 'code' }), copy), pre);
+    const run = ['bash', 'python', 'python3'].includes(lang) ? el('button', { class: 'btn btn--text md__copy', type: 'button', text: 'Run', 'aria-label': 'Run the code' }) : null;
+    if (run) run.addEventListener('click', () => runCode(code, lang));
+    return el('div', { class: 'md__code' }, el('div', { class: 'md__codebar' }, el('span', { text: lang || 'code' }), run, copy), pre);
+}
+
+async function runCode(code, lang) {
+    try {
+        const data = await chatApi({ action: 'run', code, lang });
+        say(data.output || 'No output.');
+    } catch (err) {
+        say(err.message);
+    }
 }
 
 // ---- pure helpers (node tests)

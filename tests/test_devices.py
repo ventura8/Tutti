@@ -32,6 +32,7 @@ FAKE_ADB = textwrap.dedent('''\
       "dumpsys power") echo "  mWakefulness=${FAKE_WAKE:-Awake}";;
       "cmd wifi status") echo "${FAKE_WIFI:-Wifi is connected to \\"lab\\"}";;
       "input keyevent KEYCODE_WAKEUP") echo wake >> "${FAKE_LOG:-/dev/null}";;
+      "getevent -qc 1") echo "event";;
     esac
 ''')
 
@@ -292,7 +293,7 @@ class DeviceRunTest(unittest.TestCase):
         logs = [f for f in os.listdir(folder) if f.endswith('.log')]
         self.assertEqual(len(logs), 1)
         with open(os.path.join(folder, logs[0] + '.target')) as f:
-            self.assertEqual(f.read().split(), ['machine:here', 'device:pixel'])
+            self.assertEqual(f.read().split(), ['machine:here', 'device:pixel', 'class:background'])
         with open(os.path.join(folder, logs[0])) as f:
             self.assertIn('serial=R58', f.read())
 

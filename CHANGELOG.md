@@ -6,13 +6,18 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Fixed
+
+- Hold dispatch leases with unconfirmed execution instead of automatically freeing and retrying them (t309).
+
 ## 0.30.9 (2026-11-18)
 
 ### Fixed
 
 - Preserve the old household holder's worktree when its task moves, even if its backup fails (t309).
 - Allow an explicit checkpoint-only round without starting or collecting work (t309).
-- Hold dispatch leases with unconfirmed execution instead of automatically freeing and retrying them (t309).
 - Do not report a checkpoint as pushed when no new snapshot or remote push was confirmed (t309).
 
 ## 0.30.8 (2026-11-18)

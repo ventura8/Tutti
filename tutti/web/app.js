@@ -1358,10 +1358,12 @@ function renderJobs(s) {
     ui.accounts = new Map((s.usage?.accounts || []).map((a) => [a.name, a]));
     renderProjectPick(s);
     const items = s.jobs.items.filter((j) => !ui.project || (ui.project === '-' ? !j.project : j.project === ui.project));
-    const running = items.filter((j) => LIVE.has(j.status));
-    const finished = items.filter((j) => !LIVE.has(j.status));
+    const running = items.filter((j) => j.status === 'running');
+    const stalled = items.filter((j) => j.status === 'stalled');
+    const finished = items.filter((j) => !['running', 'stalled'].includes(j.status));
     fillJobs($('running'), running, empty('Nothing running', codeText('Runs from ', 'tutti quiet', ', ship checks, transfers and the autopilot show here with their progress.')),
         'running', ui.fit?.running ?? 8);
+    fillJobs($('stalled'), stalled, empty('Nothing stalled', 'No stalled jobs.'), 'stalled', 8);
     ui.counts = { running: running.length, queued: s.queue?.queued || 0 };
     watchFit();
     $('jobs-meta').textContent = ui.project ? `of ${ui.project === '-' ? 'no project' : ui.project} (choose in Running jobs)` : '';

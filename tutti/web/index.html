@@ -31,6 +31,7 @@
     <script src="queue.js?v=__TUTTI_VERSION__" defer></script>
     <script src="household.js?v=__TUTTI_VERSION__" defer></script>
     <script src="userstab.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="tasks.js?v=__TUTTI_VERSION__" defer></script>
     <script src="where.js?v=__TUTTI_VERSION__" defer></script>
     <script src="outside.js?v=__TUTTI_VERSION__" defer></script>
     <script src="vpn.js?v=__TUTTI_VERSION__" defer></script>
@@ -72,6 +73,7 @@
         <nav class="tabs" aria-label="Views">
             <a class="tabs__tab" href="#chat" data-view="chat" aria-current="page">Chat</a>
             <a class="tabs__tab" href="#dashboard" data-view="dashboard">Dashboard</a>
+            <a class="tabs__tab" href="#tasks" data-view="tasks">Tasks</a>
             <a class="tabs__tab" href="#settings" data-view="settings">Settings</a>
             <a class="tabs__tab" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
         </nav>
@@ -181,7 +183,59 @@
           <div class="chat__dialogacts" id="chat-dialog-actions"></div>
         </dialog>
       </div>
+      <div id="tasks-view" hidden>
+        <nav class="tabs" aria-label="Task statuses">
+            <button class="tabs__tab" data-task-filter="active" aria-current="page">Active</button>
+            <button class="tabs__tab" data-task-filter="queued">Queued</button>
+            <button class="tabs__tab" data-task-filter="stalled">Stalled</button>
+            <button class="tabs__tab" data-task-filter="attention">Needs a person</button>
+            <button class="tabs__tab" data-task-filter="backlog">Backlog</button>
+        </nav>
+        <div class="stack stack--fill span-wide" id="jobs-stack">
+            <section class="card card--running" id="tasks-active" aria-labelledby="running-h">
+                <header class="card__head">
+                    <h2 id="running-h">Running jobs</h2>
+                    <label class="sr-only" for="job-project">Show jobs of</label>
+                    <select class="pick" id="job-project"></select>
+                </header>
+                <div id="running" class="jobs"></div>
+            </section>
+
+            <section class="card card--queued" id="tasks-queued" aria-labelledby="queued-h">
+                <header class="card__head">
+                    <h2 id="queued-h">Queued</h2>
+                    <p class="card__meta" id="queued-meta"></p>
+                </header>
+                <div id="queued" class="jobs"></div>
+            </section>
+            
+            <section class="card card--stalled" id="tasks-stalled" aria-labelledby="stalled-h" hidden>
+                <header class="card__head">
+                    <h2 id="stalled-h">Stalled</h2>
+                    <p class="card__meta" id="stalled-meta"></p>
+                </header>
+                <div id="stalled" class="jobs"></div>
+            </section>
+            
+            <section class="card card--attention" id="tasks-attention" aria-labelledby="attention-h" hidden>
+                <header class="card__head">
+                    <h2 id="attention-h">Needs you</h2>
+                    <p class="card__meta" id="attention-meta"></p>
+                </header>
+                <ul id="attention" class="list list--grid"></ul>
+            </section>
+
+            <section class="card card--backlog" id="tasks-backlog" aria-labelledby="backlog-h" hidden>
+                <header class="card__head">
+                    <h2 id="backlog-h">Backlog</h2>
+                    <p class="card__meta" id="backlog-meta"></p>
+                </header>
+                <div id="backlog" class="jobs"></div>
+            </section>
+        </div>
+      </div>
       <div id="dashboard-view" hidden>
+
         <section class="tiles" aria-label="At a glance" id="tiles"></section>
 
         <!-- Ordered by importance, top to bottom: quota, what needs the owner, what runs now, the autopilot, projects, history. -->
@@ -218,14 +272,6 @@
                 <ul id="waiting" class="list" aria-labelledby="waiting-h"></ul>
             </section>
 
-            <section class="card card--attention span-full" aria-labelledby="attention-h">
-                <header class="card__head">
-                    <h2 id="attention-h">Needs you</h2>
-                    <p class="card__meta" id="attention-meta"></p>
-                </header>
-                <ul id="attention" class="list list--grid"></ul>
-            </section>
-
             <section class="card span-full" id="household-card" aria-labelledby="household-h">
                 <header class="card__head">
                     <h2 id="household-h">Household</h2>
@@ -236,26 +282,6 @@
                 <h3 class="card__sub">Shared machines</h3>
                 <ul id="household-machines" class="list" aria-label="Shared machines"></ul>
             </section>
-
-            <!-- Running jobs and Queued fill the height of the main-agent and workers column beside them (tuttiFit) -->
-            <div class="stack stack--fill span-wide" id="jobs-stack">
-                <section class="card card--running" aria-labelledby="running-h">
-                    <header class="card__head">
-                        <h2 id="running-h">Running jobs</h2>
-                        <label class="sr-only" for="job-project">Show jobs of</label>
-                        <select class="pick" id="job-project"></select>
-                    </header>
-                    <div id="running" class="jobs"></div>
-                </section>
-
-                <section class="card card--queued" aria-labelledby="queued-h">
-                    <header class="card__head">
-                        <h2 id="queued-h">Queued</h2>
-                        <p class="card__meta" id="queued-meta"></p>
-                    </header>
-                    <div id="queued" class="jobs"></div>
-                </section>
-            </div>
 
             <div class="stack span-narrow" id="side-stack">
                 <section class="card" aria-labelledby="main-h">

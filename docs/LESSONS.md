@@ -1,5 +1,8 @@
 # Lessons
 
+- **Review-thread pages must be complete** (t179): querying only the first 100 threads could miss a later unresolved
+  conversation. Follow every page and fail closed when a result or cursor is incomplete or malformed.
+
 - **Explicit test environments must not inherit the real secret directory** (2026-11-17): a test passed an empty mapping,
   but the secret lookup fell back to the user's home and reached a live webhook. Treat an explicit mapping without a
   configuration directory as isolated, and verify that no secret-file read occurs.

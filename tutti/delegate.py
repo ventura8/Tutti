@@ -244,7 +244,7 @@ def write(p, text, mode='w'):
 
 
 def delegate(cfg, name, task, files, repo, run_id=None, track=None, extra=(), checks=True, discard=False, say=None, check_list=None,
-             remote_track=None):
+             remote_track=None, sub=None, cid=None):
     """The whole hand-off. Returns the report dict (also written to report.json and report.txt). Runs that name the same
     --track share one worktree, so they take turns: the second waits until the first has its report. `check_list` replaces the
     configured checks (`tutti run --check`: the target repo's own check); `remote_track` the folder routed checks copy into."""
@@ -252,7 +252,7 @@ def delegate(cfg, name, task, files, repo, run_id=None, track=None, extra=(), ch
         raise ship.ShipError(f'refused: --track "{track}" must be one folder name (letters, digits, . _ -), nothing was changed')
     lock = track_lock(cfg, f'tree-{track}', say or (lambda m: sys.stderr.write(f'tutti: {m}\n'))) if track else contextlib.nullcontext()
     with lock:
-        return _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list, remote_track)
+        return _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list, remote_track, sub=sub, cid=cid)
 
 
 def run_worker(cfg, name, task, files, wt, log, extra, worker_log, check_list):
@@ -315,7 +315,7 @@ def accounts_of_run(cfg, name, extra=()):
     return given or found
 
 
-def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list=None, remote_track=None):
+def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list=None, remote_track=None, sub=None, cid=None):
     if run_id and not valid_id(run_id):
         raise ship.ShipError(f'refused: run id "{run_id}" is not <time>-<pid>: let tutti choose it (nothing was changed)')
     run_id = run_id or new_id(cfg)
@@ -335,7 +335,8 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
                                              'track': track or run_id, 'run_id': run_id, 'files': list(files or []),
                                              'checks': [c for c in check_list or [] if c.get('run')]}) + '\n')
         # what the run works on, for the dashboard's projects while it runs
-        write(os.path.join(p['dir'], 'meta.json'), json.dumps({'repo': os.path.abspath(repo), 'worktree': wt}) + '\n')
+        write(os.path.join(p['dir'], 'meta.json'), json.dumps({'repo': os.path.abspath(repo), 'worktree': wt, 'sub': sub, 'cid': cid}) + '\n')
+
         worktree.share(wt, cfg['ship'].get('share', []), say)
         rc, lines = run_worker(cfg, name, task, files, wt, log, extra, p['worker_log'], check_list)
         changed, stat = capture_diff(wt, p['diff'])

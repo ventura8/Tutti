@@ -59,7 +59,8 @@ TOOLS = [
          {'task': _s('the task, self-contained: what to change, where, and how to check it'),
           'project': _s('the repository folder (absolute path) or a repo name under autopilot.repos'),
           'size': _s('rough size: XS (minutes), S (under an hour), M (a few hours), L (a day)', enum=SIZES),
-          'track': _s('optional: reuse the worktree of this track instead of a new one')},
+          'track': _s('optional: reuse the worktree of this track instead of a new one'),
+          'sub': _s('user subject'), 'cid': _s('conversation id')},
          required=('task', 'project'), mutating=True),
     tool('job_status', 'The status and log of a delegated run (an id from delegate_task) or a test_on job; with no id, the list '
          'of delegated runs.', {'id': _s('the run or job id; empty for the list')}),
@@ -178,6 +179,7 @@ def argv_of(name, a):
                                 + [x for p in scopes(a.get('scope')) for x in (f'--scope={p}',)]
                                 + ([f'--check={a["check"]}'] if a.get('check') else []) + ['--', 'add', a['repo'], a['title']]),
         'delegate_task': lambda: (['run', '--repo', a['project'], '--bg'] + (['--track', a['track']] if a.get('track') else [])
+                                  + ([f'--sub={a["sub"]}'] if a.get('sub') else []) + ([f'--cid={a["cid"]}'] if a.get('cid') else [])
                                   + ['--', 'auto', (f'[size {size}] ' if size else '') + a['task']]),
         'scout_ask': lambda: (['scout', '--no-wait'] + (['--skill', a['skill']] if a.get('skill') else [])
                               + ['--', 'ask', a['scout'], a['question']]),

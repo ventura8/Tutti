@@ -61,15 +61,10 @@ The dashboard runs one round after every probe while the autopilot is on (`tutti
 2. **Plan.** Capacity is the **adaptive limit** (`tutti/parallel.py`, below) minus the runs going. Fresh tasks first go to an account of `autopilot.accounts` that is
    **behind** its line (or late), or on pace but still under its line (topped up to it, so the window ends at its target), as many units as its room (`room_tasks`) minus what runs on it and what attempts started
    after its newest reading already spent (that cost stays counted until a new reading shows it). Never an account that
-   costs money or is spent. The cautious panic fallback below applies only when all online accounts are unavailable.
-   When those candidates and eligible local models cannot take a fresh task, an account explicitly named in both the ladder
-   and `autopilot.fresh_fallback_accounts` may take it one at a time if its own reading is current and real, it is not ahead
-   or in panic, and its planner has room for the task size below its panic threshold. A fallback account takes at most one task per round. This list defaults to empty, keeping retry-only accounts retry-only unless opted in. This
-   fallback excludes accounts with linked or shared quota windows until shared reservations are available. It does not
-   change `fill_room`, which continues to fill from trigger accounts only. A newer quota reading does not prove an older
-   worker has stopped, and reservations are not atomic across controllers; investigate uncertain work before opting in.
-   Local-only shared tasks use the scoped conditional lease in [HOUSEHOLD.md](HOUSEHOLD.md); this needs an upgraded
-   coordinator and fresh machine/model observations. A task without an acceptance check (its own or the repo's) is never sent.
+   costs money or is spent. Ordinary paced work is capped so the configured estimated task cost stays below the account's
+   own panic line, including units already reserved; the estimate is not a guarantee of actual use. Linked limits remain
+   governed by their planner, and the takeover and cautious panic fallback below use their separate policies.
+   A task without an acceptance check (its own or the repo's) is never sent.
 3. **Dispatch.** `tutti run <worker> "<brief>" --repo <path> --track ap-<id> --check "<check>"` in the background, with the
    account's `args` (its model) and its name. Each start is saved at once, so a start that fails leaves the task queued and a
    crash never starts it twice. A local-model worker works through `tutti agent`'s loop on the task's scope files (it may

@@ -644,6 +644,17 @@ class PlanTest(Base):
                                     autopilot.datetime.fromtimestamp(now.timestamp() - 60, autopilot.timezone.utc))
         self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
 
+    def test_ordinary_late_work_fits_below_the_panic_line(self):
+        cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'], max_parallel=4)
+        cfg['accounts']['agy-gemini']['task_pct'] = 5
+        state = account('agy-gemini', 'late', room=4, used=94)
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], {'agy-gemini': state}, FREE, True)['dispatch'], [])
+        state['used'] = 84
+        self.assertEqual(len(autopilot.plan(cfg, [task('t1'), task('t2'), task('t3')],
+                                             {'agy-gemini': state}, FREE, True)['dispatch']), 2)
+        state['used'] = 85  # two units would reach 95 exactly: leave that unit unspent
+        self.assertEqual(len(autopilot.plan(cfg, [task('t1'), task('t2')], {'agy-gemini': state}, FREE, True)['dispatch']), 1)
+
     def test_when_all_online_are_in_panic_rescue_spreads_work_to_the_most_remaining_quota(self):
         cfg = self.cfg(main_accounts=['agy-claude'])
         cfg['_main_worker'] = 'local-main'

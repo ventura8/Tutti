@@ -352,6 +352,13 @@ def resolve(names):
 def connect_all(cfg_path, home=None, names=None, **kw):
     """`tutti setup` calls this: every installed agent connected; agents not installed are skipped. A list of results."""
     out = []
+    
+    # Check if we are connecting a host (address) instead of agents
+    if names and len(names) == 1 and ('@' in names[0] or ':' in names[0]):
+        from . import hostsetup
+        out.append(hostsetup.setup_host(names[0]))
+        return out
+
     for n in resolve(names):
         try:
             out.append(apply(n, cfg_path, True, home, **kw))

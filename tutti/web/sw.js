@@ -24,6 +24,23 @@ self.addEventListener('activate', (event) => {
         .then(() => self.clients.claim()));
 });
 
+self.addEventListener('push', (event) => {
+    const data = event.data ? event.data.json() : {};
+    const title = data.title || 'Tutti';
+    const options = {
+        body: data.body || 'New update from Tutti',
+        icon: 'icons/icon-192.png',
+        badge: 'icons/icon-192.png',
+        data: data.url || '/'
+    };
+    event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+    event.waitUntil(clients.openWindow(event.notification.data));
+});
+
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
     if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) {

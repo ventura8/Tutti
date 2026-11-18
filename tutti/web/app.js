@@ -1538,6 +1538,16 @@ function install() {
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
+function notifications() {
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
+    if (Notification.permission === 'granted') return;
+    $('notifications').hidden = false;
+    $('notifications').addEventListener('click', async () => {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') $('notifications').hidden = true;
+    });
+}
+
 // ---- the reading helper's bookmarklet opens /#reading=<json>: saved when it carries this install's key (the server checks it),
 // else (a page that opened the dashboard with a made-up reading, or nothing was found) shown in the form for the owner to save.
 async function postHelperReading(r, key) {
@@ -1615,5 +1625,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(live, 1000);
     accentNote();
     install();
+    notifications();
     void refresh();
 });

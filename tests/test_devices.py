@@ -1,6 +1,7 @@
 """Android devices: readings and the safe-use policy, the config (e2e targets, Termux machines opt-in and last), the adb readings
 script against a fake adb, routing of a Termux machine, and `tutti test --device` holding the device lock over the `local`
-transport. No real phone: every adb answer comes from a fake on PATH."""
+transport. No real phone or host device config: every adb answer comes from a fake on PATH; subprocess envs drop `TUTTI_*`
+and use a temporary `XDG_CONFIG_HOME` / mock `tutti.config`."""
 import os
 import shutil
 import stat
@@ -12,6 +13,13 @@ import unittest
 
 from tutti import config, devices, remote, routing
 from tutti.routing import Probe
+
+
+def hermetic_env(folder, **extra):
+    """Host `TUTTI_*` / `TUTTI_CONFIG` and the owner's XDG config never reach a device subprocess (t277)."""
+    clean = {k: v for k, v in os.environ.items() if not k.startswith('TUTTI_')}
+    keep = {k: os.environ[k] for k in ('TUTTI_TEST_ROOT', 'TUTTI_TELEMETRY', 'TUTTI_OFFLINE', 'TUTTI_TEST_MODE') if k in os.environ}
+    return {**clean, **keep, 'TUTTI_TEST_MODE': '1', 'HOME': folder, 'XDG_CONFIG_HOME': os.path.join(folder, 'xdg'), 'TUTTI_NO_DAEMONS': '1', **extra}
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 READINGS = os.path.join(ROOT, 'scripts', 'device-readings.sh')
@@ -231,7 +239,8 @@ class ReadingsScriptTest(unittest.TestCase):
         self.lock = os.path.join(self.tmp.name, 'd.lock')
 
     def read(self, **env):
-        r = subprocess.run(['bash', READINGS], env={**os.environ, 'DEVICE_SERIAL': 'R58', 'DEVICE_LOCK': self.lock, 'ADB': self.adb, **env},
+        vars_ = {'DEVICE_SERIAL': 'R58', 'DEVICE_LOCK': self.lock, 'ADB': self.adb, **env}
+        r = subprocess.run(['bash', READINGS], env=hermetic_env(self.tmp.name, **vars_),
                            capture_output=True, text=True, timeout=30, check=True)
         return devices.parse_readings(r.stdout)
 
@@ -277,7 +286,8 @@ class DeviceRunTest(unittest.TestCase):
             json.dump({'project': {'state': os.path.join(t, 'state'), 'worktrees': t},
                        'machines': {'here': {'host': 'local', 'slots': 1, 'min_free_gb': 0, 'lock_prefix': os.path.join(t, 'slot-')}},
                        'devices': {'pixel': {'serial': 'R58', 'lock': self.lock}}}, f)
-        self.env = {**os.environ, 'PATH': f'{bindir}:{os.environ["PATH"]}', 'SLOT_POLL': '0.1'}
+        # mock device config only: never $TUTTI_CONFIG or the owner's devices (t277)
+        self.env = hermetic_env(t, PATH=f'{bindir}:{os.environ["PATH"]}', SLOT_POLL='0.1', TUTTI_CONFIG=self.cfg)
 
     def tutti(self, *args, **kw):
         return subprocess.Popen([sys.executable, os.path.join(ROOT, 'bin', 'tutti'), '--config', self.cfg, *args], cwd=self.tree,

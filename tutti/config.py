@@ -204,6 +204,8 @@ def find(start=None, env=None):
 
 def nearest(start=None):
     """The nearest tutti.config.* from `start` (the working directory) upwards; None if there is none."""
+    if os.environ.get('TUTTI_TEST_MODE'):
+        return None
     d = os.path.abspath(start or os.getcwd())
     while True:
         for n in NAMES:

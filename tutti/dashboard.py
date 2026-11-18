@@ -102,8 +102,9 @@ class Collector:
 
     def __init__(self, cfg, probe_fn=remote.probe, available_fn=workers.available, clock=time.time, reader=None, stored_fn=None,
                  activity_fn=projects.probe_activity, prs_fn=releases.all_prs, readings_fn=remote.device_readings,
-                 power_fn=remote.power_readings, ollama_fn=local.ollama_get):
+                 power_fn=remote.power_readings, ollama_fn=local.ollama_get, idle_fn=None):
         self.cfg, self.probe_fn, self.available_fn, self.clock = cfg, probe_fn, available_fn, clock
+        self.idle_fn = idle_fn
         self.power_fn, self.ollama_fn = power_fn, ollama_fn
         self.readings_fn = readings_fn
         self.activity_fn, self.prs_fn = activity_fn, prs_fn
@@ -166,7 +167,7 @@ class Collector:
         if readings is remote.device_readings:   # the real one: a device whose Wireless debugging went off is revived
             readings = keepon.readings_with_revive(self.cfg, readings)
         fresh = state.probe_all(self.cfg, self.probe_fn, self.available_fn, clock=self.clock, stored_fn=self.stored_fn,
-                                readings_fn=readings)
+                                readings_fn=readings, idle_fn=self.idle_fn)
         if config_error:
             fresh['error'] = config_error
         fresh['activity'] = projects.probe_all(self.cfg, self.activity_fn)

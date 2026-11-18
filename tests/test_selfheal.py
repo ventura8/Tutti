@@ -175,13 +175,15 @@ class StateConfigCheck(unittest.TestCase):
         with open(p, 'w') as f:
             f.write('{broken')
         self.assertIn('put back', selfheal.check_state(c)[0])
-        self.assertEqual(json.load(open(p)), {'tasks': []})
+        with open(p, encoding='utf8') as f:
+            self.assertEqual(json.load(f), {'tasks': []})
 
     def test_a_broken_config_falls_back_to_the_last_good_backup(self):
         cfg = make()
         backups = os.path.join(config.state_dir(cfg), settings.BACKUPS)
         os.makedirs(backups)
-        good = open(cfg['_path']).read()
+        with open(cfg['_path'], encoding='utf8') as f:
+            good = f.read()
         with open(os.path.join(backups, 'tutti.config.yaml.20261115-100000'), 'w') as f:
             f.write(good)
         with open(cfg['_path'], 'w') as f:
@@ -191,7 +193,8 @@ class StateConfigCheck(unittest.TestCase):
         c.now += selfheal.CONFIG_GRACE + 1
         line = selfheal.check_config(c)[0]
         self.assertIn('put back', line)
-        self.assertEqual(open(cfg['_path']).read(), good)
+        with open(cfg['_path'], encoding='utf8') as f:
+            self.assertEqual(f.read(), good)
         self.assertTrue(os.path.exists(cfg['_path'] + '.bad'))
 
     def test_a_config_that_parses_but_fails_a_check_is_an_edit_never_replaced(self):
@@ -202,7 +205,8 @@ class StateConfigCheck(unittest.TestCase):
         selfheal.check_config(c)
         c.now += 10 * selfheal.CONFIG_GRACE
         self.assertEqual(selfheal.check_config(c), [])
-        self.assertIn('dispatch: 3', open(cfg['_path']).read())
+        with open(cfg['_path'], encoding='utf8') as f:
+            self.assertIn('dispatch: 3', f.read())
 
     def test_a_good_config_is_left_and_no_good_backup_changes_nothing(self):
         cfg = make()
@@ -214,7 +218,8 @@ class StateConfigCheck(unittest.TestCase):
         c.now += selfheal.CONFIG_GRACE + 1
         self.assertEqual(selfheal.check_config(c), [])
         os.remove(cfg['_path'] + '.unreadable-since')
-        self.assertEqual(open(cfg['_path']).read(), 'dashboard: [x\n')
+        with open(cfg['_path'], encoding='utf8') as f:
+            self.assertEqual(f.read(), 'dashboard: [x\n')
 
 
 class UpdateCheck(unittest.TestCase):

@@ -88,6 +88,8 @@ ROOT = os.environ.get('TUTTI_TEST_ROOT', '')
 if __name__ == '__main__':
     # made here, not on import: a test's spawned child imports this file again
     ROOT = os.environ['TUTTI_TEST_ROOT'] = os.environ['TMPDIR'] = tempfile.mkdtemp(prefix='tutti-tests-')
+    if 'XDG_CONFIG_HOME' not in os.environ:
+        os.environ['XDG_CONFIG_HOME'] = tempfile.mkdtemp(prefix='tutti-xdg-', dir=ROOT)
     suite = unittest.defaultTestLoader.discover(HERE, top_level_dir=HERE)
     result = unittest.TextTestRunner(resultclass=Guarded).run(suite)
     shutil.rmtree(ROOT, ignore_errors=True)

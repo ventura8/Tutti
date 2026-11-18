@@ -105,7 +105,7 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.gh = FakeGh()
         self.hook = FakeHook(self.gh)
-        self.env = {**ENV, 'TUTTI_GROK_URL': self.hook.url}
+        self.env = {**ENV, 'TUTTI_GROK_URL': self.hook.url, 'XDG_CONFIG_HOME': self.tmp.name}
 
     def tearDown(self):
         self.hook.close()

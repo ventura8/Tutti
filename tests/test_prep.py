@@ -63,7 +63,10 @@ class PrepTest(unittest.TestCase):
 
     def get(self, key):
         p = os.path.join(self.dev, key)
-        return open(p, encoding='utf8').read() if os.path.exists(p) else None
+        if not os.path.exists(p):
+            return None
+        with open(p, encoding='utf8') as f:
+            return f.read()
 
     def bash(self, line):
         env = {**os.environ, 'HOME': self.home, 'FAKE_DEVICE': self.dev}

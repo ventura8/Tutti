@@ -179,7 +179,8 @@ def ollama_url(host, path):
 def xdg_tutti_dir(env=None):
     """`$XDG_CONFIG_HOME/tutti` when set, else `~/.config/tutti`."""
     env = os.environ if env is None else env
-    return os.path.join(os.path.expanduser(env.get('XDG_CONFIG_HOME') or '~/.config'), 'tutti')
+    home = env.get('XDG_CONFIG_HOME') or os.environ.get('XDG_CONFIG_HOME') or '~/.config'
+    return os.path.join(os.path.expanduser(home), 'tutti')
 
 
 def xdg_config_path(env=None):

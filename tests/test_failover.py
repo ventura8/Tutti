@@ -355,7 +355,8 @@ class FullCycleTest(unittest.TestCase):
         self.assertTrue(failover.may_write(main, 1181.0))
 
     def test_the_default_grace_is_the_same_everywhere(self):
-        example = yaml.safe_load(open(os.path.join(config.ROOT, 'tutti.config.example.yaml'), encoding='utf8'))
+        with open(os.path.join(config.ROOT, 'tutti.config.example.yaml'), encoding='utf8') as f:
+            example = yaml.safe_load(f)
         self.assertEqual(failover.DEFAULTS['minutes'], config.DEFAULTS['failover']['minutes'])
         self.assertEqual(failover.DEFAULTS['minutes'], example['failover']['minutes'])
         self.assertEqual(failover.lease_seconds(failover.DEFAULTS), 300)

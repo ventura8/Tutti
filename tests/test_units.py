@@ -1,5 +1,6 @@
 """Small pure pieces: the brief, the remote command lines, waits, the translation validators and the QA gate."""
 import base64
+import contextlib
 import io
 import json
 import os
@@ -120,9 +121,10 @@ class RemoteTest(unittest.TestCase):
         self.assertEqual(base64.b64decode(packed).decode(), script)
         self.assertNotIn('| bash', args[2])  # sourced, not piped: the command keeps the caller's stdin
 
-    @unittest.skipUnless(os.name == 'nt', 'what Windows bash.exe does to the line')
     def test_local_line_keeps_stdin_quotes_and_exit_code_on_windows(self):
-        r = remote.sh({'transport': 'local'}, 'read x; echo "got:$x" | cut -d":" -f2; exit 7', capture=True, stdin='hello\n')
+        patch = mock.patch.object(remote.os, 'name', 'nt') if os.name != 'nt' else contextlib.nullcontext()
+        with patch:
+            r = remote.sh({'transport': 'local'}, 'read x; echo "got:$x" | cut -d":" -f2; exit 7', capture=True, stdin='hello\n')
         self.assertEqual((r.returncode, r.stdout.strip()), (7, 'hello'))
 
     def test_docker_runner_is_capped_and_quotes_the_command(self):

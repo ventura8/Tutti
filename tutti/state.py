@@ -199,7 +199,7 @@ def machine_state(m, p, rank, now=None, idle_s=None, quiet_hours=None):
             'mem_free_gb': getattr(p, 'mem_gb', None) if p.reachable else None}
 
 
-def machines_state(cfg, probe_fn, stored_fn=None):
+def machines_state(cfg, probe_fn, stored_fn=None, idle_fn=None):
     """Every machine probed at once (a slow ssh answer does not hold up the others). `stored_fn(machine)` lists the files
     `tutti files send` keeps there; it is asked only of reachable machines."""
     order = cfg['routing']['order']
@@ -209,7 +209,7 @@ def machines_state(cfg, probe_fn, stored_fn=None):
 
     from . import share
     now = datetime.now(timezone.utc)
-    idle = share.idle_seconds() if any(cfg['machines'][n].get('transport') == 'local' for n in names) else None
+    idle = (idle_fn or share.idle_seconds)() if any(cfg['machines'][n].get('transport') == 'local' for n in names) else None
     quiet = (cfg.get('autopilot') or {}).get('quiet_hours')
 
     def one(n):
@@ -596,9 +596,9 @@ def with_cast_roles(cfg, mstate):
     return mstate
 
 
-def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, stored_fn=None, readings_fn=None):
+def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, stored_fn=None, readings_fn=None, idle_fn=None):
     """The slow part, run off the request path: every machine (and the files it stores) and every worker."""
-    return {'machines': with_cast_roles(cfg, machines_state(cfg, probe_fn, stored_fn)), 'machines_at': clock(),
+    return {'machines': with_cast_roles(cfg, machines_state(cfg, probe_fn, stored_fn, idle_fn=idle_fn)), 'machines_at': clock(),
             'devices': devices.dnd_view(cfg, devices.devices_state(cfg, readings_fn or (lambda m, d: {'state': 'unreachable'})),
                                         learn=readings_fn is not None),
             'workers': workers_state(cfg, available_fn, which), 'workers_at': clock()}

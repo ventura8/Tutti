@@ -190,7 +190,8 @@ class ServerTest(unittest.TestCase):
                           'accounts': {'claude': {'window': '7d', 'resets': (now + timedelta(days=3)).isoformat()}},
                           'usage': {'log': log}}, folder)
         collector = dashboard.Collector(cls.cfg, probe_fn=lambda m: routing.Probe(True, 1, 0.5, 4, False),
-                                        available_fn=lambda w: (True, 'ok'), stored_fn=lambda m: None)
+                                        available_fn=lambda w: (True, 'ok'), stored_fn=lambda m: None,
+                                        idle_fn=lambda: 3600.0)
         collector.refresh()
         cls.httpd = dashboard.server(cls.cfg, 0, collector)
         cls.port = cls.httpd.server_address[1]

@@ -313,8 +313,21 @@ def old_files(folders, now, days=OLD_DAYS):
     return out, size
 
 
-def old_worktrees(root, now, busy=(), days=OLD_DAYS):
-    """Tutti's run worktrees (tutti-run-*) untouched for `days` and not leased: candidates (checked for changes first)."""
+def _tree_age(path):
+    marks = [os.path.join(path, x) for x in ('.git', 'HEAD') if os.path.exists(os.path.join(path, x))]
+    return max([os.path.getmtime(path), *(os.path.getmtime(x) for x in marks)])
+
+
+def _old_leaf(path, name, now, busy, days):
+    """`path` when it is an aged tutti-run-* worktree not in use, else None."""
+    if not name.startswith('tutti-run-') or not os.path.isdir(path) or in_use(path, busy):
+        return None
+    return path if now - _tree_age(path) > days * 86400 else None
+
+
+def old_worktrees(root, now, busy=(), days=OLD_DAYS, nested=False):
+    """Tutti's run worktrees (tutti-run-*) under `root`, or under `root/<repo>/` when `nested`, untouched for `days` and not
+    leased: candidates (checked for changes first)."""
     try:
         names = sorted(os.listdir(root))
     except OSError:
@@ -322,12 +335,11 @@ def old_worktrees(root, now, busy=(), days=OLD_DAYS):
     out = []
     for n in names:
         p = os.path.join(root, n)
-        if not n.startswith('tutti-run-') or not os.path.isdir(p) or in_use(p, busy):
-            continue
-        marks = [os.path.join(p, x) for x in ('.git', 'HEAD') if os.path.exists(os.path.join(p, x))]
-        stamp = max([os.path.getmtime(p), *(os.path.getmtime(x) for x in marks)])
-        if now - stamp > days * 86400:
-            out.append(p)
+        leaf = _old_leaf(p, n, now, busy, days)
+        if leaf:
+            out.append(leaf)
+        elif nested and os.path.isdir(p) and not n.startswith('.'):
+            out.extend(old_worktrees(p, now, busy, days))
     return out
 
 

@@ -7,6 +7,15 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## 0.25.0 (2026-11-17)
+
+### Changed
+
+- Worker worktrees (`tutti-run-*`) live under Tutti's state dir (`<state>/work/<repo>/<prefix><run>`), never beside a
+  project checkout. A one-shot run removes its worktree once the diff is saved under `<state>/runs`; a named track
+  (autopilot) is removed when the task is done, landed or discarded (`tutti runs discard`, `tutti backlog done|rm`).
+  Clean-up still sweeps leftover trees after 14 days (docs/WORKERS.md, docs/SELFHEAL.md).
+
 ## 0.24.0 (2026-11-17)
 
 ### Added

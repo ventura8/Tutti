@@ -838,7 +838,7 @@ def cmd_runs(cfg, a):
         return 0
     wt = delegate.own_worktree(cfg, r.get('worktree'))
     if not wt:
-        say(f'run {a.id}: its report names a worktree outside {cfg["project"]["worktrees"]}: nothing removed')
+        say(f'run {a.id}: its report names a worktree outside {delegate.work_root(cfg)}: nothing removed')
         return 1
     if os.path.isdir(wt):
         delegate.remove_tree(wt, say)
@@ -1297,12 +1297,12 @@ def backlog_change(cfg, a, data):
         added = backlog.seed(data, a.repo, repo_of(cfg, a.repo))
         print('\n'.join(f'{t["id"]}: {t["title"][:100]}' for t in added) or f'seed: nothing new found in {a.repo}')
     else:
-        task_change(backlog.find(data, a.repo), a)   # rm, retry and done take the task id in the first argument
+        task_change(cfg, backlog.find(data, a.repo), a)   # rm, retry and done take the task id in the first argument
     return 0
 
 
-def task_change(task, a):
-    """rm, retry or done of one task; never while its run is going."""
+def task_change(cfg, task, a):
+    """rm, retry or done of one task; never while its run is going. Done or dropped removes its run worktree."""
     if task['status'] == 'running':
         raise backlog.BacklogError(f'{task["id"]} is running (run {task.get("run")}): wait for it '
                                    f'(tutti wait run {task.get("run")}), then {a.action} it')
@@ -1317,6 +1317,8 @@ def task_change(task, a):
         task.update(status='queued', parked=None)
     else:
         task.update(status='dropped' if a.action == 'rm' else 'done', closed_at=time.time())
+        wt = task.get('worktree') or (autopilot.tree_of(cfg, task) if task.get('repo') in cfg['autopilot']['repos'] else None)
+        delegate.finish_tree(cfg, wt, say)
     print(f'{task["id"]}: {task["status"]}')
 
 
@@ -1852,10 +1854,10 @@ def parser():
     s.add_argument('--on', help='the machine --input files go to')
     s.add_argument('--repo', help='hand the task off end to end: a worktree of this repo, the worker headless, the diff, the checks, '
                                   'a report (tutti runs show <id>)')
-    s.add_argument('--track', help='with --repo: reuse or create the worktree <delegate.prefix><track> instead of a new one')
+    s.add_argument('--track', help='with --repo: reuse or create <state>/work/<repo>/<delegate.prefix><track> instead of a one-shot tree')
     s.add_argument('--bg', action='store_true', help='with --repo: run detached; prints the id for `tutti wait run <id>`')
     s.add_argument('--no-checks', action='store_true', help='with --repo: skip the checks (the report says nothing was tested)')
-    s.add_argument('--discard', action='store_true', help='with --repo: remove a new worktree after the report (the diff file stays)')
+    s.add_argument('--discard', action='store_true', help='with --repo: remove a new named-track worktree after the report (one-shot trees already go)')
     s.add_argument('--check', action='append', metavar='CMD',
                    help='with --repo: the target repo\'s own check instead of delegate.checks (repeat it)')
     s.add_argument('--check-where', default='local', choices=['local', 'route'],

@@ -227,10 +227,13 @@ def local_files(ctx, done):
             continue
     if files:
         done.append(f'{len(files)} old log(s)')
-    root = config.expand((ctx.cfg.get('project') or {}).get('worktrees') or '')
     remove = getattr(ctx, 'remove_worktree', None) or hygiene.remove_worktree
     busy = (getattr(ctx, 'busy_dirs', None) or hygiene.busy_dirs)()
-    trees = [p for p in hygiene.old_worktrees(root, ctx.now, busy) if remove(p)] if root else []
+    legacy = config.expand((ctx.cfg.get('project') or {}).get('worktrees') or '')
+    found = hygiene.old_worktrees(os.path.join(state, 'work'), ctx.now, busy, nested=True)
+    if legacy:
+        found += hygiene.old_worktrees(legacy, ctx.now, busy)
+    trees = [p for p in found if remove(p)]
     if trees:
         done.append(f'{len(trees)} old run worktree(s)')
     return size / 1e9

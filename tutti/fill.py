@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 
-from . import autopilot, backlog, config, github, priority, remote, review, workers, worktree
+from . import autopilot, backlog, config, delegate, github, priority, remote, review, workers, worktree
 
 AHEAD = 3            # fresh tasks kept queued per parallel run: enough to never idle, never a flood
 FILL_EVERY = 600     # seconds between reads of a repo's sources while the room stays unfilled
@@ -393,7 +393,8 @@ def record(t, status, note, notes, now):
 
 
 def land(cfg, task_id, run=git, gh=github.run, run_worker=None, now=None):
-    """`tutti autopilot land <id>`: the review of one result and what follows. The worker runs outside the backlog's lock."""
+    """`tutti autopilot land <id>`: the review of one result and what follows. The worker runs outside the backlog's lock.
+    A done result has its run worktree removed (the diff and branch stay)."""
     now = now or time.time()
     task = backlog.find(backlog.load(cfg), task_id)
     if task['status'] != 'review':
@@ -406,4 +407,7 @@ def land(cfg, task_id, run=git, gh=github.run, run_worker=None, now=None):
         if task.get('pr'):
             t['pr'] = task['pr']
         record(t, status, note, notes, now)
+        wt = t.get('worktree') or autopilot.tree_of(cfg, t)
+    if status == 'done':
+        delegate.finish_tree(cfg, wt, lambda m: sys.stderr.write(f'tutti: {m}\n'))
     return f'{task_id}: {status}: {note}'

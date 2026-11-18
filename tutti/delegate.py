@@ -20,6 +20,7 @@ except ImportError:   # Windows: no flock; runs there share no remote copy lock
     fcntl = None
 
 RUNS = 'runs'
+WORK = 'work'   # worker worktrees: <state>/work/<repo>/<prefix><run>, never under a project folder
 
 
 @contextlib.contextmanager
@@ -41,6 +42,7 @@ def track_lock(cfg, track, say):
 
 RUN_ID = re.compile(r'^\d+-\d+(?:-\d+)?$')
 TRACK = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
+REPO_KEY = re.compile(r'[^\w.-]+')
 
 
 def valid_id(run_id):
@@ -48,16 +50,51 @@ def valid_id(run_id):
     return bool(RUN_ID.match(str(run_id)))
 
 
+def repo_key(repo):
+    """A single folder name for the repository under <state>/work/: the checkout's basename, safe characters only."""
+    name = os.path.basename(os.path.realpath(repo).rstrip(os.sep)) or 'repo'
+    return (REPO_KEY.sub('-', name).strip('-._') or 'repo')[:64]
+
+
+def work_root(cfg, repo=None):
+    """Where Tutti keeps worker worktrees: <state>/work/<repo>/, or <state>/work/ when `repo` is omitted."""
+    base = os.path.join(config.state_dir(cfg), WORK)
+    root = os.path.join(base, repo_key(repo)) if repo else base
+    # TODO: remove after debugging
+    # sys.stderr.write(f'DEBUG: work_root({repo})={root}\n')
+    return root
+
+
+def tree_path(cfg, repo, name):
+    """`<state>/work/<repo>/<delegate.prefix><name>`: the path a run worktree occupies (created or not)."""
+    return os.path.join(work_root(cfg, repo), f'{cfg["delegate"]["prefix"]}{name}')
+
+
+def find_tree(cfg, name):
+    """The existing worktree `<prefix><name>` under any <state>/work/<repo>/, or None."""
+    root, want = work_root(cfg), f'{cfg["delegate"]["prefix"]}{name}'
+    try:
+        repos = sorted(os.listdir(root))
+    except OSError:
+        return None
+    for key in repos:
+        path = os.path.join(root, key, want)
+        if os.path.isdir(path):
+            return path
+    return None
+
+
 def own_worktree(cfg, path):
-    """`path` when it is a run worktree of ours (<project.worktrees>/<delegate.prefix>...), else None: a report that was edited
+    """`path` when it is a run worktree of ours (<state>/work/<repo>/<delegate.prefix>...), else None: a report that was edited
     to name another folder never gets that folder removed."""
     if not isinstance(path, str):
         return None
-    root = os.path.realpath(config.expand(cfg['project']['worktrees']))
+    root = os.path.realpath(work_root(cfg))
     real = os.path.realpath(path)
-    if os.path.dirname(real) != root or not os.path.basename(real).startswith(cfg['delegate']['prefix']):
+    parent, base = os.path.dirname(real), os.path.basename(real)
+    if os.path.dirname(parent) != root or not base.startswith(cfg['delegate']['prefix']):
         return None
-    return os.path.join(root, os.path.basename(real))
+    return os.path.join(root, os.path.basename(parent), base)
 
 
 def runs_dir(cfg):
@@ -86,12 +123,8 @@ def paths(cfg, run_id):
             'json': os.path.join(base, 'report.json'), 'worker_log': os.path.join(base, 'worker.log')}
 
 
-def tree_for(cfg, repo, run_id, name=None, say=print):
-    """The worktree the worker edits: <project.worktrees>/<delegate.prefix><name or id>, created detached at the repo's HEAD,
-    or reused when it already is a worktree of the same repository. Returns (path, created)."""
-    top = ship.toplevel(repo)
-    root = config.expand(cfg['project']['worktrees'])
-    wt = os.path.join(root, f'{cfg["delegate"]["prefix"]}{name or run_id}')
+def _reuse_or_refuse(top, wt, say):
+    """(path, False) when `wt` is already this repo's worktree; raises when it is something else."""
     if os.path.exists(os.path.join(wt, '.git')):
         if os.path.realpath(worktree.main_checkout(wt) or wt) != os.path.realpath(worktree.main_checkout(top) or top):
             raise ship.ShipError(f'refused: {wt} exists but belongs to another repository; pick another --track name')
@@ -99,6 +132,17 @@ def tree_for(cfg, repo, run_id, name=None, say=print):
         return wt, False
     if os.path.exists(wt):
         raise ship.ShipError(f'refused: {wt} exists and is not a git worktree; move it away or pick another --track name')
+    return None
+
+
+def tree_for(cfg, repo, run_id, name=None, say=print):
+    """The worktree the worker edits: <state>/work/<repo>/<delegate.prefix><name or id>, created detached at the repo's HEAD,
+    or reused when it already is a worktree of the same repository. Returns (path, created)."""
+    top = ship.toplevel(repo)
+    root, wt = work_root(cfg, top), tree_path(cfg, top, name or run_id)
+    reused = _reuse_or_refuse(top, wt, say)
+    if reused:
+        return reused
     os.makedirs(root, exist_ok=True)
     ship.git(top, 'worktree', 'add', '-q', '--detach', wt, 'HEAD')
     say(f'run: new worktree {wt} at {ship.git(top, "log", "--oneline", "-1")}')
@@ -215,10 +259,17 @@ def summary(r):
         lines.append(f'check     [{c["where"]}] rc={c["rc"]} {c["verdict"] or ""} (log {c["log"]})'.rstrip())
         if c['coverage']:
             lines.append(f'          {c["coverage"]}')
-    lines += ['', 'next      review: git -C ' + r['worktree'] + ' diff (or less ' + r['diff'] + ')',
-              f'          apply:  git -C <your tree> apply --index {r["diff"]}',
-              f'          discard: tutti runs discard {r["id"]}']
+    lines += ['', *next_steps(r)]
     return '\n'.join(lines)
+
+
+def next_steps(r):
+    """The report's review / apply / discard lines: a removed worktree only leaves the saved diff."""
+    apply = f'          apply:  git -C <your tree> apply --index {r["diff"]}'
+    if r.get('worktree_removed'):
+        return ['next      review: less ' + r['diff'], apply]
+    return ['next      review: git -C ' + r['worktree'] + ' diff (or less ' + r['diff'] + ')', apply,
+            f'          discard: tutti runs discard {r["id"]}']
 
 
 def verdict(r):
@@ -343,11 +394,12 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
         elif checks:
             r['checks'] = []
         r['rc'] = verdict(r)
-        write(p['report'], summary(r) + '\n')
-        write(p['json'], json.dumps(r, indent=2) + '\n')
-        if discard and created:
+        # one-shot runs (no --track): the diff is already under <state>/runs; named tracks stay for retries until done/landed
+        if created:
             remove_tree(wt, say)
             r['worktree_removed'] = True
+        write(p['report'], summary(r) + '\n')
+        write(p['json'], json.dumps(r, indent=2) + '\n')
         return r
     finally:
         log.close()
@@ -393,6 +445,19 @@ def remove_tree(wt, say=print):
         raise ship.ShipError(f'{wt} is not a linked worktree: nothing removed')
     ship.git(main, 'worktree', 'remove', '--force', wt)
     say(f'run: removed the worktree {wt}')
+
+
+def finish_tree(cfg, wt, say=print):
+    """Remove a run worktree of ours once its diff is saved or the task is done/discarded; no-op when missing or not ours."""
+    path = own_worktree(cfg, wt)
+    if not path or not os.path.isdir(path):
+        return False
+    try:
+        remove_tree(path, say)
+    except ship.ShipError as e:
+        say(f'run: worktree not removed ({e})')
+        return False
+    return True
 
 
 def read_meta(cfg, run_id):

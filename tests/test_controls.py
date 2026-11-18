@@ -184,7 +184,8 @@ class HandoverTest(Base):
         self.assertIn('partial file is kept', out[0][1])
 
     def test_an_agent_run_commits_its_work_writes_a_handoff_and_goes_to_the_next_worker(self):
-        wt = os.path.join(self.tmp.name, 'tutti-run-parser')   # <worktrees>/<delegate.prefix><track>
+        repo = os.path.join(self.tmp.name, 'app')   # the main checkout named in the run; the worker edits its state worktree
+        wt = os.path.join(self.state, 'work', 'app', 'tutti-run-parser')
         os.makedirs(wt)
         git = ['git', '-C', wt, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid']
         subprocess.run([*git, 'init', '-q'], check=True)
@@ -194,7 +195,7 @@ class HandoverTest(Base):
         write(os.path.join(wt, 'a.txt'), 'two\n')
         subprocess.run(['git', '-C', wt, 'config', 'user.name', 't'], check=True)
         subprocess.run(['git', '-C', wt, 'config', 'user.email', 't@example.invalid'], check=True)
-        log = self.job('runs', '1-5', 'worker:agy', {'kind': 'run', 'worker': 'agy', 'task': 'fix the parser', 'repo': wt,
+        log = self.job('runs', '1-5', 'worker:agy', {'kind': 'run', 'worker': 'agy', 'task': 'fix the parser', 'repo': repo,
                                                      'track': 'parser', 'run_id': '1-5', 'files': ['a.txt'],
                                                      'checks': [{'run': 'pytest', 'where': 'route'}]})
         started = []
@@ -211,7 +212,7 @@ class HandoverTest(Base):
         args = started[0]
         self.assertEqual(args[:2], ['run', 'cursor'])
         self.assertIn('Continue from this handoff', args[2])
-        self.assertEqual(args[3:8], ['a.txt', '--repo', wt, '--track', 'parser'])
+        self.assertEqual(args[3:8], ['a.txt', '--repo', repo, '--track', 'parser'])
         self.assertEqual(args[-3:], ['--check=pytest', '--check-where', 'route'])
         self.assertTrue(os.path.exists(log[:-4] + '.handoff.md'))
 

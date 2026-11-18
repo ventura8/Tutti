@@ -89,7 +89,7 @@ def stop_one(cfg, log, pid, why, end, keep):
         f.write(f'stopped because {why}; it starts again when the computer is back\n')
     track = str(spec.get('track') or spec.get('run_id') or '')
     if spec.get('kind') == 'run':
-        kept = keep(handover.worktree_of(cfg, track), track, str(spec.get('run_id') or '?'))
+        kept = keep(handover.worktree_of(cfg, track, spec.get('repo') or None), track, str(spec.get('run_id') or '?'))
         # an autopilot attempt is queued again by the autopilot itself (paused below), never started a second way
         return None if track.startswith(autopilot.TRACK_PREFIX) else {'kind': 'run', 'spec': spec, 'why': why, 'kept': kept}
     if spec.get('kind') == 'test' and not track.startswith('dispatch-'):   # a shard: its lease is requeued below

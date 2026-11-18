@@ -64,8 +64,10 @@ dashboard flags agent processes it finds working outside a Tutti folder.
 
 `tutti run <worker|auto> "<task>" [files] --repo <repo> [--bg] [--track <name>] [--discard] [--no-checks]`:
 
-1. a worktree of `<repo>` at its HEAD, detached, at `<project.worktrees>/<delegate.prefix><id>` (or `<prefix><track>`,
-   reused when it exists); the dependency folders of `ship.share` are hard-linked from the main checkout;
+1. a worktree of `<repo>` at its HEAD, detached, at `<state>/work/<repo>/<delegate.prefix><id>` (or `<prefix><track>`,
+   reused when it exists; never under a project folder); the dependency folders of `ship.share` are hard-linked from the
+   main checkout. A one-shot run removes the worktree once its diff is saved under `<state>/runs`; a named track
+   (`--track`, or an autopilot task) stays until the task is done, landed or discarded (`tutti runs discard`);
 2. the worker, headless, in that worktree, on the brief below; its output goes to the run's log;
 3. the diff of everything it changed or added, as one patch file, and the list of changed paths;
 4. the checks of the target repository (`projects.<name>.checks`, else a `tutti.config.*` in that repository, else

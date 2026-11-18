@@ -200,16 +200,16 @@ class DelegateTest(unittest.TestCase):
             patch = f.read()
         self.assertIn('+two', patch)
         self.assertIn('new.txt', patch)
-        self.assertEqual(git(r['worktree'], 'status', '--porcelain', '--untracked-files=no'), 'M a.txt')   # index restored
+        self.assertTrue(r['worktree_removed'])   # one-shot: worktree gone once the diff is under <state>/runs
+        self.assertFalse(os.path.exists(r['worktree']))
         self.assertEqual(git(self.repo, 'status', '--porcelain'), '')                                    # the repo is untouched
         self.assertEqual(r['checks'][0]['rc'], 0)
         self.assertIn('[SUCCESS] a.txt new.txt', r['checks'][0]['verdict'])
         with open(r['report'], encoding='utf8') as f:
             text = f.read()
         self.assertIn('coverage NOT checked', text)
-        self.assertIn('tutti runs discard', text)
-        delegate.remove_tree(r['worktree'], self.said.append)
-        self.assertFalse(os.path.exists(r['worktree']))
+        self.assertIn('less ' + r['diff'], text)
+        self.assertTrue(r['worktree'].startswith(os.path.join(os.path.realpath(self.tmp.name), 'state', 'work')))
 
     def test_a_failing_check_a_denial_and_an_empty_diff_fail_the_run(self):
         r = self.run_task(self.cfg([{'run': 'exit 3'}]))
@@ -229,11 +229,14 @@ class DelegateTest(unittest.TestCase):
         first = self.run_task(cfg, track='t1', checks=False)
         again = self.run_task(cfg, track='t1', checks=False)
         self.assertEqual(first['worktree'], again['worktree'])
-        self.assertFalse(again['created'])
+        self.assertTrue(again['created'])
         self.assertIsNone(again['checks'])
-        os.makedirs(os.path.join(self.tmp.name, 'wt', 'tutti-run-stray'))
+        self.assertFalse(os.path.isdir(first['worktree']))   # a named track now also goes away
+        os.makedirs(os.path.join(delegate.work_root(cfg, self.repo), 'tutti-run-stray'))
         with self.assertRaises(ship.ShipError):
             self.run_task(cfg, track='stray')
+        if os.path.isdir(first['worktree']):
+            delegate.remove_tree(first['worktree'], self.said.append)
 
     def test_wait_run_ends_with_one_line(self):
         cfg = self.cfg([{'run': 'true'}])
@@ -256,12 +259,14 @@ class DelegateTest(unittest.TestCase):
         for bad in ('../x', '1-1/../../etc', 'abc'):
             self.assertFalse(delegate.valid_id(bad))
             self.assertIsNone(delegate.load_report(cfg, bad))
-        root = os.path.join(self.tmp.name, 'wt')
-        mine = os.path.join(os.path.realpath(root), 'tutti-run-1-1')
-        self.assertEqual(delegate.own_worktree(cfg, os.path.join(root, 'tutti-run-1-1')), mine)
+        mine = os.path.realpath(delegate.tree_path(cfg, self.repo, '1-1'))
+        os.makedirs(os.path.dirname(mine), exist_ok=True)
+        self.assertEqual(delegate.own_worktree(cfg, mine), mine)
         self.assertIsNone(delegate.own_worktree(cfg, self.repo))
-        self.assertIsNone(delegate.own_worktree(cfg, os.path.join(root, 'other')))
+        self.assertIsNone(delegate.own_worktree(cfg, os.path.join(self.tmp.name, 'wt', 'other')))
         self.assertEqual(cli.cmd_runs(cfg, SimpleNamespace(action='discard', id='../x')), 2)
+        self.assertTrue(delegate.work_root(cfg, self.repo).endswith(os.path.join('state', 'work', os.path.basename(self.repo))))
+        self.assertFalse(delegate.finish_tree(cfg, self.repo))   # not ours: nothing removed
 
     def test_wait_run_on_an_unknown_id_says_so(self):
         cfg = self.cfg([])
@@ -677,6 +682,8 @@ class CopilotTest(unittest.TestCase):
             delegate.log_run(cfg, 'agy', 'agy-claude', 1, None, [], now=now)
             delegate.log_run(cfg, 'cursor', 'cursor', 0, None, [], now=now - 86400)
             self.assertEqual(delegate.runs_today(cfg, now), {'agy': 2})
-            self.assertTrue(discover.started_by_tutti(cfg, os.path.join(d, 'tutti-run-1-1')))
+            tree = os.path.join(d, 'work', 'app', 'tutti-run-1-1')
+            os.makedirs(tree)
+            self.assertTrue(discover.started_by_tutti(cfg, tree))
             self.assertTrue(discover.started_by_tutti(cfg, '/tmp/tutti-review-abc'))
             self.assertFalse(discover.started_by_tutti(cfg, '/home/someone/project'))

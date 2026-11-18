@@ -923,10 +923,10 @@ def push_wip(wt, sha, name, remote_name, run=git):
 
 
 def tree_of(cfg, task):
-    """The task's worktree, rebuilt from the config (<worktrees>/<delegate.prefix>ap-<id>, as `tutti run --track` makes it),
-    never a path read from a file; None when it does not exist."""
+    """The task's worktree, rebuilt from the config (<state>/work/<repo>/<delegate.prefix>ap-<id>, as `tutti run --track`
+    makes it), never a path read from a file; None when it does not exist."""
     from . import handover  # handover imports conduct, which imports modules that import this one
-    wt = handover.worktree_of(cfg, TRACK_PREFIX + str(task.get('id') or ''))
+    wt = handover.worktree_of(cfg, TRACK_PREFIX + str(task.get('id') or ''), repo_path(cfg, task))
     return wt if wt and os.path.isdir(wt) else None
 
 

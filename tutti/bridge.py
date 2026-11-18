@@ -344,9 +344,10 @@ class Server:
 
 
 def allowed_dirs(cfg):
-    """Where `exec` may run: the client's repositories and its worktrees folder."""
+    """Where `exec` may run: the client's repositories, its worktrees folder and Tutti's worker worktrees under state."""
+    from . import delegate
     roots = [config.expand(r['path']) for r in (cfg['autopilot'].get('repos') or {}).values() if r.get('path')]
-    return [*roots, config.expand(cfg['project']['worktrees'])]
+    return [*roots, config.expand(cfg['project']['worktrees']), delegate.work_root(cfg)]
 
 
 def worker_programs(cfg):

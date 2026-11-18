@@ -35,3 +35,6 @@ of your project or secrets: describe the setup in general words.
 - 2026-11-14 (owner): "Claude Code: needs-restart" while `claude mcp list` said Connected, and "Claude Desktop (chat):
   not connected" after the app dropped Tutti's entry. Fixed in 0.1.62: the status comes from `claude mcp list`; a dropped
   Desktop entry is put back with a backup.
+- 2026-11-17 (owner): "why so many tutti folders?" — worker worktrees (`tutti-run-*`) sat beside project checkouts and
+  stayed after the run. Fixed in 0.25.0: they live under `<state>/work/<repo>/` and are removed when the diff is saved
+  (one-shot), or when the task is done, landed or discarded.

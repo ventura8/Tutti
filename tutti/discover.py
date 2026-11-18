@@ -118,11 +118,11 @@ def script_job(proc, pid, name, args, now, stall):
 
 def started_by_tutti(cfg, cwd):
     """True when an agent works in a folder Tutti made: a run worktree or a fallback review's empty folder."""
+    from . import delegate
     if not cwd:
         return False
-    root = os.path.realpath(os.path.expanduser(cfg['project']['worktrees']))
     base = os.path.basename(cwd)
-    return (os.path.dirname(cwd) == root and base.startswith(cfg['delegate']['prefix'])) or base.startswith('tutti-review-')
+    return delegate.own_worktree(cfg, cwd) is not None or base.startswith('tutti-review-')
 
 
 def agent_job(proc, pid, name, now, cfg=None):

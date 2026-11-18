@@ -87,12 +87,16 @@ def git(wt, *args):
     return subprocess.run(['git', *args], cwd=wt, capture_output=True, text=True, timeout=60, check=False)
 
 
-def worktree_of(cfg, track):
-    """The run's worktree, rebuilt from the config as `tutti run --repo` makes it (<worktrees>/<delegate.prefix><track>),
-    never a path read from a file; None for a track name that is not a plain name."""
+def worktree_of(cfg, track, repo=None):
+    """The run's worktree, rebuilt as `tutti run --repo` makes it (<state>/work/<repo>/<delegate.prefix><track>),
+    never a path read from a file; None for a track name that is not a plain name. With `repo`, the path is exact;
+    without it, any existing match under <state>/work/ is returned."""
+    from . import delegate
     if not SAFE.fullmatch(track or ''):
         return None
-    return os.path.join(config.expand(cfg['project']['worktrees']), f'{cfg["delegate"]["prefix"]}{track}')
+    if repo:
+        return delegate.tree_path(cfg, repo, track)
+    return delegate.find_tree(cfg, track)
 
 
 def keep_work(wt, track, run_id):
@@ -133,13 +137,13 @@ def hand_run(cfg, log, spec, why, pick=pick_worker, start=spawn):
     worktree, with the same files and checks."""
     track = str(spec.get('track') or spec.get('run_id') or '')
     run_id = str(spec.get('run_id') or '')
-    kept = keep_work(worktree_of(cfg, track), track, run_id if SAFE.fullmatch(run_id) else '?')
+    repo = spec.get('repo') or ''
+    kept = keep_work(worktree_of(cfg, track, repo or None), track, run_id if SAFE.fullmatch(run_id) else '?')
     choice = pick(cfg)
     to = choice.get('worker')
     note = conduct.handoff_note(spec.get('task', ''), spec.get('worker', '?'), to, why, '', kept, tail(log))
     with open(log[:-4] + '.handoff.md', 'w', encoding='utf8') as f:
         f.write(note)
-    repo = spec.get('repo') or ''
     if not to or not SAFE.fullmatch(track) or not os.path.isabs(repo):
         why = choice.get('reason') or 'the run left no usable track or repository'
         return f'not handed over: {why}; the handoff and the kept work wait in the worktree'

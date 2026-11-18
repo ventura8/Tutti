@@ -83,7 +83,8 @@ local, ssh and WSL machine once (its flag, load and disks):
   build cache beyond 20 GB, dangling images, unused images older than 7 days, but **never an image the config names**
   (any `image:` / `images:` key, e.g. `runner.image`, and `selfheal.keep_images`; naming a repository without a tag keeps
   every tag and digest of it) and never one a container uses; ~/.cache/tutti-* folders untouched for 7 days; on the main
-  machine Tutti's run and quiet logs and clean `tutti-run-*` worktrees untouched for 14 days. On a WSL machine's Windows
+  machine Tutti's run and quiet logs and clean `tutti-run-*` worktrees (under `<state>/work/<repo>/`, and any left under
+  `project.worktrees`) untouched for 14 days. On a WSL machine's Windows
   side: APK outputs under each project's `windows:` folder (`*\build\outputs`, the newest 2 kept), the npm and NuGet
   caches; Remote Desktop traces (`%TEMP%\DiagOutputDir\RdClientAutoTrace`) are offered in Needs you and deleted only on
   *delete*; after a prune of 5 GB or more on an idle machine the WSL disk is compacted (`Optimize-VHD`, else set sparse).

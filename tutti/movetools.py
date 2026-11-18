@@ -162,14 +162,16 @@ def worktrees_of(repo, runner=run):
 
 def repo_set(cfg, home, expand, runner=run):
     """{'paths': home-relative folders to copy (none inside another), 'repos': {repo: [its worktrees]}} for the autopilot repos,
-    their worktrees and the worktrees folder; folders outside this home stay where they are."""
+    their worktrees, the worktrees folder and Tutti's worker worktrees under the state dir; folders outside this home stay
+    where they are."""
+    from . import delegate
     home = home.rstrip('/') + '/'
     repos = {}
     for r in (cfg['autopilot'].get('repos') or {}).values():
         if r.get('path') and os.path.isdir(expand(r['path'])):
             p = expand(r['path'])
             repos[p] = [w for w in worktrees_of(p, runner) if w != p]
-    found = [*repos, *[w for ws in repos.values() for w in ws], expand(cfg['project']['worktrees'])]
+    found = [*repos, *[w for ws in repos.values() for w in ws], expand(cfg['project']['worktrees']), delegate.work_root(cfg)]
     inside = sorted({p.rstrip('/') for p in found if p.startswith(home) and os.path.isdir(p)})
     top = [p for p in inside if not any(p != q and p.startswith(q + '/') for q in inside)]
     return {'paths': [p[len(home):] for p in top], 'repos': repos}

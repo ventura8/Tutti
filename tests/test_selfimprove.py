@@ -338,10 +338,10 @@ class Triage(Base):
         t = backlog.load(cfg)['tasks'][0]
         self.assertEqual(t['status'], 'candidate')
         with redirect_stdout(io.StringIO()), backlog.locked(cfg) as data:
-            cli.task_change(backlog.find(data, t['id']), SimpleNamespace(action='accept', note=None))
+            cli.task_change(cfg, backlog.find(data, t['id']), SimpleNamespace(action='accept', note=None))
         self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
         with backlog.locked(cfg) as data, self.assertRaises(backlog.BacklogError):
-            cli.task_change(backlog.find(data, t['id']), SimpleNamespace(action='accept', note=None))
+            cli.task_change(cfg, backlog.find(data, t['id']), SimpleNamespace(action='accept', note=None))
 
     def test_a_waiting_candidate_is_accepted_by_itself_when_self_improvement_is_on(self):
         cfg = self.cfg()

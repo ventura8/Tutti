@@ -262,10 +262,13 @@ class Worktrees(unittest.TestCase):
     def test_an_old_run_worktree_is_a_candidate_unless_a_process_works_in_it(self):
         root = tmpdirs.mkdtemp()
         old = os.path.join(root, 'tutti-run-a')
+        nested = os.path.join(root, 'app', 'tutti-run-b')
         os.makedirs(os.path.join(old, 'sub'))
+        os.makedirs(os.path.join(nested, 'sub'))
         os.makedirs(os.path.join(root, 'mine'))
         later = time.time() + 30 * 86400
         self.assertEqual(hygiene.old_worktrees(root, later), [old])
+        self.assertEqual(hygiene.old_worktrees(root, later, nested=True), [nested, old])
         self.assertEqual(hygiene.old_worktrees(root, later, {os.path.join(old, 'sub')}), [])
         self.assertEqual(hygiene.old_worktrees(root, time.time()), [])
 

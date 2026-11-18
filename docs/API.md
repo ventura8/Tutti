@@ -778,7 +778,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `ship.deploy` | text |  | Deploy: A command run after the push. | admin |
 | `delegate.project` | text |  | Default project: The checks below are for this project only. | admin |
 | `delegate.checks` | yaml |  | Checks of a worker's diff: Default: ship.checks. | admin |
-| `delegate.prefix` | text | `tutti-run-` | Worktree prefix: Worktrees go under project.worktrees/<prefix><id>. | admin |
+| `delegate.prefix` | text | `tutti-run-` | Worktree prefix: Worker worktrees go under <state>/work/<repo>/<prefix><id>. | admin |
 | `delegate.remote_track` | text | `tutti-run` | Folder on the test machine: Routed checks copy the worktree here. | admin |
 | `test.prepare` | yaml |  | Steps first: When a test command matches `when`, `run` goes in front. | admin |
 | `test.no_coverage` | text |  | Coverage off looks like: A regex for a run with coverage turned off. | admin |
@@ -1180,10 +1180,10 @@ usage: tutti run [-h] [--dir DIR] [--show] [--input PATH] [--on ON] [--repo REPO
 | `--input` | a file or folder to copy to the --on machine first (repeat it) |  |
 | `--on` | the machine --input files go to |  |
 | `--repo` | hand the task off end to end: a worktree of this repo, the worker headless, the diff, the checks, a report (tutti runs show <id>) |  |
-| `--track` | with --repo: reuse or create the worktree <delegate.prefix><track> instead of a new one |  |
+| `--track` | with --repo: reuse or create <state>/work/<repo>/<delegate.prefix><track> instead of a one-shot tree |  |
 | `--bg` | with --repo: run detached; prints the id for `tutti wait run <id>` |  |
 | `--no-checks` | with --repo: skip the checks (the report says nothing was tested) |  |
-| `--discard` | with --repo: remove a new worktree after the report (the diff file stays) |  |
+| `--discard` | with --repo: remove a new named-track worktree after the report (one-shot trees already go) |  |
 | `--check` | with --repo: the target repo's own check instead of delegate.checks (repeat it) |  |
 | `--check-where` | with --check: run it here (local, the default) or on a routed machine (route) | `local` |
 | `--no-backlog` | claude with --repo: run it untracked (no backlog task, no pacing) |  |

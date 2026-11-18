@@ -463,7 +463,7 @@ FIELDS = {
     'ship.deploy': field('Deploy', 'A command run after the push.', 'text', default=''),
     'delegate.project': field('Default project', 'The checks below are for this project only.', 'text'),
     'delegate.checks': field('Checks of a worker\'s diff', 'Default: ship.checks.', **YAML),
-    'delegate.prefix': field('Worktree prefix', 'Worktrees go under project.worktrees/<prefix><id>.', 'text'),
+    'delegate.prefix': field('Worktree prefix', 'Worker worktrees go under <state>/work/<repo>/<prefix><id>.', 'text'),
     'delegate.remote_track': field('Folder on the test machine', 'Routed checks copy the worktree here.', 'text'),
     'test.prepare': field('Steps first', 'When a test command matches `when`, `run` goes in front.', **YAML),
     'test.no_coverage': field('Coverage off looks like', 'A regex for a run with coverage turned off.', 'text'),

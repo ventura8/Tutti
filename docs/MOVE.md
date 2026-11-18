@@ -162,7 +162,7 @@ The client never runs a command the host names. It answers only Tutti's own requ
 | `reader` | the account's reader and plan from its own config, with its own sign-in |
 | `reading-file` | the account's `reading_file` from its own config |
 | `run` | `tutti run ...` with its own config (no `--config` accepted); the output streams back, the report files follow |
-| `exec` | git, gh or one of its worker programs, by bare name from its own PATH, only in its repositories or worktrees folder (a folder is required; the autopilot's publish and land) |
+| `exec` | git, gh or one of its worker programs, by bare name from its own PATH, only in its repositories, worktrees folder or `<state>/work` (a folder is required; the autopilot's publish and land) |
 | `review` | one of its worker programs reviewing the host's diff in an empty folder |
 | `stop` | ends the process tree of a run it runs for the host (a move's `--jobs handover`) |
 | `jobs` | its own running jobs (scripts, quiet runs, ship checks), shown on the host's jobs card tagged with the client |

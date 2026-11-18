@@ -10,8 +10,9 @@ v0.1.0 is the extraction of one project's working toolkit. The backlog is fed by
 - `tutti translate`: the rest of the original pipeline: several streams sharing one queue (`flock` claims), a second
   judge on a larger model for strings the first judge doubted, a per-locale glossary and register, locale punctuation
   fixes, catalogue formats beyond flat JSON.
-- `tutti worktree add|remove <track>`: create and clean worktrees, so a brief can name one. *Partly shipped in 0.1.8:*
-  `tutti run --repo` creates (or reuses with `--track`) a worktree per delegated task and `tutti runs discard` removes it.
+- `tutti worktree add|remove <track>`: create and clean worktrees, so a brief can name one. *Partly shipped in 0.1.8 /
+  0.25.0:* `tutti run --repo` creates (or reuses with `--track`) a worktree under `<state>/work/<repo>/` per delegated
+  task; one-shot runs and done/landed/discarded tasks remove it (`tutti runs discard` still works by hand).
 - `tutti lock <name> -- <cmd>`: named locks for devices and other things peers share.
 - A `limits` section in the config that renders the shared limits file for peers.
 

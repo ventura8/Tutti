@@ -3,7 +3,7 @@
 
 project:
   worktrees: ~/Projects/app-wt        # `tutti test <track> ...` runs over <worktrees>/<track>
-  state: ~/.local/state/tutti         # logs, pid files, the usage log
+  state: ~/.local/state/tutti         # logs, pid files, the usage log; worker worktrees under <state>/work/<repo>/
 
 # What local time means (owner hours, quiet hours, tariffs, what the CLI prints). auto: this computer's IANA zone, found by
 # itself (Linux, Windows, macOS), daylight saving included; or a name such as Europe/Bucharest. Stored times stay UTC.

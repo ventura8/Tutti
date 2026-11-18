@@ -623,18 +623,41 @@ def start_local(cfg, j, run=subprocess.run, popen=subprocess.Popen):
 # ---- running jobs
 
 
+def _run_leaf(path, name, prefix, home):
+    """Home-relative path when `name` is a `<prefix>*` folder under `home`, else None."""
+    if not name.startswith(prefix) or not path.startswith(home + os.sep):
+        return None
+    return path[len(home) + 1:]
+
+
+def _run_trees(root, prefix, home, nested=False):
+    """Home-relative paths of `<prefix>*` under `root`, or under `root/<repo>/` when `nested` (state worktrees)."""
+    home = home.rstrip('/')
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return []
+    out = []
+    for n in names:
+        p = os.path.join(root, n)
+        leaf = _run_leaf(p, n, prefix, home)
+        if leaf:
+            out.append(leaf)
+        elif nested and os.path.isdir(p) and not n.startswith('.'):
+            out.extend(_run_trees(p, prefix, home))
+    return out
+
+
 def final_paths(cfg, repos, home):
     """What the final sync copies again: each repository's git folder (refs, branches, the worktrees' records) and the
     autopilot's own worktrees, the only ones Tutti changed during the bulk copy. Everything else was copied while Tutti ran."""
+    from . import delegate
     home = home.rstrip('/') + '/'
-    root = config.expand(cfg['project']['worktrees']).rstrip('/')
     prefix = cfg['delegate']['prefix']
     out = [os.path.join(r, '.git')[len(home):] for r in repos['repos'] if r.startswith(home) and os.path.isdir(os.path.join(r, '.git'))]
-    try:
-        names = os.listdir(root)
-    except OSError:
-        names = []
-    out += [os.path.join(root, n)[len(home):] for n in sorted(names) if n.startswith(prefix) and root.startswith(home.rstrip('/'))]
+    base = home.rstrip('/')
+    out += _run_trees(delegate.work_root(cfg), prefix, base, nested=True)
+    out += _run_trees(config.expand(cfg['project']['worktrees']).rstrip('/'), prefix, base)
     return out
 
 

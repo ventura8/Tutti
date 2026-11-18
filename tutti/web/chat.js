@@ -812,6 +812,19 @@ function initChat() {
     cq('chat-input').addEventListener('input', autoGrow);
     cq('chat-stop').addEventListener('click', stopAnswer);
     cq('chat-new').addEventListener('click', newChat);
+    cq('chat-voice').addEventListener('click', () => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) { say('Voice input is not supported in this browser.'); return; }
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'en-US';
+        recognition.start();
+        recognition.onresult = (event) => {
+            const text = event.results[0][0].transcript;
+            cq('chat-input').value = text;
+            autoGrow();
+            cq('chat-input').focus();
+        };
+    });
     cq('chat-attach').addEventListener('click', () => { CHAT.pickingFiles = true; cq('chat-file').click(); });
     cq('chat-file').addEventListener('change', onFiles);
     cq('chat-file').addEventListener('cancel', () => { CHAT.pickingFiles = false; });

@@ -143,6 +143,7 @@ DEFAULTS = {
     # auth: sign-in with Google for the dashboard (docs/AUTH.md): the OAuth client ID (public; `tutti auth setup` saves it in
     # the state folder instead) and how long a session lasts
     'auth': {'client_id': '', 'session_hours': 72},
+    'chat': {'read_aloud': False},
     'main': {'agent': 'claude', 'preferred': '', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30,
              'rounds': 12, 'command_timeout': 3600},
     # fleet: the household's local models as workers (docs/FLEET.md): every machine's Ollama is read and a machine with models

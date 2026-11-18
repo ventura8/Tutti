@@ -477,6 +477,18 @@ class Engine:
         job.msg['model'] = BUILTIN
         job.emit('model', model=BUILTIN)
         job.emit('delta', text=text)
+        if self.cfg_fn().get('chat', {}).get('read_aloud'):
+            self.read_aloud(text)
+
+    def read_aloud(self, text):
+        import threading
+        def run_piper(t):
+            try:
+                import subprocess
+                subprocess.run(['piper', '--model', 'en_US-lessac-medium.onnx', '--output_raw'], input=t.encode(), stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+        threading.Thread(target=run_piper, args=(text,), daemon=True).start()
 
     def execute(self, user, cfg, call, card, job=None):
         """Runs one call for `user` into `card`: the role check, the audit line, the MCP tool's call, Undo where possible."""

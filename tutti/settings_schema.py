@@ -533,6 +533,7 @@ FIELDS = {
     'dashboard.task_globs': field('Background task outputs', 'An agent session\'s task outputs (shown by time only).', 'list', item='glob'),
     'dashboard.shapes': field('Progress shapes', 'A job kind\'s known phases, or lines counted against a total.', **YAML),
     'dashboard.typical_minutes': field('Typical minutes', 'The estimate for an agent kind before any run of it finished.', **YAML),
+    'chat.read_aloud': field('Read aloud', 'Always read Tutti\'s answers aloud using Piper TTS.', 'switch', default=False),
     'project.worktrees': field('Worktrees folder', '`tutti test <track>` runs over <worktrees>/<track>.', 'text'),
     'project.state': field('State folder', 'Logs, pid files and the usage log.', 'text'),
     # you and your household

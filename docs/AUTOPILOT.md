@@ -198,6 +198,8 @@ The repos' sources are read before the backlog's lock is taken, and every source
 
 When the local machine offers only a share of its cores, the CPU limit explains the host total, the share and adjusted load separately. This explanation does not change the capacity calculation.
 
+Account cards show estimated quota room in bounded tasks. Whether work can start also depends on account eligibility and available capacity; the estimate alone does not reserve a slot.
+
 How many runs go at once is measured every round, not fixed. The limit is the smallest of:
 
 - **accounts**: the runs going plus the room the ladder's accounts have now (the planner's tasks);

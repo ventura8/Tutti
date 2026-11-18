@@ -312,9 +312,11 @@ review:
   # rounds per pull request (ask, fix the findings, ask again), per reviewer; 1 each by default, 0: not called (admin only)
   # rounds: {coderabbit: 1, greptile: 1, copilot: 1, grok: 1, local: 1}
 
-# `tutti conduct`: another agent as the main (conductor) agent; who takes over when its quota is in panic (docs/CONDUCT.md)
+# `tutti conduct`: another agent as the main (conductor) agent; who takes over when its quota is in panic (docs/CONDUCT.md).
+# preferred: the owner's lasting main (empty: this file's agent); current may move on panic and returns after a fresh reading.
 main:
   agent: claude
+  preferred: claude
   fallback: [agy, cursor, small]
   commands:
     claude: [claude, -p, '{prompt}', --permission-mode, acceptEdits, --allowedTools, 'Bash(tutti:*)']

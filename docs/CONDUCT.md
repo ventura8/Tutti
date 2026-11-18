@@ -61,25 +61,33 @@ panel shows.
 ## Automatic MAIN AGENT ROLE hand-off
 
 Outside a `tutti conduct` run, each dashboard round also watches the current main agent (`main.agent`, or the owner's
-switch). When every account it spends is in **panic** or **spent**, Tutti hands the **MAIN AGENT ROLE** to the next
+switch). **Preferred** main (`main.preferred`, the owner's lasting choice; default: the file's `main.agent`) stays
+separate from **current** main. An automatic hand-off changes only the current agent.
+
+When every account the current main spends is in **panic** or **spent**, Tutti hands the **MAIN AGENT ROLE** to the next
 worker in `main.fallback` that has room:
 
-1. The choice is written (`tutti main <agent>` / `user.json`'s `main_agent`), so the next goal and the owner's reserve
-   follow the new agent.
+1. The current choice is written (`user.json`'s `main_agent` and `conduct/main.json`); `preferred_main` is left alone
+   (and recorded once if it was empty, so the owner's choice is not lost).
 2. `tutti connect` runs for that agent's kind (Cursor, Antigravity, …; nothing to connect for a local model).
 3. A note goes to the owner's Chat under **Main agent hand-off** (the first admin's partition when sign-in is on, else
    `local`): who left, why (panic or spent), and who took over.
 
-The same panic episode is noted once (keyed on from/to and the panic start, not the formatted usage text). When the
-current main recovers, the saved record is cleared so a later panic can note again. When no fallback has room, the note
-says so and the role stays put until one does. Bounded autopilot work still moves to other accounts while the main agent
-panics (docs/AUTOPILOT.md).
+When the preferred agent has a **fresh reading below `panic_at`** after its reset (not the synthetic `after_reset` 0 %),
+Tutti switches the current main back to preferred, connects it, and notes the restore in the same chat. The same panic
+episode is noted once (keyed on from/to and the panic start, not the formatted usage text). When the current main is
+healthy again with no restore pending, the saved record is cleared so a later panic can note again. When no fallback has
+room, the note says so and the role stays put until one does. Bounded autopilot work still moves to other accounts while
+the main agent panics (docs/AUTOPILOT.md).
+
+An owner switch (`tutti main`, the dashboard Switch, `tutti user main-agent`) sets both preferred and current.
 
 ## The config
 
 ```yaml
 main:
-  agent: claude                       # the default main agent (a worker)
+  agent: claude                       # the current main agent (a worker); may move on panic
+  preferred: claude                   # the owner's lasting choice (empty: the file's main.agent)
   fallback: [agy, cursor, laptop]     # who takes over, in order
   commands:                           # optional: the command of an agent when it conducts (default: its worker command)
     claude: [claude, -p, '{prompt}', --permission-mode, acceptEdits, --allowedTools, 'Bash(tutti:*)']

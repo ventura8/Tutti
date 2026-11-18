@@ -7,6 +7,14 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.24.2] - 2026-11-17
+
+### Added
+
+- Preferred vs current main agent (`main.preferred`, default the file's `main.agent`): an automatic panic hand-off
+  changes only the current agent; when the preferred agent has a fresh reading below `panic_at` after its reset, Tutti
+  switches current back, connects it, and notes the restore (t273). See docs/CONDUCT.md.
+
 ## [0.24.1] - 2026-11-17
 
 ### Added

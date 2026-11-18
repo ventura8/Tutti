@@ -123,8 +123,11 @@ class MainAgentTest(unittest.TestCase):
             self.assertIn('tutti connect cursor: done', note)
             cfg = self.load(d)
             self.assertEqual(cfg['main']['agent'], 'cursor')
+            self.assertEqual(cfg['main']['preferred'], 'cursor')
             self.assertEqual(owner.owner_of(cfg, os.path.join(d, 'state'))['accounts'], ['cursor-pro'])
             self.assertEqual(users.set_main_agent(cfg, 'local', connect_fn=lambda *a, **k: [])[0], 'pc')
+            cfg = self.load(d)
+            self.assertEqual(cfg['main']['preferred'], 'pc')
 
     def test_an_unknown_kind_or_one_without_a_worker_says_what_to_do(self):
         with tempfile.TemporaryDirectory() as d:

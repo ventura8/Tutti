@@ -122,9 +122,19 @@ def _apply_spare(raw, saved):
 
 
 def _apply_main(raw, saved):
+    """Current main (`main_agent` → main.agent) and preferred main (`preferred_main` → main.preferred).
+    Preferred defaults to the file's main.agent when the owner has not set one yet."""
+    main = {**(raw.get('main') or {})}
+    file_agent = main.get('agent')
+    preferred = saved.get('preferred_main')
+    if isinstance(preferred, str) and preferred:
+        main['preferred'] = preferred
+    else:
+        main['preferred'] = main.get('preferred') or file_agent or ''
     agent = saved.get('main_agent')
     if isinstance(agent, str) and agent:
-        raw['main'] = {**(raw.get('main') or {}), 'agent': agent}
+        main['agent'] = agent
+    raw['main'] = main
 
 
 def apply(raw, saved):
@@ -264,17 +274,19 @@ def kind_of(cfg, worker):
 
 def set_main_agent(cfg, kind, connect_fn=None):
     """Makes `kind` this user's main agent (kept in user.json, so the config file is untouched); the planner's owner reserve
-    moves to the accounts behind it. Then `tutti connect` for it. Returns (worker name, a note)."""
+    moves to the accounts behind it. Writes both preferred and current main. Then `tutti connect` for it.
+    Returns (worker name, a note)."""
     if kind not in MAIN_KINDS:
         raise UserError(f'"{kind}" is not a main agent Tutti knows: pick one of {", ".join(MAIN_KINDS)}')
     worker = worker_for(cfg, kind)
-    write(config.state_dir(cfg), main_agent=worker or kind)
+    name = worker or kind
+    write(config.state_dir(cfg), main_agent=name, preferred_main=name)
     note = '' if worker else (f'no worker of kind {kind} in {cfg.get("_path")} yet, so no account backs it and nothing is kept '
                               'for you: `tutti setup` adds it')
     target = MAIN_KINDS[kind][1]
     if target:
         note = '; '.join(x for x in (note, connect_main(cfg, target, connect_fn)) if x)
-    return worker or kind, note
+    return name, note
 
 
 def connect_main(cfg, target, connect_fn=None):

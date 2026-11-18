@@ -542,7 +542,8 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `routing.workers` | list |  | Worker order: `tutti run auto` tries these in order, skipping spent ones. | admin |
 | `brief.rules` | list |  | Rules in every brief: Added to every brief (the standing ones are always added). | admin |
 | `main.target_pct` | number (%) |  | Target: The % of the main agent's quota to use by its spend-by time; the owner's reserve still holds. | admin |
-| `main.agent` | select | `claude` | Main agent: The worker that conducts the next goal. | each user (own value) or an admin |
+| `main.agent` | select | `claude` | Main agent: The worker that conducts the next goal (current; may move on panic). | each user (own value) or an admin |
+| `main.preferred` | select |  | Preferred main: The owner's lasting main agent; Tutti returns here after its limit resets. Empty: the file's main.agent. | each user (own value) or an admin |
 | `main.fallback` | list |  | Takes over: In this order, when the main agent's quota is in panic. | admin |
 | `main.commands` | yaml |  | Commands when conducting: A command per agent; default: its worker command. | admin |
 | `main.ask_first` | list |  | Ask first: Extra actions the conductor must ask you about. | admin |

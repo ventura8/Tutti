@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 
-from . import config, failover, move, remote, selfheal, statebudget, watchdog, yamledit
+from . import __version__, config, failover, move, remote, selfheal, statebudget, watchdog, yamledit
 
 UNIT = 'tutti-failover.service'
 
@@ -288,6 +288,67 @@ def cmd_main_backup(cfg, a):
             return 2
         cfg = config.load(cfg['_path'])
     print(describe(failover.view(cfg)))
+    return 0
+
+
+def cmd_main_switch(cfg, a):
+    """`tutti main switch <machine> [--yes]`."""
+    if not a.machine:
+        say('Usage: tutti main switch <machine>')
+        return 2
+
+    cands = failover.candidates(cfg)
+    if a.machine not in cands:
+        say(f'"{a.machine}" is not a valid candidate. Valid candidates: {", ".join(cands)}')
+        return 2
+
+    # Preflight
+    say(f'Running preflight checks for {a.machine}...')
+
+    # 1. Reachable
+    ans = failover.remote_cmd(cfg, a.machine, ['status'], run=subprocess.run)
+    if ans is None:
+        say(f'Machine {a.machine} is not reachable.')
+        return 2
+
+    # 2. Version
+    cmd = 'python3 -c "import tutti; print(tutti.__version__)"'
+    r = subprocess.run(['ssh', '-o', 'BatchMode=yes', failover.ssh_of(cfg, a.machine), cmd],
+                       capture_output=True, text=True)
+    if r.returncode != 0 or r.stdout.strip() != __version__:
+        say(f'Machine {a.machine} has a different Tutti version (expected {__version__}, got {r.stdout.strip()}).')
+        return 2
+
+    # 3. Confirmation
+    if not a.yes:
+        print(f'Switching main to {a.machine}. Proceed? [y/N]')
+        if sys.stdin.readline().strip().lower() != 'y':
+            say('Aborted.')
+            return 1
+
+    # 4. Switch
+    say(f'Syncing state to {a.machine}...')
+    ok, sent = failover.push(cfg, a.machine)
+    if not ok:
+        say('Failed to sync state.')
+        return 2
+    say(f'Synced {sent // 1024} KB.')
+
+    # 5. Step down current main
+    say(f'Stepping down {failover.main_of(cfg)}...')
+    if leave(cfg) != 0:
+        say('Failed to step down current main.')
+        return 2
+
+    # 6. Update config to make new machine main
+    say(f'Updating config to make {a.machine} the new main...')
+    with open(cfg['_path'], encoding='utf8') as f:
+        text = f.read()
+    text = yamledit.edit(text, ['failover', 'main'], a.machine)
+    with open(cfg['_path'], 'w', encoding='utf8') as f:
+        f.write(text)
+
+    say(f'Switch completed. {a.machine} is the new main.')
     return 0
 
 

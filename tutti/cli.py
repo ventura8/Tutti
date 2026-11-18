@@ -1243,6 +1243,10 @@ def cmd_main(cfg, a):
         from . import failovercmd
         a.machine = a.machine_name
         return failovercmd.cmd_main_backup(cfg, a)
+    if a.agent == 'switch':
+        from . import failovercmd
+        a.machine = a.machine_name
+        return failovercmd.cmd_main_switch(cfg, a)
     if a.agent:
         try:
             conduct.choose(cfg, a.agent)

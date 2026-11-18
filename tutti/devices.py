@@ -17,7 +17,8 @@ TERMUX_POLICY = {'min_battery': 50, 'require_charging': True, 'max_battery_c': 4
 SCREENS = ('wake', 'off', 'any')
 # A TV (a Cast receiver: devices.<d>.kind: tv) runs on mains power and has no battery or call state to read.
 TV_POLICY = {'min_battery': 0, 'require_charging': False, 'max_battery_c': 0, 'wifi_only': False, 'screen': 'any'}
-KINDS = ('phone', 'tablet', 'tv')
+# A watch (a Wear OS watch: devices.<d>.kind: watch) runs on battery, tends to run warm when debugging, screen wakes for tests.
+WATCH_POLICY = {"min_battery": 40, "require_charging": False, "max_battery_c": 40, "wifi_only": False, "screen": "wake"}
 
 # Termux's own readings, through the Termux:API app (`pkg install termux-api`): the same keys as device-readings.sh, each
 # line starting `R `. termux-* commands hang when the Termux:API app is missing, so each has a timeout; /sys is the fallback.
@@ -37,7 +38,8 @@ TERMUX_READINGS = (
 
 def policy(entry, termux=False):
     """The device's policy: the defaults for its use, overridden by its own `policy:`."""
-    base = TERMUX_POLICY if termux else TV_POLICY if (entry or {}).get('kind') == 'tv' else E2E_POLICY
+    kind = (entry or {}).get('kind')
+    base = TERMUX_POLICY if termux else (TV_POLICY if kind == 'tv' else (WATCH_POLICY if kind == 'watch' else E2E_POLICY))
     out = {**base, **((entry or {}).get('policy') or {})}
     if out.get('screen') is False:   # YAML reads an unquoted `off` as false
         out['screen'] = 'off'

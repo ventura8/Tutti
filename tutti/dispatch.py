@@ -25,8 +25,8 @@ except ImportError:   # Windows: no flock; the dashboard is the only writer ther
 from . import calls, config, controls, devices, durable, power, presence, priority, shards, telemetry
 
 FILE = 'dispatch.json'
-TARGET_KINDS = ('android', 'tv', 'machine')   # tv: a device of kind tv (a Cast receiver); only suites that name it use it
-DEVICE_KINDS = ('android', 'tv')
+TARGET_KINDS = ('android', 'tv', 'watch', 'machine')   # tv: a Cast receiver; watch: Wear OS; only suites that name it use it
+DEVICE_KINDS = ('android', 'tv', 'watch')
 SUITE_KINDS = ('e2e', 'unit', 'lint', 'other')
 LIGHT = ('unit', 'lint')            # on an Android device these are opt-in (its battery and heat): `tutti optin device <d> on`
 COMMIT_EVERY = 300                  # seconds between two looks at a project's latest commit
@@ -271,7 +271,7 @@ def targets(devices_rows, machine_rows, st, held=None, gone=None):
         busy = tid in leased or d.get('status') == 'busy'
         shown = 'paused' if d.get('status') == 'held' else d.get('status')
         why = (held or {}).get(d['name']) or ('' if d.get('status') == 'ready' else f'{d["name"]} is {shown}: {d.get("reason")}')
-        kind = 'tv' if d.get('kind') == 'tv' else 'android'
+        kind = 'tv' if d.get('kind') == 'tv' else ('watch' if d.get('kind') == 'watch' else 'android')
         out.append(_absent({'id': tid, 'kind': kind, 'name': d['name'], 'busy': busy, 'blocked': '' if busy else why}, gone))
     for m in machine_rows or []:
         tid = f'machine:{m["name"]}'

@@ -36,10 +36,15 @@ def valid_track(track):
     return isinstance(track, str) and bool(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', track))
 
 
-def require_track(track):
-    if not valid_track(track):
+def valid_remote_track(track):
+    """A copied tree must not replace the shared bare repository or slot script."""
+    return valid_track(track) and track.lower() not in ('repo.git', 'tutti-slot.sh')
+
+
+def require_track(track, remote_copy=True):
+    if not (valid_remote_track(track) if remote_copy else valid_track(track)):
         raise RuntimeError('remote track must be one folder name of 1 to 64 letters, digits, dots, underscores or dashes, '
-                           'starting with a letter or digit; choose another track and retry')
+                           'starting with a letter or digit and not repo.git or tutti-slot.sh; choose another track and retry')
 
 
 _BASH_PATHS = {}
@@ -641,8 +646,10 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
     """Runs `command` over the tree on the machine, behind its slot queue, after the steps it needs first (test.prepare).
     With `device` the command also holds that Android device's lock and gets ANDROID_SERIAL. With `out` (a job log) the
     output goes there too. Returns the command's exit code."""
-    if machine['transport'] != 'local' or machine['runner']['kind'] == 'docker':
+    if machine['transport'] != 'local':
         require_track(track)
+    elif machine['runner']['kind'] == 'docker':
+        require_track(track, remote_copy=False)
     command = routing.prepare(command, (cfg.get('test') or {}).get('prepare'))
     command = no_daemons(command)
     slot = slot_prefix(machine)

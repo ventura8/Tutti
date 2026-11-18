@@ -251,9 +251,10 @@ def delegate(cfg, name, task, files, repo, run_id=None, track=None, extra=(), ch
         raise ship.ShipError(f'refused: --track "{track}" must be one folder name (letters, digits, . _ -), nothing was changed')
     if checks:
         effective_track = remote_track or track or cfg['delegate']['remote_track']
-        if not remote.valid_track(effective_track):
+        if not remote.valid_remote_track(effective_track):
             raise ship.ShipError('refused: --remote-track or delegate.remote_track must be one folder name of 1 to 64 letters, '
-                                 'digits, dots, underscores or dashes, starting with a letter or digit; choose another and retry')
+                                 'digits, dots, underscores or dashes, starting with a letter or digit and not repo.git or '
+                                 'tutti-slot.sh; choose another and retry')
     lock = track_lock(cfg, f'tree-{track}', say or (lambda m: sys.stderr.write(f'tutti: {m}\n'))) if track else contextlib.nullcontext()
     with lock:
         return _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list, remote_track)

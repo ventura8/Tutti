@@ -193,7 +193,7 @@ class DelegateTest(unittest.TestCase):
 
     def test_remote_track_is_checked_before_lock_or_worker(self):
         cfg = self.cfg([])
-        for bad in ('../escape', 'bad;echo x', 'name\n', '/tmp/absolute', 'x' * 65):
+        for bad in ('../escape', 'bad;echo x', 'name\n', '/tmp/absolute', 'x' * 65, 'Repo.git', 'TUTTI-SLOT.SH'):
             with self.subTest(bad=bad), mock.patch.object(delegate, 'track_lock') as lock, \
                     mock.patch.object(delegate, '_delegate') as run:
                 with self.assertRaisesRegex(ship.ShipError, 'remote-track or delegate.remote_track'):

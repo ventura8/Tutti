@@ -159,7 +159,7 @@ class RemoteTest(unittest.TestCase):
 
     def test_remote_track_rejected_before_transport_or_filesystem(self):
         machine = {**self.cfg['machines']['a'], 'transport': 'ssh'}
-        for bad in ('../escape', 'bad;echo x', 'name\n', '', 'x' * 65):
+        for bad in ('../escape', 'bad;echo x', 'name\n', '', 'x' * 65, 'repo.git', 'TUTTI-SLOT.SH'):
             with self.subTest(bad=bad), mock.patch.object(remote, 'sh') as sh, \
                     mock.patch.object(remote.subprocess, 'run') as run:
                 for operation in (lambda value=bad: remote.run(self.cfg, machine, value, '/tmp/tree', 'true'),

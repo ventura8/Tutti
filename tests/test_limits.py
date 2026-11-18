@@ -93,10 +93,13 @@ class Allowance(unittest.TestCase):
         accounts = {'agy': FIVE, 'agy-weekly': {**WEEK, 'reserve': 15}}
         s = state([('2026-01-07T19:00Z', 80)], now=T('2026-01-07T21:00Z'), five_used=0, accounts=accounts)
         self.assertEqual(s['quota_plan']['allowance'], 5.0)                     # 100 - 15 reserve - 80 used
+        self.assertEqual(s['quota_plan']['slow_limits'][0]['left'], 5.0)
+        self.assertEqual(s['quota_plan']['slow_limits'][0]['per_window'], 10)
 
     def test_quiet_hours_give_the_window_nothing(self):
         s = state([('2026-01-05T23:00Z', 40)], hours=['00:00-06:00'])
         self.assertEqual((s['quota_plan']['allowance'], s['quota_plan']['tasks']), (0.0, 0))
+        self.assertFalse(s['quota_plan']['slow_limits'][0]['runnable'])
         self.assertIn('quiet hours', routing.account_unfit(s))
         self.assertTrue(planner.quiet(T('2026-01-06T23:30Z'), ['22:00-06:00']))   # a span past midnight wraps
         self.assertFalse(planner.quiet(T('2026-01-06T12:00Z'), ['22:00-06:00']))

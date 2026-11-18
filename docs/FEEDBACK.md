@@ -65,9 +65,11 @@ of your project or secrets: describe the setup in general words.
 | # | Date | Command | What happened | Expected | Status |
 | --- | --- | --- | --- | --- | --- |
 | 24 | 2026-11-18 | Autopilot pacing | Ahead accounts could stop even with discretionary quota remaining. | Continue slowly when measured room and safety limits permit. | Slow unlinked-account path added; shared limits remain on the existing planner (t299). |
-| 23 | 2026-11-18 | Autopilot after a dashboard restart (t309) | Runs without reports were retried without establishing that their work had stopped. | Keep unverified attempts visible and prevent overlapping retries. | Partly fixed: fully local unreported runs resume after reboot; bridged, routed-check and unknown runs stay held (t309); verified remote-job containment remains open. |
+| 23 | 2026-11-18 | Autopilot pacing | Ahead accounts could stop even with discretionary quota remaining. | Continue slowly when measured room and safety limits permit. | Added slow pacing for eligible direct windows; nested and household-shared cases remain closed (t299). |
+| 22 | 2026-11-18 | Autopilot after a dashboard restart (t309) | Runs without reports were retried without establishing that their work had stopped. | Keep unverified attempts visible and prevent overlapping retries. | Partly fixed: fully local unreported runs resume after reboot; bridged, routed-check and unknown runs stay held (t309); verified remote-job containment remains open. |
 | 22 | 2026-11-19 | Chat rename | Renaming rebuilt the message list and jumped to the end; switching chats during the request could update the wrong title. | Preserve the current message view and rename only the original chat. | Fixed title-only update and conversation race (t407); virtualization remains open. |
 | 21 | 2026-11-19 | Chat redraw | Redrawing reparsed unchanged message Markdown. | Reuse unchanged parsing while retaining safe rendering. | Fixed repeated parsing (t407); pagination and virtualization remain open. |
+
 
 | 20 | 2026-11-18 | Linked account usage | A reset window could be shown in panic at zero percent when its linked quota was in panic. | Name the quota that actually blocks work. | Diagnostic fixed for the next release (t272). |
 | 19 | 2026-11-18 | Autopilot pacing | A finished local attempt could leave its model permanently busy. | Reuse available local models when online accounts are ahead. | Fixed local attempt accounting (t301). |

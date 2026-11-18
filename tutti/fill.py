@@ -40,8 +40,8 @@ def room_detail(cfg, tasks, states, machines):
     from . import fleet
     used = autopilot.spent_units(tasks, states, cfg)
     normal = {n: autopilot.step_room(cfg, n, states, used, machines or ()) for n in autopilot.trigger_accounts(cfg)}
-    rooms = {n: autopilot.step_room(cfg, n, states, used, machines or (),
-                                   autopilot.slow_room(cfg, n, states.get(n) or {}, tasks, used, cfg.get('_now')))
+    slow = autopilot.slow_selection(cfg, states, tasks, used, machines, cfg.get('_now'))
+    rooms = {n: autopilot.step_room(cfg, n, states, used, machines or (), slow.get(n, False))
              for n in autopilot.trigger_accounts(cfg)}
     total = sum(max(0, r[0]) for r in rooms.values())
     normal_total = sum(max(0, r[0]) for r in normal.values())

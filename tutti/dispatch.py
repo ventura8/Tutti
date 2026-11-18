@@ -460,12 +460,13 @@ def worker_rows(cfg, accounts, machines, now=None):
     out = []
     now = now or datetime.now(timezone.utc)
     triggers = autopilot.trigger_accounts(cfg)
+    slow = autopilot.slow_selection(cfg, accounts, tasks, used, machines, now)
     for name in dict.fromkeys([*autopilot.ladder(cfg), *triggers]):
-        slow = name in triggers and autopilot.slow_room(cfg, name, accounts.get(name) or {}, tasks, used, now)
-        room, _ = autopilot.step_room(cfg, name, accounts, used, machines or (), slow)
+        is_slow = slow.get(name, False)
+        room, _ = autopilot.step_room(cfg, name, accounts, used, machines or (), is_slow)
         work = ([t for t in queued if autopilot.units(t) <= room and not backlog.is_question(t)
                  and (t.get('check') or repos[t['repo']].get('check')) and name in autopilot.candidates(cfg, t, machines=machines or ())]
-                if slow else queued)
+                if is_slow else queued)
         if room > 0 and not used.get(name) and work:
             out.append({'id': f'worker:{name}', 'kind': 'worker', 'name': name, 'busy': False, 'why': why,
                         'work': work, 'what': f'{len(work)} backlog task{"s" if len(work) != 1 else ""} wait for a worker'})

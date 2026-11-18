@@ -247,6 +247,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - Defer automatic heavy backlog gap commands while the main computer is in quiet mode (t172).
 - Name the linked quota responsible for a panic rather than the reset window's zero usage (t272).
 - Keep eligible unlinked ahead accounts working slowly within their remaining discretionary quota (t299).
+- Pace eligible ahead accounts across measured direct linked windows with shared reservations and approximate weighted selection (t299).
 
 ## [0.29.4] - 2026-11-18
 

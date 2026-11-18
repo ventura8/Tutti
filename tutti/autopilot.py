@@ -242,11 +242,11 @@ def account_room(cfg, name, step, states, running_units, machines, slow=False):
         # owner, 2026-11-16 (prio 0): up to the account's own panic line, as many tasks as its measured cost per task fits
         room = takeover_room(cfg, name, s) - used
         return (room, '') if room > 0 else (0, f'{name}: its room up to its panic line is taken (taking over from the main agent)')
+    if slow:
+        return slow_account_room(name, used)
     unfit = routing.account_unfit(s)
     if unfit:
         return 0, f'{name}: {unfit}'
-    if slow:
-        return slow_account_room(name, used)
     return ordinary_account_room(cfg, name, s, used)
 
 
@@ -605,43 +605,145 @@ def fresh_fallbacks(cfg, states, rooms, used, now):
     return out
 
 
-def slow_room(cfg, name, state, tasks, used, now):
-    """One measured small task on an ahead, unshared account, spaced over twice its remaining budget horizon.
 
-    Linked/shared limits are not handled by this calculation: their usage units and concurrent reservations need a
-    shared-window budget, so they remain with the existing planner rather than risking another account's reserve.
-    """
-    shared = cfg.get('_slow_shared_accounts')
-    if shared is None or name in shared:
-        return False
-    if now is None or state.get('verdict') != 'ahead' or used.get(name) or not observed_quota(cfg, name, state, now):
-        return False
-    limits = cfg.get('_account_limits') or {n: (a or {}).get('limits') or [] for n, a in (cfg.get('accounts') or {}).items()}
-    if limits.get(name) or any(name in (links or []) for links in limits.values()) or state.get('limits'):
+def slow_room(cfg, name, state, states, tasks, used, now):
+    """One small task only when every measured quota permits its cost and the shared-group cadence has elapsed."""
+    related = slow_related(cfg, name, state, states, used, now)
+    if related is None:
         return False
     p = state.get('quota_plan') or {}
-    if p.get('limit') or p.get('tasks'):
-        return False
     account = (cfg.get('accounts') or {}).get(name) or {}
     try:
         cost = float(account.get('task_pct', pacing.TASK_PCT))
-        left = float(p['slow_left'])
-        until = (pacing.parse_time(p['expires']) - now).total_seconds()
-        panic_at = float(state.get('panic_at', 95))
-    except (KeyError, TypeError, ValueError, OverflowError):
+        budgets = shared_slow_budgets(cfg, set(configured_windows(cfg, name)), related, states)
+        intervals = slow_intervals(name, state, account, p, budgets, cost, now)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError, OverflowError, StopIteration):
         return False
-    if not all(math.isfinite(x) for x in (cost, left, until, panic_at)) or cost <= 0 or left < cost or until <= 0:
-        return False
-    if routing.account_unfit(state) or state.get('used') is None:
-        return False
-    if state['used'] + cost >= panic_at:
+    if not intervals:
         return False
     starts = [a['started'] for t in tasks for a in t.get('attempts', [])
-              if a.get('step') == name and isinstance(a.get('started'), (int, float)) and not isinstance(a['started'], bool)
+              if a.get('step') in related and isinstance(a.get('started'), (int, float)) and not isinstance(a['started'], bool)
               and math.isfinite(a['started'])]
-    if starts and now.timestamp() - max(starts) < 2 * until * cost / left:
+    if starts and now.timestamp() - max(starts) < max(intervals):
         return False
     return True
+
+
+def slow_related(cfg, name, state, states, used, now):
+    """Return a fully observed related quota group, else None."""
+    if now is None or not any(s.get('verdict') == 'ahead' for s in quota_windows(name, state).values()):
+        return None
+    if not observed_quota(cfg, name, state, now):
+        return None
+    limits = cfg.get('_account_limits') or {n: (a or {}).get('limits') or [] for n, a in (cfg.get('accounts') or {}).items()}
+    windows = set(configured_windows(cfg, name))
+    if routing.missing_limits(cfg, name, state) or not windows.issubset(quota_windows(name, state)):
+        return None
+    related = [n for n in limits if windows.intersection(configured_windows(cfg, n))]
+    shared = cfg.get('_slow_shared_accounts')
+    if shared is None or any(n in shared for n in related):
+        return None
+    if any(n not in states or not observed_quota(cfg, n, states[n], now) for n in related):
+        return None
+    if any(used.get(n) for n in related) or used.get(name):
+        return None
+    p = state.get('quota_plan') or {}
+    if p.get('tasks') or routing.quota_closed(state) or routing.unknown_quota(state):
+        return None
+    return related
+
+
+def shared_slow_budgets(cfg, windows, related, states):
+    """Intersect each observer's reserved budget for a window; an unavailable plan cannot authorize spend."""
+    budgets = {}
+    for window in windows:
+        amounts = []
+        for name in related:
+            if window not in configured_windows(cfg, name):
+                continue
+            state = states[name]
+            plan = state.get('quota_plan') or {}
+            if name == window:
+                account = cfg['accounts'][name]
+                amount = float(account.get('target_pct', 100)) * float(state['share']) - float(account.get('reserve', 0)) - state['used']
+                if not plan.get('limit'):
+                    amount = min(amount, float(plan['slow_left']))
+            else:
+                detail = next(x for x in plan.get('slow_limits', []) if x.get('name') == window)
+                amount = float(detail['left'])
+            if not math.isfinite(amount):
+                raise ValueError('shared quota budget is not finite')
+            amounts.append(amount)
+        budgets[window] = min(amounts)  # a missing observer or budget fails closed
+    return budgets
+
+
+def slow_intervals(name, state, account, plan, budgets, cost, now):
+    """Cooldowns that preserve each window's owner reserve, target and panic margin, in its own quota units."""
+    if not math.isfinite(cost) or cost <= 0:
+        return []
+    own_left = min(budgets[name], float(state.get('panic_at', 95)) - state['used'])
+    if not plan.get('limit'):
+        return [slow_interval(min(own_left, float(plan['slow_left'])), cost, plan['expires'], now)]
+    limits = state.get('limits') or []
+    details = plan.get('slow_limits') or []
+    if len(details) != len(limits) or any(x.get('limits') for x in limits):
+        return []   # missing or nested windows need their own independent plans
+    intervals = [slow_interval(own_left, cost, plan['expires'], now)]
+    for lim, detail in zip(limits, details, strict=True):
+        if lim.get('name') != detail.get('name') or not detail.get('runnable'):
+            return []
+        per = float(detail['per_window'])
+        left = min(float(detail['left']), budgets[lim['name']], float(lim.get('panic_at', 95)) - lim['used'])
+        intervals.append(slow_interval(left, cost * per / 100, detail['expires'], now))
+    return intervals
+
+
+def slow_interval(left, cost, expires, now):
+    until = (pacing.parse_time(expires) - now).total_seconds()
+    if not all(math.isfinite(x) for x in (left, cost, until)) or cost <= 0 or left <= cost or until <= 0:
+        raise ValueError('quota or time cannot cover a paced task')
+    return 2 * until * cost / left
+
+
+def slow_selection(cfg, states, tasks, used, machines, now):
+    """At most one slow start per shared quota group; favor accounts with less work per remaining safe capacity."""
+    if quiet_stop(cfg, now):
+        return {}
+    names = trigger_accounts(cfg)
+    steps = list(dict.fromkeys([*ladder(cfg), *names]))
+    ordinary = {n for n in steps if n in cfg['accounts'] and step_room(cfg, n, states, used, machines or ())[0] > 0}
+    eligible = [n for n in names if slow_room(cfg, n, states.get(n) or {}, states, tasks, used, now)]
+    eligible.sort(key=lambda n: slow_weight(cfg, n, states, tasks))
+    chosen, occupied = {}, set()
+    for name in eligible:
+        windows = set(configured_windows(cfg, name))
+        if windows & occupied or any(windows.intersection(configured_windows(cfg, n)) for n in ordinary if n != name):
+            continue
+        chosen[name] = True
+        occupied.update(windows)
+    return chosen
+
+
+def slow_weight(cfg, name, states, tasks):
+    """Use recorded work since this account's reset, weighted by its remaining safe task capacity."""
+    state = states[name]
+    account = cfg['accounts'][name]
+    windows = set(configured_windows(cfg, name))
+    related = [n for n in (cfg.get('_account_limits') or cfg['accounts'])
+               if windows.intersection(configured_windows(cfg, n))]
+    budgets = shared_slow_budgets(cfg, windows, related, states)
+    cost = float(account.get('task_pct', pacing.TASK_PCT))
+    capacity = min(budgets[name], float(state.get('panic_at', 95)) - state['used']) / cost
+    for lim, detail in zip(state.get('limits') or [], (state.get('quota_plan') or {}).get('slow_limits', []), strict=True):
+        left = min(budgets[detail['name']], float(lim.get('panic_at', 95)) - lim['used'])
+        capacity = min(capacity, left / (cost * float(detail['per_window']) / 100))
+    start = _ts(state.get('window_start'))
+    starts = [(a['started'], units(t)) for t in tasks for a in t.get('attempts', [])
+              if a.get('step') == name and isinstance(a.get('started'), (int, float)) and not isinstance(a['started'], bool)
+              and math.isfinite(a['started']) and a['started'] >= start]
+    served = sum(units_ for _, units_ in starts)
+    return (served / capacity, -capacity, max((at for at, _ in starts), default=0), name)
 
 
 
@@ -681,12 +783,13 @@ def _ts(iso):
 
 def configured_windows(cfg, name):
     """Configured window identities, including those of a paused account."""
+    limits = cfg.get('_account_limits') or {n: (a or {}).get('limits') or [] for n, a in (cfg.get('accounts') or {}).items()}
     found, pending = set(), [name]
     while pending:
         item = pending.pop()
         if item not in found:
             found.add(item)
-            pending.extend((cfg.get('_account_limits') or {}).get(item) or [])
+            pending.extend(limits.get(item) or [])
     return list(found)
 
 
@@ -947,7 +1050,7 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     if quiet_stop(cfg, now):
         return {**out, **quiet_stop(cfg, now)}
     used = spent_units(tasks, states, cfg)
-    slow = {n: slow_room(cfg, n, states.get(n) or {}, tasks, used, now) for n in trigger_accounts(cfg)}
+    slow = slow_selection(cfg, states, tasks, used, machines, now)
     cfg['_main_in_panic'] = main_in_panic(cfg, states)
     names = list(dict.fromkeys([*ladder(cfg), *trigger_accounts(cfg), *cfg.get('_spare_accounts', ())]))
     rooms = {n: step_room(cfg, n, states, used, machines or (), slow.get(n, False)) for n in names}
@@ -1992,7 +2095,8 @@ def slow_start_allowed(cfg, step, states, tasks, at, reader_status=None):
         fresh['_slow_shared_accounts'] = users.slow_shares(fresh)
     except (config.ConfigError, KeyError, TypeError, ValueError, OverflowError, OSError):
         return False
-    return not quiet_stop(fresh, current) and slow_room(fresh, step, latest, tasks, spent_units(tasks, states, fresh), current)
+    used = spent_units(tasks, states, fresh)
+    return not quiet_stop(fresh, current) and slow_room(fresh, step, latest, {**states, step: latest}, tasks, used, current)
 
 
 def start_planned(cfg, data, task, step, now, spawn, states, clock, slow, reader_status=None):

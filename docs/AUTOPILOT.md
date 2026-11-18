@@ -79,14 +79,16 @@ It stops dispatching, and the panel says why, when the backlog is empty ("backlo
 model has usable room, when no machine has a cool free slot, or when it is turned off. Runs already
 going finish.
 
-An ahead trigger account with no linked or shared quota can take one small task at a time when a fresh real reading and
-the planner's discretionary balance cover it. Starts are spaced at half the rate that would use that balance by the target,
-using `task_pct` (an estimate when not configured); the planner has already kept the owner reserve and projected outside
-spend. A finished or interrupted start keeps its quota reservation until a reading taken after that run covers it, so a
-mid-run reading or a reboot cannot free the same balance twice. A missing, stale, future or failed reading, panic, an
-explicit pause, or too little room stops this path. Accounts with linked or shared windows, and accounts whose spare quota
-is shared with the household, remain on the existing planner; they do not use this slow path. An unreadable sharing setting
-also disables it. Local models still come first when online accounts are ahead, subject to their own safety limits.
+An ahead trigger account can take a small task at a time when fresh real readings and each direct quota window's
+discretionary balance cover its estimated `task_pct` cost. Linked-window costs require a measured or configured
+`window_points` conversion. Related accounts' planner budgets are intersected so each owner's reserve is kept; running
+or unreflected related work blocks another slow start, and one overlapping group takes at most one per planning round.
+Starts are spaced at half the rate that would use the available balance by each window's target. Shared accounts are chosen
+by recorded task units relative to their remaining safe task capacity. A finished or interrupted start keeps its quota
+reservation until a reading taken after that run covers it. Missing, stale, future or failed readings, unknown conversions,
+nested windows, a quiet period, panic, explicit pause, too little room or household-shared spare accounts stop this path.
+Local models still come first when online accounts are ahead, subject to their own safety limits.
+
 
 ## Failures fix themselves
 
@@ -149,7 +151,7 @@ On by default; `autopilot.fill_room: false`, `tutti autopilot fill off` or the *
 Opt-in turns it off. Each round, while the autopilot is on:
 
 1. **The room** is the units the trigger accounts (`autopilot.accounts`) may take now, as `step_room` gives it: the
-   planner's allowance for agy's 5 h and weekly windows, plus eligible slow-use room for an unlinked ahead account; never a
+   planner's allowance for agy's 5 h and weekly windows, plus eligible slow-use room; never a
    panicked or spent account. Cursor and the
    other ladder steps do not increase fill room, so filling never pushes them past their pace.
 

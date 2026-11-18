@@ -298,6 +298,30 @@ class Models(unittest.TestCase):
                                               'limits': [{'name': 'weekly', 'used': 10, 'panic': False}]}]})
         self.assertIn('claude', self.names(snap))
 
+    def test_late_account_is_available_but_panic_and_spent_remain_blocked(self):
+        def names(account):
+            return self.names(snapshot(usage={'accounts': [{'name': 'claude', **account}]}))
+        self.assertIn('claude', names({'used': 40, 'verdict': 'late', 'panic': False}))
+        for account in ({'used': 40, 'verdict': 'late', 'panic': True},
+                        {'used': 100, 'verdict': 'spent'}, {'used': 95, 'verdict': 'late'}):
+            self.assertNotIn('claude', names(account))
+
+    def test_late_account_still_respects_linked_panic_and_missing_limits(self):
+        self.cfg.setdefault('_account_limits', {})['claude'] = ['weekly']
+        own = {'name': 'claude', 'used': 40, 'verdict': 'late', 'panic': False}
+        self.assertNotIn('claude', self.names(snapshot(usage={'accounts': [own]})))
+        self.assertNotIn('claude', self.names(snapshot(usage={'accounts': [{**own, 'used': None}]})))
+        for used, expected in ((40, True), (95, False), (None, False)):
+            linked = {**own, 'limits': [{'name': 'weekly', 'used': used, 'panic': False}]}
+            self.assertEqual('claude' in self.names(snapshot(usage={'accounts': [linked]})), expected)
+        for flag, value in (('stale', True), ('after_reset', True), ('reader_problem', 'reader failed'),
+                            ('selected_source', 'estimate')):
+            for subject in ('own', 'linked'):
+                limit = {'name': 'weekly', 'used': 40, 'panic': False}
+                account = {**own, 'limits': [limit]}
+                (account if subject == 'own' else limit)[flag] = value
+                self.assertNotIn('claude', self.names(snapshot(usage={'accounts': [account]})), (flag, subject))
+
     def test_shared_worker_uses_healthy_configured_account_without_worker_probe(self):
         self.cfg['workers']['shared'] = {'kind': 'cli', 'command': ['agent', '--model', 'default', '{prompt}'],
                                           'chat_account_selector': '--model'}

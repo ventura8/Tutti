@@ -705,6 +705,13 @@ def capability(cand):
     return cand.get('params') or 0.0
 
 
+def late_quota_unreliable(account):
+    """A late account needs current measured quota in every linked window."""
+    return bool(account.get('stale') or account.get('after_reset') or account.get('reader_problem')
+                or account.get('selected_source') == 'estimate'
+                or any(late_quota_unreliable(limit) for limit in account.get('limits') or []))
+
+
 def online_model(cfg, name, w, rows, accounts, paused, owner, configured, account_args):
     """Choose a configured account whose quota can safely be bound to this worker's command."""
     from . import routing, workers
@@ -727,6 +734,8 @@ def online_model(cfg, name, w, rows, accounts, paused, owner, configured, accoun
         missing = routing.missing_limits(cfg, acc_name, acc or {})
         if not why and missing:
             why = f'{acc_name}: missing linked quota state ({", ".join(missing)}); resume it or refresh its reading'
+        if not why and acc and acc.get('verdict') == 'late' and (routing.unknown_quota(acc) or late_quota_unreliable(acc)):
+            why = f'{acc_name}: quota is unknown or stale; refresh the account and its linked limits'
         if not why and acc and routing.quota_closed(acc):
             why = f'{acc_name}: a linked quota is in panic or spent'
         candidate = {'kind': 'cli', 'worker': name, 'account': acc_name, 'why': why, 'tools': True,
@@ -812,7 +821,7 @@ def cloud_out(name, acc_name, acc, conf, w, paused, row, owner):
         return f'{name} is paused'
     if not owner and not conf.get('share_spare'):
         return f'{acc_name} is the owner\'s private quota'
-    if acc.get('panic') or acc.get('verdict') in ('spent', 'late'):
+    if acc.get('panic') or acc.get('verdict') == 'spent':
         return f'{acc_name} has no room ({acc.get("verdict") or "panic"})'
     if row.get('ready') is False:
         return f'{name} is not installed on the host'

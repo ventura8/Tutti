@@ -90,7 +90,9 @@ The order and the rules, from the planner:
 1. The household's **local models** (the `ollama` workers, on the NUC, the laptop or the PC), which have no quota, the most
    capable first (by size: `qwen3.8:27b` on the PC before a 9B model): on machines that are here (presence), not paused, not
    lent out (the yield flag), and never the asking user's own computer (its `main_machine`).
-2. **Online accounts with room**: not in panic, spent or late, not paid per use (`costs_money`), not paused. Only the
+2. **Online accounts with room**: not in panic or spent, not paid per use (`costs_money`), not paused. A late account
+   remains eligible when its own and linked quota windows have current measured usage below their panic thresholds;
+   stale or estimated readings, synthetic post-reset readings and reader failures hold it until refreshed. Only the
    host's owner (the first admin, or the person on this computer when sign-in is off) uses the host's own accounts;
    another member uses one only when its owner shares it (`accounts.<n>.share_spare`). Another member's private quota is
    never spent.
@@ -104,7 +106,7 @@ tunnel down) is skipped for the next one within the same answer.
 ## Escalation (Auto)
 
 With the model on **Auto**, a request the local model cannot handle goes to an online model with room (pacing and the
-opt-ins apply: an account in panic, spent, late, paused or paid per use is never used; with none left, the local answer
+opt-ins apply: an account in panic, spent, paused or paid per use is never used; with none left, the local answer
 stays). Each answer says why: "Answered by claude (claude account) because …".
 
 - **Before answering**, a local model is skipped when the request (with its context) is longer than its `num_ctx` at the

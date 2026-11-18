@@ -463,9 +463,12 @@ def worker_rows(cfg, accounts, machines, now=None):
     for name in dict.fromkeys([*autopilot.ladder(cfg), *triggers]):
         slow = name in triggers and autopilot.slow_room(cfg, name, accounts.get(name) or {}, tasks, used, now)
         room, _ = autopilot.step_room(cfg, name, accounts, used, machines or (), slow)
-        if room > 0 and not used.get(name):
+        work = ([t for t in queued if autopilot.units(t) <= room and not backlog.is_question(t)
+                 and (t.get('check') or repos[t['repo']].get('check')) and name in autopilot.candidates(cfg, t, machines=machines or ())]
+                if slow else queued)
+        if room > 0 and not used.get(name) and work:
             out.append({'id': f'worker:{name}', 'kind': 'worker', 'name': name, 'busy': False, 'why': why,
-                        'work': queued, 'what': f'{len(queued)} backlog task{"s" if len(queued) != 1 else ""} wait for a worker'})
+                        'work': work, 'what': f'{len(work)} backlog task{"s" if len(work) != 1 else ""} wait for a worker'})
     return out
 
 
@@ -713,7 +716,7 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
     cfg['_slow_shared_accounts'] = users.slow_shares(cfg)
     is_alive = is_alive or controls.alive
     on = settings(cfg).get('enabled', True) is not False
-    rows = worker_rows(cfg, accounts or {}, machine_rows) if accounts is not None else []
+    rows = worker_rows(cfg, accounts or {}, machine_rows, datetime.fromtimestamp(now, timezone.utc)) if accounts is not None else []
     pst = presence.read(cfg)
     changes = presence.update(cfg, pst, devices_rows, machine_rows, now, members, models)
     off = presence.offset(cfg)

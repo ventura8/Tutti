@@ -33,32 +33,41 @@ def set_fill(cfg, on):
         data['fill_room'] = bool(on)
 
 
-def room(cfg, tasks, states, machines):
+def room_detail(cfg, tasks, states, machines):
     """Units of room now on the trigger accounts and, while they are spared (tutti/fleet.py overflow), on the household's free
     local models (one S task each: what the sources give is file-scoped and small), after the runs going and the attempts the
     readings do not show yet."""
     from . import fleet
     used = autopilot.spent_units(tasks, states, cfg)
+    normal = {n: autopilot.step_room(cfg, n, states, used, machines or ()) for n in autopilot.trigger_accounts(cfg)}
     rooms = {n: autopilot.step_room(cfg, n, states, used, machines or (),
                                    autopilot.slow_room(cfg, n, states.get(n) or {}, tasks, used, cfg.get('_now')))
              for n in autopilot.trigger_accounts(cfg)}
     total = sum(max(0, r[0]) for r in rooms.values())
+    normal_total = sum(max(0, r[0]) for r in normal.values())
     locals_ = [n for n in autopilot.ladder(cfg) if autopilot.is_local(cfg, n)]
     if locals_ and fleet.overflow(cfg, states, rooms, locals_):
-        total += sum(1 for n in locals_ if autopilot.step_room(cfg, n, states, used, machines or ())[0] > 0)
-    return total
+        local_total = sum(1 for n in locals_ if autopilot.step_room(cfg, n, states, used, machines or ())[0] > 0)
+        total += local_total
+        normal_total += local_total
+    return total, total > 0 and normal_total == 0
 
 
-def fresh_units(cfg, tasks):
+def room(cfg, tasks, states, machines):
+    return room_detail(cfg, tasks, states, machines)[0]
+
+
+def fresh_units(cfg, tasks, small_only=False):
     repos = autopilot.settings(cfg)['repos']
-    return sum(autopilot.units(t) for t in tasks if t['status'] == 'queued' and not t['attempts'] and t['repo'] in repos)
+    return sum(autopilot.units(t) for t in tasks if t['status'] == 'queued' and not t['attempts'] and t['repo'] in repos
+               and (not small_only or autopilot.units(t) <= 1))
 
 
-def want(cfg, tasks, free):
+def want(cfg, tasks, free, small_only=False):
     """Fresh tasks to add now: the room, capped at AHEAD per parallel run, less the fresh tasks already queued."""
     from . import parallel
     target = min(free, parallel.current(cfg) * AHEAD)
-    return max(0, target - fresh_units(cfg, tasks))
+    return max(0, target - fresh_units(cfg, tasks, small_only))
 
 
 def pick(data, found, need, cfg=None):
@@ -84,8 +93,8 @@ def due(cfg, data, states, machines, now):
     """(room, want) when the repos' sources should be read now, else None: the switch on, room to fill, and at most every
     FILL_EVERY seconds while the last read added nothing."""
     st = autopilot.read_state(cfg).get('fill') or {}
-    free = room(cfg, data['tasks'], states, machines)
-    need = want(cfg, data['tasks'], free)
+    free, small_only = room_detail(cfg, data['tasks'], states, machines)
+    need = want(cfg, data['tasks'], free, small_only)
     if not fill_on(cfg) or need <= 0 or (st.get('read_at') and now - st['read_at'] < FILL_EVERY and not st.get('added')):
         return None
     return free, need
@@ -116,15 +125,16 @@ def gather(cfg, data, states, machines, now, run=subprocess.run):
 def fill(cfg, data, states, machines, now, found=None):
     """Queues the gathered tasks the free room wants (recomputed under the lock). Returns {room, queued, added, note}."""
     st = autopilot.read_state(cfg).get('fill') or {}
-    free = room(cfg, data['tasks'], states, machines)
+    free, small_only = room_detail(cfg, data['tasks'], states, machines)
     info = {'at': now, 'room': free, 'queued': fresh_units(cfg, data['tasks']), 'added': 0, 'read_at': st.get('read_at'),
             'note': st.get('note', '')}
     if found is None:
         return info
     items, problems = found
-    for repo_name, title, scope, source, check in pick(data, items, want(cfg, data['tasks'], free), cfg):
+    for repo_name, title, scope, source, check in pick(data, items, want(cfg, data['tasks'], free, small_only), cfg):
         _task, added = backlog.add(data, backlog.new_task(repo_name, title, scope, check, 'S', source))
         info['added'] += int(added)
+
     info.update(read_at=now, queued=fresh_units(cfg, data['tasks']))
     info['note'] = (f'queued {info["added"]} new task(s) from the repos\' sources' if info['added'] else
                     'the repos\' sources hold nothing new: add tasks, a `gaps` command, or FEEDBACK.md items') + \

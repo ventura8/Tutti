@@ -71,7 +71,7 @@ files: {cache: ~/.cache/tutti/files, budget_gb: 50, keep_free_gb: 2, bwlimit_kbp
 workers:
   cursor: {kind: cli, command: [cursor-agent, -p, '{prompt}', --trust, --force, --output-format, text]}   # --force: commands run headless
   # Google Antigravity: {log} is a log file per run, where a headless permission denial shows ("soft-denying ...")
-  agy: {kind: cli, command: [agy, -p, '{prompt}', --print-timeout, 600s, --mode, accept-edits, --log-file, '{log}'], denied: soft-denying}
+  agy: {kind: cli, command: [agy, -p, '{prompt}', --print-timeout, 1800s, --mode, accept-edits, --log-file, '{log}'], denied: soft-denying}
   claude: {kind: cli, command: [claude, -p, '{prompt}']}
   # GitHub Copilot CLI: premium requests are paid per use, so costs_money: true keeps it off (out of routing, conduct and
   # review fallbacks, pacing and the dashboard) until enabled: true. Mark every worker or account that can cost money so.
@@ -284,9 +284,9 @@ pacing:
 
 # `tutti autopilot` (docs/AUTOPILOT.md): backlog tasks to accounts that are behind their pace; retries climb the ladder.
 autopilot:
-  enabled: false
-  accounts: [cursor]
-  ladder: [cursor]
+  enabled: true
+  accounts: [cursor, agy-gemini, claude]
+  ladder: [cursor, agy-gemini, claude]
   # max_parallel: 2                    # optional cap; without it the limit is adaptive (docs/AUTOPILOT.md, Adaptive parallelism)
   quiet_hours: []                      # local-time spans (time.zone) the autopilot must not run, e.g. ['22:00-06:00']: the planner gives them nothing
   fill_room: true                      # free room on `accounts` is filled from the repos' sources (TODOs, gaps, untested files)
@@ -345,7 +345,7 @@ dispatch: {enabled: true, idle_minutes: 5, lease_minutes: 10, retries: 2}
 # (a machine silent in its night hours is asleep; a device missing while its owner's laptop, devices.<d>.with, is away left
 # with its owner). Absent targets are never idle; their runs are requeued, not failed. Moving waiting work by itself
 # (move_after_minutes, urgent jobs only) and Wake-on-LAN (machines.<m>.wol_mac) are off until you turn them on.
-presence: {grace_seconds: 120, night: '23-08', long_minutes: 30, owner_laptop: null, move_after_minutes: null, wake: false}
+presence: {grace_seconds: 120, night: '23-08', long_minutes: 30, owner_laptop: null, move_after_minutes: 30, wake: true}
 
 # Scouts: helpers that are not workers (docs/SCOUTS.md). Grok Bot answers through a webhook routine: Tutti opens an issue,
 # POSTs {task, reply_to} to the routine, and reads the answer the routine posts as a comment. The URL and key live only in

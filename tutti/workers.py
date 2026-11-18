@@ -160,11 +160,14 @@ def grant_tree(argv, cwd):
                 data = json.loads(a)
             except ValueError:
                 data = None
-        perms = data.get('permissions') if isinstance(data, dict) else None
-        allow = perms.get('allow') if isinstance(perms, dict) else None
-        if isinstance(allow, list):
-            perms['allow'] = [*allow, *[g for g in (f'read_file({tree})', f'write_file({tree})') if g not in allow]]
-            a = json.dumps(data, separators=(',', ':'))
+        perms = data.get('permissions')
+        if not isinstance(perms, dict):
+            perms = data['permissions'] = {}
+        allow = perms.get('allow')
+        if not isinstance(allow, list):
+            allow = perms['allow'] = []
+        perms['allow'] = [*allow, *[g for g in (f'read_file({tree})', f'write_file({tree})') if g not in allow]]
+        a = json.dumps(data, separators=(',', ':'))
         out.append(a)
     return out
 

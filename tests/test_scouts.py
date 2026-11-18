@@ -103,6 +103,7 @@ def acc(verdict='on pace', used=30.0, panic=False, room=0):
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        os.environ['XDG_CONFIG_HOME'] = self.tmp.name
         self.gh = FakeGh()
         self.hook = FakeHook(self.gh)
         self.env = {**ENV, 'TUTTI_GROK_URL': self.hook.url}
@@ -110,6 +111,8 @@ class Base(unittest.TestCase):
     def tearDown(self):
         self.hook.close()
         self.tmp.cleanup()
+        if 'XDG_CONFIG_HOME' in os.environ:
+            del os.environ['XDG_CONFIG_HOME']
 
     def cfg(self, **scout):
         return cfg_of(self.tmp.name, **scout)

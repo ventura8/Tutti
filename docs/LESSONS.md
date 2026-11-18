@@ -1,5 +1,8 @@
 # Lessons
 
+- **A fake command fallback does not isolate token lookup** (t133): the GitHub client could still consult a cached or
+  locally signed-in CLI token before reaching the fake fallback. Tests must isolate both the token cache and lookup.
+
 - **Review-thread pages must be complete** (t179): querying only the first 100 threads could miss a later unresolved
   conversation. Follow every page and fail closed when a result or cursor is incomplete or malformed.
 

@@ -35,6 +35,8 @@ spent, until GitHub's reset time.
    connection is the first one made, or `tutti github connect` in a terminal.
 3. The GitHub CLI's own sign-in (`gh auth token`) when `gh` is logged in: the old way, kept as a fallback.
 
+The GitHub client tests isolate the CLI token lookup and its cache, so test results do not depend on a local `gh` login.
+
 `tutti doctor` says when none of them works and what to do.
 
 ## The token

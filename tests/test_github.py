@@ -7,6 +7,7 @@ import os
 import stat
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 import tmpdirs
 
@@ -79,6 +80,13 @@ class GitHubTest(unittest.TestCase):
         self.cfg = cfg_of(self.folder)
         self.fake = FakeGitHub()
         self.now = [1000.0]
+        # No test may inherit a cached login or call the real `gh auth token` on this computer.
+        cache = mock.patch.dict(github._gh_cache, {'at': -1e9, 'token': ''}, clear=True)
+        ask = mock.patch.object(github, '_ask_gh', return_value='')
+        cache.start()
+        self.ask_gh = ask.start()
+        self.addCleanup(ask.stop)
+        self.addCleanup(cache.stop)
         github._etags.clear()
         github._limits.clear()
 
@@ -206,10 +214,22 @@ class GitHubTest(unittest.TestCase):
         github.run(['git', 'status'], cfg=self.cfg, fallback=fallback)
         github.run(['gh', 'api', 'graphql'], cfg=self.cfg, http=self.fake, fallback=fallback)   # no token: the real gh
         self.assertEqual(seen, [['git', 'status'], ['gh', 'api', 'graphql']])
+        self.ask_gh.assert_called_once()  # the CLI login lookup was replaced, never run on this machine
 
         def missing(argv, **kw):
             raise FileNotFoundError(argv[0])
         self.assertEqual(github.run(['gh', 'pr', 'list'], cfg=self.cfg, fallback=missing).returncode, 127)
+
+    def test_test_fixture_isolates_and_restores_an_existing_cached_login(self):
+        github._gh_cache.update(at=float('inf'), token='synthetic-unrelated-token')
+        nested = GitHubTest('test_an_unknown_gh_call_and_a_non_gh_argv_go_to_the_real_program')
+        nested.setUp()
+        try:
+            self.assertEqual(github.gh_token(), '')
+            nested.test_an_unknown_gh_call_and_a_non_gh_argv_go_to_the_real_program()
+        finally:
+            nested.doCleanups()
+        self.assertEqual(github.gh_token(), 'synthetic-unrelated-token')
 
     def test_reads_use_etags_and_a_spent_rate_limit_stops_the_calls(self):
         c = github.Client('t', self.fake, self.clock)

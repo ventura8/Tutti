@@ -7,6 +7,12 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [Unreleased]
+
+### Fixed
+
+- Isolate GitHub client tests from cached and locally signed-in CLI tokens (t133).
+
 ## [0.28.1] - 2026-11-18
 
 ### Changed

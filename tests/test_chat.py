@@ -472,6 +472,73 @@ class Api(ApiBase):
         self.assertEqual(chatrun.post(engine, VIEWER, request)[0], 409)
         self.assertEqual(chatrun.post(engine, ADMIN, request)[0], 404)
 
+    def test_open_cursor_stream_stops_after_session_revocation_or_chat_clear(self):
+        for revoke in ('session', 'clear'):
+            engine = self.engine({})
+            engine.replay_enabled = True
+            conversation = engine.store.create(VIEWER['sub'])
+            message = {'id': 'm1', 'role': 'assistant', 'text': '', 'status': 'streaming'}
+            engine.store.put_message(VIEWER['sub'], conversation['id'], message)
+            job = chatrun.Job(VIEWER['sub'], conversation['id'], message, replay_enabled=True)
+            engine.jobs['m1'] = job
+            job.emit('delta', text='first')
+            session = {'user': dict(VIEWER)}
+            collector = type('Collector', (), {})()
+            collector.signed = True
+            collector.chat_engine = engine
+            collector.who = lambda headers, session=session: session['user']
+            request = {'action': 'follow_cursor', 'message': 'm1', 'generation': job.replay.generation, 'after': 0}
+            code, stream = chatrun.handle(collector, {}, json.dumps(request).encode())
+            self.assertEqual(code, 200)
+            lines = iter(stream.lines())
+            self.assertEqual(json.loads(next(lines))['text'], 'first')
+            if revoke == 'session':
+                session['user'] = None
+            else:
+                engine.store.clear(VIEWER['sub'])
+            job.emit('delta', text='must not escape')
+            self.assertEqual(list(lines), [])
+
+    def test_idle_cursor_stream_rechecks_revocation_within_one_wakeup(self):
+        engine = self.engine({})
+        engine.replay_enabled = True
+        conversation = engine.store.create(VIEWER['sub'])
+        message = {'id': 'm1', 'role': 'assistant', 'text': '', 'status': 'streaming'}
+        engine.store.put_message(VIEWER['sub'], conversation['id'], message)
+        job = chatrun.Job(VIEWER['sub'], conversation['id'], message, replay_enabled=True)
+        engine.jobs['m1'] = job
+        session = {'user': dict(VIEWER)}
+        collector = type('Collector', (), {})()
+        collector.signed, collector.chat_engine = True, engine
+        collector.who = lambda headers: session['user']
+        request = {'action': 'follow_cursor', 'message': 'm1', 'generation': job.replay.generation, 'after': 0}
+        code, stream = chatrun.handle(collector, {}, json.dumps(request).encode())
+        self.assertEqual(code, 200)
+        session['user'] = None
+        result = []
+        waiter = threading.Thread(target=lambda: result.extend(stream.lines()), daemon=True)
+        waiter.start()
+        waiter.join(3)
+        self.assertFalse(waiter.is_alive(), 'idle stream did not recheck the session')
+        self.assertEqual(result, [])
+
+    def test_open_cursor_stream_fails_closed_when_session_lookup_errors(self):
+        engine = self.engine({})
+        engine.replay_enabled = True
+        conversation = engine.store.create(VIEWER['sub'])
+        message = {'id': 'm1', 'role': 'assistant', 'text': '', 'status': 'streaming'}
+        engine.store.put_message(VIEWER['sub'], conversation['id'], message)
+        job = chatrun.Job(VIEWER['sub'], conversation['id'], message, replay_enabled=True)
+        engine.jobs['m1'] = job
+        job.emit('delta', text='secret')
+        collector = type('Collector', (), {})()
+        collector.signed, collector.chat_engine = True, engine
+        collector.who = mock.Mock(side_effect=[VIEWER, OSError('session storage unavailable')])
+        request = {'action': 'follow_cursor', 'message': 'm1', 'generation': job.replay.generation, 'after': 0}
+        code, stream = chatrun.handle(collector, {}, json.dumps(request).encode())
+        self.assertEqual(code, 200)
+        self.assertEqual(list(stream.lines()), [])
+
     def test_cursor_follow_is_off_by_default_and_rejects_deleted_conversations(self):
         engine = self.engine({})
         with mock.patch.object(engine, '_answer'):

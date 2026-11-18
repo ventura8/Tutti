@@ -206,7 +206,7 @@ class Job:
             if done and i >= len(self.events):
                 return
 
-    def follow_cursor(self, generation, after, wait=15.0):
+    def follow_cursor(self, generation, after, wait=1.0):
         """Resume this job's replay after an authorized caller has supplied a generation and cursor."""
         while True:
             with self.cond:
@@ -962,17 +962,38 @@ def _follow(engine, user, data, _snap):
     return 200, Stream(job.follow())
 
 
-def _follow_cursor(engine, user, data, _snap):
-    # Authorization is based on the signed-in principal, never on a job ID, generation or cursor.
+def visible_job(engine, user, mid):
+    """Return a job only while this principal may read the still-present message."""
+    if not user or user.get('role') not in ('admin', 'viewer'):
+        return None
     with engine.lock:
-        job = engine.jobs.get(str(data.get('message') or ''))
-    if not engine.replay_enabled or job is None or job.sub != user['sub'] or job.replay is None:
-        return 404, {'error': 'That answer is unavailable: reload your chat.'}
+        job = engine.jobs.get(mid)
+    if not engine.replay_enabled or job is None or job.sub != user.get('sub') or job.replay is None:
+        return None
     try:
         conv = engine.store.get(user['sub'], job.cid)
     except chat.ChatError:
-        return 404, {'error': 'That answer is unavailable: reload your chat.'}
-    if not any(m.get('id') == job.msg['id'] for m in conv['messages']):
+        return None
+    return job if any(m.get('id') == job.msg['id'] for m in conv['messages']) else None
+
+
+def revalidate_cursor(events, collector, headers, engine, sub, mid):
+    """Recheck the session, role and message before emitting each event; deny on lookup failure."""
+    for event in events:
+        try:
+            user = user_of(collector, headers)
+            allowed = user and user.get('sub') == sub and visible_job(engine, user, mid)
+        except Exception:
+            allowed = False
+        if not allowed:
+            return
+        yield event
+
+
+def _follow_cursor(engine, user, data, _snap):
+    # Authorization is based on the signed-in principal, never on a job ID, generation or cursor.
+    job = visible_job(engine, user, str(data.get('message') or ''))
+    if job is None:
         return 404, {'error': 'That answer is unavailable: reload your chat.'}
     generation, after = data.get('generation'), data.get('after')
     with job.cond:
@@ -1125,4 +1146,7 @@ def handle(collector, headers, raw):
         return 413, {'error': 'That request is too large: only a message with attachments may be large.'}
     eng = engine_of(collector)
     snap = collector.snapshot() if isinstance(data, dict) and data.get('action') == 'list' else None
-    return post(eng, user, data, snap)
+    code, answer = post(eng, user, data, snap)
+    if code == 200 and isinstance(answer, Stream) and isinstance(data, dict) and data.get('action') == 'follow_cursor':
+        answer = Stream(revalidate_cursor(answer.events, collector, headers, eng, user['sub'], str(data.get('message') or '')))
+    return code, answer

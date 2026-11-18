@@ -360,6 +360,12 @@ is available only while this same Engine keeps the Job; the browser has not been
 must not render partial replay as complete when it receives a replay error.
 
 This adapter is a testable bridge, not the stable owner or a gateway. In particular it does not independently authenticate
-IPC, recheck authorization during an already-open stream, bound the old `Job.events` list or transient serialization,
+IPC, bound the old `Job.events` list or transient serialization,
 persist journals, or survive an Engine restart. It adds another in-memory copy of events and must not be activated in
 production until a bounded migration, revocation semantics and the supervisor/gateway lifecycle are reviewed and tested.
+
+The draft cursor adapter rechecks the original HTTP session, role, job owner and message existence before each emitted
+event; an idle stream wakes at most once per second to check again. Session lookup failures close it. Bytes already handed
+to the socket cannot be recalled, and a change can race between a check and the following write; the check does not make
+revocation instantaneous. This is not a trusted gateway-to-owner protocol and does not protect the legacy follow stream.
+It remains disabled until those lifecycle and authorization boundaries are addressed.

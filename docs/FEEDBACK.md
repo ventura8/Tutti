@@ -55,3 +55,7 @@ of your project or secrets: describe the setup in general words.
 
 - A LAN-bound dashboard was reported unhealthy and competing starts blocked its service; probe its configured address and
   verify a pinned user service before requesting a start (t333).
+
+
+- **2026-11-18, t309:** Dashboard restarts left run ownership uncertain. Record an autopilot launch before starting it
+  so a crash in the launch window does not silently start another worker on the same task.

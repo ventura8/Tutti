@@ -7,6 +7,12 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## Unreleased
+
+### Fixed
+
+- Save launch intent before spawning so a possibly launched run is not left queued in the local backlog (t309).
+
 ## [0.29.5] - 2026-11-18
 
 ### Fixed

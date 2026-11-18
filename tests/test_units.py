@@ -162,14 +162,26 @@ class RemoteTest(unittest.TestCase):
         for bad in ('../escape', 'bad;echo x', 'name\n', '', 'x' * 65):
             with self.subTest(bad=bad), mock.patch.object(remote, 'sh') as sh, \
                     mock.patch.object(remote.subprocess, 'run') as run:
-                for operation in (lambda: remote.run(self.cfg, machine, bad, '/tmp/tree', 'true'),
-                                  lambda: remote.sync(self.cfg, machine, bad, '/tmp/tree'),
-                                  lambda: remote.fetch(self.cfg, machine, bad, '/tmp/tree', 'result')):
+                for operation in (lambda value=bad: remote.run(self.cfg, machine, value, '/tmp/tree', 'true'),
+                                  lambda value=bad: remote.sync(self.cfg, machine, value, '/tmp/tree'),
+                                  lambda value=bad: remote.fetch(self.cfg, machine, value, '/tmp/tree', 'result')):
                     with self.assertRaisesRegex(RuntimeError, 'remote track must be one folder'):
                         operation()
                 sh.assert_not_called()
                 run.assert_not_called()
         self.assertTrue(remote.valid_track('safe-1_name.test'))
+        docker = {**self.cfg['machines']['a'], 'transport': 'local'}
+        with mock.patch.object(remote, 'sh') as sh:
+            with self.assertRaisesRegex(RuntimeError, 'remote track must be one folder'):
+                remote.run(self.cfg, docker, 'bad;echo x', '/tmp/tree', 'true')
+            sh.assert_not_called()
+
+    def test_local_shell_track_may_contain_spaces(self):
+        machine = {**self.cfg['machines']['l'], 'runner': {'kind': 'shell'}}
+        with mock.patch.object(remote, 'sh', return_value=subprocess.CompletedProcess([], 0)) as sh:
+            self.assertEqual(remote.run(self.cfg, machine, 'local tree', '/tmp/fake-tree', 'true'), 0)
+        sh.assert_called_once()
+        self.assertEqual(remote.fetch(self.cfg, machine, 'local tree', '/tmp/fake-tree', 'result'), 0)
 
     def test_lock_files(self):
         m = self.cfg['machines']

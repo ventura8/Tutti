@@ -641,7 +641,8 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
     """Runs `command` over the tree on the machine, behind its slot queue, after the steps it needs first (test.prepare).
     With `device` the command also holds that Android device's lock and gets ANDROID_SERIAL. With `out` (a job log) the
     output goes there too. Returns the command's exit code."""
-    require_track(track)
+    if machine['transport'] != 'local' or machine['runner']['kind'] == 'docker':
+        require_track(track)
     command = routing.prepare(command, (cfg.get('test') or {}).get('prepare'))
     command = no_daemons(command)
     slot = slot_prefix(machine)
@@ -675,9 +676,9 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
 def fetch(cfg, machine, track, src, path):
     """Copies a result folder or file (screenshots, videos, reports) from the machine's copy of the tree back into `src`.
     Nothing to do for this computer, where the tree is used in place."""
-    require_track(track)
     if machine['transport'] == 'local':
         return 0
+    require_track(track)
     rel = path.strip('/')
     os.makedirs(os.path.dirname(os.path.join(src, rel)) or src, exist_ok=True)
     return subprocess.run(['rsync', '-a', '-e', rsh(cfg, machine), f'{dest(machine)}:{machine["root"]}/{track}/{rel}',

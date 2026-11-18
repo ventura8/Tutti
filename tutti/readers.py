@@ -11,6 +11,7 @@ Three sources; the first two read what the CLIs print:
 Parsing is pure; running commands and appending to the usage log are the thin edge at the bottom."""
 import glob
 import json
+import math
 import os
 import re
 import subprocess
@@ -248,6 +249,14 @@ def run_json(command, timeout=READER_TIMEOUT, cwd=None):
         return None, f'{" ".join(command)} did not print JSON: the reader expects --output-format json (or --format json)'
 
 
+def observation_keep_seconds(account):
+    """Retain real samples often enough for the account's configured stale threshold."""
+    hours = account.get('stale_hours') or pacing.STALE_HOURS
+    if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not math.isfinite(hours) or hours <= 0:
+        hours = pacing.STALE_HOURS
+    return min(KEEP_EVERY.total_seconds(), max(1.0, hours * 1800))
+
+
 def key_of(spec):
     """The cache key of a reader: its command (one run serves every account that shares it), or its format."""
     return tuple(spec.get('command') or [spec.get('format') or '?', spec.get('url') or '', spec.get('account') or ''])
@@ -284,6 +293,14 @@ def account_reader_spec(reader, name, account):
     return reader
 
 
+def bridge_as_of(name, reading, now):
+    """A cached observation must not become current if this host's clock moves backwards."""
+    out = dict(reading)
+    if out.get('used') is not None and pacing.parse_time(out['observed_at']) > now:
+        out.update(used=None, problem=f'accounts.{name}: bridge observation is in the future; check host clocks and retry')
+    return out
+
+
 class Readers:
     """Runs each reader command at most every `every_minutes` (default: every probe, `dashboard.probe_seconds`); one run
     serves every account that shares the command. `force` (Refresh readings, `tutti usage refresh`) skips the wait."""
@@ -299,14 +316,17 @@ class Readers:
     def every_minutes(self, spec):
         return spec.get('every_minutes') or round(float(self.cfg['dashboard']['probe_seconds']) / 60, 2)
 
-    def _answer(self, spec, force=False):
+    def _answer(self, spec, force=False, observed_at=None, max_age=None):
         key = key_of(spec)
         every = float(self.every_minutes(spec)) * 60
         hit = self.cache.get(key)
         wait = every * self.backoff.get(key, 1)
+        if max_age is not None:
+            wait = min(wait, max_age)
         # A little under the interval: a probe that comes a moment early still runs the reader.
         if hit and not force and self.clock() - hit[0] < wait * 0.9:
             return hit[1], hit[2]
+        observed_at = observed_at or datetime.fromtimestamp(self.clock(), timezone.utc)
         if spec.get('format') == 'cursor-api':
             data, problem = self.cursor()
         elif spec.get('format') == 'codex-app-server':
@@ -324,38 +344,52 @@ class Readers:
         self.runs += 1
         same = hit is not None and not force and problem is None and data is not None and data == hit[1]
         self.backoff[key] = min(BACKOFF_MAX, self.backoff.get(key, 1) * 2) if same else 1
-        self.cache[key] = (self.clock(), data, problem)
+        self.cache[key] = (self.clock(), data, problem, observed_at.isoformat())
         return data, problem
 
     def interval_minutes(self, spec):
         """The interval a reader is asked at now: its own, times the back-off while its answer stays the same."""
         return round(float(self.every_minutes(spec)) * self.backoff.get(key_of(spec), 1), 2)
 
-    def read_there(self, name, a, force=False):
+    def read_there(self, name, a, force=False, now=None):
         """An account read by the computer that holds its sign-in (accounts.<n>.read_on, set by `tutti move`), through that
         computer's bridge; asked at the reader's own interval like a reader run here."""
         from . import bridge
         spec = automatic_reader(name, a) or a.get('plan') or {}
         key = ('bridge', name)
         hit = self.cache.get(key)
-        if hit and not force and self.clock() - hit[0] < float(self.every_minutes(spec)) * 60 * 0.9:
-            return hit[1]
-        out = bridge.read_account(self.cfg, a['read_on'], name, force)
+        wait = min(float(self.every_minutes(spec)) * 60, observation_keep_seconds(a) * 2)
+        if hit and not force and self.clock() - hit[0] < wait * 0.9:
+            return bridge_as_of(name, hit[1], datetime.fromtimestamp(self.clock(), timezone.utc))
+        out = dict(bridge.read_account(self.cfg, a['read_on'], name, force))
+        out['keep_seconds'] = observation_keep_seconds(a)
         self.runs += 1
-        self.cache[key] = (self.clock(), out, None)
-        return out
+        observed = self.clock()
+        if out.get('used') is not None:
+            try:
+                if type(out.get('observation_version')) is not int or out['observation_version'] != 1:
+                    raise ValueError('unsupported observation version')
+                remote_at = pacing.parse_time(out['observed_at'])
+                if remote_at > datetime.fromtimestamp(observed, timezone.utc):
+                    raise ValueError('future observation')
+            except (KeyError, TypeError, ValueError, OverflowError):
+                out.update(used=None, observed_at=None,
+                           problem=f'accounts.{name}: bridge lacks a valid observation time; update the bridge and retry')
+        self.cache[key] = (observed, out, None)
+        return bridge_as_of(name, out, datetime.fromtimestamp(self.clock(), timezone.utc))
 
     def read(self, name, a, now=None, force=False):
         """{'plan', 'used', 'resets', 'problem', 'every_minutes'} for one account from its `reader` and `plan` commands."""
         if a.get('read_on'):
-            return self.read_there(name, a, force)
+            return self.read_there(name, a, force, now)
         problem = remote_codex_problem(self.cfg, name, a)
         if problem:
             return {'plan': None, 'used': None, 'resets': None, 'every_minutes': 15,
                     'problem': problem}
-        out = {'plan': None, 'used': None, 'resets': None, 'problem': None, 'every_minutes': None}
+        out = {'plan': None, 'used': None, 'resets': None, 'problem': None, 'every_minutes': None,
+               'keep_seconds': observation_keep_seconds(a)}
         if a.get('plan'):
-            data, problem = self._answer(a['plan'], force)
+            data, problem = self._answer(a['plan'], force, now)
             try:
                 out['plan'] = json_field(data, a['plan']['field']) if data is not None else None
             except ValueError as e:
@@ -364,7 +398,9 @@ class Readers:
         r = automatic_reader(name, a)
         if r:
             spec = account_reader_spec(r, name, a)
-            data, problem = self._answer(spec, force)
+            data, problem = self._answer(spec, force, now, observation_keep_seconds(a) * 2)
+            out['observed_at'] = self.cache[key_of(spec)][3]
+            out['observation_version'] = 1
             out['every_minutes'] = self.interval_minutes(spec)
             if data is not None:
                 try:
@@ -468,10 +504,10 @@ def _last_auto(entries, account):
     return best
 
 
-def worth_keeping(last, used, resets, now):
+def worth_keeping(last, used, resets, now, keep_every=KEEP_EVERY):
     if not last:
         return True
-    if abs(float(last['used']) - used) >= MIN_CHANGE or now - pacing.parse_time(last['at']) >= KEEP_EVERY:
+    if abs(float(last['used']) - used) >= MIN_CHANGE or now - pacing.parse_time(last['at']) >= keep_every:
         return True
     old = last.get('resets')
     return bool(used > 0 and ((not old and resets) or (old and resets and abs(pacing.parse_time(old) - resets) >= RESET_MOVED)))
@@ -511,23 +547,50 @@ def last_resets(entries):
     return out
 
 
-def record(path, readings, hits, now):
+def observation_time(reading, now):
+    """Return a trustworthy non-future observation time, or None; unversioned direct callers retain legacy behavior."""
+    version = reading.get('observation_version')
+    if version is not None and (type(version) is not int or version != 1 or not reading.get('observed_at')):
+        return None
+    try:
+        observed = pacing.parse_time(reading['observed_at']) if reading.get('observed_at') else now
+        return observed if observed <= now else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def record(path, readings, hits, now, hit_now=None):
     """Appends the readers' readings that say something new and the limit messages not logged yet. Returns the lines written."""
     entries = pacing.read_log(path)
     refs = {e.get('ref') for e in entries if e.get('ref')}
     written = []
     for name, r in readings.items():
-        if r.get('used') is None or not (worth_keeping(_last_auto(entries, name), r['used'], r['resets'], now)
-                                         or overrides(pacing.latest(entries, name), r['used'])):
+        if r.get('used') is None:
             continue
-        written.append(pacing.append_log(path, name, r['used'], now, 'read automatically', resets=r['resets'], source='reader'))
+        observed = observation_time(r, now)
+        if observed is None:
+            continue
+        last = _last_auto(entries, name)
+        if last and observed <= pacing.parse_time(last['at']):
+            continue   # a cached or older observation is not a new provider read
+        newest = pacing.latest(entries, name)
+        newer_than_newest = not newest or observed > pacing.parse_time(newest['at'])
+        keep_seconds = r.get('keep_seconds', KEEP_EVERY.total_seconds())
+        if (isinstance(keep_seconds, bool) or not isinstance(keep_seconds, (int, float)) or
+                not math.isfinite(keep_seconds) or not 0 < keep_seconds <= KEEP_EVERY.total_seconds()):
+            continue
+        if not (worth_keeping(last, r['used'], r['resets'], observed, timedelta(seconds=keep_seconds)) or
+                (newer_than_newest and overrides(newest, r['used']))):
+            continue
+        written.append(pacing.append_log(path, name, r['used'], observed, 'read automatically', resets=r['resets'], source='reader'))
     for name, reset, ref, _text in hits:
         if ref in refs:
             continue
-        name = owner_by_reset(name, reset, {**last_resets(entries), **readings}, now)
+        at = hit_now or now
+        name = owner_by_reset(name, reset, {**last_resets(entries), **readings}, at)
         refs.add(ref)
         note = f'a limit message in {ref}' + ('' if reset else ' (no reset time in it: the window rule applies)')
-        written.append(pacing.append_log(path, name, 100, now, note, resets=reset, source='limit message', ref=ref))
+        written.append(pacing.append_log(path, name, 100, at, note, resets=reset, source='limit message', ref=ref))
     return written
 
 
@@ -567,21 +630,49 @@ def read_file_of(cfg, name, a):
     return f, mtime(f), text
 
 
-def record_files(path, accounts, cfg=None):
+def file_status(name, used, resets, at, prior):
+    """A reused file reference is safe only while its parsed observation is unchanged."""
+    if prior is None:
+        return {'used': used, 'problem': None}
+    try:
+        same_reset = (pacing.parse_time(prior['resets']) if prior.get('resets') else None) == resets
+        same_time = at is None or pacing.parse_time(prior['at']) == at
+        unchanged = prior.get('used') == used and same_reset and same_time
+    except (KeyError, TypeError, ValueError, OverflowError):
+        unchanged = False
+    return {'used': used if unchanged else None, 'problem': None if unchanged else
+            f'accounts.{name}.reading_file changed without a new modification time: rewrite it and refresh'}
+
+
+def record_files(path, accounts, cfg=None, status=None):
     """Readings an orchestrator wrote to accounts.<name>.reading_file (it gets the plan's % from its own tool, which no CLI
     prints). Each version of the file is logged once (its ref holds the file's mtime). Returns (lines written, problems)."""
     entries = pacing.read_log(path)
     refs = {e.get('ref') for e in entries if e.get('ref')}
+    by_ref = {e.get('ref'): e for e in entries if e.get('ref')}
     written, problems = [], []
     for name, a in accounts.items():
         f, seen, text = read_file_of(cfg, name, a or {})
+        if not f:
+            continue
         ref = f'file:{f}:{name}:{seen}'   # one file may hold several accounts: each is logged once per version
-        if seen is None or ref in refs:
+        if seen is None:
+            if status is not None:
+                status[name] = {'used': None, 'problem': f'accounts.{name}.reading_file is unavailable: check its path and reader'}
+            continue
+        if ref in refs and status is None:
             continue
         try:
             used, resets, at = parse_reading_file(text(), name)
         except (OSError, ValueError, TypeError) as e:
-            problems.append(f'accounts.{name}.reading_file {f}: {e}: write a percentage such as 42, or {{"used": 42}}')
+            problem = f'accounts.{name}.reading_file {f}: {e}: write a percentage such as 42, or {{"used": 42}}'
+            problems.append(problem)
+            if status is not None:
+                status[name] = {'used': None, 'problem': problem}
+            continue
+        if status is not None:
+            status[name] = file_status(name, used, resets, at, by_ref.get(ref))
+        if ref in refs:
             continue
         written.append(pacing.append_log(path, name, used, at or datetime.fromtimestamp(seen, timezone.utc), 'from the reading file',
                                          resets=resets, source='file', ref=ref))

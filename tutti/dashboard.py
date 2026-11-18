@@ -126,8 +126,16 @@ class Collector:
         with self.read_lock:
             now = datetime.fromtimestamp(self.clock(), timezone.utc)
             found = self.reader.read_all(now, force)
-            readers.record(state.usage_log_path(self.cfg), found, self.reader.scan_jobs(now), now)
-            readers.record_files(state.usage_log_path(self.cfg), self.cfg['accounts'], self.cfg)
+            # A remote observation may be made while read_all is in flight; validate it against the receipt time.
+            received = datetime.fromtimestamp(self.clock(), timezone.utc)
+            readers.record(state.usage_log_path(self.cfg), found, self.reader.scan_jobs(received), received)
+            files = {}
+            readers.record_files(state.usage_log_path(self.cfg), self.cfg['accounts'], self.cfg, status=files)
+            for name, result in files.items():
+                if name not in found:
+                    found[name] = result
+                elif result.get('problem') and not found[name].get('problem'):
+                    found[name] = {**found[name], 'problem': result['problem']}
             return found
 
     def refresh_readings(self):

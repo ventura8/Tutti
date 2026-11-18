@@ -541,8 +541,10 @@ def usage_log_path(cfg):
 def read_now(cfg, path, now):
     """`tutti usage read`: every automatic reader once and the recent job logs; prints what was found and any problem."""
     r = readers.Readers(cfg)
-    found = r.read_all(now, force=True)
-    written = readers.record(path, found, r.scan_jobs(now), now)
+    started = datetime.fromtimestamp(r.clock(), timezone.utc)
+    found = r.read_all(started, force=True)
+    received = datetime.fromtimestamp(r.clock(), timezone.utc)
+    written = readers.record(path, found, r.scan_jobs(now), received, hit_now=now)
     for name, x in found.items():
         if x['problem']:
             say(f'{name}: {x["problem"]}')

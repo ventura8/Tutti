@@ -165,14 +165,17 @@ def client_jobs(cfg, clock=time.time):
 def read_account(cfg, client, account, force=False):
     """Readers.read's answer for an account, given by the client that holds its sign-in (its own reader and plan commands)."""
     from . import pacing
-    empty = {'plan': None, 'used': None, 'resets': None, 'problem': None, 'every_minutes': None}
+    empty = {'plan': None, 'used': None, 'resets': None, 'problem': None, 'every_minutes': None,
+             'observed_at': None, 'observation_version': None}
     try:
         rc, result = call(cfg, client, 'reader', {'account': account, 'force': bool(force)}, timeout=180)
     except BridgeDown as e:
         return {**empty, 'problem': str(e)}
     out = {**empty, **{k: v for k, v in (result or {}).items() if k in empty}}
-    if rc != 0 and not out['problem']:
-        out['problem'] = f'{client} could not read {account}'
+    if rc != 0:
+        out['used'], out['observed_at'] = None, None
+        if not out['problem']:
+            out['problem'] = f'{client} could not read {account}'
     try:
         out['resets'] = pacing.parse_time(out['resets']) if out['resets'] else None
     except ValueError:
@@ -404,6 +407,7 @@ class Client:
         a.pop('read_on', None)
         a['_read_here'] = True   # this bridge is the explicitly selected login host
         out = readers.Readers(self.cfg).read(name, a, force=bool(args.get('force')))
+        out['observation_version'] = 1
         out['resets'] = out['resets'].isoformat() if out.get('resets') else None
         return 0, out
 

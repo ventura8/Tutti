@@ -806,8 +806,10 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
                'workers': {**self.CFG['workers'], 'local': {'kind': 'ollama'}},
                'accounts': {**self.CFG['accounts'], 'cursor': {'worker': 'cursor', 'reader': {'command': ['agent']}}}}
         states = {'claude': {'panic': True, 'used': 96, 'reading_at': '2026-01-01T00:30:00Z'},
-                  'cursor': {'panic': True, 'used': 96, 'reading_at': '2026-01-01T00:30:00Z', 'stale': False}}
+                  'cursor': {'panic': True, 'used': 96, 'reading_at': '2026-01-01T00:30:00Z', 'stale': False, 'reader_problem': None}}
         self.assertTrue(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
+        unknown = {k: v for k, v in states['cursor'].items() if k != 'reader_problem'}
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', unknown, {**states, 'cursor': unknown}))
         for change in ({'used': -20}, {'used': 101}, {'used': 'unknown'}, {'used': float('nan')}, {'used': float('inf')},
                        {'reading_at': 'invalid'}, {'reading_at': '2026-01-01T02:00:00Z'},
                        {'reading_at': '2025-12-31T20:00:00Z'}, {'selected_source': 'estimate'}):

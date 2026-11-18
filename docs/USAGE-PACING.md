@@ -121,6 +121,26 @@ manual entry and `tutti usage` suggests `tutti usage log`. An estimate or synthe
 the last actual measurement. Normal pacing continues to use the account state; cautious panic rescue refuses stale or future readings until every
 linked quota window has a recent measurement. The stale label is not itself a monetary limit.
 
+**Reader observations and recovery.** Cached reader results keep the original provider observation time; they are not
+logged again as fresh measurements. A successful retry creates a new observation, and backoff is capped by the account's
+stale threshold. Unchanged genuine observations are retained often enough for that threshold. The automatic reader's
+current failure is shown even when an older reading was recent, and cautious panic rescue refuses any failed reader in
+its linked windows until it succeeds again. Normal pacing still follows its existing rules. A standalone `tutti autopilot
+tick` has no live reader status and therefore cannot use automatically read accounts for cautious panic rescue; the
+dashboard can do so after its current readers succeed.
+For an account read only from `reading_file`, the dashboard rechecks the file even when its modification time is unchanged;
+an unavailable or malformed file, or changed content with the same modification time, blocks cautious panic rescue until
+it can be verified again. For an account with both a file and a reader, a current failure in either also blocks rescue.
+
+Remote bridge readers must report observation protocol version 1 and a valid, non-future timestamp. An older bridge or a
+missing, malformed or future observation is unavailable with an upgrade/retry warning; it is not stamped with local time.
+Upgrade the bridge on its login host before relying on that remote reader. This fail-closed compatibility change can leave
+an old remote account without refreshed usage until both hosts are updated. A remote observation made during a read is
+compared with the local receipt time, not the earlier round start; a clock-skewed future observation is rejected. A local
+read's conservative timestamp is its start time, so slow reads never appear fresher than they are.
+For `tutti usage read --at`, the requested time still controls job-log interpretation and reporting; actual automatic
+provider observations keep their real start or remote observation time rather than being backdated or postdated.
+
 **Room for work.** An account `behind` its line (or `late`) says how many bounded tasks it can take now: the points it is
 short of divided by `task_pct` (default 2, the points one bounded task costs; tune it from your runs). The action and the
 dashboard card say "use it: about N bounded task(s) can go to <worker> now".

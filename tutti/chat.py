@@ -329,6 +329,7 @@ def check_message(text, attachments):
 
 ADD = re.compile(r'^(?:please\s+)?(?:add|create|queue|make)\s+(?:a\s+)?(?:new\s+)?(?:backlog\s+)?task\s+(?:in|for|to|on)\s+'
                  r'(?P<project>[\w.-]+)\s*[:,–-]?\s*(?P<title>.+)$', re.I | re.S)
+NEEDS_PLAN = re.compile(r'(?:design|refactor|architecture|plan|implement|new feature)', re.I)
 TESTS = re.compile(r'^(?:please\s+)?(?:queue|run|start)\s+(?:the\s+)?(?:full\s+)?tests?(?:\s+suite)?\s+(?:for|in|on|of)\s+'
                    r'(?P<project>[\w.-]+)\s*[.!]?$', re.I)
 DELEGATE = re.compile(r'^(?:please\s+)?(?:delegate|hand\s+off|handoff)\s+(?:in|for|to|on)\s+(?P<project>[\w.-]+)\s*[:,–-]?\s*'
@@ -354,8 +355,13 @@ COMMANDS = {
     'resume': '/resume <host, device, agent or account>',
     'ask': '/ask <scout> <question>: ask a scout such as grok',
     'tests': '/tests <project>: queue the full test suite',
+    'plan': '/plan <what>: plan a complex task',
     'help': '/help: these commands',
 }
+
+
+def is_planning_required(text):
+    return bool(NEEDS_PLAN.search(text))
 
 
 def find_name(name, names):

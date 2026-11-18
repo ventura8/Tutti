@@ -11,8 +11,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 ### Fixed
 
 - Checkpoint running work and hold reported runs conservatively while autopilot is off (t404).
-
-- Do not select an unmeasured conductor account merely because another account is spent (t388).
+- Recheck measured conductor quota and bind and watch the selected account on shared workers (t388).
 
 ## 0.30.3 (2026-11-18)
 

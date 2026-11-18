@@ -217,7 +217,27 @@ def conductor_account_reason(cfg, name, state):
     if state is None:
         return 'usage state missing: refresh the account before using it'
     reason = routing.account_unfit({**state, '_missing_limits': routing.missing_limits(cfg, name, state)})
-    return reason or ('quota unknown: refresh the account and linked limits' if routing.unknown_quota(state) else '')
+    def unreliable(s):
+        return bool(s.get('stale') or s.get('after_reset') or s.get('reader_problem') or s.get('selected_source') == 'estimate'
+                    or any(unreliable(x) for x in s.get('limits') or []))
+    return reason or ('quota unknown or stale: refresh the account and linked limits'
+                      if routing.unknown_quota(state) or unreliable(state) else '')
+
+
+def conductor_binding(cfg, agent):
+    """A shared worker needs an explicit, unique account selector, including for disabled siblings."""
+    mapping = cfg.get('_account_workers') or {n: (a or {}).get('worker') or n for n, a in cfg['accounts'].items()}
+    linked = [n for n, worker in mapping.items() if n == agent or worker == agent]
+    if len(linked) < 2:
+        return None, {}, ''
+    selector = (cfg['workers'].get(agent) or {}).get('chat_account_selector')
+    saved = cfg.get('_account_args') or {}
+    values = {n: workers.selector_value(((cfg['accounts'][n] or {}).get('args') or []) if n in cfg['accounts']
+                                        else (saved.get(n) or []), selector) for n in linked}
+    if not selector or not all(values.values()) or len(set(values.values())) != len(linked):
+        return None, {}, (f'{agent}: configure workers.{agent}.chat_account_selector and distinct selector values in every '
+                          'linked account args before using this shared worker')
+    return selector, values, ''
 
 
 def out_reason(cfg, agent, states, machines=None, now=None):
@@ -242,6 +262,9 @@ def out_reason(cfg, agent, states, machines=None, now=None):
     linked = [n for n, worker in (cfg.get('_account_workers') or {}).items() if worker == agent]
     if linked and not names:
         return f'{agent}: all of its configured accounts are paused or disabled'
+    _selector, _values, binding_problem = conductor_binding(cfg, agent)
+    if binding_problem:
+        return binding_problem
     by_name = {s['name']: s for s in states}
     reasons = [(n, conductor_account_reason(cfg, n, by_name.get(n))) for n in names]
     if not reasons or not all(reason for _, reason in reasons):
@@ -709,10 +732,38 @@ def instruction_file(cfg, run, agent, commands, now):
 
 def run_agent(cfg, agent, text, run, out_fn, out=None):
     """(rc, last lines, stop reason or None) for one agent's turn as the main agent."""
-    watch = Watch(cfg, agent, choice_record(cfg), out_fn, settings(cfg)['check_seconds'])
     if cfg['workers'][agent]['kind'] == 'cli':
-        rc, lines = run_cli(cfg, agent, text, run, watch, out=out, extra=account_args(cfg, agent, account_states(cfg)))
+        states = account_states(cfg)
+        why = out_reason(cfg, agent, states)
+        if why:
+            return 3, [], ('panic', why)
+        names = accounts_of(cfg, agent)
+        by_name = {s['name']: s for s in states}
+        selected = next((n for n in names if not conductor_account_reason(cfg, n, by_name.get(n))), None)
+        if names and selected is None:
+            return 3, [], ('panic', f'{agent}: no account with current measured quota; refresh usage')
+        extra = list((cfg['accounts'].get(selected) or {}).get('args') or []) if selected else []
+        selector, values, why = conductor_binding(cfg, agent)
+        if why:
+            return 3, [], ('panic', why)
+        if selector:
+            log = os.path.join(run['dir'], f'{agent}-{len(run["agents"])}.agent.log')
+            argv = allow_tutti(workers.with_args(cli_argv(cfg, agent, text, log), extra))
+            if (workers.selector_value(argv[1:], selector) != values.get(selected)
+                    or ('--' in argv and selector in argv[argv.index('--') + 1:])):
+                return 3, [], ('panic', f'{agent}: its command does not uniquely bind the selected account; '
+                                        'fix main.commands and account selector arguments')
+        def bound_out(name):
+            reason = out_fn(name)
+            if reason or not selected:
+                return reason
+            current = {s['name']: s for s in account_states(cfg)}
+            reason = conductor_account_reason(cfg, selected, current.get(selected))
+            return f'{selected}: {reason}' if reason else ''
+        watch = Watch(cfg, agent, choice_record(cfg), bound_out, settings(cfg)['check_seconds'])
+        rc, lines = run_cli(cfg, agent, text, run, watch, out=out, extra=extra)
     else:
+        watch = Watch(cfg, agent, choice_record(cfg), out_fn, settings(cfg)['check_seconds'])
         rc, lines = run_local(cfg, agent, text, run, watch, out=out)
     if watch.reason:
         return rc, lines, watch.reason

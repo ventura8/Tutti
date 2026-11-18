@@ -16,11 +16,12 @@ ALLOW = '{"permissions":{"allow":["command(ls)"]}}'
 
 def cfg_in(folder, **over):
     raw = {'project': {'worktrees': folder, 'state': os.path.join(folder, 'state')},
-           'workers': {'agy': {'kind': 'cli', 'command': ['agy', '-p', '{prompt}', '--settings', ALLOW]},
+           'workers': {'agy': {'kind': 'cli', 'command': ['agy', '-p', '{prompt}', '--settings', ALLOW],
+                               'chat_account_selector': '--model'},
                        'cursor': {'kind': 'cli', 'command': ['cursor-agent', '-p', '{prompt}']},
                        'local': {'kind': 'ollama', 'host': '127.0.0.1:1', 'model': 'm:1'}},
-           'accounts': {'agy-claude': {'window': '5h', 'resets': '2026-01-01T00:00Z', 'worker': 'agy'},
-                        'agy-gemini': {'window': '5h', 'resets': '2026-01-01T00:00Z', 'worker': 'agy'},
+           'accounts': {'agy-claude': {'window': '5h', 'resets': '2026-01-01T00:00Z', 'worker': 'agy', 'args': ['--model', 'c']},
+                        'agy-gemini': {'window': '5h', 'resets': '2026-01-01T00:00Z', 'worker': 'agy', 'args': ['--model', 'g']},
                         'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z', 'worker': 'cursor', 'enabled': False}},
            'main': {'agent': 'agy', 'fallback': ['cursor', 'local'], 'check_seconds': 0.05}}
     raw = config.merge(raw, over)
@@ -93,6 +94,27 @@ class OutReasonTest(Folder):
         self.assertEqual(conduct.account_args(self.cfg, 'agy', states), [])
         states[1]['used'] = 10
         self.assertEqual(conduct.out_reason(self.cfg, 'agy', states), '')
+
+    def test_stale_synthetic_estimated_and_failed_readings_are_not_room(self):
+        for flag, value in (('stale', True), ('after_reset', True), ('selected_source', 'estimate'),
+                            ('reader_problem', 'failed')):
+            for linked in (False, True):
+                with self.subTest(flag=flag, linked=linked):
+                    state = {'name': 'agy-claude', 'used': 10, 'limits': [{'name': 'weekly', 'used': 10}]}
+                    (state['limits'][0] if linked else state)[flag] = value
+                    self.assertIn('unknown or stale', conduct.conductor_account_reason(self.cfg, 'agy-claude', state))
+
+    def test_shared_worker_requires_unique_account_binding_including_paused(self):
+        states = self.states(**{'agy-claude': 100, 'agy-gemini': 10})
+        self.cfg['accounts']['agy-gemini']['args'] = []
+        self.assertIn('chat_account_selector', conduct.out_reason(self.cfg, 'agy', states))
+        self.cfg['accounts']['agy-gemini']['args'] = ['--model', 'c']
+        self.assertIn('distinct', conduct.out_reason(self.cfg, 'agy', states))
+        self.cfg['accounts']['agy-gemini']['args'] = ['--model', 'g']
+        self.assertEqual(conduct.out_reason(self.cfg, 'agy', states), '')
+        del self.cfg['accounts']['agy-claude']
+        self.cfg['_account_args']['agy-claude'] = []
+        self.assertIn('distinct', conduct.out_reason(self.cfg, 'agy', states))
 
 
 class ChoiceTest(Folder):
@@ -386,14 +408,53 @@ class RunCliTest(Folder):
 
     def test_a_limit_message_with_exit_zero_still_hands_over(self):
         self.cfg['accounts']['agy-claude']['match'] = {'command': r'\bagy\b'}
-        with mock.patch.object(conduct, 'run_cli', return_value=(0, ['You have hit your usage limit. Resets 5pm'])):
+        with mock.patch.object(conduct, 'account_states', return_value=[{'name': 'agy-claude', 'used': 10}]), \
+                mock.patch.object(conduct, 'run_cli', return_value=(0, ['You have hit your usage limit. Resets 5pm'])):
             self.assertEqual(conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')[2][0], 'limit')
 
     def test_a_limit_message_hands_over(self):
         self.cfg['accounts']['agy-claude']['match'] = {'command': r'\bagy\b'}
-        with mock.patch.object(conduct, 'run_cli', return_value=(1, ['You have hit your usage limit. Resets 5pm'])):
+        with mock.patch.object(conduct, 'account_states', return_value=[{'name': 'agy-claude', 'used': 10}]), \
+                mock.patch.object(conduct, 'run_cli', return_value=(1, ['You have hit your usage limit. Resets 5pm'])):
             rc, _lines, reason = conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')
         self.assertEqual((rc, reason[0]), (1, 'limit'))
+
+    def test_prelaunch_rechecks_and_never_runs_default_on_missing_quota(self):
+        with mock.patch.object(conduct, 'account_states', return_value=[{'name': 'agy-claude', 'used': 100}]), \
+                mock.patch.object(conduct, 'run_cli') as run:
+            rc, _lines, reason = conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')
+        self.assertEqual((rc, reason[0]), (3, 'panic'))
+        run.assert_not_called()
+
+    def test_shared_worker_command_must_bind_exact_account(self):
+        states = [{'name': 'agy-claude', 'used': 100}, {'name': 'agy-gemini', 'used': 10}]
+        self.cfg['main']['commands'] = {'agy': ['agy', '--model', 'old', '--model', 'other', '-p', '{prompt}']}
+        with mock.patch.object(conduct, 'account_states', return_value=states), mock.patch.object(conduct, 'run_cli') as run:
+            rc, _lines, reason = conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')
+        self.assertEqual((rc, reason[0]), (3, 'panic'))
+        run.assert_not_called()
+        self.cfg['main']['commands'] = {'agy': ['agy', '--model', 'old', '-p', '{prompt}']}
+        with mock.patch.object(conduct, 'account_states', return_value=states), \
+                mock.patch.object(conduct, 'run_cli', return_value=(0, [])) as run:
+            conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')
+        self.assertEqual(run.call_args.kwargs['extra'], ['--model', 'g'])
+
+    def test_watch_checks_the_selected_account_even_when_sibling_has_room(self):
+        good = [{'name': 'agy-claude', 'used': 10}, {'name': 'agy-gemini', 'used': 10}]
+        later = [{'name': 'agy-claude', 'used': 100}, {'name': 'agy-gemini', 'used': 10}]
+        def run_cli(_cfg, _agent, _text, _run, watch, **_kw):
+            self.assertIn('agy-claude', watch.out_fn('agy'))
+            return 0, []
+        with mock.patch.object(conduct, 'account_states', side_effect=[good, later]), \
+                mock.patch.object(conduct, 'run_cli', side_effect=run_cli):
+            conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')
+
+    def test_unmetered_local_worker_does_not_require_account_readings(self):
+        with mock.patch.object(conduct, 'account_states', return_value=[]), \
+                mock.patch.object(conduct, 'run_local', return_value=(0, ['DONE: ok'])) as run:
+            rc, _lines, reason = conduct.run_agent(self.cfg, 'local', 'p', self.run, lambda n: '')
+        self.assertEqual((rc, reason), (0, None))
+        run.assert_called_once()
 
 
 class CliAndDashboardTest(Folder):

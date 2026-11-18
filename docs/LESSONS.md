@@ -4,8 +4,8 @@
   cannot establish that remote execution stopped. Hold ambiguous reports while off; resuming uses the existing collector,
   which does not establish remote termination.
 
-- **Missing quota is not spare quota** (t388): if one worker account is spent and another has no state, choosing the worker
-  can fall back to the wrong default login. Require a usable account state before selecting that worker.
+- **Missing quota is not spare quota** (t388): choosing a worker and then finding no usable account must not launch its
+  default login. Recheck measured quota, bind a shared worker to a unique selected account and watch that account in the turn.
 
 - A remote check's copy name also reaches a local lock path and remote shell. Validate it before either side effect; checking
   only the worker's local worktree name leaves the independently configured remote name unchecked (t403).

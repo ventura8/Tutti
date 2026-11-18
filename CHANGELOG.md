@@ -11,7 +11,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Added
 
-- Opt-in Cursor partial JSON event decoding for Chat, with generic tool progress and plain-text compatibility (t283).
+- Opt-in Cursor JSON event decoding for Chat, with generic tool progress, a final answer and plain-text compatibility (t283).
 
 ## [0.27.14] - 2026-11-18
 

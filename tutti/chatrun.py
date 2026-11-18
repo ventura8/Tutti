@@ -102,6 +102,8 @@ def cli_process(proc, worker, cancel, timeout, clock, fmt):
                 line = lines.get(timeout=0.25)
             except queue.Empty:
                 continue
+            if cancel.is_set():
+                break
             if line is None:
                 break
             yield from decoder.feed(line) if decoder else (line,)
@@ -154,21 +156,6 @@ class CursorEvents:
             raise OSError('Cursor stream ended without assistant text: check the work before retrying')
 
 
-def cursor_assistant(event):
-    # Cursor's partial-output stream repeats buffered and final flushes; only timestamped events without model_call_id are new.
-    if 'timestamp_ms' in event and (not isinstance(event['timestamp_ms'], int) or isinstance(event['timestamp_ms'], bool)):
-        raise OSError('Cursor stream assistant timestamp is invalid: check the CLI version')
-    if 'timestamp_ms' not in event or 'model_call_id' in event:
-        return
-    message = event.get('message')
-    content = message.get('content') if isinstance(message, dict) else None
-    if not isinstance(content, list):
-        raise OSError('Cursor stream assistant event has no content list: check the CLI version')
-    for block in content:
-        if isinstance(block, dict) and block.get('type') == 'text' and isinstance(block.get('text'), str):
-            yield block['text']
-
-
 def cursor_event(line):
     """Decode documented Cursor events; never expose tool arguments or execute tool output."""
     try:
@@ -178,13 +165,12 @@ def cursor_event(line):
     if not isinstance(event, dict):
         raise OSError('Cursor stream returned a non-object event: check the configured output format')
     kind = event.get('type')
-    if kind == 'assistant':
-        yield from cursor_assistant(event)
-    elif kind == 'tool_call' and event.get('subtype') in ('started', 'completed'):
+    if kind == 'tool_call' and event.get('subtype') in ('started', 'completed'):
         yield {'progress': 'Agent tool ' + event['subtype'] + '.'}
     elif kind == 'result':
         if event.get('subtype') != 'success' or event.get('is_error') is not False or not isinstance(event.get('result'), str):
             raise OSError('Cursor stream did not report success: check the CLI output and account status')
+        yield event['result']
         yield {'cursor_terminal': True}
 
 

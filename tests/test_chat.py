@@ -1089,14 +1089,13 @@ class CursorStream(unittest.TestCase):
         from tutti import chatrun
         text = {'type': 'assistant', 'timestamp_ms': 1, 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': 'Hello'}]}}
         tool = {'type': 'tool_call', 'subtype': 'started', 'tool_call': {'shell': {'args': {'command': 'secret'}}}}
-        self.assertEqual(list(chatrun.cursor_event(json.dumps(text))), ['Hello'])
+        self.assertEqual(list(chatrun.cursor_event(json.dumps(text))), [])
         self.assertEqual(list(chatrun.cursor_event(json.dumps(tool))), [{'progress': 'Agent tool started.'}])
         terminal = {'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'Hello'}
         self.assertEqual(list(chatrun.cursor_event(json.dumps(terminal))),
-                         [{'cursor_terminal': True}])
+                         ['Hello', {'cursor_terminal': True}])
         self.assertEqual(list(chatrun.cursor_event(json.dumps({'type': 'unknown', 'secret': 'hidden'}))), [])
-        for bad in ('{', '[]', '{"type":"assistant","timestamp_ms":1,"message":{}}',
-                    '{"type":"assistant","timestamp_ms":null}', '{"type":"result","is_error":true}'):
+        for bad in ('{', '[]', '{"type":"result","is_error":true}'):
             with self.subTest(bad=bad), self.assertRaises(OSError):
                 list(chatrun.cursor_event(bad))
 
@@ -1122,15 +1121,17 @@ class CursorStream(unittest.TestCase):
         self.assertEqual(list(chatrun.cli_stream(plain, [], threading.Event(), popen=lambda *_a, **_kw: Process(['raw\n']))), ['raw\n'])
         worker = {'command': ['cursor-agent', '-p', '--output-format', 'stream-json', '--stream-partial-output', '{prompt}'],
                   'chat_output_format': 'cursor-stream-json'}
-        events = [json.dumps({'type': 'assistant', 'timestamp_ms': 1, 'message': {'content': [{'type': 'text', 'text': 'Hi'}]}}),
+        events = [json.dumps({'type': 'assistant', 'timestamp_ms': 1, 'message': {'content': [{'type': 'text', 'text': 'old'}]}}),
                   json.dumps({'type': 'assistant', 'timestamp_ms': 2, 'model_call_id': 'call',
-                              'message': {'content': [{'type': 'text', 'text': 'Hi'}]}}),
-                  json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'Hi'}]}}),
+                              'message': {'content': [{'type': 'text', 'text': 'old'}]}}),
+                  json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'different'}]}}),
                   json.dumps({'type': 'tool_call', 'subtype': 'completed', 'tool_call': {'data': 'private'}}),
                   json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'Hi'})]
         self.assertEqual(list(chatrun.cli_stream(worker, [], threading.Event(), popen=lambda *_a, **_kw: Process(events))),
-                         ['Hi', {'progress': 'Agent tool completed.'}])
-        for bad in ([], events[:-1], events + ['{}'], events[1:], [json.dumps({'type': 'result', 'is_error': True})]):
+                         [{'progress': 'Agent tool completed.'}, 'Hi'])
+        self.assertEqual(list(chatrun.cli_stream(worker, [], threading.Event(), popen=lambda *_a, **_kw: Process(events[1:]))),
+                         [{'progress': 'Agent tool completed.'}, 'Hi'])
+        for bad in ([], events[:-1], events + ['{}'], [json.dumps({'type': 'result', 'is_error': True})]):
             with self.subTest(bad=bad), self.assertRaises(chatrun.CursorStreamUncertain):
                 list(chatrun.cli_stream(worker, [], threading.Event(), popen=lambda *_a, lines=bad, **_kw: Process(lines)))
 
@@ -1156,6 +1157,38 @@ class CursorStream(unittest.TestCase):
         with mock.patch('tutti.chatrun.subprocess.Popen') as popen:
             self.assertEqual(list(chatrun.cli_stream(worker, [], cancelled, popen=popen)), [])
             popen.assert_not_called()
+
+    def test_stop_while_waiting_does_not_emit_a_late_result(self):
+        from tutti import chatrun
+        worker = {'command': ['cursor-agent', '-p', '--output-format', 'stream-json', '--stream-partial-output', '{prompt}'],
+                  'chat_output_format': 'cursor-stream-json'}
+        entered, release, cancelled = threading.Event(), threading.Event(), threading.Event()
+        def lines():
+            entered.set()
+            release.wait(5)
+            yield json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'late'})
+        class Process:
+            returncode = 0
+            stdout = lines()
+            def poll(self):
+                return 0
+            def wait(self):
+                return 0
+        output = []
+        def collect():
+            output.extend(chatrun.cli_stream(worker, [], cancelled, popen=lambda *_a, **_k: Process()))
+        thread = threading.Thread(target=collect)
+        thread.start()
+        try:
+            self.assertTrue(entered.wait(5))
+            cancelled.set()
+            release.set()
+            thread.join(5)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(output, [])
+        finally:
+            release.set()
+            thread.join(5)
 
 
 class Validation(unittest.TestCase):

@@ -458,6 +458,8 @@ puts a pinned shellcheck (`shellcheck-py`, hashed) in its venv, and a missing to
 
 - A cache hit is not a new provider observation. Keep its original time across machines, and do not let a current reader
   failure be hidden by a previously fresh sample when deciding cautious panic rescue (t317).
+- A remote observation may occur after a polling round starts. Compare it with the local receipt time, not the round's
+  start, or a healthy bridge can be rejected on every normal poll (t317).
 
 ## Browser setup can exhaust CI before tests run (t331)
 

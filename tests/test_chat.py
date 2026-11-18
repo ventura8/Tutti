@@ -450,6 +450,65 @@ class Api(ApiBase):
                                  {'id': 'm123456789abc', 'role': 'assistant', 'text': '', 'status': 'streaming'})
         self.assertEqual(engine.conversation(VIEWER, conversation['id'])['messages'][-1]['status'], 'streaming')
 
+    def test_cursor_follow_requires_the_job_owner_and_resumes_missing_events(self):
+        engine = self.engine({})
+        engine.replay_enabled = True
+        conversation = engine.store.create(VIEWER['sub'])
+        message = {'id': 'm1', 'role': 'assistant', 'text': '', 'status': 'streaming'}
+        engine.store.put_message(VIEWER['sub'], conversation['id'], message)
+        job = chatrun.Job(VIEWER['sub'], conversation['id'], message, replay_enabled=True)
+        engine.jobs['m1'] = job
+        job.emit('delta', text='a')
+        job.emit('delta', text='b')
+        job.emit('done', message={'id': 'm1'})
+        request = {'action': 'follow_cursor', 'message': 'm1', 'generation': job.replay.generation, 'after': 1}
+        self.assertEqual(chatrun.post(engine, ADMIN, request)[0], 404)
+        code, stream = chatrun.post(engine, VIEWER, request)
+        self.assertEqual(code, 200)
+        events = [json.loads(line) for line in stream.lines()]
+        self.assertEqual([(e['type'], e['replay_seq']) for e in events], [('delta', 2), ('done', 3)])
+        self.assertEqual(events[0]['text'], 'b')
+        request['generation'] = 'wrong'
+        self.assertEqual(chatrun.post(engine, VIEWER, request)[0], 409)
+        self.assertEqual(chatrun.post(engine, ADMIN, request)[0], 404)
+
+    def test_cursor_follow_is_off_by_default_and_rejects_deleted_conversations(self):
+        engine = self.engine({})
+        with mock.patch.object(engine, '_answer'):
+            job = engine.send(VIEWER, None, 'hello')
+        self.assertIsNone(job.replay)
+        request = {'action': 'follow_cursor', 'message': job.msg['id'], 'generation': 'anything', 'after': 0}
+        self.assertEqual(chatrun.post(engine, VIEWER, request)[0], 404)
+        chatrun.close_owner(job.owner_fd)
+        engine.replay_enabled = True
+        conversation = engine.store.create(VIEWER['sub'])
+        message = {'id': 'm1', 'role': 'assistant', 'text': '', 'status': 'streaming'}
+        engine.store.put_message(VIEWER['sub'], conversation['id'], message)
+        tracked = chatrun.Job(VIEWER['sub'], conversation['id'], message, replay_enabled=True)
+        engine.jobs['m1'] = tracked
+        tracked.emit('delta', text='secret')
+        request = {'action': 'follow_cursor', 'message': 'm1', 'generation': tracked.replay.generation, 'after': 0}
+        engine.store.clear(VIEWER['sub'])
+        self.assertEqual(chatrun.post(engine, VIEWER, request)[0], 404)
+
+    def test_cursor_follow_refuses_gaps_and_unreplayable_events(self):
+        engine = self.engine({})
+        engine.replay_enabled = True
+        conversation = engine.store.create(VIEWER['sub'])
+        message = {'id': 'm1', 'role': 'assistant', 'text': '', 'status': 'streaming'}
+        engine.store.put_message(VIEWER['sub'], conversation['id'], message)
+        job = chatrun.Job(VIEWER['sub'], conversation['id'], message, replay_enabled=True)
+        job.replay = chatrun.replay.ReplayLog(limit=1)
+        engine.jobs['m1'] = job
+        job.emit('delta', text='a')
+        job.emit('delta', text='b')
+        request = {'action': 'follow_cursor', 'message': 'm1', 'generation': job.replay.generation, 'after': 0}
+        self.assertEqual(chatrun.post(engine, VIEWER, request)[0], 409)
+        job.emit('delta', text='x' * 70000)
+        request['after'] = 2
+        self.assertEqual(chatrun.post(engine, VIEWER, request)[0], 409)
+        self.assertEqual(job.events[-1]['text'], 'x' * 70000)   # original stream still works
+
     def test_failed_thread_start_releases_answer_owner(self):
         engine = self.engine({})
         with mock.patch('tutti.chatrun.threading.Thread.start', side_effect=RuntimeError('cannot start')):

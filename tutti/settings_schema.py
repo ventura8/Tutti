@@ -239,9 +239,9 @@ FIELDS = {
     'autopilot.enabled': field('Autopilot', 'Sends backlog tasks to accounts that are behind their pace.', 'switch'),
     'autopilot.accounts': field('Trigger accounts', 'Their pace starts the autopilot.', 'list', choices_from='accounts'),
     'autopilot.ladder': field('Retry ladder', 'Attempt n starts at step n; the last step repeats.', 'list', choices_from='accounts'),
-    'autopilot.max_parallel': field('Runs at once (cap)', 'Optional: the most autopilot runs at once. Empty: adaptive (account room, '
-                                    'free memory and cores, free gate slots).', 'number', min=1, unit='runs'),
-    'autopilot.parallel': field('Adaptive parallelism', 'run_gb, run_cpu, reserve_gb, gate_share, ceiling and the heavy-gate pattern '
+    'autopilot.max_parallel': field('Runs at once (cap)', 'The maximum autopilot runs at once. "auto" (the default): adaptive limit '
+                                    '(account room, free memory and cores, free gate slots). A number sets a hard cap.', 'text'),
+    'autopilot.parallel': field('Adaptive parallelism', 'run_gb, run_cpu, reserve_gb, gate_share and the heavy-gate pattern '
                                 '(docs/AUTOPILOT.md).', **YAML),
     'autopilot.no_progress': field('Park after', 'A task with the same failure this many times waits for you.', 'number', min=1,
                                unit='attempts'),

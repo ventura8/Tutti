@@ -1273,10 +1273,12 @@ def view(cfg, now=None):
     st = read_state(cfg)
     tasks = [task_view(cfg, t, now) for t in data['tasks'] if t['status'] not in ('done', 'dropped')]
     s = settings(cfg)
-    from . import fill
+    from . import fill, parallel
     return {'enabled': enabled(cfg), 'fill_room': fill.fill_on(cfg), 'fill': st.get('fill'), 'auto_review': fill.review_on(cfg),
             'configured': bool(s['repos']), 'accounts': s['accounts'], 'ladder': ladder(cfg),
-            'max_parallel': s.get('max_parallel'), 'parallel': st.get('parallel'), 'parallel_line': parallel_line(st),
+            'max_parallel': s.get('max_parallel'), 
+            'parallel_resolved': cfg.get('_parallel'),
+            'parallel_line': parallel.line(cfg.get('_parallel')),
             'last': st.get('last'), 'resolver': st.get('resolver'), 'events': st.get('events', [])[:10],
             'queue': [t for t in tasks if t['status'] == 'queued'], 'running': [t for t in tasks if t['status'] == 'running'],
             'review': [t for t in tasks if t['status'] == 'review'], 'parked': [t for t in tasks if t['status'] == 'needs-person']}

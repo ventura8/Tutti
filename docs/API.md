@@ -620,7 +620,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `autopilot.accounts` | list |  | Trigger accounts: Their pace starts the autopilot. | admin |
 | `autopilot.ladder` | list |  | Retry ladder: Attempt n starts at step n; the last step repeats. | admin |
 | `autopilot.max_parallel` | number (runs) |  | Runs at once (cap): Optional: the most autopilot runs at once. Empty: adaptive (account room, free memory and cores, free gate slots). | admin |
-| `autopilot.parallel` | yaml |  | Adaptive parallelism: run_gb, run_cpu, reserve_gb, gate_share, ceiling and the heavy-gate pattern (docs/AUTOPILOT.md). | admin |
+| `autopilot.parallel` | yaml |  | Adaptive parallelism: run_gb, run_cpu, reserve_gb, gate_share and the heavy-gate pattern (docs/AUTOPILOT.md). | admin |
 | `autopilot.no_progress` | number (attempts) | `3` | Park after: A task with the same failure this many times waits for you. | admin |
 | `depbots.enabled` | switch | `True` | Dependency bots and security: Dependabot and Cursor pull requests and the repos' vulnerability reports become tasks (docs/SECURITY-INTAKE.md). | admin |
 | `depbots.every_minutes` | number (minutes) | `360` | Read every: How often the autopilot reads them. | admin |

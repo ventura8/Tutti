@@ -176,7 +176,7 @@ How many runs go at once is measured every round, not fixed. The limit is the sm
   run (agy, cursor) is mostly cloud-model calls: light here, so many can go together;
 - **cpu**: the runs going plus the idle cores, `run_cpu` per run;
 - **gates**: the runs going plus the fit machines' free gate slots times `gate_share` (a run holds a slot only for its gate);
-- `max_parallel` when the owner sets it (Settings: an optional cap), and `ceiling`.
+- `max_parallel` when the owner sets it (Settings: an optional cap).
 
 It rises with free capacity and drops under memory pressure. The dashboard's Autopilot line says
 `running N of M possible: limited by <bound> (<why>)`. Every machine's probe now reports its free memory too (`mem_free_gb`).
@@ -188,7 +188,7 @@ and any gate while this machine is under `reserve_gb` free. With no other machin
 ```yaml
 autopilot:
   # max_parallel: 4                    # optional cap; empty = adaptive
-  parallel: {run_gb: 0.6, run_cpu: 0.25, reserve_gb: 4, gate_share: 3, ceiling: 12}
+  parallel: {run_gb: 0.6, run_cpu: 0.25, reserve_gb: 4, gate_share: 3}
 ```
 
 **Second opinions.** A task that failed twice or more gets one scout question (docs/SCOUTS.md) about its latest failure; its

@@ -568,7 +568,10 @@ def _autopilot_errors(cfg):
     errs += parallel.errors(ap.get('parallel'))
     for key in ('max_parallel', 'no_progress', 'max_attempts'):
         v = ap.get(key)
-        if key == 'max_parallel' and v is None:   # optional: the limit is adaptive (tutti/parallel.py); a number caps it
+        if key == 'max_parallel':
+            if v is None or v == 'auto' or (isinstance(v, int) and v >= 1):
+                continue
+            errs.append(f'autopilot.{key} is {v!r}: use a whole number of 1 or more, or "auto"')
             continue
         if isinstance(v, bool) or not isinstance(v, int) or v < 1:
             errs.append(f'autopilot.{key} is {v!r}: use a whole number of 1 or more')

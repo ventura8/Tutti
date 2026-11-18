@@ -108,7 +108,7 @@ class Parallel(unittest.TestCase):
     def test_the_limit_rises_with_free_capacity_and_drops_under_memory_pressure(self):
         roomy = parallel.limit(self.CFG, 2, 40, {'mem_gb': 12.0, 'cores': 16, 'load': 2.0}, 5)
         tight = parallel.limit(self.CFG, 2, 40, {'mem_gb': 4.5, 'cores': 16, 'load': 2.0}, 5)
-        self.assertEqual(roomy['limit'], 12)                       # the ceiling: memory would hold 13 more
+        self.assertEqual(roomy['limit'], 12)                       # the adaptive limit (memory would hold 13 more)
         self.assertGreater(roomy['limit'], tight['limit'])
         self.assertEqual((tight['limit'], tight['by']), (2, 'memory'))   # 0.5 GB above the 4 GB kept: no new run
         self.assertIn('running 2 of 2 possible: limited by memory', parallel.line(tight))

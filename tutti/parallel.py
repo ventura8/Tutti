@@ -5,7 +5,7 @@
   - cpu: the runs going plus the idle cores, `run_cpu` per run;
   - gates: the runs going plus the free gate slots of the fit machines times `gate_share` (a run holds a slot only for its
     gate, a small part of its time);
-  - `autopilot.max_parallel`, an optional cap the owner sets in Settings, and `ceiling`.
+  - `autopilot.max_parallel`, an optional cap the owner sets in Settings.
 Re-measured every round, so it rises with free capacity and drops under memory pressure.
 
 A heavy gate (lint, tsc, tests: `heavy`) of a repo whose checks run `local` goes to the routed machines instead
@@ -14,11 +14,11 @@ out-of-memory. Pure but for `host()`."""
 import os
 import re
 
-DEFAULTS = {'run_gb': 0.6, 'run_cpu': 0.25, 'reserve_gb': 4.0, 'gate_share': 3, 'ceiling': 12,
+DEFAULTS = {'run_gb': 0.6, 'run_cpu': 0.25, 'reserve_gb': 4.0, 'gate_share': 3,
             'heavy': r'eslint|\btsc\b|vitest|jest|pytest|playwright|PIPELINE_STAGE|npm (run )?(lint|test)|\bmypy\b|gradle|'
                      r'dotnet (build|test)'}
 UNKNOWN_MEMORY_RUNS = 2
-NUMBERS = ('run_gb', 'run_cpu', 'reserve_gb', 'gate_share', 'ceiling')
+NUMBERS = ('run_gb', 'run_cpu', 'reserve_gb', 'gate_share')
 
 
 def settings(cfg):
@@ -61,16 +61,16 @@ def host(meminfo='/proc/meminfo'):
 def bounds(cfg, running, room, here, gate_slots):
     """{name: (runs at most, why)} of every bound that is known."""
     s = settings(cfg)
-    out = {'ceiling': (int(s['ceiling']), f'autopilot.parallel.ceiling {s["ceiling"]:g}')}
+    out = {}
     cap = (cfg.get('autopilot') or {}).get('max_parallel')
-    if cap:
+    if cap and cap != 'auto':
         out['cap'] = (int(cap), f'max_parallel {cap} (Settings)')
     if room is not None:
         out['accounts'] = (running + max(0, int(room)), f'room in the accounts for {max(0, int(room))} more')
     if here and here.get('mem_gb') is not None:
         more = max(0, int((here['mem_gb'] - s['reserve_gb']) // s['run_gb']))
         out['memory'] = (running + more, f'{here["mem_gb"]:.1f} GB free here, {s["reserve_gb"]:g} GB kept')
-    elif not cap:   # free memory unknown (no /proc/meminfo) and no cap set: stay low rather than guess
+    elif not cap or cap == 'auto':   # free memory unknown (no /proc/meminfo) and no cap set: stay low rather than guess
         out['memory'] = (max(running, UNKNOWN_MEMORY_RUNS), f'free memory unknown here: at most {UNKNOWN_MEMORY_RUNS} runs')
     if here and here.get('load') is not None:
         more = max(0, int((here['cores'] - here['load']) // s['run_cpu']))
@@ -85,20 +85,42 @@ def limit(cfg, running, room, here, gate_slots):
     b = bounds(cfg, running, room, here, gate_slots)
     by = min(b, key=lambda k: b[k][0])
     n = max(0, b[by][0])
+    
+    # Identify the next binding constraint
+    sorted_bounds = sorted(b.items(), key=lambda item: item[1][0])
+    next_by = None
+    if len(sorted_bounds) > 1:
+        next_by = sorted_bounds[1][0]
+    
     others = max(0, min(v[0] for k, v in b.items() if k != 'accounts'))
-    return {'limit': n, 'others': others, 'running': running, 'by': by, 'why': b[by][1], 'bounds': {k: v[0] for k, v in b.items()}}
+    return {
+        'limit': n, 
+        'others': others, 
+        'running': running, 
+        'by': by, 
+        'why': b[by][1], 
+        'next_by': next_by, 
+        'next_why': b[next_by][1] if next_by else None,
+        'bounds': {k: v[0] for k, v in b.items()}
+    }
 
 
 def line(p):
     """The dashboard's line: running N of M possible: limited by <reason>."""
     if not p:
         return 'not measured yet'
-    return f'running {p["running"]} of {p["limit"]} possible: limited by {p["by"]} ({p["why"]})'
+    res = f'running {p["running"]} of {p["limit"]} possible: limited by {p["by"]} ({p["why"]})'
+    if p.get('next_by'):
+        res += f', next: {p["next_by"]} ({p["next_why"]})'
+    return res
 
 
 def current(cfg, fallback=2):
     """The limit the last round measured, for the fill and the household (else max_parallel, else `fallback`)."""
-    return cfg.get('_parallel_limit') or (cfg.get('autopilot') or {}).get('max_parallel') or fallback
+    if cfg.get('_parallel_limit'):
+        return cfg['_parallel_limit']
+    mp = (cfg.get('autopilot') or {}).get('max_parallel')
+    return mp if mp and mp != 'auto' else fallback
 
 
 def check_where(cfg, where, check, here):

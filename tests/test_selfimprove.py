@@ -301,8 +301,8 @@ class Rounds(Base):
                          page([], 'false', None), page([], True, None),
                          {**page([], False, None), 'errors': [{'message': 'partial response'}]}):
             with self.subTest(response=response):
-                def gh(args, **_kw):
-                    data = pr() if args[1:3] == ['pr', 'view'] else response
+                def gh(args, *, reply=response, **_kw):
+                    data = pr() if args[1:3] == ['pr', 'view'] else reply
                     return SimpleNamespace(returncode=0, stdout=json.dumps(data), stderr='')
                 self.assertEqual(selfimprove.pr_state('octo/tutti', 7, gh)['open_threads'], 1)
         cyclic = page([], True, 'same')

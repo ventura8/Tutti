@@ -2,7 +2,6 @@
   - accounts: the runs going plus the room the ladder's accounts have now (the planner's tasks);
   - memory: the runs going plus what this machine's free memory holds above `reserve_gb`, `run_gb` per run (an agent run
     is mostly cloud-model calls: its CLI and worktree are light here; its gate goes to a machine with room, below);
-  - cpu: the runs going plus the idle cores, `run_cpu` per run;
   - gates: the runs going plus the free gate slots of the fit machines times `gate_share` (a run holds a slot only for its
     gate, a small part of its time);
   - `autopilot.max_parallel`, an optional cap the owner sets in Settings, and `ceiling`.
@@ -72,9 +71,6 @@ def bounds(cfg, running, room, here, gate_slots):
         out['memory'] = (running + more, f'{here["mem_gb"]:.1f} GB free here, {s["reserve_gb"]:g} GB kept')
     elif not cap:   # free memory unknown (no /proc/meminfo) and no cap set: stay low rather than guess
         out['memory'] = (max(running, UNKNOWN_MEMORY_RUNS), f'free memory unknown here: at most {UNKNOWN_MEMORY_RUNS} runs')
-    if here and here.get('load') is not None:
-        more = max(0, int((here['cores'] - here['load']) // s['run_cpu']))
-        out['cpu'] = (running + more, f'load {here["load"]:.1f} of {here["cores"]} cores')
     if gate_slots is not None:
         out['gates'] = (running + int(gate_slots * s['gate_share']), f'{gate_slots} free gate slot(s) on the machines')
     return out

@@ -240,9 +240,9 @@ FIELDS = {
     'autopilot.accounts': field('Trigger accounts', 'Their pace starts the autopilot.', 'list', choices_from='accounts'),
     'autopilot.ladder': field('Retry ladder', 'Attempt n starts at step n; the last step repeats.', 'list', choices_from='accounts'),
     'autopilot.max_parallel': field('Runs at once (cap)', 'Optional: the most autopilot runs at once. Empty: adaptive (account room, '
-                                    'free memory and cores, free gate slots).', 'number', min=1, unit='runs'),
-    'autopilot.parallel': field('Adaptive parallelism', 'run_gb, run_cpu, reserve_gb, gate_share, ceiling and the heavy-gate pattern '
-                                '(docs/AUTOPILOT.md).', **YAML),
+                                    'free memory, free gate slots).', 'number', min=1, unit='runs'),
+    'autopilot.parallel': field('Adaptive parallelism', 'run_gb, run_cpu (legacy, unused), reserve_gb, gate_share, ceiling and the '
+                                'heavy-gate pattern (docs/AUTOPILOT.md).', **YAML),
     'autopilot.no_progress': field('Park after', 'A task with the same failure this many times waits for you.', 'number', min=1,
                                unit='attempts'),
     'depbots.enabled': field('Dependency bots and security', 'Dependabot and Cursor pull requests and the repos\' vulnerability '

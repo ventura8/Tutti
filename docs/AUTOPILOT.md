@@ -174,12 +174,13 @@ How many runs go at once is measured every round, not fixed. The limit is the sm
 - **accounts**: the runs going plus the room the ladder's accounts have now (the planner's tasks);
 - **memory**: the runs going plus this machine's free memory (MemAvailable) above `reserve_gb`, `run_gb` per run. An agent
   run (agy, cursor) is mostly cloud-model calls: light here, so many can go together;
-- **cpu**: the runs going plus the idle cores, `run_cpu` per run;
 - **gates**: the runs going plus the fit machines' free gate slots times `gate_share` (a run holds a slot only for its gate);
 - `max_parallel` when the owner sets it (Settings: an optional cap), and `ceiling`.
 
 It rises with free capacity and drops under memory pressure. The dashboard's Autopilot line says
 `running N of M possible: limited by <bound> (<why>)`. Every machine's probe now reports its free memory too (`mem_free_gb`).
+Online workers do not use the host CPU load as a limit; local model workers remain subject to their machine's governor.
+The legacy `run_cpu` setting is accepted but has no effect on the online limit.
 
 **Heavy gates leave the laptop.** A repo whose checks run `local` sends a heavy gate (`parallel.heavy`: ESLint, tsc, Vitest,
 Jest, pytest, Playwright, mypy, a quality stage, Gradle, dotnet) to the routed machines (`--check-where route`: the NUC first),

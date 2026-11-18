@@ -382,7 +382,7 @@ def quiet_stop(cfg, now):
 
 def capacity_now(cfg, running, machines, now, room=None):
     """((online runs that may start, runs of any kind that may start), None) or ((0, 0), {state, reason}) when nothing may:
-    quiet hours, or the adaptive limit (tutti/parallel.py: the accounts' `room`, this machine's free memory and cores, the
+    quiet hours, or the adaptive limit (tutti/parallel.py: the accounts' `room`, this machine's free memory, the
     machines' free gate slots, max_parallel when set) is reached. A local model's run has no quota: it counts only against
     the machines' gate slots, not the online limit. cfg['_parallel'] keeps the measured limit for the dashboard."""
     from . import parallel

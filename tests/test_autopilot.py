@@ -550,5 +550,24 @@ class LocalShareLoad(unittest.TestCase):
         self.assertIsNone(self.share({'cores': 16, 'load': None}, 6)['load'])
         self.assertEqual(self.share({'cores': 16, 'load': 3.0}, None), {'cores': 16, 'load': 3.0})
 
+
+class OnlineCapacity(Base):
+    def test_busy_host_uses_another_free_machine_and_reports_the_actual_limit(self):
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'], max_parallel=None)
+        cfg['_host'] = {'mem_gb': 30.0, 'cores': 1, 'load': 9.1}
+        machines = [{'name': 'laptop', 'status': 'paused', 'free': 0, 'reason': 'owner present'}, *FREE]
+        free, stop = autopilot.capacity_now(cfg, [], machines, None, 51)
+        self.assertIsNone(stop)
+        self.assertEqual(free, (6, 6))
+        self.assertEqual((cfg['_parallel']['limit'], cfg['_parallel']['by']), (6, 'gates'))
+        self.assertNotIn('cpu', cfg['_parallel']['bounds'])
+        self.assertIn('limited by gates', autopilot.parallel_line({'parallel': cfg['_parallel']}))
+        states = {'agy-gemini': account('agy-gemini', 'behind', 51)}
+        p = autopilot.plan(cfg, [task('t1')], states, machines, True)
+        self.assertEqual((p['state'], p['dispatch']), ('dispatching', [('t1', 'agy-gemini')]))
+        free, stop = autopilot.capacity_now(cfg, [], machines[:1], None, 51)
+        self.assertEqual(free, (0, 0))
+        self.assertIn('no machine has a free slot', stop['reason'])
+
 if __name__ == '__main__':
     unittest.main()

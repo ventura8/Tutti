@@ -125,6 +125,14 @@ class Parallel(unittest.TestCase):
         capped = parallel.limit({**self.CFG, 'autopilot': {'max_parallel': 4}}, 1, 40, {'mem_gb': 30.0, 'cores': 16, 'load': 0.0}, 9)
         self.assertEqual((capped['limit'], capped['by']), (4, 'cap'))
 
+    def test_online_capacity_ignores_busy_host_cpu_but_respects_gate_slots(self):
+        here = {'mem_gb': 30.0, 'cores': 1, 'load': 9.1}
+        free = parallel.limit(self.CFG, 0, 51, here, 2)
+        blocked = parallel.limit(self.CFG, 0, 51, here, 0)
+        self.assertEqual((free['limit'], free['by']), (6, 'gates'))
+        self.assertIn('running 0 of 6 possible: limited by gates', parallel.line(free))
+        self.assertEqual((blocked['limit'], blocked['by']), (0, 'gates'))
+
     def test_heavy_gates_go_to_the_nuc_and_light_ones_stay_while_memory_lasts(self):
         here = {'mem_gb': 10.0}
         self.assertEqual(parallel.check_where(self.CFG, 'local', 'npx eslint . && npx tsc', here), 'route')

@@ -228,7 +228,8 @@ class SaveTest(Base):
         self.c.snapshot = lambda: {}
         engine = chatrun.engine_of(self.c)
         pending, ran = [], []
-        timer = lambda _delay, fn: SimpleNamespace(start=lambda: pending.append(fn))
+        def timer(_delay, fn):
+            return SimpleNamespace(start=lambda: pending.append(fn))
         self.assertEqual(dashboard.restart_now(self.c, b'{}', execv=lambda *a: ran.append(a), timer=timer)[0], 200)
         engine.jobs['m'] = chatrun.Job('user', 'c', {'id': 'm'})
         pending[0]()

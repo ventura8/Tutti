@@ -1174,6 +1174,28 @@ def engine_of(collector):
         return eng
 
 
+def store_has_streaming(path):
+    """Read one regular Chat store without following links or blocking on a FIFO."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, encoding='utf8') as f:
+            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                raise ValueError('not a regular file')
+            data = json.load(f)
+        conversations = data['conversations']
+        if not isinstance(conversations, list):
+            raise ValueError('conversations is not a list')
+        for conversation in conversations:
+            messages = conversation['messages']
+            if not isinstance(messages, list):
+                raise ValueError('messages is not a list')
+            if any(message.get('status') == 'streaming' for message in messages):
+                return True
+        return False
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as e:
+        raise chat.ChatError(f'Chat state cannot be checked ({type(e).__name__}): repair it before restarting') from e
+
+
 def guard_chat_restart(engine, action):
     """Block new Chat sends while checking for live answers and executing the in-process restart."""
     if not getattr(os, 'O_NOFOLLOW', 0) or not auth.fcntl:
@@ -1186,26 +1208,8 @@ def guard_chat_restart(engine, action):
         except OSError as e:
             raise chat.ChatError(f'Chat state cannot be listed ({type(e).__name__}): repair it before restarting') from e
         for name in names:
-            if not name.endswith('.json'):
-                continue
-            path = os.path.join(engine.store.folder, name)
-            try:
-                fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-                with os.fdopen(fd, encoding='utf8') as f:
-                    if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
-                        raise ValueError('not a regular file')
-                    data = json.load(f)
-                conversations = data['conversations']
-                if not isinstance(conversations, list):
-                    raise ValueError('conversations is not a list')
-                for conversation in conversations:
-                    messages = conversation['messages']
-                    if not isinstance(messages, list):
-                        raise ValueError('messages is not a list')
-                    if any(message.get('status') == 'streaming' for message in messages):
-                        raise chat.ChatError('Chat has an unfinished answer: open it and resolve it before restarting')
-            except (OSError, ValueError, TypeError, KeyError, AttributeError) as e:
-                raise chat.ChatError(f'Chat state cannot be checked ({type(e).__name__}): repair it before restarting') from e
+            if name.endswith('.json') and store_has_streaming(os.path.join(engine.store.folder, name)):
+                raise chat.ChatError('Chat has an unfinished answer: open it and resolve it before restarting')
         return action()
 
 

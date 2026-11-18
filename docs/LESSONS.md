@@ -499,3 +499,9 @@ owns the configured dashboard, so report unresolved health rather than killing o
 
 A process can outlive the dashboard that starts it. If the queue still says the task is queued when the dashboard dies,
 another round can launch a competing attempt. Persist the intended run first and hold ambiguous starts until a report.
+
+
+## A container label is a hint, not proof of completion (t309)
+
+A disconnected Docker client may leave a container or external writer alive, while `--rm` removes terminal containers.
+Use a per-run label to correlate observations, but never infer that a job stopped solely from an absent label.

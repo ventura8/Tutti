@@ -131,6 +131,32 @@ class RemoteTest(unittest.TestCase):
             self.assertIn(part, line)
         self.assertIn('mkdir -p $HOME && echo', line)
 
+    def test_run_label_is_validated_and_observation_never_proves_exit(self):
+        identity = 'a' * 32
+        line = remote.runner_command(self.cfg['machines']['a'], 'trk', 'true', identity=identity)
+        self.assertIn('--label io.tutti.run=' + identity, line)
+        bad = 'bad;$(touch /tmp/no)'
+        self.assertNotIn(bad, remote.runner_command(self.cfg['machines']['a'], 'trk', 'true', identity=bad))
+        row = {'id': 'a' * 64, 'identity': identity, 'running': True}
+        self.assertEqual(remote.container_observation(identity, [row], True)['state'], 'observed')
+        self.assertEqual(remote.container_observation(identity, [], True)['state'], 'unknown')
+        self.assertEqual(remote.container_observation(identity, [row], False)['state'], 'unknown')
+        self.assertEqual(remote.container_observation(identity, [row], 'false')['state'], 'unknown')
+        self.assertEqual(remote.container_observation(identity, [{**row, 'id': '../bad'}], True)['state'], 'unknown')
+        self.assertEqual(remote.container_observation(identity, [{**row, 'running': False}], True)['state'], 'unknown')
+
+    def test_run_propagates_identity_to_docker_without_running_a_machine(self):
+        machine = {**self.cfg['machines']['a'], 'transport': 'local'}
+        captured = []
+        def fake_sh(_machine, script):
+            captured.append(script)
+            return subprocess.CompletedProcess([], 0)
+        with mock.patch.dict(os.environ, {'TUTTI_RUN_IDENTITY': 'a' * 32}), \
+                mock.patch.object(remote, 'sh', side_effect=fake_sh), \
+                mock.patch.object(remote.worktree, 'docker_mount', return_value=''):
+            self.assertEqual(remote.run(self.cfg, machine, 'track', '/tmp/fake-tree', 'true'), 0)
+        self.assertIn('--label io.tutti.run=' + 'a' * 32, captured[0])
+
     def test_lock_files(self):
         m = self.cfg['machines']
         self.assertEqual(remote.lock_files(m['a']), ['/tmp/tutti-slot-1.lock', '/tmp/tutti-slot-2.lock'])

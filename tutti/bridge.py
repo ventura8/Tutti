@@ -246,7 +246,9 @@ def exec_run(cfg, client, run_id, args, out=None):
         out.write(text)
         out.flush()
     try:
-        rc, result = call(cfg, client, 'run', {'args': list(args), 'id': run_id}, on_chunk=chunk, timeout=6 * 3600)
+        rc, result = call(cfg, client, 'run', {'args': list(args), 'id': run_id,
+                                             'run_identity': os.environ.get('TUTTI_RUN_IDENTITY', '')},
+                          on_chunk=chunk, timeout=6 * 3600)
     except BridgeDown as e:
         chunk(f'tutti: {e}\n')
         return 255
@@ -474,8 +476,11 @@ class Client:
         if run_id is not None and not delegate.valid_id(run_id):
             return refuse(f'{run_id!r} is not a run id')
         argv = [sys.executable, remote.BIN, '--config', self.cfg['_path'], *tail]
+        identity = args.get('run_identity') or ''
+        if identity and not remote.valid_run_identity(identity):
+            return refuse('run identity must be 32 lowercase hexadecimal digits')
         p = self.popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True, errors='replace',
-                       env={**os.environ, 'TUTTI_LOCAL': '1', 'TUTTI_BACKGROUND': '1'})
+                       env={**os.environ, 'TUTTI_LOCAL': '1', 'TUTTI_BACKGROUND': '1', 'TUTTI_RUN_IDENTITY': identity})
         if run_id:
             self.running[run_id] = p.pid
         for line in p.stdout:

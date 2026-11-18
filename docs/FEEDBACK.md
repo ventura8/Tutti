@@ -59,3 +59,7 @@ of your project or secrets: describe the setup in general words.
 
 - **2026-11-18, t309:** Dashboard restarts left run ownership uncertain. Record an autopilot launch before starting it
   so a crash in the launch window does not silently start another worker on the same task.
+
+
+- **2026-11-18, t309:** Restarted jobs made it hard to identify which routed Docker checks belong to one autopilot run.
+  New runs carry a non-secret correlation label; remote ownership and safe retries still need verified containment.

@@ -339,3 +339,13 @@ dispatch: {enabled: true, idle_minutes: 5, lease_minutes: 10, retries: 2, quiet_
 ```
 
 The dashboard's switch is kept in `<state>/controls.json` (`settings.dispatch_enabled`) and overrides `enabled`.
+
+
+## Run correlation for Docker checks
+
+New autopilot runs receive a random, non-secret identity before spawning. A Docker-backed routed check carries this
+identity as `io.tutti.run`; bridge clients receive the same validated value. Multiple containers can share the label.
+It is a correlation hint, not an authentication or stop signal: arbitrary runner flags, network access, another user of
+the Docker daemon, escaped processes and removed containers mean that an absent label cannot prove that a run stopped.
+The observation helper reports matching running containers or `unknown`; it never authorizes a retry or kills a job.
+Legacy jobs have no label.

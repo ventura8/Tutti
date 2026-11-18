@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 
 from . import (
@@ -909,7 +910,7 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, run
         # TUTTI_BACKGROUND: its runs on a household's shared machines are background demand (docs/HOUSEHOLD.md)
         try:
             child = spawn(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True,
-                          env={**os.environ, 'TUTTI_BACKGROUND': '1'})
+                          env={**os.environ, 'TUTTI_BACKGROUND': '1', 'TUTTI_RUN_IDENTITY': task.get('run_identity') or ''})
         except OSError as e:
             raise LaunchNotStarted(str(e)) from e
     with open(p['pid'], 'w', encoding='utf8') as f:
@@ -936,7 +937,7 @@ def reserve_launch(cfg, task, step_name, now):
     repo = settings(cfg)['repos'][task['repo']]
     task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now,
                 gates=(repo.get('check') or '').strip(), job_bridge=bridge.jobs_machine(cfg) or '',
-                boot=durable.boot_id(), launch_pending=True, choice=None)
+                boot=durable.boot_id(), launch_pending=True, run_identity=uuid.uuid4().hex, choice=None)
     task.pop('recovery_note', None)
     return run_id
 

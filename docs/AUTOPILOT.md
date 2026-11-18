@@ -6,6 +6,10 @@ worktrees, with each task's own acceptance check. A pass becomes a branch (and a
 asks for one); with `auto_review` (on by default) the cheap reviewer reads it and it lands by the repo's `land` policy. With
 `fill_room` (on by default) free room never waits for a person to add tasks: the autopilot queues them from the repos.
 
+When autopilot is off, the active dashboard continues checkpointing existing work and notes reports that need verified
+execution-boundary termination. It does not dispatch, run the stuck watchdog, or classify and publish those reports.
+This preserves work but does not prove a remote process stopped or make an update safe; that proof is still needed (t404).
+
 ## The backlog
 
 One queue in `<state>/backlog.json`, a task per line of work:

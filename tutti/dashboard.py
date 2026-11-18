@@ -196,8 +196,9 @@ class Collector:
         return fresh
 
     def autopilot_tick(self):
-        """One autopilot round after each probe while it is on: the probes just taken decide (pace, slots, heat)."""
+        """Run autopilot when on; when off, checkpoint and conservatively hold reported running work."""
         if not autopilot.enabled(self.cfg):
+            autopilot.checkpoint_while_off(self.cfg, self.clock())
             return None
         # A round owns its measurements; other dashboard requests keep their shared config unchanged.
         round_cfg = {k: v for k, v in self.cfg.items() if k not in ('_host_raw', '_host', '_disk', '_parallel_limit')}

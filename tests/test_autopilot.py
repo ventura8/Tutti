@@ -770,6 +770,48 @@ class SurfaceTest(Base):
         self.assertEqual(p['reason'], autopilot.EMPTY)
         self.assertEqual(c.snapshot()['autopilot']['last']['reason'], autopilot.EMPTY)
 
+    def test_off_collector_checkpoints_and_holds_reports_without_starting_or_stopping_work(self):
+        cfg = self.cfg(enabled=False)
+        one, two, three = (task('t1', 'running'), task('t2', 'running'), task('t3', 'running'))
+        one['run'], two['run'], three['run'] = '1-1', '2-2', '3-3'
+        three['recovery_note'] = 'existing recovery state'
+        with backlog.locked(cfg) as data:
+            data['tasks'] = [one, two, three]
+        collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        with mock.patch('tutti.failover.may_write', return_value=True), \
+                mock.patch.object(autopilot, 'checkpoints') as checkpoint, \
+                mock.patch.object(delegate, 'load_report', side_effect=lambda _cfg, run: {'id': run} if run != '2-2' else None), \
+                mock.patch.object(autopilot, 'collect', side_effect=AssertionError('must not collect')), \
+                mock.patch.object(autopilot, 'stuck', side_effect=AssertionError('must not stop a run')), \
+                mock.patch.object(autopilot, 'tick', side_effect=AssertionError('must not dispatch')), \
+                mock.patch('tutti.workq.tick', side_effect=AssertionError('must not start workq')):
+            self.assertIsNone(collector.autopilot_tick())
+        checkpoint.assert_called_once()
+        tasks = backlog.load(cfg)['tasks']
+        self.assertEqual([t['status'] for t in tasks], ['running', 'running', 'running'])
+        self.assertEqual(tasks[0]['recovery_note'], autopilot.PAUSED_REPORT_HOLD)
+        self.assertNotIn('recovery_note', tasks[1])
+        self.assertEqual(tasks[2]['recovery_note'], 'existing recovery state')
+
+    def test_off_collector_does_not_checkpoint_when_not_the_failover_writer(self):
+        cfg = self.cfg(enabled=False)
+        collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        for checks in ([False], [True, False]):
+            with self.subTest(checks=checks), mock.patch('tutti.failover.may_write', side_effect=checks), \
+                    mock.patch.object(autopilot, 'checkpoints') as checkpoint:
+                self.assertIsNone(collector.autopilot_tick())
+            checkpoint.assert_not_called()
+
+    def test_resuming_collection_clears_only_its_own_off_mode_note(self):
+        cfg = self.cfg()
+        running = task('t1', 'running')
+        running.update(run='1-1', recovery_note=autopilot.PAUSED_REPORT_HOLD)
+        with mock.patch.object(autopilot, 'finished', return_value=(False, None)), \
+                mock.patch.object(autopilot, 'stuck', return_value=''):
+            autopilot.collect(cfg, {'tasks': [running]}, 100, lambda _pid: True)
+        self.assertEqual(running['status'], 'running')
+        self.assertNotIn('recovery_note', running)
+
     def test_collector_remeasures_host_and_disk_on_each_autopilot_round(self):
         cfg = self.cfg()
         collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)

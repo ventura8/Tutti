@@ -1,5 +1,7 @@
 # Feedback log
 
+Turning autopilot off to drain work stopped its dashboard rounds and therefore stopped WIP checkpoints (t404).
+
 Routed checks must reject unsafe copy names before touching a lock or remote command (t403).
 Updating code must not make a running failover watchdog announce an intentional departure (t404).
 

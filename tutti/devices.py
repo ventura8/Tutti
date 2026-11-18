@@ -428,6 +428,13 @@ def devices_state(cfg, readings_fn):
             out.append({**device_state(d, {}), 'status': 'held', 'reason': held, 'owner_paused': d.get('paused')})
             continue
         out.append(device_state(d, readings_fn(cfg['machines'][d['machine']], d)))
+
+    from . import adbhost, adbpair
+    for m_name, m in cfg.get('machines', {}).items():
+        if m.get('transport') == 'android':
+            host = adbhost.Host(m_name, m)
+            for watch in adbpair.discover_watches(host, cfg.get('devices')):
+                out.append({**watch, 'status': 'ready', 'reason': 'ready: takes the next run', 'machine': m_name})
     return out
 
 

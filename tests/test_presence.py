@@ -281,6 +281,30 @@ while True:
 
 
 class NothingLost(Base):
+    def test_start_keeps_a_healthy_usage_log_and_does_not_resume_when_nothing_waits(self):
+        cfg = self.cfg()
+        os.makedirs(self.state, exist_ok=True)
+        log = os.path.join(self.state, 'usage.jsonl')
+        original = '{"at": "2026-11-14T00:00:00+00:00", "account": "x", "used": 1}\n'
+        with open(log, 'w', encoding='utf8') as f:
+            f.write(original)
+        resume = mock.Mock()
+        with mock.patch.object(presence, 'read', return_value={'resume': []}), mock.patch('tutti.telemetry.record'):
+            lines = recovery.on_start(cfg, resume=resume)
+        self.assertEqual(lines, [])
+        resume.assert_not_called()
+        with open(log, encoding='utf8') as f:
+            self.assertEqual(f.read(), original)
+
+    def test_start_resumes_waiting_jobs_once_and_reports_the_count(self):
+        cfg = self.cfg()
+        resume = mock.Mock(return_value=['run-1', 'run-2'])
+        with mock.patch.object(presence, 'read', return_value={'resume': ['run-1', 'run-2']}), \
+                mock.patch('tutti.telemetry.record'):
+            lines = recovery.on_start(cfg, resume=resume)
+        resume.assert_called_once_with(cfg)
+        self.assertEqual(lines, ['2 job(s) stopped by a shutdown started again'])
+
     def test_a_kill_at_random_points_during_writes_never_corrupts_state(self):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         path, log = os.path.join(self.tmp.name, 's.json'), os.path.join(self.tmp.name, 'u.jsonl')

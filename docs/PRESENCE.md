@@ -56,9 +56,10 @@ how often the target was here at each hour.
   work has waited for it `presence.wake_after_minutes` (10). Tutti sends at most one packet every 15 min. The packet goes
   to a private LAN broadcast address only, never a public one.
 
-## Nothing is lost
+## Recovery after interruption
 
-A hard power-off, with no warning, loses no Tutti work.
+Tutti repairs durable state on startup and resumes recorded work where it can. Work since the last successful checkpoint
+and external or remote effects can require verification; a local restart does not prove that remote processes stopped.
 
 - **Durable writes** (`tutti/durable.py`). These state files are written atomically: the backlog, dispatch's leases and
   queue, the autopilot's state, controls, the owner's profile, scouts and presence. Each is written to a temp file, then
@@ -68,23 +69,22 @@ A hard power-off, with no warning, loses no Tutti work.
   - removes the temp files of writers that died;
   - repairs the usage log;
   - starts again the jobs a shutdown stopped.
-- **Interrupted, not failed.** Every dispatch lease and autopilot attempt records the boot it started in
-  (`/proc/sys/kernel/random/boot_id`). A run that died with its host, in an earlier boot, is *interrupted*. It is queued
-  again from the same worktree with a note in its brief, and nothing is counted: no attempt, no retry, no no-progress
-  step. A run that crashed in the same boot still counts as before. A run whose process is still alive is never started a
-  second time.
+- **Interrupted, not failed.** Dispatch leases and autopilot attempts record the local boot (`/proc/sys/kernel/random/boot_id`).
+  Recovery can identify an earlier local boot and requeue an interrupted run from its worktree without counting an attempt.
+  A changed local boot does not prove a routed remote process or escaped descendant stopped; verify those effects before
+  relying on a retry as exclusive. Some ambiguous launches remain held instead of being requeued.
 - **WIP checkpoints.** Every `autopilot.checkpoint_minutes` (5), each running attempt is snapshotted through a separate
   git index, so the worker's files, HEAD and index are not touched. Untracked files are included. The snapshot is kept on
   `tutti/wip/<name>` and pushed to the project's remote as `refs/tutti/wip/<name>`, never to main, master or any other
   branch. To turn the push off for a repo, set `autopilot.repos.<r>.wip_push: false`; to push somewhere else, set
-  `wip_remote`. `<name>` comes from the task's title, so every member's computer uses the same name. A power-off loses at
-  most the time since the last checkpoint.
+  `wip_remote`. `<name>` comes from the task's title, so every member's computer uses the same name. A power-off can lose
+  work since the last successful checkpoint, and the remote copy may be older if its push failed.
 - **Reconcile.** Before an interrupted or moved attempt resumes, Tutti fetches the remote checkpoint and applies it to a
   worktree that lost its changes. The further-along copy wins, and a worktree that still holds changes is never
   overwritten.
 - **Auto-start.** `tutti setup` installs the dashboard as a systemd user service with `Restart=always`. It also runs
   `loginctl enable-linger`, so the service starts at boot before anyone logs in. On Windows, a scheduled task starts it at
-  logon. Once started, Tutti does the rest without you:
+  logon. Once started, Tutti attempts the following recovery steps:
   - re-joins the household at its first heartbeat;
   - reconnects its devices;
   - reads its queues and continues.

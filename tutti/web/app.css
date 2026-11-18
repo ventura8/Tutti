@@ -708,10 +708,13 @@ body[data-role='viewer'] :is(button, input, select, textarea, form, .btn, a.link
 .card[hidden], .banner[hidden], .btn[hidden], .me[hidden], .invite[hidden], .login__join[hidden], .login__error[hidden] { display: none; }
 .login__code { font-family: var(--mono); font-size: 1.6rem; letter-spacing: 0.15em; background: var(--surface-2); padding: 8px 12px; border-radius: var(--r-s); }
 .viewer-label { font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--warn-c); color: var(--on-surface); }
-body[data-view="household"] #my-schedule { display: none; }   /* My schedule lives in the Me view */
+
 #my-days label { display: inline-flex; gap: 4px; align-items: center; margin-right: 8px; }
+
 .users-view { max-width: 1100px; margin: 0 auto; display: grid; gap: var(--gap); }
 .users-view[hidden] { display: none; }   /* its display: grid must not undo [hidden]: the Users card showed on every view */
+.schedule-view { max-width: 1100px; margin: 0 auto; display: grid; gap: var(--gap); }
+.schedule-view[hidden] { display: none; }
 #users-tab[hidden] { display: none; }
 /* Report a problem (report.js) and the first-run consent banner */
 .report { max-width: min(640px, calc(100vw - 32px)); border: none; border-radius: var(--r-s); padding: 0; }

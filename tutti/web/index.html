@@ -39,6 +39,7 @@
     <script src="report.js?v=__TUTTI_VERSION__" defer></script>
     <script src="chat.js?v=__TUTTI_VERSION__" defer></script>
     <script src="chatctl.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="schedule.js?v=__TUTTI_VERSION__" defer></script>
     <script src="welcome.js?v=__TUTTI_VERSION__" defer></script>
     <script src="needs.js?v=__TUTTI_VERSION__" defer></script>
     <script src="github.js?v=__TUTTI_VERSION__" defer></script>
@@ -73,6 +74,7 @@
             <a class="tabs__tab" href="#chat" data-view="chat" aria-current="page">Chat</a>
             <a class="tabs__tab" href="#dashboard" data-view="dashboard">Dashboard</a>
             <a class="tabs__tab" href="#settings" data-view="settings">Settings</a>
+            <a class="tabs__tab" href="#schedule" data-view="schedule" id="schedule-tab" data-admin hidden>Schedule</a>
             <a class="tabs__tab" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
         </nav>
     </header>
@@ -423,23 +425,6 @@
                 <div id="insights" class="autopilot"></div>
             </section>
 
-            <!-- viewer-safe: every signed-in user changes their own schedule here (the server allows only their own) -->
-            <section class="card span-full view-ok" id="my-schedule" aria-labelledby="my-schedule-h" hidden>
-                <header class="card__head">
-                    <h2 id="my-schedule-h">My schedule</h2>
-                    <p class="card__meta">Your working days and hours, and whether you are away: your own main agent is paced by them.</p>
-                </header>
-                <form id="my-schedule-form" class="row">
-                    <fieldset class="row__stats" id="my-days"><legend class="row__note">Working days</legend></fieldset>
-                    <label class="row__stats">Hours (local, HH-HH) <input id="my-window" type="text" pattern="\d{2}-\d{2}" size="6" required></label>
-                    <label class="row__stats">Hours a day <input id="my-hours" type="number" min="1" max="24" step="1" required></label>
-                    <label class="row__stats">Mode <select id="my-mode"><option value="auto">Auto</option><option value="active">Active</option>
-                        <option value="away">Away today</option><option value="vacation">On vacation until…</option></select></label>
-                    <label class="row__stats" id="my-until-label" hidden>Until <input id="my-until" type="date"></label>
-                    <span class="row__stats"><button class="btn btn--filled" type="submit">Save my schedule</button></span>
-                    <p class="row__note" id="my-schedule-note" aria-live="polite"></p>
-                </form>
-            </section>
 
 
             <!-- viewer-safe: each user's own questions and when they reach them (needs.js, docs/NEEDS.md) -->
@@ -501,6 +486,25 @@
       <!-- Every setting of tutti.config.yaml, drawn by settings.js from GET /api/settings; sections may later be per user. -->
       <!-- The admin-only Users tab: people, roles, invites and the audit log (users.js); the household's per-user
            Manage sections (consumption, schedule, main agent and machine, help actions) go into #users-manage. -->
+      <div id="schedule-view" class="schedule-view" hidden>
+            <section class="card span-full" id="my-schedule" aria-labelledby="my-schedule-h">
+                <header class="card__head">
+                    <h2 id="my-schedule-h">My schedule</h2>
+                    <p class="card__meta">Your working days and hours, and whether you are away: your own main agent is paced by them.</p>
+                </header>
+                <form id="my-schedule-form" class="row">
+                    <fieldset class="row__stats" id="my-days"><legend class="row__note">Working days</legend></fieldset>
+                    <label class="row__stats">Hours (local, HH-HH) <input id="my-window" type="text" pattern="\d{2}-\d{2}" size="6" required></label>
+                    <label class="row__stats">Hours a day <input id="my-hours" type="number" min="1" max="24" step="1" required></label>
+                    <label class="row__stats">Mode <select id="my-mode"><option value="auto">Auto</option><option value="active">Active</option>
+                        <option value="away">Away today</option><option value="vacation">On vacation until…</option></select></label>
+                    <label class="row__stats" id="my-until-label" hidden>Until <input id="my-until" type="date"></label>
+                    <span class="row__stats"><button class="btn btn--filled" type="submit">Save my schedule</button></span>
+                    <p class="row__note" id="my-schedule-note" aria-live="polite"></p>
+                </form>
+            </section>
+      </div>
+
       <div id="users-view" class="users-view" hidden>
             <section class="card span-full" id="users-card" aria-labelledby="users-h">
                 <header class="card__head">

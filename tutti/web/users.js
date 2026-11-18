@@ -107,34 +107,11 @@ async function loadUsers(me) {
     if (res?.ok) renderUsers(await res.json(), me);
 }
 
-const MY_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
-function fillSchedule(s) {
-    $('my-days').replaceChildren(el('legend', { class: 'row__note', text: 'Working days' }), ...MY_DAYS.map((d) => el('label', {},
-        el('input', { type: 'checkbox', value: d, checked: s.days.includes(d) }), ` ${d}`)));
-    $('my-window').value = s.window;
-    $('my-hours').value = s.hours;
-    const vacation = String(s.mode).startsWith('vacation-until-');
-    $('my-mode').value = vacation ? 'vacation' : s.mode;
-    $('my-until').value = vacation ? s.mode.slice('vacation-until-'.length) : '';
-    $('my-until-label').hidden = !vacation;
-}
 
-async function startSchedule() {
-    const res = await fetch('/api/me/schedule', { cache: 'no-store' }).catch(() => null);
-    if (!res?.ok) return;
-    fillSchedule((await res.json()).schedule);
-    $('my-schedule').hidden = false;
-    $('my-mode').addEventListener('change', () => { $('my-until-label').hidden = $('my-mode').value !== 'vacation'; });
-    $('my-schedule-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const days = [...$('my-days').querySelectorAll('input:checked')].map((i) => i.value);
-        const mode = $('my-mode').value === 'vacation' ? `vacation-until-${$('my-until').value}` : $('my-mode').value;
-        const answer = await authPost('/api/me/schedule', { days, window: $('my-window').value, hours: Number($('my-hours').value), mode },
-            'Your schedule was not saved.');
-        if (answer) { fillSchedule(answer.schedule); $('my-schedule-note').textContent = 'Saved.'; }
-    });
-}
+
+
+
 
 // The admin-only Users tab (#users): shown in place of the dashboard and Settings views. settings.js switches between those
 // two on every hash change; this runs after it and takes over for #users.
@@ -171,7 +148,7 @@ async function startAuth() {
     $('signout').addEventListener('click', async () => {
         if (await authPost('/api/auth/logout', {}, 'You were not signed out.')) location.replace('/');
     });
-    await startSchedule();
+
     if (me.role !== 'admin') return;
     $('users-tab').hidden = false;
     window.addEventListener('hashchange', showUsersView);

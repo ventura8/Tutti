@@ -9,6 +9,10 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ## Unreleased
 
+### Added
+
+- Persist P0–P5 task priorities and dispatch by the saved task priority (t320).
+
 ### Fixed
 
 - Hold mismatched identity-bound reports instead of publishing or retrying the wrong run (t309).

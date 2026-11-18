@@ -109,12 +109,14 @@ def queued(data, repos=None):
 
 
 def listing(data, show_all=False):
+    from . import priority
     rows = []
     for t in data['tasks']:
         if not show_all and t['status'] in ('done', 'dropped'):
             continue
         tries = len(t['attempts'])
-        rows.append(f'{t["id"]:5} {t["status"]:12} {t["repo"]:10} {t["size"]} {tries} attempt(s)  {t["title"][:90]}')
+        level = f'P{priority.task_level(t)}' if 'priority' in t else 'untriaged'
+        rows.append(f'{t["id"]:5} {t["status"]:12} {t["repo"]:10} {t["size"]} {tries} attempt(s)  {t["title"][:90]} [{level}]')
         if t.get('parked'):
             rows.append(f'      needs a person: {t["parked"]}')
     return '\n'.join(rows) or 'the backlog is empty: tutti backlog add <repo> "<title>" --check "<command>", or tutti backlog seed <repo>'

@@ -45,6 +45,14 @@ class Base(unittest.TestCase):
 
 
 class Sessions(Base):
+    def test_task_priority_is_saved_and_invalid_values_leave_it_unchanged(self):
+        cfg = self.cfg()
+        self.assertEqual(self.cli(cfg, 'backlog', 'add', 'app', 'Fix it'), 0)
+        self.assertEqual(self.cli(cfg, 'backlog', 'priority', 't1', 'P0'), 0)
+        self.assertEqual(self.task(cfg)['priority'], 0)
+        self.assertEqual(self.cli(cfg, 'backlog', 'priority', 't1', 'P9'), 2)
+        self.assertEqual(self.task(cfg)['priority'], 0)
+
     def test_claim_note_release_and_done(self):
         cfg = self.cfg()
         self.assertEqual(self.cli(cfg, 'backlog', 'add', 'app', 'Fix the map legend'), 0)

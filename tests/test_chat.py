@@ -196,6 +196,13 @@ class Storage(unittest.TestCase):
         data = self.store.interrupted('a', set())
         m = self.store.conversation(data, c['id'])['messages'][0]
         self.assertEqual(m['status'], 'stopped')
+        self.assertIn('work may have started', m['note'])
+
+    def test_safe_answer_cut_off_by_restart_can_be_retried(self):
+        c = self.store.create('a')
+        self.store.put_message('a', c['id'], {'id': 'm1', 'role': 'assistant', 'text': 'half', 'status': 'streaming',
+                                              'retry_safety': 'safe'})
+        m = self.store.conversation(self.store.interrupted('a', set()), c['id'])['messages'][0]
         self.assertIn('Retry', m['note'])
 
     def test_tutti_move_carries_the_conversations(self):
@@ -604,6 +611,81 @@ class Api(ApiBase):
         conv = eng.store.get('local', cid)
         self.assertEqual([m['text'] for m in conv['messages']], ['hello again', 'A.'])
         self.assertTrue(conv['messages'][0]['edited'])
+
+    def test_interrupted_uncertain_and_legacy_answers_cannot_retry_or_truncate(self):
+        eng = self.engine({'pc': ['A.']})
+        for safety in ('uncertain', None):
+            cid = eng.store.create('local')['id']
+            eng.store.put_message('local', cid, {'id': 'u1', 'role': 'user', 'text': 'do work'})
+            msg = {'id': 'm1', 'role': 'assistant', 'text': '', 'status': 'streaming'}
+            if safety:
+                msg['retry_safety'] = safety
+            eng.store.put_message('local', cid, msg)
+            eng.conversation(ADMIN, cid)
+            code, answer = chatrun.post(eng, ADMIN, {'action': 'send', 'conversation': cid, 'retry': 'm1'})
+            self.assertNotEqual(code, 200)
+            self.assertIn('check its status', str(answer))
+            self.assertEqual([m['id'] for m in eng.store.get('local', cid)['messages']], ['u1', 'm1'])
+
+    def test_interrupted_safe_answer_can_retry(self):
+        eng = self.engine({'pc': ['A.']})
+        cid = eng.store.create('local')['id']
+        eng.store.put_message('local', cid, {'id': 'u1', 'role': 'user', 'text': 'hello'})
+        eng.store.put_message('local', cid, {'id': 'm1', 'role': 'assistant', 'text': '', 'status': 'streaming',
+                                             'retry_safety': 'safe'})
+        eng.conversation(ADMIN, cid)
+        code, stream = chatrun.post(eng, ADMIN, {'action': 'send', 'conversation': cid, 'retry': 'm1'})
+        self.assertEqual(code, 200)
+        self.assertEqual([json.loads(line) for line in stream.lines()][-1]['message']['text'], 'A.')
+
+    def test_mutating_dispatch_persists_uncertainty_first_and_fails_closed(self):
+        eng = self.engine({})
+        observed = []
+        def runner(path, argv):
+            data = eng.store.load('local')
+            observed.append(data['conversations'][0]['messages'][-1].get('retry_safety'))
+            return 0, 't60: added: work'
+        eng.runner = runner
+        events = self.send(eng, ADMIN, 'add task in map: work')
+        self.assertEqual(observed, ['uncertain'])
+        self.assertEqual(events[-1]['message']['retry_safety'], 'uncertain')
+
+        eng = self.engine({})
+        with mock.patch.object(eng, '_mark_uncertain', side_effect=OSError('store unavailable')):
+            events = self.send(eng, ADMIN, 'add task in map: work')
+        self.assertEqual(events[-1]['message']['status'], 'failed')
+        self.assertEqual(observed, ['uncertain'])
+        self.assertEqual(self.calls, [])
+
+    def test_cli_agent_is_marked_before_its_stream_starts(self):
+        eng = self.engine({})
+        self.snap['workers']['items'] = [{'name': 'claude', 'ready': True, 'account': 'claude'}]
+        def streams(cand, cfg, messages, cancel):
+            msg = eng.store.load('local')['conversations'][0]['messages'][-1]
+            self.assertEqual(msg['retry_safety'], 'uncertain')
+            yield 'Answer.'
+        eng.streams = streams
+        candidate = {'kind': 'cli', 'worker': 'claude', 'label': 'Claude', 'before': []}
+        with mock.patch('tutti.chat.candidates', return_value=([candidate], [])):
+            self.assertEqual(self.send(eng, ADMIN, 'explain this')[-1]['message']['retry_safety'], 'uncertain')
+
+        eng = self.engine({})
+        eng.streams = mock.Mock(side_effect=AssertionError('CLI must not start'))
+        with mock.patch('tutti.chat.candidates', return_value=([candidate], [])), \
+                mock.patch.object(eng, '_mark_uncertain', side_effect=OSError('store unavailable')):
+            self.send(eng, ADMIN, 'explain this')
+        eng.streams.assert_not_called()
+
+    def test_needs_and_welcome_mutations_are_marked_before_call(self):
+        from tutti import welcome
+        for prompt, module, name in (('q1 retry', needs, 'chat_reply'), ('What did I miss?', welcome, 'chat_answer')):
+            eng = self.engine({})
+            def reply(*_args, engine=eng):
+                self.assertEqual(engine.store.load('local')['conversations'][0]['messages'][-1]['retry_safety'], 'uncertain')
+                return 'Done.'
+            with mock.patch.object(module, name, side_effect=reply):
+                answer = self.send(eng, ADMIN, prompt)[-1]['message']
+            self.assertEqual(answer['retry_safety'], 'uncertain')
 
     def test_a_request_for_work_runs_the_mcp_call_with_a_card_undo_and_audit(self):
         eng = self.engine({})

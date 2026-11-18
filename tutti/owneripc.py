@@ -5,6 +5,7 @@ untrusted peers from obtaining or using the descriptor. This protocol is not a l
 """
 import json
 import struct
+import time
 
 MAX_FRAME = 65536
 
@@ -13,9 +14,14 @@ class ChannelError(ValueError):
     """A frame is invalid, too large or truncated; close this channel before retrying."""
 
 
-def _exact(sock, count, *, header=False):
+def _exact(sock, count, *, header=False, deadline=None):
     out = bytearray()
     while len(out) < count:
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('Owner channel frame deadline expired.')
+            sock.settimeout(remaining)
         chunk = sock.recv(count - len(out))
         if not chunk:
             if header and not out:
@@ -25,15 +31,21 @@ def _exact(sock, count, *, header=False):
     return bytes(out)
 
 
-def receive(sock):
-    """Read one bounded JSON frame; return None on clean EOF."""
-    head = _exact(sock, 4, header=True)
-    if head is None:
-        return None
-    size = struct.unpack('!I', head)[0]
-    if not 0 < size <= MAX_FRAME:
-        raise ChannelError('Owner channel frame size is invalid: close the channel and retry.')
-    body = _exact(sock, size)
+def receive(sock, frame_timeout=None):
+    """Read one bounded JSON frame; return None on clean EOF. A deadline bounds the whole frame, not each read."""
+    deadline = None if frame_timeout is None else time.monotonic() + frame_timeout
+    previous = sock.gettimeout() if deadline is not None else None
+    try:
+        head = _exact(sock, 4, header=True, deadline=deadline)
+        if head is None:
+            return None
+        size = struct.unpack('!I', head)[0]
+        if not 0 < size <= MAX_FRAME:
+            raise ChannelError('Owner channel frame size is invalid: close the channel and retry.')
+        body = _exact(sock, size, deadline=deadline)
+    finally:
+        if deadline is not None:
+            sock.settimeout(previous)
     try:
         value = json.loads(body)
     except (UnicodeError, ValueError, RecursionError) as e:

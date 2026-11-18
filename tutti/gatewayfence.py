@@ -42,6 +42,16 @@ class GatewayFence:
             self._active, self._identity = replacement, identity
             return True
 
+    def retire(self, expected):
+        """Fence an endpoint whose framing or receive state is no longer trustworthy."""
+        with self._lock:
+            if expected is not self._active:
+                return False
+            if self._identity is not None:
+                self._poisoned.add(self._identity)
+            self._active, self._identity = None, None
+            return True
+
     def dispatch(self, channel, request):
         """Only the active channel may receive one correlated reply; replacement waits for the reply or timeout."""
         with self._lock:

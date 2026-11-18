@@ -82,20 +82,40 @@ const started = () => fetch('/api/health', { cache: 'no-store' }).then((r) => r.
 
 // Reloads only once a new process answers (its start time changed), so a restart that failed is never taken for done.
 async function restartDashboard(button) {
+    const blocked = () => typeof busyEditing === 'function' && busyEditing();
+    const waitForInput = () => {
+        button.disabled = false;
+        button.textContent = 'Finish or save your work before restarting.';
+    };
+    if (blocked()) { waitForInput(); return; }
     button.disabled = true;
     button.textContent = 'Restarting…';
     const before = await started();
-    const res = await fetch('/api/restart', { method: 'POST', headers: headers(), body: '{}' }).catch(() => null);
-    if (!res?.ok) {
-        button.textContent = 'Not restarted: the dashboard refused it. Restart tutti dashboard yourself.';
-        return;
+    if (blocked()) { waitForInput(); return; }
+    window.tuttiRestarting = true;
+    let navigating = false;
+    try {
+        const res = await fetch('/api/restart', { method: 'POST', headers: headers(), body: '{}' }).catch(() => null);
+        if (!res?.ok) {
+            button.disabled = false;
+            button.textContent = 'Not restarted: the dashboard refused it. Restart tutti dashboard yourself.';
+            return;
+        }
+        for (let i = 0; i < 40; i += 1) {
+            await new Promise((r) => { setTimeout(r, 500); });
+            const now = await started();
+            if (now && now !== before) {
+                if (blocked()) { button.disabled = false; button.textContent = 'Restarted. Finish your work, then reload.'; return; }
+                location.reload();
+                navigating = true;
+                return;
+            }
+        }
+        button.disabled = false;
+        button.textContent = 'Not back after 20 s: start it again with tutti dashboard';
+    } finally {
+        if (!navigating) window.tuttiRestarting = false;
     }
-    for (let i = 0; i < 40; i += 1) {
-        await new Promise((r) => { setTimeout(r, 500); });
-        const now = await started();
-        if (now && now !== before) { location.reload(); return; }
-    }
-    button.textContent = 'Not back after 20 s: start it again with tutti dashboard';
 }
 
 // ---- controls

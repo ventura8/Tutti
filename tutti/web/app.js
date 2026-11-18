@@ -1495,7 +1495,7 @@ function newWorker(reg) {
 }
 
 function busyEditing() {
-    return ui.editing.size > 0 || Boolean(ui.formPending);   // a reading being typed or saved is never thrown away
+    return ui.editing.size > 0 || Boolean(ui.formPending) || (typeof chatRefreshBlocked === 'function' && chatRefreshBlocked());
 }
 
 function writeMarker(version) {

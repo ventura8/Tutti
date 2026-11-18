@@ -1086,6 +1086,109 @@ def js(expr):
 
 @unittest.skipUnless(shutil.which('node'), 'node is not installed')
 class PageLogic(unittest.TestCase):
+    def test_version_refresh_waits_for_chat_work_but_allows_idle_chat(self):
+        idle = "{streaming:null,editing:null,pending:[]}"
+        self.assertFalse(js(f"chatRefreshBlocked({idle}, '', 0, false)"))
+        for state, text, files, dialog in ((idle, "'draft'", 0, 'false'), (idle, "''", 1, 'false'),
+                                          (idle, "''", 0, 'true'), ("{pending:[{}]}", "''", 0, 'false'),
+                                          ("{streaming:{}}", "''", 0, 'false'), ("{editing:{}}", "''", 0, 'false'),
+                                          ("{readingFiles:1}", "''", 0, 'false'), ("{pickingFiles:true}", "''", 0, 'false'),
+                                          ("{conv:{messages:[{status:'unsent'}]}}", "''", 0, 'false'),
+                                          ("{conv:{messages:[{status:'sending'}]}}", "''", 0, 'false')):
+            self.assertTrue(js(f'chatRefreshBlocked({state}, {text}, {files}, {dialog})'))
+
+    def test_refresh_stays_blocked_while_file_read_is_pending_after_input_changes(self):
+        with open(os.path.join(WEB, 'chat.js'), encoding='utf8') as f:
+            src = f.read()
+        script = r'''
+global.document = {getElementById: () => ({textContent: ''})};
+drawPending = () => {};
+let finish;
+const file = {name: 'note.txt', type: 'text/plain', size: 4, text: () => new Promise((resolve) => {finish = resolve;})};
+const input = {files: [file], value: 'note.txt'};
+const work = onFiles({target: input});
+input.files = [];
+const during = chatRefreshBlocked(CHAT, '', 0, false);
+finish('note');
+work.then(() => {console.log(JSON.stringify({during, after: chatRefreshBlocked(CHAT, '', 0, false),
+    text: CHAT.pending[0].text, reading: CHAT.readingFiles}));});
+'''
+        out = subprocess.run(['node', '-e', src + '\n' + script], capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(out.stdout), {'during': True, 'after': True, 'text': 'note', 'reading': 0})
+
+    def test_refresh_stays_blocked_after_a_send_fails_before_the_message_is_saved(self):
+        with open(os.path.join(WEB, 'chat.js'), encoding='utf8') as f:
+            src = f.read()
+        script = r'''
+say = () => {};
+const local = {status: 'sending', text: 'unsent work'};
+CHAT.conv = {messages: [local]};
+failSend(local, null, new Error('offline'));
+console.log(JSON.stringify({status: local.status, text: local.text, blocked: chatRefreshBlocked(CHAT, '', 0, false)}));
+'''
+        out = subprocess.run(['node', '-e', src + '\n' + script], capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(out.stdout), {'status': 'unsent', 'text': 'unsent work', 'blocked': True})
+
+    def test_settings_restart_does_not_request_restart_during_active_work(self):
+        with open(os.path.join(WEB, 'settings.js'), encoding='utf8') as f:
+            src = f.read()
+        script = r'''
+global.window = {};
+global.document = {querySelector: () => null};
+function busyEditing() { return true; }
+let requests = 0;
+global.fetch = () => {requests += 1; throw new Error('unexpected request');};
+const button = {disabled: false, textContent: ''};
+restartDashboard(button).then(() => console.log(JSON.stringify({requests, message: button.textContent})));
+'''
+        out = subprocess.run(['node', '-e', src + '\n' + script], capture_output=True, text=True, check=True)
+        result = json.loads(out.stdout)
+        self.assertEqual(result['requests'], 0)
+        self.assertIn('Finish or save', result['message'])
+
+    def test_settings_restart_rechecks_input_before_post_and_before_reload(self):
+        with open(os.path.join(WEB, 'settings.js'), encoding='utf8') as f:
+            src = f.read()
+        script = r'''
+global.window = {};
+global.document = {querySelector: () => null};
+let busy = false, posts = 0, reloads = 0, release;
+function busyEditing() { return busy; }
+global.location = {reload: () => {reloads += 1;}};
+global.fetch = (url) => {
+    if (url === '/api/health') return new Promise((resolve) => {release = () => resolve({json: async () => ({started: 1})});});
+    posts += 1;
+    return Promise.resolve({ok: true});
+};
+const button = {disabled: false, textContent: ''};
+const first = restartDashboard(button);
+busy = true;
+release();
+first.then(async () => {
+    const firstResult = {posts, reloads, disabled: button.disabled};
+    busy = false;
+    let health = 0;
+    global.setTimeout = (fn) => fn();
+    global.fetch = async (url) => {
+        if (url === '/api/health') {
+            health += 1;
+            if (health > 1) busy = true;
+            return {json: async () => ({started: health})};
+        }
+        posts += 1;
+        return {ok: true};
+    };
+    await restartDashboard(button);
+    console.log(JSON.stringify({first: firstResult, posts, reloads, disabled: button.disabled,
+        restarting: window.tuttiRestarting, message: button.textContent}));
+});
+'''
+        out = subprocess.run(['node', '-e', src + '\n' + script], capture_output=True, text=True, check=True)
+        data = json.loads(out.stdout)
+        self.assertEqual(data['first'], {'posts': 0, 'reloads': 0, 'disabled': False})
+        self.assertEqual((data['posts'], data['reloads'], data['disabled'], data['restarting']), (1, 0, False, False))
+        self.assertIn('Finish your work', data['message'])
+
     def test_markdown_is_parsed_to_a_tree_with_no_markup_from_text(self):
         text = (r'Hi <script>alert(1)</script> **bold** [x](javascript:alert(1)) [ok](https://example.com)'
                 r'\n\n```sh\nrm -rf <b>\n```\n- one\n- `two`')

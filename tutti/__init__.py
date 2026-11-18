@@ -1,2 +1,2 @@
 """Tutti: one orchestrator, many workers, shared machines."""
-__version__ = '0.27.2'
+__version__ = '0.27.3'

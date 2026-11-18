@@ -14,6 +14,7 @@ class Probe:
     cores: int = 1
     yielding: bool = False
     temp: float | None = None     # the CPU: the hottest thermal zone in degrees C (a WSL machine: Windows' own reading), or None
+    throttling: bool | None = None # whether the CPU is throttled (e.g. Raspberry Pi)
     containers: list = field(default_factory=list)   # `<name> <running for>` of its running test containers
     gpu_temp: float | None = None  # the hottest GPU in degrees C (nvidia-smi, or an amdgpu/xe/i915 sensor), None when none
     temp_note: str = ''            # why the CPU temperature is not readable (a WSL machine whose Windows side has no sensor)
@@ -78,17 +79,18 @@ def without_gpu_text(parts):
 
 
 def parse_probe(text):
-    """The probe script prints `<free> <load> <cores> <yield 0|1> [<millidegrees> [<GPU degrees or ->]]`; anything else means
-    the machine did not answer. The temperatures are optional: an older probe (or a machine without sensors) leaves them out."""
+    """The probe script prints `<free> <load> <cores> <yield 0|1> [<millidegrees> [<GPU degrees or ->]] [<throttled 0|1|->]`;
+    anything else means the machine did not answer. The temperatures and throttling are optional: an older probe leaves them out."""
     parts = without_gpu_text((text or '').split())
     try:
         temp = parse_temp(parts[4] if len(parts) > 4 else None)
         gpu = parse_gpu_temp(parts[5] if len(parts) > 5 else None)
-        mem = float(parts[6]) if len(parts) > 6 and parts[6] != '-' else None
-        idle = float(parts[7]) if len(parts) > 7 and parts[7] != '-' else None
-        disk = float(parts[8]) if len(parts) > 8 and parts[8] != '-' else None
-        return Probe(True, int(parts[0]), float(parts[1]), max(1, int(parts[2])), parts[3] == '1', temp, gpu_temp=gpu, mem_gb=mem,
-                     idle_s=idle, disk_gb=disk)
+        throttled = parts[6] == '1' if len(parts) > 6 and parts[6] != '-' else None
+        mem = float(parts[7]) if len(parts) > 7 and parts[7] != '-' else None
+        idle = float(parts[8]) if len(parts) > 8 and parts[8] != '-' else None
+        disk = float(parts[9]) if len(parts) > 9 and parts[9] != '-' else None
+        return Probe(True, int(parts[0]), float(parts[1]), max(1, int(parts[2])), parts[3] == '1', temp,
+                     throttling=throttled, gpu_temp=gpu, mem_gb=mem, idle_s=idle, disk_gb=disk)
     except (IndexError, ValueError):
         return Probe()
 

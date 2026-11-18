@@ -16,6 +16,12 @@ class TempsTest(unittest.TestCase):
         self.assertEqual(routing.parse_probe('1 0.5 8 0 0 -').hottest(), (None, ''))
         self.assertIsNone(routing.parse_probe('1 0.5 8 0 0 junk').gpu_temp)
 
+    def test_the_probe_line_carries_throttling(self):
+        p = routing.parse_probe('1 0.5 8 0 71000 58 1')
+        self.assertEqual(p.throttling, True)
+        self.assertEqual(routing.parse_probe('1 0.5 8 0 0 - 0').throttling, False)
+        self.assertIsNone(routing.parse_probe('1 0.5 8 0 0 -').throttling)
+
     def test_a_hot_gpu_refuses_a_run(self):
         m = {'slots': 2, 'heat': {'cap_c': 85, 'stop_c': 98}}
         self.assertIn('too hot: GPU 99 C', routing.unfit(m, routing.parse_probe('2 0.1 8 0 40000 99')))

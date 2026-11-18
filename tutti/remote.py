@@ -341,6 +341,13 @@ def probe_script(machine):
             f'y=0; [ -e {y} ] && y=1; '
             # the hottest readable thermal zone in millidegrees (0 when none): routing caps or skips a hot machine
             't=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -n 1); '
+            'throttle="-"; '
+            'if command -v vcgencmd >/dev/null; then '
+            '  t_pi=$(vcgencmd measure_temp | tr -dc "0-9"); '
+            '  t_pi_m=$((t_pi * 1000)); '
+            '  [ "$t_pi_m" -gt "${t:-0}" ] && t=$t_pi_m; '
+            '  [ "$(vcgencmd get_throttled | cut -d= -f2)" != "0x0" ] && throttle=1 || throttle=0; '
+            'fi; '
             f'{GPU_TEMP}'
             f'{containers_script(machine)}'
             f'{termux_readings(machine)}'
@@ -351,7 +358,8 @@ def probe_script(machine):
             'm=$(awk \'/MemAvailable/{printf "%.1f", $2/1048576}\' /proc/meminfo 2>/dev/null); '
             f'{IDLE}'
             f'{DISK}'
-            f'echo "$n $(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo 0) $(nproc) $y ${{t:-0}} ${{g:--}} ${{m:--}} ${{i:--}} ${{d:--}}"')
+            f'echo "$n $(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo 0) $(nproc) $y '
+            f'${{t:-0}} ${{g:--}} $throttle ${{m:--}} ${{i:--}} ${{d:--}}"')
 
 
 # The least free space in GB on the disks work fills: the home disk and a WSL machine's Windows C: (/mnt/c); `-` when unreadable.

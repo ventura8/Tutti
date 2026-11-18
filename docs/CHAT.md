@@ -13,6 +13,15 @@ engines safe: answer ownership is still in memory, and an older process does not
 starting a new one. On other platforms Chat keeps its single-process behavior; cross-process safety is not provided. Undo
 still has only in-process execution protection and must not be run concurrently from multiple engines.
 
+Cursor CLI partial events are opt-in: set `workers.<name>.chat_output_format: cursor-stream-json` and include
+`--output-format stream-json --stream-partial-output` in that worker's command or Chat arguments. Chat decodes Cursor's
+documented assistant text deltas and shows generic tool start/completion notes without tool arguments or results. Unknown
+events are ignored, and malformed events or a missing successful terminal result fail the answer; plain-text workers keep
+their existing output. This decoding does not restrict tools the Cursor process itself can run: its configured mode and CLI
+permissions still govern that. It does not enable agent mode or verify provider account identity. See [Cursor's output format
+reference](https://docs.cursor.com/en/cli/reference/output-format). Stop or timeout terminates the CLI process but does not
+guarantee its native tool descendants or actions have stopped; inspect the work before retrying an incomplete answer.
+
 The dashboard opens on **Chat**, the first tab, for every signed-in user (viewers too). Ask about the household in plain
 words, or ask for work. The chat runs on the household host, inside `tutti dashboard`, so it answers while your own computer,
 or your main agent's machine, is off.

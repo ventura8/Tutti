@@ -58,6 +58,20 @@ def ollama_stream(worker, messages, cancel, timeout=MODEL_TIMEOUT, tools=None, t
                 return
 
 
+class CursorStreamUncertain(RuntimeError):
+    """A started Cursor stream failed; native tools may have acted, so do not retry automatically."""
+
+
+def check_chat_format(worker, argv):
+    fmt = worker.get('chat_output_format', 'text')
+    if fmt == 'cursor-stream-json' and (not any(flag in argv for flag in ('-p', '--print')) or '--stream-partial-output' not in argv or
+                                        workers.selector_value(argv, '--output-format') != 'stream-json'):
+        raise ValueError('Chat cursor-stream-json needs --output-format stream-json and --stream-partial-output in the worker command')
+    if fmt not in ('text', 'cursor-stream-json'):
+        raise ValueError('Chat output format is unsupported: use text or cursor-stream-json')
+    return fmt
+
+
 def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.Popen, clock=time.monotonic, extra=(),
                cwd=None, selector=None, selector_value=None):
     """Yields a CLI worker's answer line by line (`claude -p`, `cursor-agent -p`): the conversation as one prompt. A reader
@@ -65,13 +79,21 @@ def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.P
     worker is killed and OSError lets the next model answer."""
     prompt = '\n\n'.join(f'{m["role"].upper()}:\n{m["content"]}' for m in messages) + '\n\nASSISTANT:'
     argv = workers.with_args(workers.command(worker, prompt), extra)
+    fmt = check_chat_format(worker, argv)
     if selector and workers.selector_value(argv, selector) != selector_value:
         raise ValueError('Chat could not bind the selected account to the worker command: check its selector and account args')
+    if cancel.is_set():
+        return
     proc = popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                  stdin=subprocess.DEVNULL, text=True, start_new_session=True, cwd=cwd)
+    yield from cli_process(proc, worker, cancel, timeout, clock, fmt)
+
+
+def cli_process(proc, worker, cancel, timeout, clock, fmt):
     lines = queue.Queue()
     threading.Thread(target=_pump, args=(proc.stdout, lines), daemon=True).start()
     deadline, name = clock() + timeout, (worker.get('command') or ['the worker'])[0]
+    decoder = CursorEvents() if fmt == 'cursor-stream-json' else None
     try:
         while not cancel.is_set():
             if clock() > deadline:
@@ -82,13 +104,79 @@ def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.P
                 continue
             if line is None:
                 break
-            yield line
+            yield from decoder.feed(line) if decoder else (line,)
+    except OSError as e:
+        if decoder:
+            raise CursorStreamUncertain('Cursor stream failed after launch; its tool actions may have run. '
+                                        'Check the work before retrying.') from e
+        raise
     finally:
         if proc.poll() is None:
             proc.kill()
         proc.wait()
+    finish_cli(proc, decoder, cancel, name)
+
+
+def finish_cli(proc, decoder, cancel, name):
     if proc.returncode and not cancel.is_set():
+        if decoder:
+            raise CursorStreamUncertain('Cursor exited unsuccessfully after launch; its tool actions may have run. '
+                                        'Check the work before retrying.')
         raise OSError(f'{name} ended with exit code {proc.returncode}')
+    if decoder:
+        try:
+            decoder.finish(cancel.is_set())
+        except OSError as e:
+            raise CursorStreamUncertain('Cursor stream ended after launch without a confirmed result; its tool actions may have run. '
+                                        'Check the work before retrying.') from e
+
+
+class CursorEvents:
+    def __init__(self):
+        self.terminal = False
+        self.has_text = False
+
+    def feed(self, line):
+        if self.terminal:
+            raise OSError('Cursor stream continued after its terminal result: check the CLI version')
+        for piece in cursor_event(line):
+            if piece == {'cursor_terminal': True}:
+                self.terminal = True
+            else:
+                if isinstance(piece, str) and piece.strip():
+                    self.has_text = True
+                yield piece
+
+    def finish(self, cancelled):
+        if not cancelled and not self.terminal:
+            raise OSError('Cursor stream ended without a successful result: retry or check the CLI output')
+        if not cancelled and not self.has_text:
+            raise OSError('Cursor stream ended without assistant text: check the work before retrying')
+
+
+def cursor_event(line):
+    """Decode documented Cursor events; never expose tool arguments or execute tool output."""
+    try:
+        event = json.loads(line)
+    except (ValueError, TypeError) as e:
+        raise OSError('Cursor stream returned malformed JSON: check the configured output format') from e
+    if not isinstance(event, dict):
+        raise OSError('Cursor stream returned a non-object event: check the configured output format')
+    kind = event.get('type')
+    if kind == 'assistant':
+        message = event.get('message')
+        content = message.get('content') if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            raise OSError('Cursor stream assistant event has no content list: check the CLI version')
+        for block in content:
+            if isinstance(block, dict) and block.get('type') == 'text' and isinstance(block.get('text'), str):
+                yield block['text']
+    elif kind == 'tool_call' and event.get('subtype') in ('started', 'completed'):
+        yield {'progress': 'Agent tool ' + event['subtype'] + '.'}
+    elif kind == 'result':
+        if event.get('subtype') != 'success' or event.get('is_error') is not False or not isinstance(event.get('result'), str):
+            raise OSError('Cursor stream did not report success: check the CLI output and account status')
+        yield {'cursor_terminal': True}
 
 
 def _pump(src, lines):
@@ -338,8 +426,9 @@ class Engine:
             msg['status'] = 'stopped' if job.cancel.is_set() else 'done'
         except Exception as e:   # the page shows a plain message; the log line names the cause
             msg['status'] = 'failed'
-            msg['note'] = ('Something went wrong while answering, so this answer is incomplete. Retry; if it fails again, the '
-                           'dashboard\'s log names the cause.')
+            msg['note'] = str(e) if isinstance(e, CursorStreamUncertain) else (
+                'Something went wrong while answering, so this answer is incomplete. Retry; if it fails again, the '
+                'dashboard\'s log names the cause.')
             job.emit('note', text=msg['note'])
             msg['error'] = f'{type(e).__name__}: {e}'[:300]
         finally:
@@ -636,6 +725,9 @@ class Engine:
         """One streamed answer: (its text, its native tool calls) or (None, []) when the model gave nothing."""
         got, text, calls, counted = False, '', [], None
         for piece in self.streams(cand, cfg, msgs, job.cancel):
+            if isinstance(piece, dict) and piece.get('progress') and not (piece.get('usage') or piece.get('tool_calls')):
+                job.emit('note', text=piece['progress'])
+                continue
             if not got:
                 job.msg['model'] = cand['label']
                 job.emit('model', model=cand['label'])

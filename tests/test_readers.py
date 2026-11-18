@@ -932,6 +932,37 @@ class RouteByReadingsTest(unittest.TestCase):
             plan = autopilot.plan(cfg, [t], by, free, True, NOW)
             self.assertEqual(plan.get('dispatch'), [('t1', 'codex')], plan)
 
+    def test_cursor_panic_routes_to_codex_only_when_its_host_and_quota_allow(self):
+        """t291: real pacing and routing decisions, with fake workers and no provider calls."""
+        from tutti import autopilot, conduct
+        with tempfile.TemporaryDirectory() as folder:
+            workers_ = {'cursor': {'kind': 'cli', 'command': ['fake-cursor', '{prompt}']},
+                        'codex': {'kind': 'cli', 'command': ['fake-codex', '{prompt}'], 'machine': 'laptop'}}
+            accounts = {'cursor': {'window': '7d', 'resets': '2026-01-13T00:00Z', 'worker': 'cursor'},
+                        'codex': {'window': '7d', 'resets': '2026-01-13T00:00Z', 'worker': 'codex'}}
+            cfg = cfg_of(folder, accounts, workers_)
+            cfg['main'].update(agent='cursor', fallback=['codex'])
+            cfg['machines'] = {'laptop': {'host': 'local', 'slots': 1}}
+            cfg['autopilot'].update(ladder=['cursor', 'codex'], accounts=['cursor', 'codex'],
+                                    repos={'app': {'path': folder, 'check': 'true'}})
+            entries = [self.r('cursor', 99, '2026-01-13T00:00Z'), self.r('codex', 5, '2026-01-13T00:00Z')]
+            rows = [pacing.account_state(n, a, entries, NOW) for n, a in cfg['accounts'].items()]
+            states = {row['name']: row for row in rows}
+            self.assertTrue(states['cursor']['panic'])
+            free = [{'name': 'laptop', 'status': 'free', 'free': 1, 'reason': 'fit'}]
+            self.assertEqual(conduct.pick_role(cfg, rows, free, NOW)[0], 'codex')
+            self.assertEqual(state.next_worker(cfg, rows, free, NOW)['worker'], 'codex')
+            task = {'id': 't1', 'repo': 'app', 'title': 'x', 'status': 'queued', 'attempts': [],
+                    'prefer': None, 'size': 'S', 'scope': ['a.py'], 'check': 'true'}
+            self.assertEqual(autopilot.plan(cfg, [task], states, free, True, NOW)['dispatch'], [('t1', 'codex')])
+            unavailable = [{'name': 'laptop', 'status': 'paused', 'free': 0, 'reason': 'paused'}]
+            self.assertIsNone(conduct.pick_role(cfg, rows, unavailable, NOW)[0])
+            self.assertNotEqual(state.next_worker(cfg, rows, unavailable, NOW)['worker'], 'codex')
+            spent_entries = [self.r('cursor', 99, '2026-01-13T00:00Z'), self.r('codex', 100, '2026-01-13T00:00Z')]
+            spent = {n: pacing.account_state(n, a, spent_entries, NOW) for n, a in cfg['accounts'].items()}
+            self.assertIsNone(conduct.pick_role(cfg, list(spent.values()), free, NOW)[0])
+            self.assertEqual(autopilot.plan(cfg, [task], spent, free, True, NOW).get('dispatch'), [])
+
     def test_run_auto_uses_the_pick_and_refuses_when_nothing_has_room(self):
         with tempfile.TemporaryDirectory() as folder:
             script = os.path.join(folder, 'agent')

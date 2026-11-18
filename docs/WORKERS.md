@@ -32,7 +32,8 @@ output and `{log}` for this pattern and reports every hit as DENIED. All three r
   claiming, leasing and reporting in the outer session; the worker brief tells Codex not to recursively call Tutti's MCP
   tools. If a task needs a user decision, Codex must stop and report it for the interactive Tutti session to handle. For
   an easy first setup, install Codex CLI, run `codex login` (or `codex login --device-auth` on a headless machine), then
-  run `tutti setup`; it detects the CLI and login state. Check it with `codex login status`. Set `workers.codex.machine`
+  run `tutti setup`; it detects the CLI and login state. Fake-provider tests cover Cursor panic routing to Codex and
+  paused or spent Codex refusal; they do not verify a live provider session. Check it with `codex login status`. Set `workers.codex.machine`
   to that machine (often the laptop Tutti runs on): the autopilot and Move work know where the login lives, and the
   machine's yield flag, pause, heat and quiet hours are honoured. Pace it with `accounts.codex` (`worker: codex`) and put
   `codex` on `autopilot.accounts` / `autopilot.ladder` (and prefer it in `routing.workers`) so `tutti run auto` and the

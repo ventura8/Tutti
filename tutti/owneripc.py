@@ -81,13 +81,29 @@ def follow(jobs, request):
     return {'ok': True, 'events': events, 'done': done}
 
 
-def serve(sock, jobs):
+def session_follow(jobs, request, sessions, users):
+    """Resolve a live browser session inside the owner; do not trust a gateway-supplied subject."""
+    sid = request.get('session')
+    if not isinstance(sid, str) or not 1 <= len(sid) <= 512:
+        return {'ok': False, 'error': 'Answer unavailable.'}
+    try:
+        session = sessions.get(sid)
+        user = users.get(session.get('sub')) if isinstance(session, dict) else None
+        if not user or user.get('role') not in ('admin', 'viewer'):
+            return {'ok': False, 'error': 'Answer unavailable.'}
+        return follow(jobs, {**request, 'subject': user['sub']})
+    except Exception:
+        return {'ok': False, 'error': 'Answer unavailable.'}
+
+
+def serve(sock, jobs, authorize=None):
     """Serve sequential follow requests on a private socket passed by a trusted supervisor."""
     while True:
         request = receive(sock)
         if request is None:
             return
-        response = follow(jobs, request) if request.get('action') == 'follow' else {'ok': False, 'error': 'Unknown request.'}
+        response = authorize(jobs, request) if request.get('action') == 'follow' and authorize else {
+            'ok': False, 'error': 'Answer unavailable.'}
         try:
             send(sock, response)
         except ChannelError:

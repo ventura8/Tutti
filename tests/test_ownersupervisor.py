@@ -4,11 +4,12 @@ import socket
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
 
-from tutti import owneripc, ownersupervisor
+from tutti import auth, owneripc, ownersupervisor
 
 SUPPORTED = os.name == 'posix' and all(hasattr(socket, name) for name in ('AF_UNIX', 'SOCK_SEQPACKET', 'SCM_RIGHTS'))
 
@@ -16,14 +17,24 @@ SUPPORTED = os.name == 'posix' and all(hasattr(socket, name) for name in ('AF_UN
 @unittest.skipUnless(SUPPORTED, 'requires Unix seqpacket sockets and descriptor passing')
 class SupervisorTests(unittest.TestCase):
     def test_owner_survives_replacement_and_fences_old_gateway(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        users = auth.Users(folder.name)
+        users.sign_in({'sub': 'alice', 'email': 'alice@example.com', 'name': 'Alice'})
+        users.sign_in({'sub': 'bob', 'email': 'bob@example.com', 'name': 'Bob'})
+        users.set_role('bob', 'viewer')
+        sessions = auth.Sessions(folder.name, 1)
+        alice, _ = sessions.create('alice')
+        bob, _ = sessions.create('bob')
         supervisor, control = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         supervisor.settimeout(5)
-        code = ("import socket,sys; from tutti import chatrun,ownersupervisor; "
+        code = ("import socket,sys; from tutti import auth,chatrun,owneripc,ownersupervisor; "
                 "s=socket.socket(fileno=int(sys.argv[1])); "
                 "j=chatrun.Job('alice','c',{'id':'m'},replay_enabled=True); "
                 "j.emit('delta',text='private'); print(j.replay.generation,flush=True); "
-                "ownersupervisor.serve(s,{'m':j})")
-        process = subprocess.Popen([sys.executable, '-c', code, str(control.fileno())],
+                "sessions=auth.Sessions(sys.argv[2],1); users=auth.Users(sys.argv[2]); "
+                "ownersupervisor.serve(s,{'m':j},authorize=lambda jobs,req: owneripc.session_follow(jobs,req,sessions,users))")
+        process = subprocess.Popen([sys.executable, '-c', code, str(control.fileno()), folder.name],
                                    pass_fds=(control.fileno(),), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         control.close()
         sockets = []
@@ -39,7 +50,7 @@ class SupervisorTests(unittest.TestCase):
             self.assertEqual(ownersupervisor.reconcile(supervisor, 0, first_token), 'applied')
             old_owner.close()  # supervisor must not retain copies of a gateway endpoint
             request = {'action': 'follow', 'subject': 'alice', 'message': 'm', 'generation': generation,
-                       'after': 0, 'request_id': 'one'}
+                       'after': 0, 'request_id': 'one', 'session': alice}
             owneripc.send(old_gateway, request)
             self.assertEqual(owneripc.receive(old_gateway)['events'][0][1]['text'], 'private')
             # An old gateway cannot indefinitely delay replacement by trickling a partial frame.
@@ -73,7 +84,7 @@ class SupervisorTests(unittest.TestCase):
             new_owner.close()
             old_gateway.settimeout(2)
             self.assertEqual(old_gateway.recv(1), b'')
-            owneripc.send(new_gateway, {**request, 'subject': 'bob', 'request_id': 'two'})
+            owneripc.send(new_gateway, {**request, 'subject': 'alice', 'session': bob, 'request_id': 'two'})
             self.assertEqual(owneripc.receive(new_gateway), {'ok': False, 'error': 'Answer unavailable.', 'request_id': 'two'})
             stale_owner, stale_gateway = socket.socketpair()
             sockets.extend([stale_owner, stale_gateway])
@@ -83,6 +94,9 @@ class SupervisorTests(unittest.TestCase):
             self.assertEqual(stale_gateway.recv(1), b'')
             owneripc.send(new_gateway, {**request, 'request_id': 'three'})
             self.assertEqual(owneripc.receive(new_gateway)['events'][0][1]['text'], 'private')
+            sessions.drop(alice)
+            owneripc.send(new_gateway, {**request, 'request_id': 'revoked'})
+            self.assertEqual(owneripc.receive(new_gateway), {'ok': False, 'error': 'Answer unavailable.', 'request_id': 'revoked'})
             self.assertIsNone(process.poll())
         finally:
             for sock in sockets:

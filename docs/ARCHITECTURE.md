@@ -430,3 +430,21 @@ conflict must fail closed. This only works with one trusted serialized caller, a
 connection. Status is a snapshot, not authority to proceed if another actor can access the control channel. Loss or
 replacement of that channel, supervisor crash and owner restart still have no recovery protocol. No live Tutti service uses
 this code, and a successful test is not evidence that dashboard restart or handover is safe.
+
+#### Owner-side session authorization experiment (not activated)
+
+The isolated owner channel can resolve the browser session against Tutti's existing session and user stores on each
+follow request, reject pending or missing users, and compare the resolved subject with the job owner. A gateway-provided
+subject is ignored. Missing, expired, revoked, malformed or unreadable sessions are denied without returning the token;
+no authorizer means deny. Tests use temporary fake users and sessions and verify cross-user subject spoofing and a session
+revocation while the isolated owner process remains running. The gateway must supply the actual browser session over the
+private channel; the session ID is a bearer secret and must never appear in logs, arguments, crash dumps or untrusted
+traces. The descriptor and process memory require appropriate OS protection. Each request is rechecked; this experiment does not authorize or revoke an
+already-open streaming response and does not atomically prevent a state change between check and reply.
+
+Threat model: local processes able to act as the Tutti service UID are trusted under the existing deployment model. Such a
+process can modify Tutti's session/user state or obtain trusted process capabilities, so this experiment does not protect
+against it. A private inherited socket descriptor can restrict access under normal OS controls, but neither a distinct UID
+nor descriptor isolation against other UIDs has been demonstrated here; same-UID identity, untrusted peer isolation, a
+secure supervisor, capability leakage prevention, deletion checks and end-to-end gateway/session authorization remain
+required before activation. Existing unauthenticated demonstration helpers are test-only and must not be exposed.

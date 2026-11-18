@@ -5,9 +5,10 @@ import socket
 import struct
 import subprocess
 import sys
+import tempfile
 import unittest
 
-from tutti import chatrun, owneripc
+from tutti import auth, chatrun, owneripc
 
 
 class BytesSocket:
@@ -43,10 +44,28 @@ class Frames(unittest.TestCase):
         client = BytesSocket()
         owneripc.send(client, request)
         channel = BytesSocket(client.sent)
-        owneripc.serve(channel, {'m': job})
+        owneripc.serve(channel, {'m': job}, authorize=owneripc.follow)
         result = owneripc.receive(BytesSocket(channel.sent))
         self.assertFalse(result['ok'])
         self.assertNotIn('events', result)
+
+    def test_owner_resolves_session_ignores_claimed_subject_and_honors_revocation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            users, sessions = auth.Users(folder), auth.Sessions(folder, 1)
+            users.sign_in({'sub': 'alice', 'email': 'alice@example.com', 'name': 'Alice'})
+            users.sign_in({'sub': 'bob', 'email': 'bob@example.com', 'name': 'Bob'})
+            users.set_role('bob', 'viewer')
+            alice, _ = sessions.create('alice')
+            bob, _ = sessions.create('bob')
+            job = chatrun.Job('alice', 'c', {'id': 'm'}, replay_enabled=True)
+            job.emit('delta', text='private')
+            request = {'subject': 'alice', 'message': 'm', 'generation': job.replay.generation, 'after': 0}
+            self.assertFalse(owneripc.session_follow({'m': job}, {**request, 'session': bob}, sessions, users)['ok'])
+            self.assertTrue(owneripc.session_follow({'m': job}, {**request, 'subject': 'bob', 'session': alice}, sessions, users)['ok'])
+            sessions.drop(alice)
+            denied = owneripc.session_follow({'m': job}, {**request, 'session': alice}, sessions, users)
+            self.assertEqual(denied, {'ok': False, 'error': 'Answer unavailable.'})
+            self.assertNotIn(alice, repr(denied))
 
     @unittest.skipUnless(os.name == 'posix', 'requires inherited Unix socket descriptors')
     def test_job_survives_gateway_replacement_and_other_subject_is_denied(self):
@@ -55,7 +74,7 @@ class Frames(unittest.TestCase):
                       "s=socket.socket(fileno=int(sys.argv[1])); "
                       "j=chatrun.Job('alice','c',{'id':'m'},replay_enabled=True); "
                       "j.emit('delta',text='private'); print(j.replay.generation,flush=True); "
-                      "owneripc.serve(s,{'m':j})")
+                      "owneripc.serve(s,{'m':j},authorize=owneripc.follow)")
         gateway_code = ("import json,socket,sys; from tutti import owneripc; "
                         "s=socket.socket(fileno=int(sys.argv[1])); "
                         "owneripc.send(s,json.loads(sys.argv[2])); print(json.dumps(owneripc.receive(s)))")

@@ -13,11 +13,11 @@ class FenceError(ValueError):
 class GatewayFence:
     """Serialize one owner's replies and gateway replacement; caller must protect the supervisor API and descriptors."""
 
-    def __init__(self, jobs, send_timeout=1.0):
+    def __init__(self, jobs, send_timeout=1.0, authorize=None):
         if (not isinstance(send_timeout, (int, float)) or isinstance(send_timeout, bool) or send_timeout <= 0
                 or send_timeout > 5 or not math.isfinite(send_timeout)):
             raise FenceError('Gateway send timeout must be finite, greater than zero and at most five seconds.')
-        self._jobs, self._timeout = jobs, send_timeout
+        self._jobs, self._timeout, self._authorize = jobs, send_timeout, authorize
         self._lock = threading.Lock()
         self._active = None
         self._identity = None
@@ -61,7 +61,7 @@ class GatewayFence:
             if not isinstance(correlation, str) or not correlation or len(correlation) > 80:
                 response = {'ok': False, 'error': 'A request identifier is required.'}
             else:
-                response = owneripc.follow(self._jobs, request) if request.get('action') == 'follow' else {
+                response = self._authorize(self._jobs, request) if request.get('action') == 'follow' and self._authorize else {
                     'ok': False, 'error': 'Unknown request.'}
                 response['request_id'] = correlation
             try:

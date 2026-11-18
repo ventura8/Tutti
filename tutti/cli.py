@@ -761,19 +761,33 @@ def run_delegated(cfg, a, extra):
     check_list = [{'run': c, 'where': a.check_where} for c in a.check] if a.check else None
     r = delegate.delegate(cfg, a.worker, a.task, a.files, a.repo, run_id=a.id, track=a.track, extra=extra,
                           checks=not a.no_checks, discard=a.discard, check_list=check_list, remote_track=a.remote_track)
-    with open(delegate.paths(cfg, r['id'])['rc'], 'w', encoding='utf8') as f:
-        f.write(f'{r["rc"]}\n')
-    with open(delegate.paths(cfg, r['id'])['log'], encoding='utf8', errors='replace') as f:
-        lines = f.read().splitlines()[-workers.KEEP_LINES:]
+    p = delegate.paths(cfg, r['id'])
+    delegate.write(p['rc'], f'{r["rc"]}\n')
+    lines = read_log(p['log'])
     note_limits(cfg, a.worker, lines)
     account = getattr(a, 'account', None) or state.account_of_worker(cfg, a.worker)
     delegate.log_run(cfg, a.worker, account, r['rc'], r['id'], lines)
     telemetry.record('feature', 'run.delegated', worker_kind=telemetry.tool_of(a.worker), account=telemetry.tool_of(account),
                      outcome='passed' if r['rc'] == 0 else 'failed', autopilot=bool(a.id and a.account is not None),
                      checks=len(r.get('checks') or []), minutes=round((time.time() - float(str(r['id']).split('-')[0])) / 60, 2))
-    with open(r['report'], encoding='utf8') as f:
-        print(f.read().rstrip())
+    print(read_report(r['report']))
     return r['rc']
+
+
+def read_log(path):
+    try:
+        with open(path, encoding='utf8', errors='replace') as f:
+            return f.read().splitlines()[-workers.KEEP_LINES:]
+    except FileNotFoundError:
+        return []
+
+
+def read_report(path):
+    try:
+        with open(path, encoding='utf8') as f:
+            return f.read().rstrip()
+    except FileNotFoundError:
+        return ''
 
 
 def note_limits(cfg, worker, lines):

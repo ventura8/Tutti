@@ -214,7 +214,11 @@ def takeover_room(cfg, name, s):
     used = s.get('used') or 0
     task = float(((cfg.get('accounts') or {}).get(name) or {}).get('task_pct') or TASK_PCT)
     left = s.get('panic_at', 95) - used
-    return max(1, int(left // task)) if left > 0 else 0
+    room = max(1, int(left // task)) if left > 0 else 0
+    q = s.get('quota_plan')
+    if q:
+        room = min(room, q.get('tasks', 0) - used)
+    return max(0, room)
 
 
 def takes_over(cfg, name, s, states):
@@ -222,13 +226,22 @@ def takes_over(cfg, name, s, states):
     if name in main_accounts(cfg) or not main_in_panic(cfg, states):
         return False
     used = s.get('used')
-    return not (s.get('panic') or s.get('verdict') == 'spent' or (used is not None and used >= s.get('panic_at', 95)))
+    q = s.get('quota_plan')
+    return not (s.get('panic') or s.get('verdict') == 'spent' or (used is not None and used >= s.get('panic_at', 95)) or
+                (q and q.get('tasks', 0) <= (used or 0)))
 
 
 def main_in_panic(cfg, states):
     """True while one of the main agent's accounts is in panic or spent."""
     names = main_accounts(cfg)
-    return any((states.get(n) or {}).get('panic') or (states.get(n) or {}).get('verdict') == 'spent' for n in names)
+    for n in names:
+        s = states.get(n) or {}
+        if s.get('panic') or s.get('verdict') == 'spent':
+            return True
+        q = s.get('quota_plan')
+        if q and q.get('tasks', 0) <= (s.get('used') or 0):
+            return True
+    return False
 
 
 def machine_capacity(cfg, machines):

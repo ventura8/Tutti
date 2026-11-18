@@ -529,6 +529,15 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
         from tutti import autopilot
         self.assertEqual(autopilot.main_accounts({'autopilot': {'main_accounts': 'codex'}}), ['codex'])
 
+    def test_main_in_panic_includes_quota_plan_exhaustion(self):
+        from tutti import autopilot
+        cfg = {'autopilot': {'main_accounts': ['cursor']}}
+        # 'cursor' is stopped by its quota plan
+        states = {'cursor': {'quota_plan': {'tasks': 1}, 'used': 1}}
+        res = autopilot.main_in_panic(cfg, states)
+        print(f"DEBUG: res={res}")
+        self.assertTrue(res)
+
 
 
 class LocalShareLoad(unittest.TestCase):

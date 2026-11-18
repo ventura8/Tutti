@@ -360,7 +360,7 @@ class SaveTest(Base):
             with self.assertRaises(OSError):
                 engine.confirm({'sub': 'u'}, 'c', 'm', 'k')
         self.assertEqual(engine.action_admission.active, 0)
-        with self.assertRaises(chatrun.chat.ChatError):
+        with self.assertRaisesRegex(chatrun.chat.ChatError, 'engine blocks guarded restarts'):
             chatrun.guard_chat_restart(engine, lambda: self.fail('restart with uncertain outcome'))
 
     def test_preflight_refusal_does_not_create_uncertain_action_hold(self):
@@ -410,6 +410,32 @@ class SaveTest(Base):
         for worker in workers:
             worker.join(2)
         self.assertTrue(all(not worker.is_alive() for worker in workers))
+
+    def test_automatic_action_is_covered_by_its_live_answer(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+        call = {'tool': 'backlog_add', 'args': {}}
+        def execute(_user, _cfg, _call, card, job=None):
+            entered.set()
+            self.assertTrue(release.wait(2))
+            card['state'] = 'done'
+            return card
+        def answer(job, user, _prompt):
+            try:
+                engine._run_mutations(job, user, engine.cfg_fn(), [call], [])
+            finally:
+                job.emit('done')
+                finished.set()
+        with mock.patch.object(engine, '_answer', side_effect=answer), \
+                mock.patch.object(engine, 'new_card', return_value={}), \
+                mock.patch.object(engine, 'execute', side_effect=execute):
+            engine.send({'sub': 'u'}, None, 'hello')
+            self.assertTrue(entered.wait(2))
+            with self.assertRaises(chatrun.chat.ChatError):
+                chatrun.guard_chat_restart(engine, lambda: self.fail('restart during automatic action'))
+            release.set()
+            self.assertTrue(finished.wait(2))
 
 
 class PriorityTest(unittest.TestCase):

@@ -10,7 +10,8 @@ those need separate safeguards (t404).
 Confirmed Chat actions, plans and undo operations are also admitted through a local gate until their final card state is
 saved; a settings restart waits for them without serializing unrelated actions. If an action has begun and an exception
 prevents its result from being saved, this process refuses the guarded restart until the outcome is inspected and a
-coordinated recovery is used. That hold is in memory: it is not durable across crashes and does not cover other dashboard
+separately coordinated recovery is used. The in-memory hold lasts for this engine's lifetime and has no in-app clearing
+path; inspecting the outcome alone does not clear it. It is not durable across crashes and does not cover other dashboard
 processes or automatic updates.
 
 Chat binds each online worker to a configured account with a pacing state and passes that account's configured arguments

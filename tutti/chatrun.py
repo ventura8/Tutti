@@ -72,7 +72,8 @@ class ActionAdmission:
             if self.active or self.restarting:
                 raise chat.ChatError('Chat has an action running: wait for it to finish, then restart')
             if self.uncertain:
-                raise chat.ChatError('A Chat action could not save its outcome: inspect and reconcile it before a coordinated restart')
+                raise chat.ChatError('A Chat action could not save its outcome: inspect it; this engine blocks guarded restarts '
+                                     'until a separate coordinated recovery')
             self.restarting = True
         try:
             yield

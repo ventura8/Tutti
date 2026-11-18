@@ -191,6 +191,12 @@ class DelegateTest(unittest.TestCase):
         with mock.patch('sys.stdout'):
             return delegate.delegate(cfg, 'fake', task, [], self.repo, say=self.said.append, **kw)
 
+    def test_report_contains_valid_run_identity(self):
+        cfg = self.cfg([])
+        with mock.patch.dict(os.environ, {'TUTTI_RUN_IDENTITY': 'a' * 32}):
+            report = self.run_task(cfg, checks=False)
+        self.assertEqual(delegate.load_report(cfg, report['id'])['run_identity'], 'a' * 32)
+
     def test_happy_path_diff_checks_and_report(self):
         cfg = self.cfg([{'run': 'echo "[SUCCESS]" $TUTTI_CHANGED', 'coverage': False}])
         r = self.run_task(cfg)

@@ -63,3 +63,8 @@ of your project or secrets: describe the setup in general words.
 
 - **2026-11-18, t309:** Restarted jobs made it hard to identify which routed Docker checks belong to one autopilot run.
   New runs carry a non-secret correlation label; remote ownership and safe retries still need verified containment.
+
+
+- **2026-11-18, t309:** Stale or ambiguous attempts must not publish a different run's result. New bound reports are checked
+  against their saved run identity; mismatches stay visible for investigation. Older bridge clients must update before
+  starting bound autopilot runs, while already-running attempts retain their prior behavior.

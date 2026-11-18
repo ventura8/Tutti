@@ -505,3 +505,9 @@ another round can launch a competing attempt. Persist the intended run first and
 
 A disconnected Docker client may leave a container or external writer alive, while `--rm` removes terminal containers.
 Use a per-run label to correlate observations, but never infer that a job stopped solely from an absent label.
+
+
+## Correlate a result before collecting it (t309)
+
+A stale or misdirected report must not be interpreted as another attempt's result. Compare its run ID and saved identity,
+but never treat a worker-readable identity as authentication or proof that all processes exited.

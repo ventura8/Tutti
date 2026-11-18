@@ -343,6 +343,10 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
         r = {'id': run_id, 'worker': name, 'task': task, 'worker_rc': rc, 'worktree': wt, 'created': created, 'diff': p['diff'],
              'changed': changed, 'stat': stat, 'denied': found, 'checks': None, 'report': p['report']}
         chosen, source = chosen_checks(cfg, repo, check_list)
+        from . import remote
+        identity = os.environ.get('TUTTI_RUN_IDENTITY')
+        if remote.valid_run_identity(identity):
+            r['run_identity'] = identity
         r['checks_from'] = checks_note(chosen, source)
         if checks and changed and chosen:
             env = {'TUTTI_CHANGED': ship.join_changed(changed), 'TUTTI_TREE': wt, 'TUTTI_GIT_MOUNT': worktree.docker_mount(wt)}

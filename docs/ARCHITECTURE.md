@@ -424,7 +424,9 @@ service-manager isolation. The control descriptor is an authority-bearing capabi
 gateway and impersonate subjects. The gateway must authenticate users and prevent forged assertions; a socket or same
 UID does not establish that trust. The supervisor must protect and close all endpoint copies and serialize control access.
 A previously emitted reply can remain in buffers, a slow partial request can delay control processing until the total one-second frame deadline, and termination of the
-control channel currently terminates this experimental owner. If a replacement succeeds but its acknowledgement is
-lost, the supervisor cannot determine the active generation: this prototype has no status or recovery protocol and must
-fail closed rather than guess or retry blindly. No live Tutti service uses
+control channel currently terminates this experimental owner. If an acknowledgement is lost, a caller holding the original handoff ID can query the current generation and ID over
+the same ordered control connection. Reconciliation reports applied, not applied, conflict or unknown; unknown and
+conflict must fail closed. This only works with one trusted serialized caller, a still-live owner and the same FIFO
+connection. Status is a snapshot, not authority to proceed if another actor can access the control channel. Loss or
+replacement of that channel, supervisor crash and owner restart still have no recovery protocol. No live Tutti service uses
 this code, and a successful test is not evidence that dashboard restart or handover is safe.

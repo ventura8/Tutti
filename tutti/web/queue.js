@@ -31,7 +31,7 @@ function queueItem(it, ladder) {
     if ((it.actions || []).includes('move') && ladder.length) acts.push(...queueMove(it, ladder));
     return el('div', { class: 'row', 'data-queued': it.id, 'data-kind': it.kind },
         el('div', { class: 'row__name', text: `${it.title}` }),
-        el('p', { class: 'row__note', text: `${it.kind} ${it.id} · size ${it.size} · goes to ${it.to} · starts ${it.eta}` }),
+        el('p', { class: 'row__note', text: `${it.kind} ${it.id} · size ${it.size} · ${it.difficulty} · ${it.runner} · goes to ${it.to} · starts ${it.eta}` }),
         el('p', { class: 'row__note', 'data-why': '', text: `Waiting: ${it.why}` }),
         acts.length ? el('div', { class: 'row__stats' }, ...acts) : '');
 }

@@ -30,7 +30,8 @@ def task_items(cfg, tasks, last):
         steps = autopilot.candidates(cfg, t) if t['repo'] in autopilot.settings(cfg)['repos'] else []
         to = t.get('prefer') or (steps[0] if steps else 'no ladder step')
         out.append({**_project(cfg, config.project_of_repo(cfg, t['repo'])), 'kind': 'task', 'id': t['id'], 'title': t['title'][:160],
-                    'size': t.get('size') or 'S', 'to': to, 'eta': 'the next round' if not waiting.get(t['id']) else 'when it clears',
+                    'size': t.get('size') or 'S', 'difficulty': t.get('difficulty', '?'), 'runner': t.get('runner', '?'),
+                    'to': to, 'eta': 'the next round' if not waiting.get(t['id']) else 'when it clears',
                     'why': waiting.get(t['id']) or reason, 'rank': t.get('rank', 0), 'urgent': bool(t.get('urgent')),
                     'actions': list(ACTIONS)})
     return out

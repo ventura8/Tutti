@@ -1945,8 +1945,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     from . import state as state_mod
     started_at = monotonic()
     now = now or time.time()
-    from . import conduct
-    from . import users
+    from . import conduct, users
     cfg['_main_worker'] = conduct.current(cfg)
     cfg['_slow_shared_accounts'] = users.slow_shares(cfg)
     cfg['_now'] = datetime.fromtimestamp(now, timezone.utc)

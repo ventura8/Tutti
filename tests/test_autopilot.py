@@ -802,6 +802,20 @@ class SurfaceTest(Base):
                 self.assertIsNone(collector.autopilot_tick())
             checkpoint.assert_not_called()
 
+    def test_off_collector_holds_missing_and_invalid_run_ids(self):
+        cfg = self.cfg(enabled=False)
+        one, two = task('t1', 'running'), task('t2', 'running')
+        two['run'] = '../escape'
+        with backlog.locked(cfg) as data:
+            data['tasks'] = [one, two]
+        collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        with mock.patch('tutti.failover.may_write', return_value=True), mock.patch.object(autopilot, 'checkpoints'), \
+                mock.patch.object(autopilot, 'stuck', side_effect=AssertionError('must not stop a run')):
+            self.assertIsNone(collector.autopilot_tick())
+        saved = backlog.load(cfg)['tasks']
+        self.assertEqual([t['status'] for t in saved], ['running', 'running'])
+        self.assertTrue(all('recovery_note' not in t for t in saved))
+
     def test_resuming_collection_clears_only_its_own_off_mode_note(self):
         cfg = self.cfg()
         running = task('t1', 'running')

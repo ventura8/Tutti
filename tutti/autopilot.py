@@ -1260,8 +1260,8 @@ def checkpoints(cfg, data, now, snap=checkpoint, push=push_wip):
             t['wip'] = {'at': now, 'sha': sha or (t.get('wip') or {}).get('sha'), 'pushed': not failed, 'error': failed or None}
 
 
-PAUSED_REPORT_HOLD = ('report received while autopilot is off: held until the execution boundary is verified stopped; '
-                      'do not retry or publish based on the report alone')
+PAUSED_REPORT_HOLD = ('report received while autopilot is off: held during the off period; on resuming, normal collection '
+                      'applies and does not prove the execution boundary stopped')
 
 
 def checkpoint_while_off(cfg, now):

@@ -1912,8 +1912,16 @@ def strict_controls(folder):
 
 def quota_signature(state):
     """The observed quota fields that must still match the planning snapshot."""
-    fields = ('name', 'used', 'reading_at', 'reset', 'target', 'panic', 'verdict', 'after_reset', 'stale')
+    fields = ('name', 'used', 'reading_at', 'reset', 'target', 'panic', 'verdict', 'after_reset', 'stale', 'selected_source')
     return tuple(state.get(k) for k in fields) + (tuple(quota_signature(x) for x in state.get('limits') or []),)
+
+
+def valid_current_reader(reading, latest):
+    if not isinstance(reading, dict) or reading.get('problem'):
+        return False
+    used = reading.get('used')
+    return (not isinstance(used, bool) and isinstance(used, (int, float)) and math.isfinite(used)
+            and 0 <= used <= 100 and used == latest.get('used'))
 
 
 def slow_start_allowed(cfg, step, states, tasks, at, reader_status=None):
@@ -1944,11 +1952,9 @@ def slow_start_allowed(cfg, step, states, tasks, at, reader_status=None):
             except Exception:   # unavailable reader status cannot authorize a quota spend
                 return False
             reading = status.get(step) if isinstance(status, dict) else None
-            if (not isinstance(reading, dict) or reading.get('problem') or reading.get('used') is None
-                    or reading.get('used') != latest.get('used')):
+            if not valid_current_reader(reading, latest):
                 return False
             state_mod.with_readers({'accounts': [latest]}, status)
-        latest = {**latest, 'selected_source': original.get('selected_source')}
         fresh['_slow_shared_accounts'] = users.slow_shares(fresh)
     except (config.ConfigError, KeyError, TypeError, ValueError, OverflowError, OSError):
         return False

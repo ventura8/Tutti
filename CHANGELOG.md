@@ -11,7 +11,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Added
 
-- Add unconnected admission/drain and bounded event replay primitives for a future dashboard supervisor (t326).
+- Add unconnected admission/drain and count- and byte-bounded event replay primitives for a future dashboard supervisor (t326).
 
 ### Fixed
 

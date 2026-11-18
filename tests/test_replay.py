@@ -33,6 +33,26 @@ class ReplayTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 replay.ReplayLog(limit)
 
+    def test_byte_budget_evicts_oldest_without_silently_losing_events(self):
+        log = replay.ReplayLog(limit=10, max_event_bytes=6, max_bytes=9)
+        self.assertEqual(log.append('é'), 1)   # JSON uses four UTF-8 bytes including quotes
+        self.assertEqual(log.append('aa'), 2)
+        self.assertEqual(log.append('bb'), 3)
+        with self.assertRaises(replay.ReplayGap):
+            log.read(log.generation, 0)
+        self.assertEqual(log.read(log.generation, 1)[0], [(2, 'aa'), (3, 'bb')])
+
+    def test_oversized_and_non_json_events_do_not_advance_sequence(self):
+        log = replay.ReplayLog(max_event_bytes=6, max_bytes=10)
+        for event in ('too long', {'x': object()}, float('nan'), '\ud800'):
+            with self.assertRaises(ValueError):
+                log.append(event)
+        self.assertEqual(log.append('a'), 1)
+        self.assertEqual(log.read(log.generation, 0)[0], [(1, 'a')])
+        for pair in ((0, 10), (5, 4), (True, 10), (5, 0)):
+            with self.assertRaises(ValueError):
+                replay.ReplayLog(max_event_bytes=pair[0], max_bytes=pair[1])
+
     def test_followers_wake_on_event_and_close(self):
         log = replay.ReplayLog()
         ready, result = threading.Event(), []

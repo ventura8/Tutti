@@ -328,7 +328,22 @@ admission is actually registered and the supervisor holds exclusive authority th
 `replay.ReplayLog` is an unconnected in-process prototype for a job owner's ordered event journal. A client could keep a
 owner-generation and job-scoped sequence cursor and replay missed events after reconnect; a bounded retention gap is explicit and must trigger
 a snapshot/resynchronization, never silent skipping. The prototype is neither a durable journal nor an authenticated
-API, and it does not wire the cursor into Chat or keep a process alive. The bound is a count, not a byte limit, and a saved conversation may lag the stream, so a gap does not guarantee exact
-recovery. A production design still needs event byte limits, authorization on every follow, atomic snapshot/cursor resynchronization, backpressure,
+API, and it does not wire the cursor into Chat or keep a process alive. The bound covers event count and UTF-8 JSON payload bytes, not all Python allocation or the temporary encoding of an
+incoming event or concurrent decoded reads; upstream input limits, bounded concurrency and resource controls remain necessary. A saved conversation may lag the
+stream, so a gap does not guarantee exact recovery. A production design still needs authorization on every follow, atomic snapshot/cursor resynchronization, backpressure,
 client retry behavior, crash recovery, and tests spanning process and gateway transitions. Until those prerequisites are
 met, neither a drain nor event replay makes an instant live dashboard restart safe.
+
+#### Stream access and identity boundary (design only)
+
+The stable owner must bind each job to its authenticated user and an unguessable job identifier and owner generation.
+The generation and cursor identify a replay position; they do not grant permission. A gateway must authenticate each
+send, follow, stop and snapshot request, then the owner must independently authorize that verified subject against the
+job's owner and current policy, including revocation and cross-user denial. The owner must accept identity assertions
+only over an authenticated, private local channel from the gateway, with a protocol that prevents untrusted clients from
+impersonating it. A restarted gateway must reauthenticate followers; it must not trust a browser-provided subject, a
+previous connection, a guessed job identifier, or possession of a cursor. Logs and errors must not expose other users'
+stream content. Admin cross-user access must be explicit policy, not an inference from the cursor.
+
+These requirements are not implemented by `ReplayLog`; it has no principal, transport, authentication or authorization.
+Integration needs adversarial cross-user, revocation, reconnect and gateway-restart tests before it can be enabled.

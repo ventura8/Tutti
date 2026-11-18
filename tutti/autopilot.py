@@ -603,7 +603,7 @@ def retry_lines(tries):
     return lines
 
 
-def brief(task, repo):
+def brief(cfg, task, repo):
     """The worker's task: what to change, where, the acceptance check, and for a retry what went wrong so far."""
     lines = [task['title'], '']
     if task['scope']:
@@ -614,6 +614,10 @@ def brief(task, repo):
     if task.get('criteria'):
         lines += ['Done when:'] + [f'- {c}' for c in task['criteria']]
     lines.append('Keep the change small and bounded; if the task is not safe to do as described, change nothing and say why.')
+    lines.append('')
+    lines.append('Agent ranking:')
+    for rank, info in enumerate(routing.rank_agents(cfg, task)):
+        lines.append(f'{rank + 1}. {info["agent"]}: {info["rationale"]}')
     lines += retry_lines(task['attempts'])
     if task.get('resume_note'):
         lines += ['', f'Note: {task["resume_note"]}. The worktree holds that run\'s changes: continue from them.']
@@ -652,7 +656,7 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
         log.write(f'autopilot: task {task["id"]} attempt {len(task["attempts"]) + 1} on {step_name}'
                   f'{"; " + choice["label"] if choice else ""}\n')
     check = acceptance(task, repo)
-    argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', step['worker'], brief(task, repo)]
+    argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', step['worker'], brief(cfg, task, repo)]
     if step['kind'] == 'ollama':
         from . import fleet
         argv += [s for s in fleet.task_files(task) if not os.path.isdir(os.path.join(repo_path(cfg, task), s))]
@@ -853,7 +857,7 @@ def worker_question(cfg, t, a):
     from . import needs
     text = (a.get('tail') or '') if a['ok'] else (a.get('tail') or tail_of(run_log(cfg, t['run'])))
     asked = needs.from_output(text)
-    if asked and asked['question'] in brief(t, settings(cfg)['repos'].get(t['repo']) or {}):
+    if asked and asked['question'] in brief(cfg, t, settings(cfg)['repos'].get(t['repo']) or {}):
         return None
     return asked
 
@@ -1259,6 +1263,7 @@ def task_view(cfg, t, now):
     v['attempt_count'] = len(t['attempts'])
     v['history'] = [{'step': a['step'], 'ok': a['ok'], 'why': a['why'][:200], 'signature': a['signature'], 'run': a['run']}
                     for a in t['attempts']]
+    v['ranked_agents'] = routing.rank_agents(cfg, t)
     if t['status'] == 'running':
         v['elapsed'] = now - (t.get('started') or now)
         v['last_line'] = last_line(run_log(cfg, t['run']))

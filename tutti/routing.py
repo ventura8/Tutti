@@ -2,7 +2,7 @@
 import re
 from dataclasses import dataclass, field
 
-from . import controls, devices, hygiene
+from . import controls, devices, hygiene, learning
 
 
 @dataclass
@@ -38,6 +38,33 @@ class Choice:
     machine: str
     queued: bool
     reason: str
+
+
+def rank_agents(cfg, task):
+    """Returns a ranked list of agents and rationales for the task."""
+    history = learning.read_history(cfg)
+
+    # Score agents
+    scores = {}
+    for agent, stats in history.items():
+        total = stats['successes'] + stats['failures']
+        scores[agent] = (stats['successes'] / total) if total > 0 else 0.5
+
+    # Known agents to include if not in history
+    known_agents = ['gemini', 'claude', 'cursor', 'local']
+    for agent in known_agents:
+        if agent not in scores:
+            scores[agent] = 0.5
+
+    # Sort
+    ranked_agents = sorted(scores.keys(), key=lambda a: scores[a], reverse=True)
+
+    # Map to expected output format
+    result = []
+    for agent in ranked_agents:
+        result.append({'agent': agent, 'rationale': f'Historical success rate: {scores[agent]:.2f}'})
+
+    return result
 
 
 def parse_temp(word):

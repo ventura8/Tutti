@@ -56,6 +56,7 @@ def save(cfg, data):
 
 
 def load(cfg):
+    from . import tasks
     try:
         with open(path_of(cfg), encoding='utf8') as f:
             data = json.load(f)
@@ -63,6 +64,8 @@ def load(cfg):
         data = {}
     data.setdefault('next', 1)
     data.setdefault('tasks', [])
+    for t in data['tasks']:
+        tasks.get_details(cfg, t)
     return data
 
 

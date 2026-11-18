@@ -71,6 +71,9 @@ def _request(worker, messages, key_provider):
     if not isinstance(messages, list) or not all(isinstance(m, dict) and m.get('role') in ('system', 'user', 'assistant')
                                                 and isinstance(m.get('content'), str) for m in messages):
         raise OpenAIError('OpenAI API input is invalid: send text messages with supported roles.')
+    limit = worker.get('max_output_tokens', 512)
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 4096:
+        raise OpenAIError('OpenAI max output tokens must be a whole number from 1 to 4096.')
     try:
         key = key_provider()
     except Exception:
@@ -78,7 +81,7 @@ def _request(worker, messages, key_provider):
     if not isinstance(key, str) or not key.strip() or '\n' in key or '\r' in key:
         raise OpenAIError('OpenAI API key is unavailable: configure the key in the protected runtime environment.')
     inputs = [{'role': message['role'], 'content': message['content']} for message in messages]
-    body = json.dumps({'model': model, 'input': inputs, 'stream': True, 'store': False}).encode()
+    body = json.dumps({'model': model, 'input': inputs, 'stream': True, 'store': False, 'max_output_tokens': limit}).encode()
     return urllib.request.Request(ENDPOINT, body, {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json',
                                                   'Accept': 'text/event-stream'})
 

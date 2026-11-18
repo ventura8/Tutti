@@ -361,8 +361,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Added
 
-- Add an unconnected OpenAI Responses text transport prerequisite requiring explicit paid-use opt-in; Chat and worker
-  routing do not yet use it (t294).
+- Add a hard-disabled, owner-only OpenAI Responses Chat routing prototype. Authoritative API billing and atomic paid-call
+  reservation are not yet implemented; no configuration can enable this prototype (t294).
 
 
 ## [0.27.5] - 2026-11-18

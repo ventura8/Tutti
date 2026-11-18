@@ -143,6 +143,8 @@ def add_usage(conv, usage):
     total['in'] += usage.get('in', 0)
     total['out'] += usage.get('out', 0)
     total['usd'] = round(total['usd'] + usage.get('usd', 0.0), 4)
+    if usage.get('cost_unknown'):
+        total['cost_unknown'] = True
     total['context_pct'] = usage.get('context_pct', total['context_pct'])
     return total
 

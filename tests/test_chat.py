@@ -2271,6 +2271,8 @@ class ControlsLogic(unittest.TestCase):
     def test_the_usage_line(self):
         self.assertEqual(jsctl("usageText({in: 12000, out: 300, usd: 0.05})"), '12k in · 300 out · ≈ $0.05 at API prices')
         self.assertEqual(jsctl("usageText({in: 900, out: 20, usd: 0})"), '900 in · 20 out · local: no cost')
+        self.assertEqual(jsctl("usageText({in: 900, out: 20, usd: 0, cost_unknown: true})"),
+                         '900 in · 20 out · API cost unavailable')
         self.assertEqual(jsctl("usageText(null)"), 'No tokens used yet')
 
 

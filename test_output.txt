@@ -1,0 +1,25 @@
+..tutti: --until is not after --from: the absence would be over before it starts; give an end after 2026-11-16 07:00
+tutti: --stop-now does not go with --from: a planned absence hands its running work over at its start by itself
+.......................................................................................................................................................................tutti: no repo "nope" under autopilot.repos in /tmp/tutti-tests-isbi9klq/t-a_lwevqf/tmpo_fusivu/tutti.config.yaml: the repos are app
+tutti: t1 is running (run 1-1): wait for it (tutti wait run 1-1), then retry it
+......................................................................................................................................................................................................................................................................................................................................................................................................................F....................................................................EFEF..............................................................................................................................................................................................................................................................................github: Tutti's GitHub App is not set up in this copy yet: update Tutti, or set github.client_id in the config; until then Tutti uses the GitHub CLI when `gh auth login` was done
+..................................................tutti: this login is already in a household: `tutti household leave` first, or `tutti household code` for a new join code
+.tutti: household join: give the invite link from the dashboard's Users card (Invite someone), e.g. `tutti household join "https://<dashboard>/invite#..."`, quoted: a shell drops # and what follows (an older tutti-hh:... code works too)
+.tutti: no repo "nope" under autopilot.repos in /tmp/tutti-tests-isbi9klq/t-vgr3xn0j/tmpc9xmc0wp/config.yaml: the repos are app
+..............open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#1So6SrSu03retRWY4Brbi_tEhTmzAwYHPyvVcSt3aO4 (waiting...)
+.open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#VqiwL55x6eRrW5s06Nt7xabS8O0Nb3RNyycQVgOH4jY (waiting...)
+.open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#pm3QZ8tOz06s6DJmZggh4cd5Ue5LbKlw8TB9VHtd24M (waiting...)
+.....tutti: household project: app has no origin remote, so other members' copies cannot be matched to it: give it one (git remote add origin <url>), then share it
+........................................................tutti: /tmp/tutti-tests-isbi9klq/t-a2xagncf/tmpchzrfpps/app is not a git repository: give the folder of a household repo (tutti connect --repo <path>)
+.....................................................................................................................................................................................tutti: name the run by its id: tutti runs discard <id> (tutti runs lists them)
+....F............tutti: usage page-reading: cursor 25 %, resets 2026-12-10 00:00:00+00:00
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (Expecting value: line 1 column 1 (char 0)): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (list indices must be integers or slices, not str): pass the JSON string it evaluated to
+tutti: usage page-reading: "Other Models" was not found on the page (its layout may have changed): read it by eye and `tutti usage log <account> <percent>`
+tutti: usage page-reading: ghost: no account "ghost" in the config: the accounts are cursor, agy
+..tutti: usage page-script: no account has a usage_url without its own reader matching "nothing-matches"
+..................................................................................................................................................................................................FF..........................................................................................................................tutti: googletv could not be claimed: the pair is not leased (the others were released again)
+...............

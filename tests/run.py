@@ -32,7 +32,7 @@ def left_children(root):
     return out
 
 
-def stop_children(rounds=5):
+def stop_children(rounds=20):
     """Every leftover stopped by exact pid, again until none is left: a loop killed between two scans may already have
     started its next child (a `sleep`, a fake `adb`), which carries the same marker and lived on until self-heal stopped it
     (about 129 a day, 0.17.2). The first round asks (SIGTERM), later rounds insist (SIGKILL). Returns the first round's."""

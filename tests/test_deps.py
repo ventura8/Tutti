@@ -77,8 +77,10 @@ class ScriptTest(unittest.TestCase):
                                   'echo \'{"dependencies":{"typescript":{"version":"5.0.0"}}}\'; fi')
         r = self.run_script([{'npm': 'typescript@5.6.3'}])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn('install -g --prefix', open(log).read())
-        self.assertIn('typescript@5.6.3', open(log).read())
+        with open(log, 'r', encoding='utf8') as f:
+            content = f.read()
+        self.assertIn('install -g --prefix', content)
+        self.assertIn('typescript@5.6.3', content)
 
     def test_a_root_only_need_becomes_one_admin_command(self):
         fake_bin(self.bin, 'dpkg', 'exit 1')

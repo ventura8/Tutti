@@ -277,7 +277,9 @@ class DeviceRunTest(unittest.TestCase):
             json.dump({'project': {'state': os.path.join(t, 'state'), 'worktrees': t},
                        'machines': {'here': {'host': 'local', 'slots': 1, 'min_free_gb': 0, 'lock_prefix': os.path.join(t, 'slot-')}},
                        'devices': {'pixel': {'serial': 'R58', 'lock': self.lock}}}, f)
-        self.env = {**os.environ, 'PATH': f'{bindir}:{os.environ["PATH"]}', 'SLOT_POLL': '0.1'}
+        # not the caller's demand class: run by the autopilot, TUTTI_BACKGROUND would add class:background to the job record
+        inherited = {k: v for k, v in os.environ.items() if k not in ('TUTTI_BACKGROUND', 'TUTTI_HH_JOB')}
+        self.env = {**inherited, 'PATH': f'{bindir}:{os.environ["PATH"]}', 'SLOT_POLL': '0.1'}
 
     def tutti(self, *args, **kw):
         return subprocess.Popen([sys.executable, os.path.join(ROOT, 'bin', 'tutti'), '--config', self.cfg, *args], cwd=self.tree,

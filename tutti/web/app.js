@@ -1025,6 +1025,7 @@ function attemptHistory(t) {
 
 function taskNote(t) {
     if (t.status === 'running') {
+        if (t.recovery_note) return t.recovery_note;
         const credits = t.credits ? ` · ${t.credits} credits` : '';
         const choice = t.choice?.label ? ` · ${t.choice.label}` : '';   // the model and effort its pace chose, and why
         const picked = t.picked ? ` · picked ${t.picked}` : '';   // a local model: its tier and the task's difficulty (tutti/power.py)

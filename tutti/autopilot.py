@@ -864,7 +864,11 @@ def repo_path(cfg, task):
     return config.expand(settings(cfg)['repos'][task['repo']]['path'])
 
 
-def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
+class LaunchNotStarted(OSError):
+    """Popen failed before returning a child process."""
+
+
+def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, run_id=None):
     """Starts `tutti run <worker> <brief> --repo <repo> --track ap-<task>` in the background; marks the task running. An
     account's model and effort follow its pace (tutti/tiers.py): stronger while behind, cheaper while ahead."""
     step = step_of(cfg, step_name)
@@ -872,7 +876,7 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
     if choice:
         step = {**step, 'args': choice['args']}
     repo = settings(cfg)['repos'][task['repo']]
-    run_id = delegate.new_id(cfg)
+    run_id = run_id or delegate.new_id(cfg)
     p = delegate.paths(cfg, run_id)
     with open(p['log'], 'a', encoding='utf8') as log:   # the id is taken from here on: the next dispatch gets another
         log.write(f'autopilot: task {task["id"]} attempt {len(task["attempts"]) + 1} on {step_name}'
@@ -903,8 +907,11 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
         argv = [*argv[:4], 'bridge', 'exec', jobs, '--id', run_id, '--', *argv[4:]]
     with open(p['log'], 'a', encoding='utf8') as log:
         # TUTTI_BACKGROUND: its runs on a household's shared machines are background demand (docs/HOUSEHOLD.md)
-        child = spawn(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True,
-                      env={**os.environ, 'TUTTI_BACKGROUND': '1'})
+        try:
+            child = spawn(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True,
+                          env={**os.environ, 'TUTTI_BACKGROUND': '1'})
+        except OSError as e:
+            raise LaunchNotStarted(str(e)) from e
     with open(p['pid'], 'w', encoding='utf8') as f:
         f.write(f'{child.pid}\n')
     # the repo's gates this attempt runs (acceptance holds them): a result lands only when they are today's (tutti/fill.py)
@@ -914,6 +921,23 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
     task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now, gates=(repo.get('check') or '').strip(),
                 boot=durable.boot_id(), checkpoint=now,
                 choice={k: choice[k] for k in ('tier', 'model', 'effort', 'label')} if choice else None)
+    task.pop('launch_pending', None)
+    task.pop('recovery_note', None)
+    return run_id
+
+
+def reserve_launch(cfg, task, step_name, now):
+    """Reserve a unique run before spawning; the caller saves it durably before launching."""
+    step = step_of(cfg, step_name)
+    run_id = delegate.new_id(cfg)
+    with open(delegate.paths(cfg, run_id)['log'], 'x', encoding='utf8'):
+        pass  # claim the id so another task cannot reuse it in the same second
+    from . import bridge
+    repo = settings(cfg)['repos'][task['repo']]
+    task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now,
+                gates=(repo.get('check') or '').strip(), job_bridge=bridge.jobs_machine(cfg) or '',
+                boot=durable.boot_id(), launch_pending=True, choice=None)
+    task.pop('recovery_note', None)
     return run_id
 
 
@@ -1094,6 +1118,12 @@ def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
     events = []
     for t in [t for t in data['tasks'] if t['status'] == 'running']:
         ended, report = finished(cfg, t, is_alive)
+        if t.get('launch_pending'):
+            if not report:
+                t['recovery_note'] = 'launch outcome is unverified: waiting for its report before retrying'
+                continue
+            t.pop('launch_pending', None)
+            t.pop('recovery_note', None)
         stuck_why = '' if ended else stuck(cfg, t, now, kill)
         if not ended and not stuck_why:
             continue
@@ -1382,6 +1412,29 @@ def guess_scopes(data, files):
     return events
 
 
+def start_reserved(cfg, data, task, step, now, spawn, states):
+    """Save the intent before spawning; ambiguous post-spawn failures remain held for their report."""
+    task_id = task['id']
+    try:
+        run_id = reserve_launch(cfg, task, step, now)
+        backlog.save(cfg, data)
+        run_id = dispatch(cfg, task, step, now, spawn, states, run_id=run_id)
+    except LaunchNotStarted as e:
+        task['status'] = 'queued'
+        task.pop('launch_pending', None)
+        task.pop('recovery_note', None)
+        backlog.save(cfg, data)
+        return None, f'{task_id} could not be started on {step} ({e}): it stays queued'
+    except OSError as e:
+        if task.get('launch_pending'):
+            task['recovery_note'] = f'launch outcome is unverified ({e}): waiting for its report before retrying'
+            backlog.save(cfg, data)
+            return None, f'{task_id} launch outcome is unverified: held for its report'
+        return None, f'{task_id} could not be reserved on {step} ({e}): it stays queued'
+    backlog.save(cfg, data)
+    return run_id, f'{task_id} sent to {step} (run {run_id}, attempt {len(task["attempts"]) + 1})'
+
+
 def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen, publish_fn=publish, beat=None):
     """One round: collect, plan, dispatch. `states`: {account: pacing.account_state}; `machines`: state.machines_state items;
     `beat`: this member's heartbeat for the household coordinator (shared projects only; docs/HOUSEHOLD.md)."""
@@ -1442,13 +1495,10 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         backlog.save(cfg, data)   # what was collected is kept even if a start below fails
         for task_id, step in p['dispatch']:
             t = backlog.find(data, task_id)
-            try:
-                run_id = dispatch(cfg, t, step, now, spawn, states)
-            except OSError as e:
-                events.append(f'{task_id} could not be started on {step} ({e}): it stays queued')
+            run_id, event = start_reserved(cfg, data, t, step, now, spawn, states)
+            events.append(event)
+            if not run_id:
                 continue
-            backlog.save(cfg, data)
-            events.append(f'{task_id} sent to {step} (run {run_id}, attempt {len(t["attempts"]) + 1})')
             if t['repo'] in shared['keys']:
                 started.append(task_id)
     if started:   # shared tasks just started: their leases at full length now, not at the next round
@@ -1488,7 +1538,7 @@ def last_line(path):
 
 def task_view(cfg, t, now):
     v = {k: t.get(k) for k in ('id', 'repo', 'title', 'status', 'size', 'source', 'step', 'run', 'branch', 'pr', 'publish_note',
-                               'parked', 'diff', 'worktree', 'landing', 'choice', 'picked')}
+                               'parked', 'diff', 'worktree', 'landing', 'choice', 'picked', 'recovery_note')}
     v['attempt_count'] = len(t['attempts'])
     v['history'] = [{'step': a['step'], 'ok': a['ok'], 'why': a['why'][:200], 'signature': a['signature'], 'run': a['run']}
                     for a in t['attempts']]
@@ -1528,7 +1578,8 @@ def fill_line(v):
 
 
 def task_lines(title, t):
-    extra = t.get('publish_note') or t.get('parked') or (f'run {t["run"]} on {t["step"]}' if t['status'] == 'running' else '')
+    extra = (t.get('recovery_note') or t.get('publish_note') or t.get('parked')
+             or (f'run {t["run"]} on {t["step"]}' if t['status'] == 'running' else ''))
     return [f'{title:15} {t["id"]:5} {t["attempt_count"]} attempt(s)  {t["title"][:70]}'] + ([f'{"":21}{extra}'] if extra else [])
 
 

@@ -11,6 +11,10 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
+- Save the launch intent before spawning an autopilot run so a crash cannot silently launch it twice (t309).
+
+### Fixed
+
 - Repeated missing reports or CLI refusals across every worker no longer park a task as exhausted (t260).
 - Reuse local model workers after completed attempts while keeping running work and online quota reservations accounted for (t301).
 - Defer automatic heavy backlog gap commands while the main computer is in quiet mode (t172).

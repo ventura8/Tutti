@@ -613,6 +613,68 @@ class SurfaceTest(Base):
         self.assertIn('could not be started', events[0])
         self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
 
+    def test_launch_intent_is_durable_before_child_start_and_survives_crash(self):
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        cfg['machines'] = {}
+        with backlog.locked(cfg) as data:
+            backlog.add(data, backlog.new_task('app', 'x', [], 'true'))
+        def crash(c, task, step, now, spawn, states, run_id=None):
+            saved = backlog.load(c)['tasks'][0]
+            self.assertEqual((saved['status'], saved['launch_pending'], saved['run']), ('running', True, run_id))
+            raise RuntimeError('simulated process loss after durable intent')
+        with mock.patch.object(autopilot, 'dispatch', side_effect=crash), self.assertRaisesRegex(RuntimeError, 'simulated'):
+            autopilot.tick(cfg, {'agy-gemini': account('agy-gemini')}, [])
+        saved = backlog.load(cfg)['tasks'][0]
+        self.assertTrue(saved['launch_pending'])
+        self.assertEqual(saved['status'], 'running')
+        _, events = autopilot.tick(cfg, {'agy-gemini': account('agy-gemini')}, [], is_alive=lambda p: False)
+        saved = backlog.load(cfg)['tasks'][0]
+        self.assertEqual((saved['status'], saved['attempts']), ('running', []))
+        self.assertIn('unverified', saved['recovery_note'])
+        self.assertFalse(any('sent to' in event for event in events))
+
+    def test_unknown_post_launch_failure_is_held_without_retry(self):
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        cfg['machines'] = {}
+        with backlog.locked(cfg) as data:
+            backlog.add(data, backlog.new_task('app', 'x', [], 'true'))
+        with mock.patch.object(autopilot, 'dispatch', side_effect=OSError('pid file unavailable')):
+            _, events = autopilot.tick(cfg, {'agy-gemini': account('agy-gemini')}, [])
+        saved = backlog.load(cfg)['tasks'][0]
+        self.assertEqual((saved['status'], saved['launch_pending'], saved['attempts']), ('running', True, []))
+        self.assertIn('unverified', saved['recovery_note'])
+        self.assertIn('held', events[0])
+        self.assertEqual(autopilot.task_view(cfg, saved, saved['started'])['recovery_note'], saved['recovery_note'])
+
+    def test_a_late_report_recovers_the_saved_launch_and_keeps_its_gates(self):
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        cfg['machines'] = {}
+        cfg['autopilot']['repos']['app']['check'] = 'example-check'
+        t = task('t1')
+        autopilot.reserve_launch(cfg, t, 'agy-gemini', 100)
+        self.assertEqual((t['gates'], t['job_bridge']), ('example-check', ''))
+        t['recovery_note'] = 'launch outcome is unverified'
+        report = {'id': t['run'], 'rc': 0, 'worker_rc': 0, 'checks': [], 'changed': True}
+        observed = []
+        def attempt(c, saved, r, now):
+            observed.append(saved['gates'])
+            return {'ok': True, 'step': 'agy-gemini'}
+        with mock.patch.object(autopilot, 'finished', return_value=(True, report)), \
+                mock.patch.object(autopilot, 'attempt_of', side_effect=attempt):
+            autopilot.collect(cfg, {'tasks': [t]}, 120, lambda p: False, publish_fn=lambda c, task, r: None)
+        self.assertEqual((t['status'], observed), ('review', ['example-check']))
+        self.assertNotIn('launch_pending', t)
+        self.assertNotIn('recovery_note', t)
+
+    def test_collect_preserves_other_recovery_notes(self):
+        cfg = self.cfg()
+        t = task('t1', status='running')
+        t.update(run='1-1', started=100, recovery_note='separate recovery state')
+        with mock.patch.object(autopilot, 'finished', return_value=(False, None)), \
+                mock.patch.object(autopilot, 'stuck', return_value=''):
+            autopilot.collect(cfg, {'tasks': [t]}, 120, lambda p: True)
+        self.assertEqual(t['recovery_note'], 'separate recovery state')
+
     def test_the_dashboard_toggle_and_its_bad_body(self):
         cfg = self.cfg(enabled=False)
         self.assertFalse(autopilot.enabled(cfg))

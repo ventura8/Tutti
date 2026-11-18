@@ -274,3 +274,12 @@ work per weight. A more important project goes first and more often; a less impo
 never starves. One helper, `config.project_priority(cfg, name)` (with `config.repo_priority` and `tutti/priority.py`'s
 `fair_order`), is what every scheduler uses.
 
+
+
+## Launch recovery
+
+Before starting a worker, the autopilot reserves its run ID and saves a running launch intent. A crash after that save
+cannot leave the task queued in this local backlog while its worker might already be running. If the outcome is unknown, the task remains
+visible and waits for its actual report; a confirmed failure to create the child goes back to the queue. This does not
+verify or recover a worker that has detached, a remote run, or an ordinary no-report run after a confirmed launch.
+It does not replace household lease renewal or guarantee that another member cannot take over after a lease expires.

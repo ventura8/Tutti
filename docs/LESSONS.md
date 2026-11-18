@@ -493,3 +493,9 @@ A dashboard listening only on a LAN address cannot answer a loopback probe. The 
 another dashboard while its user service was restarting. Probe the configured address, avoid competing with an existing
 user service, and serialize fallback watchdog starts when no unit exists. An existing service or PID is not proof that it
 owns the configured dashboard, so report unresolved health rather than killing or restarting an unverified process.
+
+
+## Save launch intent before starting work (t309)
+
+A process can outlive the dashboard that starts it. If the queue still says the task is queued when the dashboard dies,
+another round can launch a competing attempt. Persist the intended run first and hold ambiguous starts until a report.

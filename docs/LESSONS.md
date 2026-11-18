@@ -482,3 +482,5 @@ A dashboard listening only on a LAN address cannot answer a loopback probe. The 
 another dashboard while its user service was restarting. Probe the configured address, avoid competing with an existing
 user service, and serialize fallback watchdog starts when no unit exists. An existing service or PID is not proof that it
 owns the configured dashboard, so report unresolved health rather than killing or restarting an unverified process.
+### Tutti learns from failures
+Tutti now classifies failures and learns by filtering out 'wrong model/agent' for future tasks.

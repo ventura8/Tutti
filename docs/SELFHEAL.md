@@ -114,3 +114,5 @@ so their `mkdir` lock could never succeed and each spun every 0.1 s), 38 tunnel 
 - (0.16.2) the failover service exits (code 75) when any file of Tutti's code changes (an update) and its service manager starts it on the new code, so new checks such as `strays`
   run without a manual restart; and `tutti test` and every check set `TUTTI_NO_DAEMONS=1` on the command itself, so an
   old branch's tests start no helper either.
+### Failure Classification
+Tutti now classifies task failures into categories (wrong model/agent, too big, environment, flaky, the task itself) and actively filters out models classified as 'wrong model/agent'.

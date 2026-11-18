@@ -315,6 +315,16 @@ def accounts_of_run(cfg, name, extra=()):
     return given or found
 
 
+def report_failure(cfg, name, task, rc, lines, extra):
+    from . import failure, workers as workers_mod
+    model = None
+    if cfg['workers'][name].get('kind') == 'ollama':
+        chosen = dict(workers_mod.pairs(list(extra or ()))) .get('--model')
+        model = chosen or cfg['workers'][name].get('model')
+    cat = failure.classify(cfg, name, task, rc, lines)
+    failure.log_failure(cfg, name, task, rc, cat, model=model)
+
+
 def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list=None, remote_track=None):
     if run_id and not valid_id(run_id):
         raise ship.ShipError(f'refused: run id "{run_id}" is not <time>-<pid>: let tutti choose it (nothing was changed)')
@@ -338,6 +348,8 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
         write(os.path.join(p['dir'], 'meta.json'), json.dumps({'repo': os.path.abspath(repo), 'worktree': wt}) + '\n')
         worktree.share(wt, cfg['ship'].get('share', []), say)
         rc, lines = run_worker(cfg, name, task, files, wt, log, extra, p['worker_log'], check_list)
+        if rc != 0:
+            report_failure(cfg, name, task, rc, lines, extra)
         changed, stat = capture_diff(wt, p['diff'])
         found = denials(cfg['workers'][name], lines, p['worker_log'])
         r = {'id': run_id, 'worker': name, 'task': task, 'worker_rc': rc, 'worktree': wt, 'created': created, 'diff': p['diff'],

@@ -56,10 +56,18 @@ def as_model(name):
     return fleet.classify({'name': name}) or {'name': name, 'params_b': 0.0, 'tier': 'normal', 'kinds': [], 'code': False}
 
 
+def get_bad_models(cfg):
+    path = os.path.join(config.state_dir(cfg), 'bad-models.json')
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding='utf8') as f:
+        return json.load(f)
+
 def candidates(cfg, fleet_state=None):
     """[(worker name, machine, model dict)] for every model every enabled ollama worker's machine has now (the fleet
     reading), else the worker's own model."""
     from . import fleet
+    bad = get_bad_models(cfg)
     machines = (fleet_state if fleet_state is not None else fleet.read_state(cfg)).get('machines') or {}
     out, seen = [], set()
     for name, w in [*(cfg.get('workers') or {}).items(), *shared_workers(cfg).items()]:
@@ -67,6 +75,8 @@ def candidates(cfg, fleet_state=None):
             continue
         machine = w.get('machine') if w.get('household') else fleet.machine_of(cfg, name)
         for m in models_of(w, machines.get(machine) or {}):
+            if m['name'] in bad:
+                continue
             if (machine, m['name']) not in seen:
                 seen.add((machine, m['name']))
                 out.append((name, machine, m))

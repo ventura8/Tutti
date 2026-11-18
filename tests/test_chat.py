@@ -1610,6 +1610,63 @@ def js(expr):
 
 @unittest.skipUnless(shutil.which('node'), 'node is not installed')
 class PageLogic(unittest.TestCase):
+    def test_rename_updates_only_originating_conversation_without_redrawing_messages(self):
+        with open(os.path.join(WEB, 'chat.js'), encoding='utf8') as f:
+            src = f.read()
+        script = r'''
+let save, input, release, draws = 0, loads = 0, closes = 0;
+const title = {textContent: 'Old'}, log = {scrollTop: 123, node: {text: 'selected text'}};
+global.el = (tag, attrs) => {
+    const n = {tag, ...attrs, isConnected: true, addEventListener() {}, select() {}};
+    if (tag === 'input') input = n;
+    return n;
+};
+global.cq = (id) => id === 'chat-title' ? title : id === 'chat-log' ? log : {close() { closes += 1; }};
+dialog = (_title, _body, actions) => { save = actions[0].onclick; };
+drawLog = () => { draws += 1; };
+loadList = async () => { loads += 1; };
+let calls = [];
+chatApi = (body) => { calls.push(body); return new Promise((resolve) => { release = resolve; }); };
+const first = {id: 'c1', title: 'Old', messages: []};
+CHAT.conv = first;
+renameConv(); input.value = ' New name ';
+const pending = save();
+const second = {id: 'c2', title: 'Second', messages: []};
+CHAT.conv = second; title.textContent = 'Second'; input.isConnected = false;
+release({});
+pending.then(() => console.log(JSON.stringify({first: first.title, second: second.title, title: title.textContent,
+    node: log.node.text, scroll: log.scrollTop, draws, loads, closes, calls})));
+'''
+        out = subprocess.run(['node', '-e', src + '\n' + script], capture_output=True, text=True, check=True)
+        result = json.loads(out.stdout)
+        self.assertEqual((result['first'], result['second'], result['title']), ('New name', 'Second', 'Second'))
+        self.assertEqual((result['node'], result['scroll'], result['draws'], result['loads'], result['closes']),
+                         ('selected text', 123, 0, 1, 0))
+        self.assertEqual(result['calls'], [{'action': 'rename', 'id': 'c1', 'title': 'New name'}])
+
+    def test_failed_rename_keeps_title_and_shows_error_without_redraw(self):
+        with open(os.path.join(WEB, 'chat.js'), encoding='utf8') as f:
+            src = f.read()
+        script = r'''
+let save, input, draws = 0, closes = 0;
+const title = {textContent: 'Old'}, error = {textContent: ''};
+global.el = (tag, attrs) => {
+    const n = {tag, ...attrs, isConnected: true, addEventListener() {}, select() {}};
+    if (tag === 'input') input = n;
+    return n;
+};
+global.document = {getElementById: (id) => id === 'chat-title' ? title : id === 'chat-dialog-error' ? error : {close() { closes += 1; }}};
+dialog = (_title, _body, actions) => { save = actions[0].onclick; };
+drawLog = () => { draws += 1; };
+chatApi = async () => { throw new Error('not saved'); };
+CHAT.conv = {id: 'c1', title: 'Old', messages: []};
+renameConv(); input.value = 'New';
+save().then(() => console.log(JSON.stringify({title: title.textContent, stored: CHAT.conv.title,
+    error: error.textContent, draws, closes})));
+'''
+        out = subprocess.run(['node', '-e', src + '\n' + script], capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(out.stdout), {'title': 'Old', 'stored': 'Old', 'error': 'not saved', 'draws': 0, 'closes': 0})
+
     def test_markdown_cache_reuses_private_frozen_tree_and_invalidates_on_text_change(self):
         result = js('''(() => {
             global.document = {createDocumentFragment: () => ({children: [], append(n) { this.children.push(n); }})};

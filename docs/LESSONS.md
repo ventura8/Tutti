@@ -1,5 +1,8 @@
 # Lessons
 
+- A title-only Chat update should not rebuild the message DOM, and an asynchronous result must remain bound to the
+  conversation that initiated it (t407).
+
 - A title-only moved notice loses project identity and can stop unrelated work. Scope the notice and hold ambiguous queued
   tasks; matching scope is evidence, not a globally unique identity (t210).
 

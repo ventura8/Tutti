@@ -2,6 +2,16 @@
 # check.sh: everything CI runs, in one go: shellcheck, ruff (when installed), the unit tests, the dashboard's browser tests and a CLI smoke test.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# If not already running via tutti test, route it to a machine via tutti test
+if [ -z "${TUTTI_TEST_RUN:-}" ]; then
+    export TUTTI_TEST_RUN=1
+    # Run via tutti test to route and cap.
+    # tutti test automatically picks a machine from routing.order
+    # and uses slot.sh to limit concurrency.
+    exec python3 bin/tutti test --dir . check -- env TUTTI_TEST_RUN=1 ./scripts/check.sh
+fi
+
 export TUTTI_TELEMETRY=off   # the smoke runs below are not usage: record nothing
 export TUTTI_OFFLINE=1      # nothing here asks GitHub (the releases-stuck check, tutti/stuck.py)
 export TUTTI_NO_DAEMONS=1   # no real keep-awake loop, tunnel or sleep inhibitor outlives a check (tutti/procs.py)

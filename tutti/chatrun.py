@@ -5,6 +5,7 @@ import json
 import os
 import queue
 import re
+import stat
 import subprocess
 import threading
 import time
@@ -25,6 +26,7 @@ STATUS_WAIT_SECONDS = 120
 STATUS_POLL_SECONDS = 2
 WORK_ACTIONS = ('chat: Queue a task', 'chat: Hand off', 'chat: Ask ')   # audit lines that count against a viewer's daily limit
 BUILTIN = 'Tutti (built-in, from the dashboard\'s state)'
+_ENGINE_INIT_LOCK = threading.Lock()
 
 
 # ---- the models
@@ -1163,12 +1165,48 @@ def own_machine(collector, user):
 
 
 def engine_of(collector):
-    eng = collector.__dict__.get('chat_engine')
-    if eng is None:
-        eng = Engine(lambda: collector.cfg, collector.snapshot, owner_fn=lambda: owner_of(collector),
-                     own_machine_fn=lambda u: own_machine(collector, u))
-        collector.chat_engine = eng
-    return eng
+    with _ENGINE_INIT_LOCK:
+        eng = collector.__dict__.get('chat_engine')
+        if eng is None:
+            eng = Engine(lambda: collector.cfg, collector.snapshot, owner_fn=lambda: owner_of(collector),
+                         own_machine_fn=lambda u: own_machine(collector, u))
+            collector.chat_engine = eng
+        return eng
+
+
+def guard_chat_restart(engine, action):
+    """Block new Chat sends while checking for live answers and executing the in-process restart."""
+    if not getattr(os, 'O_NOFOLLOW', 0) or not auth.fcntl:
+        raise chat.ChatError('Chat restart cannot be guarded on this platform: wait for a supported coordinated restart')
+    with engine.store.lock, chat.store_locked(engine.store.folder):
+        if engine.live_ids():
+            raise chat.ChatError('Chat is answering: wait for the answer to finish, then restart')
+        try:
+            names = os.listdir(engine.store.folder)
+        except OSError as e:
+            raise chat.ChatError(f'Chat state cannot be listed ({type(e).__name__}): repair it before restarting') from e
+        for name in names:
+            if not name.endswith('.json'):
+                continue
+            path = os.path.join(engine.store.folder, name)
+            try:
+                fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                with os.fdopen(fd, encoding='utf8') as f:
+                    if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                        raise ValueError('not a regular file')
+                    data = json.load(f)
+                conversations = data['conversations']
+                if not isinstance(conversations, list):
+                    raise ValueError('conversations is not a list')
+                for conversation in conversations:
+                    messages = conversation['messages']
+                    if not isinstance(messages, list):
+                        raise ValueError('messages is not a list')
+                    if any(message.get('status') == 'streaming' for message in messages):
+                        raise chat.ChatError('Chat has an unfinished answer: open it and resolve it before restarting')
+            except (OSError, ValueError, TypeError, KeyError, AttributeError) as e:
+                raise chat.ChatError(f'Chat state cannot be checked ({type(e).__name__}): repair it before restarting') from e
+        return action()
 
 
 def handle(collector, headers, raw):

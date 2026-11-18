@@ -5,13 +5,14 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
 import yaml
 
-from tutti import autopilot, config, dashboard, priority, settings, yamledit
+from tutti import autopilot, chatrun, config, dashboard, priority, settings, yamledit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SECRET = 'https://k3y-n0t-for-the-page@sentry.example/42'
@@ -206,11 +207,91 @@ class SaveTest(Base):
         ran = []
         timer = mock.Mock(side_effect=lambda d, fn: SimpleNamespace(start=fn))
         self.c.argv = ['/usr/bin/python3', 'tutti', 'dashboard']
+        self.c.snapshot = lambda: {}
         self.assertEqual(dashboard.restart_now(self.c, b'{}', execv=lambda *a: ran.append(a), timer=timer)[0], 200)
         self.assertEqual(ran, [('/usr/bin/python3', ['/usr/bin/python3', 'tutti', 'dashboard'])])
         self.assertEqual(dashboard.without_port(['py', 'tutti', 'dashboard', '--port', '4777', '--port=1', '--no-probe']),
                          ['py', 'tutti', 'dashboard', '--no-probe'])   # the saved dashboard.port applies after a restart
         self.assertIn(b'"started"', dashboard.route(self.c, '/api/health')[1])
+
+    def test_restart_refuses_a_live_answer_even_if_its_conversation_was_deleted(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        engine.jobs['m'] = chatrun.Job('user', 'deleted', {'id': 'm'})
+        timer = mock.Mock()
+        code, body = dashboard.restart_now(self.c, b'{}', timer=timer)
+        self.assertEqual(code, 409)
+        self.assertIn('answering', body['error'])
+        timer.assert_not_called()
+
+    def test_restart_defers_if_a_chat_starts_after_preflight(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        pending, ran = [], []
+        timer = lambda _delay, fn: SimpleNamespace(start=lambda: pending.append(fn))
+        self.assertEqual(dashboard.restart_now(self.c, b'{}', execv=lambda *a: ran.append(a), timer=timer)[0], 200)
+        engine.jobs['m'] = chatrun.Job('user', 'c', {'id': 'm'})
+        pending[0]()
+        self.assertEqual(ran, [])
+
+    def test_restart_refuses_streaming_or_unreadable_persisted_state(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        conv = engine.store.create('user', messages=[{'id': 'm', 'role': 'assistant', 'status': 'streaming'}])
+        self.assertEqual(dashboard.restart_now(self.c, b'{}')[0], 409)
+        engine.store.delete('user', conv['id'])
+        with open(engine.store.path('user'), 'w', encoding='utf8') as f:
+            f.write('{broken')
+        self.assertEqual(dashboard.restart_now(self.c, b'{}')[0], 409)
+        with mock.patch.object(chatrun.auth, 'fcntl', None):
+            self.assertEqual(dashboard.restart_now(self.c, b'{}')[0], 409)
+        with mock.patch.object(chatrun.os, 'listdir', side_effect=PermissionError('denied')):
+            self.assertEqual(dashboard.restart_now(self.c, b'{}')[0], 409)
+
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'FIFO not supported')
+    def test_restart_refuses_fifo_store_without_waiting_for_a_writer(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        os.makedirs(engine.store.folder, exist_ok=True)
+        os.mkfifo(engine.store.path('user'))
+        self.assertEqual(dashboard.restart_now(self.c, b'{}')[0], 409)
+
+    def test_chat_send_waits_for_guarded_restart(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        entered, release, sent = threading.Event(), threading.Event(), threading.Event()
+        def action():
+            entered.set()
+            self.assertTrue(release.wait(2))
+        worker = threading.Thread(target=lambda: chatrun.guard_chat_restart(engine, action))
+        with mock.patch.object(engine, '_send_locked', side_effect=lambda *a: sent.set()):
+            worker.start()
+            self.assertTrue(entered.wait(2))
+            sender = threading.Thread(target=lambda: engine.send({'sub': 'user'}, 'c', 'hello'))
+            sender.start()
+            self.assertFalse(sent.wait(0.05))
+            release.set()
+            worker.join(2)
+            sender.join(2)
+        self.assertTrue(sent.is_set())
+        self.assertFalse(worker.is_alive() or sender.is_alive())
+
+    def test_concurrent_first_chat_requests_share_one_engine(self):
+        self.c.snapshot = lambda: {}
+        engines = []
+        start = threading.Barrier(8)
+        def obtain():
+            start.wait(timeout=2)
+            engines.append(chatrun.engine_of(self.c))
+        workers = [threading.Thread(target=obtain) for _ in range(8)]
+        with mock.patch.object(chatrun, 'Engine', wraps=chatrun.Engine) as make:
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(2)
+        self.assertEqual(len(engines), 8)
+        self.assertTrue(all(engine is engines[0] for engine in engines))
+        make.assert_called_once()
 
 
 class PriorityTest(unittest.TestCase):

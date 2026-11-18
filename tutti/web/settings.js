@@ -98,7 +98,8 @@ async function restartDashboard(button) {
         const res = await fetch('/api/restart', { method: 'POST', headers: headers(), body: '{}' }).catch(() => null);
         if (!res?.ok) {
             button.disabled = false;
-            button.textContent = 'Not restarted: the dashboard refused it. Restart tutti dashboard yourself.';
+            button.textContent = res?.status === 409 ? 'Not restarted: finish Chat answers or resolve its stored state, then retry.' :
+                'Not restarted: the dashboard refused it. Check the dashboard, then retry.';
             return;
         }
         for (let i = 0; i < 40; i += 1) {
@@ -112,7 +113,8 @@ async function restartDashboard(button) {
             }
         }
         button.disabled = false;
-        button.textContent = 'Not back after 20 s: start it again with tutti dashboard';
+        button.textContent = await started() ? 'Not restarted: check active Chat and retry.' :
+            'Not back after 20 s: start it again with tutti dashboard';
     } finally {
         if (!navigating) window.tuttiRestarting = false;
     }

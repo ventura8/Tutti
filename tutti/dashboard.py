@@ -817,7 +817,19 @@ def restart_now(collector, _body, execv=os.execv, timer=threading.Timer):
     """POST /api/restart: the dashboard starts again with the same command, so a setting that needs a restart applies. The
     page waits for /api/health and reloads."""
     argv = without_port(getattr(collector, 'argv', None) or [sys.executable, *sys.argv])
-    timer(RESTART_DELAY, lambda: execv(argv[0], argv)).start()
+    engine = chatrun.engine_of(collector)
+    try:
+        chatrun.guard_chat_restart(engine, lambda: None)
+    except (chatrun.chat.ChatError, OSError) as e:
+        return 409, {'error': str(e)}
+
+    def restart_if_idle():
+        try:
+            chatrun.guard_chat_restart(engine, lambda: execv(argv[0], argv))
+        except (chatrun.chat.ChatError, OSError) as e:
+            sys.stderr.write(f'tutti: dashboard restart deferred ({e}); retry when Chat is idle\n')
+
+    timer(RESTART_DELAY, restart_if_idle).start()
     return 200, {'ok': True, 'restarting': True}
 
 

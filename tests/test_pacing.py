@@ -4,7 +4,7 @@ import unittest
 from datetime import timedelta
 from unittest import mock
 
-from tutti import pacing
+from tutti import autopilot, pacing
 
 # These tests read times in UTC: the host's detected zone is pinned so they pass anywhere (tests/test_tz.py covers zones)
 _PIN = mock.patch('tutti.tz.host_zone', return_value='UTC')
@@ -111,16 +111,81 @@ class ToleranceTest(unittest.TestCase):
 
 
 class NeedsReadingTest(unittest.TestCase):
-    """Add a reading shows only where it is needed: no automatic reading, or an old one."""
+    """Automatic accounts report reader failures without asking the person for a manual reading."""
 
     def test_only_where_nothing_reads_it_or_the_reading_is_old(self):
         now = pacing.parse_time('2026-01-06T12:00Z')
         fresh, old = now - timedelta(minutes=30), now - timedelta(hours=3)
         self.assertTrue(pacing.needs_reading({}, fresh, now))                                  # read by hand (Cursor)
         self.assertFalse(pacing.needs_reading({'reader': {'command': ['x']}}, fresh, now))     # agy: read automatically
-        self.assertTrue(pacing.needs_reading({'reader': {'command': ['x']}}, old, now))
-        self.assertTrue(pacing.needs_reading({'reading_file': '/r.json'}, None, now))
+        self.assertFalse(pacing.needs_reading({'reader': {'command': ['x']}}, old, now))
+        self.assertFalse(pacing.needs_reading({'reading_file': '/r.json'}, None, now))
         self.assertFalse(pacing.needs_reading({'reading_file': '/r.json', 'stale_hours': 4}, old, now))
+
+
+class AutomaticFreshnessTest(unittest.TestCase):
+    def setUp(self):
+        self.now = pacing.parse_time('2026-01-06T12:00Z')
+        self.account = {'reader': {'command': ['example-reader']}, 'window': '7d', 'resets': '2026-01-10T02:00Z'}
+
+    def test_missing_and_old_automatic_readings_are_stale_without_manual_prompt(self):
+        for entries in ([], [{'account': 'api', 'at': '2026-01-06T09:00Z', 'used': 20, 'source': 'reader'}]):
+            state = pacing.account_state('api', self.account, entries, self.now)
+            self.assertTrue(state['stale'])
+            self.assertTrue(state['auto'])
+            self.assertFalse(state['needs_reading'])
+            self.assertIn('automatic reader', state['remind'])
+            self.assertNotIn('usage log', state['remind'])
+        self.assertNotIn('usage log', pacing.account_state('api', self.account, [], self.now)['action'])
+
+    def test_fresh_automatic_reading_is_not_stale_and_implicit_readers_are_detected(self):
+        entry = {'account': 'codex', 'at': '2026-01-06T11:30Z', 'used': 20, 'source': 'reader'}
+        state = pacing.account_state('codex', {'window': '7d', 'resets': '2026-01-10T02:00Z'}, [entry], self.now)
+        self.assertFalse(state['stale'])
+        self.assertTrue(state['auto'])
+        self.assertFalse(state['needs_reading'])
+        entry['at'] = '2026-01-06T08:00Z'
+        self.assertTrue(pacing.account_state('codex', {'window': '7d', 'resets': '2026-01-10T02:00Z'}, [entry], self.now)['stale'])
+
+    def test_automatic_missing_reading_is_visible_even_without_reset_configuration(self):
+        state = pacing.account_state('api', {'reader': {'command': ['example-reader']}}, [], self.now)
+        self.assertEqual(state['state'], 'no reset')
+        self.assertTrue(state['stale'])
+        self.assertTrue(state['auto'])
+        self.assertFalse(state['needs_reading'])
+
+    def test_future_or_estimated_reading_does_not_hide_stale_actual(self):
+        future = {'account': 'api', 'at': '2026-01-06T13:00Z', 'used': 20, 'source': 'reader'}
+        result = pacing.account_state('api', self.account, [future], self.now)
+        self.assertTrue(result['stale'])
+        self.assertIn('future', result['remind'])
+        old = {'account': 'api', 'at': '2026-01-06T08:00Z', 'used': 10, 'source': 'reader'}
+        estimate = {'account': 'api', 'at': '2026-01-06T11:59Z', 'used': 11, 'source': 'estimate'}
+        result = pacing.account_state('api', self.account, [old, estimate], self.now)
+        self.assertTrue(result['stale'])
+        self.assertFalse(result['needs_reading'])
+
+    def test_stale_and_future_linked_windows_block_panic_rescue_until_fresh(self):
+        now = self.now
+        common = {'reader': {'command': ['example-reader']}, 'window': '7d', 'resets': '2026-01-10T02:00Z'}
+        configured = {'cursor': {**common, 'worker': 'cursor', 'limits': ['weekly']},
+                      'weekly': dict(common), 'claude': {'worker': 'claude'}}
+        cfg = {'accounts': configured, 'workers': {'cursor': {'kind': 'cli'}, 'claude': {'kind': 'cli'},
+                                                    'local': {'kind': 'ollama'}},
+               '_main_worker': 'local', '_now': now, '_account_limits': {'cursor': ['weekly']}, 'autopilot': {}}
+        own_entry = {'account': 'cursor', 'at': (now - timedelta(minutes=10)).isoformat(), 'used': 96, 'source': 'reader'}
+        for offset, expected in ((timedelta(hours=-3), False), (timedelta(minutes=10), False),
+                                 (timedelta(minutes=-10), True)):
+            with self.subTest(offset=offset):
+                limit_entry = {'account': 'weekly', 'at': (now + offset).isoformat(), 'used': 40, 'source': 'reader'}
+                own = pacing.account_state('cursor', configured['cursor'], [own_entry, limit_entry], now, accounts=configured)
+                self.assertEqual(own['limits'][0]['name'], 'weekly')
+                states = {'cursor': own, 'claude': {'panic': True, 'used': 96}}
+                self.assertEqual(autopilot.panic_rescue(cfg, 'cursor', own, states), expected)
+
+    def test_zero_manual_reminder_does_not_hide_automatic_failure(self):
+        self.assertFalse(pacing.staleness('manual', {'stale_hours': 0}, None, self.now)[0])
+        self.assertTrue(pacing.staleness('api', {**self.account, 'stale_hours': 0}, None, self.now)[0])
 
 
 if __name__ == '__main__':

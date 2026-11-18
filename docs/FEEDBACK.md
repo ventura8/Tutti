@@ -41,3 +41,5 @@ of your project or secrets: describe the setup in general words.
 - 2026-11-14 (owner): "Claude Code: needs-restart" while `claude mcp list` said Connected, and "Claude Desktop (chat):
   not connected" after the app dropped Tutti's entry. Fixed in 0.1.62: the status comes from `claude mcp list`; a dropped
   Desktop entry is put back with a backup.
+
+- Automatic account usage should reveal stale or unavailable readings and recover without requiring manual entry (t317).

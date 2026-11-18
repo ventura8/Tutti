@@ -111,9 +111,15 @@ allowance: 300}` reads the month's premium requests (the gh token needs the `use
 -s user`, a step for the owner). `credits: true` adds the "AI Credits N" that `copilot -p` prints at the end of each run,
 summed over the window from Tutti's own run logs (runs started elsewhere are not in it).
 
-**Stale readings.** An account with no `reader` or `usage_url` is read by hand (or from a file). When it has no reading,
-or its newest is older than `stale_hours` (default 2; 0 turns the reminder off), `tutti usage` prints
-`reminder: <account>: ...: tutti usage log <account> <percent>` and the dashboard's card shows the same reminder.
+**Stale readings.** Missing, future-dated or old automatic measurements are marked stale instead of looking current.
+The dashboard and `tutti usage` identify the account and suggest checking the reader or producer and retrying
+`tutti usage refresh`; they do not ask for manual entry for an automatic account. This includes configured readers,
+implicit Codex/browser readers and reading files. The default freshness limit is two hours; `stale_hours` changes it.
+For automatic accounts `stale_hours: 0` keeps the two-hour failure indicator, so a broken reader is never silently
+shown as current. For manual accounts, `stale_hours: 0` still turns off the reminder; otherwise the dashboard offers
+manual entry and `tutti usage` suggests `tutti usage log`. An estimate or synthetic post-reset value does not refresh
+the last actual measurement. Normal pacing continues to use the account state; cautious panic rescue refuses stale or future readings until every
+linked quota window has a recent measurement. The stale label is not itself a monetary limit.
 
 **Room for work.** An account `behind` its line (or `late`) says how many bounded tasks it can take now: the points it is
 short of divided by `task_pct` (default 2, the points one bounded task costs; tune it from your runs). The action and the

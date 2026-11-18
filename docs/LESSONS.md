@@ -452,3 +452,6 @@ next `sleep` or fake `adb`, which carried the same marker and lived on until sel
 `scripts/check.sh` stopped at shellcheck on a machine without it, and an agent edited a throwaway copy of the script to
 skip that line. Even in a scratch clone that weakens the check. The fix is to install the tool, not skip it: check.sh now
 puts a pinned shellcheck (`shellcheck-py`, hashed) in its venv, and a missing tool is reported, never commented out.
+
+- A configured automatic reader is not proof of a fresh measurement: preserve the last actual reading time and surface
+  missing, future or stale values independently of whether a reader is configured (t317).

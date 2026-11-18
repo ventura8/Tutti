@@ -415,7 +415,9 @@ class CursorReader(unittest.TestCase):
         self.assertEqual(config.validate(bad), [])
         self.assertIn('accounts.c.reader.field', '\n'.join(bad['_warnings']))
         self.assertNotIn('reader', bad['accounts']['c'])
-        self.assertFalse(pacing.staleness('cursor', cfg['accounts']['cursor'], None, datetime(2026, 11, 14, tzinfo=UTC))[0])
+        stale, reason = pacing.staleness('cursor', cfg['accounts']['cursor'], None, datetime(2026, 11, 14, tzinfo=UTC))
+        self.assertTrue(stale)
+        self.assertIn('automatic reader', reason)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,10 @@
 # Local models: every machine's Ollama as a worker
 
+In one autopilot plan, workers using the same configured Ollama endpoint share one task slot. A running task or a task
+assigned in the current round occupies that endpoint for its other worker names too. This compares configured URLs after
+adding the default scheme and trimming trailing slashes; it does not resolve DNS aliases or coordinate independent
+autopilot instances (t301).
+
 Tutti reads every machine's Ollama at each dashboard probe and turns it into a worker. While the online accounts are ahead of
 their pace, or the owner's reserve holds them, the household's local models take bounded tasks first. A local model has no
 quota: what limits it is its machine.

@@ -164,6 +164,14 @@ def units(task):
     return backlog.SIZES.get(task.get('size'), 1)
 
 
+def local_endpoint(cfg, name):
+    """The literal Ollama URL for this local worker; do not guess DNS or network aliases."""
+    if not is_local(cfg, name):
+        return None
+    host = (cfg['workers'].get(name) or {}).get('host')
+    return config.ollama_url(host, '') if isinstance(host, str) and host else None
+
+
 def local_room(cfg, name, step, used, machines, now=None):
     """A worker without an account (a local model): no quota, one task at a time per model server, as many units as its
     strongest model takes (the loop works a larger task in steps); none while the governor says no (tutti/fleet.py: owner
@@ -201,6 +209,9 @@ def step_room(cfg, name, states, running_units, machines=()):
         return 0, unusable_why(cfg, name)
     used = running_units.get(name, 0)
     if not step['account']:
+        endpoint = local_endpoint(cfg, name)
+        if endpoint and any(count and local_endpoint(cfg, other) == endpoint for other, count in running_units.items()):
+            used = max(used, 1)
         return local_room(cfg, name, step, used, machines, cfg.get('_now'))
     missing = routing.missing_limits(cfg, name, states.get(name) or {})
     if missing:
@@ -491,6 +502,11 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
             continue
         left = 0 if is_local(cfg, pick) else rooms[pick][0] - units(t)   # a model server takes one task at a time
         rooms[pick] = (left, rooms[pick][1] or f'{pick}: its room is taken by the running tasks')
+        endpoint = local_endpoint(cfg, pick)
+        if endpoint:
+            for other in rooms:
+                if other != pick and local_endpoint(cfg, other) == endpoint:
+                    rooms[other] = (0, f'{other}: its model server is already in use by {pick}')
         rescue_debit(cfg, pick, units(t))
         out['dispatch'].append((t['id'], pick))
         local -= 1   # every run takes a machine slot for its checks

@@ -1,6 +1,7 @@
 # Feedback log
 
 A dashboard-requested restart must not cut off a Chat answer that is still running (t404).
+Multiple local worker names for the same model server must not schedule overlapping work to that server (t301).
 
 Turning autopilot off to drain work stopped its dashboard rounds and therefore stopped WIP checkpoints (t404).
 Automatic releases must move Unreleased changelog entries into the new version instead of repeating them later (t408).

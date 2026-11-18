@@ -9,7 +9,7 @@ import tempfile
 import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 from tutti import autopilot, browserusage, cli, codexusage, config, dashboard, helper, pacing, readers, routing, state, workers
@@ -400,22 +400,67 @@ class ReadersTest(unittest.TestCase):
         self.assertTrue(measured['stale'])
         self.assertFalse(autopilot.panic_rescue(cfg, 'codex', measured, {'codex': measured}))
 
-    def test_remote_observation_newer_than_snapshot_temporarily_fences_then_recovers(self):
+    def test_bridge_read_after_round_start_is_recorded_on_every_round(self):
+        account = {'window': '7d', 'resets': '2026-01-12T00:00Z', 'worker': 'codex', 'read_on': 'laptop',
+                   'reader': {'format': 'codex-app-server', 'every_minutes': 1}, 'stale_hours': 0.02}
+        cfg = cfg_of(self.tmp.name, {'codex': account})
+        def read_bridge(*_args):
+            self.t[0] += 1  # the provider measures after the caller starts its round
+            return {'used': 96, 'resets': None, 'problem': None, 'observation_version': 1,
+                    'observed_at': datetime.fromtimestamp(self.t[0], timezone.utc).isoformat()}
+        with mock.patch('tutti.bridge.read_account', side_effect=read_bridge) as call:
+            collector = dashboard.Collector(cfg, clock=lambda: self.t[0])
+            for _ in range(3):
+                result = collector.read_usage()['codex']
+                self.assertEqual(result['used'], 96)
+                current = datetime.fromtimestamp(self.t[0], timezone.utc)
+                measured = pacing.account_state('codex', account, pacing.read_log(cfg['usage']['log']), current)
+                self.assertFalse(measured['stale'])
+                self.t[0] += 60  # the cache is expired by the next normal probe
+            self.assertEqual(call.call_count, 3)
+
+    def test_bridge_cache_fails_closed_if_local_clock_moves_backwards(self):
         account = {'window': '7d', 'worker': 'codex', 'read_on': 'laptop'}
         cfg = cfg_of(self.tmp.name, {'codex': account})
-        remote = {'used': 96, 'resets': None, 'problem': None, 'observation_version': 1,
-                  'observed_at': (NOW + timedelta(seconds=1)).isoformat()}
-        self.t[0] += 2   # the bridge completed after the caller captured NOW
-        with mock.patch('tutti.bridge.call', return_value=(0, remote)) as call:
+        remote = {'used': 96, 'resets': None, 'problem': None, 'observation_version': 1, 'observed_at': NOW.isoformat()}
+        with mock.patch('tutti.bridge.read_account', return_value=remote):
             reader = readers.Readers(cfg, clock=lambda: self.t[0])
-            first = reader.read_all(now=NOW)['codex']
-            self.assertIsNone(first['used'])
-            self.assertIn('newer than this snapshot', first['problem'])
+            self.assertEqual(reader.read_all(now=NOW)['codex']['used'], 96)
+            self.t[0] -= 1
+            result = reader.read_all(now=NOW - timedelta(seconds=1))['codex']
+            self.assertIsNone(result['used'])
+            self.assertIn('future', result['problem'])
+
+    def test_cli_read_records_remote_observation_after_command_start(self):
+        account = {'window': '7d', 'worker': 'codex', 'read_on': 'laptop'}
+        cfg = cfg_of(self.tmp.name, {'codex': account})
+        reader = readers.Readers(cfg, clock=lambda: self.t[0])
+        def read_bridge(*_args):
             self.t[0] += 1
-            second = reader.read_all(now=NOW + timedelta(seconds=3))['codex']
-            self.assertEqual(second['used'], 96)
-            self.assertIsNone(second['problem'])
-            call.assert_called_once()
+            return {'used': 64, 'resets': None, 'problem': None, 'observation_version': 1,
+                    'observed_at': datetime.fromtimestamp(self.t[0], timezone.utc).isoformat()}
+        requested_at = NOW + timedelta(days=1)  # --at controls the report and job-log interpretation, not provider time
+        with mock.patch('tutti.cli.readers.Readers', return_value=reader), \
+             mock.patch('tutti.bridge.read_account', side_effect=read_bridge), \
+             mock.patch.object(reader, 'scan_jobs', return_value=[('codex', None, 'run-1:1', 'limit')]) as scan, \
+             mock.patch('tutti.cli.say'):
+            cli.read_now(cfg, cfg['usage']['log'], requested_at)
+        entries = pacing.read_log(cfg['usage']['log'])
+        provider = next(entry for entry in entries if entry.get('source') == 'reader')
+        limit = next(entry for entry in entries if entry.get('ref') == 'run-1:1')
+        self.assertEqual(provider['used'], 64)
+        self.assertEqual(pacing.parse_time(provider['at']), NOW + timedelta(seconds=1))
+        self.assertEqual(pacing.parse_time(limit['at']), requested_at)
+        scan.assert_called_once_with(requested_at)
+
+    def test_cli_at_does_not_forge_local_provider_observation(self):
+        self.cfg = cfg_of(self.tmp.name, {'agy-claude': ACCOUNTS['agy-claude']})
+        reader = self.fake({'agy': (AGY, None)})
+        with mock.patch('tutti.cli.readers.Readers', return_value=reader), \
+             mock.patch.object(reader, 'scan_jobs', return_value=[]), mock.patch('tutti.cli.say'):
+            cli.read_now(self.cfg, self.cfg['usage']['log'], NOW + timedelta(days=1))
+        recorded = pacing.latest(pacing.read_log(self.cfg['usage']['log']), 'agy-claude')
+        self.assertEqual(pacing.parse_time(recorded['at']), NOW)
 
     def test_failed_or_future_bridge_fences_rescue_even_with_a_recent_prior_reading(self):
         account = {'window': '7d', 'resets': '2026-01-12T00:00Z', 'worker': 'codex', 'read_on': 'laptop',

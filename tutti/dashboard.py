@@ -126,7 +126,9 @@ class Collector:
         with self.read_lock:
             now = datetime.fromtimestamp(self.clock(), timezone.utc)
             found = self.reader.read_all(now, force)
-            readers.record(state.usage_log_path(self.cfg), found, self.reader.scan_jobs(now), now)
+            # A remote observation may be made while read_all is in flight; validate it against the receipt time.
+            received = datetime.fromtimestamp(self.clock(), timezone.utc)
+            readers.record(state.usage_log_path(self.cfg), found, self.reader.scan_jobs(received), received)
             readers.record_files(state.usage_log_path(self.cfg), self.cfg['accounts'], self.cfg)
             return found
 

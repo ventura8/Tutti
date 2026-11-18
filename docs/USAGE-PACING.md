@@ -132,9 +132,11 @@ dashboard can do so after its current readers succeed.
 Remote bridge readers must report observation protocol version 1 and a valid, non-future timestamp. An older bridge or a
 missing, malformed or future observation is unavailable with an upgrade/retry warning; it is not stamped with local time.
 Upgrade the bridge on its login host before relying on that remote reader. This fail-closed compatibility change can leave
-an old remote account without refreshed usage until both hosts are updated. An observation newer than the local snapshot
-is temporarily unavailable until a later snapshot can verify it; a clock-skewed future observation is rejected. A local
+an old remote account without refreshed usage until both hosts are updated. A remote observation made during a read is
+compared with the local receipt time, not the earlier round start; a clock-skewed future observation is rejected. A local
 read's conservative timestamp is its start time, so slow reads never appear fresher than they are.
+For `tutti usage read --at`, the requested time still controls job-log interpretation and reporting; actual automatic
+provider observations keep their real start or remote observation time rather than being backdated or postdated.
 
 **Room for work.** An account `behind` its line (or `late`) says how many bounded tasks it can take now: the points it is
 short of divided by `task_pct` (default 2, the points one bounded task costs; tune it from your runs). The action and the

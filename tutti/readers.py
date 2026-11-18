@@ -294,10 +294,10 @@ def account_reader_spec(reader, name, account):
 
 
 def bridge_as_of(name, reading, now):
-    """Do not treat an observation newer than the caller's snapshot time as a current successful read."""
+    """A cached observation must not become current if this host's clock moves backwards."""
     out = dict(reading)
-    if out.get('used') is not None and now is not None and pacing.parse_time(out['observed_at']) > now:
-        out.update(used=None, problem=f'accounts.{name}: bridge observation is newer than this snapshot; retry the reader')
+    if out.get('used') is not None and pacing.parse_time(out['observed_at']) > now:
+        out.update(used=None, problem=f'accounts.{name}: bridge observation is in the future; check host clocks and retry')
     return out
 
 
@@ -360,7 +360,7 @@ class Readers:
         hit = self.cache.get(key)
         wait = min(float(self.every_minutes(spec)) * 60, observation_keep_seconds(a) * 2)
         if hit and not force and self.clock() - hit[0] < wait * 0.9:
-            return bridge_as_of(name, hit[1], now)
+            return bridge_as_of(name, hit[1], datetime.fromtimestamp(self.clock(), timezone.utc))
         out = dict(bridge.read_account(self.cfg, a['read_on'], name, force))
         out['keep_seconds'] = observation_keep_seconds(a)
         self.runs += 1
@@ -376,7 +376,7 @@ class Readers:
                 out.update(used=None, observed_at=None,
                            problem=f'accounts.{name}: bridge lacks a valid observation time; update the bridge and retry')
         self.cache[key] = (observed, out, None)
-        return bridge_as_of(name, out, now)
+        return bridge_as_of(name, out, datetime.fromtimestamp(self.clock(), timezone.utc))
 
     def read(self, name, a, now=None, force=False):
         """{'plan', 'used', 'resets', 'problem', 'every_minutes'} for one account from its `reader` and `plan` commands."""
@@ -559,7 +559,7 @@ def observation_time(reading, now):
         return None
 
 
-def record(path, readings, hits, now):
+def record(path, readings, hits, now, hit_now=None):
     """Appends the readers' readings that say something new and the limit messages not logged yet. Returns the lines written."""
     entries = pacing.read_log(path)
     refs = {e.get('ref') for e in entries if e.get('ref')}
@@ -586,10 +586,11 @@ def record(path, readings, hits, now):
     for name, reset, ref, _text in hits:
         if ref in refs:
             continue
-        name = owner_by_reset(name, reset, {**last_resets(entries), **readings}, now)
+        at = hit_now or now
+        name = owner_by_reset(name, reset, {**last_resets(entries), **readings}, at)
         refs.add(ref)
         note = f'a limit message in {ref}' + ('' if reset else ' (no reset time in it: the window rule applies)')
-        written.append(pacing.append_log(path, name, 100, now, note, resets=reset, source='limit message', ref=ref))
+        written.append(pacing.append_log(path, name, 100, at, note, resets=reset, source='limit message', ref=ref))
     return written
 
 

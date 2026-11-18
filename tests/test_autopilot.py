@@ -718,7 +718,7 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
         from tutti import autopilot
         cfg = {'accounts': {'claude': {'worker': 'claude'}, 'cursor-other': {'worker': 'cursor'}},
                'workers': {'claude': {'kind': 'cli'}, 'cursor': {'kind': 'cli'}}, 'autopilot': {}}
-        states = {'claude': {'panic': True, 'used': 96}, 'cursor-other': {'used': 16.7, 'verdict': 'on'}}
+        states = {'claude': {'panic': True, 'used': 96}, 'cursor-other': {'used': 16.7, 'verdict': 'on pace'}}
         with mock.patch.object(autopilot, 'costs_money', return_value=False), \
                 mock.patch.object(autopilot, 'trigger_accounts', return_value=[]):
             room, _ = autopilot.step_room(cfg, 'cursor-other', states, {})

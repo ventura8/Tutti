@@ -405,6 +405,22 @@ class ApiBase(unittest.TestCase):
 
 
 class StatusPolling(ApiBase):
+    def test_model_status_denies_viewer_without_dispatch_but_allows_admin_and_shared_usage(self):
+        engine = self.engine({})
+        job = chatrun.Job('v1', 'c', {'id': 'm', 'cards': [], 'text': ''})
+        status = {'tool': 'job_status', 'args': {'id': 'test-123-abc'}}
+        usage = {'tool': 'usage', 'args': {}}
+        known = chat.known_names(self.cfg, self.snap)
+        with mock.patch.object(chatrun, 'run_tool', return_value=(True, 'fake private log', None)) as run:
+            result, _ = engine._calls(job, VIEWER, self.cfg, [status], known, {})
+            self.assertIn('for admins', result[0][1])
+            run.assert_not_called()
+            result, _ = engine._calls(job, ADMIN, self.cfg, [status], known, {})
+            self.assertEqual(result, [('job_status', 'fake private log')])
+            result, _ = engine._calls(job, VIEWER, self.cfg, [usage], known, {})
+            self.assertEqual(result, [('usage', 'fake private log')])
+            self.assertEqual(run.call_count, 2)
+
     def test_missing_report_is_polled_until_report_arrives(self):
         job = chatrun.Job('owner', 'c', {'id': 'm'})
         call = {'tool': 'job_status', 'args': {'id': '123-456'}}

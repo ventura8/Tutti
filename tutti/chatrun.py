@@ -802,9 +802,7 @@ class Engine:
                 continue
             job.bad_calls, job.used_tools = 0, True
             if not tools[call['tool']]['mutating']:
-                result = run_tool(cfg, call, self.runner)
-                _ok, text, _ = follow_missing_report(cfg, call, job, result, self.runner)
-                results.append((call['tool'], text if len(text) <= 3000 else '(the start is cut)\n' + text[-3000:]))
+                results.append((call['tool'], self._read_tool(job, user, cfg, call)))
             else:
                 mutating.append(call)
         if job.cancel.is_set():
@@ -820,6 +818,13 @@ class Engine:
         if mutating:
             self._propose(job, user, cfg, mutating, cand, mode)
         return results, bool(mutating)
+
+    def _read_tool(self, job, user, cfg, call):
+        if call['tool'] == 'job_status' and user.get('role') != 'admin':
+            return 'refused: job reports and logs are for admins; ask an admin to check the run'
+        result = run_tool(cfg, call, self.runner)
+        _ok, text, _ = follow_missing_report(cfg, call, job, result, self.runner)
+        return text if len(text) <= 3000 else '(the start is cut)\n' + text[-3000:]
 
     def _run_mutations(self, job, user, cfg, calls, results):
         for call in calls:

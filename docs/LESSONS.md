@@ -1,5 +1,8 @@
 # Lessons
 
+- **A read-only tool may still disclose private output** (t372): the model's status lookup bypassed the direct Chat
+  role check and could return a job log to a viewer. Apply the same access boundary before either dispatch path.
+
 - **A fake command fallback does not isolate token lookup** (t133): the GitHub client could still consult a cached or
   locally signed-in CLI token before reaching the fake fallback. Tests must isolate both the token cache and lookup.
 

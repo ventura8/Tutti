@@ -194,7 +194,7 @@ def write_changed(files):
     return changed
 
 
-def service(platform, home_dir, run=subprocess.run, start=True):
+def service(platform, home_dir, run=subprocess.run, start=True, config_path=None):
     """('ok'|'todo', detail). Writes the login service and starts it; unchanged files are left alone (idempotent).
     start=False (a dashboard already runs, e.g. setup was started from its Set up card): enabled for the next login only,
     so a second dashboard never fights the first for the port."""
@@ -203,7 +203,11 @@ def service(platform, home_dir, run=subprocess.run, start=True):
         return 'todo', missing
     target = platform if platform in ('win32', 'darwin') else 'linux'
     # the `tutti` on PATH (a release, a uv or pipx install, a checkout's link), else where a release install puts it
-    files, cmds = install.service_plan(target, home_dir, tutti=shutil.which('tutti.cmd' if target == 'win32' else 'tutti'))
+    try:
+        files, cmds = install.service_plan(target, home_dir, tutti=shutil.which('tutti.cmd' if target == 'win32' else 'tutti'),
+                                           config_path=config_path)
+    except ValueError as e:
+        return 'todo', str(e)
     if not start:
         cmds = [[x for x in argv if x != '--now'] for argv in cmds if argv[0] != 'launchctl']   # launchd loads it at login
     if not write_changed(files):
@@ -394,7 +398,8 @@ def run(a, probe=None, asker=None, platform=None, home_dir=None, runner=subproce
     cfg = config.load(path)
     svc = ('todo', 'not installed (--no-service): `tutti setup` again to start the dashboard at login')
     if a.service:
-        svc = service(platform or install.platform_name(), home_dir or install.home(), runner, start=not a.from_dashboard)
+        svc = service(platform or install.platform_name(), home_dir or install.home(), runner, start=not a.from_dashboard,
+                      config_path=cfg['_path'])
     rows = report_items(found, {}, svc, updates_row(cfg), fix_git(doctor.check_git()), stuck)
     restarts = []
     rows += connect_rows(path, restarts) if a.connect else []

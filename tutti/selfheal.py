@@ -342,11 +342,10 @@ def check_config(ctx):
 
 def check_dashboard(ctx):
     """The dashboard answering on the machine that serves (tutti/watchdog.py starts it again)."""
-    from . import failover, move, watchdog
+    from . import failover, watchdog
     if not ctx.cfg.get('_path') or not failover.may_write(ctx.cfg) or failover.me(ctx.cfg) != failover.main_of(ctx.cfg):
         return []
-    port = ctx.cfg['dashboard']['port']
-    return watchdog.round_services(True, lambda: move.local_health(port) is not None, lambda: failover.start_dashboard(ctx.cfg))
+    return watchdog.ensure_dashboard(ctx.cfg)
 
 
 UPDATE_EVERY = 6 * 3600   # GitHub is asked for a newer release at most this often
@@ -427,15 +426,18 @@ def errors(cfg):
 
 def round_(ctx, checks=CHECKS):
     """Every check once; a check that raises is logged and the others go on. Returns the lines for the log."""
+    from .watchdog import WarningLine
     lines = []
     for name, fn in checks:
         try:
             done = fn(ctx)
         except Exception as e:   # one broken check must never stop the others or the round
-            lines.append(f'{name}: the check failed ({type(e).__name__}: {e}); it runs again next round')
+            lines.append(WarningLine(f'{name}: the check failed ({type(e).__name__}: {e}); it runs again next round'))
             continue
         for what in done:
-            record(ctx.cfg, name, what, ctx.now)
-            lines.append(f'{name}: {what}')
+            if not isinstance(what, WarningLine):
+                record(ctx.cfg, name, what, ctx.now)
+            line = f'{name}: {what}'
+            lines.append(WarningLine(line) if isinstance(what, WarningLine) else line)
     trim(ctx.cfg)
     return lines

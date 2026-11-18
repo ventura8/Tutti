@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 
-from . import config, failover, move, remote, selfheal, statebudget, watchdog, yamledit
+from . import config, failover, remote, selfheal, statebudget, watchdog, yamledit
 
 UNIT = 'tutti-failover.service'
 
@@ -134,9 +134,7 @@ def one_round(cfg, run=subprocess.run, healthy_since=None, now=None):
         failover.write(cfg, {**rec, 'last': line})
         lines.append(line)
     if failover.may_write(cfg) and failover.me(cfg) == failover.main_of(cfg) and cfg.get('_path'):
-        port = cfg['dashboard']['port']
-        lines += watchdog.round_services(True, lambda: move.local_health(port) is not None,
-                                         lambda: failover.start_dashboard(cfg))
+        lines += watchdog.ensure_dashboard(cfg)
     _freed, pruned = statebudget.prune(folder, statebudget.opts(cfg), now)
     return lines + pruned
 

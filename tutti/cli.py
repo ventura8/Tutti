@@ -989,7 +989,9 @@ def cmd_selfheal(cfg, a):
     if a.once:
         lines = selfheal.round_(selfheal.Ctx(cfg))
         if a.json:
-            print(json.dumps({'repairs': lines}))
+            from .watchdog import WarningLine
+            print(json.dumps({'repairs': [x for x in lines if not isinstance(x, WarningLine)],
+                              'warnings': [x for x in lines if isinstance(x, WarningLine)]}))
             return 0
         say('\n'.join(lines) or 'self-heal: nothing repaired this round (a step only a person can take is in `tutti needs`)')
         return 0

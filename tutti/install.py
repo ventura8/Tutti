@@ -114,11 +114,18 @@ def tutti_command(home_dir, windows=False):
     return os.path.join(os.path.expanduser('~'), '.local', 'bin', 'tutti')
 
 
-def systemd_unit(tutti):
+def systemd_unit(tutti, config_path=None):
     """The systemd --user unit: update first (opt-out in the config), then the dashboard; restarted when it fails."""
+    # Only simple absolute paths can be embedded safely in systemd's single-quoted shell command.
+    def safe(value):
+        return bool(value and os.path.isabs(value) and re.fullmatch(r'/[A-Za-z0-9_./-]+', value))
+    if config_path is not None and not (safe(tutti) and safe(config_path)):
+        raise ValueError('dashboard service command or config path cannot be safely pinned: use absolute paths '
+                         'containing only letters, numbers, /, ., _, or - and run `tutti setup` again')
+    pinned = f' --config "{config_path}"' if config_path is not None else ''
     return ('[Unit]\nDescription=Tutti dashboard (http://127.0.0.1:4777/)\nAfter=network-online.target\n\n'
             '[Service]\n'
-            f"ExecStart=/bin/sh -c '\"{tutti}\" self-update --auto; exec \"{tutti}\" dashboard'\n"
+            f"ExecStart=/bin/sh -c '\"{tutti}\"{pinned} self-update --auto; exec \"{tutti}\"{pinned} dashboard'\n"
             'Restart=always\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n')
 
 
@@ -155,7 +162,7 @@ def schtasks_args(vbs):
     return ['schtasks', '/Create', '/F', '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TN', SERVICE, '/TR', f'wscript.exe "{vbs}"']
 
 
-def service_plan(platform, home_dir, env=None, tutti=None):
+def service_plan(platform, home_dir, env=None, tutti=None, config_path=None):
     """[(path, text)] to write and [argv] to run to start the dashboard at login on `platform` (linux, wsl, darwin, win32).
     `tutti`: the command the service runs (default: the release install's)."""
     env = os.environ if env is None else env
@@ -172,7 +179,7 @@ def service_plan(platform, home_dir, env=None, tutti=None):
     config_home = env.get('XDG_CONFIG_HOME') or os.path.join(os.path.expanduser('~'), '.config')
     path = os.path.join(config_home, 'systemd', 'user', f'{SERVICE}.service')
     # linger: the user's services start at boot, before anyone logs in, so a power cut or a reboot resumes work by itself
-    return [(path, systemd_unit(tutti))], [['systemctl', '--user', 'daemon-reload'],
+    return [(path, systemd_unit(tutti, config_path))], [['systemctl', '--user', 'daemon-reload'],
                                            ['systemctl', '--user', 'enable', '--now', f'{SERVICE}.service'],
                                            ['loginctl', 'enable-linger']]
 

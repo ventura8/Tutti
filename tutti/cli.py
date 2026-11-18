@@ -1464,6 +1464,28 @@ def fenced(cfg, what):
     return True
 
 
+def autopilot_checkpoint(cfg):
+    results = autopilot.checkpoint_now(cfg, time.time())
+    if results is None:
+        say('autopilot checkpoint: this machine is not the active main: run it on the active machine')
+        return 2
+    for task_id, result in results:
+        say(f'autopilot checkpoint: {task_id}: {"pushed" if result["pushed"] else result["error"]}')
+    if not results:
+        say('autopilot checkpoint: no running tasks')
+    return 0 if all(result['pushed'] for _, result in results) else 1
+
+
+def autopilot_land(cfg, task_id):
+    from . import fill
+    try:
+        print(fill.land(cfg, task_id or '', **bridge.tools(cfg)))
+    except backlog.BacklogError as e:
+        say(str(e))
+        return 2
+    return 0
+
+
 def cmd_autopilot(cfg, a):
     """`tutti autopilot [status|on|off|tick|checkpoint|fill on|off|land <id>]`."""
     from . import fill
@@ -1475,12 +1497,7 @@ def cmd_autopilot(cfg, a):
             return 2
         fill.set_fill(cfg, a.arg == 'on')
     elif a.action == 'land':
-        try:
-            print(fill.land(cfg, a.arg or '', **bridge.tools(cfg)))
-        except backlog.BacklogError as e:
-            say(str(e))
-            return 2
-        return 0
+        return autopilot_land(cfg, a.arg)
     elif a.action == 'allow':
         from . import resolver
         try:
@@ -1498,15 +1515,7 @@ def cmd_autopilot(cfg, a):
         for e in events:
             say(f'autopilot: {e}')
     elif a.action == 'checkpoint':
-        results = autopilot.checkpoint_now(cfg, time.time())
-        if results is None:
-            say('autopilot checkpoint: this machine is not the active main: run it on the active machine')
-            return 2
-        for task_id, result in results:
-            say(f'autopilot checkpoint: {task_id}: {"pushed" if result["pushed"] else result["error"]}')
-        if not results:
-            say('autopilot checkpoint: no running tasks')
-        return 0 if all(result['pushed'] for _, result in results) else 1
+        return autopilot_checkpoint(cfg)
     print(autopilot.describe(autopilot.view(cfg)))
     return 0
 

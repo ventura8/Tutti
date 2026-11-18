@@ -411,6 +411,37 @@ class BridgeTest(Base):
             self.assertEqual(bridge.exec_run(self.cfg, 'client', '1700000000-123', ['run', 'agy', 'fix'], out=io.StringIO()), 0)
         self.assertEqual(send.call_args.args[3]['run_identity'], identity)
 
+    def test_bound_capability_rejects_old_or_offline_client(self):
+        cfg = dict(self.cfg)
+        cfg['host'] = {'me': 'host', 'jobs': 'client'}
+        with mock.patch.object(bridge, 'call', return_value=(0, {'capabilities': [bridge.BOUND_REPORT_CAP]})):
+            self.assertEqual(bridge.bound_client_problem(cfg), '')
+        with mock.patch.object(bridge, 'call', return_value=(0, {'version': 'old'})):
+            self.assertIn('update and restart', bridge.bound_client_problem(cfg))
+        with mock.patch.object(bridge, 'call', side_effect=bridge.BridgeDown('offline')):
+            self.assertIn('offline', bridge.bound_client_problem(cfg))
+
+    def test_old_client_rejects_bound_operation_without_starting_work(self):
+        messages = []
+        client = bridge.Client(self.cfg, messages.append)
+        old_ops = tuple(op for op in bridge.OPS if op != 'run-bound')
+        with mock.patch.object(bridge, 'OPS', old_ops), mock.patch.object(client, 'op_run') as start:
+            client.handle({'id': 1, 'op': 'run-bound', 'args': {'run_identity': 'a' * 32}})
+        start.assert_not_called()
+        self.assertEqual(messages[-1]['rc'], 2)
+        with mock.patch.object(client, 'op_run', return_value=(0, {})) as start:
+            self.assertEqual(client.op_run_bound({'run_identity': 'bad'}, lambda x: None)[0], 2)
+            self.assertEqual(client.op_run_bound({'run_identity': 'a' * 32}, lambda x: None)[0], 0)
+            start.assert_called_once()
+
+    def test_host_uses_bound_operation_and_explains_old_client_refusal(self):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {'TUTTI_BOUND_REPORT': '1', 'TUTTI_RUN_IDENTITY': 'a' * 32}), \
+                mock.patch.object(bridge, 'call', return_value=(2, {'problem': 'unknown op'})) as send:
+            self.assertEqual(bridge.exec_run(self.cfg, 'client', '1700000000-123', ['run', 'agy', 'fix'], out=out), 2)
+        self.assertEqual(send.call_args.args[2], 'run-bound')
+        self.assertIn('update and restart tutti-client', out.getvalue())
+
     def test_a_reading_file_and_a_ping_cross_the_bridge(self):
         with open(os.path.join(self.home, 'claude-usage.json'), 'w', encoding='utf8') as f:
             f.write('{"claude": {"used": 7}}')

@@ -910,7 +910,8 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, run
         # TUTTI_BACKGROUND: its runs on a household's shared machines are background demand (docs/HOUSEHOLD.md)
         try:
             child = spawn(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True,
-                          env={**os.environ, 'TUTTI_BACKGROUND': '1', 'TUTTI_RUN_IDENTITY': task.get('run_identity') or ''})
+                          env={**os.environ, 'TUTTI_BACKGROUND': '1', 'TUTTI_RUN_IDENTITY': task.get('run_identity') or '',
+                               'TUTTI_BOUND_REPORT': '1'})
         except OSError as e:
             raise LaunchNotStarted(str(e)) from e
     with open(p['pid'], 'w', encoding='utf8') as f:
@@ -937,7 +938,7 @@ def reserve_launch(cfg, task, step_name, now):
     repo = settings(cfg)['repos'][task['repo']]
     task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now,
                 gates=(repo.get('check') or '').strip(), job_bridge=bridge.jobs_machine(cfg) or '',
-                boot=durable.boot_id(), launch_pending=True, run_identity=uuid.uuid4().hex, choice=None)
+                boot=durable.boot_id(), launch_pending=True, run_identity=uuid.uuid4().hex, report_identity_bound=True, choice=None)
     task.pop('recovery_note', None)
     return run_id
 
@@ -1116,9 +1117,9 @@ def worker_question(cfg, t, a):
 def report_identity_matches(task, report):
     """Hold an identity-bound run when its report belongs to another attempt; legacy runs retain their behavior."""
     identity = task.get('run_identity')
-    if report and 'run_identity' in task and (not remote.valid_run_identity(identity) or not isinstance(report, dict)
-                                or report.get('id') != task.get('run')
-                                or report.get('run_identity') != identity):
+    if report and 'report_identity_bound' in task and (task['report_identity_bound'] is not True
+            or not remote.valid_run_identity(identity) or not isinstance(report, dict)
+            or report.get('id') != task.get('run') or report.get('run_identity') != identity):
         task['recovery_note'] = 'report identity does not match this run: held for investigation, not published or retried'
         return False
     if report and (task.get('recovery_note') or '').startswith('report identity does not match'):
@@ -1451,6 +1452,12 @@ def start_reserved(cfg, data, task, step, now, spawn, states):
     return run_id, f'{task_id} sent to {step} (run {run_id}, attempt {len(task["attempts"]) + 1})'
 
 
+def hold_unready_bridge(hold, tasks, problem):
+    """Defer all queued work when the configured jobs client cannot run bound reports."""
+    if problem:
+        hold.update({t['id']: problem for t in tasks if t['status'] == 'queued' and t['id'] not in hold})
+
+
 def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen, publish_fn=publish, beat=None):
     """One round: collect, plan, dispatch. `states`: {account: pacing.account_state}; `machines`: state.machines_state items;
     `beat`: this member's heartbeat for the household coordinator (shared projects only; docs/HOUSEHOLD.md)."""
@@ -1480,6 +1487,8 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     shared = sharing.sync(cfg, backlog.load(cfg), beat, now=now)   # the coordinator's call: never under the lock either
     events_spare = sharing.adopt_offers(cfg, shared, now)
     listed_files = repo_files(cfg) if on else {}   # git ls-files per repo: never under the lock
+    from . import bridge
+    bridge_problem = bridge.bound_client_problem(cfg) if on else ''  # bounded network read, outside the backlog lock
     with backlog.locked(cfg) as data:
         events = collect(cfg, data, now, is_alive, publish_fn)
         checkpoints(cfg, data, now)
@@ -1505,6 +1514,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
             events += [f'fill_room: {filled["note"]}'] if filled['added'] else []
             events += fill.review_round(cfg, data, now, is_alive, spawn)
             events += depbots.apply(cfg, data, sec)
+        hold_unready_bridge(hold, data['tasks'], bridge_problem)
         p = plan(cfg, data['tasks'], states, machines, on, datetime.fromtimestamp(now, timezone.utc), hold)
         telemetry.record('feature', 'autopilot.plan', state=p['state'], dispatch=len(p['dispatch']), waiting=len(p['waiting']),
                          collected=len(events))

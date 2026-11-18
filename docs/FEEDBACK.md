@@ -65,5 +65,6 @@ of your project or secrets: describe the setup in general words.
   New runs carry a non-secret correlation label; remote ownership and safe retries still need verified containment.
 
 
-- **2026-11-18, t309:** Stale or ambiguous attempts must not publish a different run's result. New reports are checked
-  against their saved run identity; mismatches stay visible for investigation.
+- **2026-11-18, t309:** Stale or ambiguous attempts must not publish a different run's result. New bound reports are checked
+  against their saved run identity; mismatches stay visible for investigation. Older bridge clients must update before
+  starting bound autopilot runs, while already-running attempts retain their prior behavior.

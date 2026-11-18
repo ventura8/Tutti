@@ -288,7 +288,9 @@ It does not replace household lease renewal or guarantee that another member can
 ### Report correlation
 
 New runs include their saved non-secret run identity in their report. A report with a different run ID or identity is
-held visibly instead of being published or retried; a later matching report is collected. Older runs without an identity
-keep their existing behavior. The identity is a correlation value, not an authentication secret, a proof that a process
+held visibly instead of being published or retried; a later matching report is collected. Only launches marked for bound reports enforce the identity; attempts already in flight keep their existing behavior.
+A configured bridge client must advertise bound-report support before new autopilot work starts; older or offline clients
+are deferred with an update/restart message. A distinct bound-run operation prevents an older client from silently
+starting work if the connection changes after the capability check. The identity is a correlation value, not an authentication secret, a proof that a process
 tree stopped, or a fence against a same-user worker. Per-attempt worktrees, remote effects and household lease fencing
 still need separate ownership controls.

@@ -695,7 +695,8 @@ class SurfaceTest(Base):
         cfg = self.cfg()
         identity = 'a' * 32
         t = task('t1', status='running')
-        t.update(run='1700000000-1', run_identity=identity, step='agy-gemini', started=100, launch_pending=True)
+        t.update(run='1700000000-1', run_identity=identity, report_identity_bound=True,
+                 step='agy-gemini', started=100, launch_pending=True)
         result = {'id': t['run'], 'run_identity': 'b' * 32, 'rc': 0}
         published = []
         with mock.patch.object(autopilot, 'finished', return_value=(True, result)):
@@ -712,12 +713,36 @@ class SurfaceTest(Base):
 
     def test_report_from_a_different_run_is_never_accepted(self):
         t = task('t1', status='running')
-        t.update(run='1700000000-1', run_identity='a' * 32)
+        t.update(run='1700000000-1', run_identity='a' * 32, report_identity_bound=True)
         self.assertFalse(autopilot.report_identity_matches(t, {'id': '1700000000-2', 'run_identity': 'a' * 32}))
         for invalid in ('', None, 'bad'):
             t['run_identity'] = invalid
             self.assertFalse(autopilot.report_identity_matches(t, {'id': t['run'], 'run_identity': invalid}))
-        self.assertTrue(autopilot.report_identity_matches(task('t2', status='running'), {'id': 'legacy'}))
+        legacy = task('t2', status='running')
+        legacy['run_identity'] = 'a' * 32  # pre-upgrade attempts had an identity but no bound-report protocol
+        self.assertTrue(autopilot.report_identity_matches(legacy, {'id': 'legacy'}))
+        t.update(run_identity='a' * 32, report_identity_bound=False)
+        self.assertFalse(autopilot.report_identity_matches(t, {'id': t['run'], 'run_identity': 'a' * 32}))
+
+    def test_unready_bridge_holds_new_work_without_overwriting_other_holds(self):
+        pending = [task('t1'), task('t2'), task('t3', status='running')]
+        hold = {'t1': 'other reason'}
+        autopilot.hold_unready_bridge(hold, pending, 'update client')
+        self.assertEqual(hold, {'t1': 'other reason', 't2': 'update client'})
+        self.assertEqual(autopilot.hold_unready_bridge({}, pending, ''), None)
+
+    def test_old_bridge_client_defers_queued_work_before_spawn(self):
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        cfg['machines'] = {}
+        cfg['host'] = {'me': 'host', 'jobs': 'client'}
+        with backlog.locked(cfg) as data:
+            backlog.add(data, backlog.new_task('app', 'x', [], 'true'))
+        with mock.patch('tutti.bridge.call', return_value=(0, {'version': 'old'})), \
+                mock.patch('tutti.autopilot.dispatch') as spawn:
+            plan, _ = autopilot.tick(cfg, {'agy-gemini': account('agy-gemini')}, [])
+        spawn.assert_not_called()
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
+        self.assertIn('update and restart', plan['waiting']['t1'])
 
     def test_the_dashboard_toggle_and_its_bad_body(self):
         cfg = self.cfg(enabled=False)

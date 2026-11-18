@@ -377,11 +377,11 @@ class SaveTest(Base):
                 self.c.snapshot = lambda: {}
                 engine = chatrun.engine_of(self.c)
                 entered, release = threading.Event(), threading.Event()
-                def get_cfg():
+                def get_cfg(entered=entered, release=release):
                     entered.set()
                     self.assertTrue(release.wait(2))
                     raise chatrun.chat.ChatError('stopped before execution')
-                def run():
+                def run(engine=engine, method=method):
                     try:
                         getattr(engine, method)({'sub': 'u'}, 'c', 'm', 'k')
                     except chatrun.chat.ChatError:

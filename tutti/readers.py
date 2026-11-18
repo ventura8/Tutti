@@ -630,22 +630,46 @@ def read_file_of(cfg, name, a):
     return f, mtime(f), text
 
 
-def record_files(path, accounts, cfg=None):
+def record_files(path, accounts, cfg=None, status=None):
     """Readings an orchestrator wrote to accounts.<name>.reading_file (it gets the plan's % from its own tool, which no CLI
     prints). Each version of the file is logged once (its ref holds the file's mtime). Returns (lines written, problems)."""
     entries = pacing.read_log(path)
     refs = {e.get('ref') for e in entries if e.get('ref')}
+    by_ref = {e.get('ref'): e for e in entries if e.get('ref')}
     written, problems = [], []
     for name, a in accounts.items():
         f, seen, text = read_file_of(cfg, name, a or {})
+        if not f:
+            continue
         ref = f'file:{f}:{name}:{seen}'   # one file may hold several accounts: each is logged once per version
-        if seen is None or ref in refs:
+        if seen is None:
+            if status is not None:
+                status[name] = {'used': None, 'problem': f'accounts.{name}.reading_file is unavailable: check its path and reader'}
+            continue
+        if ref in refs and status is None:
             continue
         try:
             used, resets, at = parse_reading_file(text(), name)
         except (OSError, ValueError, TypeError) as e:
-            problems.append(f'accounts.{name}.reading_file {f}: {e}: write a percentage such as 42, or {{"used": 42}}')
+            problem = f'accounts.{name}.reading_file {f}: {e}: write a percentage such as 42, or {{"used": 42}}'
+            problems.append(problem)
+            if status is not None:
+                status[name] = {'used': None, 'problem': problem}
             continue
+        if ref in refs:
+            if status is not None:
+                prior = by_ref[ref]
+                try:
+                    same_reset = (pacing.parse_time(prior['resets']) if prior.get('resets') else None) == resets
+                    same_time = at is None or pacing.parse_time(prior['at']) == at
+                    unchanged = prior.get('used') == used and same_reset and same_time
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    unchanged = False
+                status[name] = {'used': used if unchanged else None, 'problem': None if unchanged else
+                                f'accounts.{name}.reading_file changed without a new modification time: rewrite it and refresh'}
+            continue
+        if status is not None:
+            status[name] = {'used': used, 'problem': None}
         written.append(pacing.append_log(path, name, used, at or datetime.fromtimestamp(seen, timezone.utc), 'from the reading file',
                                          resets=resets, source='file', ref=ref))
     return written, problems

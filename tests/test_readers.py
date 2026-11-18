@@ -539,6 +539,50 @@ class ReadersTest(unittest.TestCase):
         self.assertNotIn('reader_problem', measured)
         self.assertFalse(autopilot.panic_rescue(cfg, 'codex', measured, {'codex': measured}))
 
+    def test_reading_file_status_allows_rescue_only_while_file_is_readable(self):
+        reading = os.path.join(self.tmp.name, 'usage.txt')
+        account = {'window': '7d', 'resets': '2026-01-12T00:00Z', 'worker': 'other', 'reading_file': reading}
+        cfg = cfg_of(self.tmp.name, {'other': account}, {'other': {'kind': 'cli', 'command': ['other']}})
+        cfg['_main_worker'], cfg['_now'] = 'local', NOW
+        cfg['workers']['local'] = {'kind': 'ollama'}
+        collector = dashboard.Collector(cfg, clock=lambda: self.t[0])
+        def write(value):
+            with open(reading, 'w', encoding='utf8') as f:
+                f.write(value)
+        def decision():
+            statuses = collector.read_usage()
+            measured = pacing.account_state('other', account, pacing.read_log(cfg['usage']['log']), NOW)
+            state.with_readers({'accounts': [measured]}, statuses)
+            return autopilot.panic_rescue(cfg, 'other', measured, {'other': measured})
+        with mock.patch('tutti.readers.mtime', side_effect=lambda path: NOW.timestamp() if os.path.exists(path) else None):
+            write('96')
+            self.assertTrue(decision())
+            write('100')  # a changed quota with the same reference must not reuse the prior 96% reading
+            self.assertFalse(decision())
+            write('96')
+            self.assertTrue(decision())
+            write('invalid')  # same mtime/reference must still be checked for current validity
+            self.assertFalse(decision())
+            write('96')
+            self.assertTrue(decision())
+            os.unlink(reading)
+            self.assertFalse(decision())
+
+    def test_file_failure_fences_rescue_even_when_an_automatic_reader_succeeds(self):
+        reading = os.path.join(self.tmp.name, 'usage.txt')
+        account = {'window': '7d', 'resets': '2026-01-12T00:00Z', 'worker': 'other', 'reading_file': reading,
+                   'reader': {'command': ['agy'], 'bucket': '3p-5h'}}
+        cfg = cfg_of(self.tmp.name, {'other': account}, {'other': {'kind': 'cli', 'command': ['other']}})
+        reader = mock.Mock()
+        reader.read_all.return_value = {'other': {'used': 96, 'resets': None, 'problem': None}}
+        reader.scan_jobs.return_value = []
+        collector = dashboard.Collector(cfg, clock=lambda: self.t[0], reader=reader)
+        with open(reading, 'w', encoding='utf8') as f:
+            f.write('invalid')
+        with mock.patch('tutti.readers.mtime', return_value=NOW.timestamp()):
+            found = collector.read_usage()
+        self.assertIn('reading_file', found['other']['problem'])
+
     def test_versioned_missing_timestamp_is_never_recorded_as_now(self):
         value = {'agy-claude': {'used': 90, 'resets': None, 'observation_version': 1, 'observed_at': None}}
         self.assertEqual(readers.record(self.cfg['usage']['log'], value, [], NOW), [])

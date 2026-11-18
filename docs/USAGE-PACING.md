@@ -128,6 +128,9 @@ current failure is shown even when an older reading was recent, and cautious pan
 its linked windows until it succeeds again. Normal pacing still follows its existing rules. A standalone `tutti autopilot
 tick` has no live reader status and therefore cannot use automatically read accounts for cautious panic rescue; the
 dashboard can do so after its current readers succeed.
+For an account read only from `reading_file`, the dashboard rechecks the file even when its modification time is unchanged;
+an unavailable or malformed file, or changed content with the same modification time, blocks cautious panic rescue until
+it can be verified again. For an account with both a file and a reader, a current failure in either also blocks rescue.
 
 Remote bridge readers must report observation protocol version 1 and a valid, non-future timestamp. An older bridge or a
 missing, malformed or future observation is unavailable with an upgrade/retry warning; it is not stamped with local time.

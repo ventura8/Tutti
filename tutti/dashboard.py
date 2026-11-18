@@ -129,7 +129,13 @@ class Collector:
             # A remote observation may be made while read_all is in flight; validate it against the receipt time.
             received = datetime.fromtimestamp(self.clock(), timezone.utc)
             readers.record(state.usage_log_path(self.cfg), found, self.reader.scan_jobs(received), received)
-            readers.record_files(state.usage_log_path(self.cfg), self.cfg['accounts'], self.cfg)
+            files = {}
+            readers.record_files(state.usage_log_path(self.cfg), self.cfg['accounts'], self.cfg, status=files)
+            for name, result in files.items():
+                if name not in found:
+                    found[name] = result
+                elif result.get('problem') and not found[name].get('problem'):
+                    found[name] = {**found[name], 'problem': result['problem']}
             return found
 
     def refresh_readings(self):

@@ -291,6 +291,87 @@ class ApiBase(unittest.TestCase):
         return [json.loads(line) for line in stream.lines()]
 
 
+class StatusPolling(ApiBase):
+    def test_missing_report_is_polled_until_report_arrives(self):
+        job = chatrun.Job('owner', 'c', {'id': 'm'})
+        call = {'tool': 'job_status', 'args': {'id': '123-456'}}
+        missing = (False, 'tutti: no report for run 123-456 in state: it may still be running', None)
+        with mock.patch('tutti.delegate.paths', return_value={'log': '/fake/run.log'}), \
+             mock.patch('tutti.chatrun.os.path.isfile', return_value=True), \
+             mock.patch('tutti.delegate.load_report', side_effect=[None, {'ok': True}]), \
+             mock.patch.object(chatrun, 'run_tool', return_value=(True, 'report ready', None)), \
+             mock.patch.object(chatrun, 'STATUS_POLL_SECONDS', 0):
+            result = chatrun.follow_missing_report(self.cfg, call, job, missing)
+        self.assertEqual(result, (True, 'report ready', None))
+        self.assertEqual(job.events[0]['type'], 'note')
+
+    def test_direct_and_model_status_checks_both_wait_for_the_report(self):
+        call = {'tool': 'job_status', 'args': {'id': '123-456'}}
+        missing = (True, 'no report for run 123-456 in state')
+        for direct in (True, False):
+            engine = self.engine({})
+            job = chatrun.Job('local', 'c', {'id': 'm', 'cards': [], 'text': ''})
+            with self.subTest(direct=direct), mock.patch('tutti.mcpserver.call', side_effect=[missing, (False, 'report ready')]), \
+                 mock.patch('tutti.delegate.paths', return_value={'log': '/fake/run.log'}), \
+                 mock.patch('tutti.chatrun.os.path.isfile', return_value=True), \
+                 mock.patch('tutti.delegate.load_report', return_value={'ok': True}), \
+                 mock.patch.object(chatrun, 'STATUS_POLL_SECONDS', 0):
+                if direct:
+                    engine._act(job, ADMIN, self.cfg, call)
+                    self.assertEqual(job.msg['cards'][0]['text'], 'report ready')
+                else:
+                    result, proposed = engine._calls(job, ADMIN, self.cfg, [call], chat.known_names(self.cfg, self.snap), {})
+                    self.assertEqual(result, [('job_status', 'report ready')])
+                    self.assertFalse(proposed)
+                self.assertTrue(any(e['type'] == 'note' for e in job.events))
+
+    def test_stop_during_blocked_initial_status_does_not_start_polling(self):
+        engine = self.engine({})
+        job = chatrun.Job('local', 'c', {'id': 'm', 'cards': [], 'text': ''})
+        call = {'tool': 'job_status', 'args': {'id': '123-456'}}
+        entered, release = threading.Event(), threading.Event()
+        def blocked(*_args, **_kwargs):
+            entered.set()
+            release.wait(3)
+            return True, 'no report for run 123-456 in state'
+        with mock.patch('tutti.mcpserver.call', side_effect=blocked), \
+             mock.patch('tutti.delegate.paths', return_value={'log': '/fake/run.log'}), \
+             mock.patch('tutti.chatrun.os.path.isfile', return_value=True), \
+             mock.patch('tutti.delegate.load_report') as report:
+            thread = threading.Thread(target=engine._act, args=(job, ADMIN, self.cfg, call), daemon=True)
+            thread.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                job.cancel.set()
+            finally:
+                release.set()
+                thread.join(3)
+            self.assertFalse(thread.is_alive())
+            report.assert_not_called()
+            self.assertIn('run was not stopped', job.msg['cards'][0]['text'])
+
+    def test_missing_report_timeout_cancel_and_unknown_id_are_safe(self):
+        call = {'tool': 'job_status', 'args': {'id': '123-456'}}
+        missing = (False, 'no report for run 123-456 in state', None)
+        job = chatrun.Job('owner', 'c', {'id': 'm'})
+        with mock.patch('tutti.delegate.paths', return_value={'log': '/fake/run.log'}), \
+             mock.patch('tutti.chatrun.os.path.isfile', return_value=True), \
+             mock.patch.object(chatrun, 'STATUS_WAIT_SECONDS', 0):
+            ok, text, _ = chatrun.follow_missing_report(self.cfg, call, job, missing)
+        self.assertTrue(ok)
+        self.assertIn('timed out', text)
+        job.cancel.set()
+        with mock.patch('tutti.delegate.paths', return_value={'log': '/fake/run.log'}), \
+             mock.patch('tutti.chatrun.os.path.isfile', return_value=True):
+            ok, text, _ = chatrun.follow_missing_report(self.cfg, call, job, missing)
+        self.assertFalse(ok)
+        self.assertIn('run was not stopped', text)
+        with mock.patch('tutti.chatrun.os.path.isfile', return_value=False):
+            self.assertEqual(chatrun.follow_missing_report(self.cfg, call, job, missing), missing)
+        bad = {'tool': 'job_status', 'args': {'id': '../bad'}}
+        self.assertEqual(chatrun.follow_missing_report(self.cfg, bad, job, missing), missing)
+
+
 class Api(ApiBase):
     def test_send_streams_the_answer_and_names_the_model(self):
         eng = self.engine({'pc': ['The NUC ', 'is free.']})

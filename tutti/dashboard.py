@@ -167,6 +167,8 @@ class Collector:
             readings = keepon.readings_with_revive(self.cfg, readings)
         fresh = state.probe_all(self.cfg, self.probe_fn, self.available_fn, clock=self.clock, stored_fn=self.stored_fn,
                                 readings_fn=readings)
+        from . import network_discovery
+        fresh['discovered'] = network_discovery.scan(self.cfg)
         if config_error:
             fresh['error'] = config_error
         fresh['activity'] = projects.probe_all(self.cfg, self.activity_fn)

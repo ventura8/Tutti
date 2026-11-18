@@ -1,6 +1,11 @@
 // Tutti dashboard: polls /api/state and renders it with DOM nodes and textContent only (no HTML from data).
 'use strict';
 
+function showTab(tab) {
+    document.querySelectorAll('#devices, #discovered').forEach(el => el.hidden = el.id !== tab);
+    document.querySelectorAll('[id^="tab-"]').forEach(el => el.style.fontWeight = el.id === `tab-${tab}` ? 'bold' : 'normal');
+}
+
 const $ = (id) => document.getElementById(id);
 const FILTERS = [['all', 'All'], ['failed', 'Failed'], ['done', 'Done']];   // finished jobs; running and stalled ones have their own card
 const LIVE = new Set(['running', 'stalled']);

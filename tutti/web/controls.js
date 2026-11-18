@@ -177,6 +177,15 @@ function renderControls(s) {
     $('devices').replaceChildren(...(devices.length ? devices.map((d) => (d.checking ? el('li', { class: 'row', 'data-device': d.name, 'data-status': 'checking' },
         el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `on ${d.machine}` })), chip('checking', 'idle')) : device(d, paused.get(`device:${d.name}`))))
         : [el('li', {}, empty('No Android devices', codeText('Press Pair a device, or run ', 'tutti devices pair', '.')))]));
+
+    const discovered = s.discovered || [];
+    $('discovered').replaceChildren(...(discovered.length ? discovered.map((d) => el('li', { class: 'row' },
+        el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `${d.type}${d.roles && d.roles.length ? ' · ' + d.roles.join(', ') : ''}` })),
+        el('div', { class: 'row__stats' }, el('button', { class: 'btn btn--tonal', type: 'button', text: 'Set up', onclick: () => {
+            // Need to implement setup action
+            showBanner(el('strong', { text: 'Setup not implemented. ' }), 'Setup of discovered devices not implemented yet.');
+        }}))))
+        : [el('li', {}, empty('No new devices discovered', 'Everything on the network is set up.'))]));
     renderDeviceTools(s);   // devices.js: Pair a device, Pair a TV, Move devices
     const seen = new Set();
     const row = (kind, name, state) => {

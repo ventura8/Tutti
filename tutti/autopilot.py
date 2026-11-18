@@ -245,6 +245,11 @@ def account_room(cfg, name, step, states, running_units, machines, slow=False):
         return 0, f'{name}: {unfit}'
     if slow:
         return slow_account_room(name, used)
+    return ordinary_account_room(cfg, name, s, used)
+
+
+def ordinary_account_room(cfg, name, s, used):
+    """Use the planner's normal room or the account's ordinary even-pace allowance."""
     p = s.get('quota_plan')
     if (name in trigger_accounts(cfg) or name in cfg.get('_spare_accounts', ())) and p:
         # the planner's room (tutti/planner.py): a window's share of its weekly limit, or the room left after the reserve and

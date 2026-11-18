@@ -34,7 +34,8 @@ def git_dir(path):
     while d and d != os.path.dirname(d):
         g = os.path.join(d, '.git')
         if os.path.isdir(g):
-            return d, g
+            if os.path.exists(os.path.join(g, 'HEAD')):
+                return d, g
         if os.path.isfile(g):
             try:
                 with open(g, encoding='utf8') as f:

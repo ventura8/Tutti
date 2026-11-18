@@ -12,7 +12,7 @@ import time
 
 from . import autopilot, backlog, config, dispatch, scouts
 
-ACTIONS = ('run', 'move', 'cancel', 'up', 'down')
+ACTIONS = ('run', 'move', 'cancel', 'up', 'down', 'set-rank')
 
 
 def _project(cfg, name):
@@ -44,7 +44,7 @@ def shard_items(cfg, st):
                 continue
             out.append({**_project(cfg, pname), 'kind': 'shard', 'id': key, 'title': f'test shard {key}', 'size': 'shard',
                         'to': sh.get('target') or 'the next free device or machine', 'eta': 'when a device or machine is idle',
-                        'why': sh.get('why') or 'waits for an idle device or machine (Keep busy)', 'actions': []})
+                        'why': sh.get('why') or 'waits for an idle device or machine (Keep busy)', 'rank': 0, 'actions': []})
     return out
 
 
@@ -54,7 +54,7 @@ def scout_items(cfg, requests, now):
         if r.get('status') == 'queued':
             out.append({**_project(cfg, r.get('project')), 'kind': 'scout', 'id': r['id'], 'title': r['task'][:160], 'size': '1 run',
                         'to': f'scout {r["scout"]}', 'eta': 'the next round with room',
-                        'why': 'waits for room on its weekly line (or its reset)', 'actions': ['cancel']})
+                        'why': 'waits for room on its weekly line (or its reset)', 'rank': 0, 'actions': ['cancel']})
     for name in cfg.get('scouts') or {}:
         try:
             sc = scouts.settings(cfg, name)
@@ -64,7 +64,7 @@ def scout_items(cfg, requests, now):
             if scouts.due(sc, requests, w, spec, None, now):
                 out.append({**_project(cfg, spec.get('project')), 'kind': 'watch', 'id': w, 'title': spec['task'][:160],
                             'size': '1 run', 'to': f'scout {name}', 'eta': 'the next round',
-                            'why': f'due (every {spec["every"]}): goes at the next round', 'actions': []})
+                            'why': f'due (every {spec["every"]}): goes at the next round', 'rank': 0, 'actions': []})
     return out
 
 
@@ -76,7 +76,7 @@ def move_items(where):
         return []
     return [{'project': 'Tutti', 'priority': 0, 'kind': 'move', 'id': 'move', 'title': f'move Tutti to {cur.get("to")}',
              'size': 'move', 'to': cur.get('to') or 'the new machine', 'eta': 'when that is done', 'why': str(waits[0])[:200],
-             'actions': []}]
+             'rank': 0, 'actions': []}]
 
 
 def group(items):
@@ -116,9 +116,9 @@ def act(cfg, data):
         return 400, {'error': 'send {"kind": "task", "id": "t12", "action": "run|move|cancel|up|down", "to": "<account>"} '
                               'or {"kind": "scout", "id": "s3", "action": "cancel"}'}
     with backlog.locked(cfg) as d:
-        t = next((x for x in d['tasks'] if x['id'] == tid and x['status'] == 'queued'), None)
+        t = next((x for x in d['tasks'] if x['id'] == tid and x['status'] in ('queued', 'running', 'claimed')), None)
         if not t:
-            return 404, {'error': f'no queued task {tid}: it may have started or finished (refresh the page)'}
+            return 404, {'error': f'no backlog task {tid}: it may be done or dropped (refresh the page)'}
         if action == 'move':
             names = [n for n in autopilot.candidates(cfg, {**t, 'prefer': None})]   # only where the task may really go now
             if data.get('to') not in names:
@@ -129,6 +129,8 @@ def act(cfg, data):
             t['notes'] = [*t.get('notes', []), 'cancelled from the dashboard\'s Queued list']
         elif action == 'run':
             t['urgent'] = True
+        elif action == 'set-rank':
+            t['rank'] = int(data.get('rank', 0))
         else:
             t['rank'] = t.get('rank', 0) + (-1 if action == 'up' else 1)
     return 200, {'ok': True, 'task': tid, 'action': action}

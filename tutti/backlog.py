@@ -70,13 +70,13 @@ def key_of(t):
     return (t['repo'], re.sub(r'\s+', ' ', t['title'].strip().lower()))
 
 
-def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', notes=()):
+def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', notes=(), rank=0):
     if size not in SIZES:
         raise BacklogError(f'size "{size}": use one of {", ".join(SIZES)} (small, medium, large)')
     if not title.strip():
         raise BacklogError('a task needs a title that says what to change')
     return {'repo': repo, 'title': title.strip()[:300], 'scope': [s for s in scope if s], 'check': check, 'size': size,
-            'source': source, 'status': 'queued', 'attempts': [], 'notes': list(notes), 'added': time.time()}
+            'source': source, 'status': 'queued', 'attempts': [], 'notes': list(notes), 'added': time.time(), 'rank': rank}
 
 
 def add(data, task):
@@ -104,8 +104,9 @@ def is_question(t):
 
 
 def queued(data, repos=None):
-    """The tasks waiting for a worker, oldest first (a retry keeps its place); a scout's questions are not among them."""
-    return [t for t in data['tasks'] if t['status'] == 'queued' and (repos is None or t['repo'] in repos) and not is_question(t)]
+    """The tasks waiting for a worker, highest rank (lowest number) first, then oldest; a scout's questions are not among them."""
+    tasks = [t for t in data['tasks'] if t['status'] == 'queued' and (repos is None or t['repo'] in repos) and not is_question(t)]
+    return sorted(tasks, key=lambda t: (t.get('rank', 0), t['added']))
 
 
 def listing(data, show_all=False):
@@ -114,7 +115,7 @@ def listing(data, show_all=False):
         if not show_all and t['status'] in ('done', 'dropped'):
             continue
         tries = len(t['attempts'])
-        rows.append(f'{t["id"]:5} {t["status"]:12} {t["repo"]:10} {t["size"]} {tries} attempt(s)  {t["title"][:90]}')
+        rows.append(f'{t["id"]:5} {t["status"]:12} {t["repo"]:10} {t["size"]} priority {t.get("rank", 0)} {tries} attempt(s)  {t["title"][:90]}')
         if t.get('parked'):
             rows.append(f'      needs a person: {t["parked"]}')
     return '\n'.join(rows) or 'the backlog is empty: tutti backlog add <repo> "<title>" --check "<command>", or tutti backlog seed <repo>'

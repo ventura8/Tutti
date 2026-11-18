@@ -2,7 +2,7 @@
 // priority order, each with its size, where it goes, its estimated start and why it waits; an admin's actions (Run now,
 // Move to, Cancel, Priority up or down) post to /api/queue. Uses app.js's helpers (el, $, chip, refresh, showBanner, TOKEN).
 
-const QUEUE_ACTIONS = { run: 'Run now', up: 'Priority up', down: 'Priority down', cancel: 'Cancel' };
+const QUEUE_ACTIONS = { run: 'Run now', up: 'Priority +', down: 'Priority -', cancel: 'Cancel', 'set-rank': 'Set' };
 
 async function queueAction(body, failText) {
     try {
@@ -25,13 +25,22 @@ function queueMove(it, ladder) {
 }
 
 function queueItem(it, ladder) {
-    const acts = (it.actions || []).filter((a) => a !== 'move').map((a) => el('button', { class: 'btn btn--text', type: 'button',
-        'data-queue-action': a, text: QUEUE_ACTIONS[a],
-        onclick: () => queueAction({ kind: it.kind, id: it.id, action: a }, `${QUEUE_ACTIONS[a]} did not work for ${it.id}.`) }));
+    const acts = [];
+    for (const a of (it.actions || []).filter((a) => a !== 'move')) {
+        if (a === 'set-rank') {
+            const input = el('input', { type: 'number', value: it.rank, class: 'input', style: 'width: 50px' });
+            acts.push(input, el('button', { class: 'btn btn--text', type: 'button', text: QUEUE_ACTIONS[a],
+                onclick: () => queueAction({ kind: it.kind, id: it.id, action: a, rank: input.value }, `Failed to set rank for ${it.id}.`) }));
+        } else {
+            acts.push(el('button', { class: 'btn btn--text', type: 'button',
+                'data-queue-action': a, text: QUEUE_ACTIONS[a],
+                onclick: () => queueAction({ kind: it.kind, id: it.id, action: a }, `${QUEUE_ACTIONS[a]} did not work for ${it.id}.`) }));
+        }
+    }
     if ((it.actions || []).includes('move') && ladder.length) acts.push(...queueMove(it, ladder));
     return el('div', { class: 'row', 'data-queued': it.id, 'data-kind': it.kind },
         el('div', { class: 'row__name', text: `${it.title}` }),
-        el('p', { class: 'row__note', text: `${it.kind} ${it.id} · size ${it.size} · goes to ${it.to} · starts ${it.eta}` }),
+        el('p', { class: 'row__note', text: `${it.kind} ${it.id} · size ${it.size} · priority ${it.rank} · goes to ${it.to} · starts ${it.eta}` }),
         el('p', { class: 'row__note', 'data-why': '', text: `Waiting: ${it.why}` }),
         acts.length ? el('div', { class: 'row__stats' }, ...acts) : '');
 }

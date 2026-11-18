@@ -393,6 +393,7 @@ class UsageGraph(unittest.TestCase):
                 last = detail.inner_text()
                 self.assertNotEqual(first, last)
                 self.assertEqual(graph.get_attribute('aria-valuetext'), last)
+                graph.scroll_into_view_if_needed()
                 box = graph.bounding_box()
                 page.mouse.move(box['x'] + 1, box['y'] + box['height'] / 2)
                 self.assertEqual(detail.inner_text(), first)

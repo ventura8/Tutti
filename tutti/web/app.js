@@ -223,6 +223,8 @@ function sparkline(a, now) {
     const pts = readings.map((r) => [x(r.time), y(r.used)]);
     const g = svg('svg', { class: 'spark', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img' });
     g.setAttribute('aria-label', `${a.name}: ${readings.length} readings this window`);
+    // SVG otherwise receives pointer events only over painted strokes, leaving most of the chart inert.
+    g.append(svg('rect', { x: 0, y: 0, width: W, height: H, fill: 'transparent', 'pointer-events': 'all' }));
     g.append(svg('line', { class: 's-grid', x1: 0, x2: W, y1: y(0), y2: y(0) }));
     g.append(svg('line', { class: 's-panic', x1: 0, x2: W, y1: y(a.panic_at), y2: y(a.panic_at) }));
     if (target !== null && Number.isFinite(tt)) {

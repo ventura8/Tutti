@@ -12,7 +12,7 @@ import json
 import os
 import subprocess
 
-from . import castroles, lanmedia
+from . import castroles, homeassistant, lanmedia
 
 ROLES = {
     'cast-sender': 'sends to a Cast receiver (Chrome, Chromium, the desktop sender, an Android phone)',
@@ -35,6 +35,7 @@ ROLES = {
     'ios-webkit-runner': 'runs iOS simulators (Xcode) or Playwright WebKit',
 }
 ROLES.update(lanmedia.ROLES)   # media roles of LAN devices (a soundbar, a smart TV), found over mDNS and SSDP
+ROLES.update(homeassistant.ROLES)   # Home Assistant host roles (home-automation-hub, presence, power/UPS, …)
 
 # one `key=value` per line; every check is cheap (no docker daemon call, no GPU load)
 MACHINE_PROBE = r'''h() { command -v "$1" > /dev/null 2>&1; }

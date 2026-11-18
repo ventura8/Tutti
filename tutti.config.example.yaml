@@ -347,6 +347,11 @@ dispatch: {enabled: true, idle_minutes: 5, lease_minutes: 10, retries: 2}
 # (move_after_minutes, urgent jobs only) and Wake-on-LAN (machines.<m>.wol_mac) are off until you turn them on.
 presence: {grace_seconds: 120, night: '23-08', long_minutes: 30, owner_laptop: null, move_after_minutes: null, wake: false}
 
+# Home Assistant on the Hosts card (docs/MACHINES.md, *Hosts*): discovered over mDNS (`_home-assistant._tcp`) when url is
+# empty, or pinned to url. The long-lived token lives only in ~/.config/tutti/secrets/home-assistant.token (mode 600), never
+# here; with it Tutti shows uptime and capability roles (presence, power-ups, smart-plug, sensors).
+home_assistant: {enabled: true, url: '', token_file: ''}
+
 # Scouts: helpers that are not workers (docs/SCOUTS.md). Grok Bot answers through a webhook routine: Tutti opens an issue,
 # POSTs {task, reply_to} to the routine, and reads the answer the routine posts as a comment. The URL and key live only in
 # the environment variables named here (`tutti scout setup` prints the owner's steps).

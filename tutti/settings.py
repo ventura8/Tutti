@@ -319,9 +319,13 @@ def setup_for(path):
 
 def secrets_view(cfg, env):
     """[{label, set, where, setup}]: whether each secret Tutti uses is set, and which command sets it. Never a value."""
+    from . import homeassistant
     dsn, source = telemetry.dsn(cfg, env)
     out = [{'label': 'Sentry DSN (crash reports)', 'set': bool(dsn), 'where': source or telemetry.ENV_DSN,
             'setup': 'tutti telemetry setup'}]
+    ha_path = homeassistant.token_path(cfg, env)
+    out.append({'label': 'Home Assistant long-lived token', 'set': bool(homeassistant.read_token(cfg, env)),
+                'where': ha_path, 'setup': f'create a long-lived token in Home Assistant and save it to {ha_path} (mode 600)'})
     in_file = set(groksetup.read_env_file(groksetup.env_path(env)))
     for name, sc in sorted((cfg.get('scouts') or {}).items()):
         for k, what in (('url_env', 'webhook URL'), ('key_env', 'webhook key')):

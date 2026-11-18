@@ -26,8 +26,8 @@ SECTIONS = [
     ('workers', 'Workers', 'The agents and local models Tutti can brief, and the order `tutti run auto` tries them.',
      ['workers', 'routing.workers', 'brief']),
     ('main', 'Main agent', 'Who conducts `tutti conduct` and who takes over when its quota runs out.', ['main']),
-    ('machines', 'Machines', 'The computers that run heavy commands, their slot queues and how commands run there.',
-     ['machines', 'failover', 'routing.order', 'runner', 'sync', 'files', 'guard']),
+    ('machines', 'Hosts and machines', 'The computers that run heavy commands, and Home Assistant on the Hosts card.',
+     ['machines', 'home_assistant', 'failover', 'routing.order', 'runner', 'sync', 'files', 'guard']),
     ('devices', 'Devices', 'Android devices for end-to-end runs, and when a run may start on them.', ['devices', 'night']),
     ('autopilot', 'Autopilot', 'Backlog tasks sent to accounts that are behind their pace; retries climb the ladder.',
      ['autopilot', 'autopilot.repos', 'depbots']),
@@ -241,6 +241,15 @@ FIELDS = {
                                  item='role'),
     'lan_devices.*.roles_add': field(ROLES_ADDED, 'Added to what mDNS and SSDP found, e.g. bluetooth-audio.', 'list', item='role'),
     'lan_devices.*.roles_off': field(ROLES_REMOVED, 'Taken from what mDNS and SSDP found.', 'list', item='role'),
+    'home_assistant.enabled': field('Show Home Assistant', 'Discover it over mDNS and show it on the Hosts card.', 'switch'),
+    'home_assistant.url': field('Home Assistant URL', 'Empty: discover over mDNS (`_home-assistant._tcp`). Set to pin one, e.g. '
+                                'http://homeassistant.local:8123. The token is never stored here.', 'text'),
+    'home_assistant.token_file': field('Token file', 'Path to the long-lived access token (mode 600). Empty: '
+                                       '~/.config/tutti/secrets/home-assistant.token.', 'text'),
+    'home_assistant.roles': field(ROLES_OVERRIDE, 'The whole list for the Home Assistant host: home-automation-hub, presence, '
+                                  'power-ups, smart-plug, sensors.', 'list', item='role'),
+    'home_assistant.roles_add': field(ROLES_ADDED, 'Added to the detected Home Assistant roles.', 'list', item='role'),
+    'home_assistant.roles_off': field(ROLES_REMOVED, 'Taken from the detected Home Assistant roles.', 'list', item='role'),
     'devices.*.kind': field('Kind', 'Set by `tutti devices pair`: phone, tablet or tv.', 'select', choices=['phone', 'tablet', 'tv']),
     'devices.*.model': field('Model', 'Set by `tutti devices pair`; a move checks the device it reaches is this one.', 'text'),
     'devices.*.capabilities': field('Capabilities', 'Set by `tutti devices pair`: camera, telephony, touchscreen, tv...', 'list',

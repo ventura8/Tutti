@@ -24,7 +24,7 @@ function roleFilter(selectId, listId, items) {
     sel.replaceChildren(el('option', { value: '', text: 'All' }), ...all.map((r) => el('option', { value: r, text: r })));
     sel.value = chosen;
     sel.onchange = () => roleFilter(selectId, listId, items);
-    for (const id of [listId, listId === 'devices' ? 'lan-devices' : null].filter(Boolean)) {
+    for (const id of [listId, listId === 'devices' ? 'lan-devices' : null, listId === 'machines' ? 'ha-hosts' : null].filter(Boolean)) {
         for (const li of $(id)?.children || []) li.hidden = Boolean(chosen) && li.dataset.roles !== undefined && !li.dataset.roles.split(' ').includes(chosen);
     }
 }

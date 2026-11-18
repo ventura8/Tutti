@@ -550,6 +550,7 @@ def assemble(cfg, probes, now=None, is_alive=alive):
     return {'version': __version__, 'generated_at': now_dt.isoformat(), 'config': cfg['_path'],
             'refresh_seconds': cfg['dashboard']['refresh_seconds'], 'usage': usage,
             'machines': {'probed_at': iso(probes.get('machines_at')), 'items': machines, 'configured': known['machines']},
+            'hosts': {'items': probes.get('hosts') or []},   # Home Assistant and other non-slot hosts (tutti/homeassistant.py)
             'devices': {'items': probes.get('devices') or [], 'configured': known['devices'], 'lan': probes.get('lan_devices') or []},
             'workers': {'probed_at': iso(probes.get('workers_at')), **workers, 'off': off_notes(cfg), 'configured': known['workers']},
             'jobs': jobs,
@@ -605,10 +606,21 @@ def lan_devices(cfg, now):
         return []
 
 
+def ha_hosts(cfg, now):
+    """Home Assistant on the Hosts card (tutti/homeassistant.py); [] when disabled or the probe fails."""
+    from . import homeassistant
+    try:
+        return homeassistant.hosts(cfg, now)
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+
+
 def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, stored_fn=None, readings_fn=None):
     """The slow part, run off the request path: every machine (and the files it stores) and every worker."""
-    return {'machines': with_cast_roles(cfg, machines_state(cfg, probe_fn, stored_fn)), 'machines_at': clock(),
+    now = clock()
+    return {'machines': with_cast_roles(cfg, machines_state(cfg, probe_fn, stored_fn)), 'machines_at': now,
             'devices': devices.dnd_view(cfg, devices.devices_state(cfg, readings_fn or (lambda m, d: {'state': 'unreachable'})),
                                         learn=readings_fn is not None),
-            'workers': workers_state(cfg, available_fn, which), 'workers_at': clock(),
-            'lan_devices': lan_devices(cfg, clock()) if readings_fn is not None else []}
+            'workers': workers_state(cfg, available_fn, which), 'workers_at': now,
+            'lan_devices': lan_devices(cfg, now) if readings_fn is not None else [],
+            'hosts': ha_hosts(cfg, now) if readings_fn is not None else []}

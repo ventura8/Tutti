@@ -199,17 +199,20 @@
                 <div id="owner" class="owner"></div>
             </section>
 
-            <!-- Machines directly below Usage & pacing (the owner, 2026-11-14) -->
+            <!-- Hosts (machines + Home Assistant) directly below Usage & pacing (the owner, 2026-11-14 / 2026-11-17) -->
             <section class="card card--machines span-full" aria-labelledby="machines-h">
                 <header class="card__head">
-                    <h2 id="machines-h">Machines</h2>
+                    <h2 id="machines-h">Hosts</h2>
                     <p class="card__meta" id="machines-meta"></p>
                 </header>
                 <div id="machines-disk"></div>
                 <div id="machines-selfheal"></div>
                 <p class="row__note" id="machines-failover"></p>
                 <label class="role-filter" for="machines-role-filter">Role <select id="machines-role-filter"><option value="">All</option></select></label>
-                <ul id="machines" class="list list--grid"></ul>
+                <h3 class="card__sub" id="ha-hosts-h" hidden>Home Assistant</h3>
+                <ul id="ha-hosts" class="list list--grid" aria-labelledby="ha-hosts-h" hidden></ul>
+                <h3 class="card__sub" id="machines-sub-h">Machines</h3>
+                <ul id="machines" class="list list--grid" aria-labelledby="machines-sub-h"></ul>
                 <h3 class="card__sub" id="waiting-h" hidden>Waiting on away or asleep targets</h3>
                 <ul id="waiting" class="list" aria-labelledby="waiting-h"></ul>
             </section>

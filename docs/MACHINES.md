@@ -2,6 +2,19 @@
 
 Heavy work (lint, tests, builds) leaves the computer the orchestrator and its browser run on.
 
+## Hosts
+
+The dashboard's **Hosts** card lists every Tutti machine (slots, load, heat) and the household **Home Assistant**
+instance when one is connected (`tutti/homeassistant.py`):
+
+- **Discovery.** mDNS service `_home-assistant._tcp`, or `home_assistant.url` in the config when set (pins one instance).
+- **Shown.** Name, version, address/URL, uptime (from `sensor.uptime` when a token is present), online/offline.
+- **Roles.** Always `home-automation-hub`. With a long-lived access token in
+  `~/.config/tutti/secrets/home-assistant.token` (mode 600, never in the config file), Tutti also detects `presence`
+  (person / device_tracker), `power-ups` (power / UPS entities), `smart-plug` (switch / outlet) and `sensors`. Admins
+  override with `home_assistant.roles` / `roles_add` / `roles_off` as for machines. Turn the card off with
+  `home_assistant.enabled: false`.
+
 ## Roles
 
 Every machine and device has a set of roles: what it is for (`tutti/roles.py`). They are detected once a day (a small
@@ -10,7 +23,7 @@ an NVIDIA GPU and its memory, a desktop session, WireGuard or Tailscale, Xcode o
 (the main machine, `failover.backup`, `browser.machine`, the devices a machine hosts) and the Android readings (leanback,
 Cast). Media devices Tutti cannot run tests on (a soundbar, a smart TV, speakers) are found on the LAN over mDNS
 (`_airplay._tcp`, `_raop._tcp`, `_googlecast._tcp`, `_spotify-connect._tcp`) and UPnP SSDP (MediaRenderer) by
-`tutti/lanmedia.py` and listed under Devices, *On the network*.
+`tutti/lanmedia.py` and listed under Devices, *On the network*. Home Assistant's own roles are under *Hosts* above.
 
 | Role | Means |
 | --- | --- |
@@ -20,10 +33,11 @@ Cast). Media devices Tutti cannot run tests on (a soundbar, a smart TV, speakers
 | `docker-host`, `build-machine`, `gpu-ai`, `ui-desktop` | containers, 8+ cores with 16+ GB, local models (6+ GB VRAM or Ollama), an interactive desktop |
 | `chrome-browser`, `main`, `backup-main`, `vpn-node` | the household browser machine, where Tutti runs, the failover backup, on the private network |
 | `cast-sender`, `cast-receiver`, `chromecast-builtin`, `airplay-sender`, `airplay-receiver`, `dlna-renderer`, `spotify-connect`, `bluetooth-audio`, `smart-tv` | media roles |
+| `home-automation-hub`, `presence`, `power-ups`, `smart-plug`, `sensors` | Home Assistant on the Hosts card |
 
 An admin edits them in the config or the dashboard's Settings: `roles:` is the whole list (an override), `roles_add` and
-`roles_off` change what was detected (`machines.<m>.*`, `devices.<d>.*`, `lan_devices.<address>.*`). From a terminal:
-`tutti machines --roles [--refresh]`, `tutti roles list [--all]`, `tutti roles set|unset <name> <role>`.
+`roles_off` change what was detected (`machines.<m>.*`, `devices.<d>.*`, `lan_devices.<address>.*`, `home_assistant.*`).
+From a terminal: `tutti machines --roles [--refresh]`, `tutti roles list [--all]`, `tutti roles set|unset <name> <role>`.
 
 A suite asks for roles with `roles: [windows-test-runner, ui-desktop, gpu-ai]`: only a target with every one gets it, and
 among those the power score and routing pick as before. An unknown role is a config error.

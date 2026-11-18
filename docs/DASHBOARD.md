@@ -75,7 +75,8 @@ narrow with nothing beside it; one column on a phone. Phone (375 px) to 4K (2560
    (`quota_plan.rows`): Points left, Spend by, Resets, Decision, Why; times in the viewer's own time, UTC in the tooltip; the limit has no card of its own unless it needs a reading (its Add a reading
    lives there). Each card's facts fold under **Details**. Inside the card, in this order: the online agents' accounts,
    then **Local models**, then **You and the main agent**.
-2. **Machines**, full width, directly below Usage & pacing (the owner, 2026-11-14): each machine's slots, load, heat and
+2. **Hosts**, full width, directly below Usage & pacing (the owner, 2026-11-14; renamed from Machines 2026-11-17): Home
+   Assistant when found (version, address, uptime, online/offline, roles), then each machine's slots, load, heat and
    presence, its rows in columns.
 3. **Needs you**, full width: tasks that need a person, accounts in panic, stalled jobs (**Open its log**), machines
    offline, workers down, readings due, results to review (each task with its attempts and failure history), agents

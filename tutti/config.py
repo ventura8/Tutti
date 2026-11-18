@@ -157,6 +157,10 @@ DEFAULTS = {
     # the stable name members use (address) and its port; on the host, jobs: the client whose repositories and sign-ins
     # run the worker jobs through its bridge. Empty: Tutti runs here, as it always did.
     'host': {},
+    # home_assistant: the household Home Assistant on the Hosts card (docs/MACHINES.md, *Hosts*). url '' discovers it over
+    # mDNS (`_home-assistant._tcp`); set url to pin one. The long-lived token is only in
+    # ~/.config/tutti/secrets/home-assistant.token (mode 600), never in this file. roles / roles_add / roles_off as for machines.
+    'home_assistant': {'enabled': True, 'url': '', 'token_file': ''},
 }
 # Safe by default: a machine without a `heat` block takes one run at 85 C or more and none at 95 C, the hotter of its CPU
 # and GPU (a laptop with no limit ran at load 16/16 and 95 C under a work-queue job, 2026-11-15). Termux machines have
@@ -472,8 +476,9 @@ def validate(cfg):
     errs += _dashboard_errors(cfg['dashboard']) + _auth_errors(cfg.get('auth'))
     errs += files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
     # they import modules that import this one
-    from . import autocompact, chat, depbots, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
-    errs += dispatch.errors(cfg) + tiers.errors(cfg) + tz.errors(cfg) + presence.errors(cfg)
+    from . import (autocompact, chat, depbots, dispatch, energy, homeassistant, owner, presence, scouts, selfimprove,
+                   sentry, tiers, tz, users)
+    errs += dispatch.errors(cfg) + tiers.errors(cfg) + tz.errors(cfg) + presence.errors(cfg) + homeassistant.errors(cfg)
     from . import aiassist, needs, selfheal, welcome
     errs += selfheal.errors(cfg)
     errs += needs.errors(cfg) + welcome.errors(cfg) + aiassist.errors(cfg) + selfimprove.errors(cfg)

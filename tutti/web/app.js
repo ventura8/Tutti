@@ -683,6 +683,35 @@ function renderSelfHeal(h) {
     if (hadFocus) d.querySelector('summary')?.focus({ preventScroll: true });   // keyboard users keep their place
 }
 
+const HA_TONE = { online: 'ok', offline: 'bad' };
+
+function haHost(h) {
+    const up = h.uptime ? `uptime ${h.uptime}` : 'uptime unknown';
+    const ver = h.version ? `v${h.version}` : 'version unknown';
+    return el('li', { class: 'row', 'data-roles': roleNames(h.roles) },
+        el('div', { class: 'row__name' }, h.name, el('span', { class: 'row__kind', text: `${h.address} · Home Assistant` })),
+        chip(h.status, HA_TONE[h.status] || 'idle'),
+        el('div', { class: 'row__stats' },
+            el('span', { text: ver }),
+            el('span', { text: up }),
+            h.url ? el('span', { text: h.url }) : null),
+        roleChips(h.name, h.roles, 'home_assistant'),
+        el('p', { class: 'row__note',
+            text: h.status === 'online'
+                ? `Found via ${h.source || 'discovery'}. Token in ~/.config/tutti/secrets/home-assistant.token unlocks uptime and capability roles.`
+                : 'Offline: set home_assistant.url or check that Home Assistant is on the LAN (mDNS _home-assistant._tcp).' }));
+}
+
+function renderHaHosts(s) {
+    const items = s.hosts?.items || [];
+    const list = $('ha-hosts');
+    const head = $('ha-hosts-h');
+    if (!list || !head) return;
+    head.hidden = !items.length;
+    list.hidden = !items.length;
+    list.replaceChildren(...items.map(haHost));
+}
+
 function renderMachines(s) {
     const ms = s.machines;
     $('machines-meta').textContent = ms.probed_at ? `Probed ${relative(ms.probed_at)}` : 'Probing…';
@@ -697,12 +726,19 @@ function renderMachines(s) {
         foLine.dataset.tone = fo.may_write ? '' : 'bad';
     }
     renderSelfHeal(s.selfheal);
+    renderHaHosts(s);
     $('machines-disk').replaceChildren(...(s.disk || []).map((t) => el('p', { class: 'row__note', 'data-tone': 'bad', role: 'alert', text: t })));
     // A re-render replaces the rows: the stored-files toggle that had focus gets it back (keyboard users keep their place).
     const focused = document.activeElement?.closest?.('.stored')?.dataset.machine;
     $('machines').replaceChildren(...(ms.items.length ? ms.items.map(machine)
         : [el('li', {}, ms.probed_at ? empty('No machines', 'Add machines: to the config to route heavy runs.') : empty('Probing machines…', 'ssh answers can take a few seconds.'))]));
-    roleFilter('machines-role-filter', 'machines', ms.items);
+    const ha = s.hosts?.items || [];
+    roleFilter('machines-role-filter', 'machines', [...ms.items, ...ha]);
+    // also filter Home Assistant rows by the same Role select
+    const chosen = $('machines-role-filter')?.value || '';
+    for (const li of $('ha-hosts')?.children || []) {
+        li.hidden = Boolean(chosen) && li.dataset.roles !== undefined && !li.dataset.roles.split(' ').includes(chosen);
+    }
     if (focused) $('machines').querySelector(`.stored[data-machine="${CSS.escape(focused)}"] > summary`)?.focus({ preventScroll: true });
 }
 

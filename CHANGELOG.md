@@ -7,6 +7,15 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## 0.25.0 (2026-11-17)
+
+### Added
+
+- Home Assistant on the dashboard **Hosts** card (`tutti/homeassistant.py`, docs/MACHINES.md *Hosts*): discovered over
+  mDNS (`_home-assistant._tcp`) or from `home_assistant.url`, with version, address, uptime, online/offline and roles
+  (`home-automation-hub`, `presence`, `power-ups`, `smart-plug`, `sensors`). The long-lived token stays in
+  `~/.config/tutti/secrets/home-assistant.token` (never in the config). The former Machines card is titled Hosts.
+
 ## 0.24.0 (2026-11-17)
 
 ### Added

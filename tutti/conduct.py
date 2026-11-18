@@ -212,6 +212,14 @@ def yield_reason(cfg, agent):
     return ''
 
 
+def conductor_account_reason(cfg, name, state):
+    """A conductor must bind to an account with known quota, including every linked window."""
+    if state is None:
+        return 'usage state missing: refresh the account before using it'
+    reason = routing.account_unfit({**state, '_missing_limits': routing.missing_limits(cfg, name, state)})
+    return reason or ('quota unknown: refresh the account and linked limits' if routing.unknown_quota(state) else '')
+
+
 def out_reason(cfg, agent, states, machines=None, now=None):
     """Why an agent must not conduct now (every account it spends is in panic or spent, or a local model's machine is lent
     out), or ''. No account: never out by quota."""
@@ -235,10 +243,7 @@ def out_reason(cfg, agent, states, machines=None, now=None):
     if linked and not names:
         return f'{agent}: all of its configured accounts are paused or disabled'
     by_name = {s['name']: s for s in states}
-    reasons = [(n, routing.account_unfit({**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}))
-               for n in names if n in by_name]
-    if any(n not in by_name for n in names):
-        return ''
+    reasons = [(n, conductor_account_reason(cfg, n, by_name.get(n))) for n in names]
     if not reasons or not all(reason for _, reason in reasons):
         return ''
     return '; '.join(f'{n}: {reason}' for n, reason in reasons)
@@ -250,7 +255,7 @@ def account_args(cfg, agent, states):
     with its `--settings` while that window has room, on agy-gemini's after."""
     by_name = {x['name']: x for x in states}
     for n in accounts_of(cfg, agent):
-        if n in by_name and not routing.account_unfit({**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}):
+        if not conductor_account_reason(cfg, n, by_name.get(n)):
             return list((cfg['accounts'][n] or {}).get('args') or [])
     return []
 

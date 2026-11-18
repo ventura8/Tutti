@@ -1,5 +1,8 @@
 # Another agent as the main agent
 
+A conductor account without a usage state is unavailable until its usage is refreshed. Another measured account of the
+same worker may still be used when it has room; an unmetered local worker remains eligible (t388).
+
 `tutti conduct` runs the goal with a main (conductor) agent other than Claude Code: Cursor (`cursor-agent`),
 Antigravity (`agy`, Claude or Gemini models), the GitHub Copilot CLI, Claude Code itself, or a local model through
 Ollama. Use it when the usual orchestrator's quota is in panic, or to give an account with room the judgement work.

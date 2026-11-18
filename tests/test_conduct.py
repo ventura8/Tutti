@@ -73,6 +73,27 @@ class OutReasonTest(Folder):
         states[0]['limits'] = [{'name': 'weekly', 'used': 10, 'panic': False}]
         self.assertEqual(conduct.out_reason(self.cfg, 'agy', states), '')
 
+    def test_missing_account_state_cannot_open_a_spent_worker(self):
+        states = self.states(**{'agy-claude': 100})
+        why = conduct.out_reason(self.cfg, 'agy', states)
+        self.assertIn('agy-claude', why)
+        self.assertIn('agy-gemini: usage state missing', why)
+        self.assertEqual(conduct.account_args(self.cfg, 'agy', states), [])
+        states.append(self.states(**{'agy-gemini': 10})[0])
+        self.assertEqual(conduct.out_reason(self.cfg, 'agy', states), '')
+
+    def test_missing_only_account_state_is_unavailable(self):
+        why = conduct.out_reason(self.cfg, 'agy', [])
+        self.assertIn('usage state missing', why)
+
+    def test_unknown_quota_does_not_select_default_account(self):
+        states = self.states(**{'agy-claude': 100, 'agy-gemini': 10})
+        states[1]['used'] = None
+        self.assertIn('quota unknown', conduct.out_reason(self.cfg, 'agy', states))
+        self.assertEqual(conduct.account_args(self.cfg, 'agy', states), [])
+        states[1]['used'] = 10
+        self.assertEqual(conduct.out_reason(self.cfg, 'agy', states), '')
+
 
 class ChoiceTest(Folder):
     def test_the_switch_wins_over_the_config_and_is_shown(self):
@@ -326,12 +347,12 @@ class RunCliTest(Folder):
     def test_the_account_with_room_gives_its_model(self):
         self.cfg['accounts']['agy-claude']['args'] = ['--model', 'c']
         self.cfg['accounts']['agy-gemini']['args'] = ['--model', 'g']
-        spent = [{'name': 'agy-claude', 'verdict': 'spent'}, {'name': 'agy-gemini', 'verdict': 'behind'}]
+        spent = [{'name': 'agy-claude', 'verdict': 'spent', 'used': 100}, {'name': 'agy-gemini', 'verdict': 'behind', 'used': 10}]
         self.assertEqual(conduct.account_args(self.cfg, 'agy', spent), ['--model', 'g'])
         self.assertEqual(conduct.account_args(self.cfg, 'local', spent), [])
         # a pinned command gets the account's model too: the flag is replaced, not doubled
         self.cfg['main']['commands'] = {'agy': ['agy', '-p', '{prompt}', '--model', 'g']}
-        room = [{'name': 'agy-claude', 'verdict': 'behind'}, {'name': 'agy-gemini', 'verdict': 'behind'}]
+        room = [{'name': 'agy-claude', 'verdict': 'behind', 'used': 10}, {'name': 'agy-gemini', 'verdict': 'behind', 'used': 10}]
         self.assertEqual(conduct.account_args(self.cfg, 'agy', room), ['--model', 'c'])
         argv = workers.with_args(conduct.cli_argv(self.cfg, 'agy', 'p', None), ['--model', 'c'])
         self.assertEqual(argv, ['agy', '-p', 'p', '--model', 'c'])
@@ -425,6 +446,7 @@ class RoleHandOffTest(Folder):
         self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'worker': 'cursor', 'enabled': True}})
 
     def states(self, **rows):
+        rows.setdefault('cursor', 0)  # this fixture's fallback has a healthy reading unless a test says otherwise
         out = []
         for n, v in rows.items():
             if isinstance(v, dict):

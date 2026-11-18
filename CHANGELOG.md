@@ -7,6 +7,12 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.28.3] - 2026-11-18
+
+### Security
+
+- Update the source-build backend to setuptools 84.1.0 (t231).
+
 ## [0.28.2] - 2026-11-18
 
 ### Fixed

@@ -111,6 +111,8 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
 
 When nothing is sent, the stopped line names **every** step: why it has no room, or, when it has room, why no queued task
 fits it ("agy-claude: room for 1, but the queued tasks need 3", "… no queued task may go there").
+If an account is ahead of pace, this line says it will be rechecked on the next successful active dashboard round while
+autopilot is running. Failover must allow this dashboard to act. This is not a promise of a fresh quota reading or a dispatch time.
 
 ## Filling free room (`fill_room`)
 

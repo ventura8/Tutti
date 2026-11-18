@@ -167,6 +167,15 @@ class MachinesWorkersTest(unittest.TestCase):
         self.assertEqual((ms['a']['rank'], ms['c']['rank']), (1, None))
         self.assertEqual((ms['b']['busy'], ms['d']['free']), (2, None))
 
+    def test_keyboard_idle_makes_a_free_probe_busy(self):
+        """The aa57f53 flake: share.idle_seconds under in_use_minutes zeros the share (docs/LESSONS.md, *Dashboard free/busy*)."""
+        m = {**self.cfg['machines']['a'], 'name': 'a'}
+        p = routing.Probe(True, 1, 0.5, 4, False)
+        now = pacing.parse_time('2026-01-06T02:00Z')
+        self.assertEqual(state.machine_state(m, p, 1, now, idle_s=10)['status'], 'busy')
+        self.assertEqual(state.machine_state(m, p, 1, now, idle_s=3600)['status'], 'free')
+        self.assertEqual(state.machine_state(m, p, 1, now, idle_s=None)['status'], 'free')
+
     def test_workers_and_known_agents(self):
         w = state.workers_state(self.cfg, lambda x: (x['kind'] == 'ollama', 'note'), which=lambda c: c == 'claude' and '/bin/claude')
         by = {x['name']: x for x in w['items']}
@@ -186,12 +195,15 @@ class ServerTest(unittest.TestCase):
         log = os.path.join(folder, 'usage.jsonl')
         now = pacing.parse_time(time.strftime('%Y-%m-%dT%H:%MZ', time.gmtime()))
         pacing.append_log(log, 'claude', 97, now - timedelta(minutes=5))
-        cls.cfg = cfg_of({'machines': {'here': {'host': 'local'}}, 'workers': {'cursor': {'kind': 'cli', 'command': ['x', '{prompt}']}},
+        # host not "local": machines_state must not call share.idle_seconds() (a person at this keyboard made status busy)
+        cls.cfg = cfg_of({'machines': {'here': {'host': 'box.example'}},
+                          'workers': {'cursor': {'kind': 'cli', 'command': ['x', '{prompt}']}},
                           'accounts': {'claude': {'window': '7d', 'resets': (now + timedelta(days=3)).isoformat()}},
                           'usage': {'log': log}}, folder)
         collector = dashboard.Collector(cls.cfg, probe_fn=lambda m: routing.Probe(True, 1, 0.5, 4, False),
                                         available_fn=lambda w: (True, 'ok'), stored_fn=lambda m: None)
-        collector.refresh()
+        with mock.patch('tutti.share.idle_seconds', return_value=0):
+            collector.refresh()
         cls.httpd = dashboard.server(cls.cfg, 0, collector)
         cls.port = cls.httpd.server_address[1]
         threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()

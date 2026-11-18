@@ -14,6 +14,9 @@ hard gate. Install the pinned tools once with `python3 -m pip install -r require
 Rules for every test: a change in behaviour comes with a good case and a bad one; nothing runs against a real machine
 (tests use the `local` transport and temp folders); hosts are `*.example`.
 
+An unstable unit test must be made deterministic at its source (inputs, timing, or environment coupling), then covered by
+a direct regression test. Document the root cause in `docs/LESSONS.md`; do not mask deterministic bugs with retries.
+
 ## Browser tests
 
 `tests/e2e/test_ui.py` opens the dashboard in a real browser: Playwright's Chromium (`playwright==1.65.2`) with axe-core 4.12

@@ -90,7 +90,11 @@ def available(worker, timeout=3):
     model = worker['model']
     try:
         with urllib.request.urlopen(config.ollama_url(worker['host'], '/api/tags'), timeout=timeout) as r:
-            names = _ollama_model_names(json.loads(r.read().decode()))
+            data = json.loads(r.read().decode())
+            names = _ollama_model_names(data)
+            model_info = next((m for m in data.get('models', []) if _tagged(m.get('name', '')) == _tagged(model)), {})
+            model_size_bytes = model_info.get('size', 0)
+            worker['_size_mb'] = model_size_bytes // (1024 * 1024)
     except ValueError as e:
         return False, f'{worker["host"]} answered /api/tags with something that is not an ollama model list ({e}): is it an ollama server?'
     except OSError as e:

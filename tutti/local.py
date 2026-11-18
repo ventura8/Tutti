@@ -117,6 +117,9 @@ def generate(cfg, worker, prompt, wait=False, low_priority=False, timeout=1800, 
     while low_priority and others_busy(cfg):
         time.sleep(5)
     options = {'temperature': worker.get('temperature', 0.1), 'num_ctx': worker.get('num_ctx', 16384)}
+    options = check_vram(cfg, worker, options)
+    if options is None:
+        raise RuntimeError(f'model {worker["model"]} loading skipped: insufficient VRAM')
     threads = threads_at_share(cfg, worker)
     if threads:
         options['num_thread'] = threads
@@ -158,6 +161,60 @@ def _timed(cfg, worker, call):
 def read(path):
     with open(path, encoding='utf8', errors='replace') as f:
         return f.read()
+
+
+def get_free_vram_mb():
+    try:
+        out = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.free', '--format=csv,noheader,nounits'], text=True)
+        return int(out.strip())
+    except Exception:
+        return None
+
+
+def log_no_memory(cfg, worker):
+    state_dir = config.state_dir(cfg)
+    path = os.path.join(state_dir, 'nv-errors.json')
+    try:
+        data = {}
+        if os.path.exists(path):
+            with open(path, encoding='utf8') as f:
+                data = json.load(f)
+
+        machine = worker.get('machine', 'unknown')
+        data[machine] = data.get(machine, 0) + 1
+
+        with open(path, 'w', encoding='utf8') as f:
+            json.dump(data, f)
+    except Exception as e:
+        log(f'failed to log NV_ERR_NO_MEMORY: {e}')
+
+
+def check_vram(cfg, worker, options):
+    reserve = worker.get('vram_reserve_mb', 1024)
+    model_size = worker.get('_size_mb', 0)
+
+    num_ctx = options.get('num_ctx', 16384)
+
+    # 2 KB per token as a heuristic
+    ctx_usage = num_ctx * 0.002
+
+    free = get_free_vram_mb()
+
+    if free is None:
+        return options
+
+    if free < model_size + reserve + ctx_usage:
+        while num_ctx > 2048 and free < model_size + reserve + ctx_usage:
+            num_ctx //= 2
+            ctx_usage = num_ctx * 0.002
+
+        if free < model_size + reserve + ctx_usage:
+            log_no_memory(cfg, worker)
+            return None
+
+        options['num_ctx'] = num_ctx
+
+    return options
 
 
 def current(path):

@@ -294,6 +294,123 @@ class SaveTest(Base):
         self.assertTrue(all(engine is engines[0] for engine in engines))
         make.assert_called_once()
 
+    def test_restart_refuses_inflight_confirm_until_its_result_is_saved(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        entered, release, saved = threading.Event(), threading.Event(), threading.Event()
+        card = {'state': 'proposed', 'call': {'tool': 'backlog_add', 'args': {}}}
+        calls = []
+        def change(_sub, _cid, _mid, _kid, fn):
+            calls.append(1)
+            result = fn(card)
+            if len(calls) > 1:
+                saved.set()
+            return result
+        def execute(_user, _cfg, _call, result):
+            entered.set()
+            self.assertTrue(release.wait(2))
+            result['state'] = 'done'
+        with mock.patch.object(engine, '_card_change', side_effect=change), \
+                mock.patch.object(chatrun.chat, 'validate', return_value=card['call']), \
+                mock.patch.object(engine, 'execute', side_effect=execute):
+            worker = threading.Thread(target=lambda: engine.confirm({'sub': 'u'}, 'c', 'm', 'k'))
+            worker.start()
+            self.assertTrue(entered.wait(2))
+            with self.assertRaises(chatrun.chat.ChatError):
+                chatrun.guard_chat_restart(engine, lambda: self.fail('restart during an action'))
+            self.assertFalse(saved.is_set())
+            release.set()
+            worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(saved.is_set())
+        self.assertEqual(chatrun.guard_chat_restart(engine, lambda: 'ok'), 'ok')
+
+    def test_new_action_waits_for_restart_guard(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        entered, release, claimed = threading.Event(), threading.Event(), threading.Event()
+        def guarded():
+            entered.set()
+            self.assertTrue(release.wait(2))
+        def change(_sub, _cid, _mid, _kid, fn):
+            claimed.set()
+            return fn({'state': 'proposed'})
+        worker = threading.Thread(target=lambda: chatrun.guard_chat_restart(engine, guarded))
+        with mock.patch.object(engine, '_card_change', side_effect=change):
+            worker.start()
+            self.assertTrue(entered.wait(2))
+            action = threading.Thread(target=lambda: engine.confirm({'sub': 'u'}, 'c', 'm', 'k', yes=False))
+            action.start()
+            self.assertFalse(claimed.wait(0.05))
+            release.set()
+            worker.join(2)
+            action.join(2)
+        self.assertFalse(worker.is_alive() or action.is_alive())
+        self.assertTrue(claimed.is_set())
+
+    def test_action_admission_is_released_when_saving_result_fails(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        card = {'state': 'proposed', 'call': {'tool': 'backlog_add', 'args': {}}}
+        def execute(*_args):
+            engine.action_admission.mark_started()
+        with mock.patch.object(engine, '_card_change', side_effect=[card, OSError('save failed')]), \
+                mock.patch.object(chatrun.chat, 'validate', return_value=card['call']), \
+                mock.patch.object(engine, 'execute', side_effect=execute):
+            with self.assertRaises(OSError):
+                engine.confirm({'sub': 'u'}, 'c', 'm', 'k')
+        self.assertEqual(engine.action_admission.active, 0)
+        with self.assertRaises(chatrun.chat.ChatError):
+            chatrun.guard_chat_restart(engine, lambda: self.fail('restart with uncertain outcome'))
+
+    def test_preflight_refusal_does_not_create_uncertain_action_hold(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        with mock.patch.object(engine, '_card_change', side_effect=chatrun.chat.ChatError('gone')):
+            with self.assertRaises(chatrun.chat.ChatError):
+                engine.confirm({'sub': 'u'}, 'c', 'm', 'k')
+        self.assertEqual(chatrun.guard_chat_restart(engine, lambda: 'ok'), 'ok')
+
+    def test_plan_and_undo_are_admitted_before_they_start(self):
+        for method in ('run_plan', 'undo'):
+            with self.subTest(method=method):
+                self.c.snapshot = lambda: {}
+                engine = chatrun.engine_of(self.c)
+                entered, release = threading.Event(), threading.Event()
+                def get_cfg():
+                    entered.set()
+                    self.assertTrue(release.wait(2))
+                    raise chatrun.chat.ChatError('stopped before execution')
+                def run():
+                    try:
+                        getattr(engine, method)({'sub': 'u'}, 'c', 'm', 'k')
+                    except chatrun.chat.ChatError:
+                        pass
+                with mock.patch.object(engine, 'cfg_fn', side_effect=get_cfg):
+                    worker = threading.Thread(target=run)
+                    worker.start()
+                    self.assertTrue(entered.wait(2))
+                    with self.assertRaises(chatrun.chat.ChatError):
+                        chatrun.guard_chat_restart(engine, lambda: self.fail('restart during an action'))
+                    release.set()
+                    worker.join(2)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(chatrun.guard_chat_restart(engine, lambda: 'ok'), 'ok')
+
+    def test_separate_actions_can_be_admitted_together(self):
+        admission = chatrun.ActionAdmission()
+        both = threading.Barrier(3)
+        def action():
+            with admission.action():
+                both.wait(timeout=2)
+        workers = [threading.Thread(target=action) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        both.wait(timeout=2)
+        for worker in workers:
+            worker.join(2)
+        self.assertTrue(all(not worker.is_alive() for worker in workers))
+
 
 class PriorityTest(unittest.TestCase):
     CFG = {'projects': {'tutti': {'priority': 0}, 'radio': {'priority': 1}, 'map': {'priority': 2}, 'loose': {}}}

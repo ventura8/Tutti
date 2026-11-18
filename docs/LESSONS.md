@@ -3,6 +3,10 @@
 - Do not truncate a model's proposed action to its first word: match the whole line against the choices, and leave multiple
   or ambiguous actions unanswered (t278).
 
+- **A Chat answer is not the only active Chat work** (t404): confirmation, plan and undo actions can run after a model
+  answer ends. Admit them through a separate gate and hold a settings restart until their final card update; an exception
+  after a tool starts leaves an uncertain in-process outcome, not a safe completion.
+
 - **A deleted Chat can still be answering** (t404): check live in-process answer jobs as well as persisted streaming
   records, and hold the Chat admission lock through the final restart check. A different dashboard process's deleted
   answer is not visible through that local job registry.

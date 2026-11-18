@@ -7,6 +7,12 @@ reports that the dashboard did not restart and offers a retry. A deleted convers
 another dashboard process is not visible to this guard. It does not coordinate automatic updates, failover, or other jobs;
 those need separate safeguards (t404).
 
+Confirmed Chat actions, plans and undo operations are also admitted through a local gate until their final card state is
+saved; a settings restart waits for them without serializing unrelated actions. If an action has begun and an exception
+prevents its result from being saved, this process refuses the guarded restart until the outcome is inspected and a
+coordinated recovery is used. That hold is in memory: it is not durable across crashes and does not cover other dashboard
+processes or automatic updates.
+
 Chat binds each online worker to a configured account with a pacing state and passes that account's configured arguments
 to the CLI. For a worker shared by multiple accounts, an admin must set `workers.<name>.chat_account_selector` to the CLI
 flag selecting the account or model, and every linked account (including paused ones) must have exactly one distinct value

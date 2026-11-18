@@ -153,9 +153,9 @@ def _questions(cfg):
     return needs.load(cfg).get('questions') or []
 
 
-def answer_parked(cfg, item, verdict, now):
+def answer_parked(cfg, item, verdict, now, expected):
     from . import needs
-    q = next((x for x in _questions(cfg) if x.get('task') == item['id'] and x.get('status') == 'open'), None)
+    q = (expected or {}).get('question')
     if not q:
         return 'no open question any more'
     action = str(verdict.get('action') or '').strip().lower()
@@ -164,7 +164,7 @@ def answer_parked(cfg, item, verdict, now):
     pick = next((o for o in q.get('options') or [] if o.lower() == action), None)
     if not pick:
         return 'a true decision: left for the person'
-    ok, why = needs.answer(cfg, q['id'], pick, role='admin', key='tutti-unblocker', now=now)
+    ok, why = needs.answer_if_current(cfg, expected, pick, now=now)
     return f'decided "{pick}": {verdict.get("why") or ""}'.strip() if ok else why
 
 
@@ -182,28 +182,31 @@ def handle(cfg, item, ask, now):
     """One item: the model when it needs judgement (local first, online only when local fails or the task is size L)."""
     by, verdict = 'rule', {}
     if needs_model(item):
-        answer, who = judge(cfg, item, ask)
+        answer, who, expected = judge(cfg, item, ask)
         if not answer:
             return {'by': 'none', 'outcome': f'no model answered ({who}): left as it is'}
         verdict = parse(answer)
         by = 'online' if who in _cli_workers(cfg) else 'local'
-    outcome = answer_parked(cfg, item, verdict, now) if item['kind'] == 'parked' else apply(cfg, item, verdict, now)
+    outcome = answer_parked(cfg, item, verdict, now, expected) if item['kind'] == 'parked' else apply(cfg, item, verdict, now)
     return {'by': by, 'outcome': outcome, 'why': verdict.get('why', '')}
 
 
 def judge(cfg, item, ask):
     """(answer, who): local first; online only when local failed (asked once more, online only) or the task is size L."""
     t = task_of(cfg, item['id'])
+    expected = None
     if item['kind'] == 'failing':
         prompt = diagnose_prompt(t)
     else:
         q = next((x for x in _questions(cfg) if x.get('task') == item['id'] and x.get('status') == 'open'), {})
+        from . import needs
+        expected = needs.decision_snapshot(t, q)
         prompt = decide_prompt(t, q)
     big = t.get('size') == 'L'
     answer, who = ask(cfg, prompt, 'unblock', online=big)
     if not answer and not big:
         answer, who = ask(cfg, prompt, 'unblock', online=True, local_first=False)
-    return answer, who
+    return answer, who, expected
 
 
 def _cli_workers(cfg):

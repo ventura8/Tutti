@@ -4,6 +4,10 @@ The unblocker may answer a parked question only when the model supplies one comp
 Multiword options work; extra words, multiple action lines, or `person` leave the question open. This does not guarantee
 that a model's choice is correct or resolve decisions which require the person (t278).
 
+An automatic answer is applied only if the parked task and its question still match what the model saw. If the question,
+options or task history change during the model call, Tutti leaves the decision for a fresh review. The two state files
+are protected from concurrent edits by their locks; this does not make their writes a crash-atomic transaction (t278).
+
 Tutti works through everything it can do (the backlog, the queue, parked tasks once answered, the work queue) within the
 pacing and token limits, and asks a person only what only a person can decide.
 

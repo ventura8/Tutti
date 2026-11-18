@@ -3,6 +3,8 @@
 The unblocker must understand complete multiword choices without turning ambiguous text into a different answer (t278).
 A dashboard-requested restart must also preserve an in-flight Chat action, plan or undo (t404).
 
+An automatic Needs-you answer must not act on a question changed while the model was deciding (t278).
+
 A dashboard-requested restart must not cut off a Chat answer that is still running (t404).
 Multiple local worker names for the same model server must not schedule overlapping work to that server (t301).
 

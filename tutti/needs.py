@@ -198,6 +198,32 @@ def answer(cfg, qid, choice, role='admin', key=OWNER, now=None):
     return True, f'{qid} answered: {choice}; task {q["task"]} ' + ('dropped' if choice == 'drop' else 'resumes')
 
 
+def decision_snapshot(task, question):
+    """The parked task and question fields an automated decision depends on."""
+    return {'task': {k: task.get(k) for k in ('id', 'title', 'status', 'question', 'attempts', 'resume_from')},
+            'question': {k: question.get(k) for k in ('id', 'task', 'status', 'user', 'question', 'why', 'options', 'default', 'urgent')}}
+
+
+def answer_if_current(cfg, expected, choice, now=None):
+    """Answer only the parked question and task the model saw, while both files are locked."""
+    now = now or time.time()
+    old_task, old_question = expected['task'], expected['question']
+    with backlog.locked(cfg) as bl:
+        task = next((t for t in bl['tasks'] if t['id'] == old_task.get('id')), None)
+        with locked(cfg) as data:
+            q = next((x for x in data['questions'] if x['id'] == old_question.get('id')), None)
+            if (not task or not q or task.get('status') != 'needs-person' or task.get('question') != q.get('id')
+                    or q.get('status') != 'open' or q.get('task') != task['id'] or decision_snapshot(task, q) != expected):
+                return False, 'question or task changed while deciding: left unchanged for a fresh review'
+            selected = next((o for o in q.get('options') or [] if o.lower() == str(choice).lower()), None)
+            if selected is None:
+                return False, 'the proposed answer is not a listed option: left unchanged'
+            q.update(status='answered', answer=selected, answered=now, by='tutti-unblocker')
+            resume(task, q, selected, now)
+    telemetry.record('feature', 'needs.answer', defaulted=selected == q['default'])
+    return True, f'{q["id"]} answered: {selected}; task {task["id"]} ' + ('dropped' if selected == 'drop' else 'resumes')
+
+
 # ---- the questions a run or the autopilot raises
 
 def from_output(text):

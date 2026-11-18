@@ -74,7 +74,13 @@ def bounds(cfg, running, room, here, gate_slots):
         out['memory'] = (max(running, UNKNOWN_MEMORY_RUNS), f'free memory unknown here: at most {UNKNOWN_MEMORY_RUNS} runs')
     if here and here.get('load') is not None:
         more = max(0, int((here['cores'] - here['load']) // s['run_cpu']))
-        out['cpu'] = (running + more, f'load {here["load"]:.1f} of {here["cores"]} cores')
+        why = f'load {here["load"]:.1f} of {here["cores"]} cores'
+        share = here.get('cpu_share')
+        if (isinstance(share, dict) and isinstance(share.get('host_load'), (int, float))
+                and isinstance(share.get('host_cores'), (int, float)) and isinstance(share.get('percent'), (int, float))):
+            why += (f' for Tutti ({share["percent"]}% share of {share["host_cores"]} host cores; '
+                    f'host load {share["host_load"]:.1f}, adjusted for the owner)')
+        out['cpu'] = (running + more, why)
     if gate_slots is not None:
         out['gates'] = (running + int(gate_slots * s['gate_share']), f'{gate_slots} free gate slot(s) on the machines')
     return out

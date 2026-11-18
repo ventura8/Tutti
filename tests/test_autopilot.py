@@ -10,7 +10,9 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import autopilot, backlog, cli, config, dashboard, delegate, fleet, household, planner, routing, sharing, state
+from tutti import (
+    autopilot, backlog, cli, config, dashboard, delegate, dispatch, fleet, household, planner, routing, sharing, state,
+)
 
 FAKE_WORKER = '''import sys
 prompt = sys.argv[1]
@@ -413,6 +415,18 @@ class PlanTest(Base):
         del cfg['_account_limits']
         cfg['accounts']['other'] = {'limits': ['agy-gemini']}
         self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['dispatch'], [])
+
+    def test_worker_status_rechecks_slow_room_using_the_current_reading(self):
+        cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'])
+        cfg['fleet']['enabled'] = False
+        now = TEST_NOW
+        s = {**account('agy-gemini', 'ahead', None, used=20), 'share': 1,
+             'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '', 'target': '2026-01-03T01:00:00+00:00'}
+        s['quota_plan'] = autopilot.planner.plan_single(s, cfg['accounts']['agy-gemini'], now)
+        s['quota_plan']['why'] = 'no extra tasks now'
+        with mock.patch.object(backlog, 'load', return_value={'tasks': [task('t1')]}):
+            self.assertEqual([x['name'] for x in dispatch.worker_rows(cfg, {'agy-gemini': s}, FREE, now)], ['agy-gemini'])
+            self.assertEqual(dispatch.worker_rows(cfg, {'agy-gemini': {**s, 'stale': True}}, FREE, now), [])
 
     def test_when_all_online_are_in_panic_rescue_spreads_work_to_the_most_remaining_quota(self):
         cfg = self.cfg(main_accounts=['agy-claude'])

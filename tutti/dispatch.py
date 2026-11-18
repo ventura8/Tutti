@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 
 try:
     import fcntl
@@ -442,7 +443,7 @@ def watch(cfg, st, tgts, pend, p, now, worker_rows=()):
 # ---- workers: queued backlog tasks and a ladder step with room
 
 
-def worker_rows(cfg, accounts, machines):
+def worker_rows(cfg, accounts, machines, now=None):
     """Each autopilot step (a worker or an account) with room while backlog tasks are queued, as a watchdog target; the
     autopilot is what dispatches to it, so its own plan says what blocks it."""
     from . import autopilot, backlog  # autopilot imports modules that import this one
@@ -457,8 +458,10 @@ def worker_rows(cfg, accounts, machines):
     why = '' if on and last.get('state') == 'dispatching' else (last.get('reason') or 'the autopilot has not planned yet')
     why = why if on else 'the autopilot is off, so queued backlog tasks wait'
     out = []
+    now = now or datetime.now(timezone.utc)
     for name in dict.fromkeys([*autopilot.ladder(cfg), *autopilot.trigger_accounts(cfg)]):
-        room, _ = autopilot.step_room(cfg, name, accounts, used, machines or ())
+        slow = autopilot.slow_room(cfg, name, accounts.get(name) or {}, tasks, used, now)
+        room, _ = autopilot.step_room(cfg, name, accounts, used, machines or (), slow)
         if room > 0 and not used.get(name):
             out.append({'id': f'worker:{name}', 'kind': 'worker', 'name': name, 'busy': False, 'why': why,
                         'work': queued, 'what': f'{len(queued)} backlog task{"s" if len(queued) != 1 else ""} wait for a worker'})

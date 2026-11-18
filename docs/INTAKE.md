@@ -3,7 +3,9 @@
 When adding directly to the backlog or through auto-fill, a missing scope or check does not by itself distinguish matching
 repository and normalized title. If both additions explicitly give different scopes or different checks, they remain
 separate tasks. Auto-fill still avoids re-adding compatible done or dropped tasks. Household shared-task keys are unchanged;
-this does not establish semantic deduplication across differently worded tasks (t210).
+this does not establish semantic deduplication across differently worded tasks (t210). Household moved notices are scoped
+to their project and require compatible nonempty scopes before acting; ambiguous queued work waits and candidate closure
+is deferred pending reconciliation.
 
 Every AI session in the household (the coordinator's Claude Code, a session on another computer, a person's own agent)
 does its work as a Tutti task, so it is scheduled, paced against its account and visible on the dashboard. This page is

@@ -1,5 +1,8 @@
 # Lessons
 
+- A title-only moved notice loses project identity and can stop unrelated work. Scope the notice and hold ambiguous queued
+  tasks; matching scope is evidence, not a globally unique identity (t210).
+
 - A missing checkpoint SHA can mean Git failed, not that a worktree is clean. Never reset or clean the old household
   holder's worktree on that evidence; retain it even when the holder has already changed (t309).
 - A stale heartbeat or vanished runner does not prove the remote execution stopped. Keep its lease until a verified

@@ -89,7 +89,7 @@ def _holds(local, p):
             for key, t in local.items() if t['status'] == 'queued' and key not in mine}
 
 
-def apply(data, keys, answer, now):
+def apply(data, keys, answer, now, moved_hold=None):
     """Mirrors the answer into the local backlog. Returns ({task id: why it waits}, events)."""
     hold, events = no_key_hold(data, keys), []
     by_key = {pkey: repo for repo, pkey in keys.items() if pkey}
@@ -100,6 +100,8 @@ def apply(data, keys, answer, now):
         local = {household.fold(t['title']): t for t in data['tasks'] if t['repo'] == repo}
         for st in p.get('tasks') or []:
             t = local.get(st['key'])
+            if t and t['id'] in (moved_hold or {}):
+                continue
             if st['status'] in household.CLOSED:
                 _close_here(t, st, events)
             elif not t:
@@ -108,7 +110,7 @@ def apply(data, keys, answer, now):
     return hold, events
 
 
-def taken_meanwhile(data, keys, answer):
+def taken_meanwhile(data, keys, answer, excluded=()):
     """A shared task this member ran while away, whose lease another member took after it expired: said, so the two
     results are compared before either lands (nothing is dropped)."""
     out = []
@@ -116,21 +118,36 @@ def taken_meanwhile(data, keys, answer):
     for pkey, p in (answer.get('projects') or {}).items():
         held = p.get('held') or {}
         for t in data['tasks']:
-            if t['repo'] == by_key.get(pkey) and t['status'] in household.HELD and household.fold(t['title']) in held:
+            if (t['id'] not in excluded and t['repo'] == by_key.get(pkey) and t['status'] in household.HELD
+                    and household.fold(t['title']) in held):
                 who = held[household.fold(t['title'])]
                 t['notes'] = [*t.get('notes', []), f'{who} took it while you were away: compare before landing']
                 out.append(f'{t["id"]}: {who} took it while you were away; both results are kept')
     return out
 
 
-def moved_of(result):
-    """{task key: who has it now} of the shared tasks an admin moved away from this member (tutti/jobmove.py), from the
-    coordinator's answer ({} without one). Only these are given up here; a lease taken after it expired keeps both results."""
-    out = {}
-    for p in ((result.get('answer') or {}).get('projects') or {}).values():
-        held = p.get('held') or {}
-        out.update({k: held.get(k, 'another member') for k in p.get('moved') or []})
-    return out
+def moved_of(result, data):
+    """Scope moved notices to one repo and require matching scope evidence; hold ambiguous queued work."""
+    out, holds, uncertain = {}, {}, set()
+    keys = result.get('keys') or {}
+    for project, p in ((result.get('answer') or {}).get('projects') or {}).items():
+        repos = [repo for repo, key in keys.items() if key and key == project]
+        for key in p.get('moved') or []:
+            local = [t for t in data['tasks'] if t['repo'] in repos and household.fold(t['title']) == key]
+            remote = [t for t in p.get('tasks') or [] if t.get('key') == key]
+            task = local[0] if len(local) == 1 else None
+            shared = remote[0] if len(remote) == 1 else {}
+            scope, shared_scope = (task or {}).get('scope') or [], shared.get('scope') or []
+            evidence = (len(repos) == 1 and task and isinstance(scope, list) and isinstance(shared_scope, list)
+                        and scope and shared_scope and all(isinstance(x, str) and x.strip() for x in scope + shared_scope)
+                        and backlog.compatible_details(task, shared))
+            if evidence:
+                out[(repos[0], key)] = (p.get('held') or {}).get(key, 'another member')
+            else:
+                holds.update({t['id']: 'household moved notice has ambiguous identity; inspect it before closing or dispatch'
+                              for t in local if t['status'] in ('queued', 'candidate')})
+                uncertain.update(t['id'] for t in local if t['status'] == 'running')
+    return out, holds, uncertain
 
 
 def no_key_hold(data, keys):
@@ -193,8 +210,12 @@ def under_lock(result, data, now):
     """(hold, events) for the round's plan, from the backlog read under the lock: the answer mirrored, or every shared
     queued task held while the coordinator cannot be reached."""
     if result['answer'] is not None:
-        hold, events = apply(data, result['keys'], result['answer'], now)
-        return hold, list(result.get('events') or []) + events + taken_meanwhile(data, result['keys'], result['answer'])
+        _moved, moved_hold, uncertain = moved_of(result, data)
+        hold, events = apply(data, result['keys'], result['answer'], now, moved_hold)
+        hold.update(moved_hold)
+        warnings = [f'{task_id}: household moved notice has ambiguous identity; running work is unchanged' for task_id in sorted(uncertain)]
+        return hold, (list(result.get('events') or []) + events + warnings +
+                      taken_meanwhile(data, result['keys'], result['answer'], uncertain))
     if result['error']:
         return offline_hold(data, result['keys'], 'unreachable'), []
     return no_key_hold(data, result['keys']), []

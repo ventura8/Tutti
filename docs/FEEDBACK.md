@@ -1,5 +1,7 @@
 # Feedback log
 
+A household moved notice must not stop a same-title task in a different repo or guess between local tasks (t210).
+
 Household reassignment must preserve the old holder's uncheckpointed work when its local backup fails (t309).
 Missing dispatch results and unconfirmed stops must not free a target while its work may still run (t309).
 

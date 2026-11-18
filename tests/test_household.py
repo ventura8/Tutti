@@ -174,6 +174,58 @@ class ReviewFixesTest(unittest.TestCase):
 
 
 class SharedBacklogTest(unittest.TestCase):
+    def test_moved_notice_is_scoped_to_the_correct_repo(self):
+        tasks = [{'id': 't1', 'repo': 'app', 'title': 'Fix panel', 'scope': ['one.py'], 'status': 'running'},
+                 {'id': 't2', 'repo': 'private', 'title': 'Fix panel', 'scope': ['one.py'], 'status': 'running'}]
+        remote = {'key': 'fix panel', 'title': 'Fix panel', 'scope': ['one.py'], 'status': 'queued'}
+        result = {'keys': {'app': 'gh/app'}, 'answer': {'projects': {'gh/app': {
+            'moved': ['fix panel'], 'held': {'fix panel': 'A'}, 'tasks': [remote]}}}}
+        moved, holds, uncertain = sharing.moved_of(result, {'tasks': tasks})
+        self.assertEqual((moved, holds, uncertain), ({('app', 'fix panel'): 'A'}, {}, set()))
+        with mock.patch.object(autopilot, 'give_up_here', return_value='moved') as give_up:
+            autopilot.moved_away({}, {'tasks': tasks}, moved, lambda _: True, lambda _: None)
+        self.assertEqual(give_up.call_count, 1)
+        self.assertEqual(give_up.call_args.args[1]['id'], 't1')
+
+    def test_ambiguous_moved_notices_hold_queued_and_leave_running_untouched(self):
+        tasks = [{'id': 't1', 'repo': 'app', 'title': 'Fix panel', 'scope': ['one.py'], 'status': 'running'},
+                 {'id': 't2', 'repo': 'app', 'title': 'Fix panel', 'scope': ['two.py'], 'status': 'queued'}]
+        remote = {'key': 'fix panel', 'title': 'Fix panel', 'scope': ['one.py'], 'status': 'done', 'closed_by': 'A'}
+        result = {'keys': {'app': 'gh/app'}, 'answer': {'projects': {'gh/app': {
+            'moved': ['fix panel'], 'held': {'fix panel': 'A'}, 'tasks': [remote]}}}, 'error': None}
+        moved, holds, uncertain = sharing.moved_of(result, {'tasks': tasks})
+        self.assertEqual((moved, set(holds), uncertain), ({}, {'t2'}, {'t1'}))
+        hold, events = sharing.under_lock(result, {'tasks': tasks}, 1)
+        self.assertIn('ambiguous', hold['t2'])
+        self.assertEqual([t['status'] for t in tasks], ['running', 'queued'])
+        self.assertTrue(any('running work is unchanged' in event for event in events))
+        self.assertFalse(any('notes' in t for t in tasks))
+
+    def test_moved_notice_missing_scope_or_duplicate_repo_mapping_is_held(self):
+        task = {'id': 't1', 'repo': 'app', 'title': 'Fix panel', 'scope': ['one.py'], 'status': 'queued'}
+        remote = {'key': 'fix panel', 'title': 'Fix panel', 'scope': [], 'status': 'queued'}
+        project = {'moved': ['fix panel'], 'tasks': [remote]}
+        result = {'keys': {'app': 'gh/app'}, 'answer': {'projects': {'gh/app': project}}}
+        self.assertIn('t1', sharing.moved_of(result, {'tasks': [task]})[1])
+        remote['scope'] = ['one.py']
+        result['keys']['copy'] = 'gh/app'
+        self.assertIn('t1', sharing.moved_of(result, {'tasks': [task]})[1])
+
+    def test_ambiguous_moved_candidate_and_queued_are_not_falsely_closed(self):
+        tasks = [{'id': 't1', 'repo': 'app', 'title': 'Fix panel', 'scope': ['one.py'], 'status': 'queued'},
+                 {'id': 't2', 'repo': 'app', 'title': 'Fix panel', 'scope': ['two.py'], 'status': 'candidate'}]
+        remote = {'key': 'fix panel', 'title': 'Fix panel', 'scope': ['one.py'], 'status': 'done', 'closed_by': 'A'}
+        result = {'keys': {'app': 'gh/app'}, 'answer': {'projects': {'gh/app': {
+            'moved': ['fix panel'], 'tasks': [remote]}}}, 'error': None}
+        holds, _ = sharing.under_lock(result, {'tasks': tasks}, 1)
+        self.assertEqual(set(holds), {'t1', 't2'})
+        self.assertEqual([t['status'] for t in tasks], ['queued', 'candidate'])
+        tasks[1]['repo'] = 'copy'
+        result['keys']['copy'] = 'gh/app'
+        holds, _ = sharing.under_lock(result, {'tasks': tasks}, 1)
+        self.assertEqual(set(holds), {'t1', 't2'})
+        self.assertEqual([t['status'] for t in tasks], ['queued', 'candidate'])
+
     def test_two_members_publish_one_task_once_and_only_one_holds_it(self):
         s = household.new_state('home', 0)
         s['members'] = {'ana': {'name': 'Ana'}, 'bo': {'name': 'Bo'}}

@@ -7,6 +7,8 @@
 - **Off is not finished** (t404): stopping dispatch must not stop WIP checkpoints, but a report or missing local PID
   cannot establish that remote execution stopped. Hold ambiguous reports while off; resuming uses the existing collector,
   which does not establish remote termination.
+- **Release notes must move with the version** (t408): leaving already-released entries in Unreleased repeats them in later
+  releases. Preserve the section's existing categories and refuse ambiguous duplicate sections.
 
 - **Missing quota is not spare quota** (t388): choosing a worker and then finding no usable account must not launch its
   default login. Recheck measured quota, bind a shared worker to a unique selected account and watch that account in the turn.

@@ -6,11 +6,17 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
-## 0.30.4 (2026-11-18)
+## Unreleased
 
 ### Fixed
 
 - Guard dashboard-requested restarts against active Chat answers and unreadable Chat state (t404).
+- Move unreleased changelog entries into automatic releases without duplicating them (t408).
+
+## 0.30.4 (2026-11-18)
+
+### Fixed
+
 - Checkpoint running work and hold reported runs conservatively while autopilot is off (t404).
 - Recheck measured conductor quota and bind and watch the selected account on shared workers (t388).
 

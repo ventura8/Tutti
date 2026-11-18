@@ -16,7 +16,7 @@ GH = [{'number': 11, 'title': 'fix: the open items of 0.1.8/0.1.9 (0.1.10)', 'ur
 
 
 class ReleaseScriptTest(unittest.TestCase):
-    def run_release(self, merge_sha, parent=None, reject_push=False, advance_main=False):
+    def run_release(self, merge_sha, parent=None, reject_push=False, advance_main=False, changelog='# Changelog\n'):
         with tempfile.TemporaryDirectory() as root:
             os.makedirs(os.path.join(root, 'scripts'))
             os.makedirs(os.path.join(root, 'bin'))
@@ -26,7 +26,7 @@ class ReleaseScriptTest(unittest.TestCase):
             source = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts', 'release-patch.sh')
             shutil.copyfile(source, os.path.join(root, 'scripts', 'release-patch.sh'))
             for name, content in (('tutti/__init__.py', "__version__ = '0.1.0'\n"),
-                                  ('package.json', '{"version": "0.1.0"}\n'), ('CHANGELOG.md', '# Changelog\n')):
+                                  ('package.json', '{"version": "0.1.0"}\n'), ('CHANGELOG.md', changelog)):
                 with open(os.path.join(template, name), 'w', encoding='utf8') as f:
                     f.write(content)
             with open(os.path.join(template, 'scripts', 'release-assets.sh'), 'w', encoding='utf8') as f:
@@ -35,6 +35,8 @@ class ReleaseScriptTest(unittest.TestCase):
 printf 'git %s\\n' "$*" >> "$RELEASE_TEST_LOG"
 if [[ "$1" = '-C' ]]; then shift 2; fi
 if [[ "$1" = 'push' && "$*" = *'--force-with-lease='* && "$RELEASE_TEST_REJECT" = 1 ]]; then exit 1; fi
+if [[ "$1" = 'commit' ]]; then cat CHANGELOG.md >> "$RELEASE_TEST_LOG"; fi
+if [[ "$1" = 'show' && "$2" = *:CHANGELOG.md ]]; then cat "$RELEASE_TEST_TEMPLATE/CHANGELOG.md"; exit; fi
 case "$1 $2" in
   'tag --list') echo v0.1.0;;
   'log --format=%s') echo 'fix: sample';;
@@ -105,6 +107,57 @@ if [[ "$1 $2" = 'pr view' ]]; then printf '%s\\n' "$RELEASE_TEST_MERGE"; fi
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('main advanced during review', result.stderr)
         self.assertNotIn('gh pr merge', commands)
+
+    def test_release_moves_unreleased_entries_once_and_preserves_history(self):
+        log = '# Changelog\n\n## Unreleased\n\n### Fixed\n\n- First fix\n\n## 0.1.0\n\n- Old fix\n'
+        result, commands = self.run_release('b' * 40, changelog=log)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(commands.count('- First fix'), 1)
+        self.assertNotIn('## Unreleased', commands)
+        self.assertIn('## 0.1.1 (', commands)
+        self.assertIn('## 0.1.0\n\n- Old fix', commands)
+
+    def test_release_refuses_duplicate_unreleased_sections(self):
+        log = '# Changelog\n\n## Unreleased\n\n- A\n\n## [Unreleased]\n\n- B\n'
+        result, commands = self.run_release('b' * 40, changelog=log)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('multiple Unreleased sections', result.stderr)
+        self.assertNotIn('gh pr create', commands)
+        self.assertNotIn('git worktree add', commands)
+
+    def test_fenced_headings_are_not_sections(self):
+        log = ('# Changelog\n\n## Unreleased\n\n### Fixed\n\n```sh\n## example\n'
+               'echo ok\n```\n\n## 0.1.0\n\n```md\n## Unreleased\n```\n')
+        result, commands = self.run_release('b' * 40, changelog=log)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('```sh\n## example\necho ok\n```', commands)
+        self.assertIn('## 0.1.0\n\n```md\n## Unreleased\n```', commands)
+
+    def test_empty_categories_fall_back_to_commit_notes(self):
+        result, commands = self.run_release('b' * 40, changelog='# Changelog\n\n## Unreleased\n\n### Fixed\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('### Changes\n\n- fix: sample', commands)
+
+    def test_fence_with_info_does_not_close_an_open_fence(self):
+        log = '# Changelog\n\n## Unreleased\n\n### Fixed\n\n```\n```python\n## example\n```\n\n## 0.1.0\n'
+        result, commands = self.run_release('b' * 40, changelog=log)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('```\n```python\n## example\n```', commands)
+
+    def test_unclosed_fence_stops_before_release_branch_creation(self):
+        log = '# Changelog\n\n## Unreleased\n\n```\n## example\n'
+        result, commands = self.run_release('b' * 40, changelog=log)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('unclosed fenced block', result.stderr)
+        self.assertNotIn('git worktree add', commands)
+
+    def test_indented_heading_with_closing_hashes_is_moved(self):
+        log = '# Changelog\n\n  ## Unreleased ##\n\n### Fixed\n\n- Fix\n\n  ## 0.1.0\n\n- Old\n'
+        result, commands = self.run_release('b' * 40, changelog=log)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(commands.count('- Fix'), 1)
+        self.assertNotIn('## Unreleased', commands)
+        self.assertIn('  ## 0.1.0\n\n- Old', commands)
 
 
 class ReleasesTest(unittest.TestCase):

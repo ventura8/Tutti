@@ -123,7 +123,8 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
 7. **Release** (only with `release: true` and a `release_command`): a batched patch release when fixes were merged and
    the last release (or failed try) is `release_every_hours` (24) ago. A release counts only once its command exits 0; a
    failed one leaves its fixes for the next. Tutti's own is `scripts/release-patch.sh`: it bumps the patch,
-   writes the CHANGELOG from the merged commits, reserves a version-specific branch without replacing an existing one,
+   moves the Unreleased changelog section into the release (or uses merged commits if it is empty), refuses duplicate
+   Unreleased sections, reserves a version-specific branch without replacing an existing one,
    opens and merges the release pull request after its checks, and tags that PR's merge commit. It stops if main changed
    before review completed or if the merge used a different base; inspect and retest such a merged PR before tagging.
    The merge API does not make the base check atomic, so a last-moment base change can still merge the PR, but the

@@ -613,7 +613,7 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
     export, mount = inputs_env(inputs)
     if device:
         from . import devices
-        command = devices.external_wrap([device, *holds], command)   # other tools' lock files (devices.<d>.external_lock)
+        command = devices.external_wrap(cfg, [device, *holds], command)   # other tools' lock files (devices.<d>.external_lock)
         export += f'export ANDROID_SERIAL={devices.serial_expr(device)} && '
         runner = merge_runner(machine['runner'], device.get('runner'))   # a device's own runner (shell for Gradle, host network)
         picked = None if device.get('wireless') else str(device['serial'])   # None: the serial the export picked at run time

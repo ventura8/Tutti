@@ -31,7 +31,7 @@ DEFAULTS = {
     'routing': {'order': []},
     'sync': {'exclude': ['/.git', '.env', '.env.*', '*.key', '*.pem'], 'ensure_dirs': []},
     'workers': {},
-    'devices': {},
+    'devices': {'power_on': False},
     'brief': {'rules': []},
     'accounts': {},
     'ship': {'protected': ['main', 'master'], 'add': ['.'], 'checks': [], 'full_checks': []},

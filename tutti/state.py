@@ -560,7 +560,7 @@ def configured(cfg):
     """The config's machines, devices and workers by name, before any probe answered: the dashboard lists them as
     `checking` instead of saying that none is configured (a first probe can take a while over ssh)."""
     return {'machines': [{'name': n, 'transport': m['transport']} for n, m in cfg['machines'].items()],
-            'devices': [{'name': n, 'machine': d['machine']} for n, d in (cfg.get('devices') or {}).items()],
+            'devices': [{'name': n, 'machine': d['machine']} for n, d in (cfg.get('devices') or {}).items() if n != 'power_on'],
             'workers': [{'name': n, 'kind': w['kind']} for n, w in cfg['workers'].items()]}
 
 

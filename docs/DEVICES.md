@@ -33,6 +33,10 @@ When a device is plugged in by USB, Tutti opens its Developer options page itsel
   its `kind` (phone, tablet or tv, from `ro.build.characteristics` and the leanback feature), `model` and
   `capabilities` (camera, telephony, touchscreen, tv, ...). Paired again, the same entry is updated.
 
+Tutti can automatically power on Android devices when they are needed if `devices.power_on` is enabled in your `tutti.config.yaml`.
+When powered on, devices run in night mode during the configured night hours (default 22:08), with screen brightness set to 1%
+and all volume streams muted (the alarm stays your own). Powered-on devices are automatically powered off when not actively used.
+
 The adb used is found by itself: `devices.<name>.adb`, else PATH, `~/Android/Sdk/platform-tools`, Tutti's own copy in
 `~/.local/share/tutti/platform-tools` (`--install-adb` downloads it, user space only), or a Windows SDK seen from WSL.
 Wireless pairing needs platform-tools 31 or newer.

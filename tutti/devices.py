@@ -54,6 +54,7 @@ def normalise(cfg):
     local = next((n for n, m in cfg['machines'].items() if m['transport'] == 'local'), None)
     first = next(iter(cfg['machines']), None)
     for name, d in (cfg.get('devices') or {}).items():
+        if name == 'power_on': continue
         d = dict(d or {})
         d['name'] = name
         d.setdefault('machine', local or first)
@@ -69,6 +70,7 @@ def normalise(cfg):
 def errors(cfg):
     errs = []
     for name, d in (cfg.get('devices') or {}).items():
+        if name == 'power_on': continue
         where = f'devices.{name}'
         if not d.get('serial'):
             errs.append(f'{where}.serial is missing: the serial `adb devices` lists (or ip:port for wireless debugging)')
@@ -275,7 +277,7 @@ def external_lock(device):
     return path.replace('{serial}', str(device['serial'])) if path else ''
 
 
-def external_wrap(found, command, who='tutti'):
+def external_wrap(cfg, found, command, who='tutti'):
     """`command` as a device session (docs/DISPATCH.md, *Prep and restore*). It waits while another tool's lock file
     (devices.<d>.external_lock) is fresher than external_lock_stale_minutes (30), then takes it ("<who> <time>") and
     registers this run among the device's users; runs each device's prep (the current values saved first, once), wakes
@@ -299,7 +301,7 @@ def external_wrap(found, command, who='tutti'):
     # the loop first (else it goes on to its next key), then the children it had: listed before, by exact pid
     stop = 'for j in $(jobs -p); do c=$(pgrep -P "$j"); kill "$j" 2>/dev/null; [ -n "$c" ] && kill $c 2>/dev/null; done'
     release = '; '.join(x for x in (stop, f'rm -f {users}', f'rm -f {files}' if have else '',
-                                     *(prep.release_script(d, p, stale) for d, (p, stale) in zip(found, locks, strict=True))) if x)
+                                     *(prep.release_script(d, p, stale, power_on=cfg.get('devices', {}).get('power_on')) for d, (p, stale) in zip(found, locks, strict=True))) if x)
     setup = prep.scripts(found)[0]
     wake = '; '.join(prep.unlock(d) for d in found)
     watch = ''.join(prep.person_watch(d) for d in found)
@@ -414,7 +416,8 @@ def dnd_view(cfg, rows, now=None, learn=True):
 def devices_state(cfg, readings_fn):
     """Every device as the dashboard shows it; a paused one is not asked (its machine may be the one lent out)."""
     out = []
-    for d in (cfg.get('devices') or {}).values():
+    for name, d in (cfg.get('devices') or {}).items():
+        if name == 'power_on': continue
         held = held_why(cfg, d)
         if held:
             out.append({**device_state(d, {}), 'status': 'held', 'reason': held, 'owner_paused': d.get('paused')})
@@ -468,6 +471,14 @@ def wait_ready(cfg, name, readings_fn, say, sleep=time.sleep, wait_minutes=30, p
     found, said, waited = candidates(cfg, name), '', 0
     while True:
         device, why = first_ready(cfg, found, readings_fn)
+        if not device and cfg.get('devices', {}).get('power_on'):
+            for d in found:
+                power_on(cfg, d)
+            device, why = first_ready(cfg, found, readings_fn)
+            # if still no device, power them off
+            if not device:
+                 for d in found:
+                     power_off(cfg, d)
         if device:
             return device
         if waited >= wait_minutes * 60:
@@ -545,9 +556,28 @@ machines:
     host: {host}
     user: {user}
     port: {port}
-    policy: {{min_battery: 50, require_charging: true, max_battery_c: 40, wifi_only: true, screen: 'off'}}
+    policy: {'min_battery': 50, 'require_charging': True, 'max_battery_c': 40, 'wifi_only': True, 'screen': 'off'}
+
 
 Lint and unit runs on it are opt-in: turn them on from the dashboard (Controls) or with `tutti optin machine {name} on`.
 It then takes one light run at a time, natively (no Docker on Android), and always routes last: keep heavy Docker gates
 off it. `tutti machines` shows its battery, charging and heat and whether it is fit.
 """
+
+def power_on(cfg, device):
+    """Wake or power on the device."""
+    from . import adbhost, prep
+    host = adbhost.Host(device['machine'], cfg['machines'][device['machine']])
+    host.adb('-s', device['serial'], 'shell', 'input', 'keyevent', 'KEYCODE_WAKEUP')
+    # Run prep script to save original and apply settings (including night mode)
+    host.bash(prep.prep_script(device))
+
+def power_off(cfg, device):
+    """Power off or suspend the device if not actively used."""
+    from . import prep, adbhost
+    host = adbhost.Host(device['machine'], cfg['machines'][device['machine']])
+    # release_script restores original settings and powers off if power_on=True
+    host.bash(prep.release_script(device, power_on=True))
+
+
+

@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.7] - 2026-11-18
+
+### Added
+
+- Automatic device power management: devices now power on automatically when Tutti needs them (if `devices.power_on` is enabled),
+  with night mode adjustments applied, and power off when not in use.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

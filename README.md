@@ -17,9 +17,10 @@ computers and Android devices for software work, without anyone stepping on anyo
   back online only within pacing, and briefly goes first on that model; other work waits a few seconds and loses
   nothing ([docs/FLEET.md](docs/FLEET.md), [docs/TELEMETRY.md](docs/TELEMETRY.md#ai-assist)).
 - **Machines that stay yours.** Tests and builds run on other machines through slots and leases. Each machine can have
-  limited hours and a night mode; Android devices can have blocked hours; work pauses when someone is at the keyboard,
-  and a machine's yield flag gives it back at once. Machines can take Cast roles, and work follows devices when they
-  move ([docs/MACHINES.md](docs/MACHINES.md), [docs/DEVICES.md](docs/DEVICES.md), [docs/DISPATCH.md](docs/DISPATCH.md),
+  limited hours and a night mode; Android devices can have blocked hours, and Tutti can power them on and off automatically
+  when needed; work pauses when someone is at the keyboard, and a machine's yield flag gives it back at once. Machines
+  can take Cast roles, and work follows devices when they move ([docs/MACHINES.md](docs/MACHINES.md),
+  [docs/DEVICES.md](docs/DEVICES.md), [docs/DISPATCH.md](docs/DISPATCH.md),
   [docs/PRESENCE.md](docs/PRESENCE.md)).
 - **A main and a backup main.** One always-on machine runs Tutti; a backup takes over if it goes down and hands back
   when it returns, never both at once ([docs/FAILOVER.md](docs/FAILOVER.md), [docs/MOVE.md](docs/MOVE.md)).

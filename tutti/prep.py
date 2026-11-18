@@ -242,7 +242,7 @@ def users_path(device):
     return remote.home_path(f'~/.tutti/devices/{device["name"]}/users')
 
 
-def release_script(device, ext='', stale=1800):
+def release_script(device, ext='', stale=1800, power_on=False):
     """Releases the device if nobody else uses it: no Tutti run or claim left in users_path, no fresh lock file of another
     tool (`ext`). Then its own values come back (restore_script: phones sleep again, a TV gets its screensaver and timers
     back) and `tutti: device released <name>` is printed; else `tutti: <name> stays in use by ...`."""
@@ -255,8 +255,11 @@ def release_script(device, ext='', stale=1800):
             # a lease (claim) past its end time is over: a requester that crashed never holds the device for ever
             f'for c in {u}/claim-*; do [ -e "$c" ] || continue; e=$(head -c 20 "$c" | tr -cd 0-9); '
             f'[ -n "$e" ] && [ "$e" -lt "$(date +%s)" ] && rm -f "$c"; done; ')
+    from . import devices
     return (f'{gone}by=$(ls -A {u} 2>/dev/null | tr "\\n" " "); {fresh}'
-            f'if [ -z "${{by// /}}" ]; then {restore_script(device) or ":"}; echo "tutti: device released {device["name"]}"; '
+            f'if [ -z "${{by// /}}" ]; then {restore_script(device) or ":"}; '
+            f'echo "tutti: device released {device["name"]}"; '
+            f'if [ "{power_on}" = "True" ]; then {_adb(device)} input keyevent KEYCODE_POWER; fi; '
             f'else echo "tutti: "{name}" stays in use by $by"; fi')
 
 

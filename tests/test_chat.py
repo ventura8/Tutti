@@ -429,6 +429,30 @@ class ApiBase(unittest.TestCase):
 
 
 class StatusPolling(ApiBase):
+    def test_history_tool_reads_only_current_users_conversation_in_bounded_pages(self):
+        engine = self.engine({})
+        first = {'id': 'm1', 'role': 'user', 'text': 'a' * 1600}
+        second = {'id': 'm2', 'role': 'assistant', 'text': 'answer'}
+        conv = engine.store.create('member', messages=[first, second])
+        job = chatrun.Job('member', conv['id'], {'id': 'out', 'cards': [], 'text': ''})
+        def read(cursor):
+            return json.loads(engine._read_tool(job, VIEWER, self.cfg, {'tool': 'chat_history', 'args': {'cursor': cursor}}))
+        page = read('0')
+        self.assertEqual(len(page['text']), 1500)
+        self.assertEqual(page['next_cursor'], '0:1500')
+        page = read(page['next_cursor'])
+        self.assertEqual((len(page['text']), page['next_cursor']), (100, '1:0'))
+        self.assertEqual(read('1:0')['text'], 'answer')
+        self.assertTrue(job.untrusted)
+        other = chatrun.Job('other', conv['id'], {'id': 'out'})
+        self.assertIn('refused', engine._read_tool(other, VIEWER, self.cfg, {'tool': 'chat_history', 'args': {'cursor': '0'}}))
+        self.assertIn('refused', engine._read_tool(job, VIEWER, self.cfg, {'tool': 'chat_history', 'args': {'cursor': '../x'}}))
+        result, proposed = engine._calls(job, VIEWER, self.cfg, [{'tool': 'chat_history', 'args': {'cursor': '1:0'}}],
+                                         chat.known_names(self.cfg, self.snap), {})
+        self.assertEqual(json.loads(result[0][1])['text'], 'answer')
+        self.assertFalse(proposed)
+        self.assertEqual(self.calls, [])
+
     def test_model_status_denies_viewer_without_dispatch_but_allows_admin_and_shared_usage(self):
         engine = self.engine({})
         job = chatrun.Job('v1', 'c', {'id': 'm', 'cards': [], 'text': ''})

@@ -24,6 +24,9 @@ Automatic releases must move Unreleased changelog entries into the new version i
 
 Conductor selection must not treat a missing usage state as room after another account is spent (t388).
 
+Chat needs access to earlier conversation turns without asking the user to paste them. A paged current-conversation tool
+provides retained text; durable full-history retention is still open (t387).
+
 Routed checks must reject unsafe copy names before touching a lock or remote command (t403).
 Updating code must not make a running failover watchdog announce an intentional departure (t404).
 

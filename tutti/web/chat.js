@@ -36,35 +36,76 @@ function mdList(lines, i, ordered) {
 
 // A line that starts another block: the same fence pattern as mdBlock's, so a line like "```js foo" stays paragraph text.
 const FENCE = /^\s*```\s*([\w+-]*)\s*$/;
-const BLOCK_START = /^(#{1,6}\s|\s*[-*+]\s|\s*\d+[.)]\s|\s*>)/;
+const BLOCK_START = /^(#{1,6}\s|\s*[-*+]\s|\s*\d+[.)]\s|\s*>|\s*\|)/;
 const isBlockStart = (line) => FENCE.test(line) || BLOCK_START.test(line);
 
-function mdBlock(lines, i) {
-    const line = lines[i];
-    const fence = line.match(FENCE);
-    if (fence) {
-        const body = [];
-        let j = i + 1;
-        while (j < lines.length && !/^\s*```\s*$/.test(lines[j])) body.push(lines[j++]);
-        return [{ t: 'pre', lang: fence[1] || '', c: [body.join('\n')] }, j + 1];
-    }
-    const head = line.match(/^(#{1,6})\s+(.*)$/);
-    if (head) return [{ t: 'h', level: Math.min(head[1].length + 2, 6), c: mdInline(head[2]) }, i + 1];
-    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) return [{ t: 'hr', c: [] }, i + 1];
-    if (/^\s*[-*+]\s+/.test(line)) return mdList(lines, i, false);
-    if (/^\s*\d+[.)]\s+/.test(line)) return mdList(lines, i, true);
-    if (/^\s*>/.test(line)) {
-        const body = [];
-        let j = i;
-        while (j < lines.length && /^\s*>/.test(lines[j])) body.push(lines[j++].replace(/^\s*>\s?/, ''));
-        return [{ t: 'blockquote', c: mdParse(body.join('\n')) }, j];
-    }
+function parseFence(lines, i) {
+    const fence = lines[i].match(FENCE);
+    const body = [];
+    let j = i + 1;
+    while (j < lines.length && !/^\s*```\s*$/.test(lines[j])) body.push(lines[j++]);
+    return [{ t: 'pre', lang: fence[1] || '', c: [body.join('\n')] }, j + 1];
+}
+
+function parseHeader(lines, i) {
+    const head = lines[i].match(/^(#{1,6})\s+(.*)$/);
+    return [{ t: 'h', level: Math.min(head[1].length + 2, 6), c: mdInline(head[2]) }, i + 1];
+}
+
+function parseHr(lines, i) {
+    return [{ t: 'hr', c: [] }, i + 1];
+}
+
+function parseBlockquote(lines, i) {
+    const body = [];
+    let j = i;
+    while (j < lines.length && /^\s*>/.test(lines[j])) body.push(lines[j++].replace(/^\s*>\s?/, ''));
+    return [{ t: 'blockquote', c: mdParse(body.join('\n')) }, j];
+}
+
+function parsePara(lines, i) {
     const para = [];
     let j = i;
     while (j < lines.length && lines[j].trim() && !isBlockStart(lines[j])) para.push(lines[j++]);
     const kids = [];
     para.forEach((p, k) => { if (k) kids.push({ t: 'br', c: [] }); kids.push(...mdInline(p)); });
     return [{ t: 'p', c: kids }, Math.max(j, i + 1)];
+}
+
+const TABLE_ROW = /^\s*\|.*\|\s*$/;
+const HEADER_SEP = /^\s*\|[: \-|]+\|\s*$/;
+
+function parseTable(lines, i) {
+    const rows = [];
+    let j = i;
+    while (j < lines.length && TABLE_ROW.test(lines[j])) {
+        const line = lines[j];
+        if (HEADER_SEP.test(line)) {
+            j++;
+            continue;
+        }
+        const row = line.split('|').filter(c => c.trim()).map(c => c.trim());
+        rows.push(row);
+        j++;
+    }
+    return [{ t: 'table', c: rows }, j];
+}
+
+const BLOCK_TYPES = [
+    { test: (l) => FENCE.test(l), parse: parseFence },
+    { test: (l) => /^(#{1,6})\s+(.*)$/.test(l), parse: parseHeader },
+    { test: (l) => /^\s*([-*_])(\s*\1){2,}\s*$/.test(l), parse: parseHr },
+    { test: (l) => /^\s*[-*+]\s+/.test(l), parse: (lines, i) => mdList(lines, i, false) },
+    { test: (l) => /^\s*\d+[.)]\s+/.test(l), parse: (lines, i) => mdList(lines, i, true) },
+    { test: (l) => /^\s*>/.test(l), parse: parseBlockquote },
+    { test: (l) => TABLE_ROW.test(l), parse: parseTable },
+];
+
+function mdBlock(lines, i) {
+    for (const block of BLOCK_TYPES) {
+        if (block.test(lines[i])) return block.parse(lines, i);
+    }
+    return parsePara(lines, i);
 }
 
 function mdParse(text) {
@@ -87,7 +128,19 @@ function mdNode(n) {
     if (n.t === 'pre') return codeBlock(n.c[0], n.lang);
     let node;
     if (n.t === 'h') node = document.createElement(`h${n.level}`);
-    else if (n.t === 'a') {
+    else if (n.t === 'table') {
+        node = document.createElement('table');
+        node.className = 'md__table';
+        for (const row of n.c) {
+            const tr = document.createElement('tr');
+            for (const cell of row) {
+                const td = document.createElement('td');
+                td.textContent = cell;
+                tr.append(td);
+            }
+            node.append(tr);
+        }
+    } else if (n.t === 'a') {
         node = document.createElement('a');
         node.href = n.href;
         if (!n.href.startsWith('#')) { node.target = '_blank'; node.rel = 'noopener noreferrer'; }

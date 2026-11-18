@@ -268,6 +268,9 @@ main {
 .empty strong { display: block; color: var(--on-surface); font-weight: 600; margin-bottom: 2px; }
 code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3); padding: 1px 6px; border-radius: 6px; }
 
+.md__table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+.md__table td { border: 1px solid var(--outline-2); padding: 8px; }
+
 /* ---- chips */
 
 .chip {

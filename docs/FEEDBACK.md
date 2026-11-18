@@ -50,6 +50,7 @@ of your project or secrets: describe the setup in general words.
 
 | # | Date | Command | What happened | Expected | Status |
 | --- | --- | --- | --- | --- | --- |
+| 22 | 2026-11-19 | Chat rename | Renaming rebuilt the message list and jumped to the end; switching chats during the request could update the wrong title. | Preserve the current message view and rename only the original chat. | Fixed title-only update and conversation race (t407); virtualization remains open. |
 | 21 | 2026-11-19 | Chat redraw | Redrawing reparsed unchanged message Markdown. | Reuse unchanged parsing while retaining safe rendering. | Fixed repeated parsing (t407); pagination and virtualization remain open. |
 | 20 | 2026-11-18 | Linked account usage | A reset window could be shown in panic at zero percent when its linked quota was in panic. | Name the quota that actually blocks work. | Diagnostic fixed for the next release (t272). |
 | 19 | 2026-11-18 | Autopilot pacing | A finished local attempt could leave its model permanently busy. | Reuse available local models when online accounts are ahead. | Fixed local attempt accounting (t301). |

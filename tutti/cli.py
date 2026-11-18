@@ -367,13 +367,18 @@ def late_options(a):
 
 
 def command_line(words):
-    """One shell line from the command words: a single word is the line as written (a quoted string); of several, a word
-    with a space or a quote is quoted (it reaches the machine whole) and every other word stays raw, so `&&`, `|`, `>`
-    and `$ANDROID_SERIAL` keep working as before."""
+    """One shell line from the command words."""
     import shlex
-    if len(words) == 1:
-        return words[0]
-    return ' '.join(shlex.quote(w) if re.search(r'[\s\'"]', w) or not w else w for w in words)
+    if not words:
+        return ':'
+    if len(words) == 1 and words[0] == '--':
+        return ':'
+    
+    # Filter out redundant trailing '--' if it's the only '--'
+    if len(words) > 1 and words[-1] == '--' and '--' not in words[:-1]:
+        words = words[:-1]
+        
+    return ' '.join(shlex.quote(w) if w != '--' else '--' for w in words)
 
 
 WINDOWS_PATH = re.compile(r'^([A-Za-z]):[\\/](.*)$')

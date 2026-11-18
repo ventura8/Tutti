@@ -231,6 +231,19 @@ class PlanTest(Base):
         running = {**task('running', 'running'), 'step': 'pc'}
         self.assertEqual(autopilot.plan(cfg, [completed, running, waiting], states, FREE, True)['dispatch'], [])
 
+    def test_local_worker_aliases_share_server_capacity(self):
+        cfg = self.cfg()
+        cfg['workers']['pc2'] = {**cfg['workers']['pc'], 'host': 'http://pc.example:11434/'}
+        states = {n: account(n, 'ahead', room=0) for n in ('agy-gemini', 'agy-claude', 'cursor')}
+        first = {**task('first'), 'scope': ['src/a.py']}
+        second = {**task('second'), 'scope': ['src/b.py']}
+        planned = autopilot.plan(cfg, [first, second], states, FREE, True)['dispatch']
+        self.assertEqual(len(planned), 1)
+        running = {**task('running', 'running'), 'step': 'pc'}
+        self.assertEqual(autopilot.plan(cfg, [running, second], states, FREE, True)['dispatch'], [])
+        cfg['workers']['pc2']['host'] = 'other.example:11434'
+        self.assertEqual(len(autopilot.plan(cfg, [first, second], states, FREE, True)['dispatch']), 2)
+
     def test_online_reservation_returns_when_a_reconfigured_account_is_readded(self):
         cfg = self.cfg()
         online_account = cfg['accounts'].pop('cursor')

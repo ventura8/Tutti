@@ -3,6 +3,8 @@
 - **A deleted Chat can still be answering** (t404): check live in-process answer jobs as well as persisted streaming
   records, and hold the Chat admission lock through the final restart check. A different dashboard process's deleted
   answer is not visible through that local job registry.
+- A local worker name is not necessarily a model server: two names may target the same configured endpoint, so one
+  scheduler must reserve their shared capacity together (t301).
 
 - **Off is not finished** (t404): stopping dispatch must not stop WIP checkpoints, but a report or missing local PID
   cannot establish that remote execution stopped. Hold ambiguous reports while off; resuming uses the existing collector,

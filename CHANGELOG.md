@@ -12,6 +12,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 - Guard dashboard-requested restarts against active Chat answers and unreadable Chat state (t404).
 - Move unreleased changelog entries into automatic releases without duplicating them (t408).
+- Share local model-server capacity across workers with the same configured endpoint (t301).
 
 ## 0.30.4 (2026-11-18)
 

@@ -157,9 +157,15 @@ runs daily where the tool's package manager allows it (docs/WORKERS.md).
 Then run `tutti setup`. npm is a ready hook: `tutti/install.py` lists it under `CHANNELS` with `published: False`; the
 first publish flips it. `tutti self-update` updates only a release install and names the right command otherwise.
 
-Source-distribution builds pin setuptools to 84.1.0. Review the contents of a source archive before publishing it; Tutti
-itself does not define a `MANIFEST.in` exclusion list. See the upstream
+Source-distribution builds pin setuptools to 84.1.0. Review the contents of a source archive before publishing it. See the upstream
 [Unicode-normalization advisory](https://github.com/pypa/setuptools/security/advisories/GHSA-h35f-9h28-mq5c) for current status.
+
+Source builds check `SDIST_ALLOWLIST` and its literal `MANIFEST.in` entries before setuptools packages files. A missing,
+symlinked or hard-linked listed file, unexpected package candidate or unsafe pre-existing generated output stops the build;
+remove or move such inputs before retrying. Update both lists when tracked source files change. Builds use a temporary build
+base instead of reusing an existing `build/` folder, so stale build output is not carried into a wheel. This check assumes a
+trusted build entry point, interpreter and backend; it is not an atomic boundary against concurrent changes or a scan for
+secrets inside permitted files. Build from a trusted, quiescent source tree and inspect the archive before publishing.
 
 ## The interface (for `tutti household join` and other callers)
 

@@ -11,6 +11,7 @@ dynamic = ["version"]
 description = "Tutti: one orchestrator, many AI workers, shared machines."
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = ["PyYAML==6.0.3", "tzdata==2025.2; sys_platform == 'win32'"]
 

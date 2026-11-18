@@ -73,7 +73,7 @@ tutti dashboard     # already running at login: http://127.0.0.1:4777/ (its Set 
 From source instead: `git clone https://github.com/ventura8/Tutti`, then `install/install.sh` (or `uv tool install
 git+https://github.com/ventura8/Tutti`), then `tutti setup`. Machines you send work to need `rsync` and `ssh` with
 key-based login, and Docker if you use the container runner.
-Source package builds use a pinned setuptools backend; see [docs/INSTALL.md](docs/INSTALL.md#other-ways).
+Source package builds use a pinned setuptools backend and check a literal source list; see [docs/INSTALL.md](docs/INSTALL.md#other-ways).
 
 Tutti reads one config per user, whatever folder a command starts in: `$TUTTI_CONFIG`, else `~/.config/tutti/config.yaml`
 (or `~/.config/tutti/tutti.config.yaml`; `$XDG_CONFIG_HOME` is honoured), and only when neither exists the nearest

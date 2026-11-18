@@ -271,7 +271,7 @@ def sources(repo, run=subprocess.run, untested=False, allow_gaps=True):
             found += [(t, [], 'feedback') for t in feedback_items(f.read())]
     grep = _out(run, [worktree.git_bin(), '-C', path, 'grep', '-nE', TODO_ERE])
     found += [(t, [p], 'todo') for t, p in todo_items(grep.splitlines())]
-    if allow_gaps and repo.get('gaps'):
+    if repo.get('gaps') and (allow_gaps() if callable(allow_gaps) else allow_gaps):
         res = _out(run, ['bash', '-c', repo['gaps']], cwd=path)
         found += [(t, [p] if p else [], 'gaps') for t, p in gap_items(res.splitlines())]
     if untested and repo.get('untested', True):   # off for a repo whose coverage gate already proves every file tested

@@ -8,6 +8,10 @@ An automatic answer is applied only if the parked task and its question still ma
 options or task history change during the model call, Tutti leaves the decision for a fresh review. The two state files
 are protected from concurrent edits by their locks; this does not make their writes a crash-atomic transaction (t278).
 
+Before using a model diagnosis to retry or park a repeatedly failing task, the unblocker checks under the backlog lock that
+the task is unchanged since the model saw it. A changed task is left alone and can be reviewed in a later round without
+the normal six-hour attempt cooldown (t244). This does not guarantee the diagnosis is correct.
+
 Tutti works through everything it can do (the backlog, the queue, parked tasks once answered, the work queue) within the
 pacing and token limits, and asks a person only what only a person can decide.
 

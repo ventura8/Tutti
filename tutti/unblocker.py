@@ -19,6 +19,7 @@ What it finds (`find`, pure):
 Every attempt is logged (`unblock.json`: what, by local, online or rule, the action, the outcome) for the dashboard. It acts
 only on the active main machine (failover lease), at most `MAX_PER_ROUND` items a round, each item at most once per
 COOLDOWN; it never kills a process (the autopilot's watchdog ends stuck runs by their exact pid)."""
+import copy
 import json
 import os
 import re
@@ -39,6 +40,7 @@ REBASE_RX = re.compile(r'does not rebase|rebase conflict|could not apply', re.I)
 ACTION_RX = re.compile(r'^[ \t]*ACTION:[ \t]*(.*?)[ \t]*$', re.I | re.M)
 WHY_RX = re.compile(r'^\s*(?:WHY|DIAGNOSIS):\s*(.+)', re.I | re.M)
 FIX_RX = re.compile(r'^\s*FIX:\s*(.+)', re.I | re.M)
+CHANGED_DURING_REVIEW = ('task changed while diagnosing:', 'question or task changed while deciding:')
 
 
 # ---- finding (pure)
@@ -79,7 +81,8 @@ def due(t, kind, tried, now):
 
 def find(data, now, log=(), limit=MAX_PER_ROUND):
     """[{kind, id, title}] to try this round: never one tried within its cooldown."""
-    tried = {e.get('id'): float(e.get('at') or 0) for e in log}
+    tried = {e.get('id'): float(e.get('at') or 0) for e in log
+             if not str(e.get('outcome') or '').startswith(CHANGED_DURING_REVIEW)}
     out = []
     for t in data.get('tasks') or []:
         kind = classify(t, data.get('questions') or [])
@@ -124,13 +127,15 @@ def requeue(t, now, note, fresh=False):
     t['notes'] = [*t.get('notes', []), note][-20:]
 
 
-def apply(cfg, item, verdict, now):
+def apply(cfg, item, verdict, now, expected=None):
     """Writes the action into the backlog; returns the outcome line."""
     with backlog.locked(cfg) as data:
         t = next((x for x in data['tasks'] if x['id'] == item['id']), None)
         if t is None or classify(t, _questions(cfg)) != item['kind']:
             return 'changed meanwhile: left as it is'
         kind = item['kind']
+        if kind == 'failing' and (expected is None or t != expected):
+            return 'task changed while diagnosing: left unchanged for a fresh review'
         if kind == 'limit-only':
             requeue(t, now, 'unblocker: the recent failures were usage limits only (the account, not the task): attempts forgiven')
             return 'attempts forgiven, queued for a worker with room'
@@ -180,14 +185,14 @@ def needs_model(item):
 
 def handle(cfg, item, ask, now):
     """One item: the model when it needs judgement (local first, online only when local fails or the task is size L)."""
-    by, verdict = 'rule', {}
+    by, verdict, expected = 'rule', {}, None
     if needs_model(item):
         answer, who, expected = judge(cfg, item, ask)
         if not answer:
             return {'by': 'none', 'outcome': f'no model answered ({who}): left as it is'}
         verdict = parse(answer)
         by = 'online' if who in _cli_workers(cfg) else 'local'
-    outcome = answer_parked(cfg, item, verdict, now, expected) if item['kind'] == 'parked' else apply(cfg, item, verdict, now)
+    outcome = answer_parked(cfg, item, verdict, now, expected) if item['kind'] == 'parked' else apply(cfg, item, verdict, now, expected)
     return {'by': by, 'outcome': outcome, 'why': verdict.get('why', '')}
 
 
@@ -196,6 +201,7 @@ def judge(cfg, item, ask):
     t = task_of(cfg, item['id'])
     expected = None
     if item['kind'] == 'failing':
+        expected = copy.deepcopy(t)
         prompt = diagnose_prompt(t)
     else:
         q = next((x for x in _questions(cfg) if x.get('task') == item['id'] and x.get('status') == 'open'), {})

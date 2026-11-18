@@ -58,6 +58,55 @@ class Finds(Base):
         self.assertIn('Fix for this attempt: call python3 -m pytest', self.get(tid)['notes'][-1])
         self.assertEqual(unblocker.read_log(self.cfg)[-1]['by'], 'local')
 
+    def test_changed_failing_task_is_not_requeued_or_parked_from_a_stale_diagnosis(self):
+        for field, value in (('title', 'Different task'), ('check', 'new check'), ('scope', ['other.py']),
+                             ('attempts', fails('exited 2', 'exited 2', 'exited 2')),
+                             ('size', 'L'), ('priority', 'P0')):
+            for action in ('retry', 'person'):
+                with self.subTest(field=field, action=action):
+                    tid = self.task(f'Failing {field} {action}', attempts=fails('exited 1', 'exited 1', 'exited 1'),
+                                    not_before=NOW + 500)
+                    def ask(_cfg, _prompt, _purpose, *, task_id=tid, key=field, new_value=value, selected=action, **_kwargs):
+                        with backlog.locked(self.cfg) as data:
+                            backlog.find(data, task_id)[key] = new_value
+                        return f'ACTION: {selected}\nWHY: old diagnosis\nFIX: old fix', 'pc-local'
+                    item = {'id': tid, 'kind': 'failing'}
+                    result = unblocker.handle(self.cfg, item, ask, NOW)
+                    task = self.get(tid)
+                    self.assertIn('changed while diagnosing', result['outcome'])
+                    self.assertEqual(task['status'], 'queued')
+                    self.assertEqual(task['not_before'], NOW + 500)
+                    self.assertFalse(any('old fix' in note for note in task.get('notes', [])))
+                    self.assertFalse(any(q.get('task') == tid for q in needs.load(self.cfg)['questions']))
+
+    def test_changed_review_does_not_delay_the_fresh_review_for_six_hours(self):
+        tid = self.task('Retry stale review', attempts=fails('exited 1', 'exited 1', 'exited 1'))
+        data = backlog.load(self.cfg)
+        for outcome in ('task changed while diagnosing: left unchanged for a fresh review',
+                        'question or task changed while deciding: left unchanged for a fresh review'):
+            with self.subTest(outcome=outcome):
+                self.assertEqual([x['id'] for x in unblocker.find(data, NOW + 1, [{'id': tid, 'at': NOW, 'outcome': outcome}])],
+                                 [tid])
+        self.assertEqual(unblocker.find(data, NOW + 1, [{'id': tid, 'at': NOW, 'outcome': 'a true decision'}]), [])
+
+    def test_deleted_or_reclassified_task_is_left_alone_and_missing_snapshot_fails_closed(self):
+        for change in ('deleted', 'reclassified'):
+            tid = self.task(f'Failing {change}', attempts=fails('exited 1', 'exited 1', 'exited 1'))
+            def ask(_cfg, _prompt, _purpose, *, task_id=tid, mutation=change, **_kwargs):
+                with backlog.locked(self.cfg) as data:
+                    if mutation == 'deleted':
+                        data['tasks'] = [t for t in data['tasks'] if t['id'] != task_id]
+                    else:
+                        backlog.find(data, task_id)['status'] = 'done'
+                return 'ACTION: retry\nWHY: old\nFIX: old', 'pc-local'
+            result = unblocker.handle(self.cfg, {'id': tid, 'kind': 'failing'}, ask, NOW)
+            self.assertIn('changed meanwhile', result['outcome'])
+            self.assertFalse(any(q.get('task') == tid for q in needs.load(self.cfg)['questions']))
+        tid = self.task('Failing direct call', attempts=fails('exited 1', 'exited 1', 'exited 1'))
+        result = unblocker.apply(self.cfg, {'id': tid, 'kind': 'failing'}, {'action': 'retry'}, NOW)
+        self.assertIn('changed while diagnosing', result)
+        self.assertEqual(self.get(tid)['status'], 'queued')
+
     def test_local_fails_then_online(self):
         self.task('Add --json', attempts=fails('the worker exited 1', 'the worker exited 1', 'the worker exited 1'))
         _, asked = self.tick([(None, 'pc down'), ('ACTION: retry\nWHY: w\nFIX: f', 'agy')])

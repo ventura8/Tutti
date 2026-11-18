@@ -1,6 +1,7 @@
 # Feedback log
 
 Routed checks must reject unsafe copy names before touching a lock or remote command (t403).
+Updating code must not make a running failover watchdog announce an intentional departure (t404).
 
 Automatic releases must preserve concurrent release branches and tag the reviewed PR's merge commit (t401).
 

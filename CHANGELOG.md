@@ -19,6 +19,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 - Keep local-only delegated checks from waiting on the shared remote-copy lock (t402).
 - Reject unsafe routed-check track names before creating a lock or contacting a machine (t403).
+- Reload the failover watchdog in place rather than triggering failover leave on a code change (t404).
 
 ## [0.30.1] - 2026-11-18
 

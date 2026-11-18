@@ -1,5 +1,9 @@
 # A backup main machine, with automatic failover
 
+When its code changes, the failover watchdog reloads its process in place, avoiding the service's leave hook for a routine
+reload. If the reload fails, it continues heartbeats and retries. This does not make a checkout update atomic or preserve
+jobs across a dashboard service restart; those require separate coordination.
+
 Tutti runs on one **main machine**: its dashboard, the household coordinator, the autopilot and the device leases. A
 **backup main machine** holds a warm copy of Tutti's state and takes over by itself when the main machine is away, then
 hands Tutti back when it returns. Nobody has to do anything.

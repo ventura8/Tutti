@@ -177,17 +177,21 @@ def code_stamp(folder=None):
     return newest
 
 
-RESTART_CODE = 75   # EX_TEMPFAIL: a failure exit, so the service manager starts it again under Restart=always or on-failure
+def restart_in_place():
+    """Reload the watchdog without stopping its service and triggering its failover-leave ExecStop."""
+    os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
-def loop(cfg, stop=None, sleep=time.sleep, stamp=code_stamp, restart=lambda: RESTART_CODE):
-    """The service's rounds. When Tutti's code changes under it the loop ends with RESTART_CODE and the service manager
-    starts it on the new code: a service that ran on for days kept the old code and never ran checks added since (t124)."""
+def loop(cfg, stop=None, sleep=time.sleep, stamp=code_stamp, restart=None):
+    """Reload changed code in place so systemd does not run the service's failover-leave hook on a routine reload."""
     healthy_since, healed, started = None, 0.0, stamp()
     while not (stop and stop()):
         if stamp() != started:
-            say('failover: Tutti\'s code changed (an update): the service starts again on the new code')
-            return restart()
+            say('failover: Tutti\'s code changed (an update): reloading the watchdog in place')
+            try:
+                return (restart or restart_in_place)()
+            except OSError as e:
+                say(f'failover: watchdog reload failed ({e}); continuing heartbeats and retrying next round')
         try:
             lines = one_round(cfg, healthy_since=healthy_since)
             healed = heal(cfg, lines, healed, time.time())

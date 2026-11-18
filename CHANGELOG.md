@@ -6,20 +6,21 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
-## 0.30.2 (2026-11-18)
-
-### Changes
-
-- fix: protect self-release branches and tags (t401) (#2016)
-- fix: allow late-paced chat accounts (t300) (#2015)
-
-## Unreleased
+## 0.30.3 (2026-11-18)
 
 ### Fixed
 
 - Keep local-only delegated checks from waiting on the shared remote-copy lock (t402).
 - Reject unsafe routed-check track names before creating a lock or contacting a machine (t403).
 - Reload the failover watchdog in place rather than triggering failover leave on a code change (t404).
+
+
+## 0.30.2 (2026-11-18)
+
+### Changes
+
+- fix: protect self-release branches and tags (t401) (#2016)
+- fix: allow late-paced chat accounts (t300) (#2015)
 
 ## [0.30.1] - 2026-11-18
 

@@ -81,6 +81,22 @@ class BacklogTest(Base):
             self.assertFalse(again)
         self.assertIn('Fix the README link', backlog.listing(backlog.load(cfg)))
 
+    def test_explicitly_different_scope_or_check_does_not_discard_work(self):
+        cfg = self.cfg()
+        with backlog.locked(cfg) as data:
+            first, added = backlog.add(data, backlog.new_task('app', 'Fix check', ['a.py', 'b.py'], 'test-a'))
+            self.assertTrue(added)
+            duplicate, added = backlog.add(data, backlog.new_task('app', 'fix  check', ['b.py', 'a.py'], 'test-a'))
+            self.assertFalse(added)
+            self.assertEqual(duplicate['id'], first['id'])
+            for repo, scope, check in (('app', ['other.py'], 'test-a'), ('app', ['a.py', 'b.py'], 'test-b'),
+                                       ('other', ['a.py', 'b.py'], 'test-a')):
+                with self.subTest(repo=repo, scope=scope, check=check):
+                    _, added = backlog.add(data, backlog.new_task(repo, 'Fix check', scope, check))
+                    self.assertTrue(added)
+            _, added = backlog.add(data, backlog.new_task('app', 'Fix check'))
+            self.assertFalse(added)  # missing metadata retains the existing title-only behavior
+
     def test_bad_size_and_empty_title_are_refused_with_the_fix(self):
         with self.assertRaisesRegex(backlog.BacklogError, 'use one of S, M, L'):
             backlog.new_task('app', 'x', size='XL')
@@ -914,6 +930,18 @@ class SurfaceTest(Base):
             with self.assertRaisesRegex(OSError, 'probe failed'):
                 collector.autopilot_tick()
         workq.assert_not_called()
+
+    def test_backlog_cli_omitted_check_uses_default_without_making_a_duplicate(self):
+        cfg = self.cfg()
+        with mock.patch.object(config, 'load', return_value=cfg), mock.patch('sys.stdout'):
+            self.assertEqual(cli.main(['backlog', 'add', 'app', 'Fix check', '--check', 'test-a']), 0)
+            self.assertEqual(cli.main(['backlog', 'add', 'app', 'Fix check']), 0)
+            self.assertEqual(cli.main(['backlog', 'add', 'app', 'Fix check', '--check', 'test-b']), 0)
+            self.assertEqual(cli.main(['backlog', 'add', 'app', 'Default check']), 0)
+            self.assertEqual(cli.main(['backlog', 'add', 'app', 'Default check', '--check', 'test-c']), 0)
+        tasks = backlog.load(cfg)['tasks']
+        self.assertEqual([t['check'] for t in tasks], ['test-a', 'test-b', 'true'])
+        self.assertFalse(tasks[-1]['check_explicit'])
 
     def test_backlog_cli_add_retry_rm_and_unknown_repo(self):
         cfg = self.cfg()

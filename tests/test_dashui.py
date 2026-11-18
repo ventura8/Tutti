@@ -124,7 +124,8 @@ let prevented = false; g.events.keydown({key:'ArrowLeft',preventDefault(){preven
 values.push([detail.textContent,g.attrs['aria-valuenow'],prevented]);
 const empty = sparkline({...account,readings:[]}, Date.now());
 values.push([empty.children[0].attrs.role, empty.children.length]);
-const bad = sparkline({...account,readings:[null,{}, {at:'bad',used:4}, {at:account.window_start,used:'x'}]}, Date.now());
+const bad = sparkline({...account,readings:[null,{}, {at:'bad',used:4}, {at:account.window_start,used:'x'},
+  {at:{toString:null},used:5}]}, Date.now());
 values.push([bad.children[0].attrs.role, bad.children[0].attrs['aria-label']]);
 const absent = sparkline({...account,readings:null}, Date.now());
 values.push([absent.children[0].attrs.role, absent.children.length]);

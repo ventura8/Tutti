@@ -216,7 +216,7 @@ function sparkline(a, now) {
     const x = (t) => ((t - t0) / (t1 - t0)) * W;
     const y = (p) => H - 4 - (Math.min(100, p) / 100) * (H - 8);
     const readings = (Array.isArray(a.readings) ? a.readings : [])
-        .filter((r) => r && typeof r === 'object' && Number.isFinite(Date.parse(r.at)) && Number.isFinite(r.used))
+        .filter((r) => r && typeof r === 'object' && typeof r.at === 'string' && Number.isFinite(Date.parse(r.at)) && Number.isFinite(r.used))
         .map((r) => ({ at: r.at, used: r.used, time: Date.parse(r.at) })).sort((left, right) => left.time - right.time);
     const pts = readings.map((r) => [x(r.time), y(r.used)]);
     const g = svg('svg', { class: 'spark', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img' });

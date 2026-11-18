@@ -6,16 +6,11 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
-## Unreleased
+## 0.30.15 (2026-11-19)
 
 ### Fixed
 
 - Rename a Chat without rebuilding its messages or applying the result to a newly selected conversation (t407).
-
-## Unreleased
-
-### Fixed
-
 - Keep dashboard tiles within phone viewports with enlarged text spacing and long account names (t414).
 
 ## 0.30.14 (2026-11-19)

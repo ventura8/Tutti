@@ -1270,10 +1270,36 @@ def checkpoints(cfg, data, now, snap=checkpoint, push=push_wip):
     for t in [t for t in data['tasks'] if t['status'] == 'running']:
         wt = tree_of(cfg, t) if every > 0 else None
         if wt and now - float(t.get('checkpoint') or t.get('started') or 0) >= every:
-            sha = snap(wt, wip_ref(t), t['run'])
+            t['wip'] = checkpoint_status(cfg, t, wt, now, snap, push)
             t['checkpoint'] = now
-            failed = push(wt, sha, wip_name(t), wip_remote(cfg, t)) if sha else ''
-            t['wip'] = {'at': now, 'sha': sha or (t.get('wip') or {}).get('sha'), 'pushed': not failed, 'error': failed or None}
+
+
+def checkpoint_status(cfg, task, wt, now, snap, push):
+    """Report only this attempt's known snapshot and push; an old SHA is an unverified reference."""
+    previous = task.get('wip') or {}
+    old_sha = previous.get('sha') or previous.get('previous_sha')
+    status = {'at': now, 'sha': None, 'pushed': False, 'error': None}
+    if old_sha:
+        status['previous_sha'] = old_sha
+    try:
+        sha = snap(wt, wip_ref(task), task['run'])
+    except (OSError, subprocess.SubprocessError) as e:
+        status['error'] = f'checkpoint capture failed ({type(e).__name__}): inspect the worktree and retry'
+        return status
+    if not sha:
+        status['error'] = 'no checkpoint created: the worktree may be unchanged or capture failed; inspect it and retry'
+        return status
+    status['sha'] = sha
+    remote_name = wip_remote(cfg, task)
+    if not remote_name:
+        status['error'] = 'checkpoint is local only: WIP push is disabled or has no remote'
+        return status
+    try:
+        failed = push(wt, sha, wip_name(task), remote_name)
+    except (OSError, subprocess.SubprocessError) as e:
+        failed = f'checkpoint push failed ({type(e).__name__}): check the remote and retry'
+    status.update(pushed=not bool(failed), error=failed or None)
+    return status
 
 
 PAUSED_REPORT_HOLD = ('report received while autopilot is off: held during the off period; on resuming, normal collection '

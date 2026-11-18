@@ -81,6 +81,9 @@ and external or remote effects can require verification; a local restart does no
   branch. To turn the push off for a repo, set `autopilot.repos.<r>.wip_push: false`; to push somewhere else, set
   `wip_remote`. `<name>` comes from the task's title, so every member's computer uses the same name. A power-off can lose
   work since the last successful checkpoint, and the remote copy may be older if its push failed.
+  A checkpoint with no new SHA is reported as unverified: the tree may be unchanged or Git may have failed. A local-only
+  checkpoint or failed push is not reported as pushed; an earlier SHA is retained separately as an unverified reference.
+  Checkpoint metadata does not prove that a local or remote execution boundary stopped (t309).
 - **Reconcile.** Before an interrupted or moved attempt resumes, Tutti fetches the remote checkpoint and applies it to a
   worktree that lost its changes. The further-along copy wins, and a worktree that still holds changes is never
   overwritten.

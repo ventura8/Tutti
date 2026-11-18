@@ -3,6 +3,9 @@
 - **A freeze check and a spawn must share a lock** (t404): serialize local cooperative autopilot admission with durable
   marker creation, but do not mistake that partial fence for protection against other launch paths or live remote work.
 
+- **No snapshot is not a successful push** (t309): an empty checkpoint result can mean unchanged work or a Git failure.
+  Keep previous SHA references separate and report the current push as unverified; a checkpoint does not prove a run stopped.
+
 - Do not truncate a model's proposed action to its first word: match the whole line against the choices, and leave multiple
   or ambiguous actions unanswered (t278).
 

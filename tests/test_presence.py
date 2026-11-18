@@ -364,6 +364,72 @@ GIT_ENV = {'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@x.example', 'GIT_COMMI
 
 @mock.patch.dict(os.environ, GIT_ENV)
 class Checkpoints(Base):
+    def test_no_new_snapshot_does_not_claim_a_push_or_reuse_a_failed_sha(self):
+        cfg = self.cfg()
+        task = {'id': 't1', 'title': 'task', 'repo': 'app', 'run': '1-1',
+                'wip': {'sha': 'old-sha', 'pushed': False, 'error': 'push failed'}}
+        push = mock.Mock()
+        status = autopilot.checkpoint_status(cfg, task, '/example/worktree', 100, lambda *_: '', push)
+        self.assertIsNone(status['sha'])
+        self.assertFalse(status['pushed'])
+        self.assertEqual(status['previous_sha'], 'old-sha')
+        self.assertIn('unchanged or capture failed', status['error'])
+        push.assert_not_called()
+        task['wip'] = status
+        again = autopilot.checkpoint_status(cfg, task, '/example/worktree', 101, lambda *_: '', push)
+        self.assertEqual(again['previous_sha'], 'old-sha')
+        self.assertFalse(again['pushed'])
+        task.pop('wip')
+        first = autopilot.checkpoint_status(cfg, task, '/example/worktree', 102, lambda *_: '', push)
+        self.assertIsNone(first['sha'])
+        self.assertFalse(first['pushed'])
+        self.assertNotIn('previous_sha', first)
+
+    def test_checkpoint_push_status_requires_a_new_sha_and_a_configured_remote(self):
+        cfg = self.cfg()
+        task = {'id': 't1', 'title': 'task', 'repo': 'app', 'run': '1-1'}
+        def snap(*_args):
+            return 'new-sha'
+        with mock.patch.object(autopilot, 'wip_remote', return_value=''):
+            push = mock.Mock()
+            local = autopilot.checkpoint_status(cfg, task, '/example/worktree', 100, snap, push)
+            self.assertEqual((local['sha'], local['pushed']), ('new-sha', False))
+            self.assertIn('local only', local['error'])
+            push.assert_not_called()
+        with mock.patch.object(autopilot, 'wip_remote', return_value='origin'):
+            good = autopilot.checkpoint_status(cfg, task, '/example/worktree', 100, snap, lambda *_: '')
+            failed = autopilot.checkpoint_status(cfg, task, '/example/worktree', 100, snap, lambda *_: 'push failed')
+        self.assertEqual((good['sha'], good['pushed'], good['error']), ('new-sha', True, None))
+        self.assertEqual((failed['sha'], failed['pushed'], failed['error']), ('new-sha', False, 'push failed'))
+
+    def test_checkpoint_exceptions_clear_stale_success(self):
+        cfg = self.cfg()
+        task = {'id': 't1', 'title': 'task', 'repo': 'app', 'run': '1-1',
+                'wip': {'sha': 'old-sha', 'pushed': True}}
+        def broken(*_args):
+            raise OSError('unavailable')
+        capture = autopilot.checkpoint_status(cfg, task, '/example/worktree', 100, broken, mock.Mock())
+        self.assertFalse(capture['pushed'])
+        self.assertIsNone(capture['sha'])
+        self.assertEqual(capture['previous_sha'], 'old-sha')
+        self.assertIn('capture failed', capture['error'])
+        with mock.patch.object(autopilot, 'wip_remote', return_value='origin'):
+            pushed = autopilot.checkpoint_status(cfg, task, '/example/worktree', 100, lambda *_: 'new-sha', broken)
+        self.assertFalse(pushed['pushed'])
+        self.assertEqual(pushed['sha'], 'new-sha')
+        self.assertIn('push failed', pushed['error'])
+
+    def test_running_checkpoint_round_records_uncertain_capture(self):
+        cfg = self.cfg()
+        task = {'id': 't1', 'title': 'task', 'repo': 'app', 'run': '1-1', 'status': 'running', 'started': 1,
+                'wip': {'sha': 'old-sha', 'pushed': False}}
+        with mock.patch.object(autopilot, 'tree_of', return_value='/example/worktree'):
+            autopilot.checkpoints(cfg, {'tasks': [task]}, 1000, snap=lambda *_: '', push=mock.Mock())
+        self.assertEqual(task['checkpoint'], 1000)
+        self.assertIsNone(task['wip']['sha'])
+        self.assertFalse(task['wip']['pushed'])
+        self.assertEqual(task['wip']['previous_sha'], 'old-sha')
+
     def repo(self, name):
         wt = os.path.join(self.tmp.name, name)
         os.makedirs(wt)

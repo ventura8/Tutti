@@ -96,11 +96,24 @@ function mdNode(n) {
     return node;
 }
 
-function mdRender(text) {
-    const frag = document.createDocumentFragment();
-    for (const n of mdParse(text)) frag.append(mdNode(n));
-    return frag;
-}
+// Cache only the private parse tree, keyed by the message object; DOM nodes are always rebuilt.
+const mdRender = (() => {
+    const trees = new WeakMap();
+    const freezeTree = (nodes) => {
+        for (const node of nodes) {
+            if (typeof node === 'object') { freezeTree(node.c); Object.freeze(node); }
+        }
+        return Object.freeze(nodes);
+    };
+    return (text, message) => {
+        const frag = document.createDocumentFragment();
+        const cached = trees.get(message);
+        const tree = cached && cached.text === text ? cached.tree : freezeTree(mdParse(text));
+        if (!cached || cached.text !== text) trees.set(message, { text, tree });
+        for (const n of tree) frag.append(mdNode(n));
+        return frag;
+    };
+})();
 
 function codeBlock(code, lang) {
     const pre = el('pre', { class: 'md__pre', tabindex: 0, 'aria-label': lang ? `Code, ${lang}` : 'Code' }, el('code', { text: code }));
@@ -308,7 +321,7 @@ function chatMessage(m, opts) {
     const status = statusText(m);
     const body = el('div', { class: 'msg__body md' });
     if (mine) body.append(...String(m.text || '').split('\n').flatMap((line, i) => (i ? [el('br'), line] : [line])));
-    else if (m.text) body.append(mdRender(m.text));
+    else if (m.text) body.append(mdRender(m.text, m));
     else if (m.status === 'streaming') body.append(el('span', { class: 'typing', role: 'img', 'aria-label': 'Tutti is writing' }, el('i'), el('i'), el('i')));
     const node = el('article', { class: `msg msg--${mine ? 'user' : 'bot'}`, 'data-id': m.id, 'data-status': m.status || '',
         'aria-label': `${mine ? 'You' : 'Tutti'}${at ? ', ' + timeFmt.format(at) : ''}` },

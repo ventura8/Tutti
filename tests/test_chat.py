@@ -1610,6 +1610,46 @@ def js(expr):
 
 @unittest.skipUnless(shutil.which('node'), 'node is not installed')
 class PageLogic(unittest.TestCase):
+    def test_markdown_cache_reuses_private_frozen_tree_and_invalidates_on_text_change(self):
+        result = js('''(() => {
+            global.document = {createDocumentFragment: () => ({children: [], append(n) { this.children.push(n); }})};
+            const parse = mdParse;
+            let count = 0;
+            mdParse = (text) => { count += 1; return parse(text); };
+            let frozen = true;
+            mdNode = (node) => {
+                frozen = frozen && Object.isFrozen(node) && Object.isFrozen(node.c);
+                return {tree: JSON.stringify(node)};
+            };
+            const first = {text: '[bad](javascript:alert) **safe**'}, second = {text: first.text};
+            const a = mdRender(first.text, first), b = mdRender(first.text, first);
+            mdRender(second.text, second);
+            first.text = '[ok](https://example.com) changed';
+            const changed = mdRender(first.text, first);
+            return {count, frozen, freshNodes: a.children[0] !== b.children[0],
+                bad: a.children[0].tree, changed: changed.children[0].tree};
+        })()''')
+        self.assertEqual(result['count'], 3)
+        self.assertTrue(result['frozen'])
+        self.assertTrue(result['freshNodes'])
+        self.assertNotIn('"href":"javascript:', result['bad'])
+        self.assertIn('https://example.com', result['changed'])
+
+    def test_cached_markdown_still_builds_safe_fresh_dom(self):
+        result = js('''(() => {
+            const node = (tag, text = '') => ({tag, text, children: [], append(n) { this.children.push(n); }});
+            global.document = {createDocumentFragment: () => node('fragment'), createElement: (tag) => node(tag),
+                createTextNode: (text) => node('text', text)};
+            const message = {text: '<script>bad</script> [x](javascript:alert) [ok](https://example.com)'};
+            const a = mdRender(message.text, message), b = mdRender(message.text, message);
+            const para = a.children[0];
+            return {different: a.children[0] !== b.children[0], children: para.children};
+        })()''')
+        self.assertTrue(result['different'])
+        self.assertTrue(any('<script>bad</script>' in c.get('text', '') for c in result['children']))
+        links = [c for c in result['children'] if c['tag'] == 'a']
+        self.assertEqual([link['href'] for link in links], ['https://example.com'])
+
     def test_version_refresh_waits_for_chat_work_but_allows_idle_chat(self):
         idle = "{streaming:null,editing:null,pending:[]}"
         self.assertFalse(js(f"chatRefreshBlocked({idle}, '', 0, false)"))

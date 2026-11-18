@@ -1,5 +1,7 @@
 # Feedback log
 
+Redrawing a long Chat should avoid reparsing every unchanged message (t407).
+
 Household reassignment must preserve the old holder's uncheckpointed work when its local backup fails (t309).
 Missing dispatch results and unconfirmed stops must not free a target while its work may still run (t309).
 

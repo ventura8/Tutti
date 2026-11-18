@@ -11,6 +11,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 ### Fixed
 
 - Let Chat models page through retained text in their current conversation (t387; retention limits remain).
+- Reuse unchanged Chat Markdown parse trees across redraws (t407).
 
 ## 0.30.11 (2026-11-19)
 

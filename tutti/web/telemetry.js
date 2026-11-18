@@ -85,6 +85,59 @@ function laneKind(t) {
     return `${t.source}${ref} · ${t.project || ''}`;
 }
 
+function improveTone(e) {
+    const outcome = e.outcome || e.status || '';
+    if (outcome === 'skipped_changed') return 'idle';
+    if (outcome === 'kept' || e.status === 'kept') return 'ok';
+    if (outcome === 'rolled_back' || e.status === 'rolled_back') return 'warn';
+    return 'accent';
+}
+
+function improveRow(e) {
+    const title = `${e.aspect || ''} ${e.path || ''}: ${(e.old != null ? e.old + ' → ' : '')}${e.value != null ? e.value : e.new != null ? e.new : ''}`;
+    const note = [e.evidence, e.expected_gain].filter(Boolean).join(' · ');
+    const label = e.outcome === 'skipped_changed' ? 'skipped_changed' : (e.status || e.outcome || 'proposed');
+    return el('li', { class: 'row' },
+        el('div', { class: 'row__name' }, title, note ? el('span', { class: 'row__kind', text: note }) : null),
+        chip(label, improveTone(e)));
+}
+
+function renderImprovements(im) {
+    if (!im) return;
+    const toggle = $('improvements-toggle');
+    toggle.textContent = im.enabled ? 'Turn off' : 'Turn on';
+    toggle.setAttribute('aria-pressed', String(im.enabled));
+    $('improvements-meta').textContent = im.enabled
+        ? `${im.autonomy} · ${im.waiting} waiting · ${im.applied} applied · ${im.kept} kept · ${im.rolled_back} rolled back`
+            + (im.skipped_changed ? ` · ${im.skipped_changed} rollback skipped` : '')
+            + (im.share ? ' · sharing kept reports' : '')
+        : 'off';
+    if (!im.enabled) {
+        $('improvements').replaceChildren(empty('Improvements is off',
+            'Turned on, Tutti reviews telemetry and proposes changes across routing, pacing and parallel limits; small ones apply within admin autonomy, then are measured and kept or rolled back.'));
+        return;
+    }
+    const waiting = (im.proposals || []).map((p) => el('li', { class: 'row' },
+        el('div', { class: 'row__name' }, `${p.aspect} ${p.path}: ${p.old} → ${p.value}`,
+            el('span', { class: 'row__kind', text: `${p.evidence || ''} · gain: ${p.expected_gain || ''}` })),
+        el('button', { class: 'btn btn--tonal', type: 'button', 'data-control': 'improve-apply',
+            onclick: () => void telemetrySwitch('/api/improvements', { proposal: p.path, apply: true },
+                'The improvement was not applied.') }, 'Apply'),
+        el('button', { class: 'btn', type: 'button', 'data-control': 'improve-dismiss',
+            onclick: () => void telemetrySwitch('/api/improvements', { proposal: p.path, apply: false },
+                'The proposal was not dismissed.') }, 'Dismiss')));
+    $('improvements').replaceChildren(
+        el('p', { class: 'row__note', text: `Aspects: ${(im.aspects || []).join(', ')}. Share kept reports: ${im.share ? 'on' : 'off'} (admin opt-in).` }),
+        el('button', { class: 'btn', type: 'button', id: 'improvements-share', 'aria-pressed': String(!!im.share),
+            onclick: () => void telemetrySwitch('/api/improvements', { share: !im.share }, 'Sharing was not switched.') },
+        im.share ? 'Stop sharing kept reports' : 'Share kept reports'),
+        el('section', { class: 'autopilot__group' }, el('h3', { class: 'card__sub', text: 'Waiting for you' }),
+            waiting.length ? el('ul', { class: 'list' }, ...waiting) : el('p', { class: 'row__note', text: 'Nothing waits for you.' })),
+        el('section', { class: 'autopilot__group' }, el('h3', { class: 'card__sub', text: 'Log' }),
+            (im.log || []).length ? el('ul', { class: 'list' }, ...im.log.map(improveRow))
+                : el('p', { class: 'row__note', text: 'Nothing yet.' })));
+}
+
 function renderLane(si) {
     const toggle = $('selfimprove-toggle');
     toggle.textContent = si.enabled ? 'Turn off' : 'Turn on';
@@ -165,6 +218,7 @@ function renderTelemetry(s) {
     renderSending(s.telemetry.status);
     renderInsights(s.telemetry);
     renderLane(s.telemetry.self_improve);
+    renderImprovements(s.telemetry.improvements);
     renderAiAssist(s.telemetry.ai_assist);
 }
 
@@ -180,5 +234,9 @@ document.addEventListener('DOMContentLoaded', () => {
     $('selfimprove-toggle').addEventListener('click', () => {
         const on = $('selfimprove-toggle').getAttribute('aria-pressed') !== 'true';
         void telemetrySwitch('/api/self-improve', { enabled: on }, 'Self-improvement was not switched.');
+    });
+    $('improvements-toggle').addEventListener('click', () => {
+        const on = $('improvements-toggle').getAttribute('aria-pressed') !== 'true';
+        void telemetrySwitch('/api/improvements', { enabled: on }, 'Improvements was not switched.');
     });
 });

@@ -9,7 +9,7 @@ import time
 from . import config, insights, scrub, selfimprove, telemetry
 
 PANELS = ('usage', 'attention', 'running', 'machines', 'autopilot', 'main', 'workers', 'projects', 'scouts', 'controls', 'jobs',
-          'insights', 'selfimprove', 'tiles', 'appbar', 'helper', 'page')
+          'insights', 'selfimprove', 'improvements', 'tiles', 'appbar', 'helper', 'page')
 LOCATION_RX = re.compile(r'(\S+):(\d{1,7}):(\d{1,7})')
 _cache = {}
 
@@ -99,14 +99,16 @@ def view(cfg):
     st = telemetry.status(folder, cfg)
     st.pop('folder', None)
     st['events'] = os.path.basename(st['events'])
-    from . import aiassist
+    from . import aiassist, improve
     summary = cached_insights(folder)
-    return {'status': st, 'insights': summary, 'self_improve': selfimprove.lane(cfg), 'ai_assist': aiassist.view(cfg, summary)}
+    return {'status': st, 'insights': summary, 'self_improve': selfimprove.lane(cfg), 'ai_assist': aiassist.view(cfg, summary),
+            'improvements': improve.view(cfg, summary)}
 
 
 def tick(cfg):
-    """After each probe: self-improvement's round, then a send of the queue when due. Returns event lines."""
-    events = selfimprove.tick(cfg)
+    """After each probe: self-improvement and the household improvement loop, then a send of the queue when due."""
+    from . import improve
+    events = selfimprove.tick(cfg) + improve.tick(cfg)
     folder = telemetry.folder_of(config.state_dir(cfg))
     telemetry.flush(folder, cfg)
     return events

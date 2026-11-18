@@ -95,6 +95,36 @@ last send problem.
 used commands, the slowest (median and p90), the most failing, quota wasted on failed autopilot attempts and delegated runs
 (per tool, with minutes), stall causes, why tasks were parked, escalations, crashes by type and place, and dashboard use.
 
+## Improvements
+
+An always-on household/SB improvement loop (not only code self-improvement). `improvements.enabled` is **on by
+default**; switch it on the dashboard's **Improvements** card or with `tutti improvements on|off`. Each round (every
+`every_hours`, 6) Tutti reads the Insights summary and proposes changes across at least three aspects:
+
+| Aspect | What it tunes | Metric |
+| --- | --- | --- |
+| routing | `autopilot.no_progress` | wasted quota minutes |
+| pacing | `autopilot.max_attempts` | escalations |
+| parallel | `dashboard.stall_minutes` | stall events |
+
+Every proposal carries **evidence** (counts from telemetry), **expected gain**, and **safe bounds** (lo, hi, step).
+When AI assist local models are on, they review these proposals each round (keep/drop and bounded refinements) before
+apply/propose decisions.
+`improvements.autonomy` is `bounded` (default): a change inside its step applies by itself (at most
+`max_auto_per_day`, 2), a larger one waits on the Improvements view for Apply or Dismiss. With `propose`, every change
+waits. After `measure_hours` (48) the metric is compared and the change is **kept** or **rolled back** automatically.
+Rollback is skipped when the setting changed since apply (for example by an admin), so newer edits are never overwritten
+(`skipped_changed` in the Improvements log and counters).
+All proposed and applied improvements are in the Improvements log (`<state>/improvements.json`).
+
+**Sharing** kept improvements with the Tutti project as anonymised reports (aspect, setting, evidence, gain; no code,
+prompts, repo names or personal data) is an **admin opt-in**, default **off** (`improvements.share`,
+`tutti improvements share on|off`, or the card). Turning it on or off is logged; it is revocable. The local loop itself
+stays on by default.
+
+`tutti improvements` shows the switches, waiting proposals and the log; `tutti improvements tick` runs one round now.
+`POST /api/improvements` (admin): `{"enabled"}`, `{"share"}`, or `{"proposal": path, "apply": true|false}`.
+
 ## Self-improvement
 
 Crashes and insights become fixes. `self_improve.enabled` is **on by default**; switch it on the dashboard's

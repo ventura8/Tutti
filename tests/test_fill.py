@@ -74,6 +74,10 @@ class FillTest(Base):
         self.assertEqual(fill.room(cfg, [], {'agy-gemini': s}, FREE), 1)
         self.assertEqual(fill.room(cfg, [], {'agy-gemini': {**s, 'stale': True}}, FREE), 0)
         self.assertEqual(autopilot.step_room(cfg, 'agy-gemini', {'agy-gemini': s}, {}, FREE)[0], 0)
+        free, small_only = fill.room_detail(cfg, [], {'agy-gemini': s}, FREE)
+        self.assertTrue(small_only)
+        self.assertEqual(fill.want(cfg, [task('large', size='L')], free, small_only), 1)
+        self.assertEqual(fill.want(cfg, [task('small')], free, small_only), 0)
 
     def test_no_room_or_the_switch_off_reads_nothing(self):
         self.repo()

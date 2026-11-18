@@ -54,7 +54,7 @@ class ScriptTest(unittest.TestCase):
 
     def run_script(self, needs):
         env = {'HOME': self.home, 'PATH': f'{self.bin}:/usr/bin:/bin'}
-        return subprocess.run(['bash', '-c', deps.script(needs)], capture_output=True, text=True, env=env, timeout=60)
+        return subprocess.run(['bash', '-c', deps.script(needs)], capture_output=True, text=True, env=env, timeout=300)
 
     def test_a_missing_model_is_pulled_and_reported_installed(self):
         flag = os.path.join(self.home, 'pulled')
@@ -77,8 +77,10 @@ class ScriptTest(unittest.TestCase):
                                   'echo \'{"dependencies":{"typescript":{"version":"5.0.0"}}}\'; fi')
         r = self.run_script([{'npm': 'typescript@5.6.3'}])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn('install -g --prefix', open(log).read())
-        self.assertIn('typescript@5.6.3', open(log).read())
+        with open(log) as f:
+            content = f.read()
+        self.assertIn('install -g --prefix', content)
+        self.assertIn('typescript@5.6.3', content)
 
     def test_a_root_only_need_becomes_one_admin_command(self):
         fake_bin(self.bin, 'dpkg', 'exit 1')

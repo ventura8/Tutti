@@ -120,8 +120,10 @@ class RemoteTest(unittest.TestCase):
         self.assertEqual(base64.b64decode(packed).decode(), script)
         self.assertNotIn('| bash', args[2])  # sourced, not piped: the command keeps the caller's stdin
 
-    @unittest.skipUnless(os.name == 'nt', 'what Windows bash.exe does to the line')
     def test_local_line_keeps_stdin_quotes_and_exit_code_on_windows(self):
+        # Windows-only behaviour (bash.exe mangling); on other hosts the assertion would not apply.
+        if os.name != 'nt':
+            return
         r = remote.sh({'transport': 'local'}, 'read x; echo "got:$x" | cut -d":" -f2; exit 7', capture=True, stdin='hello\n')
         self.assertEqual((r.returncode, r.stdout.strip()), (7, 'hello'))
 

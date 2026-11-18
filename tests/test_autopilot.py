@@ -516,7 +516,8 @@ class RoundTest(Base):
 
     def run_now(self, argv, **kw):
         """The spawned run, done at once in this process (the real `tutti run`), so the next tick finds its report."""
-        with mock.patch('sys.stdout'), mock.patch('sys.stderr'):
+        with mock.patch('sys.stdout'), mock.patch('sys.stderr'), \
+                mock.patch.dict(os.environ, {'TUTTI_RUN_IDENTITY': kw['env'].get('TUTTI_RUN_IDENTITY', '')}):
             cli.main(argv[2:])
         return SimpleNamespace(pid=os.getpid())
 
@@ -669,7 +670,7 @@ class SurfaceTest(Base):
         autopilot.reserve_launch(cfg, t, 'agy-gemini', 100)
         self.assertEqual((t['gates'], t['job_bridge']), ('example-check', ''))
         t['recovery_note'] = 'launch outcome is unverified'
-        report = {'id': t['run'], 'rc': 0, 'worker_rc': 0, 'checks': [], 'changed': True}
+        report = {'id': t['run'], 'run_identity': t['run_identity'], 'rc': 0, 'worker_rc': 0, 'checks': [], 'changed': True}
         observed = []
         def attempt(c, saved, r, now):
             observed.append(saved['gates'])
@@ -689,6 +690,34 @@ class SurfaceTest(Base):
                 mock.patch.object(autopilot, 'stuck', return_value=''):
             autopilot.collect(cfg, {'tasks': [t]}, 120, lambda p: True)
         self.assertEqual(t['recovery_note'], 'separate recovery state')
+
+    def test_report_identity_mismatch_is_held_and_matching_result_can_complete(self):
+        cfg = self.cfg()
+        identity = 'a' * 32
+        t = task('t1', status='running')
+        t.update(run='1700000000-1', run_identity=identity, step='agy-gemini', started=100, launch_pending=True)
+        result = {'id': t['run'], 'run_identity': 'b' * 32, 'rc': 0}
+        published = []
+        with mock.patch.object(autopilot, 'finished', return_value=(True, result)):
+            self.assertEqual(autopilot.collect(cfg, {'tasks': [t]}, 120, lambda p: True,
+                                               publish_fn=lambda c, t, r: published.append(r)), [])
+        self.assertEqual((t['status'], t['attempts'], published), ('running', [], []))
+        self.assertIn('identity does not match', t['recovery_note'])
+        result['run_identity'] = identity
+        with mock.patch.object(autopilot, 'finished', return_value=(True, result)), \
+                mock.patch.object(autopilot, 'attempt_of', return_value={'ok': True, 'step': 'agy-gemini'}):
+            autopilot.collect(cfg, {'tasks': [t]}, 130, lambda p: True, publish_fn=lambda c, t, r: published.append(r))
+        self.assertEqual((t['status'], published), ('review', [result]))
+        self.assertNotIn('recovery_note', t)
+
+    def test_report_from_a_different_run_is_never_accepted(self):
+        t = task('t1', status='running')
+        t.update(run='1700000000-1', run_identity='a' * 32)
+        self.assertFalse(autopilot.report_identity_matches(t, {'id': '1700000000-2', 'run_identity': 'a' * 32}))
+        for invalid in ('', None, 'bad'):
+            t['run_identity'] = invalid
+            self.assertFalse(autopilot.report_identity_matches(t, {'id': t['run'], 'run_identity': invalid}))
+        self.assertTrue(autopilot.report_identity_matches(task('t2', status='running'), {'id': 'legacy'}))
 
     def test_the_dashboard_toggle_and_its_bad_body(self):
         cfg = self.cfg(enabled=False)

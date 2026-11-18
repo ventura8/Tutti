@@ -1113,18 +1113,33 @@ def worker_question(cfg, t, a):
     return asked
 
 
+def report_identity_matches(task, report):
+    """Hold an identity-bound run when its report belongs to another attempt; legacy runs retain their behavior."""
+    identity = task.get('run_identity')
+    if report and 'run_identity' in task and (not remote.valid_run_identity(identity) or not isinstance(report, dict)
+                                or report.get('id') != task.get('run')
+                                or report.get('run_identity') != identity):
+        task['recovery_note'] = 'report identity does not match this run: held for investigation, not published or retried'
+        return False
+    if report and (task.get('recovery_note') or '').startswith('report identity does not match'):
+        task.pop('recovery_note', None)
+    if task.get('launch_pending'):
+        if not report:
+            task['recovery_note'] = 'launch outcome is unverified: waiting for its report before retrying'
+            return False
+        task.pop('launch_pending', None)
+        task.pop('recovery_note', None)
+    return True
+
+
 def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
     """Every running task whose run ended: an attempt recorded; a pass published for review, a failure queued again (from the
     same worktree, one step up) or parked. Returns event lines."""
     events = []
     for t in [t for t in data['tasks'] if t['status'] == 'running']:
         ended, report = finished(cfg, t, is_alive)
-        if t.get('launch_pending'):
-            if not report:
-                t['recovery_note'] = 'launch outcome is unverified: waiting for its report before retrying'
-                continue
-            t.pop('launch_pending', None)
-            t.pop('recovery_note', None)
+        if not report_identity_matches(t, report):
+            continue
         stuck_why = '' if ended else stuck(cfg, t, now, kill)
         if not ended and not stuck_why:
             continue

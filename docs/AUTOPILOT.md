@@ -283,3 +283,12 @@ cannot leave the task queued in this local backlog while its worker might alread
 visible and waits for its actual report; a confirmed failure to create the child goes back to the queue. This does not
 verify or recover a worker that has detached, a remote run, or an ordinary no-report run after a confirmed launch.
 It does not replace household lease renewal or guarantee that another member cannot take over after a lease expires.
+
+
+### Report correlation
+
+New runs include their saved non-secret run identity in their report. A report with a different run ID or identity is
+held visibly instead of being published or retried; a later matching report is collected. Older runs without an identity
+keep their existing behavior. The identity is a correlation value, not an authentication secret, a proof that a process
+tree stopped, or a fence against a same-user worker. Per-attempt worktrees, remote effects and household lease fencing
+still need separate ownership controls.

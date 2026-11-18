@@ -6,29 +6,38 @@
 # Usage: scripts/release-patch.sh [--dry-run]
 set -euo pipefail
 cd "$(dirname "$0")/.."
+release_root=$PWD
 dry=0
 [[ "${1:-}" = "--dry-run" ]] && dry=1
 git fetch -q --tags origin main
+base_sha=$(git rev-parse origin/main)
 last=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
 [[ -n "$last" ]] || { echo "release-patch: no v* tag yet: tag the first release by hand" >&2; exit 2; }
-if [[ -z "$(git log --format=%s "$last"..origin/main)" ]]; then
+if [[ -z "$(git log --format=%s "$last".."$base_sha")" ]]; then
 	echo "release-patch: nothing merged since $last: no release"
 	exit 0
 fi
 IFS=. read -r major minor patch <<< "${last#v}"
 next="$major.$minor.$((patch + 1))"
 while git rev-parse -q --verify "refs/tags/v$next" > /dev/null; do next="$major.$minor.$((${next##*.} + 1))"; done
-notes=$(git log --format='- %s' "$last"..origin/main | grep -v '^- chore(release)' || true)
+notes=$(git log --format='- %s' "$last".."$base_sha" | grep -v '^- chore(release)' || true)
 echo "release-patch: $last -> v$next"
 printf '%s\n' "$notes"
 [[ "$dry" = 1 ]] && exit 0
 wt=$(mktemp -d)
-trap 'git worktree remove --force "$wt" > /dev/null 2>&1 || true' EXIT
+assets=''
+cleanup() {
+	git -C "$release_root" worktree remove --force "$wt" > /dev/null 2>&1 || true
+	rmdir "$wt" > /dev/null 2>&1 || true
+	if [[ -n "$assets" ]]; then rm -rf -- "$assets"; fi
+}
+trap cleanup EXIT
 branch="release/v$next"
-# a release branch left by a run that stopped half-way is replaced, so the next run never fails on it
-git branch -D "$branch" > /dev/null 2>&1 || true
-git push -q origin --delete "$branch" > /dev/null 2>&1 || true
-git worktree add -q -b "$branch" "$wt" origin/main
+# A concurrent or abandoned release belongs to its creator. Never delete or replace its branch.
+if ! git worktree add -q -b "$branch" "$wt" "$base_sha"; then
+	echo "release-patch: cannot create $branch: it may already exist; inspect its release PR before retrying" >&2
+	exit 1
+fi
 cd "$wt"
 python3 - "$next" "$notes" <<'PY'
 import re
@@ -46,7 +55,11 @@ entry = f'\n## {version} ({date.today().isoformat()})\n\n### Changes\n\n{notes}\
 open(path, 'w', encoding='utf8').write(head.rstrip('\n') + '\n' + entry + (sep + rest if sep else ''))
 PY
 git commit -q -am "chore(release): $next"
-git push -q -u origin "$branch"
+# The empty lease makes creation atomic: never update a remote branch that appeared concurrently.
+if ! git push -q --force-with-lease="refs/heads/$branch:" -u origin "$branch"; then
+	echo "release-patch: could not reserve $branch: it may already exist or the push failed; inspect it before retrying" >&2
+	exit 1
+fi
 gh pr create --base main --head "$branch" --title "chore(release): $next" --body "Batched patch release by self-improvement.
 
 $notes"
@@ -55,9 +68,22 @@ for _ in $(seq 1 30); do   # a new pull request's checks take a moment to regist
 	sleep 10
 done
 gh pr checks "$branch" --watch --fail-fast
-gh pr merge "$branch" --squash --delete-branch
+head_sha=$(git rev-parse HEAD)
 git fetch -q origin main
-sha=$(git rev-parse origin/main)
+[[ "$(git rev-parse origin/main)" = "$base_sha" ]] || {
+	echo "release-patch: main advanced during review: close or update this release PR and rerun its checks before merging" >&2
+	exit 1
+}
+gh pr merge "$branch" --squash --match-head-commit "$head_sha"
+sha=$(gh pr view "$branch" --json state,mergeCommit --jq '. | select(.state == "MERGED") | .mergeCommit.oid')
+[[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "release-patch: the merged PR's commit is unavailable: inspect the PR before tagging" >&2; exit 1; }
+git fetch -q origin main
+git merge-base --is-ancestor "$sha" origin/main || { echo "release-patch: the PR merge is not on origin/main: inspect it before tagging" >&2; exit 1; }
+parent=$(git show -s --format=%P "$sha")
+[[ "$parent" = "$base_sha" ]] || {
+	echo "release-patch: main changed while merging: the PR merged on a different base; inspect and retest before tagging" >&2
+	exit 1
+}
 git tag -a "v$next" "$sha" -m "Tutti $next"
 git push -q origin "v$next"
 assets=$(mktemp -d)

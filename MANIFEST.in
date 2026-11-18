@@ -113,6 +113,7 @@ include tests/test_conduct.py
 include tests/test_config.py
 include tests/test_configone.py
 include tests/test_connect.py
+include tests/test_containment.py
 include tests/test_controls.py
 include tests/test_dashboard.py
 include tests/test_dashui.py
@@ -238,6 +239,7 @@ include tutti/config.py
 include tutti/configmerge.py
 include tutti/configone.py
 include tutti/connect.py
+include tutti/containment.py
 include tutti/controls.py
 include tutti/coordinator.py
 include tutti/cursorusage.py

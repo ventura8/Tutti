@@ -63,3 +63,7 @@ of your project or secrets: describe the setup in general words.
 
 - **2026-11-18, t309:** Restarted jobs made it hard to identify which routed Docker checks belong to one autopilot run.
   New runs carry a non-secret correlation label; remote ownership and safe retries still need verified containment.
+
+
+- **2026-11-18, t309:** Autonomous retry needs evidence stronger than a missing PID or label. Added a conservative,
+  unwired Docker candidate contract; actual verified ownership and safe recovery remain unfinished.

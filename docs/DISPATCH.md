@@ -349,3 +349,15 @@ It is a correlation hint, not an authentication or stop signal: arbitrary runner
 the Docker daemon, escaped processes and removed containers mean that an absent label cannot prove that a run stopped.
 The observation helper reports matching running containers or `unknown`; it never authorizes a retry or kills a job.
 Legacy jobs have no label.
+
+
+### Containment candidate contract
+
+`tutti.containment.classify` is a pure, unwired classifier for future recovery. It checks complete recorded run,
+container, boot and engine IDs; a narrow no-network, unprivileged Docker inspect configuration; a single lexical
+workspace mount; and an unambiguously exited state. Missing, malformed, removed or untrusted-looking data returns
+`unknown`. A matching live container is only `observed-running`; a matching exit is only `stopped-candidate`.
+
+No result authorizes a stop, retry, quota release or publication. This parser does not authenticate the manager, pin
+the workspace mount, attest runtime policy, or prove that no socket, writer or effect escaped. The existing Docker runner
+does not meet this contract by default. A trusted producer and remote/household fencing are still required.

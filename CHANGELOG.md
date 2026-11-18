@@ -11,6 +11,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
+- Define a conservative Docker containment candidate contract; it does not authorize retries (t309).
+
 - Save launch intent before spawning so a possibly launched run is not left queued in the local backlog (t309).
 - Attach a validated per-run correlation label to routed Docker checks, without treating absence as proof of exit (t309).
 

@@ -112,6 +112,7 @@ tests/test_conduct.py
 tests/test_config.py
 tests/test_configone.py
 tests/test_connect.py
+tests/test_containment.py
 tests/test_controls.py
 tests/test_dashboard.py
 tests/test_dashui.py
@@ -237,6 +238,7 @@ tutti/config.py
 tutti/configmerge.py
 tutti/configone.py
 tutti/connect.py
+tutti/containment.py
 tutti/controls.py
 tutti/coordinator.py
 tutti/cursorusage.py

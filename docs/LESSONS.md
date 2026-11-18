@@ -505,3 +505,9 @@ another round can launch a competing attempt. Persist the intended run first and
 
 A disconnected Docker client may leave a container or external writer alive, while `--rm` removes terminal containers.
 Use a per-run label to correlate observations, but never infer that a job stopped solely from an absent label.
+
+
+## A stopped-looking container is only a candidate (t309)
+
+Docker inspection data without authenticated manager identity, pinned mounts and a constrained launch policy does not
+prove that a task's writers or external effects stopped. Keep malformed, missing and unverified evidence unknown.

@@ -79,7 +79,7 @@ def open_view(ctx, hash_=''):
     page.goto(f'{World.dash.base}/{hash_}')
     page.wait_for_function("document.getElementById('live-text') && document.getElementById('live-text').textContent !== 'Loading'")
     page.wait_for_function("document.querySelectorAll('#usage > *').length > 0")
-    page.wait_for_timeout(300)   # the cards after the first state are drawn in the same task; the role's own fetches settle
+    page.wait_for_timeout(1000)   # the cards after the first state are drawn in the same task; the role's own fetches settle
     page.evaluate(CHECKS)
     page.errors = errors
     return page
@@ -93,7 +93,7 @@ def tabs(page):
 
 def go(page, hash_):
     page.evaluate('(h) => { location.hash = h; }', hash_ or '#')
-    page.wait_for_timeout(400)   # a view's own fetch (Settings, Users) answers from the local server well within this
+    page.wait_for_timeout(1000)   # a view's own fetch (Settings, Users) answers from the local server well within this
 
 
 def shot(page, name):

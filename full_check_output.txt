@@ -1,0 +1,7 @@
+ruff is not installed here: skipped (CI runs it)
+..tutti: --until is not after --from: the absence would be over before it starts; give an end after 2026-11-20 07:00
+tutti: --stop-now does not go with --from: a planned absence hands its running work over at its start by itself
+.......................................................................................................................................................................tutti: no repo "nope" under autopilot.repos in /tmp/tmp.4thT6QuB2D/tutti-tests-zou0dqhg/t-qplvvrzm/tmp5i9qkz3b/tutti.config.yaml: the repos are app
+tutti: t1 is running (run 1-1): wait for it (tutti wait run 1-1), then retry it
+.........................................................................................F/usr/bin/python3: can't open file '/tmp/tmp.4thT6QuB2D/tutti-tests-zou0dqhg/t-9bwop8xg/tutti-t-3bdbvte1/chrome.py': [Errno 2] No such file or directory
+............................................................................................................................................................................................................................................................................................................................F....................................................................EF

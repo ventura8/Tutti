@@ -1,0 +1,12 @@
++ set -euo pipefail
+++ dirname scripts/check-debug.sh
++ cd scripts/..
++ run_cmd python3 tests/run.py
++ echo '--- Running: python3 tests/run.py ---'
+--- Running: python3 tests/run.py ---
++ python3 tests/run.py
+..tutti: --until is not after --from: the absence would be over before it starts; give an end after 2026-11-20 07:00
+tutti: --stop-now does not go with --from: a planned absence hands its running work over at its start by itself
+.......................................................................................................................................................................tutti: no repo "nope" under autopilot.repos in /tmp/tutti-tests-3fiixoy5/t-dl35k75r/tmpgy_iv63d/tutti.config.yaml: the repos are app
+tutti: t1 is running (run 1-1): wait for it (tutti wait run 1-1), then retry it
+......................................................................................................................................................................................................................................................................................................................................................................................................................F....................................................................EF

@@ -69,7 +69,7 @@ class AbsenceTest(unittest.TestCase):
         from tutti import tz
         tomorrow = tz.local_now(controls.parse_when('tomorrow 07:00', now=NOW))
         self.assertEqual(((tomorrow.date() - tz.local_now(NOW).date()).days, tomorrow.hour, tomorrow.minute), (1, 7, 0))
-        self.assertGreater(controls.parse_when('2026-11-16 07:00'), time.mktime((2026, 11, 15, 0, 0, 0, 0, 0, -1)))
+        self.assertGreater(controls.parse_when('2026-11-20 07:00'), time.mktime((2026, 11, 19, 0, 0, 0, 0, 0, -1)))
         with self.assertRaisesRegex(ValueError, 'tomorrow 07:00'):
             controls.parse_when('next week')
 
@@ -79,8 +79,8 @@ class AbsenceTest(unittest.TestCase):
 
         from tutti import cli
         cfg = {'_path': '/x', 'project': {'state': self.tmp}, 'raw_entries': {'devices': {'p': {}}}, 'devices': {'p': {}}}
-        a = SimpleNamespace(cmd='pause', kind='device', name='p', note='', stop_now=False, start='2026-11-16 07:00',
-                            until='2026-11-15 07:00')
+        a = SimpleNamespace(cmd='pause', kind='device', name='p', note='', stop_now=False, start='2026-11-20 07:00',
+                            until='2026-11-19 07:00')
         self.assertEqual(cli.cmd_control(cfg, a), 2)
         a.until, a.stop_now = 'unknown', True
         self.assertEqual(cli.cmd_control(cfg, a), 2)

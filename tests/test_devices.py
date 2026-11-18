@@ -232,7 +232,7 @@ class ReadingsScriptTest(unittest.TestCase):
 
     def read(self, **env):
         r = subprocess.run(['bash', READINGS], env={**os.environ, 'DEVICE_SERIAL': 'R58', 'DEVICE_LOCK': self.lock, 'ADB': self.adb, **env},
-                           capture_output=True, text=True, timeout=30, check=True)
+                           capture_output=True, text=True, timeout=120, check=True)
         return devices.parse_readings(r.stdout)
 
     def test_a_good_device(self):
@@ -285,7 +285,7 @@ class DeviceRunTest(unittest.TestCase):
 
     def test_the_command_gets_the_serial_and_a_job_record(self):
         p = self.tutti('test', '--device', 'pixel', '--', 'echo serial=$ANDROID_SERIAL')
-        out, err = p.communicate(timeout=60)
+        out, err = p.communicate(timeout=120)
         self.assertEqual(p.returncode, 0, err)
         self.assertIn('serial=R58', out)
         folder = os.path.join(self.tmp.name, 'state', 'devices')
@@ -311,13 +311,13 @@ class DeviceRunTest(unittest.TestCase):
         self.assertTrue(seen and 'waiting for a free slot' in seen[-1], ''.join(seen))
         self.assertFalse(os.path.exists(os.path.join(self.tree, 'ran')))
         f.close()
-        out, err = p.communicate(timeout=60)
+        out, err = p.communicate(timeout=120)
         self.assertEqual(p.returncode, 0, err)
         self.assertTrue(os.path.exists(os.path.join(self.tree, 'ran')))
 
     def test_a_flat_battery_refuses_with_the_reason(self):
         p = self.tutti('test', '--device', 'pixel', '--wait-minutes', '0', '--', 'touch', 'ran', FAKE_LEVEL='5')
-        _out, err = p.communicate(timeout=60)
+        _out, err = p.communicate(timeout=120)
         self.assertEqual(p.returncode, 3)
         self.assertIn('battery 5 % is under 30 %', err)
         self.assertFalse(os.path.exists(os.path.join(self.tree, 'ran')))

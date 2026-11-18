@@ -14,6 +14,9 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - Chat's `delegate_task` (and `tutti run auto`) takes over while the main agent panics, like the autopilot does: an
   account's used-up planned room no longer stops it; only its own panic or a spent quota does. Chat had answered
   "no agent account has room" while Cursor had room.
+- Needs-person tasks are now resolved by Tutti itself before they reach a person: each unblocker round reviews parked
+  tasks oldest first, asks the local main model first and the online main agent (current or auto) only if local cannot
+  decide, and logs the question, chosen answer and decision tier in `unblock.json`.
 
 ### Added
 

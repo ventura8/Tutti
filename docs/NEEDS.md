@@ -17,7 +17,8 @@ pacing and token limits, and asks a person only what only a person can decide.
 ## When a task needs you
 
 A task that needs a decision is parked with **one question**: what, why, the options and a default. The rest of the
-work goes on.
+work goes on. Before it asks you, the unblocker tries to resolve parked tasks itself (oldest first): local main model
+first, then the online main agent within pacing; only true owner choices stay in Needs you.
 
 - **The autopilot parks a task** (no progress on the strongest step, or too many attempts): *Retry it, start it from
   scratch, or drop it?* Default: retry. The answer queues it again with its tries counted afresh, or drops it.

@@ -8,15 +8,17 @@ What it finds (`find`, pure):
   (tutti/brain.py: the best free one in the household) reads the last failure and writes a diagnosis and a fix for the next
   attempt; the task is queued again with that note, so its next attempt edits a worktree and reruns the task's check. When
   no local model answers, or the task is size L, an online agent diagnoses (brain.ask's fallback, within pacing).
-- **parked**: a task waiting on a person's answer. The model may pick one of the listed options when the history decides it
-  (e.g. retry after a usage limit); otherwise the question stays for the person.
+- **parked**: a task waiting on a person's answer. Each round, parked tasks are reviewed oldest first. The local main
+  model decides first; when it cannot, the online main agent (current or auto) decides within pacing. Only true owner
+  choices stay for a person.
 - **conflict**: a result that no longer rebases onto main: queued again from scratch on the current main.
 - **idle machines with queued work**: work held back by usage-limit failures is the limit-only case above; any other
   backoff (pacing, a quota window) is left alone on purpose.
 - **red-ci**: a failed check run on an open pull request of `ai_assist.unblock_repos`: its failed jobs are rerun once per
   head commit (a second red on the same commit is left to the task's own retry).
 
-Every attempt is logged (`unblock.json`: what, by local, online or rule, the action, the outcome) for the dashboard. It acts
+Every attempt is logged (`unblock.json`: what, by local, online, person or rule, the decision tier, the question, the
+answer when one was picked, and the outcome) for the dashboard. It acts
 only on the active main machine (failover lease), at most `MAX_PER_ROUND` items a round, each item at most once per
 COOLDOWN; it never kills a process (the autopilot's watchdog ends stuck runs by their exact pid)."""
 import json
@@ -25,6 +27,7 @@ import re
 import subprocess
 import threading
 import time
+from datetime import datetime, timezone
 
 from . import backlog, config, telemetry
 
@@ -80,12 +83,21 @@ def due(t, kind, tried, now):
 def find(data, now, log=(), limit=MAX_PER_ROUND):
     """[{kind, id, title}] to try this round: never one tried within its cooldown."""
     tried = {e.get('id'): float(e.get('at') or 0) for e in log}
-    out = []
+    parked, out = [], []
     for t in data.get('tasks') or []:
         kind = classify(t, data.get('questions') or [])
         if kind and due(t, kind, tried.get(t['id'], 0), now):
-            out.append({'kind': kind, 'id': t['id'], 'title': str(t.get('title') or '')[:120]})
-    return out[:limit]
+            item = {'kind': kind, 'id': t['id'], 'title': str(t.get('title') or '')[:120], 'added': _added_time(t)}
+            (parked if kind == 'parked' else out).append(item)
+    parked.sort(key=lambda x: (x['added'], x['id']))
+    return [*parked, *out][:limit]
+
+
+def _added_time(task):
+    try:
+        return float(task.get('added') or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def diagnose_prompt(t):
@@ -157,12 +169,14 @@ def answer_parked(cfg, item, verdict, now):
     from . import needs
     q = next((x for x in _questions(cfg) if x.get('task') == item['id'] and x.get('status') == 'open'), None)
     if not q:
-        return 'no open question any more'
+        return {'outcome': 'no open question any more', 'question': '', 'answer': ''}
     pick = next((o for o in q.get('options') or [] if o.lower() == verdict.get('action')), None)
     if not pick:
-        return 'a true decision: left for the person'
+        return {'outcome': 'a true decision: left for the person', 'question': q.get('question') or '', 'answer': ''}
     ok, why = needs.answer(cfg, q['id'], pick, role='admin', key='tutti-unblocker', now=now)
-    return f'decided "{pick}": {verdict.get("why") or ""}'.strip() if ok else why
+    if ok:
+        return {'outcome': f'decided "{pick}": {verdict.get("why") or ""}'.strip(), 'question': q.get('question') or '', 'answer': pick}
+    return {'outcome': why, 'question': q.get('question') or '', 'answer': pick}
 
 
 # ---- the round
@@ -175,32 +189,90 @@ def needs_model(item):
     return item['kind'] in ('failing', 'parked')
 
 
-def handle(cfg, item, ask, now):
-    """One item: the model when it needs judgement (local first, online only when local fails or the task is size L)."""
-    by, verdict = 'rule', {}
+def handle(cfg, item, ask, ask_online, now):
+    """One item: the model when it needs judgement (local main first, online main next, then person)."""
+    by, tier, verdict = 'rule', 'rule', {}
     if needs_model(item):
-        answer, who = judge(cfg, item, ask)
+        answer, who = judge(cfg, item, ask, ask_online)
         if not answer:
-            return {'by': 'none', 'outcome': f'no model answered ({who}): left as it is'}
+            return {'by': 'none', 'tier': 'none', 'outcome': f'no model answered ({who}): left as it is', 'question': '',
+                    'answer': '', 'attempts': len(task_of(cfg, item['id']).get('attempts') or []), 'last_failure': _last_failure(cfg, item)}
         verdict = parse(answer)
         by = 'online' if who in _cli_workers(cfg) else 'local'
-    outcome = answer_parked(cfg, item, verdict, now) if item['kind'] == 'parked' else apply(cfg, item, verdict, now)
-    return {'by': by, 'outcome': outcome, 'why': verdict.get('why', '')}
+        tier = 'online-main' if by == 'online' else 'local-main'
+    if item['kind'] == 'parked':
+        parked = answer_parked(cfg, item, verdict, now)
+        if not parked['answer'] and by != 'rule':
+            by, tier = 'person', 'person'
+        return {'by': by, 'tier': tier, 'outcome': parked['outcome'], 'why': verdict.get('why', ''),
+                'question': parked['question'], 'answer': parked['answer'],
+                'attempts': len(task_of(cfg, item['id']).get('attempts') or []), 'last_failure': _last_failure(cfg, item)}
+    outcome = apply(cfg, item, verdict, now)
+    return {'by': by, 'tier': tier, 'outcome': outcome, 'why': verdict.get('why', ''), 'question': '', 'answer': '',
+            'attempts': len(task_of(cfg, item['id']).get('attempts') or []), 'last_failure': _last_failure(cfg, item)}
 
 
-def judge(cfg, item, ask):
-    """(answer, who): local first; online only when local failed (asked once more, online only) or the task is size L."""
+def judge(cfg, item, ask, ask_online):
+    """(answer, who): local main first; online main only when local did not answer."""
     t = task_of(cfg, item['id'])
     if item['kind'] == 'failing':
         prompt = diagnose_prompt(t)
     else:
         q = next((x for x in _questions(cfg) if x.get('task') == item['id'] and x.get('status') == 'open'), {})
         prompt = decide_prompt(t, q)
-    big = t.get('size') == 'L'
-    answer, who = ask(cfg, prompt, 'unblock', online=big)
-    if not answer and not big:
-        answer, who = ask(cfg, prompt, 'unblock', online=True, local_first=False)
+    answer, who = ask(cfg, prompt, 'unblock', online=False)
+    if not answer:
+        answer, who = ask_online(cfg, prompt)
     return answer, who
+
+
+def _last_failure(cfg, item):
+    tries = task_of(cfg, item['id']).get('attempts') or []
+    failed = [a for a in tries if not a.get('ok')]
+    return str((failed[-1] if failed else {}).get('why') or '')[:200]
+
+
+def pick_online_main(cfg, available=None, room=None):
+    """(worker name, args) for the online main agent with room (current/auto order), else (None, why)."""
+    from . import brain, conduct, review, workers
+    name = online_main_worker(cfg)
+    w = (cfg.get('workers') or {}).get(name) or {}
+    if not name or not w:
+        return None, 'no online main agent has room now'
+    available = available or (lambda worker: workers.available(worker, timeout=1))
+    if room is None:
+        from . import pacing, state
+        now = datetime.now(timezone.utc)
+        try:
+            entries = pacing.read_log(state.usage_log_path(cfg))
+        except (OSError, ValueError):
+            entries = []
+        def room(worker_name):
+            return review.worker_room(cfg, worker_name, entries, now)
+    args, why = brain.online_room(w, name, available, room)
+    return (name, args) if args is not None else (None, f'main agent {name}: {why}')
+
+
+def online_main_worker(cfg):
+    """The first CLI main-agent worker with room in current/auto order, else ''."""
+    from . import conduct
+    states = conduct.account_states(cfg) if isinstance(cfg.get('accounts'), dict) else []
+    check_room = bool(states) and isinstance(cfg.get('accounts'), dict)
+    names = conduct.order(conduct.current(cfg), (cfg.get('main') or {}).get('fallback') or [])
+    for name in names:
+        w = (cfg.get('workers') or {}).get(name) or {}
+        if w.get('kind') != 'cli':
+            continue
+        if check_room and conduct.out_reason(cfg, name, states):
+            continue
+        return name
+    return ''
+
+
+def ask_online_main(cfg, prompt, ask_online_fn=None, pick=None):
+    """The unblocker's online tier: the current/auto main agent, within pacing."""
+    from . import brain
+    return (ask_online_fn or brain.ask_online)(cfg, prompt, pick=pick or pick_online_main)
 
 
 def _cli_workers(cfg):
@@ -243,26 +315,29 @@ def rerun(item, run=subprocess.run):
     return 'failed jobs rerun once' if r.returncode == 0 else f'rerun refused ({(r.stderr or "").strip()[:120]})'
 
 
-def tick(cfg, now=None, ask=None, run=subprocess.run, may_write=None):
+def tick(cfg, now=None, ask=None, ask_online=None, run=subprocess.run, may_write=None):
     """One round. Returns event lines. Nothing on a machine that is not the active main (the failover lease)."""
     from . import aiassist, brain, failover
     if not aiassist.settings(cfg).get('unblock', True) or not (may_write or failover.may_write)(cfg):
         return []
     now = now or time.time()
     ask = ask or brain.ask
+    ask_online = ask_online or ask_online_main
     log = read_log(cfg)
     items = find(backlog.load(cfg) | {'questions': _questions(cfg)}, now, log)
     items += red_ci(cfg, run, log)[:max(0, MAX_PER_ROUND - len(items))]
     events = []
     for item in items:
         try:
-            res = {'by': 'rule', 'outcome': rerun(item, run)} if item['kind'] == 'red-ci' else handle(cfg, item, ask, now)
+            res = {'by': 'rule', 'tier': 'rule', 'outcome': rerun(item, run), 'question': '', 'answer': '',
+                   'attempts': 0, 'last_failure': ''} if item['kind'] == 'red-ci' else handle(cfg, item, ask, ask_online, now)
         except Exception as e:  # one item's surprise must not end the round: logged, the next items go on
-            res = {'by': 'none', 'outcome': f'{type(e).__name__}: {e}'[:200]}
+            res = {'by': 'none', 'tier': 'none', 'outcome': f'{type(e).__name__}: {e}'[:200], 'question': '', 'answer': '',
+                   'attempts': 0, 'last_failure': ''}
         entry = {'at': now, **{k: item[k] for k in ('kind', 'id', 'title')}, **res}
         write_log(cfg, entry)
         telemetry.record('feature', 'unblocker.try', block=item['kind'], by=res['by'])
-        events.append(f'unblocker: {item["id"]} ({item["kind"]}, {res["by"]}): {res["outcome"]}')
+        events.append(f'unblocker: {item["id"]} ({item["kind"]}, {res["tier"]}): {res["outcome"]}')
     return events
 
 

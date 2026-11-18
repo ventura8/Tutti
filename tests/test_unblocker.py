@@ -3,6 +3,7 @@ local fails, true decisions left for a person, the failover lease and the cooldo
 every attempt logged. Models and gh are fakes."""
 import json
 import unittest
+from unittest import mock
 
 import tmpdirs
 
@@ -31,12 +32,21 @@ class Base(unittest.TestCase):
 
     def tick(self, answers=(), **kw):
         asked = []
+        at = [0]
 
         def ask(cfg, prompt, purpose, online=True, local_first=True):
             asked.append(online)
-            a = answers[len(asked) - 1] if len(asked) <= len(answers) else (None, 'no model answered (pc down)')
+            at[0] += 1
+            a = answers[at[0] - 1] if at[0] <= len(answers) else (None, 'no model answered (pc down)')
             return a
-        ev = unblocker.tick(self.cfg, NOW, ask=ask, run=kw.pop('run', lambda *a, **k: None), may_write=kw.pop('may_write', lambda c: True))
+
+        def ask_online(cfg, prompt):
+            asked.append(True)
+            at[0] += 1
+            a = answers[at[0] - 1] if at[0] <= len(answers) else (None, 'no model answered (pc down)')
+            return a
+        ev = unblocker.tick(self.cfg, NOW, ask=ask, ask_online=ask_online, run=kw.pop('run', lambda *a, **k: None),
+                            may_write=kw.pop('may_write', lambda c: True))
         return ev, asked
 
 
@@ -54,15 +64,17 @@ class Finds(Base):
     def test_a_failing_task_is_diagnosed_locally_and_queued_with_the_fix(self):
         tid = self.task('Add --json', attempts=fails('the worker exited 1', 'check rc=127', 'the worker exited 1'))
         ev, asked = self.tick([('ACTION: retry\nWHY: pytest is not on PATH\nFIX: call python3 -m pytest', 'pc-local')])
-        self.assertEqual(asked, [False])   # local only first
+        self.assertEqual(asked, [False])   # local main first
         self.assertIn('Fix for this attempt: call python3 -m pytest', self.get(tid)['notes'][-1])
         self.assertEqual(unblocker.read_log(self.cfg)[-1]['by'], 'local')
+        self.assertEqual(unblocker.read_log(self.cfg)[-1]['tier'], 'local-main')
 
     def test_local_fails_then_online(self):
         self.task('Add --json', attempts=fails('the worker exited 1', 'the worker exited 1', 'the worker exited 1'))
         _, asked = self.tick([(None, 'pc down'), ('ACTION: retry\nWHY: w\nFIX: f', 'agy')])
-        self.assertEqual(asked, [False, True])   # the second call goes online only (local_first=False)
+        self.assertEqual(asked, [False, True])   # local main first, then online main
         self.assertEqual(unblocker.read_log(self.cfg)[-1]['by'], 'online')
+        self.assertEqual(unblocker.read_log(self.cfg)[-1]['tier'], 'online-main')
 
     def test_a_true_decision_goes_to_the_needs_queue(self):
         tid = self.task('Pick a licence', attempts=fails('the worker exited 1', 'the worker exited 1', 'the worker exited 1'))
@@ -76,6 +88,8 @@ class Finds(Base):
             needs.ask(self.cfg, backlog.find(data, tid), 'Retry it?', 'limits', ['retry', 'drop'], 'retry', now=NOW)
         self.tick([('ACTION: retry\nWHY: only usage limits failed it', 'pc-local')])
         self.assertEqual(self.get(tid)['status'], 'queued')
+        row = unblocker.read_log(self.cfg)[-1]
+        self.assertEqual((row['question'], row['answer']), ('Retry it?', 'retry'))
 
     def test_a_parked_question_the_model_cannot_decide_stays(self):
         tid = self.task('Licence', attempts=fails('x'))
@@ -84,6 +98,16 @@ class Finds(Base):
         ev, _ = self.tick([('ACTION: person\nWHY: taste', 'pc-local')])
         self.assertEqual(self.get(tid)['status'], 'needs-person')
         self.assertIn('true decision', ev[0])
+        self.assertEqual(unblocker.read_log(self.cfg)[-1]['tier'], 'person')
+
+    def test_parked_tasks_are_reviewed_oldest_first(self):
+        newer = self.task('Newer', status='needs-person', added=NOW + 10)
+        older = self.task('Older', status='needs-person', added=NOW - 10)
+        with backlog.locked(self.cfg) as data:
+            needs.ask(self.cfg, backlog.find(data, newer), 'retry newer?', 'x', ['retry', 'drop'], 'retry', now=NOW)
+            needs.ask(self.cfg, backlog.find(data, older), 'retry older?', 'x', ['retry', 'drop'], 'retry', now=NOW)
+        ev, _ = self.tick([('ACTION: retry\nWHY: safe', 'pc-local'), ('ACTION: retry\nWHY: safe', 'pc-local')])
+        self.assertIn(f'unblocker: {older}', ev[0])
 
     def test_a_rebase_conflict_is_redone_from_scratch(self):
         tid = self.task('X', status='review', publish_note='it does not rebase cleanly onto main')
@@ -151,6 +175,20 @@ class Limits(Base):
     def test_nothing_blocked_nothing_done(self):
         self.task('fresh')
         self.assertEqual(self.tick()[0], [])
+
+    def test_online_main_pick_uses_the_current_main_agent(self):
+        with mock.patch('tutti.conduct.current', return_value='agy'):
+            self.assertEqual(unblocker.pick_online_main(self.cfg, room=lambda n: (['--model', 'x'], ''),
+                                                        available=lambda w: (True, '')),
+                             ('agy', ['--model', 'x']))
+        self.cfg['main'] = {'fallback': ['agy']}
+        with mock.patch('tutti.conduct.current', return_value='pc-local'):
+            self.assertEqual(unblocker.online_main_worker(self.cfg), 'agy')
+        self.cfg['main'] = {'fallback': []}
+        with mock.patch('tutti.conduct.current', return_value='pc-local'):
+            name, why = unblocker.pick_online_main(self.cfg)
+            self.assertIsNone(name)
+            self.assertIn('no online main agent', why)
 
 
 if __name__ == '__main__':

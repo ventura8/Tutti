@@ -26,7 +26,7 @@ import json
 import re
 import time
 
-from . import backlog, config, grokweek, pacing, scouts
+from . import autopilot, backlog, config, grokweek, pacing, scouts
 
 DEFAULTS = {'enabled': True, 'hours': 6, 'stop_at': 95, 'min_gap_hours': 3, 'pace_gap_hours': 6, 'burst_per_tick': 10,
             'burst_max_open': 30, 'review_repos': None, 'second_wait_minutes': 30}
@@ -174,6 +174,10 @@ def plan(cfg, sc, requests, acc, now):
     """{on, why, items, later, week}: what the round would send now, in order (reviews are listed by the round, which asks
     GitHub), and the week's budget."""
     on, why = active(sc, acc, now)
+    if not on:
+        states = autopilot.read_state(cfg)
+        if autopilot.main_in_panic(cfg, states) and acc.get('verdict') != 'spent' and not acc.get('panic'):
+            on, why = True, 'panic override'
     b = week(sc, acc, now) if acc else grokweek.budget(None, now, 1, 95, 6)
     if not on:
         return {'on': False, 'why': why, 'items': [], 'later': 0, 'week': b}
@@ -183,7 +187,7 @@ def plan(cfg, sc, requests, acc, now):
     target = pacing.parse_time(acc['target']).timestamp()
     later = len(extra_watches(sc, requests, acc, now, target)) - sum(1 for i in items if i['kind'] not in ('research', 'second',
                                                                                                          'scouting'))
-    return {'on': True, 'why': '', 'items': items, 'later': max(0, later), 'week': b}
+    return {'on': True, 'why': why, 'items': items, 'later': max(0, later), 'week': b}
 
 
 def count(p, reviews=0):

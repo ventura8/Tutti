@@ -1624,7 +1624,7 @@ class PageLogic(unittest.TestCase):
             const first = {text: '[bad](javascript:alert) **safe**'}, second = {text: first.text};
             const a = mdRender(first.text, first), b = mdRender(first.text, first);
             mdRender(second.text, second);
-            first.text = '[ok](https://example.com) changed';
+            first.text = '[ok](https://docs.example) changed';
             const changed = mdRender(first.text, first);
             return {count, frozen, freshNodes: a.children[0] !== b.children[0],
                 bad: a.children[0].tree, changed: changed.children[0].tree};
@@ -1633,14 +1633,14 @@ class PageLogic(unittest.TestCase):
         self.assertTrue(result['frozen'])
         self.assertTrue(result['freshNodes'])
         self.assertNotIn('"href":"javascript:', result['bad'])
-        self.assertIn('https://example.com', result['changed'])
+        self.assertIn('https://docs.example', result['changed'])
 
     def test_cached_markdown_still_builds_safe_fresh_dom(self):
         result = js('''(() => {
             const node = (tag, text = '') => ({tag, text, children: [], append(n) { this.children.push(n); }});
             global.document = {createDocumentFragment: () => node('fragment'), createElement: (tag) => node(tag),
                 createTextNode: (text) => node('text', text)};
-            const message = {text: '<script>bad</script> [x](javascript:alert) [ok](https://example.com)'};
+            const message = {text: '<script>bad</script> [x](javascript:alert) [ok](https://docs.example)'};
             const a = mdRender(message.text, message), b = mdRender(message.text, message);
             const para = a.children[0];
             return {different: a.children[0] !== b.children[0], children: para.children};
@@ -1648,7 +1648,7 @@ class PageLogic(unittest.TestCase):
         self.assertTrue(result['different'])
         self.assertTrue(any('<script>bad</script>' in c.get('text', '') for c in result['children']))
         links = [c for c in result['children'] if c['tag'] == 'a']
-        self.assertEqual([link['href'] for link in links], ['https://example.com'])
+        self.assertEqual([link['href'] for link in links], ['https://docs.example'])
 
     def test_version_refresh_waits_for_chat_work_but_allows_idle_chat(self):
         idle = "{streaming:null,editing:null,pending:[]}"

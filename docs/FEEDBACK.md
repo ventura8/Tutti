@@ -1,7 +1,5 @@
 # Feedback log
 
-Redrawing a long Chat should avoid reparsing every unchanged message (t407).
-
 Household reassignment must preserve the old holder's uncheckpointed work when its local backup fails (t309).
 Missing dispatch results and unconfirmed stops must not free a target while its work may still run (t309).
 
@@ -48,6 +46,7 @@ of your project or secrets: describe the setup in general words.
 
 | # | Date | Command | What happened | Expected | Status |
 | --- | --- | --- | --- | --- | --- |
+| 21 | 2026-11-19 | Chat redraw | Redrawing reparsed unchanged message Markdown. | Reuse unchanged parsing while retaining safe rendering. | Fixed repeated parsing (t407); pagination and virtualization remain open. |
 | 20 | 2026-11-18 | Linked account usage | A reset window could be shown in panic at zero percent when its linked quota was in panic. | Name the quota that actually blocks work. | Diagnostic fixed for the next release (t272). |
 | 19 | 2026-11-18 | Autopilot pacing | A finished local attempt could leave its model permanently busy. | Reuse available local models when online accounts are ahead. | Fixed local attempt accounting (t301). |
 | 18 | 2026-11-18 | Autopilot retries | Missing reports on every worker could park a task as exhausted. | Keep environment failures from exhausting the worker ladder. | Fixed in the next release (t260). |

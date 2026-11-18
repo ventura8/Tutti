@@ -1087,7 +1087,7 @@ class ReviewFixes(ToolLoop):
 class CursorStream(unittest.TestCase):
     def test_documented_events_extract_text_and_never_expose_tool_data(self):
         from tutti import chatrun
-        text = {'type': 'assistant', 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': 'Hello'}]}}
+        text = {'type': 'assistant', 'timestamp_ms': 1, 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': 'Hello'}]}}
         tool = {'type': 'tool_call', 'subtype': 'started', 'tool_call': {'shell': {'args': {'command': 'secret'}}}}
         self.assertEqual(list(chatrun.cursor_event(json.dumps(text))), ['Hello'])
         self.assertEqual(list(chatrun.cursor_event(json.dumps(tool))), [{'progress': 'Agent tool started.'}])
@@ -1095,7 +1095,8 @@ class CursorStream(unittest.TestCase):
         self.assertEqual(list(chatrun.cursor_event(json.dumps(terminal))),
                          [{'cursor_terminal': True}])
         self.assertEqual(list(chatrun.cursor_event(json.dumps({'type': 'unknown', 'secret': 'hidden'}))), [])
-        for bad in ('{', '[]', '{"type":"assistant","message":{}}', '{"type":"result","is_error":true}'):
+        for bad in ('{', '[]', '{"type":"assistant","timestamp_ms":1,"message":{}}',
+                    '{"type":"assistant","timestamp_ms":null}', '{"type":"result","is_error":true}'):
             with self.subTest(bad=bad), self.assertRaises(OSError):
                 list(chatrun.cursor_event(bad))
 
@@ -1121,7 +1122,10 @@ class CursorStream(unittest.TestCase):
         self.assertEqual(list(chatrun.cli_stream(plain, [], threading.Event(), popen=lambda *_a, **_kw: Process(['raw\n']))), ['raw\n'])
         worker = {'command': ['cursor-agent', '-p', '--output-format', 'stream-json', '--stream-partial-output', '{prompt}'],
                   'chat_output_format': 'cursor-stream-json'}
-        events = [json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'Hi'}]}}),
+        events = [json.dumps({'type': 'assistant', 'timestamp_ms': 1, 'message': {'content': [{'type': 'text', 'text': 'Hi'}]}}),
+                  json.dumps({'type': 'assistant', 'timestamp_ms': 2, 'model_call_id': 'call',
+                              'message': {'content': [{'type': 'text', 'text': 'Hi'}]}}),
+                  json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'Hi'}]}}),
                   json.dumps({'type': 'tool_call', 'subtype': 'completed', 'tool_call': {'data': 'private'}}),
                   json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'Hi'})]
         self.assertEqual(list(chatrun.cli_stream(worker, [], threading.Event(), popen=lambda *_a, **_kw: Process(events))),

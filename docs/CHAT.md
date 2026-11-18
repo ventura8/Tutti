@@ -15,7 +15,8 @@ still has only in-process execution protection and must not be run concurrently 
 
 Cursor CLI partial events are opt-in: set `workers.<name>.chat_output_format: cursor-stream-json` and include
 `--output-format stream-json --stream-partial-output` in that worker's command or Chat arguments. Chat decodes Cursor's
-documented assistant text deltas and shows generic tool start/completion notes without tool arguments or results. Unknown
+documented assistant text deltas, skips Cursor's duplicate buffered and final flushes, and shows generic tool start/completion
+notes without tool arguments or results. Unknown
 events are ignored, and malformed events or a missing successful terminal result fail the answer; plain-text workers keep
 their existing output. This decoding does not restrict tools the Cursor process itself can run: its configured mode and CLI
 permissions still govern that. It does not enable agent mode or verify provider account identity. See [Cursor's output format

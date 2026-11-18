@@ -164,6 +164,12 @@ def cursor_event(line):
         raise OSError('Cursor stream returned a non-object event: check the configured output format')
     kind = event.get('type')
     if kind == 'assistant':
+        # With --stream-partial-output Cursor repeats buffered and final flushes: only timestamped events without
+        # model_call_id contain new text (Cursor CLI output-format reference).
+        if 'timestamp_ms' in event and (not isinstance(event['timestamp_ms'], int) or isinstance(event['timestamp_ms'], bool)):
+            raise OSError('Cursor stream assistant timestamp is invalid: check the CLI version')
+        if 'timestamp_ms' not in event or 'model_call_id' in event:
+            return
         message = event.get('message')
         content = message.get('content') if isinstance(message, dict) else None
         if not isinstance(content, list):

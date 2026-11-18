@@ -621,6 +621,7 @@ class SurfaceTest(Base):
         def crash(c, task, step, now, spawn, states, run_id=None):
             saved = backlog.load(c)['tasks'][0]
             self.assertEqual((saved['status'], saved['launch_pending'], saved['run']), ('running', True, run_id))
+            self.assertRegex(saved['run_identity'], r'^[0-9a-f]{32}$')
             raise RuntimeError('simulated process loss after durable intent')
         with mock.patch.object(autopilot, 'dispatch', side_effect=crash), self.assertRaisesRegex(RuntimeError, 'simulated'):
             autopilot.tick(cfg, {'agy-gemini': account('agy-gemini')}, [])
@@ -632,6 +633,20 @@ class SurfaceTest(Base):
         self.assertEqual((saved['status'], saved['attempts']), ('running', []))
         self.assertIn('unverified', saved['recovery_note'])
         self.assertFalse(any('sent to' in event for event in events))
+
+    def test_persisted_run_identity_reaches_spawned_worker(self):
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        cfg['machines'] = {}
+        with backlog.locked(cfg) as data:
+            backlog.add(data, backlog.new_task('app', 'x', [], 'true'))
+        seen = []
+        def fake_spawn(*args, **kwargs):
+            seen.append(kwargs['env']['TUTTI_RUN_IDENTITY'])
+            return SimpleNamespace(pid=123)
+        autopilot.tick(cfg, {'agy-gemini': account('agy-gemini')}, [], spawn=fake_spawn)
+        saved = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(seen, [saved['run_identity']])
+        self.assertRegex(saved['run_identity'], r'^[0-9a-f]{32}$')
 
     def test_unknown_post_launch_failure_is_held_without_retry(self):
         cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])

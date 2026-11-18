@@ -515,7 +515,28 @@ def rewrite(runner, command):
     return command
 
 
-def runner_command(machine, track, command, mount=''):
+def valid_run_identity(value):
+    """A non-secret random run label, not an ownership credential."""
+    return isinstance(value, str) and bool(re.fullmatch(r'[0-9a-f]{32}', value))
+
+
+def container_observation(identity, rows, query_ok):
+    """Return observed running container IDs; absence or an incomplete query never proves a run stopped."""
+    if not valid_run_identity(identity) or query_ok is not True or not isinstance(rows, list) or len(rows) > 1000:
+        return {'state': 'unknown', 'containers': []}
+    found = []
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get('running'), bool):
+            return {'state': 'unknown', 'containers': []}
+        cid = row.get('id')
+        if not isinstance(cid, str) or not re.fullmatch(r'[0-9a-f]{12,64}', cid):
+            return {'state': 'unknown', 'containers': []}
+        if row.get('identity') == identity and row['running']:
+            found.append(cid)
+    return {'state': 'observed' if found else 'unknown', 'containers': sorted(set(found))}
+
+
+def runner_command(machine, track, command, mount='', identity=None):
     """The line that runs `command` at the tree root: plain bash, or a capped container (memory, no extra swap, CPUs).
     `mount` is extra docker -v arguments (a linked worktree's main .git)."""
     r = machine['runner']
@@ -528,7 +549,8 @@ def runner_command(machine, track, command, mount=''):
     # a None value passes the variable through from the shell (a wireless device's ANDROID_SERIAL is picked at run time)
     env = ' '.join(f'-e {shlex.quote(k if v is None else f"{k}={v}")}' for k, v in r.get('env', {}).items())
     extra = ' '.join(shlex.quote(str(a)) for a in r.get('args', []))
-    return (f'docker run --rm --memory={r["memory_gb"]}g --memory-swap={r["memory_gb"]}g --cpus={r["cpus"]} {env} {extra} '
+    label = f'--label io.tutti.run={identity} ' if valid_run_identity(identity) else ''
+    return (f'docker run --rm --memory={r["memory_gb"]}g --memory-swap={r["memory_gb"]}g --cpus={r["cpus"]} {env} {extra} {label}'
             f'--name tutti-{machine["name"]}-{track}-$RANDOM -u "$(id -u):$(id -g)" -v "$PWD:$PWD" -w "$PWD" '
             f'{mount + " " if mount else ""}{shlex.quote(r["image"])} bash -c {shlex.quote(inner)}')
 
@@ -621,7 +643,8 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
     if machine['transport'] == 'local':
         mount = ' '.join(x for x in (worktree.docker_mount(src), mount) if x)
         slot_sh = shlex.quote(bash_path(SLOT_SCRIPT))
-        inner = device_wrap(device, f'{slot} bash {slot_sh} {runner_command(machine, track, command, mount)}').replace('{slot}', slot_sh)
+        launch = runner_command(machine, track, command, mount, os.environ.get('TUTTI_RUN_IDENTITY'))
+        inner = device_wrap(device, f'{slot} bash {slot_sh} {launch}').replace('{slot}', slot_sh)
         script = f'cd {shlex.quote(bash_path(src))} && {export}{inner}'
         return tee(machine, script, out) if out else sh(machine, script).returncode
     is_git = sync(cfg, machine, track, src)
@@ -630,7 +653,8 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
            'git update-ref --no-deref HEAD FETCH_HEAD && git reset -q && ') if is_git else ''
     dirs = ' '.join(shlex.quote(d) for d in cfg['sync']['ensure_dirs'])
     mk = f'mkdir -p {dirs} && ' if dirs else ''
-    inner = device_wrap(device, f'{slot} bash {root}/tutti-slot.sh {runner_command(machine, track, command, mount)}')
+    launch = runner_command(machine, track, command, mount, os.environ.get('TUTTI_RUN_IDENTITY'))
+    inner = device_wrap(device, f'{slot} bash {root}/tutti-slot.sh {launch}')
     script = f'cd {root}/{track} && {git}{mk}{export}{inner.replace("{slot}", f"{root}/tutti-slot.sh")}'
     return tee(machine, script, out) if out else sh(machine, script).returncode
 

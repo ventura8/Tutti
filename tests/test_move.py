@@ -1,6 +1,7 @@
 """`tutti move` (docs/MOVE.md) against a fake ssh target and temp folders: the preflight's blockers, the config from the
 target's point of view, secrets with mode 600 and never in the log, the cut-over's order, the rollback on a failed health
 check, members repointed, an interrupted move that resumes, the bridge and the client's forwarding. No real machine."""
+import io
 import json
 import os
 import socket
@@ -10,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import tmpdirs
@@ -393,6 +395,21 @@ class BridgeTest(Base):
                 break
             time.sleep(0.02)
         return c
+
+    def test_run_identity_propagates_to_client_and_rejects_bad_labels(self):
+        identity, seen = 'a' * 32, []
+        fake = SimpleNamespace(pid=123, stdout=[], wait=lambda: 0)
+        client = bridge.Client(self.cfg, lambda x: None, popen=lambda *a, **k: seen.append(k['env']) or fake)
+        with mock.patch.object(bridge, 'run_files', return_value={}):
+            self.assertEqual(client.op_run({'id': '1700000000-123', 'run_identity': identity,
+                                            'args': ['run', 'agy', 'fix']}, None)[0], 0)
+        self.assertEqual(seen[0]['TUTTI_RUN_IDENTITY'], identity)
+        self.assertEqual(client.op_run({'id': '1700000000-123', 'run_identity': 'bad;command',
+                                        'args': ['run', 'agy', 'fix']}, None)[0], 2)
+        with mock.patch.dict(os.environ, {'TUTTI_RUN_IDENTITY': identity}), \
+                mock.patch.object(bridge, 'call', return_value=(0, {'files': {}})) as send:
+            self.assertEqual(bridge.exec_run(self.cfg, 'client', '1700000000-123', ['run', 'agy', 'fix'], out=io.StringIO()), 0)
+        self.assertEqual(send.call_args.args[3]['run_identity'], identity)
 
     def test_a_reading_file_and_a_ping_cross_the_bridge(self):
         with open(os.path.join(self.home, 'claude-usage.json'), 'w', encoding='utf8') as f:

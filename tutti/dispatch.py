@@ -709,6 +709,8 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
     """One round: presence from the probes, end finished, dead or interrupted leases, refresh the pending work, pull it to
     free targets that are here, watch for idle ones, and reconnect or wake absent ones."""
     now = now or time.time()
+    from . import users
+    cfg['_slow_shared_accounts'] = users.slow_shares(cfg)
     is_alive = is_alive or controls.alive
     on = settings(cfg).get('enabled', True) is not False
     rows = worker_rows(cfg, accounts or {}, machine_rows) if accounts is not None else []

@@ -12,6 +12,7 @@ from unittest import mock
 
 from tutti import (
     autopilot, backlog, cli, config, dashboard, delegate, dispatch, fleet, household, planner, routing, sharing, state,
+    users,
 )
 
 FAKE_WORKER = '''import sys
@@ -386,6 +387,7 @@ class PlanTest(Base):
 
     def test_ahead_account_uses_measured_room_slowly_without_crossing_safety_gates(self):
         cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'])
+        cfg['_slow_shared_accounts'] = []
         cfg['accounts']['agy-gemini']['task_pct'] = 2
         now = TEST_NOW
         s = {**account('agy-gemini', 'ahead', None, used=20), 'share': 1,
@@ -395,6 +397,18 @@ class PlanTest(Base):
         states = {'agy-gemini': s}
         self.assertEqual(autopilot.plan(cfg, [task('t1'), task('t2')], states, FREE, True, now)['dispatch'],
                          [('t1', 'agy-gemini')])
+        cfg['accounts']['agy-gemini']['share_spare'] = True
+        cfg['_slow_shared_accounts'] = users.slow_shares(cfg)
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['dispatch'], [])
+        users.write(self.state, share={'agy-gemini': False})
+        cfg['_slow_shared_accounts'] = users.slow_shares(cfg)
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['dispatch'], [('t1', 'agy-gemini')])
+        cfg['_slow_shared_accounts'] = None
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['dispatch'], [])
+        with open(users.path(self.state), 'w', encoding='utf8') as f:
+            f.write('{')
+        self.assertIsNone(users.slow_shares(cfg))
+        cfg['_slow_shared_accounts'] = []
         planned = {**s, 'quota_plan': {**s['quota_plan'], 'tasks': 3}}
         self.assertEqual(len(autopilot.plan(cfg, [task('t1'), task('t2')], {'agy-gemini': planned}, FREE, True, now)['dispatch']), 2)
         recent = task('old', 'done', [{**attempt('agy-gemini'), 'started': now.timestamp() - 3600}])
@@ -418,6 +432,7 @@ class PlanTest(Base):
 
     def test_worker_status_rechecks_slow_room_using_the_current_reading(self):
         cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'])
+        cfg['_slow_shared_accounts'] = []
         cfg['fleet']['enabled'] = False
         now = TEST_NOW
         s = {**account('agy-gemini', 'ahead', None, used=20), 'share': 1,

@@ -599,6 +599,9 @@ def slow_room(cfg, name, state, tasks, used, now):
     Linked/shared limits are not handled by this calculation: their usage units and concurrent reservations need a
     shared-window budget, so they remain with the existing planner rather than risking another account's reserve.
     """
+    shared = cfg.get('_slow_shared_accounts')
+    if shared is None or name in shared:
+        return False
     if now is None or state.get('verdict') != 'ahead' or used.get(name) or not observed_quota(cfg, name, state, now):
         return False
     limits = cfg.get('_account_limits') or {n: (a or {}).get('limits') or [] for n, a in (cfg.get('accounts') or {}).items()}
@@ -1943,7 +1946,9 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     started_at = monotonic()
     now = now or time.time()
     from . import conduct
+    from . import users
     cfg['_main_worker'] = conduct.current(cfg)
+    cfg['_slow_shared_accounts'] = users.slow_shares(cfg)
     cfg['_now'] = datetime.fromtimestamp(now, timezone.utc)
     is_alive = is_alive or state_mod.alive
     on = enabled(cfg)

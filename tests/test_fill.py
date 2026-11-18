@@ -63,6 +63,7 @@ class FillTest(Base):
 
     def test_slow_ahead_room_is_recomputed_from_current_time_and_readings(self):
         cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'])
+        cfg['_slow_shared_accounts'] = []
         cfg['fleet']['enabled'] = False
         now = autopilot.datetime(2026, 1, 1, 1, tzinfo=autopilot.timezone.utc)
         cfg['_now'] = now

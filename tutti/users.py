@@ -188,6 +188,22 @@ def shares(cfg, saved):
                   if over.get(n, bool((a or {}).get('share_spare'))) and not (a or {}).get('costs_money'))
 
 
+def slow_shares(cfg):
+    """Effective shared accounts for slow quota use, or None when the override file cannot be trusted."""
+    try:
+        with open(path(config.state_dir(cfg)), encoding='utf8') as f:
+            saved = json.load(f)
+    except FileNotFoundError:
+        saved = {}
+    except (OSError, ValueError):
+        return None
+    if not isinstance(saved, dict) or not isinstance(saved.get('share', {}), dict):
+        return None
+    if any(not isinstance(value, bool) for value in saved.get('share', {}).values()):
+        return None
+    return shares(cfg, saved)
+
+
 def role(membership):
     if not membership:
         return 'alone'

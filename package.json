@@ -1,6 +1,6 @@
 {
     "name": "tutti-agents",
-    "version": "0.28.0",
+    "version": "0.28.1",
     "private": false,
     "description": "Tutti: one orchestrator, many AI workers, shared machines. Slot queues, fall-over routing, usage pacing, a yield flag and translation with mandatory QA.",
     "license": "MIT",

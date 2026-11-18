@@ -33,6 +33,7 @@ ROLES = {
     'backup-main': 'the backup main machine (failover.backup)',
     'vpn-node': 'on the private network (WireGuard or Tailscale)',
     'ios-webkit-runner': 'runs iOS simulators (Xcode) or Playwright WebKit',
+    'airplay-receiver': 'plays AirPlay (an Apple TV, an AirPlay speaker or soundbar)',
 }
 ROLES.update(lanmedia.ROLES)   # media roles of LAN devices (a soundbar, a smart TV), found over mDNS and SSDP
 

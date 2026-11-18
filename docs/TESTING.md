@@ -80,3 +80,19 @@ never relax a check.
 `web/format.js`, `web/attention.js`, `web/energy.js`, `web/household.js` and `web/settings.js` are pure enough to run in
 node: their unit tests (`tests/test_dashui.py`, `tests/test_layout.py`, `tests/test_energy.py`, ...) load them with
 `format.js` first and pin `LC_ALL=en_US.UTF-8` where a number's form matters.
+
+## RoRadio AirPlay tests
+
+To run the RoRadio AirPlay e2e test, configure the target device in your `tutti.config.yaml` as:
+
+```yaml
+devices:
+  sonytv:
+    serial: <IP_ADDRESS_OF_SONY_TV> # The IP or ADB serial of the Sony TV
+    machine: <machine_name>         # The machine that can reach the TV via adb
+```
+
+Then run the test with:
+`tutti test --device sonytv -- python3 -m unittest tests/e2e/test_roradio.py`
+
+This will perform the media session verification and capture a screenshot.

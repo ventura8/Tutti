@@ -408,3 +408,23 @@ secure the endpoints, manage shared descriptor copies, serialize unrelated code 
 can call the supervisor API. The trusted owner must exclusively control this object and all writes to these channels; the
 supervisor must ensure endpoints and inherited descriptors cannot leak. The prototype is process-local, is not connected
 to `owneripc.serve` or the dashboard, and does not implement durable recovery, stream tailing or production handover.
+
+#### Descriptor handoff experiment (not activated)
+
+`ownersupervisor` experiments with an owner process that retains a real Chat `Job` while a trusted supervisor passes a
+new connected Unix stream endpoint over a private `SOCK_SEQPACKET` control socket using `SCM_RIGHTS`. A serial owner loop
+checks an expected generation, switches its `GatewayFence` to the new endpoint, closes its old copy, and acknowledges
+the new generation. It processes requests through the fence and drops endpoints with broken framing or I/O. An isolated
+subprocess test checks stale replacement refusal, old-gateway EOF after acknowledged replacement, owner survival, and
+subject comparison. The supervisor must close its own copy of the passed endpoint; otherwise the old peer may remain open.
+
+This experiment requires Unix `SOCK_SEQPACKET` and `SCM_RIGHTS`; other platforms are unsupported. It has no production
+launcher, authenticated supervisor or gateway, permission checks, stream tailing, session revocation, crash recovery or
+service-manager isolation. The control descriptor is an authority-bearing capability: anyone who gets it may replace a
+gateway and impersonate subjects. The gateway must authenticate users and prevent forged assertions; a socket or same
+UID does not establish that trust. The supervisor must protect and close all endpoint copies and serialize control access.
+A previously emitted reply can remain in buffers, a slow partial request can delay control processing until the total one-second frame deadline, and termination of the
+control channel currently terminates this experimental owner. If a replacement succeeds but its acknowledgement is
+lost, the supervisor cannot determine the active generation: this prototype has no status or recovery protocol and must
+fail closed rather than guess or retry blindly. No live Tutti service uses
+this code, and a successful test is not evidence that dashboard restart or handover is safe.

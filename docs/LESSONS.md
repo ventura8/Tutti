@@ -1,7 +1,8 @@
 # Lessons
 
 - **Off is not finished** (t404): stopping dispatch must not stop WIP checkpoints, but a report or missing local PID
-  cannot establish that remote execution stopped. Keep ambiguous reports held instead of publishing or retrying them.
+  cannot establish that remote execution stopped. Hold ambiguous reports while off; resuming uses the existing collector,
+  which does not establish remote termination.
 
 - A remote check's copy name also reaches a local lock path and remote shell. Validate it before either side effect; checking
   only the worker's local worktree name leaves the independently configured remote name unchecked (t403).

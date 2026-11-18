@@ -185,5 +185,5 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 ## Checks
 
 ```bash
-bash scripts/check.sh    # shellcheck, ruff, the unit tests and a CLI smoke test: what CI runs
+bash scripts/check.sh    # shellcheck, ruff, unit tests, headless browser tests and a CLI smoke test: what CI runs
 ```

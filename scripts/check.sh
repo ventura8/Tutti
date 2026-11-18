@@ -28,7 +28,13 @@ trap 'rm -rf "$TMPDIR"' EXIT
 XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.env
 # the dashboard in a real browser, every tab: layout, accessibility, roles (docs/TESTING.md, *Browser tests*). A hard gate:
 # Playwright and axe come from requirements-dev.txt; the browser is fetched once (on CI with its system libraries).
-if [ -n "${CI:-}" ]; then python3 -m playwright install --with-deps chromium > /dev/null; else python3 -m playwright install chromium > /dev/null; fi
+echo "check: installing Playwright's headless Chromium and system dependencies when needed"
+if [ -n "${CI:-}" ]; then
+	python3 -m playwright install --with-deps --only-shell chromium
+else
+	python3 -m playwright install --only-shell chromium
+fi
+echo "check: running dashboard browser tests"
 XDG_CONFIG_HOME="$(mktemp -d)" PYTHONPATH=tests python3 -m unittest discover -s tests/e2e
 # smoke: the example config is valid and the commands that need no machine answer
 t="python3 bin/tutti --config tutti.config.example.yaml"

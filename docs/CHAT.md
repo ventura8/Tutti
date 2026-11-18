@@ -1,5 +1,9 @@
 # Chat
 
+When messages are redrawn, Chat reuses an unchanged message's private immutable Markdown parse tree while creating fresh
+DOM nodes. Editing or streaming new text reparses that message. This reduces repeated parsing; it does not virtualize the
+message list, page server responses, or remove the existing retention limit (t407).
+
 For a dashboard-requested restart, Tutti checks the dashboard's live answer jobs and persisted streaming messages while
 holding the Chat store lock, then rechecks at restart time. New Chat sends wait during the final check. An active answer,
 unreadable store or unsupported cross-process lock refuses or defers the restart; if the delayed check defers it, Settings

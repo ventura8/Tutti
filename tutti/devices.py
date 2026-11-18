@@ -6,7 +6,7 @@ import re
 import shlex
 import time
 
-from . import config
+from . import config, roles
 
 READINGS_SCRIPT = 'device-readings.sh'
 
@@ -17,7 +17,9 @@ TERMUX_POLICY = {'min_battery': 50, 'require_charging': True, 'max_battery_c': 4
 SCREENS = ('wake', 'off', 'any')
 # A TV (a Cast receiver: devices.<d>.kind: tv) runs on mains power and has no battery or call state to read.
 TV_POLICY = {'min_battery': 0, 'require_charging': False, 'max_battery_c': 0, 'wifi_only': False, 'screen': 'any'}
-KINDS = ('phone', 'tablet', 'tv')
+# A watch: stricter battery/heat rules, no long runs off the charger
+WATCH_POLICY = {'min_battery': 70, 'require_charging': True, 'max_battery_c': 35, 'wifi_only': True, 'screen': 'off'}
+KINDS = ('phone', 'tablet', 'tv', 'watch')
 
 # Termux's own readings, through the Termux:API app (`pkg install termux-api`): the same keys as device-readings.sh, each
 # line starting `R `. termux-* commands hang when the Termux:API app is missing, so each has a timeout; /sys is the fallback.
@@ -37,7 +39,15 @@ TERMUX_READINGS = (
 
 def policy(entry, termux=False):
     """The device's policy: the defaults for its use, overridden by its own `policy:`."""
-    base = TERMUX_POLICY if termux else TV_POLICY if (entry or {}).get('kind') == 'tv' else E2E_POLICY
+    kind = (entry or {}).get('kind')
+    if termux:
+        base = TERMUX_POLICY
+    elif kind == 'tv':
+        base = TV_POLICY
+    elif kind == 'watch':
+        base = WATCH_POLICY
+    else:
+        base = E2E_POLICY
     out = {**base, **((entry or {}).get('policy') or {})}
     if out.get('screen') is False:   # YAML reads an unquoted `off` as false
         out['screen'] = 'off'
@@ -351,7 +361,7 @@ def device_state(d, readings):
             'screen', 'wifi', 'call', 'external_by', 'prep_left',
             'revived', 'dnd', 'cast')
     return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'kind': d.get('kind', 'phone'), 'status': st,
-            'reason': reason, 'hours': d.get('hours'), 'roles': _roles(d, readings),
+            'reason': reason, 'hours': d.get('hours'), 'roles': roles.check_roles(readings, kind='device'),
             'night': (d.get('_night') or {}) if (d.get('_night') or {}).get('on') else None,
             'policy': pol, **{k: readings.get(k) for k in keep}}
 

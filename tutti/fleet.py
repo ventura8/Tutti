@@ -15,7 +15,7 @@ import re
 import subprocess
 import time
 
-from . import config, planner
+from . import config, planner, roles
 
 STATE = 'fleet.json'
 DEFAULT_ON = '127.0.0.1:11434'   # where Ollama listens on a machine unless energy.machines.<m>.ollama says otherwise
@@ -270,7 +270,8 @@ def entries(cfg, readings, now, old=None):
         models = [c for c in (classify(m) for m in tags['models'] if isinstance(m, dict)) if c]
         loaded = [m.get('name') for m in ((r.get('ps') or {}).get('models') or []) if isinstance(m, dict)]
         out[name] = {'models': models, 'gpu': r.get('gpu') or '', 'npu': r.get('npu') or '', 'cpu': r.get('cpu') or '',
-                     'loaded': loaded, 'updated': now, 'stale': False}
+                     'loaded': loaded, 'updated': now, 'stale': False,
+                     'roles': roles.check_roles({'gpu': r.get('gpu'), 'npu': r.get('npu'), 'loaded': loaded, 'kind': r.get('kind', 'machine')}, kind=r.get('kind', 'machine'))}
     for name, e in old.items():
         if config.physical(cfg, name) == name:   # a dedicated pseudo-machine's old entry goes: its host's models are the same
             out.setdefault(name, {**e, 'stale': True})

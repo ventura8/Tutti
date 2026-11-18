@@ -1916,10 +1916,10 @@ def quota_signature(state):
     return tuple(state.get(k) for k in fields) + (tuple(quota_signature(x) for x in state.get('limits') or []),)
 
 
-def slow_start_allowed(cfg, step, states, tasks, at):
+def slow_start_allowed(cfg, step, states, tasks, at, reader_status=None):
     """Reload controls, config and usage; refuse a slow start if the planning snapshot has changed."""
+    from . import readers, users
     from . import state as state_mod
-    from . import users
     try:
         current = datetime.fromtimestamp(at, timezone.utc)
         before = strict_controls(config.state_dir(cfg))
@@ -1937,17 +1937,27 @@ def slow_start_allowed(cfg, step, states, tasks, at):
         original = states.get(step)
         if not latest or not original or quota_signature(latest) != quota_signature(original):
             return False
-        latest = {**latest, 'reader_problem': original.get('reader_problem'),
-                  'selected_source': original.get('selected_source')}
+        account = (fresh.get('accounts') or {}).get(step) or {}
+        if readers.automatic_reader(step, account) or account.get('reading_file'):
+            try:
+                status = reader_status() if reader_status else None
+            except Exception:   # unavailable reader status cannot authorize a quota spend
+                return False
+            reading = status.get(step) if isinstance(status, dict) else None
+            if (not isinstance(reading, dict) or reading.get('problem') or reading.get('used') is None
+                    or reading.get('used') != latest.get('used')):
+                return False
+            state_mod.with_readers({'accounts': [latest]}, status)
+        latest = {**latest, 'selected_source': original.get('selected_source')}
         fresh['_slow_shared_accounts'] = users.slow_shares(fresh)
     except (config.ConfigError, KeyError, TypeError, ValueError, OverflowError, OSError):
         return False
     return not quiet_stop(fresh, current) and slow_room(fresh, step, latest, tasks, spent_units(tasks, states, fresh), current)
 
 
-def start_planned(cfg, data, task, step, now, spawn, states, clock, slow):
+def start_planned(cfg, data, task, step, now, spawn, states, clock, slow, reader_status=None):
     actual = clock() if slow else now
-    if slow and not slow_start_allowed(cfg, step, states, data['tasks'], actual):
+    if slow and not slow_start_allowed(cfg, step, states, data['tasks'], actual, reader_status):
         return None, f'{task["id"]}: slow quota or sharing state changed before start; it stays queued'
     return start_reserved(cfg, data, task, step, actual, spawn, states)
 
@@ -1974,7 +1984,8 @@ def scoped_spawn(cfg, task, step, choice, result, machines, start_time, monotoni
     return run
 
 
-def start_plan(cfg, data, shared, p, machines, states, now, started_at, monotonic, spawn, events, started, clock=None):
+def start_plan(cfg, data, shared, p, machines, states, now, started_at, monotonic, spawn, events, started, clock=None,
+               reader_status=None):
     clock = clock or (lambda: now)
     allowed = []
     for task_id, step in p['dispatch']:
@@ -1989,7 +2000,8 @@ def start_plan(cfg, data, shared, p, machines, states, now, started_at, monotoni
         rejected = [False]
         choice = (shared.get('scoped') or {}).get(task_id)
         spawn_fn = scoped_spawn(cfg, t, step, choice, shared, machines, started_at, monotonic, spawn, rejected) if choice else spawn
-        run_id, event = start_planned(cfg, data, t, step, now, spawn_fn, states, clock, task_id in p.get('slow_dispatch', ()))
+        run_id, event = start_planned(
+            cfg, data, t, step, now, spawn_fn, states, clock, task_id in p.get('slow_dispatch', ()), reader_status)
         if rejected[0]:
             p['waiting'][task_id] = 'scoped household lease or worker observation changed: wait for another reservation'
         else:
@@ -2005,7 +2017,8 @@ def start_plan(cfg, data, shared, p, machines, states, now, started_at, monotoni
 
 
 def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen, publish_fn=publish, beat=None,
-         monotonic=time.monotonic, clock=None):
+         monotonic=time.monotonic, clock=None, reader_status=None):
+
     """One round: collect, plan, dispatch. `states`: {account: pacing.account_state}; `machines`: state.machines_state items;
     `beat`: this member's heartbeat for the household coordinator (shared projects only; docs/HOUSEHOLD.md)."""
     from . import state as state_mod
@@ -2075,11 +2088,11 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         elapsed = monotonic() - started_at
         filter_scoped_dispatch(cfg, data, shared, p, machines, cfg['_now'] + timedelta(seconds=max(0, elapsed)), elapsed)
         backlog.save(cfg, data)   # what was collected is kept even if a start below fails
-        start_plan(cfg, data, shared, p, machines, states, now, started_at, monotonic, spawn, events, started, clock)
+        start_plan(cfg, data, shared, p, machines, states, now, started_at, monotonic, spawn, events, started, clock,
+                   reader_status)
         telemetry.record('feature', 'autopilot.plan', state=p['state'], dispatch=len(p['dispatch']), waiting=len(p['waiting']),
                          collected=len(events))
     if started:   # shared tasks just started: their leases at full length now, not at the next round
-
         sharing.renew(cfg, backlog.load(cfg), started)
     with state_locked(cfg) as st:
         st['last'] = {'at': now, 'state': p['state'], 'reason': p['reason'], 'waiting': p['waiting']}

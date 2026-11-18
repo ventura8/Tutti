@@ -434,38 +434,46 @@ class PlanTest(Base):
 
     def test_slow_start_rechecks_current_clock_and_effective_share(self):
         cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'])
+        cfg['accounts']['agy-gemini']['usage_url'] = 'https://example.com/usage'
         now = TEST_NOW
         s = {**account('agy-gemini', 'ahead', None, used=20), 'share': 1,
              'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '', 'target': '2026-01-03T01:00:00+00:00'}
         s['quota_plan'] = autopilot.planner.plan_single(s, cfg['accounts']['agy-gemini'], now)
         states, tasks = {'agy-gemini': s}, [task('t1')]
+        def reader_status():
+            return {'agy-gemini': {'used': 20, 'problem': None}}
         with mock.patch.object(config, 'load', return_value=cfg) as load, \
                 mock.patch.object(state, 'usage_state', return_value={'accounts': [s]}) as usage:
-            self.assertTrue(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
-            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp() + 3 * 3600))
+            self.assertTrue(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp() + 3 * 3600, reader_status))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(),
+                                                          lambda: {'agy-gemini': {'used': None, 'problem': 'reader failed'}}))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(),
+                                                          lambda: {'agy-gemini': {'used': 99, 'problem': None}}))
             with mock.patch.object(autopilot, 'start_reserved', return_value=('run', 'started')) as start:
                 data = {'tasks': tasks}
                 later = now.timestamp() + 60
                 self.assertEqual(autopilot.start_planned(cfg, data, tasks[0], 'agy-gemini', now.timestamp(), None, states,
-                                                         lambda: later, True)[0], 'run')
+                                                         lambda: later, True, reader_status)[0], 'run')
                 self.assertEqual(start.call_args.args[4], later)
                 start.reset_mock()
                 self.assertIsNone(autopilot.start_planned(cfg, data, tasks[0], 'agy-gemini', now.timestamp(), None, states,
-                                                          lambda: now.timestamp() + 3 * 3600, True)[0])
+                                                          lambda: now.timestamp() + 3 * 3600, True, reader_status)[0])
                 start.assert_not_called()
             usage.return_value = {'accounts': [{**s, 'used': 99, 'panic': True}]}
-            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
             usage.return_value = {'accounts': [s]}
             load.return_value = {**cfg, 'disabled_accounts': ['agy-gemini']}
-            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
             load.return_value = {**cfg, 'disabled_workers': ['agy']}
-            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
             load.return_value = cfg
             users.write(self.state, share={'agy-gemini': True})
-            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
             with open(os.path.join(self.state, 'controls.json'), 'w', encoding='utf8') as f:
                 f.write('{')
-            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
 
     def test_worker_status_rechecks_slow_room_using_the_current_reading(self):
         cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'])
@@ -501,13 +509,15 @@ class PlanTest(Base):
              'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '', 'target': '2026-01-03T01:00:00+00:00'}
         s['quota_plan'] = autopilot.planner.plan_single(s, cfg['accounts']['agy-gemini'], now)
         states, tasks = {'agy-gemini': s}, [task('t1')]
+        def reader_status():
+            return {'agy-gemini': {'used': 20, 'problem': None}}
         with mock.patch.object(state, 'usage_state', return_value={'accounts': [s]}):
-            self.assertTrue(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            self.assertTrue(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
             controls.set_paused(self.state, 'account', 'agy-gemini', True)
-            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
             controls.set_paused(self.state, 'account', 'agy-gemini', False)
             controls.set_paused(self.state, 'worker', 'agy', True)
-            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
 
     def test_slow_start_rejects_newer_usage_recorded_after_planning(self):
         path = os.path.join(self.tmp.name, 'config.yaml')
@@ -525,10 +535,12 @@ class PlanTest(Base):
         observed = state.usage_state(cfg, now)['accounts'][0]
         observed['reader_problem'] = ''
         states, tasks = {'agy-gemini': observed}, [task('t1')]
-        self.assertTrue(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+        def reader_status():
+            return {'agy-gemini': {'used': 20, 'problem': None}}
+        self.assertTrue(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
         autopilot.pacing.append_log(state.usage_log_path(cfg), 'agy-gemini', 99,
                                     autopilot.datetime.fromtimestamp(now.timestamp() - 60, autopilot.timezone.utc))
-        self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+        self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
 
     def test_when_all_online_are_in_panic_rescue_spreads_work_to_the_most_remaining_quota(self):
         cfg = self.cfg(main_accounts=['agy-claude'])

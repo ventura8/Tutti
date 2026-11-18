@@ -10,6 +10,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
+- Guard dashboard-requested restarts against active Chat answers and unreadable Chat state (t404).
 - Checkpoint running work and hold reported runs conservatively while autopilot is off (t404).
 - Recheck measured conductor quota and bind and watch the selected account on shared workers (t388).
 

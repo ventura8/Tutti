@@ -1646,6 +1646,23 @@ restartDashboard(button).then(() => console.log(JSON.stringify({requests, messag
         self.assertEqual(result['requests'], 0)
         self.assertIn('Finish or save', result['message'])
 
+    def test_settings_restart_reports_a_deferred_restart_when_dashboard_stays_up(self):
+        with open(os.path.join(WEB, 'settings.js'), encoding='utf8') as f:
+            src = f.read()
+        script = r'''
+global.window = {};
+global.document = {querySelector: () => null};
+global.location = {reload: () => {throw new Error('must not reload');}};
+global.setTimeout = (fn) => fn();
+global.fetch = async (url) => url === '/api/health' ? {json: async () => ({started: 1})} : {ok: true};
+const button = {disabled: false, textContent: ''};
+restartDashboard(button).then(() => console.log(JSON.stringify({message: button.textContent, disabled: button.disabled})));
+'''
+        out = subprocess.run(['node', '-e', src + '\n' + script], capture_output=True, text=True, check=True)
+        result = json.loads(out.stdout)
+        self.assertIn('check active Chat and retry', result['message'])
+        self.assertFalse(result['disabled'])
+
     def test_settings_restart_rechecks_input_before_post_and_before_reload(self):
         with open(os.path.join(WEB, 'settings.js'), encoding='utf8') as f:
             src = f.read()

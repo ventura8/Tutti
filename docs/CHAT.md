@@ -1,5 +1,12 @@
 # Chat
 
+For a dashboard-requested restart, Tutti checks the dashboard's live answer jobs and persisted streaming messages while
+holding the Chat store lock, then rechecks at restart time. New Chat sends wait during the final check. An active answer,
+unreadable store or unsupported cross-process lock refuses or defers the restart; if the delayed check defers it, Settings
+reports that the dashboard did not restart and offers a retry. A deleted conversation's live answer in
+another dashboard process is not visible to this guard. It does not coordinate automatic updates, failover, or other jobs;
+those need separate safeguards (t404).
+
 Chat binds each online worker to a configured account with a pacing state and passes that account's configured arguments
 to the CLI. For a worker shared by multiple accounts, an admin must set `workers.<name>.chat_account_selector` to the CLI
 flag selecting the account or model, and every linked account (including paused ones) must have exactly one distinct value

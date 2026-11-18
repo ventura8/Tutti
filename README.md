@@ -178,7 +178,9 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 - [docs/LESSONS.md](docs/LESSONS.md): what went wrong, and the rule each failure left behind.
 - [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/FEEDBACK.md](docs/FEEDBACK.md): what is next; where first users log problems.
 - [MIGRATION.md](MIGRATION.md): moving a folder of hand-rolled scripts over to Tutti.
-- [AGENTS.md](AGENTS.md), [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md).
+- [AGENTS.md](AGENTS.md), [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) (audits:
+  [docs/SECURITY-AUDIT-2026-11.md](docs/SECURITY-AUDIT-2026-11.md),
+  [docs/SECURITY-AUDIT-POST-QUEUE.md](docs/SECURITY-AUDIT-POST-QUEUE.md)), [CHANGELOG.md](CHANGELOG.md).
 
 ## Checks
 

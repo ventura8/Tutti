@@ -166,3 +166,8 @@ capped at 1 unless the admin sets it (`set_weight`, Users tab), lease keys must 
 most 200 projects (L9); credentials on watched command lines are replaced before the dashboard shows them (L10); every link
 built from data goes through `safeHref` (L11); an invite join is proved before a household is founded for it (L12); H4 on
 macOS and Windows; the work browser's tab limit holds across processes. `tests/test_audit_lows.py` plays each one.
+
+## After the post-0.19 queue (t169)
+
+Roles, RoRadio/dispatch, all-work-through-Tutti (intake + session MCP), resilience (failover/self-heal), security intake,
+ssh/WSL/Windows scheduled tasks, `secretenv` and update: see [SECURITY-AUDIT-POST-QUEUE.md](SECURITY-AUDIT-POST-QUEUE.md).

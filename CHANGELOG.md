@@ -6,6 +6,17 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.7] - 2026-11-18
+
+### Security
+
+- Post-queue security audit (t169): threat model and module coverage for roles, RoRadio/dispatch, intake/MCP, resilience,
+  security intake, remote execution and secrets/update ([docs/SECURITY-AUDIT-POST-QUEUE.md](docs/SECURITY-AUDIT-POST-QUEUE.md)).
+- Windows desktop runs: `desktop.user` and `desktop.dir` are validated with `\Z` (not `$`) before they enter the WSL
+  scheduled-task wrapper, so a hostile config value (including a trailing newline) cannot break out of the bash line (P1).
+- Device sessions: `person_watch` (getevent) is not started under `TUTTI_NO_DAEMONS`, matching lease helpers, so checks do
+  not leave hanging `timeout … getevent` processes; rsync-only file send tests skip when rsync is missing (test containers).
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

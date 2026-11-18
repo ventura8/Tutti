@@ -421,8 +421,8 @@ class BridgeTest(Base):
         self.assertIn('not one of this computer', result['problem'])
         rc, _ = bridge.call(self.cfg, 'laptop', 'run', {'args': ['run', 'agy', 'x', '--config', '/evil']})
         self.assertEqual(rc, 2)
-        rc, result = bridge.call(self.cfg, 'laptop', 'exec', {'argv': ['gh', 'pr', 'list']})   # no folder: refused
-        self.assertIn('no folder', result['problem'])
+        rc, result = bridge.call(self.cfg, 'laptop', 'exec', {'argv': ['gh', 'pr', 'list']})   # no folder (or no gh): refused
+        self.assertTrue('no folder' in result['problem'] or 'not git, gh or a worker' in result['problem'], result['problem'])
         rc, result = bridge.call(self.cfg, 'laptop', 'exec', {'argv': [os.path.join(self.home, 'repo', 'git'), 'status'],
                                                                'cwd': os.path.join(self.home, 'repo')})
         self.assertIn('by name', result['problem'])   # a path that only ends in git is never run

@@ -531,6 +531,8 @@ FIELDS = {
     'vpn.wireguard.hub': field('WireGuard hub', 'The always-on Tutti host. Empty: the dashboard\'s computer.', 'select',
                                choices_from='machines'),
     'vpn.wireguard.endpoint': field('Hub\'s public name', 'For use away from home. Empty: its LAN address.', 'text'),
+    'sharing.local': field('Share local model learnings', 'Anonymised aggregated learnings of local models (strengths, limits, success rates, speed, tokens).', 'switch', default=False),
+    'sharing.online': field('Share online model learnings', 'Anonymised aggregated learnings of online models.', 'switch', default=False),
 }
 # a Termux machine's policy fields, like a device's
 FIELDS.update({f'machines.*.{k}': v for k, v in POLICY.items()})

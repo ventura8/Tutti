@@ -401,3 +401,7 @@ selfheal: {enabled: true, every_seconds: 300}
 ai_assist: {enabled: false, local: true, online: false, online_code: false, auto_tune: true, preempt: true, unblock: true}
 # Welcome back (docs/WELCOME.md): a summary of what happened while you were away; on for every user, each may turn it off
 welcome: {enabled: true}
+# Sharing of model learnings and public benchmarks
+sharing:
+  local: false          # Opt-in to share anonymised local model learnings
+  online: false         # Opt-in to share anonymised online model learnings

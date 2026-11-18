@@ -4,7 +4,7 @@ import unittest
 from datetime import timedelta
 from unittest import mock
 
-from tutti import autopilot, pacing
+from tutti import autopilot, pacing, state
 
 # These tests read times in UTC: the host's detected zone is pinned so they pass anywhere (tests/test_tz.py covers zones)
 _PIN = mock.patch('tutti.tz.host_zone', return_value='UTC')
@@ -180,6 +180,7 @@ class AutomaticFreshnessTest(unittest.TestCase):
                 limit_entry = {'account': 'weekly', 'at': (now + offset).isoformat(), 'used': 40, 'source': 'reader'}
                 own = pacing.account_state('cursor', configured['cursor'], [own_entry, limit_entry], now, accounts=configured)
                 self.assertEqual(own['limits'][0]['name'], 'weekly')
+                state.with_readers({'accounts': [own]}, {'cursor': {'problem': None, 'used': 96}, 'weekly': {'problem': None, 'used': 40}})
                 states = {'cursor': own, 'claude': {'panic': True, 'used': 96}}
                 self.assertEqual(autopilot.panic_rescue(cfg, 'cursor', own, states), expected)
 

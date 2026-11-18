@@ -7,6 +7,13 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [Unreleased]
+
+### Fixed
+
+- Keep automatic usage observation times through cache and bridges; fail closed on invalid remote timestamps and fence
+  cautious panic rescue while a current reader or linked window reports an error (t317).
+
 ## [0.27.11] - 2026-11-18
 
 ### Changed
@@ -24,6 +31,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 ### Changed
 
 - Add a regression test for takeover room on an account linked to a shared CLI worker (t204).
+
 
 ## [0.27.8] - 2026-11-18
 

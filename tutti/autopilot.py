@@ -304,9 +304,14 @@ def quota_windows(name, s):
 
 
 def observed_quota(cfg, name, s, now):
-    """Each quota window needs a recent, real, non-future reading, even if its automatic reader failed."""
-    if name in cfg.get('disabled_accounts', ()) or s.get('after_reset') or s.get('stale') or s.get('selected_source') == 'estimate':
+    """Each quota window needs a recent real reading and no reported current reader failure."""
+    if (name in cfg.get('disabled_accounts', ()) or s.get('after_reset') or s.get('stale') or s.get('reader_problem')
+            or s.get('selected_source') == 'estimate'):
         return False
+    from . import readers
+    account = (cfg.get('accounts') or {}).get(name) or {}
+    if (readers.automatic_reader(name, account) or account.get('reading_file')) and 'reader_problem' not in s:
+        return False   # standalone callers have no current reader status: do not assume the reader succeeded
     try:
         at = pacing.parse_time(s['reading_at'])
         age = (now - at).total_seconds()

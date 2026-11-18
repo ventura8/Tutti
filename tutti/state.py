@@ -303,10 +303,19 @@ def next_worker(cfg, accounts, machines=None, now=None):
 
 
 def with_readers(usage, readers):
-    """The accounts with what their automatic readers said: the plan label, how often they are read, and a problem if any."""
-    for a in usage['accounts']:
-        r = (readers or {}).get(a['name']) or {}
-        a.update(plan=r.get('plan'), auto_every_minutes=r.get('every_minutes'), reader_problem=r.get('problem'))
+    """Add reader status to each account and linked quota window, including current failures."""
+    def annotate(account):
+        reading = (readers or {}).get(account.get('name'))
+        problem = (reading or {}).get('problem')
+        if account.get('auto') and (reading is None or (reading.get('used') is None and not problem)):
+            problem = 'automatic reader status is unavailable: refresh the reader before panic rescue'
+        account.update(plan=(reading or {}).get('plan'), auto_every_minutes=(reading or {}).get('every_minutes'),
+                       reader_problem=problem)
+        for limit in account.get('limits') or []:
+            if isinstance(limit, dict):
+                annotate(limit)
+    for account in usage['accounts']:
+        annotate(account)
     return usage
 
 

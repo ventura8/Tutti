@@ -43,3 +43,5 @@ of your project or secrets: describe the setup in general words.
   Desktop entry is put back with a backup.
 
 - Automatic account usage should reveal stale or unavailable readings and recover without requiring manual entry (t317).
+
+- Cached automatic quota results must not be presented as fresh reads, and failed or skewed readers must not make panic rescue look safe (t317).

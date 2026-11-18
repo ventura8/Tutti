@@ -390,3 +390,21 @@ concurrent request multiplexing, deadlines, revocation, store-backed deletion ch
 live routing. An oversized replay batch fails closed even if each event would fit individually; pagination is needed for recovery.
 The frame cap bounds encoded frames, not temporary JSON allocations or concurrent callers. The sequential
 replacement test is not proof of safe handover or crash continuity.
+
+#### Gateway replacement fence experiment (not activated)
+
+`gatewayfence.GatewayFence` is an isolated owner-side experiment for distinct, connected gateway sockets. It serializes
+reply sends and compare-and-swap replacement under one process-local lock. Once replacement returns, no further replies
+will be sent through this fence to the old endpoint; bytes already sent remain readable. Stale replacement attempts fail,
+a duplicate descriptor for the same endpoint is rejected, and a send failure fences a channel whose framing may now be
+partial, including duplicated descriptors for the same endpoint. Poisoned endpoint identities remain in memory for the
+fence lifetime; inode reuse can therefore reject a new endpoint conservatively and requires lifecycle management. Replies
+carry a request identifier. A bounded socket send timeout limits ordinary blocked sends, but does not
+bound arbitrary callback/serialization work or lock starvation. Tests cover a send racing replacement, old-peer denial,
+foreign-subject denial, duplicate descriptors and send failure.
+
+This does not authenticate gateways or user assertions, prove same-UID isolation, establish a live supervisor, create or
+secure the endpoints, manage shared descriptor copies, serialize unrelated code using the socket, or stop an attacker who
+can call the supervisor API. The trusted owner must exclusively control this object and all writes to these channels; the
+supervisor must ensure endpoints and inherited descriptors cannot leak. The prototype is process-local, is not connected
+to `owneripc.serve` or the dashboard, and does not implement durable recovery, stream tailing or production handover.

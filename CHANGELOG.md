@@ -11,7 +11,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Added
 
-- Add unconnected admission/drain and count- and byte-bounded event replay primitives a draft, session-revalidating Chat adapter and an isolated private owner channel experiment for a future dashboard supervisor (t326).
+- Add unconnected admission/drain and count- and byte-bounded event replay primitives a draft, session-revalidating Chat adapter and isolated owner-channel and gateway-fencing experiments for a future dashboard supervisor (t326).
 
 ### Fixed
 

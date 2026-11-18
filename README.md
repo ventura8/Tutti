@@ -12,7 +12,7 @@ computers and Android devices for software work, without anyone stepping on anyo
   plans and reviews; bounded tasks go to cheaper workers (other CLI agents, local models), each in its own worktree,
   and every diff is reviewed and checked before it lands ([docs/WORKERS.md](docs/WORKERS.md)).
 - **Accounts and usage pacing.** Tutti reads how much of each subscription is used, paces work so quota lasts until
-  each reset, and moves work to an account or model with room when one runs out ([docs/USAGE-PACING.md](docs/USAGE-PACING.md)).
+  each reset, and moves work to an account or model with room when one runs out. Local workers become available again when their work ends ([docs/USAGE-PACING.md](docs/USAGE-PACING.md)).
 - **The best local AI in the house.** Tutti's own AI always uses the best free model on any household machine, falls
   back online only within pacing, and briefly goes first on that model; other work waits a few seconds and loses
   nothing ([docs/FLEET.md](docs/FLEET.md), [docs/TELEMETRY.md](docs/TELEMETRY.md#ai-assist)).

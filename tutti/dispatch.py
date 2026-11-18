@@ -448,7 +448,7 @@ def worker_rows(cfg, accounts, machines):
     queued = [t for t in tasks if t['status'] == 'queued' and t['repo'] in repos]
     if not queued:
         return []
-    used = autopilot.spent_units(tasks, accounts)
+    used = autopilot.spent_units(tasks, accounts, cfg)
     last = (autopilot.read_state(cfg).get('last') or {})
     on = autopilot.enabled(cfg)
     why = '' if on and last.get('state') == 'dispatching' else (last.get('reason') or 'the autopilot has not planned yet')

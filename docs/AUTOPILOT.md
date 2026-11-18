@@ -90,7 +90,7 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
   estimates. It respects quiet windows and never uses a spent or
   explicitly paused account. It does not pause accounts.
   An account outside `autopilot.accounts` takes one task at a time and only while it is not ahead of its pace; a worker
-  without an account (a local model) one at a time, never while its machine is paused (yield flag) or offline, and only for a task whose scope names files (it edits only those). The
+  without an account (a local model) one at a time, never while its machine is paused (yield flag) or offline, and only for a task whose scope names files (it edits only those). Completed local attempts do not consume quota or keep the model busy. The
   ladder names accounts, not a worker that accounts share (`agy-claude`, not `agy`), so each step's pace, panic and model
   apply; the run is logged against that account.
 - **It is parked when it makes no progress.** The same failure signature `no_progress` times in a row (default 3) on the

@@ -53,6 +53,10 @@ class FillTest(Base):
     def test_a_free_local_model_is_room_to_fill_while_the_online_accounts_are_spared(self):
         cfg = self.cfg(fill_room=True)
         self.assertEqual(fill.room(cfg, [], self.states(room=0), FREE), 1)   # agy has none, cursor is ahead: pc is the room
+        finished = task('old', 'done', [{**attempt('pc', ok=True), 'started': 1000}])
+        self.assertEqual(fill.room(cfg, [finished], self.states(room=0), FREE), 1)
+        running = {**task('running', 'running'), 'step': 'pc'}
+        self.assertEqual(fill.room(cfg, [finished, running], self.states(room=0), FREE), 0)
         cfg['workers']['pc']['machine'] = 'nuc'
         hot = [{**FREE[0], 'status': 'loaded', 'reason': 'too hot: CPU 99 C (nothing new at 98 C or more)'}]
         self.assertEqual(fill.room(cfg, [], self.states(room=0), hot), 0)   # the governor: a hot machine is no room

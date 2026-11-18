@@ -6,6 +6,12 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.7] - 2026-11-18
+
+### Added
+
+- Home Assistant: full Tutti integration (connector and roles): device control (media players, power), presence detection (triggering quiet mode), real-time energy monitoring, and notification dispatch to HA mobile app / TTS.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

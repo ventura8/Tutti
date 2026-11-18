@@ -1,0 +1,611 @@
+..tutti: --until is not after --from: the absence would be over before it starts; give an end after 2026-11-16 07:00
+tutti: --stop-now does not go with --from: a planned absence hands its running work over at its start by itself
+.......................................................................................................................................................tutti: no repo "nope" under autopilot.repos in /tmp/tmp3bzp_cle/tutti.config.yaml: the repos are app
+tutti: t1 is running (run 1-1): wait for it (tutti wait run 1-1), then retry it
+............................................................................................................................................................../usr/lib/python3.14/traceback.py:269: ResourceWarning: unclosed file <_io.TextIOWrapper name=48 encoding='UTF-8'>
+  tb.tb_frame.clear()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+....................................................................................................................................................................F..................................../home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_deps.py:80: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tutti-t-pe9bmog0/npm.log' mode='r' encoding='UTF-8'>
+  self.assertIn('install -g --prefix', open(log).read())
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_deps.py:81: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tutti-t-pe9bmog0/npm.log' mode='r' encoding='UTF-8'>
+  self.assertIn('typescript@5.6.3', open(log).read())
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+............................E/usr/lib/python3.14/subprocess.py:1139: ResourceWarning: subprocess 2438534 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+F.................................................................................................................................................../home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_failover.py:358: ResourceWarning: unclosed file <_io.TextIOWrapper name='/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tutti.config.example.yaml' mode='r' encoding='utf8'>
+  example = yaml.safe_load(open(os.path.join(config.ROOT, 'tutti.config.example.yaml'), encoding='utf8'))
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+...................................................................................................................F....github: Tutti's GitHub App is not set up in this copy yet: update Tutti, or set github.client_id in the config; until then Tutti uses the GitHub CLI when `gh auth login` was done
+.................................../usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=4, family=2, type=1, proto=0, laddr=('127.0.0.1', 36921)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=11, family=2, type=1, proto=0, laddr=('127.0.0.1', 38263)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=5, family=2, type=1, proto=0, laddr=('127.0.0.1', 40133)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=7, family=2, type=1, proto=0, laddr=('127.0.0.1', 40769)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=10, family=2, type=1, proto=0, laddr=('127.0.0.1', 41023)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=12, family=2, type=1, proto=0, laddr=('127.0.0.1', 33119)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=19, family=2, type=1, proto=0, laddr=('127.0.0.1', 41143)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=18, family=2, type=1, proto=0, laddr=('127.0.0.1', 44039)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=20, family=2, type=1, proto=0, laddr=('127.0.0.1', 34647)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=21, family=2, type=1, proto=0, laddr=('127.0.0.1', 41243)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=22, family=2, type=1, proto=0, laddr=('127.0.0.1', 44669)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=23, family=2, type=1, proto=0, laddr=('127.0.0.1', 43431)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=25, family=2, type=1, proto=0, laddr=('127.0.0.1', 36077)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=24, family=2, type=1, proto=0, laddr=('127.0.0.1', 42319)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=26, family=2, type=1, proto=0, laddr=('127.0.0.1', 44615)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=27, family=2, type=1, proto=0, laddr=('127.0.0.1', 43779)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=29, family=2, type=1, proto=0, laddr=('127.0.0.1', 45377)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=28, family=2, type=1, proto=0, laddr=('127.0.0.1', 39467)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=30, family=2, type=1, proto=0, laddr=('127.0.0.1', 33111)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=31, family=2, type=1, proto=0, laddr=('127.0.0.1', 46477)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=32, family=2, type=1, proto=0, laddr=('127.0.0.1', 37951)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=33, family=2, type=1, proto=0, laddr=('127.0.0.1', 43089)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=35, family=2, type=1, proto=0, laddr=('127.0.0.1', 38539)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=38, family=2, type=1, proto=0, laddr=('127.0.0.1', 37895)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=34, family=2, type=1, proto=0, laddr=('127.0.0.1', 37435)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=36, family=2, type=1, proto=0, laddr=('127.0.0.1', 38671)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=37, family=2, type=1, proto=0, laddr=('127.0.0.1', 43677)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=39, family=2, type=1, proto=0, laddr=('127.0.0.1', 40959)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=41, family=2, type=1, proto=0, laddr=('127.0.0.1', 33049)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=44, family=2, type=1, proto=0, laddr=('127.0.0.1', 43621)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=45, family=2, type=1, proto=0, laddr=('127.0.0.1', 45307)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=40, family=2, type=1, proto=0, laddr=('127.0.0.1', 45375)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=42, family=2, type=1, proto=0, laddr=('127.0.0.1', 33883)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=43, family=2, type=1, proto=0, laddr=('127.0.0.1', 36953)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=46, family=2, type=1, proto=0, laddr=('127.0.0.1', 39341)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=47, family=2, type=1, proto=0, laddr=('127.0.0.1', 35385)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=48, family=2, type=1, proto=0, laddr=('127.0.0.1', 33499)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=49, family=2, type=1, proto=0, laddr=('127.0.0.1', 38477)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=50, family=2, type=1, proto=0, laddr=('127.0.0.1', 45743)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/json/encoder.py:339: ResourceWarning: unclosed <socket.socket fd=51, family=2, type=1, proto=0, laddr=('127.0.0.1', 35951)>
+  def _iterencode_dict(dct, _current_indent_level):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.......................tutti: this login is already in a household: `tutti household leave` first, or `tutti household code` for a new join code
+.tutti: household join: give the invite link from the dashboard's Users card (Invite someone), e.g. `tutti household join "https://<dashboard>/invite#..."`, quoted: a shell drops # and what follows (an older tutti-hh:... code works too)
+.tutti: no repo "nope" under autopilot.repos in /tmp/tmpei6slfuq/config.yaml: the repos are app
+..............open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#4tNHtMGKC_P1Cvy1qVuPS34R1VC1nKKLlSGtE5tZw6A (waiting...)
+.open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#SZrxUTRcn3O666r2FZTBNd2iaV3Juj82B49IlGQ934U (waiting...)
+.open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#X-R5YzZ02fV0U0YNCmBB4a9vvF5KkTk0zwTeNF4RyAA (waiting...)
+.....tutti: household project: app has no origin remote, so other members' copies cannot be matched to it: give it one (git remote add origin <url>), then share it
+........................................................tutti: /tmp/tmpd2t_1egn/app is not a git repository: give the folder of a household repo (tutti connect --repo <path>)
+....................................................................................................................................................................................tutti: name the run by its id: tutti runs discard <id> (tutti runs lists them)
+...F............tutti: usage page-reading: cursor 25 %, resets 2026-12-10 00:00:00+00:00
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (Expecting value: line 1 column 1 (char 0)): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (list indices must be integers or slices, not str): pass the JSON string it evaluated to
+tutti: usage page-reading: "Other Models" was not found on the page (its layout may have changed): read it by eye and `tutti usage log <account> <percent>`
+tutti: usage page-reading: ghost: no account "ghost" in the config: the accounts are cursor, agy
+..tutti: usage page-script: no account has a usage_url without its own reader matching "nothing-matches"
+........................................................./usr/lib/python3.14/tempfile.py:484: ResourceWarning: Implicitly cleaning up <HTTPError 401: 'no'>
+  _warnings.warn(self.warn_message, ResourceWarning)
+............................................................................../home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmprq42m_91/device/global.stay_on_while_plugged_in' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmprq42m_91/device/secure.screensaver_enabled' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmprq42m_91/device/system.screen_off_timeout' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmprq42m_91/device/volume' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmprq42m_91/device/global.stay_on_while_plugged_in' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmprq42m_91/device/global.stay_on_while_plugged_in' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmprq42m_91/device/secure.screensaver_enabled' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmprq42m_91/device/system.screen_off_timeout' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmprq42m_91/device/volume' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+..../home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmp5gdtsjh8/device/global.stay_on_while_plugged_in' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmp5gdtsjh8/device/secure.screensaver_enabled' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmp5gdtsjh8/device/system.screen_off_timeout' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmp5gdtsjh8/device/volume' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmp5gdtsjh8/device/global.stay_on_while_plugged_in' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmp5gdtsjh8/device/secure.screensaver_enabled' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmp5gdtsjh8/device/system.screen_off_timeout' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmp5gdtsjh8/device/volume' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+..../usr/lib/python3.14/subprocess.py:1139: ResourceWarning: subprocess 2571779 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/subprocess.py:1139: ResourceWarning: subprocess 2571785 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.14/subprocess.py:1139: ResourceWarning: subprocess 2571797 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.......................FF........FF.....................................................................................tutti: googletv could not be claimed: the pair is not leased (the others were released again)
+.............................tutti: tutti: the runner pc cannot reach pixeltablet at 1.2.3.4:5 (adb get-state: offline): check that both are on the same network and the device's Wireless debugging is on, then run again
+.tutti: test: refused: --input and --fetch need a synced tree: on a project runner the command reads and writes its own tree
+tutti: test: refused: the test filter is empty ("--filter ''"): name the tests to run (the shard's extra), never an empty filter
+.autopilot: on; not run yet
+fill_room on
+ladder: agy-gemini -> agy-claude -> cursor -> pc; not measured yet (max_parallel 2)
+
+ADDR=1.2.3.4:5
+ADDR=1.2.3.4:5
+ADDR=1.2.3.9:7
+tutti: device ready
+.tutti: tutti: refused: the command runs "\bwm\s+(?:size|density)\b" on tv, a tv, whose class forbids it (device_classes.tv.deny): take it out of the command or run it on another device
+ADDR=1.2.3.4:5
+ADDR=1.2.3.4:5
+tutti: device ready
+...tutti: test: copied C:\a\res.txt to /tmp/tmp5yvylhn8/res.txt
+..tutti: test: pc (the project's own work tree /mnt/c/R, nothing synced)
+.tutti: pc yields (its yield flag is up): the run waits until it is down; nothing is leased meanwhile
+..FF.FF.tutti: no scout "nope" under scouts: (known: grok)
+..........FFFFFFF..F.F..FEEFF.F.................................tutti: self-heal: strays: stopped keep-awake 4242: its test run is gone
+.....tutti: failover: Tutti's code changed (an update): the service starts again on the new code
+tutti: failover: Tutti's code changed (an update): the service starts again on the new code
+./home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_selfheal.py:184: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tutti-t-q6s4jmy9/tutti.config.yaml' mode='r' encoding='UTF-8'>
+  good = open(cfg['_path']).read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_selfheal.py:194: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tutti-t-q6s4jmy9/tutti.config.yaml' mode='r' encoding='UTF-8'>
+  self.assertEqual(open(cfg['_path']).read(), good)
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+./home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_selfheal.py:205: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tutti-t-8k1ob81c/tutti.config.yaml' mode='r' encoding='UTF-8'>
+  self.assertIn('dispatch: 3', open(cfg['_path']).read())
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+./home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_selfheal.py:178: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tutti-t-4cnlqfmn/state/backlog.json' mode='r' encoding='UTF-8'>
+  self.assertEqual(json.load(open(p)), {'tasks': []})
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+./home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_selfheal.py:217: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tutti-t-rk4xen8m/tutti.config.yaml' mode='r' encoding='UTF-8'>
+  self.assertEqual(open(cfg['_path']).read(), 'dashboard: [x\n')
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+......................................................................................./home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tutti/setupcmd.py:378: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmp3tx1p0x5/cfg/config.yaml' mode='r' encoding='utf8'>
+  text = open(path, encoding='utf8').read() if os.path.exists(path) else ''
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+The value of the GH_TOKEN environment variable is being used for authentication.
+To have GitHub CLI store credentials instead, first clear the value from the environment.
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tutti/setupcmd.py:378: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmp3tx1p0x5/cfg/config.yaml' mode='r' encoding='utf8'>
+  text = open(path, encoding='utf8').read() if os.path.exists(path) else ''
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+The value of the GH_TOKEN environment variable is being used for authentication.
+To have GitHub CLI store credentials instead, first clear the value from the environment.
+....../usr/lib/python3.14/tempfile.py:484: ResourceWarning: Implicitly cleaning up <HTTPError 404: 'Not Found'>
+  _warnings.warn(self.warn_message, ResourceWarning)
+../home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tutti/setupcmd.py:179: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpnljpi5vc/systemd/user/tutti-dashboard.service' mode='r' encoding='utf8'>
+  old = open(path, encoding='utf8').read() if os.path.exists(path) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.........../usr/lib/python3.14/subprocess.py:1139: ResourceWarning: subprocess 2643096 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+............./usr/lib/python3.14/tempfile.py:484: ResourceWarning: Implicitly cleaning up <HTTPError 404: 'Not Found'>
+  _warnings.warn(self.warn_message, ResourceWarning)
+tutti: warning: /tmp/tmpte3plshx/tutti.config.yaml: projects.Radio.tests.e2e.shards[1]: shard Future has needs_wifi_6, which this version does not know (a newer Tutti may read it): this shard is skipped
+tutti: warning: /tmp/tmpte3plshx/tutti.config.yaml: projects.Radio.tests.e2e.shards[2]: shard Gone names device nope, which is not under devices:: this shard is skipped
+tutti: warning: /tmp/tmpte3plshx/tutti.config.yaml: projects.Radio.tests.e2e.shards[3]: ['odd'] is not a shard this version reads (a name, or {name, devices, extra, holds}): this shard is skipped
+tutti: warning: /tmp/tmpte3plshx/tutti.config.yaml: projects.Radio.tests.e2e.shards[4]: shard X has extra 3: the extra arguments as one string (the command's {extra}): this shard is skipped
+..................................................................................................................................................................s.slot.sh: waiting, too hot: 96 C (nothing new at 95 C or more); it starts when the machine cools down
+.....................................tutti: the user name '/x' will not do: 1 to 32 letters, digits, spaces, dots, dashes or underscores, starting with a letter or digit
+..tutti: user share: say on or off, e.g. `tutti user share agy-claude on` (room it would lose at its reset may do the household's shared tasks)
+..............................................................................................................................................
+======================================================================
+ERROR: test_a_second_run_waits_for_the_device_lock (test_devices.DeviceRunTest.test_a_second_run_waits_for_the_device_lock)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_devices.py", line 314, in test_a_second_run_waits_for_the_device_lock
+    out, err = p.communicate(timeout=60)
+               ~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1221, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 2154, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/subprocess.py", line 1268, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['/usr/bin/python3', '/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/bin/tutti', '--config', '/tmp/tmpbs4gn6vv/tutti.config.json', 'test', '--device', 'pixel', '--', 'touch', 'ran']' timed out after 60 seconds
+
+======================================================================
+ERROR: test_findings_marked_and_a_real_one_only_grok_raised_promotes_review (test_scouts.TrialTest.test_findings_marked_and_a_real_one_only_grok_raised_promotes_review)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 431, in test_findings_marked_and_a_real_one_only_grok_raised_promotes_review
+    p = trial.collect(cfg, 'grok', f'{REPO}#7', self.gh)
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tutti/trial.py", line 274, in collect
+    p = find_pr(entry(data, name), key)
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tutti/trial.py", line 104, in find_pr
+    raise TrialError(f'{key} is not in the trial: `tutti scout trial` lists its pull requests')
+tutti.trial.TrialError: octo/app#7 is not in the trial: `tutti scout trial` lists its pull requests
+
+======================================================================
+ERROR: test_nothing_unique_keeps_it_to_research (test_scouts.TrialTest.test_nothing_unique_keeps_it_to_research)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 449, in test_nothing_unique_keeps_it_to_research
+    trial.collect(cfg, 'grok', f'{REPO}#7', self.gh)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tutti/trial.py", line 274, in collect
+    p = find_pr(entry(data, name), key)
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tutti/trial.py", line 104, in find_pr
+    raise TrialError(f'{key} is not in the trial: `tutti scout trial` lists its pull requests')
+tutti.trial.TrialError: octo/app#7 is not in the trial: `tutti scout trial` lists its pull requests
+
+======================================================================
+FAIL: test_api_state_carries_the_real_data (test_dashboard.ServerTest.test_api_state_carries_the_real_data)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_dashboard.py", line 222, in test_api_state_carries_the_real_data
+    self.assertEqual(s['machines']['items'][0]['status'], 'free')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'busy' != 'free'
+- busy
++ free
+
+
+======================================================================
+FAIL: test_the_command_gets_the_serial_and_a_job_record (test_devices.DeviceRunTest.test_the_command_gets_the_serial_and_a_job_record)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_devices.py", line 295, in test_the_command_gets_the_serial_and_a_job_record
+    self.assertEqual(f.read().split(), ['machine:here', 'device:pixel'])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: ['machine:here', 'device:pixel', 'class:background'] != ['machine:here', 'device:pixel']
+
+First list contains 1 additional elements.
+First extra element 2:
+'class:background'
+
+- ['machine:here', 'device:pixel', 'class:background']
+?                                --------------------
+
++ ['machine:here', 'device:pixel']
+
+======================================================================
+FAIL: test_an_unknown_gh_call_and_a_non_gh_argv_go_to_the_real_program (test_github.GitHubTest.test_an_unknown_gh_call_and_a_non_gh_argv_go_to_the_real_program)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_github.py", line 212, in test_an_unknown_gh_call_and_a_non_gh_argv_go_to_the_real_program
+    self.assertEqual(github.run(['gh', 'pr', 'list'], cfg=self.cfg, fallback=missing).returncode, 127)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 127
+
+======================================================================
+FAIL: test_a_running_nuc_test_shows_as_running_with_progress (test_orchestrator.DiscoverTest.test_a_running_nuc_test_shows_as_running_with_progress)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_orchestrator.py", line 573, in test_a_running_nuc_test_shows_as_running_with_progress
+    self.assertEqual(len(mine), 1)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+AssertionError: 0 != 1
+
+======================================================================
+FAIL: test_tests_start_no_helper_and_the_self_heal_round_never_reaps_in_tests (test_procs.ReaperTest.test_tests_start_no_helper_and_the_self_heal_round_never_reaps_in_tests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_procs.py", line 86, in test_tests_start_no_helper_and_the_self_heal_round_never_reaps_in_tests
+    self.assertFalse(procs.daemons_allowed())   # tests/run.py sets TUTTI_NO_DAEMONS
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not false
+
+======================================================================
+FAIL: test_the_lease_loop_is_one_per_device_ends_without_its_folder_and_carries_the_marker (test_procs.ReaperTest.test_the_lease_loop_is_one_per_device_ends_without_its_folder_and_carries_the_marker)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_procs.py", line 95, in test_the_lease_loop_is_one_per_device_ends_without_its_folder_and_carries_the_marker
+    self.assertNotIn('nohup', prep.lease_script(dev, 'c', 5, 'me'))   # tests: no background loop at all
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'nohup' unexpectedly found in 'for r in "$HOME"/.tutti/devices/pixel/users/run-*; do [ -e "$r" ] || continue; kill -0 "${r##*/run-}" 2>/dev/null || rm -f "$r"; done; for c in "$HOME"/.tutti/devices/pixel/users/claim-*; do [ -e "$c" ] || continue; e=$(head -c 20 "$c" | tr -cd 0-9); [ -n "$e" ] && [ "$e" -lt "$(date +%s)" ] && rm -f "$c"; done; by=$(ls -A "$HOME"/.tutti/devices/pixel/users 2>/dev/null | tr "\\n" " "); if [ -z "${by// /}" ]; then if [ -e "$HOME"/.tutti/prep/pixel.saved ]; then while IFS="$(printf "\\t")" read -r i v; do case "$i" in screen_brightness_mode|0) if c=$({ timeout 20 adb -s R5 shell \'settings get system screen_brightness_mode\' 2>/dev/null | tr -d "\\r" | tail -n 1; } < /dev/null); { [ "$c" = 0 ]; }; then if [ "$v" = null ]; then timeout 20 adb -s R5 shell \'settings delete system screen_brightness_mode\' > /dev/null 2>&1; else timeout 20 adb -s R5 shell "$(printf %s \'settings put system screen_brightness_mode {value}\' | sed "s|{value}|$v|")" > /dev/null 2>&1; fi < /dev/null && echo "tutti: restored screen_brightness_mode to $v"; else echo "tutti: kept screen_brightness_mode at $c: changed by a person"; fi;; screen_brightness|1) if c=$({ timeout 20 adb -s R5 shell \'settings get system screen_brightness\' 2>/dev/null | tr -d "\\r" | tail -n 1; } < /dev/null); { [ "$c" = 1 ] || [ "$c" = 77 ]; }; then if [ "$v" = null ]; then timeout 20 adb -s R5 shell \'settings delete system screen_brightness\' > /dev/null 2>&1; else timeout 20 adb -s R5 shell "$(printf %s \'settings put system screen_brightness {value}\' | sed "s|{value}|$v|")" > /dev/null 2>&1; fi < /dev/null && echo "tutti: restored screen_brightness to $v"; else echo "tutti: kept screen_brightness at $c: changed by a person"; fi;; media_volume|2) if c=$({ timeout 20 adb -s R5 shell \'cmd media_session volume --stream 3 --get\' 2>/dev/null | tr -d "\\r" | tail -n 1 | sed -nE \'s/.*volume is ([0-9]+).*/\\1/p\'; } < /dev/null); { [ "$c" = 0 ] || [ "$c" = 2 ]; }; then timeout 20 adb -s R5 shell "$(printf %s \'cmd media_session volume --stream 3 --set {value}\' | sed "s|{value}|$v|")" > /dev/null 2>&1 < /dev/null && echo "tutti: restored media volume to $v"; else echo "tutti: kept media volume at $c: changed by a person"; fi;; accelerometer_rotation|3) if c=$({ timeout 20 adb -s R5 shell \'settings get system accelerometer_rotation\' 2>/dev/null | tr -d "\\r" | tail -n 1; } < /dev/null); { true; }; then if [ "$v" = null ]; then timeout 20 adb -s R5 shell \'settings delete system accelerometer_rotation\' > /dev/null 2>&1; else timeout 20 adb -s R5 shell "$(printf %s \'settings put system accelerometer_rotation {value}\' | sed "s|{value}|$v|")" > /dev/null 2>&1; fi < /dev/null && echo "tutti: restored accelerometer_rotation to $v"; else echo "tutti: kept accelerometer_rotation at $c: changed by a person"; fi;; user_rotation|4) if c=$({ timeout 20 adb -s R5 shell \'settings get system user_rotation\' 2>/dev/null | tr -d "\\r" | tail -n 1; } < /dev/null); { true; }; then if [ "$v" = null ]; then timeout 20 adb -s R5 shell \'settings delete system user_rotation\' > /dev/null 2>&1; else timeout 20 adb -s R5 shell "$(printf %s \'settings put system user_rotation {value}\' | sed "s|{value}|$v|")" > /dev/null 2>&1; fi < /dev/null && echo "tutti: restored user_rotation to $v"; else echo "tutti: kept user_rotation at $c: changed by a person"; fi;; screen_off_timeout|5) if c=$({ timeout 20 adb -s R5 shell \'settings get system screen_off_timeout\' 2>/dev/null | tr -d "\\r" | tail -n 1; } < /dev/null); { true; }; then if [ "$v" = null ]; then timeout 20 adb -s R5 shell \'settings delete system screen_off_timeout\' > /dev/null 2>&1; else timeout 20 adb -s R5 shell "$(printf %s \'settings put system screen_off_timeout {value}\' | sed "s|{value}|$v|")" > /dev/null 2>&1; fi < /dev/null && echo "tutti: restored screen_off_timeout to $v"; else echo "tutti: kept screen_off_timeout at $c: changed by a person"; fi;; screensaver_enabled|6) if c=$({ timeout 20 adb -s R5 shell \'settings get secure screensaver_enabled\' 2>/dev/null | tr -d "\\r" | tail -n 1; } < /dev/null); { true; }; then if [ "$v" = null ]; then timeout 20 adb -s R5 shell \'settings delete secure screensaver_enabled\' > /dev/null 2>&1; else timeout 20 adb -s R5 shell "$(printf %s \'settings put secure screensaver_enabled {value}\' | sed "s|{value}|$v|")" > /dev/null 2>&1; fi < /dev/null && echo "tutti: restored screensaver_enabled to $v"; else echo "tutti: kept screensaver_enabled at $c: changed by a person"; fi;; system_volume) if c=$({ timeout 20 adb -s R5 shell \'cmd media_session volume --stream 1 --get\' 2>/dev/null | tr -d "\\r" | tail -n 1 | sed -nE \'s/.*volume is ([0-9]+).*/\\1/p\'; } < /dev/null); { [ "$c" = 0 ]; }; then timeout 20 adb -s R5 shell "$(printf %s \'cmd media_session volume --stream 1 --set {value}\' | sed "s|{value}|$v|")" > /dev/null 2>&1 < /dev/null && echo "tutti: restored system volume to $v"; else echo "tutti: kept system volume at $c: changed by a person"; fi;; ring_volume) if c=$({ timeout 20 adb -s R5 shell \'cmd media_session volume --stream 2 --get\' 2>/dev/null | tr -d "\\r" | tail -n 1 | sed -nE \'s/.*volume is ([0-9]+).*/\\1/p\'; } < /dev/null); { [ "$c" = 0 ]; }; then timeout 20 adb -s R5 shell "$(printf %s \'cmd media_session volume --stream 2 --set {value}\' | sed "s|{value}|$v|")" > /dev/null 2>&1 < /dev/null && echo "tutti: restored ring volume to $v"; else echo "tutti: kept ring volume at $c: changed by a person"; fi;; notification_volume) if c=$({ timeout 20 adb -s R5 shell \'cmd media_session volume --stream 5 --get\' 2>/dev/null | tr -d "\\r" | tail -n 1 | sed -nE \'s/.*volume is ([0-9]+).*/\\1/p\'; } < /dev/null); { [ "$c" = 0 ]; }; then timeout 20 adb -s R5 shell "$(printf %s \'cmd media_session volume --stream 5 --set {value}\' | sed "s|{value}|$v|")" > /dev/null 2>&1 < /dev/null && echo "tutti: restored notification volume to $v"; else echo "tutti: kept notification volume at $c: changed by a person"; fi;; esac; done < "$HOME"/.tutti/prep/pixel.saved; rm -f "$HOME"/.tutti/prep/pixel.saved; fi; echo "tutti: device released pixel"; else echo "tutti: "pixel" stays in use by $by"; fi > /dev/null; mkdir -p "$HOME"/.tutti/devices/pixel/users; find "$HOME"/.tutti/devices/pixel/users/../lease.lock -maxdepth 0 -mmin +1 -exec rmdir {} \\; 2>/dev/null; n=0; until mkdir "$HOME"/.tutti/devices/pixel/users/../lease.lock 2>/dev/null; do n=$((n + 1)); if [ $n -gt 100 ]; then echo "tutti: "pixel" is being claimed by someone else right now: try again in a minute"; exit 3; fi; sleep 0.1; done; others=$(ls -A "$HOME"/.tutti/devices/pixel/users | grep -vx "$(basename c)" | tr "\\n" " "); if [ -n "$others" ]; then rmdir "$HOME"/.tutti/devices/pixel/users/../lease.lock; echo "tutti: "pixel" is in use by $others: try again when it is free"; exit 3; fi; echo $(( $(date +%s) + 300 )) > c; rmdir "$HOME"/.tutti/devices/pixel/users/../lease.lock; if [ ! -e "$HOME"/.tutti/prep/pixel.saved ]; then mkdir -p "$(dirname "$HOME"/.tutti/prep/pixel.saved)"; : > "$HOME"/.tutti/prep/pixel.saved.tmp; v=$(timeout 20 adb -s R5 shell \'settings get system screen_brightness_mode\' 2>/dev/null | tr -d "\\r" | tail -n 1); [ -n "$v" ] || { :; v=$(timeout 45 adb -s R5 shell \'settings get system screen_brightness_mode\' 2>/dev/null | tr -d "\\r" | tail -n 1); }; if [ -n "$v" ] && ! printf "%s" "$v" | grep -qiE "not found|inaccessible|unknown|error|exception|usage:"; then printf "%s\\t%s\\n" screen_brightness_mode "$v" >> "$HOME"/.tutti/prep/pixel.saved.tmp; else echo "tutti: prep screen_brightness_mode skipped: the device does not answer \'settings get system screen_brightness_mode\'"; fi; v=$(timeout 20 adb -s R5 shell \'settings get system screen_brightness\' 2>/dev/null | tr -d "\\r" | tail -n 1); [ -n "$v" ] || { :; v=$(timeout 45 adb -s R5 shell \'settings get system screen_brightness\' 2>/dev/null | tr -d "\\r" | tail -n 1); }; if [ -n "$v" ] && ! printf "%s" "$v" | grep -qiE "not found|inaccessible|unknown|error|exception|usage:"; then printf "%s\\t%s\\n" screen_brightness "$v" >> "$HOME"/.tutti/prep/pixel.saved.tmp; else echo "tutti: prep screen_brightness skipped: the device does not answer \'settings get system screen_brightness\'"; fi; v=$(timeout 20 adb -s R5 shell \'cmd media_session volume --stream 3 --get\' 2>/dev/null | tr -d "\\r" | tail -n 1 | sed -nE \'s/.*volume is ([0-9]+).*/\\1/p\'); [ -n "$v" ] || { :; v=$(timeout 45 adb -s R5 shell \'cmd media_session volume --stream 3 --get\' 2>/dev/null | tr -d "\\r" | tail -n 1 | sed -nE \'s/.*volume is ([0-9]+).*/\\1/p\'); }; if [ -n "$v" ] && ! printf "%s" "$v" | grep -qiE "not found|inaccessible|unknown|error|exception|usage:"; then printf "%s\\t%s\\n" media_volume "$v" >> "$HOME"/.tutti/prep/pixel.saved.tmp; else echo "tutti: prep media volume skipped: the device does not answer \'cmd media_session volume --stream 3 --get\'"; fi; v=$(timeout 20 adb -s R5 shell \'settings get system accelerometer_rotation\' 2>/dev/null | tr -d "\\r" | tail -n 1); [ -n "$v" ] || { :; v=$(timeout 45 adb -s R5 shell \'settings get system accelerometer_rotation\' 2>/dev/null | tr -d "\\r" | tail -n 1); }; if [ -n "$v" ] && ! printf "%s" "$v" | grep -qiE "not found|inaccessible|unknown|error|exception|usage:"; then printf "%s\\t%s\\n" accelerometer_rotation "$v" >> "$HOME"/.tutti/prep/pixel.saved.tmp; else echo "tutti: prep accelerometer_rotation skipped: the device does not answer \'settings get system accelerometer_rotation\'"; fi; v=$(timeout 20 adb -s R5 shell \'settings get system user_rotation\' 2>/dev/null | tr -d "\\r" | tail -n 1); [ -n "$v" ] || { :; v=$(timeout 45 adb -s R5 shell \'settings get system user_rotation\' 2>/dev/null | tr -d "\\r" | tail -n 1); }; if [ -n "$v" ] && ! printf "%s" "$v" | grep -qiE "not found|inaccessible|unknown|error|exception|usage:"; then printf "%s\\t%s\\n" user_rotation "$v" >> "$HOME"/.tutti/prep/pixel.saved.tmp; else echo "tutti: prep user_rotation skipped: the device does not answer \'settings get system user_rotation\'"; fi; v=$(timeout 20 adb -s R5 shell \'settings get system screen_off_timeout\' 2>/dev/null | tr -d "\\r" | tail -n 1); [ -n "$v" ] || { :; v=$(timeout 45 adb -s R5 shell \'settings get system screen_off_timeout\' 2>/dev/null | tr -d "\\r" | tail -n 1); }; if [ -n "$v" ] && ! printf "%s" "$v" | grep -qiE "not found|inaccessible|unknown|error|exception|usage:"; then printf "%s\\t%s\\n" screen_off_timeout "$v" >> "$HOME"/.tutti/prep/pixel.saved.tmp; else echo "tutti: prep screen_off_timeout skipped: the device does not answer \'settings get system screen_off_timeout\'"; fi; v=$(timeout 20 adb -s R5 shell \'settings get secure screensaver_enabled\' 2>/dev/null | tr -d "\\r" | tail -n 1); [ -n "$v" ] || { :; v=$(timeout 45 adb -s R5 shell \'settings get secure screensaver_enabled\' 2>/dev/null | tr -d "\\r" | tail -n 1); }; if [ -n "$v" ] && ! printf "%s" "$v" | grep -qiE "not found|inaccessible|unknown|error|exception|usage:"; then printf "%s\\t%s\\n" screensaver_enabled "$v" >> "$HOME"/.tutti/prep/pixel.saved.tmp; else echo "tutti: prep screensaver_enabled skipped: the device does not answer \'settings get secure screensaver_enabled\'"; fi; mv "$HOME"/.tutti/prep/pixel.saved.tmp "$HOME"/.tutti/prep/pixel.saved; fi; if v=$(awk -F"\\t" \'$1 == "screen_brightness_mode" {print $2}\' "$HOME"/.tutti/prep/pixel.saved); [ -n "$v" ]; then timeout 20 adb -s R5 shell \'settings put system screen_brightness_mode 0\' > /dev/null 2>&1 && echo "tutti: prep screen_brightness_mode: $v -> 0"; fi; if v=$(awk -F"\\t" \'$1 == "screen_brightness" {print $2}\' "$HOME"/.tutti/prep/pixel.saved); [ -n "$v" ]; then timeout 20 adb -s R5 shell \'settings put system screen_brightness 77\' > /dev/null 2>&1 && echo "tutti: prep screen_brightness: $v -> 77"; fi; if v=$(awk -F"\\t" \'$1 == "media_volume" {print $2}\' "$HOME"/.tutti/prep/pixel.saved); [ -n "$v" ] && ! { [ "$v" -le 2 ] 2>/dev/null; }; then timeout 20 adb -s R5 shell \'cmd media_session volume --stream 3 --set 2\' > /dev/null 2>&1 && echo "tutti: prep media volume: $v -> 2"; fi; timeout 20 adb -s R5 shell input keyevent KEYCODE_WAKEUP > /dev/null 2>&1; timeout 20 adb -s R5 shell wm dismiss-keyguard > /dev/null 2>&1; if ! kill -0 "$(cat "$HOME"/.tutti/devices/pixel/users/../awake.pid 2>/dev/null)" 2>/dev/null; then nohup env TUTTI_PROC=claim:pixel bash -c \'sleep 1; [ "$(timeout 20 adb -s R5 shell pm has-feature android.software.leanback 2>/dev/null | tr -d "\\r")" = false ] && k=1 || k=0; while :; do [ "$(cat "$HOME"/.tutti/devices/pixel/users/../awake.pid 2>/dev/null)" = "$$" ] || break; live=; for c in "$HOME"/.tutti/devices/pixel/users/claim-*; do [ -e "$c" ] || continue; e=$(head -c 20 "$c" | tr -cd 0-9); [ -n "$e" ] && [ "$e" -gt "$(date +%s)" ] && live=1; done; if [ -z "$live" ]; then until mkdir "$HOME"/.tutti/devices/pixel/users/../lease.lock 2>/dev/null; do [ -d "$HOME"/.tutti/devices/pixel/users ] || break 2; sleep 0.1; done; live=; for c in "$HOME"/.tutti/devices/pixel/users/claim-*; do [ -e "$c" ] || continue; e=$(head -c 20 "$c" | tr -cd 0-9); [ -n "$e" ] && [ "$e" -gt "$(date +%s)" ] && live=1; done; if [ -z "$live" ]; then rm -f "$HOME"/.tutti/devices/pixel/users/../awake.pid; for r in "$HOME"/.tutti/devices/pixel/users/run-*; do [ -e "$r" ] || continue; kill -0 "${r##*/run-}" 2>/dev/null || rm -f "$r"; done; for c in "$HOME"/.tutti/devices/pixel/users/claim-*; do [ -e "$c" ] || continue; e=$(head -c 20 "$c" | tr -cd 0-9); [ -n "$e" ] && [ "$e" -lt "$(date +%s)" ] && rm -f "$c"; done; by=$(ls -A "$HOME"/.tutti/devices/pixel/users 2>/dev/null | tr "\\n" " "); if [ -z "${by// /}" ]; then if [ -e "$HOME"/.tutti/prep/pixel.saved ]; then while IFS="$(printf "\\t")" read -r i v; do case "$i" in screen_brightness_mode|0) if c=$({ timeout 20 adb -s R5 shell \'"\'"\'settings get system screen_brightness_mode\'"\'"\' 2>/dev/null | tr -d "\\r" | tail -n 1; } < /dev/null); { [ "$c" = 0 ]; }; then if [ "$v" = null ]; then timeout 20 adb -s R5 shell \'"\'"\'settings delete system screen_brightness_mode\'"\'"\' > /dev/null 2>&1; else timeout 20 adb -s R5 shell "$(printf %s \'"\'"\'settings put system screen_brightness_mode {value}\'"\'"\' | sed "s|{value}|$v|")" > /dev/null 2>&1; fi < /dev/null && echo "tutti: restored screen_brightness_mode to $v"; else echo "tutti: kept screen_brightness_mode at $c: changed by a person"; fi;; screen_brightness|1) if c=$({ timeout 20 adb -s R5 shell \'"\'"\'settings get system screen_brightness\'"\'"\' 2>/dev/null | tr -d "\\r" | tail -n 1; } < /dev/null); { [ "$c" = 1 ] || [ "$c" = 77 ]; }; then if [ "$v" = null ]; then timeout 20 adb -s R5 shell \'"\'"\'settings delete system screen_brightness\'"\'"\' > /dev/null 2>&1; else timeout 20 adb -s R5 shell "$(printf %s \'"\'"\'settings put system screen_brightness {value}\'"\'"\' | sed "s|{value}|$v|")" > /dev/null 2>&1; fi < /dev/null && echo "tutti: restored screen_brightness to $v"; else echo "tutti: kept screen_brightness at $c: changed by a person"; fi;; media_volume|2) if c=$({ timeout 20 adb -s R5 shell \'"\'"\'cmd media_session volume --stream 3 --get\'"\'"\' 2>/dev/null | tr -d "\\r" | tail -n 1 | sed -nE \'"\'"\'s/.*volume is ([0-9]+).*/\\1/p\'"\'"\'; } < /dev/null); { [ "$c" = 0 ] || [ "$c" = 2 ]; }; then timeout 20 adb -s R5 shell "$(printf %s \'"\'"\'cmd media_session volume --stream 3 --set {value}\'"\'"\' | sed "s|{value}|$v|")" > /dev/null 2>&1 < /dev/null && echo "tutti: restored media volume to $v"; else echo "tutti: kept media volume at $c: changed by a person"; fi;; accelerometer_rotation|3) if c=$({ timeout 20 adb -s R5 shell \'"\'"\'settings get system accelerometer_rotation\'"\'"\' 2>/dev/null | tr -d "\\r" | tail -n 1; } < /dev/null); { true; }; then if [ "$v" = null ]; then timeout 20 adb -s R5 shell \'"\'"\'settings delete system accelerometer_rotation\'"\'"\' > /dev/null 2>&1; else timeout 20 adb -s R5 shell "$(printf %s \'"\'"\'settings put system accelerometer_rotation {value}\'"\'"\' | sed "s|{value}|$v|")" > /dev/null 2>&1; fi < /dev/null && echo "tutti: restored accelerometer_rotation to $v"; else echo "tutti: kept accelerometer_rotation at $c: changed by a person"; fi;; user_rotation|4) if c=$({ timeout 20 adb -s R5 shell \'"\'"\'settings get system user_rotation\'"\'"\' 2>/dev/null | tr -d "\\r" | tail -n 1; } < /dev/null); { true; }; then if [ "$v" = null ]; then timeout 20 adb -s R5 shell \'"\'"\'settings delete system user_rotation\'"\'"\' > /dev/null 2>&1; else timeout 20 adb -s R5 shell "$(printf %s \'"\'"\'settings put system user_rotation {value}\'"\'"\' | sed "s|{value}|$v|")" > /dev/null 2>&1; fi < /dev/null && echo "tutti: restored user_rotation to $v"; else echo "tutti: kept user_rotation at $c: changed by a person"; fi;; screen_off_timeout|5) if c=$({ timeout 20 adb -s R5 shell \'"\'"\'settings get system screen_off_timeout\'"\'"\' 2>/dev/null | tr -d "\\r" | tail -n 1; } < /dev/null); { true; }; then if [ "$v" = null ]; then timeout 20 adb -s R5 shell \'"\'"\'settings delete system screen_off_timeout\'"\'"\' > /dev/null 2>&1; else timeout 20 adb -s R5 shell "$(printf %s \'"\'"\'settings put system screen_off_timeout {value}\'"\'"\' | sed "s|{value}|$v|")" > /dev/null 2>&1; fi < /dev/null && echo "tutti: restored screen_off_timeout to $v"; else echo "tutti: kept screen_off_timeout at $c: changed by a person"; fi;; screensaver_enabled|6) if c=$({ timeout 20 adb -s R5 shell \'"\'"\'settings get secure screensaver_enabled\'"\'"\' 2>/dev/null | tr -d "\\r" | tail -n 1; } < /dev/null); { true; }; then if [ "$v" = null ]; then timeout 20 adb -s R5 shell \'"\'"\'settings delete secure screensaver_enabled\'"\'"\' > /dev/null 2>&1; else timeout 20 adb -s R5 shell "$(printf %s \'"\'"\'settings put secure screensaver_enabled {value}\'"\'"\' | sed "s|{value}|$v|")" > /dev/null 2>&1; fi < /dev/null && echo "tutti: restored screensaver_enabled to $v"; else echo "tutti: kept screensaver_enabled at $c: changed by a person"; fi;; system_volume) if c=$({ timeout 20 adb -s R5 shell \'"\'"\'cmd media_session volume --stream 1 --get\'"\'"\' 2>/dev/null | tr -d "\\r" | tail -n 1 | sed -nE \'"\'"\'s/.*volume is ([0-9]+).*/\\1/p\'"\'"\'; } < /dev/null); { [ "$c" = 0 ]; }; then timeout 20 adb -s R5 shell "$(printf %s \'"\'"\'cmd media_session volume --stream 1 --set {value}\'"\'"\' | sed "s|{value}|$v|")" > /dev/null 2>&1 < /dev/null && echo "tutti: restored system volume to $v"; else echo "tutti: kept system volume at $c: changed by a person"; fi;; ring_volume) if c=$({ timeout 20 adb -s R5 shell \'"\'"\'cmd media_session volume --stream 2 --get\'"\'"\' 2>/dev/null | tr -d "\\r" | tail -n 1 | sed -nE \'"\'"\'s/.*volume is ([0-9]+).*/\\1/p\'"\'"\'; } < /dev/null); { [ "$c" = 0 ]; }; then timeout 20 adb -s R5 shell "$(printf %s \'"\'"\'cmd media_session volume --stream 2 --set {value}\'"\'"\' | sed "s|{value}|$v|")" > /dev/null 2>&1 < /dev/null && echo "tutti: restored ring volume to $v"; else echo "tutti: kept ring volume at $c: changed by a person"; fi;; notification_volume) if c=$({ timeout 20 adb -s R5 shell \'"\'"\'cmd media_session volume --stream 5 --get\'"\'"\' 2>/dev/null | tr -d "\\r" | tail -n 1 | sed -nE \'"\'"\'s/.*volume is ([0-9]+).*/\\1/p\'"\'"\'; } < /dev/null); { [ "$c" = 0 ]; }; then timeout 20 adb -s R5 shell "$(printf %s \'"\'"\'cmd media_session volume --stream 5 --set {value}\'"\'"\' | sed "s|{value}|$v|")" > /dev/null 2>&1 < /dev/null && echo "tutti: restored notification volume to $v"; else echo "tutti: kept notification volume at $c: changed by a person"; fi;; esac; done < "$HOME"/.tutti/prep/pixel.saved; rm -f "$HOME"/.tutti/prep/pixel.saved; fi; echo "tutti: device released pixel"; else echo "tutti: "pixel" stays in use by $by"; fi > /dev/null; rmdir "$HOME"/.tutti/devices/pixel/users/../lease.lock; break; fi; rmdir "$HOME"/.tutti/devices/pixel/users/../lease.lock; fi; { { [ -e "$HOME"/.tutti/devices/pixel/person ] && [ $(( $(date +%s) - $(cat "$HOME"/.tutti/devices/pixel/person 2>/dev/null || echo 0) )) -lt 180 ]; } || [ $k = 0 ]; } || timeout 20 adb -s R5 shell input keyevent KEYCODE_UNKNOWN > /dev/null 2>&1; sleep 15; done\' > /dev/null 2>&1 & echo $! > "$HOME"/.tutti/devices/pixel/users/../awake.pid; nohup env TUTTI_PROC=claim:pixel bash -c \'while [ -e "$HOME"/.tutti/devices/pixel/users/../awake.pid ]; do if timeout 30 adb -s R5 shell getevent -qc 1 2>/dev/null | grep -q .; then mkdir -p "$(dirname "$HOME"/.tutti/devices/pixel/person)"; date +%s > "$HOME"/.tutti/devices/pixel/person; sleep 1; fi; done\' > /dev/null 2>&1 & fi; echo ADDR=R5; echo SERIAL=R5; echo "tutti: "pixel" leased to "me" for 5 min"'
+
+======================================================================
+FAIL: test_a_broken_git_file_is_no_repository (test_projects.IdentifyTest.test_a_broken_git_file_is_no_repository)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_projects.py", line 64, in test_a_broken_git_file_is_no_repository
+    self.assertEqual(projects.git_dir(os.path.join(d, 'x')), (None, None))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Tuples differ: ('/tmp', '/tmp/.git') != (None, None)
+
+First differing element 0:
+'/tmp'
+None
+
+- ('/tmp', '/tmp/.git')
++ (None, None)
+
+======================================================================
+FAIL: test_a_worktree_leads_to_its_main_checkout_and_origin (test_projects.IdentifyTest.test_a_worktree_leads_to_its_main_checkout_and_origin)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_projects.py", line 52, in test_a_worktree_leads_to_its_main_checkout_and_origin
+    self.assertIsNone(projects.identify(d))
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'name': 'tmp', 'repo': '/tmp', 'remote': '', 'branch': None, 'folder': '/tmp'} is not None
+
+======================================================================
+FAIL: test_a_redirect_is_never_followed (test_scouts.AskTest.test_a_redirect_is_never_followed)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 224, in test_a_redirect_is_never_followed
+    self.assertIn('redirect', out)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+AssertionError: 'redirect' not found in "s1 failed: the scout's webhook answered 400, so no run started: confirm the routine is not paused (Grok Bot: the bot's Details tab) and the key is current\n"
+
+======================================================================
+FAIL: test_a_refused_key_closes_the_issue_and_says_which_variable (test_scouts.AskTest.test_a_refused_key_closes_the_issue_and_says_which_variable)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 205, in test_a_refused_key_closes_the_issue_and_says_which_variable
+    self.assertIn('TUTTI_GROK_KEY', out)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'TUTTI_GROK_KEY' not found in "s1 failed: the scout's webhook answered 400, so no run started: confirm the routine is not paused (Grok Bot: the bot's Details tab) and the key is current\n"
+
+======================================================================
+FAIL: test_ask_opens_an_issue_fires_the_webhook_and_returns_the_answer (test_scouts.AskTest.test_ask_opens_an_issue_fires_the_webhook_and_returns_the_answer)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 185, in test_ask_opens_an_issue_fires_the_webhook_and_returns_the_answer
+    self.assertEqual(rc, 0)
+    ~~~~~~~~~~~~~~~~^^^^^^^
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_no_answer_in_time_says_how_to_look_again (test_scouts.AskTest.test_no_answer_in_time_says_how_to_look_again)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 198, in test_no_answer_in_time_says_how_to_look_again
+    self.assertEqual(rc, 3)
+    ~~~~~~~~~~~~~~~~^^^^^^^
+AssertionError: 1 != 3
+
+======================================================================
+FAIL: test_missing_variables_are_named_never_their_values (test_scouts.SecretsTest.test_missing_variables_are_named_never_their_values)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 151, in test_missing_variables_are_named_never_their_values
+    with self.assertRaises(scouts.ScoutError) as e:
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+AssertionError: ScoutError not raised
+
+======================================================================
+FAIL: test_plain_http_is_refused_except_on_this_computer (test_scouts.SecretsTest.test_plain_http_is_refused_except_on_this_computer)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 161, in test_plain_http_is_refused_except_on_this_computer
+    with self.assertRaises(scouts.ScoutError) as e:
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+AssertionError: ScoutError not raised
+
+======================================================================
+FAIL: test_the_key_from_stdin_and_a_pasted_bearer_prefix (test_scouts.SecretsTest.test_the_key_from_stdin_and_a_pasted_bearer_prefix)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 158, in test_the_key_from_stdin_and_a_pasted_bearer_prefix
+    self.assertEqual((url, key), ('https://hooks.example/r', KEY))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Tuples differ: ('https://api2.cursor.sh/automations/webhook/0e58a8[48 chars]eal') != ('https://hooks.example/r', 'test-key-not-real')
+
+First differing element 0:
+'https://api2.cursor.sh/automations/webhook/0e58a8[26 chars]777f'
+'https://hooks.example/r'
+
++ ('https://hooks.example/r', 'test-key-not-real')
+- ('https://api2.cursor.sh/automations/webhook/0e58a871-85f2-59f6-b10a-801374bf777f',
+-  'test-key-not-real')
+
+======================================================================
+FAIL: test_a_round_sends_due_watches_and_collects_answers (test_scouts.TickTest.test_a_round_sends_due_watches_and_collects_answers)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 274, in test_a_round_sends_due_watches_and_collects_answers
+    self.assertEqual(len(self.hook.calls), 1)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 1
+
+======================================================================
+FAIL: test_a_strangers_comment_is_never_taken_as_the_answer (test_scouts.TickTest.test_a_strangers_comment_is_never_taken_as_the_answer)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 289, in test_a_strangers_comment_is_never_taken_as_the_answer
+    self.assertEqual(scouts.load(cfg)['requests'][0]['status'], 'waiting')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'failed' != 'waiting'
+- failed
++ waiting
+
+
+======================================================================
+FAIL: test_an_unreadable_issue_never_stops_the_round (test_scouts.TickTest.test_an_unreadable_issue_never_stops_the_round)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 311, in test_an_unreadable_issue_never_stops_the_round
+    self.assertTrue(any('waiting' in e for e in events))   # the due watch still went out
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_no_round_without_the_variables_or_with_auto_off (test_scouts.TickTest.test_no_round_without_the_variables_or_with_auto_off)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 315, in test_no_round_without_the_variables_or_with_auto_off
+    self.assertEqual(scouts.tick(cfg, {}, env={}, gh_fn=self.gh), [])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: ['s1 failed: https://github.com/octo/app/issues/1'] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+'s1 failed: https://github.com/octo/app/issues/1'
+
+- ['s1 failed: https://github.com/octo/app/issues/1']
++ []
+
+======================================================================
+FAIL: test_a_pull_request_already_sent_is_not_sent_again (test_scouts.TrialTest.test_a_pull_request_already_sent_is_not_sent_again)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 390, in test_a_pull_request_already_sent_is_not_sent_again
+    self.assertEqual(self.review(cfg, 7)['id'], first['id'])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 's2' != 's1'
+- s2
++ s1
+
+
+======================================================================
+FAIL: test_a_scout_failure_never_blocks_the_review (test_scouts.TrialTest.test_a_scout_failure_never_blocks_the_review)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 377, in test_a_scout_failure_never_blocks_the_review
+    self.assertIsNone(r)
+    ~~~~~~~~~~~~~~~~~^^^
+AssertionError: {'id': 's1', 'scout': 'grok', 'kind': 'review', 'watch': None, 'task': 'Review pull request octo/app#7 (https://github.com/octo/app/pull/7) through your GitHub connection: read its description and its whole diff. Report only real problems: bugs, wrong behaviour, missing error handling, security issues, tests that do not test what they claim, docs that contradict the code. Post ONE comment on the pull request. Its first line is exactly "grok-scout". Then one Markdown bullet per finding: `path:line` - what is wrong - the fix; at most 15, most serious first. If there is nothing worth fixing, write "No findings." under the first line. Never push, approve, request changes or edit anything.', 'skill': 'review', 'repo': 'octo/app', 'status': 'failed', 'added': 1795005096.7420712, 'issue': 7, 'url': 'https://github.com/octo/app/pull/7', 'sent': 1795005096.7420762, 'why': "the scout's webhook answered 400, so no run started: confirm the routine is not paused (Grok Bot: the bot's Details tab) and the key is current"} is not None
+
+======================================================================
+FAIL: test_done_waits_for_the_scouts_review (test_scouts.TrialTest.test_done_waits_for_the_scouts_review)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 414, in test_done_waits_for_the_scouts_review
+    self.assertIn('trial collect', str(e.exception))
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'trial collect' not found in 'octo/app#7 is not in the trial: `tutti scout trial` lists its pull requests'
+
+======================================================================
+FAIL: test_pr_review_also_asks_the_scout_during_the_trial (test_scouts.TrialTest.test_pr_review_also_asks_the_scout_during_the_trial)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 367, in test_pr_review_also_asks_the_scout_during_the_trial
+    self.assertEqual(r['status'], 'waiting')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'failed' != 'waiting'
+- failed
++ waiting
+
+
+======================================================================
+FAIL: test_not_set_up_shows_missing_names_and_the_owner_steps (test_scouts.ViewTest.test_not_set_up_shows_missing_names_and_the_owner_steps)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 324, in test_not_set_up_shows_missing_names_and_the_owner_steps
+    self.assertEqual(v['items'][0]['missing'], ['TUTTI_GROK_URL', 'TUTTI_GROK_KEY'])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: [] != ['TUTTI_GROK_URL', 'TUTTI_GROK_KEY']
+
+Second list contains 2 additional elements.
+First extra element 0:
+'TUTTI_GROK_URL'
+
+- []
++ ['TUTTI_GROK_URL', 'TUTTI_GROK_KEY']
+
+======================================================================
+FAIL: test_the_dashboard_state_carries_the_scouts_card (test_scouts.ViewTest.test_the_dashboard_state_carries_the_scouts_card)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t233/tests/test_scouts.py", line 353, in test_the_dashboard_state_carries_the_scouts_card
+    self.assertFalse(snap['scouts']['items'][0]['ready'])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not false
+
+----------------------------------------------------------------------
+Ran 1990 tests in 570.322s
+
+FAILED (failures=25, errors=3, skipped=1)
+<sys>:0: ResourceWarning: unclosed file <_io.TextIOWrapper name=55 encoding='UTF-8'>
+<sys>:0: ResourceWarning: unclosed file <_io.TextIOWrapper name=53 encoding='UTF-8'>

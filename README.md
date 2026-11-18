@@ -169,6 +169,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 - [docs/DASHBOARD.md](docs/DASHBOARD.md): the local dashboard, its data sources and `/api/state`.
 - [docs/TESTING.md](docs/TESTING.md): `scripts/check.sh`, and the dashboard's browser tests (every tab: layout, accessibility, roles).
 - [docs/FLEET.md](docs/FLEET.md): every machine's Ollama as a worker, capability routing, overflow from paced accounts, the governor and the block resolver.
+- [docs/HOME-ASSISTANT.md](docs/HOME-ASSISTANT.md): Tutti's household partner for devices, energy, presence and notifications.
 - [docs/ENERGY.md](docs/ENERGY.md): local models' power, energy and estimated cost: the method, the price tables and their sources.
 - [docs/SELFHEAL.md](docs/SELFHEAL.md): self-healing checks and repairs, declared needs installed by themselves, the temp janitor.
 - [docs/FAILOVER.md](docs/FAILOVER.md): the backup main machine: election, sync, failover, failback, no split brain, the state budget.

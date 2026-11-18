@@ -755,7 +755,7 @@ body[data-view-name='chat'] .foot { display: none; }
 .chat__sidefoot { display: grid; gap: 4px; border-top: 1px solid var(--outline-2); padding-top: 8px; font-size: 0.875rem; }
 .chat__privacy summary { min-height: 40px; display: flex; align-items: center; cursor: pointer; color: var(--on-surface-2); padding: 0 8px; }
 .chat__privacy p { color: var(--on-surface-2); padding: 0 8px 8px; }
-.chat__main { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); position: relative; overflow: hidden; }
+.chat__main { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); position: relative; overflow: hidden; }
 .chat__head { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--outline-2); min-width: 0; }
 .chat__title { font-size: 1.0625rem; font-weight: 600; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat__mainagent { flex: none; min-width: 0; max-width: min(16rem, 42vw); }
@@ -765,6 +765,9 @@ body[data-view-name='chat'] .foot { display: none; }
 .chat__convacts .btn, .chat__back { white-space: nowrap; }
 .chat__convacts[hidden], .chat__back { display: none; }
 .chat__log { overflow-y: auto; overscroll-behavior: contain; padding: 16px clamp(12px, 3vw, 32px); display: flex; flex-direction: column; gap: 16px; }
+.chat__panels { display: flex; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--outline-2); background: var(--surface-1); }
+.chat__panel { flex: 1; min-height: 200px; padding: 8px; border: 1px solid var(--outline-2); border-radius: var(--r-s); }
+.chat__panelhead { font-weight: 600; margin-bottom: 4px; }
 .chat__log > * { width: 100%; max-width: 76ch; margin-inline: auto; }
 .chat__empty { margin: auto; display: grid; gap: 12px; text-align: center; justify-items: center; padding: 24px 8px; }
 .chat__lead { font-size: 1.375rem; font-weight: 600; }

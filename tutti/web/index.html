@@ -141,10 +141,22 @@
               <select class="pick chat__mainpick" id="chat-main-pick" title="Main agent: Auto keeps preferred while it has room, else the first fallback with room" aria-label="Main agent"></select>
             </label>
             <div class="chat__convacts" id="chat-conv-actions" hidden>
+              <button class="btn btn--text" id="chat-toggle-terminal" type="button" title="Toggle Terminal">Terminal</button>
+              <button class="btn btn--text" id="chat-toggle-browser" type="button" title="Toggle Browser">Browser</button>
               <button class="btn btn--text" id="chat-rename-btn" type="button">Rename</button>
               <button class="btn btn--text" id="chat-delete-btn" type="button">Delete</button>
             </div>
           </header>
+          <div class="chat__panels" id="chat-panels" hidden>
+            <div id="chat-terminal-panel" class="chat__panel" hidden>
+              <header class="chat__panelhead">Terminal</header>
+              <div id="chat-terminal-content"></div>
+            </div>
+            <div id="chat-browser-panel" class="chat__panel" hidden>
+              <header class="chat__panelhead">Browser</header>
+              <div id="chat-browser-content"></div>
+            </div>
+          </div>
           <div class="chat__log" id="chat-log" role="log" aria-live="off" aria-label="Messages" tabindex="0"></div>
           <button class="btn btn--tonal chat__jump" id="chat-jump" type="button" hidden>Jump to latest ↓</button>
           <output class="sr-only" id="chat-announce" aria-live="polite"></output>

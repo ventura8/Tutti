@@ -336,6 +336,8 @@ function initChatControls() {
     cq('chat-input').addEventListener('blur', () => setTimeout(closePopup, 150));
     cq('chat-input').addEventListener('paste', (e) => void onPaste(e));
     document.addEventListener('keydown', chatShortcut);
+    cq('chat-toggle-terminal').addEventListener('click', () => togglePanel('terminal'));
+    cq('chat-toggle-browser').addEventListener('click', () => togglePanel('browser'));
     drawControls();
 }
 

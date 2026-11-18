@@ -5,7 +5,7 @@
 
 // ---- Markdown, safely: text -> a tree of {t, c} nodes (no DOM), then DOM nodes with textContent only
 
-const SAFE_URL = /^(https?:\/\/|mailto:|#)/i;
+const SAFE_URL = /^(https?:\/\/|mailto:|#|file:\/\/|\/)/i;
 
 function mdInline(text) {
     const out = [];
@@ -152,7 +152,7 @@ function ndjson(buffer) {
 const CHAT = {
     list: [], suggestions: [], role: 'admin', limits: { attachment_bytes: 32768, attachments: 3, text: 8000 }, host: '',
     conv: null, query: '', loading: true, failed: '', streaming: null, controller: null, pending: [], stick: true, unseen: 0,
-    readingFiles: 0, pickingFiles: false,
+    readingFiles: 0, pickingFiles: false, terminalVisible: false, browserVisible: false,
 };
 const CHAT_TOKEN = (typeof document !== 'undefined' && document.querySelector('meta[name="tutti-token"]')?.content) || '';
 const cq = (id) => document.getElementById(id);
@@ -181,7 +181,16 @@ function copyText(text, button) {
     navigator.clipboard?.writeText(text).then(done, () => say('Copying is blocked by the browser: select the text and copy it.'));
 }
 
-// ---- the conversation list
+function togglePanel(panel) {
+    if (panel === 'terminal') {
+        CHAT.terminalVisible = !CHAT.terminalVisible;
+        cq('chat-terminal-panel').hidden = !CHAT.terminalVisible;
+    } else if (panel === 'browser') {
+        CHAT.browserVisible = !CHAT.browserVisible;
+        cq('chat-browser-panel').hidden = !CHAT.browserVisible;
+    }
+    cq('chat-panels').hidden = !CHAT.terminalVisible && !CHAT.browserVisible;
+}
 
 async function loadList() {
     try {
@@ -360,7 +369,23 @@ function workStatus(ref) {
     return null;
 }
 
+function renderArtifact(a) {
+    const wrapper = el('div', { class: 'act__artifact' });
+    if (a.type === 'md') wrapper.append(mdRender(a.content));
+    else if (a.type === 'html') {
+        const div = document.createElement('div');
+        div.innerHTML = a.content;
+        wrapper.append(div);
+    } else if (a.type === 'json') {
+        wrapper.append(codeBlock(JSON.stringify(a.content, null, 2), 'json'));
+    } else {
+        wrapper.append(el('p', { text: 'Unknown artifact type: ' + a.type }));
+    }
+    return wrapper;
+}
+
 function actionCard(m, c) {
+    if (c.artifact) return renderArtifact(c.artifact);
     if (c.steps && typeof planCard === 'function') return planCard(m, c);
     const live = c.state === 'done' ? workStatus(c.ref) : null;
     const tone = { done: 'ok', failed: 'bad', refused: 'warn', undone: 'idle', proposed: 'accent', cancelled: 'idle' }[c.state] || 'idle';

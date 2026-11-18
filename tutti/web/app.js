@@ -219,7 +219,8 @@ function sparkline(a, now) {
     const readings = (Array.isArray(a.readings) ? a.readings : [])
         .filter((r) => r && typeof r === 'object' && typeof r.at === 'string' && Number.isFinite(Date.parse(r.at)) &&
             Number.isFinite(r.used) && r.used >= 0 && r.used <= 100)
-        .map((r) => ({ at: r.at, used: r.used, time: Date.parse(r.at) })).sort((left, right) => left.time - right.time);
+        .map((r) => ({ at: r.at, used: r.used, estimated: r.estimated === true, time: Date.parse(r.at) }))
+        .sort((left, right) => left.time - right.time);
     const pts = readings.map((r) => [x(r.time), y(r.used)]);
     const g = svg('svg', { class: 'spark', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img' });
     g.setAttribute('aria-label', `${a.name}: ${readings.length} readings this window`);
@@ -269,7 +270,7 @@ function sparkline(a, now) {
         const pace = target === null || !Number.isFinite(tt) ? null :
             target * (tt <= t0 ? 1 : Math.max(0, Math.min(1, (r.time - t0) / (tt - t0))));
         const delta = pace === null ? '' : ` · ${tuttiNum(Math.abs(r.used - pace), {digits: 2})} percentage points ${r.used >= pace ? 'above' : 'below'} pace`;
-        const label = `${exactTime.format(local)}${millis ? ` + ${millis} ms` : ''} · ${resetDistance(r.time)} · ${tuttiPct(r.used, {digits: 2})} used · ${pace === null ? 'pace unavailable' : `${tuttiPct(pace, {digits: 2})} pace`}${delta}`;
+        const label = `${exactTime.format(local)}${millis ? ` + ${millis} ms` : ''} · ${resetDistance(r.time)} · ${tuttiPct(r.used, {digits: 2})} ${r.estimated ? 'estimated used' : 'used'} · ${pace === null ? 'pace unavailable' : `${tuttiPct(pace, {digits: 2})} pace`}${delta}`;
         detail.textContent = label;
         detail.title = new Date(r.time).toISOString();
         marker.setAttribute('cx', x(r.time));
@@ -315,7 +316,14 @@ function refreshBlurredGraph(graph) {
     if (!ui.last || (ui.editing.size && !ui.formPending) || document.activeElement === graph || !graph.isConnected) return;
     const wrap = graph.closest('.spark-wrap'), card = graph.closest('article.account');
     if (!wrap || !card) return;
-    const row = ui.last.usage.accounts.find((a) => a.name === card.getAttribute('data-account'));
+    const usage = ui.last.usage, name = card.getAttribute('data-account');
+    const row = visibleUsageAccounts(usage).find((a) => a.name === name);
+    if (!row && !(usage.off_accounts || []).some((a) => a.name === name)) {
+        const list = card.parentElement;
+        card.remove();
+        if (list && !list.children.length) list.append(noUsageAccounts());
+        return;
+    }
     const marker = card.querySelector('.spark__held');
     if (marker) marker.remove();
     if (row?.reset) wrap.replaceWith(sparkline(row, Date.now())); else wrap.remove();
@@ -430,7 +438,7 @@ function windowBlock(w, label) {
     const verdict = w.state === 'ok' ? (w.panic ? 'panic' : w.verdict) : w.state;
     const box = el('div', { class: 'window' }, el('p', { class: 'window__label' }, label, ' ', chip(verdict, w.panic ? 'bad' : VERDICT_TONE[w.verdict])));
     if (w.state !== 'ok') return box;
-    box.append(el('p', { class: 'window__pct' }, tuttiPct(w.used), el('span', { class: 'account__by', text: ` · ${tuttiPct(w.expected)} by now` })), meter(w));
+    box.append(el('p', { class: 'window__pct' }, tuttiPct(w.used), el('span', { class: 'account__by', text: `${w.selected_source === 'estimate' ? ' estimated' : ''} · ${tuttiPct(w.expected)} by now` })), meter(w));
     if (w.reset) box.append(el('p', { class: 'account__by', text: `resets ${relative(w.reset)}` }));
     return box;
 }
@@ -510,7 +518,7 @@ function account(a, now) {
         card.append(el('div', { class: 'windows' }, windowBlock(a, `${a.window} window`), ...a.limits.map((l) => windowBlock(l, `${l.window} limit`))));
     } else if (a.state === 'ok') {
         card.append(el('div', { class: 'account__big' }, el('span', { class: 'account__pct', text: tuttiPct(a.used) }),
-            el('span', { class: 'account__by', text: `used · ${tuttiPct(a.expected)} by now on an even pace` })));
+            el('span', { class: 'account__by', text: `${a.selected_source === 'estimate' ? 'estimated used' : 'used'} · ${tuttiPct(a.expected)} by now on an even pace` })));
         card.append(meter(a));
         card.append(el('div', { class: 'legend' }, el('span', {}, el('i', { class: 'l-used' }), 'used'),
             el('span', {}, el('i'), 'pace line (by now)'), el('span', {}, el('i', { class: 'l-panic' }), `panic at ${tuttiPct(a.panic_at)}`)));
@@ -553,6 +561,17 @@ function offAccount(a) {
         el('p', { class: 'account__by', text: a.reason }));
 }
 
+function visibleUsageAccounts(u) {
+    const byName = new Map(u.accounts.map((a) => [a.name, a]));
+    const ownCard = (n) => ui.editing.has(n) || byName.get(n)?.needs_reading !== false;
+    const inside = new Set(u.accounts.flatMap((a) => (a.limits || []).map((l) => l.name)).filter((n) => !ownCard(n)));
+    return u.accounts.filter((a) => !inside.has(a.name));
+}
+
+function noUsageAccounts() {
+    return empty('No accounts yet', codeText('Add an accounts: section to the config (see ', 'tutti.config.example.yaml', ').'));
+}
+
 function renderUsage(s, now, force) {
     const u = s.usage;
     const focused = typeof document !== 'undefined' && document.activeElement;
@@ -567,15 +586,12 @@ function renderUsage(s, now, force) {
     $('usage-meta').textContent = u.problem || (stale ? `${plural(stale, 'account')} need a fresh reading · ` : '') + `Readings from ${u.log}`;
     // An account that is another's limit (agy's weekly) shows inside that account's card, beside its 5 h window.
     // A limit that needs a reading (or has its form open) keeps its own card too: Add a reading lives there.
-    const byName = new Map(u.accounts.map((a) => [a.name, a]));
-    const ownCard = (n) => ui.editing.has(n) || byName.get(n)?.needs_reading !== false;
-    const inside = new Set(u.accounts.flatMap((a) => (a.limits || []).map((l) => l.name)).filter((n) => !ownCard(n)));
-    const shown = u.accounts.filter((a) => !inside.has(a.name));
+    const shown = visibleUsageAccounts(u);
     const cards = [...shown.map((a) => account(a, now)), ...(u.off_accounts || []).map(offAccount)];
     const list = $('usage');
     if (held && list.contains(held)) refreshFocusedUsage(list, held, focused.closest('.spark-wrap'), cards);
     else list.replaceChildren(...(cards.length ? cards
-        : [empty('No accounts yet', codeText('Add an accounts: section to the config (see ', 'tutti.config.example.yaml', ').'))]));
+        : [noUsageAccounts()]));
     if (u.owner) $('owner').replaceChildren(...ownerPanel(u.owner));
 }
 

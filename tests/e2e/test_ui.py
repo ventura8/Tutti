@@ -299,6 +299,35 @@ ADMIN_CONTROLS = ('#refresh-readings', '#autopilot-toggle', '#selfimprove-toggle
 
 
 class UsageGraph(unittest.TestCase):
+    def test_hidden_or_removed_focused_account_is_removed_after_blur(self):
+        for nested in (False, True):
+            ctx = new_context(ADMIN, width='phone')
+            try:
+                page = open_view(ctx, '#dashboard')
+                graph = page.locator('#usage .spark[role="slider"]').first
+                name = graph.evaluate('(g) => g.closest("article").dataset.account')
+                graph.focus()
+                page.evaluate('''([name, nested]) => {
+                    const next = structuredClone(ui.last);
+                    const row = next.usage.accounts.find((a) => a.name === name);
+                    const other = next.usage.accounts.find((a) => a.name !== name);
+                    if (nested) {
+                        row.needs_reading = false;
+                        other.limits = [...(other.limits || []), {name}];
+                    } else {
+                        next.usage.accounts = []; next.usage.off_accounts = [];
+                    }
+                    ui.last = next;
+                    renderUsage(next, Date.now());
+                }''', [name, nested])
+                self.assertTrue(graph.evaluate('(g) => document.activeElement === g'))
+                graph.evaluate('(g) => { window.oldCard = g.closest("article"); g.blur(); }')
+                page.wait_for_function('window.oldCard && !window.oldCard.isConnected')
+                if not nested:
+                    self.assertIn('No accounts yet', page.locator('#usage').inner_text())
+            finally:
+                ctx.close()
+
     def test_blur_preserves_destination_control_for_keyboard_and_mouse(self):
         ctx = new_context(ADMIN, width='phone')
         try:

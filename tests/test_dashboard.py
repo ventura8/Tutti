@@ -32,6 +32,14 @@ def cfg_of(raw, folder):
 
 
 class AccountStateTest(unittest.TestCase):
+    def test_estimated_usage_keeps_its_provenance_in_graph_and_current_value(self):
+        entries = [reading('2026-01-04T00:00Z', 10),
+                   {**reading('2026-01-06T00:00Z', 42), 'source': 'estimate'}]
+        s = pacing.account_state('claude', ACC, entries, NOW)
+        self.assertNotIn('estimated', s['readings'][0])
+        self.assertTrue(s['readings'][1]['estimated'])
+        self.assertEqual((s['used'], s['selected_source']), (42, 'estimate'))
+
     def test_on_pace_with_readings_of_this_window_only(self):
         entries = [reading('2026-01-02T00:00Z', 90), reading('2026-01-04T00:00Z', 10), reading('2026-01-06T00:00Z', 42)]
         s = pacing.account_state('claude', ACC, entries, NOW)

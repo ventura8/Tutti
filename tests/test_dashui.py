@@ -140,6 +140,8 @@ const noPace = sparkline({...account,target_pct:null}, Date.now());
 values.push(noPace.children[1].textContent);
 const instant = sparkline({...account,target:account.window_start}, Date.now());
 values.push(instant.children[1].textContent);
+const estimated = sparkline({...account,readings:[{...account.readings[1],estimated:true}]}, Date.now());
+values.push(estimated.children[1].textContent);
 console.log(JSON.stringify(values));`);
 """
         out = subprocess.run(['node', '-e', script, app], capture_output=True, text=True, check=True)
@@ -163,6 +165,7 @@ console.log(JSON.stringify(values));`);
         self.assertEqual(values[8][1:3], ['polite', '240'])
         self.assertAlmostEqual(values[8][3], 16.8)  # 80% target, not a hard-coded 100%
         self.assertIn('pace unavailable', values[9])
+        self.assertIn('estimated used', values[11])
         self.assertIn('80% pace', values[10])  # the backend treats a nonpositive target span as the full budget
 
 

@@ -114,9 +114,10 @@ summed over the window from Tutti's own run logs (runs started elsewhere are not
 On a dashboard usage graph, hover, click, tap or drag near a recorded point to show its local time, distance from reset,
 used percentage, even pace and their difference in percentage points. A crosshair marks the selected observation. Focus the
 graph and use the arrow keys or Home/End to inspect readings; the readout is announced to screen readers and the UTC time
-is available on its tooltip. The graph selects an actual observation, not an interpolated quota value. Pace is computed
-from the configured target and the observation time; it is shown as unavailable if that target is not available. Percent
-values are displayed to up to two decimal places and their difference to two. While a graph has focus its selected observation remains
+is available on its tooltip. The graph selects a recorded value, not an interpolated quota value; estimated readings are
+labeled as estimates in the graph and current account value. Pace is computed from the configured target and the recorded
+time; it is shown as unavailable if that target is not available. Percent values are displayed to at most two decimal places
+and their difference to two. While a graph has focus its selected value remains
 attached, while account status and other cards continue updating unless a reading form is also being edited; the graph
 itself refreshes after focus leaves.
 

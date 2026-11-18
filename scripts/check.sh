@@ -23,6 +23,7 @@ shellcheck scripts/*.sh install/*.sh
 if command -v ruff > /dev/null; then ruff check . bin/tutti; else echo "ruff is not installed here: skipped (CI runs it)"; fi
 # its own temp folder, removed at the end: a test's leftovers never reach /tmp (tests/run.py fails a test that leaves any)
 TMPDIR="$(mktemp -d)"
+if [[ "$TMPDIR" == "$(pwd)"* ]]; then echo "Error: TMPDIR is in repo"; exit 1; fi
 export TMPDIR
 trap 'rm -rf "$TMPDIR"' EXIT
 XDG_CONFIG_HOME="$(mktemp -d)" python3 tests/run.py   # never the owner's grok.env

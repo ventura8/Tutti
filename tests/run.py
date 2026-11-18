@@ -64,6 +64,9 @@ class Guarded(unittest.TextTestResult):
         tempfile.tempdir, old = self._saved
         os.environ['TMPDIR'] = old if old is not None else ROOT
         left = sorted(n for n in os.listdir(self._root) if not n.startswith(KEPT))
+        # Safety guard: ensure we are not deleting a protected directory
+        if os.path.realpath(self._root) in (os.path.realpath('.'), os.path.realpath('/'), os.path.expanduser('~')):
+            raise ValueError(f'refusing to rmtree {self._root}')
         shutil.rmtree(self._root, ignore_errors=True)
         kids = stop_children()
         if kids:

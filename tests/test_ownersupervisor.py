@@ -30,9 +30,13 @@ class SupervisorTests(unittest.TestCase):
         try:
             generation = process.stdout.readline().strip()
             self.assertTrue(generation)
+            self.assertEqual(ownersupervisor.reconcile(supervisor, 0, 'a' * 32), 'not_applied')
             old_owner, old_gateway = socket.socketpair()
             sockets.extend([old_owner, old_gateway])
-            self.assertEqual(ownersupervisor.attach(supervisor, 0, old_owner), 'active:1')
+            first_token = '1' * 32
+            ownersupervisor.begin_attach(supervisor, 0, old_owner, first_token)
+            self.assertTrue(supervisor.recv(128).startswith(b'active:'))   # ACK is consumed and lost
+            self.assertEqual(ownersupervisor.reconcile(supervisor, 0, first_token), 'applied')
             old_owner.close()  # supervisor must not retain copies of a gateway endpoint
             request = {'action': 'follow', 'subject': 'alice', 'message': 'm', 'generation': generation,
                        'after': 0, 'request_id': 'one'}
@@ -56,7 +60,11 @@ class SupervisorTests(unittest.TestCase):
             sockets.extend([new_owner, new_gateway])
             began = time.monotonic()
             try:
-                self.assertEqual(ownersupervisor.attach(supervisor, 1, new_owner), 'active:2')
+                token = '2' * 32
+                ownersupervisor.begin_attach(supervisor, 1, new_owner, token)
+                # The ACK is left unread: status must skip it and reconcile against owner state.
+                self.assertEqual(ownersupervisor.reconcile(supervisor, 1, token), 'applied')
+                self.assertEqual(ownersupervisor.reconcile(supervisor, 1, 'a' * 32), 'conflict')
                 self.assertLess(time.monotonic() - began, 3)
             finally:
                 stop.set()
@@ -83,6 +91,16 @@ class SupervisorTests(unittest.TestCase):
             process.wait(timeout=5)
             process.stdout.close()
             process.stderr.close()
+
+    def test_lost_control_returns_unknown_instead_of_guessing(self):
+        supervisor, owner = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        try:
+            owner.close()
+            self.assertEqual(ownersupervisor.reconcile(supervisor, 0, 'a' * 32, timeout=0.1), 'unknown')
+            for invalid in (0, -1, float('inf'), float('nan'), 31, True, '1'):
+                self.assertEqual(ownersupervisor.reconcile(supervisor, 0, 'a' * 32, timeout=invalid), 'unknown')
+        finally:
+            supervisor.close()
 
     def test_rejects_non_socket_descriptor(self):
         sender, receiver = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)

@@ -1,9 +1,9 @@
 # All work through Tutti
 
-When adding directly to the backlog, a missing scope or check does not by itself distinguish matching repository and
-normalized title. If both additions explicitly give different scopes or different checks, they remain separate tasks. This
-does not change automatic fill's title-only prefilter or household shared-task keys; it does not establish semantic
-deduplication across differently worded tasks (t210).
+When adding directly to the backlog or through auto-fill, a missing scope or check does not by itself distinguish matching
+repository and normalized title. If both additions explicitly give different scopes or different checks, they remain
+separate tasks. Auto-fill still avoids re-adding compatible done or dropped tasks. Household shared-task keys are unchanged;
+this does not establish semantic deduplication across differently worded tasks (t210).
 
 Every AI session in the household (the coordinator's Claude Code, a session on another computer, a person's own agent)
 does its work as a Tutti task, so it is scheduled, paced against its account and visible on the dashboard. This page is

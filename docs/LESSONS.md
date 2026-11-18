@@ -11,6 +11,9 @@
 - **No snapshot is not a successful push** (t309): an empty checkpoint result can mean unchanged work or a Git failure.
   Keep previous SHA references separate and report the current push as unverified; a checkpoint does not prove a run stopped.
 
+- A discovery prefilter must use the same explicit-detail comparison as backlog addition; otherwise it silently suppresses
+  distinct work before the backlog can consider it. Count actual additions, not candidates (t210).
+
 - Matching short titles alone can hide distinct work. Preserve explicit scope and check disagreements on direct backlog
   additions without treating unspecified details as evidence of a distinct task (t210).
 

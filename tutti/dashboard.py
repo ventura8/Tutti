@@ -110,6 +110,7 @@ class Collector:
         self.stored_fn = stored_fn or (lambda m: transfer.stored(cfg, m))
         self.reader = reader or readers.Readers(cfg, clock=clock)
         self.probes = {}
+        self.autopilot_parallel_limit = cfg.get('_parallel_limit')
         self.lock = threading.Lock()
         self.read_lock = threading.Lock()   # the probe thread and a Refresh readings click never run the readers at once
         self.stop = threading.Event()
@@ -190,14 +191,19 @@ class Collector:
         """One autopilot round after each probe while it is on: the probes just taken decide (pace, slots, heat)."""
         if not autopilot.enabled(self.cfg):
             return None
+        # A round owns its measurements; other dashboard requests keep their shared config unchanged.
+        round_cfg = {k: v for k, v in self.cfg.items() if k not in ('_host_raw', '_host', '_disk', '_parallel_limit')}
+        if self.autopilot_parallel_limit is not None:
+            round_cfg['_parallel_limit'] = self.autopilot_parallel_limit
         snap = self.snapshot()
         states = {a['name']: a for a in snap['usage']['accounts']}
         from . import sharing  # a household member's heartbeat rides on the round; shared machines offer its grant only
         machines = sharing.limit_items(self.cfg, [dict(m) for m in snap['machines']['items']], self.clock())
         beat = sharing.beat(self.cfg, datetime.fromtimestamp(self.clock(), timezone.utc), machines)
-        out = autopilot.tick(self.cfg, states, machines, beat=beat)
+        out = autopilot.tick(round_cfg, states, machines, beat=beat)
+        self.autopilot_parallel_limit = round_cfg.get('_parallel_limit')
         try:   # the work queue: machines with a free slot left after the autopilot run the projects' jobs (tutti/workq.py)
-            workq.tick(self.cfg, machines)
+            workq.tick(round_cfg, machines)
         except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as e:
             self.probes = {**self.probes, 'workq_error': f'the work queue failed ({e}): the next round tries again'}
         return out
@@ -363,6 +369,7 @@ class Collector:
             fresh = config.load(self.cfg['_path'])
             with self.read_lock:   # the usage readers follow the switch too: a resumed account is read, a paused one not
                 self.cfg = fresh
+                self.autopilot_parallel_limit = fresh.get('_parallel_limit')
                 if hasattr(self.reader, 'cfg'):
                     self.reader.cfg = fresh
         return self.cfg

@@ -156,6 +156,11 @@ DEFAULTS = {
     # state, this computer's own name (me), and on a client how to reach the host (ssh, config, tutti, state, usage_log),
     # the stable name members use (address) and its port; on the host, jobs: the client whose repositories and sign-ins
     # run the worker jobs through its bridge. Empty: Tutti runs here, as it always did.
+    'integrations': {
+        'linear': {'enabled': False, 'team_id': ''},
+        'slack': {'enabled': False, 'channel': ''},
+        'discord': {'enabled': False}
+    },
     'host': {},
 }
 # Safe by default: a machine without a `heat` block takes one run at 85 C or more and none at 95 C, the hotter of its CPU

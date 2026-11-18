@@ -196,7 +196,9 @@ def feed(cfg, r, enabled, now=None):
     with backlog.locked(cfg) as data:
         room = selfimprove.room_today(data['tasks'], now, selfimprove.settings(cfg)['max_new_per_day'])
         for it in [it for it in items if not open_for(data['tasks'], it['sentry'])][:room]:
-            _t, was_new = backlog.add(data, sentry_task(pol, r, it, enabled, now))
+            task, was_new = backlog.add(cfg, data, sentry_task(pol, r, it, enabled, now))
+            if was_new:
+                backlog.notify_add(cfg, task)
             added += int(was_new)
     return added, 'ok'
 

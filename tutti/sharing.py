@@ -76,7 +76,7 @@ def _close_here(t, st, events):
 def _mirror(data, repo, st, local, events, now):
     """A shared task this member does not have yet: added to its backlog (source household)."""
     # never another member's `check`: it is a shell command, run here by the acceptance; this repo's own check gates it
-    task, added = backlog.add(data, {**backlog.new_task(repo, st['title'], st.get('scope') or (), '', st.get('size') or 'S',
+    task, added = backlog.add(cfg, data, {**backlog.new_task(repo, st['title'], st.get('scope') or (), '', st.get('size') or 'S',
                                                         SOURCE), 'added': now})
     if added:
         local[st['key']] = task

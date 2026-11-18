@@ -380,12 +380,14 @@ def batch_text(qs):
 
 def deliver_chat(cfg, key, qs):
     """The batch as one message in the user's "Questions from Tutti" conversation (made once)."""
-    from . import chat
+    from . import chat, integrations
     store, sub = chat.Store(config.state_dir(cfg)), chat_sub(key)
     conv = next((c for c in store.load(sub)['conversations'] if c.get('title') == 'Questions from Tutti'), None)
     cid = (conv or store.create(sub, title='Questions from Tutti'))['id']
     store.put_message(sub, cid, {'id': chat.new_id('m'), 'role': 'assistant', 'text': batch_text(qs), 'at': chat.now_iso(),
                                  'status': 'done', 'model': 'tutti', 'cards': []})
+    integrations.notify(cfg, batch_text(qs))
+    integrations.needs_attention(cfg, [f'{q["id"]}: {q["question"]}' for q in qs])
 
 
 def tick(cfg, now=None, at_work_fn=None, send=None):

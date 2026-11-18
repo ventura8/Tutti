@@ -107,7 +107,9 @@ def fill(cfg, data, states, machines, now, found=None):
         return info
     items, problems = found
     for repo_name, title, scope, source, check in pick(data, items, want(cfg, data['tasks'], free), cfg):
-        backlog.add(data, backlog.new_task(repo_name, title, scope, check, 'S', source))
+        task, new = backlog.add(cfg, data, backlog.new_task(repo_name, title, scope, check, 'S', source))
+        if new:
+            backlog.notify_add(cfg, task)
         info['added'] += 1
     info.update(read_at=now, queued=fresh_units(cfg, data['tasks']))
     info['note'] = (f'queued {info["added"]} new task(s) from the repos\' sources' if info['added'] else

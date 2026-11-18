@@ -1,0 +1,427 @@
+# tutti.config.example.yaml: copy to tutti.config.yaml (in your project, a parent folder, or ~/.config/tutti/config.yaml)
+# and edit. Everything personal lives here: hosts, paths, accounts. Never put a token, password or key in this file.
+
+project:
+  worktrees: ~/Projects/app-wt        # `tutti test <track> ...` runs over <worktrees>/<track>
+  state: ~/.local/state/tutti         # logs, pid files, the usage log
+
+# What local time means (owner hours, quiet hours, tariffs, what the CLI prints). auto: this computer's IANA zone, found by
+# itself (Linux, Windows, macOS), daylight saving included; or a name such as Europe/Bucharest. Stored times stay UTC.
+time:
+  zone: auto
+
+# Machines that run heavy commands. Each has a slot queue: at most `slots` runs at once, and only with enough free memory.
+machines:
+  builder:                            # a quiet Linux box: the first choice
+    host: builder.example             # an ssh alias from ~/.ssh/config; key-based login, no password prompt
+    root: tutti-wt                    # folder under the remote home for the copies
+    slots: 3
+    min_free_gb: 6
+  gpu-box:                            # a shared machine: used only when the builder is full AND this one is fit
+    host: gpu-box.example
+    slots: 2
+    max_load_ratio: 0.5               # fit only while its load is under half its cores
+    heat: {cap_c: 85, stop_c: 98, hot_slots: 1}   # one run at 85 C or more, none at 98 C (the hottest thermal zone)
+    yield_file: ~/.tutti/yield        # while this file exists, tutti sends the machine nothing new
+  # win-box:                          # a Windows machine, commands run in its WSL
+  #   host: win-box.example
+  #   transport: wsl
+  #   wsl_helper: /home/me/tutti-wt/wsl-run64.sh   # scripts/wsl-run64.sh, copied into WSL once
+  # phone:                            # Android with Termux: light runs only, opt-in (dashboard or `tutti optin machine phone on`)
+  #   transport: android                # ssh -p 8022; `tutti machines add-android` prints the setup
+  #   host: phone.example
+  #   user: u0_a123
+  #   policy: {min_battery: 50, require_charging: true, max_battery_c: 40, wifi_only: true, screen: 'off'}
+  here:                               # this computer: one heavy job at a time, capped, first to die when memory runs out
+    host: local
+    slots: 1
+    runner: {memory_gb: 8, cpus: 6, args: [--oom-score-adj=900]}
+
+# Android devices for e2e runs (`tutti test --device <name> -- <cmd>`), reached over adb from the machine they are plugged into
+# or paired with. `tutti devices add` prints the one-time setup. A run starts only while the policy allows it.
+devices:
+  pixel:
+    serial: R58M00TEST00              # `adb devices`, or ip:port for wireless debugging
+    machine: here
+    policy: {min_battery: 30, require_charging: false, max_battery_c: 42, wifi_only: false, screen: wake}
+
+# How a command runs at the tree root. kind: shell (plain bash) or docker (a capped container of `image`).
+runner:
+  kind: docker
+  image: my-quality-image:local
+  memory_gb: 12
+  cpus: 8
+  env: {HOME: /tmp/tutti-home}
+  prelude: mkdir -p $HOME
+  rewrite: {}                         # substring -> replacement, e.g. a script that starts docker -> the one run inside the image
+
+routing:
+  # Preference order for `tutti run auto` (not an allow-list): every account that names a worker still joins; named ones
+  # are tried first. Put codex ahead of cursor when OpenAI's quota should burn before Cursor's.
+  workers: [agy, codex, cursor, copilot]
+  order: [builder, gpu-box]           # first fit wins; when none is fit the run queues on the first
+
+sync:
+  exclude: ['/.git', '/dist/', '__pycache__', '.env', '.env.*', '*.key', '*.pem']   # never copied to a machine
+  ensure_dirs: []
+
+# `tutti files send` and `--input`: where files land on a machine, its cache's size budget, spare disk, bandwidth.
+# A machine may override any key with its own `files:`. Secrets (.env*, *token*, keys, service-account JSON) are always refused.
+files: {cache: ~/.cache/tutti/files, budget_gb: 50, keep_free_gb: 2, bwlimit_kbps: 0, compress: false, refuse: []}
+
+# Workers the orchestrator can brief. kind: cli (another vendor's agent) or ollama (a local model server).
+workers:
+  cursor: {kind: cli, command: [cursor-agent, -p, '{prompt}', --trust, --force, --output-format, text]}   # --force: commands run headless
+  # OpenAI Codex CLI (`codex exec`): sign in once on the machine that runs it (`codex login --device-auth`). `machine:`
+  # names that computer (often the laptop): yield/pause/heat are honoured and Move work knows where the login lives.
+  codex: {kind: cli, command: [codex, exec, --skip-git-repo-check, --approve-for-me, '{prompt}'], machine: here}
+  # Google Antigravity: {log} is a log file per run, where a headless permission denial shows ("soft-denying ...")
+  agy: {kind: cli, command: [agy, -p, '{prompt}', --print-timeout, 600s, --mode, accept-edits, --log-file, '{log}'], denied: soft-denying}
+  claude: {kind: cli, command: [claude, -p, '{prompt}']}
+  # GitHub Copilot CLI: premium requests are paid per use, so costs_money: true keeps it off (out of routing, conduct and
+  # review fallbacks, pacing and the dashboard) until enabled: true. Mark every worker or account that can cost money so.
+  copilot: {kind: cli, command: [copilot, -p, '{prompt}', --allow-all-tools, --no-ask-user, -s], costs_money: true}
+  big:                                # a large model on the GPU box, reached through a tunnel
+    kind: ollama
+    host: 127.0.0.1:11436
+    model: your-coder-model:27b
+    threads: 8
+    num_ctx: 32768
+    machine: gpu-box                  # honours that machine's yield flag
+    tunnel: {ssh: gpu-box.example, remote: '127.0.0.1:11434'}
+  small: {kind: ollama, host: '127.0.0.1:11434', model: 'your-small-model:9b', threads: 4}
+
+# Rules added to every brief (the standing ones, "do not commit", "no secrets", are always added).
+# A worker's context is compacted at this share of its window: natively by Claude Code, by Tutti for a local model in
+# `tutti conduct`, by a handoff restart for other CLIs (docs/WORKERS.md, *Automatic compaction*). The dashboard's
+# Settings row changes the percentage without editing this file. A worker's window: workers.<name>.context_tokens.
+autocompact:
+  threshold_pct: 60
+  context_tokens: 200000
+
+brief:
+  rules:
+    - Follow AGENTS.md.
+    - No inline lint suppressions.
+
+# Quotas to pace. `resets` is any one known reset time (UTC, or with an offset or a zone: 2026-01-03 04:00 Europe/Bucharest); `window` repeats it: 5h, 7d, 2w or monthly.
+accounts:
+  claude: {window: 7d, resets: '2026-01-03T02:00Z', lead_hours: 1, share: 1.0, source: the usage page,
+           match: {command: '\bclaude\b'},   # no CLI prints the plan's %: a limit message ("resets 3pm") still logs it as spent
+           reading_file: ~/.local/state/tutti/claude-usage.json,   # the orchestrator writes {"used": 42} here from its own tool
+           stale_hours: 2}                  # a reading by hand older than this gets a reminder
+  # Cursor's two meters come from its own account call, signed in with cursor-agent's login (docs/USAGE-PACING.md): no owner
+  # click; the reading names the billing cycle's end, which then anchors the window.
+  cursor:
+    window: monthly
+    resets: '2026-01-01T00:00Z'
+    resets_estimated: true
+    usage_url: https://cursor.com/dashboard/spending   # the dashboard's reading helper reads this page in one click
+    source: cursor.com/dashboard/spending
+    worker: cursor
+    background: true                   # Cursor's own automatic reviews spend it outside Tutti: the planner estimates them
+    plan: {command: [cursor-agent, about, --format, json], field: subscriptionTier, every_minutes: 360}
+    # "Cursor Models"; an account for the page's "Other Models" meter reads field: apiPercentUsed
+    reader: {format: cursor-api, field: autoPercentUsed, every_minutes: 15}
+    match: {command: cursor-agent}
+  # Antigravity answers `agy -p /usage --output-format json` with every quota bucket, its remaining share and reset time,
+  # without spending quota: two rolling 5-hour windows (Claude and GPT models; Gemini models), read at every probe.
+  agy-claude:
+    window: 5h
+    resets: '2026-01-01T00:00Z'
+    resets_estimated: true
+    source: agy /usage (Claude and GPT models, 5 h)
+    worker: agy
+    # `tutti run auto` and `tutti conduct` add these when they pick this account; a flag the worker already has is replaced.
+    # agy's Claude models call one generic Bash tool that per-command rules neither allow nor deny (agy 1.5.9): only
+    # command(*) lets them run commands headless, so this account's --settings replaces the worker's list.
+    args: [--model, claude-sonnet-5-5-medium, --settings, '{"permissions":{"allow":["command(*)"]}}']
+    reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: 3p-5h}
+    limits: [agy-claude-weekly]        # the weekly quota bounds the 5 h windows: the planner shares it out (docs/USAGE-PACING.md)
+    # model and effort by pace (names from `agy models`): strong while behind its weekly limit, cheap while ahead
+    tiers:
+      strong: {args: [--model, claude-opus-5-5-high], sizes: [L, M]}
+      cheap: {args: [--model, claude-sonnet-5-5-low], sizes: [S]}
+    # window_points: 10                # what one whole 5 h window costs of the weekly, in points; measured from readings when unset
+    match: {command: '\bagy\b', model: 'claude|sonnet|opus|gpt'}
+  agy-gemini:
+    window: 5h
+    resets: '2026-01-01T00:00Z'
+    resets_estimated: true
+    source: agy /usage (Gemini models, 5 h)
+    worker: agy
+    args: [--model, gemini-3.8-flash-high]
+    reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: gemini-5h}
+    limits: [agy-gemini-weekly]
+    match: {command: '\bagy\b', model: gemini, fallback: true}   # an agy job that names no model counts here
+  # agy's weekly limits: the same /usage answer, their own buckets; no worker, they bound the 5 h windows above
+  agy-claude-weekly:
+    window: 7d
+    resets: '2026-01-01T00:00Z'
+    resets_estimated: true
+    source: agy /usage (Claude and GPT models, weekly)
+    reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: 3p-weekly}
+    # reserve: 0                       # points the planner leaves for work outside Tutti (default 0: all work goes through Tutti)
+    # share_spare: false               # true: room it would lose at its reset may do the household's shared tasks (docs/HOUSEHOLD.md)
+  agy-gemini-weekly:
+    window: 7d
+    resets: '2026-01-01T00:00Z'
+    resets_estimated: true
+    source: agy /usage (Gemini models, weekly)
+    reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: gemini-weekly}
+  # Codex CLI reads its own ChatGPT rate limits without spending quota. Existing accounts with worker: codex get this reader automatically.
+  codex:
+    window: 7d
+    resets: '2026-01-06T00:00Z'
+    resets_estimated: true
+    usage_url: https://chatgpt.com/codex/settings/usage
+    reader: {format: codex-app-server, every_minutes: 15}
+    source: chatgpt.com/codex/settings/usage
+    worker: codex
+    match: {command: '\bcodex\b'}
+  # Grok Bot's weekly allowance (Cursor Pro includes it): read automatically from the visible, scoped spending page.
+  # Scouts (below) are paced against it and send nothing once it is used.
+  grok-bot:
+    window: 7d
+    resets: '2026-01-04T00:00Z'
+    resets_estimated: true
+    usage_url: https://cursor.com/dashboard/spending
+    helper_label: Grok Bot
+    source: cursor.com/dashboard/spending (Grok Bot, weekly)
+    task_pct: 2
+# Each account may set panic_at (default 95): at or over that % before the target time, it is in quota panic.
+
+# `tutti dashboard`: the local web dashboard on 127.0.0.1 (stall_minutes: a running job whose log is quiet that long is stalled)
+# The dashboard's Chat tab (docs/CHAT.md): viewers ask, and create work for these projects (empty: every one) up to a daily
+# limit; pausing and settings stay with admins. A model sees this many earlier messages of a conversation.
+chat:
+  viewer_tasks_per_day: 5
+  viewer_projects: []
+  history_turns: 10
+
+# The household's work browser (docs/BROWSER.md): the one Chrome every browser task uses, on one machine. mode: existing
+# (your own Chrome profile and its sign-ins), dedicated (Tutti's own profile) or isolated (a sandboxed Chrome as its own
+# user: `tutti browser isolate`). Sites signed in there are shared by everyone who uses it; admins choose them (sites).
+browser: {machine: '', mode: dedicated, max_tabs: 4, idle_minutes: 5, sites: []}
+
+dashboard:
+  port: 4777
+  refresh_seconds: 10
+  probe_seconds: 30
+  stall_minutes: 10
+  watch_scripts: [test.sh, ship.sh]             # running scripts shown as jobs, with the log their output goes to
+  watch_agents: [cursor-agent, agy, copilot, codex]    # agent CLIs by process (program and folder only)
+  task_globs: []                                # an agent session's background task outputs, e.g. ['/tmp/agent-*/tasks/*.output']
+  # Progress (docs/DASHBOARD.md, *Progress*): a job kind's known phases, or lines counted against a total. `match` is a
+  # regex on the job's title; its first group joins the kind's name for the history of durations.
+  shapes:
+    ship:
+      match: '^ship\.sh\b'
+      phases:
+        - {name: commit}
+        - {name: checks, when: '^\[targeted\]|check \['}
+        - {name: push, when: '^To |^pushed '}
+        - {name: deploy, when: '^deployed'}
+    pipeline:
+      match: 'PIPELINE_STAGE=(\w+)'
+      count: '^\[gate\] .* passed'
+      total_command: 'python3 scripts/ci/pipeline.py --list | awk -v s={1} ''$1 == s {print NF - 1}'''
+      machine: build-box
+  typical_minutes: {agent: 20, agent task: 15, conduct: 30}   # the rough estimate for an agent before any run of it finished
+
+# `tutti update`: worker CLIs updated on every machine without sudo; the dashboard runs it every `every_hours` unless auto: false.
+# packages: apt packages Tutti only reads (installed, newest in their repository, source switched off) and names one sudo command
+# for; programs: CLIs to update besides the workers' (a worker's `update: false` leaves it out, `update: {command: ...}` replaces it)
+update: {auto: true, every_hours: 24, packages: [cursor], programs: [gemini]}
+
+usage:
+  log: ~/.local/state/tutti/usage.jsonl
+
+# Local models' estimated energy cost (docs/ENERGY.md), shown under Usage & pacing. Everything is optional: the country and
+# currency are detected (time zone, then locale) and the price starts from a typical household tariff, marked estimated.
+energy:
+  # country: RO                        # override the detected country (ISO code)
+  # currency: RON                      # override the currency
+  # price_per_kwh: 1.35                # your bill's price per kWh, in your currency: the card stops saying "estimated"
+  tariff: []                           # time-of-day prices, local hours: [{hours: '23-07', price: 0.9}]
+  prefer_cheap_hours: false            # with a tariff: local-model autopilot runs wait for its cheapest hours
+  include_idle: true                   # count the draw while Tutti keeps a model loaded (keep_alive_minutes after its run)
+  keep_alive_minutes: 5
+  compare_with: claude-sonnet          # the cloud API priced for the same tokens: claude-sonnet, claude-haiku, gemini-flash, gpt-mini
+  machines:                            # per machine: the base draw (board, RAM, disks, PSU loss), the GPU when nothing reads it
+    gpu-box: {base_w: 40, gpu_tdp_w: 450, cpu_tdp_w: 125}
+    # nas: {ollama: '127.0.0.1:11434', gpu: Intel Arc}   # a machine whose Ollama no worker names: read over its own ssh
+
+guard: {low_gb: 3, high_gb: 6}        # `tutti guard`: pause the runner image's containers under 3 GB, resume over 6 GB
+
+ship:
+  protected: [main, master]           # never committed to by accident
+  format: ''                          # a command; TUTTI_CHANGED holds the uncommitted files
+  add: [.]
+  share: [node_modules]               # a linked worktree gets these from the main checkout (hard links) when missing
+  trailer: ''                         # for example a Co-Authored-By line
+  base: origin/main                   # TUTTI_CHANGED for the checks = files changed since this ref
+  checks:                             # targeted: only what changed
+    - {run: 'true', where: local}
+  full_checks:                        # --full: before a release
+    - {run: 'true', where: route, quiet: true, verdict: 'passed|failed'}
+  push: {remote: origin, branch: main}
+  deploy: ''
+
+translate:
+  translator: big
+  judge: small                        # a different model than the translator
+  source_language: English
+  languages: {fr: French, de: German}
+  keep: []                            # names never translated
+  retries: 2
+
+# Steps a test command needs first: when the command matches `when`, `run` goes in front (Playwright needs its build).
+test:
+  prepare:
+    - {when: 'playwright|e2e/', run: 'npm run build:e2e'}
+
+# `tutti run <worker> "<task>" --repo <repo>`: the checks of the worker's diff (default: ship.checks). A routed check gets the
+# changed files through {changed} or {changed:ts,js}; the report says when a check turns coverage off.
+delegate:
+  project: my-app                     # the default checks below are for this project only; another repo's run uses its own
+  checks:
+    - {run: 'F={changed:py}; [ -z "$F" ] || python3 -m pytest -q --no-cov $F', where: route, verdict: 'passed|failed|error'}
+
+# The owner's own prompting (docs/USAGE-PACING.md): the reserve kept for you on the main agent's accounts on working days
+pacing:
+  schedule: {days: [mon, tue, wed, thu, fri], hours: 8, window: '01-14', rate: 1.0}   # local hours; learned from readings later
+  mode: auto                           # active, away (the rest of today), vacation-until-YYYY-MM-DD; the dashboard sets it too
+
+# Who this Tutti works for (docs/HOUSEHOLD.md). A single user needs neither key: they are a household of one.
+# user: {name: Ana, weight: 1}         # name: default the login's; weight: its share of the household's shared machines
+# household: {port: 4778, lease_minutes: 30, starve_minutes: 20, share_spare_hours: 6}   # `tutti household init|join`
+
+# `tutti autopilot` (docs/AUTOPILOT.md): backlog tasks to accounts that are behind their pace; retries climb the ladder.
+autopilot:
+  enabled: false
+  # Fresh tasks go here while behind pace; put codex with cursor so OpenAI burns when Cursor is ahead or spent.
+  accounts: [cursor, codex]
+  # Retries climb this list (Codex before Cursor while Cursor is ahead).
+  ladder: [codex, cursor]
+  # max_parallel: 2                    # optional cap; without it the limit is adaptive (docs/AUTOPILOT.md, Adaptive parallelism)
+  quiet_hours: []                      # local-time spans (time.zone) the autopilot must not run, e.g. ['22:00-06:00']: the planner gives them nothing
+  fill_room: true                      # free room on `accounts` is filled from the repos' sources (TODOs, gaps, untested files)
+  auto_review: true                    # a passing result is reviewed by review.fallback, then landed by its repo's `land`
+  repos:
+    # check: the repo's gates; a task's own check runs too, and a result passes only when both pass
+    # land: merge (merged after a clean review), pr (a pull request a person merges; the default) or branch
+    app: {path: ~/src/app, check: 'ruff check . && python3 -m pytest -q', where: local, pr: false, land: pr}
+    # household: true                  # its backlog is shared with the household (docs/HOUSEHOLD.md); leases keep members apart
+
+# `tutti pr review <n>`: who to ask, how long to wait, and the cheap workers that review when no one answers.
+review:
+  reviewers: [copilot, coderabbit]
+  timeout_minutes: 15
+  fallback: [cursor, agy]
+  # when CodeRabbit (or greptile:) answers "Review limit reached ... available in N minutes":
+  #   wait (default): no merge until it reviews; Tutti asks it again right after N minutes
+  #   fallback: another reviewer (review.fallback, a scout) reviews now; CodeRabbit is asked again later, findings in a follow-up
+  #   skip: never asked;  skip-when-unavailable: asked, and when limited the other reviews are enough
+  coderabbit: wait
+  greptile: wait
+  # repos: {octo/my-app: {coderabbit: fallback, greptile: skip}}   # a per-repo override
+  # rounds per pull request (ask, fix the findings, ask again), per reviewer; 1 each by default, 0: not called (admin only)
+  # rounds: {coderabbit: 1, greptile: 1, copilot: 1, grok: 1, local: 1}
+
+# `tutti conduct`: another agent as the main (conductor) agent; who takes over when its quota is in panic (docs/CONDUCT.md)
+# agent: a worker, or auto (preferred while it has room, else the first of fallback with room). preferred: lasting choice
+# (empty: this file's agent when that is a worker, else the first of fallback, else claude). See docs/CONDUCT.md.
+main:
+  agent: auto
+  preferred: claude
+  fallback: [agy, cursor, small]
+  commands:
+    claude: [claude, -p, '{prompt}', --permission-mode, acceptEdits, --allowedTools, 'Bash(tutti:*)']
+  check_seconds: 30
+
+# The dashboard's projects: named by their git remote; these entries name them and lend them machines, containers and a
+# Windows folder (a WSL machine's Windows processes, read over its plain ssh). Read-only: nothing is started or stopped.
+projects:
+  # priority: 0 is the most important; the autopilot and fill_room share the work out by it (docs/AUTOPILOT.md, Priority)
+  my-app: {match: 'my-app', containers: [my-app-], repo: octo/my-app, priority: 0,   # repo: its open pull requests, CI and reviews
+           sentry: {org: octo, project: my-app}}   # a daily Sentry triage by a scout with sentry_triage (docs/SCOUTS.md)
+  # self_improve: {tasks: true, autopilot_repo: app, base: develop}   # its triage becomes tasks and ready PRs to develop
+  #               (merge: true, release: true, release_command: ... only where Tutti may merge and tag; docs/TELEMETRY.md)
+  tool: {match: '/tool(\.git)?\b', checks: [{run: bash scripts/check.sh}], priority: 1}   # `tutti run --repo` in this repo runs these checks
+  # other-app: {match: other-app, machines: [win-box], windows: {win-box: 'C:\Users\me\Projects\other-app'}}
+  # Keep busy (docs/DISPATCH.md): declared suites are run by idle devices and machines on each new commit, highest priority first
+  # phone-app:
+  #   match: phone-app
+  #   priority: 1                                   # 0 the highest; the dashboard's Settings tab can change it
+  #   commit: {run: 'git -C ~/src/phone-app rev-parse HEAD', where: builder}
+  #   tests:
+  #     e2e: {kind: e2e, targets: [android], run: './e2e.sh --spec {shard}', shards: [player.spec, search.spec]}
+
+# Keep busy (docs/DISPATCH.md): idle devices and machines pull pending test shards by themselves; on by default
+dispatch: {enabled: true, idle_minutes: 5, lease_minutes: 10, retries: 2}
+
+# Presence (docs/PRESENCE.md): devices and machines that come and go. A target missing for grace_seconds is away or asleep
+# (a machine silent in its night hours is asleep; a device missing while its owner's laptop, devices.<d>.with, is away left
+# with its owner). Absent targets are never idle; their runs are requeued, not failed. Moving waiting work by itself
+# (move_after_minutes, urgent jobs only) and Wake-on-LAN (machines.<m>.wol_mac) are off until you turn them on.
+presence: {grace_seconds: 120, night: '23-08', long_minutes: 30, owner_laptop: null, move_after_minutes: null, wake: false}
+
+# Scouts: helpers that are not workers (docs/SCOUTS.md). Grok Bot answers through a webhook routine: Tutti opens an issue,
+# POSTs {task, reply_to} to the routine, and reads the answer the routine posts as a comment. The URL and key live only in
+# the environment variables named here (`tutti scout setup` prints the owner's steps).
+scouts:
+  grok:
+    kind: grok-bot-webhook
+    url_env: TUTTI_GROK_URL
+    key_env: TUTTI_GROK_KEY
+    account: grok-bot                     # its weekly allowance paces the watches and queued questions
+    reply: {github_repo: octo/my-app, issue_label: tutti-scout}
+    skills: [research, web-browse, triage, monitoring, drafting]
+    timeout_minutes: 20                   # `tutti scout ask` waits this long for the answer
+    watches:                              # sent by the dashboard's round when due; each result is an issue to triage
+      dependency-notes:
+        every: 7d
+        task: >-
+          Read the release notes published in the last 7 days of mapbox-gl, Playwright, Firebase (JS SDK and tools), Cursor,
+          Google Antigravity and GitHub Copilot CLI. Summarise every breaking change and deprecation, with links.
+      live-site:
+        every: 1d
+        early: true                       # may go ahead of time when the allowance is behind its pace
+        task: Open https://my-app.example and report console errors, broken pages and failed requests, with steps.
+    sentry_triage: true                   # a daily watch per project with a sentry: entry (docs/SCOUTS.md, Sentry triage)
+    review_trial: {repos: [octo/my-app], prs: 5}   # `tutti pr review` also asks the scout for the next 5 pull requests
+    spend_rest: true                      # behind near the reset: extra watches, reviews and `scout:` questions, up to 95 %
+
+# Telemetry (docs/TELEMETRY.md): recorded in <state>/telemetry always; sent only after you say yes (tutti telemetry on).
+# Keep the DSN out of this file: `tutti telemetry setup` stores it in ~/.config/tutti/telemetry.env (or $TUTTI_SENTRY_DSN).
+telemetry:
+  environment: production
+  # endpoint: https://collect.example/tutti   # your own collector instead of Sentry
+
+# Self-improvement (docs/TELEMETRY.md): crashes and insights become autopilot tasks, PRs, and where a project allows it,
+# merges and patch releases. home: the project Tutti's own fixes go to.
+self_improve:
+  enabled: true
+  auto_accept: true   # a Sentry or scout triage task joins the queue by itself (no `tutti backlog accept`)
+  every_hours: 6
+  max_new_per_day: 3
+  # home: tool
+# failover: a backup main machine takes over when this one is away (docs/FAILOVER.md); '' elects one, none turns it off
+failover: {backup: '', minutes: 5, failback_minutes: 5, sync_seconds: 60, budget_mb: 50}
+# Self-healing (docs/SELFHEAL.md): every every_seconds, on each machine running the failover round, Tutti installs declared
+# needs, restarts ollama, tunnels and adb, cleans its own temp folders (and temp_dirs), restores state and config, self-updates.
+# Needs are declared per project, suite or worker, pinned, e.g. projects.app.tests.e2e.needs:
+#   [{playwright: chromium, version: 1.49.0}, {npm: typescript@5.6.3}, {apt: adb}]
+# A cli worker may add login_check: [agent, status] and login: 'agent login' (a failing check becomes one Needs-you item).
+selfheal: {enabled: true, every_seconds: 300}
+
+# AI assist (docs/TELEMETRY.md, *AI assist*): off until an admin opts in; local models, online research with spare quota
+# only, code to online models only with online_code
+ai_assist: {enabled: false, local: true, online: false, online_code: false, auto_tune: true, preempt: true, unblock: true}
+# Welcome back (docs/WELCOME.md): a summary of what happened while you were away; on for every user, each may turn it off
+welcome: {enabled: true}
+
+delegate:
+  prefix: tutti-run-1794987449088502850-
+  remote_track: tutti-run-1794987449088502850

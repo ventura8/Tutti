@@ -52,7 +52,9 @@ def start(cfg, repo, title, size='S', check='', notes=(), now=None, state_fn=Non
     now = time.time() if now is None else now
     with backlog.locked(cfg) as data:
         t = backlog.new_task(repo, title, (), check or cfg['autopilot']['repos'][repo].get('check') or '', size, 'claude', notes)
-        task, new = backlog.add(data, {**t, 'pin': f'worker:{WORKER}'})
+        task, new = backlog.add(cfg, data, {**t, 'pin': f'worker:{WORKER}'})
+        if new:
+            backlog.notify_add(cfg, task)
         if not new and task['status'] != 'queued':
             return task['id'], task.get('run'), f'already in the backlog as {task["status"]}'
         if go != 'start':

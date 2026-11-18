@@ -1302,6 +1302,8 @@ def backlog_change(cfg, a, data):
         repo = repo_of(cfg, a.repo)
         task, new = backlog.add(data, backlog.new_task(a.repo, a.title or '', a.scope or [], a.check or repo.get('check') or '', a.size,
                                                        a.source, a.note or []))
+        if new:
+            backlog.notify_add(cfg, task)
         print(f'{task["id"]}: {"added" if new else "already in the backlog"}: {task["title"][:90]}')
     elif a.action == 'seed':
         added = backlog.seed(data, a.repo, repo_of(cfg, a.repo))

@@ -79,7 +79,7 @@ def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', n
             'source': source, 'status': 'queued', 'attempts': [], 'notes': list(notes), 'added': time.time()}
 
 
-def add(data, task):
+def add(cfg, data, task):
     """Adds the task unless an open or reviewed one with the same repo and title exists; returns (task, added?)."""
     for t in data['tasks']:
         if key_of(t) == key_of(task) and t['status'] not in ('done', 'dropped'):
@@ -87,6 +87,7 @@ def add(data, task):
     task = {**task, 'id': f't{data["next"]}'}
     data['next'] += 1
     data['tasks'].append(task)
+    notify_add(cfg, task)
     return task, True
 
 
@@ -289,3 +290,7 @@ def seed(data, name, repo, run=subprocess.run):
         if new:
             added.append(task)
     return added
+def notify_add(cfg, task):
+    from . import integrations
+    integrations.notify(cfg, f'New task: {task["title"]}')
+    integrations.linear.create_issue(cfg, task['title'], 'New task added to backlog')

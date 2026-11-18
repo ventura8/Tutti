@@ -280,7 +280,7 @@ def collect(cfg, st, now, is_alive):
     if adds:
         with backlog.locked(cfg) as data:
             for repo, title, scope, size, _check in adds:
-                _, new = backlog.add(data, backlog.new_task(repo, title, scope, '', size, 'work-queue'))
+                _, new = backlog.add(cfg, data, backlog.new_task(repo, title, scope, '', size, 'work-queue'))
                 if new:
                     events.append(f'backlog: {title[:100]}')
     return events

@@ -1,4 +1,4 @@
-# Tutti
+# Tutti — the household's delegator: every agent and device, working together.
 
 Tutti is a free, open-source tool that runs on your own computers. It shares AI coding agents, local models and machines
 across a household or a small team: one orchestrator, many workers, with queues, fall-over routing and usage pacing.

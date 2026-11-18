@@ -1,4 +1,4 @@
-# Tutti
+# Tutti — the household's delegator: every agent and device, working together.
 
 *Tutti* (music): everyone plays together. Tutti lets one household share its AI subscriptions, local models,
 computers and Android devices for software work, without anyone stepping on anyone else.

@@ -1,7 +1,7 @@
 {
     "name": "Tutti dashboard",
     "short_name": "Tutti",
-    "description": "Usage and pacing, machines, workers and jobs of your Tutti setup, on this computer.",
+    "description": "Tutti — the household's delegator: every agent and device, working together.",
     "id": "/",
     "start_url": "/",
     "scope": "/",

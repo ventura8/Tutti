@@ -652,6 +652,8 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
         log.write(f'autopilot: task {task["id"]} attempt {len(task["attempts"]) + 1} on {step_name}'
                   f'{"; " + choice["label"] if choice else ""}\n')
     check = acceptance(task, repo)
+    task.pop('picked', None)
+    task.pop('model', None)
     argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', step['worker'], brief(task, repo)]
     if step['kind'] == 'ollama':
         from . import fleet
@@ -682,9 +684,6 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
     with open(p['pid'], 'w', encoding='utf8') as f:
         f.write(f'{child.pid}\n')
     # the repo's gates this attempt runs (acceptance holds them): a result lands only when they are today's (tutti/fill.py)
-    if step['kind'] != 'ollama':
-        task.pop('picked', None)
-        task.pop('model', None)
     task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now, gates=(repo.get('check') or '').strip(),
                 boot=durable.boot_id(), checkpoint=now,
                 choice={k: choice[k] for k in ('tier', 'model', 'effort', 'label')} if choice else None)

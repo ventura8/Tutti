@@ -272,21 +272,26 @@ def lock_files(machine):
     return machine.get('locks') or [f'{machine["lock_prefix"]}{i}.lock' for i in range(1, int(machine['slots']) + 1)]
 
 
-# Seconds since a person last used the machine's graphical session (logind's idle hint of its x11 or wayland sessions; the
-# smallest wins), `-` when it has none (a headless machine: nobody at its keyboard). tutti/share.py backs off while it is short.
-IDLE = ('i=-; now=$(date +%s); '
+# Seconds since a person last used the machine's graphical session (Mutter idle, else logind's idle hint of its x11 or
+# wayland sessions; the smallest wins), `-` when it has none (a headless machine: nobody at its keyboard). A locked screen
+# reads as away (86400), same as the local path in tutti/share.py. tutti/share.py backs off while the idle is short.
+IDLE = ('i=-; now=$(date +%s); locked=; unlocked=; '
         # GNOME (X11 and Wayland) never sets logind's idle hint: its Mutter idle monitor answers instead (2026-11-16)
         'g=$(DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}" gdbus call --session '
         '--dest org.gnome.Mutter.IdleMonitor --object-path /org/gnome/Mutter/IdleMonitor/Core '
-        '--method org.gnome.Mutter.IdleMonitor.GetIdletime 2>/dev/null | tr -dc 0-9 | sed "s/^64//"); '
+        '--method org.gnome.Mutter.IdleMonitor.GetIdletime 2>/dev/null | sed -n \'s/.*uint64 \\([0-9][0-9]*\\).*/\\1/p\'); '
         '[ -n "$g" ] && i=$(( g / 1000 )); '
         'for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk \'{print $1}\'); do '
         # POSIX sh, no `< <( )`: an ssh command runs in the remote user's login shell, which may be dash or another sh
         'T=$(loginctl show-session "$s" -p Type --value 2>/dev/null); H=$(loginctl show-session "$s" -p IdleHint --value 2>/dev/null); '
         'S=$(loginctl show-session "$s" -p IdleSinceHint --value 2>/dev/null); '
+        'L=$(loginctl show-session "$s" -p LockedHint --value 2>/dev/null); '
+        # locked sessions skip the idle race; all graphical sessions locked → away for a day
         # a desktop that never sets the hint leaves IdleSinceHint at 0: not known, not "in use" (the NUC's x11, 2026-11-15)
-        'case "$T" in x11|wayland) [ "${S:-0}" -gt 0 ] 2>/dev/null || continue; if [ "$H" = no ]; then v=0; else '
-        'v=$(( now - S / 1000000 )); fi; if [ "$i" = - ] || [ "$v" -lt "$i" ]; then i=$v; fi;; esac; done; ')
+        'case "$T" in x11|wayland) if [ "$L" = yes ]; then locked=1; continue; fi; unlocked=1; '
+        '[ "${S:-0}" -gt 0 ] 2>/dev/null || continue; if [ "$H" = no ]; then v=0; else '
+        'v=$(( now - S / 1000000 )); fi; if [ "$i" = - ] || [ "$v" -lt "$i" ]; then i=$v; fi;; esac; done; '
+        'if [ -n "$locked" ] && [ -z "$unlocked" ]; then i=86400; fi; ')
 
 
 def parse_query_user(text):

@@ -88,11 +88,24 @@ class Dispatch(unittest.TestCase):
         self.assertTrue(power.heavy(shard('x', 'e2e')))
         self.assertTrue(power.heavy(shard('x', 'unit', minutes=20)))
         self.assertFalse(power.heavy(shard('x', 'lint')))
+        self.assertFalse(power.heavy(shard('fullscreen/1', 'unit')))
+        self.assertFalse(power.heavy(shard('rebuild/1', 'unit')))
+        self.assertFalse(power.heavy(shard('suite/1', 'unit')))
+        self.assertTrue(power.heavy(shard('full/1', 'unit')))
+        self.assertTrue(power.heavy(shard('build/1', 'unit')))
+        self.assertTrue(power.heavy(shard('my-build-shard', 'unit')))
 
     def test_unmeasured_machines_keep_the_old_order(self):
         tgts = [{**target('a', 0), 'effective': 0}, {**target('b', 0), 'effective': 0}]
         p = dispatch.plan({}, {'leases': {}}, tgts, [shard('e2e/1', 'e2e'), shard('lint/1', 'lint')], True)
         self.assertEqual([t['name'] for t, _ in p['assign']], ['a', 'b'])
+
+    def test_unmeasured_machine_is_treated_as_weak_when_another_is_measured(self):
+        tgts = [target('pc', power.score(PC)), {**target('new_box', 0), 'effective': 0}]
+        p = dispatch.plan({}, {'leases': {}}, tgts, [shard('lint/1', 'lint'), shard('e2e/1', 'e2e')], True)
+        got = {t['name']: w['key'] for t, w in p['assign']}
+        self.assertEqual(got['pc'], 'e2e/1')
+        self.assertEqual(got['new_box'], 'lint/1')
 
 
 STRONG = {'name': 'qwen3:32b', 'params_b': 32, 'tier': 'strong', 'kinds': list(fleet.KINDS), 'code': True, 'quant': 'Q4_K_M'}

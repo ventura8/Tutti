@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 from tutti import quietmode, share
 
@@ -77,26 +78,65 @@ class QuietTest(unittest.TestCase):
         def run(*a, **k):
             return None
         st = {'quiet': True, 'person': True, 'low_memory': True}
-        quietmode.guard_round(self.cfg, st, {101, 102}, kill, run, unload=lambda c: ['m'])
+        with mock.patch('os.setpriority'):
+            quietmode.guard_round(self.cfg, st, {101, 102}, kill, run, unload=lambda c: ['m'])
         self.assertEqual(sorted(sent), [(101, signal.SIGSTOP), (102, signal.SIGSTOP)])
         sent.clear()
-        acts = quietmode.guard_round(self.cfg, {'quiet': False, 'person': False, 'low_memory': False}, {101, 102}, kill, run,
-                                     unload=lambda c: [])
+        with mock.patch('os.setpriority'):
+            acts = quietmode.guard_round(self.cfg, {'quiet': False, 'person': False, 'low_memory': False}, {101, 102}, kill, run,
+                                         unload=lambda c: [])
         self.assertEqual(sorted(sent), [(101, signal.SIGCONT), (102, signal.SIGCONT)])
         self.assertTrue(any('continued' in a for a in acts))
 
+    def test_guard_stops_on_low_memory_without_a_person(self):
+        sent = []
+        with mock.patch('os.setpriority'):
+            quietmode.guard_round(self.cfg, {'quiet': True, 'person': False, 'low_memory': True}, {201},
+                                  lambda pid, sig: sent.append((pid, sig)), lambda *a, **k: None, unload=lambda c: [])
+        self.assertEqual(sent, [(201, signal.SIGSTOP)])
+
     def test_own_pids_follow_the_pid_file_tree(self):
+        import time
         d = os.path.join(self.tmp, 'quiet')
         os.makedirs(d)
-        child = subprocess.Popen(['sleep', '30'])
-        self.addCleanup(child.wait)
-        self.addCleanup(child.kill)
-        with open(os.path.join(d, '1-1.log.pid'), 'w') as f:
-            f.write(str(os.getpid()))
-        self.assertIn(child.pid, quietmode.own_pids(self.cfg))
-        with open(os.path.join(d, '1-1.log.rc'), 'w') as f:
+        script = os.path.join(self.tmp, 'quiet.sh')
+        with open(script, 'w', encoding='utf8') as f:
+            f.write('#!/bin/bash\nsleep 60 &\nwait\n')
+        os.chmod(script, 0o755)
+        root = subprocess.Popen(['bash', script])
+        self.addCleanup(root.wait)
+        self.addCleanup(root.kill)
+        with open(os.path.join(d, '1-1.log.pid'), 'w', encoding='utf8') as f:
+            f.write(str(root.pid))
+        pids = set()
+        for _ in range(50):
+            pids = quietmode.own_pids(self.cfg)
+            if root.pid in pids and any(p != root.pid for p in pids):
+                break
+            time.sleep(0.02)
+        self.assertIn(root.pid, pids)
+        self.assertTrue(any(p != root.pid for p in pids))
+        with open(os.path.join(d, '1-1.log.rc'), 'w', encoding='utf8') as f:
             f.write('0')
         self.assertEqual(quietmode.own_pids(self.cfg), set())
+
+    def test_own_pids_drops_a_reused_or_gone_pid(self):
+        d = os.path.join(self.tmp, 'quiet')
+        os.makedirs(d)
+        other = subprocess.Popen(['sleep', '30'])
+        self.addCleanup(other.wait)
+        self.addCleanup(other.kill)
+        path = os.path.join(d, 'stale.log.pid')
+        with open(path, 'w', encoding='utf8') as f:
+            f.write(str(other.pid))
+        self.assertEqual(quietmode.own_pids(self.cfg), set())
+        self.assertFalse(os.path.exists(path))
+        gone = os.path.join(d, 'gone.log.pid')
+        with open(gone, 'w', encoding='utf8') as f:
+            f.write('1')
+        # pid 1 is not quiet.sh; drop the file without touching the process
+        self.assertEqual(quietmode.own_pids(self.cfg), set())
+        self.assertFalse(os.path.exists(gone))
 
     def test_wait_free(self):
         seq = iter([True, False])

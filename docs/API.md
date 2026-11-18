@@ -1283,7 +1283,7 @@ usage: tutti yield [-h] [--machine MACHINE] [--note NOTE] [--owner OWNER] [--hou
 
 ### `tutti quiet`
 
-run a command, keep its log, print only the exit code (and a short failure summary); niced and CPU-capped while a person is here. `tutti quiet status` exits 0 while quiet; `wait [s]` waits; `guard` one round
+run a command, keep its log, print only the exit code (and a short failure summary); niced and CPU-capped while a person is here. `tutti quiet status` exits 0 while quiet; `wait [s]` waits; `guard` one round; `tutti quiet -- <cmd>` runs a command named status, wait or guard
 
 ```text
 usage: tutti quiet [-h] [--summary SUMMARY] command [command ...]

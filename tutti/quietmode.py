@@ -5,9 +5,9 @@ its free memory is under the user's reserve, Tutti and the tools that ask it kee
 - `status(cfg)`: {quiet, reasons, idle_s, avail_gb}; `tutti quiet status` exits 0 while quiet, 1 when free, so any script
   (ship.sh, nuc-test.sh, check.sh runners, a Claude agent) can ask before it starts heavy work here.
 - `guard_round(cfg)`: one round of the guard the dashboard runs every probe: Tutti's own running jobs here (the `tutti quiet`
-  commands, by the exact pid in their `.pid` file, and their process trees) get nice 19 and idle I/O while a person is here;
-  under the memory reserve they are stopped (SIGSTOP) and continued (SIGCONT) once memory is back or the person left; the
-  local Ollama models are unloaded. Nothing is ever matched by name: only pids Tutti started.
+  commands, by the exact pid in their `.pid` file when that process is still quiet.sh, and their process trees) get nice 19
+  and idle I/O while quiet; under the memory reserve they are stopped (SIGSTOP) and continued (SIGCONT) once memory is back;
+  the local Ollama models are unloaded while a person is here. Nothing is ever matched by name: only pids Tutti started.
 - `wrap(argv, cfg)`: the command `tutti quiet` runs, niced and CPU-capped (a systemd-run --user scope) while quiet."""
 import json
 import os
@@ -57,18 +57,55 @@ def quiet_dir(cfg):
     return os.path.join(config.state_dir(cfg), 'quiet')
 
 
+def _quiet_job_pid(pid, proc='/proc'):
+    """True when /proc/<pid> is still Tutti's quiet.sh shell (false when the pid is gone or reused)."""
+    try:
+        with open(os.path.join(proc, str(pid), 'cmdline'), 'rb') as f:
+            cmd = f.read().replace(b'\0', b' ').decode('utf8', 'replace')
+    except OSError:
+        return False
+    return 'quiet.sh' in cmd
+
+
+def _read_pid_file(path):
+    try:
+        with open(path, encoding='utf8') as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _drop_stale_pid(path, pid, proc):
+    """Removes a pid file that no longer names quiet.sh; True when it was dropped."""
+    if _quiet_job_pid(pid, proc):
+        return False
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    return True
+
+
+def _active_pid_file(d, name, proc):
+    """Pid from an unfinished quiet job's .pid file, or None when done/stale/unreadable."""
+    if not name.endswith('.pid') or os.path.exists(os.path.join(d, name[:-4] + '.rc')):
+        return None
+    path = os.path.join(d, name)
+    pid = _read_pid_file(path)
+    if pid is None or _drop_stale_pid(path, pid, proc):
+        return None
+    return pid
+
+
+def _root_pids(d, proc):
+    return {pid for name in os.listdir(d) if (pid := _active_pid_file(d, name, proc)) is not None}
+
+
 def own_pids(cfg, proc='/proc'):
-    """The pids of Tutti's own running `tutti quiet` jobs here (their `<log>.pid` files) with every descendant."""
-    roots = set()
+    """The pids of Tutti's own running `tutti quiet` jobs here (their `<log>.pid` files) with every descendant.
+    Stale pid files (process gone or not quiet.sh) are removed so a reused pid is never calmed or stopped."""
     d = quiet_dir(cfg)
-    for name in os.listdir(d) if os.path.isdir(d) else []:
-        if name.endswith('.pid') and not os.path.exists(os.path.join(d, name[:-4] + '.rc')):
-            try:
-                with open(os.path.join(d, name), encoding='utf8') as f:
-                    roots.add(int(f.read().strip()))
-            except (OSError, ValueError):
-                continue
-    return descendants(roots, proc)
+    return descendants(_root_pids(d, proc), proc) if os.path.isdir(d) else set()
 
 
 def descendants(roots, proc='/proc'):
@@ -110,7 +147,7 @@ def _save(path, pids):
 
 
 def calm(pids, run=subprocess.run):
-    """nice 19 and idle I/O for these exact pids."""
+    """nice 19 and idle I/O for these exact pids. Kept until the job ends: quiet mode does not restore the old values."""
     for pid in pids:
         try:
             os.setpriority(os.PRIO_PROCESS, pid, 19)
@@ -146,29 +183,47 @@ def unload_ollama(cfg, post=None):
     return models
 
 
+def _stop_for_memory(pids, stopped, kill):
+    new = signal_all(pids - stopped, signal.SIGSTOP, kill)
+    return stopped | new, ([f'stopped {sorted(new)}'] if new else [])
+
+
+def _continue_stopped(stopped, kill):
+    signal_all(stopped, signal.SIGCONT, kill)
+    return set(), [f'continued {sorted(stopped)}']
+
+
+def _calm_if_quiet(st, pids, run):
+    if not (st['quiet'] and pids):
+        return []
+    calm(pids, run)
+    return [f'calmed {len(pids)} pid(s)']
+
+
+def _memory_actions(st, pids, stopped, kill):
+    if st['low_memory']:
+        return _stop_for_memory(pids, stopped, kill)
+    if stopped:
+        return _continue_stopped(stopped, kill)
+    return stopped, []
+
+
+def _unload_if_person(st, cfg, unload):
+    if not st['person']:
+        return []
+    gone = (unload or unload_ollama)(cfg)
+    return [f'unloaded {", ".join(gone)}'] if gone else []
+
+
 def guard_round(cfg, st=None, pids=None, kill=os.kill, run=subprocess.run, unload=None):
     """One round: calm Tutti's own jobs while quiet, stop them under the memory reserve, continue them after."""
     st = st or status(cfg)
     pids = own_pids(cfg) if pids is None else pids
     path = stopped_path(cfg)
     stopped = _load(path) & pids   # only pids still in Tutti's own jobs: never a reused pid
-    acts = []
-    if st['quiet'] and pids:
-        calm(pids, run)
-        acts.append(f'calmed {len(pids)} pid(s)')
-    if st['low_memory'] and st['person']:
-        new = signal_all(pids - stopped, signal.SIGSTOP, kill)
-        stopped |= new
-        if new:
-            acts.append(f'stopped {sorted(new)}')
-    elif stopped:
-        signal_all(stopped, signal.SIGCONT, kill)
-        acts.append(f'continued {sorted(stopped)}')
-        stopped = set()
-    if st['person']:
-        gone = (unload or unload_ollama)(cfg)
-        if gone:
-            acts.append(f'unloaded {", ".join(gone)}')
+    acts = _calm_if_quiet(st, pids, run)
+    stopped, more = _memory_actions(st, pids, stopped, kill)
+    acts += more + _unload_if_person(st, cfg, unload)
     _save(path, stopped)
     return acts
 

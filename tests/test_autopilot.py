@@ -439,6 +439,21 @@ class SurfaceTest(Base):
         self.assertIn('could not be started', events[0])
         self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
 
+    def test_retry_clears_stale_picked_and_model(self):
+        cfg = self.cfg()
+        proc = SimpleNamespace(pid=9999)
+        t = {**task('t1'), 'picked': 'qwen3:8b (mid tier) on pc', 'model': 'qwen3:8b',
+             'attempts': [attempt('pc')]}
+        autopilot.dispatch(cfg, t, 'agy-gemini', 1000.0, spawn=lambda *a, **k: proc)
+        self.assertNotIn('picked', t)
+        self.assertNotIn('model', t)
+        t = {**task('t2'), 'picked': 'qwen3:8b (mid tier) on pc', 'model': 'qwen3:8b',
+             'attempts': [attempt('pc')]}
+        with mock.patch('tutti.fleet.model_for', return_value=None):
+            autopilot.dispatch(cfg, t, 'pc', 1000.0, spawn=lambda *a, **k: proc)
+        self.assertNotIn('picked', t)
+        self.assertNotIn('model', t)
+
     def test_the_dashboard_toggle_and_its_bad_body(self):
         cfg = self.cfg(enabled=False)
         self.assertFalse(autopilot.enabled(cfg))

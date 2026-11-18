@@ -931,6 +931,13 @@ def cmd_progress(cfg, a):
     return 0
 
 
+def _quiet_wait_seconds(rest):
+    """Seconds for `tutti quiet wait`, or None for no limit; raises ValueError when the arg is not a number."""
+    if not rest:
+        return None
+    return float(rest[0])
+
+
 def cmd_quiet_mode(cfg, a):
     """`tutti quiet status|wait|guard`: quiet mode (tutti/quietmode.py). status exits 0 while quiet, 1 when free."""
     from . import quietmode
@@ -940,14 +947,32 @@ def cmd_quiet_mode(cfg, a):
         say('quiet: ' + '; '.join(st['reasons']) if st['quiet'] else 'free: nobody at this computer and memory is fine')
         return 0 if st['quiet'] else 1
     if verb == 'wait':
-        return 0 if quietmode.wait_free(cfg, float(rest[0]) if rest else None) else 1
+        try:
+            max_s = _quiet_wait_seconds(rest)
+        except ValueError:
+            say(f'quiet wait: {rest[0]!r} is not a number of seconds (usage: tutti quiet wait [seconds])')
+            return 2
+        return 0 if quietmode.wait_free(cfg, max_s) else 1
     acts = quietmode.guard_round(cfg)
     say('; '.join(acts) or 'nothing to do')
     return 0
 
 
-def cmd_quiet(cfg, a):
+def _quiet_command(a):
+    """Argv to wrap, the sentinel `'mode'` for status/wait/guard, or None when `--` has nothing after it."""
+    if a.command[0] == '--':
+        return a.command[1:] or None
     if a.command[0] in ('status', 'wait', 'guard') and len(a.command) <= 2:
+        return 'mode'
+    return a.command
+
+
+def cmd_quiet(cfg, a):
+    command = _quiet_command(a)
+    if command is None:
+        say('usage: tutti quiet -- <command...> (or status|wait|guard)')
+        return 2
+    if command == 'mode':
         return cmd_quiet_mode(cfg, a)
     from . import quietmode
     env = dict(os.environ, QUIET_DIR=os.path.join(config.state_dir(cfg), 'quiet'))
@@ -955,7 +980,7 @@ def cmd_quiet(cfg, a):
         worker_of(cfg, a.summary, 'ollama')
         me = f'{shlex.quote(sys.executable)} {shlex.quote(remote.BIN)} --config {shlex.quote(cfg["_path"])}'
         env['QUIET_SUMMARY'] = f'{me} ask {shlex.quote(a.summary)} {shlex.quote(SUMMARY)}'
-    return subprocess.run([os.path.join(SCRIPTS, 'quiet.sh'), *quietmode.wrap(a.command, cfg)], env=env).returncode
+    return subprocess.run([os.path.join(SCRIPTS, 'quiet.sh'), *quietmode.wrap(command, cfg)], env=env).returncode
 
 
 def cmd_guard(cfg, a):
@@ -1905,7 +1930,8 @@ def parser():
     s.add_argument('--pid', type=int, default=0, help='the owner\'s process: once it is gone and the machine idle, the flag goes')
     s.add_argument('--unload', action='store_true', help='also ask local-model workers to unload their models')
     s = add('quiet', cmd_quiet, 'run a command, keep its log, print only the exit code (and a short failure summary); niced and '
-              'CPU-capped while a person is here. `tutti quiet status` exits 0 while quiet; `wait [s]` waits; `guard` one round')
+              'CPU-capped while a person is here. `tutti quiet status` exits 0 while quiet; `wait [s]` waits; `guard` one round; '
+              '`tutti quiet -- <cmd>` runs a command named status, wait or guard')
     s.add_argument('--summary', help='the local-model worker that summarises a failure')
     s.add_argument('command', nargs='+')
     s = add('progress', cmd_progress, 'report how far a job is (<done>/<total>) for the dashboard\'s progress bar')

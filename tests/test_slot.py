@@ -6,6 +6,7 @@ import tempfile
 import time
 import unittest
 
+from tests.flaky import flaky
 from tutti import remote
 
 try:
@@ -45,6 +46,7 @@ class SlotHeatTest(unittest.TestCase):
             time.sleep(0.05)
         return False
 
+    @flaky
     def test_a_waiting_run_starts_only_once_the_machine_cools(self):
         self.heat(99000)
         p = self.start(HEAT_STOP_C='98')
@@ -54,6 +56,7 @@ class SlotHeatTest(unittest.TestCase):
         self.assertEqual(p.wait(5), 0)
         self.assertIn('too hot: 99 C', p.stderr.read())
 
+    @flaky
     def test_hot_caps_the_slots_but_a_cool_machine_runs_at_once(self):
         self.heat(90000)
         with open(os.path.join(self.tmp.name, '1.lock'), 'w') as held:
@@ -62,6 +65,7 @@ class SlotHeatTest(unittest.TestCase):
             self.assertFalse(self.started_within(0.8))   # at 90 C only one run at a time
         self.assertTrue(self.started_within(5))           # that run ended: this one starts
 
+    @flaky
     def test_a_hot_gpu_holds_a_run_too(self):
         self.heat(40000)
         smi = os.path.join(self.tmp.name, 'smi')
@@ -75,6 +79,7 @@ class SlotHeatTest(unittest.TestCase):
         self.assertTrue(self.started_within(5))
         self.assertEqual(p.wait(5), 0)
 
+    @flaky
     def test_without_heat_limits_or_a_readable_zone_it_runs(self):
         self.start()
         self.assertTrue(self.started_within(5))

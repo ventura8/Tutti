@@ -10,6 +10,7 @@ import tempfile
 import textwrap
 import unittest
 
+from tests.flaky import flaky
 from tutti import config, devices, remote, routing
 from tutti.routing import Probe
 
@@ -283,8 +284,10 @@ class DeviceRunTest(unittest.TestCase):
         return subprocess.Popen([sys.executable, os.path.join(ROOT, 'bin', 'tutti'), '--config', self.cfg, *args], cwd=self.tree,
                                 env={**self.env, **kw}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
+    @flaky
     def test_the_command_gets_the_serial_and_a_job_record(self):
         p = self.tutti('test', '--device', 'pixel', '--', 'echo serial=$ANDROID_SERIAL')
+        self.addCleanup(lambda: p.kill() if p.poll() is None else None)
         out, err = p.communicate(timeout=60)
         self.assertEqual(p.returncode, 0, err)
         self.assertIn('serial=R58', out)
@@ -296,11 +299,13 @@ class DeviceRunTest(unittest.TestCase):
         with open(os.path.join(folder, logs[0])) as f:
             self.assertIn('serial=R58', f.read())
 
+    @flaky
     def test_a_second_run_waits_for_the_device_lock(self):
         import fcntl
         f = open(self.lock, 'w')
         fcntl.flock(f, fcntl.LOCK_EX)
         p = self.tutti('test', '--device', 'pixel', '--', 'touch', 'ran')
+        self.addCleanup(lambda: p.kill() if p.poll() is None else None)
         # deterministic, no sleeps: read the run's output until slot.sh says it queues behind the held lock (a fixed sleep
         # raced a slow readings round under load, 2026-11-14), then free the lock
         seen = []

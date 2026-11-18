@@ -13,6 +13,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest import mock
 
+from tests.flaky import flaky
 from tutti import cli, config, dashboard, pacing, routing, state, waiting
 
 T = pacing.parse_time
@@ -167,6 +168,15 @@ class MachinesWorkersTest(unittest.TestCase):
         self.assertEqual((ms['a']['rank'], ms['c']['rank']), (1, None))
         self.assertEqual((ms['b']['busy'], ms['d']['free']), (2, None))
 
+    def test_local_machine_becomes_busy_when_keyboard_is_recently_active(self):
+        cfg = cfg_of({'machines': {'here': {'host': 'local'}}}, self.tmp.name)
+        machine = cfg['machines']['here']
+        probe = routing.Probe(True, 1, 0.5, 4, False)
+        busy = state.machine_state(machine, probe, 1, now=NOW, idle_s=10)
+        free = state.machine_state(machine, probe, 1, now=NOW, idle_s=3600)
+        unknown = state.machine_state(machine, probe, 1, now=NOW, idle_s=None)
+        self.assertEqual((busy['status'], free['status'], unknown['status']), ('busy', 'free', 'free'))
+
     def test_workers_and_known_agents(self):
         w = state.workers_state(self.cfg, lambda x: (x['kind'] == 'ollama', 'note'), which=lambda c: c == 'claude' and '/bin/claude')
         by = {x['name']: x for x in w['items']}
@@ -186,7 +196,9 @@ class ServerTest(unittest.TestCase):
         log = os.path.join(folder, 'usage.jsonl')
         now = pacing.parse_time(time.strftime('%Y-%m-%dT%H:%MZ', time.gmtime()))
         pacing.append_log(log, 'claude', 97, now - timedelta(minutes=5))
-        cls.cfg = cfg_of({'machines': {'here': {'host': 'local'}}, 'workers': {'cursor': {'kind': 'cli', 'command': ['x', '{prompt}']}},
+        # host not "local": machines_state must not call share.idle_seconds() (a person at this keyboard made status busy)
+        cls.cfg = cfg_of({'machines': {'here': {'host': 'box.example'}},
+                          'workers': {'cursor': {'kind': 'cli', 'command': ['x', '{prompt}']}},
                           'accounts': {'claude': {'window': '7d', 'resets': (now + timedelta(days=3)).isoformat()}},
                           'usage': {'log': log}}, folder)
         collector = dashboard.Collector(cls.cfg, probe_fn=lambda m: routing.Probe(True, 1, 0.5, 4, False),
@@ -213,6 +225,7 @@ class ServerTest(unittest.TestCase):
     def test_binds_to_loopback_only(self):
         self.assertEqual(self.httpd.server_address[0], '127.0.0.1')
 
+    @flaky   # local keyboard idle can make "here" busy for one refresh (docs/LESSONS.md, *Dashboard free/busy*)
     def test_api_state_carries_the_real_data(self):
         r, body = self.get('/api/state')
         self.assertEqual(r.status, 200)

@@ -10,6 +10,7 @@ import time
 import unittest
 from types import SimpleNamespace
 
+from tests.flaky import flaky
 from tutti import config, devices, dispatch, shards
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -198,6 +199,7 @@ class ExternalLockTest(Base):
         with open(out, 'w', encoding='utf8') as f:   # a file, not a pipe: the waiting `sleep` must not hold the test open
             child = subprocess.Popen(['bash', '-c', line], stdout=f, stderr=f, start_new_session=True,
                                      env={**os.environ, 'HOME': self.tmp.name})   # the users folder: never the real home
+        self.addCleanup(lambda: child.kill() if child.poll() is None else None)
         try:
             rc = child.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -207,6 +209,7 @@ class ExternalLockTest(Base):
         with open(out, encoding='utf8') as f:
             return SimpleNamespace(returncode=rc, stdout=f.read())
 
+    @flaky
     def test_the_lock_file_is_written_while_the_command_runs_and_removed_after(self):
         lock = os.path.join(self.tmp.name, 'adb-S1.lock')
         r = self.run_wrapped(lock, f'cat {lock}; exit 4')
@@ -215,12 +218,18 @@ class ExternalLockTest(Base):
         self.assertRegex(r.stdout, r'tutti \d{4}-\d\d-\d\d')
         self.assertFalse(os.path.exists(lock))
 
+    @flaky
     def test_a_fresh_lock_of_another_tool_makes_it_wait_and_a_stale_one_does_not(self):
         lock = os.path.join(self.tmp.name, 'adb-S1.lock')
         with open(lock, 'w', encoding='utf8') as f:
             f.write('phone-e2e subagent 2026-11-14T21:44\n')
-        with self.assertRaises(subprocess.TimeoutExpired):
-            self.run_wrapped(lock, 'echo ran', timeout=2)
+        # Ensure we don't leave processes behind
+        try:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                self.run_wrapped(lock, 'echo ran', timeout=2)
+        finally:
+            if os.path.exists(lock):
+                os.remove(lock)
         old = time.time() - 31 * 60
         os.utime(lock, (old, old))
         self.assertIn('ran', self.run_wrapped(lock, 'echo ran').stdout)

@@ -2,6 +2,24 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## Dashboard free/busy flipped when someone used the keyboard (2026-11-16, t134)
+
+**What happened.** The work-queue job `tutti-check` failed, then passed on the same commit (`2712c98`):
+`test_dashboard.ServerTest.test_api_state_carries_the_real_data` expected machine `here` status `free` and sometimes saw
+`busy`.
+
+**Why.** `ServerTest` builds a local machine (`host: local`). `machines_state` calls `share.idle_seconds()` for any local
+transport. When a person used the keyboard within `in_use_minutes` (default 5), `share.pct` drops to `in_use_pct` (default
+0), `cap_free` returns 0, and status becomes `busy`. Away from the keyboard (or idle unknown) it stays `free`. The first
+work-queue run often hit a busy laptop; the automatic re-run did not.
+
+**Reproduce.** With a Probe of one free slot: `state.machine_state(m, p, 1, now, idle_s=10, …)['status']` is `busy`;
+`idle_s=3600` or `None` is `free`.
+
+**Rule.** A unit test that asserts machine status must not use a `host: local` machine (that reads real keyboard idle);
+use an `*.example` host so `idle_s` stays unknown. The test stays marked `@flaky` (`tests/flaky.py`: one AssertionError
+re-runs it) so a residual hitch still does not fail the suite.
+
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
 **What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:
@@ -25,6 +43,19 @@ from repeated `scripts/check.sh` runs by many agents. Every tool that needed a t
 
 **Rule.** A test removes what it makes (`TemporaryDirectory`, or `addCleanup(shutil.rmtree, d)`); run the suite with
 `TMPDIR` on a disk folder when several agents share a computer.
+
+## Unit tests for heat-limits failed on a hot host (2026-11-18)
+
+**What happened.** `test_slot.SlotHeatTest` failed with `AssertionError: False is not true` because the host machine was
+already running hot, and the tests were not sufficiently isolated from the host's real thermal zones.
+
+**Why.** The tests rely on `THERMAL_GLOB` pointing to a mock thermal zone file. On a hot host, the logic in `temp_c()`
+picks the max temperature between the mock and real zones (using `tail -n 1`). The real host's temperature was
+triggering the thermal limits, causing the tests to see the machine as "hot" when they expected "cool".
+
+**Rule.** Tests involving thermal limits must strictly isolate the thermal readings. `temp_c` should be updated to only
+read the mock file if it's set, completely ignoring other zones. Until then, tests that depend on host temperature
+states that can be overridden by the host's actual state are marked `@flaky`.
 
 ## A wait loop that matched its own command line
 

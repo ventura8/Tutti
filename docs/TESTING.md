@@ -14,6 +14,10 @@ hard gate. Install the pinned tools once with `python3 -m pip install -r require
 Rules for every test: a change in behaviour comes with a good case and a bad one; nothing runs against a real machine
 (tests use the `local` transport and temp folders); hosts are `*.example`.
 
+A known unstable unit test may be marked with `@flaky` from `tests/flaky.py`: on `AssertionError` it runs once more, so a
+transient environment hitch (for example a person at this computer's keyboard during a dashboard refresh) does not fail
+the suite. Document the root cause in `docs/LESSONS.md`; do not use `@flaky` to hide a deterministic bug.
+
 ## Browser tests
 
 `tests/e2e/test_ui.py` opens the dashboard in a real browser: Playwright's Chromium (`playwright==1.65.2`) with axe-core 4.12

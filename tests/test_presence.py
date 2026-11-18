@@ -82,7 +82,7 @@ class Base(unittest.TestCase):
 
 
 class ComingAndGoing(Base):
-    def test_a_device_leaving_mid_shard_is_requeued_not_failed_and_resumes_within_a_tick_of_its_return(self):
+    def test_a_device_leaving_mid_shard_is_held_until_stop_is_confirmed(self):
         cfg, stopped = self.cfg(), []
         self.tick(cfg, [phone()])
         self.assertEqual(self.shard(cfg)['status'], 'running')
@@ -91,15 +91,20 @@ class ComingAndGoing(Base):
         self.assertEqual((self.shard(cfg)['status'], stopped), ('running', []))
         self.tick(cfg, [gone], now=NOW + 200, stop=stopped.append)
         sh = self.shard(cfg)
-        self.assertEqual((sh['status'], sh['attempts'], stopped), ('queued', 0, [4242]))
-        self.assertIn('left mid-run', sh['why'])
+        self.assertEqual((sh['status'], sh['attempts'], stopped), ('running', 0, []))
+        state = dispatch.read_state(cfg)
+        lid = next(iter(state['leases']))
+        self.assertIn('left mid-run', state['leases'][lid]['uncertain'])
         self.tick(cfg, [gone], now=NOW + 900)   # 12 minutes away with work waiting: not idle
         self.assertEqual(dispatch.read_state(cfg)['warnings'], [])
-        p = self.tick(cfg, [phone()], now=NOW + 5 * 3600)   # back hours later: picked up within one tick
+        p = self.tick(cfg, [phone()], now=NOW + 5 * 3600)
+        self.assertEqual(p['assign'], [])
+        dispatch.resolve(cfg, lid, True, now=NOW + 5 * 3600)
+        p = self.tick(cfg, [phone()], now=NOW + 5 * 3600 + 1)
         self.assertEqual([(t['id'], w['key']) for t, w in p['assign']], [('device:pixel', 'e2e/a')])
         self.assertTrue(any('is back' in e['text'] for e in dispatch.read_state(cfg)['events']))
 
-    def test_a_crash_still_counts_while_a_power_off_does_not(self):
+    def test_a_power_off_without_a_result_keeps_the_lease_held(self):
         cfg = self.cfg()
         self.tick(cfg, [phone()])
         st = dispatch.read_state(cfg)
@@ -109,13 +114,12 @@ class ComingAndGoing(Base):
         with mock.patch.object(durable, 'boot_id', return_value='after-reboot'):
             self.tick(cfg, [phone()], now=NOW + 60, alive=lambda pid: False)
         sh = self.shard(cfg)
-        self.assertEqual((sh['attempts'], sh['status']), (0, 'running'))   # requeued, not counted, and sent again at once
-        self.assertEqual(len(dispatch.read_state(cfg)['leases']), 1)        # one run: never the same shard twice
-        with mock.patch.object(durable, 'boot_id', return_value='after-reboot'):   # a crash in the same boot still counts
+        self.assertEqual((sh['attempts'], sh['status']), (0, 'running'))
+        self.assertIn('interrupted by', next(iter(dispatch.read_state(cfg)['leases'].values()))['uncertain'])
+        with mock.patch.object(durable, 'boot_id', return_value='after-reboot'):
             self.tick(cfg, [phone()], now=NOW + 120, alive=lambda pid: False)
         sh = self.shard(cfg)
-        self.assertEqual(sh['attempts'], 1)
-        self.assertIn('crash', sh['why'])
+        self.assertEqual((sh['attempts'], sh['status']), (0, 'running'))
 
     def test_left_with_its_owner_and_asleep_at_night_are_told_apart(self):
         s = presence.settings({})
@@ -203,6 +207,14 @@ class ComingAndGoing(Base):
 
 
 class Sleep(Base):
+    def test_sleep_does_not_hold_dispatch_leases_after_failover_fences_this_machine(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        before = dispatch.read_state(cfg)['leases']
+        with mock.patch('tutti.failover.may_write', side_effect=[True, False]):
+            sleepwatch.going_down(cfg, 'sleep', 4.0, running=lambda *_: [])
+        self.assertEqual(dispatch.read_state(cfg)['leases'], before)
+
     def test_the_sleep_signal_hands_running_work_over_and_wake_starts_it_again(self):
         cfg = self.cfg()
         self.tick(cfg, [phone()])
@@ -215,10 +227,11 @@ class Sleep(Base):
             return [(log, 99)] if (kind, name) == ('machine', 'pc') else []
         with mock.patch.object(dispatch, 'stop_pid', stopped.append):
             noted = sleepwatch.going_down(cfg, 'sleep', 4.0, running=running, end=ended.append)
-        self.assertEqual((ended, stopped), ([99], [4242]))
+        self.assertEqual((ended, stopped), ([99], []))
         self.assertEqual(noted[0]['kind'], 'test')
         sh = self.shard(cfg)
-        self.assertEqual((sh['status'], sh['attempts']), ('queued', 0))
+        self.assertEqual((sh['status'], sh['attempts']), ('running', 0))
+        self.assertIn('execution stop is unconfirmed', next(iter(dispatch.read_state(cfg)['leases'].values()))['uncertain'])
         self.assertEqual(presence.read(cfg)['targets'][sleepwatch.HOST]['state'], presence.ASLEEP)
         started = []
         sleepwatch.woke(cfg, start=lambda c, args, name: started.append(args) or 'log')
@@ -520,9 +533,10 @@ class Moves(Base):
         self.tick(cfg, [], [machine('a', False)], now=NOW + 300, stop=lambda pid: None)
         lines = jobmove.evacuate(cfg, 'a', NOW + 301, stop=lambda pid: None)
         self.assertEqual(len(lines), 2)
+        self.assertEqual(sum('not moved' in line for line in lines), 1)
         p = self.tick(cfg, [], [machine('a', False), machine('b')], now=NOW + 302)
         self.assertEqual(len(p['assign']), 1)   # one free slot on b; the other waits for it, no longer for a
-        self.assertEqual(jobmove.waiting(cfg, NOW + 302), [])
+        self.assertEqual(len(jobmove.waiting(cfg, NOW + 302)), 1)  # the uncertain lease remains held
 
     def test_the_auto_move_timer_moves_only_urgent_work_after_its_minutes(self):
         tests = {'e2e': {'kind': 'e2e', 'targets': ['machine'], 'run': 'go {shard}', 'shards': ['x'], 'machines': ['a']}}
@@ -532,7 +546,7 @@ class Moves(Base):
         self.assertEqual(jobmove.auto_moves(cfg, NOW + 400), [])                 # not urgent
         cfg['projects']['Radio']['urgent'] = True
         self.assertEqual(jobmove.auto_moves(cfg, NOW + 400), [])                 # not 10 minutes yet
-        self.assertEqual(len(jobmove.auto_moves(cfg, NOW + 1000)), 1)
+        self.assertIn('not moved', jobmove.auto_moves(cfg, NOW + 1000)[0])
         self.assertEqual(jobmove.auto_moves({**cfg, 'presence': {}}, NOW + 2000), [])   # off by default
 
     def test_a_moved_task_is_queued_from_its_checkpoint_with_no_attempt_counted(self):

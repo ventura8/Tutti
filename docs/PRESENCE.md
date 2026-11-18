@@ -22,8 +22,9 @@ how often the target was here at each hour.
 
 ## What happens
 
-- **A target leaves mid-run.** Its dispatch lease is released, its run is stopped and the shard is queued again. None of
-  this counts as a failure, a retry or a no-progress event.
+- **A target leaves mid-run without a result.** Its dispatch lease is held because the execution boundary may still be
+  running. An admin can inspect it and confirm a stop before requeuing; see [DISPATCH.md](DISPATCH.md#leases-and-the-heartbeat).
+  Bulk and automatic moves report held shards and continue with other jobs.
 - **An absence "until it is seen again"** (`tutti pause --from` with no `--until`) ends by itself once presence saw the
   target away and then here, or saw it here for 2 hours after the absence started (it never looked away): it resumes, no
   manual `tutti resume` needed (`controls.SEEN_BACK_MINUTES`).
@@ -35,7 +36,7 @@ how often the target was here at each hour.
   PrepareForSleep or PrepareForShutdown, it does four things within the time the OS allows (`InhibitDelayMaxUSec` less
   one second):
   - stops its running jobs, as "stop now" does, keeping each agent run's partial work on `tutti/handoff/<track>`;
-  - requeues its dispatch leases, with no attempt counted;
+  - holds its dispatch leases until an admin confirms the execution stopped;
   - notes the jobs to start again;
   - flushes its state.
 

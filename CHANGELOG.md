@@ -7,11 +7,13 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
-## [0.29.5] - 2026-11-18
+## Unreleased
 
 ### Fixed
 
 - Save the launch intent before spawning an autopilot run so a crash cannot silently launch it twice (t309).
+
+## [0.29.5] - 2026-11-18
 
 ### Fixed
 

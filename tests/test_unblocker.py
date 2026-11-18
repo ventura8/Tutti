@@ -116,6 +116,51 @@ class Finds(Base):
         self.tick([('ACTION: retry\nACTION: drop\nWHY: uncertain', 'pc-local')])
         self.assertEqual(self.get(tid)['status'], 'needs-person')
 
+    def test_changed_question_is_not_answered_using_old_model_context(self):
+        tid = self.task('Retry task', attempts=fails('limit'))
+        with backlog.locked(self.cfg) as data:
+            needs.ask(self.cfg, backlog.find(data, tid), 'Retry old work?', 'limits', ['retry', 'drop'], 'retry', now=NOW)
+        def ask(cfg, _prompt, _purpose, **_kw):
+            with backlog.locked(cfg) as data:
+                needs.ask(cfg, backlog.find(data, tid), 'Retry new work?', 'different reason', ['retry', 'drop'], 'retry', now=NOW + 1)
+            return 'ACTION: retry\nWHY: old question', 'pc-local'
+        events = unblocker.tick(self.cfg, NOW + 2, ask=ask, may_write=lambda _c: True)
+        self.assertEqual(self.get(tid)['status'], 'needs-person')
+        q = needs.load(self.cfg)['questions'][-1]
+        self.assertEqual((q['question'], q['status']), ('Retry new work?', 'open'))
+        self.assertIn('changed while deciding', events[0])
+
+    def test_changed_task_history_is_not_answered_using_old_model_context(self):
+        tid = self.task('Retry task', attempts=fails('limit'))
+        with backlog.locked(self.cfg) as data:
+            needs.ask(self.cfg, backlog.find(data, tid), 'Retry?', 'limits', ['retry', 'drop'], 'retry', now=NOW)
+        def ask(cfg, _prompt, _purpose, **_kw):
+            with backlog.locked(cfg) as data:
+                backlog.find(data, tid)['attempts'].append(fails('new failure')[0])
+            return 'ACTION: retry\nWHY: old history', 'pc-local'
+        unblocker.tick(self.cfg, NOW + 2, ask=ask, may_write=lambda _c: True)
+        self.assertEqual(self.get(tid)['status'], 'needs-person')
+        self.assertEqual(needs.load(self.cfg)['questions'][-1]['status'], 'open')
+
+    def test_changed_options_or_closed_question_are_not_automatically_answered(self):
+        for changed in ('options', 'closed'):
+            with self.subTest(changed=changed):
+                tid = self.task('Retry ' + changed, attempts=fails('limit'))
+                with backlog.locked(self.cfg) as data:
+                    needs.ask(self.cfg, backlog.find(data, tid), 'Retry?', 'limits', ['retry', 'drop'], 'retry', now=NOW)
+                def ask(cfg, _prompt, _purpose, mode=changed, task_id=tid, **_kw):
+                    with needs.locked(cfg) as data:
+                        q = next(q for q in data['questions'] if q['task'] == task_id)
+                        if mode == 'options':
+                            q['options'] = ['retry', 'later']
+                        else:
+                            q['status'] = 'closed'
+                    return 'ACTION: retry\nWHY: old options', 'pc-local'
+                unblocker.tick(self.cfg, NOW + 2, ask=ask, may_write=lambda _c: True)
+                self.assertEqual(self.get(tid)['status'], 'needs-person')
+                q = next(q for q in needs.load(self.cfg)['questions'] if q['task'] == tid)
+                self.assertNotIn('answer', q)
+
     def test_a_rebase_conflict_is_redone_from_scratch(self):
         tid = self.task('X', status='review', publish_note='it does not rebase cleanly onto main')
         self.tick()

@@ -7,6 +7,9 @@
   answer ends. Admit them through a separate gate and hold a settings restart until their final card update; an exception
   after a tool starts leaves an uncertain in-process outcome, not a safe completion.
 
+- A model answer describes the question and task it saw, not a later question with overlapping options. Check the snapshot
+  under the task and question locks immediately before an automatic answer (t278).
+
 - **A deleted Chat can still be answering** (t404): check live in-process answer jobs as well as persisted streaming
   records, and hold the Chat admission lock through the final restart check. A different dashboard process's deleted
   answer is not visible through that local job registry.

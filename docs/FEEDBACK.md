@@ -74,3 +74,6 @@ of your project or secrets: describe the setup in general words.
 - **2026-11-18, t309:** Stale or ambiguous attempts must not publish a different run's result. New bound reports are checked
   against their saved run identity; mismatches stay visible for investigation. Older bridge clients must update before
   starting bound autopilot runs, while already-running attempts retain their prior behavior.
+
+- **2026-11-18, t402:** Local checks waited behind an unrelated run's remote-copy lock. Local-only checks now run in their
+  own worktrees without that lock; routed and mixed checks retain it.

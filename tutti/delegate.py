@@ -352,7 +352,10 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
             env = {'TUTTI_CHANGED': ship.join_changed(changed), 'TUTTI_TREE': wt, 'TUTTI_GIT_MOUNT': worktree.docker_mount(wt)}
             remote_track = remote_track or track or cfg['delegate']['remote_track']
             say(f'run: checking the change ({len(chosen)} check(s))')   # the dashboard's phase marker
-            with track_lock(cfg, remote_track, say):
+            # Only routed checks copy into the shared remote track. Local checks run in this run's own worktree.
+            lock = track_lock(cfg, remote_track, say) if any(c.get('where', 'local') == 'route' for c in chosen) \
+                else contextlib.nullcontext()
+            with lock:
                 r['checks'] = run_checks(cfg, wt, chosen, env, remote_track, say, p['dir'])
         elif checks:
             r['checks'] = []

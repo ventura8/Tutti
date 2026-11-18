@@ -1660,7 +1660,23 @@ restartDashboard(button).then(() => console.log(JSON.stringify({message: button.
 '''
         out = subprocess.run(['node', '-e', src + '\n' + script], capture_output=True, text=True, check=True)
         result = json.loads(out.stdout)
-        self.assertIn('check active Chat and retry', result['message'])
+        self.assertIn('check Chat answers and actions, then retry', result['message'])
+        self.assertFalse(result['disabled'])
+
+    def test_settings_restart_shows_actionable_guard_reason(self):
+        with open(os.path.join(WEB, 'settings.js'), encoding='utf8') as f:
+            src = f.read()
+        script = r'''
+global.window = {};
+global.document = {querySelector: () => null};
+global.fetch = async (url) => url === '/api/health' ? {json: async () => ({started: 1})} :
+    {ok: false, status: 409, json: async () => ({error: 'A Chat action could not save its outcome: inspect it.'})};
+const button = {disabled: false, textContent: ''};
+restartDashboard(button).then(() => console.log(JSON.stringify({message: button.textContent, disabled: button.disabled})));
+'''
+        out = subprocess.run(['node', '-e', src + '\n' + script], capture_output=True, text=True, check=True)
+        result = json.loads(out.stdout)
+        self.assertIn('could not save its outcome', result['message'])
         self.assertFalse(result['disabled'])
 
     def test_settings_restart_rechecks_input_before_post_and_before_reload(self):

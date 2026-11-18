@@ -10,7 +10,9 @@ import subprocess
 import threading
 import time
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime
+from functools import wraps
 
 from . import auth, chat, chatctl, config, controls, mcpserver, workers
 
@@ -27,6 +29,66 @@ STATUS_POLL_SECONDS = 2
 WORK_ACTIONS = ('chat: Queue a task', 'chat: Hand off', 'chat: Ask ')   # audit lines that count against a viewer's daily limit
 BUILTIN = 'Tutti (built-in, from the dashboard\'s state)'
 _ENGINE_INIT_LOCK = threading.Lock()
+
+
+class ActionAdmission:
+    """Keep Chat actions concurrent while excluding restart across each action's persisted outcome."""
+
+    def __init__(self):
+        self.condition = threading.Condition()
+        self.active = 0
+        self.restarting = False
+        self.uncertain = False
+        self.local = threading.local()
+
+    @contextmanager
+    def action(self):
+        with self.condition:
+            while self.restarting:
+                self.condition.wait()
+            self.active += 1
+        self.local.started = False
+        self.local.admitted = True
+        try:
+            yield
+        except BaseException:
+            if self.local.started:
+                with self.condition:
+                    self.uncertain = True
+            raise
+        finally:
+            self.local.admitted = False
+            with self.condition:
+                self.active -= 1
+                self.condition.notify_all()
+
+    def mark_started(self):
+        if getattr(self.local, 'admitted', False):
+            self.local.started = True
+
+    @contextmanager
+    def restart(self):
+        with self.condition:
+            if self.active or self.restarting:
+                raise chat.ChatError('Chat has an action running: wait for it to finish, then restart')
+            if self.uncertain:
+                raise chat.ChatError('A Chat action could not save its outcome: inspect it; this engine blocks guarded restarts '
+                                     'until a separate coordinated recovery')
+            self.restarting = True
+        try:
+            yield
+        finally:
+            with self.condition:
+                self.restarting = False
+                self.condition.notify_all()
+
+
+def admitted_action(method):
+    @wraps(method)
+    def run(self, *args, **kwargs):
+        with self.action_admission.action():
+            return method(self, *args, **kwargs)
+    return run
 
 
 # ---- the models
@@ -301,6 +363,7 @@ class Engine:
         self.owner_fn = owner_fn or (lambda: None)
         self.own_machine_fn = own_machine_fn or (lambda user: None)
         self.jobs, self.lock, self.act_lock, self.plans_running = {}, threading.Lock(), threading.Lock(), set()
+        self.action_admission = ActionAdmission()
 
     # -- reading
 
@@ -495,6 +558,7 @@ class Engine:
                 return card
         if job and chat.model_tools().get(call['tool'], {}).get('mutating'):
             self._mark_uncertain(job)
+        self.action_admission.mark_started()
         result = run_tool(cfg, call, self.runner)
         ok, text, undo = follow_missing_report(cfg, call, job, result, self.runner) if job else result
         card.update(state='done' if ok else 'failed', text=plain(text, ok), ref=job_ref(text), undo=undo, call=None)
@@ -857,6 +921,7 @@ class Engine:
             job.msg['cards'].append(card)
             job.emit('card', card=card)
 
+    @admitted_action
     def run_plan(self, user, cid, mid, kid, edits=None, yes=True):
         """Runs a reviewed plan as a whole (each step with the same role checks, audit line and Undo), or cancels it."""
         cfg = self.cfg_fn()
@@ -919,6 +984,7 @@ class Engine:
             return fn(card)
         return self.store.change(sub, go)
 
+    @admitted_action
     def confirm(self, user, cid, mid, kid, yes=True):
         """Runs (or cancels) what a model proposed. The card is marked running under the lock, the tool runs outside it (one
         slow call never blocks other users' chats), then the result is saved."""
@@ -944,6 +1010,7 @@ class Engine:
 
     # -- Undo
 
+    @admitted_action
     def undo(self, user, cid, mid, kid, step=None):
         """Takes back what a card (or one step of a plan) did."""
         cfg = self.cfg_fn()
@@ -965,6 +1032,7 @@ class Engine:
                 auth.act_for(self.folder, user, target, PREFIX + 'undo ' + card['label'][:80], detail=card['label'], clock=self.clock)
             except auth.AuthError as e:
                 raise chat.ChatError('Only an admin can undo that.') from e
+            self.action_admission.mark_started()
             ok, text, _ = run_tool(cfg, back, self.runner)
             if not ok:
                 raise chat.ChatError(f'Undo did not work: {plain(text, False)}')
@@ -1200,7 +1268,7 @@ def guard_chat_restart(engine, action):
     """Block new Chat sends while checking for live answers and executing the in-process restart."""
     if not getattr(os, 'O_NOFOLLOW', 0) or not auth.fcntl:
         raise chat.ChatError('Chat restart cannot be guarded on this platform: wait for a supported coordinated restart')
-    with engine.store.lock, chat.store_locked(engine.store.folder):
+    with engine.action_admission.restart(), engine.store.lock, chat.store_locked(engine.store.folder):
         if engine.live_ids():
             raise chat.ChatError('Chat is answering: wait for the answer to finish, then restart')
         try:

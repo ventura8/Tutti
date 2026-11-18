@@ -11,6 +11,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 ### Fixed
 
 - Match complete unblocker actions to question options and defer ambiguous answers (t278).
+- Hold dashboard-requested restarts while Chat actions, plans or undo operations are in flight (t404).
 
 ## 0.30.5 (2026-11-18)
 

@@ -533,9 +533,10 @@ class Moves(Base):
         self.tick(cfg, [], [machine('a', False)], now=NOW + 300, stop=lambda pid: None)
         lines = jobmove.evacuate(cfg, 'a', NOW + 301, stop=lambda pid: None)
         self.assertEqual(len(lines), 2)
+        self.assertEqual(sum('not moved' in line for line in lines), 1)
         p = self.tick(cfg, [], [machine('a', False), machine('b')], now=NOW + 302)
         self.assertEqual(len(p['assign']), 1)   # one free slot on b; the other waits for it, no longer for a
-        self.assertEqual(jobmove.waiting(cfg, NOW + 302), [])
+        self.assertEqual(len(jobmove.waiting(cfg, NOW + 302)), 1)  # the uncertain lease remains held
 
     def test_the_auto_move_timer_moves_only_urgent_work_after_its_minutes(self):
         tests = {'e2e': {'kind': 'e2e', 'targets': ['machine'], 'run': 'go {shard}', 'shards': ['x'], 'machines': ['a']}}
@@ -545,7 +546,7 @@ class Moves(Base):
         self.assertEqual(jobmove.auto_moves(cfg, NOW + 400), [])                 # not urgent
         cfg['projects']['Radio']['urgent'] = True
         self.assertEqual(jobmove.auto_moves(cfg, NOW + 400), [])                 # not 10 minutes yet
-        self.assertEqual(len(jobmove.auto_moves(cfg, NOW + 1000)), 1)
+        self.assertIn('not moved', jobmove.auto_moves(cfg, NOW + 1000)[0])
         self.assertEqual(jobmove.auto_moves({**cfg, 'presence': {}}, NOW + 2000), [])   # off by default
 
     def test_a_moved_task_is_queued_from_its_checkpoint_with_no_attempt_counted(self):

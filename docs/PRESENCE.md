@@ -24,6 +24,7 @@ how often the target was here at each hour.
 
 - **A target leaves mid-run without a result.** Its dispatch lease is held because the execution boundary may still be
   running. An admin can inspect it and confirm a stop before requeuing; see [DISPATCH.md](DISPATCH.md#leases-and-the-heartbeat).
+  Bulk and automatic moves report held shards and continue with other jobs.
 - **An absence "until it is seen again"** (`tutti pause --from` with no `--until`) ends by itself once presence saw the
   target away and then here, or saw it here for 2 hours after the absence started (it never looked away): it resumes, no
   manual `tutti resume` needed (`controls.SEEN_BACK_MINUTES`).

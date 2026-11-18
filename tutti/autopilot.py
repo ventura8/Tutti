@@ -1920,8 +1920,15 @@ def valid_current_reader(reading, latest):
     if not isinstance(reading, dict) or reading.get('problem'):
         return False
     used = reading.get('used')
-    return (not isinstance(used, bool) and isinstance(used, (int, float)) and math.isfinite(used)
-            and 0 <= used <= 100 and used == latest.get('used'))
+    if (isinstance(used, bool) or not isinstance(used, (int, float)) or not math.isfinite(used)
+            or not 0 <= used <= 100 or used != latest.get('used')):
+        return False
+    if reading.get('resets') is not None:
+        try:
+            return bool(latest.get('reset')) and pacing.parse_time(reading['resets']) == pacing.parse_time(latest['reset'])
+        except (TypeError, ValueError, OverflowError):
+            return False
+    return True
 
 
 def slow_start_allowed(cfg, step, states, tasks, at, reader_status=None):

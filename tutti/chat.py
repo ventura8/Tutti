@@ -4,12 +4,14 @@ which model answers, the facts it answers from and the prompts it suggests. I/O 
 The chat runs on the household host, inside the dashboard: a user's own computer can be off. Its answers come from the
 dashboard's last snapshot and a model of the household (local models first, then an account with room that the asking user
 owns or that its owner shares); never another member's private quota."""
+import contextlib
 import hashlib
 import json
 import os
 import re
 import secrets
 import shutil
+import stat
 import tempfile
 import threading
 import time
@@ -29,6 +31,40 @@ WORK_TOOLS = ('backlog_add',)
 HOUSEHOLD_TOOLS = ('control',)                              # changes the household: admins only
 HOUSEHOLD = {'sub': 'household', 'email': None}              # the target of a household action (auth.may_act_for: admins only)
 DIR_MODE, FILE_MODE = 0o700, 0o600
+_STORE_THREADS = threading.RLock()
+_STORE_LOCAL = threading.local()
+
+
+@contextlib.contextmanager
+def store_locked(folder):
+    """Serialize transactions across cooperating processes when secure POSIX locking is available."""
+    from . import auth
+    path = os.path.realpath(folder)
+    with _STORE_THREADS:
+        if not getattr(os, 'O_NOFOLLOW', 0) or not auth.fcntl:
+            # Preserve single-process Chat on unsupported systems; never infer cross-process safety from this fallback.
+            yield
+            return
+        held = getattr(_STORE_LOCAL, 'held', set())
+        if path in held:
+            yield
+            return
+        os.makedirs(path, mode=DIR_MODE, exist_ok=True)
+        os.chmod(path, DIR_MODE)
+        try:
+            fd = os.open(os.path.join(path, '.chat.lock'), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, FILE_MODE)
+        except OSError as e:
+            raise OSError(f'Chat storage lock could not be opened ({e}): check the Chat state folder and .chat.lock') from e
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise OSError('Chat storage lock is not a regular file: remove the invalid .chat.lock')
+            os.fchmod(fd, FILE_MODE)
+            auth._lock(fd)
+            _STORE_LOCAL.held = held | {path}
+            yield
+        finally:
+            _STORE_LOCAL.held = held
+            os.close(fd)
 
 
 class ChatError(Exception):
@@ -84,7 +120,7 @@ class Store:
 
     def change(self, sub, fn):
         """fn(data) under the lock, then saved; returns what fn returns."""
-        with self.lock:
+        with self.lock, store_locked(self.folder):
             data = self.load(sub)
             out = fn(data)
             self.save(sub, data)
@@ -133,7 +169,7 @@ class Store:
 
     def clear(self, sub):
         """Every conversation of this user, gone: the file itself is removed, and the images beside it."""
-        with self.lock:
+        with self.lock, store_locked(self.folder):
             try:
                 os.remove(self.path(sub))
             except FileNotFoundError:
@@ -147,22 +183,24 @@ class Store:
         """Keeps an image (base64) in its own file beside the user's chats, so the conversations stay small; its ref."""
         ref = hashlib.sha256(data.encode()).hexdigest()[:24]
         folder = self.blobs(sub)
-        os.makedirs(folder, mode=DIR_MODE, exist_ok=True)
-        path = os.path.join(folder, ref)
-        if not os.path.exists(path):
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, FILE_MODE)
-            with os.fdopen(fd, 'w', encoding='ascii') as f:
-                f.write(data)
+        with store_locked(self.folder):
+            os.makedirs(folder, mode=DIR_MODE, exist_ok=True)
+            path = os.path.join(folder, ref)
+            if not os.path.exists(path):
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, FILE_MODE)
+                with os.fdopen(fd, 'w', encoding='ascii') as f:
+                    f.write(data)
         return ref
 
     def blob(self, sub, ref):
         if not re.fullmatch(r'[0-9a-f]{24}', str(ref or '')):
             return None
-        try:
-            with open(os.path.join(self.blobs(sub), ref), encoding='ascii') as f:
-                return f.read()
-        except OSError:
-            return None
+        with store_locked(self.folder):
+            try:
+                with open(os.path.join(self.blobs(sub), ref), encoding='ascii') as f:
+                    return f.read()
+            except OSError:
+                return None
 
     def get(self, sub, cid):
         return self.conversation(self.load(sub), cid)
@@ -239,7 +277,7 @@ class Store:
                     if m.get('status') == 'streaming' and m['id'] not in live_ids:
                         m['status'] = 'stopped'
                         m['note'] = 'This answer was cut off when Tutti restarted. Retry to get a full one.'
-        with self.lock:
+        with self.lock, store_locked(self.folder):
             data = self.load(sub)
             if any(m.get('status') == 'streaming' and m['id'] not in live_ids for c in data['conversations'] for m in c['messages']):
                 go(data)

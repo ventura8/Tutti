@@ -7,6 +7,12 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.27.14] - 2026-11-18
+
+### Fixed
+
+- Serialize cooperating Chat storage transactions across processes on supported POSIX hosts (t326).
+
 ## [0.27.13] - 2026-11-18
 
 ### Fixed

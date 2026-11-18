@@ -171,7 +171,8 @@ How many runs go at once is measured every round, not fixed. The limit is the sm
 - **accounts**: the runs going plus the room the ladder's accounts have now (the planner's tasks);
 - **memory**: the runs going plus this machine's free memory (MemAvailable) above `reserve_gb`, `run_gb` per run. An agent
   run (agy, cursor) is mostly cloud-model calls: light here, so many can go together;
-- **cpu**: the runs going plus the idle cores, `run_cpu` per run;
+- **cpu**: the runs going plus the idle cores, `run_cpu` per run. Cores come from the machine's host-wide count (like
+  `nproc --all`) unless `runner.cpus` is set in config for that machine or globally; the bound reason says which one it used;
 - **gates**: the runs going plus the fit machines' free gate slots times `gate_share` (a run holds a slot only for its gate);
 - `max_parallel` when the owner sets it (Settings: an optional cap), and `ceiling`.
 

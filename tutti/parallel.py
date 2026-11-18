@@ -2,7 +2,7 @@
   - accounts: the runs going plus the room the ladder's accounts have now (the planner's tasks);
   - memory: the runs going plus what this machine's free memory holds above `reserve_gb`, `run_gb` per run (an agent run
     is mostly cloud-model calls: its CLI and worktree are light here; its gate goes to a machine with room, below);
-  - cpu: the runs going plus the idle cores, `run_cpu` per run;
+  - cpu: the runs going plus the idle cores, `run_cpu` per run (the machine's own cores, or machines.<m>.cores when set);
   - gates: the runs going plus the free gate slots of the fit machines times `gate_share` (a run holds a slot only for its
     gate, a small part of its time);
   - `autopilot.max_parallel`, an optional cap the owner sets in Settings, and `ceiling`.
@@ -19,6 +19,17 @@ DEFAULTS = {'run_gb': 0.6, 'run_cpu': 0.25, 'reserve_gb': 4.0, 'gate_share': 3, 
                      r'dotnet (build|test)'}
 UNKNOWN_MEMORY_RUNS = 2
 NUMBERS = ('run_gb', 'run_cpu', 'reserve_gb', 'gate_share', 'ceiling')
+
+
+def machine_cores():
+    """Logical CPUs on this machine from the host view (`nproc --all` equivalent), not this process's affinity."""
+    try:
+        n = int(os.sysconf('SC_NPROCESSORS_CONF'))
+        if n > 0:
+            return n
+    except (AttributeError, OSError, TypeError, ValueError):
+        pass
+    return os.cpu_count() or 1
 
 
 def settings(cfg):
@@ -41,8 +52,9 @@ def errors(v):
     return errs + [f'autopilot.parallel.{k} is not a key: use {", ".join(DEFAULTS)}' for k in v if k not in DEFAULTS]
 
 
-def host(meminfo='/proc/meminfo'):
-    """{mem_gb, cores, load} of this machine: free memory (MemAvailable), cores and the 1-minute load. None when unreadable."""
+def host(meminfo='/proc/meminfo', configured=None):
+    """{mem_gb, cores, cores_source, load} of this machine: free memory (MemAvailable), cores and the 1-minute load (None when
+    unreadable). `configured`: (cores, the config key that set them), else the machine's own count (`machine_cores`)."""
     mem = None
     try:
         with open(meminfo, encoding='utf8') as f:
@@ -55,7 +67,8 @@ def host(meminfo='/proc/meminfo'):
         load = os.getloadavg()[0]
     except OSError:
         load = None
-    return {'mem_gb': mem, 'cores': os.cpu_count() or 1, 'load': load}
+    cores, source = configured or (machine_cores(), 'machine cores')
+    return {'mem_gb': mem, 'cores': cores, 'cores_source': source, 'load': load}
 
 
 def bounds(cfg, running, room, here, gate_slots):
@@ -74,7 +87,8 @@ def bounds(cfg, running, room, here, gate_slots):
         out['memory'] = (max(running, UNKNOWN_MEMORY_RUNS), f'free memory unknown here: at most {UNKNOWN_MEMORY_RUNS} runs')
     if here and here.get('load') is not None:
         more = max(0, int((here['cores'] - here['load']) // s['run_cpu']))
-        out['cpu'] = (running + more, f'load {here["load"]:.1f} of {here["cores"]} cores')
+        source = f' ({here["cores_source"]})' if here.get('cores_source') else ''
+        out['cpu'] = (running + more, f'load {here["load"]:.1f} of {here["cores"]} cores{source}')
     if gate_slots is not None:
         out['gates'] = (running + int(gate_slots * s['gate_share']), f'{gate_slots} free gate slot(s) on the machines')
     return out

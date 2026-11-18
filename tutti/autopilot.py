@@ -1045,15 +1045,15 @@ def record_attempt(cfg, t, a, now):
                      minutes=round((now - float(a.get('started') or now)) / 60, 2))
 
 
-def local_share(cfg, here, machines):
-    """This computer's measure for the adaptive limit, its cores at its share for Tutti (machines.<m>.use_pct, lower while
-    someone uses it: tutti/share.py, read from its dashboard row)."""
-    from . import fleet, share
+def configured_cores(cfg):
+    """(cores, the key) when this computer's machine sets machines.<m>.cores, else None: the cpu bound then counts the
+    machine's own cores. Not runner.cpus (one run's container cap) and not the share (use_pct caps the slots and threads)."""
+    from . import fleet
     name = fleet.machine_of(cfg, '')
-    row = next((m for m in machines or () if m.get('name') == name), None)
-    if not here or not row or row.get('use_pct') is None:
-        return here
-    return {**here, 'cores': max(1, share.scaled(here['cores'], row['use_pct']))}
+    n = (cfg['machines'].get(name) or {}).get('cores')
+    if isinstance(n, bool) or not isinstance(n, (int, float)) or n < 1:
+        return None
+    return int(n), f'machines.{name}.cores'
 
 
 def repo_files(cfg, run=subprocess.run):
@@ -1092,11 +1092,11 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     on = enabled(cfg)
     if '_host_raw' not in cfg:
         from . import parallel
-        cfg['_host_raw'] = parallel.host()
+        cfg['_host_raw'] = parallel.host(configured=configured_cores(cfg))
     if '_disk' not in cfg:
         from . import diskroom
         cfg['_disk'] = diskroom.problems(cfg)
-    cfg['_host'] = local_share(cfg, cfg['_host_raw'], machines)   # the share changes by the minute (in use, quiet, hot)
+    cfg['_host'] = cfg['_host_raw']   # the machine's real cores against its whole load: the share caps the slots instead
     from . import fill  # fill imports this module
     filled = None
     found = fill.gather(cfg, backlog.load(cfg), states, machines, now) if on else None   # the repos' commands: never under the lock

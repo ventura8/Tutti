@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Fixed
+
+- The autopilot CPU bound now measures cores from the machine-wide count (host view, like `nproc --all`) unless
+  `runner.cpus` was explicitly set in config, and its reason line says which source it used.
+
 ## 0.16.0 (2026-11-15)
 
 ### Added

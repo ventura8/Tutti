@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
+from unittest import mock
 
 from tutti import grokweek, pacing, parallel, planner, review, target, trial
 
@@ -140,6 +141,13 @@ class Parallel(unittest.TestCase):
             self.assertEqual(parallel.host(f.name)['mem_gb'], 4.0)
         finally:
             os.unlink(f.name)
+
+    def test_the_host_cores_use_machine_count_unless_cpus_are_configured(self):
+        with mock.patch('tutti.parallel.os.sysconf', return_value=16), mock.patch('tutti.parallel.os.cpu_count', return_value=8):
+            host = parallel.host(cpus=None)
+            self.assertEqual((host['cores'], host['cores_source']), (16, 'machine cores'))
+            capped = parallel.host(cpus=6)
+            self.assertEqual((capped['cores'], capped['cores_source']), (6, 'configured cpus'))
 
 
 def simulate(window, step, a, start, hours_after=0):

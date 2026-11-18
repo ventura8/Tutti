@@ -244,6 +244,29 @@ class PlanTest(Base):
         self.assertIn('t1', p['waiting'])
 
 
+class HostCoresTest(Base):
+    def test_the_cpu_bound_takes_machines_cores_when_set_never_the_runner_cpus(self):
+        cfg = self.cfg()
+        cfg['machines']['laptop'] = {'name': 'laptop', 'transport': 'local', 'runner': {'cpus': 8}}
+        self.assertIsNone(autopilot.configured_cores(cfg))   # one run's container cap is not the machine's cores
+        cfg['machines']['laptop']['cores'] = 12
+        self.assertEqual(autopilot.configured_cores(cfg), (12, 'machines.laptop.cores'))
+
+    def test_a_bad_cores_value_falls_back_to_the_machine_count(self):
+        cfg = self.cfg()
+        cfg['machines']['laptop'] = {'name': 'laptop', 'transport': 'local', 'cores': 0}
+        self.assertIsNone(autopilot.configured_cores(cfg))
+        cfg['machines']['laptop']['cores'] = True
+        self.assertIsNone(autopilot.configured_cores(cfg))
+
+    def test_the_share_does_not_shrink_the_cores_of_the_cpu_bound(self):
+        cfg = self.cfg()
+        cfg['_host_raw'] = {'mem_gb': 64.0, 'cores': 16, 'cores_source': 'machine cores', 'load': 13.1}
+        machines = [{'name': n, 'use_pct': 50} for n in cfg['machines']]
+        autopilot.tick(cfg, {}, machines, now=1_000_000.0, publish_fn=lambda *a, **k: None)
+        self.assertEqual(cfg['_host']['cores'], 16)
+
+
 class FailureTest(Base):
     def test_the_same_failure_has_the_same_signature_numbers_aside(self):
         r = {'worker_rc': 0, 'denied': [], 'changed': ['a'], 'checks': [{'run': 'pytest', 'rc': 1, 'log': 'L'}]}

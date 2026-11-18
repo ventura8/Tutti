@@ -445,9 +445,26 @@ class RunCliTest(Folder):
         def run_cli(_cfg, _agent, _text, _run, watch, **_kw):
             self.assertIn('agy-claude', watch.out_fn('agy'))
             return 0, []
-        with mock.patch.object(conduct, 'account_states', side_effect=[good, later]), \
+        with mock.patch.object(conduct, 'account_states', side_effect=[good, good, later]), \
                 mock.patch.object(conduct, 'run_cli', side_effect=run_cli):
             conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')
+
+    def test_switch_during_prelaunch_stops_before_start(self):
+        good = [{'name': 'agy-claude', 'used': 10}]
+        choices = [{'agent': 'agy', 'rev': 1}, {'agent': 'cursor', 'rev': 2}]
+        with mock.patch.object(conduct, 'choice_record', side_effect=choices), \
+                mock.patch.object(conduct, 'chosen', return_value='cursor'), \
+                mock.patch.object(conduct, 'account_states', return_value=good), mock.patch.object(conduct, 'run_cli') as run:
+            rc, _lines, reason = conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')
+        self.assertEqual((rc, reason[0]), (3, 'switch'))
+        run.assert_not_called()
+
+    def test_limit_without_reset_is_attributed_to_selected_account(self):
+        with mock.patch('tutti.readers.record') as record:
+            why = conduct.limit_hit(self.cfg, 'agy', ['Usage limit reached'], selected='agy-gemini')
+        self.assertEqual(why, 'agy-gemini hit its usage limit')
+        hit = record.call_args.args[2][0]
+        self.assertEqual((hit[0], hit[1]), ('agy-gemini', None))
 
     def test_unmetered_local_worker_does_not_require_account_readings(self):
         with mock.patch.object(conduct, 'account_states', return_value=[]), \

@@ -693,11 +693,13 @@ def record(cfg, run):
     write_json(os.path.join(state_folder(cfg), 'current.json'), view)
 
 
-def limit_hit(cfg, agent, lines):
+def limit_hit(cfg, agent, lines, selected=None):
     """A usage-limit message in the agent's output: logged as spent like any worker's, and a reason to hand over."""
     now = datetime.now(timezone.utc)
     cmd_text = ' '.join(cli_argv(cfg, agent, '', None)) if cfg['workers'][agent]['kind'] == 'cli' else agent
-    hits = readers.scan_text(cfg['accounts'], cmd_text, lines, now, f'conduct-{agent}-{int(now.timestamp())}')
+    ref = f'conduct-{agent}-{int(now.timestamp())}'
+    hits = ([(selected, reset, f'{ref}:{i + 1}', around) for i, reset, around in readers.limit_hits(lines, now)]
+            if selected else readers.scan_text(cfg['accounts'], cmd_text, lines, now, ref))
     if hits:
         readers.record(config.expand((cfg.get('usage') or {}).get('log') or os.path.join(config.state_dir(cfg), 'usage.jsonl')),
                        {}, hits, now)
@@ -730,8 +732,30 @@ def instruction_file(cfg, run, agent, commands, now):
     return text, path
 
 
+def selected_command_reason(cfg, agent, text, run, extra, selector, value):
+    if not selector:
+        return ''
+    log = os.path.join(run['dir'], f'{agent}-{len(run["agents"])}.agent.log')
+    argv = allow_tutti(workers.with_args(cli_argv(cfg, agent, text, log), extra))
+    if (workers.selector_value(argv[1:], selector) != value
+            or ('--' in argv and selector in argv[argv.index('--') + 1:])):
+        return f'{agent}: its command does not uniquely bind the selected account; fix main.commands and account selector arguments'
+    return ''
+
+
+def selected_out(cfg, selected, out_fn, name):
+    reason = out_fn(name)
+    if reason or not selected:
+        return reason
+    current = {s['name']: s for s in account_states(cfg)}
+    reason = conductor_account_reason(cfg, selected, current.get(selected))
+    return f'{selected}: {reason}' if reason else ''
+
+
 def run_agent(cfg, agent, text, run, out_fn, out=None):
     """(rc, last lines, stop reason or None) for one agent's turn as the main agent."""
+    started_choice = choice_record(cfg)
+    selected = None
     if cfg['workers'][agent]['kind'] == 'cli':
         states = account_states(cfg)
         why = out_reason(cfg, agent, states)
@@ -746,28 +770,23 @@ def run_agent(cfg, agent, text, run, out_fn, out=None):
         selector, values, why = conductor_binding(cfg, agent)
         if why:
             return 3, [], ('panic', why)
-        if selector:
-            log = os.path.join(run['dir'], f'{agent}-{len(run["agents"])}.agent.log')
-            argv = allow_tutti(workers.with_args(cli_argv(cfg, agent, text, log), extra))
-            if (workers.selector_value(argv[1:], selector) != values.get(selected)
-                    or ('--' in argv and selector in argv[argv.index('--') + 1:])):
-                return 3, [], ('panic', f'{agent}: its command does not uniquely bind the selected account; '
-                                        'fix main.commands and account selector arguments')
+        why = selected_command_reason(cfg, agent, text, run, extra, selector, values.get(selected))
+        if why:
+            return 3, [], ('panic', why)
         def bound_out(name):
-            reason = out_fn(name)
-            if reason or not selected:
-                return reason
-            current = {s['name']: s for s in account_states(cfg)}
-            reason = conductor_account_reason(cfg, selected, current.get(selected))
-            return f'{selected}: {reason}' if reason else ''
-        watch = Watch(cfg, agent, choice_record(cfg), bound_out, settings(cfg)['check_seconds'])
+            return selected_out(cfg, selected, out_fn, name)
+        watch = Watch(cfg, agent, started_choice, bound_out, settings(cfg)['check_seconds'])
+        if reason := watch.check():
+            return 3, [], reason
         rc, lines = run_cli(cfg, agent, text, run, watch, out=out, extra=extra)
     else:
-        watch = Watch(cfg, agent, choice_record(cfg), out_fn, settings(cfg)['check_seconds'])
+        watch = Watch(cfg, agent, started_choice, out_fn, settings(cfg)['check_seconds'])
+        if reason := watch.check():
+            return 3, [], reason
         rc, lines = run_local(cfg, agent, text, run, watch, out=out)
     if watch.reason:
         return rc, lines, watch.reason
-    hit = limit_hit(cfg, agent, lines)   # a CLI may print its limit and still exit 0
+    hit = limit_hit(cfg, agent, lines, selected=selected)   # a CLI may print its limit and still exit 0
     return rc, lines, ('limit', hit) if hit else None
 
 

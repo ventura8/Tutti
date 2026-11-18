@@ -94,7 +94,10 @@ def move_shard(cfg, project, key, to, bump, now, stop=dispatch.stop_pid):
         sh = ((st['projects'].get(project) or {}).get('shards') or {}).get(key)
         if not sh:
             raise MoveError(f'no shard {project} {key}: `tutti dispatch status` lists them')
-        for lid in [i for i, x in st['leases'].items() if x['project'] == project and x['key'] == key]:
+        matching = [i for i, x in st['leases'].items() if x['project'] == project and x['key'] == key]
+        if any(st['leases'][lid].get('uncertain') for lid in matching):
+            raise MoveError('the shard has an uncertain execution: inspect it and resolve its held dispatch lease first')
+        for lid in matching:
             lease = st['leases'].pop(lid)
             stop(lease['pid'])
             dispatch.requeue(st, lease, 'moved by an admin: queued again, not counted as a failure', now)

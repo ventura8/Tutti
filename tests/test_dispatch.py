@@ -7,10 +7,11 @@ import sys
 import tempfile
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import calls, config, dashboard, devices, dispatch
+from tutti import calls, config, dashboard, devices, dispatch, jobmove
 
 NOW = float(int(time.time()))   # real time: a lease's heartbeat is a file's mtime
 
@@ -123,15 +124,26 @@ class DispatchTest(Base):
         cfg['devices']['pixel']['enabled'] = True
         self.assertEqual(len(self.tick(cfg, [phone()], now=NOW + 1)['assign']), 1)
 
-    def test_a_crashed_run_frees_its_lease_and_the_shard_goes_out_again(self):
+    def test_a_crashed_run_holds_its_lease_until_admin_confirms_stop(self):
         cfg = self.cfg()
         self.tick(cfg, [phone()])
         p = self.tick(cfg, [phone()], now=NOW + 60, alive=lambda pid: False)
         st = dispatch.read_state(cfg)
         self.assertTrue(any('the run died without a result' in e['text'] for e in st['events']))
-        self.assertEqual(st['projects']['Radio']['shards']['e2e/a']['attempts'], 1)
-        self.assertEqual(len(p['assign']), 1)   # the phone is free again at once
+        self.assertEqual(st['projects']['Radio']['shards']['e2e/a']['attempts'], 0)
+        self.assertEqual(p['assign'], [])
         self.assertEqual(len(st['leases']), 1)
+        lid = next(iter(st['leases']))
+        self.assertIn('confirmed-stopped', st['leases'][lid]['uncertain'])
+        with self.assertRaises(ValueError):
+            dispatch.resolve(cfg, lid, False)
+        with dispatch.locked(cfg) as locked:
+            dispatch.recover(cfg, locked, NOW + 61, lambda pid: False, rc_fn=lambda *_: 0)
+        self.assertIn(lid, dispatch.read_state(cfg)['leases'])  # late result does not clear a hold
+        dispatch.resolve(cfg, lid, True, now=NOW + 62)
+        st = dispatch.read_state(cfg)
+        self.assertNotIn(lid, st['leases'])
+        self.assertEqual(st['projects']['Radio']['shards']['e2e/a']['status'], 'queued')
 
     def test_a_stale_heartbeat_ends_the_lease_even_with_a_live_pid(self):
         cfg = self.cfg()
@@ -141,6 +153,61 @@ class DispatchTest(Base):
         with dispatch.locked(cfg) as st:
             ended = dispatch.recover(cfg, st, NOW + 60, lambda pid: True)
         self.assertIn('no heartbeat', ended[0])
+        self.assertIn('uncertain', dispatch.read_state(cfg)['leases'][lid])
+
+    def test_unconfirmed_stop_result_stays_held_even_when_a_late_result_arrives(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        with dispatch.locked(cfg) as st:
+            dispatch.recover(cfg, st, NOW + 10, lambda _: True, rc_fn=lambda *_: dispatch.STOP_UNCERTAIN)
+        with dispatch.locked(cfg) as st:
+            dispatch.recover(cfg, st, NOW + 11, lambda _: False, rc_fn=lambda *_: 0)
+        self.assertIn('local stop was not confirmed', dispatch.read_state(cfg)['leases'][lid]['uncertain'])
+        with self.assertRaises(jobmove.MoveError):
+            jobmove.move_shard(cfg, 'Radio', 'e2e/a', '', False, NOW + 12, stop=mock.Mock())
+        self.assertIn(lid, dispatch.read_state(cfg)['leases'])
+
+    def test_concurrent_recovery_records_one_durable_hold(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        def recover_once():
+            with dispatch.locked(cfg) as st:
+                dispatch.recover(cfg, st, NOW + 10, lambda _: False, rc_fn=lambda *_: None)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _: recover_once(), range(2)))
+        st = dispatch.read_state(cfg)
+        self.assertIn('uncertain', st['leases'][lid])
+        self.assertEqual(sum('held:' in e['text'] for e in st['events']), 1)
+        def late_result():
+            with dispatch.locked(cfg) as state:
+                dispatch.recover(cfg, state, NOW + 11, lambda _: False, rc_fn=lambda *_: 0)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _: late_result(), range(2)))
+        self.assertIn(lid, dispatch.read_state(cfg)['leases'])
+
+    def test_stop_waits_after_kill_and_holds_if_the_child_still_does_not_exit(self):
+        child = mock.Mock(pid=42)
+        child.wait.side_effect = [subprocess.TimeoutExpired('test', 1), subprocess.TimeoutExpired('test', 1)]
+        with mock.patch('os.killpg') as kill:
+            with self.assertRaises(dispatch.StopUncertain):
+                dispatch.stop(child, grace=1)
+        self.assertEqual(kill.call_count, 2)
+        self.assertEqual(child.wait.call_count, 2)
+
+    def test_missing_suite_is_no_launch_but_failed_launch_is_uncertain(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        popen = mock.Mock(side_effect=OSError('launch failed'))
+        with mock.patch.object(dispatch, 'suites', return_value=[]):
+            self.assertEqual(dispatch.run(cfg, lid, popen=popen, after=lambda _: None), 2)
+        popen.assert_not_called()
+        self.assertEqual(dispatch.read_rc(cfg, lid), 2)
+        with self.assertRaises(OSError):
+            dispatch.run(cfg, lid, popen=popen, after=lambda _: None)
+        self.assertEqual(dispatch.read_rc(cfg, lid), dispatch.STOP_UNCERTAIN)
 
     def test_a_finished_run_records_passed_and_its_heartbeat_ran(self):
         cfg = self.cfg({'unit': {'kind': 'unit', 'targets': ['machine'], 'run': f'{sys.executable} -c "pass"'}})

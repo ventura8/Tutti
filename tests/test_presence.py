@@ -82,7 +82,7 @@ class Base(unittest.TestCase):
 
 
 class ComingAndGoing(Base):
-    def test_a_device_leaving_mid_shard_is_requeued_not_failed_and_resumes_within_a_tick_of_its_return(self):
+    def test_a_device_leaving_mid_shard_is_held_until_stop_is_confirmed(self):
         cfg, stopped = self.cfg(), []
         self.tick(cfg, [phone()])
         self.assertEqual(self.shard(cfg)['status'], 'running')
@@ -91,15 +91,20 @@ class ComingAndGoing(Base):
         self.assertEqual((self.shard(cfg)['status'], stopped), ('running', []))
         self.tick(cfg, [gone], now=NOW + 200, stop=stopped.append)
         sh = self.shard(cfg)
-        self.assertEqual((sh['status'], sh['attempts'], stopped), ('queued', 0, [4242]))
-        self.assertIn('left mid-run', sh['why'])
+        self.assertEqual((sh['status'], sh['attempts'], stopped), ('running', 0, []))
+        state = dispatch.read_state(cfg)
+        lid = next(iter(state['leases']))
+        self.assertIn('left mid-run', state['leases'][lid]['uncertain'])
         self.tick(cfg, [gone], now=NOW + 900)   # 12 minutes away with work waiting: not idle
         self.assertEqual(dispatch.read_state(cfg)['warnings'], [])
-        p = self.tick(cfg, [phone()], now=NOW + 5 * 3600)   # back hours later: picked up within one tick
+        p = self.tick(cfg, [phone()], now=NOW + 5 * 3600)
+        self.assertEqual(p['assign'], [])
+        dispatch.resolve(cfg, lid, True, now=NOW + 5 * 3600)
+        p = self.tick(cfg, [phone()], now=NOW + 5 * 3600 + 1)
         self.assertEqual([(t['id'], w['key']) for t, w in p['assign']], [('device:pixel', 'e2e/a')])
         self.assertTrue(any('is back' in e['text'] for e in dispatch.read_state(cfg)['events']))
 
-    def test_a_crash_still_counts_while_a_power_off_does_not(self):
+    def test_a_power_off_without_a_result_keeps_the_lease_held(self):
         cfg = self.cfg()
         self.tick(cfg, [phone()])
         st = dispatch.read_state(cfg)
@@ -109,13 +114,12 @@ class ComingAndGoing(Base):
         with mock.patch.object(durable, 'boot_id', return_value='after-reboot'):
             self.tick(cfg, [phone()], now=NOW + 60, alive=lambda pid: False)
         sh = self.shard(cfg)
-        self.assertEqual((sh['attempts'], sh['status']), (0, 'running'))   # requeued, not counted, and sent again at once
-        self.assertEqual(len(dispatch.read_state(cfg)['leases']), 1)        # one run: never the same shard twice
-        with mock.patch.object(durable, 'boot_id', return_value='after-reboot'):   # a crash in the same boot still counts
+        self.assertEqual((sh['attempts'], sh['status']), (0, 'running'))
+        self.assertIn('interrupted by', next(iter(dispatch.read_state(cfg)['leases'].values()))['uncertain'])
+        with mock.patch.object(durable, 'boot_id', return_value='after-reboot'):
             self.tick(cfg, [phone()], now=NOW + 120, alive=lambda pid: False)
         sh = self.shard(cfg)
-        self.assertEqual(sh['attempts'], 1)
-        self.assertIn('crash', sh['why'])
+        self.assertEqual((sh['attempts'], sh['status']), (0, 'running'))
 
     def test_left_with_its_owner_and_asleep_at_night_are_told_apart(self):
         s = presence.settings({})

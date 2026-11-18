@@ -1537,6 +1537,16 @@ def cmd_fleet(cfg, a):
     return 0
 
 
+def dispatch_resolve(cfg, a):
+    try:
+        dispatch.resolve(cfg, a.lease or '', a.confirmed_stopped)
+    except ValueError as e:
+        say(str(e))
+        return 2
+    print(f'dispatch: {a.lease}: lease released after confirmation')
+    return 0
+
+
 def cmd_dispatch(cfg, a):
     """`tutti dispatch [status|on|off|now|run <lease>]`: keep devices and machines busy while test shards wait."""
     if a.action in ('on', 'off'):
@@ -1548,6 +1558,8 @@ def cmd_dispatch(cfg, a):
             say('name the lease: tutti dispatch run <lease> (the dispatcher starts these itself)')
             return 2
         return dispatch.run(cfg, a.lease)
+    if a.action == 'resolve':
+        return dispatch_resolve(cfg, a)
     if a.action == 'build':
         if len(a.rest) != 2 or not a.lease:
             say('tutti dispatch build <project> <suite> <rc file> (the dispatcher starts these itself)')
@@ -2090,9 +2102,10 @@ def parser():
     s.add_argument('--preview', action='store_true', help='print the report and send nothing')
     s.add_argument('--yes', action='store_true', help='send without asking again after the preview')
     s = add('dispatch', cmd_dispatch, 'keep devices and machines busy: idle ones pull pending test shards (projects.<p>.tests) by '
-                                      'themselves: status, on, off, now (one round with fresh probes), run <lease> and build '
+                                      'themselves: status, on, off, now, resolve <lease> --confirmed-stopped, run <lease> and build '
                                       '<project> <suite> <rc> (internal)')
-    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'now', 'run', 'build'])
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'now', 'run', 'build', 'resolve'])
+    s.add_argument('--confirmed-stopped', action='store_true', help='resolve: confirm the entire execution boundary has stopped')
     s.add_argument('lease', nargs='?', help='run: the lease id; build: the project')
     s.add_argument('rest', nargs='*', help='build: the suite and the rc file')
     s = add('machine', cmd_machine, 'evacuate <machine>: move every job waiting on it to the best available target; '

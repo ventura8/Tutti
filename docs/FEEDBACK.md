@@ -1,6 +1,7 @@
 # Feedback log
 
 Household reassignment must preserve the old holder's uncheckpointed work when its local backup fails (t309).
+Missing dispatch results and unconfirmed stops must not free a target while its work may still run (t309).
 
 Autopilot must not launch new work after a cooperative local move has frozen its host (t404).
 

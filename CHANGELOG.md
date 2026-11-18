@@ -12,6 +12,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 - Preserve the old household holder's worktree when its task moves, even if its backup fails (t309).
 - Allow an explicit checkpoint-only round without starting or collecting work (t309).
+- Hold dispatch leases with unconfirmed execution instead of automatically freeing and retrying them (t309).
 - Do not report a checkpoint as pushed when no new snapshot or remote push was confirmed (t309).
 
 ## 0.30.8 (2026-11-18)

@@ -1689,15 +1689,16 @@ usage: tutti report [-h] [--what WHAT] [--expected EXPECTED] [--preview] [--yes]
 
 ### `tutti dispatch`
 
-keep devices and machines busy: idle ones pull pending test shards (projects.<p>.tests) by themselves: status, on, off, now (one round with fresh probes), run <lease> and build <project> <suite> <rc> (internal)
+keep devices and machines busy: idle ones pull pending test shards (projects.<p>.tests) by themselves: status, on, off, now, resolve <lease> --confirmed-stopped, run <lease> and build <project> <suite> <rc> (internal)
 
 ```text
-usage: tutti dispatch [-h] [{status,on,off,now,run,build}] [lease] [rest ...]
+usage: tutti dispatch [-h] [--confirmed-stopped] [{status,on,off,now,run,build,resolve}] [lease] [rest ...]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {status,on,off,now,run,build}` |  | `status` |
+| `action {status,on,off,now,run,build,resolve}` |  | `status` |
+| `--confirmed-stopped` | resolve: confirm the entire execution boundary has stopped |  |
 | `lease` | run: the lease id; build: the project |  |
 | `rest` | build: the suite and the rc file |  |
 

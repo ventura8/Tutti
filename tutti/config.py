@@ -327,7 +327,7 @@ def opt_out(cfg):
         e = cfg[section][n] or {}
         out = {'name': n, 'kind': kind, 'costs_money': bool(e.get('costs_money'))}
         if e.get('paused'):
-            out['paused'] = e['paused']
+            out['paused'] = e['paused'] if isinstance(e['paused'], dict) else {'by': 'owner', 'at': 0, 'note': str(e['paused'])}
         worker = e.get('worker') if kind == 'account' else None
         if kind == 'account' and not is_on({k: v for k, v in e.items() if k != 'paused'}):
             out['disabled'] = True
@@ -335,7 +335,8 @@ def opt_out(cfg):
             out['off_worker'] = worker
             worker_cfg = cfg['workers'][worker] or {}
             if worker_cfg.get('paused'):
-                out['worker_paused'] = worker_cfg['paused']
+                out['worker_paused'] = worker_cfg['paused'] if isinstance(worker_cfg['paused'], dict) else \
+                    {'by': 'owner', 'at': 0, 'note': str(worker_cfg['paused'])}
             if not is_on({k: v for k, v in worker_cfg.items() if k != 'paused'}):
                 out['worker_disabled'] = True
         return out

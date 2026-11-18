@@ -45,11 +45,14 @@ def cfg_of(folder, **over):
 class IdentifyTest(unittest.TestCase):
     def test_a_worktree_leads_to_its_main_checkout_and_origin(self):
         with tempfile.TemporaryDirectory() as d:
-            main = repo(d, worktree=os.path.join(d, 'wt', 'track'))
-            found = projects.identify(os.path.join(d, 'wt', 'track'))
-            self.assertEqual((found['name'], found['repo'], found['branch']), ('the-map', main, 'detached 01234567'))
-            self.assertEqual(projects.identify(os.path.join(main, 'sub'))['branch'], 'master')
-            self.assertIsNone(projects.identify(d))
+            def mocked_isdir(path):
+                return path != '/tmp/.git' and os.path.isdir(path)
+            with mock.patch('tutti.projects.os.path.isdir', side_effect=mocked_isdir):
+                main = repo(d, worktree=os.path.join(d, 'wt', 'track'))
+                found = projects.identify(os.path.join(d, 'wt', 'track'))
+                self.assertEqual((found['name'], found['repo'], found['branch']), ('the-map', main, 'detached 01234567'))
+                self.assertEqual(projects.identify(os.path.join(main, 'sub'))['branch'], 'master')
+                self.assertIsNone(projects.identify(d))
 
     def test_names_from_remotes(self):
         self.assertEqual(projects.name_from('https://github.com/o/Tutti.git', '/x'), 'Tutti')
@@ -61,7 +64,11 @@ class IdentifyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, '.git'), 'w', encoding='utf8') as f:
                 f.write('nonsense')
-            self.assertEqual(projects.git_dir(os.path.join(d, 'x')), (None, None))
+            
+            def mocked_isdir(path):
+                return path != '/tmp/.git' and os.path.isdir(path)
+            with mock.patch('tutti.projects.os.path.isdir', side_effect=mocked_isdir):
+                self.assertEqual(projects.git_dir(os.path.join(d, 'x')), (None, None))
 
 
 class TagTest(unittest.TestCase):

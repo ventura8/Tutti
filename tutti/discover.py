@@ -78,11 +78,14 @@ def outermost(proc, pids):
     """The matched pids that have no matched ancestor: a script that runs itself again (directly or through a wrapper such as
     `timeout`) is one job, not two."""
     keep = []
-    for pid in pids:
+    for pid, kind in pids.items():
+        if kind != 'script':
+            keep.append(pid)
+            continue
         p, depth = parent(proc, pid), 0
         while p > 1 and p not in pids and depth < 8:
             p, depth = parent(proc, p), depth + 1
-        if p not in pids:
+        if p not in pids or pids[p] != 'script':
             keep.append(pid)
     return keep
 
@@ -97,10 +100,10 @@ def script_jobs(cfg, now, stall, proc=PROC, procs=None):
             continue
         name, rest = program(argv)
         if name in names:
-            found[pid] = lambda pid=pid, name=name, args=argv[rest:]: script_job(proc, pid, name, args, now, stall)
+            found[pid] = ('script', lambda pid=pid, name=name, args=argv[rest:]: script_job(proc, pid, name, args, now, stall))
         elif name in agents and os.path.basename(argv[0]) == name:
-            found[pid] = lambda pid=pid, name=name: agent_job(proc, pid, name, now, cfg)
-    return [found[pid]() for pid in outermost(proc, set(found))]
+            found[pid] = ('agent', lambda pid=pid, name=name: agent_job(proc, pid, name, now, cfg))
+    return [found[pid][1]() for pid in outermost(proc, {pid: kind for pid, (kind, _) in found.items()})]
 
 
 def script_job(proc, pid, name, args, now, stall):

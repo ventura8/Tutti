@@ -1,11 +1,14 @@
 """A replacement fence isolates two distinct gateway sockets in an isolated process."""
 import os
 import socket
+import subprocess
+import sys
+import tempfile
 import threading
 import unittest
 from unittest import mock
 
-from tutti import chatrun, gatewayfence, owneripc
+from tutti import auth, chat, chatrun, gatewayfence, owneripc
 
 
 @unittest.skipUnless(os.name == 'posix', 'requires Unix socket pairs')
@@ -72,6 +75,52 @@ class GatewayFenceTests(unittest.TestCase):
             with self.assertRaises(gatewayfence.FenceError):
                 self.fence.replace(None, poisoned)
         self.assertTrue(self.fence.replace(None, self.new_owner))
+
+    def test_stalled_store_authorization_cannot_block_gateway_replacement(self):
+        with tempfile.TemporaryDirectory() as folder:
+            users, sessions, store = auth.Users(folder), auth.Sessions(folder, 1), chat.Store(folder)
+            users.sign_in({'sub': 'alice', 'email': 'alice@example.com', 'name': 'Alice'})
+            session, _ = sessions.create('alice')
+            conversation = store.create('alice')
+            message = {'id': 'm', 'role': 'assistant', 'status': 'streaming', 'text': ''}
+            store.put_message('alice', conversation['id'], message)
+            job = chatrun.Job('alice', conversation['id'], message, replay_enabled=True)
+            job.emit('delta', text='private')
+            code = ("import sys; from tutti import chat; "
+                    "lock=chat.store_locked(sys.argv[1]); lock.__enter__(); "
+                    "print('locked',flush=True); sys.stdin.read(); lock.__exit__(None,None,None)")
+            child = subprocess.Popen([sys.executable, '-c', code, store.folder], stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            entered, finished = threading.Event(), threading.Event()
+            def authorize(jobs, request):
+                entered.set()
+                try:
+                    return owneripc.session_follow(jobs, request, sessions, users, store)
+                finally:
+                    finished.set()
+            fence = gatewayfence.GatewayFence({'m': job}, send_timeout=0.2, authorize=authorize)
+            request = {'action': 'follow', 'session': session, 'message': 'm', 'generation': job.replay.generation,
+                       'after': 0, 'request_id': 'blocked'}
+            worker = threading.Thread(target=lambda: fence.dispatch(self.old_owner, request), daemon=True)
+            try:
+                self.assertEqual(child.stdout.readline().strip(), 'locked')
+                self.assertTrue(fence.replace(None, self.old_owner))
+                worker.start()
+                self.assertTrue(entered.wait(3))
+                self.assertTrue(fence.replace(self.old_owner, self.new_owner))
+                worker.join(3)
+                self.assertFalse(worker.is_alive())
+                self.assertFalse(owneripc.receive(self.old_gateway)['ok'])
+                self.assertTrue(fence.dispatch(self.new_owner, {**request, 'request_id': 'busy'}))
+                self.assertFalse(owneripc.receive(self.new_gateway)['ok'])
+                self.assertFalse(finished.is_set())   # timed-out worker remains bounded to one outstanding request
+            finally:
+                child.stdin.close()
+                child.wait(timeout=5)
+                child.stdout.close()
+                child.stderr.close()
+                worker.join(5)
+                self.assertTrue(finished.wait(5))
 
     def test_duplicate_descriptor_cannot_be_replacement(self):
         duplicate = self.old_owner.dup()

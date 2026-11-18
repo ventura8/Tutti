@@ -350,6 +350,10 @@ class UsageGraph(unittest.TestCase):
                     '.filter((name) => ui.last.usage.accounts.some((row) => row.name === name))')
                 self.assertGreater(len(names), 1)
                 active_name = graph.evaluate('(g) => g.closest("article").dataset.account')
+                # The paused card moves after the active cards; keep selecting this account, not whichever graph is first.
+                graph = page.locator('#usage > article[data-account]').filter(
+                    has=page.get_by_role('heading', name=active_name, exact=True)).locator('.spark[role="slider"]')
+                detail = graph.locator('..').locator('.spark__detail')
                 other_name = next(name for name in names if name != active_name)
                 page.evaluate('''([active, other]) => {
                     const next = structuredClone(ui.last);
@@ -369,7 +373,6 @@ class UsageGraph(unittest.TestCase):
                 self.assertEqual(detail.inner_text(), first)  # the selected graph did not silently change
                 graph.evaluate('(g) => { window.previousGraph = g; g.blur(); }')
                 page.wait_for_function('window.previousGraph && !window.previousGraph.isConnected')
-                graph = page.locator('#usage .spark[role="slider"]').first
                 detail = graph.locator('..').locator('.spark__detail')
                 graph.focus()
                 graph.press('End')
@@ -378,6 +381,7 @@ class UsageGraph(unittest.TestCase):
                     const next = structuredClone(ui.last);
                     next.usage.accounts = next.usage.accounts.filter((row) => row.name !== active);
                     next.usage.off_accounts = [...(next.usage.off_accounts || []), {name: active, status: 'paused', reason: 'paused now'}];
+                    ui.last = next;
                     renderUsage(next, Date.now());
                 }''', active_name)
                 self.assertTrue(graph.evaluate('(g) => document.activeElement === g'))

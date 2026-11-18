@@ -145,8 +145,8 @@ quota, stall causes, crashes) and holds the **Send reports** switch (`POST /api/
 the card was sent anywhere. The **Self-improvement** card shows each Sentry issue or insight on its way: task, pull
 request, merged, released, and the gate it waits on, with its switch (`POST /api/self-improve {"enabled": false}`). The
 page posts its script errors and the panels and controls used (ids only) to `POST /api/telemetry`, which scrubs them
-before recording. After each probe the dashboard runs one self-improvement round and sends the telemetry queue when due.
-See [TELEMETRY.md](TELEMETRY.md).
+before recording (Chromium's ResizeObserver loop notices are skipped; see [TELEMETRY.md](TELEMETRY.md)). After each probe
+the dashboard runs one self-improvement round and sends the telemetry queue when due.
 
 ## Controls
 

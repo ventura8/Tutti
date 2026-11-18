@@ -187,7 +187,9 @@ class AutocompactTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             script = os.path.join(d, 'w.sh')
             with open(script, 'w', encoding='utf8') as f:
-                f.write('echo working; echo "Context 80% used"; sleep 20; echo never\n')
+                # exec: the sleep is the worker process, so terminate() stops it (a plain sleep child survived and
+                # failed the test-runner process guard after 2682862)
+                f.write('echo working; echo "context: 160000 tokens"; exec sleep 20; echo never\n')
             cfg = {**self.cfg, 'workers': {'w': {'kind': 'cli', 'command': ['bash', script, '{prompt}']}}}
             rc, lines = workers.run(cfg, 'w', 'task', cwd=d, out=io.StringIO())
             self.assertEqual(rc, workers.COMPACT_RC)

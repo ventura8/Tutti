@@ -13,12 +13,17 @@ function telemetryPost(body) {
     }).catch(() => null);
 }
 
+// Chromium fires these as window.onerror when a ResizeObserver nests a layout; not a Tutti bug (Insights said "dashboard in ?").
+const RESIZE_OBSERVER_NOISE = /ResizeObserver loop (completed with undelivered notifications|limit exceeded)/;
+
 function reportError(kind, err, message) {
+    const text = String(err?.message || message || '');
+    if (RESIZE_OBSERVER_NOISE.test(text)) return;
     if (telemetrySent.errors >= 20) return;   // one broken loop never floods the server
     telemetrySent.errors += 1;
     void telemetryPost({ error: {
         kind, type: err?.name || 'Error',
-        message: String(err?.message || message || '').slice(0, 500),
+        message: text.slice(0, 500),
         stack: String(err?.stack || '').slice(0, 2500),
     } });
 }

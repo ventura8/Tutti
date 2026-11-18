@@ -6,6 +6,16 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.2 (2026-11-17)
+
+### Fixed
+
+- Chromium's benign `ResizeObserver loop …` window error is no longer recorded as a dashboard crash (Insights showed
+  `dashboard in ?` with no stack). The page skips posting it; the server ignores it if an older client still sends it
+  (docs/TELEMETRY.md, docs/LESSONS.md).
+- The unit-test runner clears `TUTTI_BACKGROUND` / `TUTTI_HH_JOB` inherited from an autopilot check, and the compact
+  threshold test no longer leaves a `sleep` child for the process guard (docs/LESSONS.md).
+
 ## 0.16.1 (2026-11-15)
 
 ### Fixed

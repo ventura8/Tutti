@@ -404,7 +404,13 @@ class FailureTest(Base):
                      ('agy-gemini', 'agy-gemini', 'agy-claude', 'agy-claude')]
             with self.subTest(why=why):
                 self.assertEqual(autopilot.worn_out(tries), set())
-                self.assertEqual(autopilot.park_reason(cfg, task('t1', attempts=tries)), ('', ''))
+                t = task('t1', attempts=tries)
+                self.assertEqual(autopilot.park_reason(cfg, t), ('', ''))
+                self.assertEqual(set(autopilot.candidates(cfg, t)), {'agy-gemini', 'agy-claude'})
+                self.assertEqual(autopilot.after_failure(cfg, t, now=1000), '')
+                self.assertEqual(t['status'], 'queued')
+                self.assertEqual(t['not_before'], 1240)  # 4 failures: 4-minute backoff
+                self.assertEqual(autopilot.backoff(task('t1', attempts=tries * 10)), autopilot.BACKOFF_MAX)
         real = [attempt(step, 'real') for step in ('agy-gemini', 'agy-gemini', 'agy-claude', 'agy-claude')]
         self.assertTrue(autopilot.should_park(cfg, task('t1', attempts=real)))
 

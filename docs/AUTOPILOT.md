@@ -101,7 +101,8 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
   permission refusal, or a run that ended without a report (including after a limit that killed the process before a
   report) is **environment**: it does not count toward `max_attempts` and never parks the task as no progress (the account
   or the CLI is the problem, not the task). Such failures do not exhaust the ladder even when every step repeats them;
-  availability and pacing still determine when a step can be tried again. A bare `429` in an assertion or a test name is
+  availability, pacing and the retry backoff (capped at 30 minutes) still determine when a step can be tried again; this
+  does not repair a persistent worker failure. A bare `429` in an assertion or a test name is
   not a usage limit.
 - **The same failure twice stops it from burning quota.** Twice in a row on one step: that step is not given the task
   again (when no step is left, it is parked). Twice in a row on different workers, for a failure that is not the

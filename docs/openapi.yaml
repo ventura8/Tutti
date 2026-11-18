@@ -1,0 +1,2759 @@
+openapi: 3.1.0
+info:
+  title: Tutti API
+  summary: Dashboard and Household Coordinator HTTP APIs
+  description: |
+    OpenAPI 3.1 specification for the Tutti orchestration toolkit HTTP APIs.
+    
+    Tutti operates two distinct local HTTP services on private loopback/LAN/VPN networks:
+    - **Dashboard HTTP API (:4777)**: serves the dashboard state, machine and worker controls, settings management, user and schedule administration, telemetry, and interactive agent chat.
+    - **Household Coordinator HTTP API (:4778)**: handles peer member synchronization, fair shares, machine slot leases, and delegated job execution across household machines.
+    
+    ### Security and Roles
+    - **Public (anyone)**: Unauthenticated endpoints (`/api/health`, `/api/auth/me`, `/api/auth/login`, `/api/auth/device/*`, `/hh/health`).
+    - **Viewer**: Authenticated members with read permissions and access to user-facing utilities (`/api/state`, `/api/vpn/status`, `/api/docs`, etc.).
+    - **Self**: Authenticated users acting on their own data or resources (an admin may act for anyone).
+    - **Admin**: Full control over configuration, machines, workers, accounts, queue, and user permissions.
+    - **Household Member / Admin**: Signed HMAC requests using member tokens for coordinator operations (`/hh/*`).
+    
+    Every mutating POST request on the dashboard requires same-origin requests with the `X-Tutti-Token` header.
+  version: 0.23.7
+  license:
+    name: MIT
+    url: https://github.com/ventura8/Tutti/blob/main/LICENSE
+servers:
+  - url: http://127.0.0.1:4777
+    description: Dashboard HTTP API (default port 4777)
+  - url: http://127.0.0.1:4778
+    description: Household Coordinator HTTP API (default port 4778)
+
+tags:
+  - name: Dashboard State & Health
+    description: Health checks and full system state inspection
+  - name: Dashboard Settings & System
+    description: Configuration management, updates, restarts, and setup
+  - name: Dashboard Controls & Operations
+    description: Worker switching, pause/resume controls, autopilot, dispatch, and device moves
+  - name: Dashboard Auth & Users
+    description: Sign-in, OAuth flows, user roles, invites, and personal schedules
+  - name: Dashboard Communication & Tools
+    description: Interactive agent chat, problem reports, telemetry, and browser tools
+  - name: Dashboard API Docs
+    description: Interactive documentation and schema specifications
+  - name: Household Coordinator
+    description: Peer synchronization, fair-share slot management, and household operations
+
+paths:
+  /api/health:
+    get:
+      tags:
+        - Dashboard State & Health
+      summary: Dashboard health check
+      description: "Returns server operational status, start timestamp, hostname, and version. Role: public (anyone)."
+      operationId: getDashboardHealth
+      security: []
+      responses:
+        '200':
+          description: Server is running and healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardHealth'
+
+  /api/state:
+    get:
+      tags:
+        - Dashboard State & Health
+      summary: Get full dashboard state
+      description: "Returns complete snapshot of all dashboard state. Supports conditional GET with ETag and gzip compression. Role: viewer."
+      operationId: getDashboardState
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: If-None-Match
+          in: header
+          description: ETag from a previous state response for cache validation
+          required: false
+          schema:
+            type: string
+        - name: Accept-Encoding
+          in: header
+          description: Encoding preference (e.g. gzip)
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Full dashboard state snapshot
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Weak entity tag for caching
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardState'
+        '304':
+          description: State has not changed since the specified ETag
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/settings:
+    get:
+      tags:
+        - Dashboard Settings & System
+      summary: Get settings tab schema and values
+      description: "Returns all configurable settings sections, fields, current values, defaults, and file etag. Role: admin."
+      operationId: getSettings
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Current settings view
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Dashboard Settings & System
+      summary: Update settings
+      description: "Updates a setting by path, reorders projects, or merges divergent configurations. Role: admin."
+      operationId: updateSettings
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsUpdateRequest'
+      responses:
+        '200':
+          description: Setting updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsUpdateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Conflict due to stale file ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Body exceeds 64 KB limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/vpn/status:
+    get:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Get private network (VPN) status
+      description: "Returns the state of the private mesh network (e.g. Tailscale or WireGuard). Role: viewer."
+      operationId: getVpnStatus
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: VPN status details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VpnStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/needs:
+    get:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Get open user questions and notification settings
+      description: "Returns open questions waiting for user decision and notification settings. Role: viewer (self) or admin."
+      operationId: getNeeds
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: List of pending questions and notification preferences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NeedsView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Answer question or update notification preferences
+      description: "Submits an answer to a pending question or updates notification settings. Role: viewer (self) or admin."
+      operationId: postNeeds
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NeedsActionRequest'
+      responses:
+        '200':
+          description: Action recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/welcome:
+    get:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Get welcome back summary
+      description: "Returns what changed since the user was last seen. Role: viewer (self) or admin."
+      operationId: getWelcome
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: User welcome back summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WelcomeView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Manage welcome summary
+      description: "Mark summary as read, query missed items, or toggle feature. Role: viewer (self) or admin."
+      operationId: postWelcome
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WelcomeActionRequest'
+      responses:
+        '200':
+          description: Summary action processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/auth/me:
+    get:
+      tags:
+        - Dashboard Auth & Users
+      summary: Current authentication status and user details
+      description: "Returns sign-in state, client configuration, and current user profile. Role: public (anyone)."
+      operationId: getAuthMe
+      security: []
+      responses:
+        '200':
+          description: Authentication and identity state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMeResponse'
+
+  /api/auth/login:
+    post:
+      tags:
+        - Dashboard Auth & Users
+      summary: Sign in with Google ID token
+      description: "Verifies Google credential token against client ID and JWKS and issues session cookie. Role: public (anyone)."
+      operationId: authLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLoginRequest'
+      responses:
+        '200':
+          description: Session created successfully
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Session cookie (`tutti_session_<port>=...; HttpOnly; SameSite=Strict`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthLoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/auth/device/start:
+    post:
+      tags:
+        - Dashboard Auth & Users
+      summary: Start Google OAuth device flow
+      description: "Requests user verification code and URI for browser sign-in on headless machines or TVs. Role: public (anyone)."
+      operationId: authDeviceStart
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthDeviceStartRequest'
+      responses:
+        '200':
+          description: Device authorization flow initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthDeviceStartResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/auth/device/poll:
+    post:
+      tags:
+        - Dashboard Auth & Users
+      summary: Poll Google OAuth device flow
+      description: "Checks status of pending device flow until completed or expired. Role: public (anyone)."
+      operationId: authDevicePoll
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Flow status (pending or authenticated)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthDevicePollResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/auth/logout:
+    post:
+      tags:
+        - Dashboard Auth & Users
+      summary: Sign out
+      description: "Invalidates active session and clears session cookie. Role: viewer, admin."
+      operationId: authLogout
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Signed out successfully
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Expired session cookie
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/auth/users:
+    get:
+      tags:
+        - Dashboard Auth & Users
+      summary: List users, invites, and security audit log
+      description: "Returns list of approved and pending users, active invites, and audit trail. Role: admin."
+      operationId: getAuthUsers
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Users view data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsersView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Dashboard Auth & Users
+      summary: Manage user accounts and permissions
+      description: "Approves pending users, changes roles between viewer and admin, or removes users. Role: admin."
+      operationId: manageAuthUsers
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserManageRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Cannot demote or remove the last remaining administrator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/invites:
+    post:
+      tags:
+        - Dashboard Auth & Users
+      summary: Create or revoke user invites
+      description: "Generates a new invitation link with a specific role, or revokes an active invite. Role: admin."
+      operationId: manageAuthInvites
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteActionRequest'
+      responses:
+        '200':
+          description: Invite created or revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InviteActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/me/schedule:
+    get:
+      tags:
+        - Dashboard Auth & Users
+      summary: Get personal pacing schedule
+      description: "Returns user's pacing mode, active days, hours, and time window. Role: viewer (self) or admin."
+      operationId: getMySchedule
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: User schedule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Dashboard Auth & Users
+      summary: Update personal pacing schedule
+      description: "Updates pacing mode, active days, hours, or time window. Role: viewer (self) or admin."
+      operationId: updateMySchedule
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleUpdateRequest'
+      responses:
+        '200':
+          description: Schedule updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/reading:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Record account usage reading
+      description: "Logs usage percentage, quota reset timestamp, and optional note for an AI account. Role: admin."
+      operationId: postUsageReading
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadingRequest'
+      responses:
+        '200':
+          description: Reading recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/refresh:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Refresh usage readings
+      description: "Triggers immediate refresh from all configured automated account readers. Role: admin."
+      operationId: postUsageRefresh
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Usage read results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          description: Error reading usage log
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/main:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Switch active main AI agent
+      description: "Switches primary agent (e.g. Claude Code, Cursor, AGY). Role: admin."
+      operationId: postMainAgent
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MainAgentRequest'
+      responses:
+        '200':
+          description: Main agent switched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MainAgentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/autopilot:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Configure autopilot settings
+      description: "Enables or disables automated background task execution and gap filling. Role: admin."
+      operationId: postAutopilot
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutopilotRequest'
+      responses:
+        '200':
+          description: Autopilot settings updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/self-improve:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Toggle self-improvement loops
+      description: "Enables or disables automatic self-improvement and diagnostic tasks. Role: admin."
+      operationId: postSelfImprove
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelfImproveRequest'
+      responses:
+        '200':
+          description: Self-improve setting updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/control:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Control machine, device, worker, or account state
+      description: "Pauses, resumes, or toggles opt-in state for an infrastructure target. Role: admin."
+      operationId: postControl
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ControlRequest'
+      responses:
+        '200':
+          description: Control action executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/owner:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Update owner mode or schedule
+      description: "Sets owner status (away, auto), working window, hours, or browser timezone. Role: admin."
+      operationId: postOwner
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OwnerRequest'
+      responses:
+        '200':
+          description: Owner settings updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/autocompact:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Set autocompact threshold
+      description: "Sets memory/context compaction threshold percentage (10-95, or null to reset). Role: admin."
+      operationId: postAutocompact
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutocompactRequest'
+      responses:
+        '200':
+          description: Threshold updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/dispatch:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Control test dispatching
+      description: "Enables or disables automated keep-busy test dispatching, or triggers an immediate dispatch round. Role: admin."
+      operationId: postDispatch
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DispatchRequest'
+      responses:
+        '200':
+          description: Dispatch status or immediate assignment results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DispatchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/docs:
+    get:
+      tags:
+        - Dashboard API Docs
+      summary: Swagger UI
+      description: "Interactive API documentation. Role: viewer."
+      operationId: getSwaggerUi
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Swagger UI
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+          description: Swagger UI page
+          content:
+            text/html:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/connect:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Connect or test local AI agent integrations
+      description: "Inspects configuration status, tests MCP servers, or connects/disconnects local agent tools. Role: admin."
+      operationId: postConnect
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectRequest'
+      responses:
+        '200':
+          description: Agent status or test results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Unable to modify agent configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/restart:
+    post:
+      tags:
+        - Dashboard Settings & System
+      summary: Restart dashboard server
+      description: "Triggers restart of dashboard process. Poll `/api/health` until started timestamp changes. Role: admin."
+      operationId: postRestart
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Restart initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestartResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/setup:
+    post:
+      tags:
+        - Dashboard Settings & System
+      summary: Run environment setup
+      description: "Starts background setup round (`tutti setup --yes`). Role: admin."
+      operationId: postSetup
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupRequest'
+      responses:
+        '202':
+          description: Setup task started in background
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/update:
+    post:
+      tags:
+        - Dashboard Settings & System
+      summary: Run Tutti self-update
+      description: "Checks for updates and executes non-destructive package updates in the background. Role: admin."
+      operationId: postUpdate
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '202':
+          description: Update process started in background
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Update is already currently running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/devices/pair:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Pair wireless Android device
+      description: "Starts pairing session, inputs pairing code, checks status, or cancels pairing. Role: admin."
+      operationId: postDevicesPair
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevicePairRequest'
+      responses:
+        '200':
+          description: Device pairing status or code accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: No active device pairing session running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/devices/move:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Move devices to another host machine
+      description: "Generates migration plan or transfers device management to target host. Role: admin."
+      operationId: postDevicesMove
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceMoveRequest'
+      responses:
+        '200':
+          description: Migration plan or execution status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceMoveResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/move:
+    post:
+      tags:
+        - Dashboard Settings & System
+      summary: Migrate Tutti instance to another host
+      description: "Generates migration plan, executes instance migration, or rolls back. Role: admin."
+      operationId: postMove
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveRequest'
+      responses:
+        '200':
+          description: Migration plan details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MovePlanResponse'
+        '202':
+          description: Migration initiated in background
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoveStartedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/work/move:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Move waiting or running job
+      description: "Reassigns a specific job to another target or evacuates all work from a host. Role: admin."
+      operationId: postWorkMove
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkMoveRequest'
+      responses:
+        '200':
+          description: Jobs moved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkMoveResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Job cannot be moved in its current state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/queue:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Manage queued tasks and scouts
+      description: "Performs operations (run, move, cancel, up, down) on queued tasks or scouts. Role: admin."
+      operationId: postQueue
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueActionRequest'
+      responses:
+        '200':
+          description: Queue action executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Specified queued task or scout not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/vpn:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Configure private mesh network
+      description: "Inspects VPN status, generates phone QR pairing code, configures router, or opens ports. Role: admin."
+      operationId: postVpn
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VpnActionRequest'
+      responses:
+        '200':
+          description: VPN action response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VpnActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/machine-limit:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Set machine usage limit window
+      description: "Configures limited-usage hours and CPU percentage cap for a host machine. Role: admin."
+      operationId: postMachineLimit
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MachineLimitRequest'
+      responses:
+        '200':
+          description: Machine limit saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/ai-assist:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Configure AI assistant settings
+      description: "Toggles AI assistance features or reverts assisted action. Role: admin."
+      operationId: postAiAssist
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiAssistRequest'
+      responses:
+        '200':
+          description: AI assist preference updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/telemetry:
+    post:
+      tags:
+        - Dashboard Communication & Tools
+      summary: Log telemetry or update consent
+      description: "Logs error events or panel usage counts (viewer), or toggles telemetry consent (admin). Role: viewer / admin."
+      operationId: postTelemetry
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelemetryRequest'
+      responses:
+        '200':
+          description: Telemetry event recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/report:
+    post:
+      tags:
+        - Dashboard Communication & Tools
+      summary: Report problem to GitHub
+      description: "Generates a sanitized preview or posts a bug report issue on GitHub. Role: viewer, admin."
+      operationId: postReport
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportRequest'
+      responses:
+        '200':
+          description: Report preview or submitted issue details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/github:
+    post:
+      tags:
+        - Dashboard Communication & Tools
+      summary: Manage user GitHub connection
+      description: "Checks status, initiates OAuth device flow, polls, or disconnects personal GitHub account. Role: viewer (self) or admin."
+      operationId: postGitHub
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitHubActionRequest'
+      responses:
+        '200':
+          description: GitHub connection status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/user/main-machine:
+    post:
+      tags:
+        - Dashboard Controls & Operations
+      summary: Set user primary workstation
+      description: "Configures or generates migration plan for user's primary machine. Role: viewer (self) or admin."
+      operationId: postUserMainMachine
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MainMachineRequest'
+      responses:
+        '200':
+          description: Machine set or migration plan returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/users/manage:
+    post:
+      tags:
+        - Dashboard Auth & Users
+      summary: Manage household members
+      description: "Manages household members, roles, and profiles. Role: viewer (self) or admin."
+      operationId: postUsersManage
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseholdMemberManageRequest'
+      responses:
+        '200':
+          description: Member action processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/browser:
+    post:
+      tags:
+        - Dashboard Communication & Tools
+      summary: Command household work browser
+      description: "Directs the isolated work browser for approved usage websites. Role: viewer, admin."
+      operationId: postBrowser
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrowserActionRequest'
+      responses:
+        '200':
+          description: Browser action response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Requested URL is outside allowed scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Browser process is not running or unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/chat:
+    post:
+      tags:
+        - Dashboard Communication & Tools
+      summary: Interactive chat operations
+      description: |
+        Executes operations on agent chat conversations (list, send, follow, activity, delete, model, plan, etc.).
+        Actions `send` and `follow` stream responses using newline-delimited JSON (`application/x-ndjson`).
+        Role: viewer (self), admin.
+      operationId: postChat
+      security:
+        - sessionCookie: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: Chat response object or event stream
+          content:
+            application/json:
+              schema:
+                type: object
+            application/x-ndjson:
+              schema:
+                type: string
+                description: Event stream (one JSON object per line)
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+
+  /api/docs/openapi.yaml:
+    get:
+      tags:
+        - Dashboard API Docs
+      summary: Download OpenAPI 3.1 specification file
+      description: "Returns the raw OpenAPI 3.1 YAML document describing dashboard and coordinator APIs. Role: viewer, admin."
+      operationId: getApiDocsSpec
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: OpenAPI 3.1 YAML document
+          content:
+            application/yaml:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /hh/health:
+    get:
+      tags:
+        - Household Coordinator
+      summary: Coordinator health check
+      description: "Verifies coordinator process is active. Role: public (anyone on LAN or VPN)."
+      operationId: getHouseholdHealth
+      security: []
+      responses:
+        '200':
+          description: Coordinator is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+
+  /hh/join:
+    post:
+      tags:
+        - Household Coordinator
+      summary: Join household
+      description: "Authenticates join code or invitation to join household and derives member HMAC token. Role: public with join code."
+      operationId: postHouseholdJoin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseholdJoinRequest'
+      responses:
+        '200':
+          description: Household membership confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseholdJoinResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          description: Invalid join code or rate-limited after repeated failed attempts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /hh/sync:
+    post:
+      tags:
+        - Household Coordinator
+      summary: Member heartbeat and synchronization
+      description: "Sends member machine states, shared repositories, and leases; receives cluster state. Role: household member."
+      operationId: postHouseholdSync
+      security:
+        - householdAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseholdSyncRequest'
+      responses:
+        '200':
+          description: Household synchronization response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseholdSyncResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Node is standing by or state conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /hh/status:
+    post:
+      tags:
+        - Household Coordinator
+      summary: Get household status
+      description: "Returns household members, shares, and leases. Role: household member."
+      operationId: postHouseholdStatus
+      security:
+        - householdAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Household status overview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseholdStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /hh/leave:
+    post:
+      tags:
+        - Household Coordinator
+      summary: Leave household
+      description: "Disconnects caller from household cluster. Role: household member."
+      operationId: postHouseholdLeave
+      security:
+        - householdAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Successfully left household
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseholdLeaveResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /hh/act:
+    post:
+      tags:
+        - Household Coordinator
+      summary: Execute member action
+      description: "Performs member updates (remove, make-admin, adjust weight) or dispatches queued actions. Role: household member."
+      operationId: postHouseholdAct
+      security:
+        - householdAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseholdActRequest'
+      responses:
+        '200':
+          description: Action processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /hh/job:
+    post:
+      tags:
+        - Household Coordinator
+      summary: Submit or complete remote job
+      description: "Reports state or output of job delegated across household members. Role: household member."
+      operationId: postHouseholdJob
+      security:
+        - householdAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseholdJobRequest'
+      responses:
+        '200':
+          description: Job status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /hh/machine:
+    post:
+      tags:
+        - Household Coordinator
+      summary: Share or stop sharing machine
+      description: "Shares a local machine with the household cluster or removes it from sharing. Role: household member."
+      operationId: postHouseholdMachine
+      security:
+        - householdAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseholdMachineRequest'
+      responses:
+        '200':
+          description: Machine sharing updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /hh/code:
+    post:
+      tags:
+        - Household Coordinator
+      summary: Generate new join code
+      description: "Creates a fresh temporary join code for prospective members. Role: household admin."
+      operationId: postHouseholdCode
+      security:
+        - householdAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: New join code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseholdCodeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: tutti_session
+      description: |
+        HTTP-only session cookie set after Google OAuth login (`tutti_session_<port>=...`).
+        Required for authenticated dashboard access.
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-Tutti-Token
+      description: |
+        Cross-site request forgery prevention token sent with mutating POST requests.
+        Matches the session CSRF token (with sign-in) or the per-start token (without sign-in).
+    householdAuth:
+      type: apiKey
+      in: header
+      name: X-Tutti-User
+      description: |
+        HMAC signature and user identifier for household coordinator requests (:4778).
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters, unrecognized action, or validation failure
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Unauthenticated request or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: User lacks sufficient permissions (e.g. admin role required or pending approval)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Human-readable explanation of what happened, why, and what to do next
+          example: 'only an admin may open this: ask an admin to make you admin in the Users card'
+
+    OkResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+          example: true
+
+    DashboardHealth:
+      type: object
+      required:
+        - ok
+        - started
+        - host
+        - version
+      properties:
+        ok:
+          type: boolean
+          example: true
+        started:
+          type: number
+          description: Epoch timestamp when this dashboard server process started
+          example: 1763300000.0
+        host:
+          type: string
+          description: Hostname of machine running the dashboard
+          example: 'laptop.example'
+        version:
+          type: string
+          description: Version of Tutti software currently running
+          example: '0.23.7'
+
+    DashboardState:
+      type: object
+      description: Complete dashboard state object snapshot
+      properties:
+        autopilot:
+          type: object
+        config:
+          type: object
+        controls:
+          type: object
+        devices:
+          type: object
+        disk:
+          type: object
+        dispatch:
+          type: object
+        failover:
+          type: object
+        fleet:
+          type: object
+        generated_at:
+          type: number
+        household:
+          type: object
+        household_use:
+          type: object
+        hygiene:
+          type: object
+        jobs:
+          type: array
+          items:
+            type: object
+        local_models:
+          type: object
+        machines:
+          type: object
+        main:
+          type: object
+        outside:
+          type: object
+        presence:
+          type: object
+        probe_error:
+          type: string
+          nullable: true
+        projects:
+          type: object
+        queue:
+          type: object
+        refresh_seconds:
+          type: number
+        releases_stuck:
+          type: array
+          items:
+            type: object
+        scouts:
+          type: object
+        security:
+          type: object
+        selfheal:
+          type: object
+        setup:
+          type: object
+        summary:
+          type: object
+        telemetry:
+          type: object
+        updates:
+          type: object
+        usage:
+          type: object
+        version:
+          type: string
+        where:
+          type: object
+        work_browser:
+          type: object
+        work_queue:
+          type: object
+        workers:
+          type: object
+
+    SettingsView:
+      type: object
+      description: Structure and current values for the Settings view
+      properties:
+        sections:
+          type: object
+        etag:
+          type: string
+        divergent:
+          type: array
+          items:
+            type: string
+
+    SettingsUpdateRequest:
+      type: object
+      properties:
+        path:
+          type: array
+          items:
+            type: string
+          description: Dotted path segments of setting key
+          example: ['dashboard', 'refresh_seconds']
+        value:
+          description: New setting value
+          example: 15
+        etag:
+          type: string
+          description: ETag from current settings view to prevent overwrite conflicts
+        order:
+          type: array
+          items:
+            type: string
+          description: Reordered project names
+        action:
+          type: string
+          description: Special settings action (e.g. merge-configs)
+
+    SettingsUpdateResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        backup:
+          type: string
+        restart:
+          type: array
+          items:
+            type: string
+        applies:
+          type: string
+          enum: [now, on restart]
+
+    VpnStatus:
+      type: object
+      properties:
+        state:
+          type: string
+          example: 'connected'
+        ip:
+          type: string
+        provider:
+          type: string
+
+    NeedsView:
+      type: object
+      properties:
+        questions:
+          type: array
+          items:
+            type: object
+        notify:
+          type: object
+
+    NeedsActionRequest:
+      type: object
+      properties:
+        answer:
+          type: string
+          description: Question ID being answered
+        choice:
+          type: string
+          description: Selected option
+        notify:
+          type: string
+        batch:
+          type: integer
+        quiet:
+          type: string
+
+    WelcomeView:
+      type: object
+      properties:
+        summary:
+          type: string
+        missed:
+          type: array
+          items:
+            type: string
+
+    WelcomeActionRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum: [read, miss, on, off]
+
+    AuthMeResponse:
+      type: object
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+          description: Whether sign-in authentication is enabled
+        setup:
+          type: string
+        client_id:
+          type: string
+        device:
+          type: boolean
+        first:
+          type: boolean
+        signed_in:
+          type: boolean
+        role:
+          type: string
+          enum: [pending, viewer, admin]
+        email:
+          type: string
+        name:
+          type: string
+
+    AuthLoginRequest:
+      type: object
+      required:
+        - credential
+      properties:
+        credential:
+          type: string
+          description: Google OAuth ID token (JWT)
+        invite:
+          type: string
+          description: Optional invitation token
+
+    AuthLoginResponse:
+      type: object
+      required:
+        - ok
+        - role
+      properties:
+        ok:
+          type: boolean
+        role:
+          type: string
+          enum: [pending, viewer, admin]
+
+    AuthDeviceStartRequest:
+      type: object
+      properties:
+        invite:
+          type: string
+
+    AuthDeviceStartResponse:
+      type: object
+      required:
+        - device_code
+        - user_code
+        - verification_url
+      properties:
+        device_code:
+          type: string
+        user_code:
+          type: string
+        verification_url:
+          type: string
+        expires_in:
+          type: integer
+        interval:
+          type: integer
+
+    AuthDevicePollResponse:
+      type: object
+      properties:
+        pending:
+          type: boolean
+        role:
+          type: string
+
+    UsersView:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            type: object
+        invites:
+          type: array
+          items:
+            type: object
+        audit:
+          type: array
+          items:
+            type: object
+
+    UserManageRequest:
+      type: object
+      required:
+        - action
+        - sub
+      properties:
+        action:
+          type: string
+          enum: [approve, role, remove]
+        sub:
+          type: string
+          description: Unique user identifier
+        role:
+          type: string
+          enum: [viewer, admin]
+
+    InviteActionRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum: [create, revoke]
+        role:
+          type: string
+          enum: [viewer, admin]
+        id:
+          type: string
+
+    InviteActionResponse:
+      type: object
+      properties:
+        url:
+          type: string
+        join:
+          type: string
+        id:
+          type: string
+
+    ScheduleView:
+      type: object
+      properties:
+        sub:
+          type: string
+        schedule:
+          type: object
+
+    ScheduleUpdateRequest:
+      type: object
+      properties:
+        sub:
+          type: string
+        mode:
+          type: string
+        days:
+          type: array
+          items:
+            type: string
+        window:
+          type: string
+        hours:
+          type: number
+
+    ReadingRequest:
+      type: object
+      required:
+        - account
+        - used
+      properties:
+        account:
+          type: string
+          example: 'claude'
+        used:
+          type: number
+          minimum: 0
+          maximum: 100
+          example: 42
+        resets:
+          type: string
+          format: date-time
+          example: '2026-11-20T08:00:00Z'
+        note:
+          type: string
+        key:
+          type: string
+
+    RefreshResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        read:
+          type: array
+          items:
+            type: string
+        problems:
+          type: object
+
+    MainAgentRequest:
+      type: object
+      required:
+        - agent
+      properties:
+        agent:
+          type: string
+          example: 'claude'
+
+    MainAgentResponse:
+      type: object
+      required:
+        - ok
+        - agent
+      properties:
+        ok:
+          type: boolean
+        agent:
+          type: string
+
+    AutopilotRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        fill_room:
+          type: boolean
+
+    SelfImproveRequest:
+      type: object
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+
+    ControlRequest:
+      type: object
+      required:
+        - action
+        - kind
+        - name
+      properties:
+        action:
+          type: string
+          enum: [pause, resume, optin]
+        kind:
+          type: string
+          enum: [machine, device, worker, account]
+        name:
+          type: string
+        on:
+          type: boolean
+        stop:
+          type: boolean
+        note:
+          type: string
+
+    OwnerRequest:
+      type: object
+      properties:
+        mode:
+          type: string
+          example: 'away'
+        days:
+          type: array
+          items:
+            type: string
+        window:
+          type: string
+        hours:
+          type: number
+        date:
+          type: string
+        browser_zone:
+          type: string
+
+    AutocompactRequest:
+      type: object
+      required:
+        - threshold_pct
+      properties:
+        threshold_pct:
+          type: integer
+          minimum: 10
+          maximum: 95
+          nullable: true
+          example: 60
+
+    DispatchRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        action:
+          type: string
+          enum: [now]
+
+    DispatchResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        enabled:
+          type: boolean
+        sent:
+          type: integer
+        blocked:
+          type: array
+          items:
+            type: string
+
+    ConnectRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum: [status, connect, undo, test]
+        agent:
+          type: string
+          example: 'claude-code'
+
+    ConnectResponse:
+      type: object
+      properties:
+        agents:
+          type: array
+          items:
+            type: object
+        agent:
+          type: string
+        ok:
+          type: boolean
+        text:
+          type: string
+
+    RestartResponse:
+      type: object
+      required:
+        - ok
+        - restarting
+      properties:
+        ok:
+          type: boolean
+        restarting:
+          type: boolean
+
+    SetupRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum: [run]
+
+    SetupResponse:
+      type: object
+      required:
+        - ok
+        - log
+      properties:
+        ok:
+          type: boolean
+        log:
+          type: string
+
+    UpdateResponse:
+      type: object
+      required:
+        - ok
+        - started
+      properties:
+        ok:
+          type: boolean
+        started:
+          type: boolean
+
+    DevicePairRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum: [start, code, status, cancel]
+        machine:
+          type: string
+        kind:
+          type: string
+        code:
+          type: string
+
+    DeviceMoveRequest:
+      type: object
+      required:
+        - to
+        - devices
+      properties:
+        to:
+          type: string
+        devices:
+          type: array
+          items:
+            type: string
+        dry_run:
+          type: boolean
+
+    DeviceMoveResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        plan:
+          type: object
+
+    MoveRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum: [plan, move, rollback]
+        to:
+          type: string
+        jobs:
+          type: string
+          enum: [wait, handover]
+
+    MovePlanResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        plan:
+          type: object
+
+    MoveStartedResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        started:
+          type: boolean
+
+    WorkMoveRequest:
+      type: object
+      properties:
+        job:
+          type: string
+        to:
+          type: string
+        bump:
+          type: boolean
+        evacuate:
+          type: string
+
+    WorkMoveResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        done:
+          type: array
+          items:
+            type: string
+
+    QueueActionRequest:
+      type: object
+      required:
+        - kind
+        - id
+        - action
+      properties:
+        kind:
+          type: string
+          enum: [task, scout]
+        id:
+          type: string
+        action:
+          type: string
+          enum: [run, move, cancel, up, down]
+        to:
+          type: string
+
+    VpnActionRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum: [status, qr, router, open-port]
+        phone:
+          type: string
+        consent:
+          type: boolean
+
+    VpnActionResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        status:
+          type: object
+        qr:
+          type: string
+
+    MachineLimitRequest:
+      type: object
+      required:
+        - machine
+        - window
+        - pct
+      properties:
+        machine:
+          type: string
+        window:
+          type: string
+        pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    AiAssistRequest:
+      type: object
+      properties:
+        switch:
+          type: string
+        on:
+          type: boolean
+        undo:
+          type: string
+
+    TelemetryRequest:
+      type: object
+      properties:
+        consent:
+          type: boolean
+        error:
+          type: object
+        use:
+          type: object
+
+    ReportRequest:
+      type: object
+      required:
+        - what
+        - expected
+        - send
+      properties:
+        what:
+          type: string
+        expected:
+          type: string
+        send:
+          type: boolean
+
+    ReportResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        id:
+          type: string
+        url:
+          type: string
+
+    GitHubActionRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum: [status, start, poll, disconnect]
+
+    GitHubActionResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        status:
+          type: string
+
+    MainMachineRequest:
+      type: object
+      properties:
+        machine:
+          type: string
+        action:
+          type: string
+          enum: [plan]
+
+    HouseholdMemberManageRequest:
+      type: object
+      properties:
+        member:
+          type: string
+        act:
+          type: string
+        args:
+          type: object
+        list:
+          type: boolean
+
+    BrowserActionRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum: [sign-in, read, check]
+        url:
+          type: string
+
+    ChatRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum: [list, get, send, follow, stop, new, rename, delete, clear, undo, activity, confirm, model, settings, mentions, branch, empty, plan]
+        conversation_id:
+          type: string
+        text:
+          type: string
+        model:
+          type: string
+
+    HouseholdJoinRequest:
+      type: object
+      required:
+        - nonce
+        - sub
+      properties:
+        code:
+          type: string
+        invite:
+          type: string
+        nonce:
+          type: string
+        sub:
+          type: string
+        agent:
+          type: string
+        accounts:
+          type: array
+          items:
+            type: string
+
+    HouseholdJoinResponse:
+      type: object
+      required:
+        - household
+        - nonce
+        - name
+        - sub
+      properties:
+        household:
+          type: string
+        nonce:
+          type: string
+        name:
+          type: string
+        sub:
+          type: string
+        email:
+          type: string
+
+    HouseholdSyncRequest:
+      type: object
+      required:
+        - beat
+      properties:
+        beat:
+          type: object
+        projects:
+          type: object
+
+    HouseholdSyncResponse:
+      type: object
+      properties:
+        household:
+          type: string
+        members:
+          type: object
+        leases:
+          type: array
+          items:
+            type: object
+
+    HouseholdStatusResponse:
+      type: object
+      properties:
+        members:
+          type: object
+        shares:
+          type: object
+        leases:
+          type: array
+          items:
+            type: object
+
+    HouseholdLeaveResponse:
+      type: object
+      required:
+        - left
+      properties:
+        left:
+          type: boolean
+
+    HouseholdActRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+        target:
+          type: string
+        weight:
+          type: number
+
+    HouseholdJobRequest:
+      type: object
+      required:
+        - job
+        - action
+      properties:
+        job:
+          type: string
+        action:
+          type: string
+
+    HouseholdMachineRequest:
+      type: object
+      required:
+        - machine
+        - share
+      properties:
+        machine:
+          type: string
+        share:
+          type: boolean
+
+    HouseholdCodeResponse:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string

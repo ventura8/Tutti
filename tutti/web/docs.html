@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tutti API — Swagger UI</title>
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+    <style>
+        body { margin: 0; padding: 0; background: #fafafa; }
+        .swagger-ui .topbar { display: none; }
+    </style>
+</head>
+<body>
+    <div id="swagger-ui">
+        <p style="padding: 2rem; font-family: sans-serif;">Loading Tutti API documentation...<br>
+        <small>If offline, see <a href="/api/docs/openapi.yaml">OpenAPI Specification (YAML)</a>.</small></p>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+        window.onload = function() {
+            window.ui = SwaggerUIBundle({
+                url: '/api/docs/openapi.yaml',
+                dom_id: '#swagger-ui',
+                deepLinking: true,
+                requestInterceptor: function(req) {
+                    if (req.loadSpec) return req;
+                    req.headers['X-Tutti-Token'] = '__TUTTI_TOKEN__';
+                    return req;
+                },
+                presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIBundle.SwaggerUIStandalonePreset
+                ],
+                layout: 'BaseLayout'
+            });
+        };
+    </script>
+</body>
+</html>

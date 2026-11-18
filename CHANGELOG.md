@@ -6,6 +6,15 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.7] - 2026-11-16
+
+### Added
+
+- OpenAPI 3.1 specification (`docs/openapi.yaml`) covering every dashboard (port 4777) and household coordinator (port 4778)
+  HTTP API route, method, security scheme, request/response schema, and error response.
+- Swagger UI served at `/api/docs` on the dashboard for authenticated (signed-in) users, with `/api/docs/openapi.yaml` serving
+  the raw OpenAPI 3.1 specification document.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

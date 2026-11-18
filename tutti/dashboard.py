@@ -420,6 +420,26 @@ API_VPN_STATUS = '/api/vpn/status'   # GET: the Private network card's state, 20
 API_WORK_MOVE = '/api/work/move'   # work waiting on an away or asleep target moved now (docs/PRESENCE.md)
 ADMIN_PATHS += (API_WORK_MOVE,)   # takes work off a member's computer: an admin's (a viewer gets 403 from the auth hook)
 BODY_LIMITS[API_SETTINGS] = 65536
+API_DOCS = '/api/docs'
+API_DOCS_SPEC = '/api/docs/openapi.yaml'
+OPENAPI_FILE = os.path.join(config.ROOT, 'docs', 'openapi.yaml')
+SWAGGER_CDN = 'https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/'
+DOCS_CSP = (f"default-src 'self'; script-src 'self' 'unsafe-inline' {SWAGGER_CDN}; style-src 'self' 'unsafe-inline' {SWAGGER_CDN}; "
+            f"img-src 'self' data: {SWAGGER_CDN}; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+
+
+def docs_page(token=''):
+    with open(os.path.join(WEB, 'docs.html'), 'rb') as f:
+        body = f.read()
+    return body.replace(TOKEN_SLOT, token.encode()).replace(VERSION_SLOT, __version__.encode())
+
+
+def docs_spec():
+    try:
+        with open(OPENAPI_FILE, 'rb') as f:
+            return f.read()
+    except OSError:
+        return b''
 
 
 def authorize(collector, headers, need='admin'):
@@ -984,6 +1004,10 @@ def route(collector, path, token=''):
     if path in ('/helper', '/helper.html'):
         port = getattr(collector, 'port', None) or collector.cfg['dashboard']['port']
         return 200, helper.page(collector.cfg, config.state_dir(collector.cfg), port), 'text/html; charset=utf-8', 'no-store'
+    if path in (API_DOCS, API_DOCS + '/'):
+        return 200, docs_page(token), 'text/html; charset=utf-8', 'no-store'
+    if path == API_DOCS_SPEC:
+        return 200, docs_spec(), 'application/yaml; charset=utf-8', 'no-cache'
     full = static_path(path)
     if not full:
         return 404, NOT_FOUND, JSON_TYPE, 'no-store'
@@ -1023,6 +1047,13 @@ def get(collector, path, token, headers):
     refused = authorize(collector, headers) if path in ADMIN_PATHS else None
     if refused:
         return refused[0], json.dumps({'error': refused[1]}).encode(), JSON_TYPE, 'no-store', None
+    if path in (API_DOCS, API_DOCS + '/'):
+        refused = authorize(collector, headers, need='viewer')
+        if refused:
+            return refused[0], json.dumps({'error': refused[1]}).encode(), JSON_TYPE, 'no-store', None
+        return 200, docs_page(token), 'text/html; charset=utf-8', 'no-store', {'Content-Security-Policy': DOCS_CSP}
+    if path == API_DOCS_SPEC:
+        return 200, docs_spec(), 'application/yaml; charset=utf-8', 'no-cache', None
     return (*route(collector, path, token), None)
 
 

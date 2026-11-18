@@ -93,6 +93,8 @@ dashboard refuses to start otherwise.
 | `/api/auth/me` | GET | anyone | `{"enabled": false, "setup": "tutti auth setup"}` without sign-in; with it `{"enabled": true, "client_id", "device", "first", "signed_in", ...user}`. |
 | `/api/auth/users` | GET | admin | `{"users": [...], "invites": [...], "audit": [...]}`. |
 | `/api/me/schedule` | GET | viewer (self) | `{"sub": "<id>", "schedule": {...}}`: one's own pacing schedule. |
+| `/api/docs` | GET | viewer | The Swagger UI interactive API documentation (OpenAPI 3.1, `docs/openapi.yaml`); signed-in users only. |
+| `/api/docs/openapi.yaml` | GET | viewer | The OpenAPI 3.1 specification for the dashboard and household coordinator HTTP APIs. |
 | `/helper` | GET | admin | The reading helper page (bookmarklets that post usage readings). |
 | `/settings` | GET | admin | The Settings page. |
 | `/login` | GET | anyone | The sign-in page (Google). |

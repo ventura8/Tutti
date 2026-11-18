@@ -3,7 +3,7 @@
 systemd-logind announces a sleep or a shutdown with PrepareForSleep(true) / PrepareForShutdown(true) and waits for every
 delay inhibitor, at most InhibitDelayMaxSec (5 s by default). Tutti holds one such lock while it runs; on the signal it
 stops its running jobs as "stop now" does (tutti/handover.py: an agent run's partial work kept on tutti/handoff/<track>),
-holds its dispatch leases when execution has not been confirmed stopped, notes the jobs to start again, flushes its state and lets go of the
+holds dispatch leases without checking whether execution stopped, notes jobs to start again, flushes its state and lets go of the
 lock, never asking for more than the OS allows. On wake (PrepareForSleep(false)) or at the next start the noted jobs start
 again and the lock is taken again. Linux with systemd only; elsewhere the power-off path (boot ids, tutti/recovery.py) covers it."""
 import contextlib
@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 
-from . import autopilot, backlog, config, controls, dispatch, handover, presence, procs, telemetry
+from . import autopilot, backlog, config, controls, dispatch, failover, handover, presence, procs, telemetry
 
 SIGNAL = re.compile(r'PrepareFor(Sleep|Shutdown)\s*\((true|false),?\)')
 # the lock's child waits on this process (tail --pid): it ends with Tutti, never a `sleep infinity` left behind (2026-11-15)
@@ -57,12 +57,14 @@ def going_down(cfg, what, budget, now=time.time, running=controls.running_jobs, 
     pst = presence.read(cfg)
     found = {log: pid for kind, name in jobs(cfg) for log, pid in running(config.state_dir(cfg), kind, name)}
     seen = []
-    with dispatch.locked(cfg) as st:
-        for lid, lease in st['leases'].items():
-            if not lease.get('uncertain'):
-                lease['uncertain'] = (f'{why}; execution stop is unconfirmed; inspect the execution boundary, then use '
-                                      f'tutti dispatch resolve {lid} --confirmed-stopped')
-                dispatch.event(st, now(), f'{lid}: held: {lease["uncertain"]}')
+    if failover.may_write(cfg):
+        with dispatch.locked(cfg) as st:
+            if failover.may_write(cfg):
+                for lid, lease in st['leases'].items():
+                    if not lease.get('uncertain'):
+                        lease['uncertain'] = (f'{why}; execution stop is unconfirmed; inspect the execution boundary, then use '
+                                              f'tutti dispatch resolve {lid} --confirmed-stopped')
+                        dispatch.event(st, now(), f'{lid}: held: {lease["uncertain"]}')
     for log, pid in found.items():
         if now() >= deadline:
             break

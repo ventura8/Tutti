@@ -207,6 +207,14 @@ class ComingAndGoing(Base):
 
 
 class Sleep(Base):
+    def test_sleep_does_not_hold_dispatch_leases_after_failover_fences_this_machine(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        before = dispatch.read_state(cfg)['leases']
+        with mock.patch('tutti.failover.may_write', side_effect=[True, False]):
+            sleepwatch.going_down(cfg, 'sleep', 4.0, running=lambda *_: [])
+        self.assertEqual(dispatch.read_state(cfg)['leases'], before)
+
     def test_the_sleep_signal_hands_running_work_over_and_wake_starts_it_again(self):
         cfg = self.cfg()
         self.tick(cfg, [phone()])

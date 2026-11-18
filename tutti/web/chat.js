@@ -186,7 +186,7 @@ function copyText(text, button) {
 async function loadList() {
     try {
         const data = await chatApi({ action: 'list', query: CHAT.query });
-        Object.assign(CHAT, { list: data.conversations, suggestions: data.suggestions, role: data.role, limits: data.limits, host: data.host || '', failed: '',
+        Object.assign(CHAT, { list: data.conversations, prompt_queue: data.prompt_queue, suggestions: data.suggestions, role: data.role, limits: data.limits, host: data.host || '', failed: '',
             models: data.models || [], defaults: data.defaults || {}, modes: data.modes || {}, efforts: data.efforts || [],
             compactDefault: data.compact_default || 60 });
         if (typeof drawControls === 'function') drawControls();
@@ -196,6 +196,7 @@ async function loadList() {
     CHAT.loading = false;
     drawList();
     drawPrivacy();
+    if (typeof renderQueue === 'function') renderQueue();
     if (!CHAT.conv) drawLog();
 }
 
@@ -833,6 +834,14 @@ function initChat() {
         const ro = new ResizeObserver(measure);
         for (const n of [document.querySelector('.appbar'), cq('chat-form'), cq('banner'), cq('auth-banner')]) if (n) ro.observe(n);
     }
+    document.getElementById('add-prompt-btn').addEventListener('click', () => {
+        const input = document.getElementById('new-prompt');
+        if (input.value.trim()) {
+            addPrompt(input.value.trim());
+            input.value = '';
+        }
+    });
+    renderQueue();
     window.addEventListener('resize', measure);
     measure();
     document.body.dataset.chatPane = 'list';

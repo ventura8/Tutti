@@ -33,7 +33,7 @@ def git_dir(path):
     d = os.path.abspath(path or '')
     while d and d != os.path.dirname(d):
         g = os.path.join(d, '.git')
-        if os.path.isdir(g):
+        if os.path.isdir(g) and os.path.isfile(os.path.join(g, 'config')):
             return d, g
         if os.path.isfile(g):
             try:

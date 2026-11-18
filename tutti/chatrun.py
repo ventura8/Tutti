@@ -1011,6 +1011,7 @@ def post(engine, user, data, snap=None):
 def _list(engine, user, data, snap):
     known = chat.known_names(engine.cfg_fn(), snap or {})
     return 200, {'conversations': engine.store.listing(user['sub'], data.get('query') or ''),
+                 'prompt_queue': engine.store.load(user['sub']).get('prompt_queue', []),
                  'suggestions': chat.suggestions(snap or {}, user, known, engine.cfg_fn()), 'role': user['role'],
                  'limits': {**chat.settings(engine.cfg_fn()), 'attachment_bytes': chat.MAX_ATTACHMENT_BYTES,
                             'attachments': chat.MAX_ATTACHMENTS, 'text': chat.MAX_TEXT},
@@ -1107,6 +1108,26 @@ def _empty(engine, user, data, _snap):
     return 200, {'ok': True}
 
 
+def _add_prompt(engine, user, data, _snap):
+    engine.store.add_prompt(user['sub'], str(data.get('text') or ''))
+    return 200, {'ok': True}
+
+
+def _reorder_prompt(engine, user, data, _snap):
+    engine.store.reorder_prompt(user['sub'], str(data.get('id') or ''), int(data.get('index', 0)))
+    return 200, {'ok': True}
+
+
+def _edit_prompt(engine, user, data, _snap):
+    engine.store.edit_prompt(user['sub'], str(data.get('id') or ''), str(data.get('text') or ''))
+    return 200, {'ok': True}
+
+
+def _delete_prompt(engine, user, data, _snap):
+    engine.store.delete_prompt(user['sub'], str(data.get('id') or ''))
+    return 200, {'ok': True}
+
+
 def _plan(engine, user, data, _snap):
     card = engine.run_plan(user, str(data.get('conversation') or ''), str(data.get('message') or ''), str(data.get('card') or ''),
                            data.get('steps'), yes=data.get('yes', True) is not False)
@@ -1122,7 +1143,8 @@ def _activity(engine, user, _data, _snap):
 ACTIONS = {'list': _list, 'get': _get, 'send': _send, 'follow': _follow, 'stop': _stop, 'new': _new, 'rename': _rename,
            'delete': _delete, 'clear': _clear, 'undo': _undo, 'activity': _activity,
            'confirm': _confirm, 'model': _set_model, 'settings': _settings, 'mentions': _mentions, 'branch': _branch,
-           'empty': _empty, 'plan': _plan}
+           'empty': _empty, 'plan': _plan,
+           'add_prompt': _add_prompt, 'reorder_prompt': _reorder_prompt, 'edit_prompt': _edit_prompt, 'delete_prompt': _delete_prompt}
 
 
 # ---- the dashboard's glue

@@ -22,6 +22,7 @@ MAX_ATTACHMENTS = 3
 MAX_ATTACHMENT_BYTES = 32 * 1024
 MAX_CONVERSATIONS = 200    # the oldest beyond this are dropped
 MAX_MESSAGES = 400         # per conversation; the oldest beyond this are dropped
+MAX_PROMPTS = 100          # per user prompt queue; the oldest beyond this are dropped
 TITLE_MAX = 80
 HISTORY_TURNS = 10         # earlier messages a model sees
 DEFAULTS = {'viewer_tasks_per_day': 5, 'viewer_projects': [], 'history_turns': HISTORY_TURNS}
@@ -106,12 +107,14 @@ class Store:
         if not isinstance(data, dict) or not isinstance(data.get('conversations', []), list):
             data = {}   # a damaged file: start again rather than fail every request of this user
         data.setdefault('conversations', [])
+        data.setdefault('prompt_queue', [])
         return data
 
     def save(self, sub, data):
         os.makedirs(self.folder, mode=DIR_MODE, exist_ok=True)
         os.chmod(self.folder, DIR_MODE)
         data['conversations'] = sorted(data['conversations'], key=lambda c: c.get('updated') or '', reverse=True)[:MAX_CONVERSATIONS]
+        data['prompt_queue'] = data.get('prompt_queue', [])[:MAX_PROMPTS]
         fd, tmp = tempfile.mkstemp(dir=self.folder, prefix='.chat-')
         with os.fdopen(fd, 'w', encoding='utf8') as f:
             json.dump(data, f)
@@ -165,6 +168,36 @@ class Store:
         def go(d):
             self.conversation(d, cid)
             d['conversations'] = [c for c in d['conversations'] if c['id'] != cid]
+        self.change(sub, go)
+
+    def add_prompt(self, sub, text):
+        def go(d):
+            d['prompt_queue'].append({'id': new_id('p'), 'text': text})
+        self.change(sub, go)
+
+    def reorder_prompt(self, sub, pid, new_index):
+        def go(d):
+            queue = d.get('prompt_queue', [])
+            prompt = next((p for p in queue if p['id'] == pid), None)
+            if not prompt:
+                raise ChatError('Prompt not found.')
+            queue.remove(prompt)
+            queue.insert(new_index, prompt)
+            d['prompt_queue'] = queue
+        self.change(sub, go)
+
+    def edit_prompt(self, sub, pid, text):
+        def go(d):
+            queue = d.get('prompt_queue', [])
+            prompt = next((p for p in queue if p['id'] == pid), None)
+            if not prompt:
+                raise ChatError('Prompt not found.')
+            prompt['text'] = text
+        self.change(sub, go)
+
+    def delete_prompt(self, sub, pid):
+        def go(d):
+            d['prompt_queue'] = [p for p in d.get('prompt_queue', []) if p['id'] != pid]
         self.change(sub, go)
 
     def clear(self, sub):

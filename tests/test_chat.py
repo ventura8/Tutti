@@ -190,6 +190,23 @@ class Storage(unittest.TestCase):
         self.store.clear('a')
         self.assertFalse(os.path.exists(self.store.path('a')))
 
+    def test_prompt_queue_operations(self):
+        self.store.add_prompt('a', 'first')
+        self.store.add_prompt('a', 'second')
+        queue = self.store.load('a')['prompt_queue']
+        self.assertEqual(len(queue), 2)
+        pid1, pid2 = queue[0]['id'], queue[1]['id']
+
+        self.store.reorder_prompt('a', pid2, 0)
+        queue = self.store.load('a')['prompt_queue']
+        self.assertEqual(queue[0]['id'], pid2)
+
+        self.store.edit_prompt('a', pid2, 'edited')
+        self.assertEqual(self.store.load('a')['prompt_queue'][0]['text'], 'edited')
+
+        self.store.delete_prompt('a', pid2)
+        self.assertEqual(len(self.store.load('a')['prompt_queue']), 1)
+
     def test_an_answer_cut_off_by_a_restart_is_marked_stopped(self):
         c = self.store.create('a')
         self.store.put_message('a', c['id'], {'id': 'm1', 'role': 'assistant', 'text': 'half', 'status': 'streaming'})

@@ -42,6 +42,7 @@
     <script src="welcome.js?v=__TUTTI_VERSION__" defer></script>
     <script src="needs.js?v=__TUTTI_VERSION__" defer></script>
     <script src="github.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="prompt_queue.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
     <a class="skip" href="#main">Skip to the content</a>
@@ -123,6 +124,13 @@
           </div>
           <p class="chat__listnote" id="chat-list-note" aria-live="polite">Loading your conversations…</p>
           <ul class="chat__list" id="chat-list"></ul>
+          <h2 class="chat__sidehead">Prompt Queue</h2>
+          <div class="chat__sidehead">
+              <label for="new-prompt" class="sr-only">New prompt</label>
+              <input type="text" id="new-prompt" placeholder="New prompt...">
+              <button id="add-prompt-btn" class="btn btn--tonal">Add</button>
+          </div>
+          <div id="prompt-queue" class="chat__list"></div>
           <div class="chat__sidefoot">
             <details class="chat__privacy">
               <summary>What is stored, and where</summary>

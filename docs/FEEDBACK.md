@@ -8,6 +8,7 @@ of your project or secrets: describe the setup in general words.
 
 | # | Date | Command | What happened | Expected | Status |
 | --- | --- | --- | --- | --- | --- |
+| 19 | 2026-11-18 | Autopilot pacing | A finished local attempt could leave its model permanently busy. | Reuse available local models when online accounts are ahead. | Fixed local attempt accounting (t301). |
 | 18 | 2026-11-18 | Autopilot retries | Missing reports on every worker could park a task as exhausted. | Keep environment failures from exhausting the worker ladder. | Fixed in the next release (t260). |
 | 17 | 2026-11-18 | Chat job status | A model-requested job status could expose a job log to a viewer. | Keep job reports and logs for admins. | Restricted model-requested job status to admins (t372). |
 | 16 | 2026-11-18 | Dashboard usage graphs | Individual recorded values and their times were not inspectable. | Show the nearest actual reading on hover, click, touch and keyboard. | Added graph selection (t253); browser verification runs in CI. |

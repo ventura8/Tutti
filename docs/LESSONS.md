@@ -3,6 +3,9 @@
 - **Environment failures must not exhaust the ladder** (t260): excluding missing reports from the attempt cap was not
   enough when a separate repeated-failure check removed every worker. Apply the same classification at both decisions.
 
+- **Local attempts have no quota reading** (t301): a completed local-model attempt cannot appear in a later account
+  usage reading. Only currently running local work occupies its server; keep online attempts reserved until reflected.
+
 - **A read-only tool may still disclose private output** (t372): the model's status lookup bypassed the direct Chat
   role check and could return a job log to a viewer. Apply the same access boundary before either dispatch path.
 

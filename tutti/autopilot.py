@@ -496,7 +496,7 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
         free -= 0 if is_local(cfg, pick) else 1
 
 
-def spent_units(tasks, states):
+def spent_units(tasks, states, cfg):
     """{step: units} the readings do not show yet: the runs going, and every attempt started on an account after its newest
     reading (a finished run's cost stays counted until a new reading includes it)."""
     used = {}
@@ -504,6 +504,8 @@ def spent_units(tasks, states):
         if t['status'] == 'running':
             used[t.get('step')] = used.get(t.get('step'), 0) + units(t)
         for a in t['attempts']:
+            if is_local(cfg, a['step']):
+                continue   # local servers have no quota reading; only currently running work occupies them
             windows = quota_windows(a['step'], states.get(a['step']) or {})
             reads = [x.get('reading_at') for x in windows.values()]
             if a.get('started') and (not all(reads) or any(a['started'] >= _ts(read) for read in reads)):
@@ -630,7 +632,7 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
         return {**out, 'state': 'idle' if not running else 'running', 'reason': busy + EMPTY}
     if quiet_stop(cfg, now):
         return {**out, **quiet_stop(cfg, now)}
-    used = spent_units(tasks, states)
+    used = spent_units(tasks, states, cfg)
     cfg['_main_in_panic'] = main_in_panic(cfg, states)
     names = list(dict.fromkeys([*ladder(cfg), *trigger_accounts(cfg), *cfg.get('_spare_accounts', ())]))
     rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}

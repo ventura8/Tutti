@@ -209,9 +209,29 @@ class PlanTest(Base):
         states = {'cursor': {'reading_at': '2026-01-03T00:00:00Z',
                              'limits': [{'name': 'weekly', 'reading_at': '2026-01-01T00:00:00Z'}]}}
         t = task('t1', 'done', [{'step': 'cursor', 'started': 1767312000}])  # 2026-01-02 UTC
-        self.assertEqual(autopilot.spent_units([t], states), {'cursor': 1})
+        self.assertEqual(autopilot.spent_units([t], states, self.cfg()), {'cursor': 1})
         states['cursor']['limits'][0]['reading_at'] = '2026-01-03T00:00:00Z'
-        self.assertEqual(autopilot.spent_units([t], states), {})
+        self.assertEqual(autopilot.spent_units([t], states, self.cfg()), {})
+
+    def test_local_server_is_reused_after_completion_but_not_while_running(self):
+        cfg = self.cfg()
+        states = {n: account(n, 'ahead', room=0) for n in ('agy-gemini', 'agy-claude', 'cursor')}
+        completed = task('old', 'done', [{**attempt('pc', ok=True), 'started': 1000}])
+        waiting = {**task('new'), 'scope': ['src/a.py']}
+        self.assertEqual(autopilot.plan(cfg, [completed, waiting], states, FREE, True)['dispatch'], [('new', 'pc')])
+        running = {**task('running', 'running'), 'step': 'pc'}
+        self.assertEqual(autopilot.plan(cfg, [completed, running, waiting], states, FREE, True)['dispatch'], [])
+
+    def test_online_reservation_returns_when_a_reconfigured_account_is_readded(self):
+        cfg = self.cfg()
+        online_account = cfg['accounts'].pop('cursor')
+        online_worker = cfg['workers']['cursor']
+        old = task('old', 'done', [{**attempt('cursor'), 'started': 1000}])
+        cfg['workers']['cursor'] = {'kind': 'ollama', 'host': 'model.example:11434', 'model': 'm'}
+        self.assertEqual(autopilot.spent_units([old], {}, cfg), {})
+        cfg['accounts']['cursor'] = online_account
+        cfg['workers']['cursor'] = online_worker
+        self.assertEqual(autopilot.spent_units([old], {}, cfg), {'cursor': 1})
 
     def test_paused_accounts_unreported_attempt_still_debits_a_shared_window(self):
         cfg = self.cfg(main_accounts=['agy-claude'])

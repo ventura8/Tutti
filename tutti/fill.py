@@ -38,7 +38,7 @@ def room(cfg, tasks, states, machines):
     local models (one S task each: what the sources give is file-scoped and small), after the runs going and the attempts the
     readings do not show yet."""
     from . import fleet
-    used = autopilot.spent_units(tasks, states)
+    used = autopilot.spent_units(tasks, states, cfg)
     rooms = {n: autopilot.step_room(cfg, n, states, used, machines or ()) for n in autopilot.trigger_accounts(cfg)}
     total = sum(max(0, r[0]) for r in rooms.values())
     locals_ = [n for n in autopilot.ladder(cfg) if autopilot.is_local(cfg, n)]

@@ -1,5 +1,7 @@
 # Feedback log
 
+Task P0–P5 labels need to be saved and used by dispatch; project priority alone cannot represent task urgency (t320).
+
 Quiet mode: automatic discovery defers potentially heavy gaps commands while the computer is in use (t172).
 
 First users log **every** problem they hit here, the small ones too. This file is the backlog: an entry is closed by

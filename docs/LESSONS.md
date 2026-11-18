@@ -1,5 +1,8 @@
 # Lessons
 
+- **A priority in a task title is not a scheduler setting** (t320): persist approved labels and order tasks by the saved
+  level, while keeping explicit run-now behavior and weighted project sharing within a level.
+
 - **A binding quota may be the one in panic** (t272): showing the current window's usage beside a propagated panic
   can report a false zero-percent panic. Explain the linked window without opening its closed quota.
 

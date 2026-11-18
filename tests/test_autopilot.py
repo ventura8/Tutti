@@ -136,6 +136,15 @@ class PlanTest(Base):
         p = autopilot.plan(cfg, [], self.states(), FREE, True)
         self.assertEqual(p['reason'], autopilot.EMPTY)
 
+    def test_task_priority_orders_dispatch_and_explicit_priority_overrides_title(self):
+        low = {**task('t1'), 'title': 'P1: later', 'priority': 1}
+        high = {**task('t2'), 'title': 'P0: first', 'priority': 0}
+        plan = autopilot.plan(self.cfg(), [low, high], self.states(), FREE, True)
+        self.assertEqual([x[0] for x in plan['dispatch']], ['t2', 't1'])
+        high['priority'] = 2
+        plan = autopilot.plan(self.cfg(), [low, high], self.states(), FREE, True)
+        self.assertEqual([x[0] for x in plan['dispatch']], ['t1', 't2'])
+
     def test_behind_accounts_get_tasks_up_to_max_parallel(self):
         p = autopilot.plan(self.cfg(), [task('t1'), task('t2'), task('t3')], self.states(), FREE, True)
         self.assertEqual(p['dispatch'], [('t1', 'agy-gemini'), ('t2', 'agy-gemini')])

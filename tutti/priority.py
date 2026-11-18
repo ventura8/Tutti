@@ -7,6 +7,24 @@ the older item. Pure: the autopilot's dispatch and fill_room use it, and idle di
 from . import config
 
 
+def task_level(task):
+    """P0 first. Untriaged or malformed values are P5; titles cannot promote a task on their own."""
+    value = task.get('priority')
+    if type(value) is int and 0 <= value <= 5:
+        return value
+    return 5
+
+
+def tasks_by_priority(cfg, tasks, served_repos=None):
+    """Run-now first, then task priority, retaining project fairness within each group."""
+    out = []
+    for urgent in (True, False):
+        for level in range(6):
+            group = [t for t in tasks if bool(t.get('urgent')) == urgent and task_level(t) == level]
+            out.extend(by_repo(cfg, group, lambda t: t['repo'], served_repos))
+    return out
+
+
 def weight(priority):
     return 1.0 / (1 + max(0, priority))
 

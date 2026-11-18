@@ -242,6 +242,25 @@ class PriorityTest(unittest.TestCase):
         self.assertEqual([x[1] for x in fill.pick({'tasks': []}, found, 2, cfg)], ['c', 'a'])
         self.assertEqual([x[1] for x in fill.pick({'tasks': []}, found, 2)], ['a', 'c'])   # no priorities: round-robin
 
+    def test_task_priority_precedes_project_share_and_explicit_value_wins(self):
+        cfg = self.CFG
+        tasks = [{'id': 1, 'repo': 'one', 'title': 'P1: later', 'priority': 1},
+                 {'id': 2, 'repo': 'two', 'title': 'P0: first', 'priority': 0},
+                 {'id': 3, 'repo': 'one', 'title': 'P0: relabelled', 'priority': 2}]
+        self.assertEqual([t['id'] for t in priority.tasks_by_priority(cfg, tasks)], [2, 1, 3])
+        self.assertEqual(priority.task_level({'title': 'P0: not triaged'}), 5)
+        self.assertEqual(priority.task_level({'title': 'unlabelled'}), 5)
+        tasks[0]['urgent'] = True
+        self.assertEqual([t['id'] for t in priority.tasks_by_priority(cfg, tasks)], [1, 2, 3])
+
+    def test_projects_remain_fair_within_the_same_task_priority(self):
+        cfg = {'projects': {'a': {'priority': 0, 'match': 'a'}, 'b': {'priority': 2, 'match': 'b'}},
+               'autopilot': {'repos': {'r-a': {'path': '/src/a'}, 'r-b': {'path': '/src/b'}}}}
+        tasks = [{'id': f'{repo}{i}', 'repo': repo, 'priority': 0} for repo in ('r-b', 'r-a') for i in range(10)]
+        ordered = priority.tasks_by_priority(cfg, tasks)
+        self.assertEqual(ordered[0]['repo'], 'r-a')
+        self.assertIn('r-b', [t['repo'] for t in ordered[:5]])
+
 
 @unittest.skipUnless(shutil.which('node'), 'node is not installed')
 class RenderTest(Base):

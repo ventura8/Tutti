@@ -653,7 +653,7 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     from . import fleet
     over = fleet.overflow(cfg, states, rooms, [n for n in names if is_local(cfg, n)])
     out['overflow'] = over
-    assign(cfg, priority.by_repo(cfg, queued, lambda t: t['repo'], going), rooms, free, out, prefer, over, machines or ())
+    assign(cfg, priority.tasks_by_priority(cfg, queued, going), rooms, free, out, prefer, over, machines or ())
     out['rooms'] = {n: list(r) for n, r in rooms.items()}
     if out['dispatch']:
         return {**out, 'state': 'dispatching', 'reason': f'{len(out["dispatch"])} task(s) sent to ' +

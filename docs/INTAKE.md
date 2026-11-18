@@ -30,7 +30,7 @@ copy of it and leaves the rest of the file as it was. Commit it like any other c
 
 | Step | MCP tool | CLI |
 | --- | --- | --- |
-| Find or add the task | `backlog_list`, `backlog_add` | `tutti backlog list`, `tutti backlog add <repo> "<title>"` |
+| Find or add the task | `backlog_list`, `backlog_add` | `tutti backlog list`, `tutti backlog add <repo> "<title>"`; set a task with `tutti backlog priority <id> P0` |
 | Take it | `backlog_claim` | `tutti backlog claim <id> --who <session>` |
 | Record progress | `backlog_update` | `tutti backlog note <id> --note "<text>"` |
 | Use a machine or a device | `lease_claim`, `lease_release`, `leases` | `tutti lease claim machine\|device <name> --who <session> --task <id>` |

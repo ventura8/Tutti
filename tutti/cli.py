@@ -1317,6 +1317,13 @@ def backlog_change(cfg, a, data):
 
 def task_change(task, a):
     """rm, retry or done of one task; never while its run is going."""
+    if a.action == 'priority':
+        value = str(a.title or '').upper()
+        if value not in ('P0', 'P1', 'P2', 'P3', 'P4', 'P5'):
+            raise backlog.BacklogError(f'priority: give P0 through P5: tutti backlog priority {task["id"]} P0')
+        task['priority'] = int(value[1])
+        print(f'{task["id"]}: {value}')
+        return 0
     if task['status'] == 'running':
         raise backlog.BacklogError(f'{task["id"]} is running (run {task.get("run")}): wait for it '
                                    f'(tutti wait run {task.get("run")}), then {a.action} it')
@@ -1988,7 +1995,7 @@ def parser():
     s = add('backlog', cmd_backlog, 'the autopilot\'s queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> '
                                     '(FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, '
                                     'accept <id> (a suggested candidate)')
-    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note'])
+    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note', 'priority'])
     s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: '
                                            'the task id')
     s.add_argument('--who', help='claim: the session that works on it by hand (default $TUTTI_SESSION)')

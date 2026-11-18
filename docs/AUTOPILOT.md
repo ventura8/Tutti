@@ -265,6 +265,10 @@ shows its attempt count and its failure history (step, why, run, signature).
 
 ## Priority
 
+`tutti backlog priority <id> P0` saves a task priority from P0 (highest) through P5. Untriaged tasks are treated as P5;
+a title alone cannot promote a task. Run-now tasks take precedence, then eligible
+tasks are considered P0 through P5; project sharing applies within each level. This orders dispatch, not completion.
+
 `projects.<name>.priority` ranks the projects: 0 is the most important (the Settings tab's *Project priority* list writes
 it). An autopilot repo belongs to the project whose `self_improve.autopilot_repo` names it, else to the one whose `match`
 finds the repo's name or folder; a repo no project claims ranks last. Queued tasks (fresh ones and retries) and the tasks

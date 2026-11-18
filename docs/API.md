@@ -1516,12 +1516,12 @@ the autopilot's queue of bounded tasks: add <repo> "<title>", list, rm <id>, see
 ```text
 usage: tutti backlog [-h] [--who WHO] [--scope PATH] [--check CHECK] [--size {S,M,L}] [--source SOURCE] [--note NOTE]
                      [--all]
-                     {add,list,rm,seed,retry,done,accept,claim,release,note} [repo] [title]
+                     {add,list,rm,seed,retry,done,accept,claim,release,note,priority} [repo] [title]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {add,list,rm,seed,retry,done,accept,claim,release,note}` |  |  |
+| `action {add,list,rm,seed,retry,done,accept,claim,release,note,priority}` |  |  |
 | `repo` | add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: the task id |  |
 | `--who` | claim: the session that works on it by hand (default $TUTTI_SESSION) |  |
 | `title` |  |  |

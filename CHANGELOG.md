@@ -11,7 +11,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
-- Save the launch intent before spawning an autopilot run so a crash cannot silently launch it twice (t309).
+- Save launch intent before spawning so a possibly launched run is not left queued in the local backlog (t309).
 
 ## [0.29.5] - 2026-11-18
 

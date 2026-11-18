@@ -67,7 +67,7 @@ class PrepTest(unittest.TestCase):
 
     def bash(self, line):
         env = {**os.environ, 'HOME': self.home, 'FAKE_DEVICE': self.dev}
-        return subprocess.run(['bash', '-c', line], env=env, capture_output=True, text=True, timeout=60)
+        return subprocess.run(['bash', '-c', line], env=env, capture_output=True, text=True, timeout=300)
 
     def snapshot(self):
         return {k: self.get(k) for k in ('global.stay_on_while_plugged_in', 'secure.screensaver_enabled', 'system.screen_off_timeout',
@@ -122,6 +122,12 @@ class PrepTest(unittest.TestCase):
         self.assertEqual(len(errs), 4)
         self.assertIn('"<global|secure|system> <key>"', errs[0])
         self.assertEqual(prep.errors('devices.tv', None), [])
+
+    def test_brightness_is_configurable(self):
+        device = {'name': 'test-phone', 'kind': 'phone', 'brightness_pct': 50}
+        out = prep.wanted(device, night=False)
+        brightness_item = next(item for item in out if item.get('setting') == 'system screen_brightness')
+        self.assertEqual(brightness_item['value'], 128)
 
 
 

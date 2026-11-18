@@ -85,6 +85,13 @@ def wanted(device, night=None):
     out = base + own
     if night_now(device) if night is None else night:
         out = [x for x in out if not _touches(x, ('screen_brightness', '--stream', 'volume'))] + NIGHT
+    else:
+        brightness_pct = device.get('brightness_pct', 30)
+        brightness_val = int(brightness_pct / 100 * 255 + 0.5)
+        if 'screen_brightness' not in names:
+            for item in out:
+                if item.get('setting') == 'system screen_brightness':
+                    item['value'] = brightness_val
     from . import devclass
     rules = devclass.rules_of(device)
     return [x for x in out if not devclass.denied(rules, ' '.join(str(x.get(k, '')) for k in ('setting', 'set', 'read')))]

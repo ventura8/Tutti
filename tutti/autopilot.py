@@ -1274,6 +1274,29 @@ def checkpoints(cfg, data, now, snap=checkpoint, push=push_wip):
             t['checkpoint'] = now
 
 
+def checkpoint_now(cfg, now, snap=checkpoint, push=push_wip):
+    """Snapshot running work only, without collecting or starting attempts; return each result, or None when fenced."""
+    from . import failover
+    if not failover.may_write(cfg):
+        return None
+    with backlog.locked(cfg) as data:
+        if not failover.may_write(cfg):
+            return None
+        results = []
+        for task in data['tasks']:
+            if task.get('status') != 'running':
+                continue
+            wt = tree_of(cfg, task)
+            if wt:
+                task['wip'] = checkpoint_status(cfg, task, wt, now, snap, push)
+                task['checkpoint'] = now
+                result = task['wip']
+            else:
+                result = {'pushed': False, 'error': 'worktree unavailable: inspect the run and retry'}
+            results.append((task['id'], result))
+        return results
+
+
 def checkpoint_status(cfg, task, wt, now, snap, push):
     """Report only this attempt's known snapshot and push; an old SHA is an unverified reference."""
     previous = task.get('wip') or {}

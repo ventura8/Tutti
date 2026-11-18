@@ -1464,8 +1464,30 @@ def fenced(cfg, what):
     return True
 
 
+def autopilot_checkpoint(cfg):
+    results = autopilot.checkpoint_now(cfg, time.time())
+    if results is None:
+        say('autopilot checkpoint: this machine is not the active main: run it on the active machine')
+        return 2
+    for task_id, result in results:
+        say(f'autopilot checkpoint: {task_id}: {"pushed" if result["pushed"] else result["error"]}')
+    if not results:
+        say('autopilot checkpoint: no running tasks')
+    return 0 if all(result['pushed'] for _, result in results) else 1
+
+
+def autopilot_land(cfg, task_id):
+    from . import fill
+    try:
+        print(fill.land(cfg, task_id or '', **bridge.tools(cfg)))
+    except backlog.BacklogError as e:
+        say(str(e))
+        return 2
+    return 0
+
+
 def cmd_autopilot(cfg, a):
-    """`tutti autopilot [status|on|off|tick|fill on|off|land <id>]`."""
+    """`tutti autopilot [status|on|off|tick|checkpoint|fill on|off|land <id>]`."""
     from . import fill
     if a.action in ('on', 'off'):
         autopilot.set_enabled(cfg, a.action == 'on')
@@ -1475,12 +1497,7 @@ def cmd_autopilot(cfg, a):
             return 2
         fill.set_fill(cfg, a.arg == 'on')
     elif a.action == 'land':
-        try:
-            print(fill.land(cfg, a.arg or '', **bridge.tools(cfg)))
-        except backlog.BacklogError as e:
-            say(str(e))
-            return 2
-        return 0
+        return autopilot_land(cfg, a.arg)
     elif a.action == 'allow':
         from . import resolver
         try:
@@ -1497,6 +1514,8 @@ def cmd_autopilot(cfg, a):
         _plan, events = autopilot.tick(cfg, states, machines, beat=sharing.beat(cfg, now, machines))
         for e in events:
             say(f'autopilot: {e}')
+    elif a.action == 'checkpoint':
+        return autopilot_checkpoint(cfg)
     print(autopilot.describe(autopilot.view(cfg)))
     return 0
 
@@ -2024,9 +2043,9 @@ def parser():
                                            'window: the date (YYYY-MM-DD)')
     s.add_argument('window', nargs='?', help='window: that day\'s owner hours HH-HH (e.g. 20-24), off, or config (its weekday\'s)')
     s = add('autopilot', cmd_autopilot, 'send backlog tasks to accounts that are behind their pace, by itself: status, on, off, '
-                                        'tick (one round now; the dashboard ticks while it runs), fill on|off (fill free room from '
+                                        'tick (one round now), checkpoint (snapshot running work only), fill on|off (fill free room from '
                                         'the repos\' sources), land <id> (review a result and land it)')
-    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick', 'fill', 'land', 'allow'])
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick', 'checkpoint', 'fill', 'land', 'allow'])
     s.add_argument('arg', nargs='?', help='fill: on or off; land: the task id; allow: the account that may take first attempts '
                                           'for 7 days (the block resolver\'s one action)')
     s = add('workq', cmd_workq, 'the compute work queue: the projects\' gates, tests and reports on machines with a free slot '

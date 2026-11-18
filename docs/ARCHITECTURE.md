@@ -369,3 +369,24 @@ event; an idle stream wakes at most once per second to check again. Session look
 to the socket cannot be recalled, and a change can race between a check and the following write; the check does not make
 revocation instantaneous. This is not a trusted gateway-to-owner protocol and does not protect the legacy follow stream.
 It remains disabled until those lifecycle and authorization boundaries are addressed.
+
+#### Private owner channel experiment (not activated)
+
+`owneripc` is an isolated, bounded JSON framing and read-only replay experiment over an already connected socket. A test
+starts a separate process holding a real Chat `Job`, then starts two sequential gateway processes sharing a socketpair
+endpoint; the second can read the same owner's replay after the first exits. The owner compares the gateway-asserted
+subject to the job owner and gives other subjects and missing jobs the same error. Frames have a 64 KiB encoded cap and
+invalid or truncated frames terminate the channel. No dashboard, listener or service manager invokes this code.
+
+The connected descriptor is a capability supplied only to a trusted gateway by a trusted supervisor: the protocol does
+not authenticate the asserted subject or a peer, and anyone holding the descriptor can impersonate any user. This is not
+an authorization boundary for an untrusted caller. A real design needs a supervisor that creates and protects endpoints,
+enforces exactly one gateway descriptor owner at a time, closes all inherited copies and fences the previous gateway
+before replacement. Two concurrent gateways can interleave frames or receive each other's replies, causing cross-user
+disclosure; this prototype has no correlation IDs or cross-process serialization. The supervisor must also bind verified
+and revocable sessions to assertions, revalidate jobs and
+messages, and isolates process lifetimes and cgroups. This prototype has no production process startup, reconnection,
+concurrent request multiplexing, deadlines, revocation, store-backed deletion checks, stream tailing, durable recovery or
+live routing. An oversized replay batch fails closed even if each event would fit individually; pagination is needed for recovery.
+The frame cap bounds encoded frames, not temporary JSON allocations or concurrent callers. The sequential
+replacement test is not proof of safe handover or crash continuity.

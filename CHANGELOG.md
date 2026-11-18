@@ -6,6 +6,12 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.30.2 (2026-11-18)
+
+### Changes
+
+- fix: protect self-release branches and tags (t401) (#2016)
+- fix: allow late-paced chat accounts (t300) (#2015)
 
 ## Unreleased
 

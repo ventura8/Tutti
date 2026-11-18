@@ -7,6 +7,12 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.27.4] - 2026-11-18
+
+### Fixed
+
+- Release warnings recognize both bracketed and unbracketed version headings (t336).
+
 ## [0.27.3] - 2026-11-18
 
 ### Fixed

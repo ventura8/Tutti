@@ -188,7 +188,8 @@ no release yet creates it (notes from CHANGELOG.md), attaches the signed files a
 
 **Releases stuck.** Installs update only to published releases. Where Tutti runs from a git checkout of its own repository,
 `tutti doctor` and the dashboard's banner say "releases stuck: N merged version(s) unpublished" when CHANGELOG.md names
-versions newer than the latest GitHub release, with why (a refused tag, a tag without a release) and the fix. When a bootstrap script changes, its SHA-256 in this file and in the README changes with it (a unit test
+versions newer than the latest GitHub release, with why (a refused tag, a tag without a release) and the fix. Version
+headings may be bracketed or unbracketed. When a bootstrap script changes, its SHA-256 in this file and in the README changes with it (a unit test
 checks they match: `python3 -c "from tutti import install; print(install.install_line('linux'))"` prints the line).
 
 ## Uninstall

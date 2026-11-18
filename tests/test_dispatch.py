@@ -187,6 +187,16 @@ class DispatchTest(Base):
             list(pool.map(lambda _: late_result(), range(2)))
         self.assertIn(lid, dispatch.read_state(cfg)['leases'])
 
+    def test_new_commit_does_not_queue_a_shard_with_a_held_old_lease(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        with dispatch.locked(cfg) as st:
+            lid = next(iter(st['leases']))
+            dispatch.recover(cfg, st, NOW + 10, lambda _: False, rc_fn=lambda *_: None)
+            dispatch.sync(st, 'Radio', 'new-commit', {'e2e': ['a']}, NOW + 11)
+            self.assertNotIn('e2e/a', [w['key'] for w in dispatch.pending(cfg, st)])
+            self.assertIn('uncertain', st['leases'][lid])
+
     def test_stop_waits_after_kill_and_holds_if_the_child_still_does_not_exit(self):
         child = mock.Mock(pid=42)
         child.wait.side_effect = [subprocess.TimeoutExpired('test', 1), subprocess.TimeoutExpired('test', 1)]

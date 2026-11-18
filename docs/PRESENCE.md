@@ -35,7 +35,7 @@ how often the target was here at each hour.
   PrepareForSleep or PrepareForShutdown, it does four things within the time the OS allows (`InhibitDelayMaxUSec` less
   one second):
   - stops its running jobs, as "stop now" does, keeping each agent run's partial work on `tutti/handoff/<track>`;
-  - requeues its dispatch leases, with no attempt counted;
+  - holds its dispatch leases until an admin confirms the execution stopped;
   - notes the jobs to start again;
   - flushes its state.
 

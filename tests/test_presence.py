@@ -219,10 +219,11 @@ class Sleep(Base):
             return [(log, 99)] if (kind, name) == ('machine', 'pc') else []
         with mock.patch.object(dispatch, 'stop_pid', stopped.append):
             noted = sleepwatch.going_down(cfg, 'sleep', 4.0, running=running, end=ended.append)
-        self.assertEqual((ended, stopped), ([99], [4242]))
+        self.assertEqual((ended, stopped), ([99], []))
         self.assertEqual(noted[0]['kind'], 'test')
         sh = self.shard(cfg)
-        self.assertEqual((sh['status'], sh['attempts']), ('queued', 0))
+        self.assertEqual((sh['status'], sh['attempts']), ('running', 0))
+        self.assertIn('execution stop is unconfirmed', next(iter(dispatch.read_state(cfg)['leases'].values()))['uncertain'])
         self.assertEqual(presence.read(cfg)['targets'][sleepwatch.HOST]['state'], presence.ASLEEP)
         started = []
         sleepwatch.woke(cfg, start=lambda c, args, name: started.append(args) or 'log')

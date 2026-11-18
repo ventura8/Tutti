@@ -208,9 +208,12 @@ def sync(st, project, commit, shard_lists, now):
 def pending(cfg, st, now=None):
     """The shards waiting for a target, queued ones first, then failed ones with retries left (fewest attempts first)."""
     by = {(s['project'], s['name']): s for s in suites(cfg)}
+    leased = {(lease['project'], lease['key']) for lease in st['leases'].values()}
     out = []
     for pname, p in st['projects'].items():
         for key, sh in p['shards'].items():
+            if (pname, key) in leased:
+                continue
             suite, _, shard = key.partition('/')
             s = by.get((pname, suite))
             if not s or sh['status'] in ('running', 'passed'):

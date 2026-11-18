@@ -81,19 +81,35 @@ def follow(jobs, request):
     return {'ok': True, 'events': events, 'done': done}
 
 
-def session_follow(jobs, request, sessions, users):
-    """Resolve a live browser session inside the owner; do not trust a gateway-supplied subject."""
-    sid = request.get('session')
-    if not isinstance(sid, str) or not 1 <= len(sid) <= 512:
-        return {'ok': False, 'error': 'Answer unavailable.'}
+def _visible_session(sid, job, sessions, users, store):
+    session = sessions.get(sid)
+    user = users.get(session.get('sub')) if isinstance(session, dict) else None
+    if not user or user.get('role') not in ('admin', 'viewer') or user.get('sub') != job.sub:
+        return False
+    conversation = store.get(job.sub, job.cid)
+    return any(message.get('id') == job.msg.get('id') for message in conversation['messages'])
+
+
+def session_follow(jobs, request, sessions, users, store):
+    """Resolve and revalidate the browser session and saved message inside the owner, failing closed."""
+    sid, mid = request.get('session'), request.get('message')
+    unavailable = {'ok': False, 'error': 'Answer unavailable.'}
+    if not isinstance(sid, str) or not 1 <= len(sid) <= 512 or not isinstance(mid, str):
+        return unavailable
     try:
-        session = sessions.get(sid)
-        user = users.get(session.get('sub')) if isinstance(session, dict) else None
-        if not user or user.get('role') not in ('admin', 'viewer'):
-            return {'ok': False, 'error': 'Answer unavailable.'}
-        return follow(jobs, {**request, 'subject': user['sub']})
+        job = jobs.get(mid)
+        if job is None or job.replay is None or not _visible_session(sid, job, sessions, users, store):
+            return unavailable
+        response = follow(jobs, {**request, 'subject': job.sub})
+        if not response['ok']:
+            return response
+        # This is an all-or-nothing batch, not a live stream. Do not expose any part if revalidation fails.
+        for _event in response['events']:
+            if not _visible_session(sid, job, sessions, users, store):
+                return unavailable
+        return response if _visible_session(sid, job, sessions, users, store) else unavailable
     except Exception:
-        return {'ok': False, 'error': 'Answer unavailable.'}
+        return unavailable
 
 
 def serve(sock, jobs, authorize=None):

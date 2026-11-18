@@ -9,7 +9,7 @@ import threading
 import time
 import unittest
 
-from tutti import auth, owneripc, ownersupervisor
+from tutti import auth, chat, owneripc, ownersupervisor
 
 SUPPORTED = os.name == 'posix' and all(hasattr(socket, name) for name in ('AF_UNIX', 'SOCK_SEQPACKET', 'SCM_RIGHTS'))
 
@@ -26,15 +26,19 @@ class SupervisorTests(unittest.TestCase):
         sessions = auth.Sessions(folder.name, 1)
         alice, _ = sessions.create('alice')
         bob, _ = sessions.create('bob')
+        store = chat.Store(folder.name)
+        conversation = store.create('alice')
+        message = {'id': 'm', 'role': 'assistant', 'status': 'streaming', 'text': ''}
+        store.put_message('alice', conversation['id'], message)
         supervisor, control = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         supervisor.settimeout(5)
-        code = ("import socket,sys; from tutti import auth,chatrun,owneripc,ownersupervisor; "
+        code = ("import socket,sys; from tutti import auth,chat,chatrun,owneripc,ownersupervisor; "
                 "s=socket.socket(fileno=int(sys.argv[1])); "
-                "j=chatrun.Job('alice','c',{'id':'m'},replay_enabled=True); "
+                "j=chatrun.Job('alice',sys.argv[3],{'id':'m'},replay_enabled=True); "
                 "j.emit('delta',text='private'); print(j.replay.generation,flush=True); "
-                "sessions=auth.Sessions(sys.argv[2],1); users=auth.Users(sys.argv[2]); "
-                "ownersupervisor.serve(s,{'m':j},authorize=lambda jobs,req: owneripc.session_follow(jobs,req,sessions,users))")
-        process = subprocess.Popen([sys.executable, '-c', code, str(control.fileno()), folder.name],
+                "sessions=auth.Sessions(sys.argv[2],1); users=auth.Users(sys.argv[2]); store=chat.Store(sys.argv[2]); "
+                "ownersupervisor.serve(s,{'m':j},authorize=lambda jobs,req: owneripc.session_follow(jobs,req,sessions,users,store))")
+        process = subprocess.Popen([sys.executable, '-c', code, str(control.fileno()), folder.name, conversation['id']],
                                    pass_fds=(control.fileno(),), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         control.close()
         sockets = []
@@ -94,6 +98,9 @@ class SupervisorTests(unittest.TestCase):
             self.assertEqual(stale_gateway.recv(1), b'')
             owneripc.send(new_gateway, {**request, 'request_id': 'three'})
             self.assertEqual(owneripc.receive(new_gateway)['events'][0][1]['text'], 'private')
+            store.delete('alice', conversation['id'])
+            owneripc.send(new_gateway, {**request, 'request_id': 'deleted'})
+            self.assertEqual(owneripc.receive(new_gateway), {'ok': False, 'error': 'Answer unavailable.', 'request_id': 'deleted'})
             sessions.drop(alice)
             owneripc.send(new_gateway, {**request, 'request_id': 'revoked'})
             self.assertEqual(owneripc.receive(new_gateway), {'ok': False, 'error': 'Answer unavailable.', 'request_id': 'revoked'})

@@ -19,6 +19,7 @@ class GatewayFence:
             raise FenceError('Gateway send timeout must be finite, greater than zero and at most five seconds.')
         self._jobs, self._timeout, self._authorize = jobs, send_timeout, authorize
         self._lock = threading.Lock()
+        self._auth_slot = threading.BoundedSemaphore(1)
         self._active = None
         self._identity = None
         self._poisoned = set()
@@ -52,6 +53,29 @@ class GatewayFence:
             self._active, self._identity = None, None
             return True
 
+    def _authorize_bounded(self, request):
+        """Run read-only authorization with a bounded wait and at most one outstanding worker."""
+        denied = {'ok': False, 'error': 'Answer unavailable.'}
+        if self._authorize is None or not self._auth_slot.acquire(blocking=False):
+            return denied
+        ready, outcome = threading.Event(), []
+        def check():
+            try:
+                outcome.append(self._authorize(self._jobs, request))
+            except Exception:
+                outcome.append(denied)
+            finally:
+                self._auth_slot.release()
+                ready.set()
+        try:
+            threading.Thread(target=check, daemon=True, name='tutti-owner-auth').start()
+        except Exception:
+            self._auth_slot.release()
+            return denied
+        if not ready.wait(self._timeout) or not outcome or not isinstance(outcome[0], dict):
+            return denied
+        return outcome[0]
+
     def dispatch(self, channel, request):
         """Only the active channel may receive one correlated reply; replacement waits for the reply or timeout."""
         with self._lock:
@@ -61,7 +85,7 @@ class GatewayFence:
             if not isinstance(correlation, str) or not correlation or len(correlation) > 80:
                 response = {'ok': False, 'error': 'A request identifier is required.'}
             else:
-                response = self._authorize(self._jobs, request) if request.get('action') == 'follow' and self._authorize else {
+                response = self._authorize_bounded(request) if request.get('action') == 'follow' else {
                     'ok': False, 'error': 'Unknown request.'}
                 response['request_id'] = correlation
             try:

@@ -7,8 +7,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
-from tutti import auth, chatrun, owneripc
+from tutti import auth, chat, chatrun, owneripc
 
 
 class BytesSocket:
@@ -57,15 +58,47 @@ class Frames(unittest.TestCase):
             users.set_role('bob', 'viewer')
             alice, _ = sessions.create('alice')
             bob, _ = sessions.create('bob')
-            job = chatrun.Job('alice', 'c', {'id': 'm'}, replay_enabled=True)
+            store = chat.Store(folder)
+            conversation = store.create('alice')
+            message = {'id': 'm', 'role': 'assistant', 'status': 'streaming', 'text': ''}
+            store.put_message('alice', conversation['id'], message)
+            job = chatrun.Job('alice', conversation['id'], message, replay_enabled=True)
             job.emit('delta', text='private')
             request = {'subject': 'alice', 'message': 'm', 'generation': job.replay.generation, 'after': 0}
-            self.assertFalse(owneripc.session_follow({'m': job}, {**request, 'session': bob}, sessions, users)['ok'])
-            self.assertTrue(owneripc.session_follow({'m': job}, {**request, 'subject': 'bob', 'session': alice}, sessions, users)['ok'])
+            self.assertFalse(owneripc.session_follow({'m': job}, {**request, 'session': bob}, sessions, users, store)['ok'])
+            allowed = owneripc.session_follow({'m': job}, {**request, 'subject': 'bob', 'session': alice}, sessions, users, store)
+            self.assertTrue(allowed['ok'])
             sessions.drop(alice)
-            denied = owneripc.session_follow({'m': job}, {**request, 'session': alice}, sessions, users)
+            denied = owneripc.session_follow({'m': job}, {**request, 'session': alice}, sessions, users, store)
             self.assertEqual(denied, {'ok': False, 'error': 'Answer unavailable.'})
             self.assertNotIn(alice, repr(denied))
+
+    def test_replay_batch_fails_closed_if_revoked_or_deleted_during_preparation(self):
+        for action in ('revoke', 'delete'):
+            with self.subTest(action=action), tempfile.TemporaryDirectory() as folder:
+                users, sessions, store = auth.Users(folder), auth.Sessions(folder, 1), chat.Store(folder)
+                users.sign_in({'sub': 'alice', 'email': 'alice@example.com', 'name': 'Alice'})
+                session, _ = sessions.create('alice')
+                conversation = store.create('alice')
+                message = {'id': 'm', 'role': 'assistant', 'status': 'streaming', 'text': ''}
+                store.put_message('alice', conversation['id'], message)
+                job = chatrun.Job('alice', conversation['id'], message, replay_enabled=True)
+                job.emit('delta', text='one')
+                job.emit('delta', text='two')
+                request = {'session': session, 'message': 'm', 'generation': job.replay.generation, 'after': 0}
+                original, calls = sessions.get, []
+                def changed(sid, calls=calls, action=action, sessions=sessions, session=session, store=store, original=original):
+                    calls.append(sid)
+                    if len(calls) == 2:
+                        if action == 'revoke':
+                            sessions.drop(session)
+                        else:
+                            store.clear('alice')
+                    return original(sid)
+                with mock.patch.object(sessions, 'get', side_effect=changed):
+                    response = owneripc.session_follow({'m': job}, request, sessions, users, store)
+                self.assertEqual(response, {'ok': False, 'error': 'Answer unavailable.'})
+                self.assertGreaterEqual(len(calls), 2)
 
     @unittest.skipUnless(os.name == 'posix', 'requires inherited Unix socket descriptors')
     def test_job_survives_gateway_replacement_and_other_subject_is_denied(self):

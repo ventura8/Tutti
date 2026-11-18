@@ -448,3 +448,21 @@ against it. A private inherited socket descriptor can restrict access under norm
 nor descriptor isolation against other UIDs has been demonstrated here; same-UID identity, untrusted peer isolation, a
 secure supervisor, capability leakage prevention, deletion checks and end-to-end gateway/session authorization remain
 required before activation. Existing unauthenticated demonstration helpers are test-only and must not be exposed.
+
+For the unconnected owner IPC replay experiment, each follow request now checks the current session, role, owned
+conversation and message before reading the journal, before each event while preparing a batch, and once more before
+returning the batch. If any check fails, the owner returns one generic denial and no batch events. A test clears the
+conversation from another process while the isolated owner remains running, and a controlled test revokes or deletes
+state during batch preparation. This is a single framed response, not a live per-event stream; state can still change
+between the last check and the socket write, and bytes already returned cannot be recalled. Session/user store and
+message lookup are repeated for each event, so production use also requires performance bounds and authorization/store
+coordination. The trusted service-UID, unverified descriptor isolation, privileged control channel and default-off limits
+above still apply.
+
+A blocked authorization lookup cannot hold the experimental gateway fence indefinitely: it runs in at most one daemon
+worker and the caller waits no longer than the configured timeout, then returns a generic denial. While that worker is
+stuck, further checks fail closed rather than creating more workers. A separate-process test holds the Chat store lock and
+verifies that gateway replacement still proceeds. This does not cancel the stuck worker or erase its in-memory session ID;
+it only bounds the wait and the number of outstanding workers. Arbitrary CPU-bound code, thread scheduling, process
+failure, temporary allocation and the final check-to-write race are not bounded by this mechanism. Only read-only
+authorization callbacks are safe: a timed-out callback may still finish later.

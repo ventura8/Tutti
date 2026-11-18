@@ -236,6 +236,23 @@ class Service(unittest.TestCase):
         files, _ = install.service_plan('linux', '/h', env={}, tutti='/opt/bin/tutti')
         self.assertIn('"/opt/bin/tutti" dashboard', files[0][1])
 
+    def test_setup_rejects_unsupported_config_path_before_writing_or_enabling_service(self):
+        ran = []
+
+        def run(argv, **_):
+            ran.append(argv)
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+        with tempfile.TemporaryDirectory() as folder, \
+                mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': folder}), \
+                mock.patch.object(setupcmd.shutil, 'which', return_value='/opt/bin/tutti'):
+            status, detail = setupcmd.service('linux', folder, run, config_path='/home/example/config with spaces.yaml')
+            self.assertEqual(status, 'todo')
+            self.assertIn('cannot be safely pinned', detail)
+            self.assertIn('run `tutti setup` again', detail)
+            self.assertFalse(os.path.exists(os.path.join(folder, 'systemd', 'user', 'tutti-dashboard.service')))
+            self.assertFalse(any('enable' in argv for argv in ran))
+
     def test_macos_agent(self):
         files, cmds = install.service_plan('darwin', '/h')
         self.assertTrue(files[0][0].endswith('Library/LaunchAgents/io.github.tutti.dashboard.plist'))

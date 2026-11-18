@@ -290,18 +290,24 @@ def start_dashboard(cfg, popen=subprocess.Popen):
     argv = [sys.executable, os.path.join(config.ROOT, 'bin', 'tutti'), '--config', cfg['_path'], 'dashboard']
     with open(state_file(cfg, 'failover-dashboard.log'), 'a', encoding='utf8') as f:
         p = popen(argv, stdout=f, stderr=f, stdin=subprocess.DEVNULL, start_new_session=True)
-    with open(dashboard_pid_file(cfg), 'w', encoding='utf8') as f:
-        f.write(f'{p.pid}\n')
+    try:
+        with open(dashboard_pid_file(cfg), 'w', encoding='utf8') as f:
+            f.write(f'{p.pid}\n')
+    except OSError:
+        p.kill()
+        p.wait()
+        raise
     return p.pid
 
 
 def recorded_pid(cfg):
+    from . import waiting
     try:
         with open(dashboard_pid_file(cfg), encoding='utf8') as f:
             pid = int(f.read().strip())
     except (OSError, ValueError):
         return None
-    return pid if durable.pid_alive(pid) else None
+    return None if waiting.pid_gone(pid)() else pid
 
 
 def stop_dashboard(cfg, kill=os.kill):

@@ -475,3 +475,10 @@ puts a pinned shellcheck (`shellcheck-py`, hashed) in its venv, and a missing to
 A slow package mirror repeatedly exhausted the CI timeout while Playwright installed system packages after unit tests.
 Probe the actual headless browser first and install system dependencies on probe failure; always run the complete browser
 suite. A successful launch does not guarantee optional fonts, and a cold mirror can still time out.
+
+## A watchdog must probe the actual bind (t333)
+
+A dashboard listening only on a LAN address cannot answer a loopback probe. The false failure caused a watchdog to start
+another dashboard while its user service was restarting. Probe the configured address, avoid competing with an existing
+user service, and serialize fallback watchdog starts when no unit exists. An existing service or PID is not proof that it
+owns the configured dashboard, so report unresolved health rather than killing or restarting an unverified process.

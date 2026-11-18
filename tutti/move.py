@@ -13,6 +13,7 @@ ssh, and `tutti client` keeps one ssh connection up that carries the dashboard's
 through which the host runs the jobs that need the old computer's repositories and sign-ins. Nothing is ever exposed to
 the internet: the dashboard stays on 127.0.0.1 at both ends, and every address the move writes is checked by
 tutti/netpolicy.py (localhost, LAN or VPN only)."""
+import http.client
 import json
 import os
 import re
@@ -23,7 +24,6 @@ import socket
 import subprocess
 import sys
 import time
-import urllib.request
 
 import yaml
 
@@ -1006,12 +1006,23 @@ def repoint_household(address, backups=None):
     return True
 
 
-def local_health(port, timeout=3):
+def local_health(port, timeout=3, host='127.0.0.1'):
+    """Probe a local dashboard directly, bypassing proxies and allowing its loopback Host header."""
+    host = {'0.0.0.0': '127.0.0.1', '::': '::1'}.get(host, host)
+    conn = None
     try:
-        with urllib.request.urlopen(f'http://127.0.0.1:{int(port)}/api/health', timeout=timeout) as r:
-            return json.loads(r.read().decode())
-    except (OSError, ValueError):
+        conn = http.client.HTTPConnection(host, int(port), timeout=timeout)
+        conn.request('GET', '/api/health', headers={'Host': f'127.0.0.1:{int(port)}'})
+        response = conn.getresponse()
+        if response.status != 200:
+            return None
+        data = json.loads(response.read().decode())
+        return data if isinstance(data, dict) and data.get('ok') is True else None
+    except (OSError, ValueError, http.client.HTTPException):
         return None
+    finally:
+        if conn:
+            conn.close()
 
 
 def stop_there(cfg, j, ops, say):

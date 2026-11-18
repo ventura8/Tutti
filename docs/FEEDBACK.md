@@ -47,3 +47,6 @@ of your project or secrets: describe the setup in general words.
 - Automatic account usage should reveal stale or unavailable readings and recover without requiring manual entry (t317).
 
 - Cached automatic quota results must not be presented as fresh reads, and failed or skewed readers must not make panic rescue look safe (t317).
+
+- A LAN-bound dashboard was reported unhealthy and competing starts blocked its service; probe its configured address and
+  verify a pinned user service before requesting a start (t333).

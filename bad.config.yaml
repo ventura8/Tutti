@@ -1,0 +1,1 @@
+machines: {a: {transport: local, slots: 0}}

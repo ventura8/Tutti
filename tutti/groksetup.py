@@ -223,7 +223,11 @@ def run(cfg, name='grok', io=None, gh_fn=gh, post_fn=scouts.post, profile=None, 
         print('Removed the old line from ~/.profile: the key no longer sits in every shell\'s environment.', file=out)
     if add_scout(cfg, name, repos[0]):
         print(f'Added the scout "{name}" to {cfg["_path"]}.', file=out)
-        cfg = config.load(cfg['_path'])
+        try:
+            cfg = config.load(cfg['_path'])
+        except config.ConfigError as e:
+            say(str(e))
+            return 1
     for pid in dashboard_pids(proc):
         new = restart(pid, proc=proc)
         print(f'Restarted the dashboard (pid {pid} -> {new}).', file=out)

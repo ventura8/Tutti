@@ -152,12 +152,7 @@ class Collector:
         if mtime is None or mtime == self.config_mtime:
             return self.config_error
         self.config_mtime = mtime
-        try:
-            self.reload()
-        except (config.ConfigError, OSError, ValueError, TypeError, AttributeError, KeyError) as e:   # any edit a load cannot take
-            self.config_error = f'the config changed and does not load ({e}): the dashboard keeps the last good one until it is fixed'
-        else:
-            self.config_error = None
+        self.config_error = self.reload()
         return self.config_error
 
     def refresh(self):
@@ -354,7 +349,13 @@ class Collector:
     def reload(self):
         """The config read again after a switch, so routing, workers and the page see it at once."""
         if self.cfg.get('_path'):
-            fresh = config.load(self.cfg['_path'])
+            try:
+                fresh = config.load(self.cfg['_path'])
+            except Exception as e:
+                self.config_error = f'the config changed and does not load ({e}): the dashboard keeps the last good one until it is fixed'
+                return self.cfg
+
+            self.config_error = None
             with self.read_lock:   # the usage readers follow the switch too: a resumed account is read, a paused one not
                 self.cfg = fresh
                 if hasattr(self.reader, 'cfg'):

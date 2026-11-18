@@ -871,8 +871,11 @@ def load(path=None, start=None, env=None):
         raise ConfigError(
             f'no config found here, in a parent folder or at {dest}: '
             f'copy with `cp {EXAMPLE} {dest}` and edit it, or set TUTTI_CONFIG to its path')
-    with open(path, encoding='utf8') as f:
-        raw = parse(f.read(), path)
+    try:
+        with open(path, encoding='utf8') as f:
+            raw = parse(f.read(), path)
+    except FileNotFoundError as e:
+        raise ConfigError(f'config file not found: {path}') from e
     from . import controls  # the owner's switches from the dashboard, kept in the state folder
     state = ((raw or {}).get('project') or {}).get('state') if isinstance(raw, dict) else None
     raw = controls.apply(raw, controls.read(state or DEFAULTS['project']['state']))

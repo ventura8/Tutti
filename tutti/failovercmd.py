@@ -286,7 +286,11 @@ def cmd_main_backup(cfg, a):
         except failover.FailoverError as e:
             say(str(e))
             return 2
-        cfg = config.load(cfg['_path'])
+        try:
+            cfg = config.load(cfg['_path'])
+        except config.ConfigError as e:
+            say(str(e))
+            return 2
     print(describe(failover.view(cfg)))
     return 0
 

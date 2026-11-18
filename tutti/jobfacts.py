@@ -43,7 +43,13 @@ def _line_counts(line):
     """(passed, failed) one line says, each None when it does not say it."""
     bad, ran = UNITTEST_BAD.search(line), UNITTEST_RAN.search(line)
     if bad:
-        return None, sum(int(n) for n in re.findall(r'=(\d+)', bad.group(1)))
+        counts = bad.group(1)
+        failures = 0
+        for key in ('failures', 'errors'):
+            m = re.search(fr'\b{key}=(\d+)', counts)
+            if m:
+                failures += int(m.group(1))
+        return None, failures
     if ran:
         return int(ran.group(1)), None
     p, f = PASSED.search(line), FAILED.search(line)

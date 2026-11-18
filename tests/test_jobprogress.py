@@ -245,6 +245,7 @@ class FactsTest(Base):
     def test_tests_tokens_files_from_lines(self):
         self.assertEqual(jobfacts.tests(['== 12 passed, 1 failed in 3s ==']), {'passed': 12, 'failed': 1})
         self.assertEqual(jobfacts.tests(['Ran 10 tests in 1s', '', 'FAILED (failures=1, errors=2)']), {'passed': 7, 'failed': 3})
+        self.assertEqual(jobfacts.tests(['Ran 10 tests in 1s', '', 'FAILED (failures=2, skipped=1)']), {'passed': 7, 'failed': 2})
         self.assertEqual(jobfacts.tests([' Tests  12 passed | 1 failed (13)']), {'passed': 12, 'failed': 1})
         self.assertIsNone(jobfacts.tests(['nothing here']))
         self.assertEqual(jobfacts.tokens_in_lines(['Tokens: 12.3k in, 4.1k out']), {'in': 12300, 'out': 4100})

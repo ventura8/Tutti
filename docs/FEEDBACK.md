@@ -8,6 +8,7 @@ of your project or secrets: describe the setup in general words.
 
 | # | Date | Command | What happened | Expected | Status |
 | --- | --- | --- | --- | --- | --- |
+| 17 | 2026-11-18 | Chat job status | A model-requested job status could expose a job log to a viewer. | Keep job reports and logs for admins. | Restricted model-requested job status to admins (t372). |
 | 16 | 2026-11-18 | Dashboard usage graphs | Individual recorded values and their times were not inspectable. | Show the nearest actual reading on hover, click, touch and keyboard. | Added graph selection (t253); browser verification runs in CI. |
 | 15 | 2026-11-18 | Chat run status | A missing run report prompted repeated status requests. | Check automatically for a bounded time and report a timeout honestly. | Bounded polling and an interrupted-answer retry guard (t296); restart-persistent monitoring remains open. |
 | 14 | 2026-11-18 | Dashboard update during Chat | An automatic page reload can discard an unsent Chat draft or attachment. | Wait until Chat is idle before reloading the page. | Page-reload guard added (t326); safe server handoff remains open. |

@@ -35,7 +35,8 @@ computers and Android devices for software work, without anyone stepping on anyo
   [docs/AUTH.md](docs/AUTH.md)).
   Automatic page updates and Settings restarts protect this tab's unsent Chat work and active answers. Cooperating Chat
   storage writers serialize on supported POSIX hosts; this does not enable simultaneous dashboard engines. Interrupted
-  answers that may have started work ask you to check its status before a new request.
+  answers that may have started work ask you to check its status before a new request. Job reports and logs in Chat are
+  restricted to admins, including when a model requests them.
 
 ## Install
 

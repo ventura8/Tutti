@@ -125,7 +125,7 @@ A model works through the same calls as the MCP tools, so a local model can do w
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
-| `usage`, `machines`, `devices`, `backlog_list`, `job_status` | read | runs at once; its output goes back to the model |
+| `usage`, `machines`, `devices`, `backlog_list`, `job_status` | read | runs at once; its output goes back to the model. Job status reports and logs are for admins. |
 | `backlog_add` | work | as the mode says (*Modes* below) |
 | `delegate_task`, `scout_ask` | work | as the mode says; admins (they spend an account at once) |
 | `test_on` (a track and a command, on a machine or an Android device) | work | as the mode says; admins |

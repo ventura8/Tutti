@@ -7,11 +7,19 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [Unreleased]
+
+### Fixed
+
+- Mark missing, future-dated and stale automatic usage readings instead of presenting them as current; show reader
+  recovery guidance without asking for manual entry for automatically read accounts (t317).
+
 ## [0.27.7] - 2026-11-18
 
 ### Fixed
 
 - Chat briefly polls an identified delegated run when its report is not ready (t296).
+
 
 ## [0.27.6] - 2026-11-18
 

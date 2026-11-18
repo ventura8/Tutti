@@ -149,9 +149,15 @@ def readings(entries, account, since):
     return [{'at': at.isoformat(), 'used': used} for at, used in sorted(out)]
 
 
+def automatic(name, account):
+    """Whether Tutti has an automatic reader or an external reading-file producer for this account."""
+    from . import readers
+    return bool(readers.automatic_reader(name, account) or account.get('reading_file'))
+
+
 def no_reading_action(name, a, src):
-    if a.get('reader'):
-        return 'read automatically at every probe of `tutti dashboard`; `tutti usage refresh` reads it now'
+    if automatic(name, a):
+        return 'automatic reading is unavailable: check its reader or producer; `tutti usage refresh` retries configured readers'
     tap = ', or Add a reading on the dashboard' if a.get('usage_url') else ''
     return f'read it at {src}, then: tutti usage log {name} <percent>{tap}'
 
@@ -174,38 +180,37 @@ def room_tasks(p, used, task_pct):
 
 
 def staleness(name, a, reading_at, now):
-    """(stale, the reminder or '') for an account no reader reads on its own: no reading, or the last one older than
-    accounts.<name>.stale_hours (default 2). An account with a reader command is read automatically: never stale (a plan
-    command gives only a label, not the % used, so it does not count)."""
-    if a.get('reader') or a.get('stale_hours') == 0:
+    """Report missing, future-dated or old measurements, including automatically read accounts."""
+    auto = automatic(name, a)
+    if not auto and a.get('stale_hours') == 0:
+        return False, ''   # explicit opt-out for manually maintained account reminders
+    hours = float(a.get('stale_hours') or STALE_HOURS)
+    age = (now - reading_at).total_seconds() if reading_at is not None else None
+    if age is not None and 0 <= age < hours * 3600:
         return False, ''
-    hours = float(a.get('stale_hours', STALE_HOURS))
-    if reading_at is not None and (now - reading_at).total_seconds() < hours * 3600:
-        return False, ''
-    age = 'no reading yet' if reading_at is None else f'the last reading is {(now - reading_at).total_seconds() / 3600:.1f} h old'
+    detail = ('no reading yet' if age is None else 'reading timestamp is in the future' if age < 0 else
+              f'the last reading is {age / 3600:.1f} h old')
+    if auto:
+        return True, f'{name}: {detail}; check its automatic reader or producer and retry `tutti usage refresh`'
     where = f' (or write it to {a["reading_file"]})' if a.get('reading_file') else ''
-    return True, f'{name}: {age}: tutti usage log {name} <percent>{where}'
+    return True, f'{name}: {detail}: tutti usage log {name} <percent>{where}'
 
 
 AUTO_SOURCES = ('reader', 'file', 'helper')
 
 
 def freshness(name, a, newest, now):
-    """How the account's newest reading came in and whether it needs a reminder: {stale, remind, auto, reading_source}."""
+    """How the account's newest reading came in and whether it is current."""
     at = parse_time(newest['at']) if newest else None
     stale, remind = staleness(name, a, at, now)
     source = newest.get('source') if newest else None
-    return {'stale': stale, 'remind': remind, 'auto': bool(a.get('reader')) or source in AUTO_SOURCES, 'reading_source': source,
-            'needs_reading': needs_reading(a, at, now)}
+    return {'stale': stale, 'remind': remind, 'auto': automatic(name, a) or source in AUTO_SOURCES, 'reading_source': source,
+            'needs_reading': needs_reading(a, at, now, name=name)}
 
 
-def needs_reading(a, reading_at, now):
-    """True when the dashboard offers Add a reading: nothing reads the account on its own (no reader command and no
-    reading_file an orchestrator writes), or its newest reading is older than stale_hours (default 2) or missing."""
-    if not (a.get('reader') or a.get('reading_file')):
-        return True
-    hours = float(a.get('stale_hours') or STALE_HOURS)
-    return reading_at is None or (now - reading_at).total_seconds() >= hours * 3600
+def needs_reading(a, reading_at, now, name=''):
+    """Offer manual entry only for accounts without an automatic reader or file producer."""
+    return not automatic(name, a)
 
 
 def account_action(name, a, p, used, is_panic, room):
@@ -257,6 +262,7 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
            'verdict': 'unknown', 'panic': False, 'reset': None, 'target': None, 'window_start': None, 'reading_at': None, 'readings': [],
            'stale': False, 'remind': '', 'auto': False, 'reading_source': None, 'room_tasks': None, 'note': a.get('note'),
            'needs_reading': True, 'target_pct': target_of(name, a)}
+    out.update(freshness(name, a, latest([x for x in entries if x.get('source') != 'estimate'], name), now))
     anchor = reading_anchor(entries, name)
     if anchor:
         out['reset_from'] = 'reading'
@@ -270,7 +276,6 @@ def account_state(name, a, entries, now, accounts=None, quiet_hours=None, owner=
     out.update(reset=reset.isoformat(), target=target.isoformat(), window_start=start.isoformat(),
                readings=readings(entries, name, start))
     e = latest(entries, name, start)
-    out.update(freshness(name, a, latest([x for x in entries if x.get('source') != 'estimate'], name), now))
     if not e and latest(entries, name):
         # a reset passed since the last reading: the new window starts from 0 at once, so queued work goes on with no gap
         # (and no stale "nothing more this window" decision); the next real reading replaces this

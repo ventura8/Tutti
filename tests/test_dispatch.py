@@ -269,6 +269,14 @@ class PriorityTest(Base):
         errs = config.validate(config.normalise({'projects': {'Radio': {'priority': -1}}}))
         self.assertTrue(any('projects.Radio.priority is -1' in e for e in errs))
 
+    def test_late_options_with_options_and_separator(self):
+        # tutti test RoRadio -- --on pc -- ./gradlew --flag
+        from tutti import cli
+        a = SimpleNamespace(command=['--', '--on', 'pc', '--', './gradlew', '--flag'], dir=None, on=None, device=None, wait_minutes=30, fetch=None, input=None, hold_device=None)
+        cli.late_options(a)
+        self.assertEqual(a.on, 'pc')
+        self.assertEqual(a.command, ['./gradlew', '--flag'])
+
 
 class DashboardTest(Base):
     def test_the_keep_busy_switch_and_a_round_now(self):

@@ -353,7 +353,10 @@ TEST_LISTS = {'--fetch': 'fetch', '--input': 'input', '--hold-device': 'hold_dev
 def late_options(a):
     """Options written after the track (`tutti test MyApp --on pc -- cmd`) are taken as options, up to a `--`
     or the first word that is not one of them; the rest is the command, and a lone `--` before it is dropped."""
-    words, i = list(a.command or []), 0
+    words = list(a.command or [])
+    if words[:1] == ['--']:
+        words = words[1:]
+    i = 0
     while i < len(words) and (words[i] in TEST_OPTIONS or words[i] in TEST_LISTS) and i + 1 < len(words):
         flag, value = words[i], words[i + 1]
         if flag in TEST_LISTS:

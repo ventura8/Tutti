@@ -7,6 +7,12 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [Unreleased]
+
+### Added
+
+- Show a crosshair, reset-relative time and pace difference on usage graphs, including touch drag and a live readout (t253).
+
 ## [0.29.3] - 2026-11-18
 
 ### Security

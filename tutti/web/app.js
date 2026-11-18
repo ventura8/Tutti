@@ -215,16 +215,20 @@ function sparkline(a, now) {
     const H = 72;
     const x = (t) => ((t - t0) / (t1 - t0)) * W;
     const y = (p) => H - 4 - (Math.min(100, p) / 100) * (H - 8);
+    const target = Number.isFinite(a.target_pct) && a.target_pct >= 0 && a.target_pct <= 100 ? a.target_pct : null;
     const readings = (Array.isArray(a.readings) ? a.readings : [])
         .filter((r) => r && typeof r === 'object' && typeof r.at === 'string' && Number.isFinite(Date.parse(r.at)) &&
             Number.isFinite(r.used) && r.used >= 0 && r.used <= 100)
         .map((r) => ({ at: r.at, used: r.used, time: Date.parse(r.at) })).sort((left, right) => left.time - right.time);
     const pts = readings.map((r) => [x(r.time), y(r.used)]);
     const g = svg('svg', { class: 'spark', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img' });
-    g.setAttribute('aria-label', `${a.name}: ${readings.length} readings this window; the dashed line is the even pace to 100 % by the target time`);
+    g.setAttribute('aria-label', `${a.name}: ${readings.length} readings this window`);
     g.append(svg('line', { class: 's-grid', x1: 0, x2: W, y1: y(0), y2: y(0) }));
     g.append(svg('line', { class: 's-panic', x1: 0, x2: W, y1: y(a.panic_at), y2: y(a.panic_at) }));
-    g.append(svg('polyline', { class: 's-target', points: `0,${y(0)} ${x(tt)},${y(100)} ${W},${y(100)}` }));
+    if (target !== null && Number.isFinite(tt)) {
+        const line = tt <= t0 ? `0,${y(target)} ${W},${y(target)}` : `0,${y(0)} ${x(tt)},${y(target)} ${W},${y(target)}`;
+        g.append(svg('polyline', { class: 's-target', points: line }));
+    }
     const nx = x(now);
     if (nx >= 0 && nx <= W) g.append(svg('line', { class: 's-now', x1: nx, x2: nx, y1: 0, y2: H }));
     if (pts.length) {
@@ -232,34 +236,48 @@ function sparkline(a, now) {
     }
     const box = el('div', { class: 'spark-wrap' }, g);
     if (!readings.length || !Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return box;
-    const detail = el('p', { class: 'spark__detail' });
+    const detail = el('p', { class: 'spark__detail', 'aria-live': 'polite', 'aria-atomic': 'true' });
     const marker = svg('circle', { class: 's-selected', r: 3 });
-    g.append(marker);
-    if (readings.length === 1) {
-        const r = readings[0];
-        detail.textContent = `${localTime(r.at)} · ${tuttiPct(r.used)} used`;
-        detail.title = utcTitle(r.at);
-        marker.setAttribute('cx', x(r.time));
-        marker.setAttribute('cy', y(r.used));
-        box.append(detail);
-        return box;
+    const crosshair = svg('line', { class: 's-crosshair', y1: 0, y2: H });
+    g.append(crosshair, marker);
+    if (readings.length > 1) {
+        g.setAttribute('role', 'slider');
+        g.setAttribute('tabindex', '0');
+        g.setAttribute('aria-label', `${a.name} usage readings`);
+        g.setAttribute('aria-valuemin', '1');
+        g.setAttribute('aria-valuemax', String(readings.length));
     }
-    g.setAttribute('role', 'slider');
-    g.setAttribute('tabindex', '0');
-    g.setAttribute('aria-label', `${a.name} usage readings`);
-    g.setAttribute('aria-valuemin', '1');
-    g.setAttribute('aria-valuemax', String(readings.length));
-    let selected = readings.length - 1;
+    let selected = -1;
+    const exactTime = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
+    function resetDistance(time) {
+        const ms = Math.abs(t1 - time);
+        const hours = Math.floor(ms / 3600000);
+        const minutes = Math.floor(ms / 60000) % 60;
+        const seconds = (ms % 60000 / 1000).toFixed(3).replace(/\.?0+$/, '');
+        return `${hours} h ${minutes} min ${seconds} s ${time <= t1 ? 'before' : 'after'} reset`;
+    }
     function select(index) {
-        selected = Math.max(0, Math.min(readings.length - 1, index));
+        const next = Math.max(0, Math.min(readings.length - 1, index));
+        if (next === selected) return;
+        selected = next;
         const r = readings[selected];
-        const label = `${localTime(r.at)} · ${tuttiPct(r.used)} used`;
+        const local = new Date(r.time);
+        const millis = local.getMilliseconds();
+        const pace = target === null || !Number.isFinite(tt) ? null :
+            target * (tt <= t0 ? 1 : Math.max(0, Math.min(1, (r.time - t0) / (tt - t0))));
+        const delta = pace === null ? '' : ` · ${tuttiNum(Math.abs(r.used - pace), {digits: 2})} percentage points ${r.used >= pace ? 'above' : 'below'} pace`;
+        const label = `${exactTime.format(local)}${millis ? ` + ${millis} ms` : ''} · ${resetDistance(r.time)} · ${tuttiPct(r.used, {digits: 2})} used · ${pace === null ? 'pace unavailable' : `${tuttiPct(pace, {digits: 2})} pace`}${delta}`;
         detail.textContent = label;
-        detail.title = utcTitle(r.at);
+        detail.title = new Date(r.time).toISOString();
         marker.setAttribute('cx', x(r.time));
         marker.setAttribute('cy', y(r.used));
-        g.setAttribute('aria-valuenow', String(selected + 1));
-        g.setAttribute('aria-valuetext', label);
+        crosshair.setAttribute('x1', x(r.time));
+        crosshair.setAttribute('x2', x(r.time));
+        if (readings.length > 1) {
+            g.setAttribute('aria-valuenow', String(selected + 1));
+            g.setAttribute('aria-valuetext', label);
+        }
     }
     function point(event) {
         const rect = g.getBoundingClientRect();
@@ -269,8 +287,12 @@ function sparkline(a, now) {
         for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i][0] - pos) < Math.abs(pts[nearest][0] - pos)) nearest = i;
         select(nearest);
     }
-    g.addEventListener('pointermove', (event) => { if (event.pointerType === 'mouse') point(event); });
-    g.addEventListener('pointerdown', point);  // mouse, touch and pen: show the nearest actual observation
+    g.addEventListener('pointermove', (event) => { if (event.pointerType === 'mouse' || event.buttons) point(event); });
+    g.addEventListener('pointerdown', (event) => {
+        if (g.focus && readings.length > 1) g.focus({preventScroll: true});
+        try { if (g.setPointerCapture && event.pointerId !== undefined) g.setPointerCapture(event.pointerId); } catch { /* no active pointer */ }
+        point(event);  // mouse, touch and pen: show the nearest actual observation
+    });
     g.addEventListener('keydown', (event) => {
         if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') select(selected - 1);
         else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') select(selected + 1);
@@ -279,7 +301,8 @@ function sparkline(a, now) {
         else return;
         event.preventDefault();
     });
-    select(selected);
+    g.addEventListener('blur', () => setTimeout(() => { if (ui.last) renderUsage(ui.last, Date.now()); }, 0));
+    select(readings.length - 1);
     box.append(detail);
     return box;
 }
@@ -466,7 +489,7 @@ async function fillRoom() {
 
 function account(a, now) {
     const verdict = a.panic ? 'panic' : a.verdict;
-    const card = el('article', { class: 'account', 'data-panic': String(a.panic), 'aria-label': `${a.name}: ${verdict}` },
+    const card = el('article', { class: 'account', 'data-account': a.name, 'data-panic': String(a.panic), 'aria-label': `${a.name}: ${verdict}` },
         el('div', { class: 'account__top' }, el('h3', { class: 'account__name', text: a.name }),
             chip(verdict, a.panic ? 'bad' : VERDICT_TONE[a.verdict])));
     if (a.state === 'ok' && a.limits?.length) {
@@ -510,7 +533,7 @@ function account(a, now) {
 }
 
 function offAccount(a) {
-    return el('article', { class: 'account', 'aria-label': `${a.name}: ${a.status}` },
+    return el('article', { class: 'account', 'data-account': a.name, 'aria-label': `${a.name}: ${a.status}` },
         el('div', { class: 'account__top' }, el('h3', { class: 'account__name', text: a.name }),
             chip(a.status, a.status === 'paused' ? 'warn' : 'idle')),
         el('p', { class: 'account__by', text: a.reason }));
@@ -518,6 +541,8 @@ function offAccount(a) {
 
 function renderUsage(s, now, force) {
     const u = s.usage;
+    const focused = typeof document !== 'undefined' && document.activeElement;
+    const held = !force && focused?.matches?.('.spark[role="slider"]') ? focused.closest('article.account') : null;
     // While a reading is being typed, the cards stay as they are: a poll must not wipe the form or move the focus.
     if (ui.editing.size && !force && !ui.formPending) {
         $('usage-meta').textContent = 'Paused while you add a reading';
@@ -533,9 +558,45 @@ function renderUsage(s, now, force) {
     const inside = new Set(u.accounts.flatMap((a) => (a.limits || []).map((l) => l.name)).filter((n) => !ownCard(n)));
     const shown = u.accounts.filter((a) => !inside.has(a.name));
     const cards = [...shown.map((a) => account(a, now)), ...(u.off_accounts || []).map(offAccount)];
-    $('usage').replaceChildren(...(cards.length ? cards
+    const list = $('usage');
+    if (held && list.contains(held)) refreshFocusedUsage(list, held, focused.closest('.spark-wrap'), cards);
+    else list.replaceChildren(...(cards.length ? cards
         : [empty('No accounts yet', codeText('Add an accounts: section to the config (see ', 'tutti.config.example.yaml', ').'))]));
     if (u.owner) $('owner').replaceChildren(...ownerPanel(u.owner));
+}
+
+// Keep the selected graph node attached while updating all account status, including the focused account's status.
+function refreshFocusedUsage(list, held, graph, cards) {
+    const index = cards.findIndex((card) => card.getAttribute('data-account') === held.getAttribute('data-account'));
+    if (index >= 0) {
+        const fresh = cards[index], nextGraph = fresh.querySelector('.spark-wrap');
+        for (const attr of ['data-panic', 'aria-label']) {
+            const value = fresh.getAttribute(attr);
+            if (value === null) held.removeAttribute(attr); else held.setAttribute(attr, value);
+        }
+        for (const child of [...held.children]) if (child !== graph) child.remove();
+        let before = Boolean(nextGraph);
+        for (const child of [...fresh.children]) {
+            if (child === nextGraph) { before = false; continue; }
+            if (before) held.insertBefore(child, graph); else held.append(child);
+        }
+        held.insertBefore(el('p', { class: 'account__by spark__held', text: nextGraph ?
+            'Graph held while focused; current readings appear after focus leaves.' :
+            'Previous graph retained while focused; current graph unavailable.' }), graph);
+        cards[index] = held;
+    } else {
+        for (const child of [...held.children]) if (child !== graph) child.remove();
+        held.removeAttribute('data-panic');
+        held.setAttribute('aria-label', `${held.getAttribute('data-account')}: no longer in the current snapshot`);
+        held.prepend(el('p', { class: 'account__by',
+            text: `${held.getAttribute('data-account')} is no longer in the current snapshot; graph retained while focused.` }));
+        cards.unshift(held);
+    }
+    // Removing the focused card, even briefly, loses browser focus and pointer capture; only replace its siblings.
+    for (const child of [...list.children]) if (child !== held) child.remove();
+    const position = cards.indexOf(held);
+    cards.slice(0, position).forEach((card) => list.insertBefore(card, held));
+    cards.slice(position + 1).forEach((card) => list.append(card));
 }
 
 // ---- the owner's own prompting: the mode, "I'm away until…", and the learned week (tutti/owner.py)

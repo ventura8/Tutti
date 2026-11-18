@@ -111,8 +111,9 @@ function el(tag, attrs, ...kids) { const n = node(tag, attrs); n.append(...kids)
 function localTime(s) { return s; }
 function utcTitle(s) { return s; }
 function tuttiPct(n) { return n + '%'; }
+function tuttiNum(n) { return Number(n.toFixed(2)).toString(); }
 const account = {name:'agent', window_start:'2026-01-01T00:00:00Z', reset:'2026-01-01T10:00:00Z',
-  target:'2026-01-01T09:00:00Z', panic_at:90, readings:[
+  target:'2026-01-01T09:00:00Z', target_pct:80, panic_at:90, readings:[
     {at:'2026-01-01T02:00:00Z',used:20}, {at:'2026-01-01T08:00:00Z',used:80}]};
 eval(code + `
 const box = sparkline(account, Date.parse('2026-01-01T05:00:00Z'));
@@ -131,6 +132,14 @@ const absent = sparkline({...account,readings:null}, Date.now());
 values.push([absent.children[0].attrs.role, absent.children.length]);
 const one = sparkline({...account,readings:[account.readings[0], {at:account.reset,used:101}]}, Date.now());
 values.push([one.children[0].attrs.role, one.children[1].textContent]);
+g.events.pointermove({pointerType:'touch',buttons:1,clientX:250});
+const crosshair = g.children.find((n) => n.attrs.class === 's-crosshair');
+const paceLine = g.children.find((n) => n.attrs.class === 's-target');
+values.push([detail.textContent, detail.attrs['aria-live'], crosshair.attrs.x1, Number(paceLine.attrs.points.split(' ')[1].split(',')[1])]);
+const noPace = sparkline({...account,target_pct:null}, Date.now());
+values.push(noPace.children[1].textContent);
+const instant = sparkline({...account,target:account.window_start}, Date.now());
+values.push(instant.children[1].textContent);
 console.log(JSON.stringify(values));`);
 """
         out = subprocess.run(['node', '-e', script, app], capture_output=True, text=True, check=True)
@@ -149,6 +158,12 @@ console.log(JSON.stringify(values));`);
         self.assertEqual(values[6], ['img', 1])
         self.assertEqual(values[7][0], 'img')
         self.assertIn('20%', values[7][1])
+        self.assertIn('2 h 0 min 0 s before reset', values[8][0])
+        self.assertIn('percentage points above pace', values[8][0])
+        self.assertEqual(values[8][1:3], ['polite', '240'])
+        self.assertAlmostEqual(values[8][3], 16.8)  # 80% target, not a hard-coded 100%
+        self.assertIn('pace unavailable', values[9])
+        self.assertIn('80% pace', values[10])  # the backend treats a nonpositive target span as the full budget
 
 
 class Order(unittest.TestCase):

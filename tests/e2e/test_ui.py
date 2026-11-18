@@ -300,27 +300,80 @@ ADMIN_CONTROLS = ('#refresh-readings', '#autopilot-toggle', '#selfimprove-toggle
 
 class UsageGraph(unittest.TestCase):
     def test_readings_work_with_mouse_touch_and_keyboard(self):
-        ctx = new_context(ADMIN, has_touch=True)
-        try:
-            page = open_view(ctx, '#dashboard')
-            graph = page.locator('#usage .spark[role="slider"]').first
-            detail = graph.locator('..').locator('.spark__detail')
-            self.assertGreater(int(graph.get_attribute('aria-valuemax')), 1)
-            graph.focus()
-            graph.press('Home')
-            first = detail.inner_text()
-            self.assertEqual(graph.get_attribute('aria-valuenow'), '1')
-            graph.press('End')
-            last = detail.inner_text()
-            self.assertNotEqual(first, last)
-            self.assertEqual(graph.get_attribute('aria-valuetext'), last)
-            box = graph.bounding_box()
-            page.mouse.move(box['x'] + 1, box['y'] + box['height'] / 2)
-            self.assertEqual(detail.inner_text(), first)
-            page.touchscreen.tap(box['x'] + box['width'] - 1, box['y'] + box['height'] / 2)
-            self.assertEqual(detail.inner_text(), last)
-        finally:
-            ctx.close()
+        for theme in THEMES:
+            ctx = new_context(ADMIN, width='phone', theme=theme, has_touch=True)
+            try:
+                page = open_view(ctx, '#dashboard')
+                graph = page.locator('#usage .spark[role="slider"]').first
+                detail = graph.locator('..').locator('.spark__detail')
+                self.assertGreater(int(graph.get_attribute('aria-valuemax')), 1)
+                self.assertEqual(detail.get_attribute('aria-live'), 'polite')
+                graph.focus()
+                graph.press('Home')
+                first = detail.inner_text()
+                self.assertIn('before reset', first)
+                self.assertIn('percentage points', first)
+                self.assertEqual(graph.get_attribute('aria-valuenow'), '1')
+                names = page.locator('#usage > article[data-account]').evaluate_all(
+                    '(nodes) => nodes.map((n) => n.dataset.account)'
+                    '.filter((name) => ui.last.usage.accounts.some((row) => row.name === name))')
+                self.assertGreater(len(names), 1)
+                active_name = graph.evaluate('(g) => g.closest("article").dataset.account')
+                other_name = next(name for name in names if name != active_name)
+                page.evaluate('''([active, other]) => {
+                    const next = structuredClone(ui.last);
+                    const a = next.usage.accounts.find((row) => row.name === active);
+                    const b = next.usage.accounts.find((row) => row.name === other);
+                    a.panic = true; a.action = 'updated focused account'; a.used = 99;
+                    a.readings[a.readings.length - 1].used = 99;
+                    b.action = 'updated other account';
+                    ui.last = next;
+                    renderUsage(next, Date.now());
+                }''', [active_name, other_name])
+                self.assertTrue(graph.evaluate('(g) => document.activeElement === g'))  # no poll drops focus or pointer capture
+                self.assertIn('updated focused account', graph.locator('xpath=ancestor::article').inner_text())
+                self.assertEqual(graph.locator('xpath=ancestor::article').get_attribute('data-panic'), 'true')
+                self.assertIn('updated other account', page.locator('#usage').inner_text())
+                self.assertIn('Graph held while focused', graph.locator('xpath=ancestor::article').inner_text())
+                self.assertEqual(detail.inner_text(), first)  # the selected graph did not silently change
+                graph.evaluate('(g) => { window.previousGraph = g; g.blur(); }')
+                page.wait_for_function('window.previousGraph && !window.previousGraph.isConnected')
+                graph = page.locator('#usage .spark[role="slider"]').first
+                detail = graph.locator('..').locator('.spark__detail')
+                graph.focus()
+                graph.press('End')
+                self.assertIn('99%', detail.inner_text())  # the latest graph is applied after focus leaves
+                page.evaluate('''(active) => {
+                    const next = structuredClone(ui.last);
+                    next.usage.accounts = next.usage.accounts.filter((row) => row.name !== active);
+                    next.usage.off_accounts = [...(next.usage.off_accounts || []), {name: active, status: 'paused', reason: 'paused now'}];
+                    renderUsage(next, Date.now());
+                }''', active_name)
+                self.assertTrue(graph.evaluate('(g) => document.activeElement === g'))
+                self.assertEqual(page.locator('#usage > article[data-account]').evaluate_all(
+                    '(nodes, name) => nodes.filter((n) => n.dataset.account === name).length', active_name), 1)
+                self.assertIn('paused now', graph.locator('xpath=ancestor::article').inner_text())
+                self.assertNotIn('updated focused account', graph.locator('xpath=ancestor::article').inner_text())
+                graph.press('End')
+                last = detail.inner_text()
+                self.assertNotEqual(first, last)
+                self.assertEqual(graph.get_attribute('aria-valuetext'), last)
+                box = graph.bounding_box()
+                page.mouse.move(box['x'] + 1, box['y'] + box['height'] / 2)
+                self.assertEqual(detail.inner_text(), first)
+                page.touchscreen.tap(box['x'] + box['width'] - 1, box['y'] + box['height'] / 2)
+                self.assertEqual(detail.inner_text(), last)
+                cdp = ctx.new_cdp_session(page)
+                y = box['y'] + box['height'] / 2
+                cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': box['x'] + box['width'] - 1, 'y': y}]})
+                cdp.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': [{'x': box['x'] + 1, 'y': y}]})
+                cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+                self.assertEqual(detail.inner_text(), first)
+                self.assertTrue(graph.locator('.s-crosshair').count())
+                graph.evaluate('(g) => { window.previousGraph = g; g.blur(); }')
+                page.wait_for_function('window.previousGraph && !window.previousGraph.isConnected')
+            finally:
+                ctx.close()
 
 
 class Roles(unittest.TestCase):

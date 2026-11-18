@@ -42,6 +42,7 @@
     <script src="welcome.js?v=__TUTTI_VERSION__" defer></script>
     <script src="needs.js?v=__TUTTI_VERSION__" defer></script>
     <script src="github.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="wizard.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
     <a class="skip" href="#main">Skip to the content</a>
@@ -518,6 +519,15 @@
                 <ul id="audit" class="list" aria-label="Who changed which role, and when"></ul>
             </section>
         <div id="users-manage"></div>
+      </div>
+
+      <div id="wizard-view" hidden>
+        <section class="card span-full" aria-labelledby="wizard-h">
+          <header class="card__head">
+              <h2 id="wizard-h">Setup Wizard</h2>
+          </header>
+          <div id="wizard-content"></div>
+        </section>
       </div>
 
       <div id="settings-view" class="settings" hidden>

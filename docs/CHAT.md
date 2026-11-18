@@ -226,8 +226,13 @@ Under the message box, as in a chat IDE, each starting at Auto:
 
 `<state>/chat/<hash of the user's id>.json`, mode 600 in a 700 folder, one file per user, written whole (a temporary file,
 then a rename). It holds the conversations: messages, attachments, the model that answered and the action cards. It
-survives restarts (an answer cut off by one is marked stopped, with Retry) and `tutti move` carries it with the state
+survives restarts (an answer cut off by one is marked stopped) and `tutti move` carries it with the state
 folder. **Clear my chat history** deletes the user's file; the work it queued and the audit log's lines stay.
+
+Before a Chat tool changes something or a CLI agent starts, the answer records that work may have started. A stopped
+or failed answer with that marker cannot be regenerated: check the work's status before sending a new request. Answers
+known to be safe can still be retried. Older interrupted answers without the marker are treated as uncertain. This
+guard requires one active engine and cooperating current-version writers; it does not stop or deduplicate existing jobs.
 
 ## API
 

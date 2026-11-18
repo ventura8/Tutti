@@ -276,7 +276,10 @@ class Store:
                 for m in c['messages']:
                     if m.get('status') == 'streaming' and m['id'] not in live_ids:
                         m['status'] = 'stopped'
-                        m['note'] = 'This answer was cut off when Tutti restarted. Retry to get a full one.'
+                        m['note'] = ('This answer was cut off when Tutti restarted. Retry to get a full one.'
+                                     if m.get('retry_safety') == 'safe' else
+                                     'This answer was cut off when Tutti restarted; work may have started. '
+                                     'Check its status before sending a new request.')
         with self.lock, store_locked(self.folder):
             data = self.load(sub)
             if any(m.get('status') == 'streaming' and m['id'] not in live_ids for c in data['conversations'] for m in c['messages']):

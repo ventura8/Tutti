@@ -7,6 +7,12 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.29.2] - 2026-11-18
+
+### Fixed
+
+- Prevent retrying interrupted Chat answers that may have started work without first checking it (t296).
+
 ## [0.29.1] - 2026-11-18
 
 ### Security

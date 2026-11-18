@@ -285,7 +285,8 @@ function drawLog() {
     const upto = CHAT.conv.summary?.upto;
     log.replaceChildren(...msgs.flatMap((m) => {
         const node = chatMessage(m, { editable: m.role === 'user' && !CHAT.streaming, last: m === lastUser,
-            retryable: m === lastAnswer && !CHAT.streaming && !(m.cards || []).length });
+            retryable: m === lastAnswer && !CHAT.streaming && !(m.cards || []).length &&
+                (!['stopped', 'failed', 'streaming'].includes(m.status) || m.retry_safety === 'safe') });
         return m.id === upto ? [node, el('p', { class: 'chat__compacted', role: 'note', text: 'Earlier messages above are summarised for the model to save context.' })] : [node];
     }));
     scrollEnd(true);

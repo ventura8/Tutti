@@ -341,6 +341,11 @@ class Engine:
             ids = [m['id'] for m in conv['messages']]
             if retry not in ids or ids.index(retry) == 0:
                 raise chat.ChatError('That answer is gone: reload the chat.')
+            answer = conv['messages'][ids.index(retry)]
+            if answer.get('role') != 'assistant':
+                raise chat.ChatError('That is not an answer: reload the chat.')
+            if answer.get('status') in ('stopped', 'failed', 'streaming') and answer.get('retry_safety') != 'safe':
+                raise chat.ChatError('This answer may have started work: check its status before sending a new request.')
             prompt = conv['messages'][ids.index(retry) - 1]
             self.store.truncate_after(sub, cid, prompt['id'])
         else:
@@ -358,7 +363,7 @@ class Engine:
         if settings:
             self.set_settings(user, cid, settings)
         answer = {'id': chat.new_id('m'), 'role': 'assistant', 'text': '', 'at': chat.now_iso(self.clock), 'status': 'streaming',
-                  'model': None, 'cards': []}
+                  'model': None, 'cards': [], 'retry_safety': 'safe'}
         self.store.put_message(sub, cid, answer)
         job = Job(sub, cid, answer)
         job.emit('start', conversation=cid, prompt=prompt, message=answer)
@@ -399,10 +404,11 @@ class Engine:
                 needs,  # "q3 retry": an answer to one of Tutti's questions (docs/NEEDS.md)
                 welcome,  # What did I miss?: the welcome-back summary since the user's last one (docs/WELCOME.md)
             )
-            reply = needs.chat_reply(cfg, user, prompt.get('text'))
+            reply = self._needs_reply(job, needs, cfg, user, prompt.get('text'))
             if reply:
                 self._say(job, reply)
             elif welcome.asks_miss(prompt.get('text')):
+                self._mark_uncertain(job)
                 self._say(job, welcome.chat_answer(cfg, user))
             elif call and 'answer' in call:   # /help
                 self._say(job, call['answer'])
@@ -430,6 +436,7 @@ class Engine:
             try:
                 if job.cancel.is_set() and msg['status'] != 'failed':
                     msg['status'] = 'stopped'
+                self._note_uncertain(msg)
                 self.store.update_message(job.sub, job.cid, msg)   # a chat deleted or edited meanwhile is left as it is
                 self._save_usage(job)
             finally:
@@ -442,6 +449,15 @@ class Engine:
         except chat.ChatError:
             conv = None
         return chatctl.resolve(data, conv)
+
+    def _needs_reply(self, job, needs, cfg, user, text):
+        if needs.ANSWER_RX.match(text or ''):
+            self._mark_uncertain(job)
+        return needs.chat_reply(cfg, user, text)
+
+    def _note_uncertain(self, msg):
+        if msg['status'] in ('stopped', 'failed') and msg.get('retry_safety') != 'safe':
+            msg['note'] = ((msg.get('note') or '') + ' Work may have started; check its status before sending a new request.').strip()
 
     def _save_usage(self, job):
         """Adds the answer's tokens to the conversation's totals and sends them to the page."""
@@ -475,10 +491,27 @@ class Engine:
             except auth.AuthError:
                 card.update(state='refused', text='Only an admin can do that.', call=None)
                 return card
+        if job and chat.model_tools().get(call['tool'], {}).get('mutating'):
+            self._mark_uncertain(job)
         result = run_tool(cfg, call, self.runner)
         ok, text, undo = follow_missing_report(cfg, call, job, result, self.runner) if job else result
         card.update(state='done' if ok else 'failed', text=plain(text, ok), ref=job_ref(text), undo=undo, call=None)
         return card
+
+    def _mark_uncertain(self, job):
+        """Persist before dispatch; a missing answer must not start additional work."""
+        def mark(data):
+            conv = self.store.conversation(data, job.cid)
+            msg = next((m for m in conv['messages'] if m.get('id') == job.msg['id']), None)
+            if not msg or msg.get('status') != 'streaming':
+                raise chat.ChatError('The answer is no longer active: reload the chat before starting work.')
+            msg['retry_safety'] = 'uncertain'
+        self.store.change(job.sub, mark)
+        job.msg['retry_safety'] = 'uncertain'
+
+    def _mark_cli(self, job, cand):
+        if cand['kind'] != 'ollama':
+            self._mark_uncertain(job)  # CLI agents can use native tools, including during summarisation
 
     def new_card(self, call):
         return {'id': chat.new_id('k'), 'tool': call['tool'], 'label': chat.describe(call), 'at': chat.now_iso(self.clock)}
@@ -551,6 +584,7 @@ class Engine:
             system = self._system(snap, user, known, cand, s['mode'], context)
             escalate = s['model'] == 'auto' and cand['kind'] == 'ollama' and online_left
             try:
+                self._mark_cli(job, cand)
                 messages = self._context(job, cfg, cand, system, conv, history, turns, s)
                 pre = chatctl.route_reason(cand, cfg, messages, history, s['effort']) if escalate else None
                 if pre:
@@ -791,7 +825,7 @@ class Engine:
         for call in calls:
             if job.cancel.is_set():
                 break
-            card = self.execute(user, cfg, call, self.new_card(call))
+            card = self.execute(user, cfg, call, self.new_card(call), job=job)
             job.msg['cards'].append(card)
             job.emit('card', card=card)
             results.append((call['tool'], f'{card["state"]}: {card.get("text") or ""}'))

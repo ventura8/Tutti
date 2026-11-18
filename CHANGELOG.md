@@ -7,6 +7,12 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.28.0] - 2026-11-18
+
+### Added
+
+- Opt-in Cursor JSON event decoding for Chat, with generic tool progress, a final answer and plain-text compatibility (t283).
+
 ## [0.27.14] - 2026-11-18
 
 ### Fixed

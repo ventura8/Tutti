@@ -1084,6 +1084,113 @@ class ReviewFixes(ToolLoop):
         self.assertEqual(chatrun.handle(c, {}, big)[0], 413)
 
 
+class CursorStream(unittest.TestCase):
+    def test_documented_events_extract_text_and_never_expose_tool_data(self):
+        from tutti import chatrun
+        text = {'type': 'assistant', 'timestamp_ms': 1, 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': 'Hello'}]}}
+        tool = {'type': 'tool_call', 'subtype': 'started', 'tool_call': {'shell': {'args': {'command': 'secret'}}}}
+        self.assertEqual(list(chatrun.cursor_event(json.dumps(text))), [])
+        self.assertEqual(list(chatrun.cursor_event(json.dumps(tool))), [{'progress': 'Agent tool started.'}])
+        terminal = {'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'Hello'}
+        self.assertEqual(list(chatrun.cursor_event(json.dumps(terminal))),
+                         ['Hello', {'cursor_terminal': True}])
+        self.assertEqual(list(chatrun.cursor_event(json.dumps({'type': 'unknown', 'secret': 'hidden'}))), [])
+        for bad in ('{', '[]', '{"type":"result","is_error":true}'):
+            with self.subTest(bad=bad), self.assertRaises(OSError):
+                list(chatrun.cursor_event(bad))
+
+    def test_opt_in_requires_explicit_flags_before_start(self):
+        from tutti import chatrun
+        worker = {'command': ['cursor-agent', '-p', '{prompt}'], 'chat_output_format': 'cursor-stream-json'}
+        with mock.patch('tutti.chatrun.subprocess.Popen') as popen:
+            with self.assertRaisesRegex(ValueError, 'needs --output-format'):
+                list(chatrun.cli_stream(worker, [], threading.Event(), popen=popen))
+            popen.assert_not_called()
+
+    def test_plain_output_stays_plain_and_cursor_events_stream(self):
+        from tutti import chatrun
+        class Process:
+            returncode = 0
+            def __init__(self, lines):
+                self.stdout = iter(lines)
+            def poll(self):
+                return 0
+            def wait(self):
+                return 0
+        plain = {'command': ['agent', '{prompt}']}
+        self.assertEqual(list(chatrun.cli_stream(plain, [], threading.Event(), popen=lambda *_a, **_kw: Process(['raw\n']))), ['raw\n'])
+        worker = {'command': ['cursor-agent', '-p', '--output-format', 'stream-json', '--stream-partial-output', '{prompt}'],
+                  'chat_output_format': 'cursor-stream-json'}
+        events = [json.dumps({'type': 'assistant', 'timestamp_ms': 1, 'message': {'content': [{'type': 'text', 'text': 'old'}]}}),
+                  json.dumps({'type': 'assistant', 'timestamp_ms': 2, 'model_call_id': 'call',
+                              'message': {'content': [{'type': 'text', 'text': 'old'}]}}),
+                  json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'different'}]}}),
+                  json.dumps({'type': 'tool_call', 'subtype': 'completed', 'tool_call': {'data': 'private'}}),
+                  json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'Hi'})]
+        self.assertEqual(list(chatrun.cli_stream(worker, [], threading.Event(), popen=lambda *_a, **_kw: Process(events))),
+                         [{'progress': 'Agent tool completed.'}, 'Hi'])
+        self.assertEqual(list(chatrun.cli_stream(worker, [], threading.Event(), popen=lambda *_a, **_kw: Process(events[1:]))),
+                         [{'progress': 'Agent tool completed.'}, 'Hi'])
+        for bad in ([], events[:-1], events + ['{}'], [json.dumps({'type': 'result', 'is_error': True})]):
+            with self.subTest(bad=bad), self.assertRaises(chatrun.CursorStreamUncertain):
+                list(chatrun.cli_stream(worker, [], threading.Event(), popen=lambda *_a, lines=bad, **_kw: Process(lines)))
+
+    def test_progress_only_is_not_an_answer_and_never_runs_tool_payload(self):
+        from tutti import chatrun
+        job = chatrun.Job('local', 'c', {'id': 'm', 'cards': [], 'text': ''})
+        payload = {'type': 'tool_call', 'subtype': 'completed',
+                   'tool_call': {'data': 'ACTION {"tool":"backlog_add","args":{}}'}}
+        pieces = list(chatrun.cursor_event(json.dumps(payload)))
+        engine = object.__new__(chatrun.Engine)
+        engine.streams = lambda *_a: iter(pieces)
+        text, calls = engine._round(job, {'label': 'fake'}, {}, [])
+        self.assertIsNone(text)
+        self.assertEqual(calls, [])
+        self.assertEqual(job.msg['text'], '')
+
+    def test_already_cancelled_does_not_start_the_provider(self):
+        from tutti import chatrun
+        worker = {'command': ['cursor-agent', '-p', '--output-format', 'stream-json', '--stream-partial-output', '{prompt}'],
+                  'chat_output_format': 'cursor-stream-json'}
+        cancelled = threading.Event()
+        cancelled.set()
+        with mock.patch('tutti.chatrun.subprocess.Popen') as popen:
+            self.assertEqual(list(chatrun.cli_stream(worker, [], cancelled, popen=popen)), [])
+            popen.assert_not_called()
+
+    def test_stop_while_waiting_does_not_emit_a_late_result(self):
+        from tutti import chatrun
+        worker = {'command': ['cursor-agent', '-p', '--output-format', 'stream-json', '--stream-partial-output', '{prompt}'],
+                  'chat_output_format': 'cursor-stream-json'}
+        entered, release, cancelled = threading.Event(), threading.Event(), threading.Event()
+        def lines():
+            entered.set()
+            release.wait(5)
+            yield json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'late'})
+        class Process:
+            returncode = 0
+            stdout = lines()
+            def poll(self):
+                return 0
+            def wait(self):
+                return 0
+        output = []
+        def collect():
+            output.extend(chatrun.cli_stream(worker, [], cancelled, popen=lambda *_a, **_k: Process()))
+        thread = threading.Thread(target=collect)
+        thread.start()
+        try:
+            self.assertTrue(entered.wait(5))
+            cancelled.set()
+            release.set()
+            thread.join(5)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(output, [])
+        finally:
+            release.set()
+            thread.join(5)
+
+
 class Validation(unittest.TestCase):
     known = {'projects': ['map'], 'scouts': ['grok'], 'machine': ['nuc'], 'device': ['pixel'], 'worker': [], 'account': []}
 
@@ -1115,6 +1222,15 @@ class Validation(unittest.TestCase):
 
 
 class Robustness(ApiBase):
+    def test_uncertain_cursor_tool_activity_does_not_fall_back_to_another_model(self):
+        eng = self.engine({'pc': [{'progress': 'Agent tool started.'}, chatrun.CursorStreamUncertain('work may have run')],
+                           'nuc': ['must not run']})
+        events = self.send(eng, ADMIN, 'hello')
+        done = events[-1]['message']
+        self.assertEqual(done['status'], 'failed')
+        self.assertIn('work may have run', done['note'])
+        self.assertNotIn('must not run', done['text'])
+
     def test_deleting_the_chat_while_it_answers_still_ends_the_answer(self):
         eng = self.engine({'pc': ['Part one. ', 'WAIT', 'never']})
         code, stream = chatrun.post(eng, ADMIN, {'action': 'send', 'text': 'tell me everything'})

@@ -177,7 +177,7 @@ function renderTiles(s) {
         tile('Free slots', `${t.free_slots} / ${t.slots}`,
             t.machines_offline.length ? `Offline: ${t.machines_offline.join(', ')}` : plural(s.machines.items.length, 'machine'),
             t.machines_offline.length ? 'warn' : undefined),
-        tile('Jobs', `${t.running} running`, t.stalled ? `${t.stalled} stalled: open its log` : 'none stalled', t.stalled ? 'warn' : undefined),
+        tile('Tasks', `${t.running} running`, t.stalled ? `${t.stalled} stalled: open its log` : 'none stalled', t.stalled ? 'warn' : undefined),
         tile('Workers', `${t.workers_ready} / ${t.workers} ready`, workersNote(t), t.workers_ready < t.workers || t.outside ? 'warn' : undefined),
     );
 }
@@ -1227,7 +1227,7 @@ function renderProjectPick(s) {
 }
 
 // Fills one job list and keeps the reader's place: the focused job (or its log) and where each open log was scrolled.
-function fillJobs(box, jobs, none, key, limit) {
+function fillTasks(box, tasks, none, key, limit) {
     if (!jobs.length) {
         box.replaceChildren(none);
         return;
@@ -1277,7 +1277,7 @@ function renderJobs(s) {
     const items = s.jobs.items.filter((j) => !ui.project || (ui.project === '-' ? !j.project : j.project === ui.project));
     const running = items.filter((j) => LIVE.has(j.status));
     const finished = items.filter((j) => !LIVE.has(j.status));
-    fillJobs($('running'), running, empty('Nothing running', codeText('Runs from ', 'tutti quiet', ', ship checks, transfers and the autopilot show here with their progress.')),
+    fillTasks($('running'), running, empty('Nothing running', codeText('Runs from ', 'tutti quiet', ', ship checks, transfers and the autopilot show here with their progress.')),
         'running', ui.fit?.running ?? 8);
     ui.counts = { running: running.length, queued: s.queue?.queued || 0 };
     watchFit();
@@ -1291,7 +1291,7 @@ function renderJobs(s) {
     if (filterFocus) $('job-filter-buttons').querySelector(`[data-f="${filterFocus}"]`)?.focus();
     const none = finished.length ? empty(`No ${ui.filter} jobs`, 'Choose All to see every finished job.')
         : empty('No finished jobs yet', 'Each run shows here when it ends, with its result and the end of its log.');
-    fillJobs($('jobs'), finished.filter((j) => finishedAs(j, ui.filter)), none, 'history', 10);
+    fillTasks($('jobs'), finished.filter((j) => finishedAs(j, ui.filter)), none, 'history', 10);
 }
 
 // ---- what needs the owner: tuttiAttention (attention.js) gathers it, most urgent first

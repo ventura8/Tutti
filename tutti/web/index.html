@@ -71,6 +71,7 @@
         <nav class="tabs" aria-label="Views">
             <a class="tabs__tab" href="#chat" data-view="chat" aria-current="page">Chat</a>
             <a class="tabs__tab" href="#dashboard" data-view="dashboard">Dashboard</a>
+            <a class="tabs__tab" href="#tasks" data-view="tasks">Tasks</a>
             <a class="tabs__tab" href="#settings" data-view="settings">Settings</a>
             <a class="tabs__tab" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
         </nav>
@@ -235,7 +236,7 @@
             <div class="stack stack--fill span-wide" id="jobs-stack">
                 <section class="card card--running" aria-labelledby="running-h">
                     <header class="card__head">
-                        <h2 id="running-h">Running jobs</h2>
+                        <h2 id="running-h">Running tasks</h2>
                         <label class="sr-only" for="job-project">Show jobs of</label>
                         <select class="pick" id="job-project"></select>
                     </header>
@@ -467,7 +468,7 @@
 
             <section class="card card--jobs span-full" aria-labelledby="jobs-h">
                 <header class="card__head">
-                    <h2 id="jobs-h">Finished jobs</h2>
+                    <h2 id="jobs-h">Finished tasks</h2>
                     <p class="card__meta" id="jobs-meta"></p>
                     <fieldset class="segmented" id="job-filter"><legend class="sr-only">Show finished jobs</legend><div class="segmented__buttons" id="job-filter-buttons"></div></fieldset>
                 </header>
@@ -488,6 +489,16 @@
             </section>
         </div>
       </div>
+
+        <div id="tasks-view" hidden>
+            <section class="card span-full" aria-labelledby="tasks-h">
+                <header class="card__head">
+                    <h2 id="tasks-h">Tasks</h2>
+                    <p class="card__meta" id="tasks-meta"></p>
+                </header>
+                <div id="tasks" class="tasks"></div>
+            </section>
+        </div>
 
       <!-- Every setting of tutti.config.yaml, drawn by settings.js from GET /api/settings; sections may later be per user. -->
       <!-- The admin-only Users tab: people, roles, invites and the audit log (users.js); the household's per-user

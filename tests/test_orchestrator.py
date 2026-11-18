@@ -319,9 +319,12 @@ class StaleReadingTest(unittest.TestCase):
         self.assertIn('tutti usage log claude <percent>', s['remind'])
         self.assertTrue(pacing.account_state('claude', a, [], NOW)['stale'])
 
-    def test_an_automatically_read_account_is_never_stale(self):
+    def test_an_automatically_read_account_reports_a_missing_reading(self):
         a = {'window': '5h', 'resets': '2026-11-14T15:00Z', 'reader': {'command': ['x'], 'bucket': 'b'}}
-        self.assertFalse(pacing.account_state('agy', a, [], NOW)['stale'])
+        state = pacing.account_state('agy', a, [], NOW)
+        self.assertTrue(state['stale'])
+        self.assertFalse(state['needs_reading'])
+        self.assertIn('automatic reader', state['remind'])
 
     def test_an_account_behind_says_how_many_tasks_it_can_take(self):
         a = {'window': '7d', 'resets': '2026-11-21T00:00Z', 'worker': 'agy'}

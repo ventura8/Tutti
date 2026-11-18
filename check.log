@@ -1,0 +1,122 @@
++ set -euo pipefail
+++ dirname scripts/check.sh
++ cd scripts/..
++ export TUTTI_TELEMETRY=off
++ TUTTI_TELEMETRY=off
++ export TUTTI_OFFLINE=1
++ TUTTI_OFFLINE=1
++ export TUTTI_NO_DAEMONS=1
++ TUTTI_NO_DAEMONS=1
++ python3 -c 'import playwright, axe_playwright_python'
++ command -v shellcheck
++ shellcheck scripts/check.sh scripts/device-readings.sh scripts/memguard.sh scripts/quiet.sh scripts/release-assets.sh scripts/release-patch.sh scripts/set-device-secret.sh scripts/slot.sh scripts/tunnel.sh scripts/wsl-run64.sh install/bootstrap.sh install/install.sh install/uninstall.sh
++ command -v ruff
++ echo 'ruff is not installed here: skipped (CI runs it)'
+ruff is not installed here: skipped (CI runs it)
+++ mktemp -d
++ TMPDIR=/tmp/tmp.6PuIMMfP1r
++ export TMPDIR
++ trap 'rm -rf "$TMPDIR"' EXIT
+++ mktemp -d
++ XDG_CONFIG_HOME=/tmp/tmp.6PuIMMfP1r/tmp.8uzZ36tAfg
++ python3 tests/run.py
+..tutti: --until is not after --from: the absence would be over before it starts; give an end after 2026-11-16 07:00
+tutti: --stop-now does not go with --from: a planned absence hands its running work over at its start by itself
+...............................................................................................Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=8, pipe_handle=10)
+                                                  ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/multiprocessing/spawn.py", line 122, in spawn_main
+    exitcode = _main(fd, parent_sentinel)
+  File "/usr/lib/python3.14/multiprocessing/spawn.py", line 132, in _main
+    self = reduction.pickle.load(from_parent)
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tests/test_auth.py", line 21, in <module>
+    from tutti import auth, authcmd, authdevice, authweb, config, dashboard, invites, routing
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tutti/dashboard.py", line 22, in <module>
+    from . import (
+    ...<52 lines>...
+    )
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tutti/selftest.py", line 8, in <module>
+    from tests.e2e.harness import Dashboard
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tests/e2e/harness.py", line 10, in <module>
+    from test_auth import claims, token
+ImportError: cannot import name 'claims' from partially initialized module 'test_auth' (most likely due to a circular import) (/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tests/test_auth.py)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=8, pipe_handle=16)
+                                                  ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/multiprocessing/spawn.py", line 122, in spawn_main
+    exitcode = _main(fd, parent_sentinel)
+  File "/usr/lib/python3.14/multiprocessing/spawn.py", line 132, in _main
+    self = reduction.pickle.load(from_parent)
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tests/test_auth.py", line 21, in <module>
+    from tutti import auth, authcmd, authdevice, authweb, config, dashboard, invites, routing
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tutti/dashboard.py", line 22, in <module>
+    from . import (
+    ...<52 lines>...
+    )
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tutti/selftest.py", line 8, in <module>
+    from tests.e2e.harness import Dashboard
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tests/e2e/harness.py", line 10, in <module>
+    from test_auth import claims, token
+ImportError: cannot import name 'claims' from partially initialized module 'test_auth' (most likely due to a circular import) (/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tests/test_auth.py)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=8, pipe_handle=14)
+                                                  ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/multiprocessing/spawn.py", line 122, in spawn_main
+    exitcode = _main(fd, parent_sentinel)
+  File "/usr/lib/python3.14/multiprocessing/spawn.py", line 132, in _main
+    self = reduction.pickle.load(from_parent)
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tests/test_auth.py", line 21, in <module>
+    from tutti import auth, authcmd, authdevice, authweb, config, dashboard, invites, routing
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tutti/dashboard.py", line 22, in <module>
+    from . import (
+    ...<52 lines>...
+    )
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tutti/selftest.py", line 8, in <module>
+    from tests.e2e.harness import Dashboard
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tests/e2e/harness.py", line 10, in <module>
+    from test_auth import claims, token
+ImportError: cannot import name 'claims' from partially initialized module 'test_auth' (most likely due to a circular import) (/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tests/test_auth.py)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=8, pipe_handle=12)
+                                                  ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/multiprocessing/spawn.py", line 122, in spawn_main
+    exitcode = _main(fd, parent_sentinel)
+  File "/usr/lib/python3.14/multiprocessing/spawn.py", line 132, in _main
+    self = reduction.pickle.load(from_parent)
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tests/test_auth.py", line 21, in <module>
+    from tutti import auth, authcmd, authdevice, authweb, config, dashboard, invites, routing
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tutti/dashboard.py", line 22, in <module>
+    from . import (
+    ...<52 lines>...
+    )
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tutti/selftest.py", line 8, in <module>
+    from tests.e2e.harness import Dashboard
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tests/e2e/harness.py", line 10, in <module>
+    from test_auth import claims, token
+ImportError: cannot import name 'claims' from partially initialized module 'test_auth' (most likely due to a circular import) (/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t241/tests/test_auth.py)
+E.......................................................tutti: no repo "nope" under autopilot.repos in /tmp/tmp.6PuIMMfP1r/tutti-tests-_zoiw0kn/t-59_5mdzf/tmppsexs4os/tutti.config.yaml: the repos are app
+tutti: t1 is running (run 1-1): wait for it (tutti wait run 1-1), then retry it
+..............................................................................................................................................................................................................F..................F................................................................................................F...............................................................FFF.................................................................................................................................................................................................................F.........................................................github: Tutti's GitHub App is not set up in this copy yet: update Tutti, or set github.client_id in the config; until then Tutti uses the GitHub CLI when `gh auth login` was done
+..................................................tutti: this login is already in a household: `tutti household leave` first, or `tutti household code` for a new join code
+.tutti: household join: give the invite link from the dashboard's Users card (Invite someone), e.g. `tutti household join "https://<dashboard>/invite#..."`, quoted: a shell drops # and what follows (an older tutti-hh:... code works too)
+.tutti: no repo "nope" under autopilot.repos in /tmp/tmp.6PuIMMfP1r/tutti-tests-_zoiw0kn/t-dl3yhpw2/tmpgibn3qmn/config.yaml: the repos are app
+..............open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#EYph0hWEOUec9DkUS2x-ezww07kzAyWHXKVePS0ZTvw (waiting...)
+.open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#pLnUuxbcPUaf7PUmVPGLF_qYxJf7JauTFkoQ8d2A36I (waiting...)
+.open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#3xn6MAYMfPGhaMFysAWkwM5YAQbMma6HtPG5GPPORXg (waiting...)
+.....tutti: household project: app has no origin remote, so other members' copies cannot be matched to it: give it one (git remote add origin <url>), then share it
+........................................................tutti: /tmp/tmp.6PuIMMfP1r/tutti-tests-_zoiw0kn/t-wouin6kz/tmp9as81c1q/app is not a git repository: give the folder of a household repo (tutti connect --repo <path>)
+....................................................................................................................................................................................tutti: name the run by its id: tutti runs discard <id> (tutti runs lists them)
+...F............tutti: usage page-reading: cursor 25 %, resets 2026-12-10 00:00:00+00:00
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (Expecting value: line 1 column 1 (char 0)): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (list indices must be integers or slices, not str): pass the JSON string it evaluated to
+tutti: usage page-reading: "Other Models" was not found on the page (its layout may have changed): read it by eye and `tutti usage log <account> <percent>`
+tutti: usage page-reading: ghost: no account "ghost" in the config: the accounts are cursor, agy
+..tutti: usage page-script: no account has a usage_url without its own reader matching "nothing-matches"
+.........................................................

@@ -180,6 +180,9 @@ function renderTiles(s) {
         tile('Jobs', `${t.running} running`, t.stalled ? `${t.stalled} stalled: open its log` : 'none stalled', t.stalled ? 'warn' : undefined),
         tile('Workers', `${t.workers_ready} / ${t.workers} ready`, workersNote(t), t.workers_ready < t.workers || t.outside ? 'warn' : undefined),
     );
+    if (s.selftest) {
+        $('tiles').append(tile('Self-test', s.selftest.status === 'ok' ? 'Pass' : 'Fail', s.selftest.timestamp, s.selftest.status === 'ok' ? 'ok' : 'bad'));
+    }
 }
 
 // ---- usage

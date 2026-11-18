@@ -57,6 +57,7 @@ from . import (
     remote,
     report,
     scouts,
+    selftest,
     settings,
     setupcmd,
     sleepwatch,
@@ -256,6 +257,9 @@ class Collector:
         needs.tick(self.cfg)   # the questions only a person can answer, delivered in batches (docs/NEEDS.md)
         from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)
         hhjobs.tick(self.cfg)
+        res = selftest.run_self_test(self.cfg)
+        with self.lock:
+            self.probes = {**self.probes, 'selftest': res}
 
     def loop(self):
         while not self.stop.is_set():
@@ -315,6 +319,7 @@ class Collector:
         from . import sharing  # the household (docs/HOUSEHOLD.md): its members, shared machines' use per member, fairness
         out['household'] = sharing.view(self.cfg, self.clock())
         sharing.busy_for(out['machines']['items'], out['household'])
+        out['selftest'] = probes.get('selftest')
         out['controls']['opt_in'].append({'kind': 'autopilot', 'name': 'fill_room', 'on': out['autopilot']['fill_room'],
                                           'why': 'free room on the trigger accounts is filled from the repos\' sources by itself'})
         out['controls']['autocompact'] = autocompact.view(self.cfg)

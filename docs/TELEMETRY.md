@@ -223,9 +223,10 @@ What it does (`tutti/aiassist.py`, tested in `tests/test_aiassist.py`):
    in `self_improve.home` with its evidence and a regression-test-first note, inside the day's cap and the dedupe.
 2. **Smarter decisions** (local, each with a cheap fallback when AI is off or every model is down):
    - a failed autopilot attempt is classified **flaky** (a dropped connection, a DNS failure), **environment** (a missing
-     tool, a full disk, out of memory) or **real** (regular expressions at once, a local model's `CLASS:` line later): a
-     flaky or environment failure retries once on the same ladder step, then escalates; a real one escalates at once. A
-     rate limit is never flaky: the ladder moves on. With AI assist off the ladder works as before;
+     tool, a full disk, out of memory, a usage limit, a CLI permission refusal) or **real** (regular expressions at once,
+     a local model's `CLASS:` line later): a flaky or environment failure retries once on the same ladder step, then
+     escalates; a real one escalates at once. A usage limit is environment but still moves the ladder on (the account is
+     spent). With AI assist off the ladder works as before;
    - the model's one-line cause of the failure goes into the retry's brief;
    - a queued task gets acceptance criteria (*Done when:* in its brief) and a size, S, M or L (the model tier that takes
      it); the fallback sizes it from its scope and title, and the criteria are asked again once a model is back.

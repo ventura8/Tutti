@@ -2,6 +2,17 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## A usage limit is not a real attempt (t260, 2026-11-17)
+
+**What happened.** Overnight, 167 usage-limit failures were classified `real` and counted toward `max_attempts` / strongest-step
+`no_progress`, pushing 149 tasks to needs-person (128 requeued by hand).
+
+**Why.** AI assist treated a rate limit as `real` so the ladder would move on; the strongest-step park and the attempt
+counter did not exclude ENV_SIDE failures (usage limit, CLI refusal, no-report after a limit).
+
+**Rule.** A usage limit, a CLI permission refusal, and a run that ended without a report are **environment**: they do not
+count toward `max_attempts` and never park as no-progress. A usage limit still escalates (the account is spent).
+
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
 **What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:

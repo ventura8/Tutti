@@ -6,10 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
-## [0.23.6] - 2026-11-16
+## [0.23.6] - 2026-11-17
 
 ### Fixed
 
+- Autopilot: a worker's usage limit, a CLI permission refusal, and a run that ended without a report (including after a
+  limit) are classified **environment**, do not count toward `max_attempts`, and never park a task as no-progress on the
+  strongest step (t260: 167 usage-limit attempts overnight pushed 149 tasks to needs-person). A usage limit still moves
+  the ladder on (the account is spent).
 - While the main agent is in panic, the other accounts fill their room up to their own panic line (tasks that fit at
   their cost per task), not one task at a time (owner, prio 0).
 

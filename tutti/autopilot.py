@@ -282,8 +282,10 @@ def _candidates(cfg, t, over='', machines=()):
         return [n for n in steps if not is_local(cfg, n)] + [n for n in locals_ if n != last['step']]
     at = steps.index(last['step']) if last['step'] in steps else -1
     # a stronger model does not fix a dropped connection or a full disk: the same step once more, then up the ladder
+    # a usage limit is environment but the account is spent: move on (t260), never retry the same spent step
     again = len(t['attempts']) > 1 and t['attempts'][-2].get('step') == last['step']
-    stay = last['ok'] or (last.get('class') in ('flaky', 'environment') and not again)
+    stay = last['ok'] or (last.get('class') in ('flaky', 'environment') and not again
+                          and not str(last.get('why') or '').startswith(QUOTA_SIDE))
     start = max(min(at + (0 if stay else 1), len(steps) - 1), 0)
     # the steps above first; then the ones below, strongest first, so a retry never waits while only a weaker step has room
     # (agy's accounts sat idle behind a paced cursor and a yielding PC, 2026-11-14)
@@ -464,13 +466,18 @@ def normalise_tail(text):
 
 
 # How a worker's own failure reads in its run log: the worker is the problem there, not the task (another step is tried).
-WORKER_LIMIT = re.compile(r'quota (?:reached|exceeded|exhausted)|usage limit|resource[_ ]exhausted|rate[ -]?limit', re.I)
+WORKER_LIMIT = re.compile(r'quota (?:reached|exceeded|exhausted)|usage limit|resource[_ ]exhausted|rate[ -]?limit|\b429\b|'
+                      r'refused a command|auto-denied|required the .+ permission|permission (?:denied|refused)|'
+                      r'EACCES|access denied|the run ended without a report', re.I)
 WORKER_TIMEOUT = re.compile(r'print timeout|timed? ?out after|the turn still in progress', re.I)
 WORKER_SIDE = ('the worker hit its usage limit', 'the worker ran out of time', 'the worker\'s CLI refused a command',
                'the worker exited')
 # an account's usage limit is the account's state, not the task's: its room says when it may take work again, so a step that
 # failed only that way stays a candidate (agy-gemini with room for 50 took no task, 2026-11-16)
 QUOTA_SIDE = ('the worker hit its usage limit',)
+# the worker/account/CLI, not the task: class environment; not counted toward max_attempts; never parks as no_progress
+# (t260: 167 usage-limit attempts overnight parked 149 tasks). A no-report after a limit is read as a usage limit below.
+ENV_SIDE = (*QUOTA_SIDE, 'the worker\'s CLI refused a command', 'the run ended without a report')
 RUN_END = re.compile(r'^run \S+: \S+ exit -?\d+')   # Tutti's summary after the worker's own output (the task's text is in it)
 REPEAT = 2   # the same failure this many times in a row: on one step, that step is dropped; across steps, the task is parked
 
@@ -499,7 +506,9 @@ def worker_words(rc, run_tail):
 def signature(report, tails, run_tail=''):
     """(a short hash, the words) of how an attempt failed: the same failure gives the same signature every time."""
     if report is None:
-        words = 'the run ended without a report'
+        # a limit that killed the process before a report still shows in the log (t260: "ended without a report" after a limit)
+        words = ('the worker hit its usage limit' if WORKER_LIMIT.search(worker_output(run_tail))
+                 else 'the run ended without a report')
     elif report.get('denied'):   # a refused tool is the worker's problem, whatever its exit code
         words = 'the worker\'s CLI refused a command: ' + re.sub(r'\d+', '#', report['denied'][0][:120])
     elif report.get('worker_rc'):
@@ -512,18 +521,24 @@ def signature(report, tails, run_tail=''):
     return hashlib.sha1(words.encode()).hexdigest()[:12], words
 
 
+def env_failure(why):
+    """True when the failure is the worker, its account or its CLI, not the task (ENV_SIDE)."""
+    return bool(WORKER_LIMIT.search(str(why or '')))
+
+
 def park_reason(cfg, task):
     """('', '') to retry, else (the cause, `max_attempts` or `no_progress`, and why the task needs a person): the same failure
     `no_progress` times in a row on the strongest step, or max_attempts reached."""
     s = settings(cfg)
     tries = task['attempts'][int(task.get('resume_from') or 0):]   # counted afresh after a person's answer (tutti/needs.py)
     cap = attempt_cap(s['max_attempts'], task)
-    counted = [a for a in tries if not str(a.get('why') or '').startswith(QUOTA_SIDE)]   # an account's quota is not the task's
+    counted = [a for a in tries if not env_failure(a.get('why'))]   # ENV_SIDE is not the task's attempt
     if len(counted) >= cap:
         return 'max_attempts', (f'{len(task["attempts"])} attempts without a pass (autopilot.max_attempts is {s["max_attempts"]}'
                                 + (f'; {len(counted)} of {cap} since a person\'s retry)' if cap != s['max_attempts'] else ')'))
     again = repeated(tries)
-    if again and not again['why'].startswith(WORKER_SIDE) and len({a['step'] for a in tries[-REPEAT:]}) > 1:
+    if again and not again['why'].startswith(WORKER_SIDE) and not env_failure(again['why']) \
+            and len({a['step'] for a in tries[-REPEAT:]}) > 1:
         return 'no_progress', (f'no progress: it failed the same way {REPEAT} times in a row on different workers, so the task or '
                                f'its check is the problem, not the worker: {again["why"][:300]}')
     if worn_out(tries) and not candidates(cfg, task):
@@ -533,7 +548,7 @@ def park_reason(cfg, task):
     last = tries[-n:]
     steps = ladder(cfg)
     if steps and len(last) == n and all(not a['ok'] and a['step'] == steps[-1] for a in last) \
-            and len({a['signature'] for a in last}) == 1:
+            and len({a['signature'] for a in last}) == 1 and not env_failure(last[-1].get('why')):
         return 'no_progress', (f'no progress: the strongest step ({steps[-1]}) failed the same way {n} times in a row: '
                                f'{last[-1]["why"][:300]}')
     return '', ''
@@ -728,15 +743,23 @@ def tail_of(path, chars=TAIL_CHARS):
 
 def attempt_of(cfg, task, report, now):
     tails = check_tails(cfg, task['run'], (report or {}).get('checks') or [])
-    sig, why = signature(report, tails, tail_of(run_log(cfg, task['run'])) if (report or {}).get('worker_rc') else '')
+    run_tail = tail_of(run_log(cfg, task['run']))
+    sig, why = signature(report, tails, run_tail)
     failing = [tails[c['log']] for c in (report or {}).get('checks') or [] if c['rc'] != 0]
     if report is None or report.get('worker_rc') or not failing:
-        failing = [tail_of(run_log(cfg, task['run']))]
+        failing = [run_tail]
     ok = bool(report) and report['rc'] == 0
     if ok:
         sig, why = '', 'passed'
     from . import aiassist  # with AI assist on: flaky or environment retries on the same step once; real escalates
-    return {'class': aiassist.attempt_class(cfg, ok, failing[-1]),
+    cls = aiassist.attempt_class(cfg, ok, failing[-1])
+    if cls != 'environment' and failing[-1] != run_tail and run_tail:
+        cls = aiassist.attempt_class(cfg, ok, run_tail)
+    if cls is not None and env_failure(why):   # ENV_SIDE is always environment, whatever the failing output said
+        cls = 'environment'
+    elif cls == 'environment' and not env_failure(why):
+        why = 'the worker hit its usage limit'
+    return {'class': cls,
             'run': task['run'], 'step': task.get('step'), 'worker': task.get('worker'), 'model': task.get('model'), 'at': now, 'ok': ok,
             'started': task.get('started'),
             'signature': sig, 'why': why, 'stat': (report or {}).get('stat', ''), 'diff': (report or {}).get('diff'),

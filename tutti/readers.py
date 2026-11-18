@@ -630,6 +630,20 @@ def read_file_of(cfg, name, a):
     return f, mtime(f), text
 
 
+def file_status(name, used, resets, at, prior):
+    """A reused file reference is safe only while its parsed observation is unchanged."""
+    if prior is None:
+        return {'used': used, 'problem': None}
+    try:
+        same_reset = (pacing.parse_time(prior['resets']) if prior.get('resets') else None) == resets
+        same_time = at is None or pacing.parse_time(prior['at']) == at
+        unchanged = prior.get('used') == used and same_reset and same_time
+    except (KeyError, TypeError, ValueError, OverflowError):
+        unchanged = False
+    return {'used': used if unchanged else None, 'problem': None if unchanged else
+            f'accounts.{name}.reading_file changed without a new modification time: rewrite it and refresh'}
+
+
 def record_files(path, accounts, cfg=None, status=None):
     """Readings an orchestrator wrote to accounts.<name>.reading_file (it gets the plan's % from its own tool, which no CLI
     prints). Each version of the file is logged once (its ref holds the file's mtime). Returns (lines written, problems)."""
@@ -656,20 +670,10 @@ def record_files(path, accounts, cfg=None, status=None):
             if status is not None:
                 status[name] = {'used': None, 'problem': problem}
             continue
-        if ref in refs:
-            if status is not None:
-                prior = by_ref[ref]
-                try:
-                    same_reset = (pacing.parse_time(prior['resets']) if prior.get('resets') else None) == resets
-                    same_time = at is None or pacing.parse_time(prior['at']) == at
-                    unchanged = prior.get('used') == used and same_reset and same_time
-                except (KeyError, TypeError, ValueError, OverflowError):
-                    unchanged = False
-                status[name] = {'used': used if unchanged else None, 'problem': None if unchanged else
-                                f'accounts.{name}.reading_file changed without a new modification time: rewrite it and refresh'}
-            continue
         if status is not None:
-            status[name] = {'used': used, 'problem': None}
+            status[name] = file_status(name, used, resets, at, by_ref.get(ref))
+        if ref in refs:
+            continue
         written.append(pacing.append_log(path, name, used, at or datetime.fromtimestamp(seen, timezone.utc), 'from the reading file',
                                          resets=resets, source='file', ref=ref))
     return written, problems

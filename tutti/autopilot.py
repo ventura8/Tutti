@@ -654,6 +654,9 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
         from . import parallel
         return {**out, 'state': 'running', 'reason': parallel.line(cfg.get('_parallel'))}
     reasons = '; '.join(room_reason(n, r, queued) for n, r in rooms.items()) or 'no ladder step (autopilot.ladder or autopilot.accounts)'
+    if any(room <= 0 and 'ahead' in reason and (states.get(name) or {}).get('verdict') == 'ahead'
+           for name, (room, reason) in rooms.items()):
+        reasons += '; pacing is rechecked on the next successful active dashboard round while autopilot is running'
     return {**out, 'state': 'stopped', 'reason': f'no worker takes a task now: {reasons}'}
 
 

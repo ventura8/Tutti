@@ -486,6 +486,20 @@ class RoundTest(Base):
         with mock.patch.object(config, 'load', return_value=self.c):
             return autopilot.tick(self.c, self.states, [], is_alive=lambda pid: False, spawn=self.run_now)
 
+    def test_ahead_account_is_rechecked_and_dispatches_on_a_later_round(self):
+        self.c['autopilot'].update(ladder=['fake-b'], accounts=['fake-b'])
+        self.c['workers'].pop('pc')
+        self.states['fake-b'] = account('fake-b', 'ahead', used=30)
+        with backlog.locked(self.c) as data:
+            backlog.add(data, backlog.new_task('app', 'Mark a.txt fixed', ['a.txt'], ''))
+        first, _ = self.tick()
+        self.assertEqual(first['dispatch'], [])
+        self.assertIn('next successful active dashboard round', first['reason'])
+        self.assertEqual(backlog.load(self.c)['tasks'][0]['status'], 'queued')
+        self.states['fake-b'] = account('fake-b', 'behind', used=30)
+        second, _ = self.tick()
+        self.assertEqual(second['dispatch'], [('t1', 'fake-b')], second)
+
     def test_a_failing_task_retries_from_its_worktree_one_step_up_then_is_ready_for_review(self):
         with backlog.locked(self.c) as data:
             backlog.add(data, backlog.new_task('app', 'Mark a.txt fixed', ['a.txt'], ''))

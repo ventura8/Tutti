@@ -1415,14 +1415,14 @@ def give_up_here(cfg, t, holder, is_alive, kill, snap=checkpoint):
 
 
 def moved_away(cfg, data, moved, is_alive=None, kill=None):
-    """This member's tasks that an admin moved to another member while this computer was away (`moved`: {task key:
+    """This member's tasks that an admin moved to another member while this computer was away (`moved`: {(repo, task key):
     holder}, sharing.moved_of): never run here again. Returns event lines."""
     from . import household
     from . import state as state_mod
     is_alive = is_alive or state_mod.alive
     out = []
     for t in data['tasks']:
-        holder = moved.get(household.fold(t['title']))
+        holder = moved.get((t['repo'], household.fold(t['title'])))
         if holder and t['status'] in ('running', 'queued'):
             out.append(give_up_here(cfg, t, holder, is_alive, kill))
     return out
@@ -1605,7 +1605,8 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         events += guess_scopes(data, listed_files)
         hold, mirrored = sharing.under_lock(shared, data, now)
         from . import handover  # handover imports conduct, which imports modules that import this one
-        mirrored += moved_away(cfg, data, sharing.moved_of(shared), is_alive, handover.end_tree)
+        moved, _moved_hold, _warnings = sharing.moved_of(shared, data)
+        mirrored += moved_away(cfg, data, moved, is_alive, handover.end_tree)
         hold.update(sharing.spare_hold(cfg, data))
         from . import spendrest  # a retry waits briefly for the scout's second opinion on its failures (tutti/spendrest.py)
         hold.update({k: v for k, v in spendrest.waiting_seconds(cfg, now).items() if k not in hold})

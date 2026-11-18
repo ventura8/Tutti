@@ -568,7 +568,8 @@ class Moves(Base):
         state = household.new_state('home', NOW)
         for u, n in (('u1', 'Ana'), ('u2', 'Bo')):
             household.join(state, u, u, n, 'claude', 'tok', NOW)
-        household.sync_project(state, 'gh/x', {'publish': [{'title': 'Fix login'}], 'held': ['fix login']}, 'u1', NOW, 30)
+        household.sync_project(state, 'gh/x', {'publish': [{'title': 'Fix login', 'scope': ['src/login.py']}],
+                                                'held': ['fix login']}, 'u1', NOW, 30)
         self.assertIn('moved from Ana', household.reassign(state, 'gh/x', 'fix login', 'u2', NOW + 60))
         back = household.sync_project(state, 'gh/x', {'held': ['fix login']}, 'u1', NOW + 120, 30)   # Ana's laptop is back
         self.assertEqual(back['mine'], [])
@@ -577,10 +578,11 @@ class Moves(Base):
         self.assertEqual(household.claim(state, household.lease_key('gh/x', 'fix login'), 'u1', NOW + 3800, 30), (False, None))
         cfg = self.cfg()
         data = {'tasks': [{'id': 't1', 'title': 'Fix login', 'status': 'running', 'run': 'x', 'started': NOW, 'attempts': [],
-                           'repo': 'r'}]}
+                           'repo': 'r', 'scope': ['src/login.py']}]}
         killed = []
         with mock.patch.object(autopilot.delegate, 'paths', return_value={'pid': os.devnull}):
-            events = autopilot.moved_away(cfg, data, sharing.moved_of({'answer': {'projects': {'gh/x': back}}}),
+            moved, _, _ = sharing.moved_of({'keys': {'r': 'gh/x'}, 'answer': {'projects': {'gh/x': back}}}, data)
+            events = autopilot.moved_away(cfg, data, moved,
                                           lambda pid: True, killed.append)
         self.assertEqual(data['tasks'][0]['status'], 'moved')
         self.assertIn('not run here again', events[0])

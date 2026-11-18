@@ -193,6 +193,11 @@ A repo in `autopilot.repos` with `household: true` is a **shared project**. Its 
   `household`), so the queue, retries and the ladder work as before.
 - **Dedupe.** A task's key is its title, folded (case, spaces, punctuation). A key the shared backlog has, in any status
   (done and dropped too), is never added again, and a task one member finished is closed for all.
+- **Moved notices.** A notice is scoped to its shared project. Tutti acts on it only when one local repo and task match
+  and both sides supply compatible nonempty scopes. A notice without that evidence holds matching queued work, prevents
+  candidate closure, and reports
+  ambiguous running work without stopping it. The old title-only protocol and older members cannot establish a globally
+  unique task identity; matching scopes are evidence, not proof, and other household dedupe paths remain unchanged (t210).
 - **Leases.** A shared task starts only under its lease `task:<project>:<key>`: the round's call reserves, in its order,
   as many free tasks as the member could start now (`max_parallel` minus its runs) for 5 minutes, and a task that starts gets the full 30 minutes in a second call right away; every round renews the
   leases of its running and in-review tasks (the heartbeat). A lease held by another member makes the task wait ("leased by

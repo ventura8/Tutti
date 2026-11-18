@@ -2,6 +2,7 @@
 closes), the models (Ollama's streaming chat, a CLI worker), the tools (the same calls as the MCP server's), Undo, the audit
 log and the HTTP actions. tutti/chat.py holds the pure part."""
 import json
+import os
 import queue
 import re
 import subprocess
@@ -20,6 +21,8 @@ NO_ANSWER = ('I looked things up but did not reach an answer. Ask again, more sp
              'above.')
 ROUNDS = 4        # tool rounds a model may take for one answer
 MAX_CALLS = 4     # tool calls taken from one round
+STATUS_WAIT_SECONDS = 120
+STATUS_POLL_SECONDS = 2
 WORK_ACTIONS = ('chat: Queue a task', 'chat: Hand off', 'chat: Ask ')   # audit lines that count against a viewer's daily limit
 BUILTIN = 'Tutti (built-in, from the dashboard\'s state)'
 
@@ -138,6 +141,29 @@ def run_tool(cfg, call, runner=None):
         m = re.match(r'(t\d+):\s*added', text)
         undo = {'tool': 'backlog_rm', 'args': {'id': m[1]}} if m else None
     return not err, text, undo
+
+
+def follow_missing_report(cfg, call, job, result, runner=None):
+    """Wait briefly for a known delegated run's report, without controlling or restarting the run."""
+    from . import delegate
+    ok, text, undo = result
+    run_id = (call.get('args') or {}).get('id')
+    if (ok or call.get('tool') != 'job_status' or not delegate.valid_id(run_id) or
+            f'no report for run {run_id} ' not in (text or '') or not os.path.isfile(delegate.paths(cfg, run_id)['log'])):
+        return result
+    job.emit('note', text='The run has no report yet. Checking automatically until it arrives or this check times out.')
+    deadline = time.monotonic() + STATUS_WAIT_SECONDS
+    while not job.cancel.is_set():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False, 'The report did not arrive before this status check timed out; the run may still be active.', None
+        if job.cancel.wait(min(STATUS_POLL_SECONDS, remaining)):
+            break
+        if delegate.load_report(cfg, run_id):
+            if job.cancel.is_set():
+                break
+            return run_tool(cfg, call, runner)
+    return False, 'Status checking stopped; the delegated run was not stopped.', None
 
 
 def job_ref(text):
@@ -348,7 +374,7 @@ class Engine:
         job.emit('model', model=BUILTIN)
         job.emit('delta', text=text)
 
-    def execute(self, user, cfg, call, card):
+    def execute(self, user, cfg, call, card, job=None):
         """Runs one call for `user` into `card`: the role check, the audit line, the MCP tool's call, Undo where possible."""
         with self.act_lock:   # the daily limit and its audit line together: two quick Confirms cannot both pass
             why = chat.refusal(user, call, cfg, self.done_today(user))
@@ -361,7 +387,8 @@ class Engine:
             except auth.AuthError:
                 card.update(state='refused', text='Only an admin can do that.', call=None)
                 return card
-        ok, text, undo = run_tool(cfg, call, self.runner)
+        result = run_tool(cfg, call, self.runner)
+        ok, text, undo = follow_missing_report(cfg, call, job, result, self.runner) if job else result
         card.update(state='done' if ok else 'failed', text=plain(text, ok), ref=job_ref(text), undo=undo, call=None)
         return card
 
@@ -370,7 +397,7 @@ class Engine:
 
     def _act(self, job, user, cfg, call):
         """A request the user wrote in so many words: it runs at once (their words are the confirmation)."""
-        card = self.execute(user, cfg, call, self.new_card(call))
+        card = self.execute(user, cfg, call, self.new_card(call), job=job)
         job.msg['cards'].append(card)
         job.emit('card', card=card)
         self._say(job, {'done': 'Done.', 'failed': 'That did not work; the card says why.',
@@ -641,6 +668,8 @@ class Engine:
         results += [(c.get('tool') if isinstance(c, dict) else '?', f'skipped: at most {MAX_CALLS} calls at a time; ask again')
                     for c in calls[MAX_CALLS:]]
         for raw in calls[:MAX_CALLS]:
+            if job.cancel.is_set():
+                return results, False
             call = chat.validate(raw, known)
             if isinstance(call, str):
                 results.append(((raw or {}).get('tool') if isinstance(raw, dict) else '?', f'refused: {call}'))
@@ -648,26 +677,34 @@ class Engine:
                 continue
             job.bad_calls, job.used_tools = 0, True
             if not tools[call['tool']]['mutating']:
-                _ok, text, _ = run_tool(cfg, call, self.runner)
+                result = run_tool(cfg, call, self.runner)
+                _ok, text, _ = follow_missing_report(cfg, call, job, result, self.runner)
                 results.append((call['tool'], text if len(text) <= 3000 else '(the start is cut)\n' + text[-3000:]))
             else:
                 mutating.append(call)
+        if job.cancel.is_set():
+            return results, False
         mode = getattr(job, 'mode', 'auto')
         if mode == 'auto' and getattr(job, 'untrusted', False):
             mode = 'ask'   # it read a file, a log or an attachment: their text must not be able to start work by itself
         if mutating and mode == 'auto':   # autonomous: it acts, then shows the card with Undo
-            for call in mutating:
-                card = self.execute(user, cfg, call, self.new_card(call))
-                job.msg['cards'].append(card)
-                job.emit('card', card=card)
-                results.append((call['tool'], f'{card["state"]}: {card.get("text") or ""}'))
-            return results, False
+            return self._run_mutations(job, user, cfg, mutating, results), False
         if mutating and mode == 'answer':   # just ask (owner, 2026-11-17): nothing that changes something runs or is proposed
             results.extend((c['tool'], 'not run: this chat is in Just ask mode') for c in mutating)
             return results, False
         if mutating:
             self._propose(job, user, cfg, mutating, cand, mode)
         return results, bool(mutating)
+
+    def _run_mutations(self, job, user, cfg, calls, results):
+        for call in calls:
+            if job.cancel.is_set():
+                break
+            card = self.execute(user, cfg, call, self.new_card(call))
+            job.msg['cards'].append(card)
+            job.emit('card', card=card)
+            results.append((call['tool'], f'{card["state"]}: {card.get("text") or ""}'))
+        return results
 
     def _propose(self, job, user, cfg, calls, cand, mode):
         """Ask before acting: one card to confirm per call. Plan review: one plan card with every step."""

@@ -245,3 +245,7 @@ chat:
   viewer_projects: []       # empty: every project under autopilot.repos
   history_turns: 10         # earlier messages a model sees
 ```
+
+A Chat `job_status` check for a known delegated run without a report polls for up to two minutes while the answer is
+open. Stop cancels polling after any in-flight status call returns, not the delegated run. A timeout reports uncertainty; monitoring is not persisted
+across a dashboard restart.

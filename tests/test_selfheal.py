@@ -292,9 +292,13 @@ class RoundTest(unittest.TestCase):
         os.utime(os.path.join(d, 'web', 'app.js'), (5.0, 5.0))
         self.assertEqual(failovercmd.code_stamp(d), 5.0)   # a subfolder's file counts
         self.assertEqual(failovercmd.code_stamp('/nonexistent-folder'), 0.0)
-        with mock.patch.object(failovercmd.os, 'execv') as execute:
-            failovercmd.restart_in_place()
-        execute.assert_called_once_with(failovercmd.sys.executable, [failovercmd.sys.executable, *failovercmd.sys.argv])
+        for binary in ('/example/checkout/bin/tutti', '/example/versions/1.2.3/bin/tutti'):
+            with self.subTest(binary=binary), mock.patch.object(failovercmd.remote, 'BIN', binary), \
+                    mock.patch.object(failovercmd.os, 'execv') as execute:
+                failovercmd.restart_in_place({'_path': '/tmp/example config.yaml'})
+            execute.assert_called_once_with(failovercmd.sys.executable,
+                                            [failovercmd.sys.executable, binary, '--config', '/tmp/example config.yaml',
+                                             'failover', 'run'])
 
     def test_reload_failure_keeps_heartbeats_until_the_next_attempt(self):
         stamps, rounds = iter([1.0, 2.0, 2.0]), []

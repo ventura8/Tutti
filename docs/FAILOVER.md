@@ -4,6 +4,8 @@ When its code changes, the failover watchdog reloads its process in place, avoid
 reload. If the reload fails, it continues heartbeats and retries. A successful exec of a partially replaced or broken
 program can still exit and trigger the leave hook. This does not make a checkout update atomic or preserve jobs across a
 dashboard service restart; those require separate coordination.
+The watchdog reloads its existing code tree: switching a release-install `current` symlink does not itself switch or notify
+a watchdog that is still watching the old version tree.
 
 Tutti runs on one **main machine**: its dashboard, the household coordinator, the autopilot and the device leases. A
 **backup main machine** holds a warm copy of Tutti's state and takes over by itself when the main machine is away, then

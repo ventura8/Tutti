@@ -177,9 +177,10 @@ def code_stamp(folder=None):
     return newest
 
 
-def restart_in_place():
-    """Reload the watchdog without stopping its service and triggering its failover-leave ExecStop."""
-    os.execv(sys.executable, [sys.executable, *sys.argv])
+def restart_in_place(cfg):
+    """Reload only the failover run command, with its resolved config path, without invoking the leave hook."""
+    path = os.path.abspath(cfg['_path'])
+    os.execv(sys.executable, [sys.executable, remote.BIN, '--config', path, 'failover', 'run'])
 
 
 def loop(cfg, stop=None, sleep=time.sleep, stamp=code_stamp, restart=None):
@@ -189,7 +190,7 @@ def loop(cfg, stop=None, sleep=time.sleep, stamp=code_stamp, restart=None):
         if stamp() != started:
             say('failover: Tutti\'s code changed (an update): reloading the watchdog in place')
             try:
-                return (restart or restart_in_place)()
+                return restart() if restart else restart_in_place(cfg)
             except OSError as e:
                 say(f'failover: watchdog reload failed ({e}); continuing heartbeats and retrying next round')
         try:

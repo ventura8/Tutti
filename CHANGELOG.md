@@ -369,8 +369,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Added
 
-- Add a hard-disabled, owner-only OpenAI Responses Chat routing prototype. Authoritative API billing and atomic paid-call
-  reservation are not yet implemented; no configuration can enable this prototype (t294).
+- Add a hard-disabled OpenAI Responses Chat prototype and an unconnected local reservation ledger. Authoritative API
+  billing, settlement and an end-to-end paid-call gate are not implemented; no config can enable paid Chat (t294).
 
 
 ## [0.27.5] - 2026-11-18

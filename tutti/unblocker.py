@@ -36,7 +36,7 @@ RECENT = 3
 LIMIT_RX = re.compile(r'usage limit|quota (?:reached|exceeded)|RESOURCE_EXHAUSTED|Too Many Requests|(?:HTTP|status|code)[ :]*429\\b', re.I)
 REAL_RX = re.compile(r'exited|without a report|stuck:|changed nothing|refused|rc=127|failed', re.I)
 REBASE_RX = re.compile(r'does not rebase|rebase conflict|could not apply', re.I)
-ACTION_RX = re.compile(r'^\s*ACTION:\s*(\S+)', re.I | re.M)
+ACTION_RX = re.compile(r'^[ \t]*ACTION:[ \t]*(.*?)[ \t]*$', re.I | re.M)
 WHY_RX = re.compile(r'^\s*(?:WHY|DIAGNOSIS):\s*(.+)', re.I | re.M)
 FIX_RX = re.compile(r'^\s*FIX:\s*(.+)', re.I | re.M)
 
@@ -108,8 +108,8 @@ def decide_prompt(t, q):
 def parse(answer):
     """{action, why, fix} from a model's answer; action '' when it gave none."""
     text = str(answer or '')
-    m, w, f = ACTION_RX.search(text), WHY_RX.search(text), FIX_RX.search(text)
-    return {'action': m.group(1).strip().lower().rstrip('.') if m else '', 'why': w.group(1).strip()[:300] if w else '',
+    actions, w, f = ACTION_RX.findall(text), WHY_RX.search(text), FIX_RX.search(text)
+    return {'action': actions[0].strip().lower() if len(actions) == 1 else '', 'why': w.group(1).strip()[:300] if w else '',
             'fix': f.group(1).strip()[:300] if f else ''}
 
 
@@ -158,7 +158,10 @@ def answer_parked(cfg, item, verdict, now):
     q = next((x for x in _questions(cfg) if x.get('task') == item['id'] and x.get('status') == 'open'), None)
     if not q:
         return 'no open question any more'
-    pick = next((o for o in q.get('options') or [] if o.lower() == verdict.get('action')), None)
+    action = str(verdict.get('action') or '').strip().lower()
+    if action == 'person':
+        return 'a true decision: left for the person'
+    pick = next((o for o in q.get('options') or [] if o.lower() == action), None)
     if not pick:
         return 'a true decision: left for the person'
     ok, why = needs.answer(cfg, q['id'], pick, role='admin', key='tutti-unblocker', now=now)

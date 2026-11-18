@@ -1,5 +1,9 @@
 # Run to completion and the needs-input queue
 
+The unblocker may answer a parked question only when the model supplies one complete action matching a listed option.
+Multiword options work; extra words, multiple action lines, or `person` leave the question open. This does not guarantee
+that a model's choice is correct or resolve decisions which require the person (t278).
+
 Tutti works through everything it can do (the backlog, the queue, parked tasks once answered, the work queue) within the
 pacing and token limits, and asks a person only what only a person can decide.
 

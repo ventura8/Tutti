@@ -1,5 +1,7 @@
 # Feedback log
 
+The unblocker must understand complete multiword choices without turning ambiguous text into a different answer (t278).
+
 A dashboard-requested restart must not cut off a Chat answer that is still running (t404).
 Multiple local worker names for the same model server must not schedule overlapping work to that server (t301).
 

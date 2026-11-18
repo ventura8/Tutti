@@ -110,6 +110,35 @@ class FillTest(Base):
         found = [('a', 'one', [], 's', ''), ('a', 'two', [], 's', ''), ('b', 'three', [], 's', '')]
         self.assertEqual([x[1] for x in fill.pick({'tasks': []}, found, 2)], ['one', 'three'])
 
+    def test_pick_preserves_explicitly_distinct_work_and_historic_dedupe(self):
+        existing = {**task('t1', 'done'), 'title': 'Fix test', 'scope': ['a.py'], 'check': 'test-a'}
+        found = [('app', 'Fix test', ['a.py'], 'todo', 'test-a'),
+                 ('app', 'Fix test', ['b.py'], 'todo', 'test-a'),
+                 ('app', 'Fix test', ['a.py'], 'todo', 'test-b'),
+                 ('app', 'Fix test', [], 'todo', ''),
+                 ('other', 'Fix test', ['a.py'], 'todo', 'test-a')]
+        picked = fill.pick({'tasks': [existing]}, found, 10)
+        self.assertEqual({(x[0], tuple(x[2]), x[4]) for x in picked},
+                         {('app', ('b.py',), 'test-a'), ('app', ('a.py',), 'test-b'),
+                          ('other', ('a.py',), 'test-a')})
+        existing['status'] = 'dropped'
+        self.assertNotIn(found[0], fill.pick({'tasks': [existing]}, found, 10))
+
+    def test_pick_removes_same_batch_duplicates_before_limiting_room(self):
+        found = [('app', 'Fix one', ['a.py'], 'todo', 'check'),
+                 ('app', 'fix one', ['a.py'], 'gap', 'check'),
+                 ('app', 'Fix two', ['b.py'], 'todo', 'check')]
+        self.assertEqual(fill.pick({'tasks': []}, found, 2), [found[0], found[2]])
+
+    def test_fill_counts_only_successful_additions(self):
+        cfg = self.cfg()
+        data = {'tasks': [], 'next': 1}
+        found = ([('app', 'Fix one', ['a.py'], 'todo', 'check')], [])
+        with mock.patch.object(fill, 'room', return_value=1), mock.patch.object(fill, 'want', return_value=1), \
+                mock.patch.object(backlog, 'add', return_value=({}, False)):
+            info = fill.fill(cfg, data, self.states(), FREE, 1.0, found)
+        self.assertEqual(info['added'], 0)
+
     def test_a_missing_repo_folder_is_named(self):
         cfg = self.cfg(fill_room=True)
         self.assertIn('no folder', self.round(cfg, 1.0)['note'])

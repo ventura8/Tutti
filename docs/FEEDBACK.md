@@ -7,6 +7,8 @@ Autopilot must not launch new work after a cooperative local move has frozen its
 
 Checkpoint status must not claim a push succeeded when the snapshot produced no SHA or the push was disabled (t309).
 
+Auto-fill must preserve explicitly different task scopes or checks and count only additions that actually succeeded (t210).
+
 Same-title work with explicitly different file scopes or checks must not be silently discarded on backlog addition (t210).
 
 The unblocker must understand complete multiword choices without turning ambiguous text into a different answer (t278).

@@ -11,6 +11,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 ### Fixed
 
 - Keep same-title backlog additions separate when both explicitly name different scopes or checks (t210).
+- Preserve explicit scope and check differences when auto-fill discovers work, and count only added tasks (t210).
 
 ## 0.30.10 (2026-11-18)
 

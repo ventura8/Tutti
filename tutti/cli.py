@@ -194,6 +194,16 @@ def cmd_self_update(cfg, a):
     return code
 
 
+def cmd_detect(cfg, a):
+    """Detect GPUs and NPUs."""
+    from . import detect
+    results = detect.detect_all(cfg)
+    for machine, devs in results.items():
+        print(f'{machine}:')
+        print(detect.prioritize(devs))
+    return 0
+
+
 def cmd_machines(cfg, a):
     """Exit 1 when a machine does not answer, so a script can tell."""
     if a.action == 'add-android':
@@ -1768,6 +1778,7 @@ def parser():
     s.add_argument('--host', help='add-android: the device IP address')
     s.add_argument('--user', help='add-android: the Termux user (whoami)')
     s.add_argument('--port', type=int, default=8022, help='add-android: Termux sshd port (8022)')
+    add('detect', cmd_detect, 'detect GPUs and NPUs')
     s = add('devices', cmd_devices, 'Android devices for e2e: connection, battery, charging, heat, screen, Wi-Fi and lock; pair one '
             'over Wi-Fi (QR code, or the code a TV shows); move devices to another machine')
     s.add_argument('action', nargs='?', choices=['add', 'pair', 'move', 'claim', 'release', 'install', 'hours', 'lease', 'night'],

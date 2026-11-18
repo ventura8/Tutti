@@ -1063,6 +1063,21 @@ def supervise(cfg, lease, s, child, beat, look=calls.look, sleep=time.sleep, log
             return late
 
 
+class AdmissionRefused(Exception):
+    """A lease was held, removed, or already admitted before this runner could start."""
+
+
+def admit_run(cfg, lid, argv, popen):
+    """Serialize launch with recovery and persist intent before spawning; never hold the lock during execution."""
+    with locked(cfg) as st:
+        lease = st['leases'].get(lid)
+        if not lease or lease.get('uncertain') or lease.get('run_admitted'):
+            raise AdmissionRefused
+        lease['run_admitted'] = True
+        durable.dump_json(os.path.join(config.state_dir(cfg), FILE), st, indent=1)
+        return popen(argv, stdin=subprocess.DEVNULL, start_new_session=True)
+
+
 def run(cfg, lid, popen=subprocess.Popen, after=live_tick, look=calls.look, sleep=time.sleep):
     """`tutti dispatch run <lease>`: runs the shard, touches the heartbeat while it runs (and looks for phone calls on a
     device), writes the exit code, frees the lease and dispatches the next shard at once (the target is free now)."""
@@ -1074,12 +1089,15 @@ def run(cfg, lid, popen=subprocess.Popen, after=live_tick, look=calls.look, slee
     s = next((x for x in suites(cfg) if x['project'] == lease['project'] and x['name'] == suite), None)
     p = paths(cfg, lid)
     rc = 2
+    write_result = True
     try:
         if s:
             argv = test_argv(cfg, lease, s, shard)
             rc = STOP_UNCERTAIN   # an exception from launch may still leave a child running
-            child = popen(argv, stdin=subprocess.DEVNULL, start_new_session=True)
+            child = admit_run(cfg, lid, argv, popen)
             rc = supervise(cfg, lease, s, child, p['beat'], look, sleep, log=p['log'])
+    except AdmissionRefused:
+        rc, write_result = 2, False
     except config.ConfigError as e:   # an empty test filter: refused, never run
         with open(p['log'], 'a', encoding='utf8') as f:
             f.write(f'dispatch: refused: {e}\n')
@@ -1088,13 +1106,14 @@ def run(cfg, lid, popen=subprocess.Popen, after=live_tick, look=calls.look, slee
     except StopUncertain:
         rc = STOP_UNCERTAIN
     finally:
-        if rc != STOP_UNCERTAIN:
+        if write_result and rc != STOP_UNCERTAIN:
             with locked(cfg) as state:
                 current = state['leases'].get(lid)
                 if current and not current.get('uncertain'):
                     announce_free(cfg, released(read_log(p['log'])), st=state)
-        with open(p['rc'], 'w', encoding='utf8') as f:
-            f.write(f'{rc}\n')
+        if write_result:
+            with open(p['rc'], 'w', encoding='utf8') as f:
+                f.write(f'{rc}\n')
     with contextlib.suppress(Exception):   # the next shard is a bonus: the dashboard's next tick sends it anyway
         after(cfg)
     return 1 if rc == STOP_UNCERTAIN else 0 if isinstance(rc, str) else rc

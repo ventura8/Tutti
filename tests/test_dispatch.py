@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -196,6 +197,60 @@ class DispatchTest(Base):
             dispatch.sync(st, 'Radio', 'new-commit', {'e2e': ['a']}, NOW + 11)
             self.assertNotIn('e2e/a', [w['key'] for w in dispatch.pending(cfg, st)])
             self.assertIn('uncertain', st['leases'][lid])
+
+    def test_held_or_already_admitted_lease_never_starts_another_runner(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        spawn = mock.Mock(return_value=object())
+        dispatch.admit_run(cfg, lid, ['fake'], spawn)
+        with self.assertRaises(dispatch.AdmissionRefused):
+            dispatch.admit_run(cfg, lid, ['fake'], spawn)
+        with dispatch.locked(cfg) as st:
+            dispatch.recover(cfg, st, NOW + 10, lambda _: False, rc_fn=lambda *_: None)
+        with self.assertRaises(dispatch.AdmissionRefused):
+            dispatch.admit_run(cfg, lid, ['fake'], spawn)
+        self.assertEqual(spawn.call_count, 1)
+
+    def test_concurrent_runner_admission_and_recovery_never_start_after_hold(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        with dispatch.locked(cfg) as st:
+            dispatch.recover(cfg, st, NOW + 10, lambda _: False, rc_fn=lambda *_: None)
+        spawn = mock.Mock()
+        def attempt():
+            try:
+                dispatch.admit_run(cfg, lid, ['fake'], spawn)
+            except dispatch.AdmissionRefused:
+                return False
+            return True
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            self.assertEqual(list(pool.map(lambda _: attempt(), range(2))), [False, False])
+        spawn.assert_not_called()
+
+    def test_recovery_waits_for_atomic_launch_and_then_holds_the_lease(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        entered, release = threading.Event(), threading.Event()
+        def spawn(*_args, **_kwargs):
+            entered.set()
+            self.assertTrue(release.wait(2))
+            return object()
+        def recover():
+            with dispatch.locked(cfg) as st:
+                dispatch.recover(cfg, st, NOW + 10, lambda _: False, rc_fn=lambda *_: None)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            start = pool.submit(dispatch.admit_run, cfg, lid, ['fake'], spawn)
+            self.assertTrue(entered.wait(2))
+            recovery = pool.submit(recover)
+            release.set()
+            start.result(timeout=2)
+            recovery.result(timeout=2)
+        lease = dispatch.read_state(cfg)['leases'][lid]
+        self.assertTrue(lease['run_admitted'])
+        self.assertIn('uncertain', lease)
 
     def test_stop_waits_after_kill_and_holds_if_the_child_still_does_not_exit(self):
         child = mock.Mock(pid=42)

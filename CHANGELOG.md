@@ -7,7 +7,7 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
-## Unreleased
+## [0.30.1] - 2026-11-18
 
 ### Changed
 

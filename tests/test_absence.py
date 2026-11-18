@@ -1,11 +1,14 @@
 """Planned absences (`tutti pause <kind> <name> --from <time> --until <time|unknown>`): nothing new is scheduled from 30 min
 before, running work is handed over at the start, the end comes at `until` or, left open, when presence sees it back."""
+import contextlib
+import io
 import shutil
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 
-from tutti import controls
+from tutti import cli, controls
 
 NOW = 1_800_000_000.0
 HOUR = 3600
@@ -75,15 +78,14 @@ class AbsenceTest(unittest.TestCase):
 
 
     def test_the_cli_refuses_an_end_before_the_start_and_stop_now(self):
-        from types import SimpleNamespace
-
-        from tutti import cli
         cfg = {'_path': '/x', 'project': {'state': self.tmp}, 'raw_entries': {'devices': {'p': {}}}, 'devices': {'p': {}}}
         a = SimpleNamespace(cmd='pause', kind='device', name='p', note='', stop_now=False, start='2026-11-16 07:00',
                             until='2026-11-15 07:00')
-        self.assertEqual(cli.cmd_control(cfg, a), 2)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(cli.cmd_control(cfg, a), 2)
         a.until, a.stop_now = 'unknown', True
-        self.assertEqual(cli.cmd_control(cfg, a), 2)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(cli.cmd_control(cfg, a), 2)
         self.assertEqual(controls.read(self.tmp)['paused'], {})
 
 

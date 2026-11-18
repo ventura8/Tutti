@@ -1888,16 +1888,61 @@ def _start_reserved(cfg, data, task, step, now, spawn, states):
     return run_id, f'{task_id} sent to {step} (run {run_id}, attempt {len(task["attempts"]) + 1})'
 
 
+def strict_controls(folder):
+    """Read control switches without treating a damaged file as an empty, unpaused configuration."""
+    from . import controls
+    try:
+        with open(controls.path(folder), encoding='utf8') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    for section in ('enabled', 'paused', 'settings', 'handed'):
+        if section in data and not isinstance(data[section], dict):
+            return None
+    if any(not isinstance(v, dict) or not isinstance(v.get('on'), bool) for v in data.get('enabled', {}).values()):
+        return None
+    if any(not isinstance(v, dict) for v in data.get('paused', {}).values()):
+        return None
+    return data
+
+
+def quota_signature(state):
+    """The observed quota fields that must still match the planning snapshot."""
+    fields = ('name', 'used', 'reading_at', 'reset', 'target', 'panic', 'verdict', 'after_reset', 'stale')
+    return tuple(state.get(k) for k in fields) + (tuple(quota_signature(x) for x in state.get('limits') or []),)
+
+
 def slow_start_allowed(cfg, step, states, tasks, at):
-    """Recheck sharing and reading freshness immediately before a slow start."""
+    """Reload controls, config and usage; refuse a slow start if the planning snapshot has changed."""
+    from . import state as state_mod
     from . import users
-    cfg['_slow_shared_accounts'] = users.slow_shares(cfg)
     try:
         current = datetime.fromtimestamp(at, timezone.utc)
-    except (TypeError, ValueError, OverflowError, OSError):
+        before = strict_controls(config.state_dir(cfg))
+        if before is None:
+            return False
+        fresh = config.load(cfg['_path'])
+        after = strict_controls(config.state_dir(cfg))
+        if before != after or any(cfg.get(k) != fresh.get(k) for k in ('accounts', 'workers', 'machines', 'autopilot',
+                                                                       'disabled_accounts', 'disabled_workers', 'main')):
+            return False
+        usage = state_mod.usage_state(fresh, current)
+        if usage.get('problem'):
+            return False
+        latest = next((s for s in usage.get('accounts', []) if s.get('name') == step), None)
+        original = states.get(step)
+        if not latest or not original or quota_signature(latest) != quota_signature(original):
+            return False
+        latest = {**latest, 'reader_problem': original.get('reader_problem'),
+                  'selected_source': original.get('selected_source')}
+        fresh['_slow_shared_accounts'] = users.slow_shares(fresh)
+    except (config.ConfigError, KeyError, TypeError, ValueError, OverflowError, OSError):
         return False
-    return not quiet_stop(cfg, current) and slow_room(cfg, step, states.get(step) or {}, tasks,
-                                                      spent_units(tasks, states, cfg), current)
+    return not quiet_stop(fresh, current) and slow_room(fresh, step, latest, tasks, spent_units(tasks, states, fresh), current)
 
 
 def start_planned(cfg, data, task, step, now, spawn, states, clock, slow):

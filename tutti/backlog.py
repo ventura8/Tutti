@@ -63,6 +63,10 @@ def load(cfg):
         data = {}
     data.setdefault('next', 1)
     data.setdefault('tasks', [])
+    for t in data['tasks']:
+        t.setdefault('depends_on', [])
+        t.setdefault('together_with', [])
+        t.setdefault('merged_into', None)
     return data
 
 
@@ -70,13 +74,15 @@ def key_of(t):
     return (t['repo'], re.sub(r'\s+', ' ', t['title'].strip().lower()))
 
 
-def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', notes=()):
+def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', notes=(),
+             depends_on=None, together_with=None, merged_into=None):
     if size not in SIZES:
         raise BacklogError(f'size "{size}": use one of {", ".join(SIZES)} (small, medium, large)')
     if not title.strip():
         raise BacklogError('a task needs a title that says what to change')
     return {'repo': repo, 'title': title.strip()[:300], 'scope': [s for s in scope if s], 'check': check, 'size': size,
-            'source': source, 'status': 'queued', 'attempts': [], 'notes': list(notes), 'added': time.time()}
+            'source': source, 'status': 'queued', 'attempts': [], 'notes': list(notes), 'added': time.time(),
+            'depends_on': depends_on or [], 'together_with': together_with or [], 'merged_into': merged_into}
 
 
 def add(data, task):
@@ -289,3 +295,24 @@ def seed(data, name, repo, run=subprocess.run):
         if new:
             added.append(task)
     return added
+
+
+def is_blocked(task, all_tasks):
+    for dep_id in task.get('depends_on', []):
+        dep_task = next((t for t in all_tasks if t['id'] == dep_id), None)
+        if dep_task and dep_task['status'] != 'done':
+            return True
+    return False
+
+
+def deps(data, task_id):
+    t = find(data, task_id)
+    out = [f'Task {task_id}: {t["title"]}']
+    if t.get('depends_on'):
+        out.append(f'  Depends on: {", ".join(t["depends_on"])}')
+    if t.get('together_with'):
+        out.append(f'  Together with: {", ".join(t["together_with"])}')
+    if t.get('merged_into'):
+        out.append(f'  Merged into: {t["merged_into"]}')
+    return '\n'.join(out)
+

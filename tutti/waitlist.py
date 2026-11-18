@@ -27,12 +27,20 @@ def task_items(cfg, tasks, last):
     for t in tasks:
         if t.get('status') != 'queued' or backlog.is_question(t):
             continue
+
+        lane = 'Ready'
+        if backlog.is_blocked(t, tasks):
+            lane = 'Blocked'
+        elif t.get('together_with'):
+            lane = 'Grouped'
+
         steps = autopilot.candidates(cfg, t) if t['repo'] in autopilot.settings(cfg)['repos'] else []
         to = t.get('prefer') or (steps[0] if steps else 'no ladder step')
         out.append({**_project(cfg, config.project_of_repo(cfg, t['repo'])), 'kind': 'task', 'id': t['id'], 'title': t['title'][:160],
                     'size': t.get('size') or 'S', 'to': to, 'eta': 'the next round' if not waiting.get(t['id']) else 'when it clears',
                     'why': waiting.get(t['id']) or reason, 'rank': t.get('rank', 0), 'urgent': bool(t.get('urgent')),
-                    'actions': list(ACTIONS)})
+                    'actions': list(ACTIONS), 'lane': lane, 'depends_on': t.get('depends_on', []),
+                    'together_with': t.get('together_with', [])})
     return out
 
 
@@ -88,8 +96,17 @@ def group(items):
             for (pr, p), xs in sorted(by.items())]
 
 
+def group_by_lane(items):
+    """[{lane, items}] by lane, then project."""
+    by = {}
+    for i in items:
+        by.setdefault(i['lane'], []).append(i)
+    return [{'lane': lane, 'items': sorted(xs, key=lambda i: (not i.get('urgent'), i.get('rank', 0)))}
+            for lane, xs in sorted(by.items(), key=lambda x: (x[0] != 'Blocked', x[0] != 'Ready', x[0] != 'Grouped'))]
+
+
 def view(cfg, where=None, running=0, can_act=True, now=None):
-    """{groups, queued, running, header, can_act}."""
+    """{groups, board, queued, running, header, can_act}."""
     now = now or time.time()
     items = task_items(cfg, backlog.load(cfg)['tasks'], autopilot.read_state(cfg).get('last'))
     items += shard_items(cfg, dispatch.read_state(cfg))
@@ -97,7 +114,7 @@ def view(cfg, where=None, running=0, can_act=True, now=None):
     items += move_items(where)
     if not can_act:
         items = [{**i, 'actions': []} for i in items]
-    return {'groups': group(items), 'queued': len(items), 'running': running, 'can_act': can_act,
+    return {'groups': group(items), 'board': group_by_lane(items), 'queued': len(items), 'running': running, 'can_act': can_act,
             'header': f'{running} running · {len(items)} queued'}
 
 

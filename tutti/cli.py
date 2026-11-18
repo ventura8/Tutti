@@ -1277,6 +1277,9 @@ def cmd_backlog(cfg, a):
         if a.action == 'list':
             print(backlog.listing(backlog.load(cfg), a.all))
             return 0
+        elif a.action == 'deps':
+            print(backlog.deps(backlog.load(cfg), a.repo))
+            return 0
         with backlog.locked(cfg) as data:
             return backlog_change(cfg, a, data)
     except backlog.BacklogError as e:
@@ -1966,7 +1969,7 @@ def parser():
     s = add('backlog', cmd_backlog, 'the autopilot\'s queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> '
                                     '(FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, '
                                     'accept <id> (a suggested candidate)')
-    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note'])
+    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note', 'deps'])
     s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: '
                                            'the task id')
     s.add_argument('--who', help='claim: the session that works on it by hand (default $TUTTI_SESSION)')

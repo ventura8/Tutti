@@ -412,7 +412,8 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     tasks this member may not start now (tutti/sharing.py: leased by another member, or the coordinator unreachable)."""
     hold = hold or {}
     queued = [t for t in tasks if t['status'] == 'queued' and t['repo'] in settings(cfg)['repos'] and t['id'] not in hold
-              and not backlog.is_question(t)]   # a `scout:` question goes to a scout (tutti/spendrest.py), never a worker
+              and not backlog.is_question(t) and not backlog.is_blocked(t, tasks)]
+    # a `scout:` question goes to a scout (tutti/spendrest.py), never a worker
     unchecked = [t for t in queued if not (t.get('check') or settings(cfg)['repos'][t['repo']].get('check'))]
     queued = [t for t in queued if t not in unchecked]
     running = [t for t in tasks if t['status'] == 'running']

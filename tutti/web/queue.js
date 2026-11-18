@@ -24,15 +24,28 @@ function queueMove(it, ladder) {
         onclick: () => queueAction({ kind: it.kind, id: it.id, action: 'move', to: pick.value }, `${it.id} was not moved.`) })];
 }
 
+let viewMode = 'groups';
+
+function toggleView() {
+    viewMode = viewMode === 'groups' ? 'board' : 'groups';
+    refresh();
+}
+
 function queueItem(it, ladder) {
     const acts = (it.actions || []).filter((a) => a !== 'move').map((a) => el('button', { class: 'btn btn--text', type: 'button',
         'data-queue-action': a, text: QUEUE_ACTIONS[a],
         onclick: () => queueAction({ kind: it.kind, id: it.id, action: a }, `${QUEUE_ACTIONS[a]} did not work for ${it.id}.`) }));
     if ((it.actions || []).includes('move') && ladder.length) acts.push(...queueMove(it, ladder));
+    
+    const deps = [];
+    if (it.depends_on && it.depends_on.length) deps.push(el('p', { class: 'row__note', text: `Depends on: ${it.depends_on.join(', ')}` }));
+    if (it.together_with && it.together_with.length) deps.push(el('p', { class: 'row__note', text: `Together with: ${it.together_with.join(', ')}` }));
+
     return el('div', { class: 'row', 'data-queued': it.id, 'data-kind': it.kind },
         el('div', { class: 'row__name', text: `${it.title}` }),
         el('p', { class: 'row__note', text: `${it.kind} ${it.id} · size ${it.size} · goes to ${it.to} · starts ${it.eta}` }),
         el('p', { class: 'row__note', 'data-why': '', text: `Waiting: ${it.why}` }),
+        ...deps,
         acts.length ? el('div', { class: 'row__stats' }, ...acts) : '');
 }
 
@@ -41,12 +54,23 @@ function renderQueue(s) {
     if (!q || !$('queued')) return;
     $('queued-meta').textContent = q.header;
     const ladder = s.autopilot?.ladder || [];
-    // as many rows as fit beside the main-agent and workers column (app.js measureFit), then "Show more" for the rest
-    const rows = q.groups.flatMap((g) => [
-        el('h3', { class: 'card__sub queue__group', 'aria-label': `${g.project} (priority ${g.priority})`,
-            text: `${g.project} · priority ${g.priority} · ${g.items.length} queued` }),
-        ...g.items.map((it) => queueItem(it, q.can_act ? ladder : []))]);
+    
+    const toggleBtn = el('button', { class: 'btn btn--text', type: 'button', text: `Switch to ${viewMode === 'groups' ? 'Board' : 'Projects'} view`, onclick: toggleView });
+    
+    let rows = [];
+    if (viewMode === 'groups') {
+        rows = q.groups.flatMap((g) => [
+            el('h3', { class: 'card__sub queue__group', 'aria-label': `${g.project} (priority ${g.priority})`,
+                text: `${g.project} · priority ${g.priority} · ${g.items.length} queued` }),
+            ...g.items.map((it) => queueItem(it, q.can_act ? ladder : []))]);
+    } else {
+        rows = q.board.flatMap((g) => [
+            el('h3', { class: 'card__sub queue__group', 'aria-label': `${g.lane}`,
+                text: `${g.lane} · ${g.items.length} queued` }),
+            ...g.items.map((it) => queueItem(it, q.can_act ? ladder : []))]);
+    }
+
     const limit = (typeof ui === 'object' && ui.fit?.queued) || 8;
     const shown = typeof more === 'function' ? more('queued', rows, limit, 'div') : rows;
-    $('queued').replaceChildren(...(rows.length ? shown : [el('p', { class: 'row__note', text: 'Nothing is waiting.' })]));
+    $('queued').replaceChildren(toggleBtn, ...(rows.length ? shown : [el('p', { class: 'row__note', text: 'Nothing is waiting.' })]));
 }

@@ -191,6 +191,27 @@ class DelegateTest(unittest.TestCase):
         with mock.patch('sys.stdout'):
             return delegate.delegate(cfg, 'fake', task, [], self.repo, say=self.said.append, **kw)
 
+    def test_remote_track_is_checked_before_lock_or_worker(self):
+        cfg = self.cfg([])
+        for bad in ('../escape', 'bad;echo x', 'name\n', '/tmp/absolute', 'x' * 65, 'Repo.git', 'TUTTI-SLOT.SH'):
+            with self.subTest(bad=bad), mock.patch.object(delegate, 'track_lock') as lock, \
+                    mock.patch.object(delegate, '_delegate') as run:
+                with self.assertRaisesRegex(ship.ShipError, 'remote-track or delegate.remote_track'):
+                    self.run_task(cfg, track='named', remote_track=bad)
+                lock.assert_not_called()
+                run.assert_not_called()
+        cfg['delegate']['remote_track'] = '../escape'
+        with mock.patch.object(delegate, '_delegate') as run:
+            with self.assertRaisesRegex(ship.ShipError, 'delegate.remote_track'):
+                self.run_task(cfg)
+            run.assert_not_called()
+
+    def test_valid_remote_track_reaches_worker(self):
+        cfg = self.cfg([])
+        with mock.patch.object(delegate, '_delegate', return_value='ok') as run:
+            self.assertEqual(self.run_task(cfg, remote_track='safe-1_name.test'), 'ok')
+        self.assertEqual(run.call_args.args[-1], 'safe-1_name.test')
+
     def test_report_contains_valid_run_identity(self):
         cfg = self.cfg([])
         with mock.patch.dict(os.environ, {'TUTTI_RUN_IDENTITY': 'a' * 32}):

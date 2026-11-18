@@ -1,5 +1,7 @@
 # Feedback log
 
+Routed checks must reject unsafe copy names before touching a lock or remote command (t403).
+
 Automatic releases must preserve concurrent release branches and tag the reviewed PR's merge commit (t401).
 
 Startup recovery needs healthy-state and resume coverage, and must describe the limits of remote stop detection (t105).

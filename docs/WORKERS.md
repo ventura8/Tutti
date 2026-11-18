@@ -87,7 +87,10 @@ from a non-git cwd (MCP `delegate_task`, chat `/delegate`).
    `delegate.checks` / `ship.checks`, but only for the repository `delegate.project` names, or any when it is unset) with `$TUTTI_CHANGED`; a routed check (`where: route`) runs on
    the first fit machine in a copy named `delegate.remote_track` (one run at a time per copy; `--track` gives a run its
    own). Local-only checks run in their own worktree without waiting for that remote-copy lock; a mixed set still holds it.
-   Each gets the list through `{changed}` or `{changed:ts,js}` in its command. Both hold one path per line (git's
+   Track names are one folder of at most 64 letters, digits, dots, underscores or dashes, starting with a letter or digit;
+   `repo.git` and `tutti-slot.sh` are reserved for shared files. An unsafe name is refused before a lock or remote copy is
+   touched. Each check gets the list through `{changed}` or
+   `{changed:ts,js}` in its command. Both hold one path per line (git's
    names are read with `-z`), so a path with a space stays whole: `F={changed:ts}; [ -z "$F" ] || printf '%s\n' "$F" |
    xargs -d '\n' npx eslint`, or `mapfile -t F <<< "$TUTTI_CHANGED"`; a plain `$TUTTI_CHANGED` still word-splits names
    without spaces as before;

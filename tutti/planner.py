@@ -171,7 +171,7 @@ def plan_single(s, a, now, rate=None, owner=None):
     return {'limit': None, 'expires': s['target'], 'resets': s.get('reset'), 'left': round(left, 1), 'lose': round(left, 1),
             'tasks': single_tasks(s, left, task, owner, now, target), 'allowance': round(left, 1), 'this_window': None,
             'windows': 1, 'runnable': 1, 'background': None if rate is None else round(background, 1), **mine,
-            'run_out': run_out_of(s, owner, now)}
+            'run_out': run_out_of(s, owner, now), 'slow_left': left}
 
 
 def run_out_of(s, owner, now):

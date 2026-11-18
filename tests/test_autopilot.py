@@ -382,6 +382,38 @@ class PlanTest(Base):
         self.assertEqual(p['dispatch'], [('t1', 'agy-gemini'), ('t2', 'agy-gemini')])
         self.assertEqual(p['state'], 'dispatching')
 
+    def test_ahead_account_uses_measured_room_slowly_without_crossing_safety_gates(self):
+        cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'])
+        cfg['accounts']['agy-gemini']['task_pct'] = 2
+        now = TEST_NOW
+        s = {**account('agy-gemini', 'ahead', None, used=20), 'share': 1,
+             'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '', 'target': '2026-01-03T01:00:00+00:00'}
+        s['quota_plan'] = autopilot.planner.plan_single(s, cfg['accounts']['agy-gemini'], now)
+        s['quota_plan']['why'] = 'no extra tasks now'
+        states = {'agy-gemini': s}
+        self.assertEqual(autopilot.plan(cfg, [task('t1'), task('t2')], states, FREE, True, now)['dispatch'],
+                         [('t1', 'agy-gemini')])
+        planned = {**s, 'quota_plan': {**s['quota_plan'], 'tasks': 3}}
+        self.assertEqual(len(autopilot.plan(cfg, [task('t1'), task('t2')], {'agy-gemini': planned}, FREE, True, now)['dispatch']), 2)
+        recent = task('old', 'done', [{**attempt('agy-gemini'), 'started': now.timestamp() - 3600}])
+        self.assertEqual(autopilot.plan(cfg, [recent, task('t1')], states, FREE, True, now)['dispatch'], [])
+        recent['attempts'][0]['started'] = now.timestamp() - 4 * 3600
+        self.assertEqual(autopilot.plan(cfg, [recent, task('t1')], states, FREE, True, now)['dispatch'], [('t1', 'agy-gemini')])
+        running = {**task('active', 'running'), 'step': 'agy-gemini'}
+        self.assertEqual(autopilot.plan(cfg, [running, task('t1')], states, FREE, True, now)['dispatch'], [])
+        for changed in ({'panic': True}, {'stale': True}, {'limits': [{'name': 'weekly'}]},
+                        {'used': 94}, {'reader_problem': 'reader failed'},
+                        {'quota_plan': {**s['quota_plan'], 'slow_left': 0}}):
+            self.assertEqual(autopilot.plan(cfg, [task('t1')], {'agy-gemini': {**s, **changed}}, FREE, True, now)['dispatch'], [])
+        cfg['accounts']['agy-gemini']['task_pct'] = 0
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['dispatch'], [])
+        cfg['accounts']['agy-gemini']['task_pct'] = 2
+        cfg['_account_limits']['other'] = ['agy-gemini']
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['dispatch'], [])
+        del cfg['_account_limits']
+        cfg['accounts']['other'] = {'limits': ['agy-gemini']}
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['dispatch'], [])
+
     def test_when_all_online_are_in_panic_rescue_spreads_work_to_the_most_remaining_quota(self):
         cfg = self.cfg(main_accounts=['agy-claude'])
         cfg['_main_worker'] = 'local-main'

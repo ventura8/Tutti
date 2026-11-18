@@ -85,8 +85,12 @@ while :; do
 			fi
 			# the dashboard reads these two lines: queued (progress 0, "waiting for a slot"), then out of the queue
 			[[ -z "$queued" ]] || echo "slot.sh: got a slot" >&2
+			./scripts/audit.sh $$ >&2 &
+			audit_pid=$!
 			"$@"
-			exit $?
+			rc=$?
+			kill $audit_pid 2>/dev/null
+			exit $rc
 		fi
 	done
 	if [[ -z "$queued" && -z "$said" ]]; then

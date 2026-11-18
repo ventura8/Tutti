@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Crash watchdog in the dashboard probe loop: records exceptions as telemetry and creates a self-improve task.
+- Soak test in CI to guard against resource leaks.
+
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 **Versions (the owner, 2026-11-15).** Tutti stays 0.x. A big feature raises the minor version (0.N.0, patch back to 0),

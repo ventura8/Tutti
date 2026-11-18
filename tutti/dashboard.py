@@ -57,6 +57,7 @@ from . import (
     remote,
     report,
     scouts,
+    selfimprove,
     settings,
     setupcmd,
     sleepwatch,
@@ -269,6 +270,14 @@ class Collector:
                     self.acting_rounds()
             except Exception as e:  # a probe bug must not end the loop; the page shows the last good data and its age
                 telemetry.capture_exception(type(e), e, e.__traceback__, where='dashboard-loop')
+                try:
+                    selfimprove.add_candidates(self.cfg, [{
+                        'sig': f'dashboard-loop:{type(e).__name__}',
+                        'title': f'Fix dashboard-loop exception: {type(e).__name__}',
+                        'why': f'a crash in dashboard-loop recorded by telemetry: {e}'
+                    }], 'dashboard-loop', self.clock())
+                except Exception:
+                    pass
                 state_error = f'probing failed ({type(e).__name__}: {e}); the dashboard keeps the last results'
                 with self.lock:
                     self.probes = {**self.probes, 'error': state_error}

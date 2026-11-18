@@ -488,3 +488,9 @@ A dashboard listening only on a LAN address cannot answer a loopback probe. The 
 another dashboard while its user service was restarting. Probe the configured address, avoid competing with an existing
 user service, and serialize fallback watchdog starts when no unit exists. An existing service or PID is not proof that it
 owns the configured dashboard, so report unresolved health rather than killing or restarting an unverified process.
+
+
+## A PID and a silence timeout do not prove a worker stopped (t309)
+
+A local PID can be reused and a remote worker may survive a lost connection. Retrying without verified completion can
+produce two writers. Hold the attempt visibly and keep checking for its report until process ownership can be established.

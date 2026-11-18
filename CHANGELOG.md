@@ -13,6 +13,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 - Repeated missing reports or CLI refusals across every worker no longer park a task as exhausted (t260).
 - Reuse local model workers after completed attempts while keeping running work and online quota reservations accounted for (t301).
+- Hold unverified stalled and no-report runs visibly instead of signalling unrelated processes or launching overlapping retries (t309).
 
 ## [0.29.4] - 2026-11-18
 

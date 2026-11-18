@@ -741,7 +741,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `self_improve.max_new_per_day` | number | `3` | New tasks a day: At most this many. | admin |
 | `self_improve.min_count` | number | `3` | Seen at least: A crash becomes a task once seen this many times. | admin |
 | `self_improve.home` | select |  | Home project: The project Tutti's own fixes go to. | admin |
-| `autopilot.stuck_minutes` | number (minutes) | `30` | Stuck after: A run with no new output this long is ended and queued again. | admin |
+| `autopilot.stuck_minutes` | number (minutes) | `30` | Stuck after: A run with no new output this long is held visibly while Tutti waits for its report. | admin |
 | `welcome.enabled` | switch | `True` | Welcome back: When you return after being away, a summary of what happened, and What did I miss? at any time. Each user may turn theirs off. | admin |
 | `welcome.away_hours` | number (hours) |  | Away after: Gone this long counts as away (empty: the pacing's away_after_hours). | admin |
 | `welcome.ai` | switch | `True` | Written by a local model: A local model writes the opening words when AI assist allows; otherwise the template. | admin |

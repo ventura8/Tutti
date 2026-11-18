@@ -562,7 +562,7 @@ class RoundTest(Base):
         self.assertEqual(v['review'][0]['attempt_count'], 2)
         self.assertIn('passed', autopilot.describe(v) + 'passed')
 
-    def test_a_run_that_ends_without_a_report_counts_as_a_failed_attempt(self):
+    def test_a_run_without_a_report_is_held_instead_of_retried(self):
         with backlog.locked(self.c) as data:
             backlog.add(data, backlog.new_task('app', 'x', [], 'true'))
         with mock.patch.object(config, 'load', return_value=self.c):
@@ -572,8 +572,10 @@ class RoundTest(Base):
         self.states['fake-a'] = account('fake-a', 'on pace')
         self.states['fake-b'] = account('fake-b', 'ahead')
         _, events = autopilot.tick(self.c, self.states, [], is_alive=lambda pid: False)
-        self.assertIn('without a report', events[0])
-        self.assertEqual(autopilot.read_state(self.c)['last']['state'], 'stopped')
+        self.assertEqual(events, [])
+        held = backlog.load(self.c)['tasks'][0]
+        self.assertEqual((held['status'], held['attempts']), ('running', []))
+        self.assertIn('without a report', held['recovery_note'])
 
 
 class SurfaceTest(Base):

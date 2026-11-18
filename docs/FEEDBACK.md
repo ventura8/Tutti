@@ -52,3 +52,7 @@ of your project or secrets: describe the setup in general words.
 
 - A LAN-bound dashboard was reported unhealthy and competing starts blocked its service; probe its configured address and
   verify a pinned user service before requesting a start (t333).
+
+
+- **2026-11-18, t309:** After the dashboard restarted, no-report runs were counted as failures and retried without
+  independently establishing whether their workers stopped. Unverified runs now stay visible and wait for a real report.

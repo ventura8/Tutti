@@ -508,6 +508,6 @@ def errors(cfg):
     a = cfg.get('autopilot') or {}
     v = a.get('stuck_minutes')
     if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0):
-        return [f'autopilot.stuck_minutes is {v!r}: give minutes, 0 or more (a run with no new output this long is ended and '
-                'requeued; 0 turns the watchdog off)']
+        return [f'autopilot.stuck_minutes is {v!r}: give minutes, 0 or more (a run with no new output this long is held visibly; '
+                '0 turns the watchdog off)']
     return []

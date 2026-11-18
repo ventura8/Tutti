@@ -244,6 +244,13 @@ and the owner's Tutti runs it in a container (docs/HOUSEHOLD.md, *Compute on sha
 yield flag reaches the others through the coordinator (no slot is granted while it is up). The household's coordinator grants each member a fair share of the slots; a
 member's routing sees at most its grant free. Heat, the yield flag and a pause still apply to every member.
 
+## Trusted Benchmarks
+
+Tutti runs trusted, standard benchmarks on each host and device to measure capability and feed routing/power scores.
+Benchmarks run 3 times at opportune moments (idle, cool, no running jobs) to ensure accurate results, with the median and spread
+stored. Benchmarks run during night hours only if opted-in via `machines.night_benchmarks` or `devices.night_benchmarks`.
+Daytime benchmarks are on by default.
+
 ## Peers
 
 When two orchestrator sessions share machines:

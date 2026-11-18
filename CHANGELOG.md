@@ -6,6 +6,15 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.7] - 2026-11-18
+
+### Added
+
+- Trusted benchmarks on hosts and devices run 3 times at opportune moments (when idle, cool, free, at night if opted-in).
+- Benchmark results are stored with median and spread.
+- Results feed into power scores and the dashboard.
+- Opt-ins: `machines.night_benchmarks` and `devices.night_benchmarks` (default OFF, ON for this household).
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

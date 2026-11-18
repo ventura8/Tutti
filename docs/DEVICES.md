@@ -5,6 +5,10 @@ Tutti runs end-to-end tests on Android phones, tablets and TVs through adb on th
 wireless debugging (Android 11 and newer), and how devices move to another machine. The readings and the safe-use
 policy (battery, heat, screen, calls) are in [MACHINES.md](MACHINES.md#android-devices).
 
+## Trusted Benchmarks
+
+As with hosts, Tutti runs trusted, standard benchmarks on Android devices to measure capability. See [MACHINES.md](MACHINES.md#trusted-benchmarks).
+
 ## Pair a device
 
 Dashboard: **Devices and controls > Pair a device** (a phone or tablet) or **Pair a TV**. Terminal:

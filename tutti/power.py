@@ -43,6 +43,16 @@ BENCH_SCRIPT = (
     '| grep -E "^[0-9]+$" | sort -n | tail -n 1); '
     'n=0; ls /dev/accel/accel* > /dev/null 2>&1 && n=1; '
     'echo "B $p $c ${m:-0} $cpu $disk $(( ${v:-0} / 1024 )) $n"')
+
+BENCH_SCRIPT_DEVICE = (
+    'ns(){ date +%s%N; }; c=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 1); '
+    'p=$c; '
+    'm=$(awk \'/MemTotal/{printf "%.1f", $2/1048576}\' /proc/meminfo 2>/dev/null); '
+    's=$(ns); head -c 67108864 /dev/zero | sha256sum > /dev/null; e=$(ns); cpu=$((64000000000 / ((e - s) + 1))); '
+    'f=$(mktemp "${TMPDIR:-/data/local/tmp}/tutti-bench.XXXXXX"); s=$(ns); dd if=/dev/zero of="$f" bs=1M count=16 conv=fdatasync 2>/dev/null; '
+    'e=$(ns); rm -f "$f"; disk=$((16000000000 / ((e - s) + 1))); '
+    'v=0; n=0; '
+    'echo "B $p $c ${m:-0} $cpu $disk $v $n"')
 _lock = threading.Lock()
 _running = set()
 
@@ -220,7 +230,26 @@ def read(cfg):
 def save_one(cfg, name, bench, now):
     with _lock:
         data = read(cfg)
-        data[name] = {**bench, 'at': now}
+        entry = data.get(name) or {'measurements': []}
+        meas = {k: v for k, v in bench.items() if k != 'npu'}
+        entry['measurements'].append({'data': meas, 'npu': bench['npu'], 'at': now})
+        if len(entry['measurements']) > 3:
+            entry['measurements'] = entry['measurements'][-3:]
+        if len(entry['measurements']) >= 3:
+            from statistics import median
+            keys = ['cores', 'threads', 'mem_gb', 'cpu_mbs', 'disk_mbs', 'vram_gb']
+            b = {}
+            spread = {}
+            for k in keys:
+                values = [m['data'][k] for m in entry['measurements']]
+                b[k] = median(values)
+                spread[k] = max(values) - min(values)
+            b['npu'] = entry['measurements'][0]['npu']
+            b['spread'] = spread
+            entry.update({**b, 'at': now})
+        else:
+            entry.update({**bench, 'at': now})
+        data[name] = entry
         tmp = f'{path(cfg)}.{os.getpid()}.tmp'
         with open(tmp, 'w', encoding='utf8') as f:
             json.dump(data, f, indent=1)
@@ -234,6 +263,8 @@ def measure(machine, run=subprocess.run, timeout=60):
         argv = ['bash', '-c', BENCH_SCRIPT]
     elif machine.get('transport') == 'ssh' and machine.get('host'):
         argv = [*remote.SSH, *remote.QUICK, machine['host'], BENCH_SCRIPT]
+    elif machine.get('kind') == 'device' and machine.get('serial'):
+        argv = ['adb', '-s', str(machine['serial']), 'shell', BENCH_SCRIPT_DEVICE]
     else:
         return None
     try:
@@ -251,6 +282,46 @@ def stale(entry, now, every_days):
     return not entry or now - float(entry.get('at') or 0) >= every_days * 86400
 
 
+def _is_idle():
+    from . import share
+    idle = share.idle_seconds()
+    return idle is None or idle >= 300
+
+
+def _is_cool(row):
+    temp = row.get('temp_c')
+    return temp is None or temp <= 50
+
+
+def _is_free(row):
+    return row.get('status') == 'free'
+
+
+def _is_night_allowed(machine, cfg):
+    from datetime import datetime
+    now = datetime.now()
+    night_cfg = cfg.get('night') or {}
+    try:
+        a, b = (int(x) for x in (night_cfg.get('hours') or '22-08').split('-'))
+        if a < b:
+            is_night = a <= now.hour < b
+        else:
+            is_night = now.hour >= a or now.hour < b
+    except ValueError:
+        return True
+    if not is_night:
+        return True
+    if machine.get('kind') == 'machine':
+        return cfg.get('machines', {}).get('night_benchmarks', False)
+    if machine.get('kind') == 'device':
+        return cfg.get('devices', {}).get('night_benchmarks', False)
+    return True
+
+
+def is_opportune(machine, row, cfg):
+    return _is_idle() and _is_cool(row) and _is_free(row) and _is_night_allowed(machine, cfg)
+
+
 def refresh(cfg, rows, now, measure_fn=measure, start=None):
     """Each reachable machine whose benchmark is missing or older than bench_days is measured in a background thread (one at
     a time per machine; a busy machine waits until it is free so the benchmark neither slows nor misreads its work).
@@ -260,8 +331,16 @@ def refresh(cfg, rows, now, measure_fn=measure, start=None):
         return started   # a check or a test: no real benchmark outlives it (tutti/procs.py)
     for r in rows or []:
         name = r.get('name')
-        m = (cfg.get('machines') or {}).get(name)
-        if not m or not r.get('reachable') or r.get('status') != 'free' or not stale(data.get(name), now, days(cfg)):
+        m = (cfg.get('machines') or {}).get(name) or (cfg.get('devices') or {}).get(name)
+        if not m or not r.get('reachable') or r.get('status') != 'free':
+            continue
+        entry = data.get(name)
+        # Benchmark if stale or if we have fewer than 3 runs
+        is_stale = stale(entry, now, days(cfg))
+        runs = len(entry.get('measurements', [])) if entry else 0
+        if not is_stale and runs >= 3:
+            continue
+        if not is_opportune(m, r, cfg):
             continue
         with _lock:
             if name in _running:

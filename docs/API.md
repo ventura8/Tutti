@@ -571,6 +571,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `machines.*.quiet_pct` | number |  | Share in quiet hours (%): Fans and noise at night: the share in its quiet hours. | admin |
 | `machines.*.limit` | yaml |  | Limited hours: A daily window when Tutti uses at most pct % of it: {window: "18-01", pct: 60, days: [mon, ...]} (every day unless listed; main: true follows the main machine on a move). | admin |
 | `machines.*.quiet_hours` | yaml |  | Quiet hours: Local-time spans such as ["23:00-07:00"] (else autopilot.quiet_hours). | admin |
+| `machines.night_benchmarks` | switch | `False` | Benchmark machines at night: Allows host benchmarks in night windows. | admin |
 | `machines.*.heat` | yaml |  | Heat: cap_c: one run at this temperature; stop_c: none; hot_slots: runs while hot. | admin |
 | `machines.*.yield_file` | text | `~/.tutti/yield` | Yield flag: While this file exists, the machine gets nothing new. | admin |
 | `machines.*.lock_prefix` | text | `/tmp/tutti-slot-` | Lock files: Where its slot locks live. | admin |
@@ -605,6 +606,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `night.enabled` | switch | `True` | Night mode: While Tutti holds or works an Android device in the night hours: 1 % brightness, every volume at 0 (the alarm stays yours); your own values come back at hand-back. | admin |
 | `night.hours` | text | `22-08` | Night hours: Local hours HH-HH, e.g. 22-08. | admin |
 | `night.devices` | list |  | Night mode on: The devices it applies to; empty: every device. | admin |
+| `devices.night_benchmarks` | switch | `False` | Benchmark devices at night: Allows device benchmarks in night windows. | admin |
 | `devices.*.roles` | list |  | Roles: What the device is for other devices: cast-receiver (a Cast target), cast-sender. | admin |
 | `devices.*.hours` | yaml |  | Blocked hours: Daily local hours when the device is not used at all, e.g. {window: "22-07", days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none. | admin |
 | `devices.*.kind` | select phone, tablet, tv |  | Kind: Set by `tutti devices pair`: phone, tablet or tv. | admin |

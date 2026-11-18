@@ -498,7 +498,8 @@ def after_probe(cfg, fresh, now, run=subprocess.run, sh=None):
     refresh(cfg, fresh.get('energy'), now)
     apply(cfg)
     from . import power
-    power.after_probe(cfg, fresh.get('machines') or [], now)   # measured power and headroom on every row (dispatch reads it)
+    # measured power and headroom on every row (dispatch reads it)
+    power.after_probe(cfg, (fresh.get('machines') or []) + (fresh.get('devices') or []), now)
     keep_servers(cfg, fresh.get('machines') or [], now, sh)
     ready = {w['name']: w['ready'] for w in (fresh.get('workers') or {}).get('items') or []}
     from . import householduse

@@ -186,6 +186,7 @@ FIELDS = {
     'machines.*.limit': field('Limited hours', 'A daily window when Tutti uses at most pct % of it: {window: "18-01", pct: 60, '
                               'days: [mon, ...]} (every day unless listed; main: true follows the main machine on a move).', **YAML),
     'machines.*.quiet_hours': field('Quiet hours', 'Local-time spans such as ["23:00-07:00"] (else autopilot.quiet_hours).', **YAML),
+    'machines.night_benchmarks': field('Benchmark machines at night', 'Allows host benchmarks in night windows.', 'switch', default=False),
     'machines.*.heat': field('Heat', 'cap_c: one run at this temperature; stop_c: none; hot_slots: runs while hot.', **YAML),
     'machines.*.yield_file': field('Yield flag', 'While this file exists, the machine gets nothing new.', 'text'),
     'machines.*.lock_prefix': field('Lock files', 'Where its slot locks live.', 'text'),
@@ -225,6 +226,7 @@ FIELDS = {
                            'volume at 0 (the alarm stays yours); your own values come back at hand-back.', 'switch'),
     'night.hours': field('Night hours', 'Local hours HH-HH, e.g. 22-08.', 'text'),
     'night.devices': field('Night mode on', 'The devices it applies to; empty: every device.', 'list', choices_from='devices'),
+    'devices.night_benchmarks': field('Benchmark devices at night', 'Allows device benchmarks in night windows.', 'switch', default=False),
     'devices.*.roles': field('Roles', 'What the device is for other devices: cast-receiver (a Cast target), cast-sender.', 'list',
                              item='role'),
     'devices.*.hours': field('Blocked hours', 'Daily local hours when the device is not used at all, e.g. {window: "22-07", '

@@ -456,6 +456,12 @@ class PlanTest(Base):
             usage.return_value = {'accounts': [s]}
             for invalid in (True, float('nan'), float('inf'), -1, 101):
                 self.assertFalse(autopilot.valid_current_reader({'used': invalid}, {'used': 1}))
+            self.assertTrue(autopilot.valid_current_reader({'used': 20, 'resets': '2026-01-03T02:00:00Z'},
+                                                          {'used': 20, 'reset': '2026-01-03T02:00:00+00:00'}))
+            self.assertFalse(autopilot.valid_current_reader({'used': 20, 'resets': '2026-01-04T02:00:00Z'},
+                                                           {'used': 20, 'reset': '2026-01-03T02:00:00+00:00'}))
+            self.assertFalse(autopilot.valid_current_reader({'used': 20, 'resets': 'invalid'},
+                                                           {'used': 20, 'reset': '2026-01-03T02:00:00Z'}))
             with mock.patch.object(autopilot, 'start_reserved', return_value=('run', 'started')) as start:
                 data = {'tasks': tasks}
                 later = now.timestamp() + 60

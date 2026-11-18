@@ -19,7 +19,7 @@ class GatewayFenceTests(unittest.TestCase):
         self.addCleanup(self.new_gateway.close)
         job = chatrun.Job('alice', 'c', {'id': 'm'}, replay_enabled=True)
         job.emit('delta', text='private')
-        self.fence = gatewayfence.GatewayFence({'m': job})
+        self.fence = gatewayfence.GatewayFence({'m': job}, authorize=owneripc.follow)
         self.request = {'action': 'follow', 'subject': 'alice', 'message': 'm', 'generation': job.replay.generation,
                         'after': 0, 'request_id': 'first'}
         self.assertTrue(self.fence.replace(None, self.old_owner))

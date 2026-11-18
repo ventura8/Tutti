@@ -154,9 +154,9 @@ def _command(control, fence, active, epoch, active_token):
     return candidate, epoch, token, True
 
 
-def serve(control, jobs):
+def serve(control, jobs, authorize=None):
     """Run an isolated owner until the trusted supervisor control channel closes or sends an invalid packet."""
-    fence = gatewayfence.GatewayFence(jobs)
+    fence = gatewayfence.GatewayFence(jobs, authorize=authorize)
     active, epoch, active_token = None, 0, None
     try:
         while True:

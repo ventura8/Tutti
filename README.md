@@ -188,4 +188,4 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 bash scripts/check.sh    # shellcheck, ruff, the unit tests and a CLI smoke test: what CI runs
 ```
 
-The experimental dashboard drain, Chat replay adapter and private owner-channel/descriptor experiments are supervisor building blocks; they do not make live updates safe.
+The experimental dashboard drain, Chat replay adapter and private owner-channel/session experiments are supervisor building blocks; they do not make live updates safe.

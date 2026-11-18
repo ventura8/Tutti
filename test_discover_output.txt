@@ -1,0 +1,219 @@
+..tutti: --until is not after --from: the absence would be over before it starts; give an end after 2026-11-16 07:00
+tutti: --stop-now does not go with --from: a planned absence hands its running work over at its start by itself
+.......................................................................................................................................................tutti: no repo "nope" under autopilot.repos in /tmp/tmpq7j062w1/tutti.config.yaml: the repos are app
+tutti: t1 is running (run 1-1): wait for it (tutti wait run 1-1), then retry it
+............................................................................................................................................................../usr/lib/python3.14/traceback.py:269: ResourceWarning: unclosed file <_io.TextIOWrapper name=50 encoding='UTF-8'>
+  tb.tb_frame.clear()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+........................................................................................................................................................................................................./home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_deps.py:80: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tutti-t-o6eqvyte/npm.log' mode='r' encoding='UTF-8'>
+  self.assertIn('install -g --prefix', open(log).read())
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_deps.py:81: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tutti-t-o6eqvyte/npm.log' mode='r' encoding='UTF-8'>
+  self.assertIn('typescript@5.6.3', open(log).read())
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+............................E/usr/lib/python3.14/subprocess.py:1139: ResourceWarning: subprocess 3030644 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+E/usr/lib/python3.14/subprocess.py:1139: ResourceWarning: subprocess 3055609 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+....................................................................../usr/lib/python3.14/subprocess.py:1139: ResourceWarning: subprocess 3082653 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+............................................................................./home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_failover.py:358: ResourceWarning: unclosed file <_io.TextIOWrapper name='/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti.config.example.yaml' mode='r' encoding='utf8'>
+  example = yaml.safe_load(open(os.path.join(config.ROOT, 'tutti.config.example.yaml'), encoding='utf8'))
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+...................................................................................................................F....github: Tutti's GitHub App is not set up in this copy yet: update Tutti, or set github.client_id in the config; until then Tutti uses the GitHub CLI when `gh auth login` was done
+..................................................tutti: this login is already in a household: `tutti household leave` first, or `tutti household code` for a new join code
+.tutti: household join: give the invite link from the dashboard's Users card (Invite someone), e.g. `tutti household join "https://<dashboard>/invite#..."`, quoted: a shell drops # and what follows (an older tutti-hh:... code works too)
+.tutti: no repo "nope" under autopilot.repos in /tmp/tmpmdq1eslg/config.yaml: the repos are app
+..............open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#R2JixLLLVjx0eBVc21nO6EYNKrLYlttuL8GQIkiegQg (waiting...)
+.open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#hXHkJdVNAoY1BMW3VKylgyPiZKcCjJTu6dXv2x57hQg (waiting...)
+.open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#lcbEMHqw-78upJt9QWXiLar9n8gM41GNBTOlVsA7Uf0 (waiting...)
+.....tutti: household project: app has no origin remote, so other members' copies cannot be matched to it: give it one (git remote add origin <url>), then share it
+......./home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=4, family=2, type=1, proto=0, laddr=('127.0.0.1', 45441)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=10, family=2, type=1, proto=0, laddr=('127.0.0.1', 43091)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=5, family=2, type=1, proto=0, laddr=('127.0.0.1', 37973)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=7, family=2, type=1, proto=0, laddr=('127.0.0.1', 42473)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=9, family=2, type=1, proto=0, laddr=('127.0.0.1', 32951)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=11, family=2, type=1, proto=0, laddr=('127.0.0.1', 35703)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=18, family=2, type=1, proto=0, laddr=('127.0.0.1', 33281)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=17, family=2, type=1, proto=0, laddr=('127.0.0.1', 37707)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=19, family=2, type=1, proto=0, laddr=('127.0.0.1', 39997)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=20, family=2, type=1, proto=0, laddr=('127.0.0.1', 46799)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=22, family=2, type=1, proto=0, laddr=('127.0.0.1', 45851)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=23, family=2, type=1, proto=0, laddr=('127.0.0.1', 45535)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=25, family=2, type=1, proto=0, laddr=('127.0.0.1', 41021)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=24, family=2, type=1, proto=0, laddr=('127.0.0.1', 40313)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=26, family=2, type=1, proto=0, laddr=('127.0.0.1', 42055)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=27, family=2, type=1, proto=0, laddr=('127.0.0.1', 37927)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=29, family=2, type=1, proto=0, laddr=('127.0.0.1', 34247)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=28, family=2, type=1, proto=0, laddr=('127.0.0.1', 37233)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=30, family=2, type=1, proto=0, laddr=('127.0.0.1', 43719)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=31, family=2, type=1, proto=0, laddr=('127.0.0.1', 42117)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=32, family=2, type=1, proto=0, laddr=('127.0.0.1', 39439)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=33, family=2, type=1, proto=0, laddr=('127.0.0.1', 44891)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=35, family=2, type=1, proto=0, laddr=('127.0.0.1', 35501)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=38, family=2, type=1, proto=0, laddr=('127.0.0.1', 45817)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=34, family=2, type=1, proto=0, laddr=('127.0.0.1', 45981)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=36, family=2, type=1, proto=0, laddr=('127.0.0.1', 33553)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=37, family=2, type=1, proto=0, laddr=('127.0.0.1', 36611)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=39, family=2, type=1, proto=0, laddr=('127.0.0.1', 43583)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=41, family=2, type=1, proto=0, laddr=('127.0.0.1', 39079)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=44, family=2, type=1, proto=0, laddr=('127.0.0.1', 40229)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=45, family=2, type=1, proto=0, laddr=('127.0.0.1', 38993)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=40, family=2, type=1, proto=0, laddr=('127.0.0.1', 40165)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=42, family=2, type=1, proto=0, laddr=('127.0.0.1', 39673)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=43, family=2, type=1, proto=0, laddr=('127.0.0.1', 34859)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=46, family=2, type=1, proto=0, laddr=('127.0.0.1', 42067)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=49, family=2, type=1, proto=0, laddr=('127.0.0.1', 41997)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=50, family=2, type=1, proto=0, laddr=('127.0.0.1', 34045)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=51, family=2, type=1, proto=0, laddr=('127.0.0.1', 44931)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=54, family=2, type=1, proto=0, laddr=('127.0.0.1', 37451)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tutti/coordinator.py:412: ResourceWarning: unclosed <socket.socket fd=55, family=2, type=1, proto=0, laddr=('127.0.0.1', 41509)>
+  class Handler(BaseHTTPRequestHandler):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.................................................tutti: /tmp/tmp13r2waek/app is not a git repository: give the folder of a household repo (tutti connect --repo <path>)
+....................................................................................................................................................................................tutti: name the run by its id: tutti runs discard <id> (tutti runs lists them)
+...F............tutti: usage page-reading: cursor 25 %, resets 2026-12-10 00:00:00+00:00
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (Expecting value: line 1 column 1 (char 0)): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (list indices must be integers or slices, not str): pass the JSON string it evaluated to
+tutti: usage page-reading: "Other Models" was not found on the page (its layout may have changed): read it by eye and `tutti usage log <account> <percent>`
+tutti: usage page-reading: ghost: no account "ghost" in the config: the accounts are cursor, agy
+..tutti: usage page-script: no account has a usage_url without its own reader matching "nothing-matches"
+........................................................./usr/lib/python3.14/tempfile.py:484: ResourceWarning: Implicitly cleaning up <HTTPError 401: 'no'>
+  _warnings.warn(self.warn_message, ResourceWarning)
+............................................................................../home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpiluuf52b/device/global.stay_on_while_plugged_in' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpiluuf52b/device/secure.screensaver_enabled' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpiluuf52b/device/system.screen_off_timeout' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpiluuf52b/device/volume' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpiluuf52b/device/global.stay_on_while_plugged_in' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpiluuf52b/device/global.stay_on_while_plugged_in' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpiluuf52b/device/secure.screensaver_enabled' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpiluuf52b/device/system.screen_off_timeout' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpiluuf52b/device/volume' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+..../home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpf1jt0pdr/device/global.stay_on_while_plugged_in' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpf1jt0pdr/device/secure.screensaver_enabled' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpf1jt0pdr/device/system.screen_off_timeout' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpf1jt0pdr/device/volume' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpf1jt0pdr/device/global.stay_on_while_plugged_in' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpf1jt0pdr/device/secure.screensaver_enabled' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpf1jt0pdr/device/system.screen_off_timeout' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/test_prep.py:66: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpf1jt0pdr/device/volume' mode='r' encoding='utf8'>
+  return open(p, encoding='utf8').read() if os.path.exists(p) else None
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+...........................FF........FF.....................................................................................tutti: googletv could not be claimed: the pair is not leased (the others were released again)
+...............

@@ -1,0 +1,39 @@
++ set -x
++ echo 'NEW Starting check.sh'
+NEW Starting check.sh
++ set -euo pipefail
+++ dirname scripts/check.sh
++ cd scripts/..
++ export TUTTI_TELEMETRY=off
++ TUTTI_TELEMETRY=off
++ export TUTTI_OFFLINE=1
++ TUTTI_OFFLINE=1
++ export TUTTI_NO_DAEMONS=1
++ TUTTI_NO_DAEMONS=1
++ python3 -c 'import playwright, axe_playwright_python'
++ venv=/home/sergiu-alexandrescu/.cache/tutti/check-venv
++ '[' -x /home/sergiu-alexandrescu/.cache/tutti/check-venv/bin/python3 ']'
++ stamp=/home/sergiu-alexandrescu/.cache/tutti/check-venv/.requirements-dev.sha256
+++ sha256sum requirements-dev.txt
+++ cut '-d ' -f1
++ want=9a718e609f74069f727005aa930120c2511083b525c1d28eb6bb0120115f43c8
+++ cat /home/sergiu-alexandrescu/.cache/tutti/check-venv/.requirements-dev.sha256
++ '[' 9a718e609f74069f727005aa930120c2511083b525c1d28eb6bb0120115f43c8 '!=' 9a718e609f74069f727005aa930120c2511083b525c1d28eb6bb0120115f43c8 ']'
++ PATH=/home/sergiu-alexandrescu/.cache/tutti/check-venv/bin:/home/sergiu-alexandrescu/.local/bin:/home/sergiu-alexandrescu/.gemini/antigravity-cli/bin:/home/sergiu-alexandrescu/.local/bin:/home/sergiu-alexandrescu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin
++ export PATH
++ shellcheck scripts/check.sh scripts/device-readings.sh scripts/memguard.sh scripts/quiet.sh scripts/release-assets.sh scripts/release-patch.sh scripts/set-device-secret.sh scripts/slot.sh scripts/tunnel.sh scripts/wsl-run64.sh install/bootstrap.sh install/install.sh install/uninstall.sh
++ command -v ruff
++ ruff check . bin/tutti
+All checks passed!
+++ mktemp -d
++ TMPDIR=/tmp/tmp.YKAvD7Q2Kz
++ export TMPDIR
++ trap 'rm -rf "$TMPDIR"' EXIT
+++ mktemp -d
++ XDG_CONFIG_HOME=/tmp/tmp.YKAvD7Q2Kz/tmp.5wX35hEoeV
++ python3 tests/run.py
+..tutti: --until is not after --from: the absence would be over before it starts; give an end after 2026-11-16 07:00
+tutti: --stop-now does not go with --from: a planned absence hands its running work over at its start by itself
+.......................................................................................................................................................tutti: no repo "nope" under autopilot.repos in /tmp/tmp.YKAvD7Q2Kz/tutti-tests-u8j0v00y/t-jodpizwe/tmpmzxa50ti/tutti.config.yaml: the repos are app
+tutti: t1 is running (run 1-1): wait for it (tutti wait run 1-1), then retry it
+...................................................................................................................................................................................................................................................................................................................................................................................................EFEF..................................................................................................................................................................................

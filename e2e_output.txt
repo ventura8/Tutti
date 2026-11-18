@@ -1,0 +1,20 @@
+E
+======================================================================
+ERROR: test_ui (unittest.loader._FailedTest.test_ui)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_ui
+Traceback (most recent call last):
+  File "/usr/lib/python3.14/unittest/loader.py", line 433, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "/usr/lib/python3.14/unittest/loader.py", line 374, in _get_module_from_name
+    __import__(name)
+    ~~~~~~~~~~^^^^^^
+  File "/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t228/tests/e2e/test_ui.py", line 12, in <module>
+    import axe_playwright_python
+ModuleNotFoundError: No module named 'axe_playwright_python'
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+FAILED (errors=1)

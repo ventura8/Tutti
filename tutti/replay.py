@@ -1,5 +1,5 @@
 """Bounded in-process event replay for a future stable Chat job owner; not wired into the dashboard."""
-import copy
+import json
 import math
 import secrets
 import threading
@@ -14,24 +14,39 @@ class ReplayGap(ValueError):
 class ReplayLog:
     """A single job's ordered events. Cursors are sequence numbers scoped to this one job and owner lifetime."""
 
-    def __init__(self, limit=1024):
+    def __init__(self, limit=1024, max_event_bytes=65536, max_bytes=1048576):
         if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
             raise ValueError('Replay limit must be a positive integer: configure at least one retained event.')
+        if any(not isinstance(n, int) or isinstance(n, bool) or n < 1 for n in (max_event_bytes, max_bytes)):
+            raise ValueError('Replay byte limits must be positive integers.')
+        if max_event_bytes > max_bytes:
+            raise ValueError('The per-event byte limit cannot exceed the total replay byte limit.')
         self.generation = secrets.token_urlsafe(24)
-        self._events = deque(maxlen=limit)
+        self._limit, self._max_event_bytes, self._max_bytes = limit, max_event_bytes, max_bytes
+        self._bytes = 0
+        self._events = deque()
         self._condition = threading.Condition()
         self._next = 1
         self._closed = False
 
     def append(self, event):
-        """Save a copy and wake followers; events after close are refused."""
-        event = copy.deepcopy(event)
+        """Save a JSON event within count and encoded-byte limits; events after close are refused."""
+        try:
+            payload = json.dumps(event, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode('utf8')
+        except (TypeError, ValueError, UnicodeError, RecursionError) as e:
+            raise ValueError('Replay event must be valid JSON: send a serializable event.') from e
+        if len(payload) > self._max_event_bytes:
+            raise ValueError('Replay event exceeds its byte limit: send a smaller event.')
         with self._condition:
             if self._closed:
                 raise ValueError('This event stream has finished: start a new job to send more events.')
             seq = self._next
             self._next += 1
-            self._events.append((seq, event))
+            while self._events and (len(self._events) >= self._limit or self._bytes + len(payload) > self._max_bytes):
+                _, discarded = self._events.popleft()
+                self._bytes -= len(discarded)
+            self._events.append((seq, payload))
+            self._bytes += len(payload)
             self._condition.notify_all()
             return seq
 
@@ -60,4 +75,4 @@ class ReplayLog:
                 self._condition.wait(remaining)
             if self._events and after < self._events[0][0] - 1:
                 raise ReplayGap('Some answer events are no longer retained: reload the saved conversation before reconnecting.')
-            return [(seq, copy.deepcopy(event)) for seq, event in self._events if seq > after], self._closed
+            return [(seq, json.loads(payload)) for seq, payload in self._events if seq > after], self._closed

@@ -41,6 +41,7 @@
     <script src="welcome.js?v=__TUTTI_VERSION__" defer></script>
     <script src="needs.js?v=__TUTTI_VERSION__" defer></script>
     <script src="github.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="agents.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
     <a class="skip" href="#main">Skip to the content</a>
@@ -71,6 +72,7 @@
         <nav class="tabs" aria-label="Views">
             <a class="tabs__tab" href="#chat" data-view="chat" aria-current="page">Chat</a>
             <a class="tabs__tab" href="#dashboard" data-view="dashboard">Dashboard</a>
+            <a class="tabs__tab" href="#agents" data-view="agents">Agents</a>
             <a class="tabs__tab" href="#settings" data-view="settings">Settings</a>
             <a class="tabs__tab" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
         </nav>
@@ -488,6 +490,17 @@
             </section>
         </div>
       </div>
+
+      <div id="agents-view" hidden>
+        <section class="card span-full" aria-labelledby="agents-h">
+          <header class="card__head">
+            <h2 id="agents-h">Agents</h2>
+          </header>
+          <ul id="agents-list" class="list"></ul>
+        </section>
+      </div>
+
+      <!-- Every setting of tutti.config.yaml, drawn by settings.js from GET /api/settings; sections may later be per user. -->
 
       <!-- Every setting of tutti.config.yaml, drawn by settings.js from GET /api/settings; sections may later be per user. -->
       <!-- The admin-only Users tab: people, roles, invites and the audit log (users.js); the household's per-user

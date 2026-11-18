@@ -186,6 +186,29 @@ class Collector:
             self.probes = fresh
         return fresh
 
+    def agents_view(self, probes):
+        from . import workers
+        checks = workers.statuses(self.cfg)
+        agents = []
+        for name, w in self.cfg['workers'].items():
+            ok, note = checks.get(name, (False, 'unknown'))
+            # Populate with new fields as per requirements
+            agents.append({
+                'name': name,
+                'kind': w.get('kind'),
+                'ready': ok,
+                'note': note,
+                'roles': w.get('roles', []),
+                'capabilities': w.get('capabilities', []),
+                'limits': w.get('limits', {}),
+                'live_state': w.get('live_state', {}),
+                'learned': w.get('learned', []),
+                'benchmarks': w.get('benchmarks', []),
+                'cost': w.get('cost', {}),
+                'actions': w.get('actions', []),
+            })
+        return agents
+
     def autopilot_tick(self):
         """One autopilot round after each probe while it is on: the probes just taken decide (pace, slots, heat)."""
         if not autopilot.enabled(self.cfg):
@@ -303,6 +326,7 @@ class Collector:
         out['household_use'] = householduse.view(self.cfg, self.clock())   # the headline and each machine's use (docs/FLEET.md)
         out['fleet'] = fleet.view(self.cfg)
         out['work_queue'] = workq.view(self.cfg)
+        out['agents'] = self.agents_view(probes)
         accounts = {a['name']: a for a in out['usage']['accounts']}
         out['scouts'] = {**scouts.view(self.cfg, accounts, self.env), 'error': probes.get('scout_error'), 'trial': trial.view(self.cfg)}
         out['controls'] = controls.view(self.cfg, controls.read(config.state_dir(self.cfg)))

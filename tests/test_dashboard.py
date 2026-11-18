@@ -177,6 +177,19 @@ class MachinesWorkersTest(unittest.TestCase):
         self.assertTrue(agents['ollama']['installed'])   # its server answers, even with no binary here
         self.assertFalse(agents['copilot']['installed'])
 
+    def test_agents_view_fields(self):
+        cfg = cfg_of({'workers': {'a': {'kind': 'cli', 'roles': ['worker'], 'capabilities': ['browser'], 'limits': {'quota': '10'},
+                                        'live_state': {'status': 'running'}, 'learned': ['fast'], 'benchmarks': [{'score': 10}],
+                                        'cost': {'watts': 5}, 'actions': ['pause']}}}, self.tmp.name)
+        collector = dashboard.Collector(cfg, available_fn=lambda w: (True, 'ok'))
+        agents = collector.agents_view({})
+        self.assertEqual(len(agents), 1)
+        a = agents[0]
+        self.assertEqual(a['name'], 'a')
+        self.assertEqual(a['roles'], ['worker'])
+        self.assertEqual(a['limits'], {'quota': '10'})
+        self.assertEqual(a['cost'], {'watts': 5})
+
 
 class ServerTest(unittest.TestCase):
     @classmethod

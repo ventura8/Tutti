@@ -63,6 +63,18 @@ works while their own computer is off. Each action is a card with Undo and goes 
 admin-set limits, and pausing stays with admins. Like a chat IDE it has a model, effort and mode picker (Autonomous, Ask
 before acting, Plan review), @-mentions, slash commands, branches and a context meter. See [CHAT.md](CHAT.md).
 
+## Agents
+
+The **Agents** tab (`#agents`) lists every online agent and local model in your Tutti setup. Each card shows:
+- **Roles** (main/conductor, worker, reviewer, scout, etc.);
+- **Capabilities** (languages, tools, MCP, browser, images, context size);
+- **Limits** (quota and reset times);
+- **Live State** (pacing, running tasks, ETA);
+- **Learned strengths and limits** (with evidence);
+- **Benchmark scores** (with sources);
+- **Cost** (watts per success);
+- **Admin actions** (enable, set role, set as main, order in the ladder).
+
 ## Layout
 
 The **Dashboard** tab's cards go by importance, top to bottom, on a 12-column grid whose rows fill their width, so no card stands tall and

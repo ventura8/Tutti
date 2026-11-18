@@ -56,6 +56,21 @@ class WinHelpersTest(unittest.TestCase):
         self.assertIsNone(winhelpers.parse_idle('3 1 1000', 1030))           # locked: nobody at the keyboard
         self.assertIs(winhelpers.parse_idle('3 0 1000', 2000), False)        # stale: the helper stopped
         self.assertIs(winhelpers.parse_idle('The system cannot find the file specified.', 0), False)
+        # tolerates minor Windows clock skew without falling back to query user
+        self.assertEqual(winhelpers.parse_idle('2515 0 1000', 1250), 2515.0)  # Windows 250s behind
+        self.assertEqual(winhelpers.parse_idle('2515 0 1250', 1000), 2515.0)  # Windows 250s ahead
+        self.assertIs(winhelpers.parse_idle('2515 0 1500', 1000), False)       # ahead beyond skew limit
+
+    def test_presence_tolerates_clock_skew_without_fallback(self):
+        m = {'name': 'pc', 'host': 'pc.example'}
+        calls = []
+
+        def run(argv, **kw):
+            calls.append(argv[-1])
+            return mock.Mock(returncode=0, stdout='2515 0 1000\n')
+        # Windows clock is 200s behind host clock (1200 vs 1000): should not fall back to query user
+        self.assertEqual(remote.windows_idle(m, clock=lambda: 1200, run=run, ensure_fn=calls.append), 2515.0)
+        self.assertEqual(calls, [winhelpers.READ_IDLE])
 
     def test_presence_comes_from_the_console_helper_not_query_user(self):
         m = {'name': 'pc', 'host': 'pc.example'}
@@ -96,6 +111,23 @@ class WinHelpersTest(unittest.TestCase):
         self.assertIsNone(winhelpers.ensure({'name': 'y', 'host': 'h'}, run=failing, clock=lambda: 10_000 + winhelpers.RETRY))
         self.assertEqual(failing.call_count, 2)   # a failure is retried after RETRY s, not an hour
         self.assertIsNone(winhelpers.ensure({'name': 'x', 'host': 'h'}, run=mock.Mock(side_effect=OSError), clock=lambda: 10_000))
+
+    def test_setup_pins_lhm_version_and_verifies_hash(self):
+        self.assertEqual(winhelpers.LHM_VERSION, '0.9.6')
+        self.assertIn(f'--version {winhelpers.LHM_VERSION}', winhelpers.SETUP)
+        self.assertIn(winhelpers.LHM_HASH, winhelpers.SETUP)
+        self.assertIn('--disable-interactivity', winhelpers.SETUP)
+        self.assertIn('LibreHardwareMonitor hash mismatch', winhelpers.SETUP)
+        self.assertIn(f'winget pin add --id LibreHardwareMonitor.LibreHardwareMonitor --version {winhelpers.LHM_VERSION}', winhelpers.SETUP)
+        self.assertIn(f'winget version {winhelpers.LHM_VERSION} not found or failed', winhelpers.SETUP)
+
+    def test_ensure_logs_output_lines(self):
+        m = {'name': 'pc', 'host': 'pc.example'}
+        out = f'winget version {winhelpers.LHM_VERSION} not found or failed\nno LibreHardwareMonitor: winget and choco failed\n'
+        with mock.patch.object(winhelpers.log, 'info') as log_info:
+            winhelpers.ensure(m, run=lambda *a, **k: mock.Mock(returncode=0, stdout=out), clock=lambda: 10_000)
+            log_info.assert_any_call('%s: %s', 'pc', f'winget version {winhelpers.LHM_VERSION} not found or failed')
+            log_info.assert_any_call('%s: %s', 'pc', 'no LibreHardwareMonitor: winget and choco failed')
 
 
 if __name__ == '__main__':

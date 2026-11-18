@@ -7,6 +7,12 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.27.9] - 2026-11-18
+
+### Changed
+
+- Add a regression test for takeover room on an account linked to a shared CLI worker (t204).
+
 ## [0.27.8] - 2026-11-18
 
 ### Fixed

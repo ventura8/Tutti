@@ -714,6 +714,19 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
         near = {'claude': {'panic': True, 'used': 96}, 'cursor': {'verdict': 'ahead', 'used': 94}}
         self.assertEqual(self.room(near, running={'cursor': 1})[0], 0)
 
+    def test_other_account_linked_to_cursor_gets_room_when_main_panics(self):
+        from tutti import autopilot
+        cfg = {'accounts': {'claude': {'worker': 'claude'}, 'cursor-other': {'worker': 'cursor'}},
+               'workers': {'claude': {'kind': 'cli'}, 'cursor': {'kind': 'cli'}}, 'autopilot': {}}
+        states = {'claude': {'panic': True, 'used': 96}, 'cursor-other': {'used': 16.7, 'verdict': 'on pace'}}
+        with mock.patch.object(autopilot, 'costs_money', return_value=False), \
+                mock.patch.object(autopilot, 'trigger_accounts', return_value=[]):
+            room, _ = autopilot.step_room(cfg, 'cursor-other', states, {})
+            self.assertGreater(room, 0)
+            states['claude'] = {'used': 50, 'verdict': 'ahead'}
+            states['cursor-other']['verdict'] = 'ahead'
+            self.assertEqual(autopilot.step_room(cfg, 'cursor-other', states, {})[0], 0)
+
     def test_it_fills_up_to_its_own_panic_line(self):
         from tutti import autopilot
         acc = {'accounts': {'cursor': {'task_pct': 2}}}

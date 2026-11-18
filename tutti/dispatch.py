@@ -1092,6 +1092,17 @@ def admit_run(cfg, lid, expected, prepare, popen):
         return popen(argv, stdin=subprocess.DEVNULL, start_new_session=True) if argv else None
 
 
+def write_run_result(cfg, lid, paths_of_run, rc):
+    """Do not announce a device free when recovery has already held its lease."""
+    if rc != STOP_UNCERTAIN:
+        with locked(cfg) as state:
+            current = state['leases'].get(lid)
+            if current and not current.get('uncertain'):
+                announce_free(cfg, released(read_log(paths_of_run['log'])), st=state)
+    with open(paths_of_run['rc'], 'w', encoding='utf8') as f:
+        f.write(f'{rc}\n')
+
+
 def run(cfg, lid, popen=subprocess.Popen, after=live_tick, look=calls.look, sleep=time.sleep):
     """`tutti dispatch run <lease>`: runs the shard, touches the heartbeat while it runs (and looks for phone calls on a
     device), writes the exit code, frees the lease and dispatches the next shard at once (the target is free now)."""
@@ -1122,14 +1133,8 @@ def run(cfg, lid, popen=subprocess.Popen, after=live_tick, look=calls.look, slee
     except StopUncertain:
         rc = STOP_UNCERTAIN
     finally:
-        if write_result and rc != STOP_UNCERTAIN:
-            with locked(cfg) as state:
-                current = state['leases'].get(lid)
-                if current and not current.get('uncertain'):
-                    announce_free(cfg, released(read_log(p['log'])), st=state)
         if write_result:
-            with open(p['rc'], 'w', encoding='utf8') as f:
-                f.write(f'{rc}\n')
+            write_run_result(cfg, lid, p, rc)
     if write_result:
         with contextlib.suppress(Exception):   # the next shard is a bonus: the dashboard's next tick sends it anyway
             after(cfg)

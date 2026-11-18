@@ -60,9 +60,10 @@ def want(cfg, tasks, free):
 
 
 def pick(data, found, need, cfg=None):
-    """The first `need` of [(repo, title, scope, source, check)] whose title the backlog never had (a dropped or done task is
-    not queued again), shared out over the repos by their projects' priority (weighted fair share, tutti/priority.py), so a
-    more important project gets more of the room and no repo takes all of it."""
+    """Choose up to `need` discovered tasks without a compatible backlog match, including done or dropped tasks.
+
+    Explicitly different scopes or checks can coexist. Share room over repos by project priority (weighted fair share).
+    """
     known = {}
     for task in data['tasks']:
         known.setdefault(backlog.key_of(task), []).append(task)

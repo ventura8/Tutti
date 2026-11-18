@@ -70,8 +70,9 @@ def errors(cfg):
     errs = []
     for name, d in (cfg.get('devices') or {}).items():
         where = f'devices.{name}'
-        if not d.get('serial'):
-            errs.append(f'{where}.serial is missing: the serial `adb devices` lists (or ip:port for wireless debugging)')
+        if not d.get('serial') and not d.get('ha_entity'):
+            errs.append(f'{where}.serial is missing: the serial `adb devices` lists (or ip:port for wireless '
+                        'debugging), or ha_entity for Home Assistant')
         if d.get('machine') not in cfg['machines']:
             errs.append(f'{where}.machine is {d.get("machine")!r}: name the machine its adb sees it on, one of machines:')
         errs += policy_errors(where, d.get('policy'))
@@ -211,12 +212,13 @@ def _use(pol, r):
     return ''
 
 
-def unfit(pol, r, serial=''):
+def unfit(pol, r, serial='', is_ha=False):
     """Why the device must not take a run now, or ''. Unreadable power readings refuse it: running blind on a phone is
     how a battery gets drained or cooked."""
     hint = 'install the Termux:API app and `pkg install termux-api`' if 'state' not in r else 'check `adb shell dumpsys battery` answers'
     call = f'Paused: phone call ({CALL_WORDS[r["call"]]}): it waits until the call ends' if on_call(r) else ''
-    return _connection(r, serial) or call or _battery(pol, r, hint) or _use_charging(pol, r) or _heat(pol, r, hint) or _use(pol, r)
+    conn = _connection(r, serial) if not is_ha else ''
+    return conn or call or _battery(pol, r, hint) or _use_charging(pol, r) or _heat(pol, r, hint) or _use(pol, r)
 
 
 def _use_charging(pol, r):
@@ -247,10 +249,10 @@ def on_call(r):
     return r.get('call') in (CALL_RINGING, CALL_OFFHOOK)
 
 
-def status(pol, r, serial=''):
+def status(pol, r, serial='', is_ha=False):
     """(status, reason) for the dashboard and `tutti devices`: offline, call, busy, waiting or ready."""
-    why = unfit(pol, r, serial)
-    if _connection(r, serial):
+    why = unfit(pol, r, serial, is_ha=is_ha)
+    if not is_ha and _connection(r, serial):
         return 'offline', why
     if on_call(r):
         return 'call', f'Paused: phone call ({CALL_WORDS[r["call"]]}); runs start again after it ends'
@@ -346,11 +348,12 @@ def _roles(d, readings):
 
 def device_state(d, readings):
     pol = policy(d)
-    st, reason = status(pol, readings, d['serial'])
+    is_ha = d.get('kind') == 'tv' and bool(d.get('ha_entity'))
+    st, reason = status(pol, readings, d.get('serial', ''), is_ha=is_ha)
     keep = ('battery', 'charging', 'battery_c', 'battery_present', 'temp_skin', 'temp_soc',
             'screen', 'wifi', 'call', 'external_by', 'prep_left',
-            'revived', 'dnd', 'cast')
-    return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'kind': d.get('kind', 'phone'), 'status': st,
+            'revived', 'dnd', 'cast', 'media_title', 'source', 'volume')
+    return {'name': d['name'], 'serial': str(d.get('serial', '')), 'machine': d['machine'], 'kind': d.get('kind', 'phone'), 'status': st,
             'reason': reason, 'hours': d.get('hours'), 'roles': _roles(d, readings),
             'night': (d.get('_night') or {}) if (d.get('_night') or {}).get('on') else None,
             'policy': pol, **{k: readings.get(k) for k in keep}}
@@ -453,7 +456,8 @@ def first_ready(cfg, found, readings_fn):
             continue
         pol = policy(d)
         r = readings_fn(cfg['machines'][d['machine']], d, wake=pol.get('screen') == 'wake')
-        reason = unfit(pol, r, d['serial'])
+        is_ha = d.get('kind') == 'tv' and bool(d.get('ha_entity'))
+        reason = unfit(pol, r, d['serial'], is_ha=is_ha)
         if reason:
             why.append(f'{d["name"]}: {reason}')
         elif r.get('locked') == 1 and len(found) > 1:

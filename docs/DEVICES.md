@@ -130,3 +130,24 @@ command, checks battery and heat first and queues a second run:
   release <name> --who <session>` after; the device is released (its own settings back) when the last user is done.
 - MCP (`tutti mcp`): the `test_on` tool with `device` (and `track`, `command`); it returns a job id to poll with
   `job_status`. The `devices` tool shows each device's state and lock.
+
+## Apple TV (tvOS) support
+
+Tutti supports Apple TV devices via Home Assistant.
+
+Configure the Home Assistant connector in `tutti.config.yaml`:
+
+```yaml
+home_assistant:
+  url: http://<ha-url>:8123
+devices:
+  living_room_atv:
+    kind: tv
+    ha_entity: media_player.apple_tv
+```
+
+The device will appear in `tutti devices` and support basic remote control:
+
+```bash
+tutti devices remote <device> <command>  # commands: up, down, left, right, select, menu, home, play_pause, volume_up, volume_down
+```

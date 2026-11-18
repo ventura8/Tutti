@@ -74,8 +74,14 @@ def readings_with_revive(cfg, readings_fn, hosts_fn=None):
     """readings_fn for devices_state: a wireless device not connected is revived (above) and read again; when nothing
     reaches it the readings carry LAST_STEP as the reason."""
     mk = hosts_fn or hosts(cfg)
+    from . import ha
+    client = ha.HAClient(cfg)
 
     def read(machine, d, **kw):
+        if d.get('kind') == 'tv' and d.get('ha_entity'):
+            from . import ha_readings
+            return ha_readings.get_ha_readings(client, d['ha_entity'])
+
         r = readings_fn(machine, d, **kw)
         if r.get('adb') != 'ok' or r.get('state') == 'device' or not adbpair.guid_of(d.get('serial')):
             return r

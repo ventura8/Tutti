@@ -61,6 +61,7 @@ DEFAULTS = {
     # auto_review: a result to review is reviewed by review.fallback and landed by its repo's `land` (merge, pr or branch)
     'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'max_parallel': None, 'no_progress': 3, 'max_attempts': 12, 'repos': {},
                   'checkpoint_minutes': 5, 'quiet_hours': [], 'fill_room': True, 'auto_review': True, 'stuck_minutes': 30},
+    'home_assistant': {'url': ''},
     # depbots: dependency bots' pull requests and vulnerability reports as autopilot tasks (tutti/depbots.py,
     # docs/SECURITY-INTAKE.md): the bots whose pull requests are dependency updates (authors or branch prefixes; match: a
     # regex the title or branch must hold), the scanners whose review comments are security findings, how often to read
@@ -469,7 +470,7 @@ def validate(cfg):
              if n not in cfg['workers']]
     for name, a in cfg['accounts'].items():
         errs += _account_source_errors(name, a or {}) + _account_worker_errors(cfg, name, a or {}) + _account_pace_errors(name, a or {})
-    errs += _dashboard_errors(cfg['dashboard']) + _auth_errors(cfg.get('auth'))
+    errs += _dashboard_errors(cfg['dashboard']) + _auth_errors(cfg.get('auth')) + _ha_errors(cfg)
     errs += files.errors(cfg) + _test_errors(cfg) + _review_errors(cfg)
     # they import modules that import this one
     from . import autocompact, chat, depbots, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
@@ -487,6 +488,15 @@ def validate(cfg):
 PACKAGE_NAME = re.compile(r'^[a-z0-9][a-z0-9+.-]*$')
 PROGRAM_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
 
+
+def _ha_errors(cfg):
+    ha = cfg.get('home_assistant', {})
+    if not isinstance(ha, dict):
+        return [f'home_assistant is {ha!r}: write it as a mapping, e.g. home_assistant: {{url: http://192.168.1.98:8123}}']
+    url = ha.get('url', '')
+    if url and not url.startswith(('http://', 'https://')):
+        return [f'home_assistant.url is {url!r}: use a full URL starting with http:// or https://']
+    return []
 
 def _update_errors(u):
     if not isinstance(u, dict):

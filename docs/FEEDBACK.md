@@ -1,5 +1,7 @@
 # Feedback log
 
+Household reassignment must preserve the old holder's uncheckpointed work when its local backup fails (t309).
+
 Autopilot must not launch new work after a cooperative local move has frozen its host (t404).
 
 Checkpoint status must not claim a push succeeded when the snapshot produced no SHA or the push was disabled (t309).

@@ -1396,20 +1396,25 @@ def move_out(cfg, t, to, now, is_alive=None, kill=None, snap=checkpoint):
     return f'queued for {to or "the best available worker"}; {note or "it was not running"}'
 
 
-def give_up_here(cfg, t, holder, is_alive, kill, run=git):
-    """One task moved to `holder`: the stale run stopped, its WIP kept on tutti/backup/<name>, the worktree cleaned."""
+def give_up_here(cfg, t, holder, is_alive, kill, snap=checkpoint):
+    """A task moved to `holder`: preserve the local worktree, even when a backup cannot be made."""
     wt = stop_run(cfg, t, is_alive, kill)
-    kept = ''
+    sha = ''
     if wt:
-        sha = checkpoint(wt, f'refs/heads/tutti/backup/{wip_name(t)}', t.get('run'), run=subprocess.run)
-        kept = f'; the local work is kept on tutti/backup/{wip_name(t)}' if sha else ''
-        run(wt, 'reset', '-q', '--hard')
-        run(wt, 'clean', '-qfd')
+        try:
+            sha = snap(wt, f'refs/heads/tutti/backup/{wip_name(t)}', t.get('run'))
+        except (OSError, subprocess.SubprocessError):
+            pass
+    note = (f'local worktree preserved; backup at tutti/backup/{wip_name(t)}' if sha else
+            'local backup unconfirmed; inspect and preserve the worktree before reconciling with the household holder')
+    if not wt:
+        note = 'local worktree unavailable; inspect the run before reconciling with the household holder'
     t.update(status='moved', moved={'to': holder, 'at': time.time()})
-    return f'{t["id"]} moved to {holder} while this computer was away: not run here again{kept}'
+    t['recovery_note'] = note
+    return f'{t["id"]} moved to {holder} while this computer was away: not run here again; {note}'
 
 
-def moved_away(cfg, data, moved, is_alive=None, kill=None, run=git):
+def moved_away(cfg, data, moved, is_alive=None, kill=None):
     """This member's tasks that an admin moved to another member while this computer was away (`moved`: {task key:
     holder}, sharing.moved_of): never run here again. Returns event lines."""
     from . import household
@@ -1419,7 +1424,7 @@ def moved_away(cfg, data, moved, is_alive=None, kill=None, run=git):
     for t in data['tasks']:
         holder = moved.get(household.fold(t['title']))
         if holder and t['status'] in ('running', 'queued'):
-            out.append(give_up_here(cfg, t, holder, is_alive, kill, run))
+            out.append(give_up_here(cfg, t, holder, is_alive, kill))
     return out
 
 

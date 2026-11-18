@@ -451,6 +451,11 @@ class PlanTest(Base):
                                                           lambda: {'agy-gemini': {'used': None, 'problem': 'reader failed'}}))
             self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(),
                                                           lambda: {'agy-gemini': {'used': 99, 'problem': None}}))
+            usage.return_value = {'accounts': [{**s, 'selected_source': 'estimate'}]}
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
+            usage.return_value = {'accounts': [s]}
+            for invalid in (True, float('nan'), float('inf'), -1, 101):
+                self.assertFalse(autopilot.valid_current_reader({'used': invalid}, {'used': 1}))
             with mock.patch.object(autopilot, 'start_reserved', return_value=('run', 'started')) as start:
                 data = {'tasks': tasks}
                 later = now.timestamp() + 60

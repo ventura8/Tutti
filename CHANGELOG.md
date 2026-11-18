@@ -10,6 +10,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
+- Allow an explicit checkpoint-only round without starting or collecting work (t309).
 - Do not report a checkpoint as pushed when no new snapshot or remote push was confirmed (t309).
 
 ## 0.30.8 (2026-11-18)

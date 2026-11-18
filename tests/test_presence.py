@@ -364,6 +364,42 @@ GIT_ENV = {'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@x.example', 'GIT_COMMI
 
 @mock.patch.dict(os.environ, GIT_ENV)
 class Checkpoints(Base):
+    def test_manual_checkpoint_only_snapshots_running_tasks(self):
+        cfg = self.cfg()
+        os.makedirs(self.state, exist_ok=True)
+        running = {'id': 't1', 'title': 'task', 'repo': 'app', 'run': '1-1', 'status': 'running'}
+        queued = {'id': 't2', 'title': 'other', 'repo': 'app', 'status': 'queued'}
+        backlog.save(cfg, {'tasks': [running, queued]})
+        snap, push = mock.Mock(return_value='new-sha'), mock.Mock(return_value='')
+        with mock.patch('tutti.failover.may_write', return_value=True), \
+                mock.patch.object(autopilot, 'tree_of', return_value='/example/worktree'), \
+                mock.patch.object(autopilot, 'wip_remote', return_value='origin'), \
+                mock.patch.object(autopilot, 'tick', side_effect=AssertionError('must not dispatch')):
+            results = autopilot.checkpoint_now(cfg, 100, snap=snap, push=push)
+        self.assertEqual([(task_id, result['pushed']) for task_id, result in results], [('t1', True)])
+        self.assertEqual(snap.call_count, 1)
+        self.assertEqual(push.call_count, 1)
+        stored = backlog.load(cfg)['tasks']
+        self.assertEqual(stored[0]['wip']['sha'], 'new-sha')
+        self.assertEqual(stored[1], queued)
+
+    def test_manual_checkpoint_fences_and_reports_missing_tree(self):
+        cfg = self.cfg()
+        os.makedirs(self.state, exist_ok=True)
+        task = {'id': 't1', 'title': 'task', 'repo': 'app', 'run': '1-1', 'status': 'running'}
+        backlog.save(cfg, {'tasks': [task]})
+        snap = mock.Mock()
+        with mock.patch('tutti.failover.may_write', side_effect=[True, False]):
+            self.assertIsNone(autopilot.checkpoint_now(cfg, 100, snap=snap))
+        snap.assert_not_called()
+        self.assertEqual(backlog.load(cfg)['tasks'], [task])
+        with mock.patch('tutti.failover.may_write', return_value=True), \
+                mock.patch.object(autopilot, 'tree_of', return_value=None):
+            results = autopilot.checkpoint_now(cfg, 100, snap=snap)
+        self.assertIn('worktree unavailable', results[0][1]['error'])
+        self.assertFalse(results[0][1]['pushed'])
+        snap.assert_not_called()
+
     def test_no_new_snapshot_does_not_claim_a_push_or_reuse_a_failed_sha(self):
         cfg = self.cfg()
         task = {'id': 't1', 'title': 'task', 'repo': 'app', 'run': '1-1',

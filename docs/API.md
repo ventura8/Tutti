@@ -1578,15 +1578,15 @@ usage: tutti owner [-h] [{status,mode,window}] [mode] [window]
 
 ### `tutti autopilot`
 
-send backlog tasks to accounts that are behind their pace, by itself: status, on, off, tick (one round now; the dashboard ticks while it runs), fill on\|off (fill free room from the repos' sources), land <id> (review a result and land it)
+send backlog tasks to accounts that are behind their pace, by itself: status, on, off, tick (one round now), checkpoint (snapshot running work only), fill on\|off (fill free room from the repos' sources), land <id> (review a result and land it)
 
 ```text
-usage: tutti autopilot [-h] [{status,on,off,tick,fill,land,allow}] [arg]
+usage: tutti autopilot [-h] [{status,on,off,tick,checkpoint,fill,land,allow}] [arg]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {status,on,off,tick,fill,land,allow}` |  | `status` |
+| `action {status,on,off,tick,checkpoint,fill,land,allow}` |  | `status` |
 | `arg` | fill: on or off; land: the task id; allow: the account that may take first attempts for 7 days (the block resolver's one action) |  |
 
 ### `tutti workq`

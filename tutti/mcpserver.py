@@ -84,6 +84,8 @@ TOOLS = [
          {'scout': _s('the scout name (see `tutti scout list`)'), 'question': _s('the question or research task'),
           'skill': _s('optional hint', enum=['research', 'web-browse', 'triage', 'monitoring', 'drafting', 'browser-repro'])},
          required=('scout', 'question'), mutating=True),
+    tool('capture_screenshot', 'Capture a screenshot from a machine or device',
+         {'device': _s('Android device serial; optional for machine screenshot')}, mutating=True),
     tool('pending_questions', 'The questions only the user can answer (a parked task\'s next step, a worker\'s question), '
          'batched: ask the user them together when it suits, then call answer_question for each. The rest of the work goes on.'),
     tool('answer_question', 'Write the user\'s answer to one question back to Tutti; the task resumes (or is dropped).',
@@ -181,6 +183,7 @@ def argv_of(name, a):
                                   + ['--', 'auto', (f'[size {size}] ' if size else '') + a['task']]),
         'scout_ask': lambda: (['scout', '--no-wait'] + (['--skill', a['skill']] if a.get('skill') else [])
                               + ['--', 'ask', a['scout'], a['question']]),
+        'capture_screenshot': lambda: ['screenshot'] + (['--device', a['device']] if a.get('device') else []),
         'away_mode': lambda: ['owner', 'mode', a['mode']] if a.get('mode') else ['owner', 'status'],
         'backlog_claim': lambda: ['backlog', '--who', a['who'], 'claim', a['id']],
         'backlog_update': lambda: ['backlog', f'--note={a["note"]}', 'note', a['id']],

@@ -322,6 +322,16 @@ Needs: admin role (changes something).
 | `question` | string | yes | the question or research task |
 | `skill` | string | no | optional hint; one of: research, web-browse, triage, monitoring, drafting, browser-repro. |
 
+### `capture_screenshot`
+
+Capture a screenshot from a machine or device
+
+Needs: admin role (changes something).
+
+| Parameter | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `device` | string | no | Android device serial; optional for machine screenshot |
+
 ### `pending_questions`
 
 The questions only the user can answer (a parked task's next step, a worker's question), batched: ask the user them together when it suits, then call answer_question for each. The rest of the work goes on.

@@ -221,6 +221,21 @@ def cmd_machines(cfg, a):
     return 1 if down else 0
 
 
+def cmd_screenshot(cfg, a):
+    """`tutti screenshot`: capture and display progress screenshot."""
+    from . import screenshot
+    try:
+        if a.device:
+            img, machine, time = screenshot.capture_android(a.device)
+        else:
+            img, machine, time = screenshot.capture()
+        print(json.dumps({'image': img, 'machine': machine, 'time': time}))
+        return 0
+    except Exception as e:
+        say(f'screenshot: {e}')
+        return 1
+
+
 def heat_text(p):
     out = ''.join(f'  {w} {t:.0f} C' for t, w in ((p.temp, 'CPU'), (p.gpu_temp, 'GPU')) if t is not None)
     out += '  CPU not readable' if p.temp is None and p.temp_note else ''

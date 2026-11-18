@@ -562,7 +562,7 @@ def model_tools():
     """{name: {schema, description, mutating}}: what a model may call. Read-only ones run at once and their answer goes back
     to the model; the others become a proposal the user confirms."""
     from . import mcpserver  # it imports config, which imports this module's errors()
-    keep = ('usage', 'machines', 'devices', 'job_status', 'backlog_list', 'backlog_add', 'delegate_task', 'test_on', 'scout_ask')
+    keep = ('usage', 'machines', 'devices', 'job_status', 'backlog_list', 'backlog_add', 'delegate_task', 'test_on', 'scout_ask', 'capture_screenshot')
     out = {}
     for t in [x for x in mcpserver.TOOLS if x['name'] in keep] + [_control_tool()]:
         schema = t['inputSchema']

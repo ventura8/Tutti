@@ -203,14 +203,25 @@ class DispatchTest(Base):
         self.tick(cfg, [phone()])
         lid = next(iter(dispatch.read_state(cfg)['leases']))
         spawn = mock.Mock(return_value=object())
-        dispatch.admit_run(cfg, lid, ['fake'], spawn)
+        dispatch.admit_run(cfg, lid, ('Radio', 'e2e/a'), lambda _: ['fake'], spawn)
         with self.assertRaises(dispatch.AdmissionRefused):
-            dispatch.admit_run(cfg, lid, ['fake'], spawn)
+            dispatch.admit_run(cfg, lid, ('Radio', 'e2e/a'), lambda _: ['fake'], spawn)
         with dispatch.locked(cfg) as st:
             dispatch.recover(cfg, st, NOW + 10, lambda _: False, rc_fn=lambda *_: None)
         with self.assertRaises(dispatch.AdmissionRefused):
-            dispatch.admit_run(cfg, lid, ['fake'], spawn)
+            dispatch.admit_run(cfg, lid, ('Radio', 'e2e/a'), lambda _: ['fake'], spawn)
         self.assertEqual(spawn.call_count, 1)
+
+    def test_runner_admission_is_refused_if_failover_fences_the_host(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        spawn = mock.Mock()
+        with mock.patch('tutti.failover.may_write', side_effect=[True, False]):
+            with self.assertRaises(dispatch.AdmissionRefused):
+                dispatch.admit_run(cfg, lid, ('Radio', 'e2e/a'), lambda _: ['fake'], spawn)
+        spawn.assert_not_called()
+        self.assertNotIn('run_admitted', dispatch.read_state(cfg)['leases'][lid])
 
     def test_concurrent_runner_admission_and_recovery_never_start_after_hold(self):
         cfg = self.cfg()
@@ -221,7 +232,7 @@ class DispatchTest(Base):
         spawn = mock.Mock()
         def attempt():
             try:
-                dispatch.admit_run(cfg, lid, ['fake'], spawn)
+                dispatch.admit_run(cfg, lid, ('Radio', 'e2e/a'), lambda _: ['fake'], spawn)
             except dispatch.AdmissionRefused:
                 return False
             return True
@@ -242,7 +253,7 @@ class DispatchTest(Base):
             with dispatch.locked(cfg) as st:
                 dispatch.recover(cfg, st, NOW + 10, lambda _: False, rc_fn=lambda *_: None)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            start = pool.submit(dispatch.admit_run, cfg, lid, ['fake'], spawn)
+            start = pool.submit(dispatch.admit_run, cfg, lid, ('Radio', 'e2e/a'), lambda _: ['fake'], spawn)
             self.assertTrue(entered.wait(2))
             recovery = pool.submit(recover)
             release.set()
@@ -270,9 +281,29 @@ class DispatchTest(Base):
             self.assertEqual(dispatch.run(cfg, lid, popen=popen, after=lambda _: None), 2)
         popen.assert_not_called()
         self.assertEqual(dispatch.read_rc(cfg, lid), 2)
+        with dispatch.locked(cfg) as st:
+            st['leases'][lid].pop('run_admitted')
         with self.assertRaises(OSError):
             dispatch.run(cfg, lid, popen=popen, after=lambda _: None)
         self.assertEqual(dispatch.read_rc(cfg, lid), dispatch.STOP_UNCERTAIN)
+
+    def test_held_or_admitted_run_cannot_overwrite_a_result_on_no_suite_or_bad_config(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        with open(dispatch.paths(cfg, lid)['rc'], 'w', encoding='utf8') as f:
+            f.write('0\n')
+        for field in ('uncertain', 'run_admitted'):
+            with dispatch.locked(cfg) as st:
+                st['leases'][lid].pop('uncertain', None)
+                st['leases'][lid].pop('run_admitted', None)
+                st['leases'][lid][field] = True
+            with mock.patch.object(dispatch, 'suites', return_value=[]):
+                self.assertEqual(dispatch.run(cfg, lid, after=lambda _: None), 2)
+            with mock.patch.object(dispatch, 'test_argv', side_effect=config.ConfigError('bad config')) as build:
+                self.assertEqual(dispatch.run(cfg, lid, after=lambda _: None), 2)
+                build.assert_not_called()
+            self.assertEqual(dispatch.read_rc(cfg, lid), 0)
 
     def test_a_finished_run_records_passed_and_its_heartbeat_ran(self):
         cfg = self.cfg({'unit': {'kind': 'unit', 'targets': ['machine'], 'run': f'{sys.executable} -c "pass"'}})

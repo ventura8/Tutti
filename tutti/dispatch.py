@@ -1067,15 +1067,29 @@ class AdmissionRefused(Exception):
     """A lease was held, removed, or already admitted before this runner could start."""
 
 
-def admit_run(cfg, lid, argv, popen):
+class PreparationRefused(Exception):
+    """The command was rejected before launch."""
+
+
+def admit_run(cfg, lid, expected, prepare, popen):
     """Serialize launch with recovery and persist intent before spawning; never hold the lock during execution."""
+    from . import failover
+    if not failover.may_write(cfg):
+        raise AdmissionRefused
     with locked(cfg) as st:
+        if not failover.may_write(cfg):
+            raise AdmissionRefused
         lease = st['leases'].get(lid)
-        if not lease or lease.get('uncertain') or lease.get('run_admitted'):
+        if (not lease or lease.get('uncertain') or lease.get('run_admitted')
+                or (lease.get('project'), lease.get('key')) != expected):
             raise AdmissionRefused
         lease['run_admitted'] = True
         durable.dump_json(os.path.join(config.state_dir(cfg), FILE), st, indent=1)
-        return popen(argv, stdin=subprocess.DEVNULL, start_new_session=True)
+        try:
+            argv = prepare(lease)
+        except config.ConfigError as e:
+            raise PreparationRefused(str(e)) from e
+        return popen(argv, stdin=subprocess.DEVNULL, start_new_session=True) if argv else None
 
 
 def run(cfg, lid, popen=subprocess.Popen, after=live_tick, look=calls.look, sleep=time.sleep):
@@ -1091,18 +1105,20 @@ def run(cfg, lid, popen=subprocess.Popen, after=live_tick, look=calls.look, slee
     rc = 2
     write_result = True
     try:
-        if s:
-            argv = test_argv(cfg, lease, s, shard)
-            rc = STOP_UNCERTAIN   # an exception from launch may still leave a child running
-            child = admit_run(cfg, lid, argv, popen)
+        def prepare(current):
+            return test_argv(cfg, current, s, shard) if s else None
+        rc = STOP_UNCERTAIN   # an exception from launch may still leave a child running
+        child = admit_run(cfg, lid, (lease['project'], lease['key']), prepare, popen)
+        if child is None:
+            rc = 2   # the suite no longer exists: no child was started
+        else:
             rc = supervise(cfg, lease, s, child, p['beat'], look, sleep, log=p['log'])
     except AdmissionRefused:
         rc, write_result = 2, False
-    except config.ConfigError as e:   # an empty test filter: refused, never run
+    except PreparationRefused as e:   # an empty test filter: refused before launch
         with open(p['log'], 'a', encoding='utf8') as f:
             f.write(f'dispatch: refused: {e}\n')
-        if rc != STOP_UNCERTAIN:
-            rc = 1
+        rc = 1
     except StopUncertain:
         rc = STOP_UNCERTAIN
     finally:
@@ -1114,8 +1130,9 @@ def run(cfg, lid, popen=subprocess.Popen, after=live_tick, look=calls.look, slee
         if write_result:
             with open(p['rc'], 'w', encoding='utf8') as f:
                 f.write(f'{rc}\n')
-    with contextlib.suppress(Exception):   # the next shard is a bonus: the dashboard's next tick sends it anyway
-        after(cfg)
+    if write_result:
+        with contextlib.suppress(Exception):   # the next shard is a bonus: the dashboard's next tick sends it anyway
+            after(cfg)
     return 1 if rc == STOP_UNCERTAIN else 0 if isinstance(rc, str) else rc
 
 

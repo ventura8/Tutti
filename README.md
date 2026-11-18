@@ -24,7 +24,8 @@ computers and Android devices for software work, without anyone stepping on anyo
 - **A main and a backup main.** One always-on machine runs Tutti; a backup takes over if it goes down and hands back
   when it returns, never both at once ([docs/FAILOVER.md](docs/FAILOVER.md), [docs/MOVE.md](docs/MOVE.md)).
 - **The unblocker and the needs-input queue.** Stuck or failing work is retried with a fix, rebased or rerun by Tutti
-  itself; only real decisions reach *Needs you* ([docs/NEEDS.md](docs/NEEDS.md), [docs/AUTOPILOT.md](docs/AUTOPILOT.md)).
+  itself; Needs-you items are classified and Tutti-resolvable ones cleared before a person sees them; only real decisions
+  reach *Needs you* ([docs/NEEDS.md](docs/NEEDS.md), [docs/AUTOPILOT.md](docs/AUTOPILOT.md), [docs/TELEMETRY.md](docs/TELEMETRY.md)).
 - **It looks after itself.** Self-heal installs declared dependencies, restarts services, cleans old temp folders and
   applies updates; routine clean-ups are counted apart from real repairs ([docs/SELFHEAL.md](docs/SELFHEAL.md)).
 - **GitHub connection.** Connect GitHub once from the dashboard ([docs/GITHUB.md](docs/GITHUB.md)).

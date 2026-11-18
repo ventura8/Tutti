@@ -149,7 +149,7 @@ The public surfaces (the CLI, the HTTP routes, the MCP tools, the config keys) a
 | `tutti/scrub.py` | What telemetry may keep, pure: categories only as field values; free text with home folders, hosts, IPs, e-mails, URLs, tokens, keys and quoted fragments replaced. |
 | `tutti/telemetry.py`, `tutti/sentry.py`, `tutti/telemetrycmd.py` | Telemetry (docs/TELEMETRY.md): local events and their rotation, consent, the DSN, crash and failure events, the outbox and its flush; Sentry's envelope API and the custom endpoint; the CLI's entry wrapper (`cli.entry`, used by `bin/tutti`; `cli.main` records nothing) and `tutti telemetry`. |
 | `tutti/insights.py` | The local events summarised, pure: most used, slowest, most failing, wasted quota, stall and park causes, crashes. |
-| `tutti/needs.py` | The needs-input queue: one question per parked task, answers that resume it, batched delivery at work or off work for those who opt in (threshold, urgent, quiet hours), per-user settings with audit, `/api/needs`. |
+| `tutti/needs.py` | The needs-input queue: one question per parked task, person-only vs Tutti-resolvable kind, answers that resume it, batched delivery of person-only items, per-user settings with audit, `/api/needs`. |
 | `tutti/welcome.py` | Welcome back: away to back from the owner's mode, presence and dashboard visits; the summary's facts per role, the needs-you list, the template and the local model's words; `/api/welcome`. |
 | `tutti/aiassist.py` | AI assist (opt-in): the local self-analysis into tasks, failure classes and briefs with fallbacks, auto-tuning with undo, the spare-only research watches, the dashboard card. |
 | `tutti/triage.py`, `tutti/selfimprove.py` | Sentry triage watches per project and their `TUTTI-TASK` lines; self-improvement's pure gates (tasks, pull request base, merge, release, daily room), the local analysis, the review/merge/release round and the dashboard lane. |
@@ -166,7 +166,7 @@ The public surfaces (the CLI, the HTTP routes, the MCP tools, the config keys) a
 | `tutti/brain.py` | Tutti's own AI, local first: the one `ask` every internal model use goes through. |
 | `tutti/selfheal.py` | The self-heal checks and repairs, `<state>/selfheal.jsonl`. |
 | `tutti/github.py`, `tutti/githubcmd.py` | The one GitHub client (device flow, the App, ETags, rate limit) and `tutti github`. |
-| `tutti/tiers.py`, `tutti/planner.py`, `tutti/unblocker.py` | Model and effort by pace; spending the quota that expires first; clearing blocked or limit-only work. |
+| `tutti/tiers.py`, `tutti/planner.py`, `tutti/unblocker.py` | Model and effort by pace; spending the quota that expires first; clearing blocked, limit-only and Tutti-resolvable needs-person work (undoable). |
 | `tutti/durable.py`, `tutti/presence.py` | Power-off-safe writes of state files; whether each machine, device and model server is here. |
 | `tutti/dashboard.py`, `tutti/dashtelemetry.py`, `tutti/web/` | `tutti dashboard`: the 127.0.0.1 HTTP server, background probes, `/api/state` and the PWA shell. |
 | `scripts/slot.sh` | The slot queue, copied to each machine on every run. |

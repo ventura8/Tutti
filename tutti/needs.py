@@ -124,28 +124,88 @@ def new_id(data):
     return f'q{1 + max([int(q["id"][1:]) for q in data["questions"] if q["id"][1:].isdigit()] or [0])}'
 
 
+def classify_kind(question, why, title=''):
+    """person-only (payments, terms, credentials, sign-ins, physical, irreversible, security) or tutti."""
+    text = f'{question} {why} {title}'
+    if SECURITY_RX.search(text):
+        return 'person-only'
+    from . import unblocker
+    return unblocker.need_kind(text)
+
+
+def resolve_enabled(cfg):
+    """False when the unblocker is off: Tutti will not try Needs-you items, so they go to the person at once."""
+    from . import aiassist
+    return bool(aiassist.settings(cfg).get('unblock', True))
+
+
+def _prune_answered(data):
+    answered = [x for x in data['questions'] if x['status'] != 'open']
+    if len(answered) <= 300:   # only answered ones go: an open question stays until its answer
+        return
+    old = {x['id'] for x in answered[:-300]}
+    data['questions'] = [x for x in data['questions'] if x['id'] not in old]
+
+
+def _open_question(data, task_id, now):
+    q = next((x for x in data['questions'] if x['task'] == task_id and x['status'] == 'open'), None)
+    if q is not None:
+        return q
+    q = {'id': new_id(data), 'task': task_id, 'status': 'open', 'at': now, 'delivered': None}
+    data['questions'].append(q)
+    return q
+
+
+def _ask_options(options, default):
+    options = [str(o)[:60] for o in options if str(o).strip()][:6] or ['yes', 'no']
+    return options, (default if default in options else options[0])
+
+
 def ask(cfg, task, question, why, options, default, user=OWNER, urgent=False, now=None):
     """Parks `task` (in place, inside the backlog's lock) with one open question; returns the question. One open question
-    per task: asking again replaces its text."""
+    per task: asking again replaces its text. Tutti-resolvable ones are not delivered until Tutti has tried them."""
     now = now or time.time()
-    options = [str(o)[:60] for o in options if str(o).strip()][:6] or ['yes', 'no']
+    options, default = _ask_options(options, default)
     urgent = bool(urgent) or bool(SECURITY_RX.search(f'{question} {why}'))   # a security issue never waits
-    default = default if default in options else options[0]
+    kind = classify_kind(question, why, task.get('title') or '')
+    # person-only, or unblocker off (nothing will try): show at once; else hide until Tutti has tried
+    show = kind != 'tutti' or not resolve_enabled(cfg)
     with locked(cfg) as data:
-        q = next((x for x in data['questions'] if x['task'] == task['id'] and x['status'] == 'open'), None)
-        if q is None:
-            q = {'id': new_id(data), 'task': task['id'], 'status': 'open', 'at': now, 'delivered': None}
-            data['questions'].append(q)
+        q = _open_question(data, task['id'], now)
         q.update(user=user, question=str(question)[:300], why=str(why)[:300], options=options, default=default,
-                 urgent=bool(urgent), title=task['title'][:120], project=task.get('project') or task.get('repo'))
-        answered = [x for x in data['questions'] if x['status'] != 'open']
-        if len(answered) > 300:   # only answered ones go: an open question stays until its answer
-            old = {x['id'] for x in answered[:-300]}
-            data['questions'] = [x for x in data['questions'] if x['id'] not in old]
+                 urgent=bool(urgent), title=task['title'][:120], project=task.get('project') or task.get('repo'),
+                 kind=kind, resolve_tried=True if show else bool(q.get('resolve_tried')))
+        _prune_answered(data)
     task['status'], task['question'] = 'needs-person', q['id']
     task['parked'] = task.get('parked') or q['question']
-    telemetry.record('feature', 'needs.ask', urgent=bool(urgent))
+    telemetry.record('feature', 'needs.ask', urgent=bool(urgent), need=kind)
     return q
+
+
+def mark_tried(cfg, qid):
+    """The unblocker tried this question: person-only (or a failed Tutti attempt) may now be delivered."""
+    with locked(cfg) as data:
+        q = next((x for x in data['questions'] if x['id'] == qid), None)
+        if q is not None:
+            q['resolve_tried'] = True
+
+
+def reopen(cfg, qid, tid, now=None):
+    """Undo a Tutti answer: the question is open again and the task waits. (ok, why)."""
+    now = now or time.time()
+    with locked(cfg) as data:
+        q = next((x for x in data['questions'] if x['id'] == qid), None)
+        if q is None:
+            return False, f'no question {qid} to reopen'
+        q.update(status='open', answer=None, answered=None, by=None, delivered=None, resolve_tried=True)
+    with backlog.locked(cfg) as bl:
+        t = next((x for x in bl['tasks'] if x['id'] == tid), None)
+        if t is None:
+            return False, f'question {qid} reopened but task {tid} is gone'
+        t['status'], t['question'], t['parked'] = 'needs-person', qid, q.get('question')
+        t['notes'] = [*t.get('notes', []), f'Tutti\'s answer on {qid} was undone; waiting for a person again.'][-20:]
+        t['not_before'] = now
+    return True, f'{qid} open again; task {tid} waits for a person'
 
 
 def visible(q, role, key):
@@ -153,8 +213,9 @@ def visible(q, role, key):
 
 
 def open_for(cfg, role, key, data=None):
+    """Open questions for this viewer: only person-only / already-tried ones (Tutti still works the rest)."""
     data = data or load(cfg)
-    return [q for q in data['questions'] if q['status'] == 'open' and visible(q, role, key)]
+    return [q for q in data['questions'] if q['status'] == 'open' and visible(q, role, key) and person_visible(cfg, q)]
 
 
 def resume(t, q, choice, now):
@@ -349,8 +410,22 @@ def in_quiet(span, now):
     return planner.quiet(datetime.fromtimestamp(now, timezone.utc), [span])
 
 
+def for_person(q):
+    """True when only a person should see this: person-only, or Tutti already tried and left it."""
+    if q.get('kind') == 'tutti':
+        return bool(q.get('resolve_tried'))
+    if q.get('kind') == 'person-only':
+        return True
+    return bool(q.get('resolve_tried'))   # legacy rows: shown once Tutti has marked them
+
+
+def person_visible(cfg, q):
+    """Open questions the person may see: for_person, or all of them when the unblocker is off."""
+    return for_person(q) or not resolve_enabled(cfg)
+
+
 def due(settings_, pending, at_work_now, last, now):
-    """(deliver now?, why), pure. `pending`: this user's open questions not delivered yet."""
+    """(deliver now?, why), pure. `pending`: this user's open questions already filtered for the person (person_visible)."""
     if not pending:
         return False, 'nothing new'
     urgent = any(q.get('urgent') for q in pending)
@@ -389,26 +464,29 @@ def deliver_chat(cfg, key, qs):
 
 
 def tick(cfg, now=None, at_work_fn=None, send=None):
-    """The dashboard's loop: each user's new questions delivered when `due` says so. Returns event lines."""
+    """The dashboard's loop: each user's person-only questions delivered when `due` says so. Returns event lines."""
     now, at_work_fn, send = now or time.time(), at_work_fn or at_work, send or deliver_chat
     events = []
     with locked(cfg) as data:
-        users = sorted({q['user'] for q in data['questions'] if q['status'] == 'open' and not q.get('delivered')})
+        users = sorted({q['user'] for q in data['questions'] if q['status'] == 'open' and not q.get('delivered')
+                        and person_visible(cfg, q)})
         plan = []
         for key in users:
-            pending = [q for q in data['questions'] if q['user'] == key and q['status'] == 'open' and not q.get('delivered')]
+            pending = [q for q in data['questions'] if q['user'] == key and q['status'] == 'open'
+                       and not q.get('delivered') and person_visible(cfg, q)]
             s = user_settings(data, key)
             if blocking_all(cfg):   # nothing else can run: every waiting question is urgent
                 pending = [{**q, 'urgent': True} for q in pending]
             ok, why = due(s, pending, at_work_fn(cfg, key, now), (data['users'].get(key) or {}).get('last_delivered'), now)
             if ok:
-                ids = {q['id'] for q in pending}
+                deliver = [q for q in pending if person_visible(cfg, q)]
+                ids = {q['id'] for q in deliver}
                 for q in data['questions']:
                     if q['id'] in ids:
                         q['delivered'] = now
                 prev = (data['users'].get(key) or {}).get('last_delivered')
                 data['users'].setdefault(key, {})['last_delivered'] = now
-                plan.append((key, pending, why, prev))
+                plan.append((key, deliver, why, prev))
     for key, qs, why, prev in plan:   # the chat's own lock: outside needs.json's
         try:
             send(cfg, key, qs)

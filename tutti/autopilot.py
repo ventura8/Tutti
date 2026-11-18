@@ -1077,19 +1077,24 @@ def backoff(t):
 
 def after_failure(cfg, t, now=None):
     """A failed task is parked with a question for a person (tutti/needs.py) or queued again (one step up the ladder: an
-    escalation) after its backoff. Returns why it was parked, or ''."""
-    from . import needs
+    escalation) after its backoff. Before parking, Tutti clears usage-limit-only parks itself (t244). Returns why it was
+    parked, or ''."""
+    from . import needs, unblocker
     now = now or time.time()
     cause, park = park_reason(cfg, t)
-    t['status'], t['parked'] = ('needs-person', park) if park else ('queued', None)
     n = len(t['attempts'])
     if not park:
+        t['status'], t['parked'] = 'queued', None
         t['not_before'] = now + backoff(t)
-    if park:
-        needs.ask(cfg, t, **needs.park_question(t, park), user=t.get('user') or needs.OWNER, now=now)
-        telemetry.record('feature', 'autopilot.park', cause=cause, attempts=n, source=t.get('source'))
-    elif step_index(cfg, n) > step_index(cfg, n - 1):
-        telemetry.record('feature', 'autopilot.escalate', attempt=n + 1, source=t.get('source'))
+        if step_index(cfg, n) > step_index(cfg, n - 1):
+            telemetry.record('feature', 'autopilot.escalate', attempt=n + 1, source=t.get('source'))
+        return ''
+    t['status'], t['parked'] = 'needs-person', park
+    if unblocker.try_auto_clear(t, park, now):
+        telemetry.record('feature', 'autopilot.park_cleared', cause=cause, attempts=n, source=t.get('source'))
+        return ''
+    needs.ask(cfg, t, **needs.park_question(t, park), user=t.get('user') or needs.OWNER, now=now)
+    telemetry.record('feature', 'autopilot.park', cause=cause, attempts=n, source=t.get('source'))
     return park
 
 
@@ -1150,6 +1155,15 @@ def guess_scopes(data, files):
             t['local_scope'] = guess
             events.append(f'{t["id"]}: no files named; Tutti picked {", ".join(t["local_scope"])} so a local model can take it')
     return events
+
+
+def needs_resolve_round(cfg, now):
+    """Classify and clear Tutti-resolvable needs-person items (t244); never raises into the autopilot round."""
+    from . import unblocker
+    try:
+        return unblocker.resolve_parked(cfg, now)
+    except Exception as e:
+        return [f'unblocker needs resolve could not run ({e}): the next round tries again']
 
 
 def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen, publish_fn=publish, beat=None):
@@ -1220,6 +1234,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
                 started.append(task_id)
     if started:   # shared tasks just started: their leases at full length now, not at the next round
         sharing.renew(cfg, backlog.load(cfg), started)
+    events += needs_resolve_round(cfg, now)
     with state_locked(cfg) as st:
         st['last'] = {'at': now, 'state': p['state'], 'reason': p['reason'], 'waiting': p['waiting']}
         st['parallel'] = cfg.get('_parallel') or st.get('parallel')

@@ -420,8 +420,9 @@ FIELDS = {
     'ai_assist.household_models': field('Use members\' shared models', 'Tutti\'s own AI may also use the models on machines '
                                         'other household members share. Off by default: its prompts (failure output, task '
                                         'titles) then go to a machine another person controls.', 'switch', default=False),
-    'ai_assist.unblock': field('Unblocker', 'Each round Tutti finds blocked or failing work and clears what it can itself, '
-                               'local models first; only true decisions reach you.', 'switch', default=True),
+    'ai_assist.unblock': field('Unblocker', 'Each round Tutti finds blocked or failing work and Tutti-resolvable Needs-you '
+                               'items and clears what it can, local first; only person-only decisions reach you.',
+                               'switch', default=True),
     'ai_assist.unblock_repos': field('Rerun red CI in', 'owner/name repositories whose failed pull-request checks the unblocker '
                                      'reruns once per commit.', 'list', item='repository'),
     'ai_assist.scout': field('Research scout', 'The scout that researches (empty: the one with the research skill).', 'select',

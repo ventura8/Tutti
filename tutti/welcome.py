@@ -147,6 +147,9 @@ def task_facts(cfg, tasks, since):
             failed.append({**base, 'at': at, 'text': f'{t["title"][:120]}: parked, {why}'})
             if t.get('question'):   # its question is listed from the needs-input queue (question_needs)
                 continue
+            from . import unblocker
+            if unblocker.need_kind(f'{t.get("title")} {why}') != 'person-only':
+                continue   # Tutti clears Tutti-resolvable ones (t244); only person-only stay here
             needs.append({**base, 'kind': 'decision', 'title': f'Decide on task {t["id"]}: {t["title"][:80]}',
                           'step': f'Retry it, change its brief or drop it: tutti backlog retry {t["id"]} (or tutti backlog rm {t["id"]})',
                           'why': why, 'link': '/#autopilot'})
@@ -196,11 +199,11 @@ def setup_needs(cfg):
 
 
 def question_needs(cfg):
-    """The open questions (tutti/needs.py), one line each with its default; answered in the Chat or the Me card."""
+    """Person-only open questions (tutti/needs.py); Tutti-resolvable ones are cleared first (t244)."""
     from . import needs as needs_mod
     out = []
     for q in needs_mod.load(cfg)['questions']:
-        if q['status'] != 'open':
+        if q['status'] != 'open' or not needs_mod.person_visible(cfg, q):
             continue
         out.append({'scope': 'admin' if q['user'] == needs_mod.OWNER else f'user:{q["user"]}', 'kind': 'decision',
                     'project': q.get('project') or '', 'at': q['at'], 'title': f'{q["id"]}: {q["question"]}',

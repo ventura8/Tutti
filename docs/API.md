@@ -136,7 +136,7 @@ Each is a POST with a JSON body; the answer is `{"ok": true, ...}` with 200 (202
 | `/api/queue` | `{"kind": "task", "id": "t12", "action": "run"\|"move"\|"cancel"\|"up"\|"down", "to": "<account>"}` or `{"kind": "scout", "id": "s3", "action": "cancel"}` | The Queued list's actions. 404: no such queued item. |
 | `/api/vpn` | `{"action": "status"}`, `{"action": "qr", "phone": "<name>"}`, `{"action": "router"}`, `{"action": "open-port", "consent": true}` | The private network card (`tutti vpn`). |
 | `/api/machine-limit` | `{"machine": "build1", "window": "18-01"\|"off", "pct": 60}` | A machine's limited-usage window, saved in the config. |
-| `/api/ai-assist` | `{"switch": "enabled", "on": true}` or `{"undo": "u1"}` | AI assist's switches and undo (`tutti ai-assist`). |
+| `/api/ai-assist` | `{"switch": "enabled", "on": true}`, `{"undo": "u1"}`, or `{"unblock_undo": <at>}` | AI assist's switches, tune undo, and unblocker decision undo (`tutti ai-assist`). |
 
 ### Changing (viewer and self)
 
@@ -745,7 +745,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `ai_assist.online_worker` | text |  | Online fallback: A subscription CLI worker asked when no local model answers, or auto: the first one with room within pacing. Empty: no online fallback. | admin |
 | `ai_assist.preempt` | yaml |  | Tutti first on the best model: true: Tutti's own short jobs park other work on the best local model (it waits, nothing is lost) and resume it after; false: never; or a list of the kinds that may (needs, welcome, triage, sizing, compaction, scout, self-improve, unblock, conductor). | admin |
 | `ai_assist.household_models` | switch | `False` | Use members' shared models: Tutti's own AI may also use the models on machines other household members share. Off by default: its prompts (failure output, task titles) then go to a machine another person controls. | admin |
-| `ai_assist.unblock` | switch | `True` | Unblocker: Each round Tutti finds blocked or failing work and clears what it can itself, local models first; only true decisions reach you. | admin |
+| `ai_assist.unblock` | switch | `True` | Unblocker: Each round Tutti finds blocked or failing work and Tutti-resolvable Needs-you items and clears what it can, local first; only person-only decisions reach you. | admin |
 | `ai_assist.unblock_repos` | list |  | Rerun red CI in: owner/name repositories whose failed pull-request checks the unblocker reruns once per commit. | admin |
 | `ai_assist.scout` | select |  | Research scout: The scout that researches (empty: the one with the research skill). | admin |
 | `ai_assist.research_every` | text | `7d` | Research every: How often the online research and design review run, e.g. 7d. | admin |

@@ -3,6 +3,20 @@
 Tutti works through everything it can do (the backlog, the queue, parked tasks once answered, the work queue) within the
 pacing and token limits, and asks a person only what only a person can decide.
 
+## Tutti resolves Needs-you items first (t244)
+
+Before a question reaches you, Tutti classifies it and tries to clear it:
+
+| Kind | What counts | What Tutti does |
+| --- | --- | --- |
+| **person-only** | payments, accepting terms, credentials, sign-ins, physical actions, risky or irreversible changes, security | left for you; shown in one batched ask with buttons |
+| **Tutti-resolvable** | everything else (usage-limit parks, retries, flaky workers, …) | rule first (e.g. retry after usage limits), then a local model, then an online account with room; if those give no option, the question's default |
+
+Every autopilot tick re-checks the open queue (`unblocker.resolve_parked`). Each Tutti decision is logged on the AI assist
+card with why, and **Undo** puts the question back. Only person-only items (and ones Tutti already tried and left) appear
+under *Needs you*, My questions, the welcome-back list and `pending_questions`. With `ai_assist.unblock` off, Tutti does not
+try them, so every open question reaches you at once.
+
 ## It keeps going
 
 - **Retries with backoff.** A failure climbs the ladder at once (another worker or machine); each further failure in a

@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.24.0] - 2026-11-17
+
+### Added
+
+- Needs-you: Tutti classifies each parked question (person-only vs Tutti-resolvable), clears Tutti-resolvable ones itself
+  (rules, then local model, then online with pacing; default if none), logs every decision with undo on the AI assist
+  card, and shows you only person-only items in one batched ask. Re-checked on every autopilot tick (t244).
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

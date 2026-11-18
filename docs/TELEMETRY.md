@@ -209,7 +209,7 @@ clears what it can, at most 3 items a round and each at most once in 6 hours:
 | --- | --- |
 | a task whose recent failures are all usage limits | forgives those attempts and clears the backoff (no model needed) |
 | the same real failure again and again | the best free local model diagnoses the last failure; the task is queued again with the fix in its notes, so its next attempt edits a worktree and reruns the check. Local fails or the task is size L: an online agent, within pacing |
-| a parked task whose question the history decides | answers it (e.g. retry after usage limits); a real choice stays for the person |
+| a parked task (needs-person) | classified person-only vs Tutti-resolvable; Tutti clears the latter (rule, then local, then online; default if none); person-only stays; each decision is undoable on the card (t244) |
 | a result that no longer rebases | queued again from scratch on the current main |
 | a failed PR check in `unblock_repos` | its failed jobs rerun once per commit |
 

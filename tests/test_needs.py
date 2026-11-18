@@ -24,6 +24,13 @@ def failed(step='a', sig='s1'):
     return {'step': step, 'ok': False, 'signature': sig, 'why': f'failed {sig}', 'run': '1-1', 'stat': '', 'tail': 'E1', 'at': T0}
 
 
+def ask_shown(cfg, t, **kw):
+    """Ask a question and mark it person-facing (Tutti already tried or it is person-only) so delivery tests can run."""
+    q = needs.ask(cfg, t, **kw)
+    needs.mark_tried(cfg, q['id'])
+    return q
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -86,6 +93,19 @@ class Park(Base):
         most = autopilot.settings(cfg)['max_attempts']
         self.assertEqual(autopilot.park_reason(cfg, task(attempts=[{**quota, 'step': f's{i}'} for i in range(most)]))[0], '')
         self.assertEqual(autopilot.worn_out([failed('g'), failed('g')]), {'g'})
+
+    def test_after_failure_requeues_a_usage_limit_park_without_asking(self):
+        cfg = self.cfg(no_progress=2, ladder=['a', 'b'])
+        quota = {**failed('b', 'q'), 'why': 'the worker hit its usage limit', 'step': 'b'}
+        t = task(attempts=[quota, dict(quota)])
+        self.add(cfg, t)
+        with backlog.locked(cfg) as data:
+            park = autopilot.after_failure(cfg, data['tasks'][0], T0)
+        self.assertEqual(park, '')
+        t = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(t['status'], 'queued')
+        self.assertEqual(needs.load(cfg)['questions'], [])
+        self.assertIn('usage limits only', t['notes'][-1])
 
     def test_a_late_answer_leaves_a_task_that_no_longer_waits(self):
         cfg = self.cfg()
@@ -251,7 +271,7 @@ class Delivery(Base):
     S = {'notify': 'work-hours', 'batch': 3, 'quiet': '23:00-07:00'}
 
     def qs(self, n, urgent=False):
-        return [{'id': f'q{i}', 'urgent': urgent and i == 0} for i in range(n)]
+        return [{'id': f'q{i}', 'urgent': urgent and i == 0, 'kind': 'person-only'} for i in range(n)]
 
     def test_at_work_one_batch_per_half_hour_urgent_at_once(self):
         self.assertEqual(needs.due(self.S, self.qs(1), True, 0, T0), (True, 'at work'))
@@ -278,7 +298,7 @@ class Delivery(Base):
             t = task(tid)
             self.add(cfg, t)
             with backlog.locked(cfg) as data:
-                needs.ask(cfg, backlog.find(data, tid), **needs.park_question(t, 'stuck'), now=T0)
+                ask_shown(cfg, backlog.find(data, tid), **needs.park_question(t, 'stuck'), now=T0)
         events = needs.tick(cfg, T0, at_work_fn=lambda c, k, n: True)
         self.assertEqual(events, ['needs: 2 question(s) delivered to owner (at work)'])
         self.assertEqual(needs.tick(cfg, T0 + 2 * H, at_work_fn=lambda c, k, n: True), [])   # nothing new
@@ -291,7 +311,7 @@ class Delivery(Base):
         t = task()
         self.add(cfg, t)
         with backlog.locked(cfg) as data:
-            needs.ask(cfg, backlog.find(data, 't1'), **needs.park_question(t, 'stuck'), now=T0)
+            ask_shown(cfg, backlog.find(data, 't1'), **needs.park_question(t, 'stuck'), now=T0)
 
         def broken(cfg, key, qs):
             raise RuntimeError('disk full')
@@ -306,7 +326,7 @@ class Delivery(Base):
         t = task()
         self.add(cfg, t)
         with backlog.locked(cfg) as data:
-            needs.ask(cfg, backlog.find(data, 't1'), **needs.park_question(t, 'stuck'), now=T0)
+            ask_shown(cfg, backlog.find(data, 't1'), **needs.park_question(t, 'stuck'), now=T0)
         self.assertEqual(needs.tick(cfg, T0, at_work_fn=lambda c, k, n: False), ['needs: 1 question(s) delivered to owner (urgent)'])
 
     def test_off_work_they_appear_in_the_welcome_back_summary_with_their_default(self):
@@ -314,10 +334,19 @@ class Delivery(Base):
         t = task()
         self.add(cfg, t)
         with backlog.locked(cfg) as data:
-            needs.ask(cfg, backlog.find(data, 't1'), **needs.park_question(t, 'stuck'), now=T0)
+            ask_shown(cfg, backlog.find(data, 't1'), **needs.park_question(t, 'stuck'), now=T0)
         f = welcome.facts(cfg, T0 - H, [])
         self.assertEqual(len(f['needs']), 1)   # the question, not also the parked task
         self.assertIn('"q1 retry" (default retry', f['needs'][0]['step'])
+
+    def test_tutti_resolvable_is_not_delivered_until_tried(self):
+        cfg = self.cfg()
+        t = task()
+        self.add(cfg, t)
+        with backlog.locked(cfg) as data:
+            needs.ask(cfg, backlog.find(data, 't1'), **needs.park_question(t, 'stuck'), now=T0)
+        self.assertEqual(needs.tick(cfg, T0, at_work_fn=lambda c, k, n: True), [])
+        self.assertEqual(needs.open_for(cfg, 'admin', needs.OWNER), [])
 
 
 class People(Base):
@@ -327,7 +356,7 @@ class People(Base):
             t = task(tid, user=user)
             self.add(cfg, t)
             with backlog.locked(cfg) as data:
-                needs.ask(cfg, backlog.find(data, tid), **needs.park_question(t, 'x'), user=user, now=T0)
+                ask_shown(cfg, backlog.find(data, tid), **needs.park_question(t, 'x'), user=user, now=T0)
         self.assertEqual(len(needs.open_for(cfg, 'admin', needs.OWNER)), 3)
         self.assertEqual([q['user'] for q in needs.open_for(cfg, 'viewer', 'ana')], ['ana'])
         self.assertFalse(needs.answer(cfg, 'q3', 'retry', 'viewer', 'ana')[0])
@@ -341,7 +370,7 @@ class People(Base):
         t = task('t1')
         self.add(cfg, t)
         with backlog.locked(cfg) as data:
-            needs.ask(cfg, backlog.find(data, 't1'), **needs.park_question(t, 'x'), user=needs.OWNER, now=T0)
+            ask_shown(cfg, backlog.find(data, 't1'), **needs.park_question(t, 'x'), user=needs.OWNER, now=T0)
         admin = {'sub': 'local', 'role': 'admin'}
         self.assertIsNone(needs.chat_reply(cfg, admin, 'q1 looks odd, why did it stop?'))
         self.assertEqual(needs.load(cfg)['questions'][0]['status'], 'open')

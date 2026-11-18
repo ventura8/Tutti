@@ -665,7 +665,8 @@ def shared_slow_budgets(cfg, windows, related, states):
             plan = state.get('quota_plan') or {}
             if name == window:
                 account = cfg['accounts'][name]
-                amount = float(account.get('target_pct', 100)) * float(state['share']) - float(account.get('reserve', 0)) - state['used']
+                target = min(float(account.get('target_pct', 100)), float(state.get('target_pct', 100)))
+                amount = target * float(state['share']) - float(account.get('reserve', 0)) - state['used']
                 if not plan.get('limit'):
                     amount = min(amount, float(plan['slow_left']))
             else:

@@ -419,6 +419,10 @@ class PlanTest(Base):
         # The main account can reserve more of the same weekly quota than its sibling's own plan.
         reserved = {**states, 'agy-claude': {**states['agy-claude'], 'quota_plan': no_room}}
         self.assertEqual(autopilot.plan(cfg, tasks, reserved, FREE, True, now)['dispatch'], [])
+        cfg['autopilot']['accounts'] = ['agy-gemini']
+        limited = {**states, 'agy-gemini': {**states['agy-gemini'], 'target_pct': 21}}
+        self.assertEqual(autopilot.plan(cfg, tasks, limited, FREE, True, now)['dispatch'], [])
+        cfg['autopilot']['accounts'] = ['agy-gemini', 'agy-claude']
         ordinary = {**states, 'agy-claude': {**states['agy-claude'], 'quota_plan': {**plan, 'tasks': 1, 'left': 1}}}
         self.assertEqual(autopilot.plan(cfg, tasks, ordinary, FREE, True, now)['dispatch'], [('t1', 'agy-claude')])
         quiet = {**plan, 'slow_limits': [{**plan['slow_limits'][0], 'runnable': False}]}

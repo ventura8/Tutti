@@ -240,6 +240,11 @@ def quota_unfit(s):
     if invalid_usage(s):
         return 'invalid quota reading: refresh this account before using it'
     if s.get('panic'):
+        for lim in s.get('limits') or []:
+            if lim.get('name') == s.get('bound_by'):
+                why = quota_unfit(lim)
+                if why:
+                    return f'its limit {lim["name"]}: {why}'
         return f'panic: {s["used"]:g} % used before the target time' if s.get('used') is not None else 'panic'
     if s.get('verdict') == 'spent':
         return 'spent until the reset'

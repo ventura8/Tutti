@@ -1,5 +1,8 @@
 # Lessons
 
+- **A binding quota may be the one in panic** (t272): showing the current window's usage beside a propagated panic
+  can report a false zero-percent panic. Explain the linked window without opening its closed quota.
+
 - **Environment failures must not exhaust the ladder** (t260): excluding missing reports from the attempt cap was not
   enough when a separate repeated-failure check removed every worker. Apply the same classification at both decisions.
 - **Automatic discovery can run a heavy command during quiet mode** (t172): a configured gaps command can run a build or

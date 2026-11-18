@@ -56,6 +56,8 @@ how often the target was here at each hour.
   work has waited for it `presence.wake_after_minutes` (10). Tutti sends at most one packet every 15 min. The packet goes
   to a private LAN broadcast address only, never a public one.
 
+<a id="nothing-is-lost"></a>
+
 ## Recovery after interruption
 
 Tutti repairs durable state on startup and resumes recorded work where it can. Work since the last successful checkpoint

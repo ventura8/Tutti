@@ -180,7 +180,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 - [docs/FAILOVER.md](docs/FAILOVER.md): the backup main machine: election, sync, failover, failback, no split brain, the state budget.
 - [docs/MOVE.md](docs/MOVE.md): `tutti move`: Tutti from a laptop to an always-on machine and back; clients and the bridge.
 - [docs/DISPATCH.md](docs/DISPATCH.md): Keep busy: pending test shards, the dispatcher, leases, the idle watchdog, priorities.
-- [docs/PRESENCE.md](docs/PRESENCE.md): devices and machines that come and go, nothing lost on a power-off, and moving waiting work.
+- [docs/PRESENCE.md](docs/PRESENCE.md): devices and machines that come and go, recovery after interruptions, and moving waiting work.
 - [docs/LESSONS.md](docs/LESSONS.md): what went wrong, and the rule each failure left behind.
 - [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/FEEDBACK.md](docs/FEEDBACK.md): what is next; where first users log problems.
 - [MIGRATION.md](MIGRATION.md): moving a folder of hand-rolled scripts over to Tutti.

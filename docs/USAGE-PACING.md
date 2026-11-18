@@ -176,7 +176,8 @@ small, and stays simple enough to check by hand:
   that can run; with no quiet hours, overnight windows are filled by the autopilot instead of lost. What a whole window
   costs of the limit is `window_points`, else measured from this window's readings (the limit's rise over the window's
   rise), else unknown (no cap from the later windows). When this window has spent its allowance, nothing new goes to it until
-  it resets; a limit spent or in panic closes it at once.
+  it resets; a limit spent or in panic closes it at once. A panic caused by a linked limit names that limit and its
+  usage, so a freshly reset short window is not reported as itself being in panic at zero percent.
 - **Both limits together.** An even share is a floor, not a cap: while the limit's projection (its last day's rate carried
   to its reset) ends under its budget, this window may also spend the difference, up to what the window itself holds. Early
   in the week a window can take far more than 1/33 of the weekly quota, and it is never cut off while the week still fits.

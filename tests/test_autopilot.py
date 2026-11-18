@@ -396,6 +396,24 @@ class FailureTest(Base):
         real = [attempt('cursor', 's1'), attempt('cursor', 's2')]
         self.assertIn('max_attempts', autopilot.should_park(cfg, task('t1', attempts=real)))
 
+    def test_environment_failures_on_every_step_do_not_exhaust_the_ladder(self):
+        cfg = self.cfg(ladder=['agy-gemini', 'agy-claude'], max_attempts=2, no_progress=2)
+        for why in ('the run ended without a report', "the worker's CLI refused a command: permission denied",
+                    'the worker hit its usage limit'):
+            tries = [{**attempt(step, 'env'), 'why': why} for step in
+                     ('agy-gemini', 'agy-gemini', 'agy-claude', 'agy-claude')]
+            with self.subTest(why=why):
+                self.assertEqual(autopilot.worn_out(tries), set())
+                t = task('t1', attempts=tries)
+                self.assertEqual(autopilot.park_reason(cfg, t), ('', ''))
+                self.assertEqual(set(autopilot.candidates(cfg, t)), {'agy-gemini', 'agy-claude'})
+                self.assertEqual(autopilot.after_failure(cfg, t, now=1000), '')
+                self.assertEqual(t['status'], 'queued')
+                self.assertEqual(t['not_before'], 1240)  # 4 failures: 4-minute backoff
+                self.assertEqual(autopilot.backoff(task('t1', attempts=tries * 10)), autopilot.BACKOFF_MAX)
+        real = [attempt(step, 'real') for step in ('agy-gemini', 'agy-gemini', 'agy-claude', 'agy-claude')]
+        self.assertTrue(autopilot.should_park(cfg, task('t1', attempts=real)))
+
     def test_a_worker_exit_says_whether_it_was_its_limit_or_its_time(self):
         r = {'worker_rc': 3}
         self.assertEqual(autopilot.signature(r, {}, 'Individual quota reached. Resets in 147h44m29s.')[1], 'the worker hit its usage limit')

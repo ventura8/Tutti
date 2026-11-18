@@ -1,5 +1,8 @@
 # Lessons
 
+- **Environment failures must not exhaust the ladder** (t260): excluding missing reports from the attempt cap was not
+  enough when a separate repeated-failure check removed every worker. Apply the same classification at both decisions.
+
 - **A read-only tool may still disclose private output** (t372): the model's status lookup bypassed the direct Chat
   role check and could return a job log to a viewer. Apply the same access boundary before either dispatch path.
 

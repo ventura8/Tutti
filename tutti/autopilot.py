@@ -783,7 +783,7 @@ def worn_out(tries):
     out = set()
     for step in {a.get('step') for a in tries}:
         again = repeated([a for a in tries if a.get('step') == step])
-        if again and not again.get('why', '').startswith(QUOTA_SIDE):
+        if again and not env_failure(again.get('why')):
             out.add(step)
     return out
 

@@ -216,7 +216,8 @@ function sparkline(a, now) {
     const x = (t) => ((t - t0) / (t1 - t0)) * W;
     const y = (p) => H - 4 - (Math.min(100, p) / 100) * (H - 8);
     const readings = (Array.isArray(a.readings) ? a.readings : [])
-        .filter((r) => r && typeof r === 'object' && typeof r.at === 'string' && Number.isFinite(Date.parse(r.at)) && Number.isFinite(r.used))
+        .filter((r) => r && typeof r === 'object' && typeof r.at === 'string' && Number.isFinite(Date.parse(r.at)) &&
+            Number.isFinite(r.used) && r.used >= 0 && r.used <= 100)
         .map((r) => ({ at: r.at, used: r.used, time: Date.parse(r.at) })).sort((left, right) => left.time - right.time);
     const pts = readings.map((r) => [x(r.time), y(r.used)]);
     const g = svg('svg', { class: 'spark', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img' });
@@ -234,6 +235,15 @@ function sparkline(a, now) {
     const detail = el('p', { class: 'spark__detail' });
     const marker = svg('circle', { class: 's-selected', r: 3 });
     g.append(marker);
+    if (readings.length === 1) {
+        const r = readings[0];
+        detail.textContent = `${localTime(r.at)} · ${tuttiPct(r.used)} used`;
+        detail.title = utcTitle(r.at);
+        marker.setAttribute('cx', x(r.time));
+        marker.setAttribute('cy', y(r.used));
+        box.append(detail);
+        return box;
+    }
     g.setAttribute('role', 'slider');
     g.setAttribute('tabindex', '0');
     g.setAttribute('aria-label', `${a.name} usage readings`);

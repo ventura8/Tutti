@@ -129,6 +129,8 @@ const bad = sparkline({...account,readings:[null,{}, {at:'bad',used:4}, {at:acco
 values.push([bad.children[0].attrs.role, bad.children[0].attrs['aria-label']]);
 const absent = sparkline({...account,readings:null}, Date.now());
 values.push([absent.children[0].attrs.role, absent.children.length]);
+const one = sparkline({...account,readings:[account.readings[0], {at:account.reset,used:101}]}, Date.now());
+values.push([one.children[0].attrs.role, one.children[1].textContent]);
 console.log(JSON.stringify(values));`);
 """
         out = subprocess.run(['node', '-e', script, app], capture_output=True, text=True, check=True)
@@ -145,6 +147,8 @@ console.log(JSON.stringify(values));`);
         self.assertEqual(values[5][0], 'img')
         self.assertIn('0 readings', values[5][1])
         self.assertEqual(values[6], ['img', 1])
+        self.assertEqual(values[7][0], 'img')
+        self.assertIn('20%', values[7][1])
 
 
 class Order(unittest.TestCase):

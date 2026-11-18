@@ -1359,6 +1359,7 @@ function render() {
     if (typeof renderWhere === 'function') renderWhere(s);   // where.js: Where Tutti runs
     if (typeof renderOutside === 'function') renderOutside(s);   // outside.js: work outside Tutti (docs/INTAKE.md)
     renderTelemetry(s);   // telemetry.js: Insights, the Self-improvement lane, the sending switch
+    if (typeof renderInsights === 'function') renderInsights(s);
     renderHousehold(s);   // household.js: the household card (shown in the Household view)
     if (s.probe_error) showBanner(s.probe_error);
     else if (ui.notice) showBanner(ui.notice);

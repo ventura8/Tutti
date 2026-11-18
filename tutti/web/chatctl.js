@@ -50,6 +50,10 @@ function popupFor(text, caret) {
     if (t.start === 0 && t.word.startsWith('/') && !String(text).slice(0, caret).includes(' ')) {
         return { kind: 'slash', query: t.word.toLowerCase(), start: 0 };
     }
+    const before = String(text).slice(0, t.start);
+    if (/\/(task|delegate)\s+$/.test(before)) {
+        return { kind: 'project', query: t.word, start: t.start };
+    }
     if (t.word.startsWith('@')) return { kind: 'mention', query: t.word.slice(1).replace(/^(project|job|machine|file):/, ''), start: t.start };
     return null;
 }
@@ -260,7 +264,12 @@ async function updatePopup() {
     ctl.timer = setTimeout(async () => {
         const data = await chatApi({ action: 'mentions', query: want.query }).catch(() => ({ options: [] }));
         if (ctl.popup !== want) return;
-        ctl.items = data.options.map((o) => ({ text: `@${o.kind}:${o.name}`, help: o.label, insert: `@${o.kind}:${o.name} ` }));
+        if (want.kind === 'project') {
+            const projects = data.options.filter(o => o.kind === 'project');
+            ctl.items = projects.map((o) => ({ text: o.name, help: o.label, insert: o.name + ' ' }));
+        } else {
+            ctl.items = data.options.map((o) => ({ text: `@${o.kind}:${o.name}`, help: o.label, insert: `@${o.kind}:${o.name} ` }));
+        }
         ctl.active = ctl.items.length ? 0 : -1;
         drawPopup();
         if (ctl.items.length) say(`${ctl.items.length} suggestions: up and down to choose, Enter to add.`);

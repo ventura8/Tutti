@@ -152,7 +152,7 @@ Nothing personal is built in: hosts, paths and accounts live only in that file. 
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the pieces and how a run flows.
 - [docs/API.md](docs/API.md): the API reference: every CLI subcommand and option, the dashboard's HTTP routes, the MCP tools, the config keys and the exit codes, checked against the code.
-- [docs/OPENAI.md](docs/OPENAI.md): Codex and the experimental, unconnected Responses API transport.
+- [docs/OPENAI.md](docs/OPENAI.md): Codex and the currently unavailable OpenAI API Chat prototype.
 - [docs/CONNECT.md](docs/CONNECT.md): `tutti connect` and the MCP server: Tutti from inside Claude, Codex, Antigravity, Cursor, Copilot and Gemini.
 - [docs/AUTOPILOT.md](docs/AUTOPILOT.md): the backlog, rounds, retries up the ladder and parking.
 - [docs/CONDUCT.md](docs/CONDUCT.md): another agent as the main agent, its tools, limits and the handoff.

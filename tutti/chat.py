@@ -432,7 +432,34 @@ def known_names(cfg, snap):
 
 
 def settings(cfg):
-    return {**DEFAULTS, **(cfg.get('chat') or {})}
+    # Never expose backend configuration through the public Chat limits payload.
+    c = cfg.get('chat') or {}
+    return {key: c.get(key, value) for key, value in DEFAULTS.items()}
+
+
+def _api_errors(cfg, c):
+    errs = []
+    api = c.get('openai_api')
+    if api is not None:
+        if not isinstance(api, dict):
+            errs.append('chat.openai_api must be a mapping with enabled, costs_money, account, model and max_output_tokens')
+        else:
+            allowed = {'enabled', 'costs_money', 'account', 'model', 'max_output_tokens'}
+            if set(api) - allowed:
+                errs.append('chat.openai_api contains unsupported keys: keep API credentials only in the runtime environment')
+            if api.get('enabled') is True:
+                if api.get('costs_money') is not True:
+                    errs.append('chat.openai_api.costs_money must be true when its paid backend is enabled')
+                if not isinstance(api.get('model'), str) or not api['model'].strip():
+                    errs.append('chat.openai_api.model is missing: set an OpenAI API model')
+                if not isinstance(api.get('account'), str) or not api['account'].strip():
+                    errs.append('chat.openai_api.account is missing: set a separate API billing account')
+            limit = api.get('max_output_tokens', 512)
+            if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 4096:
+                errs.append('chat.openai_api.max_output_tokens must be a whole number from 1 to 4096')
+            if 'openai-api' in (cfg.get('workers') or {}):
+                errs.append('workers.openai-api conflicts with the reserved Chat API model: rename that worker')
+    return errs
 
 
 def errors(cfg):
@@ -449,6 +476,7 @@ def errors(cfg):
     p = c.get('viewer_projects', [])
     if not isinstance(p, list) or not all(isinstance(x, str) for x in p):
         errs.append('chat.viewer_projects must be a list of project names under autopilot.repos (empty: every project)')
+    errs.extend(_api_errors(cfg, c))
     h = c.get('history_turns', HISTORY_TURNS)
     if not isinstance(h, int) or isinstance(h, bool) or not 0 <= h <= 50:
         errs.append(f'chat.history_turns is {h!r}: a whole number from 0 to 50')
@@ -636,6 +664,8 @@ def machine_out(name, snap, own_machine=None):
 
 PICKS = {'main': 'Auto: the main agent', 'auto': 'Auto: local first, then online', 'local': 'Local models only',
          'online': 'Online agents only'}
+# Do not enable paid Chat routing until authoritative billing and atomic reservation are implemented.
+OPENAI_PAID_ROUTE_READY = False
 TOOL_PARAMS_B = 7.0   # a local model this large or larger is given the tools; a smaller one only talks
 
 
@@ -696,6 +726,53 @@ def online_model(cfg, name, w, rows, accounts, paused, owner, configured, accoun
     return next((candidate for candidate in options if not candidate['why']), options[0])
 
 
+def _openai_quota_problem(cfg, name, account):
+    from . import pacing, routing
+    if not account or routing.unknown_quota(account) or routing.missing_limits(cfg, name, account):
+        return 'OpenAI API billing quota is unknown: refresh its account and linked limits'
+    pending = [account]
+    while pending:
+        item = pending.pop()
+        if (not isinstance(item, dict) or item.get('after_reset') or item.get('selected_source') != 'openai-api-billing'
+                or item.get('stale') is not False or item.get('verdict') not in ('behind', 'on pace')):
+            return 'OpenAI API billing reading is stale or ahead of pace'
+        try:
+            age = (datetime.now(timezone.utc) - pacing.parse_time(item.get('reading_at'))).total_seconds()
+        except (TypeError, ValueError, AttributeError):
+            age = -1
+        if not 0 <= age <= 3600:
+            return 'OpenAI API billing reading is missing or older than one hour'
+        pending.extend(item.get('limits') or [])
+    return 'OpenAI API billing quota has no room' if routing.account_unfit(account) else None
+
+
+def openai_model(cfg, snap, user, owner_sub=None):
+    """A paid API model is owner-only, explicitly selected, and gated by a dedicated fresh billing reading."""
+    options = (cfg.get('chat') or {}).get('openai_api') or {}
+    options = options if isinstance(options, dict) else {}
+    name = options.get('account')
+    conf = (cfg.get('accounts') or {}).get(name) if isinstance(name, str) else None
+    conf = conf if isinstance(conf, dict) else {}
+    account = next((a for a in (snap.get('usage') or {}).get('accounts') or [] if a.get('name') == name), None)
+    why = None
+    if not OPENAI_PAID_ROUTE_READY:
+        why = 'OpenAI API Chat is unavailable until billing verification and reservations are implemented'
+    elif options.get('enabled') is not True or options.get('costs_money') is not True:
+        why = 'OpenAI API is off: explicitly enable paid API use in Chat settings'
+    elif not is_owner(user, owner_sub):
+        why = 'OpenAI API is private to the household owner'
+    elif not isinstance(options.get('model'), str) or not options['model'].strip():
+        why = 'OpenAI API model is missing'
+    elif conf.get('billing_source') != 'openai_api' or conf.get('costs_money') is not True or conf.get('enabled') is not True:
+        why = 'OpenAI API needs a separately enabled, paid API billing account'
+    elif f'account:{name}' in _paused(snap) or conf.get('paused'):
+        why = 'OpenAI API billing account is paused'
+    else:
+        why = _openai_quota_problem(cfg, name, account)
+    return {'kind': 'openai_api', 'worker': 'openai-api', 'account': name, 'why': why, 'tools': False,
+            'label': 'OpenAI API (paid)'}
+
+
 def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
     """Every model of the household with why it cannot answer now (None when it can): ([local], [online]). Local models
     are sorted by capability (the largest first, as `qwen3.8:27b` on the PC), each marked whether it gets the tools."""
@@ -731,6 +808,9 @@ def candidates(cfg, snap, user, owner_sub=None, own_machine=None, pick='auto'):
     worker's name. Local models run on machines that are here, not paused, not lent out and never the user's own; online
     accounts are the owner's own or shared (`accounts.<n>.share_spare`): another member's private quota is never spent."""
     local, online = all_models(cfg, snap, user, owner_sub, own_machine)
+    if pick == 'openai-api':
+        api = openai_model(cfg, snap, user, owner_sub)
+        return ([{**api, 'before': []}], []) if not api['why'] else ([], [api['why']])
     pool = {'local': local, 'online': online}.get(pick, local + online)
     if pick == 'main':   # the main agent now (tutti/conduct.py: auto, a hand-off or the owner's switch), then the rest as auto
         from . import conduct
@@ -754,6 +834,8 @@ def choices(cfg, snap, user, owner_sub=None, own_machine=None):
     """The picker's options: the three modes, then every model with whether it can answer now."""
     local, online = all_models(cfg, snap, user, owner_sub, own_machine)
     out = [{'id': k, 'label': v, 'group': 'mode', 'available': True} for k, v in PICKS.items()]
+    if isinstance((cfg.get('chat') or {}).get('openai_api'), dict):
+        online.append(openai_model(cfg, snap, user, owner_sub))
     for c in local + online:
         out.append({'id': c['worker'], 'label': c['label'], 'group': 'local' if c['kind'] == 'ollama' else 'online',
                     'available': not c['why'], 'why': c['why'], 'tools': c['tools']})
@@ -761,7 +843,8 @@ def choices(cfg, snap, user, owner_sub=None, own_machine=None):
 
 
 def valid_pick(pick, cfg):
-    return pick in PICKS or pick in (cfg.get('workers') or {})
+    return (pick in PICKS or pick in (cfg.get('workers') or {}) or
+            (pick == 'openai-api' and isinstance((cfg.get('chat') or {}).get('openai_api'), dict)))
 
 
 def cloud_out(name, acc_name, acc, conf, w, paused, row, owner):

@@ -4,15 +4,36 @@
 
 const QUEUE_ACTIONS = { run: 'Run now', up: 'Priority up', down: 'Priority down', cancel: 'Cancel' };
 
-async function queueAction(body, failText) {
+async function queueAction(body, failText, item) {
+    const originalQueue = JSON.parse(JSON.stringify(ui.last.queue));
+
+    // Optimistic update
+    if (body.action === 'up' || body.action === 'down') {
+        for (const group of ui.last.queue.groups) {
+            const index = group.items.findIndex(i => i.id === item.id);
+            if (index !== -1) {
+                if (body.action === 'up' && index > 0) {
+                    [group.items[index], group.items[index - 1]] = [group.items[index - 1], group.items[index]];
+                    break;
+                } else if (body.action === 'down' && index < group.items.length - 1) {
+                    [group.items[index], group.items[index + 1]] = [group.items[index + 1], group.items[index]];
+                    break;
+                }
+            }
+        }
+        renderQueue(ui.last);
+    }
+
     try {
         const res = await fetch('/api/queue', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify(body),
         });
         const answer = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(answer.error || `the dashboard answered ${res.status}`);
-        await refresh();
+        if (body.action !== 'up' && body.action !== 'down') await refresh();
     } catch (err) {
+        ui.last.queue = originalQueue;
+        renderQueue(ui.last);
         showBanner(el('strong', { text: `${failText} ` }), err.message);
     }
 }
@@ -21,13 +42,13 @@ function queueMove(it, ladder) {
     const pick = el('select', { class: 'pick', 'aria-label': `Move ${it.id} to` },
         ...ladder.map((n) => el('option', { value: n, text: n, selected: n === it.to })));
     return [pick, el('button', { class: 'btn btn--text', type: 'button', text: 'Move to…',
-        onclick: () => queueAction({ kind: it.kind, id: it.id, action: 'move', to: pick.value }, `${it.id} was not moved.`) })];
+        onclick: () => queueAction({ kind: it.kind, id: it.id, action: 'move', to: pick.value }, `${it.id} was not moved.`, it) })];
 }
 
 function queueItem(it, ladder) {
     const acts = (it.actions || []).filter((a) => a !== 'move').map((a) => el('button', { class: 'btn btn--text', type: 'button',
         'data-queue-action': a, text: QUEUE_ACTIONS[a],
-        onclick: () => queueAction({ kind: it.kind, id: it.id, action: a }, `${QUEUE_ACTIONS[a]} did not work for ${it.id}.`) }));
+        onclick: () => queueAction({ kind: it.kind, id: it.id, action: a }, `${QUEUE_ACTIONS[a]} did not work for ${it.id}.`, it) }));
     if ((it.actions || []).includes('move') && ladder.length) acts.push(...queueMove(it, ladder));
     return el('div', { class: 'row', 'data-queued': it.id, 'data-kind': it.kind },
         el('div', { class: 'row__name', text: `${it.title}` }),

@@ -76,7 +76,7 @@ def compatible_details(first, second):
     if a and b and (any(x not in b for x in a) or any(x not in a for x in b)):
         return False
     a, b = str(first.get('check') or '').strip(), str(second.get('check') or '').strip()
-    return not (a and b and a != b)
+    return not (first.get('check_explicit', True) and second.get('check_explicit', True) and a and b and a != b)
 
 
 def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', notes=()):

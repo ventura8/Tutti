@@ -931,6 +931,18 @@ class SurfaceTest(Base):
                 collector.autopilot_tick()
         workq.assert_not_called()
 
+    def test_backlog_cli_omitted_check_uses_default_without_making_a_duplicate(self):
+        cfg = self.cfg()
+        with mock.patch.object(config, 'load', return_value=cfg), mock.patch('sys.stdout'):
+            self.assertEqual(cli.main(['backlog', 'add', 'app', 'Fix check', '--check', 'test-a']), 0)
+            self.assertEqual(cli.main(['backlog', 'add', 'app', 'Fix check']), 0)
+            self.assertEqual(cli.main(['backlog', 'add', 'app', 'Fix check', '--check', 'test-b']), 0)
+            self.assertEqual(cli.main(['backlog', 'add', 'app', 'Default check']), 0)
+            self.assertEqual(cli.main(['backlog', 'add', 'app', 'Default check', '--check', 'test-c']), 0)
+        tasks = backlog.load(cfg)['tasks']
+        self.assertEqual([t['check'] for t in tasks], ['test-a', 'test-b', 'true'])
+        self.assertFalse(tasks[-1]['check_explicit'])
+
     def test_backlog_cli_add_retry_rm_and_unknown_repo(self):
         cfg = self.cfg()
         with mock.patch.object(config, 'load', return_value=cfg), mock.patch('sys.stdout'):

@@ -578,6 +578,82 @@ class SurfaceTest(Base):
         self.assertEqual(p['reason'], autopilot.EMPTY)
         self.assertEqual(c.snapshot()['autopilot']['last']['reason'], autopilot.EMPTY)
 
+    def test_collector_remeasures_host_and_disk_on_each_autopilot_round(self):
+        cfg = self.cfg()
+        collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        samples = [{'mem_gb': 32, 'cores': 4, 'load': 8}, {'mem_gb': 32, 'cores': 4, 'load': 0},
+                   {'mem_gb': 32, 'cores': 4, 'load': 7}]
+        rounds, tick = [], autopilot.tick
+        def capture(round_cfg, *args, **kwargs):
+            result = tick(round_cfg, *args, **kwargs)
+            rounds.append(round_cfg)
+            return result
+        with mock.patch('tutti.parallel.host', side_effect=samples), \
+             mock.patch('tutti.diskroom.problems', side_effect=[['disk low'], ['disk low'], [], [], ['disk low'], ['disk low']]), \
+             mock.patch.object(autopilot, 'tick', side_effect=capture), mock.patch('tutti.workq.tick'):
+            for sample, disk in zip(samples, (['disk low'], [], ['disk low']), strict=True):
+                collector.autopilot_tick()
+                current = rounds[-1]
+                self.assertEqual(current['_host_raw'], sample)
+                self.assertEqual(current['_disk'], disk)
+                capacity, blocked = autopilot.capacity_now(current, [], FREE, TEST_NOW, room=3)
+                if disk:
+                    self.assertEqual(capacity, (0, 0))
+                    self.assertIn('disk low', blocked['reason'])
+                else:
+                    self.assertGreater(capacity[0], 0)
+                    self.assertIsNone(blocked)
+        self.assertEqual(cfg['_disk'], [])  # the shared config and its other readers were not mutated
+
+    def test_collector_refreshes_cpu_bound_even_when_disk_stays_healthy(self):
+        cfg = self.cfg()
+        collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        loads, bounds, tick = (8, 0, 8), [], autopilot.tick
+        def capture(round_cfg, *args, **kwargs):
+            result = tick(round_cfg, *args, **kwargs)
+            autopilot.capacity_now(round_cfg, [], FREE, TEST_NOW, room=3)
+            bounds.append(round_cfg['_parallel']['bounds']['cpu'])
+            return result
+        with mock.patch('tutti.parallel.host', side_effect=[{'mem_gb': 32, 'cores': 4, 'load': n} for n in loads]), \
+             mock.patch('tutti.diskroom.problems', return_value=[]), \
+             mock.patch.object(autopilot, 'tick', side_effect=capture), mock.patch('tutti.workq.tick'):
+            for _ in loads:
+                collector.autopilot_tick()
+        self.assertEqual(bounds, [0, 16, 0])
+
+    def test_collector_retains_previous_parallel_limit_without_mutating_shared_config(self):
+        cfg = self.cfg()
+        collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        previous = []
+        def tick(round_cfg, *_args, **_kwargs):
+            previous.append(round_cfg.get('_parallel_limit'))
+            round_cfg['_parallel_limit'] = 7
+            return None
+        with mock.patch.object(autopilot, 'tick', side_effect=tick), mock.patch('tutti.workq.tick'):
+            collector.autopilot_tick()
+            collector.autopilot_tick()
+        self.assertEqual(previous, [None, 7])
+        self.assertNotIn('_parallel_limit', cfg)
+
+    def test_config_reload_clears_previous_autopilot_parallel_limit(self):
+        cfg = self.cfg()
+        collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        collector.autopilot_parallel_limit = 7
+        fresh = self.cfg()
+        with mock.patch.object(config, 'load', return_value=fresh):
+            collector.reload()
+        self.assertIs(collector.cfg, fresh)
+        self.assertIsNone(collector.autopilot_parallel_limit)
+
+    def test_collector_does_not_reuse_cached_measurement_when_host_probe_fails(self):
+        cfg = self.cfg()
+        collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        with mock.patch('tutti.parallel.host', side_effect=OSError('probe failed')), \
+             mock.patch('tutti.diskroom.problems', return_value=[]), mock.patch('tutti.workq.tick') as workq:
+            with self.assertRaisesRegex(OSError, 'probe failed'):
+                collector.autopilot_tick()
+        workq.assert_not_called()
+
     def test_backlog_cli_add_retry_rm_and_unknown_repo(self):
         cfg = self.cfg()
         with mock.patch.object(config, 'load', return_value=cfg), mock.patch('sys.stdout'):

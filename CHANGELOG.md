@@ -7,6 +7,12 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [0.27.5] - 2026-11-18
+
+### Fixed
+
+- Refresh dashboard autopilot host and disk measurements each round instead of reusing stale capacity (t232).
+
 ## [0.27.4] - 2026-11-18
 
 ### Fixed

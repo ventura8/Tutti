@@ -192,7 +192,8 @@ How many runs go at once is measured every round, not fixed. The limit is the sm
 - **gates**: the runs going plus the fit machines' free gate slots times `gate_share` (a run holds a slot only for its gate);
 - `max_parallel` when the owner sets it (Settings: an optional cap), and `ceiling`.
 
-It rises with free capacity and drops under memory pressure. The dashboard's Autopilot line says
+It rises with free capacity and drops under memory pressure. The dashboard remeasures host resources and disk space
+before each autopilot round; a previous low-space or high-load reading does not persist after recovery. The dashboard's Autopilot line says
 `running N of M possible: limited by <bound> (<why>)`. Every machine's probe now reports its free memory too (`mem_free_gb`).
 
 **Heavy gates leave the laptop.** A repo whose checks run `local` sends a heavy gate (`parallel.heavy`: ESLint, tsc, Vitest,

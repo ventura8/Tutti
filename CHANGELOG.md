@@ -6,6 +6,12 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.23.7] - 2026-11-18
+
+### Added
+
+- Agent preferences per task type (visual, code, etc.): define a ranked list of agents for each task type in `autopilot.agent_preferences` in `tutti.config.yaml`. Tutti prioritizes these agents when assigning tasks of the specified type.
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

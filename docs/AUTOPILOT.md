@@ -43,6 +43,19 @@ person meant it), and the lines the repo's `gaps` command prints (`<path>: <what
 A task whose title starts with `scout:` or `research:` is a research question for a scout (docs/SCOUTS.md, *The week's
 plan*): the autopilot never sends it to a worker (`research:` joined in 0.1.59: retitle a worker's task that starts with it).
 
+## Agent Preferences
+
+You can define a ranked list of agents for each task type in your `tutti.config.yaml` to ensure the best agent is assigned for specific task types:
+
+```yaml
+autopilot:
+  agent_preferences:
+    visual: [claude, gpt-4]
+    code: [claude, gpt-4, ollama-llama3]
+```
+
+When a task has a `type` assigned (e.g., `visual`), Tutti will reorder the candidate agents to prioritize those listed in `agent_preferences` for that type.
+
 ## A round
 
 The dashboard runs one round after every probe while the autopilot is on (`tutti autopilot tick` runs one by hand):

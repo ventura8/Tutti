@@ -253,6 +253,15 @@ def candidates(cfg, t, over='', machines=()):
     """The steps a task may go to now (below), with the step the dashboard's Move to picked first when it is one of them."""
     worn = worn_out(t['attempts'])   # the same failure twice there: it is not sent there again
     out = [n for n in _candidates(cfg, t, over, machines) if n not in worn]
+
+    task_type = t.get('type')
+    if task_type:
+        preferences = cfg['autopilot'].get('agent_preferences', {})
+        ranked = preferences.get(task_type, [])
+        preferred_in_out = [n for n in ranked if n in out]
+        others = [n for n in out if n not in preferred_in_out]
+        out = preferred_in_out + others
+
     want = t.get('prefer')
     return [want, *[n for n in out if n != want]] if want in out else out
 

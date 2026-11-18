@@ -70,13 +70,13 @@ def key_of(t):
     return (t['repo'], re.sub(r'\s+', ' ', t['title'].strip().lower()))
 
 
-def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', notes=()):
+def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', notes=(), task_type=None):
     if size not in SIZES:
         raise BacklogError(f'size "{size}": use one of {", ".join(SIZES)} (small, medium, large)')
     if not title.strip():
         raise BacklogError('a task needs a title that says what to change')
     return {'repo': repo, 'title': title.strip()[:300], 'scope': [s for s in scope if s], 'check': check, 'size': size,
-            'source': source, 'status': 'queued', 'attempts': [], 'notes': list(notes), 'added': time.time()}
+            'source': source, 'status': 'queued', 'attempts': [], 'notes': list(notes), 'added': time.time(), 'type': task_type}
 
 
 def add(data, task):

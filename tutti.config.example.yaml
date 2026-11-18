@@ -287,6 +287,9 @@ autopilot:
   enabled: false
   accounts: [cursor]
   ladder: [cursor]
+  agent_preferences:
+    visual: [claude, gpt-4]
+    code: [claude, gpt-4, ollama-llama3]
   # max_parallel: 2                    # optional cap; without it the limit is adaptive (docs/AUTOPILOT.md, Adaptive parallelism)
   quiet_hours: []                      # local-time spans (time.zone) the autopilot must not run, e.g. ['22:00-06:00']: the planner gives them nothing
   fill_room: true                      # free room on `accounts` is filled from the repos' sources (TODOs, gaps, untested files)

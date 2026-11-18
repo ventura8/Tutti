@@ -299,6 +299,37 @@ ADMIN_CONTROLS = ('#refresh-readings', '#autopilot-toggle', '#selfimprove-toggle
 
 
 class UsageGraph(unittest.TestCase):
+    def test_blur_preserves_destination_control_for_keyboard_and_mouse(self):
+        ctx = new_context(ADMIN, width='phone')
+        try:
+            page = open_view(ctx, '#dashboard')
+            graph = page.locator('#usage .spark[role="slider"]').first
+            graph.evaluate('''(g) => {
+                const button = document.createElement('button');
+                button.textContent = 'Graph destination';
+                button.id = 'graph-destination';
+                button.addEventListener('click', () => button.dataset.clicked = 'yes');
+                g.closest('.spark-wrap').after(button);
+            }''')
+            button = page.locator('#graph-destination')
+            graph.focus()
+            graph.press('Tab')
+            page.wait_for_timeout(50)
+            self.assertTrue(button.evaluate('(b) => document.activeElement === b && b.isConnected'))
+            button.press('Enter')
+            self.assertEqual(button.get_attribute('data-clicked'), 'yes')
+            button.evaluate('(b) => { delete b.dataset.clicked; }')
+            page.locator('#usage .spark[role="slider"]').first.focus()
+            box = button.bounding_box()
+            page.mouse.move(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2)
+            page.mouse.down()
+            page.wait_for_timeout(50)
+            self.assertTrue(button.evaluate('(b) => b.isConnected'))
+            page.mouse.up()
+            self.assertEqual(button.get_attribute('data-clicked'), 'yes')
+        finally:
+            ctx.close()
+
     def test_readings_work_with_mouse_touch_and_keyboard(self):
         for theme in THEMES:
             ctx = new_context(ADMIN, width='phone', theme=theme, has_touch=True)

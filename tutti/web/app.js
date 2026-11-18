@@ -301,10 +301,22 @@ function sparkline(a, now) {
         else return;
         event.preventDefault();
     });
-    g.addEventListener('blur', () => setTimeout(() => { if (ui.last) renderUsage(ui.last, Date.now()); }, 0));
+    g.addEventListener('blur', () => setTimeout(() => refreshBlurredGraph(g), 0));
     select(readings.length - 1);
     box.append(detail);
     return box;
+}
+
+// A blur can be caused by Tab or by a mouse press. Replace only the graph so the
+// destination control remains attached through focus navigation and mouseup.
+function refreshBlurredGraph(graph) {
+    if (!ui.last || (ui.editing.size && !ui.formPending) || document.activeElement === graph || !graph.isConnected) return;
+    const wrap = graph.closest('.spark-wrap'), card = graph.closest('article.account');
+    if (!wrap || !card) return;
+    const row = ui.last.usage.accounts.find((a) => a.name === card.getAttribute('data-account'));
+    const marker = card.querySelector('.spark__held');
+    if (marker) marker.remove();
+    if (row?.reset) wrap.replaceWith(sparkline(row, Date.now())); else wrap.remove();
 }
 
 function facts(pairs) {

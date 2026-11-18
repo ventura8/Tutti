@@ -315,7 +315,7 @@ class NothingLost(Base):
     def test_an_attempt_cut_by_a_power_off_is_queued_again_from_its_worktree_and_not_counted(self):
         cfg = {'autopilot': {'repos': {'r': {'path': self.tmp.name, 'wip_push': False}}, 'no_progress': 3, 'max_attempts': 12},
                'project': {'state': self.state, 'worktrees': self.tmp.name}, 'delegate': {'prefix': 'tutti-'}}
-        t = {'id': 't1', 'title': 'Fix it', 'status': 'running', 'run': 'x', 'boot': 'old', 'attempts': [], 'repo': 'r',
+        t = {'id': 't1', 'title': 'Fix it', 'status': 'running', 'run': 'x', 'boot': 'old', 'job_bridge': '', 'attempts': [], 'repo': 'r',
              'scope': [], 'source': 'manual'}
         data = {'tasks': [t]}
         with mock.patch.object(autopilot, 'finished', return_value=(True, None)), \

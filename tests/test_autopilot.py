@@ -222,6 +222,17 @@ class PlanTest(Base):
         running = {**task('running', 'running'), 'step': 'pc'}
         self.assertEqual(autopilot.plan(cfg, [completed, running, waiting], states, FREE, True)['dispatch'], [])
 
+    def test_online_reservation_returns_when_a_reconfigured_account_is_readded(self):
+        cfg = self.cfg()
+        online_account = cfg['accounts'].pop('cursor')
+        online_worker = cfg['workers']['cursor']
+        old = task('old', 'done', [{**attempt('cursor'), 'started': 1000}])
+        cfg['workers']['cursor'] = {'kind': 'ollama', 'host': 'model.example:11434', 'model': 'm'}
+        self.assertEqual(autopilot.spent_units([old], {}, cfg), {})
+        cfg['accounts']['cursor'] = online_account
+        cfg['workers']['cursor'] = online_worker
+        self.assertEqual(autopilot.spent_units([old], {}, cfg), {'cursor': 1})
+
     def test_paused_accounts_unreported_attempt_still_debits_a_shared_window(self):
         cfg = self.cfg(main_accounts=['agy-claude'])
         cfg['_main_worker'] = 'local-main'

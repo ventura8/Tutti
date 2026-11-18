@@ -5,7 +5,11 @@ python3 -m playwright install --only-shell chromium
 if [ -n "${CI:-}" ]; then
 	# Keep the probe bounded and do not pass unrelated environment variables to the browser.
 	# timeout signals the process group; detached descendants may require separate cleanup.
-	if ! env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" \
+	probe_env=("PATH=$PATH" "HOME=$HOME" "TMPDIR=${TMPDIR:-/tmp}")
+	if [[ ${PLAYWRIGHT_BROWSERS_PATH+x} ]]; then
+		probe_env+=("PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH")
+	fi
+	if ! env -i "${probe_env[@]}" \
 		timeout --kill-after=5s 20s python3 -c \
 		'from playwright.sync_api import sync_playwright
 with sync_playwright() as p:

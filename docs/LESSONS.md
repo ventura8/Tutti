@@ -1,5 +1,8 @@
 # Lessons
 
+- A remote check's copy name also reaches a local lock path and remote shell. Validate it before either side effect; checking
+  only the worker's local worktree name leaves the independently configured remote name unchecked (t403).
+
 - **A release tag must name its own reviewed PR** (t401): deleting a version branch can destroy concurrent work, while
   tagging current main after merging can publish unrelated commits. Reserve the branch without replacement and check
   the PR merge and its base before tagging; a non-atomic base check still requires a post-merge verification.

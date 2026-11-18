@@ -31,6 +31,17 @@ MUX_PERSIST = 600
 MUX_RETRY = 60   # seconds before another master is tried for the same machine (a lock file per machine, across processes)
 
 
+def valid_track(track):
+    """A single safe folder and shell word for a copied tree."""
+    return isinstance(track, str) and bool(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', track))
+
+
+def require_track(track):
+    if not valid_track(track):
+        raise RuntimeError('remote track must be one folder name of 1 to 64 letters, digits, dots, underscores or dashes, '
+                           'starting with a letter or digit; choose another track and retry')
+
+
 _BASH_PATHS = {}
 
 
@@ -576,6 +587,7 @@ def _check(result, what):
 def sync(cfg, machine, track, src):
     """Copies the tree (incremental rsync, the config's excludes) and gives the copy a shallow git repository at the tree's
     commit: a worktree's `.git` is a file that points at this computer, so tests that ask git would fail on the copy."""
+    require_track(track)
     name, root, rs = machine['name'], root_path(machine), rsh(cfg, machine)
     to = f'{dest(machine)}:{machine["root"]}'
     is_git = subprocess.run([worktree.git_bin(), '-C', src, 'rev-parse', '--git-dir'], capture_output=True).returncode == 0
@@ -629,6 +641,7 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
     """Runs `command` over the tree on the machine, behind its slot queue, after the steps it needs first (test.prepare).
     With `device` the command also holds that Android device's lock and gets ANDROID_SERIAL. With `out` (a job log) the
     output goes there too. Returns the command's exit code."""
+    require_track(track)
     command = routing.prepare(command, (cfg.get('test') or {}).get('prepare'))
     command = no_daemons(command)
     slot = slot_prefix(machine)
@@ -662,6 +675,7 @@ def run(cfg, machine, track, src, command, inputs=None, device=None, out=None, h
 def fetch(cfg, machine, track, src, path):
     """Copies a result folder or file (screenshots, videos, reports) from the machine's copy of the tree back into `src`.
     Nothing to do for this computer, where the tree is used in place."""
+    require_track(track)
     if machine['transport'] == 'local':
         return 0
     rel = path.strip('/')

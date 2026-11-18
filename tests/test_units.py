@@ -157,6 +157,20 @@ class RemoteTest(unittest.TestCase):
             self.assertEqual(remote.run(self.cfg, machine, 'track', '/tmp/fake-tree', 'true'), 0)
         self.assertIn('--label io.tutti.run=' + 'a' * 32, captured[0])
 
+    def test_remote_track_rejected_before_transport_or_filesystem(self):
+        machine = {**self.cfg['machines']['a'], 'transport': 'ssh'}
+        for bad in ('../escape', 'bad;echo x', 'name\n', '', 'x' * 65):
+            with self.subTest(bad=bad), mock.patch.object(remote, 'sh') as sh, \
+                    mock.patch.object(remote.subprocess, 'run') as run:
+                for operation in (lambda: remote.run(self.cfg, machine, bad, '/tmp/tree', 'true'),
+                                  lambda: remote.sync(self.cfg, machine, bad, '/tmp/tree'),
+                                  lambda: remote.fetch(self.cfg, machine, bad, '/tmp/tree', 'result')):
+                    with self.assertRaisesRegex(RuntimeError, 'remote track must be one folder'):
+                        operation()
+                sh.assert_not_called()
+                run.assert_not_called()
+        self.assertTrue(remote.valid_track('safe-1_name.test'))
+
     def test_lock_files(self):
         m = self.cfg['machines']
         self.assertEqual(remote.lock_files(m['a']), ['/tmp/tutti-slot-1.lock', '/tmp/tutti-slot-2.lock'])

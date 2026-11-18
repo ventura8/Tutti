@@ -18,11 +18,12 @@ Rules for every test: a change in behaviour comes with a good case and a bad one
 
 `tests/e2e/test_ui.py` opens the dashboard in a real browser: Playwright's Chromium (`playwright==1.65.2`) with axe-core 4.12
 (`axe-playwright-python==0.1.8`), both pinned in `requirements-dev.txt`. `check.sh` fetches the browser once
-(`playwright install --only-shell chromium`; on CI `--with-deps`, which adds its system libraries). The suite launches
-Chromium headlessly, so the separately distributed headed browser is not needed; installation output is visible in CI logs.
-This reduces the browser download but does not bound system package download time: a slow Ubuntu apt mirror can still
-exhaust the CI job's timeout before the browser suite starts. Check the installer log and rerun once the mirror recovers;
-do not treat an interrupted installation as a passing browser check.
+(`playwright install --only-shell chromium`). On CI a bounded real Chromium launch checks whether the existing system
+libraries work; on failure, `--with-deps` installs Playwright's system dependencies before the full browser suite runs.
+The timeout signals its process group; a browser descendant that detaches into another session may need separate cleanup.
+The probe cannot verify optional fonts or every browser feature: the full suite remains mandatory, and missing fonts can
+change rendering. A slow package mirror can still exhaust the job timeout when installation is needed; an interrupted
+installation or browser suite is not a passing check.
 
 ```bash
 PYTHONPATH=tests python3 -m unittest discover -s tests/e2e                    # the browser tests alone

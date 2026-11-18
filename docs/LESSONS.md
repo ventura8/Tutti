@@ -455,3 +455,10 @@ puts a pinned shellcheck (`shellcheck-py`, hashed) in its venv, and a missing to
 
 - A configured automatic reader is not proof of a fresh measurement: preserve the last actual reading time and surface
   missing, future or stale values independently of whether a reader is configured (t317).
+
+
+## Browser setup can exhaust CI before tests run (t331)
+
+A slow package mirror repeatedly exhausted the CI timeout while Playwright installed system packages after unit tests.
+Probe the actual headless browser first and install system dependencies on probe failure; always run the complete browser
+suite. A successful launch does not guarantee optional fonts, and a cold mirror can still time out.

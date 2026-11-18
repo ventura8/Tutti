@@ -393,10 +393,14 @@ class UsageGraph(unittest.TestCase):
                 last = detail.inner_text()
                 self.assertNotEqual(first, last)
                 self.assertEqual(graph.get_attribute('aria-valuetext'), last)
-                graph.scroll_into_view_if_needed()
+                graph.evaluate('(g) => g.scrollIntoView({block: "center", inline: "nearest"})')  # clear the sticky app bar
                 box = graph.bounding_box()
                 page.mouse.move(box['x'] + 1, box['y'] + box['height'] / 2)
-                self.assertEqual(detail.inner_text(), first)
+                self.assertEqual(detail.inner_text(), first, graph.evaluate('''(g) => {
+                    const r = g.getBoundingClientRect(), x = r.left + 1, y = r.top + r.height / 2;
+                    const hit = document.elementFromPoint(x, y);
+                    return JSON.stringify({x, y, width: innerWidth, height: innerHeight, hit: hit?.outerHTML?.slice(0, 300)});
+                }'''))
                 page.touchscreen.tap(box['x'] + box['width'] - 1, box['y'] + box['height'] / 2)
                 self.assertEqual(detail.inner_text(), last)
                 cdp = ctx.new_cdp_session(page)

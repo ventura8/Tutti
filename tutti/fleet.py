@@ -226,10 +226,10 @@ HOT_OR_LOADED = re.compile(r'^(too hot|hot): |^load [\d.]+ is over')   # routing
 BLOCKING = {'held': 'paused by the owner', 'off': 'turned off', 'offline': 'offline', 'paused': 'its yield flag is up'}
 
 
-def governor(cfg, name, machines, now=None, mem_gb=None, hardware=None):
+def governor(cfg, name, machines, now=None, mem_gb=None, hardware=None, quiet_st=None):
     """Why the worker's machine may not run a model now, or '': owner pause, offline (presence), its yield flag (the PC yields
-    to RoRadio), heat or load, its own quiet hours (machines.<m>.quiet_hours), too little free memory (fleet.memory_floor_gb,
-    read on this computer), and a CPU-only machine whose test slots are all taken."""
+    to RoRadio), heat or load, its own quiet hours (machines.<m>.quiet_hours), a person at this computer (quiet mode), too
+    little free memory (fleet.memory_floor_gb, read on this computer), and a CPU-only machine whose test slots are all taken."""
     home = machine_of(cfg, name)
     row = next((m for m in machines or () if m.get('name') == home), None)
     if row:
@@ -243,6 +243,17 @@ def governor(cfg, name, machines, now=None, mem_gb=None, hardware=None):
     hours = (cfg['machines'].get(home) or {}).get('quiet_hours')
     if now is not None and hours and planner.quiet(now, hours):
         return f'{name}: quiet hours on {home} ({", ".join(hours)}, machines.{home}.quiet_hours)'
+    local = (cfg.get('machines') or {}).get(home) or {}
+    if local.get('transport') == 'local':
+        from . import quietmode
+        if quiet_st is not None:
+            block, why = quiet_st.get('person') or quiet_st.get('forced'), (quiet_st.get('reasons') or ['quiet mode'])[0]
+        else:
+            forced = quietmode.forced(cfg)
+            person = 'someone is at its keyboard' in ((row or {}).get('use_why') or '')
+            block, why = forced or person, ('quiet mode is on (dashboard Quiet toggle)' if forced else 'someone is at its keyboard')
+        if block:
+            return f'{name}: quiet mode on {home} ({why})'
     floor = float(settings(cfg).get('memory_floor_gb') or 0)
     if mem_gb is not None and mem_gb < floor:
         return f'{name}: {home} has {mem_gb:.1f} GB of memory free, under fleet.memory_floor_gb {floor:g}'

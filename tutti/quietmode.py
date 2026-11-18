@@ -1,13 +1,13 @@
 """Quiet mode: while a person is at this computer (keyboard or mouse used in the last `in_use_minutes`, screen unlocked) or
 its free memory is under the user's reserve, Tutti and the tools that ask it keep the computer for that person
-(docs/ARCHITECTURE.md, *Quiet mode*).
+(docs/ARCHITECTURE.md, *Quiet mode*). The dashboard's Quiet toggle forces the same state on or off.
 
-- `status(cfg)`: {quiet, reasons, idle_s, avail_gb}; `tutti quiet status` exits 0 while quiet, 1 when free, so any script
-  (ship.sh, nuc-test.sh, check.sh runners, a Claude agent) can ask before it starts heavy work here.
+- `status(cfg)`: {quiet, reasons, idle_s, avail_gb, forced}; `tutti quiet status` exits 0 while quiet, 1 when free, so any
+  script (ship.sh, nuc-test.sh, check.sh runners, a Claude agent) can ask before it starts heavy work here.
 - `guard_round(cfg)`: one round of the guard the dashboard runs every probe: Tutti's own running jobs here (the `tutti quiet`
   commands, by the exact pid in their `.pid` file, and their process trees) get nice 19 and idle I/O while a person is here;
-  under the memory reserve they are stopped (SIGSTOP) and continued (SIGCONT) once memory is back or the person left; the
-  local Ollama models are unloaded. Nothing is ever matched by name: only pids Tutti started.
+  while the person is here they are stopped (SIGSTOP) and continued (SIGCONT) once they leave; under the memory reserve the
+  same stop applies; the local Ollama models are unloaded. Nothing is ever matched by name: only pids Tutti started.
 - `wrap(argv, cfg)`: the command `tutti quiet` runs, niced and CPU-capped (a systemd-run --user scope) while quiet."""
 import json
 import os
@@ -20,13 +20,14 @@ from . import config, local, share
 
 RESERVE_GB = 4.0     # free memory kept for the person (quiet.reserve_gb)
 CPU_QUOTA = '200%'   # the CPU a command started while quiet may use (quiet.cpu_quota): two cores
+FORCE = 'force'      # <state>/quiet/force: the dashboard's Quiet toggle
 
 
 def settings(cfg):
     q = (cfg or {}).get('quiet') or {}
-    local = next((m for m in ((cfg or {}).get('machines') or {}).values() if m.get('transport') == 'local'), {})
+    local_m = next((m for m in ((cfg or {}).get('machines') or {}).values() if m.get('transport') == 'local'), {})
     return {'reserve_gb': float(q.get('reserve_gb', RESERVE_GB)), 'cpu_quota': str(q.get('cpu_quota', CPU_QUOTA)),
-            'in_use_minutes': float(share.setting(local, 'in_use_minutes'))}
+            'in_use_minutes': float(share.setting(local_m, 'in_use_minutes'))}
 
 
 def avail_gb(path='/proc/meminfo'):
@@ -40,25 +41,66 @@ def avail_gb(path='/proc/meminfo'):
     return None
 
 
+def quiet_dir(cfg):
+    return os.path.join(config.state_dir(cfg), 'quiet')
+
+
+def force_path(cfg):
+    return os.path.join(quiet_dir(cfg), FORCE)
+
+
+def forced(cfg):
+    """True when the dashboard's Quiet toggle is on."""
+    return os.path.isfile(force_path(cfg))
+
+
+def set_forced(cfg, on):
+    """Turns the Quiet toggle on or off; returns the new forced state."""
+    path = force_path(cfg)
+    if on:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf8') as f:
+            f.write('1\n')
+        return True
+    if os.path.isfile(path):
+        os.remove(path)
+    return False
+
+
 def status(cfg, idle_fn=None, mem_fn=None):
     s = settings(cfg)
     idle = (idle_fn or share.idle_seconds)()
     mem = (mem_fn or avail_gb)()
     reasons = []
+    on = forced(cfg)
+    if on:
+        reasons.append('quiet mode is on (dashboard Quiet toggle)')
     if idle is not None and idle < s['in_use_minutes'] * 60:
         reasons.append(f'a person is at this computer (last input {int(idle)} s ago)')
     if mem is not None and mem < s['reserve_gb']:
         reasons.append(f'free memory {mem:.1f} GB is under the {s["reserve_gb"]:g} GB kept for the person')
-    return {'quiet': bool(reasons), 'person': bool(reasons) and idle is not None and idle < s['in_use_minutes'] * 60,
+    person = (idle is not None and idle < s['in_use_minutes'] * 60) or on
+    return {'quiet': bool(reasons), 'person': person and bool(reasons), 'forced': on,
             'low_memory': mem is not None and mem < s['reserve_gb'], 'reasons': reasons, 'idle_s': idle, 'avail_gb': mem}
 
 
-def quiet_dir(cfg):
-    return os.path.join(config.state_dir(cfg), 'quiet')
+def workq_here_pids(cfg):
+    """Pids of work-queue jobs Tutti started on this computer (`machine: here`), from work-queue.json."""
+    from . import workq
+    roots = set()
+    for lease in (workq.read(cfg).get('leases') or {}).values():
+        if lease.get('machine') != 'here':
+            continue
+        try:
+            roots.add(int(lease['pid']))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return roots
 
 
 def own_pids(cfg, proc='/proc'):
-    """The pids of Tutti's own running `tutti quiet` jobs here (their `<log>.pid` files) with every descendant."""
+    """The pids of Tutti's own running jobs here: `tutti quiet` (their `<log>.pid` files) and work-queue `here` leases,
+    with every descendant."""
     roots = set()
     d = quiet_dir(cfg)
     for name in os.listdir(d) if os.path.isdir(d) else []:
@@ -68,6 +110,7 @@ def own_pids(cfg, proc='/proc'):
                     roots.add(int(f.read().strip()))
             except (OSError, ValueError):
                 continue
+    roots |= workq_here_pids(cfg)
     return descendants(roots, proc)
 
 
@@ -147,7 +190,7 @@ def unload_ollama(cfg, post=None):
 
 
 def guard_round(cfg, st=None, pids=None, kill=os.kill, run=subprocess.run, unload=None):
-    """One round: calm Tutti's own jobs while quiet, stop them under the memory reserve, continue them after."""
+    """One round: calm Tutti's own jobs while quiet, stop them while a person is here, continue them after, unload models."""
     st = st or status(cfg)
     pids = own_pids(cfg) if pids is None else pids
     path = stopped_path(cfg)
@@ -156,7 +199,7 @@ def guard_round(cfg, st=None, pids=None, kill=os.kill, run=subprocess.run, unloa
     if st['quiet'] and pids:
         calm(pids, run)
         acts.append(f'calmed {len(pids)} pid(s)')
-    if st['low_memory'] and st['person']:
+    if st['person'] and pids:
         new = signal_all(pids - stopped, signal.SIGSTOP, kill)
         stopped |= new
         if new:

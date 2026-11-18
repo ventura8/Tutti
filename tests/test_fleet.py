@@ -188,6 +188,14 @@ class Governor(Base):
         self.assertIn('memory', fleet.governor(cfg, 'pc', FREE, mem_gb=1.0))
         self.assertEqual(fleet.governor(cfg, 'pc', FREE, mem_gb=16.0), '')
 
+    def test_quiet_mode_on_this_computer_blocks_its_local_model(self):
+        cfg = self.cfg()
+        cfg['machines']['nuc']['transport'] = 'local'
+        cfg['workers']['pc']['machine'] = 'nuc'
+        quiet = {'person': True, 'forced': False, 'reasons': ['a person is at this computer (last input 3 s ago)']}
+        self.assertIn('quiet mode', fleet.governor(cfg, 'pc', FREE, quiet_st=quiet))
+        self.assertEqual(fleet.governor(cfg, 'pc', FREE, quiet_st={'person': False, 'forced': False, 'reasons': []}), '')
+
     def test_a_governed_machine_takes_nothing_even_while_the_cloud_is_ahead(self):
         cfg = self.cfg()
         cfg['workers']['pc']['machine'] = 'nuc'

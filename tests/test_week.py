@@ -126,12 +126,18 @@ class Parallel(unittest.TestCase):
         self.assertEqual((capped['limit'], capped['by']), (4, 'cap'))
 
     def test_heavy_gates_go_to_the_nuc_and_light_ones_stay_while_memory_lasts(self):
-        here = {'mem_gb': 10.0}
+        here = {'mem_gb': 10.0, 'temp': 40.0}
         self.assertEqual(parallel.check_where(self.CFG, 'local', 'npx eslint . && npx tsc', here), 'route')
-        self.assertEqual(parallel.check_where(self.CFG, 'local', 'bash scripts/check.sh', here), 'local')
-        self.assertEqual(parallel.check_where(self.CFG, 'local', 'bash scripts/check.sh', {'mem_gb': 2.0}), 'route')
-        alone = {'autopilot': {}, 'machines': {'laptop': {'transport': 'local'}}}
-        self.assertEqual(parallel.check_where(alone, 'local', 'npx eslint .', here), 'local')   # nowhere to send it
+        self.assertEqual(parallel.check_where(self.CFG, 'local', 'bash scripts/check.sh', here), 'route')
+        self.assertEqual(parallel.check_where(self.CFG, 'local', 'python3 tests/run.py', here), 'route')
+        self.assertEqual(parallel.check_where(self.CFG, 'local', 'true', here), 'local')
+        self.assertEqual(parallel.check_where(self.CFG, 'local', 'true', {'mem_gb': 2.0, 'temp': 40.0}), 'route')
+        self.assertEqual(parallel.check_where(self.CFG, 'local', 'true', {'mem_gb': 10.0, 'temp': 90.0}), 'route')
+        self.assertEqual(parallel.check_where(self.CFG, 'local', 'true', {'mem_gb': 10.0, 'temp': None}), 'local')
+        alone = {'autopilot': {}, 'machines': {'laptop': {'transport': 'local', 'heat': {'cap_c': 70}}}}
+        self.assertEqual(parallel.check_where(alone, 'local', 'npx eslint .', here), 'route')  # alone: still slot.sh
+        self.assertEqual(parallel.check_where(alone, 'local', 'true', {'mem_gb': 10.0, 'temp': 71.0}), 'route')
+        self.assertEqual(parallel.check_where({'autopilot': {}, 'machines': {}}, 'local', 'npx eslint .', here), 'local')
         self.assertIn('autopilot.parallel.run_gb', parallel.errors({'run_gb': 0})[0])
 
     def test_the_host_reading_names_free_memory(self):

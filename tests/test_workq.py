@@ -51,6 +51,12 @@ class Plan(WqBase):
         self.assertEqual([j['name'] for j, _ in workq.assign(cfg, [here_heavy, here_light], limited, set(), NOON)], ['l'])
         self.assertEqual([j['name'] for j, _ in workq.assign(cfg, [here_heavy], rows(), set(), NOON)], ['h'])
 
+    def test_nothing_here_while_a_person_is_at_the_keyboard(self):
+        cfg = self.wq_cfg()
+        here_heavy, here_light = {'name': 'h', 'run': 'x', 'where': 'here', 'heavy': True}, {'name': 'l', 'run': 'y', 'where': 'here'}
+        used = [{**r, 'use_why': 'someone is at its keyboard' if r['name'] == 'laptop' else ''} for r in rows()]
+        self.assertEqual(workq.assign(cfg, [here_heavy, here_light], used, set(), NOON), [])
+
     def test_findings_are_matched_in_the_whole_log_not_only_its_tail(self):
         log = os.path.join(self.tmp.name, 'run.log')
         with open(log, 'w', encoding='utf8') as f:

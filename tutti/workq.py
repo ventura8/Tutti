@@ -103,14 +103,25 @@ def quiet(cfg, machine, now_dt):
     return bool(hours) and planner.quiet(now_dt, hours)
 
 
+def here_row(cfg, rows):
+    """The dashboard row of this computer (transport local), or {}."""
+    me = next((n for n, m in cfg['machines'].items() if (m or {}).get('transport') == 'local'), None)
+    return next((r for r in rows if r.get('name') == me), {}) if me is not None else {}
+
+
+def here_person(row):
+    """True when this computer's share says someone is at its keyboard (tutti/share.py)."""
+    return 'someone is at its keyboard' in (row.get('use_why') or '')
+
+
 def here_held(cfg, rows, now_dt):
     """True when this computer (the machine with the local transport) takes no heavy job now: in its limited-usage window
-    (machines.<m>.limit) or its quiet hours."""
+    (machines.<m>.limit), its quiet hours, or while a person is at its keyboard."""
     me = next((n for n, m in cfg['machines'].items() if (m or {}).get('transport') == 'local'), None)
     if me is None:
         return False
     row = next((r for r in rows if r.get('name') == me), {})
-    return bool(row.get('limited')) or quiet(cfg, me, now_dt)
+    return bool(row.get('limited')) or quiet(cfg, me, now_dt) or here_person(row)
 
 
 def assign(cfg, items, rows, busy, now_dt):
@@ -122,9 +133,10 @@ def assign(cfg, items, rows, busy, now_dt):
     out = []
     for j in items:
         where = j.get('where', 'route')
-        if where == 'here':   # this computer: the same heavy rule as a machine (its limited window, its quiet hours)
-            if not (j.get('heavy') and here_held(cfg, rows, now_dt)):
-                out.append((j, 'here'))
+        if where == 'here':   # person here: nothing; limited/quiet hours: no heavy job
+            if here_person(here_row(cfg, rows)) or (j.get('heavy') and here_held(cfg, rows, now_dt)):
+                continue
+            out.append((j, 'here'))
             continue
         if j.get('heavy'):   # no new heavy job on a machine in its limited-usage window (machines.<m>.limit)
             pool = {n: r for n, r in free.items() if not r.get('limited')}

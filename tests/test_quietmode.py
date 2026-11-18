@@ -59,6 +59,15 @@ class QuietTest(unittest.TestCase):
         self.assertFalse(free['quiet'])
         self.assertTrue(quietmode.status(self.cfg, lambda: None, lambda: 1.0)['low_memory'])
 
+    def test_dashboard_toggle_forces_quiet(self):
+        free = quietmode.status(self.cfg, lambda: 3600.0, lambda: 9.0)
+        self.assertFalse(free['quiet'] or free['forced'])
+        self.assertTrue(quietmode.set_forced(self.cfg, True))
+        on = quietmode.status(self.cfg, lambda: 3600.0, lambda: 9.0)
+        self.assertTrue(on['quiet'] and on['forced'] and on['person'])
+        self.assertFalse(quietmode.set_forced(self.cfg, False))
+        self.assertFalse(quietmode.status(self.cfg, lambda: 3600.0, lambda: 9.0)['quiet'])
+
     def test_wrap_only_while_quiet(self):
         def which(n):
             return '/usr/bin/' + n
@@ -68,7 +77,7 @@ class QuietTest(unittest.TestCase):
         self.assertIn('CPUQuota=200%', argv)
         self.assertEqual(argv[-1], 'make')
 
-    def test_guard_stops_and_continues_exact_pids(self):
+    def test_guard_stops_while_person_here_and_continues_after(self):
         sent = []
 
         def kill(pid, sig):
@@ -76,9 +85,10 @@ class QuietTest(unittest.TestCase):
 
         def run(*a, **k):
             return None
-        st = {'quiet': True, 'person': True, 'low_memory': True}
-        quietmode.guard_round(self.cfg, st, {101, 102}, kill, run, unload=lambda c: ['m'])
+        st = {'quiet': True, 'person': True, 'low_memory': False}
+        acts = quietmode.guard_round(self.cfg, st, {101, 102}, kill, run, unload=lambda c: ['m'])
         self.assertEqual(sorted(sent), [(101, signal.SIGSTOP), (102, signal.SIGSTOP)])
+        self.assertTrue(any('unloaded' in a for a in acts))
         sent.clear()
         acts = quietmode.guard_round(self.cfg, {'quiet': False, 'person': False, 'low_memory': False}, {101, 102}, kill, run,
                                      unload=lambda c: [])

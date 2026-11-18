@@ -22,7 +22,7 @@ try:
 except ImportError:   # Windows: no flock; the dashboard is the only writer there
     fcntl = None
 
-from . import calls, config, controls, devices, durable, power, presence, priority, shards, telemetry
+from . import calls, config, controls, devices, durable, power, presence, priority, quietmode, shards, telemetry
 
 FILE = 'dispatch.json'
 TARGET_KINDS = ('android', 'tv', 'machine')   # tv: a device of kind tv (a Cast receiver); only suites that name it use it
@@ -655,6 +655,9 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
          presence_io=presence.round_io, members=None, models=None, stop_fn=stop_pid):
     """One round: presence from the probes, end finished, dead or interrupted leases, refresh the pending work, pull it to
     free targets that are here, watch for idle ones, and reconnect or wake absent ones."""
+    real_spawn = spawn
+    def spawn(argv, *a, **kw):
+        return real_spawn(quietmode.wrap(argv, cfg), *a, **kw)
     now = now or time.time()
     is_alive = is_alive or controls.alive
     on = settings(cfg).get('enabled', True) is not False

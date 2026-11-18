@@ -1021,6 +1021,33 @@ async function toggleAutopilot() {
     await switchAutopilot({ enabled: on }, 'The autopilot was not switched.');
 }
 
+function renderQuiet(s) {
+    const q = s.quiet || {};
+    const btn = $('quiet-toggle');
+    if (!btn) return;
+    const on = Boolean(q.forced);
+    btn.textContent = on ? 'Quiet on' : 'Quiet off';
+    btn.setAttribute('aria-pressed', String(on));
+    btn.title = on
+        ? `Quiet mode on: ${(q.reasons || ['dashboard toggle']).join('; ')}. Click to turn off.`
+        : 'Keep this computer free: stop Tutti\'s jobs here and unload local models';
+}
+
+async function toggleQuiet() {
+    const on = $('quiet-toggle').getAttribute('aria-pressed') !== 'true';
+    try {
+        const res = await fetch('/api/quiet', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN },
+            body: JSON.stringify({ enabled: on }),
+        });
+        const answer = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(answer.error || `the dashboard answered ${res.status}`);
+        await refresh();
+    } catch (err) {
+        showBanner(el('strong', { text: 'Quiet mode was not switched. ' }), err.message);
+    }
+}
+
 // ---- scouts: helpers that answer on a GitHub issue (Grok Bot), with their weekly meter and the review trial
 
 const REQ_TONE = { queued: 'idle', waiting: 'accent', answered: 'ok', failed: 'bad', timeout: 'warn' };
@@ -1349,6 +1376,7 @@ function render() {
     renderWorkBrowser(s);
     renderPresence(s);   // controls.js: work waiting on away or asleep targets, the host's warning
     renderAutopilot(s);
+    renderQuiet(s);
     renderScouts(s);
     renderSecurity(s);
     renderMain(s);
@@ -1608,6 +1636,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('refresh-readings').addEventListener('click', refreshReadings);
     $('main-form').addEventListener('submit', switchMain);
     $('autopilot-toggle').addEventListener('click', toggleAutopilot);
+    $('quiet-toggle').addEventListener('click', toggleQuiet);
     $('update-now').addEventListener('click', updateNow);
     $('job-project').addEventListener('change', (e) => { ui.project = e.target.value; render(); });
     document.addEventListener('keydown', keys);

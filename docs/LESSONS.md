@@ -2,6 +2,19 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## Quiet mode must close every local path, not only the share (2026-11-16)
+
+**What happened.** With the owner at the laptop, Tutti still ran a work-queue check and a local-model task there (98 C),
+and five autopilot acceptance checks (`tests/run.py`) later stacked locally (95 C): `check-where local` bypassed
+`slot.sh`, and the fleet governor never asked quiet mode.
+
+**Why.** Share 0 % only stops machines that take work through free slots. `where: here` jobs, in-flight Ollama
+requests, and `--check-where local` gates do not use that path.
+
+**Rule.** While a person is here (or Quiet is toggled on): stop Tutti's own pids, unload local models, refuse new
+local-model and `here` queue work, and send heavy/hot acceptance checks through `--check-where route` (a remote slot, or
+this computer's `slot.sh` alone).
+
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
 **What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:

@@ -9,14 +9,17 @@
 Re-measured every round, so it rises with free capacity and drops under memory pressure.
 
 A heavy gate (lint, tsc, tests: `heavy`) of a repo whose checks run `local` goes to the routed machines instead
-(`--check-where route`), and so does any gate while this machine is short of memory: the laptop never runs ESLint into an
-out-of-memory. Pure but for `host()`."""
+(`--check-where route`), and so does any gate while this machine is short of memory or at its heat cap: the laptop never
+runs ESLint into an out-of-memory or stacks five acceptance checks locally. With no other machine, `route` still uses this
+computer's slot.sh queue (one run at the heat cap). Pure but for `host()`."""
 import os
 import re
 
+from . import config
+
 DEFAULTS = {'run_gb': 0.6, 'run_cpu': 0.25, 'reserve_gb': 4.0, 'gate_share': 3, 'ceiling': 12,
             'heavy': r'eslint|\btsc\b|vitest|jest|pytest|playwright|PIPELINE_STAGE|npm (run )?(lint|test)|\bmypy\b|gradle|'
-                     r'dotnet (build|test)'}
+                     r'dotnet (build|test)|scripts/check\.sh|tests/run\.py|\brun\.py\b'}
 UNKNOWN_MEMORY_RUNS = 2
 NUMBERS = ('run_gb', 'run_cpu', 'reserve_gb', 'gate_share', 'ceiling')
 
@@ -41,8 +44,30 @@ def errors(v):
     return errs + [f'autopilot.parallel.{k} is not a key: use {", ".join(DEFAULTS)}' for k in v if k not in DEFAULTS]
 
 
+def get_temp(thermal='/sys/class/thermal'):
+    """Hottest thermal zone in °C, or None when unreadable."""
+    temps = []
+    try:
+        for z in os.listdir(thermal):
+            if not z.startswith('thermal_zone'):
+                continue
+            with open(os.path.join(thermal, z, 'temp'), encoding='utf8') as f:
+                temps.append(int(f.read().strip()))
+    except (OSError, ValueError):
+        return None
+    return max(temps) / 1000 if temps else None
+
+
+def heat_cap(cfg):
+    """°C at which this computer's gates leave for a slot (machines.<local>.heat.cap_c, else the safe default)."""
+    local = next((m for m in (cfg.get('machines') or {}).values() if (m or {}).get('transport') == 'local'), None)
+    heat = ((local or {}).get('heat') if local else None) or config.HEAT_DEFAULT
+    return float(heat.get('cap_c', config.HEAT_DEFAULT['cap_c']))
+
+
 def host(meminfo='/proc/meminfo'):
-    """{mem_gb, cores, load} of this machine: free memory (MemAvailable), cores and the 1-minute load. None when unreadable."""
+    """{mem_gb, cores, load, temp} of this machine: free memory (MemAvailable), cores, load and temperature.
+    mem_gb/load/temp are None when unreadable."""
     mem = None
     try:
         with open(meminfo, encoding='utf8') as f:
@@ -55,7 +80,7 @@ def host(meminfo='/proc/meminfo'):
         load = os.getloadavg()[0]
     except OSError:
         load = None
-    return {'mem_gb': mem, 'cores': os.cpu_count() or 1, 'load': load}
+    return {'mem_gb': mem, 'cores': os.cpu_count() or 1, 'load': load, 'temp': get_temp()}
 
 
 def bounds(cfg, running, room, here, gate_slots):
@@ -102,10 +127,13 @@ def current(cfg, fallback=2):
 
 
 def check_where(cfg, where, check, here):
-    """Where a run's gate goes: `route` instead of `local` when it is heavy or this machine is short of memory and there is a
-    machine to route to; otherwise as the repo says."""
-    if where != 'local' or not check or not any(m.get('transport') != 'local' for m in (cfg.get('machines') or {}).values()):
+    """Where a run's gate goes: `route` instead of `local` when it is heavy, this machine is hot or short of memory, and at
+    least one machine exists (a remote preferred; alone, this computer's slot.sh still serialises and heat-caps)."""
+    if where != 'local' or not check or not (cfg.get('machines') or {}):
         return where
     s = settings(cfg)
     short = here and here.get('mem_gb') is not None and here['mem_gb'] < s['reserve_gb']
-    return 'route' if short or re.search(s['heavy'], check) else where
+    temp = here.get('temp') if here else None
+    hot = temp is not None and temp >= heat_cap(cfg)
+    heavy = bool(re.search(s['heavy'], check))
+    return 'route' if short or hot or heavy else where

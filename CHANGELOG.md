@@ -6,6 +6,16 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [Unreleased]
+
+### Fixed
+
+- Quiet mode no longer leaks onto the laptop while the owner is at the keyboard: Tutti's own jobs are SIGSTOP'd, local
+  Ollama models unload, the work queue takes nothing on `here`, and the fleet governor starts no local-model task. The
+  dashboard's Quiet toggle (app bar, `POST /api/quiet`) forces the same state. Autopilot acceptance checks that match
+  `scripts/check.sh` / `tests/run.py` (and any gate at the heat cap) go `--check-where route` so they use a machine slot
+  (or this computer's `slot.sh` alone), never five local `tests/run.py` at once (t172).
+
 ## [0.23.6] - 2026-11-16
 
 ### Fixed

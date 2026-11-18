@@ -207,9 +207,11 @@ def machines_state(cfg, probe_fn, stored_fn=None):
     if not names:
         return []
 
-    from . import share
+    from . import share, quietmode
     now = datetime.now(timezone.utc)
     idle = share.idle_seconds() if any(cfg['machines'][n].get('transport') == 'local' for n in names) else None
+    if idle is not None and quietmode.forced(cfg):
+        idle = 0   # dashboard Quiet toggle: same share drop as a person at the keyboard
     quiet = (cfg.get('autopilot') or {}).get('quiet_hours')
 
     def one(n):

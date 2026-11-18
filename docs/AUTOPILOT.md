@@ -182,8 +182,10 @@ It rises with free capacity and drops under memory pressure. The dashboard's Aut
 `running N of M possible: limited by <bound> (<why>)`. Every machine's probe now reports its free memory too (`mem_free_gb`).
 
 **Heavy gates leave the laptop.** A repo whose checks run `local` sends a heavy gate (`parallel.heavy`: ESLint, tsc, Vitest,
-Jest, pytest, Playwright, mypy, a quality stage, Gradle, dotnet) to the routed machines (`--check-where route`: the NUC first),
-and any gate while this machine is under `reserve_gb` free. With no other machine it stays here.
+Jest, pytest, Playwright, mypy, a quality stage, Gradle, dotnet, `scripts/check.sh`, `tests/run.py`) to the routed machines
+(`--check-where route`: the NUC first), and any gate while this machine is under `reserve_gb` free or at its heat cap
+(`machines.<local>.heat.cap_c`). With no other machine, `route` still uses this computer's `slot.sh` queue (heat-capped; one
+run at the cap), so five acceptance checks never stack on the laptop outside the slot lock.
 
 ```yaml
 autopilot:

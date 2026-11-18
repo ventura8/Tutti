@@ -119,6 +119,7 @@ Each is a POST with a JSON body; the answer is `{"ok": true, ...}` with 200 (202
 | `/api/refresh` | `{}` | `{"ok": true, "read": [accounts], "problems": {account: why}}`: reads usage now. 500 when the usage log cannot be read. |
 | `/api/main` | `{"agent": "claude"}` | Switches the main agent (`tutti main`). 400: not a worker. |
 | `/api/autopilot` | `{"enabled": true, "fill_room": true}` (either key) | The autopilot's switches. |
+| `/api/quiet` | `{"enabled": true\|false}` | The dashboard Quiet toggle: forces quiet mode on this computer (Tutti's jobs stop, local models unload). Answers `{"enabled", "quiet"}`. |
 | `/api/self-improve` | `{"enabled": true}` | Self-improvement on or off. |
 | `/api/control` | `{"action": "pause"\|"resume"\|"optin", "kind": "machine"\|"device"\|"worker"\|"account", "name": "build1", "on": true, "stop": false, "note": ""}` | Pause, resume or opt in (`tutti pause`, `resume`, `optin`); `stop` hands running jobs over first. |
 | `/api/owner` | `{"mode": "away"}`, `{"days": [...], "window": "09-18", "hours": ...}`, `{"date": "2026-12-24", "window": "off"}`, `{"browser_zone": "Europe/Bucharest"}` | The owner's mode (state) and schedule (config `pacing.schedule`). `null` takes a value back to the config's. 400 names the bad field. |

@@ -35,3 +35,7 @@ of your project or secrets: describe the setup in general words.
 - 2026-11-14 (owner): "Claude Code: needs-restart" while `claude mcp list` said Connected, and "Claude Desktop (chat):
   not connected" after the app dropped Tutti's entry. Fixed in 0.1.62: the status comes from `claude mcp list`; a dropped
   Desktop entry is put back with a backup.
+- 2026-11-16 (owner): Quiet mode leaked: work-queue `tutti-check` and a local Ollama task ran on the laptop at 98 C while
+  the owner was at the keyboard; later five `python3 tests/run.py` acceptance checks stacked locally at 95 C. Fixed in
+  Unreleased (t172): SIGSTOP + unload while person/toggle, work-queue and fleet governor refuse local work, heavy/hot
+  acceptance checks go `--check-where route` (slot.sh).

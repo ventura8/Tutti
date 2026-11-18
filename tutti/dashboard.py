@@ -343,6 +343,8 @@ class Collector:
         out['hygiene'] = hygiene.view(self.cfg)   # yield flags, disks, WSL and clean-ups per machine (machine cards)
         from . import failover
         out['failover'] = failover.view(self.cfg)   # the backup main machine (Machines card; docs/FAILOVER.md)
+        from . import quietmode
+        out['quiet'] = quietmode.status(self.cfg)   # person at this computer, or the Quiet toggle (docs/ARCHITECTURE.md)
         out['updates'] = {**update.view(self.cfg, last), 'running': self.updating.locked(), 'error': (last or {}).get('error')}
         return out
 
@@ -541,6 +543,20 @@ def save_owner(collector, raw):
                   dict(data), lambda: owner.write(config.state_dir(cfg), **sched))
 
 
+def save_quiet(collector, raw):
+    """(status, answer) for POST /api/quiet {"enabled": true|false}: the dashboard's Quiet toggle (forces quiet mode on this
+    computer so Tutti's jobs stop and local models unload; docs/ARCHITECTURE.md, *Quiet mode*)."""
+    try:
+        data = json.loads(raw or b'null')
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get('enabled'), bool):
+        return 400, {'error': 'send {"enabled": true|false} as JSON'}
+    from . import quietmode
+    on = quietmode.set_forced(collector.cfg, data['enabled'])
+    return 200, {'enabled': on, 'quiet': quietmode.status(collector.cfg)}
+
+
 def save_autopilot(collector, raw):
     """(status, answer) for POST /api/autopilot {"enabled": true|false, "fill_room": true|false}: the dashboard's switches
     (either key, or both: "Let autopilot fill it" sends both)."""
@@ -669,7 +685,7 @@ def save_dispatch(collector, raw):
 
 
 POSTS = ('/api/reading', '/api/refresh',
-         '/api/main', '/api/autopilot', '/api/control', '/api/telemetry', '/api/self-improve',
+         '/api/main', '/api/autopilot', '/api/quiet', '/api/control', '/api/telemetry', '/api/self-improve',
          '/api/owner', '/api/autocompact', '/api/update', '/api/dispatch', '/api/connect', API_SETTINGS, API_RESTART, API_SETUP,
          API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn',
          API_WORK_MOVE, API_QUEUE, API_REPORT, '/api/ai-assist', API_LIMIT)
@@ -708,7 +724,7 @@ def post(collector, headers, path, port, token, read):
     path = path.split('?', 1)[0]
     if path not in POSTS and path not in SELF_POSTS:
         return 404, {'error': 'POST a reading to /api/reading, {} to /api/refresh to read usage now, {"agent": ...} to /api/main, '
-                          '{"enabled": ...} to /api/autopilot or /api/self-improve, {"action": ...} to /api/control, '
+                          '{"enabled": ...} to /api/autopilot, /api/quiet or /api/self-improve, {"action": ...} to /api/control, '
                           '{"mode": ...} to /api/owner, {"threshold_pct": ...} to /api/autocompact, '
                           '{"enabled"|"action": ...} to /api/dispatch, {"action": ...} to /api/connect or /api/vpn, '
                           '{"path": ...} to /api/settings, {} to /api/restart, '
@@ -867,6 +883,7 @@ HANDLERS = {
     API_WORK_MOVE: save_work_move,
     '/api/main': lambda c, b: save_main(c.cfg, b),
     '/api/autopilot': save_autopilot,
+    '/api/quiet': save_quiet,
     API_SETTINGS: settings.save,
     API_RESTART: restart_now,
     API_TUTTI_MOVE: move_now,

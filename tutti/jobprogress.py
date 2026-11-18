@@ -308,6 +308,46 @@ def estimate(hist, key, elapsed):
     return {'pct': pct, 'layer': 'estimate', 'label': label, 'eta_seconds': None if late else round(median - elapsed), 'late': late}
 
 
+def estimated_duration(cfg, key):
+    """The median duration for this task kind from history, or None if not enough data."""
+    hist = history(cfg)
+    past = hist.durations(key)
+    if len(past) < MIN_RUNS:
+        return None
+    return statistics.median(past)
+
+
+def calculate_eta(cfg, task, running_jobs, queued_tasks, backlog_tasks):
+    """Calculate ETA for a task, considering its status."""
+    key = key_of(task, None, [])
+    duration = estimated_duration(cfg, key) or 600  # Fallback to 10 minutes if no history
+    
+    if task.get('status') == 'running':
+        # Already calculated in layered()
+        return None
+        
+    if task.get('status') == 'queued':
+        # Simple ETA: position * average duration (assuming 1 slot for now)
+        pos = 0
+        for t in queued_tasks:
+            if t.get('name') == task.get('name'):
+                break
+            pos += 1
+        return pos * duration + duration
+        
+    if task.get('status') == 'backlog':
+        # Queued tasks + position in backlog
+        queued_duration = sum(estimated_duration(cfg, key_of(t, None, [])) or 600 for t in queued_tasks)
+        pos = 0
+        for t in backlog_tasks:
+            if t.get('id') == task.get('id'):
+                break
+            pos += 1
+        return queued_duration + (pos * duration) + duration
+    
+    return None
+
+
 def handoff(job):
     """A conductor run: its handoff notes, done of done + next."""
     done, nxt = job.get('handoff_done'), job.get('handoff_next')
@@ -359,6 +399,8 @@ def layered(cfg, job, hist, now, all_shapes):
     found = found or elapsed_only(job, elapsed)
     found['determinate'] = found.get('pct') is not None
     found['elapsed_seconds'] = round(elapsed)
+    if found.get('eta_seconds'):
+        found['eta'] = minutes(found['eta_seconds'])
     return found
 
 
@@ -371,11 +413,14 @@ def minutes(s):
     return f'{s / 3600:.1f} h'
 
 
-def annotate(cfg, items, now, worker_account=lambda w: None, machines=None):
+def annotate(cfg, items, now, worker_account=lambda w: None, machines=None, queued_tasks=None, backlog_tasks=None):
     """Every job gets `progress` (running: the layered figure; finished: None) and `facts` (what it did so far or did)."""
     from . import delegate  # delegate imports modules that import this one
     hist = history(cfg)
     folder = config.expand(cfg['project']['state'])
+    
+    queued_tasks = queued_tasks or []
+    backlog_tasks = backlog_tasks or []
 
     def own_tree(path):
         return delegate.own_worktree(cfg, path)
@@ -389,6 +434,15 @@ def annotate(cfg, items, now, worker_account=lambda w: None, machines=None):
                 if shape and shape.get('machine') and not j.get('machine'):
                     j['machine'] = shape['machine']
                 j['_key'], j['_started'] = key_of(j, name, groups), started_at(j, hist, None)
+            
+            # ETA for queued/backlog
+            if j['status'] not in ACTIVE:
+                eta_s = calculate_eta(cfg, j, items, queued_tasks, backlog_tasks)
+                if eta_s:
+                    j['eta_seconds'] = eta_s
+                    j['eta'] = minutes(eta_s)
+                    j['why'] = 'based on history and position'
+                
             j['facts'] = jobfacts.facts({**j, 'first_seen': j['_started']}, folder, worker_account, now, own_tree)
             if j['status'] not in ACTIVE:
                 j['progress'] = None

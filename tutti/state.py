@@ -9,7 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from . import __version__, config, controls, devices, pacing, routing, waiting, workers
+from . import __version__, config, controls, devices, pacing, routing, waiting, workers, workq, backlog
 
 # CLI agents worth knowing about even when the config does not name them yet: the command and how people call it.
 KNOWN_AGENTS = (('claude', 'Claude Code'), ('cursor-agent', 'Cursor'), ('agy', 'Antigravity'), ('copilot', 'GitHub Copilot CLI'),
@@ -544,8 +544,14 @@ def assemble(cfg, probes, now=None, is_alive=alive):
     extra = remote_jobs(machines) + [j for j in [jobprogress.conduct_job(cfg, is_alive)] if j]
     jobs['items'] = extra + jobs['items']
     jobs['total'] += len(extra)
+    queued_tasks = workq.jobs(cfg)
+    backlog_tasks = backlog.load(cfg)['tasks']
     jobprogress.annotate(cfg, jobs['items'], now_ts, lambda w: account_of_worker(cfg, w) if w else None,
-                         machines if probes.get('machines_at') else None)
+                         machines if probes.get('machines_at') else None,
+                         queued_tasks=queued_tasks, backlog_tasks=backlog_tasks)
+    
+    suite_eta = sum(j.get('eta_seconds') or 0 for j in jobs['items'] if j.get('eta_seconds'))
+    
     known = configured(cfg)
     return {'version': __version__, 'generated_at': now_dt.isoformat(), 'config': cfg['_path'],
             'refresh_seconds': cfg['dashboard']['refresh_seconds'], 'usage': usage,
@@ -553,7 +559,7 @@ def assemble(cfg, probes, now=None, is_alive=alive):
             'devices': {'items': probes.get('devices') or [], 'configured': known['devices']},
             'workers': {'probed_at': iso(probes.get('workers_at')), **workers, 'off': off_notes(cfg), 'configured': known['workers']},
             'jobs': jobs,
-            'summary': {**summary(usage, machines, workers, jobs, next_worker(cfg, usage['accounts'])), 'runs_today': runs_today(cfg)}}
+            'summary': {**summary(usage, machines, workers, jobs, next_worker(cfg, usage['accounts'])), 'runs_today': runs_today(cfg), 'suite_eta': suite_eta}}
 
 
 def configured(cfg):

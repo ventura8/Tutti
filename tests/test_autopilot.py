@@ -422,6 +422,9 @@ class PlanTest(Base):
         cfg['autopilot']['accounts'] = ['agy-gemini']
         limited = {**states, 'agy-gemini': {**states['agy-gemini'], 'target_pct': 21}}
         self.assertEqual(autopilot.plan(cfg, tasks, limited, FREE, True, now)['dispatch'], [])
+        for invalid in (float('nan'), float('inf')):
+            malformed = {**states, 'agy-gemini': {**states['agy-gemini'], 'target_pct': invalid}}
+            self.assertEqual(autopilot.plan(cfg, tasks, malformed, FREE, True, now)['dispatch'], [])
         cfg['autopilot']['accounts'] = ['agy-gemini', 'agy-claude']
         ordinary = {**states, 'agy-claude': {**states['agy-claude'], 'quota_plan': {**plan, 'tasks': 1, 'left': 1}}}
         self.assertEqual(autopilot.plan(cfg, tasks, ordinary, FREE, True, now)['dispatch'], [('t1', 'agy-claude')])

@@ -665,7 +665,10 @@ def shared_slow_budgets(cfg, windows, related, states):
             plan = state.get('quota_plan') or {}
             if name == window:
                 account = cfg['accounts'][name]
-                target = min(float(account.get('target_pct', 100)), float(state.get('target_pct', 100)))
+                targets = (float(account.get('target_pct', 100)), float(state.get('target_pct', 100)))
+                if not all(math.isfinite(target) for target in targets):
+                    raise ValueError('quota target is not finite')
+                target = min(targets)
                 amount = target * float(state['share']) - float(account.get('reserve', 0)) - state['used']
                 if not plan.get('limit'):
                     amount = min(amount, float(plan['slow_left']))

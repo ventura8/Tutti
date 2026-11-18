@@ -1,5 +1,7 @@
 # Feedback log
 
+Quiet mode: automatic discovery defers potentially heavy gaps commands while the computer is in use (t172).
+
 First users log **every** problem they hit here, the small ones too. This file is the backlog: an entry is closed by
 the change that fixes it, and a lesson worth keeping moves to [LESSONS.md](LESSONS.md).
 

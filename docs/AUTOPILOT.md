@@ -39,6 +39,8 @@ Tasks from self-improvement (`sentry`, `insight`) get a ready pull request inste
 `seed` reads only sources that are safe to automate: the open items of the repo's `docs/FEEDBACK.md` (table rows whose status
 starts with "Open", and the dated notes under the table), `TODO(owner):` and `FIXME(owner):` comments (an owner tag means a
 person meant it), and the lines the repo's `gaps` command prints (`<path>: <what is missing>`, e.g. a coverage or lint report).
+Automatic discovery defers those potentially heavy commands while the main computer is in quiet mode; the other sources remain
+available and the next source read retries them. An explicit `tutti backlog seed` still runs the configured command.
 
 A task whose title starts with `scout:` or `research:` is a research question for a scout (docs/SCOUTS.md, *The week's
 plan*): the autopilot never sends it to a worker (`research:` joined in 0.1.59: retitle a worker's task that starts with it).

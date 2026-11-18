@@ -259,7 +259,7 @@ def _out(run, argv, **kw):
         return ''
 
 
-def sources(repo, run=subprocess.run, untested=False):
+def sources(repo, run=subprocess.run, untested=False, allow_gaps=True):
     """(title, scope, source) of every task the repo's safe sources name: FEEDBACK.md's open items, owner-tagged TODO/FIXME,
     the repo's `gaps` command (lint findings, coverage gaps: one per line), and with `untested` the source files without a
     test (autopilot.fill_room)."""
@@ -271,7 +271,7 @@ def sources(repo, run=subprocess.run, untested=False):
             found += [(t, [], 'feedback') for t in feedback_items(f.read())]
     grep = _out(run, [worktree.git_bin(), '-C', path, 'grep', '-nE', TODO_ERE])
     found += [(t, [p], 'todo') for t, p in todo_items(grep.splitlines())]
-    if repo.get('gaps'):
+    if allow_gaps and repo.get('gaps'):
         res = _out(run, ['bash', '-c', repo['gaps']], cwd=path)
         found += [(t, [p] if p else [], 'gaps') for t, p in gap_items(res.splitlines())]
     if untested and repo.get('untested', True):   # off for a repo whose coverage gate already proves every file tested

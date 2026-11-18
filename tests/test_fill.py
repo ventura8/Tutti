@@ -73,6 +73,21 @@ class FillTest(Base):
         run.assert_not_called()
         self.assertFalse(autopilot.view(cfg)['fill_room'])
 
+    def test_quiet_gather_defers_gaps_but_still_reads_other_sources(self):
+        self.repo()
+        cfg = self.cfg(fill_room=True)
+        cfg['autopilot']['repos']['app']['gaps'] = 'expensive-check'
+        run = mock.Mock(return_value=done(out=''))
+        with mock.patch('tutti.quietmode.status', return_value={'quiet': True}):
+            _, problems = fill.gather(cfg, backlog.load(cfg), self.states(), FREE, 1.0, run)
+        self.assertIn('deferred', problems[0])
+        self.assertTrue(run.called)
+        self.assertFalse(any(call.args[0][:2] == ['bash', '-c'] for call in run.call_args_list))
+        run.reset_mock()
+        with mock.patch('tutti.quietmode.status', return_value={'quiet': False}):
+            fill.gather(cfg, backlog.load(cfg), self.states(), FREE, 1.0, run)
+        self.assertTrue(any(call.args[0] == ['bash', '-c', 'expensive-check'] for call in run.call_args_list))
+
     def test_want_caps_at_ahead_per_run_less_the_fresh_queue(self):
         cfg = self.cfg()
         self.assertEqual(fill.want(cfg, [], 46), 2 * fill.AHEAD)

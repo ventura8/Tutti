@@ -521,3 +521,8 @@ Use a per-run label to correlate observations, but never infer that a job stoppe
 
 A stale or misdirected report must not be interpreted as another attempt's result. Compare its run ID and saved identity,
 but never treat a worker-readable identity as authentication or proof that all processes exited.
+
+## Lock only the shared copy (t402)
+
+An unrelated local check must not wait for a remote copy in use. Keep the lock for routed checks, including mixed sets,
+and use each local run's own worktree for local-only checks.

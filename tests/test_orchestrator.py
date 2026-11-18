@@ -217,6 +217,15 @@ class DelegateTest(unittest.TestCase):
         delegate.remove_tree(r['worktree'], self.said.append)
         self.assertFalse(os.path.exists(r['worktree']))
 
+    def test_local_checks_do_not_wait_for_remote_copy_but_routed_checks_do(self):
+        cfg = self.cfg([{'run': 'true'}])
+        with mock.patch.object(delegate, 'track_lock', side_effect=AssertionError('remote copy lock used')):
+            self.assertEqual(self.run_task(cfg)['checks'][0]['rc'], 0)
+        cfg = self.cfg([{'run': 'true', 'where': 'route'}])
+        with mock.patch.object(delegate, 'track_lock', side_effect=RuntimeError('remote copy lock reached')):
+            with self.assertRaisesRegex(RuntimeError, 'remote copy lock reached'):
+                self.run_task(cfg)
+
     def test_a_failing_check_a_denial_and_an_empty_diff_fail_the_run(self):
         r = self.run_task(self.cfg([{'run': 'exit 3'}]))
         self.assertEqual(r['rc'], 1)

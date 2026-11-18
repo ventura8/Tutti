@@ -17,8 +17,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
-- Allow late-paced online accounts in Chat when their own and linked quotas have room (t300).
-- Preserve existing release branches and tag only the verified release PR merge commit (t401).
+- Keep local-only delegated checks from waiting on the shared remote-copy lock (t402).
 
 ## [0.30.1] - 2026-11-18
 

@@ -7,6 +7,12 @@ for that flag in `accounts.<name>.args`. This is the admin's assertion about the
 Chat checks the final command before launch and refuses ambiguous bindings. Paused accounts and accounts whose pacing state
 is absent are not selected. A worker with no linked account remains unmetered.
 
+On hosts with POSIX flock and no-follow file opens, cooperating updated Chat writers serialize storage changes through a
+same-host lock, including message and attachment registration and handoff notes. This does not make simultaneous dashboard
+engines safe: answer ownership is still in memory, and an older process does not honor the lock. Stop old writers before
+starting a new one. On other platforms Chat keeps its single-process behavior; cross-process safety is not provided. Undo
+still has only in-process execution protection and must not be run concurrently from multiple engines.
+
 The dashboard opens on **Chat**, the first tab, for every signed-in user (viewers too). Ask about the household in plain
 words, or ask for work. The chat runs on the household host, inside `tutti dashboard`, so it answers while your own computer,
 or your main agent's machine, is off.

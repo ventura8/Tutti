@@ -2,6 +2,7 @@
 role rules (a viewer cannot change the household), the model order (never the user's own machine, never another member's
 private quota), streaming, stop, Undo, and the page: safe Markdown, keys, accessibility and the phone layout."""
 import base64
+import contextlib
 import io
 import json
 import os
@@ -9,6 +10,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -17,7 +19,7 @@ from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
-from tutti import chat, chatctl, chatrun, controls, dashboard, move
+from tutti import chat, chatctl, chatrun, conduct, controls, dashboard, move, needs
 
 ADMIN = {'sub': 'local', 'email': None, 'role': 'admin'}
 VIEWER = {'sub': 'v1', 'email': 'ana@example.com', 'role': 'viewer'}
@@ -57,6 +59,110 @@ class Storage(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.dir)
+
+    def test_unsupported_platform_preserves_single_process_chat_without_claiming_file_lock(self):
+        with mock.patch('tutti.auth.fcntl', None):
+            self.assertTrue(self.store.create('member')['id'])
+            self.assertFalse(os.path.exists(os.path.join(self.store.folder, '.chat.lock')))
+
+    def test_handoff_and_questions_take_instance_lock_before_store_lock(self):
+        real_store_lock = chat.store_locked
+        class TrackedLock:
+            def __init__(self):
+                self.inner, self.depth = threading.RLock(), 0
+            def __enter__(self):
+                self.inner.acquire()
+                self.depth += 1
+            def __exit__(self, *_args):
+                self.depth -= 1
+                self.inner.release()
+        self.store.lock = TrackedLock()
+        @contextlib.contextmanager
+        def check_order(folder):
+            self.assertGreater(self.store.lock.depth, 0)
+            with real_store_lock(folder):
+                yield
+        cfg = config_for(self.dir)
+        question = {'id': 'q1', 'default': 'retry', 'question': 'Continue?', 'why': 'waiting', 'options': ['retry']}
+        with mock.patch.object(chat, 'Store', return_value=self.store), mock.patch.object(chat, 'store_locked', check_order):
+            conduct.deliver_role_note(cfg, 'A role changed.')
+            needs.deliver_chat(cfg, 'local', [question])
+        self.assertEqual(len(self.store.listing('local')), 2)
+
+    @unittest.skipUnless(os.name == 'posix' and hasattr(os, 'O_NOFOLLOW'), 'requires POSIX no-follow locking')
+    def test_two_processes_preserve_all_chat_storage_updates(self):
+        code = ('import sys,time\nfrom tutti import chat\ns=chat.Store(sys.argv[1])\n'
+                'def add(d):\n n=d.get("counter",0); time.sleep(0.002); d["counter"]=n+1\n'
+                'for _ in range(20): s.change("member",add)\n')
+        jobs = [subprocess.Popen([sys.executable, '-c', code, self.dir], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                for _ in range(2)]
+        def cleanup():
+            for p in jobs:
+                if p.poll() is None:
+                    p.kill()
+                p.wait(timeout=5)
+        self.addCleanup(cleanup)
+        for p in jobs:
+            out, err = p.communicate(timeout=15)
+            self.assertEqual(p.returncode, 0, (out, err))
+        self.assertEqual(self.store.load('member')['counter'], 40)
+
+    @unittest.skipUnless(os.name == 'posix' and hasattr(os, 'O_NOFOLLOW'), 'requires POSIX no-follow locking')
+    def test_store_lock_reentrant_and_crash_releases_it(self):
+        alias = os.path.join(self.dir, 'chat', '..', 'chat')
+        with chat.store_locked(self.store.folder), chat.store_locked(alias):
+            self.store.create('member')
+        signal = os.path.join(self.dir, 'locked')
+        code = ('import sys,time\nfrom tutti import chat\n'
+                'with chat.store_locked(sys.argv[1]):\n open(sys.argv[2],"w").close(); time.sleep(30)\n')
+        proc = subprocess.Popen([sys.executable, '-c', code, self.store.folder, signal])
+        def cleanup():
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=5)
+        self.addCleanup(cleanup)
+        deadline = time.monotonic() + 5
+        while not os.path.exists(signal) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(os.path.exists(signal), 'child never acquired the Chat store lock')
+        proc.kill()
+        proc.wait(timeout=5)
+        self.assertTrue(self.store.create('member')['id'])
+
+    @unittest.skipUnless(os.name == 'posix' and hasattr(os, 'O_NOFOLLOW'), 'requires POSIX no-follow locking')
+    def test_attachment_write_waits_for_clear_transaction(self):
+        signal = os.path.join(self.dir, 'blob-started')
+        code = ('import sys\nfrom tutti import chat\nopen(sys.argv[2],"w").close()\n'
+                'chat.Store(sys.argv[1]).put_blob("member", "image-data")\n')
+        with chat.store_locked(self.store.folder):
+            proc = subprocess.Popen([sys.executable, '-c', code, self.dir, signal])
+            def cleanup():
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait(timeout=5)
+            self.addCleanup(cleanup)
+            deadline = time.monotonic() + 5
+            while not os.path.exists(signal) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(os.path.exists(signal), 'child never attempted the attachment write')
+            with self.assertRaises(subprocess.TimeoutExpired):
+                proc.wait(timeout=0.1)
+            self.store.clear('member')
+        self.assertEqual(proc.wait(timeout=5), 0)
+        [ref] = os.listdir(self.store.blobs('member'))
+        self.assertEqual(self.store.blob('member', ref), 'image-data')
+
+    @unittest.skipUnless(hasattr(os, 'O_NOFOLLOW'), 'the platform does not support no-follow file opens')
+    def test_store_lock_refuses_a_symlink(self):
+        os.makedirs(self.store.folder)
+        target = os.path.join(self.dir, 'outside')
+        with open(target, 'w', encoding='utf8') as f:
+            f.write('unchanged')
+        os.symlink(target, os.path.join(self.store.folder, '.chat.lock'))
+        with self.assertRaises(OSError):
+            self.store.create('member')
+        with open(target, encoding='utf8') as f:
+            self.assertEqual(f.read(), 'unchanged')
 
     def test_each_user_has_their_own_file_readable_only_by_tutti(self):
         conv = self.store.create('a')
@@ -419,6 +525,35 @@ class StatusPolling(ApiBase):
 
 
 class Api(ApiBase):
+    def test_undo_blocks_edits_in_its_engine_without_blocking_another_store(self):
+        eng = self.engine({})
+        events = self.send(eng, VIEWER, 'add task in map: one')
+        card = next(e['card'] for e in events if e['type'] == 'card')
+        cid = events[0]['conversation']
+        body = {'action': 'undo', 'conversation': cid, 'message': events[-1]['message']['id'], 'card': card['id']}
+        entered, release, edited = threading.Event(), threading.Event(), threading.Event()
+        def slow_runner(_path, _argv):
+            entered.set()
+            release.wait(5)
+            return 0, 'removed'
+        eng.runner = slow_runner
+        results = []
+        undo = threading.Thread(target=lambda: results.append(chatrun.post(eng, VIEWER, body)[0]), daemon=True)
+        edit = threading.Thread(target=lambda: (eng.store.rename(VIEWER['sub'], cid, 'After undo'), edited.set()), daemon=True)
+        undo.start()
+        try:
+            self.assertTrue(entered.wait(5))
+            edit.start()
+            self.assertFalse(edited.wait(0.1))
+            self.assertTrue(chat.Store(self.dir).create('other')['id'])
+        finally:
+            release.set()
+            undo.join(5)
+            if edit.ident is not None:
+                edit.join(5)
+        self.assertEqual(results, [200])
+        self.assertTrue(edited.is_set())
+
     def test_send_streams_the_answer_and_names_the_model(self):
         eng = self.engine({'pc': ['The NUC ', 'is free.']})
         events = self.send(eng, ADMIN, 'why is the NUC idle?')

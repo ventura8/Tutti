@@ -243,12 +243,16 @@ class Engine:
     def send(self, user, cid, text, attachments=(), edit=None, retry=None, model=None, settings=None):
         """Starts an answer; returns its Job. `edit`: a user message id to replace (and what followed it); `retry`: an
         assistant message id to answer again."""
-        sub = user['sub']
         if settings:   # checked before anything is stored: a bad value leaves no orphan message
             try:
                 chatctl.check(settings, lambda pick: chat.valid_pick(pick, self.cfg_fn()))
             except chatctl.ControlError as e:
                 raise chat.ChatError(str(e)) from e
+        with self.store.lock, chat.store_locked(self.store.folder):
+            return self._send_locked(user, cid, text, attachments, edit, retry, model, settings)
+
+    def _send_locked(self, user, cid, text, attachments, edit, retry, model, settings):
+        sub = user['sub']
         if retry:
             conv = self.store.get(sub, cid)
             ids = [m['id'] for m in conv['messages']]

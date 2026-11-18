@@ -1,0 +1,56 @@
+ruff is not installed here: skipped (CI runs it)
+..tutti: --until is not after --from: the absence would be over before it starts; give an end after 2026-11-16 07:00
+tutti: --stop-now does not go with --from: a planned absence hands its running work over at its start by itself
+.......................................................................................................................................................................tutti: no repo "nope" under autopilot.repos in /tmp/tmp.FPoeiI73oI/tutti-tests-nqstmhbm/t-6ymvyozo/tmpbvg3zvan/tutti.config.yaml: the repos are app
+tutti: t1 is running (run 1-1): wait for it (tutti wait run 1-1), then retry it
+............................................................................................................................................................................................................................................................................................................................................................................................................................................................................................F..............................................................................................................................................................................................................................................................................github: Tutti's GitHub App is not set up in this copy yet: update Tutti, or set github.client_id in the config; until then Tutti uses the GitHub CLI when `gh auth login` was done
+..................................................tutti: this login is already in a household: `tutti household leave` first, or `tutti household code` for a new join code
+.tutti: household join: give the invite link from the dashboard's Users card (Invite someone), e.g. `tutti household join "https://<dashboard>/invite#..."`, quoted: a shell drops # and what follows (an older tutti-hh:... code works too)
+.tutti: no repo "nope" under autopilot.repos in /tmp/tmp.FPoeiI73oI/tutti-tests-nqstmhbm/t-nqsuku1e/tmp6rxgtby3/config.yaml: the repos are app
+..............open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#lFHoBvc56vBwiesxCCHSuFuacEUVC0-QiKMnERTT0sI (waiting...)
+.open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#_f7HSwuNoZ5TKaXXnRKFDqLojPUn6dAeSccvcIEXgHU (waiting...)
+.open the invite link in your browser and sign in with Google: http://127.0.0.1:4777/invite#QXsOgdgYHvrQF7HcM4BA7UpfPJjmnoAoGcLtQVqUchk (waiting...)
+.....tutti: household project: app has no origin remote, so other members' copies cannot be matched to it: give it one (git remote add origin <url>), then share it
+........................................................tutti: /tmp/tmp.FPoeiI73oI/tutti-tests-nqstmhbm/t-osxsdqr1/tmpexghn6i6/app is not a git repository: give the folder of a household repo (tutti connect --repo <path>)
+.....................................................................................................................................................................................tutti: name the run by its id: tutti runs discard <id> (tutti runs lists them)
+....F............tutti: usage page-reading: cursor 25 %, resets 2026-12-10 00:00:00+00:00
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (Expecting value: line 1 column 1 (char 0)): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (readings must be a list of objects and missing a list of labels): pass the JSON string it evaluated to
+tutti: usage page-reading: the text is not what `tutti usage page-script` returns (list indices must be integers or slices, not str): pass the JSON string it evaluated to
+tutti: usage page-reading: "Other Models" was not found on the page (its layout may have changed): read it by eye and `tutti usage log <account> <percent>`
+tutti: usage page-reading: ghost: no account "ghost" in the config: the accounts are cursor, agy
+..tutti: usage page-script: no account has a usage_url without its own reader matching "nothing-matches"
+..................................................................................................................................................................................................FF..........................................................................................................................tutti: googletv could not be claimed: the pair is not leased (the others were released again)
+............................................tutti: tutti: the runner pc cannot reach pixeltablet at 1.2.3.4:5 (adb get-state: offline): check that both are on the same network and the device's Wireless debugging is on, then run again
+.tutti: test: refused: --input and --fetch need a synced tree: on a project runner the command reads and writes its own tree
+tutti: test: refused: the test filter is empty ("--filter ''"): name the tests to run (the shard's extra), never an empty filter
+.autopilot: on; not run yet
+fill_room on
+ladder: agy-gemini -> agy-claude -> cursor -> pc; not measured yet (max_parallel 2)
+
+ADDR=1.2.3.4:5
+ADDR=1.2.3.4:5
+ADDR=1.2.3.9:7
+tutti: device ready
+.tutti: tutti: refused: the command runs "\bwm\s+(?:size|density)\b" on tv, a tv, whose class forbids it (device_classes.tv.deny): take it out of the command or run it on another device
+ADDR=1.2.3.4:5
+ADDR=1.2.3.4:5
+tutti: device ready
+...tutti: test: copied C:\a\res.txt to /tmp/tmp.FPoeiI73oI/tutti-tests-nqstmhbm/t-7zu9bi_4/tmpnjcg5d17/res.txt
+..tutti: test: pc (the project's own work tree /mnt/c/R, nothing synced)
+.tutti: pc yields (its yield flag is up): the run waits until it is down; nothing is leased meanwhile
+........tutti: no scout "nope" under scouts: (known: grok)
+.................................................................tutti: self-heal: strays: stopped keep-awake 4242: its test run is gone
+.....tutti: failover: Tutti's code changed (an update): the service starts again on the new code
+tutti: failover: Tutti's code changed (an update): the service starts again on the new code
+...............................................................................................The value of the GH_TOKEN environment variable is being used for authentication.
+To have GitHub CLI store credentials instead, first clear the value from the environment.
+The value of the GH_TOKEN environment variable is being used for authentication.
+To have GitHub CLI store credentials instead, first clear the value from the environment.
+.....................................tutti: warning: /tmp/tmp.FPoeiI73oI/tutti-tests-nqstmhbm/t-n48to9u9/tmp4b1stbql/tutti.config.yaml: projects.Radio.tests.e2e.shards[1]: shard Future has needs_wifi_6, which this version does not know (a newer Tutti may read it): this shard is skipped
+tutti: warning: /tmp/tmp.FPoeiI73oI/tutti-tests-nqstmhbm/t-n48to9u9/tmp4b1stbql/tutti.config.yaml: projects.Radio.tests.e2e.shards[2]: shard Gone names device nope, which is not under devices:: this shard is skipped
+tutti: warning: /tmp/tmp.FPoeiI73oI/tutti-tests-nqstmhbm/t-n48to9u9/tmp4b1stbql/tutti.config.yaml: projects.Radio.tests.e2e.shards[3]: ['odd'] is not a shard this version reads (a name, or {name, devices, extra, holds}): this shard is skipped
+tutti: warning: /tmp/tmp.FPoeiI73oI/tutti-tests-nqstmhbm/t-n48to9u9/tmp4b1stbql/tutti.config.yaml: projects.Radio.tests.e2e.shards[4]: shard X has extra 3: the extra arguments as one string (the command's {extra}): this shard is skipped
+..................................................................................................................................................................s.slot.sh: waiting, too hot: 95 C (nothing new at 95 C or more); it starts when the machine cools down

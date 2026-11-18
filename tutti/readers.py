@@ -18,7 +18,7 @@ import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 
-from . import browserusage, codexusage, config, cursorusage, pacing
+from . import browserusage, codexusage, config, cursorusage, pacing, openaiusage
 
 READER_TIMEOUT = 90
 SCAN_DAYS = 2
@@ -430,6 +430,8 @@ class Readers:
             used, resets = cursorusage.parse(data, r['field'])
             if resets is None:
                 return used, None
+        elif r.get('format') == 'openai':
+            used, resets = openaiusage.parse(data, r['field'])
         else:
             used, resets = agy_usage(data, r['bucket'])
         if resets is None:

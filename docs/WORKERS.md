@@ -61,6 +61,7 @@ is off unless it also says `enabled: true`; `enabled: false` turns anything off.
 stay in the log), and `tutti run <it>` says it is off and which line turns it on. The dashboard's Workers panel lists what
 is off and why.
 - **Claude**: `claude -p "<brief>"`.
+- **OpenAI**: `openai -p "<brief>"`. A CLI worker. For an easy first setup, install the OpenAI CLI, run `openai login` (if applicable), then run `tutti setup`; it detects the CLI and login state. Pace it with `accounts.openai` (`worker: openai`) and put `openai` on `autopilot.accounts` / `autopilot.ladder` (and prefer it in `routing.workers`) so `tutti run auto` and the autopilot pick it.
 
 A person installs each CLI and signs in once. Tutti never types a credential.
 

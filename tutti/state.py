@@ -13,7 +13,7 @@ from . import __version__, config, controls, devices, pacing, routing, waiting, 
 
 # CLI agents worth knowing about even when the config does not name them yet: the command and how people call it.
 KNOWN_AGENTS = (('claude', 'Claude Code'), ('cursor-agent', 'Cursor'), ('agy', 'Antigravity'), ('copilot', 'GitHub Copilot CLI'),
-                ('codex', 'OpenAI Codex CLI'), ('gemini', 'Gemini CLI'), ('ollama', 'Ollama'))
+                ('codex', 'OpenAI Codex CLI'), ('openai', 'OpenAI ChatGPT'), ('claude', 'Anthropic Claude'), ('gemini', 'Gemini CLI'), ('ollama', 'Ollama'))
 TAIL_LINES = 40
 TAIL_WIDTH = 400
 MAX_JOBS = 40

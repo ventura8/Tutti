@@ -1138,6 +1138,8 @@ def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
     same worktree, one step up) or parked. Returns event lines."""
     events = []
     for t in [t for t in data['tasks'] if t['status'] == 'running']:
+        if t.get('recovery_note') == PAUSED_REPORT_HOLD:
+            t.pop('recovery_note', None)
         ended, report = finished(cfg, t, is_alive)
         if not report_identity_matches(t, report):
             continue
@@ -1256,6 +1258,24 @@ def checkpoints(cfg, data, now, snap=checkpoint, push=push_wip):
             t['checkpoint'] = now
             failed = push(wt, sha, wip_name(t), wip_remote(cfg, t)) if sha else ''
             t['wip'] = {'at': now, 'sha': sha or (t.get('wip') or {}).get('sha'), 'pushed': not failed, 'error': failed or None}
+
+
+PAUSED_REPORT_HOLD = ('report received while autopilot is off: held during the off period; on resuming, normal collection '
+                      'applies and does not prove the execution boundary stopped')
+
+
+def checkpoint_while_off(cfg, now):
+    """Preserve work and surface reports without treating them as proof remote work stopped."""
+    from . import failover
+    if not failover.may_write(cfg):
+        return
+    with backlog.locked(cfg) as data:
+        if not failover.may_write(cfg):
+            return
+        checkpoints(cfg, data, now)
+        for task in data['tasks']:
+            if task.get('status') == 'running' and not task.get('recovery_note') and delegate.load_report(cfg, task.get('run')):
+                task['recovery_note'] = PAUSED_REPORT_HOLD
 
 
 def reconcile(wt, ref, remote_name='', run=git):

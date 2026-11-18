@@ -85,6 +85,37 @@ class Finds(Base):
         self.assertEqual(self.get(tid)['status'], 'needs-person')
         self.assertIn('true decision', ev[0])
 
+    def test_exact_multiword_option_is_answered(self):
+        tid = self.task('Retry the work', attempts=fails('limit'))
+        with backlog.locked(self.cfg) as data:
+            needs.ask(self.cfg, backlog.find(data, tid), 'What next?', 'limits', ['retry after reset', 'drop'],
+                      'retry after reset', now=NOW)
+        self.tick([('ACTION: retry after reset\nWHY: the history says so', 'pc-local')])
+        self.assertEqual(self.get(tid)['status'], 'queued')
+        self.assertEqual(needs.load(self.cfg)['questions'][-1]['answer'], 'retry after reset')
+
+    def test_extra_words_do_not_turn_into_retry(self):
+        tid = self.task('Retry the work', attempts=fails('limit'))
+        with backlog.locked(self.cfg) as data:
+            needs.ask(self.cfg, backlog.find(data, tid), 'Retry?', 'limits', ['retry', 'drop'], 'retry', now=NOW)
+        self.tick([('ACTION: retry later\nWHY: uncertain', 'pc-local')])
+        self.assertEqual(self.get(tid)['status'], 'needs-person')
+        self.assertEqual(needs.load(self.cfg)['questions'][-1]['status'], 'open')
+
+    def test_person_sentinel_never_answers_an_option_named_person(self):
+        tid = self.task('Need a decision', attempts=fails('x'))
+        with backlog.locked(self.cfg) as data:
+            needs.ask(self.cfg, backlog.find(data, tid), 'Who?', 'a choice', ['person', 'agent'], 'person', now=NOW)
+        self.tick([('ACTION: person\nWHY: a person must decide', 'pc-local')])
+        self.assertEqual(self.get(tid)['status'], 'needs-person')
+
+    def test_multiple_action_lines_do_not_choose_either(self):
+        tid = self.task('Retry the work', attempts=fails('limit'))
+        with backlog.locked(self.cfg) as data:
+            needs.ask(self.cfg, backlog.find(data, tid), 'Retry?', 'limits', ['retry', 'drop'], 'retry', now=NOW)
+        self.tick([('ACTION: retry\nACTION: drop\nWHY: uncertain', 'pc-local')])
+        self.assertEqual(self.get(tid)['status'], 'needs-person')
+
     def test_a_rebase_conflict_is_redone_from_scratch(self):
         tid = self.task('X', status='review', publish_note='it does not rebase cleanly onto main')
         self.tick()

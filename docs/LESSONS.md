@@ -1,5 +1,8 @@
 # Lessons
 
+- Do not truncate a model's proposed action to its first word: match the whole line against the choices, and leave multiple
+  or ambiguous actions unanswered (t278).
+
 - **A deleted Chat can still be answering** (t404): check live in-process answer jobs as well as persisted streaming
   records, and hold the Chat admission lock through the final restart check. A different dashboard process's deleted
   answer is not visible through that local job registry.

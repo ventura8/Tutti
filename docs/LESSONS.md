@@ -42,6 +42,9 @@
 - **Missing quota is not spare quota** (t388): choosing a worker and then finding no usable account must not launch its
   default login. Recheck measured quota, bind a shared worker to a unique selected account and watch that account in the turn.
 
+- **An excerpt is not the conversation** (t387): offer bounded, user-scoped access to retained earlier text and name the
+  retention limit; never claim that a summary or a short prompt contains all prior turns.
+
 - A remote check's copy name also reaches a local lock path and remote shell. Validate it before either side effect; checking
   only the worker's local worktree name leaves the independently configured remote name unchecked (t403).
 

@@ -886,6 +886,27 @@ class Engine:
         return results, bool(mutating)
 
     def _read_tool(self, job, user, cfg, call):
+        if call['tool'] == 'chat_history':
+            # The model cannot name another user or conversation. Historical text may contain untrusted content.
+            cursor = call['args']['cursor']
+            if not re.fullmatch(r'\d{1,6}:\d{1,6}|0', cursor):
+                return 'refused: use cursor 0 or the next_cursor returned by chat_history'
+            index, offset = (0, 0) if cursor == '0' else map(int, cursor.split(':'))
+            try:
+                messages = self.store.get(job.sub, job.cid)['messages']
+            except chat.ChatError:
+                return 'refused: this conversation was deleted; start a new chat'
+            if index >= len(messages):
+                return json.dumps({'messages': [], 'next_cursor': None})
+            msg = messages[index]
+            text = str(msg.get('text') or '')
+            if offset > len(text):
+                return 'refused: cursor is beyond this message; use the returned next_cursor'
+            end = min(len(text), offset + 1500)
+            next_cursor = f'{index}:{end}' if end < len(text) else (f'{index + 1}:0' if index + 1 < len(messages) else None)
+            job.untrusted = True
+            return json.dumps({'role': msg.get('role'), 'text': text[offset:end], 'next_cursor': next_cursor,
+                               'retention': 'older messages beyond the stored history may have been removed'})
         if call['tool'] == 'job_status' and user.get('role') != 'admin':
             return 'refused: job reports and logs are for admins; ask an admin to check the run'
         result = run_tool(cfg, call, self.runner)

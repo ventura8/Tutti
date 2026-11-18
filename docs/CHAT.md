@@ -14,6 +14,10 @@ separately coordinated recovery is used. The in-memory hold lasts for this engin
 path; inspecting the outcome alone does not clear it. It is not durable across crashes and does not cover other dashboard
 processes or automatic updates.
 
+The assistant can call `chat_history` to page through the retained text of its current user's current conversation. Each
+page is bounded; history read this way is treated as untrusted for automatic actions. The existing 400-message retention
+limit and tool-round limit still apply, and already removed messages cannot be recovered by this tool (t387).
+
 Chat binds each online worker to a configured account with a pacing state and passes that account's configured arguments
 to the CLI. For a worker shared by multiple accounts, an admin must set `workers.<name>.chat_account_selector` to the CLI
 flag selecting the account or model, and every linked account (including paused ones) must have exactly one distinct value

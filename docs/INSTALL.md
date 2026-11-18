@@ -157,6 +157,10 @@ runs daily where the tool's package manager allows it (docs/WORKERS.md).
 Then run `tutti setup`. npm is a ready hook: `tutti/install.py` lists it under `CHANNELS` with `published: False`; the
 first publish flips it. `tutti self-update` updates only a release install and names the right command otherwise.
 
+Source-distribution builds pin setuptools to 84.1.0. Review the contents of a source archive before publishing it; Tutti
+itself does not define a `MANIFEST.in` exclusion list. See the upstream
+[Unicode-normalization advisory](https://github.com/pypa/setuptools/security/advisories/GHSA-h35f-9h28-mq5c) for current status.
+
 ## The interface (for `tutti household join` and other callers)
 
 The shared module is `tutti/install.py`; the setup steps are in `tutti/setupcmd.py`. Callers use only these:

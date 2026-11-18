@@ -11,7 +11,7 @@ import time
 import urllib.request
 from datetime import datetime
 
-from . import auth, chat, chatctl, config, controls, mcpserver, workers
+from . import auth, chat, chatctl, config, controls, mcpserver, replay, workers
 
 MODEL_TIMEOUT = 120      # seconds a model may take to start answering
 CLI_TIMEOUT = 180        # seconds a CLI worker may take for a whole answer
@@ -170,13 +170,24 @@ def save_owned_answer(store, sub, cid, answer):
 class Job:
     """One answer being written: its events (`delta`, `card`, `done`) for any page that follows it, and its stop flag."""
 
-    def __init__(self, sub, cid, msg):
+    def __init__(self, sub, cid, msg, replay_enabled=False):
         self.sub, self.cid, self.msg = sub, cid, msg
         self.cancel, self.cond, self.events, self.finished = threading.Event(), threading.Condition(), [], False
+        self.replay, self.replay_error = (replay.ReplayLog() if replay_enabled else None), None
 
     def emit(self, kind, **data):
         with self.cond:
-            self.events.append({'type': kind, **data})
+            event = {'type': kind, **data}
+            if self.replay is not None and self.replay_error is None:
+                try:
+                    seq = self.replay.append(event)
+                    event = {**event, 'replay_generation': self.replay.generation, 'replay_seq': seq}
+                except ValueError:
+                    self.replay_error = 'This answer cannot be replayed safely: reload the saved conversation.'
+                    self.replay.close()
+            self.events.append(event)
+            if kind == 'done' and self.replay is not None:
+                self.replay.close()
             self.finished = self.finished or kind == 'done'
             self.cond.notify_all()
 
@@ -195,16 +206,43 @@ class Job:
             if done and i >= len(self.events):
                 return
 
+    def follow_cursor(self, generation, after, wait=15.0):
+        """Resume this job's replay after an authorized caller has supplied a generation and cursor."""
+        while True:
+            with self.cond:
+                error = self.replay_error
+            if error:
+                yield {'type': 'replay_error', 'error': error}
+                return
+            try:
+                batch, done = self.replay.read(generation, after, wait)
+            except ValueError as e:
+                yield {'type': 'replay_error', 'error': str(e)}
+                return
+            with self.cond:
+                error = self.replay_error
+            if error:
+                yield {'type': 'replay_error', 'error': error}
+                return
+            if not batch and not done:
+                yield {'type': 'ping'}
+            for seq, event in batch:
+                after = seq
+                yield {**event, 'replay_generation': generation, 'replay_seq': seq}
+            if done:
+                return
+
 
 class Engine:
     """The chat for one dashboard: the store, the live jobs, the snapshot and config it answers from."""
 
     def __init__(self, cfg_fn, snap_fn, folder=None, clock=time.time, runner=None, streams=None, owner_fn=None,
-                 own_machine_fn=None):
+                 own_machine_fn=None, replay_enabled=False):
         self.cfg_fn, self.snap_fn, self.clock, self.runner = cfg_fn, snap_fn, clock, runner
         self.folder = folder or config.state_dir(cfg_fn())
         self.store = chat.Store(self.folder, clock)
         self.streams = streams or stream_of
+        self.replay_enabled = replay_enabled
         self.owner_fn = owner_fn or (lambda: None)
         self.own_machine_fn = own_machine_fn or (lambda user: None)
         self.jobs, self.lock, self.act_lock, self.plans_running = {}, threading.Lock(), threading.Lock(), set()
@@ -270,7 +308,7 @@ class Engine:
         answer = {'id': chat.new_id('m'), 'role': 'assistant', 'text': '', 'at': chat.now_iso(self.clock), 'status': 'streaming',
                   'model': None, 'cards': []}
         owner_fd = save_owned_answer(self.store, sub, cid, answer)
-        job = Job(sub, cid, answer)
+        job = Job(sub, cid, answer, replay_enabled=self.replay_enabled)
         job.owner_fd = owner_fd
         job.emit('start', conversation=cid, prompt=prompt, message=answer)
         with self.lock:
@@ -924,6 +962,29 @@ def _follow(engine, user, data, _snap):
     return 200, Stream(job.follow())
 
 
+def _follow_cursor(engine, user, data, _snap):
+    # Authorization is based on the signed-in principal, never on a job ID, generation or cursor.
+    with engine.lock:
+        job = engine.jobs.get(str(data.get('message') or ''))
+    if not engine.replay_enabled or job is None or job.sub != user['sub'] or job.replay is None:
+        return 404, {'error': 'That answer is unavailable: reload your chat.'}
+    try:
+        conv = engine.store.get(user['sub'], job.cid)
+    except chat.ChatError:
+        return 404, {'error': 'That answer is unavailable: reload your chat.'}
+    if not any(m.get('id') == job.msg['id'] for m in conv['messages']):
+        return 404, {'error': 'That answer is unavailable: reload your chat.'}
+    generation, after = data.get('generation'), data.get('after')
+    with job.cond:
+        if job.replay_error:
+            return 409, {'error': job.replay_error}
+        try:
+            job.replay.read(generation, after)
+        except ValueError as e:
+            return 409, {'error': str(e)}
+    return 200, Stream(job.follow_cursor(generation, after))
+
+
 def _stop(engine, user, data, _snap):
     return 200, {'ok': True, 'stopped': engine.stop(user, str(data.get('message') or ''))}
 
@@ -998,7 +1059,8 @@ def _activity(engine, user, _data, _snap):
     return 200, {'activity': engine.activity()}
 
 
-ACTIONS = {'list': _list, 'get': _get, 'send': _send, 'follow': _follow, 'stop': _stop, 'new': _new, 'rename': _rename,
+ACTIONS = {'list': _list, 'get': _get, 'send': _send, 'follow': _follow, 'follow_cursor': _follow_cursor,
+           'stop': _stop, 'new': _new, 'rename': _rename,
            'delete': _delete, 'clear': _clear, 'undo': _undo, 'activity': _activity,
            'confirm': _confirm, 'model': _set_model, 'settings': _settings, 'mentions': _mentions, 'branch': _branch,
            'empty': _empty, 'plan': _plan}

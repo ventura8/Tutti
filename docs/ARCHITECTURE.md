@@ -347,3 +347,19 @@ stream content. Admin cross-user access must be explicit policy, not an inferenc
 
 These requirements are not implemented by `ReplayLog`; it has no principal, transport, authentication or authorization.
 Integration needs adversarial cross-user, revocation, reconnect and gateway-restart tests before it can be enabled.
+
+#### Draft Chat replay adapter (not activated)
+
+The draft `follow_cursor` adapter can attach a bounded replay log to an existing in-process Chat `Job`. It defaults off;
+the dashboard does not enable it. Its events carry
+an owner-generation and sequence; the adapter checks the request's authenticated subject against the job owner before
+checking the cursor and requires the conversation and message to exist at request time. Another subject receives the same
+unavailable response as for an unknown or deleted job. Gaps, bad generations
+and unrecordable events fail explicitly, while the original unbounded stream remains available for compatibility. Replay
+is available only while this same Engine keeps the Job; the browser has not been changed to consume this adapter. A client
+must not render partial replay as complete when it receives a replay error.
+
+This adapter is a testable bridge, not the stable owner or a gateway. In particular it does not independently authenticate
+IPC, recheck authorization during an already-open stream, bound the old `Job.events` list or transient serialization,
+persist journals, or survive an Engine restart. It adds another in-memory copy of events and must not be activated in
+production until a bounded migration, revocation semantics and the supervisor/gateway lifecycle are reviewed and tested.

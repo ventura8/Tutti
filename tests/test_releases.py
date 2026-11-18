@@ -1,5 +1,7 @@
 """Open pull requests on the dashboard's Projects panel: a release in progress with its CI and review state (fake gh)."""
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -11,6 +13,98 @@ GH = [{'number': 11, 'title': 'fix: the open items of 0.1.8/0.1.9 (0.1.10)', 'ur
        'reviews': [{'author': 'copilot-pull-request-reviewer', 'state': 'COMMENTED'}]},
       {'number': 9, 'title': 'docs: typo', 'url': 'javascript:alert(1)', 'branch': 'docs', 'draft': True, 'decision': 'APPROVED',
        'checks': [{'context': 'ci/legacy', 'state': 'FAILURE'}], 'reviews': []}]
+
+
+class ReleaseScriptTest(unittest.TestCase):
+    def run_release(self, merge_sha, parent=None, reject_push=False, advance_main=False):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, 'scripts'))
+            os.makedirs(os.path.join(root, 'bin'))
+            template = os.path.join(root, 'template')
+            os.makedirs(os.path.join(template, 'tutti'))
+            os.makedirs(os.path.join(template, 'scripts'))
+            source = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts', 'release-patch.sh')
+            shutil.copyfile(source, os.path.join(root, 'scripts', 'release-patch.sh'))
+            for name, content in (('tutti/__init__.py', "__version__ = '0.1.0'\n"),
+                                  ('package.json', '{"version": "0.1.0"}\n'), ('CHANGELOG.md', '# Changelog\n')):
+                with open(os.path.join(template, name), 'w', encoding='utf8') as f:
+                    f.write(content)
+            with open(os.path.join(template, 'scripts', 'release-assets.sh'), 'w', encoding='utf8') as f:
+                f.write('#!/bin/bash\ntouch "$2/asset"\n')
+            git = '''#!/bin/bash
+printf 'git %s\\n' "$*" >> "$RELEASE_TEST_LOG"
+if [[ "$1" = '-C' ]]; then shift 2; fi
+if [[ "$1" = 'push' && "$*" = *'--force-with-lease='* && "$RELEASE_TEST_REJECT" = 1 ]]; then exit 1; fi
+case "$1 $2" in
+  'tag --list') echo v0.1.0;;
+  'log --format=%s') echo 'fix: sample';;
+  'log --format=- %s') echo '- fix: sample';;
+  'rev-parse -q') exit 1;;
+  'rev-parse HEAD') printf '%040d\\n' 1;;
+  'rev-parse origin/main')
+    if [[ "$RELEASE_TEST_ADVANCE" = 1 && -f "$RELEASE_TEST_SEEN" ]]; then printf '%040d\\n' 4
+    else touch "$RELEASE_TEST_SEEN"; printf '%040d\\n' 3; fi;;
+  'show -s') printf '%s\\n' "$RELEASE_TEST_PARENT";;
+  'worktree add') mkdir -p "$6"; cp -R "$RELEASE_TEST_TEMPLATE/." "$6/";;
+  'worktree remove') rm -rf -- "$4";;
+esac
+'''
+            gh = '''#!/bin/bash
+printf 'gh %s\\n' "$*" >> "$RELEASE_TEST_LOG"
+if [[ "$1 $2" = 'pr checks' && "$*" = *'--json name'* ]]; then echo check; fi
+if [[ "$1 $2" = 'pr view' ]]; then printf '%s\\n' "$RELEASE_TEST_MERGE"; fi
+'''
+            for name, content in (('git', git), ('gh', gh)):
+                path = os.path.join(root, 'bin', name)
+                with open(path, 'w', encoding='utf8') as f:
+                    f.write(content)
+                os.chmod(path, 0o755)
+            log = os.path.join(root, 'commands.log')
+            env = {**os.environ, 'PATH': os.path.join(root, 'bin') + os.pathsep + os.environ['PATH'],
+                   'RELEASE_TEST_LOG': log, 'RELEASE_TEST_TEMPLATE': template, 'RELEASE_TEST_MERGE': merge_sha,
+                   'RELEASE_TEST_PARENT': parent if parent is not None else f'{3:040d}',
+                   'RELEASE_TEST_REJECT': '1' if reject_push else '0', 'RELEASE_TEST_ADVANCE': '1' if advance_main else '0',
+                   'RELEASE_TEST_SEEN': os.path.join(root, 'main-seen')}
+            result = subprocess.run(['bash', os.path.join(root, 'scripts', 'release-patch.sh')], env=env,
+                                    capture_output=True, text=True, timeout=20, check=False)
+            with open(log, encoding='utf8') as f:
+                commands = f.read()
+            return result, commands
+
+    def test_tags_the_pr_merge_not_a_later_main_and_never_deletes_a_branch(self):
+        merge = 'b' * 40
+        result, commands = self.run_release(merge)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f'git tag -a v0.1.1 {merge} -m Tutti 0.1.1', commands)
+        self.assertIn('--match-head-commit', commands)
+        self.assertIn('--force-with-lease=refs/heads/', commands)
+        self.assertNotIn('git branch -D', commands)
+        self.assertNotIn('origin --delete', commands)
+
+    def test_missing_merge_commit_stops_before_tagging(self):
+        result, commands = self.run_release('')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("merged PR's commit is unavailable", result.stderr)
+        self.assertNotIn('git tag -a', commands)
+
+    def test_merge_on_a_different_base_is_not_tagged(self):
+        result, commands = self.run_release('b' * 40, parent='c' * 40)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('merged on a different base', result.stderr)
+        self.assertNotIn('git tag -a', commands)
+
+    def test_existing_remote_release_branch_is_never_overwritten(self):
+        result, commands = self.run_release('b' * 40, reject_push=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('--force-with-lease=refs/heads/release/v0.1.1:', commands)
+        self.assertNotIn('gh pr create', commands)
+        self.assertNotIn('origin --delete', commands)
+
+    def test_main_advancing_during_review_stops_before_merge(self):
+        result, commands = self.run_release('b' * 40, advance_main=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('main advanced during review', result.stderr)
+        self.assertNotIn('gh pr merge', commands)
 
 
 class ReleasesTest(unittest.TestCase):

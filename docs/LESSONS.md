@@ -1,5 +1,9 @@
 # Lessons
 
+- **A release tag must name its own reviewed PR** (t401): deleting a version branch can destroy concurrent work, while
+  tagging current main after merging can publish unrelated commits. Reserve the branch without replacement and check
+  the PR merge and its base before tagging; a non-atomic base check still requires a post-merge verification.
+
 - **A local restart does not prove remote work stopped** (t105): startup recovery can repair local state without proving
   that remote processes or effects ended. Document that limit and test both healthy and interrupted startup behavior.
 

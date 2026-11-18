@@ -410,9 +410,11 @@ class RoleHandOffTest(Folder):
         out = []
         for n, v in rows.items():
             if isinstance(v, dict):
-                out.append({'name': n, 'panic_at': 95, 'used': 0, 'verdict': 'on pace', 'panic': False, **v})
+                out.append({'name': n, 'panic_at': 95, 'used': 0, 'verdict': 'on pace', 'panic': False,
+                            'reading_at': '2026-01-01T00:00:00+00:00', **v})
             else:
-                out.append({'name': n, 'panic': v >= 95, 'used': v, 'verdict': 'late', 'panic_at': 95})
+                out.append({'name': n, 'panic': v >= 95, 'used': v, 'verdict': 'late', 'panic_at': 95,
+                            'reading_at': '2026-01-01T00:00:00+00:00'})
         return out
 
     def test_panic_hands_the_role_to_the_next_fallback_connects_and_notes_chat(self):
@@ -476,14 +478,98 @@ class RoleHandOffTest(Folder):
                                      chat_fn=lambda cfg, text: notes.append(text))
         self.assertIn('handed from agy to cursor', line)
         self.assertTrue(os.path.exists(conduct.role_path(self.cfg)))
-        conduct.choose(self.cfg, 'agy')   # owner puts the recovered agent back as main
-        self.assertIsNone(conduct.hand_off_role(self.cfg, self.states(**{'agy-claude': 10, 'agy-gemini': 10}),
-                                                chat_fn=lambda *a: self.fail('no note while healthy')))
+        # preferred recovers with a fresh reading: Tutti restores automatically
+        restored = conduct.hand_off_role(
+            self.cfg, self.states(**{'agy-claude': 10, 'agy-gemini': 10}),
+            connect_fn=lambda *a, **k: [], chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('restored to agy', restored)
+        self.assertEqual(conduct.current(self.cfg), 'agy')
         self.assertFalse(os.path.exists(conduct.role_path(self.cfg)))
         again = conduct.hand_off_role(self.cfg, panic, connect_fn=lambda *a, **k: [],
                                       chat_fn=lambda cfg, text: notes.append(text))
         self.assertIn('handed from agy to cursor', again)
-        self.assertEqual(len(notes), 2)
+        self.assertEqual(len(notes), 3)
+
+    def test_preferred_stays_put_through_panic_and_returns_after_fresh_reading(self):
+        notes = []
+        panic = self.states(**{'agy-claude': 99, 'agy-gemini': 97})
+        self.assertEqual(conduct.preferred(self.cfg), 'agy')
+        conduct.hand_off_role(self.cfg, panic, connect_fn=lambda *a, **k: [],
+                              chat_fn=lambda cfg, text: notes.append(text))
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+        self.assertEqual(conduct.preferred(self.cfg), 'agy')  # independent of current
+        # synthetic after_reset 0 % is not a fresh reading: stay on the fallback
+        after = self.states(**{'agy-claude': {'used': 0, 'after_reset': True, 'reading_at': '2026-01-01T00:00:00+00:00'},
+                               'agy-gemini': {'used': 0, 'after_reset': True, 'reading_at': '2026-01-01T00:00:00+00:00'}})
+        self.assertIsNone(conduct.hand_off_role(self.cfg, after, chat_fn=lambda *a: notes.append('x')))
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+        # a real reading below panic_at restores preferred
+        fresh = self.states(**{'agy-claude': {'used': 5, 'reading_at': '2026-01-08T01:00:00+00:00'},
+                               'agy-gemini': {'used': 5, 'reading_at': '2026-01-08T01:00:00+00:00'}})
+        line = conduct.hand_off_role(self.cfg, fresh, connect_fn=lambda *a, **k: [],
+                                     chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('restored to agy (preferred; limit reset)', line)
+        self.assertEqual(conduct.current(self.cfg), 'agy')
+        self.assertEqual(conduct.preferred(self.cfg), 'agy')
+
+    def test_owner_switch_updates_preferred_automatic_does_not(self):
+        conduct.choose(self.cfg, 'local')
+        self.assertEqual(conduct.preferred(self.cfg), 'local')
+        self.assertEqual(conduct.current(self.cfg), 'local')
+        conduct.choose(self.cfg, 'cursor', owner=False)
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+        self.assertEqual(conduct.preferred(self.cfg), 'local')
+
+    def test_auto_keeps_preferred_while_room_else_most_room_and_restores(self):
+        self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z',
+                                                         'worker': 'cursor', 'enabled': True}},
+                          main={'agent': 'auto', 'preferred': 'agy', 'fallback': ['cursor', 'local'],
+                                'check_seconds': 0.05})
+        self.assertTrue(conduct.is_auto(self.cfg))
+        self.assertEqual((conduct.preferred(self.cfg), conduct.current(self.cfg)), ('agy', 'agy'))
+        notes = []
+        panic = self.states(**{'agy-claude': 99, 'agy-gemini': 97,
+                               'cursor': {'used': 10, 'room_tasks': 40, 'panic': False, 'verdict': 'on pace'}})
+        line = conduct.hand_off_role(self.cfg, panic, connect_fn=lambda *a, **k: [],
+                                     chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('handed from agy to cursor', line)
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+        self.assertEqual(conduct.preferred(self.cfg), 'agy')
+        self.assertEqual(self.cfg['main']['agent'], 'auto')
+        fresh = self.states(**{'agy-claude': {'used': 5, 'reading_at': '2026-01-08T01:00:00+00:00'},
+                               'agy-gemini': {'used': 5, 'reading_at': '2026-01-08T01:00:00+00:00'},
+                               'cursor': {'used': 10, 'reading_at': '2026-01-08T01:00:00+00:00'}})
+        restored = conduct.hand_off_role(self.cfg, fresh, connect_fn=lambda *a, **k: [],
+                                         chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('restored to agy (preferred; limit reset)', restored)
+        self.assertEqual(conduct.current(self.cfg), 'agy')
+
+    def test_pick_auto_prefers_preferred_then_most_room_by_power_order(self):
+        self.cfg = cfg_in(
+            self.dir,
+            workers={'copilot': {'kind': 'cli', 'command': ['copilot']}},
+            accounts={'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z',
+                                 'worker': 'cursor', 'enabled': True},
+                      'copilot': {'window': 'monthly', 'resets': '2026-01-01T00:00Z',
+                                  'worker': 'copilot', 'enabled': True}},
+            main={'agent': 'auto', 'preferred': 'agy', 'fallback': ['cursor', 'copilot', 'local']})
+        ok = self.states(**{'agy-claude': 10, 'agy-gemini': 10, 'cursor': {'used': 1, 'room_tasks': 90}})
+        self.assertEqual(conduct.pick_auto(self.cfg, ok), 'agy')
+        out = self.states(**{'agy-claude': 99, 'agy-gemini': 99,
+                             'cursor': {'used': 20, 'room_tasks': 10, 'panic': False, 'verdict': 'on pace'},
+                             'copilot': {'used': 80, 'room_tasks': 2, 'panic': False, 'verdict': 'on pace'}})
+        self.assertEqual(conduct.pick_auto(self.cfg, out), 'cursor')  # more room than copilot
+        # equal room: power order (fallback) prefers cursor over copilot
+        tied = self.states(**{'agy-claude': 99, 'agy-gemini': 99,
+                              'cursor': {'used': 50, 'room_tasks': 5, 'panic': False, 'verdict': 'on pace'},
+                              'copilot': {'used': 50, 'room_tasks': 5, 'panic': False, 'verdict': 'on pace'}})
+        self.assertEqual(conduct.pick_auto(self.cfg, tied), 'cursor')
+
+    def test_main_agent_auto_loads(self):
+        cfg = cfg_in(self.dir, main={'agent': 'auto', 'preferred': 'agy', 'fallback': ['cursor']})
+        self.assertTrue(conduct.is_auto(cfg))
+        self.assertEqual(conduct.current(cfg), 'agy')
+        self.assertIn('auto', conduct.describe(cfg))
 
     def test_deliver_role_note_goes_to_the_signed_in_owners_partition(self):
         from tutti import chat

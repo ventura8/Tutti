@@ -148,7 +148,8 @@ def config_section():
 
 
 def who_of(path):
-    return 'each user (own value) or an admin' if path.split('.')[0] in settings_schema.MANAGED or path == 'main.agent' else 'admin'
+    return ('each user (own value) or an admin'
+            if path.split('.')[0] in settings_schema.MANAGED or path in settings_schema.MANAGED else 'admin')
 
 
 def default_leaves(node, prefix=''):

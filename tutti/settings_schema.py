@@ -19,7 +19,7 @@ ENTRIES = ('machines', 'devices', 'workers', 'accounts', 'projects', 'scouts', '
            'review.repos')
 # About people, not this system: shown on the Manage tab (users, roles, invites, the household, each user's schedule and
 # main agent; tutti/manage.py), never in Settings
-MANAGED = ('user', 'household', 'pacing', 'main.agent')
+MANAGED = ('user', 'household', 'pacing', 'main.agent', 'main.preferred')
 SECTIONS = [
     ('accounts', 'Accounts and readings', 'The quotas Tutti paces and where their readings come from.', ['accounts', 'usage']),
     ('energy', 'Energy', 'Local models\' estimated energy cost: your electricity price and currency (docs/ENERGY.md).', ['energy']),
@@ -144,7 +144,11 @@ FIELDS = {
     # main agent
     'main.target_pct': field('Target', 'The % of the main agent\'s quota to use by its spend-by time; the owner\'s reserve still holds.',
                              **PCT),
-    'main.agent': field('Main agent', 'The worker that conducts the next goal.', 'select', choices_from='workers'),
+    'main.agent': field('Main agent', 'The worker that conducts the next goal (current; may move on panic), or auto: Tutti '
+                        'keeps preferred while it has room, else the account with the most room (power order: preferred, '
+                        'fallback, …).', 'select', choices_from='workers', suggest=['auto']),
+    'main.preferred': field('Preferred main', 'The owner\'s lasting main agent; Tutti returns here after its limit resets. '
+                            'Empty: the file\'s main.agent (ignored when that is auto).', 'select', choices_from='workers'),
     'main.fallback': field('Takes over', 'In this order, when the main agent\'s quota is in panic.', 'list', choices_from='workers'),
     'main.commands': field('Commands when conducting', 'A command per agent; default: its worker command.', **YAML),
     'main.ask_first': field('Ask first', 'Extra actions the conductor must ask you about.', 'list', item='action'),

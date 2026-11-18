@@ -459,8 +459,9 @@ def worker_rows(cfg, accounts, machines, now=None):
     why = why if on else 'the autopilot is off, so queued backlog tasks wait'
     out = []
     now = now or datetime.now(timezone.utc)
-    for name in dict.fromkeys([*autopilot.ladder(cfg), *autopilot.trigger_accounts(cfg)]):
-        slow = autopilot.slow_room(cfg, name, accounts.get(name) or {}, tasks, used, now)
+    triggers = autopilot.trigger_accounts(cfg)
+    for name in dict.fromkeys([*autopilot.ladder(cfg), *triggers]):
+        slow = name in triggers and autopilot.slow_room(cfg, name, accounts.get(name) or {}, tasks, used, now)
         room, _ = autopilot.step_room(cfg, name, accounts, used, machines or (), slow)
         if room > 0 and not used.get(name):
             out.append({'id': f'worker:{name}', 'kind': 'worker', 'name': name, 'busy': False, 'why': why,

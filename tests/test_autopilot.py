@@ -427,6 +427,8 @@ class PlanTest(Base):
         with mock.patch.object(backlog, 'load', return_value={'tasks': [task('t1')]}):
             self.assertEqual([x['name'] for x in dispatch.worker_rows(cfg, {'agy-gemini': s}, FREE, now)], ['agy-gemini'])
             self.assertEqual(dispatch.worker_rows(cfg, {'agy-gemini': {**s, 'stale': True}}, FREE, now), [])
+            cfg['autopilot']['accounts'] = []
+            self.assertEqual(dispatch.worker_rows(cfg, {'agy-gemini': s}, FREE, now), [])
 
     def test_when_all_online_are_in_panic_rescue_spreads_work_to_the_most_remaining_quota(self):
         cfg = self.cfg(main_accounts=['agy-claude'])

@@ -244,7 +244,7 @@ def account_room(cfg, name, step, states, running_units, machines, slow=False):
     if unfit:
         return 0, f'{name}: {unfit}'
     if slow:
-        return (1, '') if not used else (0, f'{name}: its paced task is still running or awaits a fresh reading')
+        return slow_account_room(name, used)
     p = s.get('quota_plan')
     if (name in trigger_accounts(cfg) or name in cfg.get('_spare_accounts', ())) and p:
         # the planner's room (tutti/planner.py): a window's share of its weekly limit, or the room left after the reserve and
@@ -259,6 +259,10 @@ def account_room(cfg, name, step, states, running_units, machines, slow=False):
     if s.get('verdict') == 'ahead':
         return 0, f'{name}: ahead of its pace'
     return (1 - used, '') if not used else (0, f'{name}: busy with a task')
+
+
+def slow_account_room(name, used):
+    return (1, '') if not used else (0, f'{name}: its paced task is still running or awaits a fresh reading')
 
 
 def main_accounts(cfg):

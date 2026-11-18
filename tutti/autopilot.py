@@ -1466,6 +1466,26 @@ def guess_scopes(data, files):
 
 
 def start_reserved(cfg, data, task, step, now, spawn, states):
+    """Fence cooperative launches against a local move's frozen marker."""
+    from . import move
+    try:
+        fd = move.admission_lock(cfg) if move.admission_supported() else None
+    except OSError as e:
+        return None, f'{task["id"]} could not acquire the move admission lock ({e}): it stays queued'
+    try:
+        try:
+            frozen = move.frozen_exists(cfg)
+        except OSError as e:
+            return None, f'{task["id"]} could not check the move freeze ({e}): it stays queued'
+        if frozen:
+            return None, f'{task["id"]} waits: this host is frozen for a move; finish it or roll it back'
+        return _start_reserved(cfg, data, task, step, now, spawn, states)
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _start_reserved(cfg, data, task, step, now, spawn, states):
     """Save the intent before spawning; ambiguous post-spawn failures remain held for their report."""
     task_id = task['id']
     try:

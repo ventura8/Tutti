@@ -1,5 +1,8 @@
 # Lessons
 
+- **A freeze check and a spawn must share a lock** (t404): serialize local cooperative autopilot admission with durable
+  marker creation, but do not mistake that partial fence for protection against other launch paths or live remote work.
+
 - Do not truncate a model's proposed action to its first word: match the whole line against the choices, and leave multiple
   or ambiguous actions unanswered (t278).
 

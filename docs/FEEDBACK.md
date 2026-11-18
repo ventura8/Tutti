@@ -1,5 +1,7 @@
 # Feedback log
 
+Autopilot must not launch new work after a cooperative local move has frozen its host (t404).
+
 The unblocker must understand complete multiword choices without turning ambiguous text into a different answer (t278).
 A dashboard-requested restart must also preserve an in-flight Chat action, plan or undo (t404).
 

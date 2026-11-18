@@ -1,6 +1,7 @@
 """`tutti backlog` and `tutti autopilot`: the queue and its sources, the pure plan (pace, room, heat, max_parallel, the
 escalation ladder), failure signatures and parking, the retry brief, and whole rounds against a throwaway repository with a
 fake worker. Nothing leaves the temp folder; no real machine or account is used."""
+import json
 import os
 import re
 import subprocess
@@ -11,8 +12,8 @@ from types import SimpleNamespace
 from unittest import mock
 
 from tutti import (
-    autopilot, backlog, cli, config, dashboard, delegate, dispatch, fleet, household, planner, routing, sharing, state,
-    users,
+    autopilot, backlog, cli, config, controls, dashboard, delegate, dispatch, fleet, household, planner, routing, sharing,
+    state, users,
 )
 
 FAKE_WORKER = '''import sys
@@ -438,20 +439,33 @@ class PlanTest(Base):
              'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '', 'target': '2026-01-03T01:00:00+00:00'}
         s['quota_plan'] = autopilot.planner.plan_single(s, cfg['accounts']['agy-gemini'], now)
         states, tasks = {'agy-gemini': s}, [task('t1')]
-        self.assertTrue(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
-        self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp() + 3 * 3600))
-        with mock.patch.object(autopilot, 'start_reserved', return_value=('run', 'started')) as start:
-            data = {'tasks': tasks}
-            later = now.timestamp() + 60
-            self.assertEqual(autopilot.start_planned(cfg, data, tasks[0], 'agy-gemini', now.timestamp(), None, states,
-                                                     lambda: later, True)[0], 'run')
-            self.assertEqual(start.call_args.args[4], later)
-            start.reset_mock()
-            self.assertIsNone(autopilot.start_planned(cfg, data, tasks[0], 'agy-gemini', now.timestamp(), None, states,
-                                                      lambda: now.timestamp() + 3 * 3600, True)[0])
-            start.assert_not_called()
-        users.write(self.state, share={'agy-gemini': True})
-        self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+        with mock.patch.object(config, 'load', return_value=cfg) as load, \
+                mock.patch.object(state, 'usage_state', return_value={'accounts': [s]}) as usage:
+            self.assertTrue(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp() + 3 * 3600))
+            with mock.patch.object(autopilot, 'start_reserved', return_value=('run', 'started')) as start:
+                data = {'tasks': tasks}
+                later = now.timestamp() + 60
+                self.assertEqual(autopilot.start_planned(cfg, data, tasks[0], 'agy-gemini', now.timestamp(), None, states,
+                                                         lambda: later, True)[0], 'run')
+                self.assertEqual(start.call_args.args[4], later)
+                start.reset_mock()
+                self.assertIsNone(autopilot.start_planned(cfg, data, tasks[0], 'agy-gemini', now.timestamp(), None, states,
+                                                          lambda: now.timestamp() + 3 * 3600, True)[0])
+                start.assert_not_called()
+            usage.return_value = {'accounts': [{**s, 'used': 99, 'panic': True}]}
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            usage.return_value = {'accounts': [s]}
+            load.return_value = {**cfg, 'disabled_accounts': ['agy-gemini']}
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            load.return_value = {**cfg, 'disabled_workers': ['agy']}
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            load.return_value = cfg
+            users.write(self.state, share={'agy-gemini': True})
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            with open(os.path.join(self.state, 'controls.json'), 'w', encoding='utf8') as f:
+                f.write('{')
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
 
     def test_worker_status_rechecks_slow_room_using_the_current_reading(self):
         cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'])
@@ -470,6 +484,51 @@ class PlanTest(Base):
         cfg['autopilot']['accounts'] = ['agy-gemini']
         with mock.patch.object(backlog, 'load', return_value={'tasks': [task('large', size='L')]}):
             self.assertEqual(dispatch.worker_rows(cfg, {'agy-gemini': s}, FREE, now), [])
+
+    def test_slow_start_reloads_real_account_and_worker_pause_controls(self):
+        path = os.path.join(self.tmp.name, 'config.yaml')
+        raw = {'project': {'state': self.state, 'worktrees': os.path.join(self.tmp.name, 'wt')},
+               'machines': {'nuc': {'host': 'nuc.example'}},
+               'workers': {'agy': {'kind': 'cli', 'command': ['agy', '{prompt}']}},
+               'accounts': {'agy-gemini': {'worker': 'agy'}},
+               'autopilot': {'accounts': ['agy-gemini'], 'ladder': ['agy-gemini'],
+                             'repos': {'app': {'path': self.tmp.name, 'check': 'true'}}}}
+        with open(path, 'w', encoding='utf8') as f:
+            json.dump(raw, f)
+        cfg = config.load(path)
+        now = TEST_NOW
+        s = {**account('agy-gemini', 'ahead', None, used=20), 'share': 1,
+             'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '', 'target': '2026-01-03T01:00:00+00:00'}
+        s['quota_plan'] = autopilot.planner.plan_single(s, cfg['accounts']['agy-gemini'], now)
+        states, tasks = {'agy-gemini': s}, [task('t1')]
+        with mock.patch.object(state, 'usage_state', return_value={'accounts': [s]}):
+            self.assertTrue(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            controls.set_paused(self.state, 'account', 'agy-gemini', True)
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            controls.set_paused(self.state, 'account', 'agy-gemini', False)
+            controls.set_paused(self.state, 'worker', 'agy', True)
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+
+    def test_slow_start_rejects_newer_usage_recorded_after_planning(self):
+        path = os.path.join(self.tmp.name, 'config.yaml')
+        raw = {'project': {'state': self.state, 'worktrees': os.path.join(self.tmp.name, 'wt')},
+               'workers': {'agy': {'kind': 'cli', 'command': ['agy', '{prompt}']}},
+               'accounts': {'agy-gemini': {'worker': 'agy', 'window': '7d', 'resets': '2026-01-08T00:00:00Z'}},
+               'autopilot': {'accounts': ['agy-gemini'], 'ladder': ['agy-gemini'],
+                             'repos': {'app': {'path': self.tmp.name, 'check': 'true'}}}}
+        with open(path, 'w', encoding='utf8') as f:
+            json.dump(raw, f)
+        cfg, now = config.load(path), TEST_NOW
+        os.makedirs(self.state, exist_ok=True)
+        autopilot.pacing.append_log(state.usage_log_path(cfg), 'agy-gemini', 20,
+                                    autopilot.datetime.fromtimestamp(now.timestamp() - 600, autopilot.timezone.utc))
+        observed = state.usage_state(cfg, now)['accounts'][0]
+        observed['reader_problem'] = ''
+        states, tasks = {'agy-gemini': observed}, [task('t1')]
+        self.assertTrue(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+        autopilot.pacing.append_log(state.usage_log_path(cfg), 'agy-gemini', 99,
+                                    autopilot.datetime.fromtimestamp(now.timestamp() - 60, autopilot.timezone.utc))
+        self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
 
     def test_when_all_online_are_in_panic_rescue_spreads_work_to_the_most_remaining_quota(self):
         cfg = self.cfg(main_accounts=['agy-claude'])

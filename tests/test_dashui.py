@@ -95,6 +95,57 @@ console.log(JSON.stringify(nodes.usage.children));
         self.assertNotIn('No accounts yet', json.dumps(cards))
 
 
+@unittest.skipUnless(shutil.which('node'), 'node is not installed')
+class UsageGraphInteraction(unittest.TestCase):
+    def test_pointer_touch_and_keyboard_select_actual_readings(self):
+        app = os.path.join(dashboard.WEB, 'app.js')
+        script = r"""
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const code = src.slice(src.indexOf('function sparkline('), src.indexOf('\nfunction facts(', src.indexOf('function sparkline(')));
+function node(tag, attrs = {}) { return {tag, attrs: {...attrs}, children: [], events: {},
+  append(...items) { this.children.push(...items); }, setAttribute(k, v) { this.attrs[k] = String(v); },
+  addEventListener(k, f) { this.events[k] = f; }, getBoundingClientRect() { return {left: 10, width: 300}; }}; }
+function svg(tag, attrs) { return node(tag, attrs); }
+function el(tag, attrs, ...kids) { const n = node(tag, attrs); n.append(...kids); return n; }
+function localTime(s) { return s; }
+function utcTitle(s) { return s; }
+function tuttiPct(n) { return n + '%'; }
+const account = {name:'agent', window_start:'2026-01-01T00:00:00Z', reset:'2026-01-01T10:00:00Z',
+  target:'2026-01-01T09:00:00Z', panic_at:90, readings:[
+    {at:'2026-01-01T02:00:00Z',used:20}, {at:'2026-01-01T08:00:00Z',used:80}]};
+eval(code + `
+const box = sparkline(account, Date.parse('2026-01-01T05:00:00Z'));
+const g = box.children[0], detail = box.children[1], values = [];
+values.push([detail.textContent, g.attrs['aria-valuetext']]);
+g.events.pointermove({pointerType:'mouse',clientX:70}); values.push([detail.textContent,g.attrs['aria-valuenow']]);
+g.events.pointerdown({pointerType:'touch',clientX:250}); values.push([detail.textContent,g.attrs['aria-valuenow']]);
+let prevented = false; g.events.keydown({key:'ArrowLeft',preventDefault(){prevented=true;}});
+values.push([detail.textContent,g.attrs['aria-valuenow'],prevented]);
+const empty = sparkline({...account,readings:[]}, Date.now());
+values.push([empty.children[0].attrs.role, empty.children.length]);
+const bad = sparkline({...account,readings:[null,{}, {at:'bad',used:4}, {at:account.window_start,used:'x'}]}, Date.now());
+values.push([bad.children[0].attrs.role, bad.children[0].attrs['aria-label']]);
+const absent = sparkline({...account,readings:null}, Date.now());
+values.push([absent.children[0].attrs.role, absent.children.length]);
+console.log(JSON.stringify(values));`);
+"""
+        out = subprocess.run(['node', '-e', script, app], capture_output=True, text=True, check=True)
+        values = json.loads(out.stdout)
+        self.assertIn('80%', values[0][0])
+        self.assertEqual(values[0][0], values[0][1])
+        self.assertIn('20%', values[1][0])
+        self.assertEqual(values[1][1], '1')
+        self.assertIn('80%', values[2][0])
+        self.assertEqual(values[2][1], '2')
+        self.assertIn('20%', values[3][0])
+        self.assertEqual(values[3][1:], ['1', True])
+        self.assertEqual(values[4], ['img', 1])
+        self.assertEqual(values[5][0], 'img')
+        self.assertIn('0 readings', values[5][1])
+        self.assertEqual(values[6], ['img', 1])
+
+
 class Order(unittest.TestCase):
     def page(self):
         with open(os.path.join(dashboard.WEB, 'index.html'), encoding='utf8') as f:

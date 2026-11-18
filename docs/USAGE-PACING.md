@@ -111,6 +111,10 @@ allowance: 300}` reads the month's premium requests (the gh token needs the `use
 -s user`, a step for the owner). `credits: true` adds the "AI Credits N" that `copilot -p` prints at the end of each run,
 summed over the window from Tutti's own run logs (runs started elsewhere are not in it).
 
+On a dashboard usage graph, hover, click or touch near a recorded point to show its local time and used percentage below
+the graph. Focus the graph and use the arrow keys or Home/End to inspect the same readings; the UTC time is available on
+the reading's tooltip. The graph selects an actual observation, not an interpolated quota value.
+
 **Stale readings.** Missing, future-dated or old automatic measurements are marked stale instead of looking current.
 The dashboard and `tutti usage` identify the account and suggest checking the reader or producer and retrying
 `tutti usage refresh`; they do not ask for manual entry for an automatic account. This includes configured readers,

@@ -215,9 +215,12 @@ function sparkline(a, now) {
     const H = 72;
     const x = (t) => ((t - t0) / (t1 - t0)) * W;
     const y = (p) => H - 4 - (Math.min(100, p) / 100) * (H - 8);
+    const readings = (Array.isArray(a.readings) ? a.readings : [])
+        .filter((r) => r && typeof r === 'object' && Number.isFinite(Date.parse(r.at)) && Number.isFinite(r.used))
+        .map((r) => ({ at: r.at, used: r.used, time: Date.parse(r.at) })).sort((left, right) => left.time - right.time);
+    const pts = readings.map((r) => [x(r.time), y(r.used)]);
     const g = svg('svg', { class: 'spark', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img' });
-    const pts = a.readings.map((r) => [x(Date.parse(r.at)), y(r.used)]);
-    g.setAttribute('aria-label', `${a.name}: ${a.readings.length} readings this window; the dashed line is the even pace to 100 % by the target time`);
+    g.setAttribute('aria-label', `${a.name}: ${readings.length} readings this window; the dashed line is the even pace to 100 % by the target time`);
     g.append(svg('line', { class: 's-grid', x1: 0, x2: W, y1: y(0), y2: y(0) }));
     g.append(svg('line', { class: 's-panic', x1: 0, x2: W, y1: y(a.panic_at), y2: y(a.panic_at) }));
     g.append(svg('polyline', { class: 's-target', points: `0,${y(0)} ${x(tt)},${y(100)} ${W},${y(100)}` }));
@@ -226,7 +229,49 @@ function sparkline(a, now) {
     if (pts.length) {
         g.append(svg('polyline', { class: 's-line', points: [[0, y(0)], ...pts].map((p) => p.join(',')).join(' ') }));
     }
-    return g;
+    const box = el('div', { class: 'spark-wrap' }, g);
+    if (!readings.length || !Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return box;
+    const detail = el('p', { class: 'spark__detail' });
+    const marker = svg('circle', { class: 's-selected', r: 3 });
+    g.append(marker);
+    g.setAttribute('role', 'slider');
+    g.setAttribute('tabindex', '0');
+    g.setAttribute('aria-label', `${a.name} usage readings`);
+    g.setAttribute('aria-valuemin', '1');
+    g.setAttribute('aria-valuemax', String(readings.length));
+    let selected = readings.length - 1;
+    function select(index) {
+        selected = Math.max(0, Math.min(readings.length - 1, index));
+        const r = readings[selected];
+        const label = `${localTime(r.at)} · ${tuttiPct(r.used)} used`;
+        detail.textContent = label;
+        detail.title = utcTitle(r.at);
+        marker.setAttribute('cx', x(r.time));
+        marker.setAttribute('cy', y(r.used));
+        g.setAttribute('aria-valuenow', String(selected + 1));
+        g.setAttribute('aria-valuetext', label);
+    }
+    function point(event) {
+        const rect = g.getBoundingClientRect();
+        if (!rect.width) return;
+        const pos = Math.max(0, Math.min(W, (event.clientX - rect.left) / rect.width * W));
+        let nearest = 0;
+        for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i][0] - pos) < Math.abs(pts[nearest][0] - pos)) nearest = i;
+        select(nearest);
+    }
+    g.addEventListener('pointermove', (event) => { if (event.pointerType === 'mouse') point(event); });
+    g.addEventListener('pointerdown', point);  // mouse, touch and pen: show the nearest actual observation
+    g.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') select(selected - 1);
+        else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') select(selected + 1);
+        else if (event.key === 'Home') select(0);
+        else if (event.key === 'End') select(readings.length - 1);
+        else return;
+        event.preventDefault();
+    });
+    select(selected);
+    box.append(detail);
+    return box;
 }
 
 function facts(pairs) {

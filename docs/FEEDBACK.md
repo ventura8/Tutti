@@ -8,6 +8,7 @@ of your project or secrets: describe the setup in general words.
 
 | # | Date | Command | What happened | Expected | Status |
 | --- | --- | --- | --- | --- | --- |
+| 16 | 2026-11-18 | Dashboard usage graphs | Individual recorded values and their times were not inspectable. | Show the nearest actual reading on hover, click, touch and keyboard. | Added graph selection (t253); browser verification runs in CI. |
 | 15 | 2026-11-18 | Chat run status | A missing run report prompted repeated status requests. | Check automatically for a bounded time and report a timeout honestly. | Bounded Chat status polling added (t296); restart-persistent monitoring remains open. |
 | 14 | 2026-11-18 | Dashboard update during Chat | An automatic page reload can discard an unsent Chat draft or attachment. | Wait until Chat is idle before reloading the page. | Page-reload guard added (t326); safe server handoff remains open. |
 | 13 | 2026-11-17 | Chat account pause | Pausing a ladder account made configuration reloads fail, blocking dashboard probes and chat. | Keep the ladder valid while paused and restore the account on resume. | Fixed in the next release (t321). |

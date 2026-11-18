@@ -81,6 +81,22 @@ class BacklogTest(Base):
             self.assertFalse(again)
         self.assertIn('Fix the README link', backlog.listing(backlog.load(cfg)))
 
+    def test_explicitly_different_scope_or_check_does_not_discard_work(self):
+        cfg = self.cfg()
+        with backlog.locked(cfg) as data:
+            first, added = backlog.add(data, backlog.new_task('app', 'Fix check', ['a.py', 'b.py'], 'test-a'))
+            self.assertTrue(added)
+            duplicate, added = backlog.add(data, backlog.new_task('app', 'fix  check', ['b.py', 'a.py'], 'test-a'))
+            self.assertFalse(added)
+            self.assertEqual(duplicate['id'], first['id'])
+            for repo, scope, check in (('app', ['other.py'], 'test-a'), ('app', ['a.py', 'b.py'], 'test-b'),
+                                       ('other', ['a.py', 'b.py'], 'test-a')):
+                with self.subTest(repo=repo, scope=scope, check=check):
+                    _, added = backlog.add(data, backlog.new_task(repo, 'Fix check', scope, check))
+                    self.assertTrue(added)
+            _, added = backlog.add(data, backlog.new_task('app', 'Fix check'))
+            self.assertFalse(added)  # missing metadata retains the existing title-only behavior
+
     def test_bad_size_and_empty_title_are_refused_with_the_fix(self):
         with self.assertRaisesRegex(backlog.BacklogError, 'use one of S, M, L'):
             backlog.new_task('app', 'x', size='XL')

@@ -70,6 +70,15 @@ def key_of(t):
     return (t['repo'], re.sub(r'\s+', ' ', t['title'].strip().lower()))
 
 
+def compatible_details(first, second):
+    """Unspecified metadata keeps title-only dedupe; explicitly different scopes or checks are distinct."""
+    a, b = first.get('scope') or [], second.get('scope') or []
+    if a and b and (any(x not in b for x in a) or any(x not in a for x in b)):
+        return False
+    a, b = str(first.get('check') or '').strip(), str(second.get('check') or '').strip()
+    return not (a and b and a != b)
+
+
 def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', notes=()):
     if size not in SIZES:
         raise BacklogError(f'size "{size}": use one of {", ".join(SIZES)} (small, medium, large)')
@@ -80,9 +89,9 @@ def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', n
 
 
 def add(data, task):
-    """Adds the task unless an open or reviewed one with the same repo and title exists; returns (task, added?)."""
+    """Adds unless an open or reviewed task has the same title and compatible explicit details; returns (task, added?)."""
     for t in data['tasks']:
-        if key_of(t) == key_of(task) and t['status'] not in ('done', 'dropped'):
+        if key_of(t) == key_of(task) and t['status'] not in ('done', 'dropped') and compatible_details(t, task):
             return t, False
     task = {**task, 'id': f't{data["next"]}'}
     data['next'] += 1

@@ -11,6 +11,9 @@
 - **No snapshot is not a successful push** (t309): an empty checkpoint result can mean unchanged work or a Git failure.
   Keep previous SHA references separate and report the current push as unverified; a checkpoint does not prove a run stopped.
 
+- Matching short titles alone can hide distinct work. Preserve explicit scope and check disagreements on direct backlog
+  additions without treating unspecified details as evidence of a distinct task (t210).
+
 - Do not truncate a model's proposed action to its first word: match the whole line against the choices, and leave multiple
   or ambiguous actions unanswered (t278).
 

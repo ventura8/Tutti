@@ -7,6 +7,28 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## [Unreleased]
+
+### Fixed
+
+- Wait for inspection of potentially orphaned local reviewers and reject inconsistent pull request base refs (t179).
+
+- Ordinary backlog pull requests in projects opted in to autonomous tasks and merges return for requested review fixes
+  and are reviewed again before merging (t179).
+- Review gates check every page of review threads and refuse to merge if pagination cannot be verified (t179).
+- Retry pushes and merges for both self-improvement and ordinary backlog PRs verify the task's original PR and exact
+  fixed head; an unconfirmed or failed retry cannot merge its old head (t179).
+- Posted local-review findings can requeue a fix, while repeated identical findings and review execution failures do not
+  trigger an endless retry loop (t179).
+- A changes-requested decision only on an older PR head waits for an updated reviewer decision rather than repeatedly
+  requeuing already-resolved work; missing review evidence still blocks merging (t179).
+- Automatic reviews bind provider decisions and complete local text patches to immutable commits; unknown, dismissed,
+  binary or incomplete evidence cannot authorize a merge. Automatic merges also require verified strict up-to-date
+  branch checks and a matching reviewed base (t179).
+- Reviews use invocation-specific completion files and a per-PR process lock; a provably dead review without a result
+  can restart twice without confusing an earlier result with the current head. Retry pushes verify every effective origin
+  URL matches the PR repository before touching the branch (t179).
+
 ## [0.27.13] - 2026-11-18
 
 ### Fixed

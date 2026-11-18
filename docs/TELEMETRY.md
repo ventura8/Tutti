@@ -116,10 +116,39 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
 5. **Reviews.** `tutti pr review <n>` runs once per pull request (Copilot, CodeRabbit, or a cheap worker's review).
 6. **Merge** (only a project with `merge: true`): when every check is green and at least one passed (CI, Sonar), the
    review run ended well, no review asks for changes or is still required, no review thread is open, and GitHub found it
-   mergeable. Never with `--admin`, and only at the head commit the gates saw (`--match-head-commit`). Changes requested
-   send the task back to the autopilot, and its next push is reviewed again.
+   mergeable. Review threads are paginated; an incomplete or invalid thread list blocks merging. Never with `--admin`,
+   and only at the head commit the gates saw (`--match-head-commit`). Changes requested
+   send the task back to the autopilot, and its next push is reviewed again. Existing PRs from ordinary backlog tasks
+   follow this loop too when their project explicitly enables both self-improvement tasks and merging. The retry pushes
+   to the existing PR only after checking its repository, original branch and task marker; a mismatch is not pushed or
+   merged. For both self-improvement and ordinary tasks, review and merge remain blocked after a retry until GitHub confirms
+   the exact pushed head; a failed push cannot cause the old head to be merged. Projects without merge permission retain
+   their existing review and publishing behavior. A posted local fallback review with findings is retried once per
+   normalized finding fingerprint; repeated identical findings wait for inspection instead of cycling. Review text is
+   untrusted data, never an instruction to execute commands or read credentials. When all threads are resolved but a
+   changes-requested decision remains, Tutti checks all review records and their commit IDs. A decision only on an older
+   head waits for the reviewer to update it; missing or incomplete evidence also waits. Tutti never treats that inference
+   as approval or dismisses the decision.
    Tutti checks every page of review threads; missing, malformed, partial or cyclic results block a merge until GitHub can
    return a complete list. This check alone does not bind the destination branch atomically at merge time.
+   Each review has its own completion file and a per-PR process lock. If no result arrives after the review timeout and
+   the recorded process is provably dead on this boot, Tutti retries at most twice only if no local reviewer was started;
+   a pending local reviewer may have outlived its parent and waits for inspection without refund. Stronger worker
+   containment is needed to recover that case autonomously; a held lock, unknown PID, another boot,
+   or an unsupported process lock waits for inspection instead of risking overlapping reviews. Older records with no
+   verifiable process identity also wait; an operator must confirm the old review is no longer running before clearing
+   the stale record. Automatic review requires bot evidence on the exact head and ignores dismissed reviews and scout
+   comments without commit identity. The local fallback reviews immutable base/head patches, verifying the complete file
+   count, change and rename paths, and line totals; binary, missing, oversized or truncated patches block automatic merging. Provider and local rounds are
+   counted per base/head pair and an exhausted round never counts as a successful new review. The head and base are checked again
+   after review, and a previously stored unbound result cannot authorize a merge. Before requesting a merge, Tutti
+   rechecks the recorded base and requires classic branch protection with strict up-to-date required status checks
+   enforced for administrators and bypass-capable roles, with no configured PR bypass allowances;
+   unknown protection and rulesets it cannot verify block the merge. GitHub's merge API can condition on the head but
+   has no base-SHA compare-and-swap, so server-side enforcement is still necessary and there is no atomic base guarantee.
+   The destination can be retargeted after protection is checked; GitHub does not provide an atomic destination
+   condition for this merge, so this race remains. Repositories without strict protection must configure it before
+   autonomous merges can proceed.
 7. **Release** (only with `release: true` and a `release_command`): a batched patch release when fixes were merged and
    the last release (or failed try) is `release_every_hours` (24) ago. A release counts only once its command exits 0; a
    failed one leaves its fixes for the next. Tutti's own is `scripts/release-patch.sh`: it bumps the patch,

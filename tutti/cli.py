@@ -809,7 +809,8 @@ def cmd_pr(cfg, a):
     """`tutti pr review <n>`: reviewers, the wait, the fallback review."""
     repo = review.repo_of(a.repo)
     trial.in_trial(cfg, repo, a.number, say)   # a scout in its review trial is asked too; advisory, never blocking
-    return review.review(cfg, a.number, repo, a.timeout, post=not a.no_post, say=say)
+    return review.review(cfg, a.number, repo, a.timeout, post=not a.no_post, say=say,
+                         expected_head=a.expected_head, expected_base=a.expected_base)
 
 
 def cmd_job(cfg, a):
@@ -1886,6 +1887,8 @@ def parser():
     s.add_argument('--repo', help='owner/name (default: the repository of the current directory)')
     s.add_argument('--timeout', type=float, help='minutes to wait for the reviewers (default: review.timeout_minutes)')
     s.add_argument('--no-post', action='store_true', help='print the fallback review instead of posting it')
+    s.add_argument('--expected-head', help='require this pull request head commit for the review')
+    s.add_argument('--expected-base', help='require this pull request base commit for the review')
     s = add('job', cmd_job, 'register a script\'s run for the dashboard (`job register --title t`), and its result (`job done --rc n`); '
                             'work waiting on an away or asleep target: `job waiting`, `job move <id> --to <device|machine|auto> '
                             '[--bump]` (now, from its last synced checkpoint; docs/PRESENCE.md)')

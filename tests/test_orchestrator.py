@@ -2,6 +2,7 @@
 reading file, the reading helper and `pr review`. Throwaway repositories and fake workers only; nothing leaves the temp folder."""
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -533,6 +534,7 @@ class ReviewTest(unittest.TestCase):
                 self.assertEqual(review.review(cfg, 7, 'o/r', gh_fn=FakeGh(copilot_ok=True), say=said.append,
                                                sleep=lambda s: None), 3)
             self.assertTrue(any('has findings' in x for x in said))
+            self.assertTrue(any(re.fullmatch(r'review: findings-sha256=[0-9a-f]{64}', x) for x in said))
 
     def test_a_rate_limited_reviewer_is_noted_until_the_time_its_comment_names(self):
         with tempfile.TemporaryDirectory() as d:

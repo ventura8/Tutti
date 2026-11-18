@@ -4,12 +4,15 @@ lines, and a merge round against a fake `gh`. Nothing leaves the temp folder; no
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
+from unittest import mock
 
-from tutti import backlog, cli, config, scouts, selfimprove, telemetry, triage
+from tutti import autopilot, backlog, cli, config, scouts, selfimprove, telemetry, triage
 
 NOW = 1_800_000_000.0
 GREEN = [{'conclusion': 'SUCCESS', 'name': 'ci'}, {'conclusion': 'SUCCESS', 'name': 'SonarCloud'}]
@@ -17,12 +20,17 @@ GREEN = [{'conclusion': 'SUCCESS', 'name': 'ci'}, {'conclusion': 'SUCCESS', 'nam
 
 def pr(**kw):
     return {'state': 'OPEN', 'isDraft': False, 'reviewDecision': 'APPROVED', 'open_threads': 0, 'mergeable': 'MERGEABLE',
-            'statusCheckRollup': GREEN, 'headRefOid': 'abc123', **kw}
+            'statusCheckRollup': GREEN, 'headRefOid': 'abc123', 'baseRefOid': 'base123', 'baseRefName': 'main', 'url': 'https://github.com/octo/tutti/pull/7',
+            'headRefName': 'autopilot/t1-fix-the-crash', 'isCrossRepository': False,
+            'body': 'Backlog task t1 (mcp), done by a worker.', **kw}
 
 
-def finished_review(rc='0'):
+def finished_review(rc='0', fingerprint=None):
     """A spawn that stands for `tutti pr review`: it writes its exit code where the wrapper would."""
     def spawn(argv, **kw):
+        if fingerprint:
+            kw['stdout'].write(f'review: findings-sha256={fingerprint}\n')
+            kw['stdout'].flush()
         if 'RC_FILE' in (kw.get('env') or {}):   # a release starts without one
             with open(kw['env']['RC_FILE'], 'w', encoding='utf8') as f:
                 f.write(rc + '\n')
@@ -170,14 +178,27 @@ class Analysis(Base):
 class FakeGh:
     """`gh pr view`, the review-thread query and `gh pr merge`, answered from memory."""
 
-    def __init__(self, view, threads=0, merge_rc=0):
+    def __init__(self, view, threads=0, merge_rc=0, reviews=None):
         self.view, self.threads, self.merge_rc, self.calls = view, threads, merge_rc, []
+        self.reviews = reviews if reviews is not None else [
+            {'state': 'CHANGES_REQUESTED', 'author': {'login': 'reviewer'}, 'commit': {'oid': 'abc123'}}]
 
     def __call__(self, args, **_kw):
         self.calls.append(args)
         if args[1:3] == ['pr', 'view']:
             return SimpleNamespace(returncode=0, stdout=json.dumps(self.view), stderr='')
+        if args[1:2] == ['api'] and '/pulls/' in args[2]:
+            detail = {'head': {'sha': self.view.get('headRefOid')},
+                      'base': {'sha': self.view.get('baseRefOid'), 'ref': self.view.get('baseRefName')}}
+            return SimpleNamespace(returncode=0, stdout=json.dumps(detail), stderr='')
+        if args[1:2] == ['api'] and args[2].endswith('/protection'):
+            protection = {'required_status_checks': {'strict': True, 'contexts': ['ci']}, 'enforce_admins': {'enabled': True}}
+            return SimpleNamespace(returncode=0, stdout=json.dumps(protection), stderr='')
         if args[1:3] == ['api', 'graphql']:
+            if any('reviews(first:' in str(arg) for arg in args):
+                body = {'data': {'repository': {'pullRequest': {'reviews': {
+                    'nodes': self.reviews, 'pageInfo': {'hasNextPage': False, 'endCursor': None}}}}}}
+                return SimpleNamespace(returncode=0, stdout=json.dumps(body), stderr='')
             nodes = [{'isResolved': False}] * self.threads
             body = {'data': {'repository': {'pullRequest': {'reviewThreads': {
                 'nodes': nodes, 'pageInfo': {'hasNextPage': False, 'endCursor': None}}}}}}
@@ -190,7 +211,74 @@ class Rounds(Base):
         with backlog.locked(cfg) as data:
             t = backlog.new_task(repo, 'Fix the crash', source='sentry')
             t.update(status='review', pr=f'https://github.com/octo/{repo}/pull/{number}', pr_mode='ready', project='Tutti')
-            backlog.add(data, t)
+            added, _ = backlog.add(data, t)
+            added['branch'] = f'autopilot/{added["id"]}-{autopilot.slug(added["title"])}'
+
+    def test_pr_state_rejects_rest_head_mismatch(self):
+        gh = FakeGh(pr())
+        def run(args, **kwargs):
+            if args[1:2] == ['api'] and '/pulls/' in args[2]:
+                return SimpleNamespace(returncode=0, stdout=json.dumps({'head': {'sha': 'different'},
+                                                                       'base': {'sha': 'base'}}), stderr='')
+            return gh(args, **kwargs)
+        self.assertIsNone(selfimprove.pr_state('o/r', 7, run))
+
+    def test_strict_base_protection_fails_closed(self):
+        def response(value, code=0):
+            return lambda *_args, **_kwargs: SimpleNamespace(returncode=code, stdout=json.dumps(value), stderr='')
+        gate = selfimprove.strict_base_protection
+        good = {'required_status_checks': {'strict': True, 'contexts': ['ci']}, 'enforce_admins': {'enabled': True}}
+        self.assertTrue(gate('o/r', 'main', response(good)))
+        for value, code in [({}, 0), ({'rules': [{'type': 'required_status_checks'}]}, 0),
+                            ({**good, 'enforce_admins': {'enabled': False}}, 0),
+                            ({**good, 'enforce_admins': None}, 0),
+                            ({**good, 'required_status_checks': {'strict': False, 'contexts': ['ci']}}, 0),
+                            ({**good, 'required_status_checks': {'strict': True, 'contexts': []}}, 0),
+                            ({**good, 'required_pull_request_reviews': {}}, 0),
+                            ({**good, 'required_pull_request_reviews': {'bypass_pull_request_allowances':
+                                {'users': [], 'teams': [], 'apps': ['bypass-app']}}}, 0),
+                            ({**good, 'required_pull_request_reviews': {'bypass_pull_request_allowances':
+                                {'users': [], 'teams': []}}}, 0), (good, 1)]:
+            self.assertFalse(gate('o/r', 'main', response(value, code)))
+        self.assertFalse(gate('o/r', '', response(good)))
+
+    def test_review_base_change_requires_new_review(self):
+        record = {'o/r#7': {'sha': 'head', 'base': 'old-base'}}
+        self.assertFalse(selfimprove.pushed_since_review(record, 'o/r#7',
+                         {'state': 'OPEN', 'headRefOid': 'head', 'baseRefOid': 'old-base'}))
+        self.assertTrue(selfimprove.pushed_since_review(record, 'o/r#7',
+                        {'state': 'OPEN', 'headRefOid': 'head', 'baseRefOid': 'new-base'}))
+        self.assertTrue(selfimprove.pushed_since_review(record, 'o/r#7', {'state': 'OPEN', 'headRefOid': 'head'}))
+
+    def test_pr_state_rejects_mismatched_or_unknown_destination(self):
+        for destination in ('other', None, ''):
+            gh = FakeGh(pr())
+            def run(args, gh=gh, destination=destination, **kwargs):
+                result = gh(args, **kwargs)
+                if args[1:3] == ['api', 'repos/octo/tutti/pulls/7']:
+                    data = json.loads(result.stdout)
+                    data['base']['ref'] = destination
+                    result.stdout = json.dumps(data)
+                return result
+            self.assertIsNone(selfimprove.pr_state('octo/tutti', 7, run))
+        self.assertIsNotNone(selfimprove.pr_state('octo/tutti', 7, FakeGh(pr())))
+
+    def test_review_thread_gate_reads_all_pages_and_fails_closed_on_bad_pagination(self):
+        def page(nodes, more, cursor):
+            return {'data': {'repository': {'pullRequest': {'reviewThreads': {
+                'nodes': nodes, 'pageInfo': {'hasNextPage': more, 'endCursor': cursor}}}}}}
+        results = [page([{'isResolved': True}], True, 'next'), page([{'isResolved': False}], False, None)]
+        def run(args, **_kw):
+            if len(results) == 1:
+                self.assertIn('after=next', args)
+            return SimpleNamespace(returncode=0, stdout=json.dumps(results.pop(0)), stderr='')
+        self.assertEqual(selfimprove.open_threads('octo/tutti', 7, run), 1)
+        broken = page([], True, None)
+        gh = mock.Mock(return_value=SimpleNamespace(returncode=0, stdout=json.dumps(broken), stderr=''))
+        self.assertIsNone(selfimprove.open_threads('octo/tutti', 7, gh))
+        malformed = {'data': {'repository': {'pullRequest': {'reviewThreads': {'nodes': []}}}}}
+        gh = mock.Mock(return_value=SimpleNamespace(returncode=0, stdout=json.dumps(malformed), stderr=''))
+        self.assertIsNone(selfimprove.open_threads('octo/tutti', 7, gh))
 
     def test_reviews_are_asked_once_then_a_green_pr_is_merged_and_released(self):
         cfg = self.cfg()
@@ -225,6 +313,167 @@ class Rounds(Base):
         self.assertEqual(selfimprove.read_state(cfg)['reviews'], {})
         selfimprove.tick(cfg, NOW + 7200, run=gh, spawn=spawn)   # asked again, on evil999
         self.assertEqual(selfimprove.read_state(cfg)['reviews']['octo/tutti#7']['sha'], 'evil999')
+
+    @unittest.skipIf(selfimprove.fcntl is None, 'process locks are unavailable')
+    def test_review_invocations_do_not_share_results_or_overlap(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh = FakeGh(pr())
+        def waiting(*_a, **_kw):
+            return SimpleNamespace(pid=1234)
+        selfimprove.tick(cfg, NOW, run=gh, spawn=waiting)
+        first = selfimprove.read_state(cfg)['reviews']['octo/tutti#7']['invocation']
+        lock = selfimprove.review_lock(cfg, 'octo/tutti', 7)
+        self.assertIsNotNone(lock)
+        try:
+            blocked = selfimprove.request_review(cfg, 'octo/tutti', 7, spawn=waiting)
+            self.assertFalse(blocked['started'])
+        finally:
+            os.close(lock)
+        with open(selfimprove.review_files(cfg, 'octo/tutti', 7, first)[1], 'w', encoding='utf8') as f:
+            f.write('0\n')
+        changed = FakeGh(pr(headRefOid='newhead'))
+        selfimprove.tick(cfg, NOW + 1, run=changed, spawn=waiting)
+        selfimprove.tick(cfg, NOW + 2, run=changed, spawn=waiting)
+        second = selfimprove.read_state(cfg)['reviews']['octo/tutti#7']['invocation']
+        self.assertNotEqual(first, second)
+        with open(selfimprove.review_files(cfg, 'octo/tutti', 7, first)[1], 'w', encoding='utf8') as f:
+            f.write('0\n')  # a late result from the earlier invocation is not the new review's result
+        self.assertIsNone(selfimprove.review_result(cfg, 'octo/tutti', 7, second))
+        selfimprove.tick(cfg, NOW + 3, run=changed, spawn=waiting)
+        self.assertFalse([c for c in changed.calls if c[1:3] == ['pr', 'merge']])
+
+    @unittest.skipIf(selfimprove.fcntl is None, 'process locks are unavailable')
+    def test_review_process_keeps_the_lock_after_its_launcher_returns(self):
+        cfg = self.cfg()
+        os.makedirs(self.state, exist_ok=True)
+        children = []
+        def spawn(_argv, **kw):
+            child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(10)'], **kw)
+            children.append(child)
+            return child
+        try:
+            self.assertTrue(selfimprove.request_review(cfg, 'octo/tutti', 7, spawn=spawn)['started'])
+            self.assertFalse(selfimprove.request_review(cfg, 'octo/tutti', 7, spawn=spawn)['started'])
+        finally:
+            for child in children:
+                child.terminate()
+                child.wait(timeout=5)
+
+    @unittest.skipIf(selfimprove.fcntl is None, 'process locks are unavailable')
+    def test_new_head_waits_for_the_prior_invocation_then_gets_its_own_result_file(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh, spawn = FakeGh(pr()), mock.Mock(return_value=SimpleNamespace(pid=1234))
+        selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+        old = selfimprove.read_state(cfg)['reviews']['octo/tutti#7']['invocation']
+        changed = FakeGh(pr(headRefOid='newhead'))
+        selfimprove.tick(cfg, NOW + 1, run=changed, spawn=spawn)
+        self.assertEqual(spawn.call_count, 1)
+        self.assertEqual(selfimprove.read_state(cfg)['reviews']['octo/tutti#7']['invocation'], old)
+        with open(selfimprove.review_files(cfg, 'octo/tutti', 7, old)[1], 'w', encoding='utf8') as f:
+            f.write('0\n')
+        selfimprove.tick(cfg, NOW + 2, run=changed, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 3, run=changed, spawn=spawn)
+        new = selfimprove.read_state(cfg)['reviews']['octo/tutti#7']['invocation']
+        self.assertNotEqual(old, new)
+        self.assertIsNone(selfimprove.review_result(cfg, 'octo/tutti', 7, new))
+        self.assertFalse([c for c in changed.calls if c[1:3] == ['pr', 'merge']])
+
+    @unittest.skipIf(selfimprove.fcntl is None, 'process locks are unavailable')
+    def test_rate_limited_review_restarts_as_a_new_bound_invocation_after_wake(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh, limited = FakeGh(pr()), finished_review('4')
+        selfimprove.tick(cfg, NOW, run=gh, spawn=limited)
+        record = selfimprove.read_state(cfg)['reviews']['octo/tutti#7']
+        old = record['invocation']
+        selfimprove.tick(cfg, NOW + 1, run=gh, spawn=limited)
+        self.assertIn('octo/tutti#7', selfimprove.read_state(cfg)['reviews'])
+        self.assertTrue(selfimprove.rerequest_review(cfg, 'octo/tutti', 7)['queued'])
+        selfimprove.tick(cfg, NOW + 2, run=gh, spawn=limited)
+        self.assertNotIn('octo/tutti#7', selfimprove.read_state(cfg)['reviews'])
+        fresh = finished_review('0')
+        selfimprove.tick(cfg, NOW + 3, run=gh, spawn=fresh)
+        new = selfimprove.read_state(cfg)['reviews']['octo/tutti#7']['invocation']
+        self.assertNotEqual(old, new)
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+        selfimprove.tick(cfg, NOW + 4, run=gh, spawn=fresh)
+        self.assertTrue([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
+    @unittest.skipIf(selfimprove.fcntl is None, 'process locks are unavailable')
+    def test_dead_review_restarts_boundedly_after_timeout_but_unknown_or_live_does_not(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh, spawn = FakeGh(pr()), mock.Mock(return_value=SimpleNamespace(pid=1234))
+        with mock.patch.object(selfimprove.durable, 'boot_id', return_value='test-boot'):
+            selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+            key = 'octo/tutti#7'
+            with mock.patch.object(selfimprove, 'review_process_dead', return_value=False):
+                selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
+                self.assertIn(key, selfimprove.read_state(cfg)['reviews'])
+            with mock.patch.object(selfimprove, 'review_process_dead', return_value=None):
+                selfimprove.tick(cfg, NOW + 3601, run=gh, spawn=spawn)
+                self.assertIn(key, selfimprove.read_state(cfg)['reviews'])
+            with mock.patch.object(selfimprove, 'review_process_dead', return_value=True):
+                selfimprove.tick(cfg, NOW + 3602, run=gh, spawn=spawn)
+                self.assertNotIn(key, selfimprove.read_state(cfg)['reviews'])
+                self.assertEqual(backlog.load(cfg)['tasks'][0]['review_restart_count'], 1)
+                selfimprove.tick(cfg, NOW + 3603, run=gh, spawn=spawn)  # dashboard restart, same persisted state
+                selfimprove.tick(cfg, NOW + 7204, run=gh, spawn=spawn)
+                selfimprove.tick(cfg, NOW + 7205, run=gh, spawn=spawn)
+                selfimprove.tick(cfg, NOW + 10806, run=gh, spawn=spawn)
+                self.assertIn(key, selfimprove.read_state(cfg)['reviews'])
+                self.assertEqual(backlog.load(cfg)['tasks'][0]['review_restart_count'], selfimprove.REVIEW_RESTARTS)
+
+    @unittest.skipIf(selfimprove.fcntl is None, 'process locks are unavailable')
+    def test_dead_review_waits_for_a_possibly_orphaned_local_worker(self):
+        from tutti import review
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh, spawn = FakeGh(pr()), mock.Mock(return_value=SimpleNamespace(pid=1234))
+        with mock.patch.object(selfimprove.durable, 'boot_id', return_value='test-boot'), \
+             mock.patch.object(selfimprove, 'review_process_dead', return_value=True):
+            selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+            record = selfimprove.read_state(cfg)['reviews']['octo/tutti#7']
+            revision = f'{record["base"]}..{record["sha"]}'
+            review.count_round(cfg, 'octo/tutti', 7, 'local', head=revision, invocation=record['invocation'])
+            selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
+            self.assertIn('octo/tutti#7', selfimprove.read_state(cfg)['reviews'])
+            self.assertEqual(review.rounds_done(cfg, 'octo/tutti', 7)[0][f'octo/tutti#7@{revision}']['local'], 1)
+            self.assertIn('may still be running', backlog.load(cfg)['tasks'][0]['self_improve'])
+
+    @unittest.skipIf(selfimprove.fcntl is None, 'process locks are unavailable')
+    def test_result_written_during_recovery_is_not_discarded(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh, spawn = FakeGh(pr()), mock.Mock(return_value=SimpleNamespace(pid=1234))
+        with mock.patch.object(selfimprove.durable, 'boot_id', return_value='test-boot'), \
+             mock.patch.object(selfimprove, 'review_process_dead', return_value=True):
+            selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+            with mock.patch.object(selfimprove, 'review_result', side_effect=[None, '3']):
+                selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
+            self.assertIn('octo/tutti#7', selfimprove.read_state(cfg)['reviews'])
+
+    def test_unknown_pid_boot_or_permission_never_counts_as_dead(self):
+        with mock.patch.object(selfimprove.durable, 'boot_id', return_value='current'):
+            self.assertIsNone(selfimprove.review_process_dead({'pid': None, 'boot': 'current'}))
+            self.assertIsNone(selfimprove.review_process_dead({'pid': 123, 'boot': 'different'}))
+            with mock.patch.object(selfimprove.os, 'kill', side_effect=PermissionError):
+                self.assertIsNone(selfimprove.review_process_dead({'pid': 123, 'boot': 'current'}))
+            with mock.patch.object(selfimprove.os, 'kill', side_effect=ProcessLookupError):
+                self.assertTrue(selfimprove.review_process_dead({'pid': 123, 'boot': 'current'}))
+
+    def test_unavailable_review_process_does_not_crash_the_round(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh = FakeGh(pr())
+        selfimprove.tick(cfg, NOW, run=gh, spawn=mock.Mock(side_effect=OSError('unavailable')))
+        self.assertIn('could not start', backlog.load(cfg)['tasks'][0]['self_improve'])
+        self.assertNotIn('octo/tutti#7', selfimprove.read_state(cfg).get('reviews', {}))
+        selfimprove.tick(cfg, NOW + 1, run=gh, spawn=finished_review())
+        self.assertIn('octo/tutti#7', selfimprove.read_state(cfg)['reviews'])
+        self.assertIsNone(selfimprove.gh_json(['pr', 'view', '7'], mock.Mock(side_effect=OSError('unavailable'))))
 
     def test_a_pull_request_without_its_head_commit_is_not_merged_and_nothing_crashes(self):
         cfg = self.cfg()
@@ -267,11 +516,323 @@ class Rounds(Base):
         self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
         self.assertEqual(selfimprove.read_state(cfg)['reviews'], {})   # the pushed fix is reviewed again
 
+    def test_stale_changes_requested_waits_for_the_new_review_to_finish(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh = FakeGh(pr(reviewDecision='CHANGES_REQUESTED'))
+        selfimprove.tick(cfg, NOW, run=gh, spawn=lambda *_a, **_kw: None)
+        selfimprove.tick(cfg, NOW + 1, run=gh, spawn=lambda *_a, **_kw: None)
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'review')
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+        token = selfimprove.read_state(cfg)['reviews']['octo/tutti#7']['invocation']
+        with open(selfimprove.review_files(cfg, 'octo/tutti', 7, token)[1], 'w', encoding='utf8') as f:
+            f.write('0\n')
+        selfimprove.tick(cfg, NOW + 2, run=gh, spawn=finished_review())
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
+
+    def test_only_current_head_changes_request_requeues_without_open_threads(self):
+        cases = [
+            ([{'state': 'CHANGES_REQUESTED', 'author': {'login': 'bot'}, 'commit': {'oid': 'old'}}], 'review', 'older'),
+            ([{'state': 'CHANGES_REQUESTED', 'author': {'login': 'bot'}, 'commit': {'oid': 'new'}}], 'queued', ''),
+            ([{'state': 'CHANGES_REQUESTED', 'author': None, 'commit': {'oid': 'new'}}], 'review', 'could not be verified'),
+            ([], 'review', 'could not be verified'),
+        ]
+        for reviews, status, reason in cases:
+            with self.subTest(status=status, reason=reason), tempfile.TemporaryDirectory() as folder:
+                cfg = self.cfg()
+                cfg['project']['state'] = folder
+                self.add_review_task(cfg)
+                gh = FakeGh(pr(reviewDecision='CHANGES_REQUESTED', headRefOid='new'), reviews=reviews)
+                spawn = finished_review()
+                selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+                selfimprove.tick(cfg, NOW + 1, run=gh, spawn=spawn)
+                task = backlog.load(cfg)['tasks'][0]
+                self.assertEqual(task['status'], status)
+                if reason:
+                    self.assertIn(reason, task['self_improve'])
+                self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
+    def test_review_states_are_paginated_and_comments_do_not_clear_decisions(self):
+        def page(nodes, more, cursor):
+            return {'data': {'repository': {'pullRequest': {'reviews': {
+                'nodes': nodes, 'pageInfo': {'hasNextPage': more, 'endCursor': cursor}}}}}}
+        def item(state, commit):
+            return {'state': state, 'author': {'login': 'bot'}, 'commit': {'oid': commit}}
+        pages = [page([item('CHANGES_REQUESTED', 'old')], True, 'next'),
+                 page([item('COMMENTED', 'new')], False, None)]
+        def run(_args, **_kw):
+            return SimpleNamespace(returncode=0, stdout=json.dumps(pages.pop(0)), stderr='')
+        self.assertFalse(selfimprove.changes_on_head('octo/tutti', 7, 'new', run))
+
+    def test_local_findings_retry_once_and_identical_findings_do_not_repeat(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        gh, digest = FakeGh(pr()), 'a' * 64
+        spawn = finished_review('3', fingerprint=digest)
+        selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 1, run=gh, spawn=spawn)
+        task = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(task['status'], 'queued')
+        self.assertIn('untrusted data', task['notes'][-1])
+        self.assertEqual(task['local_review_fingerprints'], [digest])
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(status='review', review_expected_head='fixed123')
+        fixed = FakeGh(pr(headRefOid='fixed123'))
+        selfimprove.tick(cfg, NOW + 2, run=fixed, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 3, run=fixed, spawn=spawn)
+        task = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(task['status'], 'review')
+        self.assertIn('repeated identical findings', task['self_improve'])
+        self.assertFalse([c for c in fixed.calls if c[1:3] == ['pr', 'merge']])
+
+    def test_local_review_failure_and_missing_fingerprint_never_requeue_or_merge(self):
+        for rc in ('1', '3', '4'):
+            with self.subTest(rc=rc), tempfile.TemporaryDirectory() as folder:
+                cfg = self.cfg()
+                cfg['project']['state'] = folder
+                self.add_review_task(cfg)
+                gh = FakeGh(pr())
+                selfimprove.tick(cfg, NOW, run=gh, spawn=finished_review(rc))
+                selfimprove.tick(cfg, NOW + 1, run=gh, spawn=finished_review(rc))
+                self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'review')
+                self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
+    def test_old_log_fingerprint_cannot_authorize_a_new_local_retry(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        os.makedirs(os.path.dirname(selfimprove.review_files(cfg, 'octo/tutti', 7)[0]), exist_ok=True)
+        with open(selfimprove.review_files(cfg, 'octo/tutti', 7)[0], 'w', encoding='utf8') as f:
+            f.write(f'review: findings-sha256={"a" * 64}\n')
+        gh, spawn = FakeGh(pr()), finished_review('3')
+        selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 1, run=gh, spawn=spawn)
+        task = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(task['status'], 'review')
+        self.assertIn('fingerprint is unavailable', task['self_improve'])
+
+    def test_regular_task_review_is_retried_only_for_an_opted_in_project(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        gh, spawn = FakeGh(pr(reviewDecision='CHANGES_REQUESTED')), finished_review()
+        selfimprove.tick(cfg, NOW, run=gh, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 3600, run=gh, spawn=spawn)
+        task = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(task['status'], 'queued')
+        self.assertEqual(selfimprove.pr_plan(cfg, task, {})[0], 'ready')
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
+        cfg = self.cfg()
+        cfg['projects']['Tutti']['self_improve']['merge'] = False
+        self.assertEqual(selfimprove.pr_plan(cfg, task, {})[0], None)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0]['status'] = 'review'
+        calls_before = len(spawn.calls)
+        selfimprove.tick(cfg, NOW + 7200, run=gh, spawn=spawn)
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'review')
+        self.assertEqual(len(spawn.calls), calls_before)
+
+    def test_regular_task_is_reviewed_again_at_the_fixed_head_before_merge(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        spawn = finished_review()
+        requested = FakeGh(pr(reviewDecision='CHANGES_REQUESTED'))
+        selfimprove.tick(cfg, NOW, run=requested, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 1, run=requested, spawn=spawn)
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'queued')
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(status='review', review_expected_head='fixed123')  # the worker pushed the fix
+        fixed = FakeGh(pr(headRefOid='fixed123'))
+        selfimprove.tick(cfg, NOW + 2, run=fixed, spawn=spawn)
+        self.assertFalse([c for c in fixed.calls if c[1:3] == ['pr', 'merge']])
+        self.assertEqual(selfimprove.read_state(cfg)['reviews']['octo/tutti#7']['sha'], 'fixed123')
+        selfimprove.tick(cfg, NOW + 3, run=fixed, spawn=spawn)
+        [merge] = [c for c in fixed.calls if c[1:3] == ['pr', 'merge']]
+        self.assertEqual(merge[merge.index('--match-head-commit') + 1], 'fixed123')
+
+    def test_requested_changes_never_merge_the_old_head_if_push_failed_or_is_unconfirmed(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        spawn = finished_review()
+        requested = FakeGh(pr(reviewDecision='CHANGES_REQUESTED'))
+        selfimprove.tick(cfg, NOW, run=requested, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 1, run=requested, spawn=spawn)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0]['status'] = 'review'  # the worker finished but its push failed
+        old = FakeGh(pr())
+        selfimprove.tick(cfg, NOW + 2, run=old, spawn=spawn)
+        self.assertFalse([c for c in old.calls if c[1:3] == ['pr', 'merge']])
+        self.assertTrue(backlog.load(cfg)['tasks'][0]['review_retry_pending'])
+        with backlog.locked(cfg) as data:
+            data['tasks'][0]['review_expected_head'] = 'fixed123'
+        selfimprove.tick(cfg, NOW + 3, run=old, spawn=spawn)  # pushed, but PR still shows the old head
+        self.assertFalse([c for c in old.calls if c[1:3] == ['pr', 'merge']])
+        self.assertTrue(backlog.load(cfg)['tasks'][0]['review_retry_pending'])
+        fixed = FakeGh(pr(headRefOid='fixed123'))
+        selfimprove.tick(cfg, NOW + 4, run=fixed, spawn=spawn)  # PR now shows the fixed head; request a new review
+        self.assertFalse([c for c in fixed.calls if c[1:3] == ['pr', 'merge']])
+        self.assertNotIn('review_retry_pending', backlog.load(cfg)['tasks'][0])
+
+    def test_self_improvement_retry_also_blocks_old_or_unrelated_pr_heads(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        spawn = finished_review()
+        requested = FakeGh(pr(reviewDecision='CHANGES_REQUESTED'))
+        selfimprove.tick(cfg, NOW, run=requested, spawn=spawn)
+        selfimprove.tick(cfg, NOW + 1, run=requested, spawn=spawn)
+        task = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(task['status'], 'queued')
+        self.assertTrue(task['review_retry_pending'])
+        with backlog.locked(cfg) as data:
+            data['tasks'][0]['status'] = 'review'  # the attempted push did not succeed
+        old = FakeGh(pr())
+        selfimprove.tick(cfg, NOW + 2, run=old, spawn=spawn)
+        self.assertFalse([c for c in old.calls if c[1:3] == ['pr', 'merge']])
+        with backlog.locked(cfg) as data:
+            data['tasks'][0]['review_expected_head'] = 'fixed123'
+        unrelated = FakeGh(pr(headRefName='other-branch', headRefOid='fixed123'))
+        selfimprove.tick(cfg, NOW + 3, run=unrelated, spawn=spawn)
+        self.assertFalse([c for c in unrelated.calls if c[1:3] == ['pr', 'merge']])
+        self.assertTrue(backlog.load(cfg)['tasks'][0]['review_retry_pending'])
+        fixed = FakeGh(pr(headRefOid='fixed123'))
+        selfimprove.tick(cfg, NOW + 4, run=fixed, spawn=spawn)
+        self.assertFalse([c for c in fixed.calls if c[1:3] == ['pr', 'merge']])
+        selfimprove.tick(cfg, NOW + 5, run=fixed, spawn=spawn)
+        [merge] = [c for c in fixed.calls if c[1:3] == ['pr', 'merge']]
+        self.assertEqual(merge[merge.index('--match-head-commit') + 1], 'fixed123')
+
+    def test_self_improvement_without_merge_authority_keeps_its_existing_pr_plan(self):
+        cfg = self.cfg()
+        task = {'repo': 'app', 'source': 'sentry', 'pr_mode': 'ready', 'pr': 'https://github.com/octo/app/pull/3'}
+        self.assertFalse(selfimprove.guarded_pr(cfg, task))
+        self.assertEqual(selfimprove.pr_plan(cfg, task, {})[:2], ('ready', 'develop'))
+
+    def test_regular_task_missing_a_fresh_review_never_merges(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        gh = FakeGh(pr())
+        selfimprove.tick(cfg, NOW, run=gh, spawn=finished_review('1'))
+        selfimprove.tick(cfg, NOW + 1, run=gh, spawn=finished_review('1'))
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
+    def test_regular_task_must_match_its_repository_branch_and_pr_body(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        task = backlog.load(cfg)['tasks'][0]
+        self.assertEqual(selfimprove.task_pr_problem(cfg, task, FakeGh(pr())), '')
+        bad_tasks = [{**task, 'pr': 'https://github.com/other/project/pull/7'},
+                     {**task, 'branch': 'other-branch'}, {**task, 'pr': 'https://[invalid/pull/7'}]
+        for bad in bad_tasks:
+            self.assertTrue(selfimprove.task_pr_problem(cfg, bad, FakeGh(pr())))
+        for bad in (pr(headRefName='other-branch'), pr(isCrossRepository=True), pr(body='unrelated'),
+                    pr(url='https://github.com/other/project/pull/7')):
+            gh = FakeGh(bad)
+            self.assertTrue(selfimprove.task_pr_problem(cfg, task, gh))
+            selfimprove.tick(cfg, NOW, run=gh, spawn=finished_review())
+            self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
+
+    def test_retry_does_not_push_when_original_pr_branch_is_different(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        task = backlog.load(cfg)['tasks'][0]
+        calls = []
+        def run(*args):
+            calls.append(args)
+            output = 'a' * 40 if args[1:3] == ('rev-parse', 'HEAD') else 'git@github.com:octo/tutti.git\n'
+            return SimpleNamespace(returncode=0, stdout=output, stderr='')
+        gh = FakeGh(pr(headRefName='another-branch'))
+        autopilot.open_pr(cfg, task, {}, '/wt', task['branch'], 'fix', run=run, gh=gh)
+        self.assertEqual(calls, [])
+        self.assertIn('not pushed', task['publish_note'])
+
+        task['source'], task['pr_mode'] = 'sentry', 'ready'
+        autopilot.open_pr(cfg, task, {}, '/wt', task['branch'], 'fix', run=run, gh=gh)
+        self.assertEqual(calls, [])
+        self.assertIn('not pushed', task['publish_note'])
+
+        gh = FakeGh(pr(headRefOid='a' * 40))
+        autopilot.open_pr(cfg, task, {}, '/wt', task['branch'], 'fix', run=run, gh=gh)
+        self.assertTrue(any(call[1] == 'push' for call in calls))
+        self.assertIn('pushed onto the open pull request', task['publish_note'])
+        self.assertEqual(task['pr'], 'https://github.com/octo/tutti/pull/7')
+
+    def test_retry_checks_identity_before_changing_the_local_branch(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        task = backlog.load(cfg)['tasks'][0]
+        run = mock.Mock()
+        with mock.patch('tutti.bridge.tools', return_value={}):
+            autopilot.publish(cfg, task, {'worktree': '/wt', 'diff': '/d', 'id': '1-1'}, run=run,
+                              gh=FakeGh(pr(headRefName='unrelated')))
+        run.assert_not_called()
+        self.assertIn('not publishing', task['publish_note'])
+
+    def test_retry_rejects_a_different_or_unverifiable_origin_before_pushing(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        task = backlog.load(cfg)['tasks'][0]
+        for remote in ('git@github.com:other/project.git',
+                       'git@github.com:octo/tutti.git\nhttps://github.com/other/project.git',
+                       'https://other.example/octo/tutti.git', ''):
+            run = mock.Mock(return_value=SimpleNamespace(returncode=0, stdout=remote, stderr=''))
+            autopilot.open_pr(cfg, task, {}, '/wt', task['branch'], 'fix', run=run, gh=FakeGh(pr()))
+            self.assertFalse(any(args[0][1] == 'push' for args in run.call_args_list))
+            self.assertIn('not pushed', task['publish_note'])
+        self.assertEqual(selfimprove.remote_identity('https://github.com/octo/tutti.git'), ('github.com', 'octo/tutti'))
+        self.assertEqual(selfimprove.remote_identity('ssh://git@github.com/octo/tutti.git'), ('github.com', 'octo/tutti'))
+
+    def test_retry_reports_if_pr_closes_after_the_push(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        task = backlog.load(cfg)['tasks'][0]
+        gh = FakeGh(pr())
+        run = mock.Mock()
+        def close(*args):
+            if args[1:3] == ('remote', 'get-url'):
+                return SimpleNamespace(returncode=0, stdout='git@github.com:octo/tutti.git\n', stderr='')
+            if args[1:3] == ('rev-parse', 'HEAD'):
+                return SimpleNamespace(returncode=0, stdout='a' * 40, stderr='')
+            gh.view = pr(state='CLOSED')
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+        run.side_effect = close
+        autopilot.open_pr(cfg, task, {}, '/wt', task['branch'], 'fix', run=run, gh=gh)
+        self.assertIn('could not confirm', task['publish_note'])
+
+    def test_retry_never_claims_pr_was_updated_without_its_new_head(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        with backlog.locked(cfg) as data:
+            data['tasks'][0].update(source='mcp', pr_mode=None)
+        task = backlog.load(cfg)['tasks'][0]
+        def run(*args):
+            output = 'a' * 40 if args[1:3] == ('rev-parse', 'HEAD') else 'git@github.com:octo/tutti.git\n'
+            return SimpleNamespace(returncode=0, stdout=output, stderr='')
+        autopilot.open_pr(cfg, task, {}, '/wt', task['branch'], 'fix', run=run, gh=FakeGh(pr(headRefOid='b' * 40)))
+        self.assertIn('could not confirm', task['publish_note'])
+
     def test_open_threads_or_a_project_without_authority_never_merge(self):
         cfg = self.cfg()
         self.add_review_task(cfg, 'app', 3)
         self.add_review_task(cfg, 'tutti', 4)
-        gh = FakeGh(pr(), threads=1)
+        gh = FakeGh(pr(url='https://github.com/octo/tutti/pull/4', headRefName='autopilot/t2-fix-the-crash',
+                       body='Backlog task t2 (sentry), done by a worker.'), threads=1)
         for t in (NOW, NOW + 3600):
             selfimprove.tick(cfg, t, run=gh, spawn=finished_review())
         self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])
@@ -285,10 +846,11 @@ class Rounds(Base):
                 'nodes': nodes, 'pageInfo': {'hasNextPage': more, 'endCursor': cursor}}}}}}
         replies = [page([{'isResolved': True}] * 100, True, 'next'),
                    page([{'isResolved': False}], False, None)]
+        base = FakeGh(pr())
         def gh(args, **_kw):
-            if args[1:3] == ['pr', 'view']:
-                return SimpleNamespace(returncode=0, stdout=json.dumps(pr()), stderr='')
-            return SimpleNamespace(returncode=0, stdout=json.dumps(replies.pop(0)), stderr='')
+            if args[1:3] == ['api', 'graphql']:
+                return SimpleNamespace(returncode=0, stdout=json.dumps(replies.pop(0)), stderr='')
+            return base(args, **_kw)
         result = selfimprove.pr_state('octo/tutti', 7, gh)
         self.assertEqual(result['open_threads'], 1)
         self.assertFalse(selfimprove.may_merge({'merge': True}, result, True)[0])
@@ -301,9 +863,11 @@ class Rounds(Base):
                          page([], 'false', None), page([], True, None),
                          {**page([], False, None), 'errors': [{'message': 'partial response'}]}):
             with self.subTest(response=response):
-                def gh(args, *, reply=response, **_kw):
-                    data = pr() if args[1:3] == ['pr', 'view'] else reply
-                    return SimpleNamespace(returncode=0, stdout=json.dumps(data), stderr='')
+                base = FakeGh(pr())
+                def gh(args, *, reply=response, fallback=base, **_kw):
+                    if args[1:3] == ['api', 'graphql']:
+                        return SimpleNamespace(returncode=0, stdout=json.dumps(reply), stderr='')
+                    return fallback(args, **_kw)
                 self.assertEqual(selfimprove.pr_state('octo/tutti', 7, gh)['open_threads'], 1)
         cyclic = page([], True, 'same')
         def gh_cycle(_args, **_kw):

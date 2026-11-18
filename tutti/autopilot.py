@@ -257,7 +257,7 @@ def ordinary_account_room(cfg, name, s, used):
         # the planner's room (tutti/planner.py): a window's share of its weekly limit, or the room left after the reserve and
         # the background spend; spent before it expires
         room = p['tasks'] - used
-        return (room, '') if room > 0 else (0, f'{name}: {p["why"]}')
+        return (room, '') if room > 0 else (0, f'{name}: {p.get("why") or "no planned room"}')
     if name in trigger_accounts(cfg):
         if s.get('verdict') not in ('behind', 'late'):
             return 0, f'{name}: at its even-pace line ({s.get("verdict")})'
@@ -2065,9 +2065,32 @@ def valid_current_reader(reading, latest):
     return True
 
 
-def slow_start_allowed(cfg, step, states, tasks, at, reader_status=None):
-    """Reload controls, config and usage; refuse a slow start if the planning snapshot has changed."""
-    from . import readers, users
+def current_related_states(cfg, fresh, step, states, usage, reader_status):
+    """Revalidate every account sharing the selected account's direct quota windows."""
+    from . import readers
+    from . import state as state_mod
+    windows = set(configured_windows(fresh, step))
+    limits = fresh.get('_account_limits') or {}
+    related = [n for n in limits if windows.intersection(configured_windows(fresh, n))]
+    latest = {s['name']: s for s in usage.get('accounts', [])}
+    if not related or any(n not in states or n not in latest or quota_signature(latest[n]) != quota_signature(states[n]) for n in related):
+        return None
+    automatic = [n for n in related if readers.automatic_reader(n, fresh['accounts'].get(n) or {})
+                 or (fresh['accounts'].get(n) or {}).get('reading_file')]
+    if automatic:
+        try:
+            status = reader_status() if reader_status else None
+        except Exception:   # unavailable reader status cannot authorize a quota spend
+            return None
+        if not isinstance(status, dict) or any(not valid_current_reader(status.get(n), latest[n]) for n in automatic):
+            return None
+        state_mod.with_readers({'accounts': [latest[n] for n in related]}, status)
+    return latest
+
+
+def slow_start_allowed(cfg, step, states, tasks, at, reader_status=None, machines=None):
+    """Reload controls, config and every shared-window observation before a slow start."""
+    from . import conduct, users
     from . import state as state_mod
     try:
         current = datetime.fromtimestamp(at, timezone.utc)
@@ -2082,30 +2105,24 @@ def slow_start_allowed(cfg, step, states, tasks, at, reader_status=None):
         usage = state_mod.usage_state(fresh, current)
         if usage.get('problem'):
             return False
-        latest = next((s for s in usage.get('accounts', []) if s.get('name') == step), None)
-        original = states.get(step)
-        if not latest or not original or quota_signature(latest) != quota_signature(original):
+        latest = current_related_states(cfg, fresh, step, states, usage, reader_status)
+        if latest is None:
             return False
-        account = (fresh.get('accounts') or {}).get(step) or {}
-        if readers.automatic_reader(step, account) or account.get('reading_file'):
-            try:
-                status = reader_status() if reader_status else None
-            except Exception:   # unavailable reader status cannot authorize a quota spend
-                return False
-            reading = status.get(step) if isinstance(status, dict) else None
-            if not valid_current_reader(reading, latest):
-                return False
-            state_mod.with_readers({'accounts': [latest]}, status)
         fresh['_slow_shared_accounts'] = users.slow_shares(fresh)
+        fresh['_now'] = current
+        fresh['_main_worker'] = conduct.current(fresh)
+        if cfg.get('_main_worker') is not None and cfg['_main_worker'] != fresh['_main_worker']:
+            return False
     except (config.ConfigError, KeyError, TypeError, ValueError, OverflowError, OSError):
         return False
-    used = spent_units(tasks, states, fresh)
-    return not quiet_stop(fresh, current) and slow_room(fresh, step, latest, {**states, step: latest}, tasks, used, current)
+    used = spent_units(tasks, latest, fresh)
+    return bool(slow_selection(fresh, latest, tasks, used, machines, current).get(step))
 
 
-def start_planned(cfg, data, task, step, now, spawn, states, clock, slow, reader_status=None):
+
+def start_planned(cfg, data, task, step, now, spawn, states, clock, slow, reader_status=None, machines=None):
     actual = clock() if slow else now
-    if slow and not slow_start_allowed(cfg, step, states, data['tasks'], actual, reader_status):
+    if slow and not slow_start_allowed(cfg, step, states, data['tasks'], actual, reader_status, machines):
         return None, f'{task["id"]}: slow quota or sharing state changed before start; it stays queued'
     return start_reserved(cfg, data, task, step, actual, spawn, states)
 
@@ -2149,7 +2166,8 @@ def start_plan(cfg, data, shared, p, machines, states, now, started_at, monotoni
         choice = (shared.get('scoped') or {}).get(task_id)
         spawn_fn = scoped_spawn(cfg, t, step, choice, shared, machines, started_at, monotonic, spawn, rejected) if choice else spawn
         run_id, event = start_planned(
-            cfg, data, t, step, now, spawn_fn, states, clock, task_id in p.get('slow_dispatch', ()), reader_status)
+            cfg, data, t, step, now, spawn_fn, states, clock, task_id in p.get('slow_dispatch', ()), reader_status,
+            machines)
         if rejected[0]:
             p['waiting'][task_id] = 'scoped household lease or worker observation changed: wait for another reservation'
         else:
@@ -2241,6 +2259,7 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         telemetry.record('feature', 'autopilot.plan', state=p['state'], dispatch=len(p['dispatch']), waiting=len(p['waiting']),
                          collected=len(events))
     if started:   # shared tasks just started: their leases at full length now, not at the next round
+
         sharing.renew(cfg, backlog.load(cfg), started)
     with state_locked(cfg) as st:
         st['last'] = {'at': now, 'state': p['state'], 'reason': p['reason'], 'waiting': p['waiting']}

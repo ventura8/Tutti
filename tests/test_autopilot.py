@@ -387,7 +387,16 @@ class PlanTest(Base):
                             'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '',
                             'limits': [weekly], 'quota_plan': plan}
         tasks = [task('t1'), task('t2')]
-        self.assertEqual(len(autopilot.plan(cfg, tasks, states, FREE, True, now)['dispatch']), 1)
+        first = autopilot.plan(cfg, tasks, states, FREE, True, now)['dispatch']
+        self.assertEqual(len(first), 1)
+        selected = first[0][1]
+        sibling = 'agy-claude' if selected == 'agy-gemini' else 'agy-gemini'
+        with mock.patch.object(config, 'load', return_value=cfg), \
+                mock.patch.object(state, 'usage_state', return_value={'accounts': list(states.values())}) as usage:
+            self.assertTrue(autopilot.slow_start_allowed(cfg, selected, states, tasks, now.timestamp(), machines=FREE))
+            changed = {**states, sibling: {**states[sibling], 'used': 99, 'panic': True}}
+            usage.return_value = {'accounts': list(changed.values())}
+            self.assertFalse(autopilot.slow_start_allowed(cfg, selected, states, tasks, now.timestamp(), machines=FREE))
         cfg['_slow_shared_accounts'] = ['agy-claude']
         self.assertEqual(autopilot.plan(cfg, tasks, states, FREE, True, now)['dispatch'], [])
         cfg['_slow_shared_accounts'] = None

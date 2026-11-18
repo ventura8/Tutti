@@ -45,8 +45,8 @@ The CPU package power is the RAPL counter (`/sys/class/powercap/intel-rapl:0/ene
 make it root-only, so it is often estimated.
 
 The power line says `measured` or `estimated` for the GPU and the CPU (`≈` only when the GPU is estimated). When the machine
-refused a reading, the card's *how they are made* gives the one-time fix: `sudo setcap cap_perfmon+ep "$(command -v
-intel_gpu_top)"` for an Intel GPU, `sudo chmod o+r /sys/class/powercap/intel-rapl:0/energy_uj` (or a udev rule) for RAPL.
+refused a reading, the card's *how they are made* gives the one-time fix: `scripts/apply-power-rules.sh` (as root) applies the
+required permissions.
 The period table keeps every number on one line and scrolls sideways inside its card on a narrow screen.
 
 Where nothing is readable, the estimate is:

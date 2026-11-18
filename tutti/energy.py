@@ -172,14 +172,14 @@ def lspci_gpu(text):
     return None
 
 
-def denied(intel, rapl):
+def denied(intel, rapl, intel_measured=False):
     """What the machine refused to read and the one-time fix: intel_gpu_top without CAP_PERFMON, RAPL's root-only counter."""
     out = []
-    if intel and 'Permission denied' in intel:
-        out.append('the GPU power needs intel_gpu_top allowed once: `sudo setcap cap_perfmon+ep "$(command -v intel_gpu_top)"`')
+    if intel and 'Permission denied' in intel and not intel_measured:
+        out.append('the GPU power needs intel_gpu_top (cap_perfmon) allowed once: `scripts/apply-power-rules.sh` (as root)')
     if (rapl or '').strip() == 'rapl':
         out.append('the CPU power needs the RAPL counter readable: '
-                   '`sudo chmod o+r /sys/class/powercap/intel-rapl:0/energy_uj` (again after a reboot, or a udev rule)')
+                   '`scripts/apply-power-rules.sh` (as root, or a udev rule)')
     return out
 
 
@@ -193,7 +193,9 @@ def parse_power(text):
         parse_nvidia(s.get('nvidia')) or {'gpu': None, 'gpu_w': None, 'util': None, 'source': ''}
     out = {'util': None, **out, 'cpu_w': counters.get('cpu_w')}
     out['gpu'] = out.get('gpu') or lspci_gpu(s.get('lspci'))
-    out['denied'] = denied(s.get('intel'), s.get('denied'))
+    intel_gpu = parse_intel(s.get('intel'))
+    intel_measured = (intel_gpu is not None and intel_gpu.get('gpu_w') is not None)
+    out['denied'] = denied(s.get('intel'), s.get('denied'), intel_measured)
     for k in ('ps', 'tags'):
         try:
             out[k] = json.loads(s[k]) if s.get(k) else None

@@ -1,0 +1,26 @@
+..tutti: --until is not after --from: the absence would be over before it starts; give an end after 2026-11-16 07:00
+tutti: --stop-now does not go with --from: a planned absence hands its running work over at its start by itself
+.......................................................................................................................................................................tutti: no repo "nope" under autopilot.repos in /tmp/tmpkdaktt8u/tutti.config.yaml: the repos are app
+tutti: t1 is running (run 1-1): wait for it (tutti wait run 1-1), then retry it
+..................................................................................................................................................................................................../usr/lib/python3.14/traceback.py:269: ResourceWarning: unclosed file <_io.TextIOWrapper name=55 encoding='UTF-8'>
+  tb.tb_frame.clear()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+..................................................................................................................................................................................................................F......................................../home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t289/tests/test_deps.py:80: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tutti-t-8jupwaj6/npm.log' mode='r' encoding='UTF-8'>
+  self.assertIn('install -g --prefix', open(log).read())
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t289/tests/test_deps.py:81: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tutti-t-8jupwaj6/npm.log' mode='r' encoding='UTF-8'>
+  self.assertIn('typescript@5.6.3', open(log).read())
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+............................E/usr/lib/python3.14/subprocess.py:1139: ResourceWarning: subprocess 4157045 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+E/usr/lib/python3.14/subprocess.py:1139: ResourceWarning: subprocess 21263 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+....................................................................../usr/lib/python3.14/subprocess.py:1139: ResourceWarning: subprocess 96589 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+............................................................................./home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t289/tests/test_failover.py:358: ResourceWarning: unclosed file <_io.TextIOWrapper name='/home/sergiu-alexandrescu/Projects/hcm-wt/tutti-run-ap-t289/tutti.config.example.yaml' mode='r' encoding='utf8'>
+  example = yaml.safe_load(open(os.path.join(config.ROOT, 'tutti.config.example.yaml'), encoding='utf8'))
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+...............................

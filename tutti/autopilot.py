@@ -1182,6 +1182,8 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         events = collect(cfg, data, now, is_alive, publish_fn)
         checkpoints(cfg, data, now)
         events += guess_scopes(data, listed_files)
+        from . import dedupe
+        dedupe.process(data)
         hold, mirrored = sharing.under_lock(shared, data, now)
         from . import handover  # handover imports conduct, which imports modules that import this one
         mirrored += moved_away(cfg, data, sharing.moved_of(shared), is_alive, handover.end_tree)

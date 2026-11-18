@@ -83,7 +83,8 @@ An ahead trigger account with no linked or shared quota can take one small task 
 the planner's discretionary balance cover it. Starts are spaced at half the rate that would use that balance by the target,
 using `task_pct` (an estimate when not configured); the planner has already kept the owner reserve and projected outside
 spend. A missing, stale, future or failed reading, panic, an explicit pause, or too little room stops this path. Accounts
-with linked or shared windows remain on the existing window planner; they do not use this slow path. Local models still
+with linked or shared windows, and accounts whose spare quota is shared with the household, remain on the existing planner;
+they do not use this slow path. An unreadable sharing setting also disables it. Local models still
 come first when online accounts are ahead, subject to their own safety limits.
 
 ## Failures fix themselves

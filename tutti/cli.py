@@ -1172,9 +1172,18 @@ def files_clean(cfg, a):
     return 0
 
 
+def set_dashboard_oom():
+    try:
+        with open('/proc/self/oom_score_adj', 'w') as f:
+            f.write('-200')
+    except OSError:
+        pass
+
+
 def cmd_dashboard(cfg, a):
     if clientmode.role(cfg) == 'client' and not a.once:
         return move.client_dashboard(cfg, a, say, lambda c: cmd_dashboard(c, a))
+    set_dashboard_oom()
     collector = dashboard.Collector(cfg)
     if a.once:
         if not a.no_probe:

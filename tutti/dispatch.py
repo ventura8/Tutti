@@ -610,10 +610,17 @@ def start(cfg, st, target, w, now, spawn=subprocess.Popen):
     p = paths(cfg, lid)
     with open(p['beat'], 'w', encoding='utf8'):
         pass
+
+    argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'dispatch', 'run', lid]
+    d = cfg.get('dispatch') or {}
+    memory = d.get('memory_limit')
+    if memory:
+        argv = ['systemd-run', '--user', '--scope', '--property', f'MemoryMax={int(memory * 1024 * 1024 * 1024)}',
+                '--property', 'OOMScoreAdjust=500', '--quiet'] + argv
+
     with open(p['log'], 'a', encoding='utf8') as log:
         log.write(f'dispatch: {w["project"]} {w["key"]} on {target["id"]} (attempt {w["attempts"] + 1})\n')
-        child = spawn([sys.executable, remote.BIN, '--config', cfg['_path'], 'dispatch', 'run', lid], stdout=log, stderr=log,
-                      stdin=subprocess.DEVNULL, start_new_session=True)
+        child = spawn(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
     commit = st['projects'][w['project']].get('commit')
     st['leases'][lid] = {'id': lid, 'project': w['project'], 'key': w['key'], 'commit': commit, 'target': target['id'],
                          'kind': target['kind'], 'name': target['name'], 'pid': child.pid, 'started': now,
@@ -916,9 +923,18 @@ def test_argv(cfg, lease, s, shard):
     if s.get('runner') and lease['kind'] in DEVICE_KINDS:   # the suite runs on its runner machine, the devices over leases
         names = [lease['name'], *(lease.get('holds') or [])]
         # options before the names: argparse refuses a `-- <command>` after options that follow a nargs='*' positional
-        return [sys.executable, remote.BIN, '--config', cfg['_path'], 'devices', 'lease', '--runner', s['runner'],
+        argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'devices', 'lease', '--runner', s['runner'],
                 '--who', f'dispatch-{s["project"]}', *names, '--', command]
-    return [sys.executable, remote.BIN, '--config', cfg['_path'], 'test', '--dir', tree, *where, *holds, track, command]
+    else:
+        argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'test', '--dir', tree, *where, *holds, track, command]
+
+    d = cfg.get('dispatch') or {}
+    memory = d.get('memory_limit')
+    if memory:
+        argv = ['systemd-run', '--user', '--scope', '--property', f'MemoryMax={int(memory * 1024 * 1024 * 1024)}',
+                '--property', 'OOMScoreAdjust=500', '--quiet'] + argv
+
+    return argv
 
 
 def wait_call_out(cfg, device, beat, look=calls.look, sleep=time.sleep):

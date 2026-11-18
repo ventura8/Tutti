@@ -285,6 +285,7 @@ FIELDS = {
     'dispatch.lease_minutes': field('Lease', 'A run with no heartbeat this long frees its target; its shard is retried.', **MIN),
     'dispatch.retries': field('Retries', 'Tries of a failed shard on the same commit.', 'number', min=0),
     'dispatch.quiet_hours': field('Quiet hours', 'Local-time spans in which nothing new is sent.', 'timespans'),
+    'dispatch.memory_limit': field('Memory limit (GB)', 'User jobs are capped to this amount of memory.', **GB),
     'dispatch.call_poll_seconds': field('Look for phone calls every', 'A phone in a call pauses its run.', **SEC),
     'dispatch.resume_after_call_seconds': field('Resume after a call', 'Wait this long after a call ends.', **SEC),
     'dispatch.pause_on_owner_use': field('Pause while I use a device', 'A run pauses while you use the device.', 'switch'),

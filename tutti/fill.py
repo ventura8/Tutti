@@ -88,12 +88,20 @@ def gather(cfg, data, states, machines, now, run=subprocess.run):
     so the caller holds no lock (a slow `gaps` command must not block the backlog)."""
     if due(cfg, data, states, machines, now) is None:
         return None
+    from . import quietmode
     found, problems = [], []
+
+    def allow_gaps():
+        if quietmode.status(cfg)['quiet']:
+            problems.append('gaps command deferred while this computer is in quiet mode; a later source read retries it')
+            return False
+        return True
     for name, repo in autopilot.settings(cfg)['repos'].items():
         if not os.path.isdir(config.expand(repo['path'])):
             problems.append(f'{name}: no folder {repo["path"]}')
             continue
-        found += [(name, t, s, src, repo.get('check') or '') for t, s, src in backlog.sources(repo, run, untested=True)]
+        found += [(name, t, s, src, repo.get('check') or '') for t, s, src in
+                  backlog.sources(repo, run, untested=True, allow_gaps=allow_gaps)]
     return found, problems
 
 

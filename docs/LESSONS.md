@@ -2,6 +2,8 @@
 
 - **Environment failures must not exhaust the ladder** (t260): excluding missing reports from the attempt cap was not
   enough when a separate repeated-failure check removed every worker. Apply the same classification at both decisions.
+- **Automatic discovery can run a heavy command during quiet mode** (t172): a configured gaps command can run a build or
+  coverage check. Check before launching it, keep lighter task sources available, and report any quiet-mode deferral.
 
 - **Local attempts have no quota reading** (t301): a completed local-model attempt cannot appear in a later account
   usage reading. Only currently running local work occupies its server; keep online attempts reserved until reflected.

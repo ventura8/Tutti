@@ -134,8 +134,12 @@ itself (docs/MACHINES.md), else from its ACPI thermal zone; without a valid read
 At every probe, which also follows a reboot (the dashboard starts at login) and sleep:
 
 - Every local worker's tunnel is started again when its server does not answer.
-- A machine whose Ollama had models and went quiet, while the machine itself answers, gets a restart (at most every 10
-  minutes): its user service (`systemctl --user restart ollama`), else `ollama serve` in the background.
+- A machine whose Ollama had models and went quiet gets a restart (at most every 10 minutes) only with a recent, complete
+  machine reading showing no busy slots and an unloaded, reachable host. Freshness is the probe batch start (not when the
+  last row finished), and the age is re-checked before each restart so a slow restart cannot stretch a reading past the
+  window. Busy, loaded, stale or incomplete readings defer the restart and say why. The free reading does not prove that
+  Chat or outside clients are not using Ollama; full cross-client admission and termination coordination remains open
+  (t301).
 - When Tutti cannot do it, `tutti fleet` and `fleet.json` say the one-step fix:
   - a system service: `sudo systemctl restart ollama` on that machine;
   - Windows: start the Ollama app.

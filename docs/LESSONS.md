@@ -1,5 +1,8 @@
 # Lessons
 
+- A failed model probe is not evidence that the host is idle. Defer server restarts when machine activity readings are
+  busy, stale or incomplete; a free host reading still does not prove that no model client is active (t301).
+
 - A CLI process can use native tools before its answer fails; a post-launch failure is not safe evidence for automatic fallback (t303).
 
 - A streaming EOF does not prove an answer finished; never retry another model after an action attempt without checking its outcome (t303).

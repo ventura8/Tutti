@@ -1,5 +1,7 @@
 # Feedback log
 
+An unresponsive local model probe must not restart a server on a busy or unobserved host (t301).
+
 Chat must not repeat a started CLI agent's work after its response fails (t303).
 
 Chat must not treat interrupted local-model streams as complete or repeat an attempted action on fallback (t303).

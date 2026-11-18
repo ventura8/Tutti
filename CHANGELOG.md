@@ -365,6 +365,14 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - CI installs only the Chromium headless shell needed by the browser suite and shows installation progress, reducing
   downloads and making browser setup timeouts diagnosable without skipping browser tests (t331).
 
+## [Unreleased]
+
+### Added
+
+- Add an unconnected OpenAI Responses text transport prerequisite requiring explicit paid-use opt-in; Chat and worker
+  routing do not yet use it (t294).
+
+
 ## [0.27.5] - 2026-11-18
 
 ### Fixed

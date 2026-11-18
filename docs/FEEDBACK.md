@@ -3,6 +3,7 @@
 A dashboard-requested restart must not cut off a Chat answer that is still running (t404).
 
 Turning autopilot off to drain work stopped its dashboard rounds and therefore stopped WIP checkpoints (t404).
+Automatic releases must move Unreleased changelog entries into the new version instead of repeating them later (t408).
 
 Conductor selection must not treat a missing usage state as room after another account is spent (t388).
 

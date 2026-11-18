@@ -1,5 +1,8 @@
 # Lessons
 
+- A missing checkpoint SHA can mean Git failed, not that a worktree is clean. Never reset or clean the old household
+  holder's worktree on that evidence; retain it even when the holder has already changed (t309).
+
 - **A freeze check and a spawn must share a lock** (t404): serialize local cooperative autopilot admission with durable
   marker creation, but do not mistake that partial fence for protection against other launch paths or live remote work.
 

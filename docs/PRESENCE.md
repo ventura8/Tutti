@@ -119,8 +119,10 @@ What a move does depends on the job:
   pinned to a worker on the chosen machine. Its brief says it moved, and it resumes from the last synced checkpoint.
 - **A household member's task** (on the coordinator) loses that member's lease, which goes to the chosen member or stays
   free for the first member with room. When the old holder comes back, the coordinator refuses its claim and tells its
-  sync that the task moved. The old holder stops its stale run, keeps its local work on `tutti/backup/<name>`, cleans the
-  worktree and marks the task `moved`. It never runs that task again.
+  sync that the task moved. The old holder stops its stale run, attempts a `tutti/backup/<name>` snapshot, preserves the
+  local worktree even if that snapshot fails, and marks the task `moved` so it is not dispatched locally again. Its recovery
+  note says whether the backup is unconfirmed. The new household holder may already be running; inspect and reconcile the
+  preserved work before discarding it.
 
 **Automatic moves** (opt-in): set `presence.move_after_minutes: N`. Urgent jobs that have waited N minutes on an absent
 target then move by themselves. A job is urgent when its project has `projects.<p>.urgent: true`, when its task has

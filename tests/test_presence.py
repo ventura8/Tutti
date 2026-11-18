@@ -571,6 +571,28 @@ class Moves(Base):
         self.assertEqual(data['tasks'][0]['status'], 'moved')
         self.assertIn('not run here again', events[0])
 
+    def test_moved_worktree_is_preserved_when_snapshot_succeeds_or_fails(self):
+        cfg = self.cfg()
+        wt = os.path.join(self.tmp.name, 'moved-work')
+        os.makedirs(wt)
+        path = os.path.join(wt, 'a.txt')
+        with open(path, 'w', encoding='utf8') as f:
+            f.write('unfinished work\n')
+        with open(os.path.join(wt, 'new.txt'), 'w', encoding='utf8') as f:
+            f.write('untracked work\n')
+        for outcome in ('backup-sha', '', OSError('git failed')):
+            task = {'id': 't1', 'title': 'Fix login', 'status': 'running', 'run': 'x', 'repo': 'r'}
+            snap = mock.Mock(side_effect=outcome if isinstance(outcome, OSError) else None,
+                             return_value=outcome if isinstance(outcome, str) else None)
+            with mock.patch.object(autopilot, 'stop_run', return_value=wt):
+                event = autopilot.give_up_here(cfg, task, 'holder', lambda _: True, lambda _: None, snap=snap)
+            self.assertEqual(task['status'], 'moved')
+            self.assertIn('not run here again', event)
+            self.assertIn('backup at' if outcome == 'backup-sha' else 'backup unconfirmed', task['recovery_note'])
+            with open(path, encoding='utf8') as f:
+                self.assertEqual(f.read(), 'unfinished work\n')
+            self.assertTrue(os.path.exists(os.path.join(wt, 'new.txt')))
+
     def test_a_viewer_cannot_move_work(self):
         cfg = self.cfg()
         viewer = SimpleNamespace(cfg=cfg, authorize=lambda headers, need: (403, 'viewers cannot move work: ask an admin'))

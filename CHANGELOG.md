@@ -6,6 +6,12 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Fixed
+
+- Offer changed open questions again without repeating identical questions or undoing a newer delivery on failure (t244).
+
 ## 0.30.15 (2026-11-19)
 
 ### Fixed

@@ -51,6 +51,8 @@ the worker as a note, except in the Chat: there `q3` must be followed by one of 
 
 ## When questions reach you
 
+When an open question changes, Tutti offers the updated question for delivery again. Asking the identical question again does not send a duplicate. A failed older delivery cannot undo the delivery of a newer revision. Delivery still follows the user’s batching and quiet-hour settings.
+
 - **In your work hours** (the owner: their mode is active and their laptop present; a signed-in user: their own schedule):
   to your main agent and to a *Questions from Tutti* chat, batched, at most one batch every 30 minutes; an urgent one
   at once.

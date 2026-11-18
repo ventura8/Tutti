@@ -588,3 +588,8 @@ but never treat a worker-readable identity as authentication or proof that all p
 
 An unrelated local check must not wait for a remote copy in use. Keep the lock for routed checks, including mixed sets,
 and use each local run's own worktree for local-only checks.
+
+
+## An updated question needs a new delivery (t244)
+
+Delivery state belongs to a question revision. A late failure from an older delivery must not erase the newer delivery or its batch timing, even when both occur at the same timestamp.

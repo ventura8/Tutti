@@ -54,15 +54,17 @@ def stop_children(rounds=5):
 class Guarded(unittest.TextTestResult):
     def startTest(self, test):
         self._root = tempfile.mkdtemp(prefix='t-', dir=ROOT)
-        self._saved = tempfile.tempdir, os.environ.get('TMPDIR')
+        self._saved = tempfile.tempdir, os.environ.get('TMPDIR'), dict(os.environ)
         tempfile.tempdir = os.environ['TMPDIR'] = self._root
         tmpdirs._running.append(test)
         super().startTest(test)
 
     def stopTest(self, test):
         tmpdirs._running.pop()
-        tempfile.tempdir, old = self._saved
-        os.environ['TMPDIR'] = old if old is not None else ROOT
+        tempfile.tempdir, old_tmp, old_env = self._saved
+        os.environ['TMPDIR'] = old_tmp if old_tmp is not None else ROOT
+        os.environ.clear()
+        os.environ.update(old_env)
         left = sorted(n for n in os.listdir(self._root) if not n.startswith(KEPT))
         shutil.rmtree(self._root, ignore_errors=True)
         kids = stop_children()

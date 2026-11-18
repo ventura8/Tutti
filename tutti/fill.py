@@ -39,7 +39,9 @@ def room(cfg, tasks, states, machines):
     readings do not show yet."""
     from . import fleet
     used = autopilot.spent_units(tasks, states, cfg)
-    rooms = {n: autopilot.step_room(cfg, n, states, used, machines or ()) for n in autopilot.trigger_accounts(cfg)}
+    rooms = {n: autopilot.step_room(cfg, n, states, used, machines or (),
+                                   autopilot.slow_room(cfg, n, states.get(n) or {}, tasks, used, cfg.get('_now')))
+             for n in autopilot.trigger_accounts(cfg)}
     total = sum(max(0, r[0]) for r in rooms.values())
     locals_ = [n for n in autopilot.ladder(cfg) if autopilot.is_local(cfg, n)]
     if locals_ and fleet.overflow(cfg, states, rooms, locals_):

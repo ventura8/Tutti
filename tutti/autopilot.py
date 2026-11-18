@@ -202,7 +202,7 @@ def cli_host_out(cfg, step, machines):
     return fleet.governor(cfg, step['worker'], machines, cfg.get('_now')) or ''
 
 
-def step_room(cfg, name, states, running_units, machines=()):
+def step_room(cfg, name, states, running_units, machines=(), slow=False):
     """(units of room, why not) for one ladder step now. A trigger account (autopilot.accounts) has room only while it is
     behind its line (or late), as much as its readings say; any other account only while it is not ahead of its pace, one task
     at a time; a worker without an account (a local model) one task at a time. Panic and spent are never used."""
@@ -220,10 +220,10 @@ def step_room(cfg, name, states, running_units, machines=()):
         return 0, f'{name}: missing linked quota state ({", ".join(missing)}); resume it or refresh its reading'
     if name in states and main_in_panic(cfg, states) and routing.unknown_quota(states[name]):
         return 0, f'{name}: quota is unknown; refresh the account and all linked limits before taking over'
-    return account_room(cfg, name, step, states, running_units, machines)
+    return account_room(cfg, name, step, states, running_units, machines, slow)
 
 
-def account_room(cfg, name, step, states, running_units, machines):
+def account_room(cfg, name, step, states, running_units, machines, slow=False):
     """Room for a paced account after its named CLI worker's machine is available."""
     used = running_units.get(name, 0)
     blocked = cli_host_out(cfg, step, machines)
@@ -243,6 +243,8 @@ def account_room(cfg, name, step, states, running_units, machines):
     unfit = routing.account_unfit(s)
     if unfit:
         return 0, f'{name}: {unfit}'
+    if slow:
+        return (1, '') if not used else (0, f'{name}: its paced task is still running or awaits a fresh reading')
     p = s.get('quota_plan')
     if (name in trigger_accounts(cfg) or name in cfg.get('_spare_accounts', ())) and p:
         # the planner's room (tutti/planner.py): a window's share of its weekly limit, or the room left after the reserve and
@@ -582,6 +584,43 @@ def fresh_fallbacks(cfg, states, rooms, used, now):
     return out
 
 
+def slow_room(cfg, name, state, tasks, used, now):
+    """One measured small task on an ahead, unshared account, spaced over twice its remaining budget horizon.
+
+    Linked/shared limits are not handled by this calculation: their usage units and concurrent reservations need a
+    shared-window budget, so they remain with the existing planner rather than risking another account's reserve.
+    """
+    if now is None or state.get('verdict') != 'ahead' or used.get(name) or not observed_quota(cfg, name, state, now):
+        return False
+    limits = cfg.get('_account_limits') or {n: (a or {}).get('limits') or [] for n, a in (cfg.get('accounts') or {}).items()}
+    if limits.get(name) or any(name in (links or []) for links in limits.values()) or state.get('limits'):
+        return False
+    p = state.get('quota_plan') or {}
+    if p.get('limit') or p.get('tasks'):
+        return False
+    account = (cfg.get('accounts') or {}).get(name) or {}
+    try:
+        cost = float(account.get('task_pct', pacing.TASK_PCT))
+        left = float(p['slow_left'])
+        until = (pacing.parse_time(p['expires']) - now).total_seconds()
+        panic_at = float(state.get('panic_at', 95))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+    if not all(math.isfinite(x) for x in (cost, left, until, panic_at)) or cost <= 0 or left < cost or until <= 0:
+        return False
+    if routing.account_unfit(state) or state.get('used') is None:
+        return False
+    if state['used'] + cost >= panic_at:
+        return False
+    starts = [a['started'] for t in tasks for a in t.get('attempts', [])
+              if a.get('step') == name and isinstance(a.get('started'), (int, float)) and not isinstance(a['started'], bool)
+              and math.isfinite(a['started'])]
+    if starts and now.timestamp() - max(starts) < 2 * until * cost / left:
+        return False
+    return True
+
+
+
 def rescue_budgets(cfg, states, tasks, names):
     """Reserve shared windows for running and not-yet-reflected attempts, independently for each reading."""
     if not names:
@@ -884,10 +923,12 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     if quiet_stop(cfg, now):
         return {**out, **quiet_stop(cfg, now)}
     used = spent_units(tasks, states, cfg)
+    slow = {n: slow_room(cfg, n, states.get(n) or {}, tasks, used, now) for n in trigger_accounts(cfg)}
     cfg['_main_in_panic'] = main_in_panic(cfg, states)
     names = list(dict.fromkeys([*ladder(cfg), *trigger_accounts(cfg), *cfg.get('_spare_accounts', ())]))
-    rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}
+    rooms = {n: step_room(cfg, n, states, used, machines or (), slow.get(n, False)) for n in names}
     fallback = fresh_fallbacks(cfg, states, rooms, used, now or datetime.now(timezone.utc))
+
     cfg['_panic_usage'] = {n: 100 - remaining_quota(states[n]) for n in names if n in states and n in cfg['accounts']
                            and panic_rescue(cfg, n, states[n], states)}
     cfg['_panic_windows'], cfg['_panic_budget'] = rescue_budgets(cfg, states, tasks, cfg['_panic_usage'])

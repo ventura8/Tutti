@@ -1403,7 +1403,7 @@ class CursorStream(unittest.TestCase):
                 process = Process()
                 process.stdout = iter(['partial answer\n'])
                 stream = chatrun.cli_stream({'command': [name, '{prompt}']}, [], threading.Event(),
-                                            popen=lambda *_a, **_kw: process)
+                                            popen=lambda *_a, proc=process, **_kw: proc)
                 self.assertEqual(next(stream), 'partial answer\n')
                 with self.assertRaisesRegex(chatrun.CliStreamUncertain, 'native tools may have acted'):
                     list(stream)

@@ -14,6 +14,7 @@ Who is asked, and when:
 Each question belongs to a user (`owner`, this Tutti's owner, or a signed-in user's id). An admin sees everyone's; a member
 only their own. The settings are kept per user in <state>/needs.json; `tutti user notify always|work-hours [--batch N]
 [--quiet HH:MM-HH:MM] [--for <email>]`, the Me card, and an admin for any member (audited)."""
+import copy
 import json
 import os
 import re
@@ -206,8 +207,9 @@ def answer(cfg, qid, choice, role='admin', key=OWNER, now=None):
 
 def decision_snapshot(task, question):
     """The parked task and question fields an automated decision depends on."""
-    return {'task': {k: task.get(k) for k in ('id', 'title', 'status', 'question', 'attempts', 'resume_from')},
-            'question': {k: question.get(k) for k in ('id', 'task', 'status', 'user', 'question', 'why', 'options', 'default', 'urgent')}}
+    return {'task': copy.deepcopy(task),
+            'question': copy.deepcopy({k: question.get(k) for k in
+                                       ('id', 'task', 'status', 'user', 'question', 'why', 'options', 'default', 'urgent', 'revision')})}
 
 
 def answer_if_current(cfg, expected, choice, now=None):

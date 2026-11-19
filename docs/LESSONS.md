@@ -1,5 +1,7 @@
 # Lessons
 
+- A decision snapshot must include all durable task fields, not only the prompt fields: scope, checks or ownership can change during review (t278).
+
 - Malformed model output is not a decision to escalate; validate the action and required fields, then back off before retrying (t244).
 
 - Phone grid tracks need a zero minimum and wrapping for long account names under enlarged text spacing (t414).

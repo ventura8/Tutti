@@ -166,6 +166,20 @@ class Layout(unittest.TestCase):
             ctx.close()
         self.assertEqual(problems, {})
 
+    def test_phone_tiles_fit_with_text_spacing_and_long_account_names(self):
+        ctx = new_context(ADMIN, 'phone')
+        self.addCleanup(ctx.close)
+        page = open_view(ctx)
+        page.evaluate('tuttiChecks.textSpacing()')
+        go(page, '#dashboard')
+        width, problems = page.evaluate("""() => {
+            const value = document.querySelectorAll('.tile__value')[1];
+            value.textContent = 'Behind: extraordinarilylongaccountnamethatcannotwrap';
+            return [document.documentElement.scrollWidth, tuttiChecks.layout()];
+        }""")
+        self.assertLessEqual(width, 360)
+        self.assertEqual(problems, [])
+
     def test_the_sign_in_page(self):
         problems = {}
         for width in WIDTHS:
@@ -296,6 +310,42 @@ class Accessibility(unittest.TestCase):
 
 ADMIN_CONTROLS = ('#refresh-readings', '#autopilot-toggle', '#selfimprove-toggle', '#telemetry-toggle', '#users-tab', '#update-now',
                   '#connect-all', '#main-form', '#autocompact-form')
+
+
+class ChatRename(unittest.TestCase):
+    def test_rename_preserves_message_nodes_scroll_and_selection(self):
+        ctx = new_context(ADMIN)
+        try:
+            page = open_view(ctx)
+            page.route('**/api/chat', lambda route: route.fulfill(status=200, content_type='application/json',
+                                                                  body='{"ok":true,"conversations":[],"suggestions":[]}')
+                       if route.request.post_data_json.get('action') == 'rename' else route.continue_())
+            page.evaluate('''() => {
+                CHAT.conv = {id: 'test', title: 'Old', messages: Array.from({length: 60}, (_, i) =>
+                    ({id: 'm' + i, role: 'assistant', text: 'Message ' + i, at: '2026-01-01T00:00:00Z'}))};
+                document.body.dataset.chatPane = 'conv';
+                drawLog();
+                const log = document.getElementById('chat-log');
+                log.scrollTop = 100;
+                window.beforeRename = {node: log.querySelector('.msg'), scroll: log.scrollTop};
+                renameConv();
+            }''')
+            page.locator('#chat-rename').fill('New name')
+            page.evaluate('''() => {
+                const text = window.beforeRename.node.querySelector('.msg__body').firstChild.firstChild;
+                const range = document.createRange(); range.selectNodeContents(text);
+                const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+            }''')
+            page.locator('#chat-dialog-actions button', has_text='Save').evaluate('(button) => button.click()')
+            page.wait_for_function("document.getElementById('chat-title').textContent === 'New name'")
+            result = page.evaluate('''() => ({same: document.getElementById('chat-log').querySelector('.msg') === window.beforeRename.node,
+                before: window.beforeRename.scroll, after: document.getElementById('chat-log').scrollTop,
+                selected: getSelection().toString()})''')
+            self.assertTrue(result['same'])
+            self.assertEqual(result['after'], result['before'])
+            self.assertEqual(result['selected'], 'Message 0')
+        finally:
+            ctx.close()
 
 
 class UsageGraph(unittest.TestCase):

@@ -6,12 +6,228 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Added
+
+- Show a crosshair, reset-relative time and pace difference on usage graphs, including touch drag (t253, t426).
+
+## 0.31.3 (2026-11-19)
+
+### Fixed
+
+- Keep a Codex usage reader from blocking the dashboard when a descendant retains its output pipe (t302).
+
+## 0.31.2 (2026-11-19)
+
+### Fixed
+
+- Keep a valid Codex usage window readable when another window has a malformed duration (t302).
+
+## 0.31.1 (2026-11-19)
+
+### Fixed
+
+- Let opted-in fresh fallback accounts take one appropriately sized task within their measured room and panic threshold (t319).
+
+## 0.31.0 (2026-11-19)
+
+### Added
+
+- Conditionally reserve known scoped household tasks for fresh local models when online room is unavailable (t319).
+
+## 0.30.25 (2026-11-19)
+
+### Fixed
+
+- Allow explicitly opted-in, measured and unshared ladder accounts with planned room to take fresh queued work (t319).
+
+## 0.30.24 (2026-11-19)
+
+### Fixed
+
+- Hold interrupted Chat plans for inspection instead of replaying actions with uncertain outcomes (t303).
+
+## 0.30.23 (2026-11-19)
+
+### Fixed
+
+- Refuse destructive Chat history changes and retries while a local answer is still running (t303).
+
+## 0.30.22 (2026-11-19)
+
+### Fixed
+
+- Preserve the previous Chat summary when compaction is stopped before its save (t303).
+
+## 0.30.21 (2026-11-19)
+
+### Fixed
+
+- Avoid launching a CLI agent to compact Chat history; treat summaries as data and require confirmation for managed
+  actions when a summary is included (t303).
+
+## 0.30.20 (2026-11-19)
+
+### Fixed
+
+- Preserve partial Chat answers and avoid fallback when a started CLI agent fails (t303).
+
+## 0.30.19 (2026-11-19)
+
+### Fixed
+
+- Reject incomplete local-model streams and avoid retrying after an attempted Chat action (t303).
+
+## 0.30.18 (2026-11-19)
+
+### Fixed
+
+- Reject automatic answers when any parked task details changed during model review (t278).
+
+## 0.30.17 (2026-11-19)
+
+### Fixed
+
+- Leave incomplete or ambiguous unblocker diagnoses unchanged instead of retrying blindly or asking a person (t244).
+
+## 0.30.16 (2026-11-19)
+
+### Fixed
+
+- Label dashboard quota room as an estimate, not a guarantee that tasks can start (t173).
+- Explain when the CPU limit uses a share of the host rather than its total cores (t96).
+- Offer changed open questions again without repeating identical questions or undoing a newer delivery on failure (t244).
+
+## 0.30.15 (2026-11-19)
+
+### Fixed
+
+- Rename a Chat without rebuilding its messages or applying the result to a newly selected conversation (t407).
+- Keep dashboard tiles within phone viewports with enlarged text spacing and long account names (t414).
+
+## 0.30.14 (2026-11-19)
+
+### Fixed
+
+- Do not apply a model diagnosis to a failing task that changed while it was being reviewed (t244).
+
+## 0.30.13 (2026-11-19)
+
+### Fixed
+
+- Scope household moved notices to their repo and hold ambiguous queued work (t210; title-only protocol remains).
+
+## 0.30.12 (2026-11-19)
+
+### Fixed
+
+- Let Chat models page through retained text in their current conversation (t387; retention limits remain).
+- Reuse unchanged Chat Markdown parse trees across redraws (t407).
+
+## 0.30.11 (2026-11-19)
+
+### Fixed
+
+- Keep same-title backlog additions separate when both explicitly name different scopes or checks (t210).
+- Preserve explicit scope and check differences when auto-fill discovers work, and count only added tasks (t210).
+
+## 0.30.10 (2026-11-18)
+
+### Fixed
+
+- Hold dispatch leases with unconfirmed execution instead of automatically freeing and retrying them (t309).
+
+## 0.30.9 (2026-11-18)
+
+### Fixed
+
+- Preserve the old household holder's worktree when its task moves, even if its backup fails (t309).
+- Allow an explicit checkpoint-only round without starting or collecting work (t309).
+- Do not report a checkpoint as pushed when no new snapshot or remote push was confirmed (t309).
+
+## 0.30.8 (2026-11-18)
+
+### Fixed
+
+- Fence cooperative local autopilot launches against creation of a move freeze marker (t404).
+
+## 0.30.7 (2026-11-18)
+
+### Fixed
+
+- Keep a changed Needs-you question or task open when a model answers an older snapshot (t278).
+
+## 0.30.6 (2026-11-18)
+
+### Fixed
+
+- Match complete unblocker actions to question options and defer ambiguous answers (t278).
+- Hold dashboard-requested restarts while Chat actions, plans or undo operations are in flight (t404).
+
+## 0.30.5 (2026-11-18)
+
+### Fixed
+
+- Guard dashboard-requested restarts against active Chat answers and unreadable Chat state (t404).
+- Move unreleased changelog entries into automatic releases without duplicating them (t408).
+- Share local model-server capacity across workers with the same configured endpoint (t301).
+
+## 0.30.4 (2026-11-18)
+
+### Fixed
+
+- Checkpoint running work and hold reported runs conservatively while autopilot is off (t404).
+- Recheck measured conductor quota and bind and watch the selected account on shared workers (t388).
+
+## 0.30.3 (2026-11-18)
+
+### Fixed
+
+- Keep local-only delegated checks from waiting on the shared remote-copy lock (t402).
+- Reject unsafe routed-check track names before creating a lock or contacting a machine (t403).
+- Reload the failover watchdog in place rather than triggering failover leave on a code change (t404).
+
+
+## 0.30.2 (2026-11-18)
+
+### Changes
+
+- fix: protect self-release branches and tags (t401) (#2016)
+- fix: allow late-paced chat accounts (t300) (#2015)
+
+## [0.30.1] - 2026-11-18
+
+### Changed
+
+- Test healthy and resumed startup recovery, and clarify the limits of recovery after power loss (t105).
 
 ## [0.30.0] - 2026-11-18
 
 ### Added
 
-- Show a crosshair, reset-relative time and pace difference on usage graphs, including touch drag and a live readout (t253).
+- Persist P0–P5 task priorities and dispatch by the saved task priority (t320).
+
+### Fixed
+
+- Hold mismatched identity-bound reports instead of publishing or retrying the wrong run (t309).
+- Save launch intent before spawning so a possibly launched run is not left queued in the local backlog (t309).
+- Attach a validated per-run correlation label to routed Docker checks, without treating absence as proof of exit (t309).
+
+## [0.29.5] - 2026-11-18
+
+### Fixed
+
+- Repeated missing reports or CLI refusals across every worker no longer park a task as exhausted (t260).
+- Reuse local model workers after completed attempts while keeping running work and online quota reservations accounted for (t301).
+- Defer automatic heavy backlog gap commands while the main computer is in quiet mode (t172).
+- Name the linked quota responsible for a panic rather than the reset window's zero usage (t272).
+
+## [0.29.4] - 2026-11-18
+
+### Fixed
+
+- Probe the configured dashboard bind and start only a verified inactive or failed user service, avoiding competing starts (t333).
 
 ## [0.29.3] - 2026-11-18
 
@@ -448,8 +664,6 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   when it is limited. The re-requests are queued in the state folder and sent by the autopilot round.
 - `review.rounds`: how many rounds (ask, fix, ask again) each reviewer gets per pull request, for copilot, coderabbit,
   greptile, a scout and `local` (the fallback worker); 1 each by default, 0: not called. A limit answer is no round.
-
-## 0.18.0 (2026-11-16)
 
 ## 0.19.1 (2026-11-16)
 

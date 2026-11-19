@@ -196,14 +196,16 @@ class Collector:
         return fresh
 
     def autopilot_tick(self):
-        """One autopilot round after each probe while it is on: the probes just taken decide (pace, slots, heat)."""
+        """Run autopilot when on; when off, checkpoint and conservatively hold reported running work."""
         if not autopilot.enabled(self.cfg):
+            autopilot.checkpoint_while_off(self.cfg, self.clock())
             return None
         # A round owns its measurements; other dashboard requests keep their shared config unchanged.
         round_cfg = {k: v for k, v in self.cfg.items() if k not in ('_host_raw', '_host', '_disk', '_parallel_limit')}
         if self.autopilot_parallel_limit is not None:
             round_cfg['_parallel_limit'] = self.autopilot_parallel_limit
         snap = self.snapshot()
+        round_cfg['_sharing_machine_at'] = autopilot._ts(snap['machines'].get('probe_started_at'))
         states = {a['name']: a for a in snap['usage']['accounts']}
         from . import sharing  # a household member's heartbeat rides on the round; shared machines offer its grant only
         machines = sharing.limit_items(self.cfg, [dict(m) for m in snap['machines']['items']], self.clock())
@@ -816,7 +818,19 @@ def restart_now(collector, _body, execv=os.execv, timer=threading.Timer):
     """POST /api/restart: the dashboard starts again with the same command, so a setting that needs a restart applies. The
     page waits for /api/health and reloads."""
     argv = without_port(getattr(collector, 'argv', None) or [sys.executable, *sys.argv])
-    timer(RESTART_DELAY, lambda: execv(argv[0], argv)).start()
+    engine = chatrun.engine_of(collector)
+    try:
+        chatrun.guard_chat_restart(engine, lambda: None)
+    except (chatrun.chat.ChatError, OSError) as e:
+        return 409, {'error': str(e)}
+
+    def restart_if_idle():
+        try:
+            chatrun.guard_chat_restart(engine, lambda: execv(argv[0], argv))
+        except (chatrun.chat.ChatError, OSError) as e:
+            sys.stderr.write(f'tutti: dashboard restart deferred ({e}); retry when Chat is idle\n')
+
+    timer(RESTART_DELAY, restart_if_idle).start()
     return 200, {'ok': True, 'restarting': True}
 
 

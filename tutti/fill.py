@@ -38,7 +38,7 @@ def room(cfg, tasks, states, machines):
     local models (one S task each: what the sources give is file-scoped and small), after the runs going and the attempts the
     readings do not show yet."""
     from . import fleet
-    used = autopilot.spent_units(tasks, states)
+    used = autopilot.spent_units(tasks, states, cfg)
     rooms = {n: autopilot.step_room(cfg, n, states, used, machines or ()) for n in autopilot.trigger_accounts(cfg)}
     total = sum(max(0, r[0]) for r in rooms.values())
     locals_ = [n for n in autopilot.ladder(cfg) if autopilot.is_local(cfg, n)]
@@ -60,14 +60,20 @@ def want(cfg, tasks, free):
 
 
 def pick(data, found, need, cfg=None):
-    """The first `need` of [(repo, title, scope, source, check)] whose title the backlog never had (a dropped or done task is
-    not queued again), shared out over the repos by their projects' priority (weighted fair share, tutti/priority.py), so a
-    more important project gets more of the room and no repo takes all of it."""
-    known = {backlog.key_of(t) for t in data['tasks']}
+    """Choose up to `need` discovered tasks without a compatible backlog match, including done or dropped tasks.
+
+    Explicitly different scopes or checks can coexist. Share room over repos by project priority (weighted fair share).
+    """
+    known = {}
+    for task in data['tasks']:
+        known.setdefault(backlog.key_of(task), []).append(task)
     by_repo = {}
     for item in found:
-        if backlog.key_of({'repo': item[0], 'title': item[1]}) not in known:
+        candidate = {'repo': item[0], 'title': item[1], 'scope': item[2], 'check': item[4]}
+        key = backlog.key_of(candidate)
+        if not any(backlog.compatible_details(previous, candidate) for previous in known.get(key, ())):
             by_repo.setdefault(item[0], []).append(item)
+            known.setdefault(key, []).append(candidate)
     items = [it for q in by_repo.values() for it in q]
     return priority.by_repo(cfg or {}, items, lambda it: it[0])[:max(0, need)]
 
@@ -88,12 +94,20 @@ def gather(cfg, data, states, machines, now, run=subprocess.run):
     so the caller holds no lock (a slow `gaps` command must not block the backlog)."""
     if due(cfg, data, states, machines, now) is None:
         return None
+    from . import quietmode
     found, problems = [], []
+
+    def allow_gaps():
+        if quietmode.status(cfg)['quiet']:
+            problems.append('gaps command deferred while this computer is in quiet mode; a later source read retries it')
+            return False
+        return True
     for name, repo in autopilot.settings(cfg)['repos'].items():
         if not os.path.isdir(config.expand(repo['path'])):
             problems.append(f'{name}: no folder {repo["path"]}')
             continue
-        found += [(name, t, s, src, repo.get('check') or '') for t, s, src in backlog.sources(repo, run, untested=True)]
+        found += [(name, t, s, src, repo.get('check') or '') for t, s, src in
+                  backlog.sources(repo, run, untested=True, allow_gaps=allow_gaps)]
     return found, problems
 
 
@@ -107,8 +121,8 @@ def fill(cfg, data, states, machines, now, found=None):
         return info
     items, problems = found
     for repo_name, title, scope, source, check in pick(data, items, want(cfg, data['tasks'], free), cfg):
-        backlog.add(data, backlog.new_task(repo_name, title, scope, check, 'S', source))
-        info['added'] += 1
+        _task, added = backlog.add(data, backlog.new_task(repo_name, title, scope, check, 'S', source))
+        info['added'] += int(added)
     info.update(read_at=now, queued=fresh_units(cfg, data['tasks']))
     info['note'] = (f'queued {info["added"]} new task(s) from the repos\' sources' if info['added'] else
                     'the repos\' sources hold nothing new: add tasks, a `gaps` command, or FEEDBACK.md items') + \

@@ -68,7 +68,7 @@ Tutti reads CLI usage, scoped usage pages and limit messages. All readings go to
 | --- | --- | --- |
 | A reader command | `reader: {command: [...], bucket: <id>, every_minutes: 10}` | Antigravity: `agy -p /usage --output-format json` lists every quota bucket (`3p-5h` and `gemini-5h`: the two rolling 5-hour windows; `3p-weekly`, `gemini-weekly`) with the share left and the reset time, and spends no quota. One run serves every account that names the same command. |
 | A plan command | `plan: {command: [...], field: <key>}` | A label for the card, such as Cursor's tier from `cursor-agent about --format json` (`subscriptionTier`). Only that field is read. |
-| Codex CLI app-server | `reader: {format: codex-app-server, every_minutes: 15}` | Codex CLI's `account/rateLimits/read` returns its 5-hour and weekly windows without reading auth files or spending quota. Accounts with `worker: codex` get this reader automatically when `reader` is omitted, including existing configs. Tutti chooses the window closest to `accounts.<name>.window`; `bucket: primary\|secondary` can select one explicitly. |
+| Codex CLI app-server | `reader: {format: codex-app-server, every_minutes: 15}` | Codex CLI's `account/rateLimits/read` returns its 5-hour and weekly windows without reading auth files or spending quota. Accounts with `worker: codex` get this reader automatically when `reader` is omitted, including existing configs. Tutti chooses the valid-duration window closest to `accounts.<name>.window` and reports invalid reset times. A reader whose stdout remains open after its process exits cannot hold the dashboard: further Codex reads wait until that collector reaches EOF; this bounds output-pipe cleanup only, not all possible stdin or OS stalls, and does not prove descendants have stopped; `bucket: primary\|secondary` can select one explicitly. |
 
 The Codex reader keeps its local app-server session open until initialization and the rate-limit request finish; if the
 server cannot answer within 20 seconds, Tutti reports the reader error and retries at its normal interval.
@@ -182,7 +182,8 @@ small, and stays simple enough to check by hand:
   that can run; with no quiet hours, overnight windows are filled by the autopilot instead of lost. What a whole window
   costs of the limit is `window_points`, else measured from this window's readings (the limit's rise over the window's
   rise), else unknown (no cap from the later windows). When this window has spent its allowance, nothing new goes to it until
-  it resets; a limit spent or in panic closes it at once.
+  it resets; a limit spent or in panic closes it at once. A panic caused by a linked limit names that limit and its
+  usage, so a freshly reset short window is not reported as itself being in panic at zero percent.
 - **Both limits together.** An even share is a floor, not a cap: while the limit's projection (its last day's rate carried
   to its reset) ends under its budget, this window may also spend the difference, up to what the window itself holds. Early
   in the week a window can take far more than 1/33 of the weekly quota, and it is never cut off while the week still fits.

@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 
-from . import config, failover, move, remote, selfheal, statebudget, watchdog, yamledit
+from . import config, failover, remote, selfheal, statebudget, watchdog, yamledit
 
 UNIT = 'tutti-failover.service'
 
@@ -134,9 +134,7 @@ def one_round(cfg, run=subprocess.run, healthy_since=None, now=None):
         failover.write(cfg, {**rec, 'last': line})
         lines.append(line)
     if failover.may_write(cfg) and failover.me(cfg) == failover.main_of(cfg) and cfg.get('_path'):
-        port = cfg['dashboard']['port']
-        lines += watchdog.round_services(True, lambda: move.local_health(port) is not None,
-                                         lambda: failover.start_dashboard(cfg))
+        lines += watchdog.ensure_dashboard(cfg)
     _freed, pruned = statebudget.prune(folder, statebudget.opts(cfg), now)
     return lines + pruned
 
@@ -179,17 +177,22 @@ def code_stamp(folder=None):
     return newest
 
 
-RESTART_CODE = 75   # EX_TEMPFAIL: a failure exit, so the service manager starts it again under Restart=always or on-failure
+def restart_in_place(cfg):
+    """Reload only the failover run command, with its resolved config path, without invoking the leave hook."""
+    path = os.path.abspath(cfg['_path'])
+    os.execv(sys.executable, [sys.executable, remote.BIN, '--config', path, 'failover', 'run'])
 
 
-def loop(cfg, stop=None, sleep=time.sleep, stamp=code_stamp, restart=lambda: RESTART_CODE):
-    """The service's rounds. When Tutti's code changes under it the loop ends with RESTART_CODE and the service manager
-    starts it on the new code: a service that ran on for days kept the old code and never ran checks added since (t124)."""
+def loop(cfg, stop=None, sleep=time.sleep, stamp=code_stamp, restart=None):
+    """Reload changed code in place so systemd does not run the service's failover-leave hook on a routine reload."""
     healthy_since, healed, started = None, 0.0, stamp()
     while not (stop and stop()):
         if stamp() != started:
-            say('failover: Tutti\'s code changed (an update): the service starts again on the new code')
-            return restart()
+            say('failover: Tutti\'s code changed (an update): reloading the watchdog in place')
+            try:
+                return restart() if restart else restart_in_place(cfg)
+            except OSError as e:
+                say(f'failover: watchdog reload failed ({e}); continuing heartbeats and retrying next round')
         try:
             lines = one_round(cfg, healthy_since=healthy_since)
             healed = heal(cfg, lines, healed, time.time())

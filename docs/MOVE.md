@@ -1,5 +1,16 @@
 # Moving Tutti to another machine
 
+On a host with secure POSIX locking, a cooperative autopilot launch and creation of the local move freeze marker now use
+the same admission lock: a launch admitted first completes its intent/spawn before the marker, and a launch arriving after
+the marker waits. Freeze refuses when this locking is unavailable. The marker is fsynced and atomically installed; an
+existing marker for another target is refused. The lock order is backlog then admission for launches; freeze takes only
+admission and releases it before stopping the dashboard.
+
+This is a partial local fence, not safe move or restart coordination. Older versions and direct runs, Chat, workq, dispatch,
+remote hosts and other launch paths do not use it. Already admitted work may still be running, and `--jobs wait` currently
+stops the dashboard service before waiting and can hand work over on timeout. Do not treat the marker, a report, or a local
+PID as proof remote work stopped. Complete execution-boundary evidence and coordinated admission remain open (t404/t309).
+
 You may start Tutti on a laptop and later want it on an always-on mini PC or desktop, so the dashboard, the autopilot
 and the readings keep going when the laptop sleeps. One command moves it, and one command brings it back:
 

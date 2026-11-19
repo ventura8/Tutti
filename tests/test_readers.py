@@ -66,6 +66,19 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(codexusage.window(rates, {'window': '5h'}, {}),
                          (28.0, T('2026-01-06T14:00Z')))
 
+    def test_codex_window_skips_malformed_other_window_and_rejects_bad_reset(self):
+        weekly = {'usedPercent': 64, 'windowDurationMins': 10080, 'resetsAt': 1768176000}
+        for duration in ('bad', None, True, float('inf'), 10**400):
+            rates = {'primary': {'windowDurationMins': duration}, 'secondary': weekly}
+            self.assertEqual(codexusage.window(rates, {'window': '7d'}, {}), (64.0, T('2026-01-12T00:00Z')))
+        self.assertEqual(codexusage.window({'secondary': {**weekly, 'windowDurationMins': '10080'}}, {'window': '7d'}, {}),
+                         (64.0, T('2026-01-12T00:00Z')))
+        with self.assertRaisesRegex(ValueError, 'no 5h usage window'):
+            codexusage.window({'primary': {'windowDurationMins': 'bad'}}, {'window': '5h'}, {})
+        for reset in (float('inf'), 10**20, 10**400):
+            with self.assertRaisesRegex(ValueError, 'reset time'):
+                codexusage.window({'secondary': {**weekly, 'resetsAt': reset}}, {'window': '7d'}, {})
+
     def test_codex_app_server_response_ignores_notifications_and_rejects_missing_limits(self):
         text = '{"method":"account/updated"}\n{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":12}}}}\n'
         self.assertIn('primary', codexusage.response(text))
@@ -91,6 +104,76 @@ class ParseTest(unittest.TestCase):
             return subprocess.Popen([sys.executable, '-c', 'pass'], **kwargs)
         with self.assertRaisesRegex(ValueError, 'closed without a rate limits response'):
             codexusage.read({}, {}, popen=popen)
+
+    def test_codex_reader_does_not_block_or_accumulate_collectors_on_inherited_stdout(self):
+        release, closed = threading.Event(), threading.Event()
+        class Output:
+            def __iter__(self):
+                release.wait(3)
+                return iter(())
+            def close(self):
+                closed.set()
+        proc = mock.Mock(stdout=Output(), stdin=mock.Mock())
+        popen = mock.Mock(return_value=proc)
+        try:
+            with mock.patch.object(codexusage, 'exchange', return_value={'secondary': {}}):
+                self.assertEqual(codexusage.read({}, {}, popen=popen), {'secondary': {}})
+                for _ in range(2):
+                    with self.assertRaisesRegex(ValueError, 'still finishing'):
+                        codexusage.read({}, {}, popen=popen)
+                self.assertEqual(popen.call_count, 1)
+        finally:
+            release.set()
+        self.assertTrue(closed.wait(2))
+        for _ in range(100):
+            if codexusage.READER_LOCK.acquire(blocking=False):
+                codexusage.READER_LOCK.release()
+                break
+            threading.Event().wait(0.01)
+        else:
+            self.fail('reader guard was not released after EOF')
+        with mock.patch.object(codexusage, 'exchange', return_value={'secondary': {}}):
+            self.assertEqual(codexusage.read({}, {}, popen=popen), {'secondary': {}})
+
+    def test_codex_reader_launch_failure_releases_guard(self):
+        popen = mock.Mock(side_effect=OSError('missing'))
+        with self.assertRaisesRegex(ValueError, 'could not start'):
+            codexusage.read({}, {}, popen=popen)
+        self.assertTrue(codexusage.READER_LOCK.acquire(blocking=False))
+        codexusage.READER_LOCK.release()
+
+    def test_codex_collector_start_failure_reaps_before_releasing_guard(self):
+        proc = mock.Mock(stdin=io.StringIO(), stdout=io.StringIO())
+        with mock.patch('tutti.codexusage.threading.Thread.start', side_effect=RuntimeError('no thread')):
+            with self.assertRaisesRegex(RuntimeError, 'no thread'):
+                codexusage.read({}, {}, popen=mock.Mock(return_value=proc))
+        proc.terminate.assert_called_once()
+        proc.wait.assert_called_once_with(timeout=2)
+        self.assertTrue(proc.stdin.closed and proc.stdout.closed)
+        self.assertTrue(codexusage.READER_LOCK.acquire(blocking=False))
+        codexusage.READER_LOCK.release()
+
+    def test_codex_collector_start_failure_keeps_guard_if_process_exit_is_unknown(self):
+        proc = mock.Mock(stdin=io.StringIO(), stdout=io.StringIO())
+        proc.wait.side_effect = [subprocess.TimeoutExpired('codex', 2), subprocess.TimeoutExpired('codex', 2)]
+        try:
+            with mock.patch('tutti.codexusage.threading.Thread.start', side_effect=RuntimeError('no thread')):
+                with self.assertRaisesRegex(RuntimeError, 'no thread'):
+                    codexusage.read({}, {}, popen=mock.Mock(return_value=proc))
+            self.assertFalse(codexusage.READER_LOCK.acquire(blocking=False))
+            self.assertTrue(proc.stdin.closed and proc.stdout.closed)
+            proc.kill.assert_called_once()
+        finally:
+            codexusage.READER_LOCK.release()   # the fake process cannot be reaped later
+
+    def test_codex_reader_bounds_both_cleanup_waits(self):
+        proc = mock.Mock(stdout=io.StringIO(''), stdin=io.StringIO())
+        proc.wait.side_effect = [subprocess.TimeoutExpired('codex', 2), subprocess.TimeoutExpired('codex', 2), None]
+        with mock.patch.object(codexusage, 'exchange', return_value={'secondary': {}}):
+            self.assertEqual(codexusage.read({}, {}, popen=mock.Mock(return_value=proc)), {'secondary': {}})
+        self.assertEqual(proc.wait.call_args_list[:2], [mock.call(timeout=2), mock.call(timeout=2)])
+        proc.kill.assert_called_once()
+        self.assertTrue(proc.stdout.closed)
 
     def test_codex_deadline_stops_even_if_notifications_are_queued(self):
         process, lines = mock.Mock(), mock.Mock()

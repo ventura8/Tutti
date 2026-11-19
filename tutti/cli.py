@@ -989,7 +989,9 @@ def cmd_selfheal(cfg, a):
     if a.once:
         lines = selfheal.round_(selfheal.Ctx(cfg))
         if a.json:
-            print(json.dumps({'repairs': lines}))
+            from .watchdog import WarningLine
+            print(json.dumps({'repairs': [x for x in lines if not isinstance(x, WarningLine)],
+                              'warnings': [x for x in lines if isinstance(x, WarningLine)]}))
             return 0
         say('\n'.join(lines) or 'self-heal: nothing repaired this round (a step only a person can take is in `tutti needs`)')
         return 0
@@ -1302,8 +1304,10 @@ def cmd_backlog(cfg, a):
 def backlog_change(cfg, a, data):
     if a.action == 'add':
         repo = repo_of(cfg, a.repo)
-        task, new = backlog.add(data, backlog.new_task(a.repo, a.title or '', a.scope or [], a.check or repo.get('check') or '', a.size,
-                                                       a.source, a.note or []))
+        candidate = backlog.new_task(a.repo, a.title or '', a.scope or [], a.check or repo.get('check') or '', a.size,
+                                     a.source, a.note or [])
+        candidate['check_explicit'] = bool(a.check)
+        task, new = backlog.add(data, candidate)
         print(f'{task["id"]}: {"added" if new else "already in the backlog"}: {task["title"][:90]}')
     elif a.action == 'seed':
         added = backlog.seed(data, a.repo, repo_of(cfg, a.repo))
@@ -1315,6 +1319,13 @@ def backlog_change(cfg, a, data):
 
 def task_change(task, a):
     """rm, retry or done of one task; never while its run is going."""
+    if a.action == 'priority':
+        value = str(a.title or '').upper()
+        if value not in ('P0', 'P1', 'P2', 'P3', 'P4', 'P5'):
+            raise backlog.BacklogError(f'priority: give P0 through P5: tutti backlog priority {task["id"]} P0')
+        task['priority'] = int(value[1])
+        print(f'{task["id"]}: {value}')
+        return 0
     if task['status'] == 'running':
         raise backlog.BacklogError(f'{task["id"]} is running (run {task.get("run")}): wait for it '
                                    f'(tutti wait run {task.get("run")}), then {a.action} it')
@@ -1455,8 +1466,30 @@ def fenced(cfg, what):
     return True
 
 
+def autopilot_checkpoint(cfg):
+    results = autopilot.checkpoint_now(cfg, time.time())
+    if results is None:
+        say('autopilot checkpoint: this machine is not the active main: run it on the active machine')
+        return 2
+    for task_id, result in results:
+        say(f'autopilot checkpoint: {task_id}: {"pushed" if result["pushed"] else result["error"]}')
+    if not results:
+        say('autopilot checkpoint: no running tasks')
+    return 0 if all(result['pushed'] for _, result in results) else 1
+
+
+def autopilot_land(cfg, task_id):
+    from . import fill
+    try:
+        print(fill.land(cfg, task_id or '', **bridge.tools(cfg)))
+    except backlog.BacklogError as e:
+        say(str(e))
+        return 2
+    return 0
+
+
 def cmd_autopilot(cfg, a):
-    """`tutti autopilot [status|on|off|tick|fill on|off|land <id>]`."""
+    """`tutti autopilot [status|on|off|tick|checkpoint|fill on|off|land <id>]`."""
     from . import fill
     if a.action in ('on', 'off'):
         autopilot.set_enabled(cfg, a.action == 'on')
@@ -1466,12 +1499,7 @@ def cmd_autopilot(cfg, a):
             return 2
         fill.set_fill(cfg, a.arg == 'on')
     elif a.action == 'land':
-        try:
-            print(fill.land(cfg, a.arg or '', **bridge.tools(cfg)))
-        except backlog.BacklogError as e:
-            say(str(e))
-            return 2
-        return 0
+        return autopilot_land(cfg, a.arg)
     elif a.action == 'allow':
         from . import resolver
         try:
@@ -1484,10 +1512,13 @@ def cmd_autopilot(cfg, a):
         now = datetime.now(timezone.utc)
         states = {s['name']: s for s in state.usage_state(cfg, now)['accounts']}
         from . import sharing
+        cfg['_sharing_machine_at'] = time.time()   # probe start is conservative when individual hosts answer slowly
         machines = sharing.limit_items(cfg, state.machines_state(cfg, remote.probe), time.time())
         _plan, events = autopilot.tick(cfg, states, machines, beat=sharing.beat(cfg, now, machines))
         for e in events:
             say(f'autopilot: {e}')
+    elif a.action == 'checkpoint':
+        return autopilot_checkpoint(cfg)
     print(autopilot.describe(autopilot.view(cfg)))
     return 0
 
@@ -1509,6 +1540,16 @@ def cmd_fleet(cfg, a):
     return 0
 
 
+def dispatch_resolve(cfg, a):
+    try:
+        dispatch.resolve(cfg, a.lease or '', a.confirmed_stopped)
+    except ValueError as e:
+        say(str(e))
+        return 2
+    print(f'dispatch: {a.lease}: lease released after confirmation')
+    return 0
+
+
 def cmd_dispatch(cfg, a):
     """`tutti dispatch [status|on|off|now|run <lease>]`: keep devices and machines busy while test shards wait."""
     if a.action in ('on', 'off'):
@@ -1520,6 +1561,8 @@ def cmd_dispatch(cfg, a):
             say('name the lease: tutti dispatch run <lease> (the dispatcher starts these itself)')
             return 2
         return dispatch.run(cfg, a.lease)
+    if a.action == 'resolve':
+        return dispatch_resolve(cfg, a)
     if a.action == 'build':
         if len(a.rest) != 2 or not a.lease:
             say('tutti dispatch build <project> <suite> <rc file> (the dispatcher starts these itself)')
@@ -1986,7 +2029,7 @@ def parser():
     s = add('backlog', cmd_backlog, 'the autopilot\'s queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> '
                                     '(FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, '
                                     'accept <id> (a suggested candidate)')
-    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note'])
+    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note', 'priority'])
     s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: '
                                            'the task id')
     s.add_argument('--who', help='claim: the session that works on it by hand (default $TUTTI_SESSION)')
@@ -2015,9 +2058,9 @@ def parser():
                                            'window: the date (YYYY-MM-DD)')
     s.add_argument('window', nargs='?', help='window: that day\'s owner hours HH-HH (e.g. 20-24), off, or config (its weekday\'s)')
     s = add('autopilot', cmd_autopilot, 'send backlog tasks to accounts that are behind their pace, by itself: status, on, off, '
-                                        'tick (one round now; the dashboard ticks while it runs), fill on|off (fill free room from '
+                                        'tick (one round now), checkpoint (snapshot running work only), fill on|off (fill free room from '
                                         'the repos\' sources), land <id> (review a result and land it)')
-    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick', 'fill', 'land', 'allow'])
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick', 'checkpoint', 'fill', 'land', 'allow'])
     s.add_argument('arg', nargs='?', help='fill: on or off; land: the task id; allow: the account that may take first attempts '
                                           'for 7 days (the block resolver\'s one action)')
     s = add('workq', cmd_workq, 'the compute work queue: the projects\' gates, tests and reports on machines with a free slot '
@@ -2062,9 +2105,10 @@ def parser():
     s.add_argument('--preview', action='store_true', help='print the report and send nothing')
     s.add_argument('--yes', action='store_true', help='send without asking again after the preview')
     s = add('dispatch', cmd_dispatch, 'keep devices and machines busy: idle ones pull pending test shards (projects.<p>.tests) by '
-                                      'themselves: status, on, off, now (one round with fresh probes), run <lease> and build '
+                                      'themselves: status, on, off, now, resolve <lease> --confirmed-stopped, run <lease> and build '
                                       '<project> <suite> <rc> (internal)')
-    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'now', 'run', 'build'])
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'now', 'run', 'build', 'resolve'])
+    s.add_argument('--confirmed-stopped', action='store_true', help='resolve: confirm the entire execution boundary has stopped')
     s.add_argument('lease', nargs='?', help='run: the lease id; build: the project')
     s.add_argument('rest', nargs='*', help='build: the suite and the rc file')
     s = add('machine', cmd_machine, 'evacuate <machine>: move every job waiting on it to the best available target; '

@@ -166,6 +166,20 @@ class Layout(unittest.TestCase):
             ctx.close()
         self.assertEqual(problems, {})
 
+    def test_phone_tiles_fit_with_text_spacing_and_long_account_names(self):
+        ctx = new_context(ADMIN, 'phone')
+        self.addCleanup(ctx.close)
+        page = open_view(ctx)
+        page.evaluate('tuttiChecks.textSpacing()')
+        go(page, '#dashboard')
+        width, problems = page.evaluate("""() => {
+            const value = document.querySelectorAll('.tile__value')[1];
+            value.textContent = 'Behind: extraordinarilylongaccountnamethatcannotwrap';
+            return [document.documentElement.scrollWidth, tuttiChecks.layout()];
+        }""")
+        self.assertLessEqual(width, 360)
+        self.assertEqual(problems, [])
+
     def test_the_sign_in_page(self):
         problems = {}
         for width in WIDTHS:

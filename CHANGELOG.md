@@ -12,6 +12,12 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 - Rename a Chat without rebuilding its messages or applying the result to a newly selected conversation (t407).
 
+## Unreleased
+
+### Fixed
+
+- Keep dashboard tiles within phone viewports with enlarged text spacing and long account names (t414).
+
 ## 0.30.14 (2026-11-19)
 
 ### Fixed

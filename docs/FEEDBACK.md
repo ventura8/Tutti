@@ -1,5 +1,7 @@
 # Feedback log
 
+Dashboard summary tiles must fit phone viewports with WCAG text spacing and long account names (t414).
+
 A household moved notice must not stop a same-title task in a different repo or guess between local tasks (t210).
 
 The unblocker must not apply an old diagnosis after the task it inspected changes (t244).

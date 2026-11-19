@@ -202,6 +202,8 @@ main {
     border-radius: var(--r-m);
     background: var(--tint-1);
     border: 1px solid var(--outline-2);
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .tile__label { color: var(--on-surface-2); font-size: 0.8125rem; font-weight: 500; letter-spacing: 0.02em; }
@@ -538,7 +540,7 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
     .accounts { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 86%; overflow-x: auto; scroll-snap-type: x mandatory;
         padding-bottom: 6px; overscroll-behavior-x: contain; }
     .account { scroll-snap-align: start; }
-    .tiles { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .tile { padding: 12px 14px; }
     .tile__value { font-size: 1.25rem; }
     .segmented button { padding: 0 10px; }

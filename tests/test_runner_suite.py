@@ -44,6 +44,26 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(actions, [('claim', ['pixeltablet', 'googletv']), ('release', ['pixeltablet', 'googletv'])])
         self.assertEqual([x[0] for x in adb], ['connect', 'connect', '-s', '-s', 'disconnect', 'disconnect'])
 
+    def test_runner_preserves_command_separator(self):
+        cfg = {'devices': {'phone': {}}, 'machines': {'pc': {'transport': 'ssh'}}}
+        rc, ran, _ = self.lease(cfg, ['phone', '--', 'run', '--', '-x'])
+        self.assertEqual(rc, 0)
+        self.assertIn('run -- -x', ran[0])
+
+    def test_local_lease_preserves_command_separator(self):
+        import contextlib
+        a = SimpleNamespace(names=['phone', '--', 'run', '--', '-x'], runner=None, who='ci', action='lease')
+        def claim(cfg, args):
+            if args.action == 'claim':
+                print('ADDR=serial')
+            return 0
+        with mock.patch.object(devicescmd, 'cmd_claim', claim), \
+                mock.patch('tutti.adbhost.Host'), \
+                mock.patch.object(devicescmd, 'Renewer', return_value=contextlib.nullcontext()), \
+                mock.patch('subprocess.run', return_value=SimpleNamespace(returncode=0)) as run:
+            self.assertEqual(devicescmd.cmd_lease({}, a), 0)
+        self.assertEqual(run.call_args.args[0], ['run', '--', '-x'])
+
     def lease(self, cfg, words, state='device\n'):
         actions, ran = [], []
 

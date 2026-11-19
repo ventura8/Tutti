@@ -481,6 +481,22 @@ class ExternalLockTest(unittest.TestCase):
         os.utime(theirs.replace('{serial}', 'R58'), (an_hour_ago, an_hour_ago))
         self.assertEqual(devmove.busy({}, d, old, lease_fn=lambda c, n: ''), '')   # left behind: stale after 30 min
 
+    def test_moving_a_device_clears_external_lock_so_the_old_host_path_is_not_kept(self):
+        tmp = tmpdirs.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        path = os.path.join(tmp, 'tutti.config.yaml')
+        with open(path, 'w', encoding='utf8') as f:
+            f.write('machines: {pc: {}, nuc: {}}\n'
+                    'devices:\n'
+                    '  tab:\n'
+                    '    serial: S1\n'
+                    '    machine: pc\n'
+                    '    external_lock: /mnt/c/Users/someone/Projects/local-ai/adb-{serial}.lock\n')
+        devmove.set_machine(path, [('tab', 'nuc', None)])
+        got = yaml.safe_load(open(path, encoding='utf8'))['devices']['tab']
+        self.assertEqual(got['machine'], 'nuc')
+        self.assertNotIn('external_lock', got)
+
 
 class KeepOnTest(unittest.TestCase):
     """After a reboot Android turns Wireless debugging off: Tutti turns it back on through any machine that reaches the

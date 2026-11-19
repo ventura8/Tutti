@@ -185,11 +185,15 @@ log. Put it where the project's own sessions read it.
 ## Devices shared with other tools
 
 `devices.<d>.external_lock` names the lock file other tools keep for the device, with `{serial}` filled in, for example
-`/mnt/c/.../adb-{serial}.lock`.
+`/mnt/c/.../adb-{serial}.lock`. It must be a path on the device's machine.
 
 - **Waiting**: a run waits while that file exists and is fresher than `external_lock_stale_minutes` (30).
 - **Holding**: it then writes the file with "tutti <time>" and removes it when the run ends, however the run ends.
+- **Missing folder**: if the lock's folder is missing or unreachable on this machine (a path left from another host after
+  a move, e.g. a WSL `/mnt/c/...` on a Linux box), the run skips that lock with a message naming the key and the fix, and
+  does not wait or create it.
 - **Readings**: the readings show the device as busy, held by the file's first line, so it is neither idle nor dispatched to.
+  A look at the file is timed out so a bad path cannot hang the probe.
 
 `devices.<d>.kind` is `phone` (the default), `tablet` or `tv`:
 

@@ -12,7 +12,9 @@ if [[ -n "${DEVICE_LOCK:-}" ]]; then
 	if flock -n "$DEVICE_LOCK" true 2> /dev/null; then echo "locked=0"; else echo "locked=1"; fi
 fi
 # another tool's lock file for this device (EXT_LOCK), fresher than EXT_STALE seconds: who holds it
-if [[ -n "${EXT_LOCK:-}" && -e "$EXT_LOCK" ]] && (( $(date +%s) - $(stat -c %Y "$EXT_LOCK") < ${EXT_STALE:-1800} )); then
+# timeout: a path left on another host (e.g. WSL /mnt/c/... after a move) must not hang the readings
+if [[ -n "${EXT_LOCK:-}" ]] && timeout 5 test -e "$EXT_LOCK" 2> /dev/null \
+	&& (( $(date +%s) - $(timeout 5 stat -c %Y "$EXT_LOCK" 2> /dev/null || echo 0) < ${EXT_STALE:-1800} )); then
 	echo "external=1"
 	echo "external_by=$(head -n 1 "$EXT_LOCK" | tr -d '\r' | tr -c '[:alnum:] ._:()+-' ' ' | cut -c1-120)"
 fi

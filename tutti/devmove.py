@@ -140,7 +140,7 @@ def plan_lines(pre, found):
 
 def set_machine(path, moves):
     """Changes devices.<name>.machine (and .adb: the new machine's adb, or none when it is on PATH) in the config file,
-    keeping its comments. `moves`: [(name, machine, adb or None)]."""
+    keeping its comments. Clears `external_lock` (a path on the old machine). `moves`: [(name, machine, adb or None)]."""
     with open(path, encoding='utf8') as f:
         text = f.read()
     for name, machine, adb in moves:
@@ -149,6 +149,9 @@ def set_machine(path, moves):
             text = yamledit.edit(text, ['devices', name, 'adb'], adb)
         elif 'adb' in (((yaml.safe_load(text) or {}).get('devices') or {}).get(name) or {}):
             text = yamledit.edit(text, ['devices', name, 'adb'], yamledit.DELETE)
+        # a path on the old machine (e.g. WSL /mnt/c/...): keeping it makes runs on the new host wait on a missing folder
+        if 'external_lock' in (((yaml.safe_load(text) or {}).get('devices') or {}).get(name) or {}):
+            text = yamledit.edit(text, ['devices', name, 'external_lock'], yamledit.DELETE)
     config.write_text(path, text)
 
 

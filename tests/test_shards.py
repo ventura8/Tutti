@@ -225,6 +225,16 @@ class ExternalLockTest(Base):
         os.utime(lock, (old, old))
         self.assertIn('ran', self.run_wrapped(lock, 'echo ran').stdout)
 
+    def test_a_lock_whose_folder_is_missing_is_skipped_so_the_run_does_not_hang(self):
+        # a path left from another machine (e.g. WSL /mnt/c/... after the device moved): folder gone here
+        lock = os.path.join(self.tmp.name, 'no', 'such', 'dir', 'adb-S1.lock')
+        r = self.run_wrapped(lock, 'echo ran')
+        self.assertEqual(r.returncode, 0)
+        self.assertIn('ran', r.stdout)
+        self.assertIn('external_lock folder missing or unreachable', r.stdout)
+        self.assertIn('tutti: device ready', r.stdout)
+        self.assertFalse(os.path.exists(lock))
+
     def test_the_readings_say_who_holds_it(self):
         from tests.test_devices import fake_adb
         lock = os.path.join(self.tmp.name, 'adb-S1.lock')

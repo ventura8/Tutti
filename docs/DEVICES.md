@@ -81,9 +81,9 @@ docs/DISPATCH.md; its text names the holder).
 
 Then, on the new machine: the adb server restarts to load the key (`adb kill-server`, `adb start-server`), each
 device is connected and checked (`adb -s <serial> shell getprop ro.product.model`, and against `model` when the config
-has it), `devices.<name>.machine` (and `adb`) change in the config, and the old machine's adb server lets go of it
-(`adb disconnect`). A device that does not connect stays on the old machine with its config unchanged (rollback); when
-none moved, the new machine's key is put back as it was.
+has it), `devices.<name>.machine` (and `adb`) change in the config, `external_lock` is cleared (it was a path on the old
+machine), and the old machine's adb server lets go of it (`adb disconnect`). A device that does not connect stays on the
+old machine with its config unchanged (rollback); when none moved, the new machine's key is put back as it was.
 
 ## Wireless debugging stays on
 
@@ -120,6 +120,8 @@ reason, and releases the claim, when the device's wireless address is not found 
 A tool with its own lock file per device names it in `devices.<name>.external_lock` (a path on the device's machine,
 `{serial}` filled in; docs/DISPATCH.md). Tutti mirrors it: the device shows busy while the file is fresh, a Tutti run
 waits for it and writes its own there for the run, and a move waits for it while it is fresh. That tool's agents keep working unchanged.
+A move clears `external_lock` (it was a path on the old machine); set it again on the new host if another tool still
+shares the device. A run whose lock folder is missing or unreachable skips that lock instead of hanging.
 
 To use Tutti's leases instead, an agent runs its device commands through Tutti, which holds the device's lock for the
 command, checks battery and heat first and queues a second run:

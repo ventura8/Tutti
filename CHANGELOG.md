@@ -7,6 +7,14 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## 0.24.1 (2026-11-17)
+
+### Fixed
+
+- `devices.<d>.external_lock` whose folder is missing or unreachable on the device's machine (a WSL `/mnt/c/...` path
+  left after the device moved) is skipped with a message naming the key and the fix, instead of failing the take or
+  hanging the run / readings (t267). `tutti devices move` clears `external_lock` when it rewrites `machine`.
+
 ## 0.24.0 (2026-11-17)
 
 ### Added

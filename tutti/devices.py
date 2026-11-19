@@ -275,6 +275,28 @@ def external_lock(device):
     return path.replace('{serial}', str(device['serial'])) if path else ''
 
 
+def _external_take(have, who):
+    """Shell that waits for and takes each lock whose folder exists on this machine.
+
+    A path left from another host (e.g. a WSL `/mnt/c/...` after the device moved) must not hang the run: the folder
+    check is timed out (5 s), then that lock is skipped with a message naming the key and the fix. Held paths land in
+    the bash array EXT_HELD for refresh and cleanup."""
+    if not have:
+        return 'EXT_HELD=(); '
+    bits = ['EXT_HELD=()']
+    for p, stale in have:
+        q = shlex.quote(p)
+        skip = (f'tutti: {p}: devices.<d>.external_lock folder missing or unreachable on this machine; '
+                'set a path that exists here or clear the key')
+        bits.append(
+            f'if [[ ! {q} =~ ^[\'\"]?/mnt/[a-z]/ ]] && timeout 10 test -d "$(dirname -- {q})" 2>/dev/null; then '
+            f'while [ -e {q} ] && [ $(( $(date +%s) - $(stat -c %Y {q}) )) -lt {stale} ]; do '
+            f'echo "tutti: waiting for {p}: $(head -c 200 {q})"; sleep 30; done; '
+            f'printf "%s %s\\n" {shlex.quote(who)} "$(date -Iseconds)" > {q}; EXT_HELD+=({q}); '
+            f'else echo {shlex.quote(skip)}; fi')
+    return '; '.join(bits) + '; '
+
+
 def external_wrap(found, command, who='tutti'):
     """`command` as a device session (docs/DISPATCH.md, *Prep and restore*). It waits while another tool's lock file
     (devices.<d>.external_lock) is fresher than external_lock_stale_minutes (30), then takes it ("<who> <time>") and
@@ -286,19 +308,17 @@ def external_wrap(found, command, who='tutti'):
     from . import prep
     locks = [(external_lock(d), int(float(d.get('external_lock_stale_minutes', EXTERNAL_STALE_MINUTES)) * 60)) for d in found]
     have = [(p, stale) for p, stale in locks if p]
-    waits = ''.join(
-        f'while [ -e {shlex.quote(p)} ] && [ $(( $(date +%s) - $(stat -c %Y {shlex.quote(p)}) )) -lt {stale} ]; do '
-        f'echo "tutti: waiting for {p}: $(head -c 200 {shlex.quote(p)})"; sleep 30; done && ' for p, stale in have)
-    files = ' '.join(shlex.quote(p) for p, _ in have)
-    take = f'for f in {files}; do printf "%s %s\\n" {shlex.quote(who)} "$(date -Iseconds)" > "$f"; done && ' if have else ''
+    take = _external_take(have, who)
     users = ' '.join(f'{prep.users_path(d)}/run-$$' for d in found)
     register = ''.join(f'mkdir -p {prep.users_path(d)} && ' for d in found) + f'touch {users} && '
-    refresh = f'{{ while :; do touch {files} 2>/dev/null; sleep 60; done & }}; ' if have else ''   # the lock stays fresh
+    # only the locks this run took (EXT_HELD); a skipped path from another machine is never created or refreshed
+    refresh = ('{ while :; do [ ${#EXT_HELD[@]} -eq 0 ] || touch "${EXT_HELD[@]}" 2>/dev/null; sleep 60; done & }; '
+               if have else '')
     awake = refresh + ''.join(f'{{ {prep.keep_awake(d)} & }}; ' for d in found)
     # each background loop and its waiting `sleep` child: a loop killed alone left its sleep behind for a minute
     # the loop first (else it goes on to its next key), then the children it had: listed before, by exact pid
     stop = 'for j in $(jobs -p); do c=$(pgrep -P "$j"); kill "$j" 2>/dev/null; [ -n "$c" ] && kill $c 2>/dev/null; done'
-    release = '; '.join(x for x in (stop, f'rm -f {users}', f'rm -f {files}' if have else '',
+    release = '; '.join(x for x in (stop, f'rm -f {users}', 'rm -f "${EXT_HELD[@]}"' if have else '',
                                      *(prep.release_script(d, p, stale) for d, (p, stale) in zip(found, locks, strict=True))) if x)
     setup = prep.scripts(found)[0]
     wake = '; '.join(prep.unlock(d) for d in found)
@@ -312,7 +332,7 @@ def external_wrap(found, command, who='tutti'):
     if refused:   # the run's own command line names a command its device class forbids: it never starts
         return f'echo {shlex.quote(refused)}; exit 5'
     command = devclass.export(found) + command
-    return (f'{waits}{take}{register}trap {shlex.quote(release)} EXIT && {setup + "; " if setup else ""}{wake}; {watch}{awake}'
+    return (f'{take}{register}trap {shlex.quote(release)} EXIT && {setup + "; " if setup else ""}{wake}; {watch}{awake}'
             f'echo \'tutti: device ready\'; setsid bash -c {shlex.quote(command)} & cmd=$!; {guard}wait $cmd; exit $?')
 
 

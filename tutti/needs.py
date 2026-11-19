@@ -19,6 +19,7 @@ import os
 import re
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -136,8 +137,13 @@ def ask(cfg, task, question, why, options, default, user=OWNER, urgent=False, no
         if q is None:
             q = {'id': new_id(data), 'task': task['id'], 'status': 'open', 'at': now, 'delivered': None}
             data['questions'].append(q)
-        q.update(user=user, question=str(question)[:300], why=str(why)[:300], options=options, default=default,
-                 urgent=bool(urgent), title=task['title'][:120], project=task.get('project') or task.get('repo'))
+        fields = dict(user=user, question=str(question)[:300], why=str(why)[:300], options=options, default=default,
+                      urgent=bool(urgent), title=task['title'][:120], project=task.get('project') or task.get('repo'))
+        if any(q.get(k) != v for k, v in fields.items()):
+            q['revision'] = q.get('revision', 0) + 1
+            q['delivered'] = None
+            q.pop('delivery_token', None)
+        q.update(fields)
         answered = [x for x in data['questions'] if x['status'] != 'open']
         if len(answered) > 300:   # only answered ones go: an open question stays until its answer
             old = {x['id'] for x in answered[:-300]}
@@ -430,17 +436,20 @@ def tick(cfg, now=None, at_work_fn=None, send=None):
             ok, why = due(s, pending, at_work_fn(cfg, key, now), (data['users'].get(key) or {}).get('last_delivered'), now)
             if ok:
                 ids = {q['id'] for q in pending}
+                token = uuid.uuid4().hex
                 for q in data['questions']:
                     if q['id'] in ids:
                         q['delivered'] = now
+                        q['delivery_token'] = token
                 prev = (data['users'].get(key) or {}).get('last_delivered')
                 data['users'].setdefault(key, {})['last_delivered'] = now
-                plan.append((key, pending, why, prev))
-    for key, qs, why, prev in plan:   # the chat's own lock: outside needs.json's
+                data['users'][key]['delivery_token'] = token
+                plan.append((key, [dict(q) for q in pending], why, prev, token))
+    for key, qs, why, prev, token in plan:   # the chat's own lock: outside needs.json's
         try:
             send(cfg, key, qs)
         except Exception as e:  # any failure: the batch is offered again next round, never lost
-            undeliver(cfg, key, {q['id'] for q in qs}, prev)
+            undeliver(cfg, key, qs, prev, token)
             events.append(f'needs: {len(qs)} question(s) for {key} not delivered ({type(e).__name__}: {e}); tried again next round')
             continue
         events.append(f'needs: {len(qs)} question(s) delivered to {key} ({why})')
@@ -448,12 +457,18 @@ def tick(cfg, now=None, at_work_fn=None, send=None):
     return events
 
 
-def undeliver(cfg, key, ids, prev):
+def undeliver(cfg, key, questions, prev, token):
     with locked(cfg) as data:
+        sent = {q['id']: q.get('revision', 0) for q in questions}
         for q in data['questions']:
-            if q['id'] in ids:
+            if (q['id'] in sent and q.get('revision', 0) == sent[q['id']]
+                    and q.get('delivery_token') == token):
                 q['delivered'] = None
-        data['users'].setdefault(key, {})['last_delivered'] = prev
+                q.pop('delivery_token', None)
+        settings = data['users'].setdefault(key, {})
+        if settings.get('delivery_token') == token:
+            settings['last_delivered'] = prev
+            settings.pop('delivery_token', None)
 
 
 def blocking_all(cfg):

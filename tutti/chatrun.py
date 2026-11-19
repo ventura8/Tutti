@@ -695,9 +695,7 @@ class Engine:
                 kept = kept or weak
                 if stop:
                     return
-            except SummaryCancelled:
-                return
-            except (OSError, ValueError) as e:
+            except (OSError, ValueError, SummaryCancelled) as e:
                 if job.cancel.is_set():
                     return
                 self._guard_incomplete_action(job, e)

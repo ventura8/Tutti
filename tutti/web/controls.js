@@ -45,9 +45,10 @@ function deviceAction(d) {
 function device(d, paused) {
     const c = d.card || { status: d.status, label: DEVICE_CHIP[d.status] || d.status, tone: DEVICE_TONE[d.status], why: d.reason };
     const why = paused ? pausedBy(paused) : c.why;
-    return el('li', { class: 'row', 'data-device': d.name, 'data-status': c.status },
+    return el('li', { class: 'row', 'data-device': d.name, 'data-status': c.status, 'data-roles': roleNames(d.role_info) },
         el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `adb ${d.serial} · on ${d.machine}` })),
         chip(c.label, c.tone),
+        roleChips(d.name, d.role_info, `devices.${d.name}`),
         el('div', { class: 'row__stats' }, deviceAction(d)),
         deviceStats(d),
         presenceBits(d.presence),
@@ -63,7 +64,6 @@ function blockedHours(d) {
     const bits = [el('span', {}, h ? `Not used ${h.window}${h.days ? ` on ${h.days.join(', ')}` : ' every day'} (local time). ` : 'No blocked hours. ',
         el('a', { class: 'link', href: `#settings/devices.${d.name}.hours`, text: h ? 'Change' : 'Set blocked hours' }))];
     if (d.dnd_now || d.dnd_schedule) bits.push(el('span', { text: `Do Not Disturb: ${d.dnd_now ? 'on now' : 'off now'}${d.dnd_schedule ? `, usually ${d.dnd_schedule}` : ''}.` }));
-    if ((d.roles || []).length) bits.push(el('span', { text: `Cast: ${d.roles.map((r) => r.replace('cast-', '')).join(' and ')}.` }));
     if (d.night) bits.push(el('span', {}, `Night mode: ${d.night.hours} (1 % brightness, volume 0). `, el('a', { class: 'link', href: '#settings/night.enabled', text: 'Change' })));
     return el('ul', { class: 'device__notes', 'aria-label': `${d.name}: hours and modes` }, ...bits.map((b) => el('li', { class: 'row__note' }, b)));
 }
@@ -177,6 +177,8 @@ function renderControls(s) {
     $('devices').replaceChildren(...(devices.length ? devices.map((d) => (d.checking ? el('li', { class: 'row', 'data-device': d.name, 'data-status': 'checking' },
         el('div', { class: 'row__name' }, d.name, el('span', { class: 'row__kind', text: `on ${d.machine}` })), chip('checking', 'idle')) : device(d, paused.get(`device:${d.name}`))))
         : [el('li', {}, empty('No Android devices', codeText('Press Pair a device, or run ', 'tutti devices pair', '.')))]));
+    renderLanDevices(s);   // roles.js: speakers, soundbars and TVs on the network, with their roles
+    roleFilter('devices-role-filter', 'devices', [...devices.map((d) => ({ roles: d.role_info })), ...(s.devices?.lan || [])]);
     renderDeviceTools(s);   // devices.js: Pair a device, Pair a TV, Move devices
     const seen = new Set();
     const row = (kind, name, state) => {

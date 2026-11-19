@@ -53,6 +53,10 @@ class FillTest(Base):
     def test_a_free_local_model_is_room_to_fill_while_the_online_accounts_are_spared(self):
         cfg = self.cfg(fill_room=True)
         self.assertEqual(fill.room(cfg, [], self.states(room=0), FREE), 1)   # agy has none, cursor is ahead: pc is the room
+        finished = task('old', 'done', [{**attempt('pc', ok=True), 'started': 1000}])
+        self.assertEqual(fill.room(cfg, [finished], self.states(room=0), FREE), 1)
+        running = {**task('running', 'running'), 'step': 'pc'}
+        self.assertEqual(fill.room(cfg, [finished, running], self.states(room=0), FREE), 0)
         cfg['workers']['pc']['machine'] = 'nuc'
         hot = [{**FREE[0], 'status': 'loaded', 'reason': 'too hot: CPU 99 C (nothing new at 98 C or more)'}]
         self.assertEqual(fill.room(cfg, [], self.states(room=0), hot), 0)   # the governor: a hot machine is no room
@@ -69,6 +73,33 @@ class FillTest(Base):
         run.assert_not_called()
         self.assertFalse(autopilot.view(cfg)['fill_room'])
 
+    def test_quiet_gather_defers_gaps_but_still_reads_other_sources(self):
+        self.repo()
+        cfg = self.cfg(fill_room=True)
+        cfg['autopilot']['repos']['app']['gaps'] = 'expensive-check'
+        run = mock.Mock(return_value=done(out=''))
+        with mock.patch('tutti.quietmode.status', return_value={'quiet': True}):
+            _, problems = fill.gather(cfg, backlog.load(cfg), self.states(), FREE, 1.0, run)
+        self.assertIn('deferred', problems[0])
+        self.assertTrue(run.called)
+        self.assertFalse(any(call.args[0][:2] == ['bash', '-c'] for call in run.call_args_list))
+        run.reset_mock()
+        with mock.patch('tutti.quietmode.status', return_value={'quiet': False}):
+            fill.gather(cfg, backlog.load(cfg), self.states(), FREE, 1.0, run)
+        self.assertTrue(any(call.args[0] == ['bash', '-c', 'expensive-check'] for call in run.call_args_list))
+
+    def test_gather_checks_quiet_again_for_each_repo(self):
+        self.repo()
+        cfg = self.cfg(fill_room=True)
+        cfg['autopilot']['repos']['app']['gaps'] = 'first-check'
+        cfg['autopilot']['repos']['other'] = {**cfg['autopilot']['repos']['app'], 'gaps': 'second-check'}
+        run = mock.Mock(return_value=done(out=''))
+        with mock.patch('tutti.quietmode.status', side_effect=[{'quiet': False}, {'quiet': True}]):
+            _, problems = fill.gather(cfg, backlog.load(cfg), self.states(), FREE, 1.0, run)
+        commands = [call.args[0] for call in run.call_args_list if call.args[0][:2] == ['bash', '-c']]
+        self.assertEqual(commands, [['bash', '-c', 'first-check']])
+        self.assertTrue(any('deferred' in problem for problem in problems))
+
     def test_want_caps_at_ahead_per_run_less_the_fresh_queue(self):
         cfg = self.cfg()
         self.assertEqual(fill.want(cfg, [], 46), 2 * fill.AHEAD)
@@ -78,6 +109,35 @@ class FillTest(Base):
     def test_pick_goes_round_robin_over_repos(self):
         found = [('a', 'one', [], 's', ''), ('a', 'two', [], 's', ''), ('b', 'three', [], 's', '')]
         self.assertEqual([x[1] for x in fill.pick({'tasks': []}, found, 2)], ['one', 'three'])
+
+    def test_pick_preserves_explicitly_distinct_work_and_historic_dedupe(self):
+        existing = {**task('t1', 'done'), 'title': 'Fix test', 'scope': ['a.py'], 'check': 'test-a'}
+        found = [('app', 'Fix test', ['a.py'], 'todo', 'test-a'),
+                 ('app', 'Fix test', ['b.py'], 'todo', 'test-a'),
+                 ('app', 'Fix test', ['a.py'], 'todo', 'test-b'),
+                 ('app', 'Fix test', [], 'todo', ''),
+                 ('other', 'Fix test', ['a.py'], 'todo', 'test-a')]
+        picked = fill.pick({'tasks': [existing]}, found, 10)
+        self.assertEqual({(x[0], tuple(x[2]), x[4]) for x in picked},
+                         {('app', ('b.py',), 'test-a'), ('app', ('a.py',), 'test-b'),
+                          ('other', ('a.py',), 'test-a')})
+        existing['status'] = 'dropped'
+        self.assertNotIn(found[0], fill.pick({'tasks': [existing]}, found, 10))
+
+    def test_pick_removes_same_batch_duplicates_before_limiting_room(self):
+        found = [('app', 'Fix one', ['a.py'], 'todo', 'check'),
+                 ('app', 'fix one', ['a.py'], 'gap', 'check'),
+                 ('app', 'Fix two', ['b.py'], 'todo', 'check')]
+        self.assertEqual(fill.pick({'tasks': []}, found, 2), [found[0], found[2]])
+
+    def test_fill_counts_only_successful_additions(self):
+        cfg = self.cfg()
+        data = {'tasks': [], 'next': 1}
+        found = ([('app', 'Fix one', ['a.py'], 'todo', 'check')], [])
+        with mock.patch.object(fill, 'room', return_value=1), mock.patch.object(fill, 'want', return_value=1), \
+                mock.patch.object(backlog, 'add', return_value=({}, False)):
+            info = fill.fill(cfg, data, self.states(), FREE, 1.0, found)
+        self.assertEqual(info['added'], 0)
 
     def test_a_missing_repo_folder_is_named(self):
         cfg = self.cfg(fill_room=True)

@@ -275,8 +275,39 @@ def gh_json(args, run=None):
         return None
 
 
-THREADS_Q = ('query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100)'
-             '{nodes{isResolved}}}}}')
+THREADS_Q = ('query($o:String!,$r:String!,$n:Int!,$after:String){repository(owner:$o,name:$r){pullRequest(number:$n)'
+             '{reviewThreads(first:100,after:$after){nodes{isResolved} pageInfo{hasNextPage endCursor}}}}}')
+MAX_THREAD_PAGES = 1000  # fail closed if GitHub cannot provide a finite, verifiable result
+
+
+def open_threads(repo, number, run=github.run):
+    """Count all unresolved review threads, or return None when their complete list cannot be verified."""
+    owner, name = repo.split('/', 1)
+    cursor, seen, count = None, set(), 0
+    for _ in range(MAX_THREAD_PAGES):
+        args = ['api', 'graphql', '-f', f'query={THREADS_Q}', '-F', f'o={owner}', '-F', f'r={name}', '-F', f'n={number}']
+        if cursor:
+            args += ['-f', f'after={cursor}']
+        page = gh_json(args, run)
+        try:
+            if page.get('errors'):
+                return None
+            threads = page['data']['repository']['pullRequest']['reviewThreads']
+            nodes, info = threads['nodes'], threads['pageInfo']
+            if not isinstance(nodes, list) or not isinstance(info['hasNextPage'], bool):
+                return None
+            if any(not isinstance(node, dict) or not isinstance(node.get('isResolved'), bool) for node in nodes):
+                return None
+            count += sum(not node['isResolved'] for node in nodes)
+            if not info['hasNextPage']:
+                return count
+            cursor = info['endCursor']
+            if not isinstance(cursor, str) or not cursor or cursor in seen:
+                return None
+            seen.add(cursor)
+        except (TypeError, KeyError, AttributeError):
+            return None
+    return None
 
 
 def pr_state(repo, number, run=github.run):
@@ -284,13 +315,8 @@ def pr_state(repo, number, run=github.run):
                   'state,isDraft,reviewDecision,mergeable,statusCheckRollup,baseRefName,headRefOid'], run)
     if pr is None:
         return None
-    owner, name = repo.split('/', 1)
-    t = gh_json(['api', 'graphql', '-f', f'query={THREADS_Q}', '-F', f'o={owner}', '-F', f'r={name}', '-F', f'n={number}'], run)
-    try:
-        nodes = t['data']['repository']['pullRequest']['reviewThreads']['nodes']
-        pr['open_threads'] = sum(1 for x in nodes if not x['isResolved'])
-    except (TypeError, KeyError):
-        pr['open_threads'] = 1   # unknown counts as open: never merge blind
+    count = open_threads(repo, number, run)
+    pr['open_threads'] = 1 if count is None else count   # unknown counts as open: never merge blind
     return pr
 
 

@@ -59,7 +59,8 @@ DEFAULTS = {
     # when a task is parked for a person, and the repos it may work in ({name: {path, check, where, pr, commit, trailers, gaps,
     # land, base}}); fill_room: free room on the trigger accounts is filled from the repos' sources by itself (tutti/fill.py);
     # auto_review: a result to review is reviewed by review.fallback and landed by its repo's `land` (merge, pr or branch)
-    'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'max_parallel': None, 'no_progress': 3, 'max_attempts': 12, 'repos': {},
+    'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'fresh_fallback_accounts': [], 'max_parallel': None,
+                  'no_progress': 3, 'max_attempts': 12, 'repos': {},
                   'checkpoint_minutes': 5, 'quiet_hours': [], 'fill_room': True, 'auto_review': True, 'stuck_minutes': 30},
     # depbots: dependency bots' pull requests and vulnerability reports as autopilot tasks (tutti/depbots.py,
     # docs/SECURITY-INTAKE.md): the bots whose pull requests are dependency updates (authors or branch prefixes; match: a
@@ -143,8 +144,8 @@ DEFAULTS = {
     # auth: sign-in with Google for the dashboard (docs/AUTH.md): the OAuth client ID (public; `tutti auth setup` saves it in
     # the state folder instead) and how long a session lasts
     'auth': {'client_id': '', 'session_hours': 72},
-    'main': {'agent': 'claude', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30, 'rounds': 12,
-             'command_timeout': 3600},
+    'main': {'agent': 'claude', 'preferred': '', 'fallback': [], 'commands': {}, 'ask_first': [], 'check_seconds': 30,
+             'rounds': 12, 'command_timeout': 3600},
     # fleet: the household's local models as workers (docs/FLEET.md): every machine's Ollama is read and a machine with models
     # but no configured ollama worker gets `<machine>-local` (a tunnel from port_base on); memory_floor_gb: this computer
     # runs no local model with less memory free; enabled: false turns the discovery and the overflow routing off
@@ -174,6 +175,33 @@ def ollama_url(host, path):
     """The URL of an Ollama API path on `host` (`name:port`, or a full `scheme://name:port`)."""
     base = host if '://' in host else f'{OLLAMA_SCHEME}://{host}'
     return base.rstrip('/') + path
+
+
+def safe_ollama_endpoint(host):
+    """A plain endpoint suitable for persisted provenance, or None for URLs containing extra data."""
+    import ipaddress
+    from urllib.parse import urlsplit
+    if not isinstance(host, str) or not host or '?' in host or '#' in host or any(c.isspace() or ord(c) < 32 for c in host):
+        return None
+    try:
+        parts = urlsplit(host if '://' in host else f'{OLLAMA_SCHEME}://{host}')
+        if (parts.scheme not in ('http', 'https') or not parts.hostname or parts.username is not None or parts.password is not None
+                or parts.path not in ('', '/') or parts.query or parts.fragment or '@' in parts.netloc or parts.port == 0):
+            return None
+        name = parts.hostname.lower()
+        if '%' in name:
+            return None
+        try:
+            ipaddress.ip_address(name)
+        except ValueError:
+            labels = name.split('.')
+            if (len(name) > 253 or any(not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label)
+                                       for label in labels)):
+                return None
+        port = parts.port or (443 if parts.scheme == 'https' else 80)
+        return f'{parts.scheme}://[{name}]:{port}' if ':' in name else f'{parts.scheme}://{name}:{port}'
+    except ValueError:
+        return None
 
 
 def xdg_tutti_dir(env=None):
@@ -295,6 +323,12 @@ def normalise(raw):
     cfg['routing']['order'] = sorted(cfg['routing']['order'], key=lambda n: (cfg['machines'].get(n) or {}).get('transport') == 'android')
     from . import devices  # devices imports this module
     devices.normalise(cfg)
+    cfg['_account_workers'] = {n: ((a or {}).get('worker') or n) for n, a in cfg['accounts'].items()}
+    cfg['_account_limits'] = {n: list(a.get('limits') or []) for n, a in cfg['accounts'].items()
+                              if isinstance(a, dict) and isinstance(a.get('limits') or [], list)}
+    cfg['_account_costs'] = {n: a.get('task_pct') for n, a in cfg['accounts'].items() if isinstance(a, dict)}
+    cfg['_account_args'] = {n: list(a.get('args') or []) for n, a in cfg['accounts'].items()
+                            if isinstance(a, dict) and isinstance(a.get('args') or [], list)}
     opt_out(cfg)
     lenient(cfg)
     return cfg
@@ -311,20 +345,44 @@ def is_on(entry):
     return not (entry.get('costs_money') or entry.get('opt_in'))
 
 
+def filter_fresh_fallbacks(cfg, off_accounts):
+    fallback = cfg['autopilot'].get('fresh_fallback_accounts')
+    if isinstance(fallback, list):
+        cfg['autopilot']['fresh_fallback_accounts'] = [n for n in fallback if n not in off_accounts]
+
+
 def opt_out(cfg):
     """Takes the accounts and workers that are off out of the config: out of pacing, panic, routing, review and conduct
-    fallbacks and the dashboard (an account's readings stay in the log, unused). An account whose worker is off is off too.
-    `off` lists them for the dashboard's note, with whether they cost money."""
+    fallbacks (an account's readings stay in the log, unused). An account whose worker is off is off too.
+    `off` lists them for display, with their reason for being off."""
     off_workers = sorted(n for n, w in cfg['workers'].items() if not is_on(w))
     off_accounts = sorted(n for n, a in cfg['accounts'].items() if not is_on(a) or (a or {}).get('worker') in off_workers)
     def entry(kind, n, section):
         e = cfg[section][n] or {}
         out = {'name': n, 'kind': kind, 'costs_money': bool(e.get('costs_money'))}
-        return {**out, 'paused': e['paused']} if e.get('paused') else out
+        if e.get('paused'):
+            out['paused'] = e['paused']
+        worker = e.get('worker') if kind == 'account' else None
+        if kind == 'account' and not is_on({k: v for k, v in e.items() if k != 'paused'}):
+            out['disabled'] = True
+        if worker in off_workers:
+            out['off_worker'] = worker
+            worker_cfg = cfg['workers'][worker] or {}
+            if worker_cfg.get('paused'):
+                out['worker_paused'] = worker_cfg['paused']
+            if not is_on({k: v for k, v in worker_cfg.items() if k != 'paused'}):
+                out['worker_disabled'] = True
+        return out
     cfg['off'] = [entry('worker', n, 'workers') for n in off_workers] + [entry('account', n, 'accounts') for n in off_accounts]
     cfg['disabled_accounts'], cfg['disabled_workers'] = off_accounts, off_workers
+    paused_workers = {n for n, w in cfg['workers'].items() if (w or {}).get('paused')}
+    off_steps = paused_workers | {n for n, a in cfg['accounts'].items()
+                                  if (a or {}).get('paused') or (a or {}).get('worker') in paused_workers}
     cfg['accounts'] = {n: a for n, a in cfg['accounts'].items() if n not in off_accounts}
     cfg['workers'] = {n: w for n, w in cfg['workers'].items() if n not in off_workers}
+    cfg['autopilot']['ladder'] = [n for n in cfg['autopilot'].get('ladder') or [] if n not in off_steps]
+    cfg['autopilot']['accounts'] = [n for n in cfg['autopilot'].get('accounts') or [] if n not in off_steps]
+    filter_fresh_fallbacks(cfg, off_accounts)
     gone = set(off_workers)
     cfg['routing']['workers'] = [w for w in cfg['routing'].get('workers') or [] if w not in gone]
     for section in ('main', 'review'):
@@ -428,8 +486,15 @@ def _review_errors(cfg):
 def _worker_errors(name, w):
     kind = (w or {}).get('kind')
     if kind == 'cli':
-        return [] if isinstance(w.get('command'), list) and w['command'] else [
+        errors = [] if isinstance(w.get('command'), list) and w['command'] else [
             f'workers.{name}.command is missing: a list such as [cursor-agent, -p, "{{prompt}}"]']
+        selector = w.get('chat_account_selector')
+        if selector is not None and (not isinstance(selector, str) or not selector.startswith('-') or selector == '-' or '=' in selector):
+            errors.append(f'workers.{name}.chat_account_selector is {selector!r}: use a flag such as --model, without a value')
+        fmt = w.get('chat_output_format', 'text')
+        if fmt not in ('text', 'cursor-stream-json'):
+            errors.append(f'workers.{name}.chat_output_format is {fmt!r}: use text or cursor-stream-json')
+        return errors
     if kind == 'ollama':
         return [f'workers.{name}.{k} is missing' for k in ('host', 'model') if not w.get(k)]
     return [f'workers.{name}.kind is {kind!r}: use cli or ollama']
@@ -562,6 +627,9 @@ def _autopilot_errors(cfg):
     if not isinstance(ap, dict):
         return [f'autopilot is {ap!r}: write it as a mapping, e.g. autopilot: {{enabled: false, accounts: [...], repos: {{...}}}}']
     errs = _autopilot_name_errors(cfg, 'accounts', ap.get('accounts')) + _autopilot_name_errors(cfg, 'ladder', ap.get('ladder'))
+    fallback = ap.get('fresh_fallback_accounts')
+    if not isinstance(fallback, list) or any(not isinstance(n, str) or n not in cfg['accounts'] for n in fallback):
+        errs.append('autopilot.fresh_fallback_accounts must be a list of configured account names: name accounts from accounts: or use []')
     errs += quiet_hours_errors(ap.get('quiet_hours'))
     errs += [f'autopilot.{k} is {ap[k]!r}: use true or false' for k in ('fill_room', 'auto_review') if not isinstance(ap.get(k), bool)]
     from . import parallel
@@ -625,6 +693,12 @@ def _main_errors(cfg):
     if not isinstance(fallback, list):
         return [f'main.fallback is {fallback!r}: a list of workers, e.g. [agy, cursor]']
     errs = [f'main.fallback names "{n}", which is not under workers:' for n in fallback if n not in cfg['workers']]
+    # main.agent may be a worker or auto (Tutti picks); a missing worker name is left to runtime (current/choose),
+    # so a default of claude on a config without that worker still loads (tests and lean configs).
+    preferred = m.get('preferred') or ''
+    if preferred and preferred not in cfg['workers']:
+        errs.append(f'main.preferred names "{preferred}", which is not under workers: '
+                    'set it to a worker, or leave it empty (defaults to the first of main.fallback, else claude)')
     errs += target_errors('main.target_pct', m.get('target_pct'))
     commands = m.get('commands') if isinstance(m.get('commands'), dict) else {}
     errs += [f'main.commands.{n}: "{n}" is not under workers:' for n in commands if n not in cfg['workers']]
@@ -661,6 +735,13 @@ def _account_pace_errors(name, a):
     return errs
 
 
+def _interval_errors(key, spec):
+    every = spec.get('every_minutes', 1)
+    if isinstance(every, bool) or not isinstance(every, (int, float)) or not math.isfinite(every) or every <= 0:
+        return [f'{key}.every_minutes is {every!r}: use a number of minutes above 0']
+    return []
+
+
 def _command_errors(key, spec, needs):
     if not isinstance(spec, dict):
         return [f'{key} is {spec!r}: write it as a mapping with command: [...] and {needs}:']
@@ -671,10 +752,7 @@ def _command_errors(key, spec, needs):
     want = (int, float) if needs == 'allowance' else str
     if isinstance(spec.get(needs), bool) or not isinstance(spec.get(needs), want) or not spec.get(needs):
         errs.append(f'{key}.{needs} is missing (docs/USAGE-PACING.md: Automatic readings)')
-    every = spec.get('every_minutes', 1)
-    if isinstance(every, bool) or not isinstance(every, (int, float)) or not math.isfinite(every) or every <= 0:
-        errs.append(f'{key}.every_minutes is {every!r}: use a number of minutes above 0')
-    return errs
+    return errs + _interval_errors(key, spec)
 
 
 def _regex_errors(key, value):
@@ -685,7 +763,7 @@ def _regex_errors(key, value):
     return []
 
 
-READER_FORMATS = (None, 'github-premium', 'cursor-api')
+READER_FORMATS = (None, 'github-premium', 'cursor-api', 'codex-app-server', 'browser-usage')
 EXTRA_ACCOUNT_KEYS = {'credits', 'note', 'name'}   # read by the code, not in the Settings tab's schema
 
 
@@ -702,6 +780,15 @@ def reader_problems(name, a):
             return [f'{key}.field is {r.get("field")!r}: one of {", ".join(cursorusage.FIELDS)} '
                     '(autoPercentUsed is "Cursor Models", apiPercentUsed "Other Models")']
         return []
+    if fmt == 'codex-app-server':
+        if r.get('bucket') not in (None, 'primary', 'secondary'):
+            return [f'{key}.bucket is {r.get("bucket")!r}: use primary or secondary, or omit it to match accounts.{name}.window']
+        return _interval_errors(key, r)
+    if fmt == 'browser-usage':
+        url = a.get('usage_url')
+        if not isinstance(url, str) or not url.startswith('https://'):
+            return [f'{key}: give an https:// usage page in accounts.{name}.usage_url']
+        return _interval_errors(key, r)
     return _command_errors(key, r, 'allowance' if fmt == 'github-premium' else 'bucket')
 
 

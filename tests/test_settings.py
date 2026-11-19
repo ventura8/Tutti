@@ -5,13 +5,14 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
 import yaml
 
-from tutti import autopilot, config, dashboard, priority, settings, yamledit
+from tutti import autopilot, chatrun, config, dashboard, priority, settings, yamledit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SECRET = 'https://k3y-n0t-for-the-page@sentry.example/42'
@@ -206,11 +207,235 @@ class SaveTest(Base):
         ran = []
         timer = mock.Mock(side_effect=lambda d, fn: SimpleNamespace(start=fn))
         self.c.argv = ['/usr/bin/python3', 'tutti', 'dashboard']
+        self.c.snapshot = lambda: {}
         self.assertEqual(dashboard.restart_now(self.c, b'{}', execv=lambda *a: ran.append(a), timer=timer)[0], 200)
         self.assertEqual(ran, [('/usr/bin/python3', ['/usr/bin/python3', 'tutti', 'dashboard'])])
         self.assertEqual(dashboard.without_port(['py', 'tutti', 'dashboard', '--port', '4777', '--port=1', '--no-probe']),
                          ['py', 'tutti', 'dashboard', '--no-probe'])   # the saved dashboard.port applies after a restart
         self.assertIn(b'"started"', dashboard.route(self.c, '/api/health')[1])
+
+    def test_restart_refuses_a_live_answer_even_if_its_conversation_was_deleted(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        engine.jobs['m'] = chatrun.Job('user', 'deleted', {'id': 'm'})
+        timer = mock.Mock()
+        code, body = dashboard.restart_now(self.c, b'{}', timer=timer)
+        self.assertEqual(code, 409)
+        self.assertIn('answering', body['error'])
+        timer.assert_not_called()
+
+    def test_restart_defers_if_a_chat_starts_after_preflight(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        pending, ran = [], []
+        def timer(_delay, fn):
+            return SimpleNamespace(start=lambda: pending.append(fn))
+        self.assertEqual(dashboard.restart_now(self.c, b'{}', execv=lambda *a: ran.append(a), timer=timer)[0], 200)
+        engine.jobs['m'] = chatrun.Job('user', 'c', {'id': 'm'})
+        pending[0]()
+        self.assertEqual(ran, [])
+
+    def test_restart_refuses_streaming_or_unreadable_persisted_state(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        conv = engine.store.create('user', messages=[{'id': 'm', 'role': 'assistant', 'status': 'streaming'}])
+        self.assertEqual(dashboard.restart_now(self.c, b'{}')[0], 409)
+        engine.store.delete('user', conv['id'])
+        with open(engine.store.path('user'), 'w', encoding='utf8') as f:
+            f.write('{broken')
+        self.assertEqual(dashboard.restart_now(self.c, b'{}')[0], 409)
+        with mock.patch.object(chatrun.auth, 'fcntl', None):
+            self.assertEqual(dashboard.restart_now(self.c, b'{}')[0], 409)
+        with mock.patch.object(chatrun.os, 'listdir', side_effect=PermissionError('denied')):
+            self.assertEqual(dashboard.restart_now(self.c, b'{}')[0], 409)
+
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'FIFO not supported')
+    def test_restart_refuses_fifo_store_without_waiting_for_a_writer(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        os.makedirs(engine.store.folder, exist_ok=True)
+        os.mkfifo(engine.store.path('user'))
+        self.assertEqual(dashboard.restart_now(self.c, b'{}')[0], 409)
+
+    def test_chat_send_waits_for_guarded_restart(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        entered, release, sent = threading.Event(), threading.Event(), threading.Event()
+        def action():
+            entered.set()
+            self.assertTrue(release.wait(2))
+        worker = threading.Thread(target=lambda: chatrun.guard_chat_restart(engine, action))
+        with mock.patch.object(engine, '_send_locked', side_effect=lambda *a: sent.set()):
+            worker.start()
+            self.assertTrue(entered.wait(2))
+            sender = threading.Thread(target=lambda: engine.send({'sub': 'user'}, 'c', 'hello'))
+            sender.start()
+            self.assertFalse(sent.wait(0.05))
+            release.set()
+            worker.join(2)
+            sender.join(2)
+        self.assertTrue(sent.is_set())
+        self.assertFalse(worker.is_alive() or sender.is_alive())
+
+    def test_concurrent_first_chat_requests_share_one_engine(self):
+        self.c.snapshot = lambda: {}
+        engines = []
+        start = threading.Barrier(8)
+        def obtain():
+            start.wait(timeout=2)
+            engines.append(chatrun.engine_of(self.c))
+        workers = [threading.Thread(target=obtain) for _ in range(8)]
+        with mock.patch.object(chatrun, 'Engine', wraps=chatrun.Engine) as make:
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(2)
+        self.assertEqual(len(engines), 8)
+        self.assertTrue(all(engine is engines[0] for engine in engines))
+        make.assert_called_once()
+
+    def test_restart_refuses_inflight_confirm_until_its_result_is_saved(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        entered, release, saved = threading.Event(), threading.Event(), threading.Event()
+        card = {'state': 'proposed', 'call': {'tool': 'backlog_add', 'args': {}}}
+        calls = []
+        def change(_sub, _cid, _mid, _kid, fn):
+            calls.append(1)
+            result = fn(card)
+            if len(calls) > 1:
+                saved.set()
+            return result
+        def execute(_user, _cfg, _call, result):
+            entered.set()
+            self.assertTrue(release.wait(2))
+            result['state'] = 'done'
+        with mock.patch.object(engine, '_card_change', side_effect=change), \
+                mock.patch.object(chatrun.chat, 'validate', return_value=card['call']), \
+                mock.patch.object(engine, 'execute', side_effect=execute):
+            worker = threading.Thread(target=lambda: engine.confirm({'sub': 'u'}, 'c', 'm', 'k'))
+            worker.start()
+            self.assertTrue(entered.wait(2))
+            with self.assertRaises(chatrun.chat.ChatError):
+                chatrun.guard_chat_restart(engine, lambda: self.fail('restart during an action'))
+            self.assertFalse(saved.is_set())
+            release.set()
+            worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(saved.is_set())
+        self.assertEqual(chatrun.guard_chat_restart(engine, lambda: 'ok'), 'ok')
+
+    def test_new_action_waits_for_restart_guard(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        entered, release, claimed = threading.Event(), threading.Event(), threading.Event()
+        def guarded():
+            entered.set()
+            self.assertTrue(release.wait(2))
+        def change(_sub, _cid, _mid, _kid, fn):
+            claimed.set()
+            return fn({'state': 'proposed'})
+        worker = threading.Thread(target=lambda: chatrun.guard_chat_restart(engine, guarded))
+        with mock.patch.object(engine, '_card_change', side_effect=change):
+            worker.start()
+            self.assertTrue(entered.wait(2))
+            action = threading.Thread(target=lambda: engine.confirm({'sub': 'u'}, 'c', 'm', 'k', yes=False))
+            action.start()
+            self.assertFalse(claimed.wait(0.05))
+            release.set()
+            worker.join(2)
+            action.join(2)
+        self.assertFalse(worker.is_alive() or action.is_alive())
+        self.assertTrue(claimed.is_set())
+
+    def test_action_admission_is_released_when_saving_result_fails(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        card = {'state': 'proposed', 'call': {'tool': 'backlog_add', 'args': {}}}
+        def execute(*_args):
+            engine.action_admission.mark_started()
+        with mock.patch.object(engine, '_card_change', side_effect=[card, OSError('save failed')]), \
+                mock.patch.object(chatrun.chat, 'validate', return_value=card['call']), \
+                mock.patch.object(engine, 'execute', side_effect=execute):
+            with self.assertRaises(OSError):
+                engine.confirm({'sub': 'u'}, 'c', 'm', 'k')
+        self.assertEqual(engine.action_admission.active, 0)
+        with self.assertRaisesRegex(chatrun.chat.ChatError, 'engine blocks guarded restarts'):
+            chatrun.guard_chat_restart(engine, lambda: self.fail('restart with uncertain outcome'))
+
+    def test_preflight_refusal_does_not_create_uncertain_action_hold(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        with mock.patch.object(engine, '_card_change', side_effect=chatrun.chat.ChatError('gone')):
+            with self.assertRaises(chatrun.chat.ChatError):
+                engine.confirm({'sub': 'u'}, 'c', 'm', 'k')
+        self.assertEqual(chatrun.guard_chat_restart(engine, lambda: 'ok'), 'ok')
+
+    def test_plan_and_undo_are_admitted_before_they_start(self):
+        for method in ('run_plan', 'undo'):
+            with self.subTest(method=method):
+                self.c.snapshot = lambda: {}
+                engine = chatrun.engine_of(self.c)
+                entered, release = threading.Event(), threading.Event()
+                def get_cfg(entered=entered, release=release):
+                    entered.set()
+                    self.assertTrue(release.wait(2))
+                    raise chatrun.chat.ChatError('stopped before execution')
+                def run(engine=engine, method=method):
+                    try:
+                        getattr(engine, method)({'sub': 'u'}, 'c', 'm', 'k')
+                    except chatrun.chat.ChatError:
+                        pass
+                with mock.patch.object(engine, 'cfg_fn', side_effect=get_cfg):
+                    worker = threading.Thread(target=run)
+                    worker.start()
+                    self.assertTrue(entered.wait(2))
+                    with self.assertRaises(chatrun.chat.ChatError):
+                        chatrun.guard_chat_restart(engine, lambda: self.fail('restart during an action'))
+                    release.set()
+                    worker.join(2)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(chatrun.guard_chat_restart(engine, lambda: 'ok'), 'ok')
+
+    def test_separate_actions_can_be_admitted_together(self):
+        admission = chatrun.ActionAdmission()
+        both = threading.Barrier(3)
+        def action():
+            with admission.action():
+                both.wait(timeout=2)
+        workers = [threading.Thread(target=action) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        both.wait(timeout=2)
+        for worker in workers:
+            worker.join(2)
+        self.assertTrue(all(not worker.is_alive() for worker in workers))
+
+    def test_automatic_action_is_covered_by_its_live_answer(self):
+        self.c.snapshot = lambda: {}
+        engine = chatrun.engine_of(self.c)
+        entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+        call = {'tool': 'backlog_add', 'args': {}}
+        def execute(_user, _cfg, _call, card, job=None):
+            entered.set()
+            self.assertTrue(release.wait(2))
+            card['state'] = 'done'
+            return card
+        def answer(job, user, _prompt):
+            try:
+                engine._run_mutations(job, user, engine.cfg_fn(), [call], [])
+            finally:
+                job.emit('done')
+                finished.set()
+        with mock.patch.object(engine, '_answer', side_effect=answer), \
+                mock.patch.object(engine, 'new_card', return_value={}), \
+                mock.patch.object(engine, 'execute', side_effect=execute):
+            engine.send({'sub': 'u'}, None, 'hello')
+            self.assertTrue(entered.wait(2))
+            with self.assertRaises(chatrun.chat.ChatError):
+                chatrun.guard_chat_restart(engine, lambda: self.fail('restart during automatic action'))
+            release.set()
+            self.assertTrue(finished.wait(2))
 
 
 class PriorityTest(unittest.TestCase):
@@ -241,6 +466,25 @@ class PriorityTest(unittest.TestCase):
         found = [('r-map', 'a', '', '', ''), ('r-map', 'b', '', '', ''), ('r-tutti', 'c', '', '', '')]
         self.assertEqual([x[1] for x in fill.pick({'tasks': []}, found, 2, cfg)], ['c', 'a'])
         self.assertEqual([x[1] for x in fill.pick({'tasks': []}, found, 2)], ['a', 'c'])   # no priorities: round-robin
+
+    def test_task_priority_precedes_project_share_and_explicit_value_wins(self):
+        cfg = self.CFG
+        tasks = [{'id': 1, 'repo': 'one', 'title': 'P1: later', 'priority': 1},
+                 {'id': 2, 'repo': 'two', 'title': 'P0: first', 'priority': 0},
+                 {'id': 3, 'repo': 'one', 'title': 'P0: relabelled', 'priority': 2}]
+        self.assertEqual([t['id'] for t in priority.tasks_by_priority(cfg, tasks)], [2, 1, 3])
+        self.assertEqual(priority.task_level({'title': 'P0: not triaged'}), 5)
+        self.assertEqual(priority.task_level({'title': 'unlabelled'}), 5)
+        tasks[0]['urgent'] = True
+        self.assertEqual([t['id'] for t in priority.tasks_by_priority(cfg, tasks)], [1, 2, 3])
+
+    def test_projects_remain_fair_within_the_same_task_priority(self):
+        cfg = {'projects': {'a': {'priority': 0, 'match': 'a'}, 'b': {'priority': 2, 'match': 'b'}},
+               'autopilot': {'repos': {'r-a': {'path': '/src/a'}, 'r-b': {'path': '/src/b'}}}}
+        tasks = [{'id': f'{repo}{i}', 'repo': repo, 'priority': 0} for repo in ('r-b', 'r-a') for i in range(10)]
+        ordered = priority.tasks_by_priority(cfg, tasks)
+        self.assertEqual(ordered[0]['repo'], 'r-a')
+        self.assertIn('r-b', [t['repo'] for t in ordered[:5]])
 
 
 @unittest.skipUnless(shutil.which('node'), 'node is not installed')

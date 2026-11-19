@@ -27,7 +27,7 @@ import time
 
 from . import config
 
-OPS = ('ping', 'probe', 'reader', 'reading-file', 'run', 'exec', 'review', 'jobs', 'stop')
+OPS = ('ping', 'probe', 'reader', 'reading-file', 'run', 'run-bound', 'exec', 'review', 'jobs', 'stop')
 EXEC_PROGRAMS = ('git', 'gh')   # besides the client's own worker programs
 FOLDER = 'bridge'
 CALL_TIMEOUT = 60          # seconds a quick request may take (a probe, a reading)
@@ -165,14 +165,17 @@ def client_jobs(cfg, clock=time.time):
 def read_account(cfg, client, account, force=False):
     """Readers.read's answer for an account, given by the client that holds its sign-in (its own reader and plan commands)."""
     from . import pacing
-    empty = {'plan': None, 'used': None, 'resets': None, 'problem': None, 'every_minutes': None}
+    empty = {'plan': None, 'used': None, 'resets': None, 'problem': None, 'every_minutes': None,
+             'observed_at': None, 'observation_version': None}
     try:
         rc, result = call(cfg, client, 'reader', {'account': account, 'force': bool(force)}, timeout=180)
     except BridgeDown as e:
         return {**empty, 'problem': str(e)}
     out = {**empty, **{k: v for k, v in (result or {}).items() if k in empty}}
-    if rc != 0 and not out['problem']:
-        out['problem'] = f'{client} could not read {account}'
+    if rc != 0:
+        out['used'], out['observed_at'] = None, None
+        if not out['problem']:
+            out['problem'] = f'{client} could not read {account}'
     try:
         out['resets'] = pacing.parse_time(out['resets']) if out['resets'] else None
     except ValueError:
@@ -233,6 +236,25 @@ def tools(cfg):
     return {'run': git_exec(cfg, j), 'gh': run_exec(cfg, j), 'run_worker': review_exec(cfg, j)} if j else {}
 
 
+BOUND_REPORT_CAP = 'bound-report-v1'
+
+
+def bound_client_problem(cfg):
+    """A remote client must advertise bound-report support before new autopilot work is planned."""
+    client = jobs_machine(cfg)
+    if not client:
+        return ''
+    try:
+        rc, result = call(cfg, client, 'ping', timeout=3)
+    except BridgeDown:
+        rc, result = 1, None
+    caps = result.get('capabilities') if isinstance(result, dict) else None
+    if rc != 0 or not isinstance(caps, list) or BOUND_REPORT_CAP not in caps:
+        return (f'bridge client {client} is offline or lacks bound-report support: update and restart its tutti-client; '
+                'the next round checks again')
+    return ''
+
+
 def exec_run(cfg, client, run_id, args, out=None):
     """`tutti bridge exec`: `tutti run <args>` on the client; its output streams to `out`; the run's report files are copied
     into this host's run folder, so the autopilot reads them as from a run of its own. Returns the run's exit code."""
@@ -243,7 +265,12 @@ def exec_run(cfg, client, run_id, args, out=None):
         out.write(text)
         out.flush()
     try:
-        rc, result = call(cfg, client, 'run', {'args': list(args), 'id': run_id}, on_chunk=chunk, timeout=6 * 3600)
+        op = 'run-bound' if os.environ.get('TUTTI_BOUND_REPORT') == '1' else 'run'
+        rc, result = call(cfg, client, op, {'args': list(args), 'id': run_id,
+                                            'run_identity': os.environ.get('TUTTI_RUN_IDENTITY', '')},
+                          on_chunk=chunk, timeout=6 * 3600)
+        if op == 'run-bound' and rc != 0 and isinstance(result, dict) and result.get('problem'):
+            chunk(f'tutti: bridge could not start the bound run ({result["problem"]}): update and restart tutti-client\n')
     except BridgeDown as e:
         chunk(f'tutti: {e}\n')
         return 255
@@ -386,7 +413,7 @@ class Client:
 
     def op_ping(self, _args, _chunk):
         from . import __version__
-        return 0, {'version': __version__, 'host': socket.gethostname()}
+        return 0, {'version': __version__, 'host': socket.gethostname(), 'capabilities': [BOUND_REPORT_CAP]}
 
     def op_probe(self, args, _chunk):
         from . import remote
@@ -399,10 +426,12 @@ class Client:
         from . import readers
         name = args.get('account')
         a = dict(self.cfg['accounts'].get(name) or {})
-        if not (a.get('reader') or a.get('plan')):
-            return refuse(f'account "{name}" has no reader or plan in this computer\'s config')
+        if not (readers.automatic_reader(name, a) or a.get('plan')):
+            return refuse(f'account "{name}" has no reader, usage page or Codex worker in this computer\'s config')
         a.pop('read_on', None)
+        a['_read_here'] = True   # this bridge is the explicitly selected login host
         out = readers.Readers(self.cfg).read(name, a, force=bool(args.get('force')))
+        out['observation_version'] = 1
         out['resets'] = out['resets'].isoformat() if out.get('resets') else None
         return 0, out
 
@@ -459,6 +488,13 @@ class Client:
                          stdin=subprocess.DEVNULL, timeout=1800)
         return r.returncode, {'stdout': r.stdout, 'stderr': r.stderr}
 
+    def op_run_bound(self, args, chunk):
+        """A negotiated bound run: an older client cannot execute an unknown operation."""
+        from . import remote
+        if not remote.valid_run_identity(args.get('run_identity')):
+            return refuse('a bound run needs its 32-digit run identity')
+        return self.op_run(args, chunk)
+
     def op_run(self, args, chunk):
         """`tutti run` with this computer's config; the output streams; the run folder's report files come back."""
         from . import delegate, remote
@@ -469,8 +505,11 @@ class Client:
         if run_id is not None and not delegate.valid_id(run_id):
             return refuse(f'{run_id!r} is not a run id')
         argv = [sys.executable, remote.BIN, '--config', self.cfg['_path'], *tail]
+        identity = args.get('run_identity') or ''
+        if identity and not remote.valid_run_identity(identity):
+            return refuse('run identity must be 32 lowercase hexadecimal digits')
         p = self.popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True, errors='replace',
-                       env={**os.environ, 'TUTTI_LOCAL': '1', 'TUTTI_BACKGROUND': '1'})
+                       env={**os.environ, 'TUTTI_LOCAL': '1', 'TUTTI_BACKGROUND': '1', 'TUTTI_RUN_IDENTITY': identity})
         if run_id:
             self.running[run_id] = p.pid
         for line in p.stdout:

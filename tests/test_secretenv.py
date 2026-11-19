@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 import unittest
+from unittest import mock
 
 import tmpdirs
 
@@ -22,6 +23,14 @@ class SecretEnv(unittest.TestCase):
     def setUp(self):
         self.tmp = tmpdirs.mkdtemp()
         self.env = {'XDG_CONFIG_HOME': self.tmp}
+
+    def test_explicit_environment_without_config_directory_never_reads_the_users_files(self):
+        with mock.patch.object(groksetup, 'read_env_file', side_effect=AssertionError('unexpected file access')):
+            self.assertEqual(secretenv.get('TUTTI_GROK_URL', {}), '')
+            self.assertEqual(secretenv.get('TUTTI_GROK_URL', {'TUTTI_GROK_URL': 'https://hooks.example/test'}),
+                             'https://hooks.example/test')
+            self.assertEqual(secretenv.scrubbed({'TUTTI_GROK_KEY': FAKE, 'OTHER': 'ok'}), {'OTHER': 'ok'})
+            self.assertEqual(secretenv.scrub_self({'TUTTI_GROK_KEY': FAKE}), ['TUTTI_GROK_KEY'])
 
     def test_mask_hides_secret_looking_values_only(self):
         m = secretenv.mask({'TUTTI_GROK_KEY': 'v', 'GH_TOKEN': 'v', 'X_SECRET': 'v', 'TUTTI_GROK_URL': 'v', 'PATH': '/bin',

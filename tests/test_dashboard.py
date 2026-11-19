@@ -78,6 +78,43 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(any('write it as a mapping' in e for e in config.validate(config.normalise({'dashboard': None}))))
 
 
+class OffAccountCardsTest(unittest.TestCase):
+    def test_off_accounts_are_displayed_but_never_added_to_routing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cfg = cfg_of({'workers': {'worker': {}, 'stopped': {'paused': {'by': 'owner', 'at': 1, 'note': 'break'}}},
+                          'accounts': {'active': {'worker': 'worker'}, 'paused': {'paused': {'by': 'owner', 'at': 1, 'note': 'rest'}},
+                                       'disabled': {'enabled': False}, 'linked': {'worker': 'stopped'}}}, folder)
+            usage = state.usage_state(cfg, NOW)
+            self.assertEqual([a['name'] for a in usage['accounts']], ['active'])
+            cards = {a['name']: a for a in usage['off_accounts']}
+            self.assertEqual(set(cards), {'paused', 'disabled', 'linked'})
+            self.assertEqual(cards['paused']['status'], 'paused')
+            self.assertIn('rest', cards['paused']['reason'])
+            self.assertEqual(cards['disabled']['status'], 'disabled')
+            self.assertEqual(cards['linked']['status'], 'paused')
+            self.assertIn('worker stopped', cards['linked']['reason'])
+            self.assertEqual(state.worker_accounts(cfg), ['active'])
+            self.assertNotIn('stopped', cfg['workers'])
+
+    def test_disabled_account_and_worker_pause_are_both_shown(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cfg = cfg_of({'workers': {'worker': {'paused': {'by': 'owner', 'at': 1, 'note': 'break'}}},
+                          'accounts': {'account': {'worker': 'worker', 'enabled': False}}}, folder)
+            card = state.usage_state(cfg, NOW)['off_accounts'][0]
+            self.assertIn('disabled', card['reason'])
+            self.assertIn('worker worker', card['reason'])
+            self.assertIn('break', card['reason'])
+            self.assertEqual(state.worker_accounts(cfg), [])
+
+    def test_all_off_still_provides_display_cards(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cfg = cfg_of({'accounts': {'disabled': {'enabled': False}}}, folder)
+            usage = state.usage_state(cfg, NOW)
+            self.assertEqual(usage['accounts'], [])
+            self.assertEqual([a['name'] for a in usage['off_accounts']], ['disabled'])
+            self.assertEqual(state.worker_accounts(cfg), [])
+
+
 class JobsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -166,6 +203,14 @@ class MachinesWorkersTest(unittest.TestCase):
         self.assertEqual([ms[n]['status'] for n in 'abcd'], ['free', 'busy', 'paused', 'offline'])
         self.assertEqual((ms['a']['rank'], ms['c']['rank']), (1, None))
         self.assertEqual((ms['b']['busy'], ms['d']['free']), (2, None))
+
+    def test_machine_environments_name_their_physical_card(self):
+        self.cfg['machines']['pc'] = config.machine_of(self.cfg, 'pc', {'host': 'pc.example'})
+        self.cfg['machines']['pc-desktop'] = config.machine_of(self.cfg, 'pc-desktop', {'host': 'pc.example', 'dedicated': True})
+        probes = {'pc.example': routing.Probe(True, 2, 0.1, 8)}
+        ms = {m['name']: m for m in state.machines_state(self.cfg, lambda m: probes.get(m['host'], routing.Probe()))}
+        self.assertEqual(ms['pc']['physical'], 'pc')
+        self.assertEqual(ms['pc-desktop']['physical'], 'pc')
 
     def test_workers_and_known_agents(self):
         w = state.workers_state(self.cfg, lambda x: (x['kind'] == 'ollama', 'note'), which=lambda c: c == 'claude' and '/bin/claude')

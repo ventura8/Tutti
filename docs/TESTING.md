@@ -18,7 +18,12 @@ Rules for every test: a change in behaviour comes with a good case and a bad one
 
 `tests/e2e/test_ui.py` opens the dashboard in a real browser: Playwright's Chromium (`playwright==1.65.2`) with axe-core 4.12
 (`axe-playwright-python==0.1.8`), both pinned in `requirements-dev.txt`. `check.sh` fetches the browser once
-(`playwright install chromium`; on CI `--with-deps`, which adds its system libraries).
+(`playwright install --only-shell chromium`). On CI a bounded real Chromium launch checks whether the existing system
+libraries work; on failure, `--with-deps` installs Playwright's system dependencies before the full browser suite runs.
+The timeout signals its process group; a browser descendant that detaches into another session may need separate cleanup.
+The probe cannot verify optional fonts or every browser feature: the full suite remains mandatory, and missing fonts can
+change rendering. A slow package mirror can still exhaust the job timeout when installation is needed; an interrupted
+installation or browser suite is not a passing check.
 
 ```bash
 PYTHONPATH=tests python3 -m unittest discover -s tests/e2e                    # the browser tests alone
@@ -42,6 +47,8 @@ TUTTI_UI_SHOTS=/tmp/tutti-ui PYTHONPATH=tests python3 -m unittest discover -s te
 
 The tabs are read from the tab bar, so a new tab (Chat, Users, any other) is covered once it is in the bar. The sign-in
 page is checked too.
+
+Phone summary tiles are also checked with WCAG spacing and a long account name (t414).
 
 **Layout**, at phone (360 px), tablet (768), laptop (1440) and 4K (3840) widths, light and dark, for the admin and the
 viewer; then at 200 % zoom, and with WCAG 1.4.12 text spacing (line height 1.5, paragraphs 2 em, letters 0.12 em, words

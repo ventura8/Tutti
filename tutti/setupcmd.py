@@ -17,9 +17,9 @@ import yaml
 from . import config, configmerge, doctor, guided, install, setup
 
 PLANS = {'claude': ('pro', 'max5', 'max20'), 'cursor': ('pro', 'pro+', 'ultra'), 'agy': ('free', 'pro', 'ultra'),
-         'copilot': ('pro', 'pro+')}
-WINDOWS = {'claude': '7d', 'cursor': 'monthly', 'agy': '7d', 'copilot': 'monthly'}
-MAIN_ORDER = ('claude', 'cursor', 'agy', 'copilot')
+         'copilot': ('pro', 'pro+'), 'codex': ('plus', 'pro', 'business', 'enterprise')}
+WINDOWS = {'claude': '7d', 'cursor': 'monthly', 'agy': '7d', 'copilot': 'monthly', 'codex': '7d'}
+MAIN_ORDER = ('claude', 'codex', 'cursor', 'agy', 'copilot')
 
 
 class Asker:
@@ -48,11 +48,14 @@ def next_monday(now):
 
 
 def account(a, asker, now):
-    """The account entry of a found agent: its window, an estimated reset, and its plan: the tool's own plan command
-    where it has one (the card reads it), else the owner's answer as `subscription` (a label)."""
+    """The account entry of a found agent: its window, an estimated reset, the worker that spends it, and its plan: the
+    tool's own plan command where it has one (the card reads it), else the owner's answer as `subscription` (a label)."""
     window = WINDOWS[a['name']]
     entry = {'window': window, 'resets': next_monday(now) if window == '7d' else now.strftime('%Y-%m-01T00:00Z'),
-             'resets_estimated': True}
+             'resets_estimated': True, 'worker': a['name']}
+    if a['name'] == 'codex':
+        entry.update({'reader': {'format': 'codex-app-server', 'every_minutes': 15},
+                      'usage_url': 'https://chatgpt.com/codex/settings/usage'})
     spec = setup.AGENTS[a['name']].get('plan')
     if spec:
         return {**entry, 'plan': {**spec, 'every_minutes': 360}}
@@ -120,12 +123,18 @@ def plan(found, raw, asker, now=None):
     x = Additions(raw or {})
     plan_agents(x, found, asker, now)
     plan_machines(x, found, asker)
+    codex = (x.add.get('workers') or {}).get('codex')
+    machines = {**(x.raw.get('machines') or {}), **(x.add.get('machines') or {})}
+    local = next((name for name, machine in machines.items()
+                  if (machine or {}).get('host') == 'local' or (machine or {}).get('transport') == 'local'), None)
+    if codex and local:
+        x.add['workers']['codex'] = {**codex, 'machine': local}
     plan_projects(x, found, asker)
     top = {}
     main = next((n for n in MAIN_ORDER if any(a['name'] == n for a in found['agents'])), None)
     if 'main' not in x.raw and main:
         top['main'] = {'agent': main}
-        x.choices.append(guided.choice('main.agent', main, 'the first found of Claude, Cursor, Antigravity, Copilot'))
+        x.choices.append(guided.choice('main.agent', main, 'the first found of Claude, Codex, Cursor, Antigravity, Copilot'))
     if 'self_update' not in x.raw:
         top['self_update'] = {'enabled': True}
     plan.choices = x.choices   # the defaults picked, for the report (read by write_additions)
@@ -185,7 +194,7 @@ def write_changed(files):
     return changed
 
 
-def service(platform, home_dir, run=subprocess.run, start=True):
+def service(platform, home_dir, run=subprocess.run, start=True, config_path=None):
     """('ok'|'todo', detail). Writes the login service and starts it; unchanged files are left alone (idempotent).
     start=False (a dashboard already runs, e.g. setup was started from its Set up card): enabled for the next login only,
     so a second dashboard never fights the first for the port."""
@@ -194,7 +203,11 @@ def service(platform, home_dir, run=subprocess.run, start=True):
         return 'todo', missing
     target = platform if platform in ('win32', 'darwin') else 'linux'
     # the `tutti` on PATH (a release, a uv or pipx install, a checkout's link), else where a release install puts it
-    files, cmds = install.service_plan(target, home_dir, tutti=shutil.which('tutti.cmd' if target == 'win32' else 'tutti'))
+    try:
+        files, cmds = install.service_plan(target, home_dir, tutti=shutil.which('tutti.cmd' if target == 'win32' else 'tutti'),
+                                           config_path=config_path)
+    except ValueError as e:
+        return 'todo', str(e)
     if not start:
         cmds = [[x for x in argv if x != '--now'] for argv in cmds if argv[0] != 'launchctl']   # launchd loads it at login
     if not write_changed(files):
@@ -385,7 +398,8 @@ def run(a, probe=None, asker=None, platform=None, home_dir=None, runner=subproce
     cfg = config.load(path)
     svc = ('todo', 'not installed (--no-service): `tutti setup` again to start the dashboard at login')
     if a.service:
-        svc = service(platform or install.platform_name(), home_dir or install.home(), runner, start=not a.from_dashboard)
+        svc = service(platform or install.platform_name(), home_dir or install.home(), runner, start=not a.from_dashboard,
+                      config_path=cfg['_path'])
     rows = report_items(found, {}, svc, updates_row(cfg), fix_git(doctor.check_git()), stuck)
     restarts = []
     rows += connect_rows(path, restarts) if a.connect else []

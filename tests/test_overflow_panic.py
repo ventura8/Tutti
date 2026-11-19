@@ -1,33 +1,25 @@
+"""Overflow decisions do not let one account suppress other eligible accounts."""
 import unittest
 from unittest import mock
 
 from tutti import fleet
 
 
-def cfg():
-    return {'accounts': {'claude': {}, 'cursor': {}, 'agy-gemini': {}}}
+class OverflowPanicTest(unittest.TestCase):
+    def overflow(self, states, rooms=None, triggers=()):
+        cfg = {'accounts': {'alpha': {}, 'beta': {}, 'gamma': {}}}
+        with mock.patch('tutti.autopilot.ladder', return_value=['alpha', 'beta', 'gamma']), \
+                mock.patch('tutti.autopilot.trigger_accounts', return_value=list(triggers)):
+            return fleet.overflow(cfg, states, rooms or {}, [])
 
+    def test_one_panicked_account_does_not_spare_the_others(self):
+        states = {'alpha': {'verdict': 'panic', 'panic': True}, 'beta': {'verdict': 'behind'}, 'gamma': {'verdict': 'behind'}}
+        self.assertEqual(self.overflow(states, {'beta': (1, '')}, ['beta']), '')
 
-class OverflowWithOnePanicTest(unittest.TestCase):
-    """One account in panic must not idle the others that have room (claude at 98 %, 2026-11-17)."""
+    def test_all_ahead_or_unavailable_spares_online_accounts(self):
+        states = {'alpha': {'verdict': 'panic'}, 'beta': {'verdict': 'ahead'}, 'gamma': {'verdict': 'spent'}}
+        self.assertIn('ahead of pace', self.overflow(states))
 
-    def overflow(self, states):
-        with mock.patch('tutti.autopilot.ladder', return_value=['claude', 'cursor', 'agy-gemini']), \
-                mock.patch('tutti.autopilot.trigger_accounts', return_value=[]):
-            return fleet.overflow(cfg(), states, {}, [])
-
-    def test_one_account_in_panic_spares_nobody(self):
-        self.assertEqual(self.overflow({'claude': {'verdict': 'panic', 'panic': True}, 'cursor': {'verdict': 'behind'},
-                                        'agy-gemini': {'verdict': 'behind'}}), '')
-
-    def test_some_ahead_others_with_room_spares_nobody(self):
-        self.assertEqual(self.overflow({'claude': {'verdict': 'panic'}, 'cursor': {'verdict': 'ahead'},
-                                        'agy-gemini': {'verdict': 'behind'}}), '')
-
-    def test_every_account_ahead_or_in_panic_spares_them(self):
-        self.assertIn('ahead of pace', self.overflow({'claude': {'verdict': 'panic'}, 'cursor': {'verdict': 'ahead'},
-                                                      'agy-gemini': {'verdict': 'spent'}}))
-
-
-if __name__ == '__main__':
-    unittest.main()
+    def test_no_trigger_room_still_spares_online_accounts(self):
+        states = {'alpha': {'verdict': 'panic'}, 'beta': {'verdict': 'behind'}, 'gamma': {'verdict': 'behind'}}
+        self.assertIn('no online account has room', self.overflow(states, {'beta': (0, '')}, ['beta']))

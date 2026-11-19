@@ -1,6 +1,7 @@
 """`tutti move` (docs/MOVE.md) against a fake ssh target and temp folders: the preflight's blockers, the config from the
 target's point of view, secrets with mode 600 and never in the log, the cut-over's order, the rollback on a failed health
 check, members repointed, an interrupted move that resumes, the bridge and the client's forwarding. No real machine."""
+import io
 import json
 import os
 import socket
@@ -10,12 +11,13 @@ import tempfile
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import tmpdirs
 import yaml
 
-from tutti import bridge, clientmode, config, move, movetools
+from tutti import autopilot, backlog, bridge, clientmode, config, move, movetools
 
 TEXT = """# the owner's comment stays
 project:
@@ -222,6 +224,139 @@ class RewriteTest(Base):
         self.assertEqual(p['client']['me'], 'laptop')
 
 
+@unittest.skipUnless(move.admission_supported(), 'secure POSIX admission lock required')
+class MoveAdmissionTest(Base):
+    def test_an_admitted_launch_finishes_before_the_freeze_marker(self):
+        entered, release, frozen = threading.Event(), threading.Event(), threading.Event()
+        results = []
+        task = {'id': 't1', 'status': 'queued'}
+        def start(*_args):
+            entered.set()
+            if not release.wait(2):
+                raise RuntimeError('test timed out')
+            return '1-1', 'started'
+        def launch():
+            with backlog.locked(self.cfg) as data:
+                results.append(autopilot.start_reserved(self.cfg, data, task, 'worker', 1, None, {}))
+        def freeze():
+            move.Move(self.cfg, 'nuc', say=lambda _line: None).freeze()
+            frozen.set()
+        with mock.patch.object(autopilot, '_start_reserved', side_effect=start), \
+                mock.patch.object(move, 'stop_local', return_value=[]):
+            worker = threading.Thread(target=launch)
+            worker.start()
+            self.assertTrue(entered.wait(2))
+            mover = threading.Thread(target=freeze)
+            mover.start()
+            self.assertFalse(frozen.wait(0.05))
+            self.assertFalse(os.path.lexists(move.frozen_path(self.cfg)))
+            release.set()
+            worker.join(2)
+            mover.join(2)
+        self.assertFalse(worker.is_alive() or mover.is_alive())
+        self.assertEqual(results, [('1-1', 'started')])
+        self.assertTrue(os.path.isfile(move.frozen_path(self.cfg)))
+        self.assertTrue(frozen.is_set())
+
+    def test_freeze_marker_blocks_a_waiting_launch_before_intent_or_spawn(self):
+        fd = move.admission_lock(self.cfg)
+        started, results = threading.Event(), []
+        task = {'id': 't1', 'status': 'queued'}
+        def launch():
+            with backlog.locked(self.cfg) as data:
+                started.set()
+                results.append(autopilot.start_reserved(self.cfg, data, task, 'worker', 1, None, {}))
+        try:
+            with mock.patch.object(autopilot, '_start_reserved') as start:
+                worker = threading.Thread(target=launch)
+                worker.start()
+                self.assertTrue(started.wait(2))
+                move.persist_frozen(self.cfg, 'nuc')
+                os.close(fd)
+                fd = None
+                worker.join(2)
+            self.assertFalse(worker.is_alive())
+            start.assert_not_called()
+        finally:
+            if fd is not None:
+                os.close(fd)
+        self.assertIsNone(results[0][0])
+        self.assertIn('frozen', results[0][1])
+        self.assertEqual(task, {'id': 't1', 'status': 'queued'})
+
+    def test_failed_directory_sync_leaves_marker_and_never_stops_dashboard(self):
+        sync = os.fsync
+        calls = []
+        def fail_directory(fd):
+            calls.append(fd)
+            if len(calls) == 2:
+                raise OSError('directory sync failed')
+            sync(fd)
+        with mock.patch.object(move.os, 'fsync', side_effect=fail_directory), \
+                mock.patch.object(move, 'stop_local') as stop:
+            with self.assertRaises(OSError):
+                move.Move(self.cfg, 'nuc', say=lambda _line: None).freeze()
+        stop.assert_not_called()
+        self.assertTrue(os.path.isfile(move.frozen_path(self.cfg)))
+
+    def test_invalid_marker_and_lock_failure_never_start_or_stop_work(self):
+        path = move.frozen_path(self.cfg)
+        os.symlink('missing', path)
+        task = {'id': 't1', 'status': 'queued'}
+        with mock.patch.object(autopilot, '_start_reserved') as start, mock.patch.object(move, 'stop_local') as stop:
+            result = autopilot.start_reserved(self.cfg, {}, task, 'worker', 1, None, {})
+            self.assertIsNone(result[0])
+            with self.assertRaises(OSError):
+                move.Move(self.cfg, 'nuc', say=lambda _line: None).freeze()
+        start.assert_not_called()
+        stop.assert_not_called()
+        with mock.patch.object(move, 'admission_lock', side_effect=OSError('lock failed')), \
+                mock.patch.object(autopilot, '_start_reserved') as start:
+            result = autopilot.start_reserved(self.cfg, {}, task, 'worker', 1, None, {})
+        self.assertIsNone(result[0])
+        start.assert_not_called()
+        self.assertEqual(task, {'id': 't1', 'status': 'queued'})
+        with mock.patch.object(move, 'frozen_exists', side_effect=PermissionError('cannot inspect marker')), \
+                mock.patch.object(autopilot, '_start_reserved') as start:
+            result = autopilot.start_reserved(self.cfg, {}, task, 'worker', 1, None, {})
+        self.assertIsNone(result[0])
+        start.assert_not_called()
+
+    def test_unsupported_locking_refuses_freeze_without_stopping_dashboard(self):
+        with mock.patch.object(move, 'fcntl', None), mock.patch.object(move, 'stop_local') as stop:
+            with self.assertRaises(OSError):
+                move.Move(self.cfg, 'nuc', say=lambda _line: None).freeze()
+        self.assertFalse(os.path.lexists(move.frozen_path(self.cfg)))
+        stop.assert_not_called()
+
+    def test_parent_sync_failure_keeps_marker_and_does_not_stop_dashboard(self):
+        sync = os.fsync
+        calls = []
+        def fail_parent(fd):
+            calls.append(fd)
+            if len(calls) == 3:
+                raise OSError('parent sync failed')
+            sync(fd)
+        with mock.patch.object(move.os, 'fsync', side_effect=fail_parent), \
+                mock.patch.object(move, 'stop_local') as stop:
+            with self.assertRaises(OSError):
+                move.Move(self.cfg, 'nuc', say=lambda _line: None).freeze()
+        self.assertTrue(os.path.isfile(move.frozen_path(self.cfg)))
+        stop.assert_not_called()
+
+    def test_existing_marker_for_same_target_can_resume_but_other_target_is_refused(self):
+        fd = move.admission_lock(self.cfg)
+        try:
+            move.persist_frozen(self.cfg, 'nuc')
+            move.persist_frozen(self.cfg, 'nuc')
+            with self.assertRaises(OSError):
+                move.persist_frozen(self.cfg, 'pc')
+            with open(move.frozen_path(self.cfg), encoding='utf8') as f:
+                self.assertEqual(f.read(), 'nuc\n')
+        finally:
+            os.close(fd)
+
+
 class RunTest(Base):
     def run_move(self, ops, **kw):
         m = move.Move(self.cfg, 'nuc', ops=ops, **kw)
@@ -393,6 +528,52 @@ class BridgeTest(Base):
                 break
             time.sleep(0.02)
         return c
+
+    def test_run_identity_propagates_to_client_and_rejects_bad_labels(self):
+        identity, seen = 'a' * 32, []
+        fake = SimpleNamespace(pid=123, stdout=[], wait=lambda: 0)
+        client = bridge.Client(self.cfg, lambda x: None, popen=lambda *a, **k: seen.append(k['env']) or fake)
+        with mock.patch.object(bridge, 'run_files', return_value={}):
+            self.assertEqual(client.op_run({'id': '1700000000-123', 'run_identity': identity,
+                                            'args': ['run', 'agy', 'fix']}, None)[0], 0)
+        self.assertEqual(seen[0]['TUTTI_RUN_IDENTITY'], identity)
+        self.assertEqual(client.op_run({'id': '1700000000-123', 'run_identity': 'bad;command',
+                                        'args': ['run', 'agy', 'fix']}, None)[0], 2)
+        with mock.patch.dict(os.environ, {'TUTTI_RUN_IDENTITY': identity}), \
+                mock.patch.object(bridge, 'call', return_value=(0, {'files': {}})) as send:
+            self.assertEqual(bridge.exec_run(self.cfg, 'client', '1700000000-123', ['run', 'agy', 'fix'], out=io.StringIO()), 0)
+        self.assertEqual(send.call_args.args[3]['run_identity'], identity)
+
+    def test_bound_capability_rejects_old_or_offline_client(self):
+        cfg = dict(self.cfg)
+        cfg['host'] = {'me': 'host', 'jobs': 'client'}
+        with mock.patch.object(bridge, 'call', return_value=(0, {'capabilities': [bridge.BOUND_REPORT_CAP]})):
+            self.assertEqual(bridge.bound_client_problem(cfg), '')
+        with mock.patch.object(bridge, 'call', return_value=(0, {'version': 'old'})):
+            self.assertIn('update and restart', bridge.bound_client_problem(cfg))
+        with mock.patch.object(bridge, 'call', side_effect=bridge.BridgeDown('offline')):
+            self.assertIn('offline', bridge.bound_client_problem(cfg))
+
+    def test_old_client_rejects_bound_operation_without_starting_work(self):
+        messages = []
+        client = bridge.Client(self.cfg, messages.append)
+        old_ops = tuple(op for op in bridge.OPS if op != 'run-bound')
+        with mock.patch.object(bridge, 'OPS', old_ops), mock.patch.object(client, 'op_run') as start:
+            client.handle({'id': 1, 'op': 'run-bound', 'args': {'run_identity': 'a' * 32}})
+        start.assert_not_called()
+        self.assertEqual(messages[-1]['rc'], 2)
+        with mock.patch.object(client, 'op_run', return_value=(0, {})) as start:
+            self.assertEqual(client.op_run_bound({'run_identity': 'bad'}, lambda x: None)[0], 2)
+            self.assertEqual(client.op_run_bound({'run_identity': 'a' * 32}, lambda x: None)[0], 0)
+            start.assert_called_once()
+
+    def test_host_uses_bound_operation_and_explains_old_client_refusal(self):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {'TUTTI_BOUND_REPORT': '1', 'TUTTI_RUN_IDENTITY': 'a' * 32}), \
+                mock.patch.object(bridge, 'call', return_value=(2, {'problem': 'unknown op'})) as send:
+            self.assertEqual(bridge.exec_run(self.cfg, 'client', '1700000000-123', ['run', 'agy', 'fix'], out=out), 2)
+        self.assertEqual(send.call_args.args[2], 'run-bound')
+        self.assertIn('update and restart tutti-client', out.getvalue())
 
     def test_a_reading_file_and_a_ping_cross_the_bridge(self):
         with open(os.path.join(self.home, 'claude-usage.json'), 'w', encoding='utf8') as f:

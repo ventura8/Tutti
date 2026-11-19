@@ -3,11 +3,12 @@ machines' readings, capability routing, the governor, overflow routing within on
 owner's one action. Throwaway repositories and fake spawns only; no machine or model server is called."""
 import os
 import subprocess
+import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from tests.test_autopilot import FREE, Base, account, attempt, task
-from tutti import autopilot, backlog, delegate, fleet, resolver
+from tutti import autopilot, backlog, config, delegate, energy, fleet, resolver
 
 TAGS = {'models': [
     {'name': 'translategemma:12b', 'details': {'parameter_size': '12.2B'}},
@@ -28,6 +29,30 @@ def blocked_states():
 
 
 class Discovery(Base):
+    def test_endpoint_provenance_never_persists_url_credentials_or_tokens(self):
+        cfg = self.cfg()
+        cfg['workers']['pc']['machine'] = 'nuc'
+        for host in ('http://user:synthetic-secret@pc.example:11434', 'http://pc.example:11434/?token=synthetic-secret',
+                     'http://pc.example:11434/synthetic-secret', 'http://pc.example:11434/#synthetic-secret',
+                     'http://synthetic%2dsecret.example:11434', 'http://pc;synthetic-secret.example:11434'):
+            cfg['workers']['pc']['host'] = host
+            readings = energy.probe_all(cfg, lambda _m, _on: None, lambda _h, _p: TAGS)
+            self.assertNotIn('synthetic-secret', repr(readings))
+            data = fleet.refresh(cfg, readings, 1.0)
+            self.assertIsNone(data['machines']['nuc']['tags_endpoint'])
+            with open(fleet.path(cfg), encoding='utf8') as saved:
+                self.assertNotIn('synthetic-secret', saved.read())
+            self.assertNotIn('synthetic-secret', repr(fleet.view(cfg)))
+
+    def test_endpoint_provenance_allows_root_slash_and_ipv6(self):
+        self.assertEqual(config.safe_ollama_endpoint('http://PC.example:11434/'), 'http://pc.example:11434')
+        self.assertEqual(config.safe_ollama_endpoint('http://[::1]:11434/'), 'http://[::1]:11434')
+        self.assertEqual(config.safe_ollama_endpoint('http://pc.example/'), 'http://pc.example:80')
+        self.assertEqual(config.safe_ollama_endpoint('https://pc.example'), 'https://pc.example:443')
+        cfg = self.cfg()
+        stale = fleet.entries(cfg, {'nuc': None}, 2, {'nuc': {'tags_endpoint': 'http://user:synthetic-secret@pc.example:11434'}})
+        self.assertIsNone(stale['nuc']['tags_endpoint'])
+
     def test_models_are_classed_by_what_they_can_do(self):
         got = {m['name']: m for m in (fleet.classify(x) for x in TAGS['models']) if m}
         self.assertNotIn('llava:latest', got)                               # a vision model writes no code
@@ -112,6 +137,15 @@ class Routing(Base):
         self.assertEqual(p['dispatch'], [('t1', 'agy-gemini')])
         self.assertEqual(p['overflow'], '')
 
+    def test_one_account_in_panic_does_not_hold_back_another_with_room(self):
+        cfg = self.cfg()
+        states = self.states_ok()
+        states['agy-gemini'] = {**account('agy-gemini', 'spent', 0, 100.0), 'panic': True}
+        t = {**task('t1'), 'scope': ['a.py']}
+        plan = autopilot.plan(cfg, [t], states, FREE, True)
+        self.assertEqual(plan['dispatch'], [('t1', 'agy-claude')])
+        self.assertEqual(plan['overflow'], '')
+
 
 class OwnerBlock(Base):
     """The block the owner saw on 2026-11-14, reproduced: every online account out, pc with room 1, M tasks, claude 'unknown'."""
@@ -141,18 +175,18 @@ class OwnerBlock(Base):
         self.assertIn('no worker runs this account', autopilot.unusable_why(cfg, 'ghost'))
         self.assertNotIn('unknown, turned off', autopilot.step_room(cfg, 'ghost', {}, {})[1])
 
-    def test_within_one_tick_a_local_worker_takes_an_m_task(self):
+    def test_within_one_tick_a_local_worker_takes_an_s_task(self):
         cfg = self.owner_cfg()
         with backlog.locked(cfg) as data:
-            backlog.add(data, backlog.new_task('app', 'Energy: log the planner calls', [], 'true', 'M'))
-            backlog.add(data, backlog.new_task('app', 'Dashboard: push state with events', [], 'true', 'M'))
+            backlog.add(data, backlog.new_task('app', 'Energy: log the planner calls', [], 'true', 'S'))
+            backlog.add(data, backlog.new_task('app', 'Dashboard: push state with events', [], 'true', 'S'))
         started = []
         p, events = autopilot.tick(cfg, blocked_states(), self.machines(), is_alive=lambda pid: True,
                                    spawn=lambda argv, **k: started.append(argv) or SimpleNamespace(pid=1))
         sent = dict(p['dispatch'])
         self.assertEqual(sent.get('t1'), 'laptop')                        # an M task, no quota points: the idle laptop takes it
         self.assertNotIn('t2', sent)                                       # it names no file a local model could be given
-        self.assertTrue(p['overflow'])                                # no online account has room: the online ones are spared
+        self.assertIn('no online account has room', p['overflow'])
         self.assertTrue(any('picked tutti/energy.py' in e for e in events))
         self.assertIn('tutti/energy.py', started[0])                       # the local model is given the guessed files
         self.assertEqual(len([n for n in sent.values() if n == sent['t1']]), 1)   # one task per model server at a time
@@ -227,3 +261,17 @@ class Governor(Base):
         self.assertEqual(rc, 0)
         self.assertEqual(seen[0][0], 'translategemma:12b')
         self.assertEqual(len(seen), 2)                                     # 3 files, 2 per step for a 12B model
+
+
+class LocalSizes(unittest.TestCase):
+    """Owner, 2026-11-17: local models failed most M and L tasks; a strong one takes S and M, a normal one S only."""
+
+    def test_no_local_tier_takes_an_l_task_and_a_normal_one_takes_s_only(self):
+        self.assertNotIn('L', fleet.TIERS['strong']['sizes'])
+        self.assertEqual(fleet.TIERS['normal']['sizes'], ('S',))
+        self.assertEqual(fleet.TIERS['small']['sizes'], ('S',))
+
+    def test_a_70b_model_is_huge_and_takes_an_l_task(self):
+        m = fleet.classify({'name': 'llama3.3:70b', 'details': {'parameter_size': '70.6B'}})
+        self.assertEqual(m['tier'], 'huge')
+        self.assertIn('L', fleet.TIERS['huge']['sizes'])

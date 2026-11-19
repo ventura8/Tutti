@@ -12,7 +12,7 @@ import time
 
 import yaml
 
-from . import compact, config, ship, workers, worktree
+from . import compact, config, remote, ship, workers, worktree
 
 try:
     import fcntl
@@ -40,7 +40,6 @@ def track_lock(cfg, track, say):
 
 
 RUN_ID = re.compile(r'^\d+-\d+(?:-\d+)?$')
-TRACK = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
 
 
 def valid_id(run_id):
@@ -86,10 +85,19 @@ def paths(cfg, run_id):
             'json': os.path.join(base, 'report.json'), 'worker_log': os.path.join(base, 'worker.log')}
 
 
+def resolve_repo(cfg, repo):
+    """`--repo` as a folder, or a name under autopilot.repos: the path whose worktree the run creates. A bare name always
+    comes from the config, so the run works from a non-git cwd (MCP `delegate_task`, `tutti run --repo tutti`)."""
+    entry = ((cfg.get('autopilot') or {}).get('repos') or {}).get(repo)
+    if isinstance(entry, dict) and entry.get('path'):
+        return config.expand(entry['path'])
+    return repo
+
+
 def tree_for(cfg, repo, run_id, name=None, say=print):
     """The worktree the worker edits: <project.worktrees>/<delegate.prefix><name or id>, created detached at the repo's HEAD,
     or reused when it already is a worktree of the same repository. Returns (path, created)."""
-    top = ship.toplevel(repo)
+    top = ship.toplevel(resolve_repo(cfg, repo))
     root = config.expand(cfg['project']['worktrees'])
     wt = os.path.join(root, f'{cfg["delegate"]["prefix"]}{name or run_id}')
     if os.path.exists(os.path.join(wt, '.git')):
@@ -239,8 +247,14 @@ def delegate(cfg, name, task, files, repo, run_id=None, track=None, extra=(), ch
     """The whole hand-off. Returns the report dict (also written to report.json and report.txt). Runs that name the same
     --track share one worktree, so they take turns: the second waits until the first has its report. `check_list` replaces the
     configured checks (`tutti run --check`: the target repo's own check); `remote_track` the folder routed checks copy into."""
-    if track and not TRACK.match(track):
+    if track and not remote.valid_track(track):
         raise ship.ShipError(f'refused: --track "{track}" must be one folder name (letters, digits, . _ -), nothing was changed')
+    if checks:
+        effective_track = remote_track or track or cfg['delegate']['remote_track']
+        if not remote.valid_remote_track(effective_track):
+            raise ship.ShipError('refused: --remote-track or delegate.remote_track must be one folder name of 1 to 64 letters, '
+                                 'digits, dots, underscores or dashes, starting with a letter or digit and not repo.git or '
+                                 'tutti-slot.sh; choose another and retry')
     lock = track_lock(cfg, f'tree-{track}', say or (lambda m: sys.stderr.write(f'tutti: {m}\n'))) if track else contextlib.nullcontext()
     with lock:
         return _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discard, say, check_list, remote_track)
@@ -319,6 +333,7 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
     log = open(p['log'], 'a', encoding='utf8')   # closed in finally: the log outlives the say() closure
     say = say or (lambda m: (sys.stderr.write(f'tutti: {m}\n'), log.write(m + '\n'), log.flush()))
     try:
+        repo = resolve_repo(cfg, repo)
         wt, created = tree_for(cfg, repo, run_id, track, say)
         # how a "pause, stop now" hands this run over (tutti/handover.py): the same task, worktree and checks
         write(p['log'] + '.job', json.dumps({'kind': 'run', 'worker': name, 'task': task, 'repo': os.path.abspath(repo),
@@ -333,12 +348,19 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
         r = {'id': run_id, 'worker': name, 'task': task, 'worker_rc': rc, 'worktree': wt, 'created': created, 'diff': p['diff'],
              'changed': changed, 'stat': stat, 'denied': found, 'checks': None, 'report': p['report']}
         chosen, source = chosen_checks(cfg, repo, check_list)
+        from . import remote
+        identity = os.environ.get('TUTTI_RUN_IDENTITY')
+        if remote.valid_run_identity(identity):
+            r['run_identity'] = identity
         r['checks_from'] = checks_note(chosen, source)
         if checks and changed and chosen:
             env = {'TUTTI_CHANGED': ship.join_changed(changed), 'TUTTI_TREE': wt, 'TUTTI_GIT_MOUNT': worktree.docker_mount(wt)}
             remote_track = remote_track or track or cfg['delegate']['remote_track']
             say(f'run: checking the change ({len(chosen)} check(s))')   # the dashboard's phase marker
-            with track_lock(cfg, remote_track, say):
+            # Only routed checks copy into the shared remote track. Local checks run in this run's own worktree.
+            lock = track_lock(cfg, remote_track, say) if any(c.get('where', 'local') == 'route' for c in chosen) \
+                else contextlib.nullcontext()
+            with lock:
                 r['checks'] = run_checks(cfg, wt, chosen, env, remote_track, say, p['dir'])
         elif checks:
             r['checks'] = []

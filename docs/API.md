@@ -117,7 +117,7 @@ Each is a POST with a JSON body; the answer is `{"ok": true, ...}` with 200 (202
 | --- | --- | --- |
 | `/api/reading` | `{"account": "claude", "used": 42, "resets": "2026-11-20T08:00Z", "note": ""}` (`resets`, `note` optional; the reading helper adds `key`) | Writes the usage log like `tutti usage log`. 400: unknown account, `used` outside 0-100, a reset more than a day ago or two months ahead; 403: a helper key from another install. |
 | `/api/refresh` | `{}` | `{"ok": true, "read": [accounts], "problems": {account: why}}`: reads usage now. 500 when the usage log cannot be read. |
-| `/api/main` | `{"agent": "claude"}` | Switches the main agent (`tutti main`). 400: not a worker. |
+| `/api/main` | `{"agent": "claude"}` or `{"agent": "auto"}` | Switches the main agent (`tutti main <agent|auto>`; admin only). 400: not a worker or auto. |
 | `/api/autopilot` | `{"enabled": true, "fill_room": true}` (either key) | The autopilot's switches. |
 | `/api/self-improve` | `{"enabled": true}` | Self-improvement on or off. |
 | `/api/control` | `{"action": "pause"\|"resume"\|"optin", "kind": "machine"\|"device"\|"worker"\|"account", "name": "build1", "on": true, "stop": false, "note": ""}` | Pause, resume or opt in (`tutti pause`, `resume`, `optin`); `stop` hands running jobs over first. |
@@ -489,7 +489,7 @@ One YAML file: `--config`, else `$TUTTI_CONFIG`, else `~/.config/tutti/config.ya
 section. A missing key takes the default below; a wrong one stops every command with the key, the reason and the fix.
 
 Who may change it: the file's owner on disk, and on the dashboard an **admin** (the Settings tab, `POST /api/settings`).
-The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Manage tab: each user changes their own
+The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferred`) are on the Manage tab: each user changes their own
 (`POST /api/me/schedule`, `tutti owner`, `tutti main`), an admin anyone's. Keys marked *Applies after a restart* need
 `POST /api/restart` or a new start. A `*` is an entry's own name (`machines.build1.slots`).
 
@@ -514,7 +514,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `accounts.*.reading_file` | text |  | Reading file: A file your own tool writes {"used": 42} to. | admin |
 | `accounts.*.stale_hours` | number (hours) |  | Reading goes stale after: A reading by hand older than this gets a reminder. | admin |
 | `accounts.*.args` | list |  | Extra worker flags: Added when `tutti run auto` or conduct picks this account. | admin |
-| `accounts.*.reader` | yaml |  | Automatic reader: A command that prints the usage and the bucket to read from it, or {format: cursor-api, field: autoPercentUsed} for Cursor. | admin |
+| `accounts.*.reader` | yaml |  | Automatic reader: A command that prints usage, or format: cursor-api, codex-app-server or browser-usage for a scoped usage page. | admin |
 | `accounts.*.tiers` | yaml |  | Models by pace: Behind its limit: the strong tier's flags and the large tasks; ahead: the cheap tier's and the small ones ({strong: {args: [--model, x], sizes: [L, M]}, cheap: ...}). | admin |
 | `accounts.*.limits` | list |  | Bounded by: Longer quotas that bound this one (a weekly over a 5-hour window). | admin |
 | `accounts.*.window_points` | number |  | Points per window: What one whole window costs of its weekly limit; measured when empty. | admin |
@@ -528,6 +528,8 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `usage.log` | text | `~/.local/state/tutti/usage.jsonl` | Usage log: The file every reading is appended to. | admin |
 | `workers.*.kind` | select cli, ollama |  | Kind: cli: another vendor's agent; ollama: a local model server. | admin |
 | `workers.*.command` | list |  | Command: The command line; {prompt} is the brief, {log} a log file per run. | admin |
+| `workers.*.chat_account_selector` | text |  | Chat account selector: The CLI flag an admin asserts selects an account or model. | admin |
+| `workers.*.chat_output_format` | text |  | Chat output format: Use text or cursor-stream-json for Cursor progress and final result. | admin |
 | `workers.*.denied` | text |  | Denied marker: Text in its log that means a headless permission was refused. | admin |
 | `workers.*.costs_money` | switch | `False` | Costs money per use: Kept off until you turn it on. | admin |
 | `workers.*.enabled` | switch |  | On: Off takes it out of routing, conduct and review. | admin |
@@ -537,13 +539,14 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `workers.*.threads` | number |  | Threads: CPU threads the model may use. | admin |
 | `workers.*.num_ctx` | number (tokens) |  | Context: The model's context window. | admin |
 | `workers.*.context_tokens` | number (tokens) |  | Context window: Used by autocompact when the worker does not say. | admin |
-| `workers.*.machine` | select |  | Machine: Its yield flag is honoured: the worker waits while the machine yields. | admin |
+| `workers.*.machine` | select |  | Machine: Where this worker runs (Codex on the laptop): yield, pause, heat and quiet hours are honoured; Move work knows the host. | admin |
 | `workers.*.tunnel` | yaml |  | Tunnel: An ssh tunnel to the model server: {ssh, remote}. | admin |
-| `routing.workers` | list |  | Worker order: `tutti run auto` tries these in order, skipping spent ones. | admin |
+| `routing.workers` | list |  | Worker order: `tutti run auto` prefers these first (order only; every account that names a worker still joins, so Codex is not left out when the list is only cursor and agy). | admin |
 | `brief.rules` | list |  | Rules in every brief: Added to every brief (the standing ones are always added). | admin |
 | `main.target_pct` | number (%) |  | Target: The % of the main agent's quota to use by its spend-by time; the owner's reserve still holds. | admin |
-| `main.agent` | select | `claude` | Main agent: The worker that conducts the next goal. | each user (own value) or an admin |
-| `main.fallback` | list |  | Takes over: In this order, when the main agent's quota is in panic. | admin |
+| `main.agent` | select | `claude` | Main agent: The worker that conducts the next goal, or auto: Tutti keeps preferred while it has room, else the first worker in main.fallback with room. | each user (own value) or an admin |
+| `main.preferred` | select |  | Preferred main: The owner's lasting main agent; Tutti returns here after its limit resets. Empty: the file's main.agent when that is a worker, else the first of main.fallback, else claude. | each user (own value) or an admin |
+| `main.fallback` | list |  | Takes over: In this order, when the main agent's quota is in panic (and the auto pick order). | admin |
 | `main.commands` | yaml |  | Commands when conducting: A command per agent; default: its worker command. | admin |
 | `main.ask_first` | list |  | Ask first: Extra actions the conductor must ask you about. | admin |
 | `main.check_seconds` | number (seconds) | `30` | Check readings every: How often a conduct run checks the quota. | admin |
@@ -605,8 +608,16 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `night.enabled` | switch | `True` | Night mode: While Tutti holds or works an Android device in the night hours: 1 % brightness, every volume at 0 (the alarm stays yours); your own values come back at hand-back. | admin |
 | `night.hours` | text | `22-08` | Night hours: Local hours HH-HH, e.g. 22-08. | admin |
 | `night.devices` | list |  | Night mode on: The devices it applies to; empty: every device. | admin |
-| `devices.*.roles` | list |  | Roles: What the device is for other devices: cast-receiver (a Cast target), cast-sender. | admin |
+| `devices.*.roles` | list |  | Roles (override): The whole list, over what is detected (tutti/roles.py): cast-receiver, cast-sender, android-device, tv-device... | admin |
+| `devices.*.roles_add` | list |  | Roles added: Added to the detected roles (`tutti roles set`). | admin |
+| `devices.*.roles_off` | list |  | Roles removed: Taken from the detected roles (`tutti roles unset`). | admin |
+| `machines.*.roles` | list |  | Roles (override): The whole list, over what is detected: windows-test-runner, ui-desktop, gpu-ai, docker-host... (docs/MACHINES.md, Roles). | admin |
+| `machines.*.roles_add` | list |  | Roles added: Added to the detected roles (`tutti roles set`). | admin |
+| `machines.*.roles_off` | list |  | Roles removed: Taken from the detected roles (`tutti roles unset`). | admin |
 | `devices.*.hours` | yaml |  | Blocked hours: Daily local hours when the device is not used at all, e.g. {window: "22-07", days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none. | admin |
+| `lan_devices.*.roles` | list |  | Roles (override): A media device on the network (by its address): the whole list. | admin |
+| `lan_devices.*.roles_add` | list |  | Roles added: Added to what mDNS and SSDP found, e.g. bluetooth-audio. | admin |
+| `lan_devices.*.roles_off` | list |  | Roles removed: Taken from what mDNS and SSDP found. | admin |
 | `devices.*.kind` | select phone, tablet, tv |  | Kind: Set by `tutti devices pair`: phone, tablet or tv. | admin |
 | `devices.*.model` | text |  | Model: Set by `tutti devices pair`; a move checks the device it reaches is this one. | admin |
 | `devices.*.capabilities` | list |  | Capabilities: Set by `tutti devices pair`: camera, telephony, touchscreen, tv... | admin |
@@ -619,6 +630,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `autopilot.enabled` | switch | `False` | Autopilot: Sends backlog tasks to accounts that are behind their pace. | admin |
 | `autopilot.accounts` | list |  | Trigger accounts: Their pace starts the autopilot. | admin |
 | `autopilot.ladder` | list |  | Retry ladder: Attempt n starts at step n; the last step repeats. | admin |
+| `autopilot.fresh_fallback_accounts` | list |  | Fresh-work fallback accounts: Opt-in ladder accounts may take fresh work after usual candidates when their measured, unshared quota has room. | admin |
 | `autopilot.max_parallel` | number (runs) |  | Runs at once (cap): Optional: the most autopilot runs at once. Empty: adaptive (account room, free memory and cores, free gate slots). | admin |
 | `autopilot.parallel` | yaml |  | Adaptive parallelism: run_gb, run_cpu, reserve_gb, gate_share, ceiling and the heavy-gate pattern (docs/AUTOPILOT.md). | admin |
 | `autopilot.no_progress` | number (attempts) | `3` | Park after: A task with the same failure this many times waits for you. | admin |
@@ -935,13 +947,14 @@ usage: tutti setup [-h] [--yes] [--ask] [--no-service] [--join JOIN] [--no-conne
 install the newest signed and checksummed release of Tutti (release installs)
 
 ```text
-usage: tutti self-update [-h] [--insecure-skip-verify] [--check] [--auto]
+usage: tutti self-update [-h] [--insecure-skip-verify] [--check] [--stage-only] [--auto]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
 | `--insecure-skip-verify` | offline only: install without checking the release's Sigstore signature (a loud warning; never with --auto) |  |
 | `--check` | only say whether a newer release is out |  |
+| `--stage-only` | verify and stage the release in a separate environment without activating it |  |
 | `--auto` | quiet no-op when turned off (self_update.enabled) or not a release install |  |
 
 ### `tutti machines`
@@ -949,7 +962,8 @@ usage: tutti self-update [-h] [--insecure-skip-verify] [--check] [--auto]
 probe every machine: free slots, load, yield flag (add-android: set up a Termux machine)
 
 ```text
-usage: tutti machines [-h] [--name NAME] [--host HOST] [--user USER] [--port PORT] [{add-android}]
+usage: tutti machines [-h] [--name NAME] [--host HOST] [--user USER] [--port PORT] [--roles] [--refresh]
+                      [{add-android}]
 ```
 
 | Argument | What it does | Default |
@@ -959,6 +973,23 @@ usage: tutti machines [-h] [--name NAME] [--host HOST] [--user USER] [--port POR
 | `--host` | add-android: the device IP address |  |
 | `--user` | add-android: the Termux user (whoami) |  |
 | `--port` | add-android: Termux sshd port (8022) | `8022` |
+| `--roles` | each machine's and device's roles and why (tutti/roles.py) |  |
+| `--refresh` | --roles: probe again now instead of the daily answer |  |
+
+### `tutti roles`
+
+roles of machines and devices: list them, set or unset one (docs/MACHINES.md, Roles)
+
+```text
+usage: tutti roles [-h] [--all] {list,set,unset} [name] [role]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `action {list,set,unset}` |  |  |
+| `name` | a machine, a device, or a network device's address |  |
+| `role` | e.g. windows-test-runner, ui-desktop, gpu-ai, airplay-receiver |  |
+| `--all` | list: also every role Tutti knows and what it means |  |
 
 ### `tutti devices`
 
@@ -1153,7 +1184,7 @@ usage: tutti run [-h] [--dir DIR] [--show] [--input PATH] [--on ON] [--repo REPO
 | `--show` | print the brief and stop |  |
 | `--input` | a file or folder to copy to the --on machine first (repeat it) |  |
 | `--on` | the machine --input files go to |  |
-| `--repo` | hand the task off end to end: a worktree of this repo, the worker headless, the diff, the checks, a report (tutti runs show <id>) |  |
+| `--repo` | hand the task off end to end: a worktree of this repo (a folder, or a name under autopilot.repos), the worker headless, the diff, the checks, a report (tutti runs show <id>) |  |
 | `--track` | with --repo: reuse or create the worktree <delegate.prefix><track> instead of a new one |  |
 | `--bg` | with --repo: run detached; prints the id for `tutti wait run <id>` |  |
 | `--no-checks` | with --repo: skip the checks (the report says nothing was tested) |  |
@@ -1486,12 +1517,12 @@ the autopilot's queue of bounded tasks: add <repo> "<title>", list, rm <id>, see
 ```text
 usage: tutti backlog [-h] [--who WHO] [--scope PATH] [--check CHECK] [--size {S,M,L}] [--source SOURCE] [--note NOTE]
                      [--all]
-                     {add,list,rm,seed,retry,done,accept,claim,release,note} [repo] [title]
+                     {add,list,rm,seed,retry,done,accept,claim,release,note,priority} [repo] [title]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {add,list,rm,seed,retry,done,accept,claim,release,note}` |  |  |
+| `action {add,list,rm,seed,retry,done,accept,claim,release,note,priority}` |  |  |
 | `repo` | add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: the task id |  |
 | `--who` | claim: the session that works on it by hand (default $TUTTI_SESSION) |  |
 | `title` |  |  |
@@ -1548,15 +1579,15 @@ usage: tutti owner [-h] [{status,mode,window}] [mode] [window]
 
 ### `tutti autopilot`
 
-send backlog tasks to accounts that are behind their pace, by itself: status, on, off, tick (one round now; the dashboard ticks while it runs), fill on\|off (fill free room from the repos' sources), land <id> (review a result and land it)
+send backlog tasks to accounts that are behind their pace, by itself: status, on, off, tick (one round now), checkpoint (snapshot running work only), fill on\|off (fill free room from the repos' sources), land <id> (review a result and land it)
 
 ```text
-usage: tutti autopilot [-h] [{status,on,off,tick,fill,land,allow}] [arg]
+usage: tutti autopilot [-h] [{status,on,off,tick,checkpoint,fill,land,allow}] [arg]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {status,on,off,tick,fill,land,allow}` |  | `status` |
+| `action {status,on,off,tick,checkpoint,fill,land,allow}` |  | `status` |
 | `arg` | fill: on or off; land: the task id; allow: the account that may take first attempts for 7 days (the block resolver's one action) |  |
 
 ### `tutti workq`
@@ -1659,15 +1690,16 @@ usage: tutti report [-h] [--what WHAT] [--expected EXPECTED] [--preview] [--yes]
 
 ### `tutti dispatch`
 
-keep devices and machines busy: idle ones pull pending test shards (projects.<p>.tests) by themselves: status, on, off, now (one round with fresh probes), run <lease> and build <project> <suite> <rc> (internal)
+keep devices and machines busy: idle ones pull pending test shards (projects.<p>.tests) by themselves: status, on, off, now, resolve <lease> --confirmed-stopped, run <lease> and build <project> <suite> <rc> (internal)
 
 ```text
-usage: tutti dispatch [-h] [{status,on,off,now,run,build}] [lease] [rest ...]
+usage: tutti dispatch [-h] [--confirmed-stopped] [{status,on,off,now,run,build,resolve}] [lease] [rest ...]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {status,on,off,now,run,build}` |  | `status` |
+| `action {status,on,off,now,run,build,resolve}` |  | `status` |
+| `--confirmed-stopped` | resolve: confirm the entire execution boundary has stopped |  |
 | `lease` | run: the lease id; build: the project |  |
 | `rest` | build: the suite and the rc file |  |
 
@@ -1905,7 +1937,7 @@ usage: tutti auth [-h] [--client-id CLIENT_ID] [--yes] [--device-client-id DEVIC
 
 ### `tutti main`
 
-the main agent: show it and who has room, or `tutti main <agent>` to switch it; `tutti main backup [<machine>\|auto\|none]`: the backup main machine (docs/FAILOVER.md)
+the main agent: show it and who has room, or `tutti main <agent\|auto>` to switch it (auto: preferred while it has room, else the first main.fallback with room); `tutti main backup [<machine>\|auto\|none]`: the backup main machine (docs/FAILOVER.md)
 
 ```text
 usage: tutti main [-h] [--yes] [agent] [machine_name]
@@ -1913,7 +1945,7 @@ usage: tutti main [-h] [--yes] [agent] [machine_name]
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `agent` |  |  |
+| `agent` | a worker, auto, or backup |  |
 | `machine_name` | backup: the machine, auto (Tutti elects one) or none (no failover) |  |
 | `--yes` | backup: change it although the current backup does not answer |  |
 

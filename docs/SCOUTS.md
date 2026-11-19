@@ -1,5 +1,8 @@
 # Scouts
 
+Tests that pass an explicit environment without `XDG_CONFIG_HOME` read only that environment; they never fall back to the
+user's scout configuration. Tests that need a secret file provide their own temporary `XDG_CONFIG_HOME`.
+
 A scout is a helper that is **not a worker**. It never gets a worktree, a diff or a check; it is asked a question and
 answers in words. Scouts do what a chat bot with a browser is good at:
 
@@ -129,12 +132,12 @@ review` like the others: being listed is the owner's consent, whatever its trial
 first line is `grok-scout` appears after the request; a spent allowance skips it with the reason.
 
 Read the meter in one click: the reading helper's bookmarklet for the Cursor spending page reads every account on that
-page, Grok Bot's weekly meter included (`helper_label: Grok Bot`).
+page, Grok Bot's weekly meter included (`helper_label: Grok Bot`). Tutti now reads that visible meter automatically every 15 minutes
+through the Work browser's scoped usage reader, so the scouts' pacing stays current without a bookmark click.
 
 Between readings, each question sent logs an estimate on the scout's account (newest reading + `task_pct`, source
-`estimate`; from 0 after a reset), so the meter and the pacing move; the account still asks for a real reading when it is
-stale (the Scouts card's **Add a reading** opens the usage page). The reading helper reads Grok Bot's weekly meter in the
-same click as Cursor's (`helper_label: Grok Bot`); a page still on its spinner is reported, never saved as 0.
+`estimate`; from 0 after a reset), so the meter and the pacing move. The Scouts card's **Add a reading** remains available
+for a manual correction; a usage page still on its spinner is reported, never saved as 0.
 
 ## Sentry triage
 

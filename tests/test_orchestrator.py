@@ -191,6 +191,33 @@ class DelegateTest(unittest.TestCase):
         with mock.patch('sys.stdout'):
             return delegate.delegate(cfg, 'fake', task, [], self.repo, say=self.said.append, **kw)
 
+    def test_remote_track_is_checked_before_lock_or_worker(self):
+        cfg = self.cfg([])
+        for bad in ('../escape', 'bad;echo x', 'name\n', '/tmp/absolute', 'x' * 65, 'Repo.git', 'TUTTI-SLOT.SH'):
+            with self.subTest(bad=bad), mock.patch.object(delegate, 'track_lock') as lock, \
+                    mock.patch.object(delegate, '_delegate') as run:
+                with self.assertRaisesRegex(ship.ShipError, 'remote-track or delegate.remote_track'):
+                    self.run_task(cfg, track='named', remote_track=bad)
+                lock.assert_not_called()
+                run.assert_not_called()
+        cfg['delegate']['remote_track'] = '../escape'
+        with mock.patch.object(delegate, '_delegate') as run:
+            with self.assertRaisesRegex(ship.ShipError, 'delegate.remote_track'):
+                self.run_task(cfg)
+            run.assert_not_called()
+
+    def test_valid_remote_track_reaches_worker(self):
+        cfg = self.cfg([])
+        with mock.patch.object(delegate, '_delegate', return_value='ok') as run:
+            self.assertEqual(self.run_task(cfg, remote_track='safe-1_name.test'), 'ok')
+        self.assertEqual(run.call_args.args[-1], 'safe-1_name.test')
+
+    def test_report_contains_valid_run_identity(self):
+        cfg = self.cfg([])
+        with mock.patch.dict(os.environ, {'TUTTI_RUN_IDENTITY': 'a' * 32}):
+            report = self.run_task(cfg, checks=False)
+        self.assertEqual(delegate.load_report(cfg, report['id'])['run_identity'], 'a' * 32)
+
     def test_happy_path_diff_checks_and_report(self):
         cfg = self.cfg([{'run': 'echo "[SUCCESS]" $TUTTI_CHANGED', 'coverage': False}])
         r = self.run_task(cfg)
@@ -210,6 +237,15 @@ class DelegateTest(unittest.TestCase):
         self.assertIn('tutti runs discard', text)
         delegate.remove_tree(r['worktree'], self.said.append)
         self.assertFalse(os.path.exists(r['worktree']))
+
+    def test_local_checks_do_not_wait_for_remote_copy_but_routed_checks_do(self):
+        cfg = self.cfg([{'run': 'true'}])
+        with mock.patch.object(delegate, 'track_lock', side_effect=AssertionError('remote copy lock used')):
+            self.assertEqual(self.run_task(cfg)['checks'][0]['rc'], 0)
+        cfg = self.cfg([{'run': 'true', 'where': 'route'}])
+        with mock.patch.object(delegate, 'track_lock', side_effect=RuntimeError('remote copy lock reached')):
+            with self.assertRaisesRegex(RuntimeError, 'remote copy lock reached'):
+                self.run_task(cfg)
 
     def test_a_failing_check_a_denial_and_an_empty_diff_fail_the_run(self):
         r = self.run_task(self.cfg([{'run': 'exit 3'}]))
@@ -234,6 +270,28 @@ class DelegateTest(unittest.TestCase):
         os.makedirs(os.path.join(self.tmp.name, 'wt', 'tutti-run-stray'))
         with self.assertRaises(ship.ShipError):
             self.run_task(cfg, track='stray')
+
+    def test_repo_name_under_autopilot_resolves_outside_a_git_cwd(self):
+        """`--repo app` uses autopilot.repos.app.path even when cwd is not a git tree (the MCP / chat hand-off case)."""
+        cfg = self.cfg([])
+        cfg['autopilot']['repos'] = {'app': {'path': self.repo, 'check': 'true'}}
+        self.assertEqual(delegate.resolve_repo(cfg, 'app'), os.path.abspath(self.repo))
+        self.assertEqual(delegate.resolve_repo(cfg, self.repo), self.repo)
+        outside = os.path.join(self.tmp.name, 'outside')
+        os.makedirs(outside)
+        here = os.getcwd()
+        try:
+            os.chdir(outside)
+            with self.assertRaises(ship.ShipError) as err:
+                delegate.tree_for(self.cfg([]), 'app', '1-1', say=self.said.append)
+            self.assertIn('not inside a git work tree', str(err.exception))
+            with mock.patch('sys.stdout'):
+                r = delegate.delegate(cfg, 'fake', 'do nothing', [], 'app', say=self.said.append, checks=False)
+        finally:
+            os.chdir(here)
+        self.assertTrue(os.path.exists(os.path.join(r['worktree'], '.git')))
+        with open(os.path.join(delegate.paths(cfg, r['id'])['dir'], 'meta.json'), encoding='utf8') as f:
+            self.assertEqual(os.path.realpath(json.load(f)['repo']), os.path.realpath(self.repo))
 
     def test_wait_run_ends_with_one_line(self):
         cfg = self.cfg([{'run': 'true'}])
@@ -297,9 +355,12 @@ class StaleReadingTest(unittest.TestCase):
         self.assertIn('tutti usage log claude <percent>', s['remind'])
         self.assertTrue(pacing.account_state('claude', a, [], NOW)['stale'])
 
-    def test_an_automatically_read_account_is_never_stale(self):
+    def test_an_automatically_read_account_reports_a_missing_reading(self):
         a = {'window': '5h', 'resets': '2026-11-14T15:00Z', 'reader': {'command': ['x'], 'bucket': 'b'}}
-        self.assertFalse(pacing.account_state('agy', a, [], NOW)['stale'])
+        state = pacing.account_state('agy', a, [], NOW)
+        self.assertTrue(state['stale'])
+        self.assertFalse(state['needs_reading'])
+        self.assertIn('automatic reader', state['remind'])
 
     def test_an_account_behind_says_how_many_tasks_it_can_take(self):
         a = {'window': '7d', 'resets': '2026-11-21T00:00Z', 'worker': 'agy'}
@@ -620,6 +681,22 @@ class DiscoverTest(unittest.TestCase):
 
 
 class AccountsTest(unittest.TestCase):
+    def test_paused_ladder_account_is_temporarily_skipped_and_returns_when_resumed(self):
+        raw = {'accounts': {'meter': {'worker': 'cli', 'paused': {'by': 'owner'}}},
+               'workers': {'cli': {'kind': 'cli', 'command': ['agent', '{prompt}']}},
+               'autopilot': {'ladder': ['meter'], 'accounts': ['meter']}}
+        paused = config.normalise(raw)
+        self.assertEqual(paused['autopilot']['ladder'], [])
+        self.assertEqual(paused['autopilot']['accounts'], [])
+        self.assertFalse(config.validate(paused))
+        del raw['accounts']['meter']['paused']
+        resumed = config.normalise(raw)
+        self.assertEqual(resumed['autopilot']['ladder'], ['meter'])
+        self.assertEqual(resumed['autopilot']['accounts'], ['meter'])
+        self.assertFalse(config.validate(resumed))
+        raw['autopilot']['ladder'].append('unknown')
+        self.assertTrue(any('unknown' in e for e in config.validate(config.normalise(raw))))
+
     def test_a_disabled_account_is_gone_everywhere_but_its_readings_stay(self):
         cfg = config.normalise({'accounts': {'claude': {'window': '7d'}, 'premium': {'enabled': False, 'window': '7d', 'worker': 'x'}}})
         self.assertEqual(list(cfg['accounts']), ['claude'])

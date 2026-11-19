@@ -292,7 +292,7 @@ def publish(project, task, user_id, now):
     key = fold(task.get('title'))
     if not key or key in project['tasks']:
         return False
-    project['tasks'][key] = {**clean_task(task), 'status': 'queued', 'by': user_id, 'at': now}
+    project['tasks'][key] = {**clean_task(task), 'status': 'queued', 'by': user_id, 'at': now, 'instance': secrets.token_hex(16)}
     if len(project['tasks']) > MAX_TASKS:
         closed = sorted((t['at'], k) for k, t in project['tasks'].items() if t['status'] in CLOSED)
         for _at, k in closed[:len(project['tasks']) - MAX_TASKS]:
@@ -367,9 +367,46 @@ def _answer_project(state, pkey, project, user_id):
     tasks = []
     for k, t in project['tasks'].items():
         by = t.get('closed_by')
-        tasks.append({'key': k, **{x: t[x] for x in TASK_KEYS}, 'status': t['status'],
+        tasks.append({'key': k, **{x: t[x] for x in TASK_KEYS}, 'status': t['status'], 'instance': t.get('instance'),
+                      'published_by_me': t.get('by') == user_id,
                       'closed_by': holder_name(state, by) if by and by != user_id else None})
     return {'tasks': tasks, 'mine': mine, 'held': held, 'moved': gone}
+
+
+def scoped_reserve(state, pkey, project, ask, user_id, now):
+    """Claim exact observed task incarnations; malformed or older requests never authorize a reservation."""
+    requests, room = ask.get('want_scoped'), ask.get('room')
+    if not isinstance(requests, list) or ask.get('want') or type(room) is not int or room <= 0:
+        return []
+    out, seen = [], set()
+    for item in requests[:MAX_KEYS]:
+        if len(out) >= room:
+            break
+        if not isinstance(item, dict) or set(item) != {'key', 'instance', 'title', 'scope', 'size', 'nonce'}:
+            continue
+        key, instance, nonce = item['key'], item['instance'], item['nonce']
+        scope = item['scope']
+        if (not isinstance(key, str) or key in seen or not isinstance(instance, str) or not re.fullmatch(r'[0-9a-f]{32}', instance)
+                or not isinstance(nonce, str) or not re.fullmatch(r'[0-9a-f]{32}', nonce)
+                or not isinstance(scope, list) or not scope or any(not isinstance(s, str) or not s for s in scope)):
+            continue
+        task = project['tasks'].get(key)
+        if (not task or task.get('status') != 'queued' or task.get('instance') != instance
+                or task.get('title') != item['title'] or task.get('scope') != scope or task.get('size') != item['size']):
+            continue
+        lease_id = lease_key(pkey, key)
+        expire(state, now)
+        lease = state['leases'].get(lease_id)
+        if lease and (lease.get('user') != user_id or lease.get('scoped_instance') != instance):
+            continue
+        if not lease and claim(state, lease_id, user_id, now, RESERVE_MINUTES)[0]:
+            lease = state['leases'][lease_id]
+            lease['scoped_instance'] = instance
+        if lease:
+            remaining = min(RESERVE_MINUTES * 60, int(lease['until'] - now))
+            out.append({'key': key, 'instance': instance, 'nonce': nonce, 'lease_seconds': remaining})
+            seen.add(key)
+    return out
 
 
 def sync_project(state, pkey, ask, user_id, now, minutes):
@@ -378,9 +415,13 @@ def sync_project(state, pkey, ask, user_id, now, minutes):
     if pkey not in state['projects'] and len(state['projects']) >= MAX_PROJECTS:
         raise HouseholdError(f'the household shares {MAX_PROJECTS} projects already: the admin removes old ones first')
     project = state['projects'].setdefault(pkey, {'tasks': {}})
+    for task in project['tasks'].values():
+        if 'instance' not in task:
+            task['instance'] = secrets.token_hex(16)   # upgrade legacy tasks under the coordinator's state lock
     _ask_project(state, pkey, project, ask, user_id, now, minutes)
+    scoped = scoped_reserve(state, pkey, project, ask, user_id, now)
     expire(state, now)
-    return _answer_project(state, pkey, project, user_id)
+    return {**_answer_project(state, pkey, project, user_id), 'scoped_claims': scoped}
 
 
 def status(state, user_id, now):

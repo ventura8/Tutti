@@ -1,5 +1,10 @@
 # Local models: every machine's Ollama as a worker
 
+In one autopilot plan, workers using the same configured Ollama endpoint share one task slot. A running task or a task
+assigned in the current round occupies that endpoint for its other worker names too. This compares configured URLs after
+adding the default scheme and trimming trailing slashes; it does not resolve DNS aliases or coordinate independent
+autopilot instances (t301).
+
 Tutti reads every machine's Ollama at each dashboard probe and turns it into a worker. While the online accounts are ahead of
 their pace, or the owner's reserve holds them, the household's local models take bounded tasks first. A local model has no
 quota: what limits it is its machine.
@@ -45,6 +50,12 @@ Every text model is classed. Vision, embedding and speech models are skipped.
 Each model has a measured tier (`tutti/power.py`): light, mid or strong from its size class (small, normal, strong), one
 down for a 2-3 bit quantisation, then one up at a pass rate of 75 % or more, one down at 25 % or less, over at least four
 attempts in Tutti's own task history (each attempt records its model). A task's difficulty is 0-2: its size (S, M, L), at
+
+Sizes a local model takes (owner, 2026-11-17): a huge model (60B and up, such as a 70B on a 48–96 GB card) takes every
+size like an online agent; a strong model (14–59B) takes S and M tasks, a normal one (7–13B) S only,
+a small one S docs, summaries, triage and translations. An L task goes to a huge local model or an online account: smaller
+local models failed most of them.
+
 least 1 for a lint-fix or review, plus one per failed attempt. `model_for` picks the weakest tier that meets the
 difficulty (a translator still wins translations), and `order` puts the steps in that order, easy work on the weaker
 machine and hard work on the stronger one (measured power), so the strong models stay free for hard work and a failure
@@ -53,8 +64,9 @@ escalates. The local models' cards show each model's tier, why and tokens per se
 ## Routing (the autopilot)
 
 - **First-class steps.** Local workers are added to the ladder after `autopilot.ladder`.
-- **Overflow.** An account of the ladder or of `autopilot.accounts` may be ahead of its pace, in panic or spent, or every
-  trigger account may have no room. Then a fresh task goes to a local model first.
+- **Overflow.** When all online ladder and `autopilot.accounts` entries are ahead of pace, in panic or spent, or every
+  trigger account has no room, a fresh task goes to a local model first. One account in panic does not by itself spare
+  other accounts that have room; each account's own pacing limits still apply.
 - **Order.** The local models are ordered by:
   1. an idle machine first;
   2. the strongest tier for the task;

@@ -13,7 +13,8 @@ import urllib.request
 from . import config, inuse
 
 STANDING = ['Work only inside the current directory.', 'Do not commit, push or deploy: leave your edits uncommitted for review.',
-            'Do not read or print secrets (.env files, tokens, keys).']
+            'Do not read or print secrets (.env files, tokens, keys).',
+            'This task is already managed by Tutti: do not call its MCP tools for claiming, leasing, delegating or reporting.']
 
 
 def brief(cfg, task, files=()):
@@ -67,6 +68,16 @@ def with_args(argv, extra):
         else:
             out += [flag] if value is None else [flag, value]
     return out
+
+
+def selector_value(args, selector):
+    """One explicit selector flag and value, or None for a missing, ambiguous or malformed binding."""
+    if not isinstance(selector, str) or not selector.startswith('-') or selector == '-' or '=' in selector:
+        return None
+    if any(isinstance(arg, str) and arg.startswith(selector + '=') for arg in args):
+        return None
+    values = [value for flag, value in pairs(args) if flag == selector]
+    return values[0] if len(values) == 1 and isinstance(values[0], str) and values[0] else None
 
 
 def _tagged(name):

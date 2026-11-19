@@ -286,6 +286,37 @@ class Delivery(Base):
         self.assertEqual([c['title'] for c in convs], ['Questions from Tutti'])
         self.assertIn('q1', convs[0]['messages'][0]['text'])
 
+    def test_changed_question_is_delivered_again_but_identical_question_is_not(self):
+        cfg = self.cfg()
+        t = task()
+        args = dict(question='Which?', why='Blocked', options=['retry', 'drop'], default='retry')
+        needs.ask(cfg, t, **args, now=T0)
+        sent = []
+        def send(c, k, qs):
+            sent.append(qs[0]['question'])
+        needs.tick(cfg, T0, at_work_fn=lambda c, k, n: True, send=send)
+        needs.ask(cfg, t, **args, now=T0 + 1)
+        needs.tick(cfg, T0 + 2 * H, at_work_fn=lambda c, k, n: True, send=send)
+        self.assertEqual(sent, ['Which?'])
+        needs.ask(cfg, t, **{**args, 'question': 'Which now?'}, now=T0 + 2 * H)
+        needs.tick(cfg, T0 + 3 * H, at_work_fn=lambda c, k, n: True, send=send)
+        self.assertEqual(sent, ['Which?', 'Which now?'])
+
+    def test_failed_old_delivery_does_not_undo_new_delivery(self):
+        cfg = self.cfg()
+        t = task()
+        args = dict(question='Old?', why='Blocked', options=['retry', 'drop'], default='retry', urgent=True)
+        needs.ask(cfg, t, **args, now=T0)
+        def fail_after_replacement(c, k, qs):
+            needs.ask(cfg, t, **{**args, 'question': 'New?'}, now=T0 + 1)
+            needs.tick(cfg, T0, at_work_fn=lambda c, k, n: True, send=lambda *a: None)
+            raise RuntimeError('old delivery failed')
+        needs.tick(cfg, T0, at_work_fn=lambda c, k, n: True, send=fail_after_replacement)
+        q = needs.load(cfg)['questions'][0]
+        self.assertEqual(q['question'], 'New?')
+        self.assertEqual(q['delivered'], T0)
+        self.assertEqual(needs.load(cfg)['users']['owner']['last_delivered'], T0)
+
     def test_a_failed_send_offers_the_batch_again(self):
         cfg = self.cfg()
         t = task()

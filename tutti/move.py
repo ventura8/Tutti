@@ -13,6 +13,7 @@ ssh, and `tutti client` keeps one ssh connection up that carries the dashboard's
 through which the host runs the jobs that need the old computer's repositories and sign-ins. Nothing is ever exposed to
 the internet: the dashboard stays on 127.0.0.1 at both ends, and every address the move writes is checked by
 tutti/netpolicy.py (localhost, LAN or VPN only)."""
+import http.client
 import json
 import os
 import re
@@ -20,14 +21,20 @@ import shlex
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
+import tempfile
 import time
-import urllib.request
 
 import yaml
 
 from . import __version__, bridge, clientmode, config, delegate, guided, install, movetools, netpolicy, remote, yamledit
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 STEPS = ('preflight', 'install', 'tools', 'logins', 'copy', 'freeze', 'jobs', 'sync', 'configure', 'start', 'health', 'client', 'verify',
          'done')
@@ -100,6 +107,72 @@ def move_dir(cfg):
     d = os.path.join(config.state_dir(cfg), FOLDER)
     os.makedirs(d, exist_ok=True)
     return d
+
+
+def admission_supported():
+    return bool(fcntl and getattr(os, 'O_NOFOLLOW', 0) and getattr(os, 'O_DIRECTORY', 0))
+
+
+def admission_lock(cfg):
+    """An exclusive local gate shared by cooperative autopilot starts and move freeze."""
+    if not admission_supported():
+        raise OSError('secure cross-process admission locking is not available on this host')
+    path = os.path.join(move_dir(cfg), 'admission.lock')
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError('move admission lock is not a regular file')
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def frozen_path(cfg):
+    return os.path.join(move_dir(cfg), FROZEN)
+
+
+def frozen_exists(cfg):
+    try:
+        os.lstat(frozen_path(cfg))
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def persist_frozen(cfg, target):
+    """Create a durable marker under the admission lock; refuse an unrelated existing marker."""
+    path = frozen_path(cfg)
+    if frozen_exists(cfg):
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode) or os.read(fd, 4097) != (target + '\n').encode('utf8'):
+                raise OSError('an existing move freeze belongs to another target or is invalid; inspect or roll it back')
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    else:
+        fd, tmp = tempfile.mkstemp(prefix='.freeze-', dir=move_dir(cfg))
+        try:
+            with os.fdopen(fd, 'w', encoding='utf8') as f:
+                f.write(target + '\n')
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+    folder = os.open(move_dir(cfg), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(folder)
+    finally:
+        os.close(folder)
+    parent = os.open(config.state_dir(cfg), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(parent)
+    finally:
+        os.close(parent)
 
 
 def frozen_note(cfg, cmd, action=None):
@@ -815,8 +888,11 @@ class Move:
         self.note(f'state and {len(repos["paths"])} repository folder(s) copied to {self.target}' + (' (final sync)' if delete else ''))
 
     def freeze(self):
-        with open(os.path.join(move_dir(self.cfg), FROZEN), 'w', encoding='utf8') as f:
-            f.write(f'{self.target}\n')
+        fd = admission_lock(self.cfg)
+        try:
+            persist_frozen(self.cfg, self.target)
+        finally:
+            os.close(fd)
         pids = stop_local(self.cfg, self.j)
         self.note(f'frozen: the dashboard here stopped ({", ".join(map(str, pids)) or "none was running"}); changes are refused '
                   'until the move ends')
@@ -1006,12 +1082,23 @@ def repoint_household(address, backups=None):
     return True
 
 
-def local_health(port, timeout=3):
+def local_health(port, timeout=3, host='127.0.0.1'):
+    """Probe a local dashboard directly, bypassing proxies and allowing its loopback Host header."""
+    host = {'0.0.0.0': '127.0.0.1', '::': '::1'}.get(host, host)
+    conn = None
     try:
-        with urllib.request.urlopen(f'http://127.0.0.1:{int(port)}/api/health', timeout=timeout) as r:
-            return json.loads(r.read().decode())
-    except (OSError, ValueError):
+        conn = http.client.HTTPConnection(host, int(port), timeout=timeout)
+        conn.request('GET', '/api/health', headers={'Host': f'127.0.0.1:{int(port)}'})
+        response = conn.getresponse()
+        if response.status != 200:
+            return None
+        data = json.loads(response.read().decode())
+        return data if isinstance(data, dict) and data.get('ok') is True else None
+    except (OSError, ValueError, http.client.HTTPException):
         return None
+    finally:
+        if conn:
+            conn.close()
 
 
 def stop_there(cfg, j, ops, say):

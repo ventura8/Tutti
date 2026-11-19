@@ -1,5 +1,12 @@
 # A backup main machine, with automatic failover
 
+When its code changes, the failover watchdog reloads its process in place, avoiding the service's leave hook for a routine
+reload. If the reload fails, it continues heartbeats and retries. A successful exec of a partially replaced or broken
+program can still exit and trigger the leave hook. This does not make a checkout update atomic or preserve jobs across a
+dashboard service restart; those require separate coordination.
+The watchdog reloads its existing code tree: switching a release-install `current` symlink does not itself switch or notify
+a watchdog that is still watching the old version tree.
+
 Tutti runs on one **main machine**: its dashboard, the household coordinator, the autopilot and the device leases. A
 **backup main machine** holds a warm copy of Tutti's state and takes over by itself when the main machine is away, then
 hands Tutti back when it returns. Nobody has to do anything.
@@ -69,8 +76,8 @@ The cost of this guarantee: when the backup is down, the main turns read-only af
   screenshots and ship logs older than `junk_days` (3), and cuts logs over `log_mb` (2 MB) to their newest part. The backlog,
   users, sign-in state and settings are never touched.
 - The watchdog (each round) snapshots every state JSON file that parses into `snapshots/` and puts back a corrupt one from
-  its last good snapshot (the broken copy kept as `<name>.corrupt`); it starts the dashboard again where Tutti serves when it
-  does not answer.
+  its last good snapshot (the broken copy kept as `<name>.corrupt`). Where Tutti serves, it checks the dashboard and can
+  request a safe start when ownership is verified, or reports why the unresponsive dashboard needs inspection (see Network).
 
 ## Tutti's own AI picks the best local model (backlog t80)
 
@@ -82,3 +89,15 @@ use, only when `ai_assist.online` is on).
 ## Network
 
 The dashboard stays on the LAN or a VPN: the backup's copy keeps the same `dashboard.bind`. Nothing is made public.
+
+On the main machine, the watchdog probes the configured bind address directly (wildcard addresses use the matching
+loopback address). `tutti setup` pins a simple absolute configuration path into its generated systemd unit. When that exact
+unit is loaded without drop-ins or pending reload and is inactive or failed, the watchdog can ask systemd to start it.
+Legacy units, unsupported paths, modified units and active but unhealthy services remain unverified: check
+`systemctl --user status tutti-dashboard` rather than killing an unknown process. The file and service may still change
+between verification and the start request. Without a unit, watchdog
+starts are serialized. A live recorded PID receives a 60-second startup grace, then an explicit unresolved-health warning;
+the PID alone does not establish process identity, so the watchdog does not kill or replace it. IPv6 probe address handling
+does not establish that the dashboard server supports IPv6 binds.
+If Linux cannot locate `systemctl`, the service state is unknown, not proof that no unit exists. A dashboard start is also
+blocked if the main's failover lease expires during the checks. Dashboard warnings are reported separately from repairs.

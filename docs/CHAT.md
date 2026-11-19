@@ -214,7 +214,8 @@ Under the message box, as in a chat IDE, each starting at Auto:
   your threshold (`autocompact.threshold_pct`, 60 % by default; yours with `compact_pct`), the older messages are folded
   into a summary: a local model writes it without tools (or uses the first lines if it fails); for CLI agents Tutti uses
   the first lines directly, without launching another agent. The first-line summary can omit details, and retention limits
-  still apply. The last four messages stay whole, and the chat marks where. Tutti sends summaries as historical data and
+  still apply. Stopping during compaction preserves the previous summary when cancellation is observed before its save;
+  the last four messages stay whole, and the chat marks where. Tutti sends summaries as historical data and
   asks before running managed changes when a summary is included. CLI agents may have native tools outside those checks;
   these measures cannot guarantee that a model will ignore instructions in historical text.
 - **Stop** (Esc) ends an answer and keeps what was written; **Edit** on any of your messages resends it and replaces what

@@ -11,6 +11,9 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 ### Added
 
 - Add a conservative Docker containment candidate classifier; it does not authorize retries (t309, t424).
+
+## 0.31.4 (2026-11-19)
+
 ### Fixed
 
 - Parse device lease options after device names and preserve command flags and separators (t177, t421).

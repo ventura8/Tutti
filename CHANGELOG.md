@@ -6,6 +6,12 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Added
+
+- Add a conservative Docker containment candidate classifier; it does not authorize retries (t309, t424).
+
 ## 0.31.4 (2026-11-19)
 
 ### Fixed

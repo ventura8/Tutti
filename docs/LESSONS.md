@@ -1,5 +1,8 @@
 # Lessons
 
+- A stopped-looking container is only a candidate: without authenticated ownership and pinned mounts, inspection cannot
+  prove that writers or external effects stopped. Missing or contradictory evidence remains unknown (t309).
+
 - A CLI process can use native tools before its answer fails; a post-launch failure is not safe evidence for automatic fallback (t303).
 
 - A streaming EOF does not prove an answer finished; never retry another model after an action attempt without checking its outcome (t303).

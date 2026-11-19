@@ -111,6 +111,15 @@ def finish_reader(process, reaped, cleanup_done, collector):
             collector.join(timeout=0.1)
 
 
+def release_when_reaped(process, reaped):
+    if not reaped.is_set():
+        try:
+            process.wait()   # daemon collector owns the guard until the original process exits
+        except (OSError, subprocess.SubprocessError):
+            return   # unproven exit: keep the guard raised instead of starting more readers
+    READER_LOCK.release()
+
+
 def collect_output(process, lines, cleanup_done, reaped):
     try:
         for line in process.stdout:
@@ -121,12 +130,7 @@ def collect_output(process, lines, cleanup_done, reaped):
             process.stdout.close()
         finally:
             cleanup_done.wait()
-            if not reaped.is_set():
-                try:
-                    process.wait()   # daemon collector owns the guard until the original process exits
-                except (OSError, subprocess.SubprocessError):
-                    return   # unproven exit: keep the guard raised instead of starting more readers
-            READER_LOCK.release()
+            release_when_reaped(process, reaped)
 
 
 def read(cfg, account, popen=subprocess.Popen):

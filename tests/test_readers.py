@@ -136,8 +136,9 @@ class ParseTest(unittest.TestCase):
             self.assertEqual(codexusage.read({}, {}, popen=popen), {'secondary': {}})
 
     def test_codex_reader_launch_failure_releases_guard(self):
+        popen = mock.Mock(side_effect=OSError('missing'))
         with self.assertRaisesRegex(ValueError, 'could not start'):
-            codexusage.read({}, {}, popen=mock.Mock(side_effect=OSError('missing')))
+            codexusage.read({}, {}, popen=popen)
         self.assertTrue(codexusage.READER_LOCK.acquire(blocking=False))
         codexusage.READER_LOCK.release()
 

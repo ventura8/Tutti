@@ -219,9 +219,16 @@ class Cards(unittest.TestCase):
         self.assertEqual(calls.count('pc'), 2)   # one retry after a miss
         self.assertEqual(r['pc']['gpu_w'], 5.0)
 
+    def test_fallback_curl_does_not_claim_direct_endpoint_provenance(self):
+        fallback = {'tags': {'models': [{'name': 'm:1'}]}, 'tags_endpoint': 'stale.example:11434'}
+        readings = energy.probe_all(self.cfg, lambda _machine, _on: dict(fallback), lambda _host, _path: None)
+        self.assertEqual(readings['pc']['tags'], fallback['tags'])
+        self.assertNotIn('tags_endpoint', readings['pc'])
+
     def test_models_read_when_the_power_is_not(self):
         r = energy.probe_all(self.cfg, lambda m, on: None, lambda host, path: {'models': [{'name': 'm:1'}]})
         self.assertTrue(r['pc']['power_unread'])
+        self.assertEqual(r['pc']['tags_endpoint'], energy.hosts(self.cfg)['pc']['ollama'])
         c = energy.card(self.cfg, 'pc', energy.hosts(self.cfg)['pc'], r['pc'], None, {}, [], time.time(), energy.tariff(self.cfg),
                         False, {'big': (True, 'ok')})
         self.assertEqual((c['status'], c['installed'], c['reachable']), ('available', ['m:1'], False))

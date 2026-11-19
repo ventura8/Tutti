@@ -394,8 +394,17 @@ def scoped_reserve(state, pkey, project, ask, user_id, now):
         if (not task or task.get('status') != 'queued' or task.get('instance') != instance
                 or task.get('title') != item['title'] or task.get('scope') != scope or task.get('size') != item['size']):
             continue
-        if claim(state, lease_key(pkey, key), user_id, now, RESERVE_MINUTES)[0]:
-            out.append({'key': key, 'instance': instance, 'nonce': nonce, 'lease_seconds': RESERVE_MINUTES * 60})
+        lease_id = lease_key(pkey, key)
+        expire(state, now)
+        lease = state['leases'].get(lease_id)
+        if lease and (lease.get('user') != user_id or lease.get('scoped_instance') != instance):
+            continue
+        if not lease and claim(state, lease_id, user_id, now, RESERVE_MINUTES)[0]:
+            lease = state['leases'][lease_id]
+            lease['scoped_instance'] = instance
+        if lease:
+            remaining = min(RESERVE_MINUTES * 60, int(lease['until'] - now))
+            out.append({'key': key, 'instance': instance, 'nonce': nonce, 'lease_seconds': remaining})
             seen.add(key)
     return out
 

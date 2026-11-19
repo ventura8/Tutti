@@ -478,7 +478,7 @@ def assignment_wait(cfg, name, t, rooms):
     return why or f'{name}: too little room for a {t["size"]} task'
 
 
-def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fallback=None, eligible=None):
+def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fallback=None, eligible=None, on_pick=None):
     """Each queued task, in the order given (by priority, then oldest), to the first of its candidate steps that has room for its
     size. `free`: the online runs that may start, or (online, local): a local model's run is not counted in max_parallel, only
     in the machines' slots. `prefer`: {step: the sizes its model tier wants} (tutti/tiers.py): a step whose tier names sizes is
@@ -517,6 +517,8 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fal
                     rooms[other] = (0, f'{other}: its model server is already in use by {pick}')
         rescue_debit(cfg, pick, units(t))
         out['dispatch'].append((t['id'], pick))
+        if on_pick:
+            on_pick(pick)
         local -= 1   # every run takes a machine slot for its checks
         free -= 0 if is_local(cfg, pick) else 1
 
@@ -675,9 +677,12 @@ def capacity_now(cfg, running, machines, now, room=None):
 def fresh_local_model(cfg, worker, task, inventory, now):
     """Only a recently observed server and installed selected model can reserve shared work."""
     from . import fleet, power
-    machine = fleet.machine_of(cfg, worker)
+    machine = config.physical(cfg, fleet.machine_of(cfg, worker))
     entry = inventory.get(machine) or {}
     at = entry.get('updated')
+    endpoint = entry.get('tags_endpoint')
+    if not isinstance(endpoint, str) or not endpoint or config.ollama_url(endpoint, '') != local_endpoint(cfg, worker):
+        return False
     interval = (cfg.get('dashboard') or {}).get('probe_seconds', 30)
     if (entry.get('stale') is not False or isinstance(at, bool) or not isinstance(at, (int, float))
             or not math.isfinite(at) or not 0 <= now.timestamp() - at <= 2 * interval):
@@ -717,10 +722,18 @@ def scoped_local_choices(cfg, data, rooms, local_slots, machines, now):
     result = {'dispatch': [], 'waiting': {}}
     local_rooms = {n: r for n, r in rooms.items() if is_local(cfg, n)}
     inventory = (fleet.read_state(cfg).get('machines') or {})
+    host_room = {m['name']: m['free'] for m in machines if isinstance(m, dict) and isinstance(m.get('name'), str)
+                 and config.physical(cfg, m['name']) == m['name'] and type(m.get('free')) is int and m['free'] > 0
+                 and sum(1 for row in machines if isinstance(row, dict) and row.get('name') == m['name']) == 1}
+    def physical(worker):
+        return config.physical(cfg, fleet.machine_of(cfg, worker))
     def eligible(worker, task):
-        return local_host_ready(cfg, worker, machines, now) and fresh_local_model(cfg, worker, task, inventory, now)
+        return (host_room.get(physical(worker), 0) > 0 and local_host_ready(cfg, worker, machines, now)
+                and fresh_local_model(cfg, worker, task, inventory, now))
+    def debit(worker):
+        host_room[physical(worker)] -= 1
     assign(cfg, priority.tasks_by_priority(cfg, candidates_, going), local_rooms, (0, local_slots), result,
-           machines=machines, eligible=eligible)
+           machines=machines, eligible=eligible, on_pick=debit)
     by_id = {t['id']: t for t in candidates_}
     out = {}
     for task_id, worker in result['dispatch']:
@@ -785,6 +798,21 @@ def filter_scoped_dispatch(cfg, data, result, plan, machines, now, elapsed):
         plan.update(state='waiting', reason='local household capacity changed; waiting for a new scoped reservation')
 
 
+def has_online_shared_retry(cfg, tasks, rooms, machines, now):
+    """Preserve legacy sharing when an existing shared retry can use a ladder account."""
+    from . import sharing, spendrest
+    shared, waiting = set(sharing.shared_repos(cfg)), spendrest.waiting_seconds(cfg, now.timestamp())
+    for task in tasks:
+        if (task.get('status') != 'queued' or task.get('repo') not in shared or not task.get('attempts')
+                or task['id'] in waiting or backlog.is_question(task) or float(task.get('not_before') or 0) > now.timestamp()
+                or not (task.get('check') or (settings(cfg)['repos'].get(task['repo']) or {}).get('check'))):
+            continue
+        for name in candidates(cfg, task, machines=machines):
+            if not is_local(cfg, name) and rooms.get(name, (0, ''))[0] >= units(task) and rescue_fits(cfg, name, units(task)):
+                return True
+    return False
+
+
 def refresh_sharing_capacity(cfg, data, states, machines, now, on):
     """Recompute eligible household capacity before sync, without changing the scheduling measurement."""
     cfg['_sharing_online_limit'], cfg['_sharing_local_scoped'] = 0, {}
@@ -798,6 +826,9 @@ def refresh_sharing_capacity(cfg, data, states, machines, now, on):
         probe['_main_in_panic'] = main_in_panic(probe, states)
         names = list(dict.fromkeys([*ladder(probe), *trigger_accounts(probe), *probe.get('_spare_accounts', ())]))
         rooms = {n: step_room(probe, n, states, used, machines or ()) for n in names}
+        probe['_panic_usage'] = {n: 100 - remaining_quota(states[n]) for n in names if n in states and n in probe['accounts']
+                                 and panic_rescue(probe, n, states[n], states)}
+        probe['_panic_windows'], probe['_panic_budget'] = rescue_budgets(probe, states, tasks, probe['_panic_usage'])
         fallback = fresh_fallbacks(probe, states, rooms, used, now)
         eligible = set(trigger_accounts(probe)) | set(probe.get('_spare_accounts', ())) | set(fallback)
         if probe['_main_in_panic']:
@@ -805,8 +836,13 @@ def refresh_sharing_capacity(cfg, data, states, machines, now, on):
         room = sum(max(0, min(r[0], fallback[n]) if n in fallback else r[0]) for n, r in rooms.items()
                    if n in eligible and not is_local(probe, n))
         running = [t for t in tasks if t['status'] == 'running']
-        free, stopped = capacity_now(probe, running, machines, now, room)
+        online_retry = has_online_shared_retry(probe, tasks, rooms, machines or (), now)
+        free, stopped = capacity_now(probe, running, machines, now, max(room, 1) if online_retry else room)
         if not stopped:
+            if online_retry:
+                cfg.pop('_sharing_online_limit', None)
+                cfg['_sharing_local_scoped'] = None
+                return
             cfg['_sharing_online_limit'] = probe['_parallel_limit']
             if cfg['_sharing_online_limit'] <= len(running):
                 slots, _why = machine_capacity(probe, machines)

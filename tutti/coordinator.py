@@ -67,6 +67,11 @@ def scoped_ack(answer):
     return isinstance(answer, dict) and any((p or {}).get('scoped_claims') for p in (answer.get('projects') or {}).values())
 
 
+def scoped_request(path, ask):
+    projects = ask.get('projects') if isinstance(ask, dict) and path == '/hh/sync' else None
+    return isinstance(projects, dict) and any(isinstance(p, dict) and p.get('want_scoped') for p in projects.values())
+
+
 def sync_state_directory(path):
     """Require a directory fsync before acknowledging a scoped lease; unsupported filesystems fail closed."""
     fd = os.open(os.path.dirname(path), os.O_RDONLY | os.O_DIRECTORY)
@@ -217,7 +222,13 @@ class Service:
                     return 401, {'error': why}
                 self.answering.key = data['members'][uid]['token']
                 try:
-                    code, answer = self.member_call(data, uid, path, json.loads(body or b'{}'), now)
+                    ask = json.loads(body or b'{}')
+                    if scoped_request(path, ask):
+                        try:
+                            sync_state_directory(self.path)
+                        except (OSError, AttributeError):
+                            return 503, {'error': 'scoped reservation storage cannot sync its directory: check coordinator storage'}
+                    code, answer = self.member_call(data, uid, path, ask, now)
                 except household.HouseholdError as e:
                     code, answer = 409, {'error': str(e)}
             return self.save_answer(code, answer, data)

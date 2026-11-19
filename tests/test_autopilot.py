@@ -154,7 +154,8 @@ class PlanTest(Base):
         cfg['autopilot']['repos']['app']['household'] = True
         item = {**task('t1'), 'scope': ['a.py'], 'source': 'household', 'household_instance': 'a' * 32}
         model = fleet.classify({'name': 'qwen2.5-coder:7b'})
-        inventory = {'machines': {'nuc': {'stale': False, 'updated': TEST_NOW.timestamp(), 'models': [model]}}}
+        inventory = {'machines': {'nuc': {'stale': False, 'updated': TEST_NOW.timestamp(),
+                                            'tags_endpoint': 'pc.example:11434', 'models': [model]}}}
         with mock.patch.object(fleet, 'read_state', return_value=inventory):
             choices = autopilot.scoped_local_choices(cfg, {'tasks': [item]}, {'pc': (3, '')}, 1, FREE, TEST_NOW)
             self.assertEqual(list(choices), ['t1'])
@@ -185,14 +186,44 @@ class PlanTest(Base):
         first = {**task('t1'), 'scope': ['a.py'], 'household_instance': 'a' * 32}
         second = {**task('t2'), 'title': 'Other', 'scope': ['b.py'], 'household_instance': 'b' * 32}
         model = fleet.classify({'name': 'qwen2.5-coder:7b'})
-        inventory = {'machines': {'nuc': {'stale': False, 'updated': TEST_NOW.timestamp(), 'models': [model]}}}
+        inventory = {'machines': {'nuc': {'stale': False, 'updated': TEST_NOW.timestamp(),
+                                            'tags_endpoint': 'pc.example:11434', 'models': [model]}}}
         def eligible(_cfg, worker, item, _inventory, _now):
             return (worker, item['id']) in {('pc2', 't1'), ('pc', 't2')}
         with mock.patch.object(fleet, 'read_state', return_value=inventory), \
              mock.patch.object(autopilot, 'fresh_local_model', side_effect=eligible):
             choices = autopilot.scoped_local_choices(cfg, {'tasks': [first, second]},
                                                        {'pc': (3, ''), 'pc2': (3, '')}, 2, FREE, TEST_NOW)
+            one_slot = autopilot.scoped_local_choices(cfg, {'tasks': [first, second]},
+                                                      {'pc': (3, ''), 'pc2': (3, '')}, 2,
+                                                      [{'name': 'nuc', 'status': 'free', 'free': 1}], TEST_NOW)
+            cfg['workers']['pc2']['machine'] = 'nuc2'
+            two_hosts = autopilot.scoped_local_choices(cfg, {'tasks': [first, second]},
+                                                       {'pc': (3, ''), 'pc2': (3, '')}, 2,
+                                                       [{'name': 'nuc', 'status': 'free', 'free': 1},
+                                                        {'name': 'nuc2', 'status': 'free', 'free': 1}], TEST_NOW)
+            cfg['machines']['desktop'] = {**cfg['machines']['nuc'], 'dedicated': True}
+            cfg['workers']['pc2']['machine'] = 'desktop'
+            aliases = autopilot.scoped_local_choices(cfg, {'tasks': [first, second]},
+                                                     {'pc': (3, ''), 'pc2': (3, '')}, 2,
+                                                     [{'name': 'nuc', 'status': 'free', 'free': 1},
+                                                      {'name': 'desktop', 'status': 'free', 'free': 1}], TEST_NOW)
         self.assertEqual({key: val['worker'] for key, val in choices.items()}, {'t1': 'pc2', 't2': 'pc'})
+        self.assertEqual(len(one_slot), 1)
+        self.assertEqual(len(two_hosts), 2)
+        self.assertEqual(len(aliases), 1)
+
+    def test_scoped_model_requires_matching_observed_endpoint(self):
+        cfg = self.cfg()
+        cfg['workers']['pc'].update(model='qwen2.5-coder:7b', machine='nuc')
+        item = task('t1')
+        model = fleet.classify({'name': 'qwen2.5-coder:7b'})
+        entry = {'stale': False, 'updated': TEST_NOW.timestamp(), 'models': [model]}
+        self.assertFalse(autopilot.fresh_local_model(cfg, 'pc', item, {'nuc': entry}, TEST_NOW))
+        entry['tags_endpoint'] = 'other.example:11434'
+        self.assertFalse(autopilot.fresh_local_model(cfg, 'pc', item, {'nuc': entry}, TEST_NOW))
+        entry['tags_endpoint'] = 'http://pc.example:11434'
+        self.assertTrue(autopilot.fresh_local_model(cfg, 'pc', item, {'nuc': entry}, TEST_NOW))
 
     def test_sharing_capacity_recovers_without_queued_tasks_and_preserves_fill_limit(self):
         cfg = self.cfg()
@@ -215,6 +246,42 @@ class PlanTest(Base):
             self.assertEqual(cfg['_sharing_local_scoped'], {})
             self.assertIn('shared work waits', cfg['_sharing_capacity_error'])
 
+    def test_eligible_shared_retry_uses_legacy_sharing_with_mixed_fresh_queue(self):
+        cfg = self.cfg()
+        cfg['autopilot']['repos']['app']['household'] = True
+        cfg['_parallel_limit'] = 3
+        states = self.states(**{'agy-gemini': account('agy-gemini', 'ahead'),
+                                'agy-claude': account('agy-claude', 'ahead'), 'cursor': account('cursor', 'on pace', 3)})
+        fresh = task('fresh')
+        retry = task('retry', attempts=[attempt('agy-claude')])
+        data = {'tasks': [fresh, retry]}
+        autopilot.refresh_sharing_capacity(cfg, data, states, FREE, TEST_NOW, True)
+        self.assertIsNone(cfg['_sharing_local_scoped'])
+        self.assertNotIn('_sharing_online_limit', cfg)
+        ask = sharing.ask(cfg, data, {'app': 'git.example/app'}, {})['projects']['git.example/app']
+        self.assertEqual(ask['want'], ['task fresh', 'task retry'])
+        self.assertNotIn('want_scoped', ask)   # the pre-existing protocol also works with old coordinators
+        autopilot.refresh_sharing_capacity(cfg, {'tasks': [fresh]}, states, FREE, TEST_NOW, True)
+        self.assertEqual(cfg['_sharing_local_scoped'], {})
+        rooms = {'cursor': (3, '')}
+        self.assertTrue(autopilot.has_online_shared_retry(cfg, [retry], rooms, FREE, TEST_NOW))
+        unchecked = {**retry, 'check': ''}
+        cfg['autopilot']['repos']['app']['check'] = ''
+        self.assertFalse(autopilot.has_online_shared_retry(cfg, [unchecked], rooms, FREE, TEST_NOW))
+        cfg['autopilot']['repos']['app']['check'] = 'true'
+        self.assertFalse(autopilot.has_online_shared_retry(cfg, [{**retry, 'pin': 'worker:agy'}], rooms, FREE, TEST_NOW))
+        cfg['autopilot']['repos']['app']['spare'] = True
+        cfg['_spare_accounts'] = []
+        self.assertFalse(autopilot.has_online_shared_retry(cfg, [retry], rooms, FREE, TEST_NOW))
+        cfg['_spare_accounts'] = ['cursor']
+        self.assertTrue(autopilot.has_online_shared_retry(cfg, [retry], rooms, FREE, TEST_NOW))
+        cfg['autopilot']['repos']['app']['spare'] = False
+        cfg['_panic_budget'] = {'stale': 99}
+        with mock.patch.object(autopilot, 'rescue_budgets', return_value=({'cursor': ['current']}, {'current': 0})), \
+             mock.patch.object(autopilot, 'has_online_shared_retry', return_value=False) as eligible:
+            autopilot.refresh_sharing_capacity(cfg, data, states, FREE, TEST_NOW, True)
+        self.assertEqual(eligible.call_args.args[0]['_panic_budget'], {'current': 0})
+
     def test_scoped_dispatch_revalidates_worker_model_and_fleet_before_start(self):
         cfg = self.cfg()
         cfg['_sharing_machine_at'] = TEST_NOW.timestamp()
@@ -226,7 +293,8 @@ class PlanTest(Base):
         result = {'scoped': {'t1': choice}, 'keys': {'app': 'project'},
                   'answer': {'projects': {'project': {'scoped_claims': [{**request, 'lease_seconds': 300}]}}}}
         model = fleet.classify({'name': 'qwen2.5-coder:7b'})
-        inventory = {'machines': {'nuc': {'stale': False, 'updated': TEST_NOW.timestamp(), 'models': [model]}}}
+        inventory = {'machines': {'nuc': {'stale': False, 'updated': TEST_NOW.timestamp(),
+                                            'tags_endpoint': 'pc.example:11434', 'models': [model]}}}
         with mock.patch.object(fleet, 'read_state', return_value=inventory):
             for worker in ('other-local', 'agy-gemini'):
                 plan = {'dispatch': [('t1', worker)], 'waiting': {}}
@@ -258,7 +326,8 @@ class PlanTest(Base):
         result = {'scoped': {'t1': choice}, 'keys': {'app': 'project'},
                   'answer': {'projects': {'project': {'scoped_claims': [{**request, 'lease_seconds': 300}]}}}}
         model = fleet.classify({'name': 'qwen2.5-coder:7b'})
-        inventory = {'machines': {'nuc': {'stale': False, 'updated': TEST_NOW.timestamp(), 'models': [model]}}}
+        inventory = {'machines': {'nuc': {'stale': False, 'updated': TEST_NOW.timestamp(),
+                                            'tags_endpoint': 'pc.example:11434', 'models': [model]}}}
         elapsed, rejected, spawn = [0], [False], mock.Mock()
         def save(_cfg, _data):
             elapsed[0] = 61
@@ -819,8 +888,8 @@ class RoundTest(Base):
                 return {'projects': {key: household.sync_project(remote, key, ask, 'self', now + len(requests), 30)
                                      for key, ask in payload['projects'].items()}}
         model = fleet.classify({'name': 'qwen2.5-coder:7b'})
-        inventory = {'machines': {'nuc': {'stale': True, 'updated': now, 'models': [model]},
-                                  'nuc2': {'stale': False, 'updated': now, 'models': [model]}}}
+        inventory = {'machines': {'nuc': {'stale': True, 'updated': now, 'tags_endpoint': 'pc.example:11434', 'models': [model]},
+                                  'nuc2': {'stale': False, 'updated': now, 'tags_endpoint': 'pc2.example:11434', 'models': [model]}}}
         machines = [*FREE, {'name': 'nuc2', 'status': 'free', 'free': 1}]
         with mock.patch.object(sharing.coordinator, 'client_of', return_value=Coordinator()), \
              mock.patch.object(sharing, 'key_of_repo', side_effect=lambda _cfg, name, _run=None: f'github.com/example/{name}'), \
@@ -867,7 +936,7 @@ class RoundTest(Base):
                 answer.pop('scoped_claims', None)
                 return {'projects': {key: answer}}
         model = fleet.classify({'name': 'qwen2.5-coder:7b'})
-        inventory = {'machines': {'nuc': {'stale': False, 'updated': now, 'models': [model]}}}
+        inventory = {'machines': {'nuc': {'stale': False, 'updated': now, 'tags_endpoint': 'pc.example:11434', 'models': [model]}}}
         with mock.patch.object(sharing.coordinator, 'client_of', return_value=Coordinator()), \
              mock.patch.object(sharing, 'key_of_repo', return_value=key), \
              mock.patch.object(fleet, 'read_state', return_value=inventory):
@@ -902,13 +971,14 @@ class RoundTest(Base):
             elapsed['seconds'] += 61
             return '1-1', f'{item["id"]} started'
         model = fleet.classify({'name': 'qwen2.5-coder:7b'})
-        inventory = {'machines': {'nuc': {'stale': False, 'updated': now, 'models': [model]}}}
+        inventory = {'machines': {'nuc': {'stale': False, 'updated': now, 'tags_endpoint': 'one.example:11434', 'models': [model]}}}
         plan = {'state': 'dispatching', 'reason': 'two tasks', 'dispatch': selected, 'waiting': {}}
         with mock.patch.object(autopilot, 'refresh_sharing_capacity'), mock.patch.object(sharing, 'sync', return_value=shared), \
              mock.patch.object(sharing, 'under_lock', return_value=({}, [])), \
              mock.patch.object(sharing, 'moved_of', return_value=({}, {}, set())), \
              mock.patch.object(sharing, 'renew', return_value=True), mock.patch.object(autopilot, 'plan', return_value=plan), \
              mock.patch.object(autopilot, 'start_reserved', side_effect=start) as start_mock, \
+             mock.patch.object(autopilot, 'fresh_local_model', return_value=True), \
              mock.patch.object(fleet, 'read_state', return_value=inventory):
             result, events = autopilot.tick(cfg, {}, FREE, now=now, beat={}, monotonic=clock)
         self.assertEqual(start_mock.call_count, 1)

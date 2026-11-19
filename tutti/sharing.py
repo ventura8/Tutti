@@ -245,7 +245,7 @@ def under_lock(result, data, now):
         if result.get('scoped') is None:
             hold, events = apply(data, result['keys'], result['answer'], now, moved_hold)
         else:
-            hold, events = apply_scoped(data, result['keys'], result['answer'], now)
+            hold, events = apply_scoped(data, result['keys'], result['answer'], now, moved_hold)
         hold.update(scoped_holds(result, data))
         hold.update(moved_hold)
         warnings = [f'{task_id}: household moved notice has ambiguous identity; running work is unchanged' for task_id in sorted(uncertain)]
@@ -256,7 +256,7 @@ def under_lock(result, data, now):
     return no_key_hold(data, result['keys']), []
 
 
-def apply_scoped(data, keys, answer, now):
+def apply_scoped(data, keys, answer, now, moved_hold=None):
     """Mirror or close only unambiguous scoped identities in local-only mode."""
     hold, events = no_key_hold(data, keys), []
     key_counts = Counter(k for k in keys.values() if k)
@@ -270,11 +270,11 @@ def apply_scoped(data, keys, answer, now):
         for task in data['tasks']:
             if task.get('repo') == repo and task.get('status') != 'dropped':
                 local.setdefault(household.fold(task['title']), []).append(task)
-        apply_scoped_project(data, repo, remote_tasks, remote_counts, local, events, now)
+        apply_scoped_project(data, repo, remote_tasks, remote_counts, local, events, now, moved_hold or {})
     return hold, events
 
 
-def apply_scoped_project(data, repo, remote_tasks, remote_counts, local, events, now):
+def apply_scoped_project(data, repo, remote_tasks, remote_counts, local, events, now, moved_hold):
     for remote in remote_tasks:
         key = remote.get('key')
         matches = local.get(key, [])
@@ -286,7 +286,7 @@ def apply_scoped_project(data, repo, remote_tasks, remote_counts, local, events,
             continue
         task = matches[0]
         if remote.get('status') in household.CLOSED:
-            if (task.get('household_instance') and task['household_instance'] == remote.get('instance')
+            if (task['id'] not in moved_hold and task.get('household_instance') and task['household_instance'] == remote.get('instance')
                     and all(task.get(k) == remote.get(k) for k in ('title', 'scope', 'size'))):
                 _close_here(task, remote, events)
         else:

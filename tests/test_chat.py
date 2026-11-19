@@ -1041,9 +1041,9 @@ class Modes(ToolLoop):
             with self.subTest(error=type(error).__name__):
                 eng = self.engine_real()
                 seen = []
-                def streams(_cand, _cfg, _messages, _cancel, *, failure=error):
-                    seen.append(True)
-                    if len(seen) == 1:
+                def streams(_cand, _cfg, _messages, _cancel, *, failure=error, calls=seen):
+                    calls.append(True)
+                    if len(calls) == 1:
                         yield {'tool_calls': [self.add]}
                     else:
                         yield 'partial'

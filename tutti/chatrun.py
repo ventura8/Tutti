@@ -671,20 +671,10 @@ class Engine:
                     held.append((cand, messages))
                     continue
                 job.bad_calls, job.used_tools, job.escalate = 0, False, escalate
-                if self._converse(job, user, cfg, cand, messages, known):
-                    if job.cancel.is_set():
-                        return
-                    weak = self._weak(job, cand, escalate, failed)
-                    if weak:
-                        kept = kept or weak
-                        continue
-                    why = cand['before'] + failed
-                    if why:
-                        self._fallback(job, f'Answered by {cand["label"]} because ' + '; '.join(why) + '.')
+                stop, weak = self._candidate_answer(job, user, cfg, cand, messages, known, escalate, failed)
+                kept = kept or weak
+                if stop:
                     return
-                if job.cancel.is_set():
-                    return
-                self._guard_incomplete_action(job, ValueError('model gave no answer'))
             except (OSError, ValueError) as e:
                 if job.cancel.is_set():
                     return
@@ -700,6 +690,21 @@ class Engine:
         scope = {'local': 'No local model can answer now', 'online': 'No online agent can answer now'}.get(s['model'],
                                                                                                          'No model can answer now')
         self._fallback(job, f'{scope}: ' + ('; '.join(skipped + failed) or 'none is set up') + '. Pick another model above, or Auto.')
+
+    def _candidate_answer(self, job, user, cfg, cand, messages, known, escalate, failed):
+        answered = self._converse(job, user, cfg, cand, messages, known)
+        if job.cancel.is_set():
+            return True, None
+        if not answered:
+            self._guard_incomplete_action(job, ValueError('model gave no answer'))
+            return False, None
+        weak = self._weak(job, cand, escalate, failed)
+        if weak:
+            return False, weak
+        why = cand['before'] + failed
+        if why:
+            self._fallback(job, f'Answered by {cand["label"]} because ' + '; '.join(why) + '.')
+        return True, None
 
     def _messages(self, cfg, cand, system, conv, history, turns):
         w = (cfg.get('workers') or {}).get(cand['worker']) or {}

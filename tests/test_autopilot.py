@@ -2,6 +2,7 @@
 escalation ladder), failure signatures and parking, the retry brief, and whole rounds against a throwaway repository with a
 fake worker. Nothing leaves the temp folder; no real machine or account is used."""
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -9,7 +10,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import autopilot, backlog, cli, config, dashboard, delegate, fleet, planner, routing, state
+from tutti import autopilot, backlog, cli, config, dashboard, delegate, fleet, household, planner, routing, sharing, state
 
 FAKE_WORKER = '''import sys
 prompt = sys.argv[1]
@@ -145,6 +146,128 @@ class PlanTest(Base):
         s = {n: account(n) for n in ('agy-gemini', 'agy-claude')}
         s['cursor'] = account('cursor', 'on pace', None)
         return {**s, **over}
+
+    def test_local_household_selection_is_scoped_unique_and_requires_fresh_model(self):
+        cfg = self.cfg()
+        cfg['_sharing_machine_at'] = TEST_NOW.timestamp()
+        cfg['workers']['pc'].update(model='qwen2.5-coder:7b', machine='nuc')
+        cfg['autopilot']['repos']['app']['household'] = True
+        item = {**task('t1'), 'scope': ['a.py'], 'source': 'household', 'household_instance': 'a' * 32}
+        model = fleet.classify({'name': 'qwen2.5-coder:7b'})
+        inventory = {'machines': {'nuc': {'stale': False, 'updated': TEST_NOW.timestamp(), 'models': [model]}}}
+        with mock.patch.object(fleet, 'read_state', return_value=inventory):
+            choices = autopilot.scoped_local_choices(cfg, {'tasks': [item]}, {'pc': (3, '')}, 1, FREE, TEST_NOW)
+            self.assertEqual(list(choices), ['t1'])
+            self.assertEqual(choices['t1']['request']['scope'], ['a.py'])
+            missing = [{'name': 'other', 'status': 'free', 'free': 2}]
+            self.assertEqual(autopilot.scoped_local_choices(cfg, {'tasks': [item]}, {'pc': (3, '')}, 1, missing, TEST_NOW), {})
+            busy = [{'name': 'nuc', 'status': 'busy', 'free': 0}]
+            self.assertEqual(autopilot.scoped_local_choices(cfg, {'tasks': [item]}, {'pc': (3, '')}, 1, busy, TEST_NOW), {})
+            own = {**item, 'source': 'user'}
+            self.assertEqual(list(autopilot.scoped_local_choices(cfg, {'tasks': [own]}, {'pc': (3, '')}, 1, FREE, TEST_NOW)), ['t1'])
+            cfg['workers']['other-local'] = {**cfg['workers']['pc']}
+            cfg['autopilot']['ladder'].append('other-local')
+            distinct = {**item, 'id': 't2', 'title': 'different', 'household_instance': 'b' * 32}
+            both_rooms = {'pc': (3, ''), 'other-local': (3, '')}
+            self.assertEqual(len(autopilot.scoped_local_choices(cfg, {'tasks': [item, distinct]}, both_rooms, 2, FREE, TEST_NOW)), 1)
+            duplicate = {**item, 'id': 't2'}
+            self.assertEqual(autopilot.scoped_local_choices(cfg, {'tasks': [item, duplicate]}, {'pc': (3, '')}, 1, FREE, TEST_NOW), {})
+            inventory['machines']['nuc']['stale'] = True
+            self.assertEqual(autopilot.scoped_local_choices(cfg, {'tasks': [item]}, {'pc': (3, '')}, 1, FREE, TEST_NOW), {})
+
+    def test_sharing_capacity_recovers_without_queued_tasks_and_preserves_fill_limit(self):
+        cfg = self.cfg()
+        cfg['_sharing_machine_at'] = TEST_NOW.timestamp()
+        cfg['_parallel_limit'] = 7
+        states = self.states(**{'agy-gemini': account('agy-gemini', 'ahead'), 'agy-claude': account('agy-claude', 'ahead')})
+        autopilot.refresh_sharing_capacity(cfg, {'tasks': []}, states, FREE, TEST_NOW, True)
+        self.assertEqual(cfg['_sharing_online_limit'], 0)
+        states['agy-gemini'] = account('agy-gemini', 'behind', room=2)
+        autopilot.refresh_sharing_capacity(cfg, {'tasks': []}, states, FREE, TEST_NOW, True)
+        self.assertGreater(cfg['_sharing_online_limit'], 0)
+        self.assertEqual(cfg['_parallel_limit'], 7)
+        with mock.patch.object(autopilot, 'step_room', side_effect=ValueError('private detail')):
+            autopilot.refresh_sharing_capacity(cfg, {'tasks': []}, states, FREE, TEST_NOW, True)
+        self.assertEqual(cfg['_sharing_online_limit'], 0)
+        self.assertNotIn('private detail', cfg['_sharing_capacity_error'])
+
+    def test_scoped_dispatch_revalidates_worker_model_and_fleet_before_start(self):
+        cfg = self.cfg()
+        cfg['_sharing_machine_at'] = TEST_NOW.timestamp()
+        cfg['workers']['pc'].update(model='qwen2.5-coder:7b', machine='nuc')
+        cfg['workers']['other-local'] = {**cfg['workers']['pc']}
+        item = {**task('t1'), 'scope': ['a.py'], 'source': 'household', 'household_instance': 'a' * 32}
+        request = {'key': 'task t1', 'instance': 'a' * 32, 'nonce': 'b' * 32}
+        choice = {'task': dict(item), 'worker': 'pc', 'model': 'qwen2.5-coder:7b', 'request': request}
+        result = {'scoped': {'t1': choice}, 'keys': {'app': 'project'},
+                  'answer': {'projects': {'project': {'scoped_claims': [{**request, 'lease_seconds': 300}]}}}}
+        model = fleet.classify({'name': 'qwen2.5-coder:7b'})
+        inventory = {'machines': {'nuc': {'stale': False, 'updated': TEST_NOW.timestamp(), 'models': [model]}}}
+        with mock.patch.object(fleet, 'read_state', return_value=inventory):
+            for worker in ('other-local', 'agy-gemini'):
+                plan = {'dispatch': [('t1', worker)], 'waiting': {}}
+                autopilot.filter_scoped_dispatch(cfg, {'tasks': [item]}, result, plan, FREE, TEST_NOW, 0)
+                self.assertEqual(plan['dispatch'], [])
+            plan = {'dispatch': [('t1', 'pc')], 'waiting': {}}
+            autopilot.filter_scoped_dispatch(cfg, {'tasks': [item]}, result, plan, FREE, TEST_NOW, 0)
+            self.assertEqual(plan['dispatch'], [('t1', 'pc')])
+            plan = {'dispatch': [('t1', 'pc')], 'waiting': {}}
+            autopilot.filter_scoped_dispatch(cfg, {'tasks': [item]}, result, plan, FREE, TEST_NOW, 271)
+            self.assertEqual(plan['dispatch'], [])   # conservative lease-duration margin, independent of wall-clock skew
+            inventory['machines']['nuc']['stale'] = True
+            plan = {'dispatch': [('t1', 'pc')], 'waiting': {}}
+            autopilot.filter_scoped_dispatch(cfg, {'tasks': [item]}, result, plan, FREE, TEST_NOW, 0)
+            self.assertEqual(plan['dispatch'], [])
+            inventory['machines']['nuc']['stale'] = False
+            cfg['workers']['pc']['model'] = 'qwen3:8b'
+            plan = {'dispatch': [('t1', 'pc')], 'waiting': {}}
+            autopilot.filter_scoped_dispatch(cfg, {'tasks': [item]}, result, plan, FREE, TEST_NOW, 0)
+            self.assertEqual(plan['dispatch'], [])
+
+    def test_scoped_spawn_rechecks_after_slow_launch_intent_save(self):
+        cfg = self.cfg()
+        cfg['_now'], cfg['_sharing_machine_at'] = TEST_NOW, TEST_NOW.timestamp()
+        cfg['workers']['pc'].update(model='qwen2.5-coder:7b', machine='nuc')
+        item = {**task('t1'), 'scope': ['a.py'], 'source': 'household', 'household_instance': 'a' * 32}
+        request = {'key': 'task t1', 'instance': 'a' * 32, 'nonce': 'b' * 32}
+        choice = {'task': dict(item), 'worker': 'pc', 'model': 'qwen2.5-coder:7b', 'request': request}
+        result = {'scoped': {'t1': choice}, 'keys': {'app': 'project'},
+                  'answer': {'projects': {'project': {'scoped_claims': [{**request, 'lease_seconds': 300}]}}}}
+        model = fleet.classify({'name': 'qwen2.5-coder:7b'})
+        inventory = {'machines': {'nuc': {'stale': False, 'updated': TEST_NOW.timestamp(), 'models': [model]}}}
+        elapsed, rejected, spawn = [0], [False], mock.Mock()
+        def save(_cfg, _data):
+            elapsed[0] = 61
+        guarded = autopilot.scoped_spawn(cfg, item, 'pc', choice, result, FREE, 0, lambda: elapsed[0], spawn, rejected)
+        with mock.patch.object(backlog, 'save', side_effect=save), mock.patch.object(fleet, 'read_state', return_value=inventory):
+            run_id, event = autopilot.start_reserved(cfg, {'tasks': [item]}, item, 'pc', TEST_NOW.timestamp(), guarded, {})
+        self.assertIsNone(run_id)
+        self.assertTrue(rejected[0])
+        self.assertEqual(item['status'], 'queued')
+        self.assertIn('observation changed', event)
+        spawn.assert_not_called()
+
+    def test_malformed_inventory_holds_only_scoped_dispatch(self):
+        cfg = self.cfg()
+        cfg['_now'], cfg['_sharing_machine_at'] = TEST_NOW, TEST_NOW.timestamp()
+        cfg['workers']['pc'].update(model='qwen2.5-coder:7b', machine='nuc')
+        item = {**task('t1'), 'scope': ['a.py']}
+        other = {**task('t2'), 'repo': 'other'}
+        choice = {'task': dict(item), 'worker': 'pc', 'model': 'qwen2.5-coder:7b',
+                  'request': {'key': 't1', 'instance': 'a' * 32, 'nonce': 'b' * 32}}
+        result = {'scoped': {'t1': choice}, 'keys': {'app': 'project'}, 'answer': {}}
+        for inventory in ({'machines': []}, {'machines': {'nuc': {'models': [123]}}}, {'machines': 'invalid'}):
+            plan = {'dispatch': [('t1', 'pc'), ('t2', 'pc')], 'waiting': {}}
+            with mock.patch.object(fleet, 'read_state', return_value=inventory):
+                autopilot.filter_scoped_dispatch(cfg, {'tasks': [item, other]}, result, plan, FREE, TEST_NOW, 0)
+            self.assertEqual(plan['dispatch'], [('t2', 'pc')])
+            self.assertIn('wait for the next scoped reservation', plan['waiting']['t1'])
+        cfg['workers']['pc'] = 'invalid'
+        plan = {'dispatch': [('t1', 'pc'), ('t2', 'pc')], 'waiting': {}}
+        with mock.patch.object(fleet, 'read_state', return_value={'machines': {}}):
+            autopilot.filter_scoped_dispatch(cfg, {'tasks': [item, other]}, result, plan, FREE, TEST_NOW, 0)
+        self.assertEqual(plan['dispatch'], [('t2', 'pc')])
+        self.assertIn('wait for the next scoped reservation', plan['waiting']['t1'])
 
     def test_off_and_an_empty_backlog_say_so(self):
         cfg = self.cfg()
@@ -645,6 +768,126 @@ class RoundTest(Base):
     def tick(self):
         with mock.patch.object(config, 'load', return_value=self.c):
             return autopilot.tick(self.c, self.states, [], is_alive=lambda pid: False, spawn=self.run_now)
+
+    def test_two_round_scoped_household_reservation_uses_one_global_local_slot(self):
+        cfg = self.c
+        cfg['_sharing_machine_at'] = TEST_NOW.timestamp()
+        cfg['machines'] = {'nuc': {'host': 'nuc.example'}}
+        cfg['workers']['pc'] = {'kind': 'ollama', 'host': 'pc.example:11434', 'model': 'qwen2.5-coder:7b', 'machine': 'nuc'}
+        cfg['autopilot']['ladder'] = ['fake-a', 'pc']
+        cfg['autopilot']['repos']['app']['household'] = True
+        cfg['autopilot']['repos']['other'] = {**cfg['autopilot']['repos']['app']}
+        states = {'fake-a': account('fake-a', 'ahead')}
+        now = TEST_NOW.timestamp()
+        remote = household.new_state('home', now)
+        household.sync_project(remote, 'github.com/example/other', {'publish': [
+            {'title': 'Fix other', 'scope': ['b.py'], 'size': 'S'}]}, 'peer', now, 30)
+        with backlog.locked(cfg) as data:
+            backlog.add(data, backlog.new_task('app', 'Fix mine', ['a.py'], 'true', 'S', 'user'))
+        requests = []
+        elapsed = {'seconds': 0, 'delay': False}
+        class Coordinator:
+            def call(self, path, payload):
+                requests.append(payload)
+                if elapsed['delay']:
+                    elapsed['seconds'] += 61
+                return {'projects': {key: household.sync_project(remote, key, ask, 'self', now + len(requests), 30)
+                                     for key, ask in payload['projects'].items()}}
+        model = fleet.classify({'name': 'qwen2.5-coder:7b'})
+        inventory = {'machines': {'nuc': {'stale': False, 'updated': now, 'models': [model]}}}
+        with mock.patch.object(sharing.coordinator, 'client_of', return_value=Coordinator()), \
+             mock.patch.object(sharing, 'key_of_repo', side_effect=lambda _cfg, name, _run=None: f'github.com/example/{name}'), \
+             mock.patch.object(fleet, 'read_state', return_value=inventory), \
+             mock.patch.object(sharing, 'renew', return_value=True):
+            def clock():
+                return elapsed['seconds']
+            first, _ = autopilot.tick(cfg, states, FREE, now=now, beat={}, spawn=lambda *a, **k: SimpleNamespace(pid=1234),
+                                      monotonic=clock)
+            mirrored = backlog.load(cfg)['tasks']
+            self.assertEqual({t['title'] for t in mirrored}, {'Fix mine', 'Fix other'})
+            self.assertTrue(all(re.fullmatch(r'[0-9a-f]{32}', t.get('household_instance') or '') for t in mirrored))
+            elapsed['delay'] = True
+            delayed, _ = autopilot.tick(cfg, states, FREE, now=now + 1, beat={}, spawn=lambda *a, **k: SimpleNamespace(pid=1234),
+                                        monotonic=clock)
+            elapsed['delay'] = False
+            second, _ = autopilot.tick(cfg, states, FREE, now=now + 2, beat={}, spawn=lambda *a, **k: SimpleNamespace(pid=1234),
+                                       monotonic=clock)
+        self.assertEqual(first['dispatch'], [])
+        self.assertEqual(sum(len(p['want_scoped']) for p in requests[0]['projects'].values()), 0)
+        self.assertEqual(sum(len(p['want_scoped']) for p in requests[1]['projects'].values()), 1)
+        self.assertEqual(delayed['dispatch'], [])   # a slow coordinator made the machine/model observations too old
+        self.assertEqual(len(second['dispatch']), 1)
+        self.assertEqual(second['dispatch'][0][1], 'pc')
+
+    def test_old_coordinator_cannot_authorize_local_dispatch_even_with_an_old_lease(self):
+        cfg = self.c
+        cfg['_sharing_machine_at'] = TEST_NOW.timestamp()
+        cfg['machines'] = {'nuc': {'host': 'nuc.example'}}
+        cfg['workers']['pc'] = {'kind': 'ollama', 'host': 'pc.example:11434', 'model': 'qwen2.5-coder:7b', 'machine': 'nuc'}
+        cfg['autopilot']['ladder'] = ['fake-a', 'pc']
+        cfg['autopilot']['repos']['app']['household'] = True
+        states, now = {'fake-a': account('fake-a', 'ahead')}, TEST_NOW.timestamp()
+        remote = household.new_state('home', now)
+        key = 'github.com/example/app'
+        household.sync_project(remote, key, {'publish': [{'title': 'Fix peer', 'scope': ['a.py'], 'size': 'S'}]}, 'peer', now, 30)
+        calls = []
+        class Coordinator:
+            def call(self, path, payload):
+                calls.append(payload)
+                project_ask = dict(payload['projects'][key])
+                project_ask.pop('want_scoped', None)   # an old coordinator ignores the extension
+                answer = household.sync_project(remote, key, project_ask, 'self', now + len(calls), 30)
+                answer.pop('scoped_claims', None)
+                return {'projects': {key: answer}}
+        model = fleet.classify({'name': 'qwen2.5-coder:7b'})
+        inventory = {'machines': {'nuc': {'stale': False, 'updated': now, 'models': [model]}}}
+        with mock.patch.object(sharing.coordinator, 'client_of', return_value=Coordinator()), \
+             mock.patch.object(sharing, 'key_of_repo', return_value=key), \
+             mock.patch.object(fleet, 'read_state', return_value=inventory):
+            autopilot.tick(cfg, states, FREE, now=now, beat={})
+            household.claim(remote, household.lease_key(key, 'fix peer'), 'self', now + 1, 5)
+            p, _ = autopilot.tick(cfg, states, FREE, now=now + 2, beat={}, spawn=lambda *a, **k: SimpleNamespace(pid=1234))
+        self.assertEqual(len(calls[1]['projects'][key]['want_scoped']), 1)
+        self.assertEqual(p['dispatch'], [])
+
+    def test_each_scoped_start_rechecks_after_a_slow_earlier_start(self):
+        cfg, now = self.c, TEST_NOW.timestamp()
+        cfg['_sharing_machine_at'] = now
+        cfg['machines'] = {'nuc': {'host': 'nuc.example'}}
+        cfg['workers']['pc'] = {'kind': 'ollama', 'host': 'one.example:11434', 'model': 'qwen2.5-coder:7b', 'machine': 'nuc'}
+        cfg['workers']['pc2'] = {**cfg['workers']['pc'], 'host': 'two.example:11434'}
+        cfg['autopilot']['ladder'] = ['pc', 'pc2']
+        with backlog.locked(cfg) as data:
+            a = backlog.add(data, backlog.new_task('app', 'First', ['a.py'], 'true', 'S', 'household'))[0]
+            b = backlog.add(data, backlog.new_task('app', 'Second', ['b.py'], 'true', 'S', 'household'))[0]
+        choices, claims = {}, []
+        for item, worker, nonce in ((a, 'pc', 'a' * 32), (b, 'pc2', 'b' * 32)):
+            request = {'key': household.fold(item['title']), 'instance': 'c' * 32, 'nonce': nonce}
+            choices[item['id']] = {'task': dict(item), 'worker': worker, 'model': 'qwen2.5-coder:7b', 'request': request}
+            claims.append({**request, 'lease_seconds': 300})
+        shared = {'keys': {'app': 'project'}, 'scoped': choices, 'error': None,
+                  'answer': {'projects': {'project': {'scoped_claims': claims}}}}
+        selected = [(a['id'], 'pc'), (b['id'], 'pc2')]
+        elapsed = {'seconds': 0}
+        def clock():
+            return elapsed['seconds']
+        def start(_cfg, _data, item, _step, _now, _spawn, _states):
+            elapsed['seconds'] += 61
+            return '1-1', f'{item["id"]} started'
+        model = fleet.classify({'name': 'qwen2.5-coder:7b'})
+        inventory = {'machines': {'nuc': {'stale': False, 'updated': now, 'models': [model]}}}
+        plan = {'state': 'dispatching', 'reason': 'two tasks', 'dispatch': selected, 'waiting': {}}
+        with mock.patch.object(autopilot, 'refresh_sharing_capacity'), mock.patch.object(sharing, 'sync', return_value=shared), \
+             mock.patch.object(sharing, 'under_lock', return_value=({}, [])), \
+             mock.patch.object(sharing, 'moved_of', return_value=({}, {}, set())), \
+             mock.patch.object(sharing, 'renew', return_value=True), mock.patch.object(autopilot, 'plan', return_value=plan), \
+             mock.patch.object(autopilot, 'start_reserved', side_effect=start) as start_mock, \
+             mock.patch.object(fleet, 'read_state', return_value=inventory):
+            result, events = autopilot.tick(cfg, {}, FREE, now=now, beat={}, monotonic=clock)
+        self.assertEqual(start_mock.call_count, 1)
+        self.assertEqual(result['dispatch'], [selected[0]])
+        self.assertIn(b['id'], result['waiting'])
+        self.assertTrue(any(b['id'] in event and 'changed' in event for event in events))
 
     def test_ahead_account_is_rechecked_and_dispatches_on_a_later_round(self):
         self.c['autopilot'].update(ladder=['fake-b'], accounts=['fake-b'])

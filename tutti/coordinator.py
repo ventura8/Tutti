@@ -63,6 +63,19 @@ def save(path, data):
     users._write(path, data, users.SECRET_MODE)
 
 
+def scoped_ack(answer):
+    return isinstance(answer, dict) and any((p or {}).get('scoped_claims') for p in (answer.get('projects') or {}).values())
+
+
+def sync_state_directory(path):
+    """Require a directory fsync before acknowledging a scoped lease; unsupported filesystems fail closed."""
+    fd = os.open(os.path.dirname(path), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def _route():
     """The address of this computer's default route ('' without one): connect() on UDP sends nothing, it picks a source."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -207,9 +220,20 @@ class Service:
                     code, answer = self.member_call(data, uid, path, json.loads(body or b'{}'), now)
                 except household.HouseholdError as e:
                     code, answer = 409, {'error': str(e)}
-            if code == 200:
+            return self.save_answer(code, answer, data)
+
+    def save_answer(self, code, answer, data):
+        if code == 200:
+            scoped = scoped_ack(answer)
+            try:
                 save(self.path, data)
-            return code, answer
+                if scoped:
+                    sync_state_directory(self.path)
+            except (OSError, AttributeError):
+                if not scoped:
+                    raise
+                return 503, {'error': 'scoped reservation could not be saved durably: retry after checking coordinator storage'}
+        return code, answer
 
     def verify(self, data, uid, path, headers, body, now):
         m = data['members'].get(uid)

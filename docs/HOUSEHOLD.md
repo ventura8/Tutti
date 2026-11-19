@@ -204,6 +204,15 @@ A repo in `autopilot.repos` with `household: true` is a **shared project**. Its 
   Bo"); one whose heartbeat stopped expires and the task may be taken again (it starts over in the new holder's worktree). A
   task mirrored from the household is reserved at the member's next round. Only the member that published a task or holds
   its lease may close it for everyone. A worktree name and a branch carry the task id; the lease on the task covers both.
+- **Scoped local work.** When no online room is available, an upgraded coordinator first returns shared tasks without
+  reserving them. A later round may request globally bounded, locally eligible scoped tasks using an exact task incarnation,
+  scope and per-request nonce. The coordinator compares the identity while claiming the lease and flushes its state directory
+  before acknowledging. The member rechecks the response, local task, selected model, machine observation and remaining
+  lease time immediately before starting the process. The 30-second lease margin cannot guarantee an unbounded process
+  start completes before expiry. An older coordinator, a missing acknowledgement, duplicate title key, changed scope or stale
+  observation holds the task. A standalone installation without a coordinator keeps its existing behavior; an unreachable
+  configured coordinator holds shared tasks. This protocol is not a distributed execution fence: failover, older processes,
+  coordinator state rollback or a worker continuing after lease expiry can still lead to overlapping work.
 - **`fill_room` under each user's own accounts.** Each member fills its own accounts' room from the shared backlog first,
   then from the repo's sources; whose account does the task is only the member that holds its lease.
 

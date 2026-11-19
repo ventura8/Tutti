@@ -141,6 +141,23 @@ Per conversation, with a default in your settings (the last one you picked); the
 In Autonomous and Ask before acting, a request you type in so many words ("add task in map: …") runs at once: your words
 are the confirmation.
 
+## Token efficiency
+
+Tutti Chat is built to use fewer tokens per task than Claude Desktop or Cursor for the same household asks:
+
+- **Minimal per-turn prompt**: a short system role plus the FACTS, not a large always-on desktop dump.
+- **Lazy tool schemas**: only the tools this step needs (status/read/work/code), with full JSON schemas omitted for native
+  Ollama tools (names only); a CLI agent still gets compact schemas for that subset.
+- **Cheapest capable worker**: local Ollama first (by capability), then online CLIs ordered agy → cursor → main agent;
+  Auto still escalates when a local answer is too weak (see *Escalation*).
+- **Bounded fresh context**: at most six recent messages reach the model (older ones are compacted); the system prefix is
+  stable for prompt caching where a provider supports it.
+- **Per-message tokens, watts and cost**: each answer stores `usage` (`in`, `out`, `usd`, `watts`, `wh`); the message and
+  the composer meter show them (local models: power from `energy.machines`, no API cost).
+- **Desktop benchmark**: `tutti.chateffic.run_benchmark()` compares fixed tasks against Claude Desktop and Cursor prompt
+  sizes; `tests/test_chateffic.py` keeps Tutti below both. The Chat empty state shows the banner from `/api/chat` `list`
+  (`benchmark_banner`).
+
 ## Controls
 
 Under the message box, as in a chat IDE, each starting at Auto:
@@ -160,10 +177,11 @@ Under the message box, as in a chat IDE, each starting at Auto:
   `['--reasoning', '{effort}']`); without it, it answers as it always does.
 - **Mode**: *Modes* above.
 - **Context** and tokens: how full the model's context was on the last answer, and the conversation's tokens in and out
-  (Ollama's own counts; an online agent's are estimated, four characters a token) with what they would cost at API prices
-  (an account's quota is spent, not money; a local model costs nothing). When the next request would fill the context past
-  your threshold (`autocompact.threshold_pct`, 60 % by default; yours with `compact_pct`), the older messages are folded
-  into a summary written by the model itself (else their first lines), the last four stay whole, and the chat marks where.
+  (Ollama's own counts; an online agent's are estimated, four characters a token) with watts/Wh for a local model and what
+  the tokens would cost at API prices (an account's quota is spent, not money; a local model costs nothing). Each answer
+  also shows its own line. When the next request would fill the context past your threshold (`autocompact.threshold_pct`,
+  60 % by default; yours with `compact_pct`), the older messages are folded into a summary written by the model itself
+  (else their first lines), the last four stay whole, and the chat marks where.
 - **Stop** (Esc) ends an answer and keeps what was written; **Edit** on any of your messages resends it and replaces what
   followed; **Regenerate** answers the last question again; **Branch** on any message starts a new chat with the messages
   up to it (same model, effort and mode), the original untouched.
@@ -212,7 +230,7 @@ folder. **Clear my chat history** deletes the user's file; the work it queued an
 
 | Action | Body | Answer |
 | --- | --- | --- |
-| `list` | `query` | conversations (newest first), suggestions, the role, the limits, the host's name, the picker's models and the user's default |
+| `list` | `query` | conversations (newest first), suggestions, the role, the limits, the host's name, the picker's models, the user's default, and the desktop token benchmark (`benchmark`, `benchmark_banner`) |
 | `get` | `id` | one conversation and its `settings` (model, effort, mode, compact_pct) |
 | `send` | `text`, `attachments` [{name, text} or {name, type, data}], `conversation`, `model`, `effort`, `mode`, `edit` (a message id), `retry` (an answer's id) | a stream (`application/x-ndjson`): `start`, `model`, `delta`, `replace`, `card`, `fallback`, `note`, `compacted`, `usage`, `ping`, `done` |
 | `follow` | `message` | the same stream for an answer still being written (after a reload) |

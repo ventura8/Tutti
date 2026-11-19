@@ -42,13 +42,19 @@ def file_names(env=None):
 
 
 def get(name, env=None):
-    """The secret `name`: from its file first (the point of use), else from `env` (a test, or an old shell export)."""
+    """The secret `name`: from its file first (the point of use), else from `env` (a test, or an old shell export).
+
+    An explicit `env` mapping without `XDG_CONFIG_HOME` is a test's sealed bag: the owner's `~/.config/tutti/grok.env` is
+    never consulted (check.sh and unit tests pass `{}` or fixture values; `test_secretenv` sets XDG to exercise the file)."""
     from . import groksetup
-    for f in FILES:
-        v = groksetup.read_env_file(os.path.join(config.xdg_tutti_dir(env), f)).get(name, '')
-        if v.strip():
-            return v
-    return (os.environ if env is None else env).get(name, '')
+    if env is None:
+        env = os.environ
+    if env is os.environ or env.get('XDG_CONFIG_HOME'):
+        for f in FILES:
+            v = groksetup.read_env_file(os.path.join(config.xdg_tutti_dir(env), f)).get(name, '')
+            if v.strip():
+                return v
+    return env.get(name, '')
 
 
 def scrub_self(env=None):

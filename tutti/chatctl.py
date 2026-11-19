@@ -138,11 +138,14 @@ def cost_usd(kind, tokens_in, tokens_out, prices=(3.0, 15.0)):
 
 
 def add_usage(conv, usage):
-    """Adds one answer's usage to the conversation's totals and keeps the latest context share."""
-    total = conv.setdefault('usage', {'in': 0, 'out': 0, 'usd': 0.0, 'context_pct': 0})
+    """Adds one answer's usage to the conversation's totals and keeps the latest context share and power draw."""
+    total = conv.setdefault('usage', {'in': 0, 'out': 0, 'usd': 0.0, 'context_pct': 0, 'wh': 0.0, 'watts': 0.0})
     total['in'] += usage.get('in', 0)
     total['out'] += usage.get('out', 0)
     total['usd'] = round(total['usd'] + usage.get('usd', 0.0), 4)
+    total['wh'] = round(total.get('wh', 0.0) + usage.get('wh', 0.0), 4)
+    if usage.get('watts') is not None:
+        total['watts'] = usage['watts']
     total['context_pct'] = usage.get('context_pct', total['context_pct'])
     return total
 

@@ -2,6 +2,19 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## Scout tests read the owner's grok.env under Tutti's check (t199, 2026-11-17)
+
+**What happened.** Attempt 5 of chat token efficiency passed `tests.test_chat` / `test_chateffic`, then full `check.sh` on
+the laptop failed: scouts saw the real `~/.config/tutti/grok.env`, device targets gained `class:background`, and a
+dashboard machine went `busy` because someone was at the keyboard.
+
+**Why.** `secretenv.get(name, env={})` still opened the owner's file (file-first, and a bag without `XDG_CONFIG_HOME`
+fell back to `~/.config`). Tutti's check jobs export `TUTTI_BACKGROUND`. A ServerTest machine with `host: local` took the
+live idle share (`in_use_pct` 0).
+
+**Rule.** An explicit test env without `XDG_CONFIG_HOME` is sealed: never read the owner's secret files. `check.sh`
+unsets job-class env vars. HTTP fixture machines use `*.example`, not `local`.
+
 ## A usage limit is not a real attempt (t260, 2026-11-17)
 
 **What happened.** Overnight, 167 usage-limit failures were classified `real` and counted toward `max_attempts` / strongest-step

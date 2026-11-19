@@ -15,6 +15,8 @@ import threading
 import time
 from datetime import datetime, timezone
 
+from . import chateffic
+
 MAX_TEXT = 8000            # characters in one message
 MAX_ATTACHMENTS = 3
 MAX_ATTACHMENT_BYTES = 32 * 1024
@@ -313,6 +315,7 @@ COMMANDS = {
     'resume': '/resume <host, device, agent or account>',
     'ask': '/ask <scout> <question>: ask a scout such as grok',
     'tests': '/tests <project>: queue the full test suite',
+    'benchmark': '/benchmark: compare token usage with Claude Desktop/Cursor',
     'help': '/help: these commands',
 }
 
@@ -330,6 +333,9 @@ def slash_call(cmd, arg, known):
     """The tool call of a short command other than /task and /delegate, or {'answer': text} for /help."""
     if cmd == 'help':
         return {'answer': 'Commands: ' + '; '.join(COMMANDS.values()) + '. Plain words work too.'}
+    if cmd == 'benchmark':
+        r = chateffic.run_benchmark()
+        return {'answer': chateffic.benchmark_banner(r) + '\n\n' + json.dumps(r['tasks'], indent=2)}
     simple = {'usage': 'usage', 'hosts': 'machines', 'devices': 'devices'}
     if cmd in simple:
         return {'tool': simple[cmd], 'args': {}}
@@ -691,6 +697,8 @@ def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
         why = cloud_out(name, acc_name, acc, conf, w, paused, rows.get(name, {}), is_owner(user, owner_sub))
         online.append({'kind': 'cli', 'worker': name, 'account': acc_name, 'why': why, 'tools': True,
                        'label': f'{name} ({acc_name} account)'})
+    from . import chateffic
+    online.sort(key=lambda c: chateffic.cli_route_rank(c['worker']))
     return local, online
 
 
@@ -877,33 +885,21 @@ def suggestions(snap, user, known, cfg=None):
     return out[:4]
 
 
-SYSTEM = """You are Tutti's household assistant, on the household's always-on host. You answer questions about the household's
-AI work (jobs, quota, machines, devices, the queue) from the FACTS below, briefly and in plain words, with Markdown (short
-lists, `code`). Never invent jobs, numbers or names that are not in the FACTS; say what is unknown.
-You can act through tools: {tools}. Read-only tools answer at once. A tool that changes something is only proposed: the user
-confirms it on a card, so say what you propose and why. Call a tool only with names that appear here.
-Never say you queued, started, paused or changed anything unless a tool call in this answer did it: to do it, call the
-tool; one call per task.
-{protocol}
-Projects: {projects}. Scouts: {scouts}. Machines: {machines}. Devices: {devices}.
-The user is {who} ({role}).
+def system_prompt(snap, user, known, native_tools=True, user_text=''):
+    """Minimal per-turn system prompt (docs/CHAT.md, *Token efficiency*): only the tools this step needs; a CLI agent also
+    gets those tools' schemas. Full always-on desktop dumps are never sent."""
+    from . import chateffic
+    kind = chateffic.step_kind(user_text)
+    tools = chateffic.lazy_tools(model_tools(), kind)
 
-FACTS
-{facts}"""
-TEXT_PROTOCOL = ('To call a tool, write one line on its own: ACTION {"tool": "<name>", "args": {...}} (JSON, the arguments of '
-                 'its schema below). Schemas: ')
-
-
-
-def system_prompt(snap, user, known, native_tools=True):
-    """The system prompt; a model without native tool calls (a CLI agent) gets the ACTION line protocol and the schemas."""
-    tools = model_tools()
-    protocol = '' if native_tools else TEXT_PROTOCOL + json.dumps({n: t['schema'] for n, t in tools.items()})
     def names(k):
         return ', '.join(known.get(k) or []) or 'none'
-    return SYSTEM.format(tools=', '.join(tools), protocol=protocol, projects=names('projects'), scouts=names('scouts'),
-                         machines=names('machine'), devices=names('device'), who=user.get('email') or 'the owner',
-                         role=user.get('role'), facts=facts(snap))
+
+    return chateffic.minimal_system(
+        kind, who=user.get('email') or 'the owner', role=user.get('role'), projects=names('projects'),
+        scouts=names('scouts'), machines=names('machine'), devices=names('device'), facts=facts(snap),
+        tool_names=sorted(tools), native_tools=native_tools,
+        tools_dict={n: t['schema'] for n, t in tools.items()})
 
 
 def model_messages(system, history, turns=HISTORY_TURNS, vision=False, summary=None, load=None):

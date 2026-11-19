@@ -6,6 +6,19 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## [0.26.0] - 2026-11-17
+
+### Added
+
+- Chat token efficiency (t199): minimal per-turn prompts, lazy tool schemas by step kind, cheapest-first online routing
+  (agy → cursor → main) after local Ollama, bounded fresh history (6 turns), per-message tokens/watts/cost, and a fixed-task
+  desktop benchmark (`tutti/chateffic.py`, `tests/test_chateffic.py`) shown on the Chat empty state (`benchmark_banner`).
+
+### Fixed
+
+- Unit tests no longer read the owner's `~/.config/tutti/grok.env` when they pass an explicit env bag without
+  `XDG_CONFIG_HOME` (`secretenv.get`); `check.sh` clears `TUTTI_BACKGROUND` / `TUTTI_HH_JOB` so device target assertions
+  stay stable under Tutti's own check jobs.
 
 ## [0.25.3] - 2026-11-17
 

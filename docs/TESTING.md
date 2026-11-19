@@ -5,6 +5,8 @@
 1. `shellcheck` on the scripts and the installer;
 2. `ruff` (CI always has it; locally it is skipped when not installed);
 3. the unit tests, `python3 -m unittest discover -s tests`, in a temp `XDG_CONFIG_HOME` (never the owner's `grok.env`);
+   `secretenv.get` also ignores the owner's file when a test passes an explicit env bag without `XDG_CONFIG_HOME`.
+   `check.sh` clears `TUTTI_BACKGROUND` / `TUTTI_HH_JOB` so Tutti's own check jobs do not change device target lines;
 4. the dashboard's browser tests, `tests/e2e` (below);
 5. a CLI smoke test of the example config.
 

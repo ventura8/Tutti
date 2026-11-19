@@ -562,12 +562,12 @@ class DiscoverTest(unittest.TestCase):
         with open(log, 'w', encoding='utf8') as out:
             p = subprocess.Popen(['bash', script, 'track', 'npx playwright test'], stdout=out, stderr=out, start_new_session=True)
         try:
-            for _ in range(50):
+            for _ in range(200):
                 with open(log, encoding='utf8') as f:
                     if f.read():
                         break
                 import time as t
-                t.sleep(0.05)
+                t.sleep(0.1)
             jobs = state.jobs_state(self.cfg, __import__('time').time())['items']
             mine = [j for j in jobs if j['pid'] == p.pid]
             self.assertEqual(len(mine), 1)

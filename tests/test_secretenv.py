@@ -38,6 +38,12 @@ class SecretEnv(unittest.TestCase):
         self.assertEqual(secretenv.scrub_self(env), ['TUTTI_GROK_KEY'])
         self.assertEqual(secretenv.scrub_self(env), [])
 
+    def test_an_explicit_env_without_xdg_never_reads_the_owners_file(self):
+        # sealed test bags (scouts tests pass {} or fixture values) must not see ~/.config/tutti/grok.env
+        groksetup.save_env(os.path.join(self.tmp, 'tutti', 'grok.env'), 'https://a.cursor.sh/x', FAKE)
+        self.assertEqual(secretenv.get('TUTTI_GROK_KEY', {}), '')
+        self.assertEqual(secretenv.get('TUTTI_GROK_KEY', {'TUTTI_GROK_KEY': 'from-test'}), 'from-test')
+
     def test_reexec_only_when_something_was_dropped(self):
         calls = []
         secretenv.reexec_clean(['/x', 'a'], lambda p, a: calls.append(a), {**self.env, 'TUTTI_GROK_KEY': FAKE})

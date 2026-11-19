@@ -187,7 +187,8 @@ async function loadList() {
         const data = await chatApi({ action: 'list', query: CHAT.query });
         Object.assign(CHAT, { list: data.conversations, suggestions: data.suggestions, role: data.role, limits: data.limits, host: data.host || '', failed: '',
             models: data.models || [], defaults: data.defaults || {}, modes: data.modes || {}, efforts: data.efforts || [],
-            compactDefault: data.compact_default || 60 });
+            compactDefault: data.compact_default || 60, benchmark: data.benchmark || null,
+            benchmarkBanner: data.benchmark_banner || '' });
         if (typeof drawControls === 'function') drawControls();
     } catch (err) {
         CHAT.failed = err.message;
@@ -293,9 +294,15 @@ function drawLog() {
 function emptyState() {
     if (CHAT.loading) return el('div', { class: 'chat__empty' }, el('p', { class: 'chat__lead', text: 'Loading…' }));
     const tips = CHAT.suggestions.map((s) => el('button', { class: 'chip chat__suggest', type: 'button', text: s, onclick: () => send(s) }));
+    const bench = CHAT.benchmarkBanner
+        ? el('p', { class: 'chat__bench', role: 'note',
+            title: 'Fixed-task prompt size vs Claude Desktop and Cursor (regression check)',
+            text: CHAT.benchmarkBanner })
+        : null;
     return el('div', { class: 'chat__empty' },
         el('h3', { class: 'chat__lead', text: 'Ask the household' }),
         el('p', { class: 'chat__sub', text: 'What is running, how much quota is left, why a machine is idle. Or queue work: "add task in <project>: what to change". It answers from the household host, so it works while your own computer is off.' }),
+        bench,
         tips.length ? el('div', { class: 'chat__suggestions', role: 'group', 'aria-label': 'Suggested questions' }, ...tips) : null,
         CHAT.failed ? el('p', { class: 'chat__error', role: 'alert', text: `The chat is not reachable right now: ${CHAT.failed}` }) : null);
 }
@@ -317,6 +324,8 @@ function chatMessage(m, opts) {
         !mine && m.fallback ? el('span', { class: 'msg__fallback', text: m.fallback }) : null,
         status ? el('span', { class: 'msg__status', 'data-tone': m.status, text: status }) : null),
     body,
+    !mine && m.usage && typeof messageUsage === 'function' && messageUsage(m.usage)
+        ? el('p', { class: 'msg__usage', title: 'Tokens, power and cost for this answer', text: messageUsage(m.usage) }) : null,
     (m.attachments || []).length ? el('ul', { class: 'msg__files', 'aria-label': 'Attached' }, ...m.attachments.map((a) => el('li', { class: 'chip', text: `${a.name} · ${Math.ceil(a.size / 1024)} KB` }))) : null,
     ...(m.cards || []).map((c) => actionCard(m, c)),
     m.note ? el('p', { class: 'msg__note', role: 'note', text: m.note }) : null,
@@ -551,6 +560,10 @@ function onEvent(e, local, answer) {
         answer.model = e.model;
     } else if (e.type === 'usage') {
         CHAT.conv.usage = e.total;
+        if (answer && e.usage) {
+            answer.usage = e.usage;
+            paint(answer);
+        }
         if (typeof drawUsage === 'function') drawUsage();
     } else if (e.type === 'compacted') {
         CHAT.conv.summary = { upto: e.upto };

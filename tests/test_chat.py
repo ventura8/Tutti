@@ -163,6 +163,25 @@ class Models(unittest.TestCase):
     def test_local_models_first_then_accounts_with_room_never_paid_ones(self):
         self.assertEqual(self.names(snapshot()), ['pc', 'nuc', 'claude'])
 
+    def test_online_clis_are_cheapest_first_agy_then_cursor_then_main(self):
+        # Auto: locals by capability, then online sorted agy → cursor → main (docs/CHAT.md, *Token efficiency*)
+        self.cfg['workers'].update({
+            'cursor': {'kind': 'cli', 'command': ['cursor-agent', '-p', '{prompt}']},
+            'agy': {'kind': 'cli', 'command': ['agy', '-p', '{prompt}']},
+        })
+        self.cfg['accounts'].update({'cursor': {'window': '7d'}, 'agy': {'window': '7d'}})
+        snap = snapshot(workers={'items': [
+            {'name': 'pc', 'ready': True}, {'name': 'nuc', 'ready': True},
+            {'name': 'claude', 'ready': True, 'account': 'claude'},
+            {'name': 'cursor', 'ready': True, 'account': 'cursor'},
+            {'name': 'agy', 'ready': True, 'account': 'agy'},
+        ]}, usage={'accounts': [
+            {'name': 'claude', 'used': 10.0, 'verdict': 'on pace', 'panic': False},
+            {'name': 'cursor', 'used': 10.0, 'verdict': 'on pace', 'panic': False},
+            {'name': 'agy', 'used': 10.0, 'verdict': 'on pace', 'panic': False},
+        ]})
+        self.assertEqual(self.names(snap), ['pc', 'nuc', 'agy', 'cursor', 'claude'])
+
     def test_a_machine_that_is_asleep_paused_or_the_users_own_is_skipped(self):
         asleep = snapshot(presence={'items': {'machine:pc': {'state': 'asleep'}}})
         self.assertEqual(self.names(asleep), ['nuc', 'claude'])
@@ -320,7 +339,10 @@ class Api(ApiBase):
         eng = self.engine({'pc': ['hi']})
         cid = self.send(eng, VIEWER, 'my private question')[0]['conversation']
         self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'get', 'id': cid})[0], 409)
-        self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'list'}, self.snap)[1]['conversations'], [])
+        listing = chatrun.post(eng, ADMIN, {'action': 'list'}, self.snap)[1]
+        self.assertEqual(listing['conversations'], [])
+        self.assertTrue(listing['benchmark']['beats_desktop'])
+        self.assertIn('Tutti', listing['benchmark_banner'])
         self.assertEqual(chatrun.post(eng, VIEWER, {'action': 'activity'})[0], 403)
         self.send(eng, VIEWER, 'add task in map: shared work')
         rows = chatrun.post(eng, ADMIN, {'action': 'activity'})[1]['activity']
@@ -461,6 +483,15 @@ class ToolLoop(ApiBase):
         self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'confirm', 'conversation': events[0]['conversation'],
                                                    'message': done['id'], 'card': card['id']})[0], 409)
 
+    def test_a_status_ask_gets_only_the_status_tool_schemas(self):
+        # lazy schemas: a quota ask must not ship every tool (docs/CHAT.md, *Token efficiency*)
+        FakeOllama.script = [[{'message': {'content': 'about half left'}, 'done': True}]]
+        self.send(self.engine_real(), ADMIN, 'How much quota is left?')
+        names = {t['function']['name'] for t in FakeOllama.seen[0]['tools']}
+        self.assertEqual(names, {'usage', 'machines', 'job_status'})
+        self.assertNotIn('backlog_add', names)
+        self.assertNotIn('delegate_task', names)
+
     def test_a_bad_call_is_refused_back_to_the_model_and_nothing_runs(self):
         FakeOllama.script = [
             [{'message': {'tool_calls': [{'function': {'name': 'backlog_add', 'arguments': {'repo': 'nowhere', 'title': 'x'}}}]},
@@ -586,8 +617,13 @@ class Controls(ToolLoop):
         usage = next(e for e in events if e['type'] == 'usage')
         self.assertEqual((usage['usage']['in'], usage['usage']['out'], usage['usage']['usd']), (1638, 20, 0.0))
         self.assertEqual(usage['usage']['context_pct'], 10)   # of the 16384 a local model reads by default
+        self.assertGreater(usage['usage']['watts'], 0)        # local draw (energy.machines or the fleet default)
+        self.assertIn('wh', usage['usage'])
         self.assertEqual(usage['total']['in'], 1638)
         self.assertGreater(chatctl.cost_usd('cli', 100000, 10000), 0)
+        done = events[-1]['message']
+        self.assertEqual(done['usage']['in'], 1638)
+        self.assertGreater(done['usage']['watts'], 0)
 
     def test_auto_compaction_at_the_users_share(self):
         self.cfg['workers']['pc'].update(num_ctx=600, max_ctx=600)
@@ -1083,7 +1119,10 @@ class ControlsLogic(unittest.TestCase):
     def test_the_usage_line(self):
         self.assertEqual(jsctl("usageText({in: 12000, out: 300, usd: 0.05})"), '12k in · 300 out · ≈ $0.05 at API prices')
         self.assertEqual(jsctl("usageText({in: 900, out: 20, usd: 0})"), '900 in · 20 out · local: no cost')
+        self.assertEqual(jsctl("usageText({in: 100, out: 20, usd: 0, watts: 12, wh: 0.002})"),
+                         '100 in · 20 out · 12 W · 0.002 Wh · local: no cost')
         self.assertEqual(jsctl("usageText(null)"), 'No tokens used yet')
+        self.assertIn('12 W', jsctl("messageUsage({in: 100, out: 20, usd: 0, watts: 12, wh: 0.002})"))
 
 
 class Page(HTMLParser):

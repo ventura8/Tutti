@@ -22,6 +22,7 @@ const SLASH = [
     { cmd: '/resume', help: 'resume a host, device, agent or account', arg: true, send: true },
     { cmd: '/ask', help: 'ask a scout: /ask grok question', arg: true, send: true },
     { cmd: '/tests', help: 'queue the full test suite: /tests project', arg: true, send: true },
+    { cmd: '/benchmark', help: 'compare token usage with Claude Desktop/Cursor', send: true },
 ];
 const MODE_WORDS = { autonomous: 'auto', auto: 'auto', ask: 'ask', confirm: 'ask', plan: 'plan', review: 'plan', answer: 'answer', just: 'answer' };
 const SHORTCUTS = [['Enter', 'send'], ['Shift+Enter', 'a new line'], ['Esc', 'stop the answer, or close a list'],
@@ -56,11 +57,18 @@ function popupFor(text, caret) {
 
 const shortNum = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n || 0));
 
-// The usage line under the composer: tokens in and out, and what they would cost at API prices (local models: free).
+// The usage line under the composer: tokens, optional watts/Wh, and API-price cost (local models: free).
 function usageText(u) {
     if (!u || !(u.in || u.out)) return 'No tokens used yet';
     const cost = u.usd > 0 ? ` · ≈ $${u.usd < 0.01 ? '<0.01' : u.usd.toFixed(2)} at API prices` : ' · local: no cost';
-    return `${shortNum(u.in)} in · ${shortNum(u.out)} out${cost}`;
+    const power = (u.watts != null && u.wh != null) ? ` · ${u.watts} W · ${u.wh} Wh` : '';
+    return `${shortNum(u.in)} in · ${shortNum(u.out)} out${power}${cost}`;
+}
+
+// Per-message tokens / watts / cost (same figures the answer stores).
+function messageUsage(u) {
+    if (!u || !(u.in || u.out)) return '';
+    return usageText(u).replace(' at API prices', '');
 }
 
 // ---- the pickers
@@ -340,4 +348,4 @@ function initChatControls() {
 }
 
 if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('DOMContentLoaded', initChatControls);
-if (typeof module !== 'undefined') module.exports = { parseSlash, tokenAt, popupFor, usageText, shortNum, SLASH };
+if (typeof module !== 'undefined') module.exports = { parseSlash, tokenAt, popupFor, usageText, messageUsage, shortNum, SLASH };

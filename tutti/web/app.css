@@ -763,6 +763,8 @@ body[data-view-name='chat'] .foot { display: none; }
 .chat__empty { margin: auto; display: grid; gap: 12px; text-align: center; justify-items: center; padding: 24px 8px; }
 .chat__lead { font-size: 1.375rem; font-weight: 600; }
 .chat__sub { color: var(--on-surface-2); max-width: 52ch; }
+.chat__bench { color: var(--on-surface-2); font: 0.8rem var(--mono); max-width: 64ch; margin: 0; }
+.msg__usage { color: var(--on-surface-2); font: 0.75rem var(--mono); margin: 4px 0 0; }
 .chat__suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .msg .chat__suggestions { justify-content: flex-start; margin-top: 8px; }
 .chat__suggest { min-height: 40px; padding: 6px 14px; border: 1px solid var(--outline); background: var(--surface-1); cursor: pointer; font: inherit;

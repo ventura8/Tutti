@@ -759,6 +759,18 @@ class Api(ApiBase):
         job = next(item for item in results if isinstance(item, chatrun.Job))
         list(job.follow())
 
+    def test_failed_thread_start_does_not_leave_history_blocked(self):
+        eng = self.engine({'pc': ['answer']})
+        with mock.patch('tutti.chatrun.threading.Thread.start', side_effect=RuntimeError('no thread')):
+            code, response = chatrun.post(eng, ADMIN, {'action': 'send', 'text': 'hello'})
+        self.assertEqual(code, 409)
+        self.assertIn('could not start', response['error'])
+        self.assertEqual(eng.live_ids(), set())
+        cid = eng.store.listing('local')[0]['id']
+        answer = eng.store.get('local', cid)['messages'][-1]
+        self.assertEqual((answer['status'], answer['retry_safety']), ('failed', 'safe'))
+        self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'empty', 'id': cid})[0], 200)
+
     def test_mutating_dispatch_persists_uncertainty_first_and_fails_closed(self):
         eng = self.engine({})
         observed = []

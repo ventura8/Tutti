@@ -464,8 +464,19 @@ class Engine:
         with self.lock:
             self.jobs = {k: j for k, j in self.jobs.items() if not j.finished}
             self.jobs[answer['id']] = job
-        threading.Thread(target=self._answer, args=(job, user, prompt), daemon=True, name='tutti-chat').start()
+        self._start_job(job, user, prompt)
         return job
+
+    def _start_job(self, job, user, prompt):
+        answer, sub, cid = job.msg, job.sub, job.cid
+        try:
+            threading.Thread(target=self._answer, args=(job, user, prompt), daemon=True, name='tutti-chat').start()
+        except (RuntimeError, OSError) as e:
+            with self.lock:
+                self.jobs.pop(answer['id'], None)
+            answer.update(status='failed', note='Chat could not start the answer: try again.')
+            self.store.update_message(sub, cid, answer)
+            raise chat.ChatError('Chat could not start the answer: try again.') from e
 
     def _require_history_idle(self, sub, cid=None):
         """Called with the store lock held: registration takes store lock, then engine lock, in the same order."""

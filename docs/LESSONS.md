@@ -1,5 +1,7 @@
 # Lessons
 
+- Phone grid tracks need a zero minimum and wrapping for long account names under enlarged text spacing (t414).
+
 - A title-only Chat update should not rebuild the message DOM, and an asynchronous result must remain bound to the
   conversation that initiated it (t407).
 

@@ -108,6 +108,7 @@ tests/test_brain_more.py
 tests/test_browser.py
 tests/test_chat.py
 tests/test_check_browser_install.py
+tests/test_cli_argv.py
 tests/test_conduct.py
 tests/test_config.py
 tests/test_configone.py
@@ -143,6 +144,7 @@ tests/test_jobprogress.py
 tests/test_layout.py
 tests/test_limit.py
 tests/test_limits.py
+tests/test_local_share.py
 tests/test_machine_card.py
 tests/test_move.py
 tests/test_needs.py

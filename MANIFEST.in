@@ -109,6 +109,7 @@ include tests/test_brain_more.py
 include tests/test_browser.py
 include tests/test_chat.py
 include tests/test_check_browser_install.py
+include tests/test_cli_argv.py
 include tests/test_conduct.py
 include tests/test_config.py
 include tests/test_configone.py
@@ -144,6 +145,7 @@ include tests/test_jobprogress.py
 include tests/test_layout.py
 include tests/test_limit.py
 include tests/test_limits.py
+include tests/test_local_share.py
 include tests/test_machine_card.py
 include tests/test_move.py
 include tests/test_needs.py

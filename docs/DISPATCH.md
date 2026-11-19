@@ -306,6 +306,9 @@ on the NUC) names it: `runner: pc`. Each shard then runs as `tutti devices lease
 there with `{addr:<device>}` filled in (`ANDROID_SERIAL` is the first device's, `TUTTI_ADDR_<DEVICE>` each one's), and adb
 disconnects and the devices are released however it ends. Example (the paired Cast suite):
 
+Lease options can follow the device names. The first bare `--` separates the command, whose flags and any later `--`
+are passed through without being interpreted as Tutti options.
+
 ```yaml
 run: powershell -File C:\Users\me\Projects\RoRadio-tr\scripts\android\run-e2e.ps1 -Serial {addr:pixeltablet}
      -CastTablet {addr:googletv} -CastReceiverName "Google Streamer" -Filter {shard} -Package com.example.dev -Apk <apk>

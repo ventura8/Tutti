@@ -477,17 +477,18 @@ def assignment_wait(cfg, name, t, rooms):
     return why or f'{name}: too little room for a {t["size"]} task'
 
 
-def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fallback=()):
+def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fallback=None):
     """Each queued task, in the order given (by priority, then oldest), to the first of its candidate steps that has room for its
     size. `free`: the online runs that may start, or (online, local): a local model's run is not counted in max_parallel, only
     in the machines' slots. `prefer`: {step: the sizes its model tier wants} (tutti/tiers.py): a step whose tier names sizes is
     tried last for a task of another size."""
-    prefer = prefer or {}
+    prefer, fallback = prefer or {}, dict(fallback or {})
     free, local = free if isinstance(free, tuple) else (free, free)
     for t in queued:
         if free <= 0 and local <= 0:
             break
         steps = sorted(candidates(cfg, t, over, machines), key=tier_last(prefer, t.get('size')))
+        ordinary = set(steps)
         if fallback and not t['attempts'] and not t.get('pin') and not (settings(cfg)['repos'].get(t['repo']) or {}).get('spare'):
             steps += [n for n in fallback if n not in steps]
         fair = cfg.get('_panic_usage') or {}
@@ -498,12 +499,15 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fal
         it = iter(online)
         steps = [next(it) if n in fair else n for n in steps]
         steps = [n for n in steps if local > 0 and (is_local(cfg, n) or free > 0)]
-        pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t) and rescue_fits(cfg, n, units(t))), None)
+        pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t) and rescue_fits(cfg, n, units(t))
+                     and (n in ordinary or fallback.get(n, 0) >= units(t))), None)
         if pick is None:
             out['waiting'][t['id']] = '; '.join(assignment_wait(cfg, n, t, rooms) for n in steps) or 'no step it may go to'
             continue
         left = 0 if is_local(cfg, pick) else rooms[pick][0] - units(t)   # a model server takes one task at a time
         rooms[pick] = (left, rooms[pick][1] or f'{pick}: its room is taken by the running tasks')
+        if pick in fallback:
+            fallback[pick] = max(0, fallback[pick] - units(t))
         endpoint = local_endpoint(cfg, pick)
         if endpoint:
             for other in rooms:
@@ -543,7 +547,7 @@ def fresh_fallbacks(cfg, states, rooms, used, now):
     allowed = settings(cfg).get('fresh_fallback_accounts') or []
     if not isinstance(allowed, list) or any(not isinstance(n, str) for n in allowed):
         return []
-    out = []
+    out = {}
     for name in ladder(cfg):
         s = states.get(name) or {}
         p = s.get('quota_plan') or {}
@@ -563,8 +567,7 @@ def fresh_fallbacks(cfg, states, rooms, used, now):
             continue
         room = min(rooms[name][0], tasks - used.get(name, 0))
         if room > 0:
-            rooms[name] = (room, rooms[name][1])
-            out.append(name)
+            out[name] = room
     return out
 
 

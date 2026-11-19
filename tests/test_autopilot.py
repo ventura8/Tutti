@@ -422,6 +422,23 @@ class PlanTest(Base):
         self.assertIn('accounts:', errors)
         self.assertIn('use []', errors)
 
+    def test_paused_opted_in_account_is_filtered_without_config_error(self):
+        cfg = self.cfg(fresh_fallback_accounts=['cursor'])
+        cfg['accounts']['cursor']['paused'] = True
+        config.opt_out(cfg)
+        self.assertEqual(cfg['autopilot']['fresh_fallback_accounts'], [])
+        self.assertNotIn('fresh_fallback_accounts', '\n'.join(config.validate(cfg)))
+
+    def test_fallback_allowance_does_not_reduce_retry_takeover_room(self):
+        cfg = self.cfg(fresh_fallback_accounts=['cursor'], main_accounts=['agy-claude'], ladder=['agy-claude', 'cursor'])
+        cfg['_main_worker'] = 'agy'
+        cursor = {**account('cursor', 'behind', room=5), 'reading_at': '2026-01-01T00:00:00Z',
+                  'quota_plan': {'tasks': 1, 'left': 2, 'limit': None}}
+        states = self.states(**{'agy-claude': account('agy-claude', 'ahead', used=98, panic=True),
+                               'agy-gemini': account('agy-gemini', 'ahead', used=98, panic=True), 'cursor': cursor})
+        retry = task('t1', size='M', attempts=[attempt('agy-claude')])
+        self.assertEqual(autopilot.plan(cfg, [retry], states, FREE, True, now=TEST_NOW)['dispatch'], [('t1', 'cursor')])
+
     def test_escalation_starts_above_the_last_failed_step_and_a_reviewer_retry_stays(self):
         states = self.states(cursor=account('cursor', 'on pace', None))
         p = autopilot.plan(self.cfg(), [task('t1', attempts=[attempt('agy-claude')])], states, FREE, True)

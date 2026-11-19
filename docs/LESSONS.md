@@ -1,5 +1,7 @@
 # Lessons
 
+- An account in panic has no ordinary room of its own; its state alone must not suppress work on other accounts with room (t423).
+
 - A CLI process can use native tools before its answer fails; a post-launch failure is not safe evidence for automatic fallback (t303).
 
 - A streaming EOF does not prove an answer finished; never retry another model after an action attempt without checking its outcome (t303).

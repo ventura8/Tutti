@@ -1,5 +1,7 @@
 # Feedback log
 
+One account in panic should not prevent the other eligible accounts from using their own room (t423).
+
 Chat must not repeat a started CLI agent's work after its response fails (t303).
 
 Chat must not treat interrupted local-model streams as complete or repeat an attempted action on fallback (t303).

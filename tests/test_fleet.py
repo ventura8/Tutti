@@ -137,6 +137,15 @@ class Routing(Base):
         self.assertEqual(p['dispatch'], [('t1', 'agy-gemini')])
         self.assertEqual(p['overflow'], '')
 
+    def test_one_account_in_panic_does_not_hold_back_another_with_room(self):
+        cfg = self.cfg()
+        states = self.states_ok()
+        states['agy-gemini'] = {**account('agy-gemini', 'spent', 0, 100.0), 'panic': True}
+        t = {**task('t1'), 'scope': ['a.py']}
+        plan = autopilot.plan(cfg, [t], states, FREE, True)
+        self.assertEqual(plan['dispatch'], [('t1', 'agy-claude')])
+        self.assertEqual(plan['overflow'], '')
+
 
 class OwnerBlock(Base):
     """The block the owner saw on 2026-11-14, reproduced: every online account out, pc with room 1, M tasks, claude 'unknown'."""
@@ -177,7 +186,7 @@ class OwnerBlock(Base):
         sent = dict(p['dispatch'])
         self.assertEqual(sent.get('t1'), 'laptop')                        # an M task, no quota points: the idle laptop takes it
         self.assertNotIn('t2', sent)                                       # it names no file a local model could be given
-        self.assertIn('ahead of pace', p['overflow'])
+        self.assertIn('no online account has room', p['overflow'])
         self.assertTrue(any('picked tutti/energy.py' in e for e in events))
         self.assertIn('tutti/energy.py', started[0])                       # the local model is given the guessed files
         self.assertEqual(len([n for n in sent.values() if n == sent['t1']]), 1)   # one task per model server at a time

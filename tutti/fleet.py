@@ -178,13 +178,12 @@ def task_files(task):
 
 
 def overflow(cfg, states, rooms, local_names):
-    """Why the online accounts should be spared now, or '': an account of the ladder or of autopilot.accounts is ahead of its
-    pace (or in panic, or spent), or no trigger account has room (its pace, or the owner's reserve keeps it)."""
+    """Why all online accounts should be spared now, or '': all are ahead, in panic or spent, or no trigger has room."""
     from . import autopilot
     names = [n for n in dict.fromkeys([*autopilot.ladder(cfg), *autopilot.trigger_accounts(cfg)])
              if n not in local_names and n in cfg['accounts']]
     ahead = [n for n in names if (states.get(n) or {}).get('verdict') in ('ahead', 'panic', 'spent') or (states.get(n) or {}).get('panic')]
-    if ahead:
+    if ahead and len(ahead) == len(names):
         return f'{", ".join(ahead)} ahead of pace'
     trig = [n for n in autopilot.trigger_accounts(cfg) if n in cfg['accounts']]
     if trig and sum(max(0, (rooms.get(n) or (0, ''))[0]) for n in trig) <= 0:

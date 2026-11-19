@@ -40,7 +40,7 @@ class FillTest(Base):
         self.repo()
         cfg = self.cfg(fill_room=True)
         info = self.round(cfg, 1000.0)
-        self.assertEqual(info['room'], 11)                  # 5 + 5 on agy, and the free local model while cursor is ahead
+        self.assertEqual(info['room'], 10)                  # two online accounts have room; one ahead account does not force overflow
         self.assertEqual(info['added'], 2)                  # the TODO in b.py and b.py without a test; a.py has one
         self.assertEqual({t['source'] for t in backlog.load(cfg)['tasks']}, {'todo', 'untested'})
         with backlog.locked(cfg) as data:

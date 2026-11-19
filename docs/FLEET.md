@@ -64,8 +64,9 @@ escalates. The local models' cards show each model's tier, why and tokens per se
 ## Routing (the autopilot)
 
 - **First-class steps.** Local workers are added to the ladder after `autopilot.ladder`.
-- **Overflow.** An account of the ladder or of `autopilot.accounts` may be ahead of its pace, in panic or spent, or every
-  trigger account may have no room. Then a fresh task goes to a local model first.
+- **Overflow.** When all online ladder and `autopilot.accounts` entries are ahead of pace, in panic or spent, or every
+  trigger account has no room, a fresh task goes to a local model first. One account in panic does not by itself spare
+  other accounts that have room; each account's own pacing limits still apply.
 - **Order.** The local models are ordered by:
   1. an idle machine first;
   2. the strongest tier for the task;

@@ -681,7 +681,8 @@ def fresh_local_model(cfg, worker, task, inventory, now):
     entry = inventory.get(machine) or {}
     at = entry.get('updated')
     endpoint = entry.get('tags_endpoint')
-    if not isinstance(endpoint, str) or not endpoint or config.ollama_url(endpoint, '') != local_endpoint(cfg, worker):
+    safe_endpoint = config.safe_ollama_endpoint(endpoint)
+    if not safe_endpoint or safe_endpoint != config.safe_ollama_endpoint(local_endpoint(cfg, worker)):
         return False
     interval = (cfg.get('dashboard') or {}).get('probe_seconds', 30)
     if (entry.get('stale') is not False or isinstance(at, bool) or not isinstance(at, (int, float))

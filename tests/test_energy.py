@@ -228,7 +228,7 @@ class Cards(unittest.TestCase):
     def test_models_read_when_the_power_is_not(self):
         r = energy.probe_all(self.cfg, lambda m, on: None, lambda host, path: {'models': [{'name': 'm:1'}]})
         self.assertTrue(r['pc']['power_unread'])
-        self.assertEqual(r['pc']['tags_endpoint'], energy.hosts(self.cfg)['pc']['ollama'])
+        self.assertEqual(r['pc']['tags_endpoint'], config.safe_ollama_endpoint(energy.hosts(self.cfg)['pc']['ollama']))
         c = energy.card(self.cfg, 'pc', energy.hosts(self.cfg)['pc'], r['pc'], None, {}, [], time.time(), energy.tariff(self.cfg),
                         False, {'big': (True, 'ok')})
         self.assertEqual((c['status'], c['installed'], c['reachable']), ('available', ['m:1'], False))

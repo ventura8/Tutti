@@ -264,7 +264,8 @@ def settings(cfg):
 def entries(cfg, readings, now, old=None):
     """{machine: {models, gpu, npu, cpu, loaded, updated}} from the dashboard's readings (energy.probe_all: each machine's
     /api/tags and /api/ps, GPU name). A machine that did not answer keeps its last entry, marked `stale`."""
-    old = old or {}
+    old = {name: {**entry, 'tags_endpoint': config.safe_ollama_endpoint(entry.get('tags_endpoint'))}
+           for name, entry in (old or {}).items() if isinstance(entry, dict)}
     out = {}
     for name, r in (readings or {}).items():
         tags = (r or {}).get('tags')
@@ -275,7 +276,8 @@ def entries(cfg, readings, now, old=None):
         models = [c for c in (classify(m) for m in tags['models'] if isinstance(m, dict)) if c]
         loaded = [m.get('name') for m in ((r.get('ps') or {}).get('models') or []) if isinstance(m, dict)]
         out[name] = {'models': models, 'gpu': r.get('gpu') or '', 'npu': r.get('npu') or '', 'cpu': r.get('cpu') or '',
-                     'loaded': loaded, 'updated': now, 'stale': False, 'tags_endpoint': r.get('tags_endpoint')}
+                     'loaded': loaded, 'updated': now, 'stale': False,
+                     'tags_endpoint': config.safe_ollama_endpoint(r.get('tags_endpoint'))}
     for name, e in old.items():
         if config.physical(cfg, name) == name:   # a dedicated pseudo-machine's old entry goes: its host's models are the same
             out.setdefault(name, {**e, 'stale': True})
@@ -521,11 +523,14 @@ def view(cfg, now=None):
     for n in local_names(cfg):
         w = cfg['workers'][n]
         rows.append({'name': n, 'machine': machine_of(cfg, n), 'auto': bool(w.get('auto')), 'model': w.get('model'),
-                     'host': w.get('host'), 'num_ctx': w.get('num_ctx'), 'hardware': w.get('hardware') or {},
+                     'host': config.safe_ollama_endpoint(w.get('host')) or '', 'num_ctx': w.get('num_ctx'),
+                     'hardware': w.get('hardware') or {},
                      'models': [{**{k: m.get(k) for k in ('name', 'tier', 'kinds', 'params_b')},
                                  'tokens_s': m.get('tokens_s') or speed.get(m.get('name')), **model_rank(m, rates)}
                                 for m in w.get('models') or [] if m]})
-    return {'workers': rows, 'machines': data.get('machines') or {}, 'servers': data.get('servers') or {}}
+    machines = {name: {**entry, 'tags_endpoint': config.safe_ollama_endpoint(entry.get('tags_endpoint'))}
+                for name, entry in (data.get('machines') or {}).items() if isinstance(entry, dict)}
+    return {'workers': rows, 'machines': machines, 'servers': data.get('servers') or {}}
 
 
 def model_rank(m, rates):

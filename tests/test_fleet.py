@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from tests.test_autopilot import FREE, Base, account, attempt, task
-from tutti import autopilot, backlog, delegate, fleet, resolver
+from tutti import autopilot, backlog, config, delegate, energy, fleet, resolver
 
 TAGS = {'models': [
     {'name': 'translategemma:12b', 'details': {'parameter_size': '12.2B'}},
@@ -29,6 +29,28 @@ def blocked_states():
 
 
 class Discovery(Base):
+    def test_endpoint_provenance_never_persists_url_credentials_or_tokens(self):
+        cfg = self.cfg()
+        cfg['workers']['pc']['machine'] = 'nuc'
+        for host in ('http://user:synthetic-secret@pc.example:11434', 'http://pc.example:11434/?token=synthetic-secret',
+                     'http://pc.example:11434/synthetic-secret', 'http://pc.example:11434/#synthetic-secret',
+                     'http://synthetic%2dsecret.example:11434', 'http://pc;synthetic-secret.example:11434'):
+            cfg['workers']['pc']['host'] = host
+            readings = energy.probe_all(cfg, lambda _m, _on: None, lambda _h, _p: TAGS)
+            self.assertNotIn('synthetic-secret', repr(readings))
+            data = fleet.refresh(cfg, readings, 1.0)
+            self.assertIsNone(data['machines']['nuc']['tags_endpoint'])
+            with open(fleet.path(cfg), encoding='utf8') as saved:
+                self.assertNotIn('synthetic-secret', saved.read())
+            self.assertNotIn('synthetic-secret', repr(fleet.view(cfg)))
+
+    def test_endpoint_provenance_allows_root_slash_and_ipv6(self):
+        self.assertEqual(config.safe_ollama_endpoint('http://PC.example:11434/'), 'http://pc.example:11434')
+        self.assertEqual(config.safe_ollama_endpoint('http://[::1]:11434/'), 'http://[::1]:11434')
+        cfg = self.cfg()
+        stale = fleet.entries(cfg, {'nuc': None}, 2, {'nuc': {'tags_endpoint': 'http://user:synthetic-secret@pc.example:11434'}})
+        self.assertIsNone(stale['nuc']['tags_endpoint'])
+
     def test_models_are_classed_by_what_they_can_do(self):
         got = {m['name']: m for m in (fleet.classify(x) for x in TAGS['models']) if m}
         self.assertNotIn('llava:latest', got)                               # a vision model writes no code

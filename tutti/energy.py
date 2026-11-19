@@ -653,7 +653,7 @@ def probe_all(cfg, power_fn, ollama_fn):
             if r is not None:
                 r['ps'], r['tags'] = ps if ps is not None else r.get('ps'), tags if tags is not None else r.get('tags')
                 if isinstance(tags, dict):
-                    r['tags_endpoint'] = h['ollama']
+                    r['tags_endpoint'] = config.safe_ollama_endpoint(h['ollama'])
         return name, r
     if not found:
         return {}

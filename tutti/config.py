@@ -177,6 +177,32 @@ def ollama_url(host, path):
     return base.rstrip('/') + path
 
 
+def safe_ollama_endpoint(host):
+    """A plain endpoint suitable for persisted provenance, or None for URLs containing extra data."""
+    import ipaddress
+    from urllib.parse import urlsplit
+    if not isinstance(host, str) or not host or '?' in host or '#' in host or any(c.isspace() or ord(c) < 32 for c in host):
+        return None
+    try:
+        parts = urlsplit(host if '://' in host else f'{OLLAMA_SCHEME}://{host}')
+        if (parts.scheme not in ('http', 'https') or not parts.hostname or parts.username is not None or parts.password is not None
+                or parts.path not in ('', '/') or parts.query or parts.fragment or '@' in parts.netloc or not parts.port):
+            return None
+        name = parts.hostname.lower()
+        if '%' in name:
+            return None
+        try:
+            ipaddress.ip_address(name)
+        except ValueError:
+            labels = name.split('.')
+            if (len(name) > 253 or any(not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label)
+                                       for label in labels)):
+                return None
+        return f'{parts.scheme}://[{name}]:{parts.port}' if ':' in name else f'{parts.scheme}://{name}:{parts.port}'
+    except ValueError:
+        return None
+
+
 def xdg_tutti_dir(env=None):
     """`$XDG_CONFIG_HOME/tutti` when set, else `~/.config/tutti`."""
     env = os.environ if env is None else env

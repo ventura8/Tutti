@@ -215,6 +215,8 @@ A repo in `autopilot.repos` with `household: true` is a **shared project**. Its 
   observation holds the task. A standalone installation without a coordinator keeps its existing behavior; an unreachable
   configured coordinator holds shared tasks. This protocol is not a distributed execution fence: failover, older processes,
   coordinator state rollback or a worker continuing after lease expiry can still lead to overlapping work.
+  Endpoint provenance accepts only a plain HTTP(S) host and port; endpoints with credentials, paths, queries or fragments
+  cannot authorize scoped local work and are not stored as provenance.
   If an existing shared retry has an eligible online ladder step, that round keeps the older ordinary sharing protocol,
   including its existing behavior for other queued tasks and older coordinators.
 - **`fill_room` under each user's own accounts.** Each member fills its own accounts' room from the shared backlog first,

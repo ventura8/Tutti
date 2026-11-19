@@ -191,6 +191,7 @@ browser: {machine: '', mode: dedicated, max_tabs: 4, idle_minutes: 5, sites: []}
 
 dashboard:
   port: 4777
+  # bind: auto   # default: localhost and every LAN/VPN address (needs Google sign-in); 127.0.0.1 for this computer only
   refresh_seconds: 10
   probe_seconds: 30
   stall_minutes: 10

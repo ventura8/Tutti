@@ -38,9 +38,9 @@ DEFAULTS = {
     # watch_scripts: script names whose running processes are jobs; watch_agents: agent CLIs shown by process; task_globs:
     # an agent session's background task outputs (shown by time only); shapes: a job kind's known phases or counted lines
     # (docs/DASHBOARD.md, *Progress*); typical_minutes: the rough estimate for an agent kind before any run of it finished
-    # bind: the address the dashboard listens on (127.0.0.1; another needs sign-in); origins: https names it is reached at
-    # through a proxy (a LAN or household address; sign-in required)
-    'dashboard': {'port': 4777, 'bind': '127.0.0.1', 'origins': [], 'refresh_seconds': 10, 'probe_seconds': 30, 'stall_minutes': 10,
+    # bind: auto (default: localhost and every LAN/VPN address, needs sign-in) or one address (a LAN one also keeps
+    # 127.0.0.1); origins: https names it is reached at through a proxy (sign-in required)
+    'dashboard': {'port': 4777, 'bind': 'auto', 'origins': [], 'refresh_seconds': 10, 'probe_seconds': 30, 'stall_minutes': 10,
                   'watch_scripts': [],
                   'watch_agents': [], 'task_globs': [], 'shapes': {}, 'typical_minutes': {'agent': 20, 'agent task': 15, 'conduct': 30}},
     # test.prepare: steps a command needs first ({when: regex, run: cmd}); test.no_coverage: how a run with coverage off looks
@@ -787,7 +787,8 @@ def _dashboard_errors(d):
             errs.append(f'dashboard.{key} is {v!r}: use a number above 0')
     bind = d.get('bind')
     if not isinstance(bind, str) or not bind:
-        errs.append(f'dashboard.bind is {bind!r}: use an address such as 127.0.0.1 (another one needs `tutti auth setup`)')
+        errs.append(f'dashboard.bind is {bind!r}: use auto (localhost and every LAN/VPN address), 127.0.0.1, or a LAN '
+                    'or VPN address (a non-loopback one needs `tutti auth setup`)')
     origins = d.get('origins')
     if not isinstance(origins, list) or not all(isinstance(o, str) and _origin_ok(o.rstrip('/'))
                                                 for o in origins):

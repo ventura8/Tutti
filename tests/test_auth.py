@@ -709,7 +709,7 @@ class SafetyTest(unittest.TestCase):
                 cfg, collector = cfg_of(folder, bind=bind), dashboard.Collector(cfg_of(folder))
                 with self.subTest(bind), self.assertRaisesRegex(dashboard.AuthRequired, 'never exposed to the internet|public'):
                     dashboard.server(cfg, 0, collector)
-        for bind in ('192.168.1.5', '10.0.0.2', '172.20.0.1', '100.101.102.103', 'fd7a:115c:a1e0::1', '127.0.0.1'):
+        for bind in ('192.168.1.5', '10.0.0.2', '172.20.0.1', '100.101.102.103', 'fd7a:115c:a1e0::1', '127.0.0.1', 'auto'):
             with mock.patch.object(auth, 'saved_origins', return_value=[]):
                 self.assertEqual(auth.network_errors({'dashboard': {'bind': bind}}, ifaces=lan), [], bind)
 

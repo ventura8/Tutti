@@ -1,19 +1,21 @@
 # The dashboard
 
 `tutti dashboard` serves a local web dashboard at `http://127.0.0.1:4777/` (`--port` or `dashboard.port` to change
-it). It binds to 127.0.0.1 and refuses requests whose `Host` is not a loopback name with that port, so another
-site cannot read it through DNS rebinding. Without sign-in it serves only this login: on Linux a loopback connection from
-another user's process (a computer several people log in to) is dropped before it is read. It closes a connection that stays
-silent for 30 s and serves at most 128 requests at once.
+it). By default `dashboard.bind` is `auto`: it listens on localhost and every LAN/VPN address of this computer at once
+(so the home network can open the LAN IP without losing the loopback URL). It refuses requests whose `Host` is not a
+loopback name with that port or a reach origin, so another site cannot read it through DNS rebinding. Without sign-in,
+`auto` stays on this computer only: on Linux a loopback connection from another user's process (a computer several people
+log in to) is dropped before it is read. It closes a connection that stays silent for 30 s and serves at most 128
+requests at once.
 
 **Sign-in with Google** (`tutti auth setup`, [AUTH.md](AUTH.md)): with an OAuth client ID set, every page and `/api/*`
 route needs a signed-in user. The first one to sign in is the admin; later ones wait for approval, or come in at once
 through an invite link. Viewers see the dashboard read-only (no controls, no Settings); admins also get the **Users**
 card (approve, Make admin, Make viewer, Remove, Invite someone with a link and a QR code). Without a client ID the
-dashboard stays as it was, on this computer only, with a banner that offers the setup. `dashboard.bind` and
-`dashboard.origins` (an `https://` LAN or VPN name) let others reach it, and then sign-in is required. It is never on
-the internet: a public bind or a public origin is refused. Python standard library only: no build step, no CDN, no data leaves the
-computer.
+dashboard stays on this computer only, with a banner that offers the setup. With sign-in, `dashboard.bind: auto` (or an
+explicit LAN/VPN address, which also keeps 127.0.0.1) and `dashboard.origins` (an `https://` LAN or VPN name) let others
+reach it. A plain LAN IP uses Google's device flow. It is never on the internet: a public bind or a public origin is
+refused. Python standard library only: no build step, no CDN, no data leaves the computer.
 
 ```bash
 tutti dashboard                    # serve until Ctrl+C

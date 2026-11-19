@@ -1203,9 +1203,10 @@ def cmd_dashboard(cfg, a):
         collector.start()
     from . import install  # a release install updates itself daily and restarts in place (docs/INSTALL.md, *Updates*)
     install.start_daily(cfg, collector.stop, remote.ROOT, lambda: os.execv(sys.executable, [sys.executable, *sys.argv]))
-    where = 'this computer only' if not dashboard.exposed(cfg) else 'reachable by others: sign-in with Google required'
+    where = 'this computer only' if not dashboard.exposed(cfg) else 'reachable on the LAN/VPN: sign-in with Google required'
     signin = 'sign-in with Google on' if httpd.auth else 'sign-in off: `tutti auth setup` turns it on'
-    say(f'dashboard: http://127.0.0.1:{httpd.server_address[1]}/ ({where}; {signin}; Ctrl+C stops it)')
+    listening = ', '.join(getattr(httpd, 'binds', [httpd.server_address[0]]))
+    say(f'dashboard: http://127.0.0.1:{httpd.server_address[1]}/ (on {listening}; {where}; {signin}; Ctrl+C stops it)')
     from . import coordinator, netpolicy  # the household coordinator's computer serves the household from its dashboard too
     try:
         hh = coordinator.start_in_background(cfg)

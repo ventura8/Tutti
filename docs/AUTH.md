@@ -81,7 +81,8 @@ Input devices** (`tutti/authdevice.py`):
 - **Who may connect.** Clients are accepted from any private address: loopback, RFC 1918 from any subnet (a router's VPN
   often hands out another one), `100.64.0.0/10` and `fc00::/7`. A public source address is dropped before its request
   is read.
-- **The listening address.** Set `dashboard.bind` to this computer's LAN address. `tutti auth setup` prints it.
+- **The listening address.** The default `dashboard.bind: auto` already listens on localhost and every LAN/VPN address.
+  An explicit LAN address also keeps `127.0.0.1`. `tutti auth setup` prints the addresses.
 
 ## A household's own clients (optional)
 
@@ -240,40 +241,34 @@ with a QR code (`web/qr.js`, drawn on the page) and the household command.
 The owner's rule: a household dashboard is never exposed to the internet. People reach it on the LAN or through a VPN
 (Tailscale, WireGuard), and the dashboard refuses to start otherwise.
 
-- **`dashboard.bind`** must be a loopback address, or an address of this computer on a private network. Anything else
-  is refused with the reason and the fix: a public address, `0.0.0.0` or `::` (every interface, public ones included),
-  or a host name. The private networks are:
+- **`dashboard.bind`** is `auto` by default (localhost and every LAN/VPN address of this computer), or a single loopback
+  or private address. A single LAN address also keeps listening on `127.0.0.1`. Anything else is refused with the reason
+  and the fix: a public address, `0.0.0.0` or `::` (every interface, public ones included), or a host name. The private
+  networks are:
   - RFC 1918 (`10/8`, `172.16/12`, `192.168/16`);
   - CGNAT and Tailscale (`100.64.0.0/10`);
   - IPv6 unique-local (`fc00::/7`, which WireGuard and most VPNs use);
   - link-local.
-- **Google takes plain `http` only for localhost**, so another device needs a private `https` name. Tutti picks it by
-  itself:
-  1. **On this computer**, `http://localhost:<port>` and `http://127.0.0.1:<port>` work as they are.
-  2. **From other devices, with Tailscale** (detected through `tailscale status`), run `tutti auth setup --tailscale`.
-     - It runs `tailscale serve --bg --https=443 http://127.0.0.1:<port>`, which gives a real certificate for
-       `<host>.<tailnet>.ts.net`. That name resolves only inside the tailnet. Tutti never runs `funnel`.
-     - It saves `https://<host>.<tailnet>.ts.net` in `<state>/auth.json`, so it joins the origins to authorize.
-     - The dashboard itself keeps listening on 127.0.0.1.
-     - The client ID must be set first.
-     - A dashboard that runs without sign-in never answers that name, even after it has been saved.
-     - If `tailscale serve` asks for permission, run `sudo tailscale set --operator=$USER` once.
-  3. **Without Tailscale**, the dashboard is for this computer only. `tutti auth setup` says how to add Tailscale. Google's
-     device flow (a code at google.com/device) is not built yet.
+- **Google takes plain `http` only for localhost**, so:
+  1. **On this computer**, `http://localhost:<port>` and `http://127.0.0.1:<port>` use the Sign in with Google button.
+  2. **From the home LAN or any VPN**, open the dashboard at its LAN/VPN IP over `http`; the page uses Google's device
+     flow (a code at google.com/device). No Tailscale required.
+  3. **With Tailscale** (detected through `tailscale status`), `tutti auth setup --tailscale` can also add a private
+     `https://` name: it runs `tailscale serve --bg --https=443 http://127.0.0.1:<port>`, saves the origin, and never
+     runs `funnel`. If `tailscale serve` asks for permission, run `sudo tailscale set --operator=$USER` once.
 - **Every `dashboard.origins` name** must resolve, on this computer, only to such addresses (for example, a Tailscale
   `https://<machine>.<tailnet>.ts.net` name that resolves to `100.x`). A name that resolves to a public address, or
   does not resolve at all (the VPN is down), is refused.
 - **The OAuth client's authorized JavaScript origins** list only `http://127.0.0.1:<port>`, `http://localhost:<port>` and
-  these LAN or VPN names, never a public host. `tutti auth setup` prints exactly that list and flags any origin that
+  these LAN or VPN https names, never a public host. `tutti auth setup` prints exactly that list and flags any origin that
   breaks the rule.
 - **Invite links** use the first `dashboard.origins` entry (the LAN or VPN name), so they work only for someone on the
   VPN.
 
-- `dashboard.bind` (default `127.0.0.1`) and `dashboard.origins` (full `https://` origins, for a proxy; plain `http` is
-  accepted only for a loopback name) let others reach
-  the dashboard. With either one set, the dashboard **refuses to start without sign-in**.
-- The `Host` must be a loopback name on the port, or the host of an entry in `dashboard.origins` (DNS rebinding stays
-  refused).
+- `dashboard.bind` (default `auto`) and `dashboard.origins` (full `https://` origins, for a proxy; plain `http` is
+  accepted only for a loopback name) let others reach the dashboard. With a non-loopback listen address or an origin,
+  the dashboard **refuses to start without sign-in**. Without sign-in, `auto` stays on this computer only.
+- The `Host` must be a loopback name on the port, or the host of a reach origin (DNS rebinding stays refused).
 
 ## Recovery from a shell (needs shell access on the host)
 

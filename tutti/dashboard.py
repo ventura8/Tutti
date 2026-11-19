@@ -1,11 +1,13 @@
 """`tutti dashboard`: a local web dashboard (an installable PWA) over the state Tutti already keeps.
-Standard library only: a threaded HTTP server bound to 127.0.0.1, static files from tutti/web, and /api/state as JSON.
-Machines and workers are probed in a background thread (ssh and model servers can be slow); the rest is read per request."""
+Standard library only: threaded HTTP servers on localhost and, with sign-in, each LAN/VPN address (`dashboard.bind`,
+default `auto`), static files from tutti/web, and /api/state as JSON. Machines and workers are probed in a background
+thread (ssh and model servers can be slow); the rest is read per request."""
 import gzip
 import hashlib
 import hmac
 import html
 import json
+import logging
 import math
 import mimetypes
 import os
@@ -365,14 +367,37 @@ class Collector:
 LOOPBACK = ('127.0.0.1', 'localhost', '::1')
 
 
-def allowed_host(host, port, origins=()):
-    """Only the loopback names with our port, and the hosts of dashboard.origins (sign-in required for those): a page on
-    another site that rebinds its DNS to 127.0.0.1 is refused."""
-    return host in (f'127.0.0.1:{port}', f'localhost:{port}', f'[::1]:{port}') or host in {urlsplit(o).netloc for o in origins}
+def allowed_host(host, port, binds, origins=()):
+    """Only the loopback names with our port, and the hosts of dashboard.origins (sign-in required for those),
+    plus the addresses it binds to: a page on another site that rebinds its DNS to one of them is refused."""
+    allowed = {f'{b}:{port}' for b in binds}
+    allowed.update({f'127.0.0.1:{port}', f'localhost:{port}', f'[::1]:{port}'})
+    allowed.update({urlsplit(o).netloc for o in origins})
+    return host in allowed
 
 
 def bind_of(cfg):
-    return (cfg.get('dashboard') or {}).get('bind') or BIND
+    """The dashboard.bind setting (`auto` by default): the listen addresses are `binds_of`."""
+    return (cfg.get('dashboard') or {}).get('bind') or 'auto'
+
+
+def _loopback(addr):
+    return addr.split('%', 1)[0] in LOOPBACK
+
+
+def binds_of(cfg, ifaces=None):
+    """Addresses the dashboard listens on. `auto` (the default) is localhost plus every LAN and VPN address, like
+    household.bind; a single LAN address also keeps 127.0.0.1 so the local URL still works. Without sign-in, `auto`
+    stays on this computer only (the setup banner); an explicit LAN bind still needs sign-in. Public addresses are
+    refused later (`auth.network_errors`), not here."""
+    from . import auth, netpolicy
+    setting = bind_of(cfg)
+    if setting == 'auto':
+        addrs = netpolicy.binds('auto', 'dashboard.bind', ifaces)
+        return addrs if auth.enabled(cfg) else [a for a in addrs if _loopback(a)] or [BIND]
+    if _loopback(setting):
+        return [BIND if setting == 'localhost' else setting]
+    return [BIND, setting]
 
 
 def private_client(addr):
@@ -382,20 +407,25 @@ def private_client(addr):
     return netpolicy.private(addr)
 
 
+def _lan_origin(bind, port):
+    clean = bind.split('%', 1)[0]
+    host = f'[{clean}]' if ':' in clean else clean
+    return f'{authweb.LOCAL_SCHEME}://{host}:{port}'
+
+
 def reach_origins(collector):
     """The non-loopback origins this running server answers: none unless it started with sign-in on (an origin saved later,
     e.g. by `tutti auth setup --tailscale`, never opens a server that runs without sign-in)."""
     if not getattr(collector, 'signed', False):
         return ()
-    bind = bind_of(collector.cfg)
-    host = f'[{bind}]' if ':' in bind else bind
-    lan = [] if bind in LOOPBACK else [f'{authweb.LOCAL_SCHEME}://{host}:{getattr(collector, "port", collector.cfg["dashboard"]["port"])}']
+    port = getattr(collector, 'port', collector.cfg['dashboard']['port'])
+    lan = [_lan_origin(b, port) for b in binds_of(collector.cfg) if not _loopback(b)]
     return [*authweb.origins(collector.cfg), *lan]   # a LAN or VPN bind (netpolicy-checked at start) on plain http
 
 
-def exposed(cfg):
+def exposed(cfg, ifaces=None):
     """True when others may reach the dashboard (a non-loopback bind, or dashboard.origins): sign-in is then required."""
-    return bind_of(cfg) not in LOOPBACK or bool(authweb.origins(cfg))
+    return any(not _loopback(b) for b in binds_of(cfg, ifaces)) or bool(authweb.origins(cfg))
 
 
 def static_path(url_path):
@@ -703,7 +733,7 @@ def post(collector, headers, path, port, token, read):
     """(status, answer) for a POST. `read(n)` reads n bytes of the body, only once the request passed every check."""
     host = headers.get('Host', '')
     origins = reach_origins(collector)
-    if not allowed_host(host, port, origins):
+    if not allowed_host(host, port, collector.httpd.binds, reach_origins(collector)):
         return 403, {'error': 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)'}
     path = path.split('?', 1)[0]
     if path not in POSTS and path not in SELF_POSTS:
@@ -1040,7 +1070,7 @@ def signed_post(rt, collector, headers, path, port, read):
     """(status, answer, extra headers) of a POST with sign-in on: the gate (authweb.post), then the dashboard's own POST with
     the session's CSRF token in place of the per-start token."""
     host = headers.get('Host', '')
-    if not allowed_host(host, port, reach_origins(collector)):
+    if not allowed_host(host, port, collector.httpd.binds, reach_origins(collector)):
         return 403, {'error': 'open the dashboard at one of its addresses (other host names are refused)'}, None
     path = path.split('?', 1)[0]
     if path not in POSTS and path not in authweb.AUTH_POSTS and path not in SELF_POSTS:
@@ -1058,8 +1088,13 @@ def any_post(rt, collector, headers, path, port, token, read):
 class Server(httpguard.CappedServer):
     """Drops a connection from a public address before reading it: the dashboard serves this computer, the LAN and a VPN.
     Without sign-in it serves only this login: a loopback connection from another user's process on a shared computer is
-    dropped too (httpguard.loopback_owner_ok). At most MAX_CONNECTIONS requests at once."""
+    dropped too (httpguard.loopback_owner_ok). At most MAX_CONNECTIONS requests at once. Extra listen addresses are
+    siblings (same handler, token and auth), started from serve_forever."""
     max_connections, max_per_client = MAX_CONNECTIONS, 64   # tailscale serve brings every tailnet user from 127.0.0.1
+
+    def __init__(self, *args, **kwargs):
+        self.siblings = []
+        super().__init__(*args, **kwargs)
 
     def verify_request(self, request, client_address):
         if not private_client(client_address[0]):
@@ -1067,6 +1102,26 @@ class Server(httpguard.CappedServer):
         if getattr(self, 'auth', None) is None and client_address[0] in ('127.0.0.1', '::1', '::ffff:127.0.0.1'):
             return httpguard.loopback_owner_ok(client_address, self.server_address)
         return True
+
+    def serve_forever(self, poll_interval=0.5):
+        for s in self.siblings:
+            threading.Thread(target=s.serve_forever, args=(poll_interval,), daemon=True).start()
+        super().serve_forever(poll_interval=poll_interval)
+
+    def shutdown(self):
+        for s in self.siblings:
+            s.shutdown()
+        super().shutdown()
+
+    def server_close(self):
+        for s in self.siblings:
+            s.server_close()
+        super().server_close()
+
+
+class Server6(Server):
+    """The dashboard on an IPv6 address (ULA, link-local with its interface, ::1)."""
+    address_family = socket.AF_INET6
 
 
 class AuthRequired(Exception):
@@ -1121,7 +1176,7 @@ def make_handler(collector, token):
             self.do_GET()
 
         def do_GET(self):
-            if not allowed_host(self.headers.get('Host', ''), self.server.server_address[1], reach_origins(collector)):
+            if not allowed_host(self.headers.get('Host', ''), self.server.server_address[1], self.server.binds, reach_origins(collector)):
                 return self.fail(403, 'open the dashboard at http://127.0.0.1:<port>/ (other host names are refused)')
             path = self.path.split('?', 1)[0]
             self.send(*reported('dashboard-get', authweb.get, getattr(self.server, 'auth', None), path, self.headers,
@@ -1135,26 +1190,52 @@ def make_handler(collector, token):
     return Handler
 
 
-def server(cfg, port, collector=None):
-    """The HTTP server on 127.0.0.1:<port> (0 picks a free port). Not started: call serve_forever()."""
+def _make_server(addr, port, handler):
+    return (Server6 if ':' in addr else Server)((addr, port), handler)
+
+
+def _attach_siblings(httpd, addrs, port, handler):
+    """Listen on each further address; skip one that is already taken (like the household coordinator)."""
+    for a in addrs:
+        try:
+            httpd.siblings.append(_make_server(a, port, handler))
+        except OSError as e:
+            logging.info(f'dashboard: cannot listen on {a}:{port} ({e}): skipping')
+
+
+def _check_auth(cfg, ifaces):
+    from . import auth
+    if not exposed(cfg, ifaces=ifaces):
+        return
+    problems = auth.network_errors(cfg, ifaces=ifaces)
+    if problems:
+        raise AuthRequired('; '.join(problems))
+    if not auth.enabled(cfg):
+        raise AuthRequired('dashboard.bind or dashboard.origins lets others reach the dashboard, and sign-in is off: run '
+                           '`tutti auth setup` first, or set dashboard.bind to 127.0.0.1 to keep it on this computer')
+
+
+def server(cfg, port, collector=None, ifaces=None):
+    """HTTP servers on every address `dashboard.bind` allows (`auto`: localhost and each LAN/VPN address). Port 0 picks
+    a free port. Not started: call serve_forever() (siblings start with it)."""
     collector = collector or Collector(cfg)
     from . import auth
-    if exposed(cfg):
-        problems = auth.network_errors(cfg)
-        if problems:
-            raise AuthRequired('; '.join(problems))
-    if exposed(cfg) and not auth.enabled(cfg):
-        raise AuthRequired('dashboard.bind or dashboard.origins lets others reach the dashboard, and sign-in is off: run '
-                           '`tutti auth setup` first, or remove dashboard.bind and dashboard.origins to keep it on this computer')
+    _check_auth(cfg, ifaces)
     token = secrets.token_urlsafe(24)   # a new one per start: the page loaded from this server sends it back with a POST
-    httpd = Server((bind_of(cfg), port), make_handler(collector, token))
-    httpd.token = token
+    handler, addrs = make_handler(collector, token), binds_of(cfg, ifaces=ifaces)
+    httpd = _make_server(addrs[0], port, handler)
+    port = httpd.server_address[1]
+    _attach_siblings(httpd, addrs[1:], port, handler)
     github.use(cfg)   # Connect GitHub: the connections Tutti's GitHub calls use (docs/GITHUB.md)
-    httpd.auth = authweb.Runtime(cfg, httpd.server_address[1]) if auth.enabled(cfg) else None
+    httpd.token = token
+    httpd.auth = authweb.Runtime(cfg, port) if auth.enabled(cfg) else None
+    for s in httpd.siblings:
+        s.token, s.auth, s.collector, s.daemon_threads = token, httpd.auth, collector, True
     collector.signed = httpd.auth is not None
     collector.who = lambda headers: authweb.who(httpd.auth, headers)   # the household's handlers ask who is asking
-    httpd.daemon_threads = True
-    httpd.collector = collector
-    collector.httpd = httpd   # the chat asks the sign-in who owns this host
-    collector.port = httpd.server_address[1]   # the reading helper's bookmarklets open this exact address
+    httpd.daemon_threads, httpd.collector = True, collector
+    collector.httpd, collector.port = httpd, port   # chat / bookmarklets use this host's port
+    httpd.binds = [httpd.server_address[0], *(s.server_address[0] for s in httpd.siblings)]
+    for s in httpd.siblings:
+        s.binds = httpd.binds
     return httpd

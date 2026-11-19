@@ -508,8 +508,9 @@ FIELDS = {
     'browser.port': field('DevTools port', 'Dedicated mode, on 127.0.0.1 only: nothing on the network can drive it.', 'number',
                           min=1024, max=65535),
     'dashboard.port': field('Port', 'The dashboard\'s port on 127.0.0.1.', 'number', min=1, max=65535),
-    'dashboard.bind': field('Address', 'Where the dashboard listens: 127.0.0.1, or this computer\'s LAN or VPN address (sign-in '
-                            'required; never a public address).', 'text'),
+    'dashboard.bind': field('Address', 'Where the dashboard listens: auto (default: localhost and every LAN/VPN address), '
+                            '127.0.0.1, or one LAN/VPN address (that one also keeps 127.0.0.1). Sign-in required off '
+                            'loopback; never a public address.', 'text'),
     'auth.client_id': field('Web client ID', 'The Google OAuth "Web application" client for this computer and https names. '
                             'Public, not a secret. Empty: the one `tutti auth setup` saved.', 'text'),
     'auth.session_hours': field('Session length', 'How long a sign-in lasts before signing in again.', **HRS),

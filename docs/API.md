@@ -57,7 +57,8 @@ Every `tutti` command uses the same codes:
 
 ## The dashboard HTTP API
 
-`tutti dashboard` serves the page and its JSON API on `127.0.0.1:4777` (`dashboard.port`, `dashboard.bind`).
+`tutti dashboard` serves the page and its JSON API on port 4777 (`dashboard.port`), listening on localhost and, with
+sign-in, every LAN/VPN address (`dashboard.bind`, default `auto`).
 
 **Never on the internet.** The server drops a connection whose peer has a public address before reading it: it answers
 loopback and the private ranges (RFC 1918, 100.64.0.0/10, fc00::/7), so a LAN or a VPN, and a port forward to it is refused.
@@ -807,7 +808,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `browser.idle_minutes` | number (minutes) | `5` | Close after: The connection (and Tutti's own Chrome) closes when no task used it this long. | admin |
 | `browser.port` | number | `9333` | DevTools port: Dedicated mode, on 127.0.0.1 only: nothing on the network can drive it. | admin |
 | `dashboard.port` | number | `4777` | Port: The dashboard's port on 127.0.0.1. Applies after a restart. | admin |
-| `dashboard.bind` | text | `127.0.0.1` | Address: Where the dashboard listens: 127.0.0.1, or this computer's LAN or VPN address (sign-in required; never a public address). Applies after a restart. | admin |
+| `dashboard.bind` | text | `auto` | Address: Where the dashboard listens: auto (default: localhost and every LAN/VPN address), 127.0.0.1, or one LAN/VPN address (that one also keeps 127.0.0.1). Sign-in required off loopback; never a public address. Applies after a restart. | admin |
 | `auth.client_id` | text |  | Web client ID: The Google OAuth "Web application" client for this computer and https names. Public, not a secret. Empty: the one `tutti auth setup` saved. Applies after a restart. | admin |
 | `auth.session_hours` | number (hours) | `72` | Session length: How long a sign-in lasts before signing in again. Applies after a restart. | admin |
 | `dashboard.refresh_seconds` | number (seconds) | `10` | Page refresh: How often this page asks for news. | admin |

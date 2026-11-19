@@ -275,6 +275,56 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.get('/api/health')[0].status, 200)
 
 
+class BindTest(unittest.TestCase):
+    """dashboard.bind auto / a LAN address: listen on loopback and the LAN together (docs/AUTH.md)."""
+
+    IFACES = [('lo', '', ['127.0.0.1', '::1']), ('eth0', '', ['192.168.1.33']), ('docker0', 'bridge', ['172.17.0.1'])]
+
+    def test_default_bind_is_auto(self):
+        cfg = config.normalise({'project': {'state': '/tmp/tutti-bind-test'}})
+        self.assertEqual(cfg['dashboard']['bind'], 'auto')
+
+    def test_auto_without_sign_in_stays_on_loopback(self):
+        from tutti import auth
+        with tempfile.TemporaryDirectory() as folder:
+            cfg = cfg_of({'dashboard': {'bind': 'auto'}, 'auth': {'client_id': ''}}, folder)
+            with mock.patch.object(auth, 'enabled', return_value=False):
+                self.assertEqual(dashboard.binds_of(cfg, ifaces=self.IFACES), ['127.0.0.1', '::1'])
+                self.assertFalse(dashboard.exposed(cfg, ifaces=self.IFACES))
+
+    def test_auto_with_sign_in_includes_lan_not_a_bridge(self):
+        from tutti import auth
+        with tempfile.TemporaryDirectory() as folder:
+            cfg = cfg_of({'dashboard': {'bind': 'auto'}}, folder)
+            with mock.patch.object(auth, 'enabled', return_value=True):
+                got = dashboard.binds_of(cfg, ifaces=self.IFACES)
+                self.assertEqual(got[:2], ['127.0.0.1', '::1'])
+                self.assertIn('192.168.1.33', got)
+                self.assertNotIn('172.17.0.1', got)
+                self.assertTrue(dashboard.exposed(cfg, ifaces=self.IFACES))
+
+    def test_a_lan_bind_keeps_loopback(self):
+        self.assertEqual(dashboard.binds_of({'dashboard': {'bind': '192.168.1.33'}}), ['127.0.0.1', '192.168.1.33'])
+
+    def test_server_on_a_lan_bind_still_answers_on_loopback(self):
+        from tutti import auth
+        client = '1234567890-abcdefghijklmnopqrstuv.apps.googleusercontent.com'
+        with tempfile.TemporaryDirectory() as folder:
+            cfg = cfg_of({'dashboard': {'bind': '192.168.1.33'}, 'auth': {'client_id': client}}, folder)
+            with mock.patch.object(auth, 'network_errors', return_value=[]):
+                httpd = dashboard.server(cfg, 0, dashboard.Collector(cfg), ifaces=self.IFACES)
+            self.addCleanup(httpd.server_close)
+            self.assertEqual(httpd.server_address[0], '127.0.0.1')
+            self.assertIn('127.0.0.1', httpd.binds)
+            port = httpd.server_address[1]
+            threading.Thread(target=httpd.serve_forever, daemon=True).start()
+            self.addCleanup(httpd.shutdown)
+            c = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+            c.request('GET', '/api/health', headers={'Host': f'127.0.0.1:{port}'})
+            self.assertEqual(c.getresponse().status, 200)
+            c.close()
+
+
 class CliTest(unittest.TestCase):
     def test_once_prints_the_state_without_probing(self):
         with tempfile.TemporaryDirectory() as folder:

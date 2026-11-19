@@ -11,6 +11,10 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Added
 
+- Dashboard `dashboard.bind: auto` (the new default): listens on localhost and every LAN/VPN address at once (same
+  idea as `household.bind`), so `http://127.0.0.1:4777/` keeps working when the home LAN address is also bound; with
+  Google sign-in a plain LAN IP uses the device flow. Without sign-in, `auto` stays on this computer only. An explicit
+  LAN bind also keeps 127.0.0.1 (docs/AUTH.md, docs/DASHBOARD.md).
 - Roles for machines and devices (`tutti/roles.py`, docs/MACHINES.md *Roles*): windows-, linux-, macos- and
   android-test-runner, android-device, tv-device, emulator-host, ios-webkit-runner, docker-host, build-machine, gpu-ai,
   ui-desktop, chrome-browser, main, backup-main, vpn-node and the Cast roles, detected once a day (OS, tools, GPU memory,

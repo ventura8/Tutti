@@ -127,11 +127,13 @@ def locked(folder):
 
 def network_errors(cfg, resolve=None, ifaces=None):
     """What breaks the rule "never on the internet" (tutti/netpolicy.py, shared with the household): dashboard.bind must be
-    localhost or a LAN or VPN address of this computer, and every origin's name must resolve only to such addresses."""
+    `auto`, localhost or a LAN or VPN address of this computer, and every origin's name must resolve only to such
+    addresses. `auto` is already only private addresses (`netpolicy.binds`)."""
     from . import netpolicy
     kw = {'ifaces': ifaces, **({'resolve_fn': resolve} if resolve else {})}
     d = cfg.get('dashboard') or {}
-    checks = [((d.get('bind') or '127.0.0.1'), 'dashboard.bind')]
+    bind = d.get('bind') or 'auto'
+    checks = [] if bind == 'auto' else [(bind, 'dashboard.bind')]
     checks += [(urlsplit(o).hostname or '', f'dashboard.origins {o}') for o in extra_origins(cfg)]
     errs = []
     for host, what in checks:

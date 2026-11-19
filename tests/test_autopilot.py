@@ -9,7 +9,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import autopilot, backlog, cli, config, dashboard, delegate, fleet, routing, state
+from tutti import autopilot, backlog, cli, config, dashboard, delegate, fleet, planner, routing, state
 
 FAKE_WORKER = '''import sys
 prompt = sys.argv[1]
@@ -355,6 +355,72 @@ class PlanTest(Base):
         p = autopilot.plan(self.cfg(), [task('t1')], states, FREE, True)
         self.assertEqual(p['dispatch'], [])               # cursor (on pace) and pc are only for retries
         self.assertEqual(p['state'], 'stopped')
+
+    def test_measured_ladder_account_takes_fresh_work_when_triggers_cannot(self):
+        cfg = self.cfg(fresh_fallback_accounts=['cursor'])
+        planned = {**account('cursor', 'on pace'), 'reading_at': '2026-01-01T00:00:00Z',
+                   'quota_plan': {'tasks': 2, 'left': 4, 'limit': None}}
+        states = self.states(**{'agy-gemini': account('agy-gemini', 'ahead'),
+                               'agy-claude': account('agy-claude', 'ahead'), 'cursor': planned})
+        cfg['autopilot']['fresh_fallback_accounts'] = []
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now=TEST_NOW)['dispatch'], [])
+        cfg['autopilot']['fresh_fallback_accounts'] = ['cursor']
+        self.assertEqual(autopilot.plan(cfg, [task('t1', size='M')], states, FREE, True, now=TEST_NOW)['dispatch'], [])
+        p = autopilot.plan(cfg, [task('t1'), task('t2')], states, FREE, True, now=TEST_NOW)
+        self.assertEqual(p['dispatch'], [('t1', 'cursor')])
+        running = {**task('t1', 'running'), 'step': 'cursor'}
+        self.assertEqual(autopilot.plan(cfg, [running, task('t2')], states, FREE, True, now=TEST_NOW)['dispatch'], [])
+        cfg['autopilot']['max_parallel'] = 1
+        other_running = {**task('t0', 'running'), 'step': 'agy-gemini'}
+        self.assertEqual(autopilot.plan(cfg, [other_running, task('t2')], states, FREE, True, now=TEST_NOW)['dispatch'], [])
+        states['agy-gemini'] = account('agy-gemini')
+        self.assertEqual(autopilot.plan(cfg, [task('t3')], states, FREE, True, now=TEST_NOW)['dispatch'], [('t3', 'agy-gemini')])
+
+    def test_fresh_ladder_fallback_refuses_unknown_stale_shared_and_reserved_quota(self):
+        cfg = self.cfg(fresh_fallback_accounts=['cursor'])
+        ready = {**account('cursor', 'on pace'), 'reading_at': '2026-01-01T00:00:00Z',
+                 'quota_plan': {'tasks': 2, 'left': 4, 'limit': None}}
+        blocked = ({**ready, 'used': None}, {**ready, 'stale': True}, {**ready, 'after_reset': True},
+                   {**ready, 'reader_problem': 'failed'}, {**ready, 'verdict': 'ahead'},
+                   {**ready, 'panic': True}, {**ready, 'reading_at': '2026-01-02T00:00:00Z'},
+                   {**ready, 'used': 94},
+                   {**ready, 'quota_plan': {'tasks': 0, 'left': 0, 'limit': None}})
+        for s in blocked:
+            with self.subTest(state=s):
+                states = self.states(**{'agy-gemini': account('agy-gemini', 'ahead'),
+                                       'agy-claude': account('agy-claude', 'ahead'), 'cursor': s})
+                self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now=TEST_NOW)['dispatch'], [])
+        states['cursor'] = ready
+        cfg['_account_limits']['cursor'] = ['weekly']
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now=TEST_NOW)['dispatch'], [])
+        cfg['_account_limits']['cursor'] = []
+        cfg['_account_limits']['other'] = ['cursor']
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now=TEST_NOW)['dispatch'], [])
+        cfg['_account_limits']['other'] = []
+        cfg['disabled_accounts'] = ['cursor']
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now=TEST_NOW)['dispatch'], [])
+
+    def test_fallback_waits_until_completed_attempt_is_reflected_in_new_reading(self):
+        cfg = self.cfg(fresh_fallback_accounts=['cursor'])
+        s = {**account('cursor', 'behind', room=2), 'reading_at': '2026-01-01T00:00:00Z',
+             'target': '2026-01-02T00:00:00Z', 'share': 1.0}
+        s['quota_plan'] = planner.plan_single(s, cfg['accounts']['cursor'], TEST_NOW)
+        states = self.states(**{'agy-gemini': account('agy-gemini', 'ahead'),
+                               'agy-claude': account('agy-claude', 'ahead'), 'cursor': s})
+        self.assertGreater(s['quota_plan']['tasks'], 0)
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now=TEST_NOW)['dispatch'], [('t1', 'cursor')])
+        recent = {**attempt('cursor', ok=True), 'started': autopilot._ts('2026-01-01T00:30:00Z')}
+        finished = {**task('t0', 'review'), 'attempts': [recent]}
+        self.assertEqual(autopilot.plan(cfg, [finished, task('t1')], states, FREE, True, now=TEST_NOW)['dispatch'], [])
+        s['reading_at'] = '2026-01-01T00:45:00Z'
+        self.assertEqual(autopilot.plan(cfg, [finished, task('t1')], states, FREE, True, now=TEST_NOW)['dispatch'], [('t1', 'cursor')])
+
+    def test_fallback_config_rejects_unknown_account_with_action(self):
+        cfg = self.cfg(fresh_fallback_accounts=['not-configured'])
+        errors = '\n'.join(config.validate(cfg))
+        self.assertIn('autopilot.fresh_fallback_accounts', errors)
+        self.assertIn('accounts:', errors)
+        self.assertIn('use []', errors)
 
     def test_escalation_starts_above_the_last_failed_step_and_a_reviewer_retry_stays(self):
         states = self.states(cursor=account('cursor', 'on pace', None))

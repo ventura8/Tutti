@@ -677,6 +677,9 @@ class Engine:
             try:
                 self._mark_cli(job, cand)
                 messages = self._context(job, cfg, cand, system, conv, history, turns, s)
+                summary = conv.get('summary') or {}
+                if summary.get('upto') in [m['id'] for m in history]:
+                    job.untrusted = True
                 pre = chatctl.route_reason(cand, cfg, messages, history, s['effort']) if escalate else None
                 if pre:
                     failed.append(pre)
@@ -749,6 +752,10 @@ class Engine:
 
     def _summarise(self, cfg, cand, old, previous, cancel):
         """A summary by the model itself (no tools), else each message's first line."""
+        # CLI agents may have native tools even when Tutti's tools are disabled. Never launch one just to summarise
+        # historical text that could contain instructions to act.
+        if cand['kind'] != 'ollama':
+            return chatctl.summary_text(old, previous)
         body = '\n\n'.join(f'{m["role"].upper()}: {m.get("text") or ""}' for m in old)
         msgs = [{'role': 'system', 'content': chatctl.SUMMARY_PROMPT},
                 {'role': 'user', 'content': (f'Earlier summary:\n{previous}\n\n' if previous else '') + body[-24000:]}]

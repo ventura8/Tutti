@@ -306,7 +306,8 @@ def lease_on_runner(cfg, a):
     from . import adbhost, remote
     words = list(a.names or [])
     cut = words.index('--') if '--' in words else next((i for i, w in enumerate(words) if w not in (cfg.get('devices') or {})), len(words))
-    names, command = words[:cut], ' '.join(w for w in words[cut:] if w != '--')
+    names = words[:cut]
+    command = ' '.join(words[cut + 1:] if cut < len(words) and words[cut] == '--' else words[cut:])
     if not names or not command or a.runner not in cfg['machines']:
         say('name the devices, the runner machine and the command: tutti devices lease <d> [<d2>] --runner <machine> -- <command>')
         return 2
@@ -361,7 +362,9 @@ def cmd_lease(cfg, a):
     from . import adbhost
     if getattr(a, 'runner', None):
         return lease_on_runner(cfg, a)
-    command = [w for w in (a.names or [])[1:] if w != '--']
+    command = (a.names or [])[1:]
+    if command[:1] == ['--']:
+        command = command[1:]
     a.names = (a.names or [])[:1]
     if not a.names or not command:
         say('name the device and the command: tutti devices lease <device> --who <session> -- <command ...>')

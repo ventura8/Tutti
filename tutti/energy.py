@@ -644,12 +644,16 @@ def probe_all(cfg, power_fn, ollama_fn):
         if r is not None and r.get('cpu_w') is None and machine.get('transport') == 'wsl':   # no RAPL in WSL: LibreHardwareMonitor's
             from . import remote
             r['cpu_w'] = remote.windows_cpu_w(machine)
+        if r is not None:
+            r.pop('tags_endpoint', None)   # only this probe can attest which endpoint supplied tags
         if h['ollama']:   # from here through the worker's host; the machine's own curl when that is down
             ps, tags = ollama_fn(h['ollama'], '/api/ps'), ollama_fn(h['ollama'], '/api/tags')
             if r is None and (ps is not None or tags is not None):   # the models answer though the power read failed
                 r = {'gpu': None, 'gpu_w': None, 'util': None, 'source': '', 'cpu_w': None, 'power_unread': True}
             if r is not None:
                 r['ps'], r['tags'] = ps if ps is not None else r.get('ps'), tags if tags is not None else r.get('tags')
+                if isinstance(tags, dict):
+                    r['tags_endpoint'] = config.safe_ollama_endpoint(h['ollama'])
         return name, r
     if not found:
         return {}

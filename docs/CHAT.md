@@ -1,5 +1,29 @@
 # Chat
 
+When messages are redrawn, Chat reuses an unchanged message's private immutable Markdown parse tree while creating fresh
+DOM nodes. Editing or streaming new text reparses that message. This reduces repeated parsing; it does not virtualize the
+message list, page server responses, or remove the existing retention limit (t407).
+Renaming updates the title without rebuilding the message list; if the user changes chats while the rename request is in
+flight, its response does not rename the newly selected chat (t407).
+
+For a dashboard-requested restart, Tutti checks the dashboard's live answer jobs and persisted streaming messages while
+holding the Chat store lock, then rechecks at restart time. New Chat sends wait during the final check. An active answer,
+unreadable store or unsupported cross-process lock refuses or defers the restart; if the delayed check defers it, Settings
+reports that the dashboard did not restart and offers a retry. A deleted conversation's live answer in
+another dashboard process is not visible to this guard. It does not coordinate automatic updates, failover, or other jobs;
+those need separate safeguards (t404).
+
+Confirmed Chat actions, plans and undo operations are also admitted through a local gate until their final card state is
+saved; a settings restart waits for them without serializing unrelated actions. If an action has begun and an exception
+prevents its result from being saved, this process refuses the guarded restart until the outcome is inspected and a
+separately coordinated recovery is used. The in-memory hold lasts for this engine's lifetime and has no in-app clearing
+path; inspecting the outcome alone does not clear it. It is not durable across crashes and does not cover other dashboard
+processes or automatic updates.
+
+The assistant can call `chat_history` to page through the retained text of its current user's current conversation. Each
+page is bounded; history read this way is treated as untrusted for automatic actions. The existing 400-message retention
+limit and tool-round limit still apply, and already removed messages cannot be recovered by this tool (t387).
+
 Chat binds each online worker to a configured account with a pacing state and passes that account's configured arguments
 to the CLI. For a worker shared by multiple accounts, an admin must set `workers.<name>.chat_account_selector` to the CLI
 flag selecting the account or model, and every linked account (including paused ones) must have exactly one distinct value
@@ -90,7 +114,9 @@ The order and the rules, from the planner:
 1. The household's **local models** (the `ollama` workers, on the NUC, the laptop or the PC), which have no quota, the most
    capable first (by size: `qwen3.8:27b` on the PC before a 9B model): on machines that are here (presence), not paused, not
    lent out (the yield flag), and never the asking user's own computer (its `main_machine`).
-2. **Online accounts with room**: not in panic, spent or late, not paid per use (`costs_money`), not paused. Only the
+2. **Online accounts with room**: not in panic or spent, not paid per use (`costs_money`), not paused. A late account
+   remains eligible when its own and linked quota windows have current measured usage below their panic thresholds;
+   stale or estimated readings, synthetic post-reset readings and reader failures hold it until refreshed. Only the
    host's owner (the first admin, or the person on this computer when sign-in is off) uses the host's own accounts;
    another member uses one only when its owner shares it (`accounts.<n>.share_spare`). Another member's private quota is
    never spent.
@@ -104,7 +130,7 @@ tunnel down) is skipped for the next one within the same answer.
 ## Escalation (Auto)
 
 With the model on **Auto**, a request the local model cannot handle goes to an online model with room (pacing and the
-opt-ins apply: an account in panic, spent, late, paused or paid per use is never used; with none left, the local answer
+opt-ins apply: an account in panic, spent, paused or paid per use is never used; with none left, the local answer
 stays). Each answer says why: "Answered by claude (claude account) because …".
 
 - **Before answering**, a local model is skipped when the request (with its context) is longer than its `num_ctx` at the
@@ -158,8 +184,11 @@ Per conversation, with a default in your settings (the last one you picked); the
 - **Plan review**: the model proposes every step at once as a plan card (a request you type is "your request, as a
   one-step plan"). Untick a step to leave it out, change a step's
   text (a task's title, a hand-off's task, a question), then **Run the plan**: the steps run in order, each with its own
-  result and Undo; **Cancel** runs nothing. A plan always ends in a state you can act on, and one cut off by a restart
-  goes on with its remaining steps when you run it again. A request you type in so many words also becomes a one-step plan.
+  result and Undo; **Cancel** runs nothing. If a plan stops unexpectedly or is found running after a restart, Tutti holds it
+  rather than replaying potentially completed actions: inspect its steps and the actual work before issuing a new request.
+  This is a manual hold, not automatic recovery or proof that an action stopped; an older Tutti version can still replay
+  such a plan, so do not use an older version to resume it. A request you type in so many words also
+  becomes a one-step plan.
 
 In Autonomous and Ask before acting, a request you type in so many words ("add task in map: …") runs at once: your words
 are the confirmation.
@@ -186,8 +215,15 @@ Under the message box, as in a chat IDE, each starting at Auto:
   (Ollama's own counts; an online agent's are estimated, four characters a token) with what they would cost at API prices
   (an account's quota is spent, not money; a local model costs nothing). When the next request would fill the context past
   your threshold (`autocompact.threshold_pct`, 60 % by default; yours with `compact_pct`), the older messages are folded
-  into a summary written by the model itself (else their first lines), the last four stay whole, and the chat marks where.
-- **Stop** (Esc) ends an answer and keeps what was written; **Edit** on any of your messages resends it and replaces what
+  into a summary: a local model writes it without tools (or uses the first lines if it fails); for CLI agents Tutti uses
+  the first lines directly, without launching another agent. The first-line summary can omit details, and retention limits
+  still apply. Stopping during compaction preserves the previous summary when cancellation is observed before its save;
+  the last four messages stay whole, and the chat marks where. Tutti sends summaries as historical data and
+  asks before running managed changes when a summary is included. CLI agents may have native tools outside those checks;
+  these measures cannot guarantee that a model will ignore instructions in historical text.
+- **Stop** (Esc) ends an answer and keeps what was written. While an answer is running in this Chat engine, wait for it
+  to finish before editing, retrying, deleting or clearing its history; clearing all chats also waits for this user’s other
+  active answers. This check does not fence another process or prove that a CLI agent’s native descendants have stopped; **Edit** on any of your messages resends it and replaces what
   followed; **Regenerate** answers the last question again; **Branch** on any message starts a new chat with the messages
   up to it (same model, effort and mode), the original untouched.
 - **@-mentions** add context: `@project:map` (its check and what waits), `@job:<id>` (its line and the end of its log),
@@ -270,3 +306,7 @@ chat:
 A Chat `job_status` check for a known delegated run without a report polls for up to two minutes while the answer is
 open. Stop cancels polling after any in-flight status call returns, not the delegated run. A timeout reports uncertainty; monitoring is not persisted
 across a dashboard restart.
+
+A local model response must finish with its completion frame; an interrupted stream is incomplete. If a Chat action was already attempted, Tutti preserves its cards and partial text and does not retry another model automatically. Inspect the action before retrying. This does not make every provider failure recoverable (t303).
+
+A CLI agent that fails after launch may have used native tools. Chat keeps the partial answer and asks you to inspect the work before retrying; it does not automatically try another model. A failure before launch may still fall back. This does not prove a stopped process or remote work has ended (t303).

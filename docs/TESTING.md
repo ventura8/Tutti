@@ -48,6 +48,8 @@ TUTTI_UI_SHOTS=/tmp/tutti-ui PYTHONPATH=tests python3 -m unittest discover -s te
 The tabs are read from the tab bar, so a new tab (Chat, Users, any other) is covered once it is in the bar. The sign-in
 page is checked too.
 
+Phone summary tiles are also checked with WCAG spacing and a long account name (t414).
+
 **Layout**, at phone (360 px), tablet (768), laptop (1440) and 4K (3840) widths, light and dark, for the admin and the
 viewer; then at 200 % zoom, and with WCAG 1.4.12 text spacing (line height 1.5, paragraphs 2 em, letters 0.12 em, words
 0.16 em):

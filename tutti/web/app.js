@@ -443,10 +443,10 @@ function roomLine(a) {
         const running = ap.running.filter((t) => t.step === a.name).length;
         const note = ap.fill?.note ? ` · ${ap.fill.note}` : '';
         return el('p', { class: 'account__nudge', 'data-tone': 'ok',
-            text: `Autopilot: filling ${plural(a.room_tasks, 'slot')} — ${running} running here, ${ap.queue.length} queued${note}` });
+            text: `Estimated quota room: ${plural(a.room_tasks, 'bounded task')} — ${running} running here, ${ap.queue.length} queued. Starts depend on account eligibility and capacity${note}` });
     }
     const hint = ap?.enabled && !trigger ? ' (not in autopilot.accounts: it takes retries only)' : '';
-    return el('p', { class: 'account__nudge', 'data-tone': 'ok' }, `${plural(a.room_tasks, 'bounded task')} fit here now${hint}. `,
+    return el('p', { class: 'account__nudge', 'data-tone': 'ok' }, `Estimated quota room: ${plural(a.room_tasks, 'bounded task')}${hint}. Starts depend on account eligibility and capacity. `,
         hint ? '' : el('button', { class: 'btn btn--tonal', type: 'button', 'data-fill': a.name, onclick: fillRoom, text: 'Let autopilot fill it' }));
 }
 

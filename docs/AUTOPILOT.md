@@ -6,6 +6,11 @@ worktrees, with each task's own acceptance check. A pass becomes a branch (and a
 asks for one); with `auto_review` (on by default) the cheap reviewer reads it and it lands by the repo's `land` policy. With
 `fill_room` (on by default) free room never waits for a person to add tasks: the autopilot queues them from the repos.
 
+When autopilot is off, the active dashboard continues checkpointing existing work and holds reported runs during the off
+period. It does not dispatch, run the stuck watchdog, or classify and publish those reports while off. When switched on,
+the existing collection behavior resumes; it does not prove a remote process stopped. This does not make an update safe;
+execution-boundary proof is still needed (t404).
+
 ## The backlog
 
 One queue in `<state>/backlog.json`, a task per line of work:
@@ -53,11 +58,18 @@ The dashboard runs one round after every probe while the autopilot is on (`tutti
 1. **Collect.** Every running task whose run ended gets an attempt. A pass is published: Tutti (never the worker) commits the
    worktree on `autopilot/<id>-<slug>` with `autopilot.repos.<repo>.commit` (default `chore(autopilot): {title}`) and the
    repo's `trailers` (a failed checkout or staging stops there and says so), and with `pr: draft` pushes it and opens a draft pull request. The task waits in **Results to review**.
-2. **Plan.** Capacity is the **adaptive limit** (`tutti/parallel.py`, below) minus the runs going. Fresh tasks go only to an account of `autopilot.accounts` that is
+2. **Plan.** Capacity is the **adaptive limit** (`tutti/parallel.py`, below) minus the runs going. Fresh tasks first go to an account of `autopilot.accounts` that is
    **behind** its line (or late), or on pace but still under its line (topped up to it, so the window ends at its target), as many units as its room (`room_tasks`) minus what runs on it and what attempts started
    after its newest reading already spent (that cost stays counted until a new reading shows it). Never an account that
    costs money or is spent. The cautious panic fallback below applies only when all online accounts are unavailable.
-   A task without an acceptance check (its own or the repo's) is never sent.
+   When those candidates and eligible local models cannot take a fresh task, an account explicitly named in both the ladder
+   and `autopilot.fresh_fallback_accounts` may take it one at a time if its own reading is current and real, it is not ahead
+   or in panic, and its planner has room for the task size below its panic threshold. A fallback account takes at most one task per round. This list defaults to empty, keeping retry-only accounts retry-only unless opted in. This
+   fallback excludes accounts with linked or shared quota windows until shared reservations are available. It does not
+   change `fill_room`, which continues to fill from trigger accounts only. A newer quota reading does not prove an older
+   worker has stopped, and reservations are not atomic across controllers; investigate uncertain work before opting in.
+   Local-only shared tasks use the scoped conditional lease in [HOUSEHOLD.md](HOUSEHOLD.md); this needs an upgraded
+   coordinator and fresh machine/model observations. A task without an acceptance check (its own or the repo's) is never sent.
 3. **Dispatch.** `tutti run <worker> "<brief>" --repo <path> --track ap-<id> --check "<check>"` in the background, with the
    account's `args` (its model) and its name. Each start is saved at once, so a start that fails leaves the task queued and a
    crash never starts it twice. A local-model worker works through `tutti agent`'s loop on the task's scope files (it may
@@ -127,7 +139,7 @@ Opt-in turns it off. Each round, while the autopilot is on:
 
 1. **The room** is the units the trigger accounts (`autopilot.accounts`) may take now, as `step_room` gives it: the
    planner's allowance for agy's 5 h and weekly windows, never an account that is ahead, in panic or spent. Cursor and the
-   other ladder steps take retries only, so filling never pushes them past their pace.
+   other ladder steps do not increase fill room, so filling never pushes them past their pace.
 2. **The want** is that room capped at three fresh tasks per parallel run (`max_parallel × 3`), less the fresh tasks
    already queued: the queue never floods, and never runs dry.
 3. **The sources** (every repo of `autopilot.repos`, read at most every 10 minutes while nothing new turns up): FEEDBACK.md
@@ -191,6 +203,10 @@ The repos' sources are read before the backlog's lock is taken, and every source
 
 ## Adaptive parallelism
 
+When the local machine offers only a share of its cores, the CPU limit explains the host total, the share and adjusted load separately. This explanation does not change the capacity calculation.
+
+Account cards show estimated quota room in bounded tasks. Whether work can start also depends on account eligibility and available capacity; the estimate alone does not reserve a slot.
+
 How many runs go at once is measured every round, not fixed. The limit is the smallest of:
 
 - **accounts**: the runs going plus the room the ladder's accounts have now (the planner's tasks);
@@ -225,6 +241,7 @@ autopilot:
   enabled: false                       # the dashboard's toggle (or `tutti autopilot on|off`) overrides it
   accounts: [agy-claude, agy-gemini]   # their "behind" pace triggers fresh tasks
   ladder: [agy-gemini, agy-claude, cursor, pc]   # retries climb it; accounts or workers; never one that costs money
+  fresh_fallback_accounts: []            # optionally name unshared ladder accounts for fresh queued work
   # max_parallel: 2                    # optional cap on the adaptive limit (above)
   no_progress: 3
   max_attempts: 12
@@ -265,6 +282,10 @@ shows its attempt count and its failure history (step, why, run, signature).
 
 ## Priority
 
+`tutti backlog priority <id> P0` saves a task priority from P0 (highest) through P5. Untriaged tasks are treated as P5;
+a title alone cannot promote a task. Run-now tasks take precedence, then eligible
+tasks are considered P0 through P5; project sharing applies within each level. This orders dispatch, not completion.
+
 `projects.<name>.priority` ranks the projects: 0 is the most important (the Settings tab's *Project priority* list writes
 it). An autopilot repo belongs to the project whose `self_improve.autopilot_repo` names it, else to the one whose `match`
 finds the repo's name or folder; a repo no project claims ranks last. Queued tasks (fresh ones and retries) and the tasks
@@ -283,3 +304,14 @@ cannot leave the task queued in this local backlog while its worker might alread
 visible and waits for its actual report; a confirmed failure to create the child goes back to the queue. This does not
 verify or recover a worker that has detached, a remote run, or an ordinary no-report run after a confirmed launch.
 It does not replace household lease renewal or guarantee that another member cannot take over after a lease expires.
+
+
+### Report correlation
+
+New runs include their saved non-secret run identity in their report. A report with a different run ID or identity is
+held visibly instead of being published or retried; a later matching report is collected. Only launches marked for bound reports enforce the identity; attempts already in flight keep their existing behavior.
+A configured bridge client must advertise bound-report support before new autopilot work starts; older or offline clients
+are deferred with an update/restart message. A distinct bound-run operation prevents an older client from silently
+starting work if the connection changes after the capability check. The identity is a correlation value, not an authentication secret, a proof that a process
+tree stopped, or a fence against a same-user worker. Per-attempt worktrees, remote effects and household lease fencing
+still need separate ownership controls.

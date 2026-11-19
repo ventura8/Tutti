@@ -18,7 +18,7 @@ class CandidateTest(unittest.TestCase):
                                        'SecurityOpt': ['no-new-privileges:true'], 'RestartPolicy': {'Name': 'no'}},
                         'Mounts': [{'Type': 'bind', 'Source': '/workspace/project',
                                     'Destination': '/workspace/project', 'RW': True}],
-                        'State': {'Status': 'exited', 'Running': False, 'Restarting': False, 'Dead': False,
+                        'State': {'Status': 'exited', 'Running': False, 'Restarting': False, 'Paused': False, 'Dead': False,
                                   'Pid': 0, 'ExitCode': 0, 'FinishedAt': '2026-11-18T12:00:00Z'}}
         self.snapshot = {'engine': self.expected['engine'], 'boot': self.expected['boot'], 'inspect': self.inspect}
 
@@ -41,11 +41,45 @@ class CandidateTest(unittest.TestCase):
         cases = {'NetworkMode': 'bridge', 'Privileged': True, 'AutoRemove': True, 'PidMode': 'host',
                  'IpcMode': 'host', 'CgroupnsMode': 'host', 'UsernsMode': 'host', 'ReadonlyRootfs': False,
                  'CapAdd': ['SYS_ADMIN'], 'CapDrop': [], 'Devices': ['/dev/x'], 'DeviceRequests': [{'Count': -1}],
-                 'VolumesFrom': ['other'], 'SecurityOpt': ['seccomp=unconfined'], 'RestartPolicy': {'Name': 'always'}}
+                 'VolumesFrom': ['other'], 'Tmpfs': {'/tmp': 'rw'}, 'SecurityOpt': ['seccomp=unconfined'],
+                 'RestartPolicy': {'Name': 'always'}}
         for key, value in cases.items():
             with self.subTest(key=key):
                 snapshot = copy.deepcopy(self.snapshot)
                 snapshot['inspect']['HostConfig'][key] = value
+                self.assertEqual(containment.classify(self.expected, snapshot), 'unknown')
+
+    def test_missing_isolation_settings_and_conflicting_security_options_are_unknown(self):
+        for key in ('CapAdd', 'Devices', 'DeviceRequests', 'VolumesFrom'):
+            with self.subTest(key=key):
+                snapshot = copy.deepcopy(self.snapshot)
+                del snapshot['inspect']['HostConfig'][key]
+                self.assertEqual(containment.classify(self.expected, snapshot), 'unknown')
+        for option in ('no-new-privileges=false', 'no-new-privileges:false', 'No-New-Privileges:true'):
+            with self.subTest(option=option):
+                snapshot = copy.deepcopy(self.snapshot)
+                snapshot['inspect']['HostConfig']['SecurityOpt'].append(option)
+                self.assertEqual(containment.classify(self.expected, snapshot), 'unknown')
+        self.inspect['HostConfig']['Tmpfs'] = {}
+        self.assertEqual(containment.classify(self.expected, self.snapshot), 'stopped-candidate')
+
+    def test_docker_finish_time_requires_complete_timestamp_and_accepts_nanoseconds(self):
+        for stamp in ('2026-11-18T12:00:00Z', '2026-11-18T12:00:00.123456789Z', '2026-11-18T12:00:00+00:00'):
+            with self.subTest(stamp=stamp):
+                self.inspect['State']['FinishedAt'] = stamp
+                self.assertEqual(containment.classify(self.expected, self.snapshot), 'stopped-candidate')
+        for stamp in ('2026-11-18X12:00:00Z', '2026-11-18T12:00:00', '2026-11-18T12:00:00.1234567890Z'):
+            with self.subTest(stamp=stamp):
+                self.inspect['State']['FinishedAt'] = stamp
+                self.assertEqual(containment.classify(self.expected, self.snapshot), 'unknown')
+
+    def test_running_requires_consistent_state_flags(self):
+        self.inspect['State'].update(Status='running', Running=True, Pid=42)
+        self.assertEqual(containment.classify(self.expected, self.snapshot), 'observed-running')
+        for key in ('Restarting', 'Paused', 'Dead'):
+            with self.subTest(key=key):
+                snapshot = copy.deepcopy(self.snapshot)
+                snapshot['inspect']['State'][key] = True
                 self.assertEqual(containment.classify(self.expected, snapshot), 'unknown')
 
     def test_mounts_and_user_must_be_strictly_bounded(self):
@@ -65,13 +99,15 @@ class CandidateTest(unittest.TestCase):
             self.assertEqual(containment.classify(self.expected, snapshot), 'unknown')
 
     def test_only_unambiguously_exited_state_is_a_candidate(self):
-        cases = {'Status': 'dead', 'Running': None, 'Restarting': True, 'Dead': True, 'Pid': False,
+        cases = {'Status': 'dead', 'Running': None, 'Restarting': True, 'Paused': True, 'Dead': True, 'Pid': False,
                  'ExitCode': True, 'FinishedAt': '0001-01-01T00:00:00Z'}
         for key, value in cases.items():
             with self.subTest(key=key):
                 snapshot = copy.deepcopy(self.snapshot)
                 snapshot['inspect']['State'][key] = value
                 self.assertEqual(containment.classify(self.expected, snapshot), 'unknown')
+        del self.inspect['State']['Paused']
+        self.assertEqual(containment.classify(self.expected, self.snapshot), 'unknown')
 
 
 if __name__ == '__main__':

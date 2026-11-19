@@ -77,13 +77,15 @@ A shard runs as `tutti dispatch run <lease>`, which wraps `tutti test --device <
 own lock is held on its machine, as for any device run.
 
 - The wrapper touches `<lease>.beat` every 30 s while the run lasts, and writes `<lease>.rc` when it ends.
-- Each round ends a lease whose run finished, whose process is gone (a crash or a reboot), or whose heartbeat is older than
-  `dispatch.lease_minutes`.
-- A crashed run counts as a failed attempt and is retried; its target is free again in the same round.
+- A normal result ends its lease under the existing completion rules. A missing result with a dead process, stale heartbeat,
+  departure or reboot, and an unconfirmed local stop, instead holds the lease durably and keeps its targets reserved.
+- Inspect the local and remote execution boundary. Once an admin has verified it stopped, run
+  `tutti dispatch resolve <lease> --confirmed-stopped` on the active main to requeue without counting an attempt. A late
+  ordinary result does not clear the hold; the confirmation is an admin assertion, not proof collected by Tutti.
 
-A lease whose target goes away or asleep, or whose run died with its host (an earlier boot id), is interrupted, not
-failed: the shard is queued again with no attempt counted. An admin can move a waiting shard to another target, and pin it
-there, with `tutti job move` or the dashboard's Move now. See [PRESENCE.md](PRESENCE.md).
+This hold does not make ordinary legacy results proof that remote descendants or device-side work stopped, and does not
+cover other manual move paths. An admin can move a waiting shard with `tutti job move` or the dashboard's Move now.
+See [PRESENCE.md](PRESENCE.md).
 
 ## The idle watchdog
 
@@ -357,6 +359,8 @@ Legacy jobs have no label.
 container, boot and engine IDs; a narrow no-network, unprivileged Docker inspect configuration; a single lexical
 workspace mount; and an unambiguously exited state. Missing, malformed, removed or untrusted-looking data returns
 `unknown`. A matching live container is only `observed-running`; a matching exit is only `stopped-candidate`.
+Isolation fields must be present, no extra tmpfs or conflicting privilege option may be configured, state flags must
+agree, and finish timestamps must use a valid Docker timestamp format.
 
 No result authorizes a stop, retry, quota release or publication. This parser does not authenticate the manager, pin
 the workspace mount, attest runtime policy, or prove that no socket, writer or effect escaped. The existing Docker runner

@@ -548,7 +548,8 @@ def fresh_fallbacks(cfg, states, rooms, used, now):
         s = states.get(name) or {}
         p = s.get('quota_plan') or {}
         tasks = p.get('tasks')
-        if (name not in allowed or name not in cfg['accounts'] or name in trigger or name in shared or name in cfg.get('_spare_accounts', ())
+        if (name not in allowed or name not in cfg['accounts'] or name in trigger or name in shared
+                or name in cfg.get('_spare_accounts', ())
                 or s.get('limits') or s.get('verdict') not in ('behind', 'late', 'on pace') or routing.account_unfit(s)
                 or routing.unknown_quota(s) or not observed_quota(cfg, name, s, now)
                 or type(tasks) is not int or tasks <= 0 or (rooms.get(name) or (0,))[0] <= 0):

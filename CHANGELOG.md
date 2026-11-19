@@ -11,6 +11,11 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 ### Fixed
 
 - Let eligible online accounts continue when only some accounts are ahead of pace or in panic (t423).
+
+## 0.31.4 (2026-11-19)
+
+### Fixed
+
 - Parse device lease options after device names and preserve command flags and separators (t177, t421).
 
 ## 0.31.3 (2026-11-19)

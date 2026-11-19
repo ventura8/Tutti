@@ -1180,7 +1180,7 @@ class Controls(ToolLoop):
         self.cfg['workers']['pc'].update(num_ctx=600, max_ctx=600)
         eng = self.engine_real()
         cid = None
-        for i in range(4):
+        for _ in range(4):
             FakeOllama.script = [[{'message': {'content': 'answer ' + 'x' * 400}, 'done': True}]]
             cid = self.send(eng, ADMIN, 'question ' + 'y' * 400, cid)[0]['conversation']
         chatrun.post(eng, ADMIN, {'action': 'settings', 'compact_pct': 50})

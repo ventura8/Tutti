@@ -478,7 +478,7 @@ def assignment_wait(cfg, name, t, rooms):
     return why or f'{name}: too little room for a {t["size"]} task'
 
 
-def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fallback=None):
+def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fallback=None, eligible=None):
     """Each queued task, in the order given (by priority, then oldest), to the first of its candidate steps that has room for its
     size. `free`: the online runs that may start, or (online, local): a local model's run is not counted in max_parallel, only
     in the machines' slots. `prefer`: {step: the sizes its model tier wants} (tutti/tiers.py): a step whose tier names sizes is
@@ -500,7 +500,8 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fal
         it = iter(online)
         steps = [next(it) if n in fair else n for n in steps]
         steps = [n for n in steps if local > 0 and (is_local(cfg, n) or free > 0)]
-        pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t) and rescue_fits(cfg, n, units(t))
+        pick = next((n for n in steps if (eligible is None or eligible(n, t))
+                     and rooms.get(n, (0, ''))[0] >= units(t) and rescue_fits(cfg, n, units(t))
                      and (n in ordinary or fallback.get(n, 0) >= units(t))), None)
         if pick is None:
             out['waiting'][t['id']] = '; '.join(assignment_wait(cfg, n, t, rooms) for n in steps) or 'no step it may go to'
@@ -715,14 +716,15 @@ def scoped_local_choices(cfg, data, rooms, local_slots, machines, now):
     candidates_.sort(key=lambda t: (not t.get('urgent'), t.get('rank', 0)))
     result = {'dispatch': [], 'waiting': {}}
     local_rooms = {n: r for n, r in rooms.items() if is_local(cfg, n)}
-    assign(cfg, priority.tasks_by_priority(cfg, candidates_, going), local_rooms, (0, local_slots), result, machines=machines)
     inventory = (fleet.read_state(cfg).get('machines') or {})
+    def eligible(worker, task):
+        return local_host_ready(cfg, worker, machines, now) and fresh_local_model(cfg, worker, task, inventory, now)
+    assign(cfg, priority.tasks_by_priority(cfg, candidates_, going), local_rooms, (0, local_slots), result,
+           machines=machines, eligible=eligible)
     by_id = {t['id']: t for t in candidates_}
     out = {}
     for task_id, worker in result['dispatch']:
         task = by_id[task_id]
-        if not local_host_ready(cfg, worker, machines, now) or not fresh_local_model(cfg, worker, task, inventory, now):
-            continue
         model = fleet.model_for(cfg['workers'][worker], task, power.rates(cfg))
         request = {'key': household_key(task), 'instance': task['household_instance'], 'title': task['title'],
                    'scope': task['scope'], 'size': task['size'], 'nonce': uuid.uuid4().hex}
@@ -812,7 +814,7 @@ def refresh_sharing_capacity(cfg, data, states, machines, now, on):
                 cfg['_sharing_local_scoped'] = scoped_local_choices(probe, data, rooms, local_limit, machines or (), now)
             else:
                 cfg['_sharing_local_scoped'] = None
-    except (KeyError, TypeError, ValueError, OverflowError):
+    except (AttributeError, KeyError, OSError, TypeError, ValueError, OverflowError):
         cfg['_sharing_online_limit'], cfg['_sharing_local_scoped'] = 0, {}
         cfg['_sharing_capacity_error'] = 'household capacity could not be measured: shared work waits; check account and machine readings'
 
@@ -858,7 +860,12 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     from . import fleet
     over = fleet.overflow(cfg, states, rooms, [n for n in names if is_local(cfg, n)])
     out['overflow'] = over
-    assign(cfg, priority.tasks_by_priority(cfg, queued, going), rooms, free, out, prefer, over, machines or (), fallback)
+    scoped = cfg.get('_sharing_local_scoped')
+    def selected_worker(worker, task):
+        choice = (scoped or {}).get(task['id'])
+        return not choice or choice.get('worker') == worker
+    assign(cfg, priority.tasks_by_priority(cfg, queued, going), rooms, free, out, prefer, over, machines or (), fallback,
+           eligible=selected_worker)
     out['rooms'] = {n: list(r) for n, r in rooms.items()}
     if out['dispatch']:
         return {**out, 'state': 'dispatching', 'reason': f'{len(out["dispatch"])} task(s) sent to ' +

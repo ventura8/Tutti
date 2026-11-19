@@ -175,6 +175,25 @@ class PlanTest(Base):
             inventory['machines']['nuc']['stale'] = True
             self.assertEqual(autopilot.scoped_local_choices(cfg, {'tasks': [item]}, {'pc': (3, '')}, 1, FREE, TEST_NOW), {})
 
+    def test_local_scoped_selection_checks_model_per_task_before_debit(self):
+        cfg = self.cfg()
+        cfg['_sharing_machine_at'] = TEST_NOW.timestamp()
+        cfg['autopilot']['repos']['app']['household'] = True
+        cfg['workers']['pc'].update(model='qwen2.5-coder:7b', machine='nuc', host='one.example:11434')
+        cfg['workers']['pc2'] = {**cfg['workers']['pc'], 'host': 'two.example:11434'}
+        cfg['autopilot']['ladder'] = ['pc', 'pc2']
+        first = {**task('t1'), 'scope': ['a.py'], 'household_instance': 'a' * 32}
+        second = {**task('t2'), 'title': 'Other', 'scope': ['b.py'], 'household_instance': 'b' * 32}
+        model = fleet.classify({'name': 'qwen2.5-coder:7b'})
+        inventory = {'machines': {'nuc': {'stale': False, 'updated': TEST_NOW.timestamp(), 'models': [model]}}}
+        def eligible(_cfg, worker, item, _inventory, _now):
+            return (worker, item['id']) in {('pc2', 't1'), ('pc', 't2')}
+        with mock.patch.object(fleet, 'read_state', return_value=inventory), \
+             mock.patch.object(autopilot, 'fresh_local_model', side_effect=eligible):
+            choices = autopilot.scoped_local_choices(cfg, {'tasks': [first, second]},
+                                                       {'pc': (3, ''), 'pc2': (3, '')}, 2, FREE, TEST_NOW)
+        self.assertEqual({key: val['worker'] for key, val in choices.items()}, {'t1': 'pc2', 't2': 'pc'})
+
     def test_sharing_capacity_recovers_without_queued_tasks_and_preserves_fill_limit(self):
         cfg = self.cfg()
         cfg['_sharing_machine_at'] = TEST_NOW.timestamp()
@@ -190,6 +209,11 @@ class PlanTest(Base):
             autopilot.refresh_sharing_capacity(cfg, {'tasks': []}, states, FREE, TEST_NOW, True)
         self.assertEqual(cfg['_sharing_online_limit'], 0)
         self.assertNotIn('private detail', cfg['_sharing_capacity_error'])
+        for failure in (AttributeError('bad inventory'), OSError('unreadable inventory')):
+            with mock.patch.object(autopilot, 'step_room', side_effect=failure):
+                autopilot.refresh_sharing_capacity(cfg, {'tasks': []}, states, FREE, TEST_NOW, True)
+            self.assertEqual(cfg['_sharing_local_scoped'], {})
+            self.assertIn('shared work waits', cfg['_sharing_capacity_error'])
 
     def test_scoped_dispatch_revalidates_worker_model_and_fleet_before_start(self):
         cfg = self.cfg()
@@ -772,9 +796,10 @@ class RoundTest(Base):
     def test_two_round_scoped_household_reservation_uses_one_global_local_slot(self):
         cfg = self.c
         cfg['_sharing_machine_at'] = TEST_NOW.timestamp()
-        cfg['machines'] = {'nuc': {'host': 'nuc.example'}}
+        cfg['machines'] = {'nuc': {'host': 'nuc.example'}, 'nuc2': {'host': 'nuc2.example'}}
         cfg['workers']['pc'] = {'kind': 'ollama', 'host': 'pc.example:11434', 'model': 'qwen2.5-coder:7b', 'machine': 'nuc'}
-        cfg['autopilot']['ladder'] = ['fake-a', 'pc']
+        cfg['workers']['pc2'] = {**cfg['workers']['pc'], 'host': 'pc2.example:11434', 'machine': 'nuc2'}
+        cfg['autopilot']['ladder'] = ['fake-a', 'pc', 'pc2']
         cfg['autopilot']['repos']['app']['household'] = True
         cfg['autopilot']['repos']['other'] = {**cfg['autopilot']['repos']['app']}
         states = {'fake-a': account('fake-a', 'ahead')}
@@ -794,30 +819,32 @@ class RoundTest(Base):
                 return {'projects': {key: household.sync_project(remote, key, ask, 'self', now + len(requests), 30)
                                      for key, ask in payload['projects'].items()}}
         model = fleet.classify({'name': 'qwen2.5-coder:7b'})
-        inventory = {'machines': {'nuc': {'stale': False, 'updated': now, 'models': [model]}}}
+        inventory = {'machines': {'nuc': {'stale': True, 'updated': now, 'models': [model]},
+                                  'nuc2': {'stale': False, 'updated': now, 'models': [model]}}}
+        machines = [*FREE, {'name': 'nuc2', 'status': 'free', 'free': 1}]
         with mock.patch.object(sharing.coordinator, 'client_of', return_value=Coordinator()), \
              mock.patch.object(sharing, 'key_of_repo', side_effect=lambda _cfg, name, _run=None: f'github.com/example/{name}'), \
              mock.patch.object(fleet, 'read_state', return_value=inventory), \
              mock.patch.object(sharing, 'renew', return_value=True):
             def clock():
                 return elapsed['seconds']
-            first, _ = autopilot.tick(cfg, states, FREE, now=now, beat={}, spawn=lambda *a, **k: SimpleNamespace(pid=1234),
+            first, _ = autopilot.tick(cfg, states, machines, now=now, beat={}, spawn=lambda *a, **k: SimpleNamespace(pid=1234),
                                       monotonic=clock)
             mirrored = backlog.load(cfg)['tasks']
             self.assertEqual({t['title'] for t in mirrored}, {'Fix mine', 'Fix other'})
             self.assertTrue(all(re.fullmatch(r'[0-9a-f]{32}', t.get('household_instance') or '') for t in mirrored))
             elapsed['delay'] = True
-            delayed, _ = autopilot.tick(cfg, states, FREE, now=now + 1, beat={}, spawn=lambda *a, **k: SimpleNamespace(pid=1234),
+            delayed, _ = autopilot.tick(cfg, states, machines, now=now + 1, beat={}, spawn=lambda *a, **k: SimpleNamespace(pid=1234),
                                         monotonic=clock)
             elapsed['delay'] = False
-            second, _ = autopilot.tick(cfg, states, FREE, now=now + 2, beat={}, spawn=lambda *a, **k: SimpleNamespace(pid=1234),
+            second, _ = autopilot.tick(cfg, states, machines, now=now + 2, beat={}, spawn=lambda *a, **k: SimpleNamespace(pid=1234),
                                        monotonic=clock)
         self.assertEqual(first['dispatch'], [])
         self.assertEqual(sum(len(p['want_scoped']) for p in requests[0]['projects'].values()), 0)
         self.assertEqual(sum(len(p['want_scoped']) for p in requests[1]['projects'].values()), 1)
         self.assertEqual(delayed['dispatch'], [])   # a slow coordinator made the machine/model observations too old
         self.assertEqual(len(second['dispatch']), 1)
-        self.assertEqual(second['dispatch'][0][1], 'pc')
+        self.assertEqual(second['dispatch'][0][1], 'pc2')
 
     def test_old_coordinator_cannot_authorize_local_dispatch_even_with_an_old_lease(self):
         cfg = self.c

@@ -1699,17 +1699,22 @@ class Robustness(ApiBase):
         self.assertIn('work may have run', done['note'])
         self.assertNotIn('must not run', done['text'])
 
-    def test_deleting_the_chat_while_it_answers_still_ends_the_answer(self):
+    def test_deleting_a_chat_waits_until_its_answer_stops(self):
         eng = self.engine({'pc': ['Part one. ', 'WAIT', 'never']})
         code, stream = chatrun.post(eng, ADMIN, {'action': 'send', 'text': 'tell me everything'})
         lines = stream.lines()
         first = json.loads(next(lines))
-        threading.Timer(0.2, lambda: (chatrun.post(eng, ADMIN, {'action': 'delete', 'id': first['conversation']}),
-                                      chatrun.post(eng, ADMIN, {'action': 'stop', 'message': first['message']['id']}))).start()
+        attempts = []
+        def stop():
+            attempts.append(chatrun.post(eng, ADMIN, {'action': 'delete', 'id': first['conversation']})[0])
+            chatrun.post(eng, ADMIN, {'action': 'stop', 'message': first['message']['id']})
+        threading.Timer(0.2, stop).start()
         rest = [json.loads(x) for x in lines]
         self.assertEqual(rest[-1]['type'], 'done')
         self.assertEqual(eng.live_ids(), set())
-        self.assertEqual(eng.store.listing('local'), [])   # not brought back by the answer's last save
+        self.assertEqual(attempts, [409])
+        self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'delete', 'id': first['conversation']})[0], 200)
+        self.assertEqual(eng.store.listing('local'), [])
 
     def test_a_model_that_stops_halfway_leaves_no_half_answer(self):
         eng = self.engine({'pc': ['Half an ans', OSError('connection reset')], 'nuc': ['A whole answer.']})

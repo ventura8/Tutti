@@ -428,6 +428,8 @@ class Engine:
 
     def _send_locked(self, user, cid, text, attachments, edit, retry, model, settings):
         sub = user['sub']
+        if cid and (edit or retry):
+            self._require_history_idle(sub, cid)
         if retry:
             conv = self.store.get(sub, cid)
             ids = [m['id'] for m in conv['messages']]
@@ -464,6 +466,19 @@ class Engine:
             self.jobs[answer['id']] = job
         threading.Thread(target=self._answer, args=(job, user, prompt), daemon=True, name='tutti-chat').start()
         return job
+
+    def _require_history_idle(self, sub, cid=None):
+        """Called with the store lock held: registration takes store lock, then engine lock, in the same order."""
+        with self.lock:
+            active = any(j.sub == sub and (cid is None or j.cid == cid) and not j.finished for j in self.jobs.values())
+        if active:
+            raise chat.ChatError('A Chat answer is still running: stop it and wait for it to finish before changing its history.')
+
+    def change_history(self, sub, cid, change):
+        """Serialize destructive history changes with local job registration."""
+        with self.store.lock, chat.store_locked(self.store.folder):
+            self._require_history_idle(sub, cid)
+            return change()
 
     def set_settings(self, user, cid, changes):
         """The conversation's model, effort and mode (and the user's defaults for new chats, and the compaction share)."""
@@ -1223,12 +1238,13 @@ def _rename(engine, user, data, _snap):
 
 
 def _delete(engine, user, data, _snap):
-    engine.store.delete(user['sub'], str(data.get('id') or ''))
+    cid = str(data.get('id') or '')
+    engine.change_history(user['sub'], cid, lambda: engine.store.delete(user['sub'], cid))
     return 200, {'ok': True}
 
 
 def _clear(engine, user, _data, _snap):
-    engine.store.clear(user['sub'])
+    engine.change_history(user['sub'], None, lambda: engine.store.clear(user['sub']))
     return 200, {'ok': True}
 
 
@@ -1267,7 +1283,8 @@ def _branch(engine, user, data, _snap):
 
 
 def _empty(engine, user, data, _snap):
-    engine.store.empty(user['sub'], str(data.get('id') or ''))
+    cid = str(data.get('id') or '')
+    engine.change_history(user['sub'], cid, lambda: engine.store.empty(user['sub'], cid))
     return 200, {'ok': True}
 
 

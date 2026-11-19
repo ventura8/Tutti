@@ -218,7 +218,9 @@ Under the message box, as in a chat IDE, each starting at Auto:
   the last four messages stay whole, and the chat marks where. Tutti sends summaries as historical data and
   asks before running managed changes when a summary is included. CLI agents may have native tools outside those checks;
   these measures cannot guarantee that a model will ignore instructions in historical text.
-- **Stop** (Esc) ends an answer and keeps what was written; **Edit** on any of your messages resends it and replaces what
+- **Stop** (Esc) ends an answer and keeps what was written. While an answer is running in this Chat engine, wait for it
+  to finish before editing, retrying, deleting or clearing its history; clearing all chats also waits for this user’s other
+  active answers. This check does not fence another process or prove that a CLI agent’s native descendants have stopped; **Edit** on any of your messages resends it and replaces what
   followed; **Regenerate** answers the last question again; **Branch** on any message starts a new chat with the messages
   up to it (same model, effort and mode), the original untouched.
 - **@-mentions** add context: `@project:map` (its check and what waits), `@job:<id>` (its line and the end of its log),

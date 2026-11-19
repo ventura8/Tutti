@@ -702,6 +702,63 @@ class Api(ApiBase):
         self.assertEqual(code, 200)
         self.assertEqual([json.loads(line) for line in stream.lines()][-1]['message']['text'], 'A.')
 
+    def test_live_answer_blocks_history_changes_until_finished(self):
+        eng = self.engine({})
+        started, release = threading.Event(), threading.Event()
+        def held_stream(cand, cfg, messages, cancel):
+            started.set()
+            release.wait(5)
+            yield 'answer'
+        eng.streams = held_stream
+        job = eng.send(ADMIN, None, 'hello')
+        self.addCleanup(release.set)
+        self.assertTrue(started.wait(2))
+        cid, mid = job.cid, job.msg['id']
+        before = eng.store.get('local', cid)['messages']
+        for action in ({'action': 'send', 'conversation': cid, 'retry': mid},
+                       {'action': 'send', 'conversation': cid, 'text': 'edited', 'edit': before[0]['id']},
+                       {'action': 'empty', 'id': cid}, {'action': 'delete', 'id': cid}, {'action': 'clear'}):
+            with self.subTest(action=action):
+                code, response = chatrun.post(eng, ADMIN, action)
+                self.assertEqual(code, 409)
+                self.assertIn('stop it and wait', response['error'])
+                self.assertEqual(eng.store.get('local', cid)['messages'], before)
+        other = eng.store.create('local')['id']
+        self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'empty', 'id': other})[0], 200)
+        self.assertEqual(chatrun.post(eng, VIEWER, {'action': 'clear'})[0], 200)
+        self.assertEqual(eng.change_history('another-user', cid, lambda: 'allowed'), 'allowed')
+        code, branch = chatrun.post(eng, ADMIN, {'action': 'branch', 'conversation': cid, 'message': before[0]['id']})
+        self.assertEqual(code, 200)
+        self.assertEqual(len(branch['conversation']['messages']), 1)
+        release.set()
+        list(job.follow())
+        self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'empty', 'id': cid})[0], 200)
+
+    def test_registration_and_history_guard_share_lock_order(self):
+        eng = self.engine({'pc': ['answer']})
+        entered, proceed = threading.Event(), threading.Event()
+        original = eng._require_history_idle
+        def held_guard(sub, cid=None):
+            entered.set()
+            self.assertTrue(proceed.wait(2))
+            return original(sub, cid)
+        cid = eng.store.create('local')['id']
+        results = []
+        with mock.patch.object(eng, '_require_history_idle', side_effect=held_guard):
+            first = threading.Thread(target=lambda: results.append(chatrun.post(eng, ADMIN, {'action': 'empty', 'id': cid})[0]))
+            first.start()
+            self.assertTrue(entered.wait(2))
+            second = threading.Thread(target=lambda: results.append(eng.send(ADMIN, cid, 'hello')))
+            second.start()
+            proceed.set()
+            first.join(3)
+            second.join(3)
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertIn(200, results)
+        job = next(item for item in results if isinstance(item, chatrun.Job))
+        list(job.follow())
+
     def test_mutating_dispatch_persists_uncertainty_first_and_fails_closed(self):
         eng = self.engine({})
         observed = []

@@ -266,18 +266,25 @@ class Client:
             headers['If-None-Match'] = _etags[cache_key][0]
         data = json.dumps(body).encode() if body is not None else None
         if data:
+            if len(data) > 10 * 1024 * 1024:
+                raise GitHubError(f'payload too large ({len(data)} bytes)')
             headers['Content-Type'] = 'application/json'
-        status, rh, raw = self.http(method, url, headers, data)
-        self._note_limit(status, rh)
-        if status == 304 and cache_key in _etags:
-            return _etags[cache_key][1]
-        answer = _json(raw)
-        if status not in ok:
-            raise GitHubError(describe(status, answer, method, path))
-        if method == 'GET' and rh.get('etag'):
-            with _lock:
-                _etags[cache_key] = (rh['etag'], answer)
-        return answer
+
+        for i in range(3):
+            status, rh, raw = self.http(method, url, headers, data)
+            self._note_limit(status, rh)
+            if status == 304 and cache_key in _etags:
+                return _etags[cache_key][1]
+            if status in ok:
+                if method == 'GET' and rh.get('etag'):
+                    with _lock:
+                        _etags[cache_key] = (rh['etag'], _json(raw))
+                return _json(raw)
+            if i < 2 and (status == 429 or 500 <= status < 600):
+                time.sleep(1 * (2**i))
+                continue
+            raise GitHubError(describe(status, _json(raw), method, path))
+
 
     def graphql(self, query, variables):
         answer = self.request('POST', '/graphql', {'query': query, 'variables': variables})

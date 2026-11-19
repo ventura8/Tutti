@@ -467,6 +467,72 @@ class TrialTest(Base):
             trial.split_key('octo/app 7')
 
 
+class PayloadTest(unittest.TestCase):
+    def good(self, **extra):
+        body = {'task': 'What broke?', 'from': 'tutti', 'id': 's1',
+                'reply_to': {'repo': REPO, 'issue': 7, 'url': f'https://github.com/{REPO}/issues/7', 'how': 'comment'}}
+        body.update(extra)
+        return body
+
+    def test_a_well_formed_payload_is_accepted(self):
+        self.assertEqual(scouts.check_payload(self.good(skill='research')), '')
+
+    def test_a_missing_reply_to_is_refused(self):
+        body = self.good()
+        del body['reply_to']
+        self.assertIn('reply_to', scouts.check_payload(body))
+
+    def test_a_bad_repo_or_url_is_refused(self):
+        self.assertIn('reply_to.repo', scouts.check_payload(self.good(reply_to={
+            'repo': 'not-a-repo', 'issue': 1, 'url': f'https://github.com/{REPO}/issues/1', 'how': 'x'})))
+        self.assertIn('reply_to.url', scouts.check_payload(self.good(reply_to={
+            'repo': REPO, 'issue': 1, 'url': 'http://evil.example/x', 'how': 'x'})))
+
+    def test_an_oversized_payload_is_refused(self):
+        body = self.good(task='x' * (scouts.PAYLOAD_BYTES + 100))
+        why = scouts.check_payload(body)
+        self.assertIn(str(scouts.PAYLOAD_BYTES), why)
+        with self.assertRaises(scouts.ScoutError) as e:
+            scouts.post('http://127.0.0.1/hook', KEY, body, tries=1, sleep=lambda _s: None)
+        self.assertIn('not sent', str(e.exception))
+
+    def test_null_skill_is_omitted_from_the_body(self):
+        body = scouts.payload_of({'task': 'Hi', 'id': 's1', 'repo': REPO, 'issue': 1,
+                                  'url': f'https://github.com/{REPO}/issues/1', 'skill': None}, 'comment')
+        self.assertNotIn('skill', body)
+        self.assertEqual(scouts.check_payload(body), '')
+
+    def test_post_retries_a_transient_failure_then_succeeds(self):
+        seen, sleeps = [], []
+
+        def once(_url, _key, _body, _timeout):
+            seen.append(1)
+            return 503 if len(seen) < 2 else 200
+
+        status = scouts.post('http://127.0.0.1/hook', KEY, self.good(), tries=3, sleep=sleeps.append, once=once)
+        self.assertEqual((status, len(seen), sleeps), (200, 2, [scouts.POST_BACKOFF]))
+
+    def test_post_does_not_retry_a_refused_key(self):
+        seen = []
+
+        def once(_url, _key, _body, _timeout):
+            seen.append(1)
+            return 401
+
+        self.assertEqual(scouts.post('http://127.0.0.1/hook', KEY, self.good(), tries=3, sleep=lambda _s: None, once=once), 401)
+        self.assertEqual(len(seen), 1)
+
+
+class PayloadSendTest(Base):
+    def test_a_bad_review_url_is_not_posted(self):
+        r = {'id': 's9', 'scout': 'grok', 'kind': 'review', 'task': 'Review it', 'skill': 'review',
+             'repo': REPO, 'issue': 7, 'url': 'not-a-url', 'status': 'queued', 'added': 1}
+        out = scouts.send(scouts.settings(self.cfg(), 'grok'), r, self.hook.url, KEY, self.gh, scouts.post, now=2)
+        self.assertEqual(out['status'], 'failed')
+        self.assertIn('reply_to.url', out['why'])
+        self.assertEqual(self.hook.calls, [])
+
+
 class CliTest(unittest.TestCase):
     def test_list_and_setup_answer_without_a_network(self):
         with tempfile.TemporaryDirectory() as d:

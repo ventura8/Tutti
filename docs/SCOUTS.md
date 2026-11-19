@@ -16,11 +16,16 @@ no CLI and no API for this: it is reached through its app, Slack, email or a **w
 a fire-and-forget `POST` to the routine's URL with `Authorization: Bearer <key>`. Grok Bot answers `200` when a run started
 (the run is not finished); any other status means no run started. Limits from its docs: 50 routines per bot, 200 runs an
 hour per routine, 300 in total; a run over a limit fails with "Automation run rate limit exceeded" and is not retried.
+Tutti schema-checks every body (`task` and a valid `reply_to` with `repo`, `issue`, `url`, `how`), caps it at 32 KiB, and
+retries transient failures (429, 5xx, network) up to three times with exponential backoff — a bad or huge payload is never
+sent, because the routine auto-pauses after repeated auth or connector failures (e.g. `scm_repo_not_accessible` for a
+repository the GitHub connector cannot reach). **You MUST grant the connector every live repository it uses:** reply, review, and project repositories.
 
 ## How a question travels
 
 1. `tutti scout ask grok "<question>"` opens an issue in `reply.github_repo` (label `tutti-scout`) with the question.
-2. It POSTs `{task, skill, from, id, reply_to: {repo, issue, url, how}}` to the routine.
+2. It builds `{task, from, id, reply_to: {repo, issue, url, how}}` (and `skill` when set), validates it, then POSTs to the
+   routine.
 3. The routine does the task and posts the result as a comment on that issue (the owner connected GitHub to Grok Bot).
 4. Tutti polls the issue through `gh` and prints the first comment made after the question by the scout's account
    (`scouts.<name>.github_login`), or by an owner, member or collaborator whose permission on the repository is write or

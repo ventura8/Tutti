@@ -37,6 +37,10 @@ ANSWER_CHARS = 20000
 RETRY_SECONDS = 3600
 REVIEW_MARKER = 'grok-scout'   # the first line of a scout's review comment on a pull request
 LOOPBACK = ('127.0.0.1', 'localhost', '::1')
+PAYLOAD_BYTES = 32768   # refuse a webhook body over this size (Grok Bot auto-pauses on bad or huge payloads)
+POST_TRIES = 3
+POST_BACKOFF = 0.5   # seconds; doubles after each transient failure
+REPLY_URL_RX = re.compile(r'^https://github\.com/[\w.-]+/[\w.-]+/(?:issues|pull)/\d+(?:$|[?#])')
 SETUP = (
     'Easiest: run `tutti scout setup grok` in a terminal; it walks you through every step below and tests it. By hand:',
     'Open the Grok Bot app (Cursor Pro includes it; it has its own weekly allowance).',
@@ -238,8 +242,64 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 OPENER = urllib.request.build_opener(NoRedirect)
 
 
-def post(url, key, body, timeout=30):
-    """POSTs one task; returns the HTTP status (200: a run started). The key goes only into the Authorization header."""
+def payload_of(r, how):
+    """The webhook JSON body for one request: only well-formed fields, no nulls (a null skill paused Grok Bot)."""
+    body = {'task': (r.get('task') or '').strip(), 'from': 'tutti', 'id': r['id'],
+            'reply_to': {'repo': r['repo'], 'issue': r['issue'], 'url': r['url'], 'how': how}}
+    if r.get('skill'):
+        body['skill'] = r['skill']
+    return body
+
+
+def _issue_ok(issue):
+    return not isinstance(issue, bool) and isinstance(issue, int) and issue >= 1
+
+
+def _reply_tail_errors(reply):
+    url = reply.get('url')
+    if not isinstance(url, str) or not REPLY_URL_RX.match(url):
+        return f'reply_to.url is {url!r}: an https://github.com/owner/name/issues|pull/N link'
+    if not isinstance(reply.get('how'), str) or not reply['how'].strip():
+        return 'reply_to.how is missing: how the scout should post its answer'
+    return ''
+
+
+def _reply_errors(reply):
+    if not isinstance(reply, dict):
+        return 'reply_to is missing: the routine needs {repo, issue, url, how} to post its answer'
+    if not is_repo(reply.get('repo')):
+        return (f'reply_to.repo is {reply.get("repo")!r}: write owner/name of a repository the Grok Bot GitHub connector '
+                'can reach')
+    if not _issue_ok(reply.get('issue')):
+        return f'reply_to.issue is {reply.get("issue")!r}: a positive issue or pull-request number'
+    return _reply_tail_errors(reply)
+
+
+def _skill_size_errors(body):
+    skill = body.get('skill')
+    if skill is not None and skill not in SKILLS:
+        return f'skill is {skill!r}: use one of {", ".join(SKILLS)}, or omit it'
+    size = len(json.dumps(body, separators=(',', ':')).encode())
+    if size > PAYLOAD_BYTES:
+        return (f'the webhook body is {size} bytes (limit {PAYLOAD_BYTES}): shorten the task '
+                '(ask texts are capped at 4000 characters)')
+    return ''
+
+
+def check_payload(body):
+    """'' when body may be POSTed, else why not (the field, the cause, the fix). Never sends a bad body to the routine."""
+    if not isinstance(body, dict):
+        return 'the webhook body is not a JSON object: Tutti builds {task, reply_to}'
+    if not isinstance(body.get('task'), str) or not body['task'].strip():
+        return 'task is missing or empty: the scout needs words for what to do'
+    return _reply_errors(body.get('reply_to')) or _skill_size_errors(body)
+
+
+def _retryable(status):
+    return status == 429 or (isinstance(status, int) and 500 <= status < 600)
+
+
+def _post_once(url, key, body, timeout):
     req = urllib.request.Request(url, data=json.dumps(body).encode(), method='POST',
                                  headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json',
                                           'User-Agent': 'tutti-scout'})
@@ -250,6 +310,44 @@ def post(url, key, body, timeout=30):
         e.close()
         return e.code
 
+
+def _attempt(once, url, key, body, timeout):
+    """(status, OSError|None) of one POST try."""
+    try:
+        return once(url, key, body, timeout), None
+    except OSError as e:
+        return None, e
+
+
+def _done(status, err, last_try):
+    """True when this attempt ends the retry loop (success, a permanent failure, or no tries left)."""
+    if err is not None:
+        return last_try
+    return status == 200 or not _retryable(status) or last_try
+
+
+def _post_loop(url, key, body, timeout, n, sleep, once):
+    """Retries `_attempt` up to n times; raises the last network error; returns the last HTTP status."""
+    delay = POST_BACKOFF
+    for i in range(n):
+        status, net_err = _attempt(once, url, key, body, timeout)
+        if not _done(status, net_err, i + 1 >= n):
+            sleep(delay)
+            delay *= 2
+            continue
+        if net_err is not None:
+            raise net_err
+        return status
+    return None
+
+
+def post(url, key, body, timeout=30, tries=POST_TRIES, sleep=time.sleep, once=None):
+    """POSTs one task; returns the HTTP status (200: a run started). Validates the body, then retries transient failures
+    (429, 5xx, network) with exponential backoff. The key goes only into the Authorization header."""
+    err = check_payload(body)
+    if err:
+        raise ScoutError(f'scout webhook not sent: {err}')
+    return _post_loop(url, key, body, timeout, max(1, int(tries)), sleep, once or _post_once)
 
 def refused(status, sc):
     if status == 401 or status == 403:
@@ -339,7 +437,10 @@ def open_issue(sc, r, gh_fn=gh):
     rc, out, err = gh_fn(args)
     m = re.search(r'/issues/(\d+)', out or '')
     if rc != 0 or not m:
-        raise ScoutError(f'cannot open the scout\'s issue in {r["repo"]} ({err or out}): check `gh auth status`')
+        reason = ' (check `gh auth status`)'
+        if 'scm_repo_not_accessible' in (err or out):
+            reason = ' (the Grok GitHub connector needs access to the repository: choose "Install GitHub App" on its page)'
+        raise ScoutError(f'cannot open the scout\'s issue in {r["repo"]} ({err or out}){reason}')
     return int(m.group(1)), out.strip().splitlines()[-1]
 
 
@@ -385,27 +486,41 @@ def answer_of(repo, issue, since, gh_fn=gh, marker=None, login=None, skipped=Non
     return None
 
 
+def _fail_send(r, why, gh_fn):
+    """Marks the request failed and closes its issue when Tutti opened one (never a review's pull request)."""
+    r.update(status='failed', why=why)
+    if r['kind'] != 'review':
+        gh_fn(['issue', 'close', str(r['issue']), '--repo', r['repo'], '--comment', f'Tutti: not sent. {why}'])
+    return r
+
+
+def _post_status(sc, url, key, body, post_fn):
+    """(HTTP status or None, why): why is set when the POST did not start a run."""
+    try:
+        status = post_fn(url, key, body)
+    except ScoutError as e:
+        return None, str(e)
+    except OSError as e:
+        return None, (f'the scout\'s webhook could not be reached ({type(e).__name__}): check the network and '
+                      f'{sc["url_env"]}')
+    return status, ('' if status == 200 else refused(status, sc))
+
+
 def send(sc, r, url, key, gh_fn=gh, post_fn=post, now=None):
-    """Opens the issue and fires the webhook for one request; it is then `waiting`, or `failed` with why."""
+    """Opens the issue and fires the webhook for one request; it is then `waiting`, or `failed` with why. The body is
+    schema-checked and size-limited before the POST so a bad payload never reaches Grok Bot (which auto-pauses on them)."""
     if r['kind'] != 'review':   # a review answers on its pull request, whose number and url the request already has
         r['issue'], r['url'] = open_issue(sc, r, gh_fn)
     r['sent'] = now or time.time()
     how = (f'post the findings as ONE comment on this pull request whose first line is "{REVIEW_MARKER}"' if r['kind'] == 'review'
            else 'post the result as one comment on this issue')
-    body = {'task': r['task'], 'skill': r.get('skill'), 'from': 'tutti', 'id': r['id'],
-            'reply_to': {'repo': r['repo'], 'issue': r['issue'], 'url': r['url'], 'how': how}}
-    try:
-        status = post_fn(url, key, body)
-    except OSError as e:
-        status, why = None, f'the scout\'s webhook could not be reached ({type(e).__name__}): check the network and {sc["url_env"]}'
-    else:
-        why = '' if status == 200 else refused(status, sc)
+    body = payload_of(r, how)
+    bad = check_payload(body)
+    if bad:
+        return _fail_send(r, f'scout webhook not sent: {bad}', gh_fn)
+    _status, why = _post_status(sc, url, key, body, post_fn)
     if why:
-        r.update(status='failed', why=why)
-        if r['kind'] == 'review':
-            return r
-        gh_fn(['issue', 'close', str(r['issue']), '--repo', r['repo'], '--comment', f'Tutti: not sent. {why}'])
-        return r
+        return _fail_send(r, why, gh_fn)
     r['status'] = 'waiting'
     spend_estimate(sc, r, r['sent'])
     return r

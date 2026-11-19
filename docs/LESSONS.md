@@ -2,6 +2,19 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## Grok Bot's routine auto-paused after a bad scout payload (2026-11-17)
+
+**What happened.** The Tutti task webhook paused itself after a run that reviewed pull request #7 in `octo/app`: the GitHub
+connector returned `scm_repo_not_accessible`, the run failed, and the platform treated the repeating auth/connector failure
+as a pause rule.
+
+**Why.** Tutti POSTed a well-formed JSON body for a repository the connector was never granted. Malformed or huge bodies
+would pause it the same way; Tutti used to send whatever it built, including a null `skill`.
+
+**Rule.** Schema-check and size-cap every scout webhook body before the POST; omit null optional fields; retry only
+transient failures (429, 5xx, network). Grant the Grok Bot GitHub connector every repository Tutti may name in `reply_to.repo`,
+and never leave example owner/name values in a live config's review or project repos.
+
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
 **What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:

@@ -7,6 +7,20 @@ a fix raises the patch (0.N.P+1). Many agents release at once: take the next fre
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
 
+## 0.24.2 (2026-11-18)
+
+### Fixed
+
+- The `scm_repo_not_accessible` error in the Grok GitHub connector now explicitly guides the user to grant the necessary repository access in the GitHub UI, preventing routine auto-pauses (t264).
+
+## 0.24.1 (2026-11-17)
+
+### Fixed
+
+- Scout webhook POSTs are schema-checked and size-capped (32 KiB) before send, and transient failures (429, 5xx, network)
+  retry with exponential backoff (t264). A malformed or oversized body never reaches Grok Bot, whose routine auto-pauses
+  after repeated connector failures such as `scm_repo_not_accessible` for a repository it cannot reach (docs/SCOUTS.md).
+
 ## 0.24.0 (2026-11-17)
 
 ### Added

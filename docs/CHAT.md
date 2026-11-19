@@ -212,7 +212,11 @@ Under the message box, as in a chat IDE, each starting at Auto:
   (Ollama's own counts; an online agent's are estimated, four characters a token) with what they would cost at API prices
   (an account's quota is spent, not money; a local model costs nothing). When the next request would fill the context past
   your threshold (`autocompact.threshold_pct`, 60 % by default; yours with `compact_pct`), the older messages are folded
-  into a summary written by the model itself (else their first lines), the last four stay whole, and the chat marks where.
+  into a summary: a local model writes it without tools (or uses the first lines if it fails); for CLI agents Tutti uses
+  the first lines directly, without launching another agent. The first-line summary can omit details, and retention limits
+  still apply. The last four messages stay whole, and the chat marks where. Tutti sends summaries as historical data and
+  asks before running managed changes when a summary is included. CLI agents may have native tools outside those checks;
+  these measures cannot guarantee that a model will ignore instructions in historical text.
 - **Stop** (Esc) ends an answer and keeps what was written; **Edit** on any of your messages resends it and replaces what
   followed; **Regenerate** answers the last question again; **Branch** on any message starts a new chat with the messages
   up to it (same model, effort and mode), the original untouched.

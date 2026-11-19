@@ -6,6 +6,563 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Fixed
+
+- Parse device lease options after device names and preserve command flags and separators (t177, t421).
+
+## 0.31.3 (2026-11-19)
+
+### Fixed
+
+- Keep a Codex usage reader from blocking the dashboard when a descendant retains its output pipe (t302).
+
+## 0.31.2 (2026-11-19)
+
+### Fixed
+
+- Keep a valid Codex usage window readable when another window has a malformed duration (t302).
+
+## 0.31.1 (2026-11-19)
+
+### Fixed
+
+- Let opted-in fresh fallback accounts take one appropriately sized task within their measured room and panic threshold (t319).
+
+## 0.31.0 (2026-11-19)
+
+### Added
+
+- Conditionally reserve known scoped household tasks for fresh local models when online room is unavailable (t319).
+
+## 0.30.25 (2026-11-19)
+
+### Fixed
+
+- Allow explicitly opted-in, measured and unshared ladder accounts with planned room to take fresh queued work (t319).
+
+## 0.30.24 (2026-11-19)
+
+### Fixed
+
+- Hold interrupted Chat plans for inspection instead of replaying actions with uncertain outcomes (t303).
+
+## 0.30.23 (2026-11-19)
+
+### Fixed
+
+- Refuse destructive Chat history changes and retries while a local answer is still running (t303).
+
+## 0.30.22 (2026-11-19)
+
+### Fixed
+
+- Preserve the previous Chat summary when compaction is stopped before its save (t303).
+
+## 0.30.21 (2026-11-19)
+
+### Fixed
+
+- Avoid launching a CLI agent to compact Chat history; treat summaries as data and require confirmation for managed
+  actions when a summary is included (t303).
+
+## 0.30.20 (2026-11-19)
+
+### Fixed
+
+- Preserve partial Chat answers and avoid fallback when a started CLI agent fails (t303).
+
+## 0.30.19 (2026-11-19)
+
+### Fixed
+
+- Reject incomplete local-model streams and avoid retrying after an attempted Chat action (t303).
+
+## 0.30.18 (2026-11-19)
+
+### Fixed
+
+- Reject automatic answers when any parked task details changed during model review (t278).
+
+## 0.30.17 (2026-11-19)
+
+### Fixed
+
+- Leave incomplete or ambiguous unblocker diagnoses unchanged instead of retrying blindly or asking a person (t244).
+
+## 0.30.16 (2026-11-19)
+
+### Fixed
+
+- Label dashboard quota room as an estimate, not a guarantee that tasks can start (t173).
+- Explain when the CPU limit uses a share of the host rather than its total cores (t96).
+- Offer changed open questions again without repeating identical questions or undoing a newer delivery on failure (t244).
+
+## 0.30.15 (2026-11-19)
+
+### Fixed
+
+- Rename a Chat without rebuilding its messages or applying the result to a newly selected conversation (t407).
+- Keep dashboard tiles within phone viewports with enlarged text spacing and long account names (t414).
+
+## 0.30.14 (2026-11-19)
+
+### Fixed
+
+- Do not apply a model diagnosis to a failing task that changed while it was being reviewed (t244).
+
+## 0.30.13 (2026-11-19)
+
+### Fixed
+
+- Scope household moved notices to their repo and hold ambiguous queued work (t210; title-only protocol remains).
+
+## 0.30.12 (2026-11-19)
+
+### Fixed
+
+- Let Chat models page through retained text in their current conversation (t387; retention limits remain).
+- Reuse unchanged Chat Markdown parse trees across redraws (t407).
+
+## 0.30.11 (2026-11-19)
+
+### Fixed
+
+- Keep same-title backlog additions separate when both explicitly name different scopes or checks (t210).
+- Preserve explicit scope and check differences when auto-fill discovers work, and count only added tasks (t210).
+
+## 0.30.10 (2026-11-18)
+
+### Fixed
+
+- Hold dispatch leases with unconfirmed execution instead of automatically freeing and retrying them (t309).
+
+## 0.30.9 (2026-11-18)
+
+### Fixed
+
+- Preserve the old household holder's worktree when its task moves, even if its backup fails (t309).
+- Allow an explicit checkpoint-only round without starting or collecting work (t309).
+- Do not report a checkpoint as pushed when no new snapshot or remote push was confirmed (t309).
+
+## 0.30.8 (2026-11-18)
+
+### Fixed
+
+- Fence cooperative local autopilot launches against creation of a move freeze marker (t404).
+
+## 0.30.7 (2026-11-18)
+
+### Fixed
+
+- Keep a changed Needs-you question or task open when a model answers an older snapshot (t278).
+
+## 0.30.6 (2026-11-18)
+
+### Fixed
+
+- Match complete unblocker actions to question options and defer ambiguous answers (t278).
+- Hold dashboard-requested restarts while Chat actions, plans or undo operations are in flight (t404).
+
+## 0.30.5 (2026-11-18)
+
+### Fixed
+
+- Guard dashboard-requested restarts against active Chat answers and unreadable Chat state (t404).
+- Move unreleased changelog entries into automatic releases without duplicating them (t408).
+- Share local model-server capacity across workers with the same configured endpoint (t301).
+
+## 0.30.4 (2026-11-18)
+
+### Fixed
+
+- Checkpoint running work and hold reported runs conservatively while autopilot is off (t404).
+- Recheck measured conductor quota and bind and watch the selected account on shared workers (t388).
+
+## 0.30.3 (2026-11-18)
+
+### Fixed
+
+- Keep local-only delegated checks from waiting on the shared remote-copy lock (t402).
+- Reject unsafe routed-check track names before creating a lock or contacting a machine (t403).
+- Reload the failover watchdog in place rather than triggering failover leave on a code change (t404).
+
+
+## 0.30.2 (2026-11-18)
+
+### Changes
+
+- fix: protect self-release branches and tags (t401) (#2016)
+- fix: allow late-paced chat accounts (t300) (#2015)
+
+## [0.30.1] - 2026-11-18
+
+### Changed
+
+- Test healthy and resumed startup recovery, and clarify the limits of recovery after power loss (t105).
+
+## [0.30.0] - 2026-11-18
+
+### Added
+
+- Persist P0–P5 task priorities and dispatch by the saved task priority (t320).
+
+### Fixed
+
+- Hold mismatched identity-bound reports instead of publishing or retrying the wrong run (t309).
+- Save launch intent before spawning so a possibly launched run is not left queued in the local backlog (t309).
+- Attach a validated per-run correlation label to routed Docker checks, without treating absence as proof of exit (t309).
+
+## [0.29.5] - 2026-11-18
+
+### Fixed
+
+- Repeated missing reports or CLI refusals across every worker no longer park a task as exhausted (t260).
+- Reuse local model workers after completed attempts while keeping running work and online quota reservations accounted for (t301).
+- Defer automatic heavy backlog gap commands while the main computer is in quiet mode (t172).
+- Name the linked quota responsible for a panic rather than the reset window's zero usage (t272).
+
+## [0.29.4] - 2026-11-18
+
+### Fixed
+
+- Probe the configured dashboard bind and start only a verified inactive or failed user service, avoiding competing starts (t333).
+
+## [0.29.3] - 2026-11-18
+
+### Security
+
+- Keep model-requested job reports and logs restricted to admins in Chat (t372).
+
+## [0.29.2] - 2026-11-18
+
+### Fixed
+
+- Prevent retrying interrupted Chat answers that may have started work without first checking it (t296).
+
+## [0.29.1] - 2026-11-18
+
+### Security
+
+- Check literal source paths and reject unsafe generated packaging inputs before source builds (t370).
+
+## [0.29.0] - 2026-11-18
+
+### Added
+
+- Inspect each usage graph's recorded time and percentage with a pointer, touch or keyboard (t253).
+
+## [0.28.3] - 2026-11-18
+
+### Security
+
+- Update the source-build backend to setuptools 84.1.0 (t231).
+
+## [0.28.2] - 2026-11-18
+
+### Fixed
+
+- Isolate GitHub client tests from cached and locally signed-in CLI tokens (t133).
+
+## [0.28.1] - 2026-11-18
+
+### Changed
+
+- Add a fake-provider regression for Cursor panic and Codex routing (t291).
+
+## [0.28.0] - 2026-11-18
+
+### Added
+
+- Opt-in Cursor JSON event decoding for Chat, with generic tool progress, a final answer and plain-text compatibility (t283).
+
+## [0.27.14] - 2026-11-18
+
+### Fixed
+
+- Serialize cooperating Chat storage transactions across processes on supported POSIX hosts (t326).
+
+## [0.27.13] - 2026-11-18
+
+### Fixed
+
+- Check every page of pull request review threads and refuse automatic merging if any page cannot be verified (t179).
+
+## [0.27.12] - 2026-11-18
+
+### Fixed
+
+- Keep automatic usage observation times through cache and bridges; fail closed on invalid remote timestamps and fence
+  cautious panic rescue while a current reader, reading file or linked window reports an error (t317).
+
+## [0.27.11] - 2026-11-18
+
+### Changed
+
+- Reuse working Chromium system libraries in CI before falling back to system package installation (t331).
+
+## [0.27.10] - 2026-11-18
+
+### Changed
+
+- Explain when ahead-of-pace work is rechecked and cover dispatch on a later round (t299).
+
+## [0.27.9] - 2026-11-18
+
+### Changed
+
+- Add a regression test for takeover room on an account linked to a shared CLI worker (t204).
+
+
+## [0.27.8] - 2026-11-18
+
+### Fixed
+
+- Mark missing, future-dated and stale automatic usage readings instead of presenting them as current; show reader
+  recovery guidance without asking for manual entry for automatically read accounts (t317).
+
+## [0.27.7] - 2026-11-18
+
+### Fixed
+
+- Chat briefly polls an identified delegated run when its report is not ready (t296).
+
+
+## [0.27.6] - 2026-11-18
+
+### Fixed
+
+- CI installs only the Chromium headless shell needed by the browser suite and shows installation progress, reducing
+  downloads and making browser setup timeouts diagnosable without skipping browser tests (t331).
+
+## [0.27.5] - 2026-11-18
+
+### Fixed
+
+- Refresh dashboard autopilot host and disk measurements each round instead of reusing stale capacity (t232).
+
+## [0.27.4] - 2026-11-18
+
+### Fixed
+
+- Release warnings recognize both bracketed and unbracketed version headings (t336).
+
+## [0.27.3] - 2026-11-18
+
+### Fixed
+
+- Automatic dashboard page updates and Settings restarts protect this tab's unsent Chat work and active answers (t326).
+
+## [0.27.2] - 2026-11-18
+
+### Added
+
+- `self-update --stage-only` prepares a signed release in a separate environment without changing the active installation;
+  it is a staging prerequisite, not an uninterrupted dashboard update (t326).
+
+## [0.27.1] - 2026-11-17
+
+### Fixed
+
+- Dashboard shows paused and disabled accounts and their reasons without making them eligible for dispatch (t329).
+
+## [0.27.0] - 2026-11-17
+
+### Changed
+
+- Main-agent hand-off respects paused account links and machine availability, selects online agents by preference and
+  falls back to the strongest available local model. When online accounts are all in panic, a local main can cautiously
+  delegate one small unit per account with measured quota left, balancing remaining quota without pausing accounts (t322).
+- Chat requires an admin-declared selector with distinct values to route shared-worker accounts, checks the launched
+  command, and refuses ambiguous bindings; the selector is an admin assertion about the CLI, not provider verification.
+## [0.26.0] - 2026-11-17
+
+### Added
+
+- OpenAI Codex CLI as a coding worker: `tutti setup` finds `codex` on PATH (`codex exec --skip-git-repo-check`), the
+  example config wires `workers.codex` (with `machine:` for the login host), `accounts.codex`, and puts Codex on the
+  autopilot ladder and accounts so jobs run on the machine where Codex is signed in (t297).
+- A CLI worker with `workers.<name>.machine` waits while that machine yields, is paused, hot or in quiet hours (the same
+  governor local models use), so Codex on the laptop respects the laptop's yield flag (t297).
+- `tutti update` uses Codex CLI's own `codex update` command.
+- Codex usage is read from Codex CLI's account rate limits; accounts with a usage URL and no reader (including Grok Bot)
+  are automatically read from the scoped Work browser every 15 minutes (t297/t282). Existing Codex accounts also
+  receive the Codex CLI reader automatically without a setup migration. The reader keeps the app-server connection open
+  through initialization and the usage response (t316).
+- Machine state identifies each environment's physical parent, and the Machines tab nests dedicated WSL/desktop
+  environments within one physical-machine card (t313).
+
+### Fixed
+
+- Codex setup records the local machine, automatic worker selection respects its governor, and remote usage requires
+  the account's login host so a different account's limits are never substituted (t316).
+- `routing.workers` is a preference order only: every account that names a worker still joins `tutti run auto`. Codex
+  (and any other worker left off the list) was skipped entirely when the list was only cursor and agy, so a behind Codex
+  account never ran while Cursor was ahead (t297).
+- Codex setup uses `--approve-for-me`, which routes approval requests through automatic review with the workspace-write
+  sandbox.
+
+## [0.25.6] - 2026-11-17
+
+### Fixed
+
+- `tutti run ... --repo <name>` (and MCP `delegate_task`) resolves a bare name to `autopilot.repos.<name>.path` before
+  creating the worktree, so a hand-off from a non-git cwd no longer fails with "`<name>` is not inside a git work tree".
+
+## [0.25.5] - 2026-11-17
+
+### Fixed
+
+- Explicit test environments without a configuration directory no longer read the user's scout secret file or send
+  scout requests to the live webhook (t323).
+
+## [0.25.4] - 2026-11-17
+
+### Fixed
+
+- Pausing an account or worker removes it from the active autopilot ladder and account list until resumed, so a pause no longer prevents
+  configuration reloads and Chat responses (t321).
+
+## [0.25.3] - 2026-11-17
+
+### Fixed
+
+- Chat's `delegate_task` (and `tutti run auto`) takes over while the main agent panics, like the autopilot does: an
+  account's used-up planned room no longer stops it; only its own panic or a spent quota does. Chat had answered
+  "no agent account has room" while Cursor had room.
+
+### Added
+
+- Chat commands with autocomplete (type `/`): `/delegate [project] what` (also `delegate: ...`), `/task project what`,
+  `/tasks`, `/status`, `/usage`, `/hosts`, `/devices`, `/pause`, `/resume`, `/ask <scout>`, `/tests project`, `/help`.
+  The same words work from other chat apps over MCP.
+- In Autonomous mode a plain request becomes work by itself: the agent delegates it, no command needed. Before it
+  delegates it finds missing details itself and asks the user one short question only when the work cannot start without it.
+- A **Just ask** mode (`/mode answer`): answers only, never starts or proposes work.
+
+## [0.25.2] - 2026-11-17
+
+### Fixed
+
+- Auto main agent always holds the best agent with room: a stand-in left over from an earlier hand-off (a local model)
+  gives way to the preferred agent or the first `main.fallback` with room, not only when it runs out (the dashboard showed
+  "main agent: pc (auto)" while cursor had room).
+
+### Added
+
+- Chat's model picker has **Auto: the main agent**: the main agent now answers first (Cursor while Claude is out,
+  Claude after its reset), the others only when it cannot.
+
+## [0.25.1] - 2026-11-17
+
+### Fixed
+
+- Chat's online agents answer again: a CLI agent runs in an empty folder of its own under Tutti's state dir, and Cursor
+  answers in its read-only ask mode (`workers.<n>.chat_args`). In agent mode a chat's "continue" started work and printed
+  nothing before Chat's 180 s deadline, so Chat said no model could answer.
+
+## [0.25.0] - 2026-11-17
+
+### Added
+
+- **Auto main agent** (t275): `main.agent: auto` (or `tutti main auto`, or the selector in the Chat header, admin only)
+  keeps the user's preferred agent (`main.preferred`) as main while it has room, hands the role to the first
+  `main.fallback` worker with room when it panics or is spent, and switches back after its reset. Every switch posts a
+  Chat note and connects the new agent. See docs/CONDUCT.md and docs/CHAT.md.
+
+## [0.24.3] - 2026-11-17
+
+### Fixed
+
+- Local models are no longer sent tasks too big for them: a strong local model takes S and M tasks, a normal one S only,
+  and an L task goes to an online account (the PC's 27B model had been given L features it failed). A new **huge** tier (60B
+  and up, such as a 70B on a 48–96 GB card) takes every size. See docs/FLEET.md.
+
+## [0.24.2] - 2026-11-17
+
+### Fixed
+
+- A worker's usage limit (including `HTTP 429 Too Many Requests` in the worker log), a run that ended without a report
+  right after a limit, and a CLI permission refusal are the worker's or account's problem, not the task's: they are class
+  `environment`, never count toward `max_attempts`, and the next attempt moves to another step (t260: 167 such attempts
+  parked 149 tasks as needing a person overnight). A bare `429` in an assertion or a test name is not a usage limit.
+
+## [0.24.1] - 2026-11-17
+
+### Added
+
+- When the main agent's accounts (`main.agent`, or the owner's switch) are in panic or spent, Tutti hands the main agent
+  role to the next worker in `main.fallback` that has room: it keeps the choice, runs `tutti connect` for that agent, and
+  writes a Chat note under **Main agent hand-off** (owner, 2026-11-16, Claude in panic). One note per episode; with no
+  fallback free, the note says so and the role stays put. See docs/CONDUCT.md.
+
+### Fixed
+
+- Main-agent hand-off: Chat note goes to the signed-in owner's partition (not always `local`); episode identity is from/to
+  and the panic start (not usage % in the why text); the record clears when that main recovers; an Ollama worker whose
+  name starts with a CLI kind (e.g. `claude-local`) is classified as `local` before name matching.
+
+## 0.24.0 (2026-11-17)
+
+### Added
+
+- Roles for machines and devices (`tutti/roles.py`, docs/MACHINES.md *Roles*): windows-, linux-, macos- and
+  android-test-runner, android-device, tv-device, emulator-host, ios-webkit-runner, docker-host, build-machine, gpu-ai,
+  ui-desktop, chrome-browser, main, backup-main, vpn-node and the Cast roles, detected once a day (OS, tools, GPU memory,
+  desktop session, device readings) or from the config, each with why. Admins override them (`roles`, `roles_add`,
+  `roles_off` in the config or Settings; `tutti roles set|unset`). A suite's `roles:` sends it only to targets with every
+  one, then the power score picks as before.
+- Media devices on the LAN (`tutti/lanmedia.py`): AirPlay, Cast, Spotify Connect (mDNS) and DLNA renderers (SSDP), e.g.
+  a soundbar, listed under Devices, *On the network*, with airplay-receiver, chromecast-builtin, spotify-connect,
+  dlna-renderer, smart-tv roles.
+- Dashboard: role chips on machine and device cards (tooltip: detected, from the config or set by an admin) and a Role
+  filter; CLI `tutti machines --roles [--refresh]`, `tutti roles list [--all]`.
+
+## [0.23.6] - 2026-11-16
+
+### Fixed
+
+- While the main agent is in panic, the other accounts fill their room up to their own panic line (tasks that fit at
+  their cost per task), not one task at a time (owner, prio 0).
+
+## 0.23.5 (2026-11-16)
+
+### Added
+
+- docs/API.md: the API reference. Every `tutti` subcommand with its arguments and defaults, the exit codes, the dashboard's
+  HTTP routes (method, role, request and answer JSON, errors; LAN or VPN only), the household coordinator's calls, the MCP
+  tools with their parameters and roles, every config key with its type, default and who may change it, and the Python
+  modules. The CLI, MCP and config parts are generated from the code (`python3 -m tutti.apidoc --write`), and
+  tests/test_apidoc.py fails when a subcommand, route or tool is missing from it or a generated part is stale.
+
+## 0.23.4 (2026-11-16)
+
+### Fixed
+
+- With a person at the main machine, Tutti's share there was one core and the whole machine's load counted against it,
+  so online-worker runs (agy, cursor), which barely use the machine, were held ("load 5.5 of 1 cores"). Only the load
+  beyond the person's cores now counts against Tutti's share.
+
+## 0.23.3 (2026-11-16)
+
+### Fixed
+
+- While the main agent's account (autopilot.main_accounts, default claude) is in panic or spent, the other online
+  accounts take over its bounded work one task at a time even when they are ahead of their own pace; their own panic or
+  spent still stops them. Before, Cursor sat idle as "ahead of its pace" while Claude was in panic.
+
+## 0.23.2 (2026-11-16)
+
+### Fixed
+
+- Local models: a dedicated pseudo-machine (`laptop-desktop`, `nuc-desktop`, `w5090-win`) no longer gets a card of its
+  own with its host's models and power counted twice; its workers join the host's card and it is probed once.
+- Local models: a failed power read is retried once and the models are still read from the worker's host; this computer's
+  card never blames ssh. The GPU name falls back to `lspci`; the power line says measured or estimated per part, and a
+  refused reading (intel_gpu_top without CAP_PERFMON, root-only RAPL) names its one-time fix.
+- Local models: the period table no longer wraps its headers and numbers; it scrolls inside its card on a phone.
+
 ## 0.23.1 (2026-11-16)
 
 ### Fixed
@@ -107,8 +664,6 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
   when it is limited. The re-requests are queued in the state folder and sent by the autopilot round.
 - `review.rounds`: how many rounds (ask, fix, ask again) each reviewer gets per pull request, for copilot, coderabbit,
   greptile, a scout and `local` (the fallback worker); 1 each by default, 0: not called. A limit answer is no round.
-
-## 0.18.0 (2026-11-16)
 
 ## 0.19.1 (2026-11-16)
 

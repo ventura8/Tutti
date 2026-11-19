@@ -62,11 +62,11 @@ def tearDownModule():
     World.dash.close()
 
 
-def new_context(role, width='laptop', theme='light', zoom=1, motion='no-preference'):
+def new_context(role, width='laptop', theme='light', zoom=1, motion='no-preference', has_touch=False):
     w, h = WIDTHS[width]
     ctx = World.browser.new_context(viewport={'width': int(w / zoom), 'height': int(h / zoom)}, device_scale_factor=zoom,
                                     color_scheme=theme, reduced_motion=motion, bypass_csp=True, locale='en-US', timezone_id='UTC',
-                                    storage_state=World.states.get(role), service_workers='block')
+                                    storage_state=World.states.get(role), service_workers='block', has_touch=has_touch)
     base = World.dash.base
     ctx.route('**/*', lambda r: r.continue_() if r.request.url.startswith(base) else r.abort())   # no network: Google is fake
     return ctx
@@ -165,6 +165,20 @@ class Layout(unittest.TestCase):
                 shot(page, f'admin-{name.lower()}-{width}-text-spacing')
             ctx.close()
         self.assertEqual(problems, {})
+
+    def test_phone_tiles_fit_with_text_spacing_and_long_account_names(self):
+        ctx = new_context(ADMIN, 'phone')
+        self.addCleanup(ctx.close)
+        page = open_view(ctx)
+        page.evaluate('tuttiChecks.textSpacing()')
+        go(page, '#dashboard')
+        width, problems = page.evaluate("""() => {
+            const value = document.querySelectorAll('.tile__value')[1];
+            value.textContent = 'Behind: extraordinarilylongaccountnamethatcannotwrap';
+            return [document.documentElement.scrollWidth, tuttiChecks.layout()];
+        }""")
+        self.assertLessEqual(width, 360)
+        self.assertEqual(problems, [])
 
     def test_the_sign_in_page(self):
         problems = {}
@@ -298,6 +312,67 @@ ADMIN_CONTROLS = ('#refresh-readings', '#autopilot-toggle', '#selfimprove-toggle
                   '#connect-all', '#main-form', '#autocompact-form')
 
 
+class ChatRename(unittest.TestCase):
+    def test_rename_preserves_message_nodes_scroll_and_selection(self):
+        ctx = new_context(ADMIN)
+        try:
+            page = open_view(ctx)
+            page.route('**/api/chat', lambda route: route.fulfill(status=200, content_type='application/json',
+                                                                  body='{"ok":true,"conversations":[],"suggestions":[]}')
+                       if route.request.post_data_json.get('action') == 'rename' else route.continue_())
+            page.evaluate('''() => {
+                CHAT.conv = {id: 'test', title: 'Old', messages: Array.from({length: 60}, (_, i) =>
+                    ({id: 'm' + i, role: 'assistant', text: 'Message ' + i, at: '2026-01-01T00:00:00Z'}))};
+                document.body.dataset.chatPane = 'conv';
+                drawLog();
+                const log = document.getElementById('chat-log');
+                log.scrollTop = 100;
+                window.beforeRename = {node: log.querySelector('.msg'), scroll: log.scrollTop};
+                renameConv();
+            }''')
+            page.locator('#chat-rename').fill('New name')
+            page.evaluate('''() => {
+                const text = window.beforeRename.node.querySelector('.msg__body').firstChild.firstChild;
+                const range = document.createRange(); range.selectNodeContents(text);
+                const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+            }''')
+            page.locator('#chat-dialog-actions button', has_text='Save').evaluate('(button) => button.click()')
+            page.wait_for_function("document.getElementById('chat-title').textContent === 'New name'")
+            result = page.evaluate('''() => ({same: document.getElementById('chat-log').querySelector('.msg') === window.beforeRename.node,
+                before: window.beforeRename.scroll, after: document.getElementById('chat-log').scrollTop,
+                selected: getSelection().toString()})''')
+            self.assertTrue(result['same'])
+            self.assertEqual(result['after'], result['before'])
+            self.assertEqual(result['selected'], 'Message 0')
+        finally:
+            ctx.close()
+
+
+class UsageGraph(unittest.TestCase):
+    def test_readings_work_with_mouse_touch_and_keyboard(self):
+        ctx = new_context(ADMIN, has_touch=True)
+        try:
+            page = open_view(ctx, '#dashboard')
+            graph = page.locator('#usage .spark[role="slider"]').first
+            detail = graph.locator('..').locator('.spark__detail')
+            self.assertGreater(int(graph.get_attribute('aria-valuemax')), 1)
+            graph.focus()
+            graph.press('Home')
+            first = detail.inner_text()
+            self.assertEqual(graph.get_attribute('aria-valuenow'), '1')
+            graph.press('End')
+            last = detail.inner_text()
+            self.assertNotEqual(first, last)
+            self.assertEqual(graph.get_attribute('aria-valuetext'), last)
+            box = graph.bounding_box()
+            page.mouse.move(box['x'] + 1, box['y'] + box['height'] / 2)
+            self.assertEqual(detail.inner_text(), first)
+            page.touchscreen.tap(box['x'] + box['width'] - 1, box['y'] + box['height'] / 2)
+            self.assertEqual(detail.inner_text(), last)
+        finally:
+            ctx.close()
+
+
 class Roles(unittest.TestCase):
     maxDiff = None
 
@@ -335,17 +410,18 @@ class Roles(unittest.TestCase):
         ctx = new_context(ADMIN)
         page = open_view(ctx, '#dashboard')
         items = page.evaluate("fetch('/api/state').then((r) => r.json()).then((s) => s.machines.items)")
-        cards = page.locator('#machines > li')
+        cards = page.locator('#machines li[data-machine]')
         self.assertEqual(cards.count(), len(items))
-        for i, m in enumerate(items):
-            card = cards.nth(i)
-            self.assertEqual(card.locator('.pip').count(), m['slots'])
+        for m in items:
+            card = page.locator(f"#machines li[data-machine='{m['name']}']")
+            stats = card.locator(':scope > .row__stats').first
+            self.assertEqual(stats.locator('.pip').count(), m['slots'])
             if m['free'] is None:   # not reachable: dashed boxes and the slot count only
-                self.assertEqual(card.locator(".pip[data-off='true']").count(), m['slots'])
+                self.assertEqual(stats.locator(".pip[data-off='true']").count(), m['slots'])
             else:
-                self.assertEqual(card.locator(".pip[data-busy='true']").count(), m['busy'])
-                self.assertEqual(card.locator(".pip[data-held='true']").count(), m['held_back'])
-                self.assertIn(f"{m['free']} of {m['slots']} slot", card.text_content())
+                self.assertEqual(stats.locator(".pip[data-busy='true']").count(), m['busy'])
+                self.assertEqual(stats.locator(".pip[data-held='true']").count(), m['held_back'])
+                self.assertIn(f"{m['free']} of {m['slots']} slot", stats.text_content())
             win = card.get_by_label(f"{m['name']}: limited hours, HH-HH")
             self.assertTrue(win.is_editable())
             if not m.get('limit'):
@@ -371,6 +447,38 @@ class Roles(unittest.TestCase):
                 self.assertTrue(card.get_by_role('button', name=d['card']['action']['label']).is_visible())
         self.assertNotIn('2.5 °C', page.text_content('#devices'))   # a TV's battery reading is never its temperature
         ctx.close()
+
+    def test_local_model_cards_match_the_state(self):
+        """One Local models card per computer, as /api/state's local_models.cards (a dedicated desktop session folds into its
+        host's card); the GPU, measured or estimated, the models and the period table fit their card at laptop and phone width."""
+        for width in ('laptop', 'phone'):
+            ctx = new_context(ADMIN, width)
+            page = open_view(ctx, '#dashboard')
+            cards = page.evaluate("fetch('/api/state').then((r) => r.json()).then((s) => s.local_models.cards)")
+            names = [c['name'] for c in cards]
+            self.assertNotIn('gpu-box-desktop', names)
+            self.assertEqual(page.locator('#local-models > article').count(), len(cards))
+            for c in cards:
+                card = page.locator(f"#local-models > article[data-machine='{c['name']}']")
+                text = card.text_content()
+                self.assertIn(c['gpu'], text)
+                self.assertNotIn('GPU not read', text)
+                self.assertIn('GPU', text)
+                power = card.locator('.account__auto', has_text=' W now').text_content()
+                self.assertRegex(power, r'GPU \d+ W ' + ('measured' if c['gpu_measured'] else 'estimated'))
+                self.assertEqual(power.startswith('≈'), not c['gpu_measured'])
+                for m in c['installed']:
+                    self.assertIn(m, text)
+                fits = card.evaluate("(a) => [...a.querySelectorAll('.local__periods td, .local__periods th')].every((t) => "
+                                     "getComputedStyle(t).whiteSpace === 'nowrap' && t.scrollWidth <= t.clientWidth + 1 "
+                                     "&& t.getBoundingClientRect().height < 2 * parseFloat(getComputedStyle(t).fontSize) * 1.6) "
+                                     "&& a.scrollWidth <= a.clientWidth + 1")
+                self.assertTrue(fits, f"{c['name']} at {width}: a table cell wraps or the card overflows")
+            box = {c['name']: c for c in cards}['gpu-box']
+            self.assertEqual(box['workers'], ['big', 'big-desktop'])
+            self.assertTrue(box['gpu_measured'])
+            self.assertIn('qwen3.5:9b', page.locator("#local-models > article[data-machine='gpu-box']").text_content())
+            ctx.close()
 
     def test_numbers_have_no_float_noise(self):
         for role in (ADMIN, VIEWER):

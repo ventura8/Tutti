@@ -24,8 +24,12 @@ KINDS = ('fix', 'tests', 'docs', 'translations', 'review', 'summary', 'triage', 
 # What a model of each tier takes: the task kinds, the backlog sizes (a larger one is worked in steps of files_per_step files:
 # the model never holds more at once) and the rank used to order the machines
 TIERS = {
-    'strong': {'kinds': KINDS, 'sizes': ('S', 'M', 'L'), 'files_per_step': 3, 'rank': 2},
-    'normal': {'kinds': ('fix', 'tests', 'docs', 'translations', 'review', 'summary', 'triage'), 'sizes': ('S', 'M'),
+    # owner, 2026-11-17: local models failed most M and L tasks (t196, t221, t275 went to the PC's 27B and failed), so a
+    # strong local model takes S and M, a normal one S only; larger work stays with the online accounts
+    # a 60B+ model (a 70B on a 48-96 GB card, owner 2026-11-17) works like an online agent: every size
+    'huge': {'kinds': KINDS, 'sizes': ('S', 'M', 'L'), 'files_per_step': 5, 'rank': 3},
+    'strong': {'kinds': KINDS, 'sizes': ('S', 'M'), 'files_per_step': 3, 'rank': 2},
+    'normal': {'kinds': ('fix', 'tests', 'docs', 'translations', 'review', 'summary', 'triage'), 'sizes': ('S',),
                'files_per_step': 2, 'rank': 1},
     'small': {'kinds': ('docs', 'summary', 'triage', 'translations'), 'sizes': ('S',), 'files_per_step': 1, 'rank': 0},
 }
@@ -66,7 +70,8 @@ def classify(m):
     if not name or NOT_TEXT.search(name):
         return None
     p = params_b(m)
-    tier = 'strong' if p >= 14 else 'normal' if p >= 7 or not p else 'small'   # a size it does not show: a usual 7-9B
+    # a size it does not show: a usual 7-9B
+    tier = 'huge' if p >= 60 else 'strong' if p >= 14 else 'normal' if p >= 7 or not p else 'small'
     kinds = ('translations',) if TRANSLATOR.search(name) else TIERS[tier]['kinds']
     return {'name': name, 'params_b': p, 'family': (m.get('details') or {}).get('family') or '', 'tier': tier,
             'kinds': list(kinds), 'code': bool(CODER.search(name)) and not TRANSLATOR.search(name),
@@ -259,7 +264,8 @@ def settings(cfg):
 def entries(cfg, readings, now, old=None):
     """{machine: {models, gpu, npu, cpu, loaded, updated}} from the dashboard's readings (energy.probe_all: each machine's
     /api/tags and /api/ps, GPU name). A machine that did not answer keeps its last entry, marked `stale`."""
-    old = old or {}
+    old = {name: {**entry, 'tags_endpoint': config.safe_ollama_endpoint(entry.get('tags_endpoint'))}
+           for name, entry in (old or {}).items() if isinstance(entry, dict)}
     out = {}
     for name, r in (readings or {}).items():
         tags = (r or {}).get('tags')
@@ -270,9 +276,11 @@ def entries(cfg, readings, now, old=None):
         models = [c for c in (classify(m) for m in tags['models'] if isinstance(m, dict)) if c]
         loaded = [m.get('name') for m in ((r.get('ps') or {}).get('models') or []) if isinstance(m, dict)]
         out[name] = {'models': models, 'gpu': r.get('gpu') or '', 'npu': r.get('npu') or '', 'cpu': r.get('cpu') or '',
-                     'loaded': loaded, 'updated': now, 'stale': False}
+                     'loaded': loaded, 'updated': now, 'stale': False,
+                     'tags_endpoint': config.safe_ollama_endpoint(r.get('tags_endpoint'))}
     for name, e in old.items():
-        out.setdefault(name, {**e, 'stale': True})
+        if config.physical(cfg, name) == name:   # a dedicated pseudo-machine's old entry goes: its host's models are the same
+            out.setdefault(name, {**e, 'stale': True})
     return out
 
 
@@ -515,11 +523,14 @@ def view(cfg, now=None):
     for n in local_names(cfg):
         w = cfg['workers'][n]
         rows.append({'name': n, 'machine': machine_of(cfg, n), 'auto': bool(w.get('auto')), 'model': w.get('model'),
-                     'host': w.get('host'), 'num_ctx': w.get('num_ctx'), 'hardware': w.get('hardware') or {},
+                     'host': config.safe_ollama_endpoint(w.get('host')) or '', 'num_ctx': w.get('num_ctx'),
+                     'hardware': w.get('hardware') or {},
                      'models': [{**{k: m.get(k) for k in ('name', 'tier', 'kinds', 'params_b')},
                                  'tokens_s': m.get('tokens_s') or speed.get(m.get('name')), **model_rank(m, rates)}
                                 for m in w.get('models') or [] if m]})
-    return {'workers': rows, 'machines': data.get('machines') or {}, 'servers': data.get('servers') or {}}
+    machines = {name: {**entry, 'tags_endpoint': config.safe_ollama_endpoint(entry.get('tags_endpoint'))}
+                for name, entry in (data.get('machines') or {}).items() if isinstance(entry, dict)}
+    return {'workers': rows, 'machines': machines, 'servers': data.get('servers') or {}}
 
 
 def model_rank(m, rates):

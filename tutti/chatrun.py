@@ -2,13 +2,17 @@
 closes), the models (Ollama's streaming chat, a CLI worker), the tools (the same calls as the MCP server's), Undo, the audit
 log and the HTTP actions. tutti/chat.py holds the pure part."""
 import json
+import os
 import queue
 import re
+import stat
 import subprocess
 import threading
 import time
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime
+from functools import wraps
 
 from . import auth, chat, chatctl, config, controls, mcpserver, workers
 
@@ -20,11 +24,82 @@ NO_ANSWER = ('I looked things up but did not reach an answer. Ask again, more sp
              'above.')
 ROUNDS = 4        # tool rounds a model may take for one answer
 MAX_CALLS = 4     # tool calls taken from one round
+STATUS_WAIT_SECONDS = 120
+STATUS_POLL_SECONDS = 2
 WORK_ACTIONS = ('chat: Queue a task', 'chat: Hand off', 'chat: Ask ')   # audit lines that count against a viewer's daily limit
 BUILTIN = 'Tutti (built-in, from the dashboard\'s state)'
+_ENGINE_INIT_LOCK = threading.Lock()
+
+
+class ActionAdmission:
+    """Keep Chat actions concurrent while excluding restart across each action's persisted outcome."""
+
+    def __init__(self):
+        self.condition = threading.Condition()
+        self.active = 0
+        self.restarting = False
+        self.uncertain = False
+        self.local = threading.local()
+
+    @contextmanager
+    def action(self):
+        with self.condition:
+            while self.restarting:
+                self.condition.wait()
+            self.active += 1
+        self.local.started = False
+        self.local.admitted = True
+        try:
+            yield
+        except BaseException:
+            if self.local.started:
+                with self.condition:
+                    self.uncertain = True
+            raise
+        finally:
+            self.local.admitted = False
+            with self.condition:
+                self.active -= 1
+                self.condition.notify_all()
+
+    def mark_started(self):
+        if getattr(self.local, 'admitted', False):
+            self.local.started = True
+
+    @contextmanager
+    def restart(self):
+        with self.condition:
+            if self.active or self.restarting:
+                raise chat.ChatError('Chat has an action running: wait for it to finish, then restart')
+            if self.uncertain:
+                raise chat.ChatError('A Chat action could not save its outcome: inspect it; this engine blocks guarded restarts '
+                                     'until a separate coordinated recovery')
+            self.restarting = True
+        try:
+            yield
+        finally:
+            with self.condition:
+                self.restarting = False
+                self.condition.notify_all()
+
+
+def admitted_action(method):
+    @wraps(method)
+    def run(self, *args, **kwargs):
+        with self.action_admission.action():
+            return method(self, *args, **kwargs)
+    return run
 
 
 # ---- the models
+
+
+class IncompleteOllamaStream(OSError):
+    """Ollama closed its response before confirming the answer was complete."""
+
+
+class IncompleteAfterAction(RuntimeError):
+    """A partial answer followed an action that may have changed state."""
 
 
 def ollama_stream(worker, messages, cancel, timeout=MODEL_TIMEOUT, tools=None, think=False, num_ctx=None):
@@ -53,18 +128,62 @@ def ollama_stream(worker, messages, cancel, timeout=MODEL_TIMEOUT, tools=None, t
             if part.get('done'):   # Ollama's own token counts: the prompt as read, and the answer
                 yield {'usage': {'in': part.get('prompt_eval_count') or 0, 'out': part.get('eval_count') or 0}}
                 return
+    if not cancel.is_set():
+        raise IncompleteOllamaStream('Ollama closed the stream before its completion frame')
 
 
-def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.Popen, clock=time.monotonic, extra=()):
+class SummaryCancelled(Exception):
+    """Abort the store write when a summary was cancelled while waiting for its lock."""
+
+
+class CliStreamUncertain(RuntimeError):
+    """A started CLI may have used native tools; its failure is not safe to retry automatically."""
+
+
+class CursorStreamUncertain(CliStreamUncertain):
+    """A started Cursor stream failed; native tools may have acted, so do not retry automatically."""
+
+
+def check_chat_format(worker, argv):
+    fmt = worker.get('chat_output_format', 'text')
+    if fmt == 'cursor-stream-json' and (not any(flag in argv for flag in ('-p', '--print')) or '--stream-partial-output' not in argv or
+                                        workers.selector_value(argv, '--output-format') != 'stream-json'):
+        raise ValueError('Chat cursor-stream-json needs --output-format stream-json and --stream-partial-output in the worker command')
+    if fmt not in ('text', 'cursor-stream-json'):
+        raise ValueError('Chat output format is unsupported: use text or cursor-stream-json')
+    return fmt
+
+
+def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.Popen, clock=time.monotonic, extra=(),
+               cwd=None, selector=None, selector_value=None):
     """Yields a CLI worker's answer line by line (`claude -p`, `cursor-agent -p`): the conversation as one prompt. A reader
     thread feeds a queue, so Stop and the deadline are seen even while the worker prints nothing; past the deadline the
-    worker is killed and OSError lets the next model answer."""
+    worker is stopped and an uncertain outcome prevents another model from repeating native tool actions."""
     prompt = '\n\n'.join(f'{m["role"].upper()}:\n{m["content"]}' for m in messages) + '\n\nASSISTANT:'
-    proc = popen(workers.command(worker, prompt) + list(extra), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                 text=True, start_new_session=True)
+    argv = workers.with_args(workers.command(worker, prompt), extra)
+    fmt = check_chat_format(worker, argv)
+    if selector and workers.selector_value(argv, selector) != selector_value:
+        raise ValueError('Chat could not bind the selected account to the worker command: check its selector and account args')
+    if cancel.is_set():
+        return
+    proc = popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                 stdin=subprocess.DEVNULL, text=True, start_new_session=True, cwd=cwd)
+    try:
+        yield from cli_process(proc, worker, cancel, timeout, clock, fmt)
+    except CliStreamUncertain:
+        if not cancel.is_set():
+            raise
+    except (OSError, ValueError) as e:
+        if not cancel.is_set():
+            raise CliStreamUncertain('The CLI agent failed after starting; its native tools may have acted. '
+                                     'Inspect the work before retrying; no other model was tried.') from e
+
+
+def cli_process(proc, worker, cancel, timeout, clock, fmt):
     lines = queue.Queue()
     threading.Thread(target=_pump, args=(proc.stdout, lines), daemon=True).start()
     deadline, name = clock() + timeout, (worker.get('command') or ['the worker'])[0]
+    decoder = CursorEvents() if fmt == 'cursor-stream-json' else None
     try:
         while not cancel.is_set():
             if clock() > deadline:
@@ -73,21 +192,91 @@ def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.P
                 line = lines.get(timeout=0.25)
             except queue.Empty:
                 continue
+            if cancel.is_set():
+                break
             if line is None:
                 break
-            yield line
+            yield from decoder.feed(line) if decoder else (line,)
+    except OSError as e:
+        if decoder:
+            raise CursorStreamUncertain('Cursor stream failed after launch; its tool actions may have run. '
+                                        'Check the work before retrying.') from e
+        raise
     finally:
         if proc.poll() is None:
             proc.kill()
         proc.wait()
+    finish_cli(proc, decoder, cancel, name)
+
+
+def finish_cli(proc, decoder, cancel, name):
     if proc.returncode and not cancel.is_set():
+        if decoder:
+            raise CursorStreamUncertain('Cursor exited unsuccessfully after launch; its tool actions may have run. '
+                                        'Check the work before retrying.')
         raise OSError(f'{name} ended with exit code {proc.returncode}')
+    if decoder:
+        try:
+            decoder.finish(cancel.is_set())
+        except OSError as e:
+            raise CursorStreamUncertain('Cursor stream ended after launch without a confirmed result; its tool actions may have run. '
+                                        'Check the work before retrying.') from e
+
+
+class CursorEvents:
+    def __init__(self):
+        self.terminal = False
+        self.has_text = False
+
+    def feed(self, line):
+        if self.terminal:
+            raise OSError('Cursor stream continued after its terminal result: check the CLI version')
+        for piece in cursor_event(line):
+            if piece == {'cursor_terminal': True}:
+                self.terminal = True
+            else:
+                if isinstance(piece, str) and piece.strip():
+                    self.has_text = True
+                yield piece
+
+    def finish(self, cancelled):
+        if not cancelled and not self.terminal:
+            raise OSError('Cursor stream ended without a successful result: retry or check the CLI output')
+        if not cancelled and not self.has_text:
+            raise OSError('Cursor stream ended without assistant text: check the work before retrying')
+
+
+def cursor_event(line):
+    """Decode documented Cursor events; never expose tool arguments or execute tool output."""
+    try:
+        event = json.loads(line)
+    except (ValueError, TypeError) as e:
+        raise OSError('Cursor stream returned malformed JSON: check the configured output format') from e
+    if not isinstance(event, dict):
+        raise OSError('Cursor stream returned a non-object event: check the configured output format')
+    kind = event.get('type')
+    if kind == 'tool_call' and event.get('subtype') in ('started', 'completed'):
+        yield {'progress': 'Agent tool ' + event['subtype'] + '.'}
+    elif kind == 'result':
+        if event.get('subtype') != 'success' or event.get('is_error') is not False or not isinstance(event.get('result'), str):
+            raise OSError('Cursor stream did not report success: check the CLI output and account status')
+        yield event['result']
+        yield {'cursor_terminal': True}
 
 
 def _pump(src, lines):
     for line in src:
         lines.put(line)
     lines.put(None)
+
+
+def chat_workdir(cfg):
+    """An empty folder of its own for a chat's CLI agent (owner, 2026-11-17): started in the dashboard's home folder,
+    cursor-agent read the whole home before answering and Chat gave up after CLI_TIMEOUT with nothing."""
+    import os
+    path = os.path.join(config.state_dir(cfg), 'chat-work')
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
 def stream_of(cand, cfg, messages, cancel):
@@ -100,7 +289,10 @@ def stream_of(cand, cfg, messages, cancel):
         from . import local
         local.wait_for_preempt(cfg, w)   # Tutti's own short job holds this model: the chat's next turn waits, nothing is lost
         return ollama_stream(w, messages, cancel, tools=chat.ollama_tools() if cand.get('tools') else None, think=think, num_ctx=ctx)
-    return cli_stream(w, messages, cancel, extra=chatctl.cli_args(w, effort))
+    account = ((cfg.get('accounts') or {}).get(cand.get('account')) or {})
+    extra = chatctl.cli_args(w, effort) + chatctl.chat_args(w) + list(account.get('args') or [])
+    return cli_stream(w, messages, cancel, extra=extra, cwd=chat_workdir(cfg),
+                      selector=cand.get('selector'), selector_value=cand.get('selector_value'))
 
 
 # ---- the tools: the MCP server's own calls, after the chat's role check
@@ -124,6 +316,29 @@ def run_tool(cfg, call, runner=None):
     return not err, text, undo
 
 
+def follow_missing_report(cfg, call, job, result, runner=None):
+    """Wait briefly for a known delegated run's report, without controlling or restarting the run."""
+    from . import delegate
+    ok, text, undo = result
+    run_id = (call.get('args') or {}).get('id')
+    if (ok or call.get('tool') != 'job_status' or not delegate.valid_id(run_id) or
+            f'no report for run {run_id} ' not in (text or '') or not os.path.isfile(delegate.paths(cfg, run_id)['log'])):
+        return result
+    job.emit('note', text='The run has no report yet. Checking automatically until it arrives or this check times out.')
+    deadline = time.monotonic() + STATUS_WAIT_SECONDS
+    while not job.cancel.is_set():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False, 'The report did not arrive before this status check timed out; the run may still be active.', None
+        if job.cancel.wait(min(STATUS_POLL_SECONDS, remaining)):
+            break
+        if delegate.load_report(cfg, run_id):
+            if job.cancel.is_set():
+                break
+            return run_tool(cfg, call, runner)
+    return False, 'Status checking stopped; the delegated run was not stopped.', None
+
+
 def job_ref(text):
     """The id the dashboard shows the work under (a backlog task, a delegated run, a test job, a scout request)."""
     m = re.search(r'\b(t\d+|test-\d+-[0-9a-f]+|\d{10}-\d+(?:-\d+)?|q\d+)\b', text or '')
@@ -139,6 +354,7 @@ class Job:
     def __init__(self, sub, cid, msg):
         self.sub, self.cid, self.msg = sub, cid, msg
         self.cancel, self.cond, self.events, self.finished = threading.Event(), threading.Condition(), [], False
+        self.mutation_attempted = False
 
     def emit(self, kind, **data):
         with self.cond:
@@ -174,6 +390,7 @@ class Engine:
         self.owner_fn = owner_fn or (lambda: None)
         self.own_machine_fn = own_machine_fn or (lambda user: None)
         self.jobs, self.lock, self.act_lock, self.plans_running = {}, threading.Lock(), threading.Lock(), set()
+        self.action_admission = ActionAdmission()
 
     # -- reading
 
@@ -201,17 +418,28 @@ class Engine:
     def send(self, user, cid, text, attachments=(), edit=None, retry=None, model=None, settings=None):
         """Starts an answer; returns its Job. `edit`: a user message id to replace (and what followed it); `retry`: an
         assistant message id to answer again."""
-        sub = user['sub']
         if settings:   # checked before anything is stored: a bad value leaves no orphan message
             try:
                 chatctl.check(settings, lambda pick: chat.valid_pick(pick, self.cfg_fn()))
             except chatctl.ControlError as e:
                 raise chat.ChatError(str(e)) from e
+        with self.store.lock, chat.store_locked(self.store.folder):
+            if cid and (edit or retry):
+                self._require_history_idle(user['sub'], cid)
+            return self._send_locked(user, cid, text, attachments, edit, retry, model, settings)
+
+    def _send_locked(self, user, cid, text, attachments, edit, retry, model, settings):
+        sub = user['sub']
         if retry:
             conv = self.store.get(sub, cid)
             ids = [m['id'] for m in conv['messages']]
             if retry not in ids or ids.index(retry) == 0:
                 raise chat.ChatError('That answer is gone: reload the chat.')
+            answer = conv['messages'][ids.index(retry)]
+            if answer.get('role') != 'assistant':
+                raise chat.ChatError('That is not an answer: reload the chat.')
+            if answer.get('status') in ('stopped', 'failed', 'streaming') and answer.get('retry_safety') != 'safe':
+                raise chat.ChatError('This answer may have started work: check its status before sending a new request.')
             prompt = conv['messages'][ids.index(retry) - 1]
             self.store.truncate_after(sub, cid, prompt['id'])
         else:
@@ -229,15 +457,39 @@ class Engine:
         if settings:
             self.set_settings(user, cid, settings)
         answer = {'id': chat.new_id('m'), 'role': 'assistant', 'text': '', 'at': chat.now_iso(self.clock), 'status': 'streaming',
-                  'model': None, 'cards': []}
+                  'model': None, 'cards': [], 'retry_safety': 'safe'}
         self.store.put_message(sub, cid, answer)
         job = Job(sub, cid, answer)
         job.emit('start', conversation=cid, prompt=prompt, message=answer)
         with self.lock:
             self.jobs = {k: j for k, j in self.jobs.items() if not j.finished}
             self.jobs[answer['id']] = job
-        threading.Thread(target=self._answer, args=(job, user, prompt), daemon=True, name='tutti-chat').start()
+        self._start_job(job, user, prompt)
         return job
+
+    def _start_job(self, job, user, prompt):
+        answer, sub, cid = job.msg, job.sub, job.cid
+        try:
+            threading.Thread(target=self._answer, args=(job, user, prompt), daemon=True, name='tutti-chat').start()
+        except (RuntimeError, OSError) as e:
+            with self.lock:
+                self.jobs.pop(answer['id'], None)
+            answer.update(status='failed', note='Chat could not start the answer: try again.')
+            self.store.update_message(sub, cid, answer)
+            raise chat.ChatError('Chat could not start the answer: try again.') from e
+
+    def _require_history_idle(self, sub, cid=None):
+        """Called with the store lock held: registration takes store lock, then engine lock, in the same order."""
+        with self.lock:
+            active = any(j.sub == sub and (cid is None or j.cid == cid) and not j.finished for j in self.jobs.values())
+        if active:
+            raise chat.ChatError('A Chat answer is still running: stop it and wait for it to finish before changing its history.')
+
+    def change_history(self, sub, cid, change):
+        """Serialize destructive history changes with local job registration."""
+        with self.store.lock, chat.store_locked(self.store.folder):
+            self._require_history_idle(sub, cid)
+            return change()
 
     def set_settings(self, user, cid, changes):
         """The conversation's model, effort and mode (and the user's defaults for new chats, and the compaction share)."""
@@ -270,13 +522,19 @@ class Engine:
                 needs,  # "q3 retry": an answer to one of Tutti's questions (docs/NEEDS.md)
                 welcome,  # What did I miss?: the welcome-back summary since the user's last one (docs/WELCOME.md)
             )
-            reply = needs.chat_reply(cfg, user, prompt.get('text'))
+            reply = self._needs_reply(job, needs, cfg, user, prompt.get('text'))
             if reply:
                 self._say(job, reply)
             elif welcome.asks_miss(prompt.get('text')):
+                self._mark_uncertain(job)
                 self._say(job, welcome.chat_answer(cfg, user))
+            elif call and 'answer' in call:   # /help
+                self._say(job, call['answer'])
             elif call and 'error' in call:
                 self._say(job, call['error'], chat.ChatError)
+            elif call and 'tool' in call and self.settings_of(job)['mode'] == 'answer' and chat.model_tools().get(
+                    call['tool'], {}).get('mutating'):
+                self._say(job, 'This chat is in Just ask mode, so I do not start work here. Switch the mode to Autonomous to run it.')
             elif call and self.settings_of(job)['mode'] == 'plan':
                 self._propose(job, user, cfg, [call], None, 'plan')
                 self._say(job, 'Here is the plan. Review it, change a step\'s text or leave steps out, then Run the plan.')
@@ -287,14 +545,16 @@ class Engine:
             msg['status'] = 'stopped' if job.cancel.is_set() else 'done'
         except Exception as e:   # the page shows a plain message; the log line names the cause
             msg['status'] = 'failed'
-            msg['note'] = ('Something went wrong while answering, so this answer is incomplete. Retry; if it fails again, the '
-                           'dashboard\'s log names the cause.')
+            msg['note'] = str(e) if isinstance(e, (CliStreamUncertain, IncompleteAfterAction)) else (
+                'Something went wrong while answering, so this answer is incomplete. Retry; if it fails again, the '
+                'dashboard\'s log names the cause.')
             job.emit('note', text=msg['note'])
             msg['error'] = f'{type(e).__name__}: {e}'[:300]
         finally:
             try:
                 if job.cancel.is_set() and msg['status'] != 'failed':
                     msg['status'] = 'stopped'
+                self._note_uncertain(msg)
                 self.store.update_message(job.sub, job.cid, msg)   # a chat deleted or edited meanwhile is left as it is
                 self._save_usage(job)
             finally:
@@ -307,6 +567,15 @@ class Engine:
         except chat.ChatError:
             conv = None
         return chatctl.resolve(data, conv)
+
+    def _needs_reply(self, job, needs, cfg, user, text):
+        if needs.ANSWER_RX.match(text or ''):
+            self._mark_uncertain(job)
+        return needs.chat_reply(cfg, user, text)
+
+    def _note_uncertain(self, msg):
+        if msg['status'] in ('stopped', 'failed') and msg.get('retry_safety') != 'safe':
+            msg['note'] = ((msg.get('note') or '') + ' Work may have started; check its status before sending a new request.').strip()
 
     def _save_usage(self, job):
         """Adds the answer's tokens to the conversation's totals and sends them to the page."""
@@ -327,8 +596,10 @@ class Engine:
         job.emit('model', model=BUILTIN)
         job.emit('delta', text=text)
 
-    def execute(self, user, cfg, call, card):
+    def execute(self, user, cfg, call, card, job=None):
         """Runs one call for `user` into `card`: the role check, the audit line, the MCP tool's call, Undo where possible."""
+        if job and chat.model_tools().get(call['tool'], {}).get('mutating'):
+            job.mutation_attempted = True
         with self.act_lock:   # the daily limit and its audit line together: two quick Confirms cannot both pass
             why = chat.refusal(user, call, cfg, self.done_today(user))
             if why:
@@ -340,23 +611,48 @@ class Engine:
             except auth.AuthError:
                 card.update(state='refused', text='Only an admin can do that.', call=None)
                 return card
-        ok, text, undo = run_tool(cfg, call, self.runner)
+        if job and chat.model_tools().get(call['tool'], {}).get('mutating'):
+            self._mark_uncertain(job)
+        self.action_admission.mark_started()
+        result = run_tool(cfg, call, self.runner)
+        ok, text, undo = follow_missing_report(cfg, call, job, result, self.runner) if job else result
         card.update(state='done' if ok else 'failed', text=plain(text, ok), ref=job_ref(text), undo=undo, call=None)
         return card
+
+    def _mark_uncertain(self, job):
+        """Persist before dispatch; a missing answer must not start additional work."""
+        def mark(data):
+            conv = self.store.conversation(data, job.cid)
+            msg = next((m for m in conv['messages'] if m.get('id') == job.msg['id']), None)
+            if not msg or msg.get('status') != 'streaming':
+                raise chat.ChatError('The answer is no longer active: reload the chat before starting work.')
+            msg['retry_safety'] = 'uncertain'
+        self.store.change(job.sub, mark)
+        job.msg['retry_safety'] = 'uncertain'
+
+    def _mark_cli(self, job, cand):
+        if cand['kind'] != 'ollama':
+            self._mark_uncertain(job)  # CLI agents can use native tools, including during summarisation
 
     def new_card(self, call):
         return {'id': chat.new_id('k'), 'tool': call['tool'], 'label': chat.describe(call), 'at': chat.now_iso(self.clock)}
 
     def _act(self, job, user, cfg, call):
         """A request the user wrote in so many words: it runs at once (their words are the confirmation)."""
-        card = self.execute(user, cfg, call, self.new_card(call))
+        card = self.execute(user, cfg, call, self.new_card(call), job=job)
         job.msg['cards'].append(card)
         job.emit('card', card=card)
         self._say(job, {'done': 'Done.', 'failed': 'That did not work; the card says why.',
                         'refused': 'I can\'t do that for you; the card says why.'}[card['state']])
 
     MODE_NOTE = {'auto': 'Mode: autonomous. A tool that changes something runs at once (after the server\'s role checks) and '
-                         'its result comes back to you; say what you did.',
+                         'its result comes back to you; say what you did. When the user asks for work, do it yourself with '
+                         'ACTION delegate_task (or backlog_add for later): never ask them to type a command, and your own '
+                         'command line tool being read-only does not limit ACTION lines. Before you delegate, check the brief is '
+                         'complete: find what you can yourself (the backlog, the repos, the dashboard\'s state, earlier '
+                         'messages, the tools); ask the user one short question only when the work truly cannot start '
+                         'without an answer only they have (a choice of theirs, a credential step, money, taste).',
+                 'answer': 'Mode: just ask. Answer only: never call a tool that changes something; describe what could be done.',
                  'ask': 'Mode: ask before acting. A tool that changes something is only proposed: the user confirms it.',
                  'plan': 'Mode: plan review. Propose every step as tool calls in one go; the user reviews and edits the plan, '
                          'then it runs as a whole.'}
@@ -409,26 +705,29 @@ class Engine:
             system = self._system(snap, user, known, cand, s['mode'], context)
             escalate = s['model'] == 'auto' and cand['kind'] == 'ollama' and online_left
             try:
+                self._mark_cli(job, cand)
                 messages = self._context(job, cfg, cand, system, conv, history, turns, s)
+                self._check_summary_cancelled(job)
+                summary = conv.get('summary') or {}
+                if summary.get('upto') in [m['id'] for m in history]:
+                    job.untrusted = True
                 pre = chatctl.route_reason(cand, cfg, messages, history, s['effort']) if escalate else None
                 if pre:
                     failed.append(pre)
                     held.append((cand, messages))
                     continue
                 job.bad_calls, job.used_tools, job.escalate = 0, False, escalate
-                if self._converse(job, user, cfg, cand, messages, known):
-                    weak = self._weak(job, cand, escalate, failed)
-                    if weak:
-                        kept = kept or weak
-                        continue
-                    why = cand['before'] + failed
-                    if why:
-                        self._fallback(job, f'Answered by {cand["label"]} because ' + '; '.join(why) + '.')
+                stop, weak = self._candidate_answer(job, user, cfg, cand, messages, known, escalate, failed)
+                kept = kept or weak
+                if stop:
                     return
-            except (OSError, ValueError):
+            except (OSError, ValueError, SummaryCancelled) as e:
+                if job.cancel.is_set():
+                    return
+                self._guard_incomplete_action(job, e)
                 failed.append(f'{cand["label"]} did not answer')   # the next model: a machine went to sleep, a tunnel is down
                 self._reset(job)
-        if self._last_resort(job, user, cfg, known, held, kept, failed):
+        if self._last_resort(job, user, cfg, known, held, kept, failed) or job.cancel.is_set():
             return
         text = chat.builtin_answer(history[-1].get('text') or '', snap) if history else None
         self._say(job, text or ('No model of the household is free to answer right now. I can still answer from the dashboard: '
@@ -437,6 +736,21 @@ class Engine:
         scope = {'local': 'No local model can answer now', 'online': 'No online agent can answer now'}.get(s['model'],
                                                                                                          'No model can answer now')
         self._fallback(job, f'{scope}: ' + ('; '.join(skipped + failed) or 'none is set up') + '. Pick another model above, or Auto.')
+
+    def _candidate_answer(self, job, user, cfg, cand, messages, known, escalate, failed):
+        answered = self._converse(job, user, cfg, cand, messages, known)
+        if job.cancel.is_set():
+            return True, None
+        if not answered:
+            self._guard_incomplete_action(job, ValueError('model gave no answer'))
+            return False, None
+        weak = self._weak(job, cand, escalate, failed)
+        if weak:
+            return False, weak
+        why = cand['before'] + failed
+        if why:
+            self._fallback(job, f'Answered by {cand["label"]} because ' + '; '.join(why) + '.')
+        return True, None
 
     def _messages(self, cfg, cand, system, conv, history, turns):
         w = (cfg.get('workers') or {}).get(cand['worker']) or {}
@@ -458,17 +772,25 @@ class Engine:
             return messages
         summary = {'upto': old[-1]['id'], 'text': self._summarise(cfg, cand, old, (conv.get('summary') or {}).get('text', ''), job.cancel),
                    'at': chat.now_iso(self.clock)}
-        conv['summary'] = summary
+        if job.cancel.is_set():
+            raise SummaryCancelled
 
         def go(d):
+            if job.cancel.is_set():
+                raise SummaryCancelled
             self.store.conversation(d, job.cid)['summary'] = summary
         self.store.change(job.sub, go)
+        conv['summary'] = summary
         job.emit('compacted', upto=summary['upto'], text=f'Earlier messages were summarised to keep within {pct} % of the '
                                                           f'{cand["label"]}\'s context.')
         return self._messages(cfg, cand, system, conv, history, turns)
 
     def _summarise(self, cfg, cand, old, previous, cancel):
         """A summary by the model itself (no tools), else each message's first line."""
+        # CLI agents may have native tools even when Tutti's tools are disabled. Never launch one just to summarise
+        # historical text that could contain instructions to act.
+        if cand['kind'] != 'ollama':
+            return chatctl.summary_text(old, previous)
         body = '\n\n'.join(f'{m["role"].upper()}: {m.get("text") or ""}' for m in old)
         msgs = [{'role': 'system', 'content': chatctl.SUMMARY_PROMPT},
                 {'role': 'user', 'content': (f'Earlier summary:\n{previous}\n\n' if previous else '') + body[-24000:]}]
@@ -477,6 +799,11 @@ class Engine:
         except (OSError, ValueError):
             text = ''
         return text.strip() or chatctl.summary_text(old, previous)
+
+    @staticmethod
+    def _check_summary_cancelled(job):
+        if job.cancel.is_set():
+            raise SummaryCancelled
 
     def _system(self, snap, user, known, cand, mode, context):
         system = chat.system_prompt(snap, user, known, native_tools=cand['kind'] == 'ollama') + '\n' + self.MODE_NOTE[mode]
@@ -489,7 +816,7 @@ class Engine:
         """Auto, after a local answer: a weak one (declined, unsure, empty, bad tool calls) is kept aside and cleared, so
         an online model answers with the same context; None when the answer stands."""
         post = chatctl.answer_reason(job.msg['text'], job.bad_calls, job.used_tools) if escalate else None
-        if not post or any(c.get('state') == 'done' for c in job.msg['cards']):
+        if not post or job.mutation_attempted or any(c.get('state') == 'done' for c in job.msg['cards']):
             return None
         failed.append(post)
         kept = (cand, job.msg['text'], list(job.msg['cards']), job.msg.get('model'))
@@ -509,11 +836,25 @@ class Engine:
         for cand, messages in held:
             try:
                 if self._converse(job, user, cfg, cand, messages, known):
+                    if job.cancel.is_set():
+                        return False
                     self._fallback(job, f'Answered by {cand["label"]} after all: ' + '; '.join(failed) + ', and no online model could.')
                     return True
-            except (OSError, ValueError):
+                if job.cancel.is_set():
+                    return False
+                self._guard_incomplete_action(job, ValueError('model gave no answer'))
+            except (OSError, ValueError) as e:
+                if job.cancel.is_set():
+                    return False
+                self._guard_incomplete_action(job, e)
                 self._reset(job)
         return False
+
+    @staticmethod
+    def _guard_incomplete_action(job, error):
+        if job.mutation_attempted:
+            raise IncompleteAfterAction('The model failed before completing its answer after an action was attempted. '
+                                        'Inspect the action cards before retrying; no other model was tried.') from error
 
     def _reset(self, job):
         """A clean answer for the next model: what the last one wrote and proposed is dropped (done actions stay)."""
@@ -578,6 +919,9 @@ class Engine:
         """One streamed answer: (its text, its native tool calls) or (None, []) when the model gave nothing."""
         got, text, calls, counted = False, '', [], None
         for piece in self.streams(cand, cfg, msgs, job.cancel):
+            if isinstance(piece, dict) and piece.get('progress') and not (piece.get('usage') or piece.get('tool_calls')):
+                job.emit('note', text=piece['progress'])
+                continue
             if not got:
                 job.msg['model'] = cand['label']
                 job.emit('model', model=cand['label'])
@@ -614,6 +958,8 @@ class Engine:
         results += [(c.get('tool') if isinstance(c, dict) else '?', f'skipped: at most {MAX_CALLS} calls at a time; ask again')
                     for c in calls[MAX_CALLS:]]
         for raw in calls[:MAX_CALLS]:
+            if job.cancel.is_set():
+                return results, False
             call = chat.validate(raw, known)
             if isinstance(call, str):
                 results.append(((raw or {}).get('tool') if isinstance(raw, dict) else '?', f'refused: {call}'))
@@ -621,23 +967,60 @@ class Engine:
                 continue
             job.bad_calls, job.used_tools = 0, True
             if not tools[call['tool']]['mutating']:
-                _ok, text, _ = run_tool(cfg, call, self.runner)
-                results.append((call['tool'], text if len(text) <= 3000 else '(the start is cut)\n' + text[-3000:]))
+                results.append((call['tool'], self._read_tool(job, user, cfg, call)))
             else:
                 mutating.append(call)
+        if job.cancel.is_set():
+            return results, False
         mode = getattr(job, 'mode', 'auto')
         if mode == 'auto' and getattr(job, 'untrusted', False):
             mode = 'ask'   # it read a file, a log or an attachment: their text must not be able to start work by itself
         if mutating and mode == 'auto':   # autonomous: it acts, then shows the card with Undo
-            for call in mutating:
-                card = self.execute(user, cfg, call, self.new_card(call))
-                job.msg['cards'].append(card)
-                job.emit('card', card=card)
-                results.append((call['tool'], f'{card["state"]}: {card.get("text") or ""}'))
+            return self._run_mutations(job, user, cfg, mutating, results), False
+        if mutating and mode == 'answer':   # just ask (owner, 2026-11-17): nothing that changes something runs or is proposed
+            results.extend((c['tool'], 'not run: this chat is in Just ask mode') for c in mutating)
             return results, False
         if mutating:
             self._propose(job, user, cfg, mutating, cand, mode)
         return results, bool(mutating)
+
+    def _read_tool(self, job, user, cfg, call):
+        if call['tool'] == 'chat_history':
+            # The model cannot name another user or conversation. Historical text may contain untrusted content.
+            cursor = call['args']['cursor']
+            if not re.fullmatch(r'\d{1,6}:\d{1,6}|0', cursor):
+                return 'refused: use cursor 0 or the next_cursor returned by chat_history'
+            index, offset = (0, 0) if cursor == '0' else map(int, cursor.split(':'))
+            try:
+                messages = self.store.get(job.sub, job.cid)['messages']
+            except chat.ChatError:
+                return 'refused: this conversation was deleted; start a new chat'
+            if index >= len(messages):
+                return json.dumps({'messages': [], 'next_cursor': None})
+            msg = messages[index]
+            text = str(msg.get('text') or '')
+            if offset > len(text):
+                return 'refused: cursor is beyond this message; use the returned next_cursor'
+            end = min(len(text), offset + 1500)
+            next_cursor = f'{index}:{end}' if end < len(text) else (f'{index + 1}:0' if index + 1 < len(messages) else None)
+            job.untrusted = True
+            return json.dumps({'role': msg.get('role'), 'text': text[offset:end], 'next_cursor': next_cursor,
+                               'retention': 'older messages beyond the stored history may have been removed'})
+        if call['tool'] == 'job_status' and user.get('role') != 'admin':
+            return 'refused: job reports and logs are for admins; ask an admin to check the run'
+        result = run_tool(cfg, call, self.runner)
+        _ok, text, _ = follow_missing_report(cfg, call, job, result, self.runner)
+        return text if len(text) <= 3000 else '(the start is cut)\n' + text[-3000:]
+
+    def _run_mutations(self, job, user, cfg, calls, results):
+        for call in calls:
+            if job.cancel.is_set():
+                break
+            card = self.execute(user, cfg, call, self.new_card(call), job=job)
+            job.msg['cards'].append(card)
+            job.emit('card', card=card)
+            results.append((call['tool'], f'{card["state"]}: {card.get("text") or ""}'))
+        return results
 
     def _propose(self, job, user, cfg, calls, cand, mode):
         """Ask before acting: one card to confirm per call. Plan review: one plan card with every step."""
@@ -658,16 +1041,16 @@ class Engine:
             job.msg['cards'].append(card)
             job.emit('card', card=card)
 
+    @admitted_action
     def run_plan(self, user, cid, mid, kid, edits=None, yes=True):
         """Runs a reviewed plan as a whole (each step with the same role checks, audit line and Undo), or cancels it."""
         cfg = self.cfg_fn()
 
         def claim(card):
-            stale = card.get('state') == 'running' and kid not in self.plans_running   # cut off by a restart: go on
-            if stale and yes:
-                self.plans_running.add(kid)
-                return dict(card)
-            if card.get('state') != 'plan' and not stale:
+            if card.get('state') == 'running':
+                raise chat.ChatError('This plan may still be running or may have stopped after starting work: inspect its steps '
+                                     'and their results before issuing a new request.')
+            if card.get('state') != 'plan':
                 raise chat.ChatError('That plan already ran or was cancelled.')
             if not yes:
                 card.update(state='cancelled', text='Cancelled: nothing was done.')
@@ -679,7 +1062,8 @@ class Engine:
             kept = {st['id'] for st in steps}
             for st in card['steps']:
                 st['state'] = 'pending' if st['id'] in kept else 'skipped'
-            card.update(state='running', steps=steps + [st for st in card['steps'] if st['id'] not in kept])
+            card.update(state='running', steps=steps + [st for st in card['steps'] if st['id'] not in kept],
+                        text='Plan running. If interrupted, inspect the steps and actual work before issuing a new request.')
             self.plans_running.add(kid)
             return dict(card)
         card = self._card_change(user['sub'], cid, mid, kid, claim)
@@ -687,11 +1071,17 @@ class Engine:
             return card
         try:
             self._run_steps(user, cfg, card)
-        finally:   # whatever happens, the card ends in a state the page can act on
-            self.plans_running.discard(kid)
+        except Exception:
+            card.update(state='running', text='The plan stopped unexpectedly; some work may have started. '
+                                              'Inspect its steps and their results before issuing a new request.')
+            self._card_change(user['sub'], cid, mid, kid, lambda k: k.update(card))
+            raise
+        else:
             done = sum(1 for st in card['steps'] if st['state'] == 'done')
             card.update(state='done', text=f'{done} of {sum(1 for st in card["steps"] if st["state"] != "skipped")} steps done.')
             self._card_change(user['sub'], cid, mid, kid, lambda k: k.update(card))
+        finally:
+            self.plans_running.discard(kid)
         return card
 
     def _run_steps(self, user, cfg, card):
@@ -720,6 +1110,7 @@ class Engine:
             return fn(card)
         return self.store.change(sub, go)
 
+    @admitted_action
     def confirm(self, user, cid, mid, kid, yes=True):
         """Runs (or cancels) what a model proposed. The card is marked running under the lock, the tool runs outside it (one
         slow call never blocks other users' chats), then the result is saved."""
@@ -745,6 +1136,7 @@ class Engine:
 
     # -- Undo
 
+    @admitted_action
     def undo(self, user, cid, mid, kid, step=None):
         """Takes back what a card (or one step of a plan) did."""
         cfg = self.cfg_fn()
@@ -766,6 +1158,7 @@ class Engine:
                 auth.act_for(self.folder, user, target, PREFIX + 'undo ' + card['label'][:80], detail=card['label'], clock=self.clock)
             except auth.AuthError as e:
                 raise chat.ChatError('Only an admin can undo that.') from e
+            self.action_admission.mark_started()
             ok, text, _ = run_tool(cfg, back, self.runner)
             if not ok:
                 raise chat.ChatError(f'Undo did not work: {plain(text, False)}')
@@ -862,12 +1255,13 @@ def _rename(engine, user, data, _snap):
 
 
 def _delete(engine, user, data, _snap):
-    engine.store.delete(user['sub'], str(data.get('id') or ''))
+    cid = str(data.get('id') or '')
+    engine.change_history(user['sub'], cid, lambda: engine.store.delete(user['sub'], cid))
     return 200, {'ok': True}
 
 
 def _clear(engine, user, _data, _snap):
-    engine.store.clear(user['sub'])
+    engine.change_history(user['sub'], None, lambda: engine.store.clear(user['sub']))
     return 200, {'ok': True}
 
 
@@ -906,7 +1300,8 @@ def _branch(engine, user, data, _snap):
 
 
 def _empty(engine, user, data, _snap):
-    engine.store.empty(user['sub'], str(data.get('id') or ''))
+    cid = str(data.get('id') or '')
+    engine.change_history(user['sub'], cid, lambda: engine.store.empty(user['sub'], cid))
     return 200, {'ok': True}
 
 
@@ -966,12 +1361,52 @@ def own_machine(collector, user):
 
 
 def engine_of(collector):
-    eng = collector.__dict__.get('chat_engine')
-    if eng is None:
-        eng = Engine(lambda: collector.cfg, collector.snapshot, owner_fn=lambda: owner_of(collector),
-                     own_machine_fn=lambda u: own_machine(collector, u))
-        collector.chat_engine = eng
-    return eng
+    with _ENGINE_INIT_LOCK:
+        eng = collector.__dict__.get('chat_engine')
+        if eng is None:
+            eng = Engine(lambda: collector.cfg, collector.snapshot, owner_fn=lambda: owner_of(collector),
+                         own_machine_fn=lambda u: own_machine(collector, u))
+            collector.chat_engine = eng
+        return eng
+
+
+def store_has_streaming(path):
+    """Read one regular Chat store without following links or blocking on a FIFO."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, encoding='utf8') as f:
+            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                raise ValueError('not a regular file')
+            data = json.load(f)
+        conversations = data['conversations']
+        if not isinstance(conversations, list):
+            raise ValueError('conversations is not a list')
+        for conversation in conversations:
+            messages = conversation['messages']
+            if not isinstance(messages, list):
+                raise ValueError('messages is not a list')
+            if any(message.get('status') == 'streaming' for message in messages):
+                return True
+        return False
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as e:
+        raise chat.ChatError(f'Chat state cannot be checked ({type(e).__name__}): repair it before restarting') from e
+
+
+def guard_chat_restart(engine, action):
+    """Block new Chat sends while checking for live answers and executing the in-process restart."""
+    if not getattr(os, 'O_NOFOLLOW', 0) or not auth.fcntl:
+        raise chat.ChatError('Chat restart cannot be guarded on this platform: wait for a supported coordinated restart')
+    with engine.action_admission.restart(), engine.store.lock, chat.store_locked(engine.store.folder):
+        if engine.live_ids():
+            raise chat.ChatError('Chat is answering: wait for the answer to finish, then restart')
+        try:
+            names = os.listdir(engine.store.folder)
+        except OSError as e:
+            raise chat.ChatError(f'Chat state cannot be listed ({type(e).__name__}): repair it before restarting') from e
+        for name in names:
+            if name.endswith('.json') and store_has_streaming(os.path.join(engine.store.folder, name)):
+                raise chat.ChatError('Chat has an unfinished answer: open it and resolve it before restarting')
+        return action()
 
 
 def handle(collector, headers, raw):

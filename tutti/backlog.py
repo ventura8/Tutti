@@ -70,6 +70,15 @@ def key_of(t):
     return (t['repo'], re.sub(r'\s+', ' ', t['title'].strip().lower()))
 
 
+def compatible_details(first, second):
+    """Unspecified metadata keeps title-only dedupe; explicitly different scopes or checks are distinct."""
+    a, b = first.get('scope') or [], second.get('scope') or []
+    if a and b and (any(x not in b for x in a) or any(x not in a for x in b)):
+        return False
+    a, b = str(first.get('check') or '').strip(), str(second.get('check') or '').strip()
+    return not (first.get('check_explicit', True) and second.get('check_explicit', True) and a and b and a != b)
+
+
 def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', notes=()):
     if size not in SIZES:
         raise BacklogError(f'size "{size}": use one of {", ".join(SIZES)} (small, medium, large)')
@@ -80,9 +89,9 @@ def new_task(repo, title, scope=(), check='', size='S', source='orchestrator', n
 
 
 def add(data, task):
-    """Adds the task unless an open or reviewed one with the same repo and title exists; returns (task, added?)."""
+    """Adds unless an open or reviewed task has the same title and compatible explicit details; returns (task, added?)."""
     for t in data['tasks']:
-        if key_of(t) == key_of(task) and t['status'] not in ('done', 'dropped'):
+        if key_of(t) == key_of(task) and t['status'] not in ('done', 'dropped') and compatible_details(t, task):
             return t, False
     task = {**task, 'id': f't{data["next"]}'}
     data['next'] += 1
@@ -109,12 +118,14 @@ def queued(data, repos=None):
 
 
 def listing(data, show_all=False):
+    from . import priority
     rows = []
     for t in data['tasks']:
         if not show_all and t['status'] in ('done', 'dropped'):
             continue
         tries = len(t['attempts'])
-        rows.append(f'{t["id"]:5} {t["status"]:12} {t["repo"]:10} {t["size"]} {tries} attempt(s)  {t["title"][:90]}')
+        level = f'P{priority.task_level(t)}' if 'priority' in t else 'untriaged'
+        rows.append(f'{t["id"]:5} {t["status"]:12} {t["repo"]:10} {t["size"]} {tries} attempt(s)  {t["title"][:90]} [{level}]')
         if t.get('parked'):
             rows.append(f'      needs a person: {t["parked"]}')
     return '\n'.join(rows) or 'the backlog is empty: tutti backlog add <repo> "<title>" --check "<command>", or tutti backlog seed <repo>'
@@ -259,7 +270,7 @@ def _out(run, argv, **kw):
         return ''
 
 
-def sources(repo, run=subprocess.run, untested=False):
+def sources(repo, run=subprocess.run, untested=False, allow_gaps=True):
     """(title, scope, source) of every task the repo's safe sources name: FEEDBACK.md's open items, owner-tagged TODO/FIXME,
     the repo's `gaps` command (lint findings, coverage gaps: one per line), and with `untested` the source files without a
     test (autopilot.fill_room)."""
@@ -271,7 +282,7 @@ def sources(repo, run=subprocess.run, untested=False):
             found += [(t, [], 'feedback') for t in feedback_items(f.read())]
     grep = _out(run, [worktree.git_bin(), '-C', path, 'grep', '-nE', TODO_ERE])
     found += [(t, [p], 'todo') for t, p in todo_items(grep.splitlines())]
-    if repo.get('gaps'):
+    if repo.get('gaps') and (allow_gaps() if callable(allow_gaps) else allow_gaps):
         res = _out(run, ['bash', '-c', repo['gaps']], cwd=path)
         found += [(t, [p] if p else [], 'gaps') for t, p in gap_items(res.splitlines())]
     if untested and repo.get('untested', True):   # off for a repo whose coverage gate already proves every file tested

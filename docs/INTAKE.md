@@ -1,5 +1,12 @@
 # All work through Tutti
 
+When adding directly to the backlog or through auto-fill, a missing scope or check does not by itself distinguish matching
+repository and normalized title. If both additions explicitly give different scopes or different checks, they remain
+separate tasks. Auto-fill still avoids re-adding compatible done or dropped tasks. Household shared-task keys are unchanged;
+this does not establish semantic deduplication across differently worded tasks (t210). Household moved notices are scoped
+to their project and require compatible nonempty scopes before acting; ambiguous queued work waits and candidate closure
+is deferred pending reconciliation.
+
 Every AI session in the household (the coordinator's Claude Code, a session on another computer, a person's own agent)
 does its work as a Tutti task, so it is scheduled, paced against its account and visible on the dashboard. This page is
 how a session does that, how Claude itself becomes a Tutti worker, and how the gaps show.
@@ -30,7 +37,7 @@ copy of it and leaves the rest of the file as it was. Commit it like any other c
 
 | Step | MCP tool | CLI |
 | --- | --- | --- |
-| Find or add the task | `backlog_list`, `backlog_add` | `tutti backlog list`, `tutti backlog add <repo> "<title>"` |
+| Find or add the task | `backlog_list`, `backlog_add` | `tutti backlog list`, `tutti backlog add <repo> "<title>"`; set a task with `tutti backlog priority <id> P0` |
 | Take it | `backlog_claim` | `tutti backlog claim <id> --who <session>` |
 | Record progress | `backlog_update` | `tutti backlog note <id> --note "<text>"` |
 | Use a machine or a device | `lease_claim`, `lease_release`, `leases` | `tutti lease claim machine\|device <name> --who <session> --task <id>` |

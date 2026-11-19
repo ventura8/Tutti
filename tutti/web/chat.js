@@ -96,11 +96,24 @@ function mdNode(n) {
     return node;
 }
 
-function mdRender(text) {
-    const frag = document.createDocumentFragment();
-    for (const n of mdParse(text)) frag.append(mdNode(n));
-    return frag;
-}
+// Cache only the private parse tree, keyed by the message object; DOM nodes are always rebuilt.
+const mdRender = (() => {
+    const trees = new WeakMap();
+    const freezeTree = (nodes) => {
+        for (const node of nodes) {
+            if (typeof node === 'object') { freezeTree(node.c); Object.freeze(node); }
+        }
+        return Object.freeze(nodes);
+    };
+    return (text, message) => {
+        const frag = document.createDocumentFragment();
+        const cached = trees.get(message);
+        const tree = cached && cached.text === text ? cached.tree : freezeTree(mdParse(text));
+        if (!cached || cached.text !== text) trees.set(message, { text, tree });
+        for (const n of tree) frag.append(mdNode(n));
+        return frag;
+    };
+})();
 
 function codeBlock(code, lang) {
     const pre = el('pre', { class: 'md__pre', tabindex: 0, 'aria-label': lang ? `Code, ${lang}` : 'Code' }, el('code', { text: code }));
@@ -152,6 +165,7 @@ function ndjson(buffer) {
 const CHAT = {
     list: [], suggestions: [], role: 'admin', limits: { attachment_bytes: 32768, attachments: 3, text: 8000 }, host: '',
     conv: null, query: '', loading: true, failed: '', streaming: null, controller: null, pending: [], stick: true, unseen: 0,
+    readingFiles: 0, pickingFiles: false,
 };
 const CHAT_TOKEN = (typeof document !== 'undefined' && document.querySelector('meta[name="tutti-token"]')?.content) || '';
 const cq = (id) => document.getElementById(id);
@@ -222,6 +236,17 @@ function drawPrivacy() {
         'account can read. Other members never see them; admins see only the actions the chat took (in the audit log), never your ' +
         'messages. Models of the household answer; nothing is sent elsewhere except to the account that answers.';
     cq('chat-activity-open').hidden = CHAT.role !== 'admin';
+    const wrap = cq('chat-main-wrap');
+    if (wrap) wrap.hidden = CHAT.role !== 'admin';
+}
+
+function renderChatMain(m) {
+    const wrap = cq('chat-main-wrap');
+    const pick = cq('chat-main-pick');
+    if (!wrap || !pick || !m) return;
+    wrap.hidden = CHAT.role !== 'admin';
+    if (document.activeElement === pick) return;
+    if (typeof mainOptions === 'function') pick.replaceChildren(...mainOptions(m));
 }
 
 async function openConv(id, focus = true) {
@@ -273,7 +298,8 @@ function drawLog() {
     const upto = CHAT.conv.summary?.upto;
     log.replaceChildren(...msgs.flatMap((m) => {
         const node = chatMessage(m, { editable: m.role === 'user' && !CHAT.streaming, last: m === lastUser,
-            retryable: m === lastAnswer && !CHAT.streaming && !(m.cards || []).length });
+            retryable: m === lastAnswer && !CHAT.streaming && !(m.cards || []).length &&
+                (!['stopped', 'failed', 'streaming'].includes(m.status) || m.retry_safety === 'safe') });
         return m.id === upto ? [node, el('p', { class: 'chat__compacted', role: 'note', text: 'Earlier messages above are summarised for the model to save context.' })] : [node];
     }));
     scrollEnd(true);
@@ -295,7 +321,7 @@ function chatMessage(m, opts) {
     const status = statusText(m);
     const body = el('div', { class: 'msg__body md' });
     if (mine) body.append(...String(m.text || '').split('\n').flatMap((line, i) => (i ? [el('br'), line] : [line])));
-    else if (m.text) body.append(mdRender(m.text));
+    else if (m.text) body.append(mdRender(m.text, m));
     else if (m.status === 'streaming') body.append(el('span', { class: 'typing', role: 'img', 'aria-label': 'Tutti is writing' }, el('i'), el('i'), el('i')));
     const node = el('article', { class: `msg msg--${mine ? 'user' : 'bot'}`, 'data-id': m.id, 'data-status': m.status || '',
         'aria-label': `${mine ? 'You' : 'Tutti'}${at ? ', ' + timeFmt.format(at) : ''}` },
@@ -414,7 +440,16 @@ function refreshCards() {
 
 function composerText() { return cq('chat-input').value.replace(/\s+$/, ''); }
 
+// A version refresh must not discard an unsent draft, attachments, an edit or an active answer.
+function chatRefreshBlocked(state = CHAT, text = cq('chat-input')?.value || '', files = cq('chat-file')?.files?.length || 0,
+    dialogOpen = cq('chat-dialog')?.open || false) {
+    const unsent = (state.conv?.messages || []).some((m) => m?.status === 'unsent' || m?.status === 'sending');
+    return Boolean(state.streaming || state.editing || state.pending?.length || state.readingFiles || state.pickingFiles ||
+        unsent || text || files || dialogOpen);
+}
+
 async function send(text, extra = {}) {
+    if (window.tuttiRestarting) { say('The dashboard is restarting. Your draft is still here; send it when it returns.'); return; }
     text = (text ?? composerText()).trim();
     if ((!text && !CHAT.pending.length) || CHAT.streaming) return;
     if (text.startsWith('/') && typeof runSlash === 'function' && await runSlash(text)) {
@@ -640,7 +675,7 @@ function lastUserMessage() {
 
 function onSubmit(e) {
     e.preventDefault();
-    if (CHAT.streaming) return;
+    if (CHAT.streaming || window.tuttiRestarting) return;
     const edit = CHAT.editing;
     cancelEdit();
     void send(undefined, edit ? { edit } : {});
@@ -648,16 +683,25 @@ function onSubmit(e) {
 
 async function onFiles(e) {
     const err = [];
-    for (const file of e.target.files) {
-        if (CHAT.pending.length >= CHAT.limits.attachments) { err.push(`At most ${CHAT.limits.attachments} files per message.`); break; }
-        const why = attachmentError(file, CHAT.limits.attachment_bytes);
-        if (why) { err.push(why); continue; }
-        const item = await readAttachment(file);
-        if (typeof item === 'string') err.push(item); else CHAT.pending.push(item);
+    const files = Array.from(e.target.files || []);
+    CHAT.readingFiles += 1;
+    CHAT.pickingFiles = false;
+    try {
+        for (const file of files) {
+            if (CHAT.pending.length >= CHAT.limits.attachments) { err.push(`At most ${CHAT.limits.attachments} files per message.`); break; }
+            const why = attachmentError(file, CHAT.limits.attachment_bytes);
+            if (why) { err.push(why); continue; }
+            const item = await readAttachment(file);
+            if (typeof item === 'string') err.push(item); else CHAT.pending.push(item);
+        }
+    } catch (error) {
+        err.push(`A file could not be read (${error?.message || 'unknown error'}): attach it again.`);
+    } finally {
+        CHAT.readingFiles -= 1;
+        e.target.value = '';
+        cq('chat-file-error').textContent = err.join(' ');
+        drawPending();
     }
-    e.target.value = '';
-    cq('chat-file-error').textContent = err.join(' ');
-    drawPending();
 }
 
 // A file as an attachment: {name, text} or {name, type, data (base64), size} for an image; a string says why not.
@@ -690,12 +734,17 @@ function dialog(title, body, actions) {
 }
 
 function renameConv() {
-    const input = el('input', { class: 'setting__input chat__rename', id: 'chat-rename', value: CHAT.conv.title || '', maxlength: 80, autocomplete: 'off' });
+    const conv = CHAT.conv;
+    const input = el('input', { class: 'setting__input chat__rename', id: 'chat-rename', value: conv.title || '', maxlength: 80, autocomplete: 'off' });
     const save = async () => {
-        try { await chatApi({ action: 'rename', id: CHAT.conv.id, title: input.value }); } catch (err) { cq('chat-dialog-error').textContent = err.message; return; }
-        CHAT.conv.title = input.value.trim();
-        cq('chat-dialog').close();
-        drawLog();
+        const title = input.value.replace(/\s+/g, ' ').trim();
+        try { await chatApi({ action: 'rename', id: conv.id, title }); } catch (err) {
+            if (input.isConnected) cq('chat-dialog-error').textContent = err.message;
+            return;
+        }
+        conv.title = title;
+        if (CHAT.conv === conv) cq('chat-title').textContent = title || 'New chat';
+        if (input.isConnected) cq('chat-dialog').close();
         void loadList();
     };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); void save(); } });
@@ -781,14 +830,16 @@ function initChat() {
     cq('chat-input').addEventListener('input', autoGrow);
     cq('chat-stop').addEventListener('click', stopAnswer);
     cq('chat-new').addEventListener('click', newChat);
-    cq('chat-attach').addEventListener('click', () => cq('chat-file').click());
+    cq('chat-attach').addEventListener('click', () => { CHAT.pickingFiles = true; cq('chat-file').click(); });
     cq('chat-file').addEventListener('change', onFiles);
+    cq('chat-file').addEventListener('cancel', () => { CHAT.pickingFiles = false; });
     cq('chat-log').addEventListener('scroll', onScroll, { passive: true });
     cq('chat-jump').addEventListener('click', jumpLatest);
     cq('chat-rename-btn').addEventListener('click', renameConv);
     cq('chat-delete-btn').addEventListener('click', deleteConv);
     cq('chat-clear').addEventListener('click', clearHistory);
     cq('chat-activity-open').addEventListener('click', showActivity);
+    cq('chat-main-pick')?.addEventListener('change', (e) => { if (typeof switchMain === 'function') void switchMain(e); });
     cq('chat-edit-cancel').addEventListener('click', () => { cancelEdit(); cq('chat-input').value = ''; autoGrow(); cq('chat-input').focus(); });
     cq('chat-back').addEventListener('click', () => { document.body.dataset.chatPane = 'list'; cq('chat-new').focus(); });
     let t = 0;
@@ -807,4 +858,4 @@ function initChat() {
 }
 
 if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('DOMContentLoaded', initChat);
-if (typeof module !== 'undefined') module.exports = { mdParse, mdInline, chatKey, atBottom, attachmentError, ndjson, chatView };
+if (typeof module !== 'undefined') module.exports = { mdParse, mdInline, chatKey, atBottom, attachmentError, ndjson, chatView, chatRefreshBlocked };

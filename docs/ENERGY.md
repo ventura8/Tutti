@@ -11,6 +11,15 @@ measured on that machine and which were estimated. The code is `tutti/energy.py`
 - any machine with `energy.machines.<m>.ollama: host:port` (an Ollama that no worker names, read with `curl` on that
   machine over its own ssh).
 
+A dedicated pseudo-machine (`machines.<m>.dedicated`, a desktop session for UI runs such as `laptop-desktop`,
+`nuc-desktop` or `w5090-win`) on the same computer as a regular machine (the same `host`) is that machine
+(`config.physical`): its Ollama workers join the host's card, it is probed once, and its power and energy are never counted
+twice. The fleet keeps no models entry for it either. Each card's `data-machine` is the machine's name.
+
+When the power read fails it is tried once more; the models are still read from the worker's host, so the card lists them
+and says only the power was not read (on this computer the reason never mentions ssh). The GPU's name falls back to
+`lspci` when no power tool names it.
+
 ## What each card shows
 
 | Line | Where it comes from |
@@ -34,6 +43,11 @@ Read in this order, the first that answers wins:
 
 The CPU package power is the RAPL counter (`/sys/class/powercap/intel-rapl:0/energy_uj`) read the same way; recent kernels
 make it root-only, so it is often estimated.
+
+The power line says `measured` or `estimated` for the GPU and the CPU (`≈` only when the GPU is estimated). When the machine
+refused a reading, the card's *how they are made* gives the one-time fix: `sudo setcap cap_perfmon+ep "$(command -v
+intel_gpu_top)"` for an Intel GPU, `sudo chmod o+r /sys/class/powercap/intel-rapl:0/energy_uj` (or a udev rule) for RAPL.
+The period table keeps every number on one line and scrolls sideways inside its card on a narrow screen.
 
 Where nothing is readable, the estimate is:
 

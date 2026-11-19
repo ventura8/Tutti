@@ -169,6 +169,12 @@ def cmd_setup(cfg, a):
         return 1
 
 
+def _stage_self_update(install, home_dir, a, skip):
+    if a.check or skip or a.auto:
+        return 2, 'self-update: --stage-only requires signature verification and cannot be combined with --check or --auto'
+    return install.stage_update(home_dir)
+
+
 def cmd_self_update(cfg, a):
     """`tutti self-update [--check|--auto]`: the newest checksummed release (docs/INSTALL.md, *Updates*)."""
     from . import install
@@ -189,13 +195,19 @@ def cmd_self_update(cfg, a):
     skip = bool(getattr(a, 'insecure_skip_verify', False)) and not a.auto   # never unattended
     if skip:
         say(f'self-update: {install.SKIP_WARNING}')
-    code, msg = install.self_update(home_dir, check_only=a.check, skip_verify=skip)
+    if getattr(a, 'stage_only', False):
+        code, msg = _stage_self_update(install, home_dir, a, skip)
+    else:
+        code, msg = install.self_update(home_dir, check_only=a.check, skip_verify=skip)
     say(msg)
     return code
 
 
 def cmd_machines(cfg, a):
     """Exit 1 when a machine does not answer, so a script can tell."""
+    if getattr(a, 'roles', False):
+        from . import rolescmd
+        return rolescmd.show(cfg, a)
     if a.action == 'add-android':
         print(devices.TERMUX_STEPS.format(name=a.name or 'phone', host=a.host or '<the device IP>', user=a.user or '<whoami>',
                                           port=a.port))
@@ -529,8 +541,10 @@ def usage_log_path(cfg):
 def read_now(cfg, path, now):
     """`tutti usage read`: every automatic reader once and the recent job logs; prints what was found and any problem."""
     r = readers.Readers(cfg)
-    found = r.read_all(now, force=True)
-    written = readers.record(path, found, r.scan_jobs(now), now)
+    started = datetime.fromtimestamp(r.clock(), timezone.utc)
+    found = r.read_all(started, force=True)
+    received = datetime.fromtimestamp(r.clock(), timezone.utc)
+    written = readers.record(path, found, r.scan_jobs(now), received, hit_now=now)
     for name, x in found.items():
         if x['problem']:
             say(f'{name}: {x["problem"]}')
@@ -622,7 +636,8 @@ def choose_worker(cfg, now):
     """`tutti run auto`: the worker whose account has room, from the latest readings (panic and spent accounts are skipped)."""
     entries = pacing.read_log(usage_log_path(cfg))
     accounts = [pacing.account_state(n, x, entries, now, *pacing.plan_args(cfg)) for n, x in cfg['accounts'].items()]
-    return state.next_worker(cfg, accounts)
+    machines = state.machines_state(cfg, remote.probe) if any((w or {}).get('machine') for w in cfg['workers'].values()) else None
+    return state.next_worker(cfg, accounts, machines, now)
 
 
 def cmd_run(cfg, a):
@@ -974,7 +989,9 @@ def cmd_selfheal(cfg, a):
     if a.once:
         lines = selfheal.round_(selfheal.Ctx(cfg))
         if a.json:
-            print(json.dumps({'repairs': lines}))
+            from .watchdog import WarningLine
+            print(json.dumps({'repairs': [x for x in lines if not isinstance(x, WarningLine)],
+                              'warnings': [x for x in lines if isinstance(x, WarningLine)]}))
             return 0
         say('\n'.join(lines) or 'self-heal: nothing repaired this round (a step only a person can take is in `tutti needs`)')
         return 0
@@ -1238,7 +1255,7 @@ def cmd_conduct(cfg, a):
 
 
 def cmd_main(cfg, a):
-    """`tutti main`: the main agent and who has room; `tutti main <agent>` switches it (a running conductor hands over)."""
+    """`tutti main`: the main agent and who has room; `tutti main <agent|auto>` switches it (a running conductor hands over)."""
     if a.agent == 'backup':   # `tutti main backup [<machine>|auto|none]`: the backup main machine (docs/FAILOVER.md)
         from . import failovercmd
         a.machine = a.machine_name
@@ -1287,8 +1304,10 @@ def cmd_backlog(cfg, a):
 def backlog_change(cfg, a, data):
     if a.action == 'add':
         repo = repo_of(cfg, a.repo)
-        task, new = backlog.add(data, backlog.new_task(a.repo, a.title or '', a.scope or [], a.check or repo.get('check') or '', a.size,
-                                                       a.source, a.note or []))
+        candidate = backlog.new_task(a.repo, a.title or '', a.scope or [], a.check or repo.get('check') or '', a.size,
+                                     a.source, a.note or [])
+        candidate['check_explicit'] = bool(a.check)
+        task, new = backlog.add(data, candidate)
         print(f'{task["id"]}: {"added" if new else "already in the backlog"}: {task["title"][:90]}')
     elif a.action == 'seed':
         added = backlog.seed(data, a.repo, repo_of(cfg, a.repo))
@@ -1300,6 +1319,13 @@ def backlog_change(cfg, a, data):
 
 def task_change(task, a):
     """rm, retry or done of one task; never while its run is going."""
+    if a.action == 'priority':
+        value = str(a.title or '').upper()
+        if value not in ('P0', 'P1', 'P2', 'P3', 'P4', 'P5'):
+            raise backlog.BacklogError(f'priority: give P0 through P5: tutti backlog priority {task["id"]} P0')
+        task['priority'] = int(value[1])
+        print(f'{task["id"]}: {value}')
+        return 0
     if task['status'] == 'running':
         raise backlog.BacklogError(f'{task["id"]} is running (run {task.get("run")}): wait for it '
                                    f'(tutti wait run {task.get("run")}), then {a.action} it')
@@ -1440,8 +1466,30 @@ def fenced(cfg, what):
     return True
 
 
+def autopilot_checkpoint(cfg):
+    results = autopilot.checkpoint_now(cfg, time.time())
+    if results is None:
+        say('autopilot checkpoint: this machine is not the active main: run it on the active machine')
+        return 2
+    for task_id, result in results:
+        say(f'autopilot checkpoint: {task_id}: {"pushed" if result["pushed"] else result["error"]}')
+    if not results:
+        say('autopilot checkpoint: no running tasks')
+    return 0 if all(result['pushed'] for _, result in results) else 1
+
+
+def autopilot_land(cfg, task_id):
+    from . import fill
+    try:
+        print(fill.land(cfg, task_id or '', **bridge.tools(cfg)))
+    except backlog.BacklogError as e:
+        say(str(e))
+        return 2
+    return 0
+
+
 def cmd_autopilot(cfg, a):
-    """`tutti autopilot [status|on|off|tick|fill on|off|land <id>]`."""
+    """`tutti autopilot [status|on|off|tick|checkpoint|fill on|off|land <id>]`."""
     from . import fill
     if a.action in ('on', 'off'):
         autopilot.set_enabled(cfg, a.action == 'on')
@@ -1451,12 +1499,7 @@ def cmd_autopilot(cfg, a):
             return 2
         fill.set_fill(cfg, a.arg == 'on')
     elif a.action == 'land':
-        try:
-            print(fill.land(cfg, a.arg or '', **bridge.tools(cfg)))
-        except backlog.BacklogError as e:
-            say(str(e))
-            return 2
-        return 0
+        return autopilot_land(cfg, a.arg)
     elif a.action == 'allow':
         from . import resolver
         try:
@@ -1469,10 +1512,13 @@ def cmd_autopilot(cfg, a):
         now = datetime.now(timezone.utc)
         states = {s['name']: s for s in state.usage_state(cfg, now)['accounts']}
         from . import sharing
+        cfg['_sharing_machine_at'] = time.time()   # probe start is conservative when individual hosts answer slowly
         machines = sharing.limit_items(cfg, state.machines_state(cfg, remote.probe), time.time())
         _plan, events = autopilot.tick(cfg, states, machines, beat=sharing.beat(cfg, now, machines))
         for e in events:
             say(f'autopilot: {e}')
+    elif a.action == 'checkpoint':
+        return autopilot_checkpoint(cfg)
     print(autopilot.describe(autopilot.view(cfg)))
     return 0
 
@@ -1494,6 +1540,16 @@ def cmd_fleet(cfg, a):
     return 0
 
 
+def dispatch_resolve(cfg, a):
+    try:
+        dispatch.resolve(cfg, a.lease or '', a.confirmed_stopped)
+    except ValueError as e:
+        say(str(e))
+        return 2
+    print(f'dispatch: {a.lease}: lease released after confirmation')
+    return 0
+
+
 def cmd_dispatch(cfg, a):
     """`tutti dispatch [status|on|off|now|run <lease>]`: keep devices and machines busy while test shards wait."""
     if a.action in ('on', 'off'):
@@ -1505,6 +1561,8 @@ def cmd_dispatch(cfg, a):
             say('name the lease: tutti dispatch run <lease> (the dispatcher starts these itself)')
             return 2
         return dispatch.run(cfg, a.lease)
+    if a.action == 'resolve':
+        return dispatch_resolve(cfg, a)
     if a.action == 'build':
         if len(a.rest) != 2 or not a.lease:
             say('tutti dispatch build <project> <suite> <rc file> (the dispatcher starts these itself)')
@@ -1761,6 +1819,7 @@ def parser():
     s.add_argument('--insecure-skip-verify', action='store_true',
                    help='offline only: install without checking the release\'s Sigstore signature (a loud warning; never with --auto)')
     s.add_argument('--check', action='store_true', help='only say whether a newer release is out')
+    s.add_argument('--stage-only', action='store_true', help='verify and stage the release in a separate environment without activating it')
     s.add_argument('--auto', action='store_true', help='quiet no-op when turned off (self_update.enabled) or not a release install')
     s = add('machines', cmd_machines, 'probe every machine: free slots, load, yield flag (add-android: set up a Termux machine)')
     s.add_argument('action', nargs='?', choices=['add-android'], help='print the one-time Termux setup and the config lines')
@@ -1768,6 +1827,10 @@ def parser():
     s.add_argument('--host', help='add-android: the device IP address')
     s.add_argument('--user', help='add-android: the Termux user (whoami)')
     s.add_argument('--port', type=int, default=8022, help='add-android: Termux sshd port (8022)')
+    s.add_argument('--roles', action='store_true', help='each machine\'s and device\'s roles and why (tutti/roles.py)')
+    s.add_argument('--refresh', action='store_true', help='--roles: probe again now instead of the daily answer')
+    from . import rolescmd
+    rolescmd.add_parser(add)
     s = add('devices', cmd_devices, 'Android devices for e2e: connection, battery, charging, heat, screen, Wi-Fi and lock; pair one '
             'over Wi-Fi (QR code, or the code a TV shows); move devices to another machine')
     s.add_argument('action', nargs='?', choices=['add', 'pair', 'move', 'claim', 'release', 'install', 'hours', 'lease', 'night'],
@@ -1843,8 +1906,8 @@ def parser():
     s.add_argument('--show', action='store_true', help='print the brief and stop')
     s.add_argument('--input', action='append', metavar='PATH', help='a file or folder to copy to the --on machine first (repeat it)')
     s.add_argument('--on', help='the machine --input files go to')
-    s.add_argument('--repo', help='hand the task off end to end: a worktree of this repo, the worker headless, the diff, the checks, '
-                                  'a report (tutti runs show <id>)')
+    s.add_argument('--repo', help='hand the task off end to end: a worktree of this repo (a folder, or a name under '
+                                  'autopilot.repos), the worker headless, the diff, the checks, a report (tutti runs show <id>)')
     s.add_argument('--track', help='with --repo: reuse or create the worktree <delegate.prefix><track> instead of a new one')
     s.add_argument('--bg', action='store_true', help='with --repo: run detached; prints the id for `tutti wait run <id>`')
     s.add_argument('--no-checks', action='store_true', help='with --repo: skip the checks (the report says nothing was tested)')
@@ -1966,7 +2029,7 @@ def parser():
     s = add('backlog', cmd_backlog, 'the autopilot\'s queue of bounded tasks: add <repo> "<title>", list, rm <id>, seed <repo> '
                                     '(FEEDBACK open items, TODO(owner), gaps), retry <id> --note "...", done <id>, '
                                     'accept <id> (a suggested candidate)')
-    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note'])
+    s.add_argument('action', choices=['add', 'list', 'rm', 'seed', 'retry', 'done', 'accept', 'claim', 'release', 'note', 'priority'])
     s.add_argument('repo', nargs='?', help='add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: '
                                            'the task id')
     s.add_argument('--who', help='claim: the session that works on it by hand (default $TUTTI_SESSION)')
@@ -1995,9 +2058,9 @@ def parser():
                                            'window: the date (YYYY-MM-DD)')
     s.add_argument('window', nargs='?', help='window: that day\'s owner hours HH-HH (e.g. 20-24), off, or config (its weekday\'s)')
     s = add('autopilot', cmd_autopilot, 'send backlog tasks to accounts that are behind their pace, by itself: status, on, off, '
-                                        'tick (one round now; the dashboard ticks while it runs), fill on|off (fill free room from '
+                                        'tick (one round now), checkpoint (snapshot running work only), fill on|off (fill free room from '
                                         'the repos\' sources), land <id> (review a result and land it)')
-    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick', 'fill', 'land', 'allow'])
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'tick', 'checkpoint', 'fill', 'land', 'allow'])
     s.add_argument('arg', nargs='?', help='fill: on or off; land: the task id; allow: the account that may take first attempts '
                                           'for 7 days (the block resolver\'s one action)')
     s = add('workq', cmd_workq, 'the compute work queue: the projects\' gates, tests and reports on machines with a free slot '
@@ -2042,9 +2105,10 @@ def parser():
     s.add_argument('--preview', action='store_true', help='print the report and send nothing')
     s.add_argument('--yes', action='store_true', help='send without asking again after the preview')
     s = add('dispatch', cmd_dispatch, 'keep devices and machines busy: idle ones pull pending test shards (projects.<p>.tests) by '
-                                      'themselves: status, on, off, now (one round with fresh probes), run <lease> and build '
+                                      'themselves: status, on, off, now, resolve <lease> --confirmed-stopped, run <lease> and build '
                                       '<project> <suite> <rc> (internal)')
-    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'now', 'run', 'build'])
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'on', 'off', 'now', 'run', 'build', 'resolve'])
+    s.add_argument('--confirmed-stopped', action='store_true', help='resolve: confirm the entire execution boundary has stopped')
     s.add_argument('lease', nargs='?', help='run: the lease id; build: the project')
     s.add_argument('rest', nargs='*', help='build: the suite and the rc file')
     s = add('machine', cmd_machine, 'evacuate <machine>: move every job waiting on it to the best available target; '
@@ -2157,9 +2221,10 @@ def parser():
     s.add_argument('--device-secret-stdin', action='store_true', help='setup: read that client\'s secret from stdin (never argv)')
     s.add_argument('--tailscale', action='store_true', help='setup: serve the dashboard on this computer\'s Tailscale https '
                                                             'name (tailnet only) and add that origin')
-    s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it; '
+    s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent|auto>` to switch it '
+                              '(auto: preferred while it has room, else the first main.fallback with room); '
                               '`tutti main backup [<machine>|auto|none]`: the backup main machine (docs/FAILOVER.md)')
-    s.add_argument('agent', nargs='?')
+    s.add_argument('agent', nargs='?', help='a worker, auto, or backup')
     s.add_argument('machine_name', nargs='?', help='backup: the machine, auto (Tutti elects one) or none (no failover)')
     s.add_argument('--yes', action='store_true', help='backup: change it although the current backup does not answer')
     from . import failovercmd
@@ -2198,22 +2263,20 @@ def on_client(cfg, a, argv):
 
 
 def parse(argv):
-    """The parsed command line. `tutti devices lease <d> [<d2>] --runner <m> --who <s> -- <command>` (the dispatcher's own
-    form) puts the command after the options: argparse fills `names` before them and then refused the rest as
-    'unrecognized arguments', so every dispatched RoRadio shard failed before it ran (2026-11-16). Those words join
-    `names`, where the lease splits devices from the command at `--`. `tutti test <track> -- <command>` drops the `--`.
-    A lease's argv is split at its first bare `--` before parsing, so the command's own words (`-NoProfile`, `-x`) are
-    never read as Tutti's options, and both orders give one shape: the devices, `--`, then the command's words."""
+    """Separate a device lease's command before argparse sees its flags or positional words."""
     args = list(argv)
+    start = 0
+    if args[:1] == ['--config'] and len(args) > 1:
+        start = 2
+    elif args and args[0].startswith('--config='):
+        start = 1
     command = None
-    if args[:2] == ['devices', 'lease'] and '--' in args:
-        cut = args.index('--')
+    if args[start:start + 2] == ['devices', 'lease'] and '--' in args[start + 2:]:
+        cut = args.index('--', start + 2)
         args, command = args[:cut], args[cut + 1:]
     a = parser().parse_args(args)
     if command is not None:
         a.names = [*(a.names or []), '--', *command]
-    if getattr(a, 'cmd', None) == 'test' and a.command and a.command[0] == '--':
-        a.command = a.command[1:]
     return a
 
 

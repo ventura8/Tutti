@@ -2,6 +2,32 @@
 
 Heavy work (lint, tests, builds) leaves the computer the orchestrator and its browser run on.
 
+## Roles
+
+Every machine and device has a set of roles: what it is for (`tutti/roles.py`). They are detected once a day (a small
+probe over the machine's own transport: OS, docker, adb, dotnet, pwsh, the Android emulator and its AVDs, Chrome, Ollama,
+an NVIDIA GPU and its memory, a desktop session, WireGuard or Tailscale, Xcode or Playwright WebKit), read from the config
+(the main machine, `failover.backup`, `browser.machine`, the devices a machine hosts) and the Android readings (leanback,
+Cast). Media devices Tutti cannot run tests on (a soundbar, a smart TV, speakers) are found on the LAN over mDNS
+(`_airplay._tcp`, `_raop._tcp`, `_googlecast._tcp`, `_spotify-connect._tcp`) and UPnP SSDP (MediaRenderer) by
+`tutti/lanmedia.py` and listed under Devices, *On the network*.
+
+| Role | Means |
+| --- | --- |
+| `windows-test-runner`, `linux-test-runner`, `macos-test-runner` | runs that OS's suites (WSL counts for both Windows and Linux) |
+| `android-test-runner`, `android-device`, `tv-device`, `emulator-host` | an adb host, an Android device, an Android TV, Android emulators with AVDs |
+| `ios-webkit-runner` | Xcode's simulators or Playwright WebKit |
+| `docker-host`, `build-machine`, `gpu-ai`, `ui-desktop` | containers, 8+ cores with 16+ GB, local models (6+ GB VRAM or Ollama), an interactive desktop |
+| `chrome-browser`, `main`, `backup-main`, `vpn-node` | the household browser machine, where Tutti runs, the failover backup, on the private network |
+| `cast-sender`, `cast-receiver`, `chromecast-builtin`, `airplay-sender`, `airplay-receiver`, `dlna-renderer`, `spotify-connect`, `bluetooth-audio`, `smart-tv` | media roles |
+
+An admin edits them in the config or the dashboard's Settings: `roles:` is the whole list (an override), `roles_add` and
+`roles_off` change what was detected (`machines.<m>.*`, `devices.<d>.*`, `lan_devices.<address>.*`). From a terminal:
+`tutti machines --roles [--refresh]`, `tutti roles list [--all]`, `tutti roles set|unset <name> <role>`.
+
+A suite asks for roles with `roles: [windows-test-runner, ui-desktop, gpu-ai]`: only a target with every one gets it, and
+among those the power score and routing pick as before. An unknown role is a config error.
+
 ## Slots
 
 `scripts/slot.sh` is the queue on each machine: `slots` lock files, taken with `flock`. A run takes a free lock, waits

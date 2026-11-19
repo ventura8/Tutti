@@ -13,7 +13,7 @@ from . import __version__, config, controls, devices, pacing, routing, waiting, 
 
 # CLI agents worth knowing about even when the config does not name them yet: the command and how people call it.
 KNOWN_AGENTS = (('claude', 'Claude Code'), ('cursor-agent', 'Cursor'), ('agy', 'Antigravity'), ('copilot', 'GitHub Copilot CLI'),
-                ('gemini', 'Gemini CLI'), ('ollama', 'Ollama'))
+                ('codex', 'OpenAI Codex CLI'), ('gemini', 'Gemini CLI'), ('ollama', 'Ollama'))
 TAIL_LINES = 40
 TAIL_WIDTH = 400
 MAX_JOBS = 40
@@ -56,7 +56,33 @@ def usage_state(cfg, now):
     accounts = with_scouts(cfg, accounts, now)
     accounts = with_targets(cfg, accounts, now)
     from . import owner
-    return {'log': path, 'problem': problem, 'accounts': accounts, 'owner': owner.view(cfg, config.state_dir(cfg), entries, now)}
+    return {'log': path, 'problem': problem, 'accounts': accounts, 'off_accounts': off_account_cards(cfg),
+            'owner': owner.view(cfg, config.state_dir(cfg), entries, now)}
+
+
+def off_account_cards(cfg):
+    """Display-only account status; never feed these entries to the router."""
+    from . import controls
+    result = []
+    for entry in cfg.get('off', []):
+        if entry['kind'] != 'account':
+            continue
+        reasons = []
+        if entry.get('paused'):
+            reasons.append(controls.paused_note(entry))
+        if entry.get('disabled'):
+            reasons.append('costs money per use; opt in through Settings to enable it' if entry.get('costs_money')
+                           else 'disabled or requires opt-in; enable it in Settings')
+        if entry.get('off_worker'):
+            worker = entry['off_worker']
+            if entry.get('worker_paused'):
+                reasons.append(f'worker {worker}: ' + controls.paused_note({'paused': entry['worker_paused']}))
+            if entry.get('worker_disabled'):
+                reasons.append(f'worker {worker}: disabled or requires opt-in; enable it in Settings')
+        status = 'paused' if entry.get('paused') or entry.get('worker_paused') else 'disabled'
+        reason = '; '.join(reasons) or 'disabled; enable it in Settings'
+        result.append({'name': entry['name'], 'status': status, 'reason': reason})
+    return result
 
 
 def target_facts(cfg):
@@ -217,6 +243,7 @@ def machines_state(cfg, probe_fn, stored_fn=None):
         p = probe_fn(m)
         here = idle if m.get('transport') == 'local' else getattr(p, 'idle_s', None)   # remote: read by its probe
         out = machine_state(m, p, order.index(n) + 1 if n in order else None, now, here, quiet)
+        out['physical'] = config.physical(cfg, n)
         out['idle_s'] = here
         out['stored'] = stored_fn(m) if stored_fn and p.reachable else None
         return out
@@ -244,19 +271,29 @@ def account_of_worker(cfg, name):
 
 
 def worker_accounts(cfg):
-    """Accounts that name a worker, in `routing.workers` order (by worker) when given, else in config order."""
+    """Accounts that name a worker, ordered by `routing.workers` (a preference order, not an allow-list): named workers
+    first in that order, then any other account that names a worker (so a Codex account still joins `tutti run auto`
+    when routing.workers only lists cursor and agy)."""
     names = [n for n, a in cfg['accounts'].items() if (a or {}).get('worker')]
     order = cfg['routing'].get('workers') or []
     pos = {w: i for i, w in enumerate(order)}
-    names = [n for n in names if not order or cfg['accounts'][n]['worker'] in pos]
-    return sorted(names, key=lambda n: pos.get(cfg['accounts'][n]['worker'], 0))
+    return sorted(names, key=lambda n: pos.get(cfg['accounts'][n]['worker'], len(pos)))
 
 
-def next_worker(cfg, accounts):
+def next_worker(cfg, accounts, machines=None, now=None):
     """Where the next agent job goes, from the latest readings: {worker, account, args, reason}, worker None when none has room."""
     by_name = {a['name']: a for a in accounts}
-    states = [by_name[n] for n in worker_accounts(cfg) if n in by_name]
-    best, reason = routing.pick_account(states)
+    states = [{**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}
+              for n in worker_accounts(cfg) if n in by_name]
+    if machines is not None:
+        from . import fleet
+        states = [s for s in states if not (cfg['workers'].get(cfg['accounts'][s['name']]['worker']) or {}).get('machine')
+                  or not fleet.governor(cfg, cfg['accounts'][s['name']]['worker'], machines, now)]
+    # owner, 2026-11-17: Chat's delegate_task (run auto) also takes over while the main agent panics
+    from . import autopilot
+    takeover = autopilot.main_in_panic(cfg, by_name)
+    best, reason = routing.pick_account([s for s in states if s['name'] not in autopilot.main_accounts(cfg)] if takeover
+                                        else states, takeover=takeover)
     if not best:
         return {'worker': None, 'account': None, 'args': [], 'reason': reason}
     acc = cfg['accounts'][best['name']]
@@ -266,10 +303,19 @@ def next_worker(cfg, accounts):
 
 
 def with_readers(usage, readers):
-    """The accounts with what their automatic readers said: the plan label, how often they are read, and a problem if any."""
-    for a in usage['accounts']:
-        r = (readers or {}).get(a['name']) or {}
-        a.update(plan=r.get('plan'), auto_every_minutes=r.get('every_minutes'), reader_problem=r.get('problem'))
+    """Add reader status to each account and linked quota window, including current failures."""
+    def annotate(account):
+        reading = (readers or {}).get(account.get('name'))
+        problem = (reading or {}).get('problem')
+        if account.get('auto') and (reading is None or (reading.get('used') is None and not problem)):
+            problem = 'automatic reader status is unavailable: refresh the reader before panic rescue'
+        account.update(plan=(reading or {}).get('plan'), auto_every_minutes=(reading or {}).get('every_minutes'),
+                       reader_problem=problem)
+        for limit in account.get('limits') or []:
+            if isinstance(limit, dict):
+                annotate(limit)
+    for account in usage['accounts']:
+        annotate(account)
     return usage
 
 
@@ -549,8 +595,9 @@ def assemble(cfg, probes, now=None, is_alive=alive):
     known = configured(cfg)
     return {'version': __version__, 'generated_at': now_dt.isoformat(), 'config': cfg['_path'],
             'refresh_seconds': cfg['dashboard']['refresh_seconds'], 'usage': usage,
-            'machines': {'probed_at': iso(probes.get('machines_at')), 'items': machines, 'configured': known['machines']},
-            'devices': {'items': probes.get('devices') or [], 'configured': known['devices']},
+            'machines': {'probed_at': iso(probes.get('machines_at')), 'probe_started_at': iso(probes.get('machines_started_at')),
+                         'items': machines, 'configured': known['machines']},
+            'devices': {'items': probes.get('devices') or [], 'configured': known['devices'], 'lan': probes.get('lan_devices') or []},
             'workers': {'probed_at': iso(probes.get('workers_at')), **workers, 'off': off_notes(cfg), 'configured': known['workers']},
             'jobs': jobs,
             'summary': {**summary(usage, machines, workers, jobs, next_worker(cfg, usage['accounts'])), 'runs_today': runs_today(cfg)}}
@@ -583,22 +630,34 @@ def runs_today(cfg):
 
 
 def with_cast_roles(cfg, mstate):
-    """Each machine's Cast roles from the daily check (tutti/castroles.py's cache), for the machine card."""
-    import json
+    """Each machine's roles (tutti/roles.py's daily cache plus the config) for the machine card: `roles` as
+    [{role, why, source}] for the chips and their tooltips, `cast_roles` the names as before."""
+    from . import roles
     try:
-        with open(os.path.join(config.state_dir(cfg), 'cast-machines.json'), encoding='utf8') as f:
-            seen = json.load(f)
+        have = roles.cached(cfg)
     except (OSError, ValueError, KeyError):
         return mstate
-    seen = seen if isinstance(seen, dict) else {}
     for m in mstate or []:
-        m['cast_roles'] = ((cfg.get('machines') or {}).get(m['name']) or {}).get('roles') or (seen.get(m['name']) or {}).get('roles') or []
+        m['roles'] = have.get(m['name']) or []
+        m['cast_roles'] = [r['role'] for r in m['roles'] if r['role'].startswith('cast-')]
     return mstate
+
+
+def lan_devices(cfg, now):
+    """Media devices on the network (tutti/lanmedia.py), scanned once a day; [] when the scan fails."""
+    from . import lanmedia
+    try:
+        return lanmedia.devices(cfg, now)
+    except (OSError, ValueError, KeyError):
+        return []
 
 
 def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, stored_fn=None, readings_fn=None):
     """The slow part, run off the request path: every machine (and the files it stores) and every worker."""
+    started = clock()
     return {'machines': with_cast_roles(cfg, machines_state(cfg, probe_fn, stored_fn)), 'machines_at': clock(),
+            'machines_started_at': started,
             'devices': devices.dnd_view(cfg, devices.devices_state(cfg, readings_fn or (lambda m, d: {'state': 'unreachable'})),
                                         learn=readings_fn is not None),
-            'workers': workers_state(cfg, available_fn, which), 'workers_at': clock()}
+            'workers': workers_state(cfg, available_fn, which), 'workers_at': clock(),
+            'lan_devices': lan_devices(cfg, clock()) if readings_fn is not None else []}

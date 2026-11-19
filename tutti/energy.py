@@ -52,7 +52,10 @@ def power_script(ollama=''):
            'echo "== rocm"; command -v rocm-smi >/dev/null && timeout 10 rocm-smi --showpower --showuse --json 2>/dev/null; echo; '
            'echo "== xpu"; command -v xpu-smi >/dev/null && timeout 10 xpu-smi dump -d 0 -m 0,1 -n 1 2>/dev/null; '
            'echo "== intel"; command -v intel_gpu_top >/dev/null && '
-           'timeout 3 intel_gpu_top -J -s 1000 -o - 2>/dev/null | head -c 20000; echo; '
+           'timeout 3 intel_gpu_top -J -s 1000 -o - 2>&1 | head -c 20000; echo; '
+           'echo "== denied"; test -r /sys/class/powercap/intel-rapl:0/energy_uj || '
+           '{ test -e /sys/class/powercap/intel-rapl:0/energy_uj && echo rapl; }; '
+           'echo "== lspci"; command -v lspci >/dev/null && lspci 2>/dev/null | grep -iE "vga|3d controller|display" | head -3; '
            f'{snap}echo "== a"; snap; sleep 1; echo "== b"; snap; ')
     if ollama and HOST_PORT.match(ollama):   # errors() refuses anything else; never a shell word from the config
         ps, tags = (shlex.quote(config.ollama_url(ollama, p)) for p in ('/api/ps', '/api/tags'))   # loopback on that machine
@@ -159,6 +162,27 @@ def parse_counters(a_text, b_text):
     return out
 
 
+def lspci_gpu(text):
+    """The first GPU's name from lspci's lines (`00:02.0 VGA compatible controller: Intel Corporation Arrow Lake-P [Arc Pro
+    130T/140T] (rev 03)` -> `Intel Corporation Arrow Lake-P [Arc Pro 130T/140T]`): the name when no power tool gives one."""
+    for line in (text or '').splitlines():
+        m = re.search(r'(?:VGA compatible controller|3D controller|Display controller): (.+?)(?: \(rev \w+\))?$', line)
+        if m:
+            return m.group(1).strip()
+    return None
+
+
+def denied(intel, rapl):
+    """What the machine refused to read and the one-time fix: intel_gpu_top without CAP_PERFMON, RAPL's root-only counter."""
+    out = []
+    if intel and 'Permission denied' in intel:
+        out.append('the GPU power needs intel_gpu_top allowed once: `sudo setcap cap_perfmon+ep "$(command -v intel_gpu_top)"`')
+    if (rapl or '').strip() == 'rapl':
+        out.append('the CPU power needs the RAPL counter readable: '
+                   '`sudo chmod o+r /sys/class/powercap/intel-rapl:0/energy_uj` (again after a reboot, or a udev rule)')
+    return out
+
+
 def parse_power(text):
     """Everything POWER_SCRIPT printed: {gpu, gpu_w, util, source, cpu_w, ps, tags}; gpu_w None when nothing measured it."""
     s = sections(text)
@@ -168,6 +192,8 @@ def parse_power(text):
     out = gpu or {k: counters[k] for k in ('gpu', 'gpu_w', 'source') if k in counters} or \
         parse_nvidia(s.get('nvidia')) or {'gpu': None, 'gpu_w': None, 'util': None, 'source': ''}
     out = {'util': None, **out, 'cpu_w': counters.get('cpu_w')}
+    out['gpu'] = out.get('gpu') or lspci_gpu(s.get('lspci'))
+    out['denied'] = denied(s.get('intel'), s.get('denied'))
     for k in ('ps', 'tags'):
         try:
             out[k] = json.loads(s[k]) if s.get(k) else None
@@ -435,15 +461,15 @@ def hosts(cfg):
     out = {}
     for name, w in cfg['workers'].items():
         if w.get('kind') == 'ollama' and w.get('enabled') is not False:
-            h = out.setdefault(w.get('machine') or here, {'workers': [], 'ollama': None, 'on': ''})
+            h = out.setdefault(config.physical(cfg, w.get('machine') or here), {'workers': [], 'ollama': None, 'on': ''})
             h['workers'].append(name)
             h['ollama'] = h['ollama'] or w['host']
     for name, m in ((cfg.get('energy') or {}).get('machines') or {}).items():
         if (m or {}).get('ollama'):
-            out.setdefault(name, {'workers': [], 'ollama': None, 'on': ''})['on'] = m['ollama']
+            out.setdefault(config.physical(cfg, name), {'workers': [], 'ollama': None, 'on': ''})['on'] = m['ollama']
     if (cfg.get('fleet') or {}).get('enabled') is not False:   # every machine's Ollama is looked for (tutti/fleet.py)
         for name, m in cfg['machines'].items():
-            if m.get('transport') not in ('android', 'household'):
+            if m.get('transport') not in ('android', 'household') and config.physical(cfg, name) == name:
                 h = out.setdefault(name, {'workers': [], 'ollama': None, 'on': '', 'looked': True})
                 h['on'] = h['on'] or '127.0.0.1:11434'
     return out
@@ -494,7 +520,15 @@ def cloud_cost(cfg, t, tokens_in, tokens_out):
     return {'model': label, 'cost': round(usd * rate, 2) if rate else None, 'usd': round(usd, 2), 'source': CLOUD_SOURCE}
 
 
-def worker_status(machine, names, ready, reading):
+def unread(transport):
+    """Why a machine's power and models were not read, by how it is reached."""
+    if transport == 'local':
+        return 'its power and models were not read: the reading on this computer did not finish (the next probe tries again)'
+    return ('its power and models were not read: the machine did not answer over ssh or its reading timed out '
+            '(`tutti machines`; the next probe tries again)')
+
+
+def worker_status(machine, names, ready, reading, transport='ssh'):
     """(status, reason) of a local-models card from the one shared worker status (workers.statuses, what `tutti workers`
     prints): a worker that answers through its own host or tunnel makes the card available even when the machine's ssh probe
     failed; none answering makes it offline with the worker's own reason. `ready`: {worker: (ready, note)}, None when the
@@ -502,14 +536,14 @@ def worker_status(machine, names, ready, reading):
     status, why = machine
     if ready is None or not names:
         if reading is None and status == 'available':
-            return 'offline', 'its power and models were not read: the machine did not answer over ssh (`tutti machines`)'
+            return 'offline', unread(transport)
         return status, why
     up = [n for n in names if (ready.get(n) or (False, ''))[0]]
     if not up:
         notes = '; '.join(f'{n}: {(ready.get(n) or (False, "not probed yet"))[1]}' for n in names)
         return 'offline', f'its model server does not answer ({notes})'
     if status == 'offline':   # the machine's ssh probe failed, its worker answers: the worker's status wins, as in `tutti workers`
-        return 'available', (f'{", ".join(up)} answers; the machine\'s own ssh probe failed ({why or "see Machines"}), '
+        return 'available', (f'{", ".join(up)} answers; the machine\'s own probe failed ({why or "see Machines"}), '
                              'so its power is not read')
     return status, why
 
@@ -537,14 +571,22 @@ def card(cfg, name, host, reading, item, store, runs, now, t, busy_now, ready=No
                        'cloud': cloud_cost(cfg, t, sum(x.get('in') or 0 for x in rs), sum(x.get('out') or 0 for x in rs))})
     m = per['month']
     hour_price = price_at(t, tz.localtime(now).tm_hour)
-    status, why = worker_status(availability(item), host['workers'], ready, reading)
+    transport = (cfg['machines'].get(name) or {}).get('transport') or ('local' if name == 'this computer' else 'ssh')
+    power_read = reading is not None and not r.get('power_unread')
+    status, why = worker_status(availability(item), host['workers'], ready, reading if power_read else None, transport)
+    if status == 'offline' and not power_read and (r.get('tags') or r.get('ps')):   # the models answered: only the power is missing
+        status, why = 'available', ''
+    if status == 'available' and not power_read and (r.get('tags') or r.get('ps')
+                                                     or any((ready or {}).get(n, (False,))[0] for n in host['workers'])):
+        why = unread(transport).replace('its power and models were not read', 'its power was not read')
     return {'name': name, 'workers': host['workers'], 'gpu': r.get('gpu') or mcfg.get('gpu') or 'GPU not read',
             'installed': sorted(x.get('name') for x in ((r.get('tags') or {}).get('models') or []) if isinstance(x, dict)),
             'loaded': [{'name': x.get('name'), 'on_gpu': bool(x.get('size_vram'))} for x in ps], 'busy_now': busy_now,
             'util': r.get('util'), 'watts': round(sys_w), 'parts': parts, 'measured': measured, 'source': r.get('source') or '',
+            'gpu_measured': r.get('gpu_w') is not None, 'denied': r.get('denied') or [],
             'status': status, 'reason': why, 'periods': per,
             'per_job': round(m['cost'] / m['jobs'], 3) if m['jobs'] else None,
-            'per_busy_hour': round(busy_w / 1000 * hour_price, 2), 'reachable': reading is not None}
+            'per_busy_hour': round(busy_w / 1000 * hour_price, 2), 'reachable': power_read}
 
 
 def view(cfg, readings, machine_items, now, t=None, store=None, runs=None, worker_items=None):
@@ -597,12 +639,21 @@ def probe_all(cfg, power_fn, ollama_fn):
         h = found[name]
         machine = cfg['machines'].get(name) or config.machine_of(cfg, name, {'host': 'local'})
         r = power_fn(machine, h['on'])
+        if r is None:   # one retry: a busy machine's first read can miss its timeout
+            r = power_fn(machine, h['on'])
         if r is not None and r.get('cpu_w') is None and machine.get('transport') == 'wsl':   # no RAPL in WSL: LibreHardwareMonitor's
             from . import remote
             r['cpu_w'] = remote.windows_cpu_w(machine)
-        if r is not None and h['ollama']:   # from here through the worker's host; the machine's own curl when that is down
+        if r is not None:
+            r.pop('tags_endpoint', None)   # only this probe can attest which endpoint supplied tags
+        if h['ollama']:   # from here through the worker's host; the machine's own curl when that is down
             ps, tags = ollama_fn(h['ollama'], '/api/ps'), ollama_fn(h['ollama'], '/api/tags')
-            r['ps'], r['tags'] = ps if ps is not None else r.get('ps'), tags if tags is not None else r.get('tags')
+            if r is None and (ps is not None or tags is not None):   # the models answer though the power read failed
+                r = {'gpu': None, 'gpu_w': None, 'util': None, 'source': '', 'cpu_w': None, 'power_unread': True}
+            if r is not None:
+                r['ps'], r['tags'] = ps if ps is not None else r.get('ps'), tags if tags is not None else r.get('tags')
+                if isinstance(tags, dict):
+                    r['tags_endpoint'] = config.safe_ollama_endpoint(h['ollama'])
         return name, r
     if not found:
         return {}

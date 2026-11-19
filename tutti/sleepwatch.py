@@ -3,7 +3,7 @@
 systemd-logind announces a sleep or a shutdown with PrepareForSleep(true) / PrepareForShutdown(true) and waits for every
 delay inhibitor, at most InhibitDelayMaxSec (5 s by default). Tutti holds one such lock while it runs; on the signal it
 stops its running jobs as "stop now" does (tutti/handover.py: an agent run's partial work kept on tutti/handoff/<track>),
-requeues its dispatch leases with no attempt counted, notes the jobs to start again, flushes its state and lets go of the
+holds dispatch leases without checking whether execution stopped, notes jobs to start again, flushes its state and lets go of the
 lock, never asking for more than the OS allows. On wake (PrepareForSleep(false)) or at the next start the noted jobs start
 again and the lock is taken again. Linux with systemd only; elsewhere the power-off path (boot ids, tutti/recovery.py) covers it."""
 import contextlib
@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 
-from . import autopilot, backlog, config, controls, dispatch, handover, presence, procs, telemetry
+from . import autopilot, backlog, config, controls, dispatch, failover, handover, presence, procs, telemetry
 
 SIGNAL = re.compile(r'PrepareFor(Sleep|Shutdown)\s*\((true|false),?\)')
 # the lock's child waits on this process (tail --pid): it ends with Tutti, never a `sleep infinity` left behind (2026-11-15)
@@ -51,12 +51,20 @@ def jobs(cfg):
 
 def going_down(cfg, what, budget, now=time.time, running=controls.running_jobs, end=handover.end_tree, keep=handover.keep_work):
     """Stops this host's running jobs within `budget` seconds, keeps an agent run's partial work, notes each job to start
-    again on wake, requeues the dispatch leases (not counted as failures) and flushes the state. Returns the noted jobs."""
+    again on wake, holds dispatch leases until their execution is checked and flushes the state. Returns the noted jobs."""
     deadline = now() + budget
     why = f'this computer is going to {"sleep" if what == "sleep" else "shut down"}'
     pst = presence.read(cfg)
     found = {log: pid for kind, name in jobs(cfg) for log, pid in running(config.state_dir(cfg), kind, name)}
     seen = []
+    if failover.may_write(cfg):
+        with dispatch.locked(cfg) as st:
+            if failover.may_write(cfg):
+                for lid, lease in st['leases'].items():
+                    if not lease.get('uncertain'):
+                        lease['uncertain'] = (f'{why}; execution stop is unconfirmed; inspect the execution boundary, then use '
+                                              f'tutti dispatch resolve {lid} --confirmed-stopped')
+                        dispatch.event(st, now(), f'{lid}: held: {lease["uncertain"]}')
     for log, pid in found.items():
         if now() >= deadline:
             break
@@ -64,11 +72,6 @@ def going_down(cfg, what, budget, now=time.time, running=controls.running_jobs, 
         note = stop_one(cfg, log, pid, why, end, keep)
         if note:
             pst['resume'].append(note)
-    with dispatch.locked(cfg) as st:
-        leases, st['leases'] = st['leases'], {}
-        for lease in leases.values():
-            dispatch.stop_pid(lease['pid'])
-            dispatch.requeue(st, lease, f'stopped because {why}: queued again, not counted as a failure', now())
     with backlog.locked(cfg) as data:
         for t in [t for t in data['tasks'] if t['status'] == 'running']:
             autopilot.pause(t, why)
@@ -92,7 +95,7 @@ def stop_one(cfg, log, pid, why, end, keep):
         kept = keep(handover.worktree_of(cfg, track), track, str(spec.get('run_id') or '?'))
         # an autopilot attempt is queued again by the autopilot itself (paused below), never started a second way
         return None if track.startswith(autopilot.TRACK_PREFIX) else {'kind': 'run', 'spec': spec, 'why': why, 'kept': kept}
-    if spec.get('kind') == 'test' and not track.startswith('dispatch-'):   # a shard: its lease is requeued below
+    if spec.get('kind') == 'test' and not track.startswith('dispatch-'):   # dispatch shards keep their leases
         return {'kind': 'test', 'args': ['test', *(spec.get('args') or [])], 'track': spec.get('track', 'run')}
     return None
 

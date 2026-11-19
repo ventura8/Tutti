@@ -179,7 +179,8 @@ class FakeGh:
             return SimpleNamespace(returncode=0, stdout=json.dumps(self.view), stderr='')
         if args[1:3] == ['api', 'graphql']:
             nodes = [{'isResolved': False}] * self.threads
-            body = {'data': {'repository': {'pullRequest': {'reviewThreads': {'nodes': nodes}}}}}
+            body = {'data': {'repository': {'pullRequest': {'reviewThreads': {
+                'nodes': nodes, 'pageInfo': {'hasNextPage': False, 'endCursor': None}}}}}}
             return SimpleNamespace(returncode=0, stdout=json.dumps(body), stderr='')
         return SimpleNamespace(returncode=self.merge_rc, stdout='', stderr='refused' if self.merge_rc else '')
 
@@ -277,6 +278,37 @@ class Rounds(Base):
         gates = {t['repo']: t['self_improve'] for t in backlog.load(cfg)['tasks']}
         self.assertIn('owner merges', gates['app'])
         self.assertIn('thread', gates['tutti'])
+
+    def test_all_review_thread_pages_are_checked_before_merge(self):
+        def page(nodes, more, cursor):
+            return {'data': {'repository': {'pullRequest': {'reviewThreads': {
+                'nodes': nodes, 'pageInfo': {'hasNextPage': more, 'endCursor': cursor}}}}}}
+        replies = [page([{'isResolved': True}] * 100, True, 'next'),
+                   page([{'isResolved': False}], False, None)]
+        def gh(args, **_kw):
+            if args[1:3] == ['pr', 'view']:
+                return SimpleNamespace(returncode=0, stdout=json.dumps(pr()), stderr='')
+            return SimpleNamespace(returncode=0, stdout=json.dumps(replies.pop(0)), stderr='')
+        result = selfimprove.pr_state('octo/tutti', 7, gh)
+        self.assertEqual(result['open_threads'], 1)
+        self.assertFalse(selfimprove.may_merge({'merge': True}, result, True)[0])
+
+    def test_unverifiable_review_thread_pages_fail_closed(self):
+        def page(nodes, more, cursor):
+            return {'data': {'repository': {'pullRequest': {'reviewThreads': {
+                'nodes': nodes, 'pageInfo': {'hasNextPage': more, 'endCursor': cursor}}}}}}
+        for response in (None, page([{'isResolved': 'false'}], False, None),
+                         page([], 'false', None), page([], True, None),
+                         {**page([], False, None), 'errors': [{'message': 'partial response'}]}):
+            with self.subTest(response=response):
+                def gh(args, *, reply=response, **_kw):
+                    data = pr() if args[1:3] == ['pr', 'view'] else reply
+                    return SimpleNamespace(returncode=0, stdout=json.dumps(data), stderr='')
+                self.assertEqual(selfimprove.pr_state('octo/tutti', 7, gh)['open_threads'], 1)
+        cyclic = page([], True, 'same')
+        def gh_cycle(_args, **_kw):
+            return SimpleNamespace(returncode=0, stdout=json.dumps(cyclic), stderr='')
+        self.assertIsNone(selfimprove.open_threads('octo/tutti', 7, gh_cycle))
 
 
 class Triage(Base):

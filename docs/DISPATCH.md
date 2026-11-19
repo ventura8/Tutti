@@ -77,13 +77,15 @@ A shard runs as `tutti dispatch run <lease>`, which wraps `tutti test --device <
 own lock is held on its machine, as for any device run.
 
 - The wrapper touches `<lease>.beat` every 30 s while the run lasts, and writes `<lease>.rc` when it ends.
-- Each round ends a lease whose run finished, whose process is gone (a crash or a reboot), or whose heartbeat is older than
-  `dispatch.lease_minutes`.
-- A crashed run counts as a failed attempt and is retried; its target is free again in the same round.
+- A normal result ends its lease under the existing completion rules. A missing result with a dead process, stale heartbeat,
+  departure or reboot, and an unconfirmed local stop, instead holds the lease durably and keeps its targets reserved.
+- Inspect the local and remote execution boundary. Once an admin has verified it stopped, run
+  `tutti dispatch resolve <lease> --confirmed-stopped` on the active main to requeue without counting an attempt. A late
+  ordinary result does not clear the hold; the confirmation is an admin assertion, not proof collected by Tutti.
 
-A lease whose target goes away or asleep, or whose run died with its host (an earlier boot id), is interrupted, not
-failed: the shard is queued again with no attempt counted. An admin can move a waiting shard to another target, and pin it
-there, with `tutti job move` or the dashboard's Move now. See [PRESENCE.md](PRESENCE.md).
+This hold does not make ordinary legacy results proof that remote descendants or device-side work stopped, and does not
+cover other manual move paths. An admin can move a waiting shard with `tutti job move` or the dashboard's Move now.
+See [PRESENCE.md](PRESENCE.md).
 
 ## The idle watchdog
 
@@ -269,6 +271,8 @@ round, so the work goes back to the device as soon as it returns. The device car
 
 ## Paired devices (roles)
 
+Roles in general (a suite's `roles:`, every machine's and device's detected roles) are in [MACHINES.md](MACHINES.md#roles).
+
 Cast roles are detected (`tutti/castroles.py`, once a day and at pairing; the device and machine cards show them; an
 admin's `roles:` overrides): a device is a receiver when it is a TV, has the Cast receiver service or Play services'
 mirroring receiver (a Pixel Tablet, a phone), and a sender when it has Play services' Cast and a screen to send from; a
@@ -301,6 +305,9 @@ on the NUC) names it: `runner: pc`. Each shard then runs as `tutti devices lease
 <command>`: the devices are leased (both or none), the runner's own adb connects to each lease address, the command runs
 there with `{addr:<device>}` filled in (`ANDROID_SERIAL` is the first device's, `TUTTI_ADDR_<DEVICE>` each one's), and adb
 disconnects and the devices are released however it ends. Example (the paired Cast suite):
+
+Lease options can follow the device names. The first bare `--` separates the command, whose flags and any later `--`
+are passed through without being interpreted as Tutti options.
 
 ```yaml
 run: powershell -File C:\Users\me\Projects\RoRadio-tr\scripts\android\run-e2e.ps1 -Serial {addr:pixeltablet}
@@ -337,3 +344,13 @@ dispatch: {enabled: true, idle_minutes: 5, lease_minutes: 10, retries: 2, quiet_
 ```
 
 The dashboard's switch is kept in `<state>/controls.json` (`settings.dispatch_enabled`) and overrides `enabled`.
+
+
+## Run correlation for Docker checks
+
+New autopilot runs receive a random, non-secret identity before spawning. A Docker-backed routed check carries this
+identity as `io.tutti.run`; bridge clients receive the same validated value. Multiple containers can share the label.
+It is a correlation hint, not an authentication or stop signal: arbitrary runner flags, network access, another user of
+the Docker daemon, escaped processes and removed containers mean that an absent label cannot prove that a run stopped.
+The observation helper reports matching running containers or `unknown`; it never authorizes a retry or kills a job.
+Legacy jobs have no label.

@@ -37,8 +37,9 @@ function tuttiLocalCard(c, t) {
         tone: c.busy_now ? 'accent' : (TUTTI_LOCAL_TONE[c.status] || 'idle'),
         reason: c.reason,
         models: [`Loaded: ${loaded.length ? loaded.join(', ') : 'none'}`, `Installed: ${(c.installed || []).length ? c.installed.join(', ') : 'not read'}`],
-        power: `≈ ${tuttiNum(c.watts, { digits: 0 })} W now (GPU ${tuttiNum(p.gpu, { digits: 0 })} W${c.util === null || c.util === undefined ? '' : ` at ${tuttiPct(c.util)}`} + CPU ${tuttiNum(p.cpu, { digits: 0 })} W + base ${tuttiNum(p.base, { digits: 0 })} W)`,
+        power: `${c.gpu_measured ? '' : '≈ '}${tuttiNum(c.watts, { digits: 0 })} W now (GPU ${tuttiNum(p.gpu, { digits: 0 })} W ${c.gpu_measured ? 'measured' : 'estimated'}${c.util === null || c.util === undefined ? '' : ` at ${tuttiPct(c.util)}`} + CPU ${tuttiNum(p.cpu, { digits: 0 })} W ${(c.measured || []).some((m) => m.startsWith('CPU')) ? 'measured' : 'estimated'} + base ${tuttiNum(p.base, { digits: 0 })} W)`,
         measured: c.measured && c.measured.length ? `Measured: ${c.measured.join(', ')}; the rest estimated` : 'Estimated: no power reading here (TDP × utilisation)',
+        denied: (c.denied || []).map((d) => `To measure instead of estimate: ${d}`),
         periods,
         perJob: c.per_job === null || c.per_job === undefined ? 'no job this month' : tuttiMoney(c.per_job, cur),
         perHour: tuttiMoney(c.per_busy_hour, cur),
@@ -70,17 +71,17 @@ function renderLocalModels(s) {
     }
     box.replaceChildren(...lm.cards.map((c) => {
         const v = tuttiLocalCard(c, lm.tariff);
-        const table = el('table', { class: 'local__periods' },
+        const table = el('div', { class: 'local__scroll', tabindex: '0', role: 'region', 'aria-label': `${v.title}: energy and cost by period` }, el('table', { class: 'local__periods' },
             el('thead', {}, el('tr', {}, el('th', { scope: 'col' }, el('span', { class: 'sr-only', text: 'Period' })),
                 ...['Busy', 'Jobs', 'Tokens', 'kWh', 'Cost'].map((h) => el('th', { scope: 'col', text: h })))),
             el('tbody', {}, ...v.periods.map((r) => el('tr', {}, el('th', { scope: 'row', text: r.label }),
                 el('td', { text: r.busy }), el('td', { text: String(r.jobs) }), el('td', { text: String(r.tokens) }),
-                el('td', { text: r.kwh }), el('td', { text: r.cost })))));
+                el('td', { text: r.kwh }), el('td', { text: r.cost }))))));
         const method = el('details', { class: 'local__method' }, el('summary', { text: 'Estimates: how they are made' }),
-            el('p', { text: v.measured }),
+            el('p', { text: v.measured }), ...v.denied.map((d) => el('p', { text: d })),
             el('p', { text: `Energy is the power sampled at each probe while a Tutti run is on this machine${lm.include_idle ? ', plus the idle draw while Tutti keeps a model loaded' : ''}; cost is kWh × the price of that hour. ${lm.tariff.source}.` }),
             el('p', { text: `Cloud prices: ${(c.periods.month.cloud || {}).source || ''}. Method: ${lm.method}` }));
-        return el('article', { class: 'account local', 'aria-label': `${v.title}: ${v.status}` },
+        return el('article', { class: 'account local', 'data-machine': c.name, 'aria-label': `${v.title}: ${v.status}` },
             el('div', { class: 'account__top' }, el('h3', { class: 'account__name', text: v.title }), chip(v.status, v.tone)),
             el('p', { class: 'account__by', text: v.gpu }),
             ...v.models.map((m) => el('p', { class: 'account__auto', text: m })),

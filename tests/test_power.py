@@ -127,7 +127,8 @@ class Tiers(unittest.TestCase):
         self.assertEqual(fleet.model_for(w, fix, {})['name'], 'qwen3:8b')
         self.assertEqual(fleet.model_for(w, {**fix, 'attempts': [{'ok': False}]}, {})['name'], 'qwen3:8b')
         self.assertEqual(fleet.model_for(w, {**fix, 'attempts': [{'ok': False}] * 2}, {})['name'], 'qwen3:32b')
-        self.assertEqual(fleet.model_for(w, {**fix, 'size': 'L'}, {})['name'], 'qwen3:32b')
+        self.assertIsNone(fleet.model_for(w, {**fix, 'size': 'L'}, {}))   # an L task stays online (owner, 2026-11-17)
+        self.assertEqual(fleet.model_for(w, {**fix, 'size': 'M'}, {})['name'], 'qwen3:32b')
 
     def test_order_keeps_the_strong_machine_free_for_hard_work(self):
         cfg = {'workers': {'pc-local': {'kind': 'ollama', 'model': 'qwen3:32b', 'machine': 'pc', 'models': [STRONG, MID]},
@@ -137,7 +138,7 @@ class Tiers(unittest.TestCase):
                 {'name': 'laptop', 'status': 'free', 'power': {'score': power.score(LAPTOP)}}]
         easy = {'title': 'fix a', 'size': 'S', 'scope': ['a.py']}
         self.assertEqual(fleet.order(cfg, ['pc-local', 'laptop-local'], easy, rows, {}), ['laptop-local', 'pc-local'])
-        hard = {**easy, 'size': 'L'}
+        hard = {**easy, 'size': 'M'}   # the largest a local model takes (owner, 2026-11-17)
         self.assertEqual(fleet.order(cfg, ['pc-local', 'laptop-local'], hard, rows, {}), ['pc-local'])
         self.assertEqual(power.prefer(2, 0), 2)
         self.assertEqual(power.prefer(0, 2), 12)

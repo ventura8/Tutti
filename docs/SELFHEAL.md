@@ -28,7 +28,7 @@ what was done.
 | disk | Tutti's own left-over temp folders; free space and file slots ([diskroom](../tutti/diskroom.py)) | removed (below); still low: one Needs-you item to make room |
 | state | each state JSON file parses | put back from its last good snapshot (the broken copy kept as `.corrupt`) |
 | config | the config file is YAML | unreadable for 2 minutes (not a save in progress): the newest backup that loads (Settings' `config-backups/`) put back, the broken one kept as `.bad`; a config that parses but fails a check is a person's edit and is never replaced |
-| dashboard | the dashboard answers on the machine that serves | started again |
+| dashboard | the dashboard answers on the machine that serves | requests a start when safe; otherwise reports why it cannot verify recovery (see [FAILOVER.md](FAILOVER.md#network)) |
 | update | a release install is on the newest release (asked at most every 6 h) | `self-update`: the checksummed, signed release installed, unattended. On by default, like the dashboard's daily update; `self_update: {enabled: false}` turns both off |
 
 One check that fails (an exception) is logged and the others go on.

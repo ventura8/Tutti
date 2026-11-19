@@ -63,3 +63,16 @@ class RoutingTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TakeoverPick(unittest.TestCase):
+    """Owner, 2026-11-17: Chat's delegate_task found 'no agent account has room' while cursor only had its planned room
+    used and the main agent panicked."""
+
+    def test_planned_room_does_not_stop_an_account_while_the_main_agent_panics(self):
+        plan_used = {'name': 'cursor', 'used': 54, 'panic_at': 95, 'verdict': 'ahead', 'panic': False,
+                     'quota_plan': {'limit': None, 'left': 0, 'tasks': 0}}
+        self.assertIsNone(routing.pick_account([plan_used])[0])
+        self.assertEqual(routing.pick_account([plan_used], takeover=True)[0]['name'], 'cursor')
+        spent = {**plan_used, 'verdict': 'spent'}
+        self.assertIsNone(routing.pick_account([spent], takeover=True)[0])

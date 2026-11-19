@@ -227,6 +227,17 @@ class ReviewCases(unittest.TestCase):
         self.assertFalse(s['panic'])
         self.assertIn('its limit w: panic', routing.account_unfit(s))
 
+    def test_reset_window_reports_panic_on_its_linked_quota(self):
+        lim = {'name': 'w', 'state': 'ok', 'panic': True, 'verdict': 'ahead', 'window': '7d', 'action': 'stop', 'used': 97}
+        own = {'name': 'agy', 'state': 'ok', 'panic': False, 'verdict': 'behind', 'used': 0, 'room_tasks': 4}
+        s = planner.bind(own, [lim], {}, {}, None, NOW)
+        self.assertTrue(s['panic'])
+        self.assertEqual(routing.account_unfit(s), 'its limit w: panic: 97 % used before the target time')
+        self.assertIsNone(routing.pick_account([s], takeover=True)[0])
+        lim['panic'], lim['used'] = False, 0
+        own_state = {**own, 'limits': [lim]}
+        self.assertFalse(routing.quota_closed(own_state))
+
     def test_the_limit_with_the_fewest_tasks_binds(self):
         # two limits: one roomy, one with its window share nearly used; the second binds even with more points left
         roomy = {**WEEK}

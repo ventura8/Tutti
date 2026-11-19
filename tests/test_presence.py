@@ -82,7 +82,7 @@ class Base(unittest.TestCase):
 
 
 class ComingAndGoing(Base):
-    def test_a_device_leaving_mid_shard_is_requeued_not_failed_and_resumes_within_a_tick_of_its_return(self):
+    def test_a_device_leaving_mid_shard_is_held_until_stop_is_confirmed(self):
         cfg, stopped = self.cfg(), []
         self.tick(cfg, [phone()])
         self.assertEqual(self.shard(cfg)['status'], 'running')
@@ -91,15 +91,20 @@ class ComingAndGoing(Base):
         self.assertEqual((self.shard(cfg)['status'], stopped), ('running', []))
         self.tick(cfg, [gone], now=NOW + 200, stop=stopped.append)
         sh = self.shard(cfg)
-        self.assertEqual((sh['status'], sh['attempts'], stopped), ('queued', 0, [4242]))
-        self.assertIn('left mid-run', sh['why'])
+        self.assertEqual((sh['status'], sh['attempts'], stopped), ('running', 0, []))
+        state = dispatch.read_state(cfg)
+        lid = next(iter(state['leases']))
+        self.assertIn('left mid-run', state['leases'][lid]['uncertain'])
         self.tick(cfg, [gone], now=NOW + 900)   # 12 minutes away with work waiting: not idle
         self.assertEqual(dispatch.read_state(cfg)['warnings'], [])
-        p = self.tick(cfg, [phone()], now=NOW + 5 * 3600)   # back hours later: picked up within one tick
+        p = self.tick(cfg, [phone()], now=NOW + 5 * 3600)
+        self.assertEqual(p['assign'], [])
+        dispatch.resolve(cfg, lid, True, now=NOW + 5 * 3600)
+        p = self.tick(cfg, [phone()], now=NOW + 5 * 3600 + 1)
         self.assertEqual([(t['id'], w['key']) for t, w in p['assign']], [('device:pixel', 'e2e/a')])
         self.assertTrue(any('is back' in e['text'] for e in dispatch.read_state(cfg)['events']))
 
-    def test_a_crash_still_counts_while_a_power_off_does_not(self):
+    def test_a_power_off_without_a_result_keeps_the_lease_held(self):
         cfg = self.cfg()
         self.tick(cfg, [phone()])
         st = dispatch.read_state(cfg)
@@ -109,13 +114,12 @@ class ComingAndGoing(Base):
         with mock.patch.object(durable, 'boot_id', return_value='after-reboot'):
             self.tick(cfg, [phone()], now=NOW + 60, alive=lambda pid: False)
         sh = self.shard(cfg)
-        self.assertEqual((sh['attempts'], sh['status']), (0, 'running'))   # requeued, not counted, and sent again at once
-        self.assertEqual(len(dispatch.read_state(cfg)['leases']), 1)        # one run: never the same shard twice
-        with mock.patch.object(durable, 'boot_id', return_value='after-reboot'):   # a crash in the same boot still counts
+        self.assertEqual((sh['attempts'], sh['status']), (0, 'running'))
+        self.assertIn('interrupted by', next(iter(dispatch.read_state(cfg)['leases'].values()))['uncertain'])
+        with mock.patch.object(durable, 'boot_id', return_value='after-reboot'):
             self.tick(cfg, [phone()], now=NOW + 120, alive=lambda pid: False)
         sh = self.shard(cfg)
-        self.assertEqual(sh['attempts'], 1)
-        self.assertIn('crash', sh['why'])
+        self.assertEqual((sh['attempts'], sh['status']), (0, 'running'))
 
     def test_left_with_its_owner_and_asleep_at_night_are_told_apart(self):
         s = presence.settings({})
@@ -203,6 +207,14 @@ class ComingAndGoing(Base):
 
 
 class Sleep(Base):
+    def test_sleep_does_not_hold_dispatch_leases_after_failover_fences_this_machine(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        before = dispatch.read_state(cfg)['leases']
+        with mock.patch('tutti.failover.may_write', side_effect=[True, False]):
+            sleepwatch.going_down(cfg, 'sleep', 4.0, running=lambda *_: [])
+        self.assertEqual(dispatch.read_state(cfg)['leases'], before)
+
     def test_the_sleep_signal_hands_running_work_over_and_wake_starts_it_again(self):
         cfg = self.cfg()
         self.tick(cfg, [phone()])
@@ -215,10 +227,11 @@ class Sleep(Base):
             return [(log, 99)] if (kind, name) == ('machine', 'pc') else []
         with mock.patch.object(dispatch, 'stop_pid', stopped.append):
             noted = sleepwatch.going_down(cfg, 'sleep', 4.0, running=running, end=ended.append)
-        self.assertEqual((ended, stopped), ([99], [4242]))
+        self.assertEqual((ended, stopped), ([99], []))
         self.assertEqual(noted[0]['kind'], 'test')
         sh = self.shard(cfg)
-        self.assertEqual((sh['status'], sh['attempts']), ('queued', 0))
+        self.assertEqual((sh['status'], sh['attempts']), ('running', 0))
+        self.assertIn('execution stop is unconfirmed', next(iter(dispatch.read_state(cfg)['leases'].values()))['uncertain'])
         self.assertEqual(presence.read(cfg)['targets'][sleepwatch.HOST]['state'], presence.ASLEEP)
         started = []
         sleepwatch.woke(cfg, start=lambda c, args, name: started.append(args) or 'log')
@@ -281,6 +294,30 @@ while True:
 
 
 class NothingLost(Base):
+    def test_start_keeps_a_healthy_usage_log_and_does_not_resume_when_nothing_waits(self):
+        cfg = self.cfg()
+        os.makedirs(self.state, exist_ok=True)
+        log = os.path.join(self.state, 'usage.jsonl')
+        original = '{"at": "2026-11-14T00:00:00+00:00", "account": "x", "used": 1}\n'
+        with open(log, 'w', encoding='utf8') as f:
+            f.write(original)
+        resume = mock.Mock()
+        with mock.patch.object(presence, 'read', return_value={'resume': []}), mock.patch('tutti.telemetry.record'):
+            lines = recovery.on_start(cfg, resume=resume)
+        self.assertEqual(lines, [])
+        resume.assert_not_called()
+        with open(log, encoding='utf8') as f:
+            self.assertEqual(f.read(), original)
+
+    def test_start_resumes_waiting_jobs_once_and_reports_the_count(self):
+        cfg = self.cfg()
+        resume = mock.Mock(return_value=['run-1', 'run-2'])
+        with mock.patch.object(presence, 'read', return_value={'resume': ['run-1', 'run-2']}), \
+                mock.patch('tutti.telemetry.record'):
+            lines = recovery.on_start(cfg, resume=resume)
+        resume.assert_called_once_with(cfg)
+        self.assertEqual(lines, ['2 job(s) stopped by a shutdown started again'])
+
     def test_a_kill_at_random_points_during_writes_never_corrupts_state(self):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         path, log = os.path.join(self.tmp.name, 's.json'), os.path.join(self.tmp.name, 'u.jsonl')
@@ -340,6 +377,108 @@ GIT_ENV = {'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@x.example', 'GIT_COMMI
 
 @mock.patch.dict(os.environ, GIT_ENV)
 class Checkpoints(Base):
+    def test_manual_checkpoint_only_snapshots_running_tasks(self):
+        cfg = self.cfg()
+        os.makedirs(self.state, exist_ok=True)
+        running = {'id': 't1', 'title': 'task', 'repo': 'app', 'run': '1-1', 'status': 'running'}
+        queued = {'id': 't2', 'title': 'other', 'repo': 'app', 'status': 'queued'}
+        backlog.save(cfg, {'tasks': [running, queued]})
+        snap, push = mock.Mock(return_value='new-sha'), mock.Mock(return_value='')
+        with mock.patch('tutti.failover.may_write', return_value=True), \
+                mock.patch.object(autopilot, 'tree_of', return_value='/example/worktree'), \
+                mock.patch.object(autopilot, 'wip_remote', return_value='origin'), \
+                mock.patch.object(autopilot, 'tick', side_effect=AssertionError('must not dispatch')):
+            results = autopilot.checkpoint_now(cfg, 100, snap=snap, push=push)
+        self.assertEqual([(task_id, result['pushed']) for task_id, result in results], [('t1', True)])
+        self.assertEqual(snap.call_count, 1)
+        self.assertEqual(push.call_count, 1)
+        stored = backlog.load(cfg)['tasks']
+        self.assertEqual(stored[0]['wip']['sha'], 'new-sha')
+        self.assertEqual(stored[1], queued)
+
+    def test_manual_checkpoint_fences_and_reports_missing_tree(self):
+        cfg = self.cfg()
+        os.makedirs(self.state, exist_ok=True)
+        task = {'id': 't1', 'title': 'task', 'repo': 'app', 'run': '1-1', 'status': 'running'}
+        backlog.save(cfg, {'tasks': [task]})
+        snap = mock.Mock()
+        with mock.patch('tutti.failover.may_write', side_effect=[True, False]):
+            self.assertIsNone(autopilot.checkpoint_now(cfg, 100, snap=snap))
+        snap.assert_not_called()
+        self.assertEqual(backlog.load(cfg)['tasks'], [task])
+        with mock.patch('tutti.failover.may_write', return_value=True), \
+                mock.patch.object(autopilot, 'tree_of', return_value=None):
+            results = autopilot.checkpoint_now(cfg, 100, snap=snap)
+        self.assertIn('worktree unavailable', results[0][1]['error'])
+        self.assertFalse(results[0][1]['pushed'])
+        snap.assert_not_called()
+
+    def test_no_new_snapshot_does_not_claim_a_push_or_reuse_a_failed_sha(self):
+        cfg = self.cfg()
+        task = {'id': 't1', 'title': 'task', 'repo': 'app', 'run': '1-1',
+                'wip': {'sha': 'old-sha', 'pushed': False, 'error': 'push failed'}}
+        push = mock.Mock()
+        status = autopilot.checkpoint_status(cfg, task, '/example/worktree', 100, lambda *_: '', push)
+        self.assertIsNone(status['sha'])
+        self.assertFalse(status['pushed'])
+        self.assertEqual(status['previous_sha'], 'old-sha')
+        self.assertIn('unchanged or capture failed', status['error'])
+        push.assert_not_called()
+        task['wip'] = status
+        again = autopilot.checkpoint_status(cfg, task, '/example/worktree', 101, lambda *_: '', push)
+        self.assertEqual(again['previous_sha'], 'old-sha')
+        self.assertFalse(again['pushed'])
+        task.pop('wip')
+        first = autopilot.checkpoint_status(cfg, task, '/example/worktree', 102, lambda *_: '', push)
+        self.assertIsNone(first['sha'])
+        self.assertFalse(first['pushed'])
+        self.assertNotIn('previous_sha', first)
+
+    def test_checkpoint_push_status_requires_a_new_sha_and_a_configured_remote(self):
+        cfg = self.cfg()
+        task = {'id': 't1', 'title': 'task', 'repo': 'app', 'run': '1-1'}
+        def snap(*_args):
+            return 'new-sha'
+        with mock.patch.object(autopilot, 'wip_remote', return_value=''):
+            push = mock.Mock()
+            local = autopilot.checkpoint_status(cfg, task, '/example/worktree', 100, snap, push)
+            self.assertEqual((local['sha'], local['pushed']), ('new-sha', False))
+            self.assertIn('local only', local['error'])
+            push.assert_not_called()
+        with mock.patch.object(autopilot, 'wip_remote', return_value='origin'):
+            good = autopilot.checkpoint_status(cfg, task, '/example/worktree', 100, snap, lambda *_: '')
+            failed = autopilot.checkpoint_status(cfg, task, '/example/worktree', 100, snap, lambda *_: 'push failed')
+        self.assertEqual((good['sha'], good['pushed'], good['error']), ('new-sha', True, None))
+        self.assertEqual((failed['sha'], failed['pushed'], failed['error']), ('new-sha', False, 'push failed'))
+
+    def test_checkpoint_exceptions_clear_stale_success(self):
+        cfg = self.cfg()
+        task = {'id': 't1', 'title': 'task', 'repo': 'app', 'run': '1-1',
+                'wip': {'sha': 'old-sha', 'pushed': True}}
+        def broken(*_args):
+            raise OSError('unavailable')
+        capture = autopilot.checkpoint_status(cfg, task, '/example/worktree', 100, broken, mock.Mock())
+        self.assertFalse(capture['pushed'])
+        self.assertIsNone(capture['sha'])
+        self.assertEqual(capture['previous_sha'], 'old-sha')
+        self.assertIn('capture failed', capture['error'])
+        with mock.patch.object(autopilot, 'wip_remote', return_value='origin'):
+            pushed = autopilot.checkpoint_status(cfg, task, '/example/worktree', 100, lambda *_: 'new-sha', broken)
+        self.assertFalse(pushed['pushed'])
+        self.assertEqual(pushed['sha'], 'new-sha')
+        self.assertIn('push failed', pushed['error'])
+
+    def test_running_checkpoint_round_records_uncertain_capture(self):
+        cfg = self.cfg()
+        task = {'id': 't1', 'title': 'task', 'repo': 'app', 'run': '1-1', 'status': 'running', 'started': 1,
+                'wip': {'sha': 'old-sha', 'pushed': False}}
+        with mock.patch.object(autopilot, 'tree_of', return_value='/example/worktree'):
+            autopilot.checkpoints(cfg, {'tasks': [task]}, 1000, snap=lambda *_: '', push=mock.Mock())
+        self.assertEqual(task['checkpoint'], 1000)
+        self.assertIsNone(task['wip']['sha'])
+        self.assertFalse(task['wip']['pushed'])
+        self.assertEqual(task['wip']['previous_sha'], 'old-sha')
+
     def repo(self, name):
         wt = os.path.join(self.tmp.name, name)
         os.makedirs(wt)
@@ -394,9 +533,10 @@ class Moves(Base):
         self.tick(cfg, [], [machine('a', False)], now=NOW + 300, stop=lambda pid: None)
         lines = jobmove.evacuate(cfg, 'a', NOW + 301, stop=lambda pid: None)
         self.assertEqual(len(lines), 2)
+        self.assertEqual(sum('not moved' in line for line in lines), 1)
         p = self.tick(cfg, [], [machine('a', False), machine('b')], now=NOW + 302)
         self.assertEqual(len(p['assign']), 1)   # one free slot on b; the other waits for it, no longer for a
-        self.assertEqual(jobmove.waiting(cfg, NOW + 302), [])
+        self.assertEqual(len(jobmove.waiting(cfg, NOW + 302)), 1)  # the uncertain lease remains held
 
     def test_the_auto_move_timer_moves_only_urgent_work_after_its_minutes(self):
         tests = {'e2e': {'kind': 'e2e', 'targets': ['machine'], 'run': 'go {shard}', 'shards': ['x'], 'machines': ['a']}}
@@ -406,7 +546,7 @@ class Moves(Base):
         self.assertEqual(jobmove.auto_moves(cfg, NOW + 400), [])                 # not urgent
         cfg['projects']['Radio']['urgent'] = True
         self.assertEqual(jobmove.auto_moves(cfg, NOW + 400), [])                 # not 10 minutes yet
-        self.assertEqual(len(jobmove.auto_moves(cfg, NOW + 1000)), 1)
+        self.assertIn('not moved', jobmove.auto_moves(cfg, NOW + 1000)[0])
         self.assertEqual(jobmove.auto_moves({**cfg, 'presence': {}}, NOW + 2000), [])   # off by default
 
     def test_a_moved_task_is_queued_from_its_checkpoint_with_no_attempt_counted(self):
@@ -428,7 +568,8 @@ class Moves(Base):
         state = household.new_state('home', NOW)
         for u, n in (('u1', 'Ana'), ('u2', 'Bo')):
             household.join(state, u, u, n, 'claude', 'tok', NOW)
-        household.sync_project(state, 'gh/x', {'publish': [{'title': 'Fix login'}], 'held': ['fix login']}, 'u1', NOW, 30)
+        household.sync_project(state, 'gh/x', {'publish': [{'title': 'Fix login', 'scope': ['src/login.py']}],
+                                                'held': ['fix login']}, 'u1', NOW, 30)
         self.assertIn('moved from Ana', household.reassign(state, 'gh/x', 'fix login', 'u2', NOW + 60))
         back = household.sync_project(state, 'gh/x', {'held': ['fix login']}, 'u1', NOW + 120, 30)   # Ana's laptop is back
         self.assertEqual(back['mine'], [])
@@ -437,13 +578,36 @@ class Moves(Base):
         self.assertEqual(household.claim(state, household.lease_key('gh/x', 'fix login'), 'u1', NOW + 3800, 30), (False, None))
         cfg = self.cfg()
         data = {'tasks': [{'id': 't1', 'title': 'Fix login', 'status': 'running', 'run': 'x', 'started': NOW, 'attempts': [],
-                           'repo': 'r'}]}
+                           'repo': 'r', 'scope': ['src/login.py']}]}
         killed = []
         with mock.patch.object(autopilot.delegate, 'paths', return_value={'pid': os.devnull}):
-            events = autopilot.moved_away(cfg, data, sharing.moved_of({'answer': {'projects': {'gh/x': back}}}),
+            moved, _, _ = sharing.moved_of({'keys': {'r': 'gh/x'}, 'answer': {'projects': {'gh/x': back}}}, data)
+            events = autopilot.moved_away(cfg, data, moved,
                                           lambda pid: True, killed.append)
         self.assertEqual(data['tasks'][0]['status'], 'moved')
         self.assertIn('not run here again', events[0])
+
+    def test_moved_worktree_is_preserved_when_snapshot_succeeds_or_fails(self):
+        cfg = self.cfg()
+        wt = os.path.join(self.tmp.name, 'moved-work')
+        os.makedirs(wt)
+        path = os.path.join(wt, 'a.txt')
+        with open(path, 'w', encoding='utf8') as f:
+            f.write('unfinished work\n')
+        with open(os.path.join(wt, 'new.txt'), 'w', encoding='utf8') as f:
+            f.write('untracked work\n')
+        for outcome in ('backup-sha', '', OSError('git failed')):
+            task = {'id': 't1', 'title': 'Fix login', 'status': 'running', 'run': 'x', 'repo': 'r'}
+            snap = mock.Mock(side_effect=outcome if isinstance(outcome, OSError) else None,
+                             return_value=outcome if isinstance(outcome, str) else None)
+            with mock.patch.object(autopilot, 'stop_run', return_value=wt):
+                event = autopilot.give_up_here(cfg, task, 'holder', lambda _: True, lambda _: None, snap=snap)
+            self.assertEqual(task['status'], 'moved')
+            self.assertIn('not run here again', event)
+            self.assertIn('backup at' if outcome == 'backup-sha' else 'backup unconfirmed', task['recovery_note'])
+            with open(path, encoding='utf8') as f:
+                self.assertEqual(f.read(), 'unfinished work\n')
+            self.assertTrue(os.path.exists(os.path.join(wt, 'new.txt')))
 
     def test_a_viewer_cannot_move_work(self):
         cfg = self.cfg()

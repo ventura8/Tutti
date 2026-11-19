@@ -1,6 +1,123 @@
 # Lessons
 
+- A CLI process can use native tools before its answer fails; a post-launch failure is not safe evidence for automatic fallback (t303).
+
+- A streaming EOF does not prove an answer finished; never retry another model after an action attempt without checking its outcome (t303).
+
+- A decision snapshot must include all durable task fields, not only the prompt fields: scope, checks or ownership can change during review (t278).
+
+- Malformed model output is not a decision to escalate; validate the action and required fields, then back off before retrying (t244).
+
+- Phone grid tracks need a zero minimum and wrapping for long account names under enlarged text spacing (t414).
+
+- A title-only Chat update should not rebuild the message DOM, and an asynchronous result must remain bound to the
+  conversation that initiated it (t407).
+
+- A title-only moved notice loses project identity and can stop unrelated work. Scope the notice and hold ambiguous queued
+  tasks; matching scope is evidence, not a globally unique identity (t210).
+
+- A failing task can change while a diagnosis runs without changing its failure classification. Compare the task itself
+  under the backlog lock before applying a retry or question; let a changed task be reviewed again (t244).
+
+- A missing checkpoint SHA can mean Git failed, not that a worktree is clean. Never reset or clean the old household
+  holder's worktree on that evidence; retain it even when the holder has already changed (t309).
+- A stale heartbeat or vanished runner does not prove the remote execution stopped. Keep its lease until a verified
+  boundary or an explicit administrator confirmation permits recovery (t309).
+
+- **A freeze check and a spawn must share a lock** (t404): serialize local cooperative autopilot admission with durable
+  marker creation, but do not mistake that partial fence for protection against other launch paths or live remote work.
+
+- **No snapshot is not a successful push** (t309): an empty checkpoint result can mean unchanged work or a Git failure.
+  Keep previous SHA references separate and report the current push as unverified; a checkpoint does not prove a run stopped.
+
+- A discovery prefilter must use the same explicit-detail comparison as backlog addition; otherwise it silently suppresses
+  distinct work before the backlog can consider it. Count actual additions, not candidates (t210).
+
+- Matching short titles alone can hide distinct work. Preserve explicit scope and check disagreements on direct backlog
+  additions without treating unspecified details as evidence of a distinct task (t210).
+
+- Do not truncate a model's proposed action to its first word: match the whole line against the choices, and leave multiple
+  or ambiguous actions unanswered (t278).
+
+- **A Chat answer is not the only active Chat work** (t404): confirmation, plan and undo actions can run after a model
+  answer ends. Admit them through a separate gate and hold a settings restart until their final card update; an exception
+  after a tool starts leaves an uncertain in-process outcome, not a safe completion.
+
+- A model answer describes the question and task it saw, not a later question with overlapping options. Check the snapshot
+  under the task and question locks immediately before an automatic answer (t278).
+
+- **A deleted Chat can still be answering** (t404): check live in-process answer jobs as well as persisted streaming
+  records, and hold the Chat admission lock through the final restart check. A different dashboard process's deleted
+  answer is not visible through that local job registry.
+- A local worker name is not necessarily a model server: two names may target the same configured endpoint, so one
+  scheduler must reserve their shared capacity together (t301).
+
+- **Off is not finished** (t404): stopping dispatch must not stop WIP checkpoints, but a report or missing local PID
+  cannot establish that remote execution stopped. Hold ambiguous reports while off; resuming uses the existing collector,
+  which does not establish remote termination.
+- **Release notes must move with the version** (t408): leaving already-released entries in Unreleased repeats them in later
+  releases. Preserve the section's existing categories and refuse ambiguous duplicate sections.
+
+- **Missing quota is not spare quota** (t388): choosing a worker and then finding no usable account must not launch its
+  default login. Recheck measured quota, bind a shared worker to a unique selected account and watch that account in the turn.
+
+- **An excerpt is not the conversation** (t387): offer bounded, user-scoped access to retained earlier text and name the
+  retention limit; never claim that a summary or a short prompt contains all prior turns.
+
+- A remote check's copy name also reaches a local lock path and remote shell. Validate it before either side effect; checking
+  only the worker's local worktree name leaves the independently configured remote name unchecked (t403).
+
+- **A service exit can announce a false departure** (t404): an update-driven watchdog exit runs systemd's leave hook.
+  Reload the watchdog in place, and keep sending heartbeats if re-exec fails.
+
+- **A release tag must name its own reviewed PR** (t401): deleting a version branch can destroy concurrent work, while
+  tagging current main after merging can publish unrelated commits. Reserve the branch without replacement and check
+  the PR merge and its base before tagging; a non-atomic base check still requires a post-merge verification.
+
+- **A local restart does not prove remote work stopped** (t105): startup recovery can repair local state without proving
+  that remote processes or effects ended. Document that limit and test both healthy and interrupted startup behavior.
+
+- **A priority in a task title is not a scheduler setting** (t320): persist approved labels and order tasks by the saved
+  level, while keeping explicit run-now behavior and weighted project sharing within a level.
+
+- **A binding quota may be the one in panic** (t272): showing the current window's usage beside a propagated panic
+  can report a false zero-percent panic. Explain the linked window without opening its closed quota.
+
+- **Environment failures must not exhaust the ladder** (t260): excluding missing reports from the attempt cap was not
+  enough when a separate repeated-failure check removed every worker. Apply the same classification at both decisions.
+- **Automatic discovery can run a heavy command during quiet mode** (t172): a configured gaps command can run a build or
+  coverage check. Check before launching it, keep lighter task sources available, and report any quiet-mode deferral.
+
+- **Local attempts have no quota reading** (t301): a completed local-model attempt cannot appear in a later account
+  usage reading. Only currently running local work occupies its server; keep online attempts reserved until reflected.
+
+- **A read-only tool may still disclose private output** (t372): the model's status lookup bypassed the direct Chat
+  role check and could return a job log to a viewer. Apply the same access boundary before either dispatch path.
+
+- **A fake command fallback does not isolate token lookup** (t133): the GitHub client could still consult a cached or
+  locally signed-in CLI token before reaching the fake fallback. Tests must isolate both the token cache and lookup.
+
+- **Review-thread pages must be complete** (t179): querying only the first 100 threads could miss a later unresolved
+  conversation. Follow every page and fail closed when a result or cursor is incomplete or malformed.
+
+- **Explicit test environments must not inherit the real secret directory** (2026-11-17): a test passed an empty mapping,
+  but the secret lookup fell back to the user's home and reached a live webhook. Treat an explicit mapping without a
+  configuration directory as isolated, and verify that no secret-file read occurs.
+
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
+
+## A usage limit is not a real attempt (t260, 2026-11-17)
+
+**What happened.** Overnight, 167 usage-limit failures were classified `real` and counted toward `max_attempts` / strongest-step
+`no_progress`, pushing 149 tasks to needs-person (128 requeued by hand).
+
+**Why.** AI assist treated a rate limit as `real` so the ladder would move on; the strongest-step park and the attempt
+counter did not exclude ENV_SIDE failures (usage limit, CLI refusal, no-report after a limit).
+
+**Rule.** A usage limit, a CLI permission refusal, and a run that ended without a report are **environment**: they do not
+count toward `max_attempts` and never park as no-progress. A usage limit or CLI refusal still escalates (the account or
+CLI is spent). Match a real limit diagnostic (`HTTP 429`, `Too Many Requests`), never a bare `429` in an assertion or a
+test name.
 
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
@@ -435,3 +552,60 @@ next `sleep` or fake `adb`, which carried the same marker and lived on until sel
 `scripts/check.sh` stopped at shellcheck on a machine without it, and an agent edited a throwaway copy of the script to
 skip that line. Even in a scratch clone that weakens the check. The fix is to install the tool, not skip it: check.sh now
 puts a pinned shellcheck (`shellcheck-py`, hashed) in its venv, and a missing tool is reported, never commented out.
+
+- A configured automatic reader is not proof of a fresh measurement: preserve the last actual reading time and surface
+  missing, future or stale values independently of whether a reader is configured (t317).
+
+- A cache hit is not a new provider observation. Keep its original time across machines, and do not let a current reader
+  failure be hidden by a previously fresh sample when deciding cautious panic rescue (t317).
+- A remote observation may occur after a polling round starts. Compare it with the local receipt time, not the round's
+  start, or a healthy bridge can be rejected on every normal poll (t317).
+
+## Browser setup can exhaust CI before tests run (t331)
+
+A slow package mirror repeatedly exhausted the CI timeout while Playwright installed system packages after unit tests.
+Probe the actual headless browser first and install system dependencies on probe failure; always run the complete browser
+suite. A successful launch does not guarantee optional fonts, and a cold mirror can still time out.
+
+## A watchdog must probe the actual bind (t333)
+
+A dashboard listening only on a LAN address cannot answer a loopback probe. The false failure caused a watchdog to start
+another dashboard while its user service was restarting. Probe the configured address, avoid competing with an existing
+user service, and serialize fallback watchdog starts when no unit exists. An existing service or PID is not proof that it
+owns the configured dashboard, so report unresolved health rather than killing or restarting an unverified process.
+
+
+## Save launch intent before starting work (t309)
+
+A process can outlive the dashboard that starts it. If the queue still says the task is queued when the dashboard dies,
+another round can launch a competing attempt. Persist the intended run first and hold ambiguous starts until a report.
+
+
+## A container label is a hint, not proof of completion (t309)
+
+A disconnected Docker client may leave a container or external writer alive, while `--rm` removes terminal containers.
+Use a per-run label to correlate observations, but never infer that a job stopped solely from an absent label.
+
+
+## Correlate a result before collecting it (t309)
+
+A stale or misdirected report must not be interpreted as another attempt's result. Compare its run ID and saved identity,
+but never treat a worker-readable identity as authentication or proof that all processes exited.
+
+## Lock only the shared copy (t402)
+
+An unrelated local check must not wait for a remote copy in use. Keep the lock for routed checks, including mixed sets,
+and use each local run's own worktree for local-only checks.
+
+
+## An updated question needs a new delivery (t244)
+
+Delivery state belongs to a question revision. A late failure from an older delivery must not erase the newer delivery or its batch timing, even when both occur at the same timestamp.
+
+
+## A local household reservation needs an identity, not only a title (t319)
+
+A member can mirror an unleased task in one round, while its scope or task incarnation changes before the next reservation.
+A title-only lease does not prove that the local model can take the current task. Conditional scoped claims use a durable
+coordinator acknowledgement and recheck the local task and worker before launch; older coordinators fail closed. This
+does not fence concurrent coordinators, stale workers or state rollback.

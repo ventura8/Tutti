@@ -11,6 +11,7 @@ import unittest
 import urllib.error
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest import mock
 
 import yaml
 
@@ -71,11 +72,17 @@ class Detection(unittest.TestCase):
     def test_agents_logins_and_plans(self):
         fake_bin(self.w.bin, 'cursor-agent', 'Not logged in')
         fake_bin(self.w.bin, 'claude')
+        fake_bin(self.w.bin, 'codex', 'Logged in')
         self.w.file('.claude/.credentials.json', '{}')
         found = {a['name']: a for a in setup.agents(self.w.probe)}
         self.assertEqual(found['claude']['login'], 'yes')
         self.assertEqual(found['cursor']['login'], 'no')
         self.assertEqual(found['cursor']['login_command'], ['cursor-agent', 'login'])
+        self.assertEqual(found['codex']['login'], 'yes')
+        self.assertEqual(found['codex']['login_command'], ['codex', 'login', '--device-auth'])
+        self.assertEqual(setup.AGENTS['codex']['worker']['command'][:3], ['codex', 'exec', '--skip-git-repo-check'])
+        self.assertIn('--approve-for-me', setup.AGENTS['codex']['worker']['command'])
+        self.assertNotIn('--dangerously-bypass-approvals-and-sandbox', setup.AGENTS['codex']['worker']['command'])
         self.assertNotIn('copilot', found)
 
     def test_a_signed_in_cursor_and_its_plan(self):
@@ -136,6 +143,19 @@ class ConfigRoundTrip(unittest.TestCase):
              'repos': [{'name': 'app', 'path': '~/Projects/app', 'priority': 0},
                        {'name': 'tool', 'path': '~/Projects/tool', 'priority': 1}]}
     EXISTING = '# my own notes\nmachines:\n  # the quiet one\n  box: {host: box.example}   # keep me\n\n# workers below\nworkers: {}\n'
+
+    def test_codex_setup_includes_automatic_usage_reader(self):
+        entry = setupcmd.account({'name': 'codex'}, Asked(), NOW)
+        self.assertEqual(entry['reader'], {'format': 'codex-app-server', 'every_minutes': 15})
+        self.assertEqual(entry['usage_url'], 'https://chatgpt.com/codex/settings/usage')
+        self.assertEqual(config.reader_problems('codex', {'reader': entry['reader']}), [])
+
+    def test_codex_setup_uses_the_actual_local_machine(self):
+        found = {**self.FOUND, 'agents': [{'name': 'codex', 'bin': 'codex'}], 'machines': [], 'devices': [], 'repos': []}
+        add, _, _ = setupcmd.plan(found, {'machines': {'desk': {'host': 'local'}}}, Asked(), NOW)
+        self.assertEqual(add['workers']['codex']['machine'], 'desk')
+        add, _, _ = setupcmd.plan(found, {'machines': {'remote': {'host': 'remote.example'}}}, Asked(), NOW)
+        self.assertNotIn('machine', add['workers']['codex'])
 
     def test_new_config_checks_out_with_priorities(self):
         add, why, top = setupcmd.plan(self.FOUND, {}, Asked(['max5']), NOW)
@@ -215,6 +235,23 @@ class Service(unittest.TestCase):
     def test_the_service_runs_the_given_tutti(self):
         files, _ = install.service_plan('linux', '/h', env={}, tutti='/opt/bin/tutti')
         self.assertIn('"/opt/bin/tutti" dashboard', files[0][1])
+
+    def test_setup_rejects_unsupported_config_path_before_writing_or_enabling_service(self):
+        ran = []
+
+        def run(argv, **_):
+            ran.append(argv)
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+        with tempfile.TemporaryDirectory() as folder, \
+                mock.patch.dict(os.environ, {'XDG_CONFIG_HOME': folder}), \
+                mock.patch.object(setupcmd.shutil, 'which', return_value='/opt/bin/tutti'):
+            status, detail = setupcmd.service('linux', folder, run, config_path='/home/example/config with spaces.yaml')
+            self.assertEqual(status, 'todo')
+            self.assertIn('cannot be safely pinned', detail)
+            self.assertIn('run `tutti setup` again', detail)
+            self.assertFalse(os.path.exists(os.path.join(folder, 'systemd', 'user', 'tutti-dashboard.service')))
+            self.assertFalse(any('enable' in argv for argv in ran))
 
     def test_macos_agent(self):
         files, cmds = install.service_plan('darwin', '/h')
@@ -350,6 +387,77 @@ class SelfUpdate(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(current, 'requirements.txt')))
             self.assertTrue(install.is_release_install(os.path.join(t, 'home', 'current'), os.path.join(t, 'home')))
             self.assertFalse(install.is_release_install(os.path.join(t, 'home'), os.path.join(t, 'home')))
+
+    def test_stage_only_keeps_active_code_and_environment_and_cleans_failures(self):
+        with tempfile.TemporaryDirectory() as t:
+            tarball, sums = release(t, '9.9.9')
+            home_dir = os.path.join(t, 'home')
+            active = os.path.join(home_dir, 'versions', '1.0.0')
+            shared = os.path.join(home_dir, 'venv')
+            os.makedirs(active)
+            os.makedirs(shared)
+            os.symlink(active, os.path.join(home_dir, 'current'))
+            marker = os.path.join(shared, 'marker')
+            with open(marker, 'w', encoding='utf8') as f:
+                f.write('unchanged')
+
+            def make_venv(path):
+                os.mkdir(path)
+                return True
+
+            with mock.patch.object(install, 'create_stage_venv', side_effect=make_venv), \
+                    mock.patch.object(install, 'stage_requirements', return_value=True) as req:
+                code, msg = install.stage_update(home_dir, '1.0.0', self.fetcher(tarball, sums), verify_fn=lambda *a: '')
+            self.assertEqual(code, 0, msg)
+            [stage] = [os.path.join(home_dir, x) for x in os.listdir(home_dir) if x.startswith('staged-')]
+            self.assertEqual(req.call_args.args, (stage, os.path.join(stage, 'release')))
+            self.assertTrue(os.path.isfile(os.path.join(stage, 'release', 'requirements.txt')))
+            self.assertTrue(os.path.isdir(os.path.join(stage, 'venv')))
+            self.assertEqual(os.path.realpath(os.path.join(home_dir, 'current')), active)
+            with open(marker, encoding='utf8') as f:
+                self.assertEqual(f.read(), 'unchanged')
+
+            with mock.patch.object(install, 'create_stage_venv', return_value=False):
+                code, msg = install.stage_update(home_dir, '1.0.0', self.fetcher(tarball, sums), verify_fn=lambda *a: '')
+            self.assertEqual(code, 1, msg)
+            self.assertEqual([x for x in os.listdir(home_dir) if x.startswith('staged-')], [os.path.basename(stage)])
+            self.assertEqual(os.path.realpath(os.path.join(home_dir, 'current')), active)
+
+    def test_stage_only_requires_signed_checksums(self):
+        with tempfile.TemporaryDirectory() as t:
+            tarball, sums = release(t, '9.9.9')
+            home_dir = os.path.join(t, 'home')
+            code, _ = install.stage_update(home_dir, '1.0.0', self.fetcher(tarball, sums), verify_fn=lambda *a: 'bad signature')
+            self.assertEqual(code, 1)
+            self.assertFalse(any(x.startswith('staged-') for x in os.listdir(home_dir)))
+            code, _ = install.stage_update(home_dir, '1.0.0', self.fetcher(tarball, f'{"0" * 64}  tutti-9.9.9.tar.gz\n'),
+                                           verify_fn=lambda *a: '')
+            self.assertEqual(code, 1)
+            self.assertFalse(any(x.startswith('staged-') for x in os.listdir(home_dir)))
+
+    def test_staging_cleans_unexpected_failure_and_ignores_package_manager_overrides(self):
+        with tempfile.TemporaryDirectory() as t:
+            tarball, _ = release(t, '9.9.9')
+            create_venv = mock.Mock(side_effect=RuntimeError('unexpected'))
+            with self.assertRaisesRegex(RuntimeError, 'unexpected'):
+                install.stage_release(t, tarball, '9.9.9', create_venv=create_venv)
+            self.assertFalse(any(x.startswith('staged-') for x in os.listdir(t)))
+        env = install.stage_env({'PATH': '/example', 'PIP_TARGET': '/active', 'UV_CONFIG_FILE': '/bad',
+                                 'PYTHONPATH': '/active', 'VIRTUAL_ENV': '/active'})
+        self.assertEqual(env, {'PATH': '/example', 'PIP_CONFIG_FILE': os.devnull, 'UV_NO_CONFIG': '1'})
+
+    def test_staged_install_uses_only_its_own_environment(self):
+        with tempfile.TemporaryDirectory() as t, mock.patch.object(install.shutil, 'which', return_value=None), \
+                mock.patch.object(install.subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as run, \
+                mock.patch.dict(os.environ, {'PIP_TARGET': '/active', 'PYTHONPATH': '/active'}):
+            self.assertTrue(install.stage_requirements(t, os.path.join(t, 'release')))
+            argv, kw = run.call_args.args[0], run.call_args.kwargs
+            self.assertTrue(argv[0].startswith(os.path.join(t, 'venv')))
+            self.assertIn('--require-hashes', argv)
+            self.assertIn('--only-binary=:all:', argv)
+            self.assertEqual(kw['cwd'], t)
+            self.assertNotIn('PIP_TARGET', kw['env'])
+            self.assertNotIn('PYTHONPATH', kw['env'])
 
     def test_a_bad_checksum_changes_nothing(self):
         with tempfile.TemporaryDirectory() as t:
@@ -655,7 +763,9 @@ class Signature(unittest.TestCase):
     @unittest.skipUnless(shutil.which('gh'), 'needs GitHub\'s CLI')
     def test_the_real_gh_refuses_the_forged_bundle(self):
         sums, bundle = os.path.join(self.FIX, 'SHA256SUMS'), os.path.join(self.FIX, 'forged.sigstore.json')
-        why = install.verify_signature(sums, bundle, '0.5.2', gh=shutil.which('gh'))
+        # Newer gh starts a detached telemetry sender; keep this real verification isolated and leave no child process.
+        with mock.patch.dict(os.environ, {'GH_TELEMETRY': 'disabled'}):
+            why = install.verify_signature(sums, bundle, '0.5.2', gh=shutil.which('gh'))
         if 'too old' in why:
             self.skipTest('this gh has no attestation command')
         self.assertIn('is not signed by ventura8/Tutti', why)

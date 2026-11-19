@@ -114,13 +114,18 @@ flowchart TD
 
 ## Modules
 
+The public surfaces (the CLI, the HTTP routes, the MCP tools, the config keys) are listed in [API.md](API.md).
+
 | File | Owns |
 | --- | --- |
 | `tutti/config.py` | Finding (`$TUTTI_CONFIG`, then `$XDG_CONFIG_HOME/tutti/config.yaml`, then the nearest file), loading, defaulting and validating; `write_text` saves through a symlink into the real file, atomically. Every error names its key and the fix. |
+| `tutti/roles.py` | Roles of machines and devices: the daily probe, the config's roles, an admin's `roles` / `roles_add` / `roles_off`, each with why; `dispatch.compatible` refuses a target without a suite's `roles:`. `tutti/rolescmd.py` is `tutti machines --roles` and `tutti roles`. |
+| `tutti/lanmedia.py` | Media devices on the LAN (AirPlay, Cast, Spotify Connect over mDNS; DLNA over SSDP), scanned once a day, shown under Devices with their roles. |
 | `tutti/diskroom.py` | Room on the temp folder and the work disk: low free space or file slots warn (doctor, Machines card) and stop new work. |
 | `tutti/configone.py` | One config per user: other copies that differ (doctor, Settings) and their merge into the one in use, each copy then a symlink to it. |
 | `tutti/devicecard.py` | One card per Android device on the dashboard: its one status (the pause switch and the idle watchdog folded in), why, what waits on it, its action, its reroute line, plain durations and temperatures labelled by sensor (skin or SoC, battery only when present). |
 | `tutti/power.py` | Measured machine power (a short benchmark, weekly), headroom now and the effective power dispatch orders by; heavy shards to strong machines, light to weak; a task's difficulty matched to the weakest local model tier that meets it, escalated after a failure. |
+| `tutti/apidoc.py` | docs/API.md's generated parts (CLI, MCP tools, config keys, from the code) and its check that every CLI subcommand, HTTP route and MCP tool is documented (`python3 -m tutti.apidoc --write`). |
 | `tutti/routing.py` | Pure fall-over logic over `Probe`s. No I/O, so it is unit-tested exhaustively. |
 | `tutti/remote.py` | Transports (`local`, `ssh`, `wsl`), the probe, the tree copy, the runner line, the yield flag. |
 | `tutti/pacing.py` | Quota windows, the target time, the verdict and the report. Pure apart from the log file. |
@@ -133,7 +138,7 @@ flowchart TD
 | `tutti/transfer.py` | `tutti files` and `--input`: copies items over the machine's transport (rsync, else a resumable stream), verifies them with `sha256sum` there, records them in the machine's cache and keeps it within its budget. |
 | `tutti/autopilot.py` | `tutti autopilot`: the pure plan (pace, room, heat, `max_parallel`, the ladder), failure signatures, parking, the retry brief; dispatch, collect and publish (branch, draft pull request). |
 | `tutti/backlog.py` | `tutti backlog`: the task queue in `<state>/backlog.json` under a lock, and its safe sources (FEEDBACK, `TODO(owner)`, `gaps`). |
-| `tutti/conduct.py` | `tutti conduct`, `tutti main`, `tutti handoff`: the main agent's choice and order, the instruction file, the `tutti` shim on its PATH, the watch (panic, limit, switch), the handoff note, the local model's command loop. |
+| `tutti/conduct.py` | `tutti conduct`, `tutti main` (`<agent|auto>`), `tutti handoff`: the main agent's choice and order (`main.agent: auto` + `main.preferred`), the instruction file, the `tutti` shim on its PATH, the watch (panic, limit, switch), the handoff note, the local model's command loop, and automatic MAIN AGENT ROLE hand-off (preferred while it has room, else `main.fallback`; restore after reset; chat note + `tutti connect`). |
 | `tutti/projects.py` | The dashboard's projects: a folder's repository from its `.git` files, jobs tagged by project, a read-only look at every machine's processes in git repositories and its GPU, a WSL machine's Windows side over plain ssh. |
 | `tutti/state.py` | The dashboard's state as plain data: accounts and pacing, machines, workers, jobs, the summary. Probes are passed in. |
 | `tutti/delegate.py` | `tutti run --repo` and `tutti runs`: the worktree, the headless worker, the diff, the checks (never stopping at the first failure), DENIED tool calls, the coverage note and the report. |
@@ -200,6 +205,23 @@ flowchart LR
     G --> I{intake guard}
     L --> I
     I -- no task explains it --> D[dashboard: Work outside Tutti]
+```
+
+## Roles and dispatch
+
+```mermaid
+flowchart LR
+    probe[daily probe over ssh / WSL] --> detect[roles.detect_machine]
+    readings[device readings: leanback, Cast] --> ddetect[roles.detect_device]
+    lan[mDNS + SSDP on the LAN] --> lanmedia[lanmedia.devices]
+    cfg[config: main, backup, browser, roles_add / roles_off / roles] --> eff[roles.effective]
+    detect --> eff
+    ddetect --> eff
+    lanmedia --> eff
+    eff --> chips[dashboard chips + Role filter]
+    eff --> compat{dispatch.compatible: every role of the suite?}
+    compat -- yes --> score[power score picks the target]
+    compat -- no --> other[another target, or it waits]
 ```
 
 ## How `tutti test <track> '<cmd>'` flows

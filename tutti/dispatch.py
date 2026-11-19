@@ -61,6 +61,7 @@ def suites(cfg):
                         'run': s.get('run', ''), 'shards': shards.names(s), 'shard_opts': shards.options(s),
                         'shards_from': s.get('shards_from'), 'prepare': s.get('prepare'), 'verdict': s.get('verdict'),
                         'requires': s.get('requires'), 'pair': s.get('pair'), 'runner': s.get('runner') or (p or {}).get('runner'),
+                        'roles': list(s.get('roles') or []),
                         'started': s.get('started'), 'requeue_on': list(s.get('requeue_on') or []),
                         'dir': s.get('dir'), 'desktop': s.get('desktop'), 'devices': s.get('devices'), 'machines': s.get('machines'),
                         'pause': s.get('pause'), 'resume': s.get('resume'),
@@ -74,6 +75,19 @@ def _where_errors(cfg, key, v):
     if v.get('where', 'local') != 'local' and v['where'] not in cfg['machines']:
         return [f'{key}.where names "{v["where"]}", which is not under machines: (or use local)']
     return []
+
+
+def _roles_errors(key, value):
+    from . import roles
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        return [f'{key}.roles is {value!r}: a list of roles, e.g. [windows-test-runner, ui-desktop]']
+    odd = [r for r in value if not isinstance(r, str)]
+    if odd:
+        return [f'{key}.roles has {odd[0]!r}: each role is a name, e.g. ui-desktop']
+    bad = roles.unknown(value)
+    return [f'{key}.roles names {", ".join(map(str, bad))}: not a role Tutti knows (`tutti roles list --all`)'] if bad else []
 
 
 def _names_errors(cfg, key, names, section):
@@ -104,6 +118,7 @@ def _suite_errors(cfg, key, s):
              if k in s and not (isinstance(s[k], str) and s[k].strip())]
     if 'retries' in s and (isinstance(s['retries'], bool) or not isinstance(s['retries'], int) or s['retries'] < 0):
         errs.append(f'{key}.retries is {s["retries"]!r}: a whole number, 0 or more')
+    errs += _roles_errors(key, s.get('roles'))
     return errs + _names_errors(cfg, f'{key}.devices', s.get('devices'), 'devices') + \
         _names_errors(cfg, f'{key}.machines', s.get('machines'), 'machines')
 
@@ -193,9 +208,12 @@ def sync(st, project, commit, shard_lists, now):
 def pending(cfg, st, now=None):
     """The shards waiting for a target, queued ones first, then failed ones with retries left (fewest attempts first)."""
     by = {(s['project'], s['name']): s for s in suites(cfg)}
+    leased = {(lease['project'], lease['key']) for lease in st['leases'].values()}
     out = []
     for pname, p in st['projects'].items():
         for key, sh in p['shards'].items():
+            if (pname, key) in leased:
+                continue
             suite, _, shard = key.partition('/')
             s = by.get((pname, suite))
             if not s or sh['status'] in ('running', 'passed'):
@@ -215,6 +233,8 @@ def compatible(target, w):
     pair = w.get('pair') if isinstance(w.get('pair'), dict) else {}
     if pair.get('sender') and 'cast-sender' not in (target.get('roles') or []):
         return False   # a Cast suite runs on a sender: a device or a machine with Chrome or the desktop sender
+    if any(r not in (target.get('roles') or []) for r in w.get('roles') or []):
+        return False   # the suite's `roles:` (tutti/roles.py): every one on the target, else it goes elsewhere
     if w.get('pin'):   # an admin moved it (tutti/jobmove.py): to this target, or to any of its kind, over the suite's own list
         return w['pin'] in (ANY, target['id'])
     names = w['devices'] if target['kind'] in DEVICE_KINDS else w['machines']
@@ -431,7 +451,7 @@ def worker_rows(cfg, accounts, machines):
     queued = [t for t in tasks if t['status'] == 'queued' and t['repo'] in repos]
     if not queued:
         return []
-    used = autopilot.spent_units(tasks, accounts)
+    used = autopilot.spent_units(tasks, accounts, cfg)
     last = (autopilot.read_state(cfg).get('last') or {})
     on = autopilot.enabled(cfg)
     why = '' if on and last.get('state') == 'dispatching' else (last.get('reason') or 'the autopilot has not planned yet')
@@ -502,6 +522,7 @@ def beat_age(cfg, lid, now):
 
 
 STOPPED_FOR_CALL = 'call'
+STOP_UNCERTAIN = 'stop-uncertain'
 
 
 def read_rc(cfg, lid):
@@ -511,7 +532,7 @@ def read_rc(cfg, lid):
             text = f.read().strip()
     except OSError:
         return None
-    if text == STOPPED_FOR_CALL or text.startswith(shards.REQUEUE):
+    if text in (STOPPED_FOR_CALL, STOP_UNCERTAIN) or text.startswith(shards.REQUEUE):
         return text
     try:
         return int(text)
@@ -588,6 +609,16 @@ def recover(cfg, st, now, is_alive, rc_fn=read_rc, age_fn=beat_age, gone=None, b
         rc = rc_fn(cfg, lid)
         alive = is_alive(lease['pid'])
         cut = interrupted(lease, rc, alive, gone, boot)
+        if lease.get('uncertain'):
+            continue   # an ordinary late result does not prove the execution boundary stopped
+        missing = no_result_why(cfg, lid, alive, now, age_fn) if rc is None else None
+        if rc == STOP_UNCERTAIN or (rc is None and (cut or missing)):
+            why = ('local stop was not confirmed' if rc == STOP_UNCERTAIN else cut or missing)
+            lease['uncertain'] = f'{why}; inspect the execution boundary, then use tutti dispatch resolve {lid} --confirmed-stopped'
+            line = f'{lease["project"]} {lease["key"]} on {lease["target"]}: held: {lease["uncertain"]}'
+            event(st, now, line)
+            ended.append(line)
+            continue
         why = ended_why(cfg, st, lid, lease, rc, alive, cut, now, age_fn)
         if why is None:
             continue
@@ -601,6 +632,24 @@ def recover(cfg, st, now, is_alive, rc_fn=read_rc, age_fn=beat_age, gone=None, b
         ended.append(f'{lease["project"]} {lease["key"]} on {lease["target"]}: {why}')
         event(st, now, ended[-1])
     return ended
+
+
+def resolve(cfg, lid, confirmed, now=None):
+    """Admin asserts that the held execution is stopped; queue its shard without counting an attempt."""
+    from . import failover
+    if not confirmed:
+        raise ValueError('dispatch resolve: confirm the execution boundary stopped with --confirmed-stopped')
+    if not failover.may_write(cfg):
+        raise ValueError('dispatch resolve: this machine is not active: run it on the active main')
+    with locked(cfg) as st:
+        if not failover.may_write(cfg):
+            raise ValueError('dispatch resolve: this machine lost its active lease: retry on the active main')
+        lease = st['leases'].get(lid)
+        if not lease or not lease.get('uncertain'):
+            raise ValueError('dispatch resolve: no held lease with that id: see tutti dispatch status')
+        requeue(st, lease, 'admin confirmed the execution stopped: queued again', now or time.time())
+        del st['leases'][lid]
+        event(st, now or time.time(), f'{lid}: admin confirmed the execution stopped; lease released')
 
 
 def start(cfg, st, target, w, now, spawn=subprocess.Popen):
@@ -681,9 +730,13 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
         tgts = targets(devices_rows, machine_rows, st, held, gone)
         pend = follow_devices(cfg, st, now, pend, devices_rows, gone)
         pend = runners_free(pend, machine_rows)
-        with contextlib.suppress(Exception):   # Cast roles of the machines (tutti/castroles.py), asked once a day
-            from . import castroles
-            mroles = castroles.machine_roles(cfg, now)
+        mroles = {}
+        try:   # the machines' roles (tutti/roles.py), probed once a day; a failure is said, and roles count as none
+            from . import roles as _roles
+            mroles = {n: _roles.names(rs) for n, rs in _roles.machine_roles(cfg, now).items()}
+        except Exception as e:   # any failure here must not stop the round
+            event(st, now, f'machine roles unreadable ({type(e).__name__}: {e}): suites with roles: wait until they are')
+        with contextlib.suppress(Exception):
             droles = {d['name']: d.get('roles') or [] for d in devices_rows or []}
             for t in tgts:
                 t['roles'] = (mroles if t['kind'] == 'machine' else droles).get(t['name'], [])
@@ -955,9 +1008,21 @@ def stop(child, grace=20):
         os.killpg(child.pid, signal.SIGTERM)
         child.wait(timeout=grace)
     except subprocess.TimeoutExpired:
-        os.killpg(child.pid, signal.SIGKILL)
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+            child.wait(timeout=grace)
+        except (OSError, subprocess.TimeoutExpired):
+            raise StopUncertain from None
     except (OSError, AttributeError):   # gone already, or no process groups (Windows)
-        child.terminate()
+        try:
+            child.terminate()
+            child.wait(timeout=grace)
+        except (OSError, subprocess.TimeoutExpired):
+            raise StopUncertain from None
+
+
+class StopUncertain(Exception):
+    """The runner cannot confirm its local child stopped."""
 
 
 def read_log(path):
@@ -998,6 +1063,46 @@ def supervise(cfg, lease, s, child, beat, look=calls.look, sleep=time.sleep, log
             return late
 
 
+class AdmissionRefused(Exception):
+    """A lease was held, removed, or already admitted before this runner could start."""
+
+
+class PreparationRefused(Exception):
+    """The command was rejected before launch."""
+
+
+def admit_run(cfg, lid, expected, prepare, popen):
+    """Serialize launch with recovery and persist intent before spawning; never hold the lock during execution."""
+    from . import failover
+    if not failover.may_write(cfg):
+        raise AdmissionRefused
+    with locked(cfg) as st:
+        if not failover.may_write(cfg):
+            raise AdmissionRefused
+        lease = st['leases'].get(lid)
+        if (not lease or lease.get('uncertain') or lease.get('run_admitted')
+                or (lease.get('project'), lease.get('key')) != expected):
+            raise AdmissionRefused
+        lease['run_admitted'] = True
+        durable.dump_json(os.path.join(config.state_dir(cfg), FILE), st, indent=1)
+        try:
+            argv = prepare(lease)
+        except config.ConfigError as e:
+            raise PreparationRefused(str(e)) from e
+        return popen(argv, stdin=subprocess.DEVNULL, start_new_session=True) if argv else None
+
+
+def write_run_result(cfg, lid, paths_of_run, rc):
+    """Do not announce a device free when recovery has already held its lease."""
+    if rc != STOP_UNCERTAIN:
+        with locked(cfg) as state:
+            current = state['leases'].get(lid)
+            if current and not current.get('uncertain'):
+                announce_free(cfg, released(read_log(paths_of_run['log'])), st=state)
+    with open(paths_of_run['rc'], 'w', encoding='utf8') as f:
+        f.write(f'{rc}\n')
+
+
 def run(cfg, lid, popen=subprocess.Popen, after=live_tick, look=calls.look, sleep=time.sleep):
     """`tutti dispatch run <lease>`: runs the shard, touches the heartbeat while it runs (and looks for phone calls on a
     device), writes the exit code, frees the lease and dispatches the next shard at once (the target is free now)."""
@@ -1009,21 +1114,31 @@ def run(cfg, lid, popen=subprocess.Popen, after=live_tick, look=calls.look, slee
     s = next((x for x in suites(cfg) if x['project'] == lease['project'] and x['name'] == suite), None)
     p = paths(cfg, lid)
     rc = 2
+    write_result = True
     try:
-        if s:
-            child = popen(test_argv(cfg, lease, s, shard), stdin=subprocess.DEVNULL, start_new_session=True)
+        def prepare(current):
+            return test_argv(cfg, current, s, shard) if s else None
+        rc = STOP_UNCERTAIN   # an exception from launch may still leave a child running
+        child = admit_run(cfg, lid, (lease['project'], lease['key']), prepare, popen)
+        if child is None:
+            rc = 2   # the suite no longer exists: no child was started
+        else:
             rc = supervise(cfg, lease, s, child, p['beat'], look, sleep, log=p['log'])
-    except config.ConfigError as e:   # an empty test filter: refused, never run
+    except AdmissionRefused:
+        rc, write_result = 2, False
+    except PreparationRefused as e:   # an empty test filter: refused before launch
         with open(p['log'], 'a', encoding='utf8') as f:
             f.write(f'dispatch: refused: {e}\n')
         rc = 1
+    except StopUncertain:
+        rc = STOP_UNCERTAIN
     finally:
-        announce_free(cfg, released(read_log(p['log'])))
-        with open(p['rc'], 'w', encoding='utf8') as f:
-            f.write(f'{rc}\n')
-    with contextlib.suppress(Exception):   # the next shard is a bonus: the dashboard's next tick sends it anyway
-        after(cfg)
-    return 0 if isinstance(rc, str) else rc   # a requeue is not this process's failure
+        if write_result:
+            write_run_result(cfg, lid, p, rc)
+    if write_result:
+        with contextlib.suppress(Exception):   # the next shard is a bonus: the dashboard's next tick sends it anyway
+            after(cfg)
+    return 1 if rc == STOP_UNCERTAIN else 0 if isinstance(rc, str) else rc
 
 
 # ---- what the dashboard and `tutti dispatch status` show
@@ -1054,6 +1169,7 @@ def describe_view(v):
         counts = ', '.join(f'{n} {k}' for k, n in sorted(p['counts'].items())) or 'no shards'
         lines.append(f'  {p["name"]} (priority {p["priority"]}) @ {p["commit"] or "(no commit: projects.<p>.commit)"}: {counts}')
         lines += [f'    failed {f["key"]} ({f["attempts"]} attempt(s)): {f["why"]}' for f in p['failed']]
-    lines += [f'  running {x["project"]} {x["key"]} on {x["target"]}' + (f' ({x["why"]})' if x.get('why') else '') for x in v['leases']]
+    lines += [f'  running {x["project"]} {x["key"]} on {x["target"]}' +
+              (f' (held: {x["uncertain"]})' if x.get('uncertain') else f' ({x["why"]})' if x.get('why') else '') for x in v['leases']]
     lines += [f'  ! {w["text"]}' for w in v['warnings']]
     return '\n'.join(lines)

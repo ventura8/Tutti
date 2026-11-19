@@ -94,7 +94,10 @@ def move_shard(cfg, project, key, to, bump, now, stop=dispatch.stop_pid):
         sh = ((st['projects'].get(project) or {}).get('shards') or {}).get(key)
         if not sh:
             raise MoveError(f'no shard {project} {key}: `tutti dispatch status` lists them')
-        for lid in [i for i, x in st['leases'].items() if x['project'] == project and x['key'] == key]:
+        matching = [i for i, x in st['leases'].items() if x['project'] == project and x['key'] == key]
+        if any(st['leases'][lid].get('uncertain') for lid in matching):
+            raise MoveError('the shard has an uncertain execution: inspect it and resolve its held dispatch lease first')
+        for lid in matching:
             lease = st['leases'].pop(lid)
             stop(lease['pid'])
             dispatch.requeue(st, lease, 'moved by an admin: queued again, not counted as a failure', now)
@@ -159,13 +162,24 @@ def move_lease(cfg, rest, to, now):
     return note
 
 
+def move_each(cfg, jobs, now, **io):
+    """Try every job; one held or invalid job must not block the others."""
+    lines = []
+    for job in jobs:
+        try:
+            lines.append(move(cfg, job['id'], 'auto', False, now, **io))
+        except MoveError as e:
+            lines.append(f'{job["id"]}: not moved: {e}')
+    return lines
+
+
 def evacuate(cfg, target, now=None, **io):
     """Moves every job waiting on `target` (a name or id) to the best available target. Returns the lines."""
     tid = check_target(cfg, target)
     jobs = [j for j in waiting(cfg, now) if j['target'] == tid]
     if not jobs:
         return [f'nothing waits on {target}']
-    return [move(cfg, j['id'], 'auto', False, now, **io) for j in jobs]
+    return move_each(cfg, jobs, now, **io)
 
 
 def auto_moves(cfg, now=None, **io):
@@ -175,4 +189,4 @@ def auto_moves(cfg, now=None, **io):
         return []
     now = now or time.time()
     due = [j for j in waiting(cfg, now) if j['urgent'] and j.get('since') and now - j['since'] >= float(after) * 60]
-    return [move(cfg, j['id'], 'auto', False, now, **io) for j in due]
+    return move_each(cfg, due, now, **io)

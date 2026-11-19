@@ -1,5 +1,57 @@
 # Feedback log
 
+Chat must not repeat a started CLI agent's work after its response fails (t303).
+
+Chat must not treat interrupted local-model streams as complete or repeat an attempted action on fallback (t303).
+
+An automatic answer must not act on a parked task whose scope, check or ownership changed during review (t278).
+
+Invalid model diagnoses must not park work or create a needless person question (t244).
+
+Dashboard summary tiles must fit phone viewports with WCAG text spacing and long account names (t414).
+
+A household moved notice must not stop a same-title task in a different repo or guess between local tasks (t210).
+
+The unblocker must not apply an old diagnosis after the task it inspected changes (t244).
+
+Household reassignment must preserve the old holder's uncheckpointed work when its local backup fails (t309).
+Missing dispatch results and unconfirmed stops must not free a target while its work may still run (t309).
+
+Autopilot must not launch new work after a cooperative local move has frozen its host (t404).
+
+Checkpoint status must not claim a push succeeded when the snapshot produced no SHA or the push was disabled (t309).
+
+Auto-fill must preserve explicitly different task scopes or checks and count only additions that actually succeeded (t210).
+
+Same-title work with explicitly different file scopes or checks must not be silently discarded on backlog addition (t210).
+
+The unblocker must understand complete multiword choices without turning ambiguous text into a different answer (t278).
+A dashboard-requested restart must also preserve an in-flight Chat action, plan or undo (t404).
+
+An automatic Needs-you answer must not act on a question changed while the model was deciding (t278).
+
+A dashboard-requested restart must not cut off a Chat answer that is still running (t404).
+Multiple local worker names for the same model server must not schedule overlapping work to that server (t301).
+
+Turning autopilot off to drain work stopped its dashboard rounds and therefore stopped WIP checkpoints (t404).
+Automatic releases must move Unreleased changelog entries into the new version instead of repeating them later (t408).
+
+Conductor selection must not treat a missing usage state as room after another account is spent (t388).
+
+Chat needs access to earlier conversation turns without asking the user to paste them. A paged current-conversation tool
+provides retained text; durable full-history retention is still open (t387).
+
+Routed checks must reject unsafe copy names before touching a lock or remote command (t403).
+Updating code must not make a running failover watchdog announce an intentional departure (t404).
+
+Automatic releases must preserve concurrent release branches and tag the reviewed PR's merge commit (t401).
+
+Startup recovery needs healthy-state and resume coverage, and must describe the limits of remote stop detection (t105).
+
+Task P0–P5 labels need to be saved and used by dispatch; project priority alone cannot represent task urgency (t320).
+
+Quiet mode: automatic discovery defers potentially heavy gaps commands while the computer is in use (t172).
+
 First users log **every** problem they hit here, the small ones too. This file is the backlog: an entry is closed by
 the change that fixes it, and a lesson worth keeping moves to [LESSONS.md](LESSONS.md).
 
@@ -8,6 +60,16 @@ of your project or secrets: describe the setup in general words.
 
 | # | Date | Command | What happened | Expected | Status |
 | --- | --- | --- | --- | --- | --- |
+| 22 | 2026-11-19 | Chat rename | Renaming rebuilt the message list and jumped to the end; switching chats during the request could update the wrong title. | Preserve the current message view and rename only the original chat. | Fixed title-only update and conversation race (t407); virtualization remains open. |
+| 21 | 2026-11-19 | Chat redraw | Redrawing reparsed unchanged message Markdown. | Reuse unchanged parsing while retaining safe rendering. | Fixed repeated parsing (t407); pagination and virtualization remain open. |
+| 20 | 2026-11-18 | Linked account usage | A reset window could be shown in panic at zero percent when its linked quota was in panic. | Name the quota that actually blocks work. | Diagnostic fixed for the next release (t272). |
+| 19 | 2026-11-18 | Autopilot pacing | A finished local attempt could leave its model permanently busy. | Reuse available local models when online accounts are ahead. | Fixed local attempt accounting (t301). |
+| 18 | 2026-11-18 | Autopilot retries | Missing reports on every worker could park a task as exhausted. | Keep environment failures from exhausting the worker ladder. | Fixed in the next release (t260). |
+| 17 | 2026-11-18 | Chat job status | A model-requested job status could expose a job log to a viewer. | Keep job reports and logs for admins. | Restricted model-requested job status to admins (t372). |
+| 16 | 2026-11-18 | Dashboard usage graphs | Individual recorded values and their times were not inspectable. | Show the nearest actual reading on hover, click, touch and keyboard. | Added graph selection (t253); browser verification runs in CI. |
+| 15 | 2026-11-18 | Chat run status | A missing run report prompted repeated status requests. | Check automatically for a bounded time and report a timeout honestly. | Bounded polling and an interrupted-answer retry guard (t296); restart-persistent monitoring remains open. |
+| 14 | 2026-11-18 | Dashboard update during Chat | An automatic page reload can discard an unsent Chat draft or attachment. | Wait until Chat is idle before reloading the page. | Page-reload guard added (t326); safe server handoff remains open. |
+| 13 | 2026-11-17 | Chat account pause | Pausing a ladder account made configuration reloads fail, blocking dashboard probes and chat. | Keep the ladder valid while paused and restore the account on resume. | Fixed in the next release (t321). |
 | 1 | 2026-11-14 | `tutti quiet --summary <worker>` | A failing command that printed nothing got an invented failure summary from the model. | No summary for an empty log. | Fixed in 0.1.0: an empty log prints "(the command printed nothing)". |
 | 2 | 2026-11-14 | `tutti usage` | With `share: 0.5` a whole-account reading was compared with half the quota, so 60 % read as "spent". | A reading is the whole account's use; the share is information. | Fixed in 0.1.0: the pace is judged against the whole quota and the share is shown beside the verdict. |
 | 3 | 2026-11-14 | `tutti test` on a `wsl` machine | Only the probe was exercised (the machine's yield flag was up); the copy and the run are untested there. | A verified full run. | Open (roadmap 0.2). |
@@ -22,6 +84,9 @@ of your project or secrets: describe the setup in general words.
 | 12 | 2026-11-14 | `tutti usage` | The Claude reading went stale for hours without a reminder; Cursor's usage page link was the old one. | A reminder, a file the orchestrator can write, the right link. | Fixed in 0.1.8: `stale_hours` reminders, `reading_file`, the reading helper, `cursor.com/dashboard/spending`. |
 
 - 2026-11-14 (map project): the installer's `git clone` failed on a laptop whose PATH had a broken git first (another tool's bundled git with a mismatched libcurl). Works with /usr/bin/git. `tutti doctor` should detect a git that cannot do HTTPS and suggest fixing PATH. Fixed in 0.1.15: `tutti doctor` checks git.
+- 2026-11-17 (owner): `tutti run auto "<task>" --repo tutti` (and MCP `delegate_task` with project `tutti`) from a
+  non-git cwd failed with "`tutti` is not inside a git work tree". Expected: a worktree of `autopilot.repos.tutti.path`.
+  Fixed in 0.25.4: `--repo <name>` resolves through `autopilot.repos.<name>.path` before `git worktree add`.
 - 2026-11-14 (map project): `tutti run auto "<task>" --repo <another repo>` routed to agy and its diff was right, but the run's check failed: it ran the config's default check (`npx tsc`) in the other repo's worktree instead of the target repo's own `scripts/check.sh`. The diff was applied by hand. `--repo` should pick the target repo's check. Fixed in 0.1.12: `projects.<name>.checks`, a config inside the target repo, `delegate.project`.
 - 2026-11-14 (map project): `tutti pr review` asked both reviewers but could not read the reviews: it calls `gh api --slurp`, which gh 2.60 does not have. Polled by hand. Fixed in 0.1.12: no `--slurp`; the pages are read back to back.
 - 2026-11-14 (map project): most running jobs on the dashboard showed "—" for progress (agents, scripts whose output goes through a pipe, containers); the owner could not tell how far anything was. Fixed in 0.1.12: layered progress with its source, and job facts.
@@ -35,3 +100,26 @@ of your project or secrets: describe the setup in general words.
 - 2026-11-14 (owner): "Claude Code: needs-restart" while `claude mcp list` said Connected, and "Claude Desktop (chat):
   not connected" after the app dropped Tutti's entry. Fixed in 0.1.62: the status comes from `claude mcp list`; a dropped
   Desktop entry is put back with a backup.
+
+- Automatic account usage should reveal stale or unavailable readings and recover without requiring manual entry (t317).
+
+- Cached automatic quota results must not be presented as fresh reads, and failed or skewed readers must not make panic rescue look safe (t317).
+
+- A LAN-bound dashboard was reported unhealthy and competing starts blocked its service; probe its configured address and
+  verify a pinned user service before requesting a start (t333).
+
+
+- **2026-11-18, t309:** Dashboard restarts left run ownership uncertain. Record an autopilot launch before starting it
+  so a crash in the launch window does not silently start another worker on the same task.
+
+
+- **2026-11-18, t309:** Restarted jobs made it hard to identify which routed Docker checks belong to one autopilot run.
+  New runs carry a non-secret correlation label; remote ownership and safe retries still need verified containment.
+
+
+- **2026-11-18, t309:** Stale or ambiguous attempts must not publish a different run's result. New bound reports are checked
+  against their saved run identity; mismatches stay visible for investigation. Older bridge clients must update before
+  starting bound autopilot runs, while already-running attempts retain their prior behavior.
+
+- **2026-11-18, t402:** Local checks waited behind an unrelated run's remote-copy lock. Local-only checks now run in their
+  own worktrees without that lock; routed and mixed checks retain it.

@@ -177,6 +177,15 @@ class BrowserTabsTest(unittest.TestCase):
 
 
 class ReleasesStuckTest(unittest.TestCase):
+    def test_merged_versions_accepts_both_heading_styles_and_rejects_unmatched_brackets(self):
+        from tutti import stuck
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, '.git'))
+            with open(os.path.join(d, 'CHANGELOG.md'), 'w', encoding='utf8') as f:
+                f.write('## [1.2.3] - date\n## 1.2.2 (date)\n## [1.2.1]\n## 1.2.0\n'
+                        '## [1.2.4 - bad\n## 1.2.5] - bad\n')
+            self.assertEqual(stuck.merged_versions(d), ['1.2.3', '1.2.2', '1.2.1', '1.2.0'])
+
     def test_merged_versions_no_release_publishes_are_named_with_the_fix(self):
         from tutti import stuck
         with tempfile.TemporaryDirectory() as d:

@@ -58,6 +58,21 @@ class Finds(Base):
         self.assertIn('Fix for this attempt: call python3 -m pytest', self.get(tid)['notes'][-1])
         self.assertEqual(unblocker.read_log(self.cfg)[-1]['by'], 'local')
 
+    def test_invalid_failing_diagnoses_leave_task_unchanged_and_observe_cooldown(self):
+        for answer in ('WHY: no action', 'ACTION: retry\nWHY: missing fix', 'ACTION: retry\nFIX: -',
+                       'ACTION: person\nWHY: -', 'ACTION: retry\nACTION: person\nWHY: ambiguous\nFIX: try again',
+                       'ACTION: drop\nWHY: unknown action'):
+            with self.subTest(answer=answer):
+                tid = self.task(f'Invalid diagnosis {answer}', attempts=fails('exited 1', 'exited 1', 'exited 1'))
+                before = self.get(tid)
+                item = {'id': tid, 'kind': 'failing'}
+                result = unblocker.handle(self.cfg, item, lambda *_a, response=answer, **_k: (response, 'pc-local'), NOW)
+                self.assertIn('invalid or incomplete diagnosis', result['outcome'])
+                self.assertEqual(self.get(tid), before)
+                self.assertFalse(any(q.get('task') == tid for q in needs.load(self.cfg)['questions']))
+                log = [{'id': tid, 'at': NOW, 'outcome': result['outcome']}]
+                self.assertNotIn(tid, [x['id'] for x in unblocker.find(backlog.load(self.cfg), NOW + 1, log)])
+
     def test_changed_failing_task_is_not_requeued_or_parked_from_a_stale_diagnosis(self):
         for field, value in (('title', 'Different task'), ('check', 'new check'), ('scope', ['other.py']),
                              ('attempts', fails('exited 2', 'exited 2', 'exited 2')),

@@ -826,6 +826,17 @@ class Picker(ApiBase):
         eng.streams = recording_streams(script, self.seen)
         return eng
 
+    def test_cancel_during_last_resort_does_not_produce_builtin_answer(self):
+        eng = self.engine_seen({})
+        def stopped(job, *_args):
+            job.cancel.set()
+            return False
+        with mock.patch.object(eng, '_last_resort', side_effect=stopped):
+            done = self.send(eng, ADMIN, 'hello')[-1]['message']
+        self.assertEqual(done['status'], 'stopped')
+        self.assertEqual(done['text'], '')
+        self.assertNotIn('fallback', done)
+
     def test_auto_picks_local_when_up_and_says_why_it_fell_back_when_down(self):
         eng = self.engine_seen({'pc': ['From the PC.'], 'nuc': ['From the NUC.'], 'claude': ['From Claude.']})
         done = self.send(eng, ADMIN, 'hello')[-1]['message']
@@ -912,6 +923,27 @@ class ToolLoop(ApiBase):
     def engine_real(self):
         return chatrun.Engine(lambda: self.cfg, lambda: self.snap, folder=self.dir, runner=self.runner)
 
+    def test_unterminated_ollama_stream_rejects_partial_text_and_tool_calls(self):
+        call = {'function': {'name': 'backlog_add', 'arguments': {'repo': 'map', 'title': 'Fix it', 'size': 'S'}}}
+        FakeOllama.script = [[{'message': {'content': 'partial', 'tool_calls': [call]}}]]
+        worker = self.cfg['workers']['pc']
+        with self.assertRaises(chatrun.IncompleteOllamaStream):
+            list(chatrun.ollama_stream(worker, [], threading.Event()))
+        self.assertEqual(self.calls, [])
+
+    def test_cancelled_unterminated_stream_does_not_raise(self):
+        FakeOllama.script = [[{'message': {'content': 'partial'}}]]
+        cancelled = threading.Event()
+        cancelled.set()
+        self.assertEqual(list(chatrun.ollama_stream(self.cfg['workers']['pc'], [], cancelled)), [])
+
+    def test_unterminated_first_round_does_not_execute_tool(self):
+        call = {'function': {'name': 'backlog_add', 'arguments': {'repo': 'map', 'title': 'Fix it', 'size': 'S'}}}
+        FakeOllama.script = [[{'message': {'content': 'partial', 'tool_calls': [call]}}]]
+        events = self.send(self.engine_real(), ADMIN, 'Please fix the legend')
+        self.assertEqual(self.calls, [])
+        self.assertNotIn('partial', events[-1]['message']['text'])
+
     def test_a_local_model_creates_a_task_through_the_tool_loop_after_a_confirmation(self):
         call = {'function': {'name': 'backlog_add', 'arguments': {'repo': 'map', 'title': 'Fix the legend on phones', 'size': 'S'}}}
         FakeOllama.script = [
@@ -991,6 +1023,70 @@ class Modes(ToolLoop):
         self.assertEqual(self.calls[0][self.calls[0].index('--') + 1:], ['add', 'map', 'Fix the legend'])
         self.assertIn('done: t60: added', FakeOllama.seen[1]['messages'][-1]['content'])
         self.assertEqual(events[-1]['message']['text'], 'Queued t60 for you.')
+
+    def test_incomplete_followup_after_action_does_not_retry_or_hide_action(self):
+        FakeOllama.script = [[{'message': {'tool_calls': [self.add]}, 'done': True}],
+                             [{'message': {'content': 'partial followup'}}]]
+        events = self.send(self.engine_real(), ADMIN, 'the legend overlaps, get it fixed')
+        done = events[-1]['message']
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(FakeOllama.seen), 2)
+        self.assertEqual(done['status'], 'failed')
+        self.assertIn('Inspect the action cards', done['note'])
+        self.assertIn('partial followup', done['text'])
+        self.assertEqual(done['cards'][0]['state'], 'done')
+
+    def test_other_stream_errors_after_action_do_not_retry(self):
+        for error in (OSError('connection reset'), ValueError('bad frame')):
+            with self.subTest(error=type(error).__name__):
+                eng = self.engine_real()
+                seen = []
+                def streams(_cand, _cfg, _messages, _cancel, *, failure=error, calls=seen):
+                    calls.append(True)
+                    if len(calls) == 1:
+                        yield {'tool_calls': [self.add]}
+                    else:
+                        yield 'partial'
+                        raise failure
+                eng.streams = streams
+                done = self.send(eng, ADMIN, 'the legend overlaps, get it fixed')[-1]['message']
+                self.assertEqual(len(seen), 2)
+                self.assertEqual(len(self.calls), 1)
+                self.assertEqual(done['status'], 'failed')
+                self.assertIn('Inspect the action cards', done['note'])
+                self.assertEqual(done['cards'][0]['state'], 'done')
+                self.calls.clear()
+
+    def test_last_resort_empty_result_after_action_does_not_try_another_model(self):
+        eng = self.engine_real()
+        job = chatrun.Job('local', 'conversation', {'text': 'partial', 'cards': []})
+        job.mutation_attempted = True
+        with mock.patch.object(eng, '_converse', return_value=False) as converse:
+            with self.assertRaises(chatrun.IncompleteAfterAction):
+                eng._last_resort(job, ADMIN, self.cfg, {}, [({'worker': 'pc'}, []), ({'worker': 'other'}, [])], None, [])
+        self.assertEqual(converse.call_count, 1)
+        self.assertEqual(job.msg['text'], 'partial')
+
+    def test_cancelled_last_resort_error_keeps_partial_without_fallback(self):
+        eng = self.engine_real()
+        job = chatrun.Job('local', 'conversation', {'text': 'partial', 'cards': []})
+        job.mutation_attempted = True
+        def stopped(*_args):
+            job.cancel.set()
+            raise OSError('cancelled')
+        with mock.patch.object(eng, '_converse', side_effect=stopped):
+            self.assertFalse(eng._last_resort(job, ADMIN, self.cfg, {}, [({'worker': 'pc'}, [])], None, []))
+        self.assertEqual(job.msg['text'], 'partial')
+
+    def test_last_resort_does_not_retry_after_a_mutation_attempt(self):
+        eng = self.engine_real()
+        job = chatrun.Job('local', 'conversation', {'text': 'partial', 'cards': []})
+        job.mutation_attempted = True
+        with mock.patch.object(eng, '_converse', side_effect=ValueError('bad response')) as converse:
+            with self.assertRaises(chatrun.IncompleteAfterAction):
+                eng._last_resort(job, ADMIN, self.cfg, {}, [({'worker': 'pc'}, [])], None, [])
+        self.assertEqual(converse.call_count, 1)
+        self.assertEqual(job.msg['text'], 'partial')
 
     def test_autonomous_still_refuses_what_a_viewer_may_not_do(self):
         FakeOllama.script = [[{'message': {'tool_calls': [{'function': {'name': 'control', 'arguments': {

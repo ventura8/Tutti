@@ -94,6 +94,14 @@ def admitted_action(method):
 # ---- the models
 
 
+class IncompleteOllamaStream(OSError):
+    """Ollama closed its response before confirming the answer was complete."""
+
+
+class IncompleteAfterAction(RuntimeError):
+    """A partial answer followed an action that may have changed state."""
+
+
 def ollama_stream(worker, messages, cancel, timeout=MODEL_TIMEOUT, tools=None, think=False, num_ctx=None):
     """Yields the answer's text pieces from Ollama's /api/chat (streamed), and {'tool_calls': [...]} when the model calls
     tools (Ollama's native function calling, each call checked against its schema before anything runs). OSError when the
@@ -120,6 +128,8 @@ def ollama_stream(worker, messages, cancel, timeout=MODEL_TIMEOUT, tools=None, t
             if part.get('done'):   # Ollama's own token counts: the prompt as read, and the answer
                 yield {'usage': {'in': part.get('prompt_eval_count') or 0, 'out': part.get('eval_count') or 0}}
                 return
+    if not cancel.is_set():
+        raise IncompleteOllamaStream('Ollama closed the stream before its completion frame')
 
 
 class CursorStreamUncertain(RuntimeError):
@@ -328,6 +338,7 @@ class Job:
     def __init__(self, sub, cid, msg):
         self.sub, self.cid, self.msg = sub, cid, msg
         self.cancel, self.cond, self.events, self.finished = threading.Event(), threading.Condition(), [], False
+        self.mutation_attempted = False
 
     def emit(self, kind, **data):
         with self.cond:
@@ -492,7 +503,7 @@ class Engine:
             msg['status'] = 'stopped' if job.cancel.is_set() else 'done'
         except Exception as e:   # the page shows a plain message; the log line names the cause
             msg['status'] = 'failed'
-            msg['note'] = str(e) if isinstance(e, CursorStreamUncertain) else (
+            msg['note'] = str(e) if isinstance(e, (CursorStreamUncertain, IncompleteAfterAction)) else (
                 'Something went wrong while answering, so this answer is incomplete. Retry; if it fails again, the '
                 'dashboard\'s log names the cause.')
             job.emit('note', text=msg['note'])
@@ -545,6 +556,8 @@ class Engine:
 
     def execute(self, user, cfg, call, card, job=None):
         """Runs one call for `user` into `card`: the role check, the audit line, the MCP tool's call, Undo where possible."""
+        if job and chat.model_tools().get(call['tool'], {}).get('mutating'):
+            job.mutation_attempted = True
         with self.act_lock:   # the daily limit and its audit line together: two quick Confirms cannot both pass
             why = chat.refusal(user, call, cfg, self.done_today(user))
             if why:
@@ -658,19 +671,17 @@ class Engine:
                     held.append((cand, messages))
                     continue
                 job.bad_calls, job.used_tools, job.escalate = 0, False, escalate
-                if self._converse(job, user, cfg, cand, messages, known):
-                    weak = self._weak(job, cand, escalate, failed)
-                    if weak:
-                        kept = kept or weak
-                        continue
-                    why = cand['before'] + failed
-                    if why:
-                        self._fallback(job, f'Answered by {cand["label"]} because ' + '; '.join(why) + '.')
+                stop, weak = self._candidate_answer(job, user, cfg, cand, messages, known, escalate, failed)
+                kept = kept or weak
+                if stop:
                     return
-            except (OSError, ValueError):
+            except (OSError, ValueError) as e:
+                if job.cancel.is_set():
+                    return
+                self._guard_incomplete_action(job, e)
                 failed.append(f'{cand["label"]} did not answer')   # the next model: a machine went to sleep, a tunnel is down
                 self._reset(job)
-        if self._last_resort(job, user, cfg, known, held, kept, failed):
+        if self._last_resort(job, user, cfg, known, held, kept, failed) or job.cancel.is_set():
             return
         text = chat.builtin_answer(history[-1].get('text') or '', snap) if history else None
         self._say(job, text or ('No model of the household is free to answer right now. I can still answer from the dashboard: '
@@ -679,6 +690,21 @@ class Engine:
         scope = {'local': 'No local model can answer now', 'online': 'No online agent can answer now'}.get(s['model'],
                                                                                                          'No model can answer now')
         self._fallback(job, f'{scope}: ' + ('; '.join(skipped + failed) or 'none is set up') + '. Pick another model above, or Auto.')
+
+    def _candidate_answer(self, job, user, cfg, cand, messages, known, escalate, failed):
+        answered = self._converse(job, user, cfg, cand, messages, known)
+        if job.cancel.is_set():
+            return True, None
+        if not answered:
+            self._guard_incomplete_action(job, ValueError('model gave no answer'))
+            return False, None
+        weak = self._weak(job, cand, escalate, failed)
+        if weak:
+            return False, weak
+        why = cand['before'] + failed
+        if why:
+            self._fallback(job, f'Answered by {cand["label"]} because ' + '; '.join(why) + '.')
+        return True, None
 
     def _messages(self, cfg, cand, system, conv, history, turns):
         w = (cfg.get('workers') or {}).get(cand['worker']) or {}
@@ -731,7 +757,7 @@ class Engine:
         """Auto, after a local answer: a weak one (declined, unsure, empty, bad tool calls) is kept aside and cleared, so
         an online model answers with the same context; None when the answer stands."""
         post = chatctl.answer_reason(job.msg['text'], job.bad_calls, job.used_tools) if escalate else None
-        if not post or any(c.get('state') == 'done' for c in job.msg['cards']):
+        if not post or job.mutation_attempted or any(c.get('state') == 'done' for c in job.msg['cards']):
             return None
         failed.append(post)
         kept = (cand, job.msg['text'], list(job.msg['cards']), job.msg.get('model'))
@@ -751,11 +777,25 @@ class Engine:
         for cand, messages in held:
             try:
                 if self._converse(job, user, cfg, cand, messages, known):
+                    if job.cancel.is_set():
+                        return False
                     self._fallback(job, f'Answered by {cand["label"]} after all: ' + '; '.join(failed) + ', and no online model could.')
                     return True
-            except (OSError, ValueError):
+                if job.cancel.is_set():
+                    return False
+                self._guard_incomplete_action(job, ValueError('model gave no answer'))
+            except (OSError, ValueError) as e:
+                if job.cancel.is_set():
+                    return False
+                self._guard_incomplete_action(job, e)
                 self._reset(job)
         return False
+
+    @staticmethod
+    def _guard_incomplete_action(job, error):
+        if job.mutation_attempted:
+            raise IncompleteAfterAction('The model failed before completing its answer after an action was attempted. '
+                                        'Inspect the action cards before retrying; no other model was tried.') from error
 
     def _reset(self, job):
         """A clean answer for the next model: what the last one wrote and proposed is dropped (done actions stay)."""

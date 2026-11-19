@@ -918,3 +918,12 @@ select { max-width: 100%; text-overflow: clip; }
 .chip--role[data-source='set'] { background: var(--accent-c); }
 .role-filter { display: inline-flex; gap: 8px; align-items: center; margin: 4px 0 8px; font-size: 0.875rem; }
 .role-filter select { min-height: 32px; }
+
+.chat__related {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--outline-2);
+    background: var(--surface-2);
+}
+.chat__related[hidden] { display: none; }
+.chat__related ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.chat__relatedtask { font-size: 0.8125rem; display: flex; align-items: center; gap: 8px; padding: 4px 10px; background: var(--surface-1); border-radius: var(--r-s); border: 1px solid var(--outline-2); }

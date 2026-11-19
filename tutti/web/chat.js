@@ -252,6 +252,7 @@ async function openConv(id, focus = true) {
     document.body.dataset.chatPane = 'conv';
     drawList();
     drawLog();
+    renderRelatedTasks();
     const live = CHAT.conv.messages.find((m) => m.status === 'streaming');
     if (live) void follow(live.id);
     if (focus) cq('chat-input').focus();
@@ -353,10 +354,10 @@ function workStatus(ref) {
     if (job) {
         const where = job.machine || job.worker || 'the host';
         const took = job.progress?.elapsed_seconds ? ` · ${duration(job.progress.elapsed_seconds)}` : '';
-        return { text: `${job.status === 'running' ? 'Running' : job.status} on ${where}${took}`, job };
+        return { text: `${job.title}: ${job.status === 'running' ? 'Running' : job.status} on ${where}${took}`, job };
     }
     const queued = (snap.queue?.groups || []).flatMap((g) => g.items || []).find((i) => i.id === ref);
-    if (queued) return { text: `Queued${queued.why ? ' · waits: ' + queued.why : ''}` };
+    if (queued) return { text: `Queued: ${queued.title || 'Task'}${queued.why ? ' · waits: ' + queued.why : ''}` };
     return null;
 }
 
@@ -421,6 +422,34 @@ function refreshCards() {
             if (old && c.state === 'done' && c.ref) old.replaceWith(actionCard(m, c));
         }
     }
+    renderRelatedTasks();
+}
+
+function renderRelatedTasks() {
+    const log = cq('chat-related-tasks');
+    const list = cq('chat-related-list');
+    if (!CHAT.conv) { log.hidden = true; return; }
+
+    const refs = new Set();
+    for (const m of CHAT.conv.messages) {
+        for (const c of m.cards || []) {
+            if (c.ref) refs.add(c.ref);
+        }
+    }
+
+    const tasks = [];
+    for (const ref of refs) {
+        const live = workStatus(ref);
+        if (live) tasks.push({ref, ...live});
+    }
+
+    if (!tasks.length) { log.hidden = true; return; }
+
+    log.hidden = false;
+    list.replaceChildren(...tasks.map(t => el('li', {class: 'chat__relatedtask'},
+        el('span', {text: t.text}),
+        t.job ? el('a', {class: 'link', href: '#dashboard', text: 'Open in the dashboard', onclick: () => openWork(t.job)}) : null
+    )));
 }
 
 // ---- sending and streaming
@@ -578,6 +607,7 @@ function onEvent(e, local, answer) {
     } else if (answer && e.type === 'card') {
         answer.cards = [...(answer.cards || []), e.card];
         paint(answer);
+        renderRelatedTasks();
     } else if (answer && e.type === 'done') {
         Object.assign(answer, e.message);
         const first = (answer.cards?.[0]?.label ? answer.cards[0].label + '. ' : '') + answer.text;

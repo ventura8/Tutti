@@ -186,7 +186,7 @@ def safe_ollama_endpoint(host):
     try:
         parts = urlsplit(host if '://' in host else f'{OLLAMA_SCHEME}://{host}')
         if (parts.scheme not in ('http', 'https') or not parts.hostname or parts.username is not None or parts.password is not None
-                or parts.path not in ('', '/') or parts.query or parts.fragment or '@' in parts.netloc or not parts.port):
+                or parts.path not in ('', '/') or parts.query or parts.fragment or '@' in parts.netloc or parts.port == 0):
             return None
         name = parts.hostname.lower()
         if '%' in name:
@@ -198,7 +198,8 @@ def safe_ollama_endpoint(host):
             if (len(name) > 253 or any(not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label)
                                        for label in labels)):
                 return None
-        return f'{parts.scheme}://[{name}]:{parts.port}' if ':' in name else f'{parts.scheme}://{name}:{parts.port}'
+        port = parts.port or (443 if parts.scheme == 'https' else 80)
+        return f'{parts.scheme}://[{name}]:{port}' if ':' in name else f'{parts.scheme}://{name}:{port}'
     except ValueError:
         return None
 

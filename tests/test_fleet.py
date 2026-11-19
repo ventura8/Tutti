@@ -47,6 +47,8 @@ class Discovery(Base):
     def test_endpoint_provenance_allows_root_slash_and_ipv6(self):
         self.assertEqual(config.safe_ollama_endpoint('http://PC.example:11434/'), 'http://pc.example:11434')
         self.assertEqual(config.safe_ollama_endpoint('http://[::1]:11434/'), 'http://[::1]:11434')
+        self.assertEqual(config.safe_ollama_endpoint('http://pc.example/'), 'http://pc.example:80')
+        self.assertEqual(config.safe_ollama_endpoint('https://pc.example'), 'https://pc.example:443')
         cfg = self.cfg()
         stale = fleet.entries(cfg, {'nuc': None}, 2, {'nuc': {'tags_endpoint': 'http://user:synthetic-secret@pc.example:11434'}})
         self.assertIsNone(stale['nuc']['tags_endpoint'])

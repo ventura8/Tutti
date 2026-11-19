@@ -13,6 +13,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.dirname(HERE)]   # the tests' helpers, then the tutti package
 tmpdirs = importlib.import_module('tmpdirs')   # the module the tests import (tests/ is on the path, as discover does)
 os.environ['TUTTI_NO_DAEMONS'] = '1'   # no real keep-awake loop, tunnel or inhibitor from a test (tutti/procs.py)
+# autopilot sets TUTTI_BACKGROUND; a household member job sets TUTTI_HH_JOB. A check under either must not mark every
+# spawned job class:background / class:member (work-queue tutti-check, 2026-11-17: failures=1 on device .target).
+for _k in ('TUTTI_BACKGROUND', 'TUTTI_HH_JOB'):
+    os.environ.pop(_k, None)
 
 
 # Python's own helpers of this runner (started once by the first multiprocessing test, they end with it)

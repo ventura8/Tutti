@@ -6,6 +6,14 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.2 (2026-11-17)
+
+### Fixed
+
+- `scripts/check.sh` and `tests/run.py` drop `TUTTI_BACKGROUND` and `TUTTI_HH_JOB` so a check under the autopilot or a
+  household member job no longer marks every test job `class:background` / `class:member` (work-queue `tutti-check` on
+  2682862: `test_the_command_gets_the_serial_and_a_job_record` failed with an extra token in `.target`).
+
 ## 0.16.1 (2026-11-15)
 
 ### Fixed

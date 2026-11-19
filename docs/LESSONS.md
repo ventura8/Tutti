@@ -2,6 +2,18 @@
 
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
 
+## Autopilot's env leaked into the unit tests (2026-11-17)
+
+**What happened.** The work-queue job `tutti-check` failed on 2682862 with `failures=1, skipped=1`:
+`test_the_command_gets_the_serial_and_a_job_record` saw `class:background` in the job's `.target`. The same suite passed
+in CI and on a clean shell.
+
+**Why.** Autopilot starts its runs with `TUTTI_BACKGROUND=1` so household shared machines can tell background demand from
+interactive. The check inherited that variable; `test_job` appended `class:background` to every test job.
+
+**Rule.** The test harness clears host Tutti markers (`TUTTI_BACKGROUND`, `TUTTI_HH_JOB`) the same way it sets
+`TUTTI_NO_DAEMONS`. A test that wants those markers sets them on its own subprocess env.
+
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
 **What happened.** After a scout's `check:` stopped being run, the audit (docs/SECURITY-AUDIT-2026-11.md) found siblings:

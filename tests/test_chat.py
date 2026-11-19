@@ -1390,6 +1390,37 @@ class CursorStream(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(job.msg['text'], '')
 
+    def test_text_cli_failure_after_launch_is_uncertain_for_each_worker(self):
+        class Process:
+            stdout = iter(['partial answer\n'])
+            returncode = 2
+            def poll(self):
+                return self.returncode
+            def wait(self):
+                return self.returncode
+        for name in ('cursor-agent', 'codex', 'agent'):
+            with self.subTest(worker=name):
+                process = Process()
+                process.stdout = iter(['partial answer\n'])
+                stream = chatrun.cli_stream({'command': [name, '{prompt}']}, [], threading.Event(),
+                                            popen=lambda *_a, **_kw: process)
+                self.assertEqual(next(stream), 'partial answer\n')
+                with self.assertRaisesRegex(chatrun.CliStreamUncertain, 'native tools may have acted'):
+                    list(stream)
+
+    def test_process_start_failure_stays_a_prelaunch_error(self):
+        with mock.patch('tutti.chatrun.subprocess.Popen', side_effect=OSError('not installed')) as popen:
+            with self.assertRaisesRegex(OSError, 'not installed'):
+                list(chatrun.cli_stream({'command': ['codex', '{prompt}']}, [], threading.Event(), popen=popen))
+            popen.assert_called_once()
+
+    def test_selector_failure_is_prelaunch_and_remains_safe_to_fallback(self):
+        worker = {'command': ['codex', '{prompt}', '--model', 'wrong']}
+        with mock.patch('tutti.chatrun.subprocess.Popen') as popen:
+            with self.assertRaisesRegex(ValueError, 'could not bind'):
+                list(chatrun.cli_stream(worker, [], threading.Event(), popen=popen, selector='--model', selector_value='right'))
+            popen.assert_not_called()
+
     def test_already_cancelled_does_not_start_the_provider(self):
         from tutti import chatrun
         worker = {'command': ['cursor-agent', '-p', '--output-format', 'stream-json', '--stream-partial-output', '{prompt}'],
@@ -1464,6 +1495,15 @@ class Validation(unittest.TestCase):
 
 
 class Robustness(ApiBase):
+    def test_uncertain_text_cli_failure_preserves_partial_without_fallback(self):
+        eng = self.engine({'pc': ['partial', chatrun.CliStreamUncertain('Inspect the work before retrying')],
+                           'nuc': ['must not run']})
+        done = self.send(eng, ADMIN, 'hello')[-1]['message']
+        self.assertEqual(done['status'], 'failed')
+        self.assertEqual(done['text'], 'partial')
+        self.assertIn('Inspect the work', done['note'])
+        self.assertNotIn('must not run', done['text'])
+
     def test_uncertain_cursor_tool_activity_does_not_fall_back_to_another_model(self):
         eng = self.engine({'pc': [{'progress': 'Agent tool started.'}, chatrun.CursorStreamUncertain('work may have run')],
                            'nuc': ['must not run']})
@@ -1492,13 +1532,22 @@ class Robustness(ApiBase):
         self.assertEqual((done['text'], done['model']), ('A whole answer.', 'small:9b on nuc'))
         self.assertIn({'type': 'replace', 'text': ''}, events)
 
-    def test_a_cli_agent_that_hangs_is_cut_off_and_the_next_one_answers(self):
-        cancel = threading.Event()
-        started = time.monotonic()
-        with self.assertRaises(OSError) as e:
-            list(chatrun.cli_stream({'command': ['sleep', '5']}, [{'role': 'user', 'content': 'hi'}], cancel, timeout=0.5))
-        self.assertLess(time.monotonic() - started, 3)
-        self.assertIn('no full answer within', str(e.exception))
+    def test_a_cli_agent_that_hangs_is_uncertain_and_not_retried(self):
+        class Process:
+            stdout = iter(())
+            returncode = None
+            def poll(self):
+                return None
+            def kill(self):
+                self.returncode = -9
+            def wait(self):
+                return self.returncode
+        ticks = iter((0, 2))
+        with self.assertRaises(chatrun.CliStreamUncertain) as e:
+            list(chatrun.cli_stream({'command': ['agent', '{prompt}']}, [], threading.Event(), timeout=1,
+                                    popen=lambda *_a, **_kw: Process(), clock=lambda: next(ticks)))
+        self.assertIn('failed after starting', str(e.exception))
+        self.assertIn('Inspect the work', str(e.exception))
 
     def test_a_viewer_cannot_hand_off_or_ask_a_scout(self):
         for text in ('delegate in map: rename the helper', 'ask grok: anything new?'):

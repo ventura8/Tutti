@@ -72,4 +72,4 @@ An admin changes a member's from the Users tab (*Questions outside work hours*),
 Each question belongs to a user. An admin sees everyone's; a member only their own (`GET /api/needs`, the card, the Chat,
 the main agent's tools, the welcome-back summary).
 
-A failing-task diagnosis must give one explicit action: retry needs a concrete fix and person needs a reason. Invalid or incomplete output leaves the task unchanged and waits for the normal retry cooldown (t244).
+A failing-task diagnosis must give one explicit action: retry needs a concrete fix and person needs a reason. Invalid or incomplete output leaves the task unchanged and waits for the normal retry cooldown; validation does not prove the model's diagnosis is correct (t244).

@@ -66,7 +66,7 @@ class Finds(Base):
                 tid = self.task(f'Invalid diagnosis {answer}', attempts=fails('exited 1', 'exited 1', 'exited 1'))
                 before = self.get(tid)
                 item = {'id': tid, 'kind': 'failing'}
-                result = unblocker.handle(self.cfg, item, lambda *_a, **_k: (answer, 'pc-local'), NOW)
+                result = unblocker.handle(self.cfg, item, lambda *_a, response=answer, **_k: (response, 'pc-local'), NOW)
                 self.assertIn('invalid or incomplete diagnosis', result['outcome'])
                 self.assertEqual(self.get(tid), before)
                 self.assertFalse(any(q.get('task') == tid for q in needs.load(self.cfg)['questions']))

@@ -1202,7 +1202,8 @@ class Controls(ToolLoop):
                     cid = self.send(eng, ADMIN, 'question ' + 'y' * 400, cid)[0]['conversation']
                 conv = eng.store.get('local', cid)
                 previous = {'upto': conv['messages'][0]['id'], 'text': 'old summary'} if has_previous else None
-                eng.store.change('local', lambda d: eng.store.conversation(d, cid).update(summary=previous))
+                eng.store.change('local', lambda d, store=eng.store, name=cid, value=previous:
+                                 store.conversation(d, name).update(summary=value))
                 chatrun.post(eng, ADMIN, {'action': 'settings', 'compact_pct': 50})
                 def cancelled(cfg, cand, old, prior, cancel):
                     cancel.set()
@@ -1229,8 +1230,9 @@ class Controls(ToolLoop):
              mock.patch.object(eng, '_summarise', return_value='new'), \
              mock.patch.object(eng.store, 'change', side_effect=waiting_change), \
              mock.patch.object(chatctl, 'compact_plan', return_value=history[1:2]):
-            eng._context(job, self.cfg, {'worker': 'pc', 'kind': 'ollama', 'label': 'local'}, 'system', conv, history, 10,
-                         {'effort': 'auto', 'compact_pct': 50})
+            with self.assertRaises(chatrun.SummaryCancelled):
+                eng._context(job, self.cfg, {'worker': 'pc', 'kind': 'ollama', 'label': 'local'}, 'system', conv, history, 10,
+                             {'effort': 'auto', 'compact_pct': 50})
         self.assertEqual(conv['summary'], previous)
         self.assertEqual(data['conversations'][0]['summary'], previous)
         job.emit.assert_not_called()

@@ -681,8 +681,7 @@ class Engine:
             try:
                 self._mark_cli(job, cand)
                 messages = self._context(job, cfg, cand, system, conv, history, turns, s)
-                if job.cancel.is_set():
-                    return
+                self._check_summary_cancelled(job)
                 summary = conv.get('summary') or {}
                 if summary.get('upto') in [m['id'] for m in history]:
                     job.untrusted = True
@@ -696,6 +695,8 @@ class Engine:
                 kept = kept or weak
                 if stop:
                     return
+            except SummaryCancelled:
+                return
             except (OSError, ValueError) as e:
                 if job.cancel.is_set():
                     return
@@ -748,16 +749,13 @@ class Engine:
         summary = {'upto': old[-1]['id'], 'text': self._summarise(cfg, cand, old, (conv.get('summary') or {}).get('text', ''), job.cancel),
                    'at': chat.now_iso(self.clock)}
         if job.cancel.is_set():
-            return messages
+            raise SummaryCancelled
 
         def go(d):
             if job.cancel.is_set():
                 raise SummaryCancelled
             self.store.conversation(d, job.cid)['summary'] = summary
-        try:
-            self.store.change(job.sub, go)
-        except SummaryCancelled:
-            return messages
+        self.store.change(job.sub, go)
         conv['summary'] = summary
         job.emit('compacted', upto=summary['upto'], text=f'Earlier messages were summarised to keep within {pct} % of the '
                                                           f'{cand["label"]}\'s context.')
@@ -777,6 +775,11 @@ class Engine:
         except (OSError, ValueError):
             text = ''
         return text.strip() or chatctl.summary_text(old, previous)
+
+    @staticmethod
+    def _check_summary_cancelled(job):
+        if job.cancel.is_set():
+            raise SummaryCancelled
 
     def _system(self, snap, user, known, cand, mode, context):
         system = chat.system_prompt(snap, user, known, native_tools=cand['kind'] == 'ollama') + '\n' + self.MODE_NOTE[mode]

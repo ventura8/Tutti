@@ -6,6 +6,7 @@ not hot and fewer than max_parallel runs are going. Nothing is ever merged. A ta
 `no_progress` times in a row on the strongest step, or reaches `max_attempts`, is parked as "needs a person".
 The plan is pure (plan, signature, brief, should_park); the I/O is in tick, dispatch and collect."""
 import contextlib
+import copy
 import hashlib
 import json
 import math
@@ -14,7 +15,8 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
 
 from . import (
     backlog,
@@ -163,6 +165,14 @@ def units(task):
     return backlog.SIZES.get(task.get('size'), 1)
 
 
+def local_endpoint(cfg, name):
+    """The literal Ollama URL for this local worker; do not guess DNS or network aliases."""
+    if not is_local(cfg, name):
+        return None
+    host = (cfg['workers'].get(name) or {}).get('host')
+    return config.ollama_url(host, '') if isinstance(host, str) and host else None
+
+
 def local_room(cfg, name, step, used, machines, now=None):
     """A worker without an account (a local model): no quota, one task at a time per model server, as many units as its
     strongest model takes (the loop works a larger task in steps); none while the governor says no (tutti/fleet.py: owner
@@ -200,6 +210,9 @@ def step_room(cfg, name, states, running_units, machines=()):
         return 0, unusable_why(cfg, name)
     used = running_units.get(name, 0)
     if not step['account']:
+        endpoint = local_endpoint(cfg, name)
+        if endpoint and any(count and local_endpoint(cfg, other) == endpoint for other, count in running_units.items()):
+            used = max(used, 1)
         return local_room(cfg, name, step, used, machines, cfg.get('_now'))
     missing = routing.missing_limits(cfg, name, states.get(name) or {})
     if missing:
@@ -465,17 +478,20 @@ def assignment_wait(cfg, name, t, rooms):
     return why or f'{name}: too little room for a {t["size"]} task'
 
 
-def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
+def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fallback=None, eligible=None, on_pick=None):
     """Each queued task, in the order given (by priority, then oldest), to the first of its candidate steps that has room for its
     size. `free`: the online runs that may start, or (online, local): a local model's run is not counted in max_parallel, only
     in the machines' slots. `prefer`: {step: the sizes its model tier wants} (tutti/tiers.py): a step whose tier names sizes is
     tried last for a task of another size."""
-    prefer = prefer or {}
+    prefer, fallback = prefer or {}, dict(fallback or {})
     free, local = free if isinstance(free, tuple) else (free, free)
     for t in queued:
         if free <= 0 and local <= 0:
             break
         steps = sorted(candidates(cfg, t, over, machines), key=tier_last(prefer, t.get('size')))
+        ordinary = set(steps)
+        if fallback and not t['attempts'] and not t.get('pin') and not (settings(cfg)['repos'].get(t['repo']) or {}).get('spare'):
+            steps += [n for n in fallback if n not in steps]
         fair = cfg.get('_panic_usage') or {}
         budget = cfg.get('_panic_budget') or {}
         windows = cfg.get('_panic_windows') or {}
@@ -484,14 +500,26 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
         it = iter(online)
         steps = [next(it) if n in fair else n for n in steps]
         steps = [n for n in steps if local > 0 and (is_local(cfg, n) or free > 0)]
-        pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t) and rescue_fits(cfg, n, units(t))), None)
+        pick = next((n for n in steps if (eligible is None or eligible(n, t)) and rescue_fits(cfg, n, units(t))
+                     and ((n in ordinary and rooms.get(n, (0, ''))[0] >= units(t))
+                          or (n not in ordinary and fallback.get(n, 0) >= units(t)))), None)
         if pick is None:
             out['waiting'][t['id']] = '; '.join(assignment_wait(cfg, n, t, rooms) for n in steps) or 'no step it may go to'
             continue
-        left = 0 if is_local(cfg, pick) else rooms[pick][0] - units(t)   # a model server takes one task at a time
+        fresh_fallback = pick in fallback and pick not in ordinary
+        left = 0 if is_local(cfg, pick) or fresh_fallback else rooms[pick][0] - units(t)
         rooms[pick] = (left, rooms[pick][1] or f'{pick}: its room is taken by the running tasks')
+        if pick in fallback:
+            fallback[pick] = 0   # a fresh-fallback account takes at most one task in this round
+        endpoint = local_endpoint(cfg, pick)
+        if endpoint:
+            for other in rooms:
+                if other != pick and local_endpoint(cfg, other) == endpoint:
+                    rooms[other] = (0, f'{other}: its model server is already in use by {pick}')
         rescue_debit(cfg, pick, units(t))
         out['dispatch'].append((t['id'], pick))
+        if on_pick:
+            on_pick(pick)
         local -= 1   # every run takes a machine slot for its checks
         free -= 0 if is_local(cfg, pick) else 1
 
@@ -511,6 +539,46 @@ def spent_units(tasks, states, cfg):
             if a.get('started') and (not all(reads) or any(a['started'] >= _ts(read) for read in reads)):
                 used[a['step']] = used.get(a['step'], 0) + units(t)
     return used
+
+
+def fresh_fallbacks(cfg, states, rooms, used, now):
+    """A measured, unshared ladder account with planned room may take fresh work after normal candidates."""
+    limits = [(n, (a or {}).get('limits') or []) for n, a in cfg['accounts'].items()]
+    limits += list((cfg.get('_account_limits') or {}).items())
+    if any(not isinstance(links, list) or any(not isinstance(link, str) or not link for link in links) for _, links in limits):
+        return []   # a malformed quota graph cannot prove an account is unshared
+    shared = {n for n, links in limits if links} | {n for _, links in limits for n in links}
+    trigger = set(trigger_accounts(cfg))
+    allowed = settings(cfg).get('fresh_fallback_accounts') or []
+    if not isinstance(allowed, list) or any(not isinstance(n, str) for n in allowed):
+        return []
+    out = {}
+    for name in ladder(cfg):
+        s = states.get(name) or {}
+        p = s.get('quota_plan') or {}
+        tasks = p.get('tasks')
+        if (name not in allowed or name not in cfg['accounts'] or name in trigger or name in shared
+                or name in cfg.get('_spare_accounts', ())
+                or s.get('limits') or s.get('verdict') not in ('behind', 'late', 'on pace') or routing.account_unfit(s)
+                or routing.unknown_quota(s) or not observed_quota(cfg, name, s, now)
+                or type(tasks) is not int or tasks <= 0 or (rooms.get(name) or (0,))[0] <= 0):
+            continue
+        from .pacing import TASK_PCT
+        cost = (cfg['accounts'][name] or {}).get('task_pct') or TASK_PCT
+        threshold = s.get('panic_at', 95)
+        if (isinstance(cost, bool) or not isinstance(cost, (int, float)) or not math.isfinite(cost) or cost <= 0
+                or isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(threshold)
+                or s['used'] + cost * (used.get(name, 0) + 1) >= threshold):
+            continue
+        room = min(max(backlog.SIZES.values()), tasks - used.get(name, 0))
+        while room > 0:
+            forecast = s['used'] + cost * (used.get(name, 0) + room)
+            if forecast < threshold and not math.isclose(forecast, threshold, rel_tol=0, abs_tol=1e-9):
+                break
+            room -= 1
+        if room > 0:
+            out[name] = room
+    return out
 
 
 def rescue_budgets(cfg, states, tasks, names):
@@ -612,6 +680,188 @@ def capacity_now(cfg, running, machines, now, room=None):
     return (max(0, free), max(local, max(0, free))), None
 
 
+def fresh_local_model(cfg, worker, task, inventory, now):
+    """Only a recently observed server and installed selected model can reserve shared work."""
+    from . import fleet, power
+    machine = config.physical(cfg, fleet.machine_of(cfg, worker))
+    entry = inventory.get(machine) or {}
+    at = entry.get('updated')
+    endpoint = entry.get('tags_endpoint')
+    safe_endpoint = config.safe_ollama_endpoint(endpoint)
+    if not safe_endpoint or safe_endpoint != config.safe_ollama_endpoint(local_endpoint(cfg, worker)):
+        return False
+    interval = (cfg.get('dashboard') or {}).get('probe_seconds', 30)
+    if (entry.get('stale') is not False or isinstance(at, bool) or not isinstance(at, (int, float))
+            or not math.isfinite(at) or not 0 <= now.timestamp() - at <= 2 * interval):
+        return False
+    model = fleet.model_for(cfg['workers'][worker], task, power.rates(cfg))
+    return bool(model and model.get('name') in {m.get('name') for m in entry.get('models') or [] if isinstance(m, dict)})
+
+
+def local_host_ready(cfg, worker, machines, now):
+    from . import fleet
+    host = fleet.machine_of(cfg, worker)
+    row = next((m for m in machines or () if m.get('name') == host), None)
+    return bool(row and type(row.get('free')) is int and row['free'] > 0
+                and not fleet.governor(cfg, worker, machines, now, hardware=cfg['workers'][worker].get('hardware')))
+
+
+def scoped_local_choices(cfg, data, rooms, local_slots, machines, now):
+    """Use the normal scheduler on unique, known household tasks, with online room removed."""
+    from collections import Counter
+
+    from . import fleet, power, sharing, spendrest
+    if not fresh_machine_observation(cfg, now):
+        return {}
+    repos = set(sharing.shared_repos(cfg))
+    tasks = data['tasks']
+    waiting = spendrest.waiting_seconds(cfg, now.timestamp())
+    counts = Counter((t['repo'], household_key(t)) for t in tasks if t.get('status') != 'dropped')
+    candidates_ = [t for t in tasks if t.get('status') == 'queued' and t.get('repo') in repos
+                   and re.fullmatch(r'[0-9a-f]{32}', str(t.get('household_instance') or '')) and t.get('scope') and has_files(t)
+                   and t['id'] not in waiting and not backlog.is_question(t)
+                   and not (settings(cfg)['repos'].get(t['repo']) or {}).get('spare')
+                   and (t.get('check') or settings(cfg)['repos'][t['repo']].get('check'))
+                   and float(t.get('not_before') or 0) <= now.timestamp() and counts[(t['repo'], household_key(t))] == 1]
+    running = [t for t in tasks if t.get('status') == 'running']
+    going = {repo: sum(1 for t in running if t['repo'] == repo) for repo in {t['repo'] for t in running}}
+    candidates_.sort(key=lambda t: (not t.get('urgent'), t.get('rank', 0)))
+    result = {'dispatch': [], 'waiting': {}}
+    local_rooms = {n: r for n, r in rooms.items() if is_local(cfg, n)}
+    inventory = (fleet.read_state(cfg).get('machines') or {})
+    host_room = {m['name']: m['free'] for m in machines if isinstance(m, dict) and isinstance(m.get('name'), str)
+                 and config.physical(cfg, m['name']) == m['name'] and type(m.get('free')) is int and m['free'] > 0
+                 and sum(1 for row in machines if isinstance(row, dict) and row.get('name') == m['name']) == 1}
+    def physical(worker):
+        return config.physical(cfg, fleet.machine_of(cfg, worker))
+    def eligible(worker, task):
+        return (host_room.get(physical(worker), 0) > 0 and local_host_ready(cfg, worker, machines, now)
+                and fresh_local_model(cfg, worker, task, inventory, now))
+    def debit(worker):
+        host_room[physical(worker)] -= 1
+    assign(cfg, priority.tasks_by_priority(cfg, candidates_, going), local_rooms, (0, local_slots), result,
+           machines=machines, eligible=eligible, on_pick=debit)
+    by_id = {t['id']: t for t in candidates_}
+    out = {}
+    for task_id, worker in result['dispatch']:
+        task = by_id[task_id]
+        model = fleet.model_for(cfg['workers'][worker], task, power.rates(cfg))
+        request = {'key': household_key(task), 'instance': task['household_instance'], 'title': task['title'],
+                   'scope': task['scope'], 'size': task['size'], 'nonce': uuid.uuid4().hex}
+        out[task_id] = {'task': copy.deepcopy(task), 'request': request, 'worker': worker, 'model': model['name']}
+    return out
+
+
+def household_key(task):
+    from . import household
+    return household.fold(task.get('title') or '')
+
+
+def fresh_machine_observation(cfg, now):
+    at = cfg.get('_sharing_machine_at')
+    interval = (cfg.get('dashboard') or {}).get('probe_seconds', 30)
+    return (not isinstance(at, bool) and isinstance(at, (int, float)) and math.isfinite(at)
+            and isinstance(interval, (int, float)) and not isinstance(interval, bool) and math.isfinite(interval) and interval > 0
+            and 0 <= now.timestamp() - at <= 2 * interval)
+
+
+def scoped_dispatch_valid(cfg, task, worker, choice, result, machines, now, elapsed):
+    """Fail closed for a malformed observation or an expired local-only reservation."""
+    from . import fleet, power
+    try:
+        inventory = fleet.read_state(cfg).get('machines') or {}
+        model = fleet.model_for(cfg['workers'][worker], task, power.rates(cfg)) if is_local(cfg, worker) else None
+        request = choice.get('request') or {}
+        project = ((result.get('answer') or {}).get('projects') or {}).get(result['keys'][task['repo']]) or {}
+        acks = [a for a in project.get('scoped_claims') or [] if isinstance(a, dict)
+                and all(a.get(k) == request.get(k) for k in ('key', 'instance', 'nonce'))]
+        duration = acks[0].get('lease_seconds') if len(acks) == 1 else None
+        return bool(worker == choice.get('worker') and model and model.get('name') == choice.get('model')
+                    and fresh_machine_observation(cfg, now) and local_host_ready(cfg, worker, machines, now)
+                    and fresh_local_model(cfg, worker, task, inventory, now)
+                    and type(duration) is int and 30 < duration <= 300 and 0 <= elapsed < duration - 30)
+    except (AttributeError, KeyError, TypeError, ValueError, OverflowError, OSError):
+        return False
+
+
+def filter_scoped_dispatch(cfg, data, result, plan, machines, now, elapsed):
+    """A local-only reservation cannot be dispatched on another worker or a changed model."""
+    selected = result.get('scoped')
+    if selected is None:
+        return
+    keep, had_dispatch = [], bool(plan['dispatch'])
+    for task_id, worker in plan['dispatch']:
+        task = backlog.find(data, task_id)
+        if task['repo'] not in result['keys']:
+            keep.append((task_id, worker))
+            continue
+        choice = selected.get(task_id) or {}
+        if task == choice.get('task') and scoped_dispatch_valid(cfg, task, worker, choice, result, machines, now, elapsed):
+            keep.append((task_id, worker))
+        else:
+            plan['waiting'][task_id] = 'local household worker or model changed: wait for the next scoped reservation'
+    plan['dispatch'] = keep
+    if had_dispatch and not keep:
+        plan.update(state='waiting', reason='local household capacity changed; waiting for a new scoped reservation')
+
+
+def has_online_shared_retry(cfg, tasks, rooms, machines, now):
+    """Preserve legacy sharing when an existing shared retry can use a ladder account."""
+    from . import sharing, spendrest
+    shared, waiting = set(sharing.shared_repos(cfg)), spendrest.waiting_seconds(cfg, now.timestamp())
+    for task in tasks:
+        if (task.get('status') != 'queued' or task.get('repo') not in shared or not task.get('attempts')
+                or task['id'] in waiting or backlog.is_question(task) or float(task.get('not_before') or 0) > now.timestamp()
+                or not (task.get('check') or (settings(cfg)['repos'].get(task['repo']) or {}).get('check'))):
+            continue
+        for name in candidates(cfg, task, machines=machines):
+            if not is_local(cfg, name) and rooms.get(name, (0, ''))[0] >= units(task) and rescue_fits(cfg, name, units(task)):
+                return True
+    return False
+
+
+def refresh_sharing_capacity(cfg, data, states, machines, now, on):
+    """Recompute eligible household capacity before sync, without changing the scheduling measurement."""
+    cfg['_sharing_online_limit'], cfg['_sharing_local_scoped'] = 0, {}
+    cfg.pop('_sharing_capacity_error', None)
+    if not on:
+        return
+    probe = dict(cfg)
+    try:
+        tasks = data['tasks']
+        used = spent_units(tasks, states, probe)
+        probe['_main_in_panic'] = main_in_panic(probe, states)
+        names = list(dict.fromkeys([*ladder(probe), *trigger_accounts(probe), *probe.get('_spare_accounts', ())]))
+        rooms = {n: step_room(probe, n, states, used, machines or ()) for n in names}
+        probe['_panic_usage'] = {n: 100 - remaining_quota(states[n]) for n in names if n in states and n in probe['accounts']
+                                 and panic_rescue(probe, n, states[n], states)}
+        probe['_panic_windows'], probe['_panic_budget'] = rescue_budgets(probe, states, tasks, probe['_panic_usage'])
+        fallback = fresh_fallbacks(probe, states, rooms, used, now)
+        eligible = set(trigger_accounts(probe)) | set(probe.get('_spare_accounts', ())) | set(fallback)
+        if probe['_main_in_panic']:
+            eligible.update(n for n in names if n in probe['accounts'])
+        room = sum(max(0, min(r[0], fallback[n]) if n in fallback else r[0]) for n, r in rooms.items()
+                   if n in eligible and not is_local(probe, n))
+        running = [t for t in tasks if t['status'] == 'running']
+        online_retry = has_online_shared_retry(probe, tasks, rooms, machines or (), now)
+        free, stopped = capacity_now(probe, running, machines, now, max(room, 1) if online_retry else room)
+        if not stopped:
+            if online_retry:
+                cfg.pop('_sharing_online_limit', None)
+                cfg['_sharing_local_scoped'] = None
+                return
+            cfg['_sharing_online_limit'] = probe['_parallel_limit']
+            if cfg['_sharing_online_limit'] <= len(running):
+                slots, _why = machine_capacity(probe, machines)
+                local_limit = min(free[1], slots) if slots is not None else min(free[1], sum(is_local(probe, n) for n in names))
+                cfg['_sharing_local_scoped'] = scoped_local_choices(probe, data, rooms, local_limit, machines or (), now)
+            else:
+                cfg['_sharing_local_scoped'] = None
+    except (AttributeError, KeyError, OSError, TypeError, ValueError, OverflowError):
+        cfg['_sharing_online_limit'], cfg['_sharing_local_scoped'] = 0, {}
+        cfg['_sharing_capacity_error'] = 'household capacity could not be measured: shared work waits; check account and machine readings'
+
+
 def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     """What to do now, pure. {state, reason, dispatch: [(task id, step name)], waiting: {task id: why}}. `now` (a datetime):
     nothing new starts in `autopilot.quiet_hours`; finished runs are still collected. `hold`: {task id: why} of shared
@@ -636,6 +886,7 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     cfg['_main_in_panic'] = main_in_panic(cfg, states)
     names = list(dict.fromkeys([*ladder(cfg), *trigger_accounts(cfg), *cfg.get('_spare_accounts', ())]))
     rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}
+    fallback = fresh_fallbacks(cfg, states, rooms, used, now or datetime.now(timezone.utc))
     cfg['_panic_usage'] = {n: 100 - remaining_quota(states[n]) for n in names if n in states and n in cfg['accounts']
                            and panic_rescue(cfg, n, states[n], states)}
     cfg['_panic_windows'], cfg['_panic_budget'] = rescue_budgets(cfg, states, tasks, cfg['_panic_usage'])
@@ -652,7 +903,12 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     from . import fleet
     over = fleet.overflow(cfg, states, rooms, [n for n in names if is_local(cfg, n)])
     out['overflow'] = over
-    assign(cfg, priority.by_repo(cfg, queued, lambda t: t['repo'], going), rooms, free, out, prefer, over, machines or ())
+    scoped = cfg.get('_sharing_local_scoped')
+    def selected_worker(worker, task):
+        choice = (scoped or {}).get(task['id'])
+        return not choice or choice.get('worker') == worker
+    assign(cfg, priority.tasks_by_priority(cfg, queued, going), rooms, free, out, prefer, over, machines or (), fallback,
+           eligible=selected_worker)
     out['rooms'] = {n: list(r) for n, r in rooms.items()}
     if out['dispatch']:
         return {**out, 'state': 'dispatching', 'reason': f'{len(out["dispatch"])} task(s) sent to ' +
@@ -864,7 +1120,11 @@ def repo_path(cfg, task):
     return config.expand(settings(cfg)['repos'][task['repo']]['path'])
 
 
-def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
+class LaunchNotStarted(OSError):
+    """Popen failed before returning a child process."""
+
+
+def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, run_id=None):
     """Starts `tutti run <worker> <brief> --repo <repo> --track ap-<task>` in the background; marks the task running. An
     account's model and effort follow its pace (tutti/tiers.py): stronger while behind, cheaper while ahead."""
     step = step_of(cfg, step_name)
@@ -872,7 +1132,7 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
     if choice:
         step = {**step, 'args': choice['args']}
     repo = settings(cfg)['repos'][task['repo']]
-    run_id = delegate.new_id(cfg)
+    run_id = run_id or delegate.new_id(cfg)
     p = delegate.paths(cfg, run_id)
     with open(p['log'], 'a', encoding='utf8') as log:   # the id is taken from here on: the next dispatch gets another
         log.write(f'autopilot: task {task["id"]} attempt {len(task["attempts"]) + 1} on {step_name}'
@@ -903,18 +1163,38 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None):
         argv = [*argv[:4], 'bridge', 'exec', jobs, '--id', run_id, '--', *argv[4:]]
     with open(p['log'], 'a', encoding='utf8') as log:
         # TUTTI_BACKGROUND: its runs on a household's shared machines are background demand (docs/HOUSEHOLD.md)
-        child = spawn(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True,
-                      env={**os.environ, 'TUTTI_BACKGROUND': '1'})
+        try:
+            child = spawn(argv, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True,
+                          env={**os.environ, 'TUTTI_BACKGROUND': '1', 'TUTTI_RUN_IDENTITY': task.get('run_identity') or '',
+                               'TUTTI_BOUND_REPORT': '1'})
+        except OSError as e:
+            raise LaunchNotStarted(str(e)) from e
     with open(p['pid'], 'w', encoding='utf8') as f:
         f.write(f'{child.pid}\n')
     # the repo's gates this attempt runs (acceptance holds them): a result lands only when they are today's (tutti/fill.py)
     if step['kind'] != 'ollama':
         task.pop('picked', None)
         task.pop('model', None)
-    task.pop('recovery_note', None)
     task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now, gates=(repo.get('check') or '').strip(),
                 boot=durable.boot_id(), job_bridge=jobs or '', checkpoint=now,
                 choice={k: choice[k] for k in ('tier', 'model', 'effort', 'label')} if choice else None)
+    task.pop('launch_pending', None)
+    task.pop('recovery_note', None)
+    return run_id
+
+
+def reserve_launch(cfg, task, step_name, now):
+    """Reserve a unique run before spawning; the caller saves it durably before launching."""
+    step = step_of(cfg, step_name)
+    run_id = delegate.new_id(cfg)
+    with open(delegate.paths(cfg, run_id)['log'], 'x', encoding='utf8'):
+        pass  # claim the id so another task cannot reuse it in the same second
+    from . import bridge
+    repo = settings(cfg)['repos'][task['repo']]
+    task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now,
+                gates=(repo.get('check') or '').strip(), job_bridge=bridge.jobs_machine(cfg) or '',
+                boot=durable.boot_id(), launch_pending=True, run_identity=uuid.uuid4().hex, report_identity_bound=True, choice=None)
+    task.pop('recovery_note', None)
     return run_id
 
 
@@ -1086,20 +1366,48 @@ def worker_question(cfg, t, a):
     return asked
 
 
+def report_identity_matches(task, report):
+    """Hold an identity-bound run when its report belongs to another attempt; legacy runs retain their behavior."""
+    identity = task.get('run_identity')
+    if report and 'report_identity_bound' in task and (task['report_identity_bound'] is not True
+            or not remote.valid_run_identity(identity) or not isinstance(report, dict)
+            or report.get('id') != task.get('run') or report.get('run_identity') != identity):
+        task['recovery_note'] = 'report identity does not match this run: held for investigation, not published or retried'
+        return False
+    if report and (task.get('recovery_note') or '').startswith('report identity does not match'):
+        task.pop('recovery_note', None)
+    if task.get('launch_pending'):
+        if not report:
+            task['recovery_note'] = 'launch outcome is unverified: waiting for its report before retrying'
+            return False
+        task.pop('launch_pending', None)
+        task.pop('recovery_note', None)
+    return True
+
+
+def hold_or_resume_unreported(cfg, task, events):
+    """Rebooted local work can resume; unknown or remote work needs a report."""
+    if durable.died_with_host(task.get('boot')) and 'job_bridge' in task and not task['job_bridge']:
+        events.append(interrupt(cfg, task))
+    else:
+        task['recovery_note'] = 'run ended without a report: process ownership is unverified; waiting for its report before retrying'
+
+
 def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
     """Every running task whose run ended: an attempt recorded; a pass published for review, a failure queued again (from the
     same worktree, one step up) or parked. Returns event lines."""
     events = []
     for t in [t for t in data['tasks'] if t['status'] == 'running']:
+        if t.get('recovery_note') == PAUSED_REPORT_HOLD:
+            t.pop('recovery_note', None)
         ended, report = finished(cfg, t, is_alive)
+        if not report_identity_matches(t, report):
+            continue
         stuck_why = '' if ended else stuck(cfg, t, now, kill)
         if not ended and not stuck_why:
             continue
         if report is None:
-            if durable.died_with_host(t.get('boot')) and 'job_bridge' in t and not t['job_bridge']:
-                events.append(interrupt(cfg, t))
-            else:
-                t['recovery_note'] = 'run ended without a report: process ownership is unverified; waiting for its report before retrying'
+            hold_or_resume_unreported(cfg, t, events)
             continue
         t.pop('recovery_note', None)
         a = attempt_of(cfg, t, report, now)
@@ -1207,10 +1515,77 @@ def checkpoints(cfg, data, now, snap=checkpoint, push=push_wip):
     for t in [t for t in data['tasks'] if t['status'] == 'running']:
         wt = tree_of(cfg, t) if every > 0 else None
         if wt and now - float(t.get('checkpoint') or t.get('started') or 0) >= every:
-            sha = snap(wt, wip_ref(t), t['run'])
+            t['wip'] = checkpoint_status(cfg, t, wt, now, snap, push)
             t['checkpoint'] = now
-            failed = push(wt, sha, wip_name(t), wip_remote(cfg, t)) if sha else ''
-            t['wip'] = {'at': now, 'sha': sha or (t.get('wip') or {}).get('sha'), 'pushed': not failed, 'error': failed or None}
+
+
+def checkpoint_now(cfg, now, snap=checkpoint, push=push_wip):
+    """Snapshot running work only, without collecting or starting attempts; return each result, or None when fenced."""
+    from . import failover
+    if not failover.may_write(cfg):
+        return None
+    with backlog.locked(cfg) as data:
+        if not failover.may_write(cfg):
+            return None
+        results = []
+        for task in data['tasks']:
+            if task.get('status') != 'running':
+                continue
+            wt = tree_of(cfg, task)
+            if wt:
+                task['wip'] = checkpoint_status(cfg, task, wt, now, snap, push)
+                task['checkpoint'] = now
+                result = task['wip']
+            else:
+                result = {'pushed': False, 'error': 'worktree unavailable: inspect the run and retry'}
+            results.append((task['id'], result))
+        return results
+
+
+def checkpoint_status(cfg, task, wt, now, snap, push):
+    """Report only this attempt's known snapshot and push; an old SHA is an unverified reference."""
+    previous = task.get('wip') or {}
+    old_sha = previous.get('sha') or previous.get('previous_sha')
+    status = {'at': now, 'sha': None, 'pushed': False, 'error': None}
+    if old_sha:
+        status['previous_sha'] = old_sha
+    try:
+        sha = snap(wt, wip_ref(task), task['run'])
+    except (OSError, subprocess.SubprocessError) as e:
+        status['error'] = f'checkpoint capture failed ({type(e).__name__}): inspect the worktree and retry'
+        return status
+    if not sha:
+        status['error'] = 'no checkpoint created: the worktree may be unchanged or capture failed; inspect it and retry'
+        return status
+    status['sha'] = sha
+    remote_name = wip_remote(cfg, task)
+    if not remote_name:
+        status['error'] = 'checkpoint is local only: WIP push is disabled or has no remote'
+        return status
+    try:
+        failed = push(wt, sha, wip_name(task), remote_name)
+    except (OSError, subprocess.SubprocessError) as e:
+        failed = f'checkpoint push failed ({type(e).__name__}): check the remote and retry'
+    status.update(pushed=not bool(failed), error=failed or None)
+    return status
+
+
+PAUSED_REPORT_HOLD = ('report received while autopilot is off: held during the off period; on resuming, normal collection '
+                      'applies and does not prove the execution boundary stopped')
+
+
+def checkpoint_while_off(cfg, now):
+    """Preserve work and surface reports without treating them as proof remote work stopped."""
+    from . import failover
+    if not failover.may_write(cfg):
+        return
+    with backlog.locked(cfg) as data:
+        if not failover.may_write(cfg):
+            return
+        checkpoints(cfg, data, now)
+        for task in data['tasks']:
+            if task.get('status') == 'running' and not task.get('recovery_note') and delegate.load_report(cfg, task.get('run')):
+                task['recovery_note'] = PAUSED_REPORT_HOLD
 
 
 def reconcile(wt, ref, remote_name='', run=git):
@@ -1269,30 +1644,35 @@ def move_out(cfg, t, to, now, is_alive=None, kill=None, snap=checkpoint):
     return f'queued for {to or "the best available worker"}; {note or "it was not running"}'
 
 
-def give_up_here(cfg, t, holder, is_alive, kill, run=git):
-    """One task moved to `holder`: the stale run stopped, its WIP kept on tutti/backup/<name>, the worktree cleaned."""
+def give_up_here(cfg, t, holder, is_alive, kill, snap=checkpoint):
+    """A task moved to `holder`: preserve the local worktree, even when a backup cannot be made."""
     wt = stop_run(cfg, t, is_alive, kill)
-    kept = ''
+    sha = ''
     if wt:
-        sha = checkpoint(wt, f'refs/heads/tutti/backup/{wip_name(t)}', t.get('run'), run=subprocess.run)
-        kept = f'; the local work is kept on tutti/backup/{wip_name(t)}' if sha else ''
-        run(wt, 'reset', '-q', '--hard')
-        run(wt, 'clean', '-qfd')
+        try:
+            sha = snap(wt, f'refs/heads/tutti/backup/{wip_name(t)}', t.get('run'))
+        except (OSError, subprocess.SubprocessError):
+            pass
+    note = (f'local worktree preserved; backup at tutti/backup/{wip_name(t)}' if sha else
+            'local backup unconfirmed; inspect and preserve the worktree before reconciling with the household holder')
+    if not wt:
+        note = 'local worktree unavailable; inspect the run before reconciling with the household holder'
     t.update(status='moved', moved={'to': holder, 'at': time.time()})
-    return f'{t["id"]} moved to {holder} while this computer was away: not run here again{kept}'
+    t['recovery_note'] = note
+    return f'{t["id"]} moved to {holder} while this computer was away: not run here again; {note}'
 
 
-def moved_away(cfg, data, moved, is_alive=None, kill=None, run=git):
-    """This member's tasks that an admin moved to another member while this computer was away (`moved`: {task key:
+def moved_away(cfg, data, moved, is_alive=None, kill=None):
+    """This member's tasks that an admin moved to another member while this computer was away (`moved`: {(repo, task key):
     holder}, sharing.moved_of): never run here again. Returns event lines."""
     from . import household
     from . import state as state_mod
     is_alive = is_alive or state_mod.alive
     out = []
     for t in data['tasks']:
-        holder = moved.get(household.fold(t['title']))
+        holder = moved.get((t['repo'], household.fold(t['title'])))
         if holder and t['status'] in ('running', 'queued'):
-            out.append(give_up_here(cfg, t, holder, is_alive, kill, run))
+            out.append(give_up_here(cfg, t, holder, is_alive, kill))
     return out
 
 
@@ -1352,6 +1732,8 @@ def local_share(cfg, here, machines):
         return here
     cores = max(1, share.scaled(here['cores'], row['use_pct']))
     out = {**here, 'cores': cores}
+    if cores != here['cores'] and isinstance(here.get('load'), (int, float)):
+        out['cpu_share'] = {'host_cores': here['cores'], 'host_load': here.get('load'), 'percent': row['use_pct']}
     # Only the load beyond the owner's cores counts against Tutti's share. The share is already scaled down by the owner's
     # presence (tutti/share.py), so an idle owner gives Tutti a larger share instead; an owner who really uses the machine
     # (load above their cores) still leaves Tutti no room.
@@ -1387,10 +1769,106 @@ def guess_scopes(data, files):
     return events
 
 
-def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen, publish_fn=publish, beat=None):
+def start_reserved(cfg, data, task, step, now, spawn, states):
+    """Fence cooperative launches against a local move's frozen marker."""
+    from . import move
+    try:
+        fd = move.admission_lock(cfg) if move.admission_supported() else None
+    except OSError as e:
+        return None, f'{task["id"]} could not acquire the move admission lock ({e}): it stays queued'
+    try:
+        try:
+            frozen = move.frozen_exists(cfg)
+        except OSError as e:
+            return None, f'{task["id"]} could not check the move freeze ({e}): it stays queued'
+        if frozen:
+            return None, f'{task["id"]} waits: this host is frozen for a move; finish it or roll it back'
+        return _start_reserved(cfg, data, task, step, now, spawn, states)
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _start_reserved(cfg, data, task, step, now, spawn, states):
+    """Save the intent before spawning; ambiguous post-spawn failures remain held for their report."""
+    task_id = task['id']
+    try:
+        run_id = reserve_launch(cfg, task, step, now)
+        backlog.save(cfg, data)
+        run_id = dispatch(cfg, task, step, now, spawn, states, run_id=run_id)
+    except LaunchNotStarted as e:
+        task['status'] = 'queued'
+        task.pop('launch_pending', None)
+        task.pop('recovery_note', None)
+        backlog.save(cfg, data)
+        return None, f'{task_id} could not be started on {step} ({e}): it stays queued'
+    except OSError as e:
+        if task.get('launch_pending'):
+            task['recovery_note'] = f'launch outcome is unverified ({e}): waiting for its report before retrying'
+            backlog.save(cfg, data)
+            return None, f'{task_id} launch outcome is unverified: held for its report'
+        return None, f'{task_id} could not be reserved on {step} ({e}): it stays queued'
+    backlog.save(cfg, data)
+    return run_id, f'{task_id} sent to {step} (run {run_id}, attempt {len(task["attempts"]) + 1})'
+
+
+def hold_unready_bridge(hold, tasks, problem):
+    """Defer all queued work when the configured jobs client cannot run bound reports."""
+    if problem:
+        hold.update({t['id']: problem for t in tasks if t['status'] == 'queued' and t['id'] not in hold})
+
+
+def scoped_spawn(cfg, task, step, choice, result, machines, start_time, monotonic, spawn, rejected):
+    """Recheck at subprocess creation, after the launch intent and any intervening I/O."""
+    changed = {'status', 'run', 'step', 'worker', 'started', 'gates', 'job_bridge', 'boot', 'launch_pending', 'run_identity',
+               'report_identity_bound', 'choice', 'recovery_note', 'picked', 'model'}
+    expected = {k: v for k, v in choice['task'].items() if k not in changed}
+    def run(*args, **kwargs):
+        elapsed = monotonic() - start_time
+        current = {k: task.get(k) for k in expected}
+        now = cfg['_now'] + timedelta(seconds=max(0, elapsed))
+        if current != expected or not scoped_dispatch_valid(cfg, task, step, choice, result, machines, now, elapsed):
+            rejected[0] = True
+            raise LaunchNotStarted('scoped household lease or worker observation changed: wait for another reservation')
+        return spawn(*args, **kwargs)
+    return run
+
+
+def start_plan(cfg, data, shared, p, machines, states, now, started_at, monotonic, spawn, events, started):
+    allowed = []
+    for task_id, step in p['dispatch']:
+        elapsed = monotonic() - started_at
+        check = {'dispatch': [(task_id, step)], 'waiting': {}}
+        filter_scoped_dispatch(cfg, data, shared, check, machines, cfg['_now'] + timedelta(seconds=max(0, elapsed)), elapsed)
+        if not check['dispatch']:
+            p['waiting'].update(check['waiting'])
+            events.append(f'{task_id}: {check["waiting"][task_id]}')
+            continue
+        t = backlog.find(data, task_id)
+        rejected = [False]
+        choice = (shared.get('scoped') or {}).get(task_id)
+        spawn_fn = scoped_spawn(cfg, t, step, choice, shared, machines, started_at, monotonic, spawn, rejected) if choice else spawn
+        run_id, event = start_reserved(cfg, data, t, step, now, spawn_fn, states)
+        if rejected[0]:
+            p['waiting'][task_id] = 'scoped household lease or worker observation changed: wait for another reservation'
+        else:
+            allowed.append((task_id, step))
+        events.append(event)
+        if not run_id:
+            continue
+        if t['repo'] in shared['keys']:
+            started.append(task_id)
+    if p['dispatch'] and not allowed:
+        p.update(state='waiting', reason='local household capacity changed; waiting for a new scoped reservation')
+    p['dispatch'] = allowed
+
+
+def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen, publish_fn=publish, beat=None,
+         monotonic=time.monotonic):
     """One round: collect, plan, dispatch. `states`: {account: pacing.account_state}; `machines`: state.machines_state items;
     `beat`: this member's heartbeat for the household coordinator (shared projects only; docs/HOUSEHOLD.md)."""
     from . import state as state_mod
+    started_at = monotonic()
     now = now or time.time()
     from . import conduct
     cfg['_main_worker'] = conduct.current(cfg)
@@ -1413,16 +1891,23 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     cfg['_spare_accounts'] = sharing.spare_accounts(cfg, states, now)
     if beat is not None:
         beat = {**beat, 'spare': bool(cfg['_spare_accounts'])}
-    shared = sharing.sync(cfg, backlog.load(cfg), beat, now=now)   # the coordinator's call: never under the lock either
+    before_sharing = backlog.load(cfg)
+    refresh_sharing_capacity(cfg, before_sharing, states, machines, cfg['_now'], on)
+    shared = sharing.sync(cfg, before_sharing, beat, now=now)   # the coordinator's call: never under the lock either
     events_spare = sharing.adopt_offers(cfg, shared, now)
     listed_files = repo_files(cfg) if on else {}   # git ls-files per repo: never under the lock
+    from . import bridge
+    bridge_problem = bridge.bound_client_problem(cfg) if on else ''  # bounded network read, outside the backlog lock
     with backlog.locked(cfg) as data:
         events = collect(cfg, data, now, is_alive, publish_fn)
+        if cfg.get('_sharing_capacity_error'):
+            events.append(cfg['_sharing_capacity_error'])
         checkpoints(cfg, data, now)
         events += guess_scopes(data, listed_files)
         hold, mirrored = sharing.under_lock(shared, data, now)
         from . import handover  # handover imports conduct, which imports modules that import this one
-        mirrored += moved_away(cfg, data, sharing.moved_of(shared), is_alive, handover.end_tree)
+        moved, _moved_hold, _warnings = sharing.moved_of(shared, data)
+        mirrored += moved_away(cfg, data, moved, is_alive, handover.end_tree)
         hold.update(sharing.spare_hold(cfg, data))
         from . import spendrest  # a retry waits briefly for the scout's second opinion on its failures (tutti/spendrest.py)
         hold.update({k: v for k, v in spendrest.waiting_seconds(cfg, now).items() if k not in hold})
@@ -1441,21 +1926,14 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
             events += [f'fill_room: {filled["note"]}'] if filled['added'] else []
             events += fill.review_round(cfg, data, now, is_alive, spawn)
             events += depbots.apply(cfg, data, sec)
+        hold_unready_bridge(hold, data['tasks'], bridge_problem)
         p = plan(cfg, data['tasks'], states, machines, on, datetime.fromtimestamp(now, timezone.utc), hold)
+        elapsed = monotonic() - started_at
+        filter_scoped_dispatch(cfg, data, shared, p, machines, cfg['_now'] + timedelta(seconds=max(0, elapsed)), elapsed)
+        backlog.save(cfg, data)   # what was collected is kept even if a start below fails
+        start_plan(cfg, data, shared, p, machines, states, now, started_at, monotonic, spawn, events, started)
         telemetry.record('feature', 'autopilot.plan', state=p['state'], dispatch=len(p['dispatch']), waiting=len(p['waiting']),
                          collected=len(events))
-        backlog.save(cfg, data)   # what was collected is kept even if a start below fails
-        for task_id, step in p['dispatch']:
-            t = backlog.find(data, task_id)
-            try:
-                run_id = dispatch(cfg, t, step, now, spawn, states)
-            except OSError as e:
-                events.append(f'{task_id} could not be started on {step} ({e}): it stays queued')
-                continue
-            backlog.save(cfg, data)
-            events.append(f'{task_id} sent to {step} (run {run_id}, attempt {len(t["attempts"]) + 1})')
-            if t['repo'] in shared['keys']:
-                started.append(task_id)
     if started:   # shared tasks just started: their leases at full length now, not at the next round
         sharing.renew(cfg, backlog.load(cfg), started)
     with state_locked(cfg) as st:

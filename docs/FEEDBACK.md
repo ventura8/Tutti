@@ -1,5 +1,57 @@
 # Feedback log
 
+Chat must not repeat a started CLI agent's work after its response fails (t303).
+
+Chat must not treat interrupted local-model streams as complete or repeat an attempted action on fallback (t303).
+
+An automatic answer must not act on a parked task whose scope, check or ownership changed during review (t278).
+
+Invalid model diagnoses must not park work or create a needless person question (t244).
+
+Dashboard summary tiles must fit phone viewports with WCAG text spacing and long account names (t414).
+
+A household moved notice must not stop a same-title task in a different repo or guess between local tasks (t210).
+
+The unblocker must not apply an old diagnosis after the task it inspected changes (t244).
+
+Household reassignment must preserve the old holder's uncheckpointed work when its local backup fails (t309).
+Missing dispatch results and unconfirmed stops must not free a target while its work may still run (t309).
+
+Autopilot must not launch new work after a cooperative local move has frozen its host (t404).
+
+Checkpoint status must not claim a push succeeded when the snapshot produced no SHA or the push was disabled (t309).
+
+Auto-fill must preserve explicitly different task scopes or checks and count only additions that actually succeeded (t210).
+
+Same-title work with explicitly different file scopes or checks must not be silently discarded on backlog addition (t210).
+
+The unblocker must understand complete multiword choices without turning ambiguous text into a different answer (t278).
+A dashboard-requested restart must also preserve an in-flight Chat action, plan or undo (t404).
+
+An automatic Needs-you answer must not act on a question changed while the model was deciding (t278).
+
+A dashboard-requested restart must not cut off a Chat answer that is still running (t404).
+Multiple local worker names for the same model server must not schedule overlapping work to that server (t301).
+
+Turning autopilot off to drain work stopped its dashboard rounds and therefore stopped WIP checkpoints (t404).
+Automatic releases must move Unreleased changelog entries into the new version instead of repeating them later (t408).
+
+Conductor selection must not treat a missing usage state as room after another account is spent (t388).
+
+Chat needs access to earlier conversation turns without asking the user to paste them. A paged current-conversation tool
+provides retained text; durable full-history retention is still open (t387).
+
+Routed checks must reject unsafe copy names before touching a lock or remote command (t403).
+Updating code must not make a running failover watchdog announce an intentional departure (t404).
+
+Automatic releases must preserve concurrent release branches and tag the reviewed PR's merge commit (t401).
+
+Startup recovery needs healthy-state and resume coverage, and must describe the limits of remote stop detection (t105).
+
+Task P0–P5 labels need to be saved and used by dispatch; project priority alone cannot represent task urgency (t320).
+
+Quiet mode: automatic discovery defers potentially heavy gaps commands while the computer is in use (t172).
+
 First users log **every** problem they hit here, the small ones too. This file is the backlog: an entry is closed by
 the change that fixes it, and a lesson worth keeping moves to [LESSONS.md](LESSONS.md).
 
@@ -8,6 +60,9 @@ of your project or secrets: describe the setup in general words.
 
 | # | Date | Command | What happened | Expected | Status |
 | --- | --- | --- | --- | --- | --- |
+| 22 | 2026-11-19 | Chat rename | Renaming rebuilt the message list and jumped to the end; switching chats during the request could update the wrong title. | Preserve the current message view and rename only the original chat. | Fixed title-only update and conversation race (t407); virtualization remains open. |
+| 21 | 2026-11-19 | Chat redraw | Redrawing reparsed unchanged message Markdown. | Reuse unchanged parsing while retaining safe rendering. | Fixed repeated parsing (t407); pagination and virtualization remain open. |
+| 20 | 2026-11-18 | Linked account usage | A reset window could be shown in panic at zero percent when its linked quota was in panic. | Name the quota that actually blocks work. | Diagnostic fixed for the next release (t272). |
 | 19 | 2026-11-18 | Autopilot pacing | A finished local attempt could leave its model permanently busy. | Reuse available local models when online accounts are ahead. | Fixed local attempt accounting (t301). |
 | 18 | 2026-11-18 | Autopilot retries | Missing reports on every worker could park a task as exhausted. | Keep environment failures from exhausting the worker ladder. | Fixed in the next release (t260). |
 | 17 | 2026-11-18 | Chat job status | A model-requested job status could expose a job log to a viewer. | Keep job reports and logs for admins. | Restricted model-requested job status to admins (t372). |
@@ -56,3 +111,18 @@ of your project or secrets: describe the setup in general words.
 
 - **2026-11-18, t309:** After the dashboard restarted, no-report runs were counted as failures and retried without
   independently establishing whether their workers stopped. Unverified runs now stay visible and wait for a real report.
+
+- **2026-11-18, t309:** Dashboard restarts left run ownership uncertain. Record an autopilot launch before starting it
+  so a crash in the launch window does not silently start another worker on the same task.
+
+
+- **2026-11-18, t309:** Restarted jobs made it hard to identify which routed Docker checks belong to one autopilot run.
+  New runs carry a non-secret correlation label; remote ownership and safe retries still need verified containment.
+
+
+- **2026-11-18, t309:** Stale or ambiguous attempts must not publish a different run's result. New bound reports are checked
+  against their saved run identity; mismatches stay visible for investigation. Older bridge clients must update before
+  starting bound autopilot runs, while already-running attempts retain their prior behavior.
+
+- **2026-11-18, t402:** Local checks waited behind an unrelated run's remote-copy lock. Local-only checks now run in their
+  own worktrees without that lock; routed and mixed checks retain it.

@@ -1,4 +1,4 @@
-"""What Tutti does when it starts again after a power-off, a crash or a sleep (docs/PRESENCE.md, "Nothing is lost").
+"""What Tutti does when it starts again after a power-off, a crash or a sleep (docs/PRESENCE.md, "Recovery after interruption").
 
 1. Temp files of writers that died mid-write are removed; the old state file is whole (tutti/durable.py writes atomically).
 2. The usage log's torn last line, if a power-off cut one, is cut off.

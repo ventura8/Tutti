@@ -212,6 +212,34 @@ def yield_reason(cfg, agent):
     return ''
 
 
+def conductor_account_reason(cfg, name, state):
+    """A conductor must bind to an account with known quota, including every linked window."""
+    if state is None:
+        return 'usage state missing: refresh the account before using it'
+    reason = routing.account_unfit({**state, '_missing_limits': routing.missing_limits(cfg, name, state)})
+    def unreliable(s):
+        return bool(s.get('stale') or s.get('after_reset') or s.get('reader_problem') or s.get('selected_source') == 'estimate'
+                    or any(unreliable(x) for x in s.get('limits') or []))
+    return reason or ('quota unknown or stale: refresh the account and linked limits'
+                      if routing.unknown_quota(state) or unreliable(state) else '')
+
+
+def conductor_binding(cfg, agent):
+    """A shared worker needs an explicit, unique account selector, including for disabled siblings."""
+    mapping = cfg.get('_account_workers') or {n: (a or {}).get('worker') or n for n, a in cfg['accounts'].items()}
+    linked = [n for n, worker in mapping.items() if n == agent or worker == agent]
+    if len(linked) < 2:
+        return None, {}, ''
+    selector = (cfg['workers'].get(agent) or {}).get('chat_account_selector')
+    saved = cfg.get('_account_args') or {}
+    values = {n: workers.selector_value(((cfg['accounts'][n] or {}).get('args') or []) if n in cfg['accounts']
+                                        else (saved.get(n) or []), selector) for n in linked}
+    if not selector or not all(values.values()) or len(set(values.values())) != len(linked):
+        return None, {}, (f'{agent}: configure workers.{agent}.chat_account_selector and distinct selector values in every '
+                          'linked account args before using this shared worker')
+    return selector, values, ''
+
+
 def out_reason(cfg, agent, states, machines=None, now=None):
     """Why an agent must not conduct now (every account it spends is in panic or spent, or a local model's machine is lent
     out), or ''. No account: never out by quota."""
@@ -234,11 +262,11 @@ def out_reason(cfg, agent, states, machines=None, now=None):
     linked = [n for n, worker in (cfg.get('_account_workers') or {}).items() if worker == agent]
     if linked and not names:
         return f'{agent}: all of its configured accounts are paused or disabled'
+    _selector, _values, binding_problem = conductor_binding(cfg, agent)
+    if binding_problem:
+        return binding_problem
     by_name = {s['name']: s for s in states}
-    reasons = [(n, routing.account_unfit({**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}))
-               for n in names if n in by_name]
-    if any(n not in by_name for n in names):
-        return ''
+    reasons = [(n, conductor_account_reason(cfg, n, by_name.get(n))) for n in names]
     if not reasons or not all(reason for _, reason in reasons):
         return ''
     return '; '.join(f'{n}: {reason}' for n, reason in reasons)
@@ -250,7 +278,7 @@ def account_args(cfg, agent, states):
     with its `--settings` while that window has room, on agy-gemini's after."""
     by_name = {x['name']: x for x in states}
     for n in accounts_of(cfg, agent):
-        if n in by_name and not routing.account_unfit({**by_name[n], '_missing_limits': routing.missing_limits(cfg, n, by_name[n])}):
+        if not conductor_account_reason(cfg, n, by_name.get(n)):
             return list((cfg['accounts'][n] or {}).get('args') or [])
     return []
 
@@ -665,11 +693,13 @@ def record(cfg, run):
     write_json(os.path.join(state_folder(cfg), 'current.json'), view)
 
 
-def limit_hit(cfg, agent, lines):
+def limit_hit(cfg, agent, lines, selected=None):
     """A usage-limit message in the agent's output: logged as spent like any worker's, and a reason to hand over."""
     now = datetime.now(timezone.utc)
     cmd_text = ' '.join(cli_argv(cfg, agent, '', None)) if cfg['workers'][agent]['kind'] == 'cli' else agent
-    hits = readers.scan_text(cfg['accounts'], cmd_text, lines, now, f'conduct-{agent}-{int(now.timestamp())}')
+    ref = f'conduct-{agent}-{int(now.timestamp())}'
+    hits = ([(selected, reset, f'{ref}:{i + 1}', around) for i, reset, around in readers.limit_hits(lines, now)]
+            if selected else readers.scan_text(cfg['accounts'], cmd_text, lines, now, ref))
     if hits:
         readers.record(config.expand((cfg.get('usage') or {}).get('log') or os.path.join(config.state_dir(cfg), 'usage.jsonl')),
                        {}, hits, now)
@@ -702,16 +732,61 @@ def instruction_file(cfg, run, agent, commands, now):
     return text, path
 
 
+def selected_command_reason(cfg, agent, text, run, extra, selector, value):
+    if not selector:
+        return ''
+    log = os.path.join(run['dir'], f'{agent}-{len(run["agents"])}.agent.log')
+    argv = allow_tutti(workers.with_args(cli_argv(cfg, agent, text, log), extra))
+    if (workers.selector_value(argv[1:], selector) != value
+            or ('--' in argv and selector in argv[argv.index('--') + 1:])):
+        return f'{agent}: its command does not uniquely bind the selected account; fix main.commands and account selector arguments'
+    return ''
+
+
+def selected_out(cfg, selected, out_fn, name):
+    reason = out_fn(name)
+    if reason or not selected:
+        return reason
+    current = {s['name']: s for s in account_states(cfg)}
+    reason = conductor_account_reason(cfg, selected, current.get(selected))
+    return f'{selected}: {reason}' if reason else ''
+
+
 def run_agent(cfg, agent, text, run, out_fn, out=None):
     """(rc, last lines, stop reason or None) for one agent's turn as the main agent."""
-    watch = Watch(cfg, agent, choice_record(cfg), out_fn, settings(cfg)['check_seconds'])
+    started_choice = choice_record(cfg)
+    selected = None
     if cfg['workers'][agent]['kind'] == 'cli':
-        rc, lines = run_cli(cfg, agent, text, run, watch, out=out, extra=account_args(cfg, agent, account_states(cfg)))
+        states = account_states(cfg)
+        why = out_reason(cfg, agent, states)
+        if why:
+            return 3, [], ('panic', why)
+        names = accounts_of(cfg, agent)
+        by_name = {s['name']: s for s in states}
+        selected = next((n for n in names if not conductor_account_reason(cfg, n, by_name.get(n))), None)
+        if names and selected is None:
+            return 3, [], ('panic', f'{agent}: no account with current measured quota; refresh usage')
+        extra = list((cfg['accounts'].get(selected) or {}).get('args') or []) if selected else []
+        selector, values, why = conductor_binding(cfg, agent)
+        if why:
+            return 3, [], ('panic', why)
+        why = selected_command_reason(cfg, agent, text, run, extra, selector, values.get(selected))
+        if why:
+            return 3, [], ('panic', why)
+        def bound_out(name):
+            return selected_out(cfg, selected, out_fn, name)
+        watch = Watch(cfg, agent, started_choice, bound_out, settings(cfg)['check_seconds'])
+        if reason := watch.check():
+            return 3, [], reason
+        rc, lines = run_cli(cfg, agent, text, run, watch, out=out, extra=extra)
     else:
+        watch = Watch(cfg, agent, started_choice, out_fn, settings(cfg)['check_seconds'])
+        if reason := watch.check():
+            return 3, [], reason
         rc, lines = run_local(cfg, agent, text, run, watch, out=out)
     if watch.reason:
         return rc, lines, watch.reason
-    hit = limit_hit(cfg, agent, lines)   # a CLI may print its limit and still exit 0
+    hit = limit_hit(cfg, agent, lines, selected=selected)   # a CLI may print its limit and still exit 0
     return rc, lines, ('limit', hit) if hit else None
 
 

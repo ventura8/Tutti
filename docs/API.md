@@ -630,6 +630,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `autopilot.enabled` | switch | `False` | Autopilot: Sends backlog tasks to accounts that are behind their pace. | admin |
 | `autopilot.accounts` | list |  | Trigger accounts: Their pace starts the autopilot. | admin |
 | `autopilot.ladder` | list |  | Retry ladder: Attempt n starts at step n; the last step repeats. | admin |
+| `autopilot.fresh_fallback_accounts` | list |  | Fresh-work fallback accounts: Opt-in ladder accounts may take fresh work after usual candidates when their measured, unshared quota has room. | admin |
 | `autopilot.max_parallel` | number (runs) |  | Runs at once (cap): Optional: the most autopilot runs at once. Empty: adaptive (account room, free memory and cores, free gate slots). | admin |
 | `autopilot.parallel` | yaml |  | Adaptive parallelism: run_gb, run_cpu, reserve_gb, gate_share, ceiling and the heavy-gate pattern (docs/AUTOPILOT.md). | admin |
 | `autopilot.no_progress` | number (attempts) | `3` | Park after: A task with the same failure this many times waits for you. | admin |
@@ -1516,12 +1517,12 @@ the autopilot's queue of bounded tasks: add <repo> "<title>", list, rm <id>, see
 ```text
 usage: tutti backlog [-h] [--who WHO] [--scope PATH] [--check CHECK] [--size {S,M,L}] [--source SOURCE] [--note NOTE]
                      [--all]
-                     {add,list,rm,seed,retry,done,accept,claim,release,note} [repo] [title]
+                     {add,list,rm,seed,retry,done,accept,claim,release,note,priority} [repo] [title]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {add,list,rm,seed,retry,done,accept,claim,release,note}` |  |  |
+| `action {add,list,rm,seed,retry,done,accept,claim,release,note,priority}` |  |  |
 | `repo` | add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: the task id |  |
 | `--who` | claim: the session that works on it by hand (default $TUTTI_SESSION) |  |
 | `title` |  |  |
@@ -1578,15 +1579,15 @@ usage: tutti owner [-h] [{status,mode,window}] [mode] [window]
 
 ### `tutti autopilot`
 
-send backlog tasks to accounts that are behind their pace, by itself: status, on, off, tick (one round now; the dashboard ticks while it runs), fill on\|off (fill free room from the repos' sources), land <id> (review a result and land it)
+send backlog tasks to accounts that are behind their pace, by itself: status, on, off, tick (one round now), checkpoint (snapshot running work only), fill on\|off (fill free room from the repos' sources), land <id> (review a result and land it)
 
 ```text
-usage: tutti autopilot [-h] [{status,on,off,tick,fill,land,allow}] [arg]
+usage: tutti autopilot [-h] [{status,on,off,tick,checkpoint,fill,land,allow}] [arg]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {status,on,off,tick,fill,land,allow}` |  | `status` |
+| `action {status,on,off,tick,checkpoint,fill,land,allow}` |  | `status` |
 | `arg` | fill: on or off; land: the task id; allow: the account that may take first attempts for 7 days (the block resolver's one action) |  |
 
 ### `tutti workq`
@@ -1689,15 +1690,16 @@ usage: tutti report [-h] [--what WHAT] [--expected EXPECTED] [--preview] [--yes]
 
 ### `tutti dispatch`
 
-keep devices and machines busy: idle ones pull pending test shards (projects.<p>.tests) by themselves: status, on, off, now (one round with fresh probes), run <lease> and build <project> <suite> <rc> (internal)
+keep devices and machines busy: idle ones pull pending test shards (projects.<p>.tests) by themselves: status, on, off, now, resolve <lease> --confirmed-stopped, run <lease> and build <project> <suite> <rc> (internal)
 
 ```text
-usage: tutti dispatch [-h] [{status,on,off,now,run,build}] [lease] [rest ...]
+usage: tutti dispatch [-h] [--confirmed-stopped] [{status,on,off,now,run,build,resolve}] [lease] [rest ...]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {status,on,off,now,run,build}` |  | `status` |
+| `action {status,on,off,now,run,build,resolve}` |  | `status` |
+| `--confirmed-stopped` | resolve: confirm the entire execution boundary has stopped |  |
 | `lease` | run: the lease id; build: the project |  |
 | `rest` | build: the suite and the rc file |  |
 

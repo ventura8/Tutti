@@ -278,7 +278,7 @@ class RoundTest(unittest.TestCase):
         self.assertEqual((v['today'], v['tidied'], len(v['items']), len(v['tidy_items'])), (1, 129, 1, 10))
         self.assertEqual(v['items'][0]['check'], 'state')
 
-    def test_the_service_loop_ends_when_its_code_changes_so_systemd_starts_the_new_code(self):
+    def test_the_service_loop_reloads_in_place_when_its_code_changes(self):
         stamps, slept = iter([1.0, 1.0, 2.0]), []
         with mock.patch.object(failovercmd, 'one_round', return_value=[]) as rounds, \
                 mock.patch.object(failovercmd, 'heal', return_value=0.0):
@@ -292,9 +292,27 @@ class RoundTest(unittest.TestCase):
         os.utime(os.path.join(d, 'web', 'app.js'), (5.0, 5.0))
         self.assertEqual(failovercmd.code_stamp(d), 5.0)   # a subfolder's file counts
         self.assertEqual(failovercmd.code_stamp('/nonexistent-folder'), 0.0)
-        with mock.patch.object(failovercmd, 'one_round', return_value=[]), mock.patch.object(failovercmd, 'heal', return_value=0.0):
-            stamps = iter([1.0, 2.0])
-            self.assertEqual(failovercmd.loop(make(), stamp=lambda: next(stamps)), failovercmd.RESTART_CODE)
+        for binary in ('/example/checkout/bin/tutti', '/example/versions/1.2.3/bin/tutti'):
+            with self.subTest(binary=binary), mock.patch.object(failovercmd.remote, 'BIN', binary), \
+                    mock.patch.object(failovercmd.os, 'execv') as execute:
+                failovercmd.restart_in_place({'_path': '/tmp/example config.yaml'})
+            execute.assert_called_once_with(failovercmd.sys.executable,
+                                            [failovercmd.sys.executable, binary, '--config', '/tmp/example config.yaml',
+                                             'failover', 'run'])
+
+    def test_reload_failure_keeps_heartbeats_until_the_next_attempt(self):
+        stamps, rounds = iter([1.0, 2.0, 2.0]), []
+
+        def restart():
+            if not rounds:
+                raise OSError('cannot reload')
+            return 'reloaded'
+
+        with mock.patch.object(failovercmd, 'one_round', side_effect=lambda *a, **k: rounds.append(1) or []), \
+                mock.patch.object(failovercmd, 'heal', return_value=0.0):
+            result = failovercmd.loop(make(), sleep=lambda _: None, stamp=lambda: next(stamps), restart=restart)
+        self.assertEqual(result, 'reloaded')
+        self.assertEqual(rounds, [1])
 
     def test_config_errors(self):
         self.assertEqual(selfheal.errors({'selfheal': {'every_seconds': 600}}), [])

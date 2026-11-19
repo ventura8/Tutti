@@ -191,6 +191,33 @@ class DelegateTest(unittest.TestCase):
         with mock.patch('sys.stdout'):
             return delegate.delegate(cfg, 'fake', task, [], self.repo, say=self.said.append, **kw)
 
+    def test_remote_track_is_checked_before_lock_or_worker(self):
+        cfg = self.cfg([])
+        for bad in ('../escape', 'bad;echo x', 'name\n', '/tmp/absolute', 'x' * 65, 'Repo.git', 'TUTTI-SLOT.SH'):
+            with self.subTest(bad=bad), mock.patch.object(delegate, 'track_lock') as lock, \
+                    mock.patch.object(delegate, '_delegate') as run:
+                with self.assertRaisesRegex(ship.ShipError, 'remote-track or delegate.remote_track'):
+                    self.run_task(cfg, track='named', remote_track=bad)
+                lock.assert_not_called()
+                run.assert_not_called()
+        cfg['delegate']['remote_track'] = '../escape'
+        with mock.patch.object(delegate, '_delegate') as run:
+            with self.assertRaisesRegex(ship.ShipError, 'delegate.remote_track'):
+                self.run_task(cfg)
+            run.assert_not_called()
+
+    def test_valid_remote_track_reaches_worker(self):
+        cfg = self.cfg([])
+        with mock.patch.object(delegate, '_delegate', return_value='ok') as run:
+            self.assertEqual(self.run_task(cfg, remote_track='safe-1_name.test'), 'ok')
+        self.assertEqual(run.call_args.args[-1], 'safe-1_name.test')
+
+    def test_report_contains_valid_run_identity(self):
+        cfg = self.cfg([])
+        with mock.patch.dict(os.environ, {'TUTTI_RUN_IDENTITY': 'a' * 32}):
+            report = self.run_task(cfg, checks=False)
+        self.assertEqual(delegate.load_report(cfg, report['id'])['run_identity'], 'a' * 32)
+
     def test_happy_path_diff_checks_and_report(self):
         cfg = self.cfg([{'run': 'echo "[SUCCESS]" $TUTTI_CHANGED', 'coverage': False}])
         r = self.run_task(cfg)
@@ -210,6 +237,15 @@ class DelegateTest(unittest.TestCase):
         self.assertIn('tutti runs discard', text)
         delegate.remove_tree(r['worktree'], self.said.append)
         self.assertFalse(os.path.exists(r['worktree']))
+
+    def test_local_checks_do_not_wait_for_remote_copy_but_routed_checks_do(self):
+        cfg = self.cfg([{'run': 'true'}])
+        with mock.patch.object(delegate, 'track_lock', side_effect=AssertionError('remote copy lock used')):
+            self.assertEqual(self.run_task(cfg)['checks'][0]['rc'], 0)
+        cfg = self.cfg([{'run': 'true', 'where': 'route'}])
+        with mock.patch.object(delegate, 'track_lock', side_effect=RuntimeError('remote copy lock reached')):
+            with self.assertRaisesRegex(RuntimeError, 'remote copy lock reached'):
+                self.run_task(cfg)
 
     def test_a_failing_check_a_denial_and_an_empty_diff_fail_the_run(self):
         r = self.run_task(self.cfg([{'run': 'exit 3'}]))

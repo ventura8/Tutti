@@ -1,5 +1,13 @@
 # Another agent as the main agent
 
+A conductor account without measured quota is unavailable until its own and linked readings are refreshed. Stale,
+synthetic post-reset or estimated readings and an explicit reader failure do not establish room. Standalone conduct reads
+the usage log; it cannot see the dashboard's latest in-memory reader failure, so a recent successful reading can still be
+followed by an unseen failure. A shared CLI worker requires the admin-declared `chat_account_selector` and distinct selector
+values for all linked accounts, including paused ones. Before launch Tutti rechecks quota and checks that the actual command
+uniquely binds the selected account; it watches that account while the turn runs. An unmetered local worker remains eligible.
+Quota may still change between a reading and launch; this check is not a cross-process quota reservation (t388).
+
 `tutti conduct` runs the goal with a main (conductor) agent other than Claude Code: Cursor (`cursor-agent`),
 Antigravity (`agy`, Claude or Gemini models), the GitHub Copilot CLI, Claude Code itself, or a local model through
 Ollama. Use it when the usual orchestrator's quota is in panic, or to give an account with room the judgement work.

@@ -19,6 +19,7 @@ What it finds (`find`, pure):
 Every attempt is logged (`unblock.json`: what, by local, online or rule, the action, the outcome) for the dashboard. It acts
 only on the active main machine (failover lease), at most `MAX_PER_ROUND` items a round, each item at most once per
 COOLDOWN; it never kills a process (the autopilot's watchdog ends stuck runs by their exact pid)."""
+import copy
 import json
 import os
 import re
@@ -36,9 +37,10 @@ RECENT = 3
 LIMIT_RX = re.compile(r'usage limit|quota (?:reached|exceeded)|RESOURCE_EXHAUSTED|Too Many Requests|(?:HTTP|status|code)[ :]*429\\b', re.I)
 REAL_RX = re.compile(r'exited|without a report|stuck:|changed nothing|refused|rc=127|failed', re.I)
 REBASE_RX = re.compile(r'does not rebase|rebase conflict|could not apply', re.I)
-ACTION_RX = re.compile(r'^\s*ACTION:\s*(\S+)', re.I | re.M)
+ACTION_RX = re.compile(r'^[ \t]*ACTION:[ \t]*(.*?)[ \t]*$', re.I | re.M)
 WHY_RX = re.compile(r'^\s*(?:WHY|DIAGNOSIS):\s*(.+)', re.I | re.M)
 FIX_RX = re.compile(r'^\s*FIX:\s*(.+)', re.I | re.M)
+CHANGED_DURING_REVIEW = ('task changed while diagnosing:', 'question or task changed while deciding:')
 
 
 # ---- finding (pure)
@@ -79,7 +81,8 @@ def due(t, kind, tried, now):
 
 def find(data, now, log=(), limit=MAX_PER_ROUND):
     """[{kind, id, title}] to try this round: never one tried within its cooldown."""
-    tried = {e.get('id'): float(e.get('at') or 0) for e in log}
+    tried = {e.get('id'): float(e.get('at') or 0) for e in log
+             if not str(e.get('outcome') or '').startswith(CHANGED_DURING_REVIEW)}
     out = []
     for t in data.get('tasks') or []:
         kind = classify(t, data.get('questions') or [])
@@ -108,8 +111,8 @@ def decide_prompt(t, q):
 def parse(answer):
     """{action, why, fix} from a model's answer; action '' when it gave none."""
     text = str(answer or '')
-    m, w, f = ACTION_RX.search(text), WHY_RX.search(text), FIX_RX.search(text)
-    return {'action': m.group(1).strip().lower().rstrip('.') if m else '', 'why': w.group(1).strip()[:300] if w else '',
+    actions, w, f = ACTION_RX.findall(text), WHY_RX.search(text), FIX_RX.search(text)
+    return {'action': actions[0].strip().lower() if len(actions) == 1 else '', 'why': w.group(1).strip()[:300] if w else '',
             'fix': f.group(1).strip()[:300] if f else ''}
 
 
@@ -124,24 +127,35 @@ def requeue(t, now, note, fresh=False):
     t['notes'] = [*t.get('notes', []), note][-20:]
 
 
-def apply(cfg, item, verdict, now):
+def meaningful(value):
+    """A missing or placeholder model field is not an actionable diagnosis."""
+    text = str(value or '').strip().lower()
+    return bool(text and any(c.isalnum() for c in text) and text not in ('none', 'n/a', 'unknown'))
+
+
+def apply(cfg, item, verdict, now, expected=None):
     """Writes the action into the backlog; returns the outcome line."""
     with backlog.locked(cfg) as data:
         t = next((x for x in data['tasks'] if x['id'] == item['id']), None)
         if t is None or classify(t, _questions(cfg)) != item['kind']:
             return 'changed meanwhile: left as it is'
         kind = item['kind']
+        if kind == 'failing' and (expected is None or t != expected):
+            return 'task changed while diagnosing: left unchanged for a fresh review'
         if kind == 'limit-only':
             requeue(t, now, 'unblocker: the recent failures were usage limits only (the account, not the task): attempts forgiven')
             return 'attempts forgiven, queued for a worker with room'
         if kind == 'conflict':
             requeue(t, now, 'unblocker: the earlier result no longer rebases onto main: redo it on the current main', fresh=True)
             return 'queued again from scratch on the current main'
-        if kind == 'failing' and verdict.get('action') == 'retry':
-            requeue(t, now, f'unblocker diagnosis: {verdict["why"]} Fix for this attempt: {verdict["fix"]}')
-            return 'diagnosed; queued again with the fix (its next attempt reruns the check)'
         if kind != 'failing':
             return 'nothing to do'
+        action = verdict.get('action')
+        if action == 'retry' and meaningful(verdict.get('fix')):
+            requeue(t, now, f'unblocker diagnosis: {verdict.get("why") or ""} Fix for this attempt: {verdict["fix"]}')
+            return 'diagnosed; queued again with the fix (its next attempt reruns the check)'
+        if action != 'person' or not meaningful(verdict.get('why')):
+            return 'invalid or incomplete diagnosis: left unchanged; retry after cooldown'
         from . import needs
         needs.ask(cfg, t, f'{item["id"]} keeps failing: {verdict.get("why") or "no diagnosis"}', verdict.get('fix') or 'see its runs',
                   ['retry', 'retry-from-scratch', 'drop'], 'retry', now=now)
@@ -153,15 +167,18 @@ def _questions(cfg):
     return needs.load(cfg).get('questions') or []
 
 
-def answer_parked(cfg, item, verdict, now):
+def answer_parked(cfg, item, verdict, now, expected):
     from . import needs
-    q = next((x for x in _questions(cfg) if x.get('task') == item['id'] and x.get('status') == 'open'), None)
+    q = (expected or {}).get('question')
     if not q:
         return 'no open question any more'
-    pick = next((o for o in q.get('options') or [] if o.lower() == verdict.get('action')), None)
+    action = str(verdict.get('action') or '').strip().lower()
+    if action == 'person':
+        return 'a true decision: left for the person'
+    pick = next((o for o in q.get('options') or [] if o.lower() == action), None)
     if not pick:
         return 'a true decision: left for the person'
-    ok, why = needs.answer(cfg, q['id'], pick, role='admin', key='tutti-unblocker', now=now)
+    ok, why = needs.answer_if_current(cfg, expected, pick, now=now)
     return f'decided "{pick}": {verdict.get("why") or ""}'.strip() if ok else why
 
 
@@ -177,30 +194,34 @@ def needs_model(item):
 
 def handle(cfg, item, ask, now):
     """One item: the model when it needs judgement (local first, online only when local fails or the task is size L)."""
-    by, verdict = 'rule', {}
+    by, verdict, expected = 'rule', {}, None
     if needs_model(item):
-        answer, who = judge(cfg, item, ask)
+        answer, who, expected = judge(cfg, item, ask)
         if not answer:
             return {'by': 'none', 'outcome': f'no model answered ({who}): left as it is'}
         verdict = parse(answer)
         by = 'online' if who in _cli_workers(cfg) else 'local'
-    outcome = answer_parked(cfg, item, verdict, now) if item['kind'] == 'parked' else apply(cfg, item, verdict, now)
+    outcome = answer_parked(cfg, item, verdict, now, expected) if item['kind'] == 'parked' else apply(cfg, item, verdict, now, expected)
     return {'by': by, 'outcome': outcome, 'why': verdict.get('why', '')}
 
 
 def judge(cfg, item, ask):
     """(answer, who): local first; online only when local failed (asked once more, online only) or the task is size L."""
     t = task_of(cfg, item['id'])
+    expected = None
     if item['kind'] == 'failing':
+        expected = copy.deepcopy(t)
         prompt = diagnose_prompt(t)
     else:
         q = next((x for x in _questions(cfg) if x.get('task') == item['id'] and x.get('status') == 'open'), {})
+        from . import needs
+        expected = needs.decision_snapshot(t, q)
         prompt = decide_prompt(t, q)
     big = t.get('size') == 'L'
     answer, who = ask(cfg, prompt, 'unblock', online=big)
     if not answer and not big:
         answer, who = ask(cfg, prompt, 'unblock', online=True, local_first=False)
-    return answer, who
+    return answer, who, expected
 
 
 def _cli_workers(cfg):

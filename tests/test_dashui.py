@@ -66,6 +66,32 @@ class Formatter(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which('node'), 'node is not installed')
+class QuotaRoomDisplay(unittest.TestCase):
+    def test_quota_room_is_an_estimate_even_when_autopilot_is_stopped(self):
+        app = os.path.join(dashboard.WEB, 'app.js')
+        script = r"""
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const code = src.slice(src.indexOf('function roomLine('), src.indexOf('// A scout', src.indexOf('function roomLine(')));
+const ui = {autopilot: {enabled: true, fill_room: true, accounts: ['agent'], running: [], queue: [], fill: {}}};
+function el(tag, attrs, ...children) { return {tag, attrs, children}; }
+function plural(n, unit) { return `${n} ${unit}${n === 1 ? '' : 's'}`; }
+function fillRoom() {}
+eval(code + `
+const active = roomLine({name:'agent',room_tasks:51});
+ui.autopilot.enabled = false;
+const stopped = roomLine({name:'agent',room_tasks:51});
+console.log(JSON.stringify([active, stopped]));`);
+"""
+        result = subprocess.run(['node', '-e', script, app], capture_output=True, text=True, check=True)
+        active, stopped = json.loads(result.stdout)
+        self.assertIn('Estimated quota room: 51 bounded tasks', active['attrs']['text'])
+        self.assertIn('Starts depend on account eligibility and capacity', active['attrs']['text'])
+        self.assertIn('Estimated quota room: 51 bounded tasks', stopped['children'][0])
+        self.assertIn('Starts depend on account eligibility and capacity', stopped['children'][0])
+
+
+@unittest.skipUnless(shutil.which('node'), 'node is not installed')
 class OffAccountDisplay(unittest.TestCase):
     def test_all_off_renders_status_and_reason_without_actions(self):
         app = os.path.join(dashboard.WEB, 'app.js')

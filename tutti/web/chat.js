@@ -96,11 +96,24 @@ function mdNode(n) {
     return node;
 }
 
-function mdRender(text) {
-    const frag = document.createDocumentFragment();
-    for (const n of mdParse(text)) frag.append(mdNode(n));
-    return frag;
-}
+// Cache only the private parse tree, keyed by the message object; DOM nodes are always rebuilt.
+const mdRender = (() => {
+    const trees = new WeakMap();
+    const freezeTree = (nodes) => {
+        for (const node of nodes) {
+            if (typeof node === 'object') { freezeTree(node.c); Object.freeze(node); }
+        }
+        return Object.freeze(nodes);
+    };
+    return (text, message) => {
+        const frag = document.createDocumentFragment();
+        const cached = trees.get(message);
+        const tree = cached && cached.text === text ? cached.tree : freezeTree(mdParse(text));
+        if (!cached || cached.text !== text) trees.set(message, { text, tree });
+        for (const n of tree) frag.append(mdNode(n));
+        return frag;
+    };
+})();
 
 function codeBlock(code, lang) {
     const pre = el('pre', { class: 'md__pre', tabindex: 0, 'aria-label': lang ? `Code, ${lang}` : 'Code' }, el('code', { text: code }));
@@ -308,7 +321,7 @@ function chatMessage(m, opts) {
     const status = statusText(m);
     const body = el('div', { class: 'msg__body md' });
     if (mine) body.append(...String(m.text || '').split('\n').flatMap((line, i) => (i ? [el('br'), line] : [line])));
-    else if (m.text) body.append(mdRender(m.text));
+    else if (m.text) body.append(mdRender(m.text, m));
     else if (m.status === 'streaming') body.append(el('span', { class: 'typing', role: 'img', 'aria-label': 'Tutti is writing' }, el('i'), el('i'), el('i')));
     const node = el('article', { class: `msg msg--${mine ? 'user' : 'bot'}`, 'data-id': m.id, 'data-status': m.status || '',
         'aria-label': `${mine ? 'You' : 'Tutti'}${at ? ', ' + timeFmt.format(at) : ''}` },
@@ -721,12 +734,17 @@ function dialog(title, body, actions) {
 }
 
 function renameConv() {
-    const input = el('input', { class: 'setting__input chat__rename', id: 'chat-rename', value: CHAT.conv.title || '', maxlength: 80, autocomplete: 'off' });
+    const conv = CHAT.conv;
+    const input = el('input', { class: 'setting__input chat__rename', id: 'chat-rename', value: conv.title || '', maxlength: 80, autocomplete: 'off' });
     const save = async () => {
-        try { await chatApi({ action: 'rename', id: CHAT.conv.id, title: input.value }); } catch (err) { cq('chat-dialog-error').textContent = err.message; return; }
-        CHAT.conv.title = input.value.trim();
-        cq('chat-dialog').close();
-        drawLog();
+        const title = input.value.replace(/\s+/g, ' ').trim();
+        try { await chatApi({ action: 'rename', id: conv.id, title }); } catch (err) {
+            if (input.isConnected) cq('chat-dialog-error').textContent = err.message;
+            return;
+        }
+        conv.title = title;
+        if (CHAT.conv === conv) cq('chat-title').textContent = title || 'New chat';
+        if (input.isConnected) cq('chat-dialog').close();
         void loadList();
     };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); void save(); } });

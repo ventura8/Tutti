@@ -595,7 +595,8 @@ def assemble(cfg, probes, now=None, is_alive=alive):
     known = configured(cfg)
     return {'version': __version__, 'generated_at': now_dt.isoformat(), 'config': cfg['_path'],
             'refresh_seconds': cfg['dashboard']['refresh_seconds'], 'usage': usage,
-            'machines': {'probed_at': iso(probes.get('machines_at')), 'items': machines, 'configured': known['machines']},
+            'machines': {'probed_at': iso(probes.get('machines_at')), 'probe_started_at': iso(probes.get('machines_started_at')),
+                         'items': machines, 'configured': known['machines']},
             'devices': {'items': probes.get('devices') or [], 'configured': known['devices'], 'lan': probes.get('lan_devices') or []},
             'workers': {'probed_at': iso(probes.get('workers_at')), **workers, 'off': off_notes(cfg), 'configured': known['workers']},
             'jobs': jobs,
@@ -653,7 +654,9 @@ def lan_devices(cfg, now):
 
 def probe_all(cfg, probe_fn, available_fn, which=shutil.which, clock=time.time, stored_fn=None, readings_fn=None):
     """The slow part, run off the request path: every machine (and the files it stores) and every worker."""
+    started = clock()
     return {'machines': with_cast_roles(cfg, machines_state(cfg, probe_fn, stored_fn)), 'machines_at': clock(),
+            'machines_started_at': started,
             'devices': devices.dnd_view(cfg, devices.devices_state(cfg, readings_fn or (lambda m, d: {'state': 'unreachable'})),
                                         learn=readings_fn is not None),
             'workers': workers_state(cfg, available_fn, which), 'workers_at': clock(),

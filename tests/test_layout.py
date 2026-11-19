@@ -101,6 +101,13 @@ class Attention(unittest.TestCase):
     def test_nothing_when_all_is_clear(self):
         self.assertEqual(js('tuttiAttention({})'), [])
 
+    def test_panic_from_a_linked_limit_shows_its_usage(self):
+        account = {'name': 'window', 'panic': True, 'used': 0, 'bound_by': 'weekly', 'action': 'wait',
+                   'limits': [{'name': 'weekly', 'used': 97, 'panic': True}]}
+        title = js(f'tuttiAttention({json.dumps({"usage": {"accounts": [account]}})})')[0]['title']
+        self.assertIn('weekly: 97', title)
+        self.assertNotIn('0% used', title)
+
     def test_the_planner_rows_show_local_time_with_utc_in_the_tooltip(self):
         plan = {'rows': [{'label': 'Points left', 'value': '86'}, {'label': 'Spend by', 'at': '2026-12-09T21:00:00+00:00'},
                          {'label': 'Why', 'value': ''}]}

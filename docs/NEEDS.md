@@ -1,5 +1,17 @@
 # Run to completion and the needs-input queue
 
+The unblocker may answer a parked question only when the model supplies one complete action matching a listed option.
+Multiword options work; extra words, multiple action lines, or `person` leave the question open. This does not guarantee
+that a model's choice is correct or resolve decisions which require the person (t278).
+
+An automatic answer is applied only if the parked task and its question still match what the model saw. If the question,
+options or task history change during the model call, Tutti leaves the decision for a fresh review. The two state files
+are protected from concurrent edits by their locks; this does not make their writes a crash-atomic transaction (t278).
+
+Before using a model diagnosis to retry or park a repeatedly failing task, the unblocker checks under the backlog lock that
+the task is unchanged since the model saw it. A changed task is left alone and can be reviewed in a later round without
+the normal six-hour attempt cooldown (t244). This does not guarantee the diagnosis is correct.
+
 Tutti works through everything it can do (the backlog, the queue, parked tasks once answered, the work queue) within the
 pacing and token limits, and asks a person only what only a person can decide.
 
@@ -41,6 +53,8 @@ the worker as a note, except in the Chat: there `q3` must be followed by one of 
 
 ## When questions reach you
 
+When an open question changes, Tutti offers the updated question for delivery again. Asking the identical question again does not send a duplicate. A failed older delivery cannot undo the delivery of a newer revision. Delivery still follows the user’s batching and quiet-hour settings.
+
 - **In your work hours** (the owner: their mode is active and their laptop present; a signed-in user: their own schedule):
   to your main agent and to a *Questions from Tutti* chat, batched, at most one batch every 30 minutes; an urgent one
   at once.
@@ -59,3 +73,7 @@ An admin changes a member's from the Users tab (*Questions outside work hours*),
 
 Each question belongs to a user. An admin sees everyone's; a member only their own (`GET /api/needs`, the card, the Chat,
 the main agent's tools, the welcome-back summary).
+
+A failing-task diagnosis must give one explicit action: retry needs a concrete fix and person needs a reason. Invalid or incomplete output leaves the task unchanged and waits for the normal retry cooldown; validation does not prove the model's diagnosis is correct (t244).
+
+Automatic answers compare the complete parked task and question revision under their locks; changed task details require a fresh review (t278). The two files are not crash-atomic.

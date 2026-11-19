@@ -659,8 +659,6 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - `review.rounds`: how many rounds (ask, fix, ask again) each reviewer gets per pull request, for copilot, coderabbit,
   greptile, a scout and `local` (the fallback worker); 1 each by default, 0: not called. A limit answer is no round.
 
-## 0.18.0 (2026-11-16)
-
 ## 0.19.1 (2026-11-16)
 
 ### Security

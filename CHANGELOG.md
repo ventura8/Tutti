@@ -11,6 +11,9 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 ### Added
 
 - Show a crosshair, reset-relative time and pace difference on usage graphs, including touch drag (t253, t426).
+### Fixed
+
+- Parse device lease options after device names and preserve command flags and separators (t177, t421).
 
 ## 0.31.3 (2026-11-19)
 

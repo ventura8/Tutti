@@ -16,14 +16,15 @@ import string
 import time
 
 PAIRING, CONNECT = '_adb-tls-pairing._tcp', '_adb-tls-connect._tcp'
-FLOWS = ('qr', 'code', 'usb')
-KINDS = ('phone', 'tablet', 'tv')
+FLOWS = ('qr', 'code', 'usb', 'watch')
+KINDS = ('phone', 'tablet', 'tv', 'watch')
 MIN_ADB = 31   # platform-tools 31: `adb mdns services` and mDNS auto-connect (`adb pair` is 30)
 OUR_PREFIX = 'tutti-'
 
 FEATURES = {'android.hardware.camera.any': 'camera', 'android.hardware.telephony': 'telephony',
             'android.hardware.touchscreen': 'touchscreen', 'android.software.leanback': 'tv', 'android.hardware.nfc': 'nfc',
-            'android.hardware.wifi': 'wifi', 'android.hardware.bluetooth': 'bluetooth', 'android.software.webview': 'webview'}
+            'android.hardware.wifi': 'wifi', 'android.hardware.bluetooth': 'bluetooth', 'android.software.webview': 'webview',
+            'android.hardware.type.watch': 'watch'}
 
 TURN_ON = {
     'phone': ('Settings > About phone: tap "Build number" 7 times (type the PIN if asked): Developer options turn on.',
@@ -32,10 +33,13 @@ TURN_ON = {
                'Settings > System > Developer options > Wireless debugging: turn it on; tap Allow ("Always allow on this network").'),
     'tv': ('Settings > System > About > "Android TV OS build": press OK 7 times: Developer options turn on.',
            'Settings > System > Developer options > Wireless debugging: turn it on (and "USB debugging" above it).'),
+    'watch': ('Settings > System > About: tap "Build number" 7 times: Developer options turn on.',
+              'Settings > Developer options > Wireless debugging: turn it on (and keep the watch awake on Wi-Fi).'),
 }
 LAST_STEP = {'qr': 'Tap "Pair device with QR code" and scan the code below.',
              'code': 'Tap "Pair device with pairing code": it shows a 6-digit code; type that code here.',
-             'usb': 'Plug it in by USB and tap Allow on "Allow USB debugging?" (tick "Always allow from this computer").'}
+             'usb': 'Plug it in by USB and tap Allow on "Allow USB debugging?" (tick "Always allow from this computer").',
+             'watch': 'Select the watch below to connect over Wi-Fi.'}
 
 
 class PairError(Exception):
@@ -59,19 +63,23 @@ def qr_payload(name, password):
 
 
 def flow_for(kind=None, asked=None, usb=False):
-    """The flow a pairing uses: the one asked for; a TV's is the code (no camera); a device on USB uses USB when asked only
-    (QR keeps the mDNS serial that survives reboots); else the QR code."""
+    """The flow a pairing uses: the one asked for; a TV's is the code (no camera); a watch uses watch auto-connect;
+    a device on USB uses USB when asked only (QR keeps the mDNS serial that survives reboots); else the QR code."""
     if asked:
         if asked not in FLOWS:
             raise PairError(f'there is no "{asked}" pairing: use one of {", ".join(FLOWS)}')
         return asked
-    return 'code' if kind == 'tv' else 'qr'
+    if kind == 'tv':
+        return 'code'
+    if kind == 'watch':
+        return 'watch'
+    return 'qr'
 
 
 def steps(kind, flow):
     """The exact taps on the device, in order: the only things the user does."""
     kind = kind if kind in TURN_ON else 'phone'
-    return [*TURN_ON[kind], LAST_STEP[flow]]
+    return [*TURN_ON[kind], LAST_STEP.get(flow, LAST_STEP['qr'])]
 
 
 def parse_services(text):
@@ -137,6 +145,8 @@ def parse_version(text):
 
 def kind_of(characteristics, features):
     chars = set((characteristics or '').replace(' ', '').split(','))
+    if 'watch' in chars or 'android.hardware.type.watch' in features:
+        return 'watch'
     if 'tv' in chars or 'android.software.leanback' in features:
         return 'tv'
     return 'tablet' if 'tablet' in chars else 'phone'
@@ -233,6 +243,86 @@ def describe(host, serial):
     sdk = prop('ro.build.version.sdk')
     return {'model': prop('ro.product.model') or 'Android device', 'kind': kind_of(prop('ro.build.characteristics'), features),
             'capabilities': capabilities(features), 'sdk': int(sdk) if sdk.isdigit() else None}
+
+
+def _watch_entry(host, inst, addr, known, cfg_devs):
+    """Builds a watch dict for one connect service, or None if known as another device kind."""
+    if inst in known:
+        name, d = known[inst]
+        if d.get('kind') == 'watch' or 'watch' in name.lower() or d.get('kind') not in ('phone', 'tablet', 'tv'):
+            return {'instance': inst, 'serial': serial_of(inst), 'addr': addr,
+                    'name': name, 'model': d.get('model', 'Wear OS watch'), 'kind': 'watch'}
+        return None
+    live = inst if host.state(inst) == 'device' else (addr if host.state(addr) == 'device' else '')
+    if live:
+        try:
+            info = describe(host, live)
+            if info.get('kind') == 'watch':
+                return {'instance': inst, 'serial': serial_of(inst), 'addr': addr,
+                        'name': name_for(info['model'], cfg_devs), 'model': info['model'], 'kind': 'watch'}
+        except Exception:
+            pass
+    return {'instance': inst, 'serial': serial_of(inst), 'addr': addr,
+            'name': inst, 'model': 'Wear OS watch', 'kind': 'watch'}
+
+
+def discover_watches(host, configured=None):
+    """Discovers Wear OS watches over mDNS. Returns list of watch dicts."""
+    raw_services = parse_services(host.adb('mdns', 'services')[1])
+    connects = [(inst, addr) for inst, svc, addr in raw_services if svc == CONNECT]
+    cfg_devs = configured or {}
+    known = {guid_of(d.get('serial', '')): (n, d) for n, d in cfg_devs.items() if guid_of(d.get('serial', ''))}
+    watches, seen = [], set()
+    for inst, addr in connects:
+        if inst not in seen:
+            seen.add(inst)
+            item = _watch_entry(host, inst, addr, known, cfg_devs)
+            if item:
+                watches.append(item)
+    return watches
+
+
+def _is_connected(rc, out):
+    text = (out or '').strip()
+    return rc == 0 and ('connected to' in text or 'already connected' in text) and 'cannot' not in text and 'failed' not in text
+
+
+def _resolve_watch(host, target):
+    """(instance, addr) from target dict or string (addr or serial/guid). Raises PairError if not found."""
+    if isinstance(target, dict):
+        return target.get('instance', ''), target.get('addr', '')
+    target_str = str(target or '').strip()
+    if ':' in target_str:
+        services = parse_services(host.adb('mdns', 'services')[1])
+        inst = next((i for i, s, a in services if s == CONNECT and a == target_str), '')
+        return inst, target_str
+    guid = guid_of(target_str) or target_str
+    services = parse_services(host.adb('mdns', 'services')[1])
+    addr = next((a for i, s, a in services if s == CONNECT and i == guid), None)
+    if not addr:
+        raise PairError(f'{target_str}: address not found in adb mdns services; check Wireless debugging is on')
+    return guid, addr
+
+
+def connect_watch(host, target, wait=15, sleep=time.sleep):
+    """Connects to a selected Wear OS watch using ADB over Wi-Fi. Returns (serial, live_serial). Raises PairError on failure."""
+    inst, addr = _resolve_watch(host, target)
+    serial = serial_of(inst) if inst else addr
+
+    def try_connect():
+        rc, out = host.adb('connect', addr, timeout=30)
+        return (addr if host.state(addr) == 'device' else serial) if _is_connected(rc, out) else None
+
+    live = try_connect() or (wait_for(try_connect, wait, sleep=sleep, poll=2) if wait > 0 else None)
+    if live:
+        return serial, live
+    rc, last_out = host.adb('connect', addr, timeout=10)
+    lines = (last_out or '').strip().splitlines()
+    reason = lines[-1] if lines else f'exit {rc}'
+    raise PairError(
+        f'could not connect to {addr} ({reason}): the watch\'s Wi-Fi or wireless debugging may be sleeping; '
+        'wake the watch, tap the screen or check Wireless debugging is on, then try again'
+    )
 
 
 def usb_serials(devices_text):

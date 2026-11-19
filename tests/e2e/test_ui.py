@@ -294,6 +294,27 @@ class Accessibility(unittest.TestCase):
         ctx.close()
 
 
+class Readability(unittest.TestCase):
+    maxDiff = None
+
+    def test_text_size_and_contrast(self):
+        problems = {}
+        for role in (ADMIN, VIEWER):
+            for width in ('phone', 'laptop'):
+                for theme in THEMES:
+                    ctx = new_context(role, width, theme)
+                    page = open_view(ctx)
+                    # Check for minimum text size (e.g., 12px)
+                    found = page.evaluate("""[...document.querySelectorAll('*')]
+                        .filter(e => getComputedStyle(e).fontSize && parseFloat(getComputedStyle(e).fontSize) < 12)
+                        .map(e => `${e.tagName} ${e.textContent.trim().substring(0, 20)}`)""")
+                    if found:
+                        problems[f'{role} {width} {theme} text size'] = found
+                    # Contrast is usually covered by axe, but we could add more specific checks if needed
+                    ctx.close()
+        self.assertEqual(problems, {})
+
+
 ADMIN_CONTROLS = ('#refresh-readings', '#autopilot-toggle', '#selfimprove-toggle', '#telemetry-toggle', '#users-tab', '#update-now',
                   '#connect-all', '#main-form', '#autocompact-form')
 

@@ -229,7 +229,9 @@ FIELDS = {
                              item='role'),
     'devices.*.hours': field('Blocked hours', 'Daily local hours when the device is not used at all, e.g. {window: "22-07", '
                              'days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none.', 'yaml'),
-    'devices.*.kind': field('Kind', 'Set by `tutti devices pair`: phone, tablet or tv.', 'select', choices=['phone', 'tablet', 'tv']),
+    'devices.*.kind': field(
+        'Kind', 'Set by `tutti devices pair`: phone, tablet, tv or watch.', 'select', choices=['phone', 'tablet', 'tv', 'watch']
+    ),
     'devices.*.model': field('Model', 'Set by `tutti devices pair`; a move checks the device it reaches is this one.', 'text'),
     'devices.*.capabilities': field('Capabilities', 'Set by `tutti devices pair`: camera, telephony, touchscreen, tv...', 'list',
                                     item='capability'),

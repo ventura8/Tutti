@@ -320,7 +320,8 @@ class TickTest(Base):
 
 class ViewTest(Base):
     def test_not_set_up_shows_missing_names_and_the_owner_steps(self):
-        v = scouts.view(self.cfg(), {'grok-bot': acc()}, env={})
+        env = {k: v for k, v in os.environ.items() if not k.startswith('TUTTI_GROK_')}
+        v = scouts.view(self.cfg(), {'grok-bot': acc()}, env=env)
         self.assertEqual(v['items'][0]['missing'], ['TUTTI_GROK_URL', 'TUTTI_GROK_KEY'])
         self.assertTrue(any('POST to' in s for s in v['setup']))
         self.assertNotIn(KEY, json.dumps(scouts.view(self.cfg(), {}, env=self.env)))

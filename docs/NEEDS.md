@@ -73,3 +73,5 @@ Each question belongs to a user. An admin sees everyone's; a member only their o
 the main agent's tools, the welcome-back summary).
 
 A failing-task diagnosis must give one explicit action: retry needs a concrete fix and person needs a reason. Invalid or incomplete output leaves the task unchanged and waits for the normal retry cooldown; validation does not prove the model's diagnosis is correct (t244).
+
+Automatic answers compare the complete parked task and question revision under their locks; changed task details require a fresh review (t278). The two files are not crash-atomic.

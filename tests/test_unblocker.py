@@ -206,6 +206,23 @@ class Finds(Base):
         self.assertEqual(self.get(tid)['status'], 'needs-person')
         self.assertEqual(needs.load(self.cfg)['questions'][-1]['status'], 'open')
 
+    def test_changed_task_details_are_not_answered_using_old_model_context(self):
+        for field, value in (('check', 'different check'), ('scope', ['other.py']), ('claimed_by', 'another-session'),
+                             ('size', 'L'), ('priority', 'P0'), ('notes', ['new information'])):
+            with self.subTest(field=field):
+                tid = self.task('Different ' + field, attempts=fails('limit'))
+                with backlog.locked(self.cfg) as data:
+                    needs.ask(self.cfg, backlog.find(data, tid), 'Retry?', 'limits', ['retry', 'drop'], 'retry', now=NOW)
+                def ask(cfg, _prompt, _purpose, *, task_id=tid, key=field, new_value=value, **_kw):
+                    with backlog.locked(cfg) as data:
+                        backlog.find(data, task_id)[key] = new_value
+                    return 'ACTION: retry\nWHY: old context', 'pc-local'
+                result = unblocker.handle(self.cfg, {'id': tid, 'kind': 'parked'}, ask, NOW + 1)
+                self.assertIn('changed while deciding', result['outcome'])
+                self.assertEqual(self.get(tid)['status'], 'needs-person')
+                q = next(q for q in needs.load(self.cfg)['questions'] if q['task'] == tid)
+                self.assertEqual(q['status'], 'open')
+
     def test_changed_options_or_closed_question_are_not_automatically_answered(self):
         for changed in ('options', 'closed'):
             with self.subTest(changed=changed):

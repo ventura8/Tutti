@@ -1,5 +1,7 @@
 # Feedback log
 
+An automatic answer must not act on a parked task whose scope, check or ownership changed during review (t278).
+
 Invalid model diagnoses must not park work or create a needless person question (t244).
 
 Dashboard summary tiles must fit phone viewports with WCAG text spacing and long account names (t414).

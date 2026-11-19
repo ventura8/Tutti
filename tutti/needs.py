@@ -14,11 +14,13 @@ Who is asked, and when:
 Each question belongs to a user (`owner`, this Tutti's owner, or a signed-in user's id). An admin sees everyone's; a member
 only their own. The settings are kept per user in <state>/needs.json; `tutti user notify always|work-hours [--batch N]
 [--quiet HH:MM-HH:MM] [--for <email>]`, the Me card, and an admin for any member (audited)."""
+import copy
 import json
 import os
 import re
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -136,8 +138,13 @@ def ask(cfg, task, question, why, options, default, user=OWNER, urgent=False, no
         if q is None:
             q = {'id': new_id(data), 'task': task['id'], 'status': 'open', 'at': now, 'delivered': None}
             data['questions'].append(q)
-        q.update(user=user, question=str(question)[:300], why=str(why)[:300], options=options, default=default,
-                 urgent=bool(urgent), title=task['title'][:120], project=task.get('project') or task.get('repo'))
+        fields = dict(user=user, question=str(question)[:300], why=str(why)[:300], options=options, default=default,
+                      urgent=bool(urgent), title=task['title'][:120], project=task.get('project') or task.get('repo'))
+        if any(q.get(k) != v for k, v in fields.items()):
+            q['revision'] = q.get('revision', 0) + 1
+            q['delivered'] = None
+            q.pop('delivery_token', None)
+        q.update(fields)
         answered = [x for x in data['questions'] if x['status'] != 'open']
         if len(answered) > 300:   # only answered ones go: an open question stays until its answer
             old = {x['id'] for x in answered[:-300]}
@@ -196,6 +203,33 @@ def answer(cfg, qid, choice, role='admin', key=OWNER, now=None):
     if not waiting:   # retried by hand, dropped, done or gone meanwhile: the answer is kept, the task left as it is
         return True, f'{qid} answered: {choice}; task {q["task"]} no longer waited for it, so nothing changed'
     return True, f'{qid} answered: {choice}; task {q["task"]} ' + ('dropped' if choice == 'drop' else 'resumes')
+
+
+def decision_snapshot(task, question):
+    """The parked task and question fields an automated decision depends on."""
+    return {'task': copy.deepcopy(task),
+            'question': copy.deepcopy({k: question.get(k) for k in
+                                       ('id', 'task', 'status', 'user', 'question', 'why', 'options', 'default', 'urgent', 'revision')})}
+
+
+def answer_if_current(cfg, expected, choice, now=None):
+    """Answer only the parked question and task the model saw, while both files are locked."""
+    now = now or time.time()
+    old_task, old_question = expected['task'], expected['question']
+    with backlog.locked(cfg) as bl:
+        task = next((t for t in bl['tasks'] if t['id'] == old_task.get('id')), None)
+        with locked(cfg) as data:
+            q = next((x for x in data['questions'] if x['id'] == old_question.get('id')), None)
+            if (not task or not q or task.get('status') != 'needs-person' or task.get('question') != q.get('id')
+                    or q.get('status') != 'open' or q.get('task') != task['id'] or decision_snapshot(task, q) != expected):
+                return False, 'question or task changed while deciding: left unchanged for a fresh review'
+            selected = next((o for o in q.get('options') or [] if o.lower() == str(choice).lower()), None)
+            if selected is None:
+                return False, 'the proposed answer is not a listed option: left unchanged'
+            q.update(status='answered', answer=selected, answered=now, by='tutti-unblocker')
+            resume(task, q, selected, now)
+    telemetry.record('feature', 'needs.answer', defaulted=selected == q['default'])
+    return True, f'{q["id"]} answered: {selected}; task {task["id"]} ' + ('dropped' if selected == 'drop' else 'resumes')
 
 
 # ---- the questions a run or the autopilot raises
@@ -382,10 +416,11 @@ def deliver_chat(cfg, key, qs):
     """The batch as one message in the user's "Questions from Tutti" conversation (made once)."""
     from . import chat
     store, sub = chat.Store(config.state_dir(cfg)), chat_sub(key)
-    conv = next((c for c in store.load(sub)['conversations'] if c.get('title') == 'Questions from Tutti'), None)
-    cid = (conv or store.create(sub, title='Questions from Tutti'))['id']
-    store.put_message(sub, cid, {'id': chat.new_id('m'), 'role': 'assistant', 'text': batch_text(qs), 'at': chat.now_iso(),
-                                 'status': 'done', 'model': 'tutti', 'cards': []})
+    with store.lock, chat.store_locked(store.folder):
+        conv = next((c for c in store.load(sub)['conversations'] if c.get('title') == 'Questions from Tutti'), None)
+        cid = (conv or store.create(sub, title='Questions from Tutti'))['id']
+        store.put_message(sub, cid, {'id': chat.new_id('m'), 'role': 'assistant', 'text': batch_text(qs), 'at': chat.now_iso(),
+                                     'status': 'done', 'model': 'tutti', 'cards': []})
 
 
 def tick(cfg, now=None, at_work_fn=None, send=None):
@@ -403,17 +438,20 @@ def tick(cfg, now=None, at_work_fn=None, send=None):
             ok, why = due(s, pending, at_work_fn(cfg, key, now), (data['users'].get(key) or {}).get('last_delivered'), now)
             if ok:
                 ids = {q['id'] for q in pending}
+                token = uuid.uuid4().hex
                 for q in data['questions']:
                     if q['id'] in ids:
                         q['delivered'] = now
+                        q['delivery_token'] = token
                 prev = (data['users'].get(key) or {}).get('last_delivered')
                 data['users'].setdefault(key, {})['last_delivered'] = now
-                plan.append((key, pending, why, prev))
-    for key, qs, why, prev in plan:   # the chat's own lock: outside needs.json's
+                data['users'][key]['delivery_token'] = token
+                plan.append((key, [dict(q) for q in pending], why, prev, token))
+    for key, qs, why, prev, token in plan:   # the chat's own lock: outside needs.json's
         try:
             send(cfg, key, qs)
         except Exception as e:  # any failure: the batch is offered again next round, never lost
-            undeliver(cfg, key, {q['id'] for q in qs}, prev)
+            undeliver(cfg, key, qs, prev, token)
             events.append(f'needs: {len(qs)} question(s) for {key} not delivered ({type(e).__name__}: {e}); tried again next round')
             continue
         events.append(f'needs: {len(qs)} question(s) delivered to {key} ({why})')
@@ -421,12 +459,18 @@ def tick(cfg, now=None, at_work_fn=None, send=None):
     return events
 
 
-def undeliver(cfg, key, ids, prev):
+def undeliver(cfg, key, questions, prev, token):
     with locked(cfg) as data:
+        sent = {q['id']: q.get('revision', 0) for q in questions}
         for q in data['questions']:
-            if q['id'] in ids:
+            if (q['id'] in sent and q.get('revision', 0) == sent[q['id']]
+                    and q.get('delivery_token') == token):
                 q['delivered'] = None
-        data['users'].setdefault(key, {})['last_delivered'] = prev
+                q.pop('delivery_token', None)
+        settings = data['users'].setdefault(key, {})
+        if settings.get('delivery_token') == token:
+            settings['last_delivered'] = prev
+            settings.pop('delivery_token', None)
 
 
 def blocking_all(cfg):

@@ -6,7 +6,7 @@ import os
 import re
 import subprocess
 
-MODES = {'auto': 'Autonomous', 'ask': 'Ask before acting', 'plan': 'Plan review'}
+MODES = {'auto': 'Autonomous', 'ask': 'Ask before acting', 'plan': 'Plan review', 'answer': 'Just ask (answers only)'}
 EFFORTS = ('auto', 'low', 'medium', 'high', 'max')
 DEFAULTS = {'model': 'auto', 'effort': 'auto', 'mode': 'auto'}
 ROUNDS = {'auto': 4, 'low': 2, 'medium': 4, 'high': 6, 'max': 8}   # tool rounds an answer may take
@@ -99,6 +99,15 @@ def cli_args(worker, effort):
         tpl = ['--effort', '{effort}']
     level = CLAUDE_EFFORT.get(effort, effort)
     return [str(a).replace('{effort}', level) for a in tpl or []]
+
+
+def chat_args(worker):
+    """Arguments a CLI agent gets only in Chat (`workers.<n>.chat_args`): Cursor answers in its read-only ask mode by
+    default. In agent mode a chat's "continue" started work and printed nothing before Chat's deadline (owner,
+    2026-11-17); work goes through Tutti's tasks, not the chat process."""
+    if worker.get('chat_args') is not None:
+        return [str(a) for a in worker['chat_args']]
+    return ['--mode', 'ask'] if os.path.basename(str((worker.get('command') or [''])[0])) == 'cursor-agent' else []
 
 
 def window(cand, cfg, effort):

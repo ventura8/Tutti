@@ -4,7 +4,7 @@ from tutti import prep
 
 
 class PerceptualBrightnessTest(unittest.TestCase):
-    """The owner's 30 % is 30 % on the device's own slider, not 30 % of the linear range (about 80 % on a Pixel)."""
+    """The requested percentage uses the Android slider's perceptual scale."""
 
     def test_thirty_percent_on_the_slider_is_a_low_linear_value(self):
         self.assertLess(prep.linear_brightness(30), 20)
@@ -20,7 +20,6 @@ class PerceptualBrightnessTest(unittest.TestCase):
     def test_a_watch_gets_the_same_brightness(self):
         item = [x for x in prep.DEFAULTS['watch'] if x.get('setting') == 'system screen_brightness'][0]
         self.assertEqual(item['value'], prep.linear_brightness(30))
-
 
     def test_a_tv_gets_the_same_brightness(self):
         item = [x for x in prep.DEFAULTS['tv'] if x.get('setting') == 'system screen_brightness'][0]

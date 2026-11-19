@@ -101,4 +101,7 @@ steps = connect.human_steps(results)      # guided.step('other', 'Restart <agent
 prints the same list itself.
 
 `status` is one of `connected` (with `soft`: a note that is not a problem, such as older Claude Code sessions), `needs-restart`, `not-connected`, `not-installed`, `cannot` (ChatGPT) or `error` (a
-broken config file; `note` names it and the fix). Agents that are not installed are skipped, never created.
+broken config file; `note` names it and the fix). Agents that are not installed are skipped, never created. For Codex,
+`--test` starts a fresh Tutti MCP server and checks its tool list; it does not reload an already-running Codex session.
+When the connection file changed after that session started, `needs-restart` remains accurate until Codex starts a new
+session, even if the fresh-server test succeeds.

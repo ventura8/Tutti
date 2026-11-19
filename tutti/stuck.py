@@ -12,7 +12,7 @@ import re
 import threading
 import time
 
-HEADING = re.compile(r'^## (\d+\.\d+\.\d+) ', re.M)
+HEADING = re.compile(r'^## (?:\[(\d+\.\d+\.\d+)\]|(\d+\.\d+\.\d+))(?: |$)', re.M)
 CACHE_SECONDS = 3600
 _cache = {'at': 0.0, 'value': None, 'busy': False}
 _lock = threading.Lock()
@@ -31,7 +31,7 @@ def merged_versions(root):
             text = f.read()
     except OSError:
         return []
-    return sorted(set(HEADING.findall(text)), key=vt, reverse=True)
+    return sorted({bracketed or plain for bracketed, plain in HEADING.findall(text)}, key=vt, reverse=True)
 
 
 def unpublished(merged, published):

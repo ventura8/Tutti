@@ -10,7 +10,11 @@ function tuttiAttention(s) {
         items.push({ kind: 'needs-person', tone: 'bad', title: t.title, note: `${t.id} · ${t.repo}: ${t.parked || 'parked after its attempts'}`, task: t });
     }
     for (const a of s.usage?.accounts || []) {
-        if (a.panic) items.push({ kind: 'panic', tone: 'bad', title: `${a.name} is in panic (${tuttiPct(a.used)} used)`, note: `Do: ${a.action}` });
+        if (a.panic) {
+            const limit = (a.limits || []).find(l => l.name === a.bound_by);
+            const usage = limit ? `${limit.name}: ${tuttiPct(limit.used)} used` : `${tuttiPct(a.used)} used`;
+            items.push({ kind: 'panic', tone: 'bad', title: `${a.name} is in panic (${usage})`, note: `Do: ${a.action}` });
+        }
         else if (a.reader_problem) items.push({ kind: 'reading', tone: 'warn', title: `${a.name}: automatic reading failed`, note: a.reader_problem });
         else if (a.stale) items.push({ kind: 'reading', tone: 'warn', title: `${a.name} needs a fresh reading`, note: a.remind || 'Add a reading on its card.' });
     }

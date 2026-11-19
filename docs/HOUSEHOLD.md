@@ -193,12 +193,32 @@ A repo in `autopilot.repos` with `household: true` is a **shared project**. Its 
   `household`), so the queue, retries and the ladder work as before.
 - **Dedupe.** A task's key is its title, folded (case, spaces, punctuation). A key the shared backlog has, in any status
   (done and dropped too), is never added again, and a task one member finished is closed for all.
+- **Moved notices.** A notice is scoped to its shared project. Tutti acts on it only when one local repo and task match
+  and both sides supply compatible nonempty scopes. A notice without that evidence holds matching queued work, prevents
+  candidate closure, and reports
+  ambiguous running work without stopping it. The old title-only protocol and older members cannot establish a globally
+  unique task identity; matching scopes are evidence, not proof, and other household dedupe paths remain unchanged (t210).
 - **Leases.** A shared task starts only under its lease `task:<project>:<key>`: the round's call reserves, in its order,
   as many free tasks as the member could start now (`max_parallel` minus its runs) for 5 minutes, and a task that starts gets the full 30 minutes in a second call right away; every round renews the
   leases of its running and in-review tasks (the heartbeat). A lease held by another member makes the task wait ("leased by
   Bo"); one whose heartbeat stopped expires and the task may be taken again (it starts over in the new holder's worktree). A
   task mirrored from the household is reserved at the member's next round. Only the member that published a task or holds
   its lease may close it for everyone. A worktree name and a branch carry the task id; the lease on the task covers both.
+- **Scoped local work.** When no online room is available, an upgraded coordinator first returns shared tasks without
+  reserving them. A later round may request globally bounded, locally eligible scoped tasks using an exact task incarnation,
+  scope and per-request nonce. The coordinator compares the identity while claiming the lease and flushes its state directory
+  before acknowledging. Scoped acknowledgements require directory fsync support on the coordinator's platform and state
+  filesystem: an unsupported backend holds the task until storage is changed; retrying there cannot fix it. Ordinary online
+  reservations do not require this directory sync. The member rechecks the response, local task, selected model, machine observation and remaining
+  lease time immediately before starting the process. The 30-second lease margin cannot guarantee an unbounded process
+  start completes before expiry. An older coordinator, a missing acknowledgement, duplicate title key, changed scope or stale
+  observation holds the task. A standalone installation without a coordinator keeps its existing behavior; an unreachable
+  configured coordinator holds shared tasks. This protocol is not a distributed execution fence: failover, older processes,
+  coordinator state rollback or a worker continuing after lease expiry can still lead to overlapping work.
+  Endpoint provenance accepts only a plain HTTP(S) host, with an optional port; endpoints with credentials, paths, queries or fragments
+  cannot authorize scoped local work and are not stored as provenance.
+  If an existing shared retry has an eligible online ladder step, that round keeps the older ordinary sharing protocol,
+  including its existing behavior for other queued tasks and older coordinators.
 - **`fill_room` under each user's own accounts.** Each member fills its own accounts' room from the shared backlog first,
   then from the repo's sources; whose account does the task is only the member that holds its lease.
 

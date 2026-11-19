@@ -80,7 +80,8 @@ def errors(cfg):
         from . import prep
         errs += prep.errors(where, d.get('prep'))
         if d.get('kind', 'phone') not in KINDS:
-            errs.append(f'{where}.kind is {d["kind"]!r}: use phone, tablet, tv or watch (a Cast receiver: only suites with targets: [tv] use it)')
+            errs.append(f'{where}.kind is {d["kind"]!r}: use phone, tablet, tv or watch '
+                        '(a Cast receiver: only suites with targets: [tv] use it)')
         if 'calls' in d and not isinstance(d['calls'], bool):
             errs.append(f'{where}.calls is {d["calls"]!r}: use true or false (false: no phone-call check, e.g. a tablet with no SIM)')
         if 'external_lock' in d and not (isinstance(d['external_lock'], str) and d['external_lock'].strip()):
@@ -340,8 +341,14 @@ def readings_command(device, scripts_dir, wake=False):
 
 
 def _roles(d, readings):
-    from . import castroles
-    return castroles.roles_of(d, castroles.decide(readings.get('cast')) if readings.get('cast') else [])
+    from . import roles
+    return roles.names(roles.effective(d, roles.detect_device(d, readings)))
+
+
+def role_rows(d, readings):
+    """[{role, why, source}] for the device card's chips."""
+    from . import roles
+    return roles.effective(d, roles.detect_device(d, readings))
 
 
 def device_state(d, readings):
@@ -351,7 +358,7 @@ def device_state(d, readings):
             'screen', 'wifi', 'call', 'external_by', 'prep_left',
             'revived', 'dnd', 'cast')
     return {'name': d['name'], 'serial': str(d['serial']), 'machine': d['machine'], 'kind': d.get('kind', 'phone'), 'status': st,
-            'reason': reason, 'hours': d.get('hours'), 'roles': _roles(d, readings),
+            'reason': reason, 'hours': d.get('hours'), 'roles': _roles(d, readings), 'role_info': role_rows(d, readings),
             'night': (d.get('_night') or {}) if (d.get('_night') or {}).get('on') else None,
             'policy': pol, **{k: readings.get(k) for k in keep}}
 

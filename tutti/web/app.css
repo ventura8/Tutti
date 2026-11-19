@@ -202,6 +202,8 @@ main {
     border-radius: var(--r-m);
     background: var(--tint-1);
     border: 1px solid var(--outline-2);
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .tile__label { color: var(--on-surface-2); font-size: 0.8125rem; font-weight: 500; letter-spacing: 0.02em; }
@@ -404,6 +406,10 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
 .legend i.l-panic { background: var(--bad); }
 
 .spark { width: 100%; height: 48px; display: block; }
+.spark[role="slider"] { touch-action: pan-y; cursor: crosshair; }
+.spark[role="slider"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.spark__detail { margin: .25rem 0 0; color: var(--on-surface-2); font-size: .875rem; }
+.spark .s-selected { fill: var(--accent); }
 .spark .s-grid { stroke: var(--outline-2); stroke-width: 1; }
 .spark .s-target { stroke: var(--on-surface-2); stroke-width: 1.5; stroke-dasharray: 4 4; fill: none; }
 .spark .s-panic { stroke: var(--bad); stroke-width: 1; stroke-dasharray: 2 3; }
@@ -446,6 +452,8 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
 }
 
 .row__name { font-weight: 600; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; overflow-wrap: anywhere; }
+.machine-environments { grid-column: 1 / -1; list-style: none; margin: 8px 0 0 18px; padding: 0 0 0 12px; border-left: 2px solid var(--line); }
+.machine-environments > .row { margin: 8px 0; }
 .row__kind { color: var(--on-surface-2); font: 0.75rem / 1.4 var(--mono); min-width: 0; overflow-wrap: anywhere; }
 .row__note { grid-column: 1 / -1; color: var(--on-surface-2); font-size: 0.8125rem; overflow-wrap: anywhere; }
 .stored { grid-column: 1 / -1; font-size: 0.8125rem; color: var(--on-surface-2); }
@@ -532,7 +540,7 @@ code { font-family: var(--mono); font-size: 0.875em; background: var(--surface-3
     .accounts { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 86%; overflow-x: auto; scroll-snap-type: x mandatory;
         padding-bottom: 6px; overscroll-behavior-x: contain; }
     .account { scroll-snap-align: start; }
-    .tiles { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .tile { padding: 12px 14px; }
     .tile__value { font-size: 1.25rem; }
     .segmented button { padding: 0 10px; }
@@ -752,6 +760,9 @@ body[data-view-name='chat'] .foot { display: none; }
 .chat__main { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); position: relative; overflow: hidden; }
 .chat__head { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--outline-2); min-width: 0; }
 .chat__title { font-size: 1.0625rem; font-weight: 600; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat__mainagent { flex: none; min-width: 0; max-width: min(16rem, 42vw); }
+.chat__mainagent[hidden] { display: none; }
+.chat__mainpick { width: 100%; max-width: 100%; min-height: 36px; font-size: 0.875rem; }
 .chat__convacts { display: flex; flex: none; gap: 2px; }
 .chat__convacts .btn, .chat__back { white-space: nowrap; }
 .chat__convacts[hidden], .chat__back { display: none; }
@@ -902,3 +913,10 @@ summary { padding-block: 2px; }
 /* a select with a long option ("No: they wait for my welcome-back summary") never runs past its box on a phone */
 select { max-width: 100%; text-overflow: clip; }
 .device__notes { grid-column: 1 / -1; list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; }
+
+/* ---- roles (roles.js): one chip per role, the tooltip says why (detected, config or set by an admin) */
+.roles { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.chip--role { font-size: 0.75rem; min-height: 24px; }
+.chip--role[data-source='set'] { background: var(--accent-c); }
+.role-filter { display: inline-flex; gap: 8px; align-items: center; margin: 4px 0 8px; font-size: 0.875rem; }
+.role-filter select { min-height: 32px; }

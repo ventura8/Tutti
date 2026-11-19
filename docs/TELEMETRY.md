@@ -118,11 +118,18 @@ Self-improvement card or with `tutti selfimprove on|off`. The pipeline:
    review run ended well, no review asks for changes or is still required, no review thread is open, and GitHub found it
    mergeable. Never with `--admin`, and only at the head commit the gates saw (`--match-head-commit`). Changes requested
    send the task back to the autopilot, and its next push is reviewed again.
+   Tutti checks every page of review threads; missing, malformed, partial or cyclic results block a merge until GitHub can
+   return a complete list. This check alone does not bind the destination branch atomically at merge time.
 7. **Release** (only with `release: true` and a `release_command`): a batched patch release when fixes were merged and
    the last release (or failed try) is `release_every_hours` (24) ago. A release counts only once its command exits 0; a
    failed one leaves its fixes for the next. Tutti's own is `scripts/release-patch.sh`: it bumps the patch,
-   writes the CHANGELOG from the merged commits, opens and merges the release pull request after its checks, tags it and
-   creates the GitHub release.
+   moves the Unreleased changelog section into the release (or uses merged commits if it is empty), refuses duplicate
+   Unreleased sections, reserves a version-specific branch without replacing an existing one,
+   opens and merges the release pull request after its checks, and tags that PR's merge commit. It stops if main changed
+   before review completed or if the merge used a different base; inspect and retest such a merged PR before tagging.
+   The merge API does not make the base check atomic, so a last-moment base change can still merge the PR, but the
+   post-merge parent check prevents that commit being tagged by this script. A different release process that does not
+   reserve this branch is not serialized with it. It then creates the GitHub release.
 
 Per project, under `projects:`:
 
@@ -223,9 +230,10 @@ What it does (`tutti/aiassist.py`, tested in `tests/test_aiassist.py`):
    in `self_improve.home` with its evidence and a regression-test-first note, inside the day's cap and the dedupe.
 2. **Smarter decisions** (local, each with a cheap fallback when AI is off or every model is down):
    - a failed autopilot attempt is classified **flaky** (a dropped connection, a DNS failure), **environment** (a missing
-     tool, a full disk, out of memory) or **real** (regular expressions at once, a local model's `CLASS:` line later): a
-     flaky or environment failure retries once on the same ladder step, then escalates; a real one escalates at once. A
-     rate limit is never flaky: the ladder moves on. With AI assist off the ladder works as before;
+     tool, a full disk, out of memory, a usage limit, a CLI permission refusal) or **real** (regular expressions at once,
+     a local model's `CLASS:` line later): a flaky or environment failure retries once on the same ladder step, then
+     escalates; a real one escalates at once. A usage limit is environment but still moves the ladder on (the account is
+     spent). With AI assist off the ladder works as before;
    - the model's one-line cause of the failure goes into the retry's brief;
    - a queued task gets acceptance criteria (*Done when:* in its brief) and a size, S, M or L (the model tier that takes
      it); the fallback sizes it from its scope and title, and the criteria are asked again once a model is back.

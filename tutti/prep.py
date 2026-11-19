@@ -18,9 +18,7 @@ NULL = 'null'   # what `settings get` prints for a key that is not set: restored
 # replaces one): screen at about 30 %, media volume at about 10 % (2 of 15 to 25 steps, only lowered; Cast plays on the
 # media stream, so it is the cast volume too), and a TV's
 # screensaver off and its screen on for 30 min. Every value read first is put back exactly at release.
-# Android stores screen_brightness linearly (1-255) but its slider is perceptual (BrightnessUtils, HLG curve): 77 (30 %
-# linear) showed as about 80 % on the Pixels, which the owner saw as full brightness (2026-11-16). linear_brightness(30)
-# is 30 % on the slider.
+# Android stores screen_brightness linearly (1-255), but its slider is perceptual (BrightnessUtils, HLG curve).
 def linear_brightness(slider_pct):
     """The screen_brightness value (1-255) that shows as slider_pct on Android's brightness slider."""
     import math
@@ -33,8 +31,9 @@ def linear_brightness(slider_pct):
 VOLUME = {'name': 'media volume', 'read': 'cmd media_session volume --stream 3 --get', 'parse': r'volume is (\d+)',
           'set': 'cmd media_session volume --stream 3 --set {value}', 'value': 2, 'cap': True}
 DEFAULTS = {
-    'phone': [{'setting': 'system screen_brightness_mode', 'value': 0}, {'setting': 'system screen_brightness', 'value': linear_brightness(30)}, VOLUME],
-    # a TV dims too (owner 2026-11-16): a panel TV takes it; a streamer's HDMI output ignores it, and it is put back either way
+    'phone': [{'setting': 'system screen_brightness_mode', 'value': 0},
+              {'setting': 'system screen_brightness', 'value': linear_brightness(30)}, VOLUME],
+    # A panel may dim; a streamer's HDMI output may ignore the setting. Restore the original either way.
     'tv': [{'setting': 'system screen_brightness_mode', 'value': 0},
            {'setting': 'system screen_brightness', 'value': linear_brightness(30)},
            {'setting': 'secure screensaver_enabled', 'value': 0}, {'setting': 'secure screensaver_activate_on_sleep', 'value': 0},
@@ -232,6 +231,12 @@ def restore_script(device):
     values = {}
     for it in items(device, False) + items(device, True):   # Tutti's own values, day and night
         values.setdefault(it['key'], set()).add(str(it['value']))
+    # Saved prep files may predate the perceptual default. The old phone preset was 77; only accept it when the
+    # current phone-family default is in use, so a custom preset does not broaden the restore guard.
+    if device.get('kind', 'phone') in ('phone', 'tablet', 'watch') and device.get('prep_defaults') is not False:
+        for it in items(device, False):
+            if it['name'] == 'screen_brightness' and it['value'] == linear_brightness(30):
+                values[it['key']].add('77')
     legacy = {it['key']: str(i) for i, it in enumerate(items(device, False))}   # a file written by 0.9.7 or older
     cases = []
     for it in its:

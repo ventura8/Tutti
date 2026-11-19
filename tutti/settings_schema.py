@@ -19,7 +19,7 @@ ENTRIES = ('machines', 'devices', 'workers', 'accounts', 'projects', 'scouts', '
            'review.repos')
 # About people, not this system: shown on the Manage tab (users, roles, invites, the household, each user's schedule and
 # main agent; tutti/manage.py), never in Settings
-MANAGED = ('user', 'household', 'pacing', 'main.agent')
+MANAGED = ('user', 'household', 'pacing', 'main.agent', 'main.preferred')
 SECTIONS = [
     ('accounts', 'Accounts and readings', 'The quotas Tutti paces and where their readings come from.', ['accounts', 'usage']),
     ('energy', 'Energy', 'Local models\' estimated energy cost: your electricity price and currency (docs/ENERGY.md).', ['energy']),
@@ -82,6 +82,8 @@ POLICY = {
     'policy.screen': field('Screen', 'What a run does with the screen.', 'select', choices=['wake', 'off', 'any']),
 }
 
+ROLES_OVERRIDE, ROLES_ADDED, ROLES_REMOVED = 'Roles (override)', 'Roles added', 'Roles removed'   # tutti/roles.py
+
 FIELDS = {
     # accounts and readings
     'accounts.*.window': field('Window', 'How often the quota resets: 5h, 7d, 2w or monthly.', 'text'),
@@ -104,8 +106,8 @@ FIELDS = {
     'accounts.*.reading_file': field('Reading file', 'A file your own tool writes {"used": 42} to.', 'text'),
     'accounts.*.stale_hours': field('Reading goes stale after', 'A reading by hand older than this gets a reminder.', **HRS),
     'accounts.*.args': field('Extra worker flags', 'Added when `tutti run auto` or conduct picks this account.', **CMD),
-    'accounts.*.reader': field('Automatic reader', 'A command that prints the usage and the bucket to read from it, or '
-                               '{format: cursor-api, field: autoPercentUsed} for Cursor.', **YAML),
+    'accounts.*.reader': field('Automatic reader', 'A command that prints usage, or format: cursor-api, codex-app-server '
+                               'or browser-usage for a scoped usage page.', **YAML),
     'accounts.*.tiers': field('Models by pace', 'Behind its limit: the strong tier\'s flags and the large tasks; ahead: the cheap '
                               'tier\'s and the small ones ({strong: {args: [--model, x], sizes: [L, M]}, cheap: ...}).', **YAML),
     'accounts.*.limits': field('Bounded by', 'Longer quotas that bound this one (a weekly over a 5-hour window).', 'list',
@@ -124,6 +126,9 @@ FIELDS = {
     # workers
     'workers.*.kind': field('Kind', 'cli: another vendor\'s agent; ollama: a local model server.', 'select', choices=['cli', 'ollama']),
     'workers.*.command': field('Command', 'The command line; {prompt} is the brief, {log} a log file per run.', **CMD),
+    'workers.*.chat_account_selector': field('Chat account selector', 'The CLI flag an admin asserts selects an account or model.', 'text'),
+    'workers.*.chat_output_format': field('Chat output format', 'Use text or cursor-stream-json for Cursor progress and final result.',
+                                         'text'),
     'workers.*.denied': field('Denied marker', 'Text in its log that means a headless permission was refused.', 'text'),
     'workers.*.costs_money': field('Costs money per use', 'Kept off until you turn it on.', 'switch', default=False),
     'workers.*.enabled': field('On', 'Off takes it out of routing, conduct and review.', 'switch'),
@@ -134,16 +139,24 @@ FIELDS = {
     'workers.*.num_ctx': field('Context', 'The model\'s context window.', 'number', unit='tokens', min=512),
     'workers.*.context_tokens': field('Context window', 'Used by autocompact when the worker does not say.', 'number', unit='tokens',
                                       min=1000),
-    'workers.*.machine': field('Machine', 'Its yield flag is honoured: the worker waits while the machine yields.', 'select',
-                           choices_from='machines'),
+    'workers.*.machine': field('Machine', 'Where this worker runs (Codex on the laptop): yield, pause, heat and quiet hours '
+                               'are honoured; Move work knows the host.', 'select', choices_from='machines'),
     'workers.*.tunnel': field('Tunnel', 'An ssh tunnel to the model server: {ssh, remote}.', **YAML),
-    'routing.workers': field('Worker order', '`tutti run auto` tries these in order, skipping spent ones.', 'list', choices_from='workers'),
+    'routing.workers': field('Worker order', '`tutti run auto` prefers these first (order only; every account that names a '
+                            'worker still joins, so Codex is not left out when the list is only cursor and agy).', 'list',
+                            choices_from='workers'),
     'brief.rules': field('Rules in every brief', 'Added to every brief (the standing ones are always added).', 'list', item='rule'),
     # main agent
     'main.target_pct': field('Target', 'The % of the main agent\'s quota to use by its spend-by time; the owner\'s reserve still holds.',
                              **PCT),
-    'main.agent': field('Main agent', 'The worker that conducts the next goal.', 'select', choices_from='workers'),
-    'main.fallback': field('Takes over', 'In this order, when the main agent\'s quota is in panic.', 'list', choices_from='workers'),
+    'main.agent': field('Main agent', 'The worker that conducts the next goal, or auto: Tutti keeps preferred while it '
+                        'has room, else the first worker in main.fallback with room.', 'select', choices_from='workers',
+                        suggest=['auto']),
+    'main.preferred': field('Preferred main', 'The owner\'s lasting main agent; Tutti returns here after its limit resets. '
+                            'Empty: the file\'s main.agent when that is a worker, else the first of main.fallback, else claude.',
+                            'select', choices_from='workers'),
+    'main.fallback': field('Takes over', 'In this order, when the main agent\'s quota is in panic (and the auto pick order).',
+                           'list', choices_from='workers'),
     'main.commands': field('Commands when conducting', 'A command per agent; default: its worker command.', **YAML),
     'main.ask_first': field('Ask first', 'Extra actions the conductor must ask you about.', 'list', item='action'),
     'main.check_seconds': field('Check readings every', 'How often a conduct run checks the quota.', **SEC),
@@ -225,11 +238,22 @@ FIELDS = {
                            'volume at 0 (the alarm stays yours); your own values come back at hand-back.', 'switch'),
     'night.hours': field('Night hours', 'Local hours HH-HH, e.g. 22-08.', 'text'),
     'night.devices': field('Night mode on', 'The devices it applies to; empty: every device.', 'list', choices_from='devices'),
-    'devices.*.roles': field('Roles', 'What the device is for other devices: cast-receiver (a Cast target), cast-sender.', 'list',
-                             item='role'),
+    'devices.*.roles': field(ROLES_OVERRIDE, 'The whole list, over what is detected (tutti/roles.py): cast-receiver, '
+                             'cast-sender, android-device, tv-device...', 'list', item='role'),
+    'devices.*.roles_add': field(ROLES_ADDED, 'Added to the detected roles (`tutti roles set`).', 'list', item='role'),
+    'devices.*.roles_off': field(ROLES_REMOVED, 'Taken from the detected roles (`tutti roles unset`).', 'list', item='role'),
+    'machines.*.roles': field(ROLES_OVERRIDE, 'The whole list, over what is detected: windows-test-runner, ui-desktop, gpu-ai, '
+                              'docker-host... (docs/MACHINES.md, Roles).', 'list', item='role'),
+    'machines.*.roles_add': field(ROLES_ADDED, 'Added to the detected roles (`tutti roles set`).', 'list', item='role'),
+    'machines.*.roles_off': field(ROLES_REMOVED, 'Taken from the detected roles (`tutti roles unset`).', 'list', item='role'),
     'devices.*.hours': field('Blocked hours', 'Daily local hours when the device is not used at all, e.g. {window: "22-07", '
                              'days: [mon, tue]} (no work from 30 min before; its own settings restored). Empty: none.', 'yaml'),
-    'devices.*.kind': field('Kind', 'Set by `tutti devices pair`: phone, tablet or tv.', 'select', choices=['phone', 'tablet', 'tv']),
+    'lan_devices.*.roles': field(ROLES_OVERRIDE, 'A media device on the network (by its address): the whole list.', 'list',
+                                 item='role'),
+    'lan_devices.*.roles_add': field(ROLES_ADDED, 'Added to what mDNS and SSDP found, e.g. bluetooth-audio.', 'list', item='role'),
+    'lan_devices.*.roles_off': field(ROLES_REMOVED, 'Taken from what mDNS and SSDP found.', 'list', item='role'),
+    'devices.*.kind': field('Kind', 'Set by `tutti devices pair`: phone, tablet, tv or watch.', 'select',
+                            choices=['phone', 'tablet', 'tv', 'watch']),
     'devices.*.model': field('Model', 'Set by `tutti devices pair`; a move checks the device it reaches is this one.', 'text'),
     'devices.*.capabilities': field('Capabilities', 'Set by `tutti devices pair`: camera, telephony, touchscreen, tv...', 'list',
                                     item='capability'),
@@ -239,6 +263,9 @@ FIELDS = {
     'autopilot.enabled': field('Autopilot', 'Sends backlog tasks to accounts that are behind their pace.', 'switch'),
     'autopilot.accounts': field('Trigger accounts', 'Their pace starts the autopilot.', 'list', choices_from='accounts'),
     'autopilot.ladder': field('Retry ladder', 'Attempt n starts at step n; the last step repeats.', 'list', choices_from='accounts'),
+    'autopilot.fresh_fallback_accounts': field('Fresh-work fallback accounts', 'Opt-in ladder accounts may take fresh work '
+                                               'after usual candidates when their measured, unshared quota has room.',
+                                               'list', choices_from='accounts'),
     'autopilot.max_parallel': field('Runs at once (cap)', 'Optional: the most autopilot runs at once. Empty: adaptive (account room, '
                                     'free memory and cores, free gate slots).', 'number', min=1, unit='runs'),
     'autopilot.parallel': field('Adaptive parallelism', 'run_gb, run_cpu, reserve_gb, gate_share, ceiling and the heavy-gate pattern '

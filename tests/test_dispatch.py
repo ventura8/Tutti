@@ -5,12 +5,14 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import calls, config, dashboard, devices, dispatch
+from tutti import calls, config, dashboard, devices, dispatch, jobmove
 
 NOW = float(int(time.time()))   # real time: a lease's heartbeat is a file's mtime
 
@@ -123,15 +125,26 @@ class DispatchTest(Base):
         cfg['devices']['pixel']['enabled'] = True
         self.assertEqual(len(self.tick(cfg, [phone()], now=NOW + 1)['assign']), 1)
 
-    def test_a_crashed_run_frees_its_lease_and_the_shard_goes_out_again(self):
+    def test_a_crashed_run_holds_its_lease_until_admin_confirms_stop(self):
         cfg = self.cfg()
         self.tick(cfg, [phone()])
         p = self.tick(cfg, [phone()], now=NOW + 60, alive=lambda pid: False)
         st = dispatch.read_state(cfg)
         self.assertTrue(any('the run died without a result' in e['text'] for e in st['events']))
-        self.assertEqual(st['projects']['Radio']['shards']['e2e/a']['attempts'], 1)
-        self.assertEqual(len(p['assign']), 1)   # the phone is free again at once
+        self.assertEqual(st['projects']['Radio']['shards']['e2e/a']['attempts'], 0)
+        self.assertEqual(p['assign'], [])
         self.assertEqual(len(st['leases']), 1)
+        lid = next(iter(st['leases']))
+        self.assertIn('confirmed-stopped', st['leases'][lid]['uncertain'])
+        with self.assertRaises(ValueError):
+            dispatch.resolve(cfg, lid, False)
+        with dispatch.locked(cfg) as locked:
+            dispatch.recover(cfg, locked, NOW + 61, lambda pid: False, rc_fn=lambda *_: 0)
+        self.assertIn(lid, dispatch.read_state(cfg)['leases'])  # late result does not clear a hold
+        dispatch.resolve(cfg, lid, True, now=NOW + 62)
+        st = dispatch.read_state(cfg)
+        self.assertNotIn(lid, st['leases'])
+        self.assertEqual(st['projects']['Radio']['shards']['e2e/a']['status'], 'queued')
 
     def test_a_stale_heartbeat_ends_the_lease_even_with_a_live_pid(self):
         cfg = self.cfg()
@@ -141,6 +154,156 @@ class DispatchTest(Base):
         with dispatch.locked(cfg) as st:
             ended = dispatch.recover(cfg, st, NOW + 60, lambda pid: True)
         self.assertIn('no heartbeat', ended[0])
+        self.assertIn('uncertain', dispatch.read_state(cfg)['leases'][lid])
+
+    def test_unconfirmed_stop_result_stays_held_even_when_a_late_result_arrives(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        with dispatch.locked(cfg) as st:
+            dispatch.recover(cfg, st, NOW + 10, lambda _: True, rc_fn=lambda *_: dispatch.STOP_UNCERTAIN)
+        with dispatch.locked(cfg) as st:
+            dispatch.recover(cfg, st, NOW + 11, lambda _: False, rc_fn=lambda *_: 0)
+        self.assertIn('local stop was not confirmed', dispatch.read_state(cfg)['leases'][lid]['uncertain'])
+        with self.assertRaises(jobmove.MoveError):
+            jobmove.move_shard(cfg, 'Radio', 'e2e/a', '', False, NOW + 12, stop=mock.Mock())
+        self.assertIn(lid, dispatch.read_state(cfg)['leases'])
+
+    def test_concurrent_recovery_records_one_durable_hold(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        def recover_once():
+            with dispatch.locked(cfg) as st:
+                dispatch.recover(cfg, st, NOW + 10, lambda _: False, rc_fn=lambda *_: None)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _: recover_once(), range(2)))
+        st = dispatch.read_state(cfg)
+        self.assertIn('uncertain', st['leases'][lid])
+        self.assertEqual(sum('held:' in e['text'] for e in st['events']), 1)
+        def late_result():
+            with dispatch.locked(cfg) as state:
+                dispatch.recover(cfg, state, NOW + 11, lambda _: False, rc_fn=lambda *_: 0)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _: late_result(), range(2)))
+        self.assertIn(lid, dispatch.read_state(cfg)['leases'])
+
+    def test_new_commit_does_not_queue_a_shard_with_a_held_old_lease(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        with dispatch.locked(cfg) as st:
+            lid = next(iter(st['leases']))
+            dispatch.recover(cfg, st, NOW + 10, lambda _: False, rc_fn=lambda *_: None)
+            dispatch.sync(st, 'Radio', 'new-commit', {'e2e': ['a']}, NOW + 11)
+            self.assertNotIn('e2e/a', [w['key'] for w in dispatch.pending(cfg, st)])
+            self.assertIn('uncertain', st['leases'][lid])
+
+    def test_held_or_already_admitted_lease_never_starts_another_runner(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        spawn = mock.Mock(return_value=object())
+        dispatch.admit_run(cfg, lid, ('Radio', 'e2e/a'), lambda _: ['fake'], spawn)
+        with self.assertRaises(dispatch.AdmissionRefused):
+            dispatch.admit_run(cfg, lid, ('Radio', 'e2e/a'), lambda _: ['fake'], spawn)
+        with dispatch.locked(cfg) as st:
+            dispatch.recover(cfg, st, NOW + 10, lambda _: False, rc_fn=lambda *_: None)
+        with self.assertRaises(dispatch.AdmissionRefused):
+            dispatch.admit_run(cfg, lid, ('Radio', 'e2e/a'), lambda _: ['fake'], spawn)
+        self.assertEqual(spawn.call_count, 1)
+
+    def test_runner_admission_is_refused_if_failover_fences_the_host(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        spawn = mock.Mock()
+        with mock.patch('tutti.failover.may_write', side_effect=[True, False]):
+            with self.assertRaises(dispatch.AdmissionRefused):
+                dispatch.admit_run(cfg, lid, ('Radio', 'e2e/a'), lambda _: ['fake'], spawn)
+        spawn.assert_not_called()
+        self.assertNotIn('run_admitted', dispatch.read_state(cfg)['leases'][lid])
+
+    def test_concurrent_runner_admission_and_recovery_never_start_after_hold(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        with dispatch.locked(cfg) as st:
+            dispatch.recover(cfg, st, NOW + 10, lambda _: False, rc_fn=lambda *_: None)
+        spawn = mock.Mock()
+        def attempt():
+            try:
+                dispatch.admit_run(cfg, lid, ('Radio', 'e2e/a'), lambda _: ['fake'], spawn)
+            except dispatch.AdmissionRefused:
+                return False
+            return True
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            self.assertEqual(list(pool.map(lambda _: attempt(), range(2))), [False, False])
+        spawn.assert_not_called()
+
+    def test_recovery_waits_for_atomic_launch_and_then_holds_the_lease(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        entered, release = threading.Event(), threading.Event()
+        def spawn(*_args, **_kwargs):
+            entered.set()
+            self.assertTrue(release.wait(2))
+            return object()
+        def recover():
+            with dispatch.locked(cfg) as st:
+                dispatch.recover(cfg, st, NOW + 10, lambda _: False, rc_fn=lambda *_: None)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            start = pool.submit(dispatch.admit_run, cfg, lid, ('Radio', 'e2e/a'), lambda _: ['fake'], spawn)
+            self.assertTrue(entered.wait(2))
+            recovery = pool.submit(recover)
+            release.set()
+            start.result(timeout=2)
+            recovery.result(timeout=2)
+        lease = dispatch.read_state(cfg)['leases'][lid]
+        self.assertTrue(lease['run_admitted'])
+        self.assertIn('uncertain', lease)
+
+    def test_stop_waits_after_kill_and_holds_if_the_child_still_does_not_exit(self):
+        child = mock.Mock(pid=42)
+        child.wait.side_effect = [subprocess.TimeoutExpired('test', 1), subprocess.TimeoutExpired('test', 1)]
+        with mock.patch('os.killpg') as kill:
+            with self.assertRaises(dispatch.StopUncertain):
+                dispatch.stop(child, grace=1)
+        self.assertEqual(kill.call_count, 2)
+        self.assertEqual(child.wait.call_count, 2)
+
+    def test_missing_suite_is_no_launch_but_failed_launch_is_uncertain(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        popen = mock.Mock(side_effect=OSError('launch failed'))
+        with mock.patch.object(dispatch, 'suites', return_value=[]):
+            self.assertEqual(dispatch.run(cfg, lid, popen=popen, after=lambda _: None), 2)
+        popen.assert_not_called()
+        self.assertEqual(dispatch.read_rc(cfg, lid), 2)
+        with dispatch.locked(cfg) as st:
+            st['leases'][lid].pop('run_admitted')
+        with self.assertRaises(OSError):
+            dispatch.run(cfg, lid, popen=popen, after=lambda _: None)
+        self.assertEqual(dispatch.read_rc(cfg, lid), dispatch.STOP_UNCERTAIN)
+
+    def test_held_or_admitted_run_cannot_overwrite_a_result_on_no_suite_or_bad_config(self):
+        cfg = self.cfg()
+        self.tick(cfg, [phone()])
+        lid = next(iter(dispatch.read_state(cfg)['leases']))
+        with open(dispatch.paths(cfg, lid)['rc'], 'w', encoding='utf8') as f:
+            f.write('0\n')
+        for field in ('uncertain', 'run_admitted'):
+            with dispatch.locked(cfg) as st:
+                st['leases'][lid].pop('uncertain', None)
+                st['leases'][lid].pop('run_admitted', None)
+                st['leases'][lid][field] = True
+            with mock.patch.object(dispatch, 'suites', return_value=[]):
+                self.assertEqual(dispatch.run(cfg, lid, after=lambda _: None), 2)
+            with mock.patch.object(dispatch, 'test_argv', side_effect=config.ConfigError('bad config')) as build:
+                self.assertEqual(dispatch.run(cfg, lid, after=lambda _: None), 2)
+                build.assert_not_called()
+            self.assertEqual(dispatch.read_rc(cfg, lid), 0)
 
     def test_a_finished_run_records_passed_and_its_heartbeat_ran(self):
         cfg = self.cfg({'unit': {'kind': 'unit', 'targets': ['machine'], 'run': f'{sys.executable} -c "pass"'}})

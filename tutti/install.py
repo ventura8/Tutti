@@ -114,11 +114,18 @@ def tutti_command(home_dir, windows=False):
     return os.path.join(os.path.expanduser('~'), '.local', 'bin', 'tutti')
 
 
-def systemd_unit(tutti):
+def systemd_unit(tutti, config_path=None):
     """The systemd --user unit: update first (opt-out in the config), then the dashboard; restarted when it fails."""
+    # Only simple absolute paths can be embedded safely in systemd's single-quoted shell command.
+    def safe(value):
+        return bool(value and os.path.isabs(value) and re.fullmatch(r'/[A-Za-z0-9_./-]+', value))
+    if config_path is not None and not (safe(tutti) and safe(config_path)):
+        raise ValueError('dashboard service command or config path cannot be safely pinned: use absolute paths '
+                         'containing only letters, numbers, /, ., _, or - and run `tutti setup` again')
+    pinned = f' --config "{config_path}"' if config_path is not None else ''
     return ('[Unit]\nDescription=Tutti dashboard (http://127.0.0.1:4777/)\nAfter=network-online.target\n\n'
             '[Service]\n'
-            f"ExecStart=/bin/sh -c '\"{tutti}\" self-update --auto; exec \"{tutti}\" dashboard'\n"
+            f"ExecStart=/bin/sh -c '\"{tutti}\"{pinned} self-update --auto; exec \"{tutti}\"{pinned} dashboard'\n"
             'Restart=always\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n')
 
 
@@ -155,7 +162,7 @@ def schtasks_args(vbs):
     return ['schtasks', '/Create', '/F', '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TN', SERVICE, '/TR', f'wscript.exe "{vbs}"']
 
 
-def service_plan(platform, home_dir, env=None, tutti=None):
+def service_plan(platform, home_dir, env=None, tutti=None, config_path=None):
     """[(path, text)] to write and [argv] to run to start the dashboard at login on `platform` (linux, wsl, darwin, win32).
     `tutti`: the command the service runs (default: the release install's)."""
     env = os.environ if env is None else env
@@ -172,7 +179,7 @@ def service_plan(platform, home_dir, env=None, tutti=None):
     config_home = env.get('XDG_CONFIG_HOME') or os.path.join(os.path.expanduser('~'), '.config')
     path = os.path.join(config_home, 'systemd', 'user', f'{SERVICE}.service')
     # linger: the user's services start at boot, before anyone logs in, so a power cut or a reboot resumes work by itself
-    return [(path, systemd_unit(tutti))], [['systemctl', '--user', 'daemon-reload'],
+    return [(path, systemd_unit(tutti, config_path))], [['systemctl', '--user', 'daemon-reload'],
                                            ['systemctl', '--user', 'enable', '--now', f'{SERVICE}.service'],
                                            ['loginctl', 'enable-linger']]
 
@@ -322,6 +329,48 @@ def requirements(home_dir, version_dir):
     return subprocess.run(argv, check=False, capture_output=True, text=True).returncode == 0
 
 
+def stage_env(env=None):
+    """Do not let pip, uv or Python environment overrides redirect staging into an existing environment."""
+    source = os.environ if env is None else env
+    out = {k: v for k, v in source.items() if not k.upper().startswith(('PIP_', 'UV_', 'PYTHON')) and k.upper() != 'VIRTUAL_ENV'}
+    return {**out, 'PIP_CONFIG_FILE': os.devnull, 'UV_NO_CONFIG': '1'}
+
+
+def create_stage_venv(path):
+    return subprocess.run([sys.executable, '-I', '-m', 'venv', path], check=False, capture_output=True, text=True,
+                          env=stage_env()).returncode == 0
+
+
+def stage_requirements(stage, version_dir):
+    """Install pinned requirements only into the staged venv, without user/global package-manager configuration."""
+    py = os.path.join(stage, 'venv', 'Scripts' if os.name == 'nt' else 'bin', 'python')
+    req = os.path.join(version_dir, 'requirements.txt')
+    uv = shutil.which('uv')
+    argv = ([uv, 'pip', 'install', '--quiet', '--require-hashes', '--only-binary=:all:', '--python', py, '-r', req] if uv else
+            [py, '-m', 'pip', 'install', '--quiet', '--require-hashes', '--only-binary=:all:', '-r', req])
+    return subprocess.run(argv, check=False, capture_output=True, text=True, cwd=stage, env=stage_env()).returncode == 0
+
+
+def stage_release(home_dir, tarball, version, create_venv=None, install_requirements=None):
+    """Prepare a verified release and its own environment without touching current or the shared environment."""
+    create_venv = create_venv or create_stage_venv
+    install_requirements = install_requirements or stage_requirements
+    stage = tempfile.mkdtemp(prefix=f'staged-{version}-', dir=home_dir)
+    complete = False
+    try:
+        code = os.path.join(stage, 'release')
+        unpack(tarball, code)
+        if not create_venv(os.path.join(stage, 'venv')) or not install_requirements(stage, code):
+            raise OSError('the isolated Python environment could not be prepared')
+        complete = True
+    except (OSError, tarfile.TarError, ValueError) as e:
+        return None, f'staging v{version} failed ({e}): the active installation stays unchanged'
+    finally:
+        if not complete:
+            shutil.rmtree(stage, ignore_errors=True)
+    return stage, None
+
+
 SUMS_WAITS = (15, 30, 60, 120)   # seconds: the release workflow uploads the assets a few minutes after the release appears
 
 
@@ -378,6 +427,38 @@ def self_update(home_dir=None, current=__version__, fetch_fn=fetch, check_only=F
     point_current(home_dir, latest)
     warn = f' {SKIP_WARNING}' if skip_verify else ''
     return 0, f'self-update: {current} -> {latest} (restart the dashboard, or it restarts itself within a day).{warn}'
+
+
+def stage_update(home_dir=None, current=__version__, fetch_fn=fetch, verify_fn=None, sleep=time.sleep):
+    """Verify and stage a newer release in an isolated environment; never switch the active installation."""
+    home_dir = home_dir or home()
+    try:
+        sums_text = fetch_sums(fetch_fn, sleep=sleep)
+        sums = parse_sums(sums_text)
+    except OSError as e:
+        return 1, f'self-update: could not read {RELEASES}/latest ({e}); the active installation stays unchanged'
+    latest = newest(sums)
+    if not latest:
+        return 1, f'self-update: the latest release lists no tutti-<version>.tar.gz in {SUMS}; nothing changed'
+    if vtuple(latest) <= vtuple(current):
+        return 0, f'self-update: {current} is the newest; nothing staged'
+    os.makedirs(home_dir, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=home_dir) as tmp:
+        why = signature_refusal(tmp, sums_text, latest, fetch_fn, False, verify_fn or
+                                (lambda s, b, v: verify_signature(s, b, v, gh_program(home_dir))))
+        if why:
+            return 1, f'self-update: {why}; the active installation stays unchanged'
+        name, path = f'tutti-{latest}.tar.gz', os.path.join(tmp, f'tutti-{latest}.tar.gz')
+        try:
+            fetch_fn(f'{RELEASES}/download/v{latest}/{name}', path)
+        except OSError as e:
+            return 1, f'self-update: could not download {name} ({e}); the active installation stays unchanged'
+        bad = verify(path, sums)
+        if bad:
+            return 1, f'self-update: {bad}; the active installation stays unchanged'
+        staged, problem = stage_release(home_dir, path, latest)
+    return (1, f'self-update: {problem}') if problem else \
+        (0, f'self-update: v{latest} staged at {staged}; the active installation is unchanged')
 
 
 def signature_refusal(tmp, sums_text, version, fetch_fn, skip_verify, verify_fn):

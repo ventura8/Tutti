@@ -16,11 +16,12 @@ ALLOW = '{"permissions":{"allow":["command(ls)"]}}'
 
 def cfg_in(folder, **over):
     raw = {'project': {'worktrees': folder, 'state': os.path.join(folder, 'state')},
-           'workers': {'agy': {'kind': 'cli', 'command': ['agy', '-p', '{prompt}', '--settings', ALLOW]},
+           'workers': {'agy': {'kind': 'cli', 'command': ['agy', '-p', '{prompt}', '--settings', ALLOW],
+                               'chat_account_selector': '--model'},
                        'cursor': {'kind': 'cli', 'command': ['cursor-agent', '-p', '{prompt}']},
                        'local': {'kind': 'ollama', 'host': '127.0.0.1:1', 'model': 'm:1'}},
-           'accounts': {'agy-claude': {'window': '5h', 'resets': '2026-01-01T00:00Z', 'worker': 'agy'},
-                        'agy-gemini': {'window': '5h', 'resets': '2026-01-01T00:00Z', 'worker': 'agy'},
+           'accounts': {'agy-claude': {'window': '5h', 'resets': '2026-01-01T00:00Z', 'worker': 'agy', 'args': ['--model', 'c']},
+                        'agy-gemini': {'window': '5h', 'resets': '2026-01-01T00:00Z', 'worker': 'agy', 'args': ['--model', 'g']},
                         'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z', 'worker': 'cursor', 'enabled': False}},
            'main': {'agent': 'agy', 'fallback': ['cursor', 'local'], 'check_seconds': 0.05}}
     raw = config.merge(raw, over)
@@ -62,9 +63,58 @@ class OutReasonTest(Folder):
         self.assertIn('agy-claude: panic', why)
         self.assertIn('agy-gemini', why)
 
-    def test_an_agent_without_accounts_or_with_disabled_ones_is_never_out(self):
+    def test_an_unmetered_local_agent_is_available_but_a_disabled_account_is_not(self):
         self.assertEqual(conduct.out_reason(self.cfg, 'local', self.states(local=99)), '')
-        self.assertEqual(conduct.out_reason(self.cfg, 'cursor', self.states(cursor=99)), '')
+        self.assertIn('paused or disabled', conduct.out_reason(self.cfg, 'cursor', self.states(cursor=99)))
+
+    def test_main_worker_skips_account_with_missing_linked_quota(self):
+        self.cfg['_account_limits']['agy-claude'] = ['weekly']
+        states = self.states(**{'agy-claude': 10, 'agy-gemini': 99})
+        self.assertIn('weekly', conduct.out_reason(self.cfg, 'agy', states))
+        states[0]['limits'] = [{'name': 'weekly', 'used': 10, 'panic': False}]
+        self.assertEqual(conduct.out_reason(self.cfg, 'agy', states), '')
+
+    def test_missing_account_state_cannot_open_a_spent_worker(self):
+        states = self.states(**{'agy-claude': 100})
+        why = conduct.out_reason(self.cfg, 'agy', states)
+        self.assertIn('agy-claude', why)
+        self.assertIn('agy-gemini: usage state missing', why)
+        self.assertEqual(conduct.account_args(self.cfg, 'agy', states), [])
+        states.append(self.states(**{'agy-gemini': 10})[0])
+        self.assertEqual(conduct.out_reason(self.cfg, 'agy', states), '')
+
+    def test_missing_only_account_state_is_unavailable(self):
+        why = conduct.out_reason(self.cfg, 'agy', [])
+        self.assertIn('usage state missing', why)
+
+    def test_unknown_quota_does_not_select_default_account(self):
+        states = self.states(**{'agy-claude': 100, 'agy-gemini': 10})
+        states[1]['used'] = None
+        self.assertIn('quota unknown', conduct.out_reason(self.cfg, 'agy', states))
+        self.assertEqual(conduct.account_args(self.cfg, 'agy', states), [])
+        states[1]['used'] = 10
+        self.assertEqual(conduct.out_reason(self.cfg, 'agy', states), '')
+
+    def test_stale_synthetic_estimated_and_failed_readings_are_not_room(self):
+        for flag, value in (('stale', True), ('after_reset', True), ('selected_source', 'estimate'),
+                            ('reader_problem', 'failed')):
+            for linked in (False, True):
+                with self.subTest(flag=flag, linked=linked):
+                    state = {'name': 'agy-claude', 'used': 10, 'limits': [{'name': 'weekly', 'used': 10}]}
+                    (state['limits'][0] if linked else state)[flag] = value
+                    self.assertIn('unknown or stale', conduct.conductor_account_reason(self.cfg, 'agy-claude', state))
+
+    def test_shared_worker_requires_unique_account_binding_including_paused(self):
+        states = self.states(**{'agy-claude': 100, 'agy-gemini': 10})
+        self.cfg['accounts']['agy-gemini']['args'] = []
+        self.assertIn('chat_account_selector', conduct.out_reason(self.cfg, 'agy', states))
+        self.cfg['accounts']['agy-gemini']['args'] = ['--model', 'c']
+        self.assertIn('distinct', conduct.out_reason(self.cfg, 'agy', states))
+        self.cfg['accounts']['agy-gemini']['args'] = ['--model', 'g']
+        self.assertEqual(conduct.out_reason(self.cfg, 'agy', states), '')
+        del self.cfg['accounts']['agy-claude']
+        self.cfg['_account_args']['agy-claude'] = []
+        self.assertIn('distinct', conduct.out_reason(self.cfg, 'agy', states))
 
 
 class ChoiceTest(Folder):
@@ -73,12 +123,14 @@ class ChoiceTest(Folder):
         conduct.choose(self.cfg, 'cursor')
         self.assertEqual(conduct.current(self.cfg), 'cursor')
         m = conduct.main_state(self.cfg, [])
-        self.assertEqual((m['agent'], m['configured'], m['chosen']), ('cursor', 'agy', 'cursor'))
+        self.assertEqual((m['agent'], m['configured'], m['chosen'], m['preferred']),
+                         ('cursor', 'cursor', 'cursor', 'cursor'))
         self.assertEqual([c['name'] for c in m['choices']], ['agy', 'cursor', 'local'])
 
     def test_an_unknown_agent_is_refused_with_the_choices(self):
         with self.assertRaises(conduct.ConductError) as e:
             conduct.choose(self.cfg, 'nobody')
+        self.assertIn('auto', str(e.exception))
         self.assertIn('agy, cursor, local', str(e.exception))
 
     def test_a_run_whose_process_is_gone_is_not_shown_as_running(self):
@@ -317,12 +369,12 @@ class RunCliTest(Folder):
     def test_the_account_with_room_gives_its_model(self):
         self.cfg['accounts']['agy-claude']['args'] = ['--model', 'c']
         self.cfg['accounts']['agy-gemini']['args'] = ['--model', 'g']
-        spent = [{'name': 'agy-claude', 'verdict': 'spent'}, {'name': 'agy-gemini', 'verdict': 'behind'}]
+        spent = [{'name': 'agy-claude', 'verdict': 'spent', 'used': 100}, {'name': 'agy-gemini', 'verdict': 'behind', 'used': 10}]
         self.assertEqual(conduct.account_args(self.cfg, 'agy', spent), ['--model', 'g'])
         self.assertEqual(conduct.account_args(self.cfg, 'local', spent), [])
         # a pinned command gets the account's model too: the flag is replaced, not doubled
         self.cfg['main']['commands'] = {'agy': ['agy', '-p', '{prompt}', '--model', 'g']}
-        room = [{'name': 'agy-claude', 'verdict': 'behind'}, {'name': 'agy-gemini', 'verdict': 'behind'}]
+        room = [{'name': 'agy-claude', 'verdict': 'behind', 'used': 10}, {'name': 'agy-gemini', 'verdict': 'behind', 'used': 10}]
         self.assertEqual(conduct.account_args(self.cfg, 'agy', room), ['--model', 'c'])
         argv = workers.with_args(conduct.cli_argv(self.cfg, 'agy', 'p', None), ['--model', 'c'])
         self.assertEqual(argv, ['agy', '-p', 'p', '--model', 'c'])
@@ -356,14 +408,70 @@ class RunCliTest(Folder):
 
     def test_a_limit_message_with_exit_zero_still_hands_over(self):
         self.cfg['accounts']['agy-claude']['match'] = {'command': r'\bagy\b'}
-        with mock.patch.object(conduct, 'run_cli', return_value=(0, ['You have hit your usage limit. Resets 5pm'])):
+        with mock.patch.object(conduct, 'account_states', return_value=[{'name': 'agy-claude', 'used': 10}]), \
+                mock.patch.object(conduct, 'run_cli', return_value=(0, ['You have hit your usage limit. Resets 5pm'])):
             self.assertEqual(conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')[2][0], 'limit')
 
     def test_a_limit_message_hands_over(self):
         self.cfg['accounts']['agy-claude']['match'] = {'command': r'\bagy\b'}
-        with mock.patch.object(conduct, 'run_cli', return_value=(1, ['You have hit your usage limit. Resets 5pm'])):
+        with mock.patch.object(conduct, 'account_states', return_value=[{'name': 'agy-claude', 'used': 10}]), \
+                mock.patch.object(conduct, 'run_cli', return_value=(1, ['You have hit your usage limit. Resets 5pm'])):
             rc, _lines, reason = conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')
         self.assertEqual((rc, reason[0]), (1, 'limit'))
+
+    def test_prelaunch_rechecks_and_never_runs_default_on_missing_quota(self):
+        with mock.patch.object(conduct, 'account_states', return_value=[{'name': 'agy-claude', 'used': 100}]), \
+                mock.patch.object(conduct, 'run_cli') as run:
+            rc, _lines, reason = conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')
+        self.assertEqual((rc, reason[0]), (3, 'panic'))
+        run.assert_not_called()
+
+    def test_shared_worker_command_must_bind_exact_account(self):
+        states = [{'name': 'agy-claude', 'used': 100}, {'name': 'agy-gemini', 'used': 10}]
+        self.cfg['main']['commands'] = {'agy': ['agy', '--model', 'old', '--model', 'other', '-p', '{prompt}']}
+        with mock.patch.object(conduct, 'account_states', return_value=states), mock.patch.object(conduct, 'run_cli') as run:
+            rc, _lines, reason = conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')
+        self.assertEqual((rc, reason[0]), (3, 'panic'))
+        run.assert_not_called()
+        self.cfg['main']['commands'] = {'agy': ['agy', '--model', 'old', '-p', '{prompt}']}
+        with mock.patch.object(conduct, 'account_states', return_value=states), \
+                mock.patch.object(conduct, 'run_cli', return_value=(0, [])) as run:
+            conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')
+        self.assertEqual(run.call_args.kwargs['extra'], ['--model', 'g'])
+
+    def test_watch_checks_the_selected_account_even_when_sibling_has_room(self):
+        good = [{'name': 'agy-claude', 'used': 10}, {'name': 'agy-gemini', 'used': 10}]
+        later = [{'name': 'agy-claude', 'used': 100}, {'name': 'agy-gemini', 'used': 10}]
+        def run_cli(_cfg, _agent, _text, _run, watch, **_kw):
+            self.assertIn('agy-claude', watch.out_fn('agy'))
+            return 0, []
+        with mock.patch.object(conduct, 'account_states', side_effect=[good, good, later]), \
+                mock.patch.object(conduct, 'run_cli', side_effect=run_cli):
+            conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')
+
+    def test_switch_during_prelaunch_stops_before_start(self):
+        good = [{'name': 'agy-claude', 'used': 10}]
+        choices = [{'agent': 'agy', 'rev': 1}, {'agent': 'cursor', 'rev': 2}]
+        with mock.patch.object(conduct, 'choice_record', side_effect=choices), \
+                mock.patch.object(conduct, 'chosen', return_value='cursor'), \
+                mock.patch.object(conduct, 'account_states', return_value=good), mock.patch.object(conduct, 'run_cli') as run:
+            rc, _lines, reason = conduct.run_agent(self.cfg, 'agy', 'p', self.run, lambda n: '')
+        self.assertEqual((rc, reason[0]), (3, 'switch'))
+        run.assert_not_called()
+
+    def test_limit_without_reset_is_attributed_to_selected_account(self):
+        with mock.patch('tutti.readers.record') as record:
+            why = conduct.limit_hit(self.cfg, 'agy', ['Usage limit reached'], selected='agy-gemini')
+        self.assertEqual(why, 'agy-gemini hit its usage limit')
+        hit = record.call_args.args[2][0]
+        self.assertEqual((hit[0], hit[1]), ('agy-gemini', None))
+
+    def test_unmetered_local_worker_does_not_require_account_readings(self):
+        with mock.patch.object(conduct, 'account_states', return_value=[]), \
+                mock.patch.object(conduct, 'run_local', return_value=(0, ['DONE: ok'])) as run:
+            rc, _lines, reason = conduct.run_agent(self.cfg, 'local', 'p', self.run, lambda n: '')
+        self.assertEqual((rc, reason), (0, None))
+        run.assert_called_once()
 
 
 class CliAndDashboardTest(Folder):
@@ -384,13 +492,18 @@ class CliAndDashboardTest(Folder):
         self.assertIn('not a worker', err.getvalue())
 
     def test_the_dashboard_switch(self):
-        self.assertEqual(dashboard.save_main(self.cfg, b'{"agent": "local"}'), (200, {'ok': True, 'agent': 'local'}))
+        code, answer = dashboard.save_main(self.cfg, b'{"agent": "local"}')
+        self.assertEqual(code, 200)
+        self.assertEqual((answer['ok'], answer['agent'], answer['current'], answer['auto']), (True, 'local', 'local', False))
         self.assertEqual(conduct.current(self.cfg), 'local')
         self.assertEqual(dashboard.save_main(self.cfg, b'{"agent": "x"}')[0], 400)
         self.assertEqual(dashboard.save_main(self.cfg, b'not json')[0], 400)
         snap = dashboard.Collector(self.cfg).snapshot()
         self.assertEqual(snap['main']['agent'], 'local')
         self.assertEqual(snap['projects'], {'items': [], 'errors': {}})
+        code, answer = dashboard.save_main(self.cfg, b'{"agent": "auto"}')
+        self.assertEqual((code, answer['ok'], answer['auto']), (200, True, True))
+        self.assertEqual(conduct.current(self.cfg), conduct.preferred(self.cfg))
 
     def test_config_errors_name_the_key(self):
         bad = config.normalise({'workers': {'a': {'kind': 'cli', 'command': ['a']}},
@@ -403,6 +516,234 @@ class CliAndDashboardTest(Folder):
             self.assertTrue(any(part in e for e in errs), (part, errs))
         self.assertIn('main.fallback is', config.validate(config.normalise({'main': {'fallback': 'a'}}))[0])
         self.assertIn('main is', config.validate(config.normalise({'main': 'a'}))[-1])
+
+
+class RoleHandOffTest(Folder):
+    def setUp(self):
+        super().setUp()
+        self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'worker': 'cursor', 'enabled': True}})
+
+    def states(self, **rows):
+        rows.setdefault('cursor', 0)  # this fixture's fallback has a healthy reading unless a test says otherwise
+        out = []
+        for n, v in rows.items():
+            if isinstance(v, dict):
+                out.append({'name': n, 'panic_at': 95, 'used': 0, 'verdict': 'on pace', 'panic': False,
+                            'reading_at': '2026-01-01T00:00:00+00:00', **v})
+            else:
+                out.append({'name': n, 'panic': v >= 95, 'used': v, 'verdict': 'late', 'panic_at': 95,
+                            'reading_at': '2026-01-01T00:00:00+00:00'})
+        return out
+
+    def test_panic_hands_the_role_to_the_next_fallback_connects_and_notes_chat(self):
+        notes, connects = [], []
+        line = conduct.hand_off_role(
+            self.cfg, self.states(**{'agy-claude': 99, 'agy-gemini': 97}),
+            connect_fn=lambda path, names: connects.append(names) or [],
+            chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('MAIN AGENT ROLE handed from agy to cursor', line)
+        self.assertIn('agy-claude: panic', line)
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+        self.assertEqual(connects, [['cursor']])
+        self.assertEqual(notes, [line])
+        self.assertIsNone(conduct.hand_off_role(  # same episode: no second chat note
+            self.cfg, self.states(**{'agy-claude': 99, 'agy-gemini': 97}),
+            connect_fn=lambda *a, **k: connects.append('x') or [],
+            chat_fn=lambda cfg, text: notes.append(text)))
+        self.assertEqual(notes, [line])
+
+    def test_spent_hands_off_and_no_fallback_with_room_notes_once(self):
+        # cursor must be enabled at load time (disabled accounts are stripped from the config)
+        self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z',
+                                                         'worker': 'cursor', 'enabled': True}},
+                          main={'agent': 'agy', 'fallback': ['cursor'], 'check_seconds': 0.05})
+        notes = []
+        spent = self.states(**{'agy-claude': {'used': 100, 'verdict': 'spent', 'panic': False},
+                               'agy-gemini': {'used': 100, 'verdict': 'spent', 'panic': False},
+                               'cursor': {'used': 100, 'verdict': 'spent', 'panic': False}})
+        line = conduct.hand_off_role(self.cfg, spent, connect_fn=lambda *a, **k: [],
+                                     chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('MAIN AGENT ROLE handed from agy to local', line)
+        self.assertEqual(conduct.current(self.cfg), 'local')
+        self.assertIsNone(conduct.hand_off_role(self.cfg, spent, chat_fn=lambda cfg, text: notes.append(text)))
+        self.assertEqual(len(notes), 1)
+
+    def test_a_main_with_room_is_left_alone(self):
+        self.assertIsNone(conduct.hand_off_role(self.cfg, self.states(**{'agy-claude': 10, 'agy-gemini': 10}),
+                                                chat_fn=lambda *a: self.fail('no note')))
+
+    def test_usage_pct_change_stays_the_same_episode(self):
+        notes = []
+        spent99 = self.states(**{'agy-claude': {'used': 99, 'verdict': 'spent', 'panic': False},
+                                 'agy-gemini': {'used': 99, 'verdict': 'spent', 'panic': False},
+                                 'cursor': {'used': 100, 'verdict': 'spent', 'panic': False}})
+        self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z',
+                                                         'worker': 'cursor', 'enabled': True}},
+                          main={'agent': 'agy', 'fallback': ['cursor'], 'check_seconds': 0.05})
+        line = conduct.hand_off_role(self.cfg, spent99, connect_fn=lambda *a, **k: [],
+                                     chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('handed from agy to local', line)
+        spent100 = self.states(**{'agy-claude': {'used': 100, 'verdict': 'spent', 'panic': False},
+                                  'agy-gemini': {'used': 100, 'verdict': 'spent', 'panic': False},
+                                  'cursor': {'used': 100, 'verdict': 'spent', 'panic': False}})
+        self.assertIsNone(conduct.hand_off_role(self.cfg, spent100, chat_fn=lambda cfg, text: notes.append(text)))
+        self.assertEqual(len(notes), 1)
+
+    def test_recovery_clears_the_handoff_record_so_a_later_panic_notes_again(self):
+        notes, panic = [], self.states(**{'agy-claude': 99, 'agy-gemini': 97})
+        line = conduct.hand_off_role(self.cfg, panic, connect_fn=lambda *a, **k: [],
+                                     chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('handed from agy to cursor', line)
+        self.assertTrue(os.path.exists(conduct.role_path(self.cfg)))
+        # preferred recovers with a fresh reading: Tutti restores automatically
+        restored = conduct.hand_off_role(
+            self.cfg, self.states(**{'agy-claude': 10, 'agy-gemini': 10}),
+            connect_fn=lambda *a, **k: [], chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('restored to agy', restored)
+        self.assertEqual(conduct.current(self.cfg), 'agy')
+        self.assertFalse(os.path.exists(conduct.role_path(self.cfg)))
+        again = conduct.hand_off_role(self.cfg, panic, connect_fn=lambda *a, **k: [],
+                                      chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('handed from agy to cursor', again)
+        self.assertEqual(len(notes), 3)
+
+    def test_preferred_stays_put_through_panic_and_returns_after_fresh_reading(self):
+        notes = []
+        panic = self.states(**{'agy-claude': 99, 'agy-gemini': 97})
+        self.assertEqual(conduct.preferred(self.cfg), 'agy')
+        conduct.hand_off_role(self.cfg, panic, connect_fn=lambda *a, **k: [],
+                              chat_fn=lambda cfg, text: notes.append(text))
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+        self.assertEqual(conduct.preferred(self.cfg), 'agy')
+        after = self.states(**{'agy-claude': {'used': 0, 'after_reset': True, 'reading_at': '2026-01-01T00:00:00+00:00'},
+                               'agy-gemini': {'used': 0, 'after_reset': True, 'reading_at': '2026-01-01T00:00:00+00:00'}})
+        self.assertIsNone(conduct.hand_off_role(self.cfg, after, chat_fn=lambda *a: notes.append('x')))
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+        fresh = self.states(**{'agy-claude': {'used': 5, 'reading_at': '2026-01-08T01:00:00+00:00'},
+                               'agy-gemini': {'used': 5, 'reading_at': '2026-01-08T01:00:00+00:00'}})
+        line = conduct.hand_off_role(self.cfg, fresh, connect_fn=lambda *a, **k: [],
+                                     chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('restored to agy (preferred; limit reset)', line)
+        self.assertEqual(conduct.current(self.cfg), 'agy')
+
+    def test_owner_switch_updates_preferred_automatic_does_not(self):
+        conduct.choose(self.cfg, 'local')
+        self.assertEqual(conduct.preferred(self.cfg), 'local')
+        self.assertEqual(conduct.current(self.cfg), 'local')
+        conduct.choose(self.cfg, 'cursor', owner=False)
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+        self.assertEqual(conduct.preferred(self.cfg), 'local')
+
+    def test_auto_moves_a_leftover_stand_in_to_the_first_fallback_with_room(self):
+        # owner, 2026-11-17: auto showed "main agent: pc" (a local stand-in from an earlier hand-off) while cursor had room
+        self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z',
+                                                         'worker': 'cursor', 'enabled': True}},
+                          main={'agent': 'auto', 'preferred': 'agy', 'fallback': ['cursor', 'local'],
+                                'check_seconds': 0.05})
+        conduct.choose(self.cfg, 'local', owner=False)
+        self.assertEqual(conduct.current(self.cfg), 'local')
+        panic = self.states(**{'agy-claude': 99, 'agy-gemini': 97, 'cursor': {'used': 10, 'panic': False, 'verdict': 'on pace'}})
+        line = conduct.hand_off_role(self.cfg, panic, connect_fn=lambda *a, **k: [], chat_fn=lambda cfg, text: None)
+        self.assertIn('to cursor', line)
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+
+    def test_auto_keeps_preferred_while_room_else_first_fallback_and_restores(self):
+        self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z',
+                                                         'worker': 'cursor', 'enabled': True}},
+                          main={'agent': 'auto', 'preferred': 'agy', 'fallback': ['cursor', 'local'],
+                                'check_seconds': 0.05})
+        self.assertTrue(conduct.is_auto(self.cfg))
+        self.assertEqual((conduct.preferred(self.cfg), conduct.current(self.cfg)), ('agy', 'agy'))
+        notes = []
+        panic = self.states(**{'agy-claude': 99, 'agy-gemini': 97, 'cursor': {'used': 10, 'panic': False, 'verdict': 'on pace'}})
+        line = conduct.hand_off_role(self.cfg, panic, connect_fn=lambda *a, **k: [],
+                                     chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('handed from agy to cursor', line)
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+        self.assertEqual(conduct.preferred(self.cfg), 'agy')
+        self.assertEqual(self.cfg['main']['agent'], 'auto')
+        fresh = self.states(**{'agy-claude': {'used': 5, 'reading_at': '2026-01-08T01:00:00+00:00'},
+                               'agy-gemini': {'used': 5, 'reading_at': '2026-01-08T01:00:00+00:00'},
+                               'cursor': {'used': 10, 'reading_at': '2026-01-08T01:00:00+00:00'}})
+        restored = conduct.hand_off_role(self.cfg, fresh, connect_fn=lambda *a, **k: [],
+                                         chat_fn=lambda cfg, text: notes.append(text))
+        self.assertIn('restored to agy (preferred; limit reset)', restored)
+        self.assertEqual(conduct.current(self.cfg), 'agy')
+
+    def test_pick_auto_prefers_preferred_then_first_fallback(self):
+        self.cfg = cfg_in(self.dir, accounts={'cursor': {'window': 'monthly', 'resets': '2026-01-01T00:00Z',
+                                                         'worker': 'cursor', 'enabled': True}},
+                          main={'agent': 'auto', 'preferred': 'agy', 'fallback': ['cursor', 'local']})
+        ok = self.states(**{'agy-claude': 10, 'agy-gemini': 10, 'cursor': {'used': 1, 'panic': False}})
+        self.assertEqual(conduct.pick_auto(self.cfg, ok), 'agy')
+        out = self.states(**{'agy-claude': 99, 'agy-gemini': 99,
+                             'cursor': {'used': 20, 'panic': False, 'verdict': 'on pace'}})
+        self.assertEqual(conduct.pick_auto(self.cfg, out), 'cursor')
+
+    def test_all_online_spent_uses_strongest_local_and_returns_to_online(self):
+        self.cfg = cfg_in(self.dir, workers={'small': {'kind': 'ollama', 'host': '127.0.0.1:2', 'model': 'model:3b'},
+                                             'strong': {'kind': 'ollama', 'host': '127.0.0.1:3', 'model': 'model:30b'}},
+                          accounts={'cursor': {'window': 'monthly', 'worker': 'cursor', 'enabled': True}},
+                          main={'agent': 'auto', 'preferred': 'agy', 'fallback': ['cursor', 'small', 'strong']})
+        spent = self.states(**{'agy-claude': 100, 'agy-gemini': 100, 'cursor': {'used': 100, 'verdict': 'spent'}})
+        self.assertEqual(conduct.pick_auto(self.cfg, spent), 'strong')
+        recovered = self.states(**{'agy-claude': 100, 'agy-gemini': 100,
+                                    'cursor': {'used': 10, 'verdict': 'on pace', 'panic': False}})
+        self.assertEqual(conduct.pick_auto(self.cfg, recovered), 'cursor')
+
+    def test_local_order_prefers_measured_size_and_keeps_unknown_ties_in_order(self):
+        self.cfg['workers'] = {'unknown1': {'kind': 'ollama', 'model': 'model:unknown1'},
+                               'small': {'kind': 'ollama', 'model': 'model:7b'},
+                               'measured': {'kind': 'ollama', 'model': 'model:custom'},
+                               'unknown2': {'kind': 'ollama', 'model': 'model:unknown2'}}
+        self.cfg['main']['fallback'] = ['unknown1', 'small', 'measured', 'unknown2']
+        self.cfg['_model_sizes'] = {'model:custom': 30, 'model:7b': 3}
+        self.assertEqual(conduct.fallback_order(self.cfg), ['measured', 'small', 'unknown1', 'unknown2'])
+
+    def test_hot_local_fallback_is_skipped_for_a_cooler_one(self):
+        self.cfg = cfg_in(self.dir, workers={'small': {'kind': 'ollama', 'host': '127.0.0.1:2', 'model': 'model:3b', 'machine': 'cool'},
+                                             'strong': {'kind': 'ollama', 'host': '127.0.0.1:3', 'model': 'model:30b', 'machine': 'hot'}},
+                          machines={'hot': {'host': 'hot.example'}, 'cool': {'host': 'cool.example'}},
+                          accounts={'cursor': {'window': 'monthly', 'worker': 'cursor', 'enabled': True}},
+                          main={'agent': 'auto', 'preferred': 'agy', 'fallback': ['cursor', 'small', 'strong']})
+        spent = self.states(**{'agy-claude': 100, 'agy-gemini': 100, 'cursor': {'used': 100, 'verdict': 'spent'}})
+        machines = [{'name': 'hot', 'status': 'loaded', 'reason': 'too hot: CPU 99 C'},
+                    {'name': 'cool', 'status': 'free', 'reason': 'fit'}]
+        with mock.patch('tutti.conduct.yield_reason', return_value=''):
+            self.assertEqual(conduct.pick_auto(self.cfg, spent, machines=machines), 'small')
+            self.cfg['_worker_readiness'] = {'small': False, 'strong': True, 'local': False}
+            self.assertIsNone(conduct.pick_auto(self.cfg, spent, machines=machines))
+            self.cfg['_worker_readiness']['small'] = True
+            self.cfg['machines']['cool']['quiet_hours'] = ['00:00-23:59']
+            now = conduct.datetime(2026, 1, 1, 12, tzinfo=conduct.timezone.utc)
+            self.assertIsNone(conduct.pick_auto(self.cfg, spent, machines=machines, now=now))
+
+    def test_auto_does_not_restore_local_preference_while_an_online_agent_is_available(self):
+        self.cfg = cfg_in(self.dir, main={'agent': 'auto', 'preferred': 'local', 'fallback': ['agy', 'local']})
+        conduct.choose(self.cfg, 'agy', owner=False)
+        states = self.states(**{'agy-claude': 10, 'agy-gemini': 10})
+        self.assertIsNone(conduct.hand_off_role(self.cfg, states, chat_fn=lambda *args: self.fail('unexpected hand-off')))
+        self.assertEqual(conduct.current(self.cfg), 'agy')
+
+    def test_main_auto_on_cli_and_describe(self):
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(io.StringIO()):
+            self.assertEqual(cli.main(['--config', self.cfg['_path'], 'main', 'auto']), 0)
+        cfg = config.load(self.cfg['_path'])   # the CLI wrote the file: read it again
+        self.assertTrue(conduct.is_auto(cfg))
+        self.assertIn('(auto)', out.getvalue())
+        self.assertIn('auto', conduct.describe(cfg))
+
+    def test_deliver_role_note_goes_to_the_signed_in_owners_partition(self):
+        from tutti import chat
+        with mock.patch('tutti.auth.enabled', return_value=True), \
+             mock.patch('tutti.auth.Users') as Users:
+            Users.return_value.all.return_value = {'g-owner': {'role': 'admin', 'created': 1}}
+            conduct.deliver_role_note(self.cfg, 'role moved')
+        store = chat.Store(config.state_dir(self.cfg))
+        owner = store.load('g-owner')['conversations']
+        self.assertTrue(any(c.get('title') == conduct.CHAT_TITLE for c in owner))
+        self.assertEqual(store.load('local')['conversations'], [])
 
 
 if __name__ == '__main__':

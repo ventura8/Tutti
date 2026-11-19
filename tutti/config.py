@@ -318,6 +318,12 @@ def is_on(entry):
     return not (entry.get('costs_money') or entry.get('opt_in'))
 
 
+def filter_fresh_fallbacks(cfg, off_accounts):
+    fallback = cfg['autopilot'].get('fresh_fallback_accounts')
+    if isinstance(fallback, list):
+        cfg['autopilot']['fresh_fallback_accounts'] = [n for n in fallback if n not in off_accounts]
+
+
 def opt_out(cfg):
     """Takes the accounts and workers that are off out of the config: out of pacing, panic, routing, review and conduct
     fallbacks (an account's readings stay in the log, unused). An account whose worker is off is off too.
@@ -349,9 +355,7 @@ def opt_out(cfg):
     cfg['workers'] = {n: w for n, w in cfg['workers'].items() if n not in off_workers}
     cfg['autopilot']['ladder'] = [n for n in cfg['autopilot'].get('ladder') or [] if n not in off_steps]
     cfg['autopilot']['accounts'] = [n for n in cfg['autopilot'].get('accounts') or [] if n not in off_steps]
-    fallback = cfg['autopilot'].get('fresh_fallback_accounts')
-    if isinstance(fallback, list):
-        cfg['autopilot']['fresh_fallback_accounts'] = [n for n in fallback if n not in off_accounts]
+    filter_fresh_fallbacks(cfg, off_accounts)
     gone = set(off_workers)
     cfg['routing']['workers'] = [w for w in cfg['routing'].get('workers') or [] if w not in gone]
     for section in ('main', 'review'):

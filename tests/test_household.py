@@ -113,6 +113,76 @@ class KeysTest(unittest.TestCase):
 
 
 class LeaseTest(unittest.TestCase):
+    def test_scoped_claim_matches_incarnation_scope_and_nonce(self):
+        state = household.new_state('home', 0)
+        key = 'git.example/app'
+        task = {'title': 'Fix this', 'scope': ['a.py'], 'size': 'S', 'check': 'true'}
+        answer = household.sync_project(state, key, {'publish': [task], 'room': 0}, 'ana', 0, 30)
+        remote = answer['tasks'][0]
+        want = {k: remote[k] for k in ('key', 'instance', 'title', 'scope', 'size')}
+        want['nonce'] = 'a' * 32
+        answer = household.sync_project(state, key, {'want_scoped': [want], 'room': 1}, 'bo', 1, 30)
+        self.assertEqual(answer['scoped_claims'], [{'key': 'fix this', 'instance': remote['instance'], 'nonce': 'a' * 32,
+                                                    'lease_seconds': 300}])
+        answer = household.sync_project(state, key, {'want_scoped': [want], 'room': 1}, 'cy', 2, 30)
+        self.assertEqual(answer['scoped_claims'], [])
+
+    def test_scoped_retry_does_not_extend_a_lease_and_another_user_can_claim_after_expiry(self):
+        state = household.new_state('home', 0)
+        key = 'git.example/app'
+        remote = household.sync_project(state, key, {'publish': [{'title': 'Fix', 'scope': ['a.py'], 'size': 'S'}]},
+                                        'ana', 0, 30)['tasks'][0]
+        want = {k: remote[k] for k in ('key', 'instance', 'title', 'scope', 'size')}
+        want['nonce'] = 'a' * 32
+        ask = {'want_scoped': [want], 'room': 1}
+        self.assertEqual(household.sync_project(state, key, ask, 'bo', 1, 30)['scoped_claims'][0]['lease_seconds'], 300)
+        self.assertEqual(household.sync_project(state, key, ask, 'bo', 101, 30)['scoped_claims'][0]['lease_seconds'], 200)
+        self.assertEqual(household.sync_project(state, key, ask, 'cy', 200, 30)['scoped_claims'], [])
+        self.assertEqual(household.sync_project(state, key, ask, 'cy', 302, 30)['scoped_claims'][0]['lease_seconds'], 300)
+        household.sync_project(state, key, {'held': ['fix']}, 'cy', 303, 30)
+        self.assertEqual(state['leases'][household.lease_key(key, 'fix')]['until'], 303 + 30 * 60)
+
+    def test_scoped_claim_rejects_changed_or_replaced_tasks(self):
+        state = household.new_state('home', 0)
+        key = 'git.example/app'
+        task = {'title': 'Fix this', 'scope': ['a.py'], 'size': 'S', 'check': 'true'}
+        remote = household.sync_project(state, key, {'publish': [task]}, 'ana', 0, 30)['tasks'][0]
+        want = {k: remote[k] for k in ('key', 'instance', 'title', 'scope', 'size')}
+        want['nonce'] = 'b' * 32
+        project = state['projects'][key]
+        project['tasks']['fix this']['scope'] = ['b.py']
+        self.assertEqual(household.sync_project(state, key, {'want_scoped': [want], 'room': 1}, 'bo', 1, 30)['scoped_claims'], [])
+        del project['tasks']['fix this']
+        household.publish(project, task, 'ana', 2)
+        self.assertEqual(household.sync_project(state, key, {'want_scoped': [want], 'room': 1}, 'bo', 3, 30)['scoped_claims'], [])
+        self.assertNotIn(household.lease_key(key, 'fix this'), state['leases'])
+
+    def test_scoped_claim_fails_closed_for_malformed_legacy_and_duplicate_requests(self):
+        state = household.new_state('home', 0)
+        key = 'git.example/app'
+        remote = household.sync_project(state, key, {'publish': [{'title': 'Fix', 'scope': ['a.py'], 'size': 'S'}]},
+                                        'ana', 0, 30)['tasks'][0]
+        want = {k: remote[k] for k in ('key', 'instance', 'title', 'scope', 'size')}
+        want['nonce'] = 'c' * 32
+        for bad in ({**want, 'nonce': 'bad'}, {**want, 'scope': []}, {**want, 'instance': ''}, {**want, 'size': 'M'}):
+            self.assertEqual(household.sync_project(state, key, {'want_scoped': [bad], 'room': 1}, 'bo', 1, 30)['scoped_claims'], [])
+        household.sync_project(state, key, {'publish': [{'title': 'Other', 'scope': ['b.py'], 'size': 'S'}]}, 'ana', 0, 30)
+        mixed = household.sync_project(state, key, {'want_scoped': [want], 'want': ['other'], 'room': 1}, 'bo', 1, 30)
+        self.assertEqual(mixed['scoped_claims'], [])
+        self.assertIn('other', mixed['mine'])
+        out = household.sync_project(state, key, {'want_scoped': [want, want], 'room': 2}, 'bo', 1, 30)
+        self.assertEqual(len(out['scoped_claims']), 1)
+
+    def test_legacy_task_is_assigned_a_stable_incarnation(self):
+        state = household.new_state('home', 0)
+        key = 'git.example/app'
+        household.sync_project(state, key, {'publish': [{'title': 'Fix', 'scope': ['a.py']}]}, 'ana', 0, 30)
+        del state['projects'][key]['tasks']['fix']['instance']
+        one = household.sync_project(state, key, {}, 'ana', 1, 30)['tasks'][0]['instance']
+        two = household.sync_project(state, key, {}, 'ana', 2, 30)['tasks'][0]['instance']
+        self.assertRegex(one, r'^[0-9a-f]{32}$')
+        self.assertEqual(one, two)
+
     def test_one_holder_until_it_expires_or_leaves(self):
         s = household.new_state('home', 0)
         self.assertEqual(household.claim(s, 'k', 'ana', 0, 30), (True, None))
@@ -174,6 +244,95 @@ class ReviewFixesTest(unittest.TestCase):
 
 
 class SharedBacklogTest(unittest.TestCase):
+    def test_no_client_keeps_standalone_behavior_but_unreachable_coordinator_holds(self):
+        with tempfile.TemporaryDirectory() as home, as_user(home):
+            cfg = make_cfg(home, 'Ana')
+            cfg['_sharing_local_scoped'] = {}
+            item = {**backlog.new_task('app', 'Fix', ['a.py'], 'true'), 'id': 't1'}
+            data = {'tasks': [item], 'next': 2}
+            with mock.patch.object(sharing.coordinator, 'client_of', return_value=None):
+                result = sharing.sync(cfg, data)
+            self.assertEqual(sharing.under_lock(result, data, 1)[0], {})
+            client = mock.Mock()
+            client.call.side_effect = coordinator.Unreachable('offline')
+            with mock.patch.object(sharing, 'key_of_repo', return_value='git.example/app'):
+                result = sharing.sync(cfg, data, client=client)
+            self.assertIn('t1', sharing.under_lock(result, data, 1)[0])
+
+    def test_scoped_apply_never_closes_or_mirrors_ambiguous_or_replaced_identity(self):
+        local = {**backlog.new_task('app', 'Fix', ['a.py'], '', 'S', sharing.SOURCE), 'id': 't1',
+                 'household_instance': 'a' * 32}
+        remote = {'key': 'fix', 'instance': 'b' * 32, 'title': 'Fix', 'scope': ['a.py'], 'size': 'S',
+                  'status': 'done', 'closed_by': 'peer'}
+        answer = {'projects': {'git.example/app': {'tasks': [remote]}}}
+        data = {'tasks': [local], 'next': 2}
+        sharing.apply_scoped(data, {'app': 'git.example/app'}, answer, 1)
+        self.assertEqual(local['status'], 'queued')
+        remote['instance'] = 'a' * 32
+        data['tasks'].append({**local, 'id': 't2', 'status': 'review'})
+        sharing.apply_scoped(data, {'app': 'git.example/app'}, answer, 2)
+        self.assertEqual(local['status'], 'queued')
+        data['tasks'].pop()
+        sharing.apply_scoped(data, {'app': 'git.example/app', 'other': 'git.example/app'}, answer, 3)
+        self.assertEqual(local['status'], 'queued')
+        self.assertEqual(len(data['tasks']), 1)
+        remote.update(status='queued', title='Different')
+        sharing.apply_scoped(data, {'app': 'git.example/app'}, answer, 4)
+        self.assertEqual(len(data['tasks']), 1)
+
+    def test_scoped_closure_obeys_ambiguous_moved_notice(self):
+        local = {**backlog.new_task('app', 'Fix', ['a.py'], '', 'S', sharing.SOURCE), 'id': 't1',
+                 'household_instance': 'a' * 32}
+        dropped = {**local, 'id': 't2', 'status': 'dropped'}
+        remote = {'key': 'fix', 'instance': 'a' * 32, 'title': 'Fix', 'scope': ['a.py'], 'size': 'S',
+                  'status': 'done', 'closed_by': 'peer'}
+        project = {'tasks': [remote], 'moved': ['fix'], 'mine': [], 'held': {}}
+        result = {'keys': {'app': 'git.example/app'}, 'answer': {'projects': {'git.example/app': project}},
+                  'scoped': {}, 'events': []}
+        data = {'tasks': [local, dropped], 'next': 3}
+        holds, _ = sharing.under_lock(result, data, 1)
+        self.assertIn('t1', holds)
+        self.assertEqual(local['status'], 'queued')
+        data['tasks'].remove(dropped)
+        project['moved'] = []
+        sharing.under_lock(result, data, 2)
+        self.assertEqual(local['status'], 'done')
+
+    def test_observed_identity_is_recorded_only_for_unique_mirrored_or_owned_task(self):
+        item = {**backlog.new_task('app', 'Fix', ['a.py'], '', 'S', 'user'), 'id': 't1'}
+        remote = {'key': 'fix', 'title': 'Fix', 'scope': ['a.py'], 'size': 'S', 'status': 'queued', 'instance': 'a' * 32}
+        result = {'keys': {'app': 'git.example/app'}, 'answer': {'projects': {'git.example/app': {
+            'tasks': [remote], 'mine': [], 'held': {}}}}}
+        data = {'tasks': [item]}
+        sharing.apply(data, result['keys'], result['answer'], 1)
+        self.assertNotIn('household_instance', item)   # another member's matching title is not proof of ownership
+        remote['published_by_me'] = True
+        sharing.apply(data, result['keys'], result['answer'], 2)
+        self.assertEqual(item['household_instance'], 'a' * 32)
+        del item['household_instance']
+        data['tasks'].append({**item, 'id': 't2'})
+        sharing.apply(data, result['keys'], result['answer'], 3)
+        self.assertNotIn('household_instance', item)
+        self.assertNotIn('household_instance', data['tasks'][1])
+
+    def test_scoped_local_hold_requires_ack_and_exact_unchanged_task(self):
+        remote = {'key': 'fix', 'instance': 'a' * 32, 'title': 'Fix', 'scope': ['a.py'], 'size': 'S', 'status': 'queued'}
+        local = {**backlog.new_task('app', 'Fix', ['a.py'], '', 'S', sharing.SOURCE), 'id': 't1',
+                 'household_instance': 'a' * 32}
+        request = {k: remote[k] for k in ('key', 'instance', 'title', 'scope', 'size')}
+        request['nonce'] = 'b' * 32
+        selected = {'t1': {'task': dict(local), 'request': request}}
+        result = {'keys': {'app': 'git.example/app'}, 'scoped': selected,
+                  'answer': {'projects': {'git.example/app': {'tasks': [remote], 'mine': ['fix']}}}}
+        self.assertIn('t1', sharing.scoped_holds(result, {'tasks': [local]}))   # old coordinator: no ack
+        result['answer']['projects']['git.example/app']['scoped_claims'] = [
+            {'key': 'fix', 'instance': 'a' * 32, 'nonce': 'b' * 32}]
+        self.assertEqual(sharing.scoped_holds(result, {'tasks': [local]}), {})
+        self.assertIn('t1', sharing.scoped_holds(result, {'tasks': [{**local, 'scope': ['b.py']}]}))
+        self.assertIn('t1', sharing.scoped_holds(result, {'tasks': [local, {**local, 'id': 't2'}]}))
+        result['answer']['projects']['git.example/app']['tasks'][0] = {**remote, 'instance': 'c' * 32}
+        self.assertIn('t1', sharing.scoped_holds(result, {'tasks': [local]}))
+
     def test_moved_notice_is_scoped_to_the_correct_repo(self):
         tasks = [{'id': 't1', 'repo': 'app', 'title': 'Fix panel', 'scope': ['one.py'], 'status': 'running'},
                  {'id': 't2', 'repo': 'private', 'title': 'Fix panel', 'scope': ['one.py'], 'status': 'running'}]
@@ -278,6 +437,44 @@ class CoordinatorTest(unittest.TestCase):
     def setUp(self):
         self.h = Household(self)
         self.addCleanup(self.h.close)
+
+    def test_scoped_ack_requires_durable_save_and_directory_sync(self):
+        client = DirectClient(self.h.service, self.h.membership(self.h.ana_home), self.h.clock)
+        key = 'git.example/app'
+        publish = {'projects': {key: {'publish': [{'title': 'Fix', 'scope': ['a.py'], 'size': 'S'}], 'room': 0}}}
+        remote = client.call('/hh/sync', publish)['projects'][key]['tasks'][0]
+        request = {k: remote[k] for k in ('key', 'instance', 'title', 'scope', 'size')}
+        request['nonce'] = 'a' * 32
+        ask = {'projects': {key: {'want': [], 'want_scoped': [request], 'room': 1}}}
+        with mock.patch.object(coordinator, 'save', side_effect=OSError('disk failed')):
+            with self.assertRaises(household.HouseholdError):
+                client.call('/hh/sync', ask)
+        with mock.patch.object(coordinator, 'sync_state_directory', side_effect=OSError('fsync failed')):
+            with self.assertRaises(household.HouseholdError):
+                client.call('/hh/sync', ask)
+        with mock.patch.object(coordinator, 'sync_state_directory') as synced:
+            answer = client.call('/hh/sync', ask)['projects'][key]
+        self.assertEqual(synced.call_count, 2)   # preflight and durable acknowledgement
+        self.assertEqual(answer['scoped_claims'][0]['nonce'], request['nonce'])   # same user's retry is safe
+        with mock.patch.object(coordinator, 'sync_state_directory', side_effect=AssertionError('legacy request must not fsync')):
+            self.assertIn('projects', client.call('/hh/sync', {'projects': {key: {'want': [], 'room': 0}}}))
+
+    def test_failed_ack_retries_do_not_extend_persisted_lease(self):
+        client = DirectClient(self.h.service, self.h.membership(self.h.ana_home), self.h.clock)
+        key = 'git.example/app'
+        remote = client.call('/hh/sync', {'projects': {key: {'publish': [
+            {'title': 'Fix', 'scope': ['a.py'], 'size': 'S'}]}}})['projects'][key]['tasks'][0]
+        request = {k: remote[k] for k in ('key', 'instance', 'title', 'scope', 'size')}
+        request['nonce'] = 'a' * 32
+        ask = {'projects': {key: {'want_scoped': [request], 'room': 1}}}
+        with mock.patch.object(coordinator, 'sync_state_directory', side_effect=[None, OSError('fail'), None, OSError('fail')]):
+            with self.assertRaises(household.HouseholdError):
+                client.call('/hh/sync', ask)
+            until = self.h.service_state()['leases'][household.lease_key(key, 'fix')]['until']
+            self.h.clock.t += 100
+            with self.assertRaises(household.HouseholdError):
+                client.call('/hh/sync', ask)
+        self.assertEqual(self.h.service_state()['leases'][household.lease_key(key, 'fix')]['until'], until)
 
     def test_bo_joins_with_the_code_and_both_see_the_household(self):
         with as_user(self.h.bo_home):

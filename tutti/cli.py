@@ -1512,6 +1512,7 @@ def cmd_autopilot(cfg, a):
         now = datetime.now(timezone.utc)
         states = {s['name']: s for s in state.usage_state(cfg, now)['accounts']}
         from . import sharing
+        cfg['_sharing_machine_at'] = time.time()   # probe start is conservative when individual hosts answer slowly
         machines = sharing.limit_items(cfg, state.machines_state(cfg, remote.probe), time.time())
         _plan, events = autopilot.tick(cfg, states, machines, beat=sharing.beat(cfg, now, machines))
         for e in events:

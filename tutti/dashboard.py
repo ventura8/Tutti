@@ -205,6 +205,7 @@ class Collector:
         if self.autopilot_parallel_limit is not None:
             round_cfg['_parallel_limit'] = self.autopilot_parallel_limit
         snap = self.snapshot()
+        round_cfg['_sharing_machine_at'] = autopilot._ts(snap['machines'].get('probe_started_at'))
         states = {a['name']: a for a in snap['usage']['accounts']}
         from . import sharing  # a household member's heartbeat rides on the round; shared machines offer its grant only
         machines = sharing.limit_items(self.cfg, [dict(m) for m in snap['machines']['items']], self.clock())

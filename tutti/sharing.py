@@ -5,8 +5,10 @@ The round: `ask` is built from the local backlog (new tasks to publish, finished
 next ones wanted); one signed call (outside the backlog's lock); `apply` mirrors the shared tasks into the local backlog,
 closes the ones another member finished, and returns the tasks the plan must not start now (leased by another member, or
 any shared task while the coordinator cannot be reached: fail closed). A single user never gets here."""
+import re
 import subprocess
 import time
+from collections import Counter
 
 from . import backlog, config, coordinator, fairshare, household, telemetry, users, worktree
 
@@ -59,10 +61,23 @@ def ask(cfg, data, keys, beat):
     next tasks as it could start now (max_parallel minus its runs), so it never keeps tasks from the others."""
     running = sum(1 for t in data['tasks'] if t['status'] == 'running')
     from . import parallel
-    room = max(0, int(parallel.current(cfg, 1)) - running)
+    measured = cfg.get('_sharing_online_limit')
+    limit = measured if type(measured) is int and measured >= 0 else parallel.current(cfg, 1)
+    room = max(0, int(limit) - running)
     repos = cfg['autopilot']['repos']
-    return {'beat': beat, 'projects': {keys[r]: ask_for(data['tasks'], r, room, (repos[r] or {}).get('check') or '') for r in keys
-                                       if keys[r]}}
+    projects = {keys[r]: ask_for(data['tasks'], r, room, (repos[r] or {}).get('check') or '') for r in keys if keys[r]}
+    scoped = cfg.get('_sharing_local_scoped')
+    if isinstance(scoped, dict):
+        key_counts = Counter(k for k in keys.values() if k)
+        for project in projects.values():
+            project.update(want=[], want_scoped=[], room=0)
+        for selected in scoped.values():
+            key = keys.get(selected['task']['repo'])
+            project = projects.get(key) if key_counts[key] == 1 else None
+            if project is not None:
+                project['want_scoped'].append(selected['request'])
+                project['room'] += 1
+    return {'beat': beat, 'projects': projects}
 
 
 def _close_here(t, st, events):
@@ -79,8 +94,20 @@ def _mirror(data, repo, st, local, events, now):
     task, added = backlog.add(data, {**backlog.new_task(repo, st['title'], st.get('scope') or (), '', st.get('size') or 'S',
                                                         SOURCE), 'added': now})
     if added:
+        record_instance(task, st)
         local[st['key']] = task
         events.append(f'{task["id"]} from the household\'s backlog of {repo}')
+
+
+def record_instance(task, remote):
+    """Remember an observed coordinator identity only when the mirrored task still matches it."""
+    instance = remote.get('instance')
+    if ((task.get('source') == SOURCE or remote.get('published_by_me') is True) and task.get('status') == 'queued'
+            and isinstance(instance, str)
+            and re.fullmatch(r'[0-9a-f]{32}', instance) and task.get('title') == remote.get('title')
+            and task.get('scope') == remote.get('scope') and task.get('size') == remote.get('size')
+            and task.get('household_instance') in (None, instance)):
+        task['household_instance'] = instance
 
 
 def _holds(local, p):
@@ -98,6 +125,7 @@ def apply(data, keys, answer, now, moved_hold=None):
         if not repo:
             continue
         local = {household.fold(t['title']): t for t in data['tasks'] if t['repo'] == repo}
+        counts = Counter(household.fold(t['title']) for t in data['tasks'] if t['repo'] == repo and t['status'] != 'dropped')
         for st in p.get('tasks') or []:
             t = local.get(st['key'])
             if t and t['id'] in (moved_hold or {}):
@@ -106,6 +134,8 @@ def apply(data, keys, answer, now, moved_hold=None):
                 _close_here(t, st, events)
             elif not t:
                 _mirror(data, repo, st, local, events, now)
+            elif counts[st['key']] == 1:
+                record_instance(t, st)
         hold.update(_holds(local, p))
     return hold, events
 
@@ -182,7 +212,8 @@ def sync(cfg, data, beat=None, client=None, now=0.0, run=subprocess.run):
                      machines=len(answer.get('machines') or {}))
     if answer.get('machines') is not None:
         keep_grants(cfg, answer, beat, now or time.time())
-    return {'hold': {}, 'events': events, 'answer': answer, 'error': None, 'keys': keys}
+    return {'hold': {}, 'events': events, 'answer': answer, 'error': None, 'keys': keys,
+            'scoped': cfg.get('_sharing_local_scoped')}
 
 
 def returned(cfg, data, keys, beat, now):
@@ -211,7 +242,11 @@ def under_lock(result, data, now):
     queued task held while the coordinator cannot be reached."""
     if result['answer'] is not None:
         _moved, moved_hold, uncertain = moved_of(result, data)
-        hold, events = apply(data, result['keys'], result['answer'], now, moved_hold)
+        if result.get('scoped') is None:
+            hold, events = apply(data, result['keys'], result['answer'], now, moved_hold)
+        else:
+            hold, events = apply_scoped(data, result['keys'], result['answer'], now, moved_hold)
+        hold.update(scoped_holds(result, data))
         hold.update(moved_hold)
         warnings = [f'{task_id}: household moved notice has ambiguous identity; running work is unchanged' for task_id in sorted(uncertain)]
         return hold, (list(result.get('events') or []) + events + warnings +
@@ -219,6 +254,71 @@ def under_lock(result, data, now):
     if result['error']:
         return offline_hold(data, result['keys'], 'unreachable'), []
     return no_key_hold(data, result['keys']), []
+
+
+def apply_scoped(data, keys, answer, now, moved_hold=None):
+    """Mirror or close only unambiguous scoped identities in local-only mode."""
+    hold, events = no_key_hold(data, keys), []
+    key_counts = Counter(k for k in keys.values() if k)
+    for repo, project_key in keys.items():
+        if not project_key or key_counts[project_key] != 1:
+            continue
+        project = (answer.get('projects') or {}).get(project_key) or {}
+        remote_tasks = project.get('tasks') or []
+        remote_counts = Counter(st.get('key') for st in remote_tasks)
+        local = {}
+        for task in data['tasks']:
+            if task.get('repo') == repo and task.get('status') != 'dropped':
+                local.setdefault(household.fold(task['title']), []).append(task)
+        apply_scoped_project(data, repo, remote_tasks, remote_counts, local, events, now, moved_hold or {})
+    return hold, events
+
+
+def apply_scoped_project(data, repo, remote_tasks, remote_counts, local, events, now, moved_hold):
+    for remote in remote_tasks:
+        key = remote.get('key')
+        matches = local.get(key, [])
+        if not key or key != household.fold(remote.get('title') or '') or remote_counts[key] != 1 or len(matches) > 1:
+            continue
+        if not matches:
+            if remote.get('status') == 'queued':
+                _mirror(data, repo, remote, {}, events, now)
+            continue
+        task = matches[0]
+        if remote.get('status') in household.CLOSED:
+            if (task['id'] not in moved_hold and task.get('household_instance') and task['household_instance'] == remote.get('instance')
+                    and all(task.get(k) == remote.get(k) for k in ('title', 'scope', 'size'))):
+                _close_here(task, remote, events)
+        else:
+            record_instance(task, remote)
+
+
+def scoped_holds(result, data):
+    """Only a same-request scoped acknowledgement can release local-only work for dispatch."""
+    selected = result.get('scoped')
+    if selected is None:
+        return {}
+    holds = {}
+    counts = Counter((t['repo'], household.fold(t['title'])) for t in data['tasks'] if t['status'] != 'dropped')
+    key_counts = Counter(k for k in result['keys'].values() if k)
+    projects = (result.get('answer') or {}).get('projects') or {}
+    for task in data['tasks']:
+        if task['status'] != 'queued' or task['repo'] not in result['keys']:
+            continue
+        choice = selected.get(task['id'])
+        project = projects.get(result['keys'][task['repo']]) or {}
+        request = (choice or {}).get('request') or {}
+        matches = [x for x in project.get('tasks') or [] if x.get('key') == request.get('key')]
+        ack = [a for a in project.get('scoped_claims') or [] if isinstance(a, dict)
+               and all(a.get(k) == request.get(k) for k in ('key', 'instance', 'nonce'))]
+        remote_ok = (len(matches) == 1 and all(matches[0].get(k) == request.get(k)
+                                               for k in ('key', 'instance', 'title', 'scope', 'size'))
+                     and matches[0].get('status') == 'queued' and request.get('key') in (project.get('mine') or []))
+        if (not choice or key_counts[result['keys'][task['repo']]] != 1 or task != choice['task']
+                or counts[(task['repo'], household.fold(task['title']))] != 1
+                or not remote_ok or len(ack) != 1):
+            holds[task['id']] = 'waiting for an exact scoped household reservation; refresh and check its scope'
+    return holds
 
 
 def renew(cfg, data, started, client=None, run=subprocess.run):

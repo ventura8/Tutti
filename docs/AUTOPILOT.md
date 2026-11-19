@@ -68,7 +68,8 @@ The dashboard runs one round after every probe while the autopilot is on (`tutti
    fallback excludes accounts with linked or shared quota windows until shared reservations are available. It does not
    change `fill_room`, which continues to fill from trigger accounts only. A newer quota reading does not prove an older
    worker has stopped, and reservations are not atomic across controllers; investigate uncertain work before opting in.
-   A task without an acceptance check (its own or the repo's) is never sent.
+   Local-only shared tasks use the scoped conditional lease in [HOUSEHOLD.md](HOUSEHOLD.md); this needs an upgraded
+   coordinator and fresh machine/model observations. A task without an acceptance check (its own or the repo's) is never sent.
 3. **Dispatch.** `tutti run <worker> "<brief>" --repo <path> --track ap-<id> --check "<check>"` in the background, with the
    account's `args` (its model) and its name. Each start is saved at once, so a start that fails leaves the task queued and a
    crash never starts it twice. A local-model worker works through `tutti agent`'s loop on the task's scope files (it may

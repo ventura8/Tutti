@@ -601,3 +601,11 @@ and use each local run's own worktree for local-only checks.
 ## An updated question needs a new delivery (t244)
 
 Delivery state belongs to a question revision. A late failure from an older delivery must not erase the newer delivery or its batch timing, even when both occur at the same timestamp.
+
+
+## A local household reservation needs an identity, not only a title (t319)
+
+A member can mirror an unleased task in one round, while its scope or task incarnation changes before the next reservation.
+A title-only lease does not prove that the local model can take the current task. Conditional scoped claims use a durable
+coordinator acknowledgement and recheck the local task and worker before launch; older coordinators fail closed. This
+does not fence concurrent coordinators, stale workers or state rollback.

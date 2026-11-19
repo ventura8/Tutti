@@ -11,6 +11,11 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 ### Fixed
 
 - Hold unverified stalled and no-report runs visibly instead of signalling unrelated processes or launching overlapping retries (t309).
+
+## 0.31.4 (2026-11-19)
+
+### Fixed
+
 - Parse device lease options after device names and preserve command flags and separators (t177, t421).
 
 ## 0.31.3 (2026-11-19)

@@ -296,3 +296,5 @@ chat:
 A Chat `job_status` check for a known delegated run without a report polls for up to two minutes while the answer is
 open. Stop cancels polling after any in-flight status call returns, not the delegated run. A timeout reports uncertainty; monitoring is not persisted
 across a dashboard restart.
+
+A local model response must finish with its completion frame; an interrupted stream is incomplete. If a Chat action was already attempted, Tutti preserves its cards and partial text and does not retry another model automatically. Inspect the action before retrying. This does not make every provider failure recoverable (t303).

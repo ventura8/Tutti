@@ -1,5 +1,7 @@
 # Lessons
 
+- A streaming EOF does not prove an answer finished; never retry another model after an action attempt without checking its outcome (t303).
+
 - A decision snapshot must include all durable task fields, not only the prompt fields: scope, checks or ownership can change during review (t278).
 
 - Malformed model output is not a decision to escalate; validate the action and required fields, then back off before retrying (t244).

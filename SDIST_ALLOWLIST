@@ -147,6 +147,7 @@ tests/test_move.py
 tests/test_needs.py
 tests/test_netpolicy.py
 tests/test_orchestrator.py
+tests/test_overflow_panic.py
 tests/test_owner.py
 tests/test_ownerday.py
 tests/test_ownerwin.py

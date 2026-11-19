@@ -10,6 +10,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
+- Explain when the CPU limit uses a share of the host rather than its total cores (t96).
 - Offer changed open questions again without repeating identical questions or undoing a newer delivery on failure (t244).
 
 ## 0.30.15 (2026-11-19)

@@ -1134,8 +1134,25 @@ class LocalShareLoad(unittest.TestCase):
         out = self.share({'cores': 16, 'load': 17.0}, 6)
         self.assertEqual(out['load'], 2.0)
 
+    def test_cpu_reason_distinguishes_host_from_tuttis_share(self):
+        from tutti import parallel
+        here = self.share({'cores': 16, 'load': 13.1}, 50)
+        bound, reason = parallel.bounds({}, 0, None, here, None)['cpu']
+        unchanged = {k: v for k, v in here.items() if k != 'cpu_share'}
+        self.assertEqual(bound, parallel.bounds({}, 0, None, unchanged, None)['cpu'][0])
+        self.assertIn('load 5.1 of 8 cores for Tutti', reason)
+        self.assertIn('50% share of 16 host cores; host load 13.1', reason)
+        full = self.share({'cores': 16, 'load': 13.1}, 100)
+        self.assertNotIn('share of', parallel.bounds({}, 0, None, full, None)['cpu'][1])
+
     def test_unknown_load_or_share_is_left_as_is(self):
-        self.assertIsNone(self.share({'cores': 16, 'load': None}, 6)['load'])
+        unknown = self.share({'cores': 16, 'load': None}, 6)
+        self.assertIsNone(unknown['load'])
+        self.assertNotIn('cpu_share', unknown)
+        from tutti import parallel
+        self.assertNotIn('cpu', parallel.bounds({}, 0, None, unknown, None))
+        malformed = {'cores': 8, 'load': 5.0, 'cpu_share': {'host_load': None}}
+        self.assertEqual(parallel.bounds({}, 0, None, malformed, None)['cpu'][1], 'load 5.0 of 8 cores')
         self.assertEqual(self.share({'cores': 16, 'load': 3.0}, None), {'cores': 16, 'load': 3.0})
 
 if __name__ == '__main__':

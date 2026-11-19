@@ -1484,6 +1484,8 @@ def local_share(cfg, here, machines):
         return here
     cores = max(1, share.scaled(here['cores'], row['use_pct']))
     out = {**here, 'cores': cores}
+    if cores != here['cores'] and isinstance(here.get('load'), (int, float)):
+        out['cpu_share'] = {'host_cores': here['cores'], 'host_load': here.get('load'), 'percent': row['use_pct']}
     # Only the load beyond the owner's cores counts against Tutti's share. The share is already scaled down by the owner's
     # presence (tutti/share.py), so an idle owner gives Tutti a larger share instead; an owner who really uses the machine
     # (load above their cores) still leaves Tutti no room.

@@ -64,7 +64,7 @@ The dashboard runs one round after every probe while the autopilot is on (`tutti
    costs money or is spent. The cautious panic fallback below applies only when all online accounts are unavailable.
    When those candidates and eligible local models cannot take a fresh task, an account explicitly named in both the ladder
    and `autopilot.fresh_fallback_accounts` may take it one at a time if its own reading is current and real, it is not ahead
-   or in panic, and its planner has room. This list defaults to empty, keeping retry-only accounts retry-only unless opted in. This
+   or in panic, and its planner has room for the task size below its panic threshold. A fallback account takes at most one task per round. This list defaults to empty, keeping retry-only accounts retry-only unless opted in. This
    fallback excludes accounts with linked or shared quota windows until shared reservations are available. It does not
    change `fill_room`, which continues to fill from trigger accounts only. A newer quota reading does not prove an older
    worker has stopped, and reservations are not atomic across controllers; investigate uncertain work before opting in.

@@ -500,16 +500,17 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fal
         it = iter(online)
         steps = [next(it) if n in fair else n for n in steps]
         steps = [n for n in steps if local > 0 and (is_local(cfg, n) or free > 0)]
-        pick = next((n for n in steps if (eligible is None or eligible(n, t))
-                     and rooms.get(n, (0, ''))[0] >= units(t) and rescue_fits(cfg, n, units(t))
-                     and (n in ordinary or fallback.get(n, 0) >= units(t))), None)
+        pick = next((n for n in steps if (eligible is None or eligible(n, t)) and rescue_fits(cfg, n, units(t))
+                     and ((n in ordinary and rooms.get(n, (0, ''))[0] >= units(t))
+                          or (n not in ordinary and fallback.get(n, 0) >= units(t)))), None)
         if pick is None:
             out['waiting'][t['id']] = '; '.join(assignment_wait(cfg, n, t, rooms) for n in steps) or 'no step it may go to'
             continue
-        left = 0 if is_local(cfg, pick) else rooms[pick][0] - units(t)   # a model server takes one task at a time
+        fresh_fallback = pick in fallback and pick not in ordinary
+        left = 0 if is_local(cfg, pick) or fresh_fallback else rooms[pick][0] - units(t)
         rooms[pick] = (left, rooms[pick][1] or f'{pick}: its room is taken by the running tasks')
         if pick in fallback:
-            fallback[pick] = max(0, fallback[pick] - units(t))
+            fallback[pick] = 0   # a fresh-fallback account takes at most one task in this round
         endpoint = local_endpoint(cfg, pick)
         if endpoint:
             for other in rooms:
@@ -569,7 +570,12 @@ def fresh_fallbacks(cfg, states, rooms, used, now):
                 or isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(threshold)
                 or s['used'] + cost * (used.get(name, 0) + 1) >= threshold):
             continue
-        room = min(rooms[name][0], tasks - used.get(name, 0))
+        room = min(max(backlog.SIZES.values()), tasks - used.get(name, 0))
+        while room > 0:
+            forecast = s['used'] + cost * (used.get(name, 0) + room)
+            if forecast < threshold and not math.isclose(forecast, threshold, rel_tol=0, abs_tol=1e-9):
+                break
+            room -= 1
         if room > 0:
             out[name] = room
     return out

@@ -101,7 +101,7 @@ def classify(expected, snapshot):
     if not isinstance(state, dict):
         return 'unknown'
     if (state.get('Running') is True and state.get('Status') == 'running' and state.get('Restarting') is False
-            and state.get('Paused') is False and state.get('Dead') is False):
+            and state.get('Paused') is False and state.get('Dead') is False and type(state.get('Pid')) is int and state['Pid'] > 0):
         return 'observed-running'
     if not isolated_candidate(expected, inspected):
         return 'unknown'

@@ -60,6 +60,9 @@ class CandidateTest(unittest.TestCase):
                 snapshot = copy.deepcopy(self.snapshot)
                 snapshot['inspect']['HostConfig']['SecurityOpt'].append(option)
                 self.assertEqual(containment.classify(self.expected, snapshot), 'unknown')
+        self.inspect['HostConfig']['SecurityOpt'].append('seccomp=unconfined')
+        self.assertEqual(containment.classify(self.expected, self.snapshot), 'unknown')
+        self.inspect['HostConfig']['SecurityOpt'].pop()
         self.inspect['HostConfig']['Tmpfs'] = {}
         self.assertEqual(containment.classify(self.expected, self.snapshot), 'stopped-candidate')
 
@@ -81,6 +84,10 @@ class CandidateTest(unittest.TestCase):
                 snapshot = copy.deepcopy(self.snapshot)
                 snapshot['inspect']['State'][key] = True
                 self.assertEqual(containment.classify(self.expected, snapshot), 'unknown')
+        for pid in (0, None, False):
+            with self.subTest(pid=pid):
+                self.inspect['State']['Pid'] = pid
+                self.assertEqual(containment.classify(self.expected, self.snapshot), 'unknown')
 
     def test_mounts_and_user_must_be_strictly_bounded(self):
         for user in ('0:1000', '1000:0', 'root', '', None):

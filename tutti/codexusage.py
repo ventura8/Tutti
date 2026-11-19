@@ -1,5 +1,6 @@
 """Read Codex subscription limits through Codex CLI's app-server, without reading its auth files."""
 import json
+import math
 import queue
 import subprocess
 import threading
@@ -109,9 +110,10 @@ def window(rates, account, spec):
         chosen = next((value for name, value in windows if name == wanted), None)
     else:
         desired = {'5h': 300, '7d': 10080}.get(account.get('window'))
-        chosen = (min(windows, key=lambda item: abs(int(item[1].get('windowDurationMins') or 0) - desired))[1]
-                  if windows and desired else None)
-        if chosen and desired and abs(int(chosen.get('windowDurationMins') or 0) - desired) > desired * 0.2:
+        windows = [(value, duration_minutes(value.get('windowDurationMins'))) for _, value in windows]
+        windows = [(value, duration) for value, duration in windows if duration is not None]
+        chosen, duration = min(windows, key=lambda item: abs(item[1] - desired)) if windows and desired else (None, None)
+        if chosen and desired and abs(duration - desired) > desired * 0.2:
             chosen = None
     if not chosen:
         bucket = wanted or account.get('window') or 'configured window'
@@ -120,9 +122,30 @@ def window(rates, account, spec):
     if isinstance(used, bool) or not isinstance(used, (int, float)) or not 0 <= used <= 100:
         raise ValueError('Codex usage response has no valid usedPercent: refresh the Codex account')
     reset = chosen.get('resetsAt')
-    if isinstance(reset, bool) or not isinstance(reset, (int, float)) or reset <= 0:
+    if not valid_duration(reset):
         raise ValueError('Codex usage window has no reset time: read Codex again after it reports a reset')
-    return float(used), datetime.fromtimestamp(reset, timezone.utc)
+    try:
+        return float(used), datetime.fromtimestamp(reset, timezone.utc)
+    except (OverflowError, OSError, ValueError) as e:
+        raise ValueError('Codex usage window has an invalid reset time: refresh the Codex account') from e
+
+
+def valid_duration(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def duration_minutes(value):
+    if isinstance(value, str):
+        try:
+            value = int(value)
+        except ValueError:
+            return None
+    return value if valid_duration(value) else None
 
 
 def parse(rates, account, spec):

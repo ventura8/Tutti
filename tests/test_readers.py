@@ -66,6 +66,19 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(codexusage.window(rates, {'window': '5h'}, {}),
                          (28.0, T('2026-01-06T14:00Z')))
 
+    def test_codex_window_skips_malformed_other_window_and_rejects_bad_reset(self):
+        weekly = {'usedPercent': 64, 'windowDurationMins': 10080, 'resetsAt': 1768176000}
+        for duration in ('bad', None, True, float('inf'), 10**400):
+            rates = {'primary': {'windowDurationMins': duration}, 'secondary': weekly}
+            self.assertEqual(codexusage.window(rates, {'window': '7d'}, {}), (64.0, T('2026-01-12T00:00Z')))
+        self.assertEqual(codexusage.window({'secondary': {**weekly, 'windowDurationMins': '10080'}}, {'window': '7d'}, {}),
+                         (64.0, T('2026-01-12T00:00Z')))
+        with self.assertRaisesRegex(ValueError, 'no 5h usage window'):
+            codexusage.window({'primary': {'windowDurationMins': 'bad'}}, {'window': '5h'}, {})
+        for reset in (float('inf'), 10**20, 10**400):
+            with self.assertRaisesRegex(ValueError, 'reset time'):
+                codexusage.window({'secondary': {**weekly, 'resetsAt': reset}}, {'window': '7d'}, {})
+
     def test_codex_app_server_response_ignores_notifications_and_rejects_missing_limits(self):
         text = '{"method":"account/updated"}\n{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":12}}}}\n'
         self.assertIn('primary', codexusage.response(text))

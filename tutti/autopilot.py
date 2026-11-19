@@ -1326,6 +1326,8 @@ def finished(cfg, task, is_alive):
     report = delegate.load_report(cfg, task['run'])
     if report:
         return True, report
+    if durable.died_with_host(task.get('boot')):
+        return True, None   # a PID from the previous boot may now belong to an unrelated process
     try:
         with open(delegate.paths(cfg, task['run'])['pid'], encoding='utf8') as f:
             pid = int(f.read().strip())
@@ -1385,14 +1387,6 @@ def report_identity_matches(task, report):
     return True
 
 
-def hold_or_resume_unreported(cfg, task, events):
-    """Rebooted local work can resume; unknown or remote work needs a report."""
-    if durable.died_with_host(task.get('boot')) and 'job_bridge' in task and not task['job_bridge']:
-        events.append(interrupt(cfg, task))
-    else:
-        task['recovery_note'] = 'run ended without a report: process ownership is unverified; waiting for its report before retrying'
-
-
 def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
     """Every running task whose run ended: an attempt recorded; a pass published for review, a failure queued again (from the
     same worktree, one step up) or parked. Returns event lines."""
@@ -1407,7 +1401,7 @@ def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
         if not ended and not stuck_why:
             continue
         if report is None:
-            hold_or_resume_unreported(cfg, t, events)
+            t['recovery_note'] = 'run ended without a report: process ownership is unverified; waiting for its report before retrying'
             continue
         t.pop('recovery_note', None)
         a = attempt_of(cfg, t, report, now)

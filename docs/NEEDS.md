@@ -21,10 +21,10 @@ pacing and token limits, and asks a person only what only a person can decide.
   row waits 1, 2, 4... minutes, at most 30 (fixed in the code, not a setting). The Autopilot card says why a task waits.
 - **Watchdog.** A run with no new log output for `autopilot.stuck_minutes` (default 30; 0 turns it off) shows a hold
   explaining that process ownership is unverified. Tutti does not signal or retry it until its actual report arrives;
-  it may occupy a worker slot during that wait. A dead run recorded as local before a machine reboot can be resumed from WIP,
-  but an unknown or bridged run remains held because rebooting this host does not establish what happened on the client.
-- **Crashes, restarts, sleep.** Runs from before a power-off are queued again from their worktree and their WIP refs, not
-  counted (docs/PRESENCE.md).
+  it may occupy a worker slot during that wait. After a reboot, a run without a report stays held: even locally launched work
+  may have a routed check still running elsewhere.
+- **Crashes, restarts, sleep.** Worktrees and WIP refs remain available after a power-off; unreported runs stay held rather
+  than being counted or retried without proof that their work stopped (docs/PRESENCE.md).
 - **Never silent.** When every route is blocked, the Autopilot card names why for each step and what Tutti already tried,
   and the one thing left for you (the resolver).
 

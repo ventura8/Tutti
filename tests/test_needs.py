@@ -208,6 +208,18 @@ class Backfill(Base):
 
 
 class Resilience(Base):
+    def test_rebooted_run_ignores_a_reused_pid_and_waits_for_report(self):
+        cfg = self.cfg()
+        t = task(status='running', run='1700000000-1', step='a', started=T0, boot='old', job_bridge='')
+        alive = mock.Mock(return_value=True)
+        with mock.patch.object(autopilot.delegate, 'load_report', return_value=None), \
+                mock.patch.object(autopilot.durable, 'died_with_host', return_value=True):
+            self.assertEqual(autopilot.finished(cfg, t, alive), (True, None))
+            self.assertEqual(autopilot.collect(cfg, {'tasks': [t]}, T0 + 11 * 60, alive), [])
+        alive.assert_not_called()
+        self.assertEqual(t['status'], 'running')
+        self.assertIn('waiting for its report', t['recovery_note'])
+
     def test_stuck_run_is_visible_and_never_signalled(self):
         cfg = self.cfg(stuck_minutes=10)
         t = task(status='running', run='1700000000-1', step='a', started=T0)

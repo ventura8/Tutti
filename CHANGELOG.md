@@ -6,6 +6,12 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## Unreleased
+
+### Fixed
+
+- Allow explicitly opted-in, measured and unshared ladder accounts with planned room to take fresh queued work (t319).
+
 ## 0.30.24 (2026-11-19)
 
 ### Fixed

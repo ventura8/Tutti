@@ -58,10 +58,16 @@ The dashboard runs one round after every probe while the autopilot is on (`tutti
 1. **Collect.** Every running task whose run ended gets an attempt. A pass is published: Tutti (never the worker) commits the
    worktree on `autopilot/<id>-<slug>` with `autopilot.repos.<repo>.commit` (default `chore(autopilot): {title}`) and the
    repo's `trailers` (a failed checkout or staging stops there and says so), and with `pr: draft` pushes it and opens a draft pull request. The task waits in **Results to review**.
-2. **Plan.** Capacity is the **adaptive limit** (`tutti/parallel.py`, below) minus the runs going. Fresh tasks go only to an account of `autopilot.accounts` that is
+2. **Plan.** Capacity is the **adaptive limit** (`tutti/parallel.py`, below) minus the runs going. Fresh tasks first go to an account of `autopilot.accounts` that is
    **behind** its line (or late), or on pace but still under its line (topped up to it, so the window ends at its target), as many units as its room (`room_tasks`) minus what runs on it and what attempts started
    after its newest reading already spent (that cost stays counted until a new reading shows it). Never an account that
    costs money or is spent. The cautious panic fallback below applies only when all online accounts are unavailable.
+   When those candidates and eligible local models cannot take a fresh task, an account explicitly named in both the ladder
+   and `autopilot.fresh_fallback_accounts` may take it one at a time if its own reading is current and real, it is not ahead
+   or in panic, and its planner has room. This list defaults to empty, keeping retry-only accounts retry-only unless opted in. This
+   fallback excludes accounts with linked or shared quota windows until shared reservations are available. It does not
+   change `fill_room`, which continues to fill from trigger accounts only. A newer quota reading does not prove an older
+   worker has stopped, and reservations are not atomic across controllers; investigate uncertain work before opting in.
    A task without an acceptance check (its own or the repo's) is never sent.
 3. **Dispatch.** `tutti run <worker> "<brief>" --repo <path> --track ap-<id> --check "<check>"` in the background, with the
    account's `args` (its model) and its name. Each start is saved at once, so a start that fails leaves the task queued and a
@@ -132,7 +138,7 @@ Opt-in turns it off. Each round, while the autopilot is on:
 
 1. **The room** is the units the trigger accounts (`autopilot.accounts`) may take now, as `step_room` gives it: the
    planner's allowance for agy's 5 h and weekly windows, never an account that is ahead, in panic or spent. Cursor and the
-   other ladder steps take retries only, so filling never pushes them past their pace.
+   other ladder steps do not increase fill room, so filling never pushes them past their pace.
 2. **The want** is that room capped at three fresh tasks per parallel run (`max_parallel × 3`), less the fresh tasks
    already queued: the queue never floods, and never runs dry.
 3. **The sources** (every repo of `autopilot.repos`, read at most every 10 minutes while nothing new turns up): FEEDBACK.md
@@ -234,6 +240,7 @@ autopilot:
   enabled: false                       # the dashboard's toggle (or `tutti autopilot on|off`) overrides it
   accounts: [agy-claude, agy-gemini]   # their "behind" pace triggers fresh tasks
   ladder: [agy-gemini, agy-claude, cursor, pc]   # retries climb it; accounts or workers; never one that costs money
+  fresh_fallback_accounts: []            # optionally name unshared ladder accounts for fresh queued work
   # max_parallel: 2                    # optional cap on the adaptive limit (above)
   no_progress: 3
   max_attempts: 12

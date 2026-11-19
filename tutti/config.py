@@ -59,7 +59,8 @@ DEFAULTS = {
     # when a task is parked for a person, and the repos it may work in ({name: {path, check, where, pr, commit, trailers, gaps,
     # land, base}}); fill_room: free room on the trigger accounts is filled from the repos' sources by itself (tutti/fill.py);
     # auto_review: a result to review is reviewed by review.fallback and landed by its repo's `land` (merge, pr or branch)
-    'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'max_parallel': None, 'no_progress': 3, 'max_attempts': 12, 'repos': {},
+    'autopilot': {'enabled': False, 'accounts': [], 'ladder': [], 'fresh_fallback_accounts': [], 'max_parallel': None,
+                  'no_progress': 3, 'max_attempts': 12, 'repos': {},
                   'checkpoint_minutes': 5, 'quiet_hours': [], 'fill_room': True, 'auto_review': True, 'stuck_minutes': 30},
     # depbots: dependency bots' pull requests and vulnerability reports as autopilot tasks (tutti/depbots.py,
     # docs/SECURITY-INTAKE.md): the bots whose pull requests are dependency updates (authors or branch prefixes; match: a
@@ -317,6 +318,12 @@ def is_on(entry):
     return not (entry.get('costs_money') or entry.get('opt_in'))
 
 
+def filter_fresh_fallbacks(cfg, off_accounts):
+    fallback = cfg['autopilot'].get('fresh_fallback_accounts')
+    if isinstance(fallback, list):
+        cfg['autopilot']['fresh_fallback_accounts'] = [n for n in fallback if n not in off_accounts]
+
+
 def opt_out(cfg):
     """Takes the accounts and workers that are off out of the config: out of pacing, panic, routing, review and conduct
     fallbacks (an account's readings stay in the log, unused). An account whose worker is off is off too.
@@ -348,6 +355,7 @@ def opt_out(cfg):
     cfg['workers'] = {n: w for n, w in cfg['workers'].items() if n not in off_workers}
     cfg['autopilot']['ladder'] = [n for n in cfg['autopilot'].get('ladder') or [] if n not in off_steps]
     cfg['autopilot']['accounts'] = [n for n in cfg['autopilot'].get('accounts') or [] if n not in off_steps]
+    filter_fresh_fallbacks(cfg, off_accounts)
     gone = set(off_workers)
     cfg['routing']['workers'] = [w for w in cfg['routing'].get('workers') or [] if w not in gone]
     for section in ('main', 'review'):
@@ -592,6 +600,9 @@ def _autopilot_errors(cfg):
     if not isinstance(ap, dict):
         return [f'autopilot is {ap!r}: write it as a mapping, e.g. autopilot: {{enabled: false, accounts: [...], repos: {{...}}}}']
     errs = _autopilot_name_errors(cfg, 'accounts', ap.get('accounts')) + _autopilot_name_errors(cfg, 'ladder', ap.get('ladder'))
+    fallback = ap.get('fresh_fallback_accounts')
+    if not isinstance(fallback, list) or any(not isinstance(n, str) or n not in cfg['accounts'] for n in fallback):
+        errs.append('autopilot.fresh_fallback_accounts must be a list of configured account names: name accounts from accounts: or use []')
     errs += quiet_hours_errors(ap.get('quiet_hours'))
     errs += [f'autopilot.{k} is {ap[k]!r}: use true or false' for k in ('fill_room', 'auto_review') if not isinstance(ap.get(k), bool)]
     from . import parallel

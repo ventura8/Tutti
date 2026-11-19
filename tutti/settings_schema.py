@@ -262,6 +262,9 @@ FIELDS = {
     'autopilot.enabled': field('Autopilot', 'Sends backlog tasks to accounts that are behind their pace.', 'switch'),
     'autopilot.accounts': field('Trigger accounts', 'Their pace starts the autopilot.', 'list', choices_from='accounts'),
     'autopilot.ladder': field('Retry ladder', 'Attempt n starts at step n; the last step repeats.', 'list', choices_from='accounts'),
+    'autopilot.fresh_fallback_accounts': field('Fresh-work fallback accounts', 'Opt-in ladder accounts may take fresh work '
+                                               'after usual candidates when their measured, unshared quota has room.',
+                                               'list', choices_from='accounts'),
     'autopilot.max_parallel': field('Runs at once (cap)', 'Optional: the most autopilot runs at once. Empty: adaptive (account room, '
                                     'free memory and cores, free gate slots).', 'number', min=1, unit='runs'),
     'autopilot.parallel': field('Adaptive parallelism', 'run_gb, run_cpu, reserve_gb, gate_share, ceiling and the heavy-gate pattern '

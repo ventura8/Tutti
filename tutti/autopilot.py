@@ -477,17 +477,20 @@ def assignment_wait(cfg, name, t, rooms):
     return why or f'{name}: too little room for a {t["size"]} task'
 
 
-def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
+def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fallback=None):
     """Each queued task, in the order given (by priority, then oldest), to the first of its candidate steps that has room for its
     size. `free`: the online runs that may start, or (online, local): a local model's run is not counted in max_parallel, only
     in the machines' slots. `prefer`: {step: the sizes its model tier wants} (tutti/tiers.py): a step whose tier names sizes is
     tried last for a task of another size."""
-    prefer = prefer or {}
+    prefer, fallback = prefer or {}, dict(fallback or {})
     free, local = free if isinstance(free, tuple) else (free, free)
     for t in queued:
         if free <= 0 and local <= 0:
             break
         steps = sorted(candidates(cfg, t, over, machines), key=tier_last(prefer, t.get('size')))
+        ordinary = set(steps)
+        if fallback and not t['attempts'] and not t.get('pin') and not (settings(cfg)['repos'].get(t['repo']) or {}).get('spare'):
+            steps += [n for n in fallback if n not in steps]
         fair = cfg.get('_panic_usage') or {}
         budget = cfg.get('_panic_budget') or {}
         windows = cfg.get('_panic_windows') or {}
@@ -496,12 +499,15 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
         it = iter(online)
         steps = [next(it) if n in fair else n for n in steps]
         steps = [n for n in steps if local > 0 and (is_local(cfg, n) or free > 0)]
-        pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t) and rescue_fits(cfg, n, units(t))), None)
+        pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t) and rescue_fits(cfg, n, units(t))
+                     and (n in ordinary or fallback.get(n, 0) >= units(t))), None)
         if pick is None:
             out['waiting'][t['id']] = '; '.join(assignment_wait(cfg, n, t, rooms) for n in steps) or 'no step it may go to'
             continue
         left = 0 if is_local(cfg, pick) else rooms[pick][0] - units(t)   # a model server takes one task at a time
         rooms[pick] = (left, rooms[pick][1] or f'{pick}: its room is taken by the running tasks')
+        if pick in fallback:
+            fallback[pick] = max(0, fallback[pick] - units(t))
         endpoint = local_endpoint(cfg, pick)
         if endpoint:
             for other in rooms:
@@ -528,6 +534,41 @@ def spent_units(tasks, states, cfg):
             if a.get('started') and (not all(reads) or any(a['started'] >= _ts(read) for read in reads)):
                 used[a['step']] = used.get(a['step'], 0) + units(t)
     return used
+
+
+def fresh_fallbacks(cfg, states, rooms, used, now):
+    """A measured, unshared ladder account with planned room may take fresh work after normal candidates."""
+    limits = [(n, (a or {}).get('limits') or []) for n, a in cfg['accounts'].items()]
+    limits += list((cfg.get('_account_limits') or {}).items())
+    if any(not isinstance(links, list) or any(not isinstance(link, str) or not link for link in links) for _, links in limits):
+        return []   # a malformed quota graph cannot prove an account is unshared
+    shared = {n for n, links in limits if links} | {n for _, links in limits for n in links}
+    trigger = set(trigger_accounts(cfg))
+    allowed = settings(cfg).get('fresh_fallback_accounts') or []
+    if not isinstance(allowed, list) or any(not isinstance(n, str) for n in allowed):
+        return []
+    out = {}
+    for name in ladder(cfg):
+        s = states.get(name) or {}
+        p = s.get('quota_plan') or {}
+        tasks = p.get('tasks')
+        if (name not in allowed or name not in cfg['accounts'] or name in trigger or name in shared
+                or name in cfg.get('_spare_accounts', ())
+                or s.get('limits') or s.get('verdict') not in ('behind', 'late', 'on pace') or routing.account_unfit(s)
+                or routing.unknown_quota(s) or not observed_quota(cfg, name, s, now)
+                or type(tasks) is not int or tasks <= 0 or (rooms.get(name) or (0,))[0] <= 0):
+            continue
+        from .pacing import TASK_PCT
+        cost = (cfg['accounts'][name] or {}).get('task_pct') or TASK_PCT
+        threshold = s.get('panic_at', 95)
+        if (isinstance(cost, bool) or not isinstance(cost, (int, float)) or not math.isfinite(cost) or cost <= 0
+                or isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(threshold)
+                or s['used'] + cost * (used.get(name, 0) + 1) >= threshold):
+            continue
+        room = min(rooms[name][0], tasks - used.get(name, 0))
+        if room > 0:
+            out[name] = room
+    return out
 
 
 def rescue_budgets(cfg, states, tasks, names):
@@ -653,6 +694,7 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     cfg['_main_in_panic'] = main_in_panic(cfg, states)
     names = list(dict.fromkeys([*ladder(cfg), *trigger_accounts(cfg), *cfg.get('_spare_accounts', ())]))
     rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}
+    fallback = fresh_fallbacks(cfg, states, rooms, used, now or datetime.now(timezone.utc))
     cfg['_panic_usage'] = {n: 100 - remaining_quota(states[n]) for n in names if n in states and n in cfg['accounts']
                            and panic_rescue(cfg, n, states[n], states)}
     cfg['_panic_windows'], cfg['_panic_budget'] = rescue_budgets(cfg, states, tasks, cfg['_panic_usage'])
@@ -669,7 +711,7 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     from . import fleet
     over = fleet.overflow(cfg, states, rooms, [n for n in names if is_local(cfg, n)])
     out['overflow'] = over
-    assign(cfg, priority.tasks_by_priority(cfg, queued, going), rooms, free, out, prefer, over, machines or ())
+    assign(cfg, priority.tasks_by_priority(cfg, queued, going), rooms, free, out, prefer, over, machines or (), fallback)
     out['rooms'] = {n: list(r) for n, r in rooms.items()}
     if out['dispatch']:
         return {**out, 'state': 'dispatching', 'reason': f'{len(out["dispatch"])} task(s) sent to ' +

@@ -424,12 +424,12 @@ class Engine:
             except chatctl.ControlError as e:
                 raise chat.ChatError(str(e)) from e
         with self.store.lock, chat.store_locked(self.store.folder):
+            if cid and (edit or retry):
+                self._require_history_idle(user['sub'], cid)
             return self._send_locked(user, cid, text, attachments, edit, retry, model, settings)
 
     def _send_locked(self, user, cid, text, attachments, edit, retry, model, settings):
         sub = user['sub']
-        if cid and (edit or retry):
-            self._require_history_idle(sub, cid)
         if retry:
             conv = self.store.get(sub, cid)
             ids = [m['id'] for m in conv['messages']]

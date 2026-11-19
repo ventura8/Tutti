@@ -1047,11 +1047,10 @@ class Engine:
         cfg = self.cfg_fn()
 
         def claim(card):
-            stale = card.get('state') == 'running' and kid not in self.plans_running   # cut off by a restart: go on
-            if stale and yes:
-                self.plans_running.add(kid)
-                return dict(card)
-            if card.get('state') != 'plan' and not stale:
+            if card.get('state') == 'running':
+                raise chat.ChatError('This plan may still be running or may have stopped after starting work: inspect its steps '
+                                     'and their results before issuing a new request.')
+            if card.get('state') != 'plan':
                 raise chat.ChatError('That plan already ran or was cancelled.')
             if not yes:
                 card.update(state='cancelled', text='Cancelled: nothing was done.')
@@ -1063,7 +1062,8 @@ class Engine:
             kept = {st['id'] for st in steps}
             for st in card['steps']:
                 st['state'] = 'pending' if st['id'] in kept else 'skipped'
-            card.update(state='running', steps=steps + [st for st in card['steps'] if st['id'] not in kept])
+            card.update(state='running', steps=steps + [st for st in card['steps'] if st['id'] not in kept],
+                        text='Plan running. If interrupted, inspect the steps and actual work before issuing a new request.')
             self.plans_running.add(kid)
             return dict(card)
         card = self._card_change(user['sub'], cid, mid, kid, claim)
@@ -1071,11 +1071,17 @@ class Engine:
             return card
         try:
             self._run_steps(user, cfg, card)
-        finally:   # whatever happens, the card ends in a state the page can act on
-            self.plans_running.discard(kid)
+        except Exception:
+            card.update(state='running', text='The plan stopped unexpectedly; some work may have started. '
+                                              'Inspect its steps and their results before issuing a new request.')
+            self._card_change(user['sub'], cid, mid, kid, lambda k: k.update(card))
+            raise
+        else:
             done = sum(1 for st in card['steps'] if st['state'] == 'done')
             card.update(state='done', text=f'{done} of {sum(1 for st in card["steps"] if st["state"] != "skipped")} steps done.')
             self._card_change(user['sub'], cid, mid, kid, lambda k: k.update(card))
+        finally:
+            self.plans_running.discard(kid)
         return card
 
     def _run_steps(self, user, cfg, card):

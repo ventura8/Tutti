@@ -1459,7 +1459,7 @@ class ReviewFixes(ToolLoop):
         self.assertEqual(code, 409)
         self.assertEqual(eng.store.listing('local'), [])
 
-    def test_a_plan_always_ends_in_a_state_and_one_cut_off_by_a_restart_goes_on(self):
+    def test_interrupted_plan_is_not_replayed_after_a_restart(self):
         eng = self.engine_real()
         events = self.send(eng, ADMIN, 'add task in map: one', mode='plan')
         plan = next(e['card'] for e in events if e['type'] == 'card')
@@ -1471,12 +1471,29 @@ class ReviewFixes(ToolLoop):
         with self.assertRaises(RuntimeError):
             chatrun.post(eng, ADMIN, {'action': 'plan', **ids})
         conv = eng.store.get('local', ids['conversation'])
-        self.assertEqual(conv['messages'][-1]['cards'][0]['state'], 'done')   # not stuck in "running"
-        eng2 = self.engine_real()   # a restart while a plan was running: the card says running, nobody runs it
-        eng2.store.change('local', lambda d: eng2.store.conversation(d, ids['conversation'])['messages'][-1]['cards'][0].update(
-            state='running', steps=[{**plan['steps'][0], 'state': 'pending'}]))
+        self.assertEqual(conv['messages'][-1]['cards'][0]['state'], 'running')
+        self.assertIn('Inspect', conv['messages'][-1]['cards'][0]['text'])
+        eng2 = self.engine_real()   # persisted running state may represent an action that already happened
         code, answer = chatrun.post(eng2, ADMIN, {'action': 'plan', **ids})
-        self.assertEqual((code, answer['card']['steps'][0]['state']), (200, 'done'))
+        self.assertEqual(code, 409)
+        self.assertIn('inspect', answer['error'])
+        self.assertEqual(self.calls, [])
+
+    def test_running_plan_cannot_be_claimed_by_another_engine(self):
+        eng = self.engine_real()
+        events = self.send(eng, ADMIN, 'add task in map: one', mode='plan')
+        plan = next(e['card'] for e in events if e['type'] == 'card')
+        ids = {'conversation': events[0]['conversation'], 'message': events[-1]['message']['id'], 'card': plan['id']}
+        eng.store.change('local', lambda d: eng.store.conversation(d, ids['conversation'])['messages'][-1]['cards'][0].update(
+            state='running', steps=[{**plan['steps'][0], 'state': 'done', 'ref': 't60'}]))
+        eng.plans_running.add(plan['id'])
+        for other in (eng, self.engine_real()):
+            code, response = chatrun.post(other, ADMIN, {'action': 'plan', **ids})
+            self.assertEqual(code, 409)
+            self.assertIn('inspect', response['error'])
+        saved = eng.store.get('local', ids['conversation'])['messages'][-1]['cards'][0]
+        self.assertEqual((saved['state'], saved['steps'][0]['ref']), ('running', 't60'))
+        self.assertEqual(self.calls, [])
 
     def test_a_typed_request_in_plan_review_says_it_is_yours(self):
         events = self.send(self.engine_real(), ADMIN, 'add task in map: one', mode='plan')

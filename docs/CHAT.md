@@ -184,8 +184,11 @@ Per conversation, with a default in your settings (the last one you picked); the
 - **Plan review**: the model proposes every step at once as a plan card (a request you type is "your request, as a
   one-step plan"). Untick a step to leave it out, change a step's
   text (a task's title, a hand-off's task, a question), then **Run the plan**: the steps run in order, each with its own
-  result and Undo; **Cancel** runs nothing. A plan always ends in a state you can act on, and one cut off by a restart
-  goes on with its remaining steps when you run it again. A request you type in so many words also becomes a one-step plan.
+  result and Undo; **Cancel** runs nothing. If a plan stops unexpectedly or is found running after a restart, Tutti holds it
+  rather than replaying potentially completed actions: inspect its steps and the actual work before issuing a new request.
+  This is a manual hold, not automatic recovery or proof that an action stopped; an older Tutti version can still replay
+  such a plan, so do not use an older version to resume it. A request you type in so many words also
+  becomes a one-step plan.
 
 In Autonomous and Ask before acting, a request you type in so many words ("add task in map: …") runs at once: your words
 are the confirmation.

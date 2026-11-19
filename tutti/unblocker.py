@@ -127,6 +127,12 @@ def requeue(t, now, note, fresh=False):
     t['notes'] = [*t.get('notes', []), note][-20:]
 
 
+def meaningful(value):
+    """A missing or placeholder model field is not an actionable diagnosis."""
+    text = str(value or '').strip().lower()
+    return bool(text and any(c.isalnum() for c in text) and text not in ('none', 'n/a', 'unknown'))
+
+
 def apply(cfg, item, verdict, now, expected=None):
     """Writes the action into the backlog; returns the outcome line."""
     with backlog.locked(cfg) as data:
@@ -142,11 +148,14 @@ def apply(cfg, item, verdict, now, expected=None):
         if kind == 'conflict':
             requeue(t, now, 'unblocker: the earlier result no longer rebases onto main: redo it on the current main', fresh=True)
             return 'queued again from scratch on the current main'
-        if kind == 'failing' and verdict.get('action') == 'retry':
-            requeue(t, now, f'unblocker diagnosis: {verdict["why"]} Fix for this attempt: {verdict["fix"]}')
-            return 'diagnosed; queued again with the fix (its next attempt reruns the check)'
         if kind != 'failing':
             return 'nothing to do'
+        action = verdict.get('action')
+        if action == 'retry' and meaningful(verdict.get('fix')):
+            requeue(t, now, f'unblocker diagnosis: {verdict.get("why") or ""} Fix for this attempt: {verdict["fix"]}')
+            return 'diagnosed; queued again with the fix (its next attempt reruns the check)'
+        if action != 'person' or not meaningful(verdict.get('why')):
+            return 'invalid or incomplete diagnosis: left unchanged; retry after cooldown'
         from . import needs
         needs.ask(cfg, t, f'{item["id"]} keeps failing: {verdict.get("why") or "no diagnosis"}', verdict.get('fix') or 'see its runs',
                   ['retry', 'retry-from-scratch', 'drop'], 'retry', now=now)

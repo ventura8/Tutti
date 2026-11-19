@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timezone
 
 TIMEOUT = 20
+READER_LOCK = threading.Lock()   # one process-local reader, including a collector still waiting on inherited stdout
 REQUEST = '\n'.join((
     json.dumps({'id': 1, 'method': 'initialize', 'params': {'clientInfo': {'name': 'tutti', 'version': '0.1.0'}}}),
     json.dumps({'method': 'initialized', 'params': {}}),
@@ -72,34 +73,96 @@ def exchange(process, lines, executable):
             return response(line)
 
 
-def read(cfg, account, popen=subprocess.Popen):
-    """Run one short, read-only account/rateLimits/read request and return both windows."""
-    argv = command(cfg, account)
+def stop_unstarted_collector(process):
+    """Stop and reap a process whose collector could not start; leave its guard raised if exit is unknown."""
     try:
-        process = popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-    except OSError as e:
-        raise ValueError(f'{argv[0]} app-server could not start ({e})') from e
-    lines = queue.Queue()
-
-    def collect():
-        for line in process.stdout:
-            lines.put(line)
-        lines.put(None)
-
-    threading.Thread(target=collect, daemon=True).start()
-    try:
-        return exchange(process, lines, argv[0])
-    except OSError as e:
-        raise ValueError(f'{argv[0]} app-server communication failed ({e})') from e
-    finally:
         process.terminate()
         try:
             process.wait(timeout=2)
         except subprocess.TimeoutExpired:
             process.kill()
-            process.wait()
+            process.wait(timeout=2)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+    finally:
         process.stdin.close()
         process.stdout.close()
+
+
+def finish_reader(process, reaped, cleanup_done, collector):
+    try:
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+            reaped.set()
+        except subprocess.TimeoutExpired:
+            process.kill()
+            try:
+                process.wait(timeout=2)
+                reaped.set()
+            except subprocess.TimeoutExpired:
+                pass
+    finally:
+        try:
+            process.stdin.close()
+        finally:
+            cleanup_done.set()
+            collector.join(timeout=0.1)
+
+
+def release_when_reaped(process, reaped):
+    if not reaped.is_set():
+        try:
+            process.wait()   # daemon collector owns the guard until the original process exits
+        except (OSError, subprocess.SubprocessError):
+            return   # unproven exit: keep the guard raised instead of starting more readers
+    READER_LOCK.release()
+
+
+def collect_output(process, lines, cleanup_done, reaped):
+    try:
+        for line in process.stdout:
+            lines.put(line)
+    finally:
+        lines.put(None)
+        try:
+            process.stdout.close()
+        finally:
+            cleanup_done.wait()
+            release_when_reaped(process, reaped)
+
+
+def read(cfg, account, popen=subprocess.Popen):
+    """Run one short, read-only account/rateLimits/read request and return both windows."""
+    argv = command(cfg, account)
+    if not READER_LOCK.acquire(blocking=False):
+        raise ValueError('Codex usage reader is still finishing: wait for its previous process and retry')
+    try:
+        process = popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    except OSError as e:
+        READER_LOCK.release()
+        raise ValueError(f'{argv[0]} app-server could not start ({e})') from e
+    except BaseException:
+        READER_LOCK.release()
+        raise
+    lines = queue.Queue()
+    cleanup_done = threading.Event()
+    reaped = threading.Event()
+
+    collector = threading.Thread(target=collect_output, args=(process, lines, cleanup_done, reaped), daemon=True)
+    try:
+        collector.start()
+    except Exception:
+        if stop_unstarted_collector(process):
+            READER_LOCK.release()
+        raise
+    try:
+        return exchange(process, lines, argv[0])
+    except OSError as e:
+        raise ValueError(f'{argv[0]} app-server communication failed ({e})') from e
+    finally:
+        finish_reader(process, reaped, cleanup_done, collector)
 
 
 def window(rates, account, spec):

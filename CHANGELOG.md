@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.1 (unreleased)
+
+### Added
+
+- Unit tests for `web/a11y.js` (`tests/test_a11y.py`): a refused field gets `aria-invalid` and a `role="alert"` message;
+  a valid field clears it; Esc closes an open disclosure (docs/TESTING.md, docs/DASHBOARD.md).
+
 ## 0.16.0 (2026-11-15)
 
 ### Added

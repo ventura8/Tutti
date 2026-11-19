@@ -77,6 +77,8 @@ never relax a check.
 
 ## The formatter and other pure parts
 
-`web/format.js`, `web/attention.js`, `web/energy.js`, `web/household.js` and `web/settings.js` are pure enough to run in
-node: their unit tests (`tests/test_dashui.py`, `tests/test_layout.py`, `tests/test_energy.py`, ...) load them with
-`format.js` first and pin `LC_ALL=en_US.UTF-8` where a number's form matters.
+`web/format.js`, `web/attention.js`, `web/energy.js`, `web/household.js`, `web/settings.js` and `web/a11y.js` are pure
+enough to run in node: their unit tests (`tests/test_dashui.py`, `tests/test_layout.py`, `tests/test_energy.py`,
+`tests/test_a11y.py`, ...) load them with `format.js` first where needed and pin `LC_ALL=en_US.UTF-8` where a number's
+form matters. `tests/test_a11y.py` covers refused-field alerts (`aria-invalid`, `role="alert"`, `aria-describedby`),
+clearing once valid, and Esc closing an open disclosure.

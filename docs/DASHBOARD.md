@@ -434,7 +434,7 @@ back to its summary. Layout from a phone to 4K.
 
 - Every control is a target of at least 24 × 24 px; a field always shows its focus (a date's picker part too).
 - A form field the browser refuses gets `aria-invalid` and a `role="alert"` message tied to it by `aria-describedby`
-  (`web/a11y.js`), cleared as the value is fixed.
+  (`web/a11y.js`), cleared as the value is fixed; `tests/test_a11y.py` covers that and Esc on an open disclosure.
 - Long text wraps, never an ellipsis: a job's whole title, a long chip, an e-mail in a row.
 - `[hidden]` always hides, whatever display a class sets.
 

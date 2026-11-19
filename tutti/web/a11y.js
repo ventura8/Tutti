@@ -36,12 +36,18 @@ function tuttiClearFieldError(field) {
     if (msg) msg.textContent = '';
 }
 
-document.addEventListener('invalid', (e) => tuttiShowFieldError(e.target), true);
-document.addEventListener('input', (e) => { if (e.target.matches?.('input, select, textarea')) tuttiClearFieldError(e.target); }, true);
-document.addEventListener('keydown', (e) => {
+function tuttiEscapeDetails(e) {
     if (e.key !== 'Escape') return;
     const open = document.activeElement?.closest?.('details[open]');
     if (!open) return;
     open.open = false;
     open.querySelector(':scope > summary')?.focus();
-});
+}
+
+if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('invalid', (e) => tuttiShowFieldError(e.target), true);
+    document.addEventListener('input', (e) => { if (e.target.matches?.('input, select, textarea')) tuttiClearFieldError(e.target); }, true);
+    document.addEventListener('keydown', tuttiEscapeDetails);
+}
+
+if (typeof module !== 'undefined') module.exports = { tuttiFieldError, tuttiShowFieldError, tuttiClearFieldError, tuttiEscapeDetails };

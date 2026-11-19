@@ -132,6 +132,10 @@ def ollama_stream(worker, messages, cancel, timeout=MODEL_TIMEOUT, tools=None, t
         raise IncompleteOllamaStream('Ollama closed the stream before its completion frame')
 
 
+class SummaryCancelled(Exception):
+    """Abort the store write when a summary was cancelled while waiting for its lock."""
+
+
 class CliStreamUncertain(RuntimeError):
     """A started CLI may have used native tools; its failure is not safe to retry automatically."""
 
@@ -677,6 +681,8 @@ class Engine:
             try:
                 self._mark_cli(job, cand)
                 messages = self._context(job, cfg, cand, system, conv, history, turns, s)
+                if job.cancel.is_set():
+                    return
                 summary = conv.get('summary') or {}
                 if summary.get('upto') in [m['id'] for m in history]:
                     job.untrusted = True
@@ -741,11 +747,18 @@ class Engine:
             return messages
         summary = {'upto': old[-1]['id'], 'text': self._summarise(cfg, cand, old, (conv.get('summary') or {}).get('text', ''), job.cancel),
                    'at': chat.now_iso(self.clock)}
-        conv['summary'] = summary
+        if job.cancel.is_set():
+            return messages
 
         def go(d):
+            if job.cancel.is_set():
+                raise SummaryCancelled
             self.store.conversation(d, job.cid)['summary'] = summary
-        self.store.change(job.sub, go)
+        try:
+            self.store.change(job.sub, go)
+        except SummaryCancelled:
+            return messages
+        conv['summary'] = summary
         job.emit('compacted', upto=summary['upto'], text=f'Earlier messages were summarised to keep within {pct} % of the '
                                                           f'{cand["label"]}\'s context.')
         return self._messages(cfg, cand, system, conv, history, turns)

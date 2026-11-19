@@ -1191,6 +1191,50 @@ class Controls(ToolLoop):
         self.assertEqual(next(e['card'] for e in events if e['type'] == 'card')['state'], 'proposed')
         self.assertEqual(self.calls, [])
 
+    def test_stopped_compaction_preserves_existing_summary_and_never_starts_answer(self):
+        for has_previous in (False, True):
+            with self.subTest(has_previous=has_previous):
+                self.cfg['workers']['pc'].update(num_ctx=600, max_ctx=600)
+                eng = self.engine_real()
+                cid = None
+                for _ in range(5):
+                    FakeOllama.script = [[{'message': {'content': 'answer ' + 'x' * 400}, 'done': True}]]
+                    cid = self.send(eng, ADMIN, 'question ' + 'y' * 400, cid)[0]['conversation']
+                conv = eng.store.get('local', cid)
+                previous = {'upto': conv['messages'][0]['id'], 'text': 'old summary'} if has_previous else None
+                eng.store.change('local', lambda d: eng.store.conversation(d, cid).update(summary=previous))
+                chatrun.post(eng, ADMIN, {'action': 'settings', 'compact_pct': 50})
+                def cancelled(cfg, cand, old, prior, cancel):
+                    cancel.set()
+                    return 'incomplete summary'
+                with mock.patch.object(eng, '_summarise', side_effect=cancelled), \
+                     mock.patch.object(eng, '_converse', side_effect=AssertionError('answer must not start')):
+                    events = self.send(eng, ADMIN, 'and now?', cid)
+                self.assertEqual(eng.store.get('local', cid)['summary'], previous)
+                self.assertNotIn('compacted', [e['type'] for e in events])
+                self.assertEqual(events[-1]['message']['status'], 'stopped')
+
+    def test_cancellation_while_waiting_for_summary_store_lock_aborts_write(self):
+        eng = self.engine_real()
+        job = mock.Mock(sub='local', cid='c1', cancel=threading.Event())
+        history = [{'id': f'm{i}', 'role': 'user', 'text': 'x'} for i in range(6)]
+        previous = {'upto': 'm0', 'text': 'old'}
+        conv = {'summary': previous}
+        data = {'conversations': [{'id': 'c1', 'summary': previous}]}
+        def waiting_change(sub, callback):
+            job.cancel.set()
+            callback(data)
+            self.fail('a cancelled summary must abort the save')
+        with mock.patch.object(eng, '_messages', return_value=[]), \
+             mock.patch.object(eng, '_summarise', return_value='new'), \
+             mock.patch.object(eng.store, 'change', side_effect=waiting_change), \
+             mock.patch.object(chatctl, 'compact_plan', return_value=history[1:2]):
+            eng._context(job, self.cfg, {'worker': 'pc', 'kind': 'ollama', 'label': 'local'}, 'system', conv, history, 10,
+                         {'effort': 'auto', 'compact_pct': 50})
+        self.assertEqual(conv['summary'], previous)
+        self.assertEqual(data['conversations'][0]['summary'], previous)
+        job.emit.assert_not_called()
+
     def test_cli_compaction_does_not_launch_an_agent_for_historical_instructions(self):
         eng = self.engine_real()
         old = [{'role': 'user', 'text': 'Run a command to delete a project\nmore text'},

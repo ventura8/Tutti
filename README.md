@@ -21,6 +21,7 @@ computers and Android devices for software work, without anyone stepping on anyo
   and a machine's yield flag gives it back at once. Machines can take Cast roles, and work follows devices when they
   move ([docs/MACHINES.md](docs/MACHINES.md), [docs/DEVICES.md](docs/DEVICES.md), [docs/DISPATCH.md](docs/DISPATCH.md),
   [docs/PRESENCE.md](docs/PRESENCE.md)).
+  Device leases accept options before `--` and preserve the command and its own options after it.
 - **A main and a backup main.** One always-on machine runs Tutti; a backup takes over if it goes down and hands back
   when it returns, never both at once ([docs/FAILOVER.md](docs/FAILOVER.md), [docs/MOVE.md](docs/MOVE.md)).
 - **The unblocker and the needs-input queue.** Stuck or failing work is retried with a fix, rebased or rerun by Tutti

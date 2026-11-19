@@ -2262,10 +2262,28 @@ def on_client(cfg, a, argv):
     return 1
 
 
+def parse(argv):
+    """Separate a device lease's command before argparse sees its flags or positional words."""
+    args = list(argv)
+    start = 0
+    if args[:1] == ['--config'] and len(args) > 1:
+        start = 2
+    elif args and args[0].startswith('--config='):
+        start = 1
+    command = None
+    if args[start:start + 2] == ['devices', 'lease'] and '--' in args[start + 2:]:
+        cut = args.index('--', start + 2)
+        args, command = args[:cut], args[cut + 1:]
+    a = parser().parse_args(args)
+    if command is not None:
+        a.names = [*(a.names or []), '--', *command]
+    return a
+
+
 def main(argv=None):
     real = argv is None
     argv = sys.argv[1:] if argv is None else argv
-    a = parser().parse_args(argv)
+    a = parse(argv)
     if a.fn in (cmd_doctor, cmd_setup, cmd_self_update):  # they must work before any config exists
         return a.fn(None, a)
     # secrets are read from their files at the point of use, never inherited (docs/ARCHITECTURE.md, t116); the dashboard runs

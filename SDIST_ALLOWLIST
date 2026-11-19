@@ -157,6 +157,7 @@ tests/test_perf.py
 tests/test_planner_pace.py
 tests/test_power.py
 tests/test_prep.py
+tests/test_prep_brightness.py
 tests/test_presence.py
 tests/test_procs.py
 tests/test_projects.py

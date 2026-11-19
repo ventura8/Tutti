@@ -298,3 +298,5 @@ open. Stop cancels polling after any in-flight status call returns, not the dele
 across a dashboard restart.
 
 A local model response must finish with its completion frame; an interrupted stream is incomplete. If a Chat action was already attempted, Tutti preserves its cards and partial text and does not retry another model automatically. Inspect the action before retrying. This does not make every provider failure recoverable (t303).
+
+A CLI agent that fails after launch may have used native tools. Chat keeps the partial answer and asks you to inspect the work before retrying; it does not automatically try another model. A failure before launch may still fall back. This does not prove a stopped process or remote work has ended (t303).

@@ -1,5 +1,7 @@
 # Feedback log
 
+Chat must not repeat a started CLI agent's work after its response fails (t303).
+
 Chat must not treat interrupted local-model streams as complete or repeat an attempted action on fallback (t303).
 
 An automatic answer must not act on a parked task whose scope, check or ownership changed during review (t278).

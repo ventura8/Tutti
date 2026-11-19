@@ -132,7 +132,11 @@ def ollama_stream(worker, messages, cancel, timeout=MODEL_TIMEOUT, tools=None, t
         raise IncompleteOllamaStream('Ollama closed the stream before its completion frame')
 
 
-class CursorStreamUncertain(RuntimeError):
+class CliStreamUncertain(RuntimeError):
+    """A started CLI may have used native tools; its failure is not safe to retry automatically."""
+
+
+class CursorStreamUncertain(CliStreamUncertain):
     """A started Cursor stream failed; native tools may have acted, so do not retry automatically."""
 
 
@@ -150,7 +154,7 @@ def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.P
                cwd=None, selector=None, selector_value=None):
     """Yields a CLI worker's answer line by line (`claude -p`, `cursor-agent -p`): the conversation as one prompt. A reader
     thread feeds a queue, so Stop and the deadline are seen even while the worker prints nothing; past the deadline the
-    worker is killed and OSError lets the next model answer."""
+    worker is stopped and an uncertain outcome prevents another model from repeating native tool actions."""
     prompt = '\n\n'.join(f'{m["role"].upper()}:\n{m["content"]}' for m in messages) + '\n\nASSISTANT:'
     argv = workers.with_args(workers.command(worker, prompt), extra)
     fmt = check_chat_format(worker, argv)
@@ -160,7 +164,15 @@ def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.P
         return
     proc = popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                  stdin=subprocess.DEVNULL, text=True, start_new_session=True, cwd=cwd)
-    yield from cli_process(proc, worker, cancel, timeout, clock, fmt)
+    try:
+        yield from cli_process(proc, worker, cancel, timeout, clock, fmt)
+    except CliStreamUncertain:
+        if not cancel.is_set():
+            raise
+    except (OSError, ValueError) as e:
+        if not cancel.is_set():
+            raise CliStreamUncertain('The CLI agent failed after starting; its native tools may have acted. '
+                                     'Inspect the work before retrying; no other model was tried.') from e
 
 
 def cli_process(proc, worker, cancel, timeout, clock, fmt):
@@ -503,7 +515,7 @@ class Engine:
             msg['status'] = 'stopped' if job.cancel.is_set() else 'done'
         except Exception as e:   # the page shows a plain message; the log line names the cause
             msg['status'] = 'failed'
-            msg['note'] = str(e) if isinstance(e, (CursorStreamUncertain, IncompleteAfterAction)) else (
+            msg['note'] = str(e) if isinstance(e, (CliStreamUncertain, IncompleteAfterAction)) else (
                 'Something went wrong while answering, so this answer is incomplete. Retry; if it fails again, the '
                 'dashboard\'s log names the cause.')
             job.emit('note', text=msg['note'])

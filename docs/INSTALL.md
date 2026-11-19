@@ -50,7 +50,7 @@ dashboard's **Set up** card lists each default with a **Change** link. `--ask` a
 
 | What | How |
 | --- | --- |
-| Agents: `claude`, `cursor-agent`, `agy`, `copilot` | on PATH; each becomes a worker entry |
+| Agents: `claude`, `codex`, `cursor-agent`, `agy`, `copilot` | on PATH; each becomes a worker entry |
 | Their sign-in | the tool's own status command (`cursor-agent status`) or whether its login file exists; no credential file is ever opened |
 | Plans | where the tool prints one (`cursor-agent about`); otherwise one question with a default |
 | Local models | `ollama list`; the first becomes the `local` worker |
@@ -64,7 +64,7 @@ dashboard's **Set up** card lists each default with a **Change** link. `--ask` a
 
 - connects every agent it found to Tutti's MCP server (`tutti connect --all`, docs/CONNECT.md; `--no-connect` skips it; the restarts an agent needs join the one list at the end);
 - writes `~/.config/tutti/config.yaml` (or the config Tutti already finds) with the found entries and sensible defaults:
-  the main agent (Claude first, then Cursor, Antigravity, Copilot), `machines.here`, the workers, accounts with an
+  the main agent (Claude first, then Codex, Cursor, Antigravity, Copilot), `machines.here`, the workers, accounts with an
   estimated reset, the projects with their priorities, `self_update: {enabled: true}`. An existing config keeps every
   comment and line: entries are only added, and the old file is kept as `config.yaml.bak`. The result is checked by
   `tutti config`'s own rules before it is written;
@@ -113,6 +113,13 @@ version. An update reads the latest release's `SHA256SUMS`, downloads the newer 
 requirements and only then moves `current`; any failure leaves the running version in place. `tutti self-update
 --check` only says whether one is out. Opt out with `self_update: {enabled: false}` in the config.
 
+`tutti self-update --stage-only` verifies the signed release and checksum, then prepares a unique private staging directory
+with the release and its own Python environment. It never changes `current` or the shared environment; the printed path
+is for inspection, not automatic activation. Staging alone does not provide uninterrupted dashboard updates. Remove an
+unneeded staging directory when finished. It cannot be combined with `--check`, `--auto`, or `--insecure-skip-verify`.
+The environment-creation and dependency-install processes do not yet have a bounded, cross-platform descendant cleanup:
+if they hang, staging does not recover automatically. Do not use this command as an unattended refresh mechanism.
+
 ### How a release is checked
 
 A checksum alone only proves the files match each other. Every release's `SHA256SUMS` is also **signed with Sigstore,
@@ -150,6 +157,16 @@ runs daily where the tool's package manager allows it (docs/WORKERS.md).
 Then run `tutti setup`. npm is a ready hook: `tutti/install.py` lists it under `CHANNELS` with `published: False`; the
 first publish flips it. `tutti self-update` updates only a release install and names the right command otherwise.
 
+Source-distribution builds pin setuptools to 84.1.0. Review the contents of a source archive before publishing it. See the upstream
+[Unicode-normalization advisory](https://github.com/pypa/setuptools/security/advisories/GHSA-h35f-9h28-mq5c) for current status.
+
+Source builds check `SDIST_ALLOWLIST` and its literal `MANIFEST.in` entries before setuptools packages files. A missing,
+symlinked or hard-linked listed file, unexpected package candidate or unsafe pre-existing generated output stops the build;
+remove or move such inputs before retrying. Update both lists when tracked source files change. Builds use a temporary build
+base instead of reusing an existing `build/` folder, so stale build output is not carried into a wheel. This check assumes a
+trusted build entry point, interpreter and backend; it is not an atomic boundary against concurrent changes or a scan for
+secrets inside permitted files. Build from a trusted, quiescent source tree and inspect the archive before publishing.
+
 ## The interface (for `tutti household join` and other callers)
 
 The shared module is `tutti/install.py`; the setup steps are in `tutti/setupcmd.py`. Callers use only these:
@@ -181,7 +198,8 @@ no release yet creates it (notes from CHANGELOG.md), attaches the signed files a
 
 **Releases stuck.** Installs update only to published releases. Where Tutti runs from a git checkout of its own repository,
 `tutti doctor` and the dashboard's banner say "releases stuck: N merged version(s) unpublished" when CHANGELOG.md names
-versions newer than the latest GitHub release, with why (a refused tag, a tag without a release) and the fix. When a bootstrap script changes, its SHA-256 in this file and in the README changes with it (a unit test
+versions newer than the latest GitHub release, with why (a refused tag, a tag without a release) and the fix. Version
+headings may be bracketed or unbracketed. When a bootstrap script changes, its SHA-256 in this file and in the README changes with it (a unit test
 checks they match: `python3 -c "from tutti import install; print(install.install_line('linux'))"` prints the line).
 
 ## Uninstall

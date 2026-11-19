@@ -86,10 +86,19 @@ def paths(cfg, run_id):
             'json': os.path.join(base, 'report.json'), 'worker_log': os.path.join(base, 'worker.log')}
 
 
+def resolve_repo(cfg, repo):
+    """`--repo` as a folder, or a name under autopilot.repos: the path whose worktree the run creates. A bare name always
+    comes from the config, so the run works from a non-git cwd (MCP `delegate_task`, `tutti run --repo tutti`)."""
+    entry = ((cfg.get('autopilot') or {}).get('repos') or {}).get(repo)
+    if isinstance(entry, dict) and entry.get('path'):
+        return config.expand(entry['path'])
+    return repo
+
+
 def tree_for(cfg, repo, run_id, name=None, say=print):
     """The worktree the worker edits: <project.worktrees>/<delegate.prefix><name or id>, created detached at the repo's HEAD,
     or reused when it already is a worktree of the same repository. Returns (path, created)."""
-    top = ship.toplevel(repo)
+    top = ship.toplevel(resolve_repo(cfg, repo))
     root = config.expand(cfg['project']['worktrees'])
     wt = os.path.join(root, f'{cfg["delegate"]["prefix"]}{name or run_id}')
     if os.path.exists(os.path.join(wt, '.git')):
@@ -319,6 +328,7 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
     log = open(p['log'], 'a', encoding='utf8')   # closed in finally: the log outlives the say() closure
     say = say or (lambda m: (sys.stderr.write(f'tutti: {m}\n'), log.write(m + '\n'), log.flush()))
     try:
+        repo = resolve_repo(cfg, repo)
         wt, created = tree_for(cfg, repo, run_id, track, say)
         # how a "pause, stop now" hands this run over (tutti/handover.py): the same task, worktree and checks
         write(p['log'] + '.job', json.dumps({'kind': 'run', 'worker': name, 'task': task, 'repo': os.path.abspath(repo),

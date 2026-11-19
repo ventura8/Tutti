@@ -62,11 +62,11 @@ def tearDownModule():
     World.dash.close()
 
 
-def new_context(role, width='laptop', theme='light', zoom=1, motion='no-preference'):
+def new_context(role, width='laptop', theme='light', zoom=1, motion='no-preference', has_touch=False):
     w, h = WIDTHS[width]
     ctx = World.browser.new_context(viewport={'width': int(w / zoom), 'height': int(h / zoom)}, device_scale_factor=zoom,
                                     color_scheme=theme, reduced_motion=motion, bypass_csp=True, locale='en-US', timezone_id='UTC',
-                                    storage_state=World.states.get(role), service_workers='block')
+                                    storage_state=World.states.get(role), service_workers='block', has_touch=has_touch)
     base = World.dash.base
     ctx.route('**/*', lambda r: r.continue_() if r.request.url.startswith(base) else r.abort())   # no network: Google is fake
     return ctx
@@ -298,6 +298,31 @@ ADMIN_CONTROLS = ('#refresh-readings', '#autopilot-toggle', '#selfimprove-toggle
                   '#connect-all', '#main-form', '#autocompact-form')
 
 
+class UsageGraph(unittest.TestCase):
+    def test_readings_work_with_mouse_touch_and_keyboard(self):
+        ctx = new_context(ADMIN, has_touch=True)
+        try:
+            page = open_view(ctx, '#dashboard')
+            graph = page.locator('#usage .spark[role="slider"]').first
+            detail = graph.locator('..').locator('.spark__detail')
+            self.assertGreater(int(graph.get_attribute('aria-valuemax')), 1)
+            graph.focus()
+            graph.press('Home')
+            first = detail.inner_text()
+            self.assertEqual(graph.get_attribute('aria-valuenow'), '1')
+            graph.press('End')
+            last = detail.inner_text()
+            self.assertNotEqual(first, last)
+            self.assertEqual(graph.get_attribute('aria-valuetext'), last)
+            box = graph.bounding_box()
+            page.mouse.move(box['x'] + 1, box['y'] + box['height'] / 2)
+            self.assertEqual(detail.inner_text(), first)
+            page.touchscreen.tap(box['x'] + box['width'] - 1, box['y'] + box['height'] / 2)
+            self.assertEqual(detail.inner_text(), last)
+        finally:
+            ctx.close()
+
+
 class Roles(unittest.TestCase):
     maxDiff = None
 
@@ -335,17 +360,18 @@ class Roles(unittest.TestCase):
         ctx = new_context(ADMIN)
         page = open_view(ctx, '#dashboard')
         items = page.evaluate("fetch('/api/state').then((r) => r.json()).then((s) => s.machines.items)")
-        cards = page.locator('#machines > li')
+        cards = page.locator('#machines li[data-machine]')
         self.assertEqual(cards.count(), len(items))
-        for i, m in enumerate(items):
-            card = cards.nth(i)
-            self.assertEqual(card.locator('.pip').count(), m['slots'])
+        for m in items:
+            card = page.locator(f"#machines li[data-machine='{m['name']}']")
+            stats = card.locator(':scope > .row__stats').first
+            self.assertEqual(stats.locator('.pip').count(), m['slots'])
             if m['free'] is None:   # not reachable: dashed boxes and the slot count only
-                self.assertEqual(card.locator(".pip[data-off='true']").count(), m['slots'])
+                self.assertEqual(stats.locator(".pip[data-off='true']").count(), m['slots'])
             else:
-                self.assertEqual(card.locator(".pip[data-busy='true']").count(), m['busy'])
-                self.assertEqual(card.locator(".pip[data-held='true']").count(), m['held_back'])
-                self.assertIn(f"{m['free']} of {m['slots']} slot", card.text_content())
+                self.assertEqual(stats.locator(".pip[data-busy='true']").count(), m['busy'])
+                self.assertEqual(stats.locator(".pip[data-held='true']").count(), m['held_back'])
+                self.assertIn(f"{m['free']} of {m['slots']} slot", stats.text_content())
             win = card.get_by_label(f"{m['name']}: limited hours, HH-HH")
             self.assertTrue(win.is_editable())
             if not m.get('limit'):

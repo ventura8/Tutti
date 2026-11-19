@@ -56,7 +56,9 @@ runner:
   rewrite: {}                         # substring -> replacement, e.g. a script that starts docker -> the one run inside the image
 
 routing:
-  workers: [agy, cursor, copilot]     # `tutti run auto`: the agent accounts in this order, skipping panic and spent ones
+  # Preference order for `tutti run auto` (not an allow-list): every account that names a worker still joins; named ones
+  # are tried first. Put codex ahead of cursor when OpenAI's quota should burn before Cursor's.
+  workers: [agy, codex, cursor, copilot]
   order: [builder, gpu-box]           # first fit wins; when none is fit the run queues on the first
 
 sync:
@@ -70,6 +72,9 @@ files: {cache: ~/.cache/tutti/files, budget_gb: 50, keep_free_gb: 2, bwlimit_kbp
 # Workers the orchestrator can brief. kind: cli (another vendor's agent) or ollama (a local model server).
 workers:
   cursor: {kind: cli, command: [cursor-agent, -p, '{prompt}', --trust, --force, --output-format, text]}   # --force: commands run headless
+  # OpenAI Codex CLI (`codex exec`): sign in once on the machine that runs it (`codex login --device-auth`). `machine:`
+  # names that computer (often the laptop): yield/pause/heat are honoured and Move work knows where the login lives.
+  codex: {kind: cli, command: [codex, exec, --skip-git-repo-check, --approve-for-me, '{prompt}'], machine: here}
   # Google Antigravity: {log} is a log file per run, where a headless permission denial shows ("soft-denying ...")
   agy: {kind: cli, command: [agy, -p, '{prompt}', --print-timeout, 600s, --mode, accept-edits, --log-file, '{log}'], denied: soft-denying}
   claude: {kind: cli, command: [claude, -p, '{prompt}']}
@@ -164,8 +169,18 @@ accounts:
     resets_estimated: true
     source: agy /usage (Gemini models, weekly)
     reader: {command: [agy, -p, /usage, --output-format, json, --print-timeout, 60s], bucket: gemini-weekly}
-  # Grok Bot's weekly allowance (Cursor Pro includes it): read from the same spending page by the reading helper. Scouts
-  # (below) are paced against it and send nothing once it is used: Grok Bot then pauses, or bills on-demand if allowed.
+  # Codex CLI reads its own ChatGPT rate limits without spending quota. Existing accounts with worker: codex get this reader automatically.
+  codex:
+    window: 7d
+    resets: '2026-01-06T00:00Z'
+    resets_estimated: true
+    usage_url: https://chatgpt.com/codex/settings/usage
+    reader: {format: codex-app-server, every_minutes: 15}
+    source: chatgpt.com/codex/settings/usage
+    worker: codex
+    match: {command: '\bcodex\b'}
+  # Grok Bot's weekly allowance (Cursor Pro includes it): read automatically from the visible, scoped spending page.
+  # Scouts (below) are paced against it and send nothing once it is used.
   grok-bot:
     window: 7d
     resets: '2026-01-04T00:00Z'
@@ -195,7 +210,7 @@ dashboard:
   probe_seconds: 30
   stall_minutes: 10
   watch_scripts: [test.sh, ship.sh]             # running scripts shown as jobs, with the log their output goes to
-  watch_agents: [cursor-agent, agy, copilot]    # agent CLIs by process (program and folder only)
+  watch_agents: [cursor-agent, agy, copilot, codex]    # agent CLIs by process (program and folder only)
   task_globs: []                                # an agent session's background task outputs, e.g. ['/tmp/agent-*/tasks/*.output']
   # Progress (docs/DASHBOARD.md, *Progress*): a job kind's known phases, or lines counted against a total. `match` is a
   # regex on the job's title; its first group joins the kind's name for the history of durations.
@@ -285,8 +300,10 @@ pacing:
 # `tutti autopilot` (docs/AUTOPILOT.md): backlog tasks to accounts that are behind their pace; retries climb the ladder.
 autopilot:
   enabled: false
-  accounts: [cursor]
-  ladder: [cursor]
+  # Fresh tasks go here while behind pace; put codex with cursor so OpenAI burns when Cursor is ahead or spent.
+  accounts: [cursor, codex]
+  # Retries climb this list (Codex before Cursor while Cursor is ahead).
+  ladder: [codex, cursor]
   # max_parallel: 2                    # optional cap; without it the limit is adaptive (docs/AUTOPILOT.md, Adaptive parallelism)
   quiet_hours: []                      # local-time spans (time.zone) the autopilot must not run, e.g. ['22:00-06:00']: the planner gives them nothing
   fill_room: true                      # free room on `accounts` is filled from the repos' sources (TODOs, gaps, untested files)
@@ -313,8 +330,11 @@ review:
   # rounds: {coderabbit: 1, greptile: 1, copilot: 1, grok: 1, local: 1}
 
 # `tutti conduct`: another agent as the main (conductor) agent; who takes over when its quota is in panic (docs/CONDUCT.md)
+# agent: a worker, or auto (preferred while it has room, else the first of fallback with room). preferred: lasting choice
+# (empty: this file's agent when that is a worker, else the first of fallback, else claude). See docs/CONDUCT.md.
 main:
-  agent: claude
+  agent: auto
+  preferred: claude
   fallback: [agy, cursor, small]
   commands:
     claude: [claude, -p, '{prompt}', --permission-mode, acceptEdits, --allowedTools, 'Bash(tutti:*)']

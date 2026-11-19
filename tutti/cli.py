@@ -169,6 +169,12 @@ def cmd_setup(cfg, a):
         return 1
 
 
+def _stage_self_update(install, home_dir, a, skip):
+    if a.check or skip or a.auto:
+        return 2, 'self-update: --stage-only requires signature verification and cannot be combined with --check or --auto'
+    return install.stage_update(home_dir)
+
+
 def cmd_self_update(cfg, a):
     """`tutti self-update [--check|--auto]`: the newest checksummed release (docs/INSTALL.md, *Updates*)."""
     from . import install
@@ -189,7 +195,10 @@ def cmd_self_update(cfg, a):
     skip = bool(getattr(a, 'insecure_skip_verify', False)) and not a.auto   # never unattended
     if skip:
         say(f'self-update: {install.SKIP_WARNING}')
-    code, msg = install.self_update(home_dir, check_only=a.check, skip_verify=skip)
+    if getattr(a, 'stage_only', False):
+        code, msg = _stage_self_update(install, home_dir, a, skip)
+    else:
+        code, msg = install.self_update(home_dir, check_only=a.check, skip_verify=skip)
     say(msg)
     return code
 
@@ -532,8 +541,10 @@ def usage_log_path(cfg):
 def read_now(cfg, path, now):
     """`tutti usage read`: every automatic reader once and the recent job logs; prints what was found and any problem."""
     r = readers.Readers(cfg)
-    found = r.read_all(now, force=True)
-    written = readers.record(path, found, r.scan_jobs(now), now)
+    started = datetime.fromtimestamp(r.clock(), timezone.utc)
+    found = r.read_all(started, force=True)
+    received = datetime.fromtimestamp(r.clock(), timezone.utc)
+    written = readers.record(path, found, r.scan_jobs(now), received, hit_now=now)
     for name, x in found.items():
         if x['problem']:
             say(f'{name}: {x["problem"]}')
@@ -625,7 +636,8 @@ def choose_worker(cfg, now):
     """`tutti run auto`: the worker whose account has room, from the latest readings (panic and spent accounts are skipped)."""
     entries = pacing.read_log(usage_log_path(cfg))
     accounts = [pacing.account_state(n, x, entries, now, *pacing.plan_args(cfg)) for n, x in cfg['accounts'].items()]
-    return state.next_worker(cfg, accounts)
+    machines = state.machines_state(cfg, remote.probe) if any((w or {}).get('machine') for w in cfg['workers'].values()) else None
+    return state.next_worker(cfg, accounts, machines, now)
 
 
 def cmd_run(cfg, a):
@@ -977,7 +989,9 @@ def cmd_selfheal(cfg, a):
     if a.once:
         lines = selfheal.round_(selfheal.Ctx(cfg))
         if a.json:
-            print(json.dumps({'repairs': lines}))
+            from .watchdog import WarningLine
+            print(json.dumps({'repairs': [x for x in lines if not isinstance(x, WarningLine)],
+                              'warnings': [x for x in lines if isinstance(x, WarningLine)]}))
             return 0
         say('\n'.join(lines) or 'self-heal: nothing repaired this round (a step only a person can take is in `tutti needs`)')
         return 0
@@ -1241,7 +1255,7 @@ def cmd_conduct(cfg, a):
 
 
 def cmd_main(cfg, a):
-    """`tutti main`: the main agent and who has room; `tutti main <agent>` switches it (a running conductor hands over)."""
+    """`tutti main`: the main agent and who has room; `tutti main <agent|auto>` switches it (a running conductor hands over)."""
     if a.agent == 'backup':   # `tutti main backup [<machine>|auto|none]`: the backup main machine (docs/FAILOVER.md)
         from . import failovercmd
         a.machine = a.machine_name
@@ -1764,6 +1778,7 @@ def parser():
     s.add_argument('--insecure-skip-verify', action='store_true',
                    help='offline only: install without checking the release\'s Sigstore signature (a loud warning; never with --auto)')
     s.add_argument('--check', action='store_true', help='only say whether a newer release is out')
+    s.add_argument('--stage-only', action='store_true', help='verify and stage the release in a separate environment without activating it')
     s.add_argument('--auto', action='store_true', help='quiet no-op when turned off (self_update.enabled) or not a release install')
     s = add('machines', cmd_machines, 'probe every machine: free slots, load, yield flag (add-android: set up a Termux machine)')
     s.add_argument('action', nargs='?', choices=['add-android'], help='print the one-time Termux setup and the config lines')
@@ -1850,8 +1865,8 @@ def parser():
     s.add_argument('--show', action='store_true', help='print the brief and stop')
     s.add_argument('--input', action='append', metavar='PATH', help='a file or folder to copy to the --on machine first (repeat it)')
     s.add_argument('--on', help='the machine --input files go to')
-    s.add_argument('--repo', help='hand the task off end to end: a worktree of this repo, the worker headless, the diff, the checks, '
-                                  'a report (tutti runs show <id>)')
+    s.add_argument('--repo', help='hand the task off end to end: a worktree of this repo (a folder, or a name under '
+                                  'autopilot.repos), the worker headless, the diff, the checks, a report (tutti runs show <id>)')
     s.add_argument('--track', help='with --repo: reuse or create the worktree <delegate.prefix><track> instead of a new one')
     s.add_argument('--bg', action='store_true', help='with --repo: run detached; prints the id for `tutti wait run <id>`')
     s.add_argument('--no-checks', action='store_true', help='with --repo: skip the checks (the report says nothing was tested)')
@@ -2164,9 +2179,10 @@ def parser():
     s.add_argument('--device-secret-stdin', action='store_true', help='setup: read that client\'s secret from stdin (never argv)')
     s.add_argument('--tailscale', action='store_true', help='setup: serve the dashboard on this computer\'s Tailscale https '
                                                             'name (tailnet only) and add that origin')
-    s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent>` to switch it; '
+    s = add('main', cmd_main, 'the main agent: show it and who has room, or `tutti main <agent|auto>` to switch it '
+                              '(auto: preferred while it has room, else the first main.fallback with room); '
                               '`tutti main backup [<machine>|auto|none]`: the backup main machine (docs/FAILOVER.md)')
-    s.add_argument('agent', nargs='?')
+    s.add_argument('agent', nargs='?', help='a worker, auto, or backup')
     s.add_argument('machine_name', nargs='?', help='backup: the machine, auto (Tutti elects one) or none (no failover)')
     s.add_argument('--yes', action='store_true', help='backup: change it although the current backup does not answer')
     from . import failovercmd

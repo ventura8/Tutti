@@ -9,7 +9,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import autopilot, backlog, cli, config, dashboard, delegate, fleet
+from tutti import autopilot, backlog, cli, config, dashboard, delegate, fleet, routing, state
 
 FAKE_WORKER = '''import sys
 prompt = sys.argv[1]
@@ -37,6 +37,7 @@ def attempt(step, sig='s1', ok=False):
 
 
 FREE = [{'name': 'nuc', 'status': 'free', 'free': 2, 'reason': 'fit'}]
+TEST_NOW = autopilot.datetime(2026, 1, 1, 1, tzinfo=autopilot.timezone.utc)
 
 
 class Base(unittest.TestCase):
@@ -139,6 +140,94 @@ class PlanTest(Base):
         p = autopilot.plan(self.cfg(), [task('t1'), task('t2'), task('t3')], self.states(), FREE, True)
         self.assertEqual(p['dispatch'], [('t1', 'agy-gemini'), ('t2', 'agy-gemini')])
         self.assertEqual(p['state'], 'dispatching')
+
+    def test_when_all_online_are_in_panic_rescue_spreads_work_to_the_most_remaining_quota(self):
+        cfg = self.cfg(main_accounts=['agy-claude'])
+        cfg['_main_worker'] = 'local-main'
+        cfg['workers']['local-main'] = {'kind': 'ollama', 'host': '127.0.0.1:1', 'model': 'm:3b'}
+        states = {'agy-claude': account('agy-claude', 'ahead', used=99, panic=True),
+                  'agy-gemini': account('agy-gemini', 'ahead', used=97, panic=True),
+                  'cursor': account('cursor', 'ahead', used=95, panic=True)}
+        states = {n: {**s, 'reading_at': '2026-01-01T00:00:00Z'} for n, s in states.items()}
+        p = autopilot.plan(cfg, [task('t1'), task('t2')], states, FREE, True, now=TEST_NOW)
+        self.assertEqual(p['dispatch'], [('t1', 'cursor'), ('t2', 'agy-gemini')])
+
+    def test_panic_rescue_reserves_shared_window_for_each_dispatch(self):
+        cfg = self.cfg(main_accounts=['agy-claude'])
+        cfg['_main_worker'] = 'local-main'
+        cfg['workers']['local-main'] = {'kind': 'ollama', 'host': '127.0.0.1:1', 'model': 'm:3b'}
+        weekly = {'name': 'weekly', 'used': 97, 'panic': True, 'reading_at': '2026-01-01T00:00:00Z'}
+        states = {n: {**account(n, 'ahead', used=96, panic=True), 'reading_at': '2026-01-01T00:00:00Z',
+                      'limits': [weekly]} for n in ('agy-claude', 'agy-gemini', 'cursor')}
+        p = autopilot.plan(cfg, [task('t1'), task('t2')], states, FREE, True, now=TEST_NOW)
+        self.assertEqual(len(p['dispatch']), 1)   # 3 points left, two tasks would cost 4
+        self.assertIn('shared quota', p['waiting']['t2'])
+
+    def test_panic_rescue_fails_closed_when_a_configured_linked_window_is_missing(self):
+        cfg = self.cfg(main_accounts=['cursor'])
+        cfg['_main_worker'] = 'local-main'
+        cfg['workers']['local-main'] = {'kind': 'ollama', 'host': '127.0.0.1:1', 'model': 'm:3b'}
+        cfg['_account_limits']['cursor'] = ['weekly']
+        cfg['_account_limits']['weekly'] = ['monthly']
+        cfg['_now'] = TEST_NOW
+        states = {n: {**account(n, 'ahead', used=96, panic=True), 'reading_at': '2026-01-01T00:00:00Z'}
+                  for n in ('agy-claude', 'agy-gemini', 'cursor')}
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
+        weekly = {'name': 'weekly', 'used': 96, 'panic': True, 'reading_at': '2026-01-01T00:00:00Z'}
+        states['cursor']['limits'] = [weekly]
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
+        weekly['limits'] = [{'name': 'monthly', 'used': 96, 'panic': True, 'reading_at': '2026-01-01T00:00:00Z'}]
+        self.assertTrue(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
+
+    def test_missing_linked_window_blocks_normal_and_direct_auto_dispatch(self):
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        cfg['accounts'] = {'agy-gemini': cfg['accounts']['agy-gemini']}
+        cfg['_account_limits']['agy-gemini'] = ['weekly']
+        states = {'agy-gemini': account('agy-gemini')}
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True)['dispatch'], [])
+        picked = state.next_worker(cfg, list(states.values()))
+        self.assertIsNone(picked['worker'])
+        self.assertIn('weekly', picked['reason'])
+        states['agy-gemini']['limits'] = [account('weekly')]
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True)['dispatch'], [('t1', 'agy-gemini')])
+        self.assertEqual(state.next_worker(cfg, list(states.values()))['worker'], 'agy')
+
+    def test_direct_takeover_never_overrides_linked_window_panic(self):
+        s = {**account('cursor', used=None), 'limits': [account('weekly', used=99, panic=True)]}
+        picked, why = routing.pick_account([s], takeover=True)
+        self.assertIsNone(picked)
+        self.assertIn('weekly', why)
+
+    def test_direct_takeover_rejects_unknown_own_or_linked_usage(self):
+        for s in (account('cursor', used=None),
+                  {**account('cursor', used=20), 'limits': [account('weekly', used=None)]}):
+            picked, why = routing.pick_account([s], takeover=True)
+            self.assertIsNone(picked)
+            self.assertIn('unknown', why)
+
+    def test_attempt_remains_debited_until_linked_window_is_refreshed(self):
+        states = {'cursor': {'reading_at': '2026-01-03T00:00:00Z',
+                             'limits': [{'name': 'weekly', 'reading_at': '2026-01-01T00:00:00Z'}]}}
+        t = task('t1', 'done', [{'step': 'cursor', 'started': 1767312000}])  # 2026-01-02 UTC
+        self.assertEqual(autopilot.spent_units([t], states), {'cursor': 1})
+        states['cursor']['limits'][0]['reading_at'] = '2026-01-03T00:00:00Z'
+        self.assertEqual(autopilot.spent_units([t], states), {})
+
+    def test_paused_accounts_unreported_attempt_still_debits_a_shared_window(self):
+        cfg = self.cfg(main_accounts=['agy-claude'])
+        cfg['_main_worker'] = 'local-main'
+        cfg['workers']['local-main'] = {'kind': 'ollama', 'host': '127.0.0.1:1', 'model': 'm:3b'}
+        cfg['_account_limits']['paused'] = ['weekly']
+        cfg['_account_costs']['paused'] = 2
+        weekly = {'name': 'weekly', 'used': 97, 'panic': True, 'reading_at': '2026-01-03T00:00:00Z'}
+        states = {n: {**account(n, 'ahead', used=96, panic=True), 'reading_at': '2026-01-03T00:00:00Z',
+                      'limits': [weekly]} for n in ('agy-claude', 'agy-gemini', 'cursor')}
+        started = autopilot.datetime(2026, 1, 3, 0, 30, tzinfo=autopilot.timezone.utc).timestamp()
+        now = autopilot.datetime(2026, 1, 3, 1, tzinfo=autopilot.timezone.utc)
+        done = task('old', 'done', [{'step': 'paused', 'started': started}])
+        self.assertEqual(autopilot.plan(cfg, [done, task('t1')], states, FREE, True, now=now)['dispatch'], [])
+        weekly['reading_at'] = '2026-01-03T00:45:00Z'
+        self.assertEqual(len(autopilot.plan(cfg, [done, task('t1')], states, FREE, True, now=now)['dispatch']), 1)
 
     def test_an_account_at_its_line_or_in_panic_takes_nothing(self):
         states = self.states(**{'agy-gemini': account('agy-gemini', 'on pace'), 'agy-claude': account('agy-claude', panic=True, used=96)})
@@ -294,6 +383,19 @@ class FailureTest(Base):
         t = task('t1', attempts=[quota, {**quota, 'step': 'agy-claude'}])
         self.assertEqual(autopilot.should_park(cfg, t), '')            # the worker's own problem: never parks the task
 
+    def test_env_side_failures_do_not_count_or_park_on_the_strongest_step(self):
+        # t260: usage limits, CLI refusals and no-report must not fill max_attempts or park as no_progress
+        cfg = self.cfg(max_attempts=2, no_progress=2)
+        quota = {**attempt('pc', 'q'), 'why': 'the worker hit its usage limit'}
+        self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=[quota, quota])), '')
+        refused = {**attempt('pc', 'r'), 'why': "the worker's CLI refused a command: tool read_file auto-denied"}
+        self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=[refused, refused])), '')
+        norep = {**attempt('pc', 'n'), 'why': 'the run ended without a report'}
+        self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=[norep, norep])), '')
+        # a real failure still parks once the cap of counted attempts is reached
+        real = [attempt('cursor', 's1'), attempt('cursor', 's2')]
+        self.assertIn('max_attempts', autopilot.should_park(cfg, task('t1', attempts=real)))
+
     def test_a_worker_exit_says_whether_it_was_its_limit_or_its_time(self):
         r = {'worker_rc': 3}
         self.assertEqual(autopilot.signature(r, {}, 'Individual quota reached. Resets in 147h44m29s.')[1], 'the worker hit its usage limit')
@@ -303,6 +405,26 @@ class FailureTest(Base):
         # a task about rate limits, quoted in Tutti's summary, is not the worker's limit
         summary = 'boom\nrun 1-2: agy exit 3; 0 file(s) changed\ntask      Add a rate limit to the API'
         self.assertEqual(autopilot.signature(r, {}, summary)[1], 'the worker exited 3')
+        # no report after a usage limit in the log is still the account's limit (t260)
+        self.assertEqual(autopilot.signature(None, {}, "You've hit your usage limit. Resets in 3h.")[1],
+                         'the worker hit its usage limit')
+        self.assertEqual(autopilot.signature(None, {}, 'worker crashed')[1], 'the run ended without a report')
+
+    def test_an_http_429_worker_exit_is_excluded_from_attempt_count(self):
+        # CodeRabbit on #616: attempt_of must normalise HTTP 429 to the quota why so park_reason does not count it
+        cfg = self.cfg(max_attempts=2)
+        runs = delegate.runs_dir(cfg)
+        os.makedirs(runs, exist_ok=True)
+        with open(os.path.join(runs, '1-1.log'), 'w', encoding='utf8') as f:
+            f.write('HTTP 429 Too Many Requests\n')
+        t = {**task('t1'), 'run': '1-1', 'step': 'pc', 'worker': 'pc', 'model': '', 'started': 0, 'gates': None}
+        a = autopilot.attempt_of(cfg, t, {'rc': 1, 'worker_rc': 1, 'checks': [], 'changed': ['a'], 'stat': '', 'diff': None}, 0)
+        self.assertEqual(a['why'], 'the worker hit its usage limit')
+        self.assertTrue(autopilot.env_failure(a['why']))
+        self.assertEqual(autopilot.should_park(cfg, task('t1', attempts=[a, dict(a)])), '')
+        # a bare 429 in a check assertion is still a real attempt
+        bare = autopilot.signature({'worker_rc': 1}, {}, 'AssertionError: expected status 429, got 500')[1]
+        self.assertEqual(bare, 'the worker exited 1')
 
     def test_an_exhausted_ladder_parks_even_when_the_last_two_differ(self):
         cfg = self.cfg(ladder=['agy-gemini', 'agy-claude'])
@@ -363,6 +485,20 @@ class RoundTest(Base):
     def tick(self):
         with mock.patch.object(config, 'load', return_value=self.c):
             return autopilot.tick(self.c, self.states, [], is_alive=lambda pid: False, spawn=self.run_now)
+
+    def test_ahead_account_is_rechecked_and_dispatches_on_a_later_round(self):
+        self.c['autopilot'].update(ladder=['fake-b'], accounts=['fake-b'])
+        self.c['workers'].pop('pc')
+        self.states['fake-b'] = account('fake-b', 'ahead', used=30)
+        with backlog.locked(self.c) as data:
+            backlog.add(data, backlog.new_task('app', 'Mark a.txt fixed', ['a.txt'], ''))
+        first, _ = self.tick()
+        self.assertEqual(first['dispatch'], [])
+        self.assertIn('next successful active dashboard round', first['reason'])
+        self.assertEqual(backlog.load(self.c)['tasks'][0]['status'], 'queued')
+        self.states['fake-b'] = account('fake-b', 'behind', used=30)
+        second, _ = self.tick()
+        self.assertEqual(second['dispatch'], [('t1', 'fake-b')], second)
 
     def test_a_failing_task_retries_from_its_worktree_one_step_up_then_is_ready_for_review(self):
         with backlog.locked(self.c) as data:
@@ -456,6 +592,82 @@ class SurfaceTest(Base):
         self.assertEqual(p['reason'], autopilot.EMPTY)
         self.assertEqual(c.snapshot()['autopilot']['last']['reason'], autopilot.EMPTY)
 
+    def test_collector_remeasures_host_and_disk_on_each_autopilot_round(self):
+        cfg = self.cfg()
+        collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        samples = [{'mem_gb': 32, 'cores': 4, 'load': 8}, {'mem_gb': 32, 'cores': 4, 'load': 0},
+                   {'mem_gb': 32, 'cores': 4, 'load': 7}]
+        rounds, tick = [], autopilot.tick
+        def capture(round_cfg, *args, **kwargs):
+            result = tick(round_cfg, *args, **kwargs)
+            rounds.append(round_cfg)
+            return result
+        with mock.patch('tutti.parallel.host', side_effect=samples), \
+             mock.patch('tutti.diskroom.problems', side_effect=[['disk low'], ['disk low'], [], [], ['disk low'], ['disk low']]), \
+             mock.patch.object(autopilot, 'tick', side_effect=capture), mock.patch('tutti.workq.tick'):
+            for sample, disk in zip(samples, (['disk low'], [], ['disk low']), strict=True):
+                collector.autopilot_tick()
+                current = rounds[-1]
+                self.assertEqual(current['_host_raw'], sample)
+                self.assertEqual(current['_disk'], disk)
+                capacity, blocked = autopilot.capacity_now(current, [], FREE, TEST_NOW, room=3)
+                if disk:
+                    self.assertEqual(capacity, (0, 0))
+                    self.assertIn('disk low', blocked['reason'])
+                else:
+                    self.assertGreater(capacity[0], 0)
+                    self.assertIsNone(blocked)
+        self.assertEqual(cfg['_disk'], [])  # the shared config and its other readers were not mutated
+
+    def test_collector_refreshes_cpu_bound_even_when_disk_stays_healthy(self):
+        cfg = self.cfg()
+        collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        loads, bounds, tick = (8, 0, 8), [], autopilot.tick
+        def capture(round_cfg, *args, **kwargs):
+            result = tick(round_cfg, *args, **kwargs)
+            autopilot.capacity_now(round_cfg, [], FREE, TEST_NOW, room=3)
+            bounds.append(round_cfg['_parallel']['bounds']['cpu'])
+            return result
+        with mock.patch('tutti.parallel.host', side_effect=[{'mem_gb': 32, 'cores': 4, 'load': n} for n in loads]), \
+             mock.patch('tutti.diskroom.problems', return_value=[]), \
+             mock.patch.object(autopilot, 'tick', side_effect=capture), mock.patch('tutti.workq.tick'):
+            for _ in loads:
+                collector.autopilot_tick()
+        self.assertEqual(bounds, [0, 16, 0])
+
+    def test_collector_retains_previous_parallel_limit_without_mutating_shared_config(self):
+        cfg = self.cfg()
+        collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        previous = []
+        def tick(round_cfg, *_args, **_kwargs):
+            previous.append(round_cfg.get('_parallel_limit'))
+            round_cfg['_parallel_limit'] = 7
+            return None
+        with mock.patch.object(autopilot, 'tick', side_effect=tick), mock.patch('tutti.workq.tick'):
+            collector.autopilot_tick()
+            collector.autopilot_tick()
+        self.assertEqual(previous, [None, 7])
+        self.assertNotIn('_parallel_limit', cfg)
+
+    def test_config_reload_clears_previous_autopilot_parallel_limit(self):
+        cfg = self.cfg()
+        collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        collector.autopilot_parallel_limit = 7
+        fresh = self.cfg()
+        with mock.patch.object(config, 'load', return_value=fresh):
+            collector.reload()
+        self.assertIs(collector.cfg, fresh)
+        self.assertIsNone(collector.autopilot_parallel_limit)
+
+    def test_collector_does_not_reuse_cached_measurement_when_host_probe_fails(self):
+        cfg = self.cfg()
+        collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), activity_fn=None, prs_fn=None)
+        with mock.patch('tutti.parallel.host', side_effect=OSError('probe failed')), \
+             mock.patch('tutti.diskroom.problems', return_value=[]), mock.patch('tutti.workq.tick') as workq:
+            with self.assertRaisesRegex(OSError, 'probe failed'):
+                collector.autopilot_tick()
+        workq.assert_not_called()
+
     def test_backlog_cli_add_retry_rm_and_unknown_repo(self):
         cfg = self.cfg()
         with mock.patch.object(config, 'load', return_value=cfg), mock.patch('sys.stdout'):
@@ -499,11 +711,15 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
     CFG = {'accounts': {'claude': {'worker': 'claude'}, 'cursor': {'worker': 'cursor'}},
            'workers': {'claude': {'kind': 'cli'}, 'cursor': {'kind': 'cli'}}, 'autopilot': {}}
 
-    def room(self, states, name='cursor', running=None):
+    def room(self, states, name='cursor', running=None, local_main=False):
         from tutti import autopilot
+        cfg = self.CFG
+        if local_main:
+            cfg = {**cfg, '_now': TEST_NOW, '_main_worker': 'local', 'workers': {**cfg['workers'], 'local': {'kind': 'ollama'}}}
+            states = {n: {'reading_at': '2026-01-01T00:00:00Z', **s} for n, s in states.items()}
         with mock.patch.object(autopilot, 'costs_money', return_value=False), \
                 mock.patch.object(autopilot, 'trigger_accounts', return_value=[]):
-            return autopilot.step_room(self.CFG, name, states, running or {})
+            return autopilot.step_room(cfg, name, states, running or {})
 
     def test_an_ahead_account_takes_tasks_only_while_the_main_agent_panics(self):
         ahead = {'verdict': 'ahead', 'used': 40}
@@ -512,18 +728,115 @@ class TakeoverWhileTheMainAgentPanics(unittest.TestCase):
         near = {'claude': {'panic': True, 'used': 96}, 'cursor': {'verdict': 'ahead', 'used': 94}}
         self.assertEqual(self.room(near, running={'cursor': 1})[0], 0)
 
+    def test_other_account_linked_to_cursor_gets_room_when_main_panics(self):
+        from tutti import autopilot
+        cfg = {'accounts': {'claude': {'worker': 'claude'}, 'cursor-other': {'worker': 'cursor'}},
+               'workers': {'claude': {'kind': 'cli'}, 'cursor': {'kind': 'cli'}}, 'autopilot': {}}
+        states = {'claude': {'panic': True, 'used': 96}, 'cursor-other': {'used': 16.7, 'verdict': 'on pace'}}
+        with mock.patch.object(autopilot, 'costs_money', return_value=False), \
+                mock.patch.object(autopilot, 'trigger_accounts', return_value=[]):
+            room, _ = autopilot.step_room(cfg, 'cursor-other', states, {})
+            self.assertGreater(room, 0)
+            states['claude'] = {'used': 50, 'verdict': 'ahead'}
+            states['cursor-other']['verdict'] = 'ahead'
+            self.assertEqual(autopilot.step_room(cfg, 'cursor-other', states, {})[0], 0)
+
     def test_it_fills_up_to_its_own_panic_line(self):
         from tutti import autopilot
         acc = {'accounts': {'cursor': {'task_pct': 2}}}
         self.assertEqual(autopilot.takeover_room(acc, 'cursor', {'used': 35, 'panic_at': 95}), 30)
         self.assertEqual(autopilot.takeover_room(acc, 'cursor', {'used': 94, 'panic_at': 95}), 1)
         self.assertEqual(autopilot.takeover_room(acc, 'cursor', {'used': 95, 'panic_at': 95}), 0)
+        self.assertEqual(autopilot.takeover_room(acc, 'cursor', {'used': None, 'panic_at': 95}), 0)
 
-    def test_its_own_panic_or_spent_quota_still_stops_it_and_the_main_account_never_takes_over(self):
+    def test_takeover_does_not_assume_unknown_account_or_linked_usage_is_zero(self):
+        main = {'panic': True, 'used': 96}
+        for current in ({'verdict': 'on pace', 'used': None},
+                        {'verdict': 'on pace', 'used': 20, 'limits': [{'name': 'weekly', 'used': None}]}):
+            self.assertEqual(self.room({'claude': main, 'cursor': current})[0], 0)
+
+    def test_panic_rescue_is_bounded_and_never_uses_spent_or_unknown_quota(self):
         panic = {'claude': {'panic': True, 'used': 96}}
-        self.assertEqual(self.room({**panic, 'cursor': {'panic': True, 'used': 96}})[0], 0)
-        self.assertEqual(self.room({**panic, 'cursor': {'verdict': 'spent', 'used': 100}})[0], 0)
+        self.assertEqual(self.room({**panic, 'cursor': {'panic': True, 'used': 96}}, local_main=True)[0], 1)
+        self.assertEqual(self.room({**panic, 'cursor': {'panic': True, 'used': 96}}, running={'cursor': 1}, local_main=True)[0], 0)
+        self.assertEqual(self.room({**panic, 'cursor': {'panic': True, 'used': 99}}, local_main=True)[0], 0)
+        self.assertEqual(self.room({**panic, 'cursor': {'panic': True, 'used': None}}, local_main=True)[0], 0)
+        self.assertEqual(self.room({**panic, 'cursor': {'verdict': 'spent', 'used': 100}}, local_main=True)[0], 0)
         self.assertEqual(self.room(panic, name='claude')[0], 0)
+
+    def test_a_spent_linked_window_blocks_rescue(self):
+        states = {'claude': {'panic': True, 'used': 96},
+                  'cursor': {'used': 10, 'limits': [{'name': 'weekly', 'used': 100, 'verdict': 'spent'}]}}
+        self.assertEqual(self.room(states, local_main=True)[0], 0)
+
+    def test_paused_account_does_not_turn_its_worker_into_an_unmetered_step(self):
+        from tutti import autopilot
+        cfg = config.normalise({'accounts': {'cursor-other': {'worker': 'cursor', 'paused': {'by': 'owner'}}},
+                                'workers': {'cursor': {'kind': 'cli', 'command': ['cursor-agent', '{prompt}']}}})
+        self.assertIsNone(autopilot.step_of(cfg, 'cursor'))
+
+    def test_current_main_worker_account_triggers_handover(self):
+        from tutti import autopilot
+        cfg = {'accounts': {}, 'workers': {}, 'autopilot': {}, '_main_worker': 'cursor',
+               '_account_workers': {'cursor-other': 'cursor'}}
+        self.assertTrue(autopilot.main_in_panic(cfg, {'cursor-other': {'used': 97, 'panic': True}}))
+
+    def test_main_worker_keeps_room_if_one_of_its_accounts_is_healthy(self):
+        from tutti import autopilot
+        cfg = {'accounts': {}, 'workers': {'cursor': {'kind': 'cli'}}, 'autopilot': {}, '_main_worker': 'cursor',
+               '_account_workers': {'cursor': 'cursor', 'cursor-other': 'cursor'}}
+        states = {'cursor': {'used': 100, 'verdict': 'spent'}, 'cursor-other': {'used': 20}}
+        self.assertFalse(autopilot.main_in_panic(cfg, states))
+        states['cursor-other'] = {'used': 97, 'panic': True}
+        self.assertTrue(autopilot.main_in_panic(cfg, states))
+
+    def test_panic_rescue_waits_for_a_local_main_and_obeys_quiet_windows(self):
+        from tutti import autopilot
+        cfg = {**self.CFG, '_now': TEST_NOW, '_main_worker': 'claude'}
+        states = {'claude': {'panic': True, 'used': 96, 'reading_at': '2026-01-01T00:00:00Z'},
+                  'cursor': {'panic': True, 'used': 96, 'reading_at': '2026-01-01T00:00:00Z'}}
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
+        cfg = {**cfg, '_main_worker': 'local', 'workers': {**cfg['workers'], 'local': {'kind': 'ollama'}}}
+        self.assertTrue(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
+        quiet = {**states['cursor'], 'quota_plan': {'limit': 'weekly', 'allowance': 0}}
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', quiet, {**states, 'cursor': quiet}))
+
+    def test_panic_rescue_requires_fresh_real_valid_readings_even_with_a_reader(self):
+        cfg = {**self.CFG, '_now': TEST_NOW, '_main_worker': 'local',
+               'workers': {**self.CFG['workers'], 'local': {'kind': 'ollama'}},
+               'accounts': {**self.CFG['accounts'], 'cursor': {'worker': 'cursor', 'reader': {'command': ['agent']}}}}
+        states = {'claude': {'panic': True, 'used': 96, 'reading_at': '2026-01-01T00:30:00Z'},
+                  'cursor': {'panic': True, 'used': 96, 'reading_at': '2026-01-01T00:30:00Z', 'stale': False, 'reader_problem': None}}
+        self.assertTrue(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
+        unknown = {k: v for k, v in states['cursor'].items() if k != 'reader_problem'}
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', unknown, {**states, 'cursor': unknown}))
+        for change in ({'used': -20}, {'used': 101}, {'used': 'unknown'}, {'used': float('nan')}, {'used': float('inf')},
+                       {'reading_at': 'invalid'}, {'reading_at': '2026-01-01T02:00:00Z'},
+                       {'reading_at': '2025-12-31T20:00:00Z'}, {'selected_source': 'estimate'}):
+            bad = {**states['cursor'], **change}
+            self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', bad, {**states, 'cursor': bad}), change)
+        bad_main = {**states['claude'], 'used': 'unknown'}
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], {**states, 'claude': bad_main}))
+        bad_link = {**states['cursor'], 'limits': [{'name': 'weekly', 'used': 'unknown'}]}
+        self.assertFalse(autopilot.takes_over(cfg, 'cursor', bad_link, states))
+
+    def test_selected_estimate_is_not_mistaken_for_the_older_real_reading(self):
+        entries = [{'account': 'cursor', 'at': '2026-01-01T00:20:00Z', 'used': 20, 'source': 'reader'},
+                   {'account': 'cursor', 'at': '2026-01-01T00:30:00Z', 'used': 96, 'source': 'estimate'}]
+        account_cfg = {'window': '7d', 'resets': '2026-01-07T00:00:00Z'}
+        observed = autopilot.pacing.account_state('cursor', account_cfg, entries, TEST_NOW)
+        self.assertEqual(observed['reading_source'], 'reader')
+        self.assertEqual(observed['selected_source'], 'estimate')
+        self.assertFalse(autopilot.observed_quota({'accounts': {'cursor': account_cfg}}, 'cursor', observed, TEST_NOW))
+
+    def test_panic_rescue_does_not_start_while_an_online_account_is_not_in_panic(self):
+        from tutti import autopilot
+        cfg = {**self.CFG, '_main_worker': 'local',
+               'workers': {**self.CFG['workers'], 'local': {'kind': 'ollama'}, 'other': {'kind': 'cli'}},
+               'accounts': {**self.CFG['accounts'], 'other': {'worker': 'other'}}}
+        states = {'claude': {'panic': True, 'used': 96}, 'cursor': {'panic': True, 'used': 96},
+                  'other': {'used': 40, 'quota_plan': {'left': 0}}}
+        self.assertFalse(autopilot.panic_rescue(cfg, 'cursor', states['cursor'], states))
 
     def test_main_accounts_may_be_a_single_name(self):
         from tutti import autopilot

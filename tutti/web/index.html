@@ -136,6 +136,10 @@
           <header class="chat__head">
             <button class="btn btn--text chat__back" id="chat-back" type="button" title="Back to your conversations"><span aria-hidden="true">‹ </span>Chats</button>
             <h2 class="chat__title" id="chat-title">New chat</h2>
+            <label class="chat__mainagent" id="chat-main-wrap" hidden>
+              <span class="sr-only">Main agent</span>
+              <select class="pick chat__mainpick" id="chat-main-pick" title="Main agent: Auto keeps preferred while it has room, else the first fallback with room" aria-label="Main agent"></select>
+            </label>
             <div class="chat__convacts" id="chat-conv-actions" hidden>
               <button class="btn btn--text" id="chat-rename-btn" type="button">Rename</button>
               <button class="btn btn--text" id="chat-delete-btn" type="button">Delete</button>

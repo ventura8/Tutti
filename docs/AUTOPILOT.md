@@ -53,7 +53,8 @@ The dashboard runs one round after every probe while the autopilot is on (`tutti
 2. **Plan.** Capacity is the **adaptive limit** (`tutti/parallel.py`, below) minus the runs going. Fresh tasks go only to an account of `autopilot.accounts` that is
    **behind** its line (or late), or on pace but still under its line (topped up to it, so the window ends at its target), as many units as its room (`room_tasks`) minus what runs on it and what attempts started
    after its newest reading already spent (that cost stays counted until a new reading shows it). Never an account that
-   costs money, is in panic or is spent. A task without an acceptance check (its own or the repo's) is never sent.
+   costs money or is spent. The cautious panic fallback below applies only when all online accounts are unavailable.
+   A task without an acceptance check (its own or the repo's) is never sent.
 3. **Dispatch.** `tutti run <worker> "<brief>" --repo <path> --track ap-<id> --check "<check>"` in the background, with the
    account's `args` (its model) and its name. Each start is saved at once, so a start that fails leaves the task queued and a
    crash never starts it twice. A local-model worker works through `tutti agent`'s loop on the task's scope files (it may
@@ -77,7 +78,17 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
   paced cursor and a yielding PC while agy-gemini and agy-claude had room).
   While the main agent (`autopilot.main_accounts`, default `claude`) is in panic or spent, every other account takes its
   work up to its own panic line: as many tasks as fit between its use and `panic_at` at its cost per task (`task_pct`),
-  even while ahead of its pace; only its own panic or a spent quota stops it.
+  even while ahead of its pace; unknown usage, its own panic or a spent linked quota stops takeover dispatch. If the main has moved to a
+  local model and all online accounts are unavailable, the autopilot can send at most one small bounded unit per panicked account
+  whose current and linked windows have a known task's worth of quota left. It prefers the account with the most remaining
+  quota, reserves shared windows across the batch and keeps recent work debited until each window has a newer reading.
+  Stale, estimated or missing readings cannot authorize rescue, including a configured linked window removed from the
+  active state by a pause. Ordinary dispatch and direct auto routing also refuse an account when a configured linked
+  window is missing. Nested limits must all be observed; pacing currently supplies only direct linked limits, so such
+  accounts wait until their nested limits are included. Rescue independently checks every window's reading age against
+  `stale_hours` (two hours when unset or zero), including automatic readers, and rejects future timestamps and selected
+  estimates. It respects quiet windows and never uses a spent or
+  explicitly paused account. It does not pause accounts.
   An account outside `autopilot.accounts` takes one task at a time and only while it is not ahead of its pace; a worker
   without an account (a local model) one at a time, never while its machine is paused (yield flag) or offline, and only for a task whose scope names files (it edits only those). The
   ladder names accounts, not a worker that accounts share (`agy-claude`, not `agy`), so each step's pace, panic and model
@@ -86,7 +97,10 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
   strongest step, or `max_attempts` attempts (default 12), parks the task as **needs a person** with a summary on the
   dashboard. The signature is a hash of how it failed (worker exit, refused command, no change, or the failing check's last
   lines with numbers masked), so a flaky number does not count as progress. A worker's exit says whether it hit its
-  usage limit or ran out of time.
+  usage limit or ran out of time. A usage limit (including `HTTP 429 Too Many Requests` in the worker's own lines), a CLI
+  permission refusal, or a run that ended without a report (including after a limit that killed the process before a
+  report) is **environment**: it does not count toward `max_attempts` and never parks the task as no progress (the account
+  or the CLI is the problem, not the task). A bare `429` in an assertion or a test name is not a usage limit.
 - **The same failure twice stops it from burning quota.** Twice in a row on one step: that step is not given the task
   again (when no step is left, it is parked). Twice in a row on different workers, for a failure that is not the
   worker's own (its limit, its time, a refused tool, any other exit): the task or its check is the problem, and it is
@@ -97,6 +111,8 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
 
 When nothing is sent, the stopped line names **every** step: why it has no room, or, when it has room, why no queued task
 fits it ("agy-claude: room for 1, but the queued tasks need 3", "… no queued task may go there").
+If an account is ahead of pace, this line says it will be rechecked on the next successful active dashboard round while
+autopilot is running. Failover must allow this dashboard to act. This is not a promise of a fresh quota reading or a dispatch time.
 
 ## Filling free room (`fill_room`)
 
@@ -178,7 +194,8 @@ How many runs go at once is measured every round, not fixed. The limit is the sm
 - **gates**: the runs going plus the fit machines' free gate slots times `gate_share` (a run holds a slot only for its gate);
 - `max_parallel` when the owner sets it (Settings: an optional cap), and `ceiling`.
 
-It rises with free capacity and drops under memory pressure. The dashboard's Autopilot line says
+It rises with free capacity and drops under memory pressure. The dashboard remeasures host resources and disk space
+before each autopilot round; a previous low-space or high-load reading does not persist after recovery. The dashboard's Autopilot line says
 `running N of M possible: limited by <bound> (<why>)`. Every machine's probe now reports its free memory too (`mem_free_gb`).
 
 **Heavy gates leave the laptop.** A repo whose checks run `local` sends a heavy gate (`parallel.heavy`: ESLint, tsc, Vitest,

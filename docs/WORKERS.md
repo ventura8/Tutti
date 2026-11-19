@@ -27,6 +27,17 @@ output and `{log}` for this pattern and reports every hit as DENIED. All three r
 
 - **Cursor**: `cursor-agent -p "<brief>" --trust --force --output-format text` (`--force`: commands run without a prompt
   unless explicitly denied; `--mode ask` for a read-only pass).
+- **OpenAI Codex CLI**: `codex exec --skip-git-repo-check --approve-for-me "<brief>"`.
+  Codex routes approval requests through automatic review while retaining its workspace-write sandbox. Tutti keeps task
+  claiming, leasing and reporting in the outer session; the worker brief tells Codex not to recursively call Tutti's MCP
+  tools. If a task needs a user decision, Codex must stop and report it for the interactive Tutti session to handle. For
+  an easy first setup, install Codex CLI, run `codex login` (or `codex login --device-auth` on a headless machine), then
+  run `tutti setup`; it detects the CLI and login state. Fake-provider tests cover Cursor panic routing to Codex and
+  paused or spent Codex refusal; they do not verify a live provider session. Check it with `codex login status`. Set `workers.codex.machine`
+  to that machine (often the laptop Tutti runs on): the autopilot and Move work know where the login lives, and the
+  machine's yield flag, pause, heat and quiet hours are honoured. Pace it with `accounts.codex` (`worker: codex`) and put
+  `codex` on `autopilot.accounts` / `autopilot.ladder` (and prefer it in `routing.workers`) so `tutti run auto` and the
+  autopilot pick it while Cursor is ahead or spent.
 - **Google Antigravity**: `agy -p "<brief>" --print-timeout 600s --mode accept-edits --log-file {log}`, with
   `denied: 'soft-denying'` (`--mode plan` for a read-only pass). Headless, agy allows only the commands in
   `permissions.allow` of `~/.gemini/antigravity-cli/settings.json` (`command(grep)`, ...) and soft-denies the rest; its log
@@ -55,14 +66,18 @@ A person installs each CLI and signs in once. Tutti never types a credential.
 
 ## One entry point
 
-An orchestrator never starts `cursor-agent`, `agy` or `copilot` itself: `tutti run auto "<task>" --repo <repo>` picks the
-account with room (behind its line first, never one ahead while another is behind, never panic or spent), runs it
-headless with its allow list, logs the run with its account (`<state>/runs.jsonl`) and reads limit messages. The
-dashboard flags agent processes it finds working outside a Tutti folder.
+An orchestrator never starts `cursor-agent`, `codex`, `agy` or `copilot` itself: `tutti run auto "<task>" --repo <repo>`
+picks the account with room (behind its line first, never one ahead while another is behind, never panic or spent), runs
+it headless with its allow list, logs the run with its account (`<state>/runs.jsonl`) and reads limit messages.
+`routing.workers` is only a preference order: every account that names a worker still joins. The dashboard flags agent
+processes it finds working outside a Tutti folder.
 
 ## Hand off a task end to end
 
 `tutti run <worker|auto> "<task>" [files] --repo <repo> [--bg] [--track <name>] [--discard] [--no-checks]`:
+
+`<repo>` is a folder, or a name under `autopilot.repos` (its `path`): a bare name always uses that path, so the run works
+from a non-git cwd (MCP `delegate_task`, chat `/delegate`).
 
 1. a worktree of `<repo>` at its HEAD, detached, at `<project.worktrees>/<delegate.prefix><id>` (or `<prefix><track>`,
    reused when it exists); the dependency folders of `ship.share` are hard-linked from the main checkout;

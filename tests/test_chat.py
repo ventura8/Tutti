@@ -2,20 +2,24 @@
 role rules (a viewer cannot change the household), the model order (never the user's own machine, never another member's
 private quota), streaming, stop, Undo, and the page: safe Markdown, keys, accessibility and the phone layout."""
 import base64
+import contextlib
+import io
 import json
 import os
 import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 import unittest
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest import mock
 
-from tutti import chat, chatctl, chatrun, controls, dashboard, move
+from tutti import chat, chatctl, chatrun, conduct, controls, dashboard, move, needs
 
 ADMIN = {'sub': 'local', 'email': None, 'role': 'admin'}
 VIEWER = {'sub': 'v1', 'email': 'ana@example.com', 'role': 'viewer'}
@@ -56,6 +60,110 @@ class Storage(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.dir)
 
+    def test_unsupported_platform_preserves_single_process_chat_without_claiming_file_lock(self):
+        with mock.patch('tutti.auth.fcntl', None):
+            self.assertTrue(self.store.create('member')['id'])
+            self.assertFalse(os.path.exists(os.path.join(self.store.folder, '.chat.lock')))
+
+    def test_handoff_and_questions_take_instance_lock_before_store_lock(self):
+        real_store_lock = chat.store_locked
+        class TrackedLock:
+            def __init__(self):
+                self.inner, self.depth = threading.RLock(), 0
+            def __enter__(self):
+                self.inner.acquire()
+                self.depth += 1
+            def __exit__(self, *_args):
+                self.depth -= 1
+                self.inner.release()
+        self.store.lock = TrackedLock()
+        @contextlib.contextmanager
+        def check_order(folder):
+            self.assertGreater(self.store.lock.depth, 0)
+            with real_store_lock(folder):
+                yield
+        cfg = config_for(self.dir)
+        question = {'id': 'q1', 'default': 'retry', 'question': 'Continue?', 'why': 'waiting', 'options': ['retry']}
+        with mock.patch.object(chat, 'Store', return_value=self.store), mock.patch.object(chat, 'store_locked', check_order):
+            conduct.deliver_role_note(cfg, 'A role changed.')
+            needs.deliver_chat(cfg, 'local', [question])
+        self.assertEqual(len(self.store.listing('local')), 2)
+
+    @unittest.skipUnless(os.name == 'posix' and hasattr(os, 'O_NOFOLLOW'), 'requires POSIX no-follow locking')
+    def test_two_processes_preserve_all_chat_storage_updates(self):
+        code = ('import sys,time\nfrom tutti import chat\ns=chat.Store(sys.argv[1])\n'
+                'def add(d):\n n=d.get("counter",0); time.sleep(0.002); d["counter"]=n+1\n'
+                'for _ in range(20): s.change("member",add)\n')
+        jobs = [subprocess.Popen([sys.executable, '-c', code, self.dir], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                for _ in range(2)]
+        def cleanup():
+            for p in jobs:
+                if p.poll() is None:
+                    p.kill()
+                p.wait(timeout=5)
+        self.addCleanup(cleanup)
+        for p in jobs:
+            out, err = p.communicate(timeout=15)
+            self.assertEqual(p.returncode, 0, (out, err))
+        self.assertEqual(self.store.load('member')['counter'], 40)
+
+    @unittest.skipUnless(os.name == 'posix' and hasattr(os, 'O_NOFOLLOW'), 'requires POSIX no-follow locking')
+    def test_store_lock_reentrant_and_crash_releases_it(self):
+        alias = os.path.join(self.dir, 'chat', '..', 'chat')
+        with chat.store_locked(self.store.folder), chat.store_locked(alias):
+            self.store.create('member')
+        signal = os.path.join(self.dir, 'locked')
+        code = ('import sys,time\nfrom tutti import chat\n'
+                'with chat.store_locked(sys.argv[1]):\n open(sys.argv[2],"w").close(); time.sleep(30)\n')
+        proc = subprocess.Popen([sys.executable, '-c', code, self.store.folder, signal])
+        def cleanup():
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=5)
+        self.addCleanup(cleanup)
+        deadline = time.monotonic() + 5
+        while not os.path.exists(signal) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(os.path.exists(signal), 'child never acquired the Chat store lock')
+        proc.kill()
+        proc.wait(timeout=5)
+        self.assertTrue(self.store.create('member')['id'])
+
+    @unittest.skipUnless(os.name == 'posix' and hasattr(os, 'O_NOFOLLOW'), 'requires POSIX no-follow locking')
+    def test_attachment_write_waits_for_clear_transaction(self):
+        signal = os.path.join(self.dir, 'blob-started')
+        code = ('import sys\nfrom tutti import chat\nopen(sys.argv[2],"w").close()\n'
+                'chat.Store(sys.argv[1]).put_blob("member", "image-data")\n')
+        with chat.store_locked(self.store.folder):
+            proc = subprocess.Popen([sys.executable, '-c', code, self.dir, signal])
+            def cleanup():
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait(timeout=5)
+            self.addCleanup(cleanup)
+            deadline = time.monotonic() + 5
+            while not os.path.exists(signal) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(os.path.exists(signal), 'child never attempted the attachment write')
+            with self.assertRaises(subprocess.TimeoutExpired):
+                proc.wait(timeout=0.1)
+            self.store.clear('member')
+        self.assertEqual(proc.wait(timeout=5), 0)
+        [ref] = os.listdir(self.store.blobs('member'))
+        self.assertEqual(self.store.blob('member', ref), 'image-data')
+
+    @unittest.skipUnless(hasattr(os, 'O_NOFOLLOW'), 'the platform does not support no-follow file opens')
+    def test_store_lock_refuses_a_symlink(self):
+        os.makedirs(self.store.folder)
+        target = os.path.join(self.dir, 'outside')
+        with open(target, 'w', encoding='utf8') as f:
+            f.write('unchanged')
+        os.symlink(target, os.path.join(self.store.folder, '.chat.lock'))
+        with self.assertRaises(OSError):
+            self.store.create('member')
+        with open(target, encoding='utf8') as f:
+            self.assertEqual(f.read(), 'unchanged')
+
     def test_each_user_has_their_own_file_readable_only_by_tutti(self):
         conv = self.store.create('a')
         self.store.put_message('a', conv['id'], {'id': 'm1', 'role': 'user', 'text': 'why is the NUC idle?'})
@@ -88,6 +196,13 @@ class Storage(unittest.TestCase):
         data = self.store.interrupted('a', set())
         m = self.store.conversation(data, c['id'])['messages'][0]
         self.assertEqual(m['status'], 'stopped')
+        self.assertIn('work may have started', m['note'])
+
+    def test_safe_answer_cut_off_by_restart_can_be_retried(self):
+        c = self.store.create('a')
+        self.store.put_message('a', c['id'], {'id': 'm1', 'role': 'assistant', 'text': 'half', 'status': 'streaming',
+                                              'retry_safety': 'safe'})
+        m = self.store.conversation(self.store.interrupted('a', set()), c['id'])['messages'][0]
         self.assertIn('Retry', m['note'])
 
     def test_tutti_move_carries_the_conversations(self):
@@ -176,6 +291,71 @@ class Models(unittest.TestCase):
         panic = snapshot(usage={'accounts': [{'name': 'claude', 'panic': True, 'verdict': 'late'}]})
         self.assertEqual(self.names(panic, user=VIEWER, owner='owner-sub'), ['pc', 'nuc'])
 
+    def test_online_chat_skips_account_with_missing_linked_quota(self):
+        self.cfg.setdefault('_account_limits', {})['claude'] = ['weekly']
+        self.assertNotIn('claude', self.names(snapshot()))
+        snap = snapshot(usage={'accounts': [{'name': 'claude', 'used': 10,
+                                              'limits': [{'name': 'weekly', 'used': 10, 'panic': False}]}]})
+        self.assertIn('claude', self.names(snap))
+
+    def test_shared_worker_uses_healthy_configured_account_without_worker_probe(self):
+        self.cfg['workers']['shared'] = {'kind': 'cli', 'command': ['agent', '--model', 'default', '{prompt}'],
+                                          'chat_account_selector': '--model'}
+        self.cfg['accounts'].update({'first': {'worker': 'shared', 'args': ['--model', 'a']},
+                                     'second': {'worker': 'shared', 'args': ['--model', 'b']}})
+        readings = [{'name': 'first', 'used': 100, 'verdict': 'spent'}, {'name': 'second', 'used': 20}]
+        usage = {'accounts': readings}
+        snap = snapshot(workers={'items': []}, usage=usage)
+        online = chat.all_models(self.cfg, snap, ADMIN)[1]
+        shared = next(c for c in online if c['worker'] == 'shared')
+        self.assertEqual((shared['account'], shared['why']), ('second', None))
+        with mock.patch('tutti.chatrun.cli_stream', return_value=iter(())) as call:
+            chatrun.stream_of(shared, self.cfg, [], threading.Event())
+        args = call.call_args.kwargs['extra']
+        seen = []
+        class Process:
+            stdout = io.StringIO('ok\n')
+            returncode = 0
+            def poll(self):
+                return 0
+            def wait(self):
+                return 0
+        def popen(argv, **_kwargs):
+            seen.append(argv)
+            return Process()
+        self.assertEqual(list(chatrun.cli_stream(self.cfg['workers']['shared'], [], threading.Event(), extra=args, popen=popen,
+                                                  selector=shared['selector'], selector_value=shared['selector_value'])), ['ok\n'])
+        self.assertEqual(seen[0][seen[0].index('--model') + 1], 'b')
+        with self.assertRaises(ValueError):
+            list(chatrun.cli_stream(self.cfg['workers']['shared'], [], threading.Event(), extra=['--model', 'wrong'], popen=popen,
+                                     selector=shared['selector'], selector_value=shared['selector_value']))
+        self.assertEqual(len(seen), 1)   # a wrong selector never launches
+
+        snap['controls'] = {'paused': [{'kind': 'account', 'name': 'second'}]}
+        self.assertNotIn('shared', self.names(snap))
+        snap['controls'] = {'paused': []}
+        snap['usage']['accounts'] = []
+        self.assertNotIn('shared', self.names(snap))
+        self.cfg['_account_workers'] = {'first': 'shared', 'second': 'shared'}
+        self.cfg['_account_args'] = {'first': ['--model', 'a'], 'second': ['--model', 'b']}
+        self.cfg['accounts'].pop('second')
+        snap['usage']['accounts'] = readings
+        self.assertNotIn('shared', self.names(snap))
+
+    def test_unmetered_worker_is_available_but_ambiguous_account_args_are_not(self):
+        self.cfg['workers']['free'] = {'kind': 'cli', 'command': ['free']}
+        self.assertIn('free', self.names(snapshot()))
+        self.cfg['workers']['shared'] = {'kind': 'cli', 'command': ['agent']}
+        self.cfg['accounts'].update({'first': {'worker': 'shared'}, 'second': {'worker': 'shared'}})
+        snap = snapshot(usage={'accounts': [{'name': 'first', 'used': 10}, {'name': 'second', 'used': 10}]})
+        self.assertNotIn('shared', self.names(snap))
+        self.cfg['workers']['shared']['chat_account_selector'] = '--model'
+        for first, second in ((['--model', 'x'], ['--model', 'x']), (['--model', 'x'], ['--other', 'y']),
+                              (['--model', 'x', '--different', 'a'], ['--model', 'x', '--different', 'b']),
+                              (['--model', 'x', '--model', 'y'], ['--model', 'z'])):
+            self.cfg['accounts']['first']['args'], self.cfg['accounts']['second']['args'] = first, second
+            self.assertNotIn('shared', self.names(snap), (first, second))
+
 
 def fake_streams(script):
     """A streams function: each worker's answer from `script` ({worker: [pieces] | OSError})."""
@@ -224,7 +404,179 @@ class ApiBase(unittest.TestCase):
         return [json.loads(line) for line in stream.lines()]
 
 
+class StatusPolling(ApiBase):
+    def test_model_status_denies_viewer_without_dispatch_but_allows_admin_and_shared_usage(self):
+        engine = self.engine({})
+        job = chatrun.Job('v1', 'c', {'id': 'm', 'cards': [], 'text': ''})
+        status = {'tool': 'job_status', 'args': {'id': 'test-123-abc'}}
+        usage = {'tool': 'usage', 'args': {}}
+        known = chat.known_names(self.cfg, self.snap)
+        with mock.patch.object(chatrun, 'run_tool', return_value=(True, 'fake private log', None)) as run:
+            result, _ = engine._calls(job, VIEWER, self.cfg, [status], known, {})
+            self.assertIn('for admins', result[0][1])
+            run.assert_not_called()
+            result, _ = engine._calls(job, ADMIN, self.cfg, [status], known, {})
+            self.assertEqual(result, [('job_status', 'fake private log')])
+            result, _ = engine._calls(job, VIEWER, self.cfg, [usage], known, {})
+            self.assertEqual(result, [('usage', 'fake private log')])
+            self.assertEqual(run.call_count, 2)
+
+    def test_missing_report_is_polled_until_report_arrives(self):
+        job = chatrun.Job('owner', 'c', {'id': 'm'})
+        call = {'tool': 'job_status', 'args': {'id': '123-456'}}
+        missing = (False, 'tutti: no report for run 123-456 in state: it may still be running', None)
+        with mock.patch('tutti.delegate.paths', return_value={'log': '/fake/run.log'}), \
+             mock.patch('tutti.chatrun.os.path.isfile', return_value=True), \
+             mock.patch('tutti.delegate.load_report', side_effect=[None, {'ok': True}]), \
+             mock.patch.object(chatrun, 'run_tool', return_value=(True, 'report ready', None)), \
+             mock.patch.object(chatrun, 'STATUS_POLL_SECONDS', 0):
+            result = chatrun.follow_missing_report(self.cfg, call, job, missing)
+        self.assertEqual(result, (True, 'report ready', None))
+        self.assertEqual(job.events[0]['type'], 'note')
+
+    def test_direct_and_model_status_checks_both_wait_for_the_report(self):
+        call = {'tool': 'job_status', 'args': {'id': '123-456'}}
+        missing = (True, 'no report for run 123-456 in state')
+        for direct in (True, False):
+            engine = self.engine({})
+            job = chatrun.Job('local', 'c', {'id': 'm', 'cards': [], 'text': ''})
+            with self.subTest(direct=direct), mock.patch('tutti.mcpserver.call', side_effect=[missing, (False, 'report ready')]), \
+                 mock.patch('tutti.delegate.paths', return_value={'log': '/fake/run.log'}), \
+                 mock.patch('tutti.chatrun.os.path.isfile', return_value=True), \
+                 mock.patch('tutti.delegate.load_report', return_value={'ok': True}), \
+                 mock.patch.object(chatrun, 'STATUS_POLL_SECONDS', 0):
+                if direct:
+                    engine._act(job, ADMIN, self.cfg, call)
+                    self.assertEqual(job.msg['cards'][0]['text'], 'report ready')
+                else:
+                    result, proposed = engine._calls(job, ADMIN, self.cfg, [call], chat.known_names(self.cfg, self.snap), {})
+                    self.assertEqual(result, [('job_status', 'report ready')])
+                    self.assertFalse(proposed)
+                self.assertTrue(any(e['type'] == 'note' for e in job.events))
+
+    def test_stop_during_blocked_initial_status_does_not_start_polling(self):
+        engine = self.engine({})
+        job = chatrun.Job('local', 'c', {'id': 'm', 'cards': [], 'text': ''})
+        call = {'tool': 'job_status', 'args': {'id': '123-456'}}
+        entered, release = threading.Event(), threading.Event()
+        def blocked(*_args, **_kwargs):
+            entered.set()
+            release.wait(3)
+            return True, 'no report for run 123-456 in state'
+        with mock.patch('tutti.mcpserver.call', side_effect=blocked), \
+             mock.patch('tutti.delegate.paths', return_value={'log': '/fake/run.log'}), \
+             mock.patch('tutti.chatrun.os.path.isfile', return_value=True), \
+             mock.patch('tutti.delegate.load_report') as report:
+            thread = threading.Thread(target=engine._act, args=(job, ADMIN, self.cfg, call), daemon=True)
+            thread.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                job.cancel.set()
+            finally:
+                release.set()
+                thread.join(3)
+            self.assertFalse(thread.is_alive())
+            report.assert_not_called()
+            self.assertIn('run was not stopped', job.msg['cards'][0]['text'])
+
+    def test_direct_timeout_does_not_claim_done(self):
+        engine = self.engine({})
+        job = chatrun.Job('local', 'c', {'id': 'm', 'cards': [], 'text': ''})
+        call = {'tool': 'job_status', 'args': {'id': '123-456'}}
+        with mock.patch('tutti.mcpserver.call', return_value=(True, 'no report for run 123-456 in state')), \
+             mock.patch('tutti.delegate.paths', return_value={'log': '/fake/run.log'}), \
+             mock.patch('tutti.chatrun.os.path.isfile', return_value=True), \
+             mock.patch.object(chatrun, 'STATUS_WAIT_SECONDS', 0):
+            engine._act(job, ADMIN, self.cfg, call)
+        self.assertEqual(job.msg['cards'][0]['state'], 'failed')
+        self.assertIn('timed out', job.msg['cards'][0]['text'])
+        self.assertNotEqual(job.msg['text'], 'Done.')
+
+    def test_stop_during_status_blocks_mutations_in_same_model_batch(self):
+        engine = self.engine({})
+        status = {'tool': 'job_status', 'args': {'id': '123-456'}}
+        mutation = {'tool': 'backlog_add', 'args': {'repo': 'map', 'title': 'must not run', 'size': 'S'}}
+        for calls in ([mutation, status], [status, mutation]):
+            job = chatrun.Job('local', 'c', {'id': 'm', 'cards': [], 'text': ''})
+            job.mode = 'auto'
+            def status_call(*_args, job=job, **_kwargs):
+                job.cancel.set()
+                return True, 'no report for run 123-456 in state'
+            with self.subTest(calls=calls), mock.patch('tutti.mcpserver.call', side_effect=status_call), \
+                 mock.patch('tutti.delegate.paths', return_value={'log': '/fake/run.log'}), \
+                 mock.patch('tutti.chatrun.os.path.isfile', return_value=True), \
+                 mock.patch.object(engine, 'execute') as execute:
+                engine._calls(job, ADMIN, self.cfg, calls, chat.known_names(self.cfg, self.snap), {})
+                execute.assert_not_called()
+                self.assertEqual(job.msg['cards'], [])
+
+    def test_stop_while_report_is_read_does_not_issue_another_status_call(self):
+        job = chatrun.Job('owner', 'c', {'id': 'm'})
+        call = {'tool': 'job_status', 'args': {'id': '123-456'}}
+        def loaded(*_args):
+            job.cancel.set()
+            return {'ok': True}
+        with mock.patch('tutti.delegate.paths', return_value={'log': '/fake/run.log'}), \
+             mock.patch('tutti.chatrun.os.path.isfile', return_value=True), \
+             mock.patch('tutti.delegate.load_report', side_effect=loaded), \
+             mock.patch.object(chatrun, 'run_tool') as run, mock.patch.object(chatrun, 'STATUS_POLL_SECONDS', 0):
+            ok, text, _ = chatrun.follow_missing_report(self.cfg, call, job, (False, 'no report for run 123-456 in state', None))
+        self.assertFalse(ok)
+        self.assertIn('run was not stopped', text)
+        run.assert_not_called()
+
+    def test_missing_report_timeout_cancel_and_unknown_id_are_safe(self):
+        call = {'tool': 'job_status', 'args': {'id': '123-456'}}
+        missing = (False, 'no report for run 123-456 in state', None)
+        job = chatrun.Job('owner', 'c', {'id': 'm'})
+        with mock.patch('tutti.delegate.paths', return_value={'log': '/fake/run.log'}), \
+             mock.patch('tutti.chatrun.os.path.isfile', return_value=True), \
+             mock.patch.object(chatrun, 'STATUS_WAIT_SECONDS', 0):
+            ok, text, _ = chatrun.follow_missing_report(self.cfg, call, job, missing)
+        self.assertFalse(ok)
+        self.assertIn('timed out', text)
+        job.cancel.set()
+        with mock.patch('tutti.delegate.paths', return_value={'log': '/fake/run.log'}), \
+             mock.patch('tutti.chatrun.os.path.isfile', return_value=True):
+            ok, text, _ = chatrun.follow_missing_report(self.cfg, call, job, missing)
+        self.assertFalse(ok)
+        self.assertIn('run was not stopped', text)
+        with mock.patch('tutti.chatrun.os.path.isfile', return_value=False):
+            self.assertEqual(chatrun.follow_missing_report(self.cfg, call, job, missing), missing)
+        bad = {'tool': 'job_status', 'args': {'id': '../bad'}}
+        self.assertEqual(chatrun.follow_missing_report(self.cfg, bad, job, missing), missing)
+
+
 class Api(ApiBase):
+    def test_undo_blocks_edits_in_its_engine_without_blocking_another_store(self):
+        eng = self.engine({})
+        events = self.send(eng, VIEWER, 'add task in map: one')
+        card = next(e['card'] for e in events if e['type'] == 'card')
+        cid = events[0]['conversation']
+        body = {'action': 'undo', 'conversation': cid, 'message': events[-1]['message']['id'], 'card': card['id']}
+        entered, release, edited = threading.Event(), threading.Event(), threading.Event()
+        def slow_runner(_path, _argv):
+            entered.set()
+            release.wait(5)
+            return 0, 'removed'
+        eng.runner = slow_runner
+        results = []
+        undo = threading.Thread(target=lambda: results.append(chatrun.post(eng, VIEWER, body)[0]), daemon=True)
+        edit = threading.Thread(target=lambda: (eng.store.rename(VIEWER['sub'], cid, 'After undo'), edited.set()), daemon=True)
+        undo.start()
+        try:
+            self.assertTrue(entered.wait(5))
+            edit.start()
+            self.assertFalse(edited.wait(0.1))
+            self.assertTrue(chat.Store(self.dir).create('other')['id'])
+        finally:
+            release.set()
+            undo.join(5)
+            if edit.ident is not None:
+                edit.join(5)
+        self.assertEqual(results, [200])
+        self.assertTrue(edited.is_set())
+
     def test_send_streams_the_answer_and_names_the_model(self):
         eng = self.engine({'pc': ['The NUC ', 'is free.']})
         events = self.send(eng, ADMIN, 'why is the NUC idle?')
@@ -275,6 +627,81 @@ class Api(ApiBase):
         conv = eng.store.get('local', cid)
         self.assertEqual([m['text'] for m in conv['messages']], ['hello again', 'A.'])
         self.assertTrue(conv['messages'][0]['edited'])
+
+    def test_interrupted_uncertain_and_legacy_answers_cannot_retry_or_truncate(self):
+        eng = self.engine({'pc': ['A.']})
+        for safety in ('uncertain', None):
+            cid = eng.store.create('local')['id']
+            eng.store.put_message('local', cid, {'id': 'u1', 'role': 'user', 'text': 'do work'})
+            msg = {'id': 'm1', 'role': 'assistant', 'text': '', 'status': 'streaming'}
+            if safety:
+                msg['retry_safety'] = safety
+            eng.store.put_message('local', cid, msg)
+            eng.conversation(ADMIN, cid)
+            code, answer = chatrun.post(eng, ADMIN, {'action': 'send', 'conversation': cid, 'retry': 'm1'})
+            self.assertNotEqual(code, 200)
+            self.assertIn('check its status', str(answer))
+            self.assertEqual([m['id'] for m in eng.store.get('local', cid)['messages']], ['u1', 'm1'])
+
+    def test_interrupted_safe_answer_can_retry(self):
+        eng = self.engine({'pc': ['A.']})
+        cid = eng.store.create('local')['id']
+        eng.store.put_message('local', cid, {'id': 'u1', 'role': 'user', 'text': 'hello'})
+        eng.store.put_message('local', cid, {'id': 'm1', 'role': 'assistant', 'text': '', 'status': 'streaming',
+                                             'retry_safety': 'safe'})
+        eng.conversation(ADMIN, cid)
+        code, stream = chatrun.post(eng, ADMIN, {'action': 'send', 'conversation': cid, 'retry': 'm1'})
+        self.assertEqual(code, 200)
+        self.assertEqual([json.loads(line) for line in stream.lines()][-1]['message']['text'], 'A.')
+
+    def test_mutating_dispatch_persists_uncertainty_first_and_fails_closed(self):
+        eng = self.engine({})
+        observed = []
+        def runner(path, argv):
+            data = eng.store.load('local')
+            observed.append(data['conversations'][0]['messages'][-1].get('retry_safety'))
+            return 0, 't60: added: work'
+        eng.runner = runner
+        events = self.send(eng, ADMIN, 'add task in map: work')
+        self.assertEqual(observed, ['uncertain'])
+        self.assertEqual(events[-1]['message']['retry_safety'], 'uncertain')
+
+        eng = self.engine({})
+        with mock.patch.object(eng, '_mark_uncertain', side_effect=OSError('store unavailable')):
+            events = self.send(eng, ADMIN, 'add task in map: work')
+        self.assertEqual(events[-1]['message']['status'], 'failed')
+        self.assertEqual(observed, ['uncertain'])
+        self.assertEqual(self.calls, [])
+
+    def test_cli_agent_is_marked_before_its_stream_starts(self):
+        eng = self.engine({})
+        self.snap['workers']['items'] = [{'name': 'claude', 'ready': True, 'account': 'claude'}]
+        def streams(cand, cfg, messages, cancel):
+            msg = eng.store.load('local')['conversations'][0]['messages'][-1]
+            self.assertEqual(msg['retry_safety'], 'uncertain')
+            yield 'Answer.'
+        eng.streams = streams
+        candidate = {'kind': 'cli', 'worker': 'claude', 'label': 'Claude', 'before': []}
+        with mock.patch('tutti.chat.candidates', return_value=([candidate], [])):
+            self.assertEqual(self.send(eng, ADMIN, 'explain this')[-1]['message']['retry_safety'], 'uncertain')
+
+        eng = self.engine({})
+        eng.streams = mock.Mock(side_effect=AssertionError('CLI must not start'))
+        with mock.patch('tutti.chat.candidates', return_value=([candidate], [])), \
+                mock.patch.object(eng, '_mark_uncertain', side_effect=OSError('store unavailable')):
+            self.send(eng, ADMIN, 'explain this')
+        eng.streams.assert_not_called()
+
+    def test_needs_and_welcome_mutations_are_marked_before_call(self):
+        from tutti import welcome
+        for prompt, module, name in (('q1 retry', needs, 'chat_reply'), ('What did I miss?', welcome, 'chat_answer')):
+            eng = self.engine({})
+            def reply(*_args, engine=eng):
+                self.assertEqual(engine.store.load('local')['conversations'][0]['messages'][-1]['retry_safety'], 'uncertain')
+                return 'Done.'
+            with mock.patch.object(module, name, side_effect=reply):
+                answer = self.send(eng, ADMIN, prompt)[-1]['message']
+            self.assertEqual(answer['retry_safety'], 'uncertain')
 
     def test_a_request_for_work_runs_the_mcp_call_with_a_card_undo_and_audit(self):
         eng = self.engine({})
@@ -395,7 +822,7 @@ class Picker(ApiBase):
         self.assertEqual(eng2.store.get('local', cid)['model'], 'nuc')
         listing = chatrun.post(eng2, ADMIN, {'action': 'list'}, self.snap)[1]
         self.assertEqual(listing['defaults']['model'], 'nuc')
-        self.assertEqual([m['id'] for m in listing['models']][:3], ['auto', 'local', 'online'])
+        self.assertEqual([m['id'] for m in listing['models']][:4], ['main', 'auto', 'local', 'online'])
         self.assertEqual(next(m for m in listing['models'] if m['id'] == 'copilot')['available'], False)
         new = self.send(eng, ADMIN, 'second')[0]['conversation']
         self.assertEqual(eng.store.get('local', new)['model'], 'nuc')
@@ -558,7 +985,7 @@ class Modes(ToolLoop):
         cid = self.send(eng, ADMIN, 'hi', mode='ask')[0]['conversation']
         self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'get', 'id': cid})[1]['settings']['mode'], 'ask')
         listing = chatrun.post(eng, ADMIN, {'action': 'list'}, self.snap)[1]
-        self.assertEqual((listing['defaults']['mode'], list(listing['modes'])), ('ask', ['auto', 'ask', 'plan']))
+        self.assertEqual((listing['defaults']['mode'], list(listing['modes'])), ('ask', ['auto', 'ask', 'plan', 'answer']))
         self.assertEqual(chatrun.post(eng, ADMIN, {'action': 'settings', 'mode': 'yolo'})[0], 409)
 
 
@@ -755,6 +1182,113 @@ class ReviewFixes(ToolLoop):
         self.assertEqual(chatrun.handle(c, {}, big)[0], 413)
 
 
+class CursorStream(unittest.TestCase):
+    def test_documented_events_extract_text_and_never_expose_tool_data(self):
+        from tutti import chatrun
+        text = {'type': 'assistant', 'timestamp_ms': 1, 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': 'Hello'}]}}
+        tool = {'type': 'tool_call', 'subtype': 'started', 'tool_call': {'shell': {'args': {'command': 'secret'}}}}
+        self.assertEqual(list(chatrun.cursor_event(json.dumps(text))), [])
+        self.assertEqual(list(chatrun.cursor_event(json.dumps(tool))), [{'progress': 'Agent tool started.'}])
+        terminal = {'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'Hello'}
+        self.assertEqual(list(chatrun.cursor_event(json.dumps(terminal))),
+                         ['Hello', {'cursor_terminal': True}])
+        self.assertEqual(list(chatrun.cursor_event(json.dumps({'type': 'unknown', 'secret': 'hidden'}))), [])
+        for bad in ('{', '[]', '{"type":"result","is_error":true}'):
+            with self.subTest(bad=bad), self.assertRaises(OSError):
+                list(chatrun.cursor_event(bad))
+
+    def test_opt_in_requires_explicit_flags_before_start(self):
+        from tutti import chatrun
+        worker = {'command': ['cursor-agent', '-p', '{prompt}'], 'chat_output_format': 'cursor-stream-json'}
+        with mock.patch('tutti.chatrun.subprocess.Popen') as popen:
+            with self.assertRaisesRegex(ValueError, 'needs --output-format'):
+                list(chatrun.cli_stream(worker, [], threading.Event(), popen=popen))
+            popen.assert_not_called()
+
+    def test_plain_output_stays_plain_and_cursor_events_stream(self):
+        from tutti import chatrun
+        class Process:
+            returncode = 0
+            def __init__(self, lines):
+                self.stdout = iter(lines)
+            def poll(self):
+                return 0
+            def wait(self):
+                return 0
+        plain = {'command': ['agent', '{prompt}']}
+        self.assertEqual(list(chatrun.cli_stream(plain, [], threading.Event(), popen=lambda *_a, **_kw: Process(['raw\n']))), ['raw\n'])
+        worker = {'command': ['cursor-agent', '-p', '--output-format', 'stream-json', '--stream-partial-output', '{prompt}'],
+                  'chat_output_format': 'cursor-stream-json'}
+        events = [json.dumps({'type': 'assistant', 'timestamp_ms': 1, 'message': {'content': [{'type': 'text', 'text': 'old'}]}}),
+                  json.dumps({'type': 'assistant', 'timestamp_ms': 2, 'model_call_id': 'call',
+                              'message': {'content': [{'type': 'text', 'text': 'old'}]}}),
+                  json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'different'}]}}),
+                  json.dumps({'type': 'tool_call', 'subtype': 'completed', 'tool_call': {'data': 'private'}}),
+                  json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'Hi'})]
+        self.assertEqual(list(chatrun.cli_stream(worker, [], threading.Event(), popen=lambda *_a, **_kw: Process(events))),
+                         [{'progress': 'Agent tool completed.'}, 'Hi'])
+        self.assertEqual(list(chatrun.cli_stream(worker, [], threading.Event(), popen=lambda *_a, **_kw: Process(events[1:]))),
+                         [{'progress': 'Agent tool completed.'}, 'Hi'])
+        for bad in ([], events[:-1], events + ['{}'], [json.dumps({'type': 'result', 'is_error': True})]):
+            with self.subTest(bad=bad), self.assertRaises(chatrun.CursorStreamUncertain):
+                list(chatrun.cli_stream(worker, [], threading.Event(), popen=lambda *_a, lines=bad, **_kw: Process(lines)))
+
+    def test_progress_only_is_not_an_answer_and_never_runs_tool_payload(self):
+        from tutti import chatrun
+        job = chatrun.Job('local', 'c', {'id': 'm', 'cards': [], 'text': ''})
+        payload = {'type': 'tool_call', 'subtype': 'completed',
+                   'tool_call': {'data': 'ACTION {"tool":"backlog_add","args":{}}'}}
+        pieces = list(chatrun.cursor_event(json.dumps(payload)))
+        engine = object.__new__(chatrun.Engine)
+        engine.streams = lambda *_a: iter(pieces)
+        text, calls = engine._round(job, {'label': 'fake'}, {}, [])
+        self.assertIsNone(text)
+        self.assertEqual(calls, [])
+        self.assertEqual(job.msg['text'], '')
+
+    def test_already_cancelled_does_not_start_the_provider(self):
+        from tutti import chatrun
+        worker = {'command': ['cursor-agent', '-p', '--output-format', 'stream-json', '--stream-partial-output', '{prompt}'],
+                  'chat_output_format': 'cursor-stream-json'}
+        cancelled = threading.Event()
+        cancelled.set()
+        with mock.patch('tutti.chatrun.subprocess.Popen') as popen:
+            self.assertEqual(list(chatrun.cli_stream(worker, [], cancelled, popen=popen)), [])
+            popen.assert_not_called()
+
+    def test_stop_while_waiting_does_not_emit_a_late_result(self):
+        from tutti import chatrun
+        worker = {'command': ['cursor-agent', '-p', '--output-format', 'stream-json', '--stream-partial-output', '{prompt}'],
+                  'chat_output_format': 'cursor-stream-json'}
+        entered, release, cancelled = threading.Event(), threading.Event(), threading.Event()
+        def lines():
+            entered.set()
+            release.wait(5)
+            yield json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': 'late'})
+        class Process:
+            returncode = 0
+            stdout = lines()
+            def poll(self):
+                return 0
+            def wait(self):
+                return 0
+        output = []
+        def collect():
+            output.extend(chatrun.cli_stream(worker, [], cancelled, popen=lambda *_a, **_k: Process()))
+        thread = threading.Thread(target=collect)
+        thread.start()
+        try:
+            self.assertTrue(entered.wait(5))
+            cancelled.set()
+            release.set()
+            thread.join(5)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(output, [])
+        finally:
+            release.set()
+            thread.join(5)
+
+
 class Validation(unittest.TestCase):
     known = {'projects': ['map'], 'scouts': ['grok'], 'machine': ['nuc'], 'device': ['pixel'], 'worker': [], 'account': []}
 
@@ -786,6 +1320,15 @@ class Validation(unittest.TestCase):
 
 
 class Robustness(ApiBase):
+    def test_uncertain_cursor_tool_activity_does_not_fall_back_to_another_model(self):
+        eng = self.engine({'pc': [{'progress': 'Agent tool started.'}, chatrun.CursorStreamUncertain('work may have run')],
+                           'nuc': ['must not run']})
+        events = self.send(eng, ADMIN, 'hello')
+        done = events[-1]['message']
+        self.assertEqual(done['status'], 'failed')
+        self.assertIn('work may have run', done['note'])
+        self.assertNotIn('must not run', done['text'])
+
     def test_deleting_the_chat_while_it_answers_still_ends_the_answer(self):
         eng = self.engine({'pc': ['Part one. ', 'WAIT', 'never']})
         code, stream = chatrun.post(eng, ADMIN, {'action': 'send', 'text': 'tell me everything'})
@@ -1019,6 +1562,109 @@ def js(expr):
 
 @unittest.skipUnless(shutil.which('node'), 'node is not installed')
 class PageLogic(unittest.TestCase):
+    def test_version_refresh_waits_for_chat_work_but_allows_idle_chat(self):
+        idle = "{streaming:null,editing:null,pending:[]}"
+        self.assertFalse(js(f"chatRefreshBlocked({idle}, '', 0, false)"))
+        for state, text, files, dialog in ((idle, "'draft'", 0, 'false'), (idle, "''", 1, 'false'),
+                                          (idle, "''", 0, 'true'), ("{pending:[{}]}", "''", 0, 'false'),
+                                          ("{streaming:{}}", "''", 0, 'false'), ("{editing:{}}", "''", 0, 'false'),
+                                          ("{readingFiles:1}", "''", 0, 'false'), ("{pickingFiles:true}", "''", 0, 'false'),
+                                          ("{conv:{messages:[{status:'unsent'}]}}", "''", 0, 'false'),
+                                          ("{conv:{messages:[{status:'sending'}]}}", "''", 0, 'false')):
+            self.assertTrue(js(f'chatRefreshBlocked({state}, {text}, {files}, {dialog})'))
+
+    def test_refresh_stays_blocked_while_file_read_is_pending_after_input_changes(self):
+        with open(os.path.join(WEB, 'chat.js'), encoding='utf8') as f:
+            src = f.read()
+        script = r'''
+global.document = {getElementById: () => ({textContent: ''})};
+drawPending = () => {};
+let finish;
+const file = {name: 'note.txt', type: 'text/plain', size: 4, text: () => new Promise((resolve) => {finish = resolve;})};
+const input = {files: [file], value: 'note.txt'};
+const work = onFiles({target: input});
+input.files = [];
+const during = chatRefreshBlocked(CHAT, '', 0, false);
+finish('note');
+work.then(() => {console.log(JSON.stringify({during, after: chatRefreshBlocked(CHAT, '', 0, false),
+    text: CHAT.pending[0].text, reading: CHAT.readingFiles}));});
+'''
+        out = subprocess.run(['node', '-e', src + '\n' + script], capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(out.stdout), {'during': True, 'after': True, 'text': 'note', 'reading': 0})
+
+    def test_refresh_stays_blocked_after_a_send_fails_before_the_message_is_saved(self):
+        with open(os.path.join(WEB, 'chat.js'), encoding='utf8') as f:
+            src = f.read()
+        script = r'''
+say = () => {};
+const local = {status: 'sending', text: 'unsent work'};
+CHAT.conv = {messages: [local]};
+failSend(local, null, new Error('offline'));
+console.log(JSON.stringify({status: local.status, text: local.text, blocked: chatRefreshBlocked(CHAT, '', 0, false)}));
+'''
+        out = subprocess.run(['node', '-e', src + '\n' + script], capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(out.stdout), {'status': 'unsent', 'text': 'unsent work', 'blocked': True})
+
+    def test_settings_restart_does_not_request_restart_during_active_work(self):
+        with open(os.path.join(WEB, 'settings.js'), encoding='utf8') as f:
+            src = f.read()
+        script = r'''
+global.window = {};
+global.document = {querySelector: () => null};
+function busyEditing() { return true; }
+let requests = 0;
+global.fetch = () => {requests += 1; throw new Error('unexpected request');};
+const button = {disabled: false, textContent: ''};
+restartDashboard(button).then(() => console.log(JSON.stringify({requests, message: button.textContent})));
+'''
+        out = subprocess.run(['node', '-e', src + '\n' + script], capture_output=True, text=True, check=True)
+        result = json.loads(out.stdout)
+        self.assertEqual(result['requests'], 0)
+        self.assertIn('Finish or save', result['message'])
+
+    def test_settings_restart_rechecks_input_before_post_and_before_reload(self):
+        with open(os.path.join(WEB, 'settings.js'), encoding='utf8') as f:
+            src = f.read()
+        script = r'''
+global.window = {};
+global.document = {querySelector: () => null};
+let busy = false, posts = 0, reloads = 0, release;
+function busyEditing() { return busy; }
+global.location = {reload: () => {reloads += 1;}};
+global.fetch = (url) => {
+    if (url === '/api/health') return new Promise((resolve) => {release = () => resolve({json: async () => ({started: 1})});});
+    posts += 1;
+    return Promise.resolve({ok: true});
+};
+const button = {disabled: false, textContent: ''};
+const first = restartDashboard(button);
+busy = true;
+release();
+first.then(async () => {
+    const firstResult = {posts, reloads, disabled: button.disabled};
+    busy = false;
+    let health = 0;
+    global.setTimeout = (fn) => fn();
+    global.fetch = async (url) => {
+        if (url === '/api/health') {
+            health += 1;
+            if (health > 1) busy = true;
+            return {json: async () => ({started: health})};
+        }
+        posts += 1;
+        return {ok: true};
+    };
+    await restartDashboard(button);
+    console.log(JSON.stringify({first: firstResult, posts, reloads, disabled: button.disabled,
+        restarting: window.tuttiRestarting, message: button.textContent}));
+});
+'''
+        out = subprocess.run(['node', '-e', src + '\n' + script], capture_output=True, text=True, check=True)
+        data = json.loads(out.stdout)
+        self.assertEqual(data['first'], {'posts': 0, 'reloads': 0, 'disabled': False})
+        self.assertEqual((data['posts'], data['reloads'], data['disabled'], data['restarting']), (1, 0, False, False))
+        self.assertIn('Finish your work', data['message'])
+
     def test_markdown_is_parsed_to_a_tree_with_no_markup_from_text(self):
         text = (r'Hi <script>alert(1)</script> **bold** [x](javascript:alert(1)) [ok](https://example.com)'
                 r'\n\n```sh\nrm -rf <b>\n```\n- one\n- `two`')
@@ -1067,7 +1713,11 @@ class ControlsLogic(unittest.TestCase):
         self.assertEqual(jsctl("parseSlash('/new')"), {'cmd': '/new', 'arg': ''})
         self.assertTrue(jsctl("parseSlash('/nope')")['unknown'])
         self.assertIsNone(jsctl("parseSlash('/home/me/log.txt is broken')"))   # a path is a message, not a command
-        self.assertEqual(jsctl("SLASH.map((c) => c.cmd)"), ['/new', '/model', '/effort', '/mode', '/clear', '/help'])
+        self.assertEqual(jsctl("SLASH.filter((c) => !c.send).map((c) => c.cmd)"),
+                         ['/new', '/model', '/effort', '/mode', '/clear', '/help'])
+        # the work commands are sent to Tutti and match the server's (tutti/chat.py COMMANDS)
+        sent = jsctl("SLASH.filter((c) => c.send).map((c) => c.cmd.slice(1))")
+        self.assertEqual(sorted(sent), sorted(k for k in chat.COMMANDS if k != 'help'))
 
     def test_the_popup_offers_commands_at_the_start_and_mentions_anywhere(self):
         self.assertEqual(jsctl("popupFor('/ef', 3)"), {'kind': 'slash', 'query': '/ef', 'start': 0})
@@ -1155,3 +1805,62 @@ class PageMarkup(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ChatCliArgs(unittest.TestCase):
+    """Owner, 2026-11-17: Chat's Cursor answers in ask mode, in an empty folder of its own."""
+
+    def test_cursor_answers_in_ask_mode_and_a_setting_wins(self):
+        from tutti import chatctl
+        self.assertEqual(chatctl.chat_args({'command': ['cursor-agent', '-p', '{prompt}']}), ['--mode', 'ask'])
+        self.assertEqual(chatctl.chat_args({'command': ['claude', '-p', '{prompt}']}), [])
+        self.assertEqual(chatctl.chat_args({'command': ['cursor-agent'], 'chat_args': []}), [])
+
+    def test_the_chat_work_folder_is_under_the_state_dir(self):
+        from tutti import chatrun
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch('tutti.config.state_dir', return_value=d):
+                self.assertTrue(chatrun.chat_workdir({}).startswith(d))
+
+
+class MainPick(unittest.TestCase):
+    """Owner, 2026-11-17: 'Auto: the main agent' answers with the main agent first."""
+
+    def test_main_pick_puts_the_main_agent_first(self):
+        self.assertIn('main', chat.PICKS)
+        local = [{'worker': 'pc', 'kind': 'ollama', 'label': 'pc', 'why': None}]
+        online = [{'worker': 'cursor', 'kind': 'cli', 'label': 'cursor', 'why': None}]
+        with mock.patch.object(chat, 'all_models', return_value=(local, online)), \
+                mock.patch('tutti.conduct.current', return_value='cursor'):
+            got, _ = chat.candidates({}, {}, {'sub': 'local'}, pick='main')
+        self.assertEqual([c['worker'] for c in got], ['cursor', 'pc'])
+
+
+class ShortCommands(unittest.TestCase):
+    """Owner, 2026-11-17: /task, /delegate and delegate: in Tutti Chat."""
+    KNOWN = {'projects': ['tutti', 'roradio'], 'scouts': []}
+
+    def test_slash_task_and_delegate_forms(self):
+        got = chat.parse('/task roradio fix the Play rejection', self.KNOWN)
+        self.assertEqual((got['tool'], got['args']['repo'], got['args']['title']), ('backlog_add', 'roradio', 'fix the Play rejection'))
+        got = chat.parse('/delegate roradio: fix the Play rejection', self.KNOWN)
+        self.assertEqual((got['tool'], got['args']['project']), ('delegate_task', 'roradio'))
+        got = chat.parse('delegate: tidy the README', self.KNOWN)
+        self.assertEqual((got['tool'], got['args']['project'], got['args']['task']), ('delegate_task', 'tutti', 'tidy the README'))
+
+    def test_the_other_short_commands(self):
+        known = {**self.KNOWN, 'scouts': ['grok'], 'machine': ['nuc']}
+        self.assertEqual(chat.parse('/usage', known), {'tool': 'usage', 'args': {}})
+        self.assertEqual(chat.parse('/hosts', known)['tool'], 'machines')
+        self.assertEqual(chat.parse('/tasks all', known), {'tool': 'backlog_list', 'args': {'all': True}})
+        self.assertEqual(chat.parse('/status 17', known), {'tool': 'job_status', 'args': {'id': '17'}})
+        self.assertEqual(chat.parse('/ask grok what changed?', known)['args'], {'scout': 'grok', 'question': 'what changed?'})
+        self.assertEqual(chat.parse('/pause nuc', known)['tool'], 'control')
+        self.assertIn('/delegate', chat.parse('/help', known)['answer'])
+        self.assertIn('error', chat.parse('/ask nobody hi', known))
+
+    def test_just_ask_mode_never_starts_work(self):
+        self.assertIn('answer', chatctl.MODES)
+        self.assertIn('Answer only', chatrun.Engine.MODE_NOTE['answer'])
+        self.assertIn('never ask them to type a command', chatrun.Engine.MODE_NOTE['auto'])
+        self.assertIn('only when the work truly cannot start', chatrun.Engine.MODE_NOTE['auto'])

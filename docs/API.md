@@ -117,7 +117,7 @@ Each is a POST with a JSON body; the answer is `{"ok": true, ...}` with 200 (202
 | --- | --- | --- |
 | `/api/reading` | `{"account": "claude", "used": 42, "resets": "2026-11-20T08:00Z", "note": ""}` (`resets`, `note` optional; the reading helper adds `key`) | Writes the usage log like `tutti usage log`. 400: unknown account, `used` outside 0-100, a reset more than a day ago or two months ahead; 403: a helper key from another install. |
 | `/api/refresh` | `{}` | `{"ok": true, "read": [accounts], "problems": {account: why}}`: reads usage now. 500 when the usage log cannot be read. |
-| `/api/main` | `{"agent": "claude"}` | Switches the main agent (`tutti main`). 400: not a worker. |
+| `/api/main` | `{"agent": "claude"}` or `{"agent": "auto"}` | Switches the main agent (`tutti main <agent|auto>`; admin only). 400: not a worker or auto. |
 | `/api/autopilot` | `{"enabled": true, "fill_room": true}` (either key) | The autopilot's switches. |
 | `/api/self-improve` | `{"enabled": true}` | Self-improvement on or off. |
 | `/api/control` | `{"action": "pause"\|"resume"\|"optin", "kind": "machine"\|"device"\|"worker"\|"account", "name": "build1", "on": true, "stop": false, "note": ""}` | Pause, resume or opt in (`tutti pause`, `resume`, `optin`); `stop` hands running jobs over first. |
@@ -489,7 +489,7 @@ One YAML file: `--config`, else `$TUTTI_CONFIG`, else `~/.config/tutti/config.ya
 section. A missing key takes the default below; a wrong one stops every command with the key, the reason and the fix.
 
 Who may change it: the file's owner on disk, and on the dashboard an **admin** (the Settings tab, `POST /api/settings`).
-The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Manage tab: each user changes their own
+The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferred`) are on the Manage tab: each user changes their own
 (`POST /api/me/schedule`, `tutti owner`, `tutti main`), an admin anyone's. Keys marked *Applies after a restart* need
 `POST /api/restart` or a new start. A `*` is an entry's own name (`machines.build1.slots`).
 
@@ -514,7 +514,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `accounts.*.reading_file` | text |  | Reading file: A file your own tool writes {"used": 42} to. | admin |
 | `accounts.*.stale_hours` | number (hours) |  | Reading goes stale after: A reading by hand older than this gets a reminder. | admin |
 | `accounts.*.args` | list |  | Extra worker flags: Added when `tutti run auto` or conduct picks this account. | admin |
-| `accounts.*.reader` | yaml |  | Automatic reader: A command that prints the usage and the bucket to read from it, or {format: cursor-api, field: autoPercentUsed} for Cursor. | admin |
+| `accounts.*.reader` | yaml |  | Automatic reader: A command that prints usage, or format: cursor-api, codex-app-server or browser-usage for a scoped usage page. | admin |
 | `accounts.*.tiers` | yaml |  | Models by pace: Behind its limit: the strong tier's flags and the large tasks; ahead: the cheap tier's and the small ones ({strong: {args: [--model, x], sizes: [L, M]}, cheap: ...}). | admin |
 | `accounts.*.limits` | list |  | Bounded by: Longer quotas that bound this one (a weekly over a 5-hour window). | admin |
 | `accounts.*.window_points` | number |  | Points per window: What one whole window costs of its weekly limit; measured when empty. | admin |
@@ -528,6 +528,8 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `usage.log` | text | `~/.local/state/tutti/usage.jsonl` | Usage log: The file every reading is appended to. | admin |
 | `workers.*.kind` | select cli, ollama |  | Kind: cli: another vendor's agent; ollama: a local model server. | admin |
 | `workers.*.command` | list |  | Command: The command line; {prompt} is the brief, {log} a log file per run. | admin |
+| `workers.*.chat_account_selector` | text |  | Chat account selector: The CLI flag an admin asserts selects an account or model. | admin |
+| `workers.*.chat_output_format` | text |  | Chat output format: Use text or cursor-stream-json for Cursor progress and final result. | admin |
 | `workers.*.denied` | text |  | Denied marker: Text in its log that means a headless permission was refused. | admin |
 | `workers.*.costs_money` | switch | `False` | Costs money per use: Kept off until you turn it on. | admin |
 | `workers.*.enabled` | switch |  | On: Off takes it out of routing, conduct and review. | admin |
@@ -537,13 +539,14 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `workers.*.threads` | number |  | Threads: CPU threads the model may use. | admin |
 | `workers.*.num_ctx` | number (tokens) |  | Context: The model's context window. | admin |
 | `workers.*.context_tokens` | number (tokens) |  | Context window: Used by autocompact when the worker does not say. | admin |
-| `workers.*.machine` | select |  | Machine: Its yield flag is honoured: the worker waits while the machine yields. | admin |
+| `workers.*.machine` | select |  | Machine: Where this worker runs (Codex on the laptop): yield, pause, heat and quiet hours are honoured; Move work knows the host. | admin |
 | `workers.*.tunnel` | yaml |  | Tunnel: An ssh tunnel to the model server: {ssh, remote}. | admin |
-| `routing.workers` | list |  | Worker order: `tutti run auto` tries these in order, skipping spent ones. | admin |
+| `routing.workers` | list |  | Worker order: `tutti run auto` prefers these first (order only; every account that names a worker still joins, so Codex is not left out when the list is only cursor and agy). | admin |
 | `brief.rules` | list |  | Rules in every brief: Added to every brief (the standing ones are always added). | admin |
 | `main.target_pct` | number (%) |  | Target: The % of the main agent's quota to use by its spend-by time; the owner's reserve still holds. | admin |
-| `main.agent` | select | `claude` | Main agent: The worker that conducts the next goal. | each user (own value) or an admin |
-| `main.fallback` | list |  | Takes over: In this order, when the main agent's quota is in panic. | admin |
+| `main.agent` | select | `claude` | Main agent: The worker that conducts the next goal, or auto: Tutti keeps preferred while it has room, else the first worker in main.fallback with room. | each user (own value) or an admin |
+| `main.preferred` | select |  | Preferred main: The owner's lasting main agent; Tutti returns here after its limit resets. Empty: the file's main.agent when that is a worker, else the first of main.fallback, else claude. | each user (own value) or an admin |
+| `main.fallback` | list |  | Takes over: In this order, when the main agent's quota is in panic (and the auto pick order). | admin |
 | `main.commands` | yaml |  | Commands when conducting: A command per agent; default: its worker command. | admin |
 | `main.ask_first` | list |  | Ask first: Extra actions the conductor must ask you about. | admin |
 | `main.check_seconds` | number (seconds) | `30` | Check readings every: How often a conduct run checks the quota. | admin |
@@ -943,13 +946,14 @@ usage: tutti setup [-h] [--yes] [--ask] [--no-service] [--join JOIN] [--no-conne
 install the newest signed and checksummed release of Tutti (release installs)
 
 ```text
-usage: tutti self-update [-h] [--insecure-skip-verify] [--check] [--auto]
+usage: tutti self-update [-h] [--insecure-skip-verify] [--check] [--stage-only] [--auto]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
 | `--insecure-skip-verify` | offline only: install without checking the release's Sigstore signature (a loud warning; never with --auto) |  |
 | `--check` | only say whether a newer release is out |  |
+| `--stage-only` | verify and stage the release in a separate environment without activating it |  |
 | `--auto` | quiet no-op when turned off (self_update.enabled) or not a release install |  |
 
 ### `tutti machines`
@@ -1179,7 +1183,7 @@ usage: tutti run [-h] [--dir DIR] [--show] [--input PATH] [--on ON] [--repo REPO
 | `--show` | print the brief and stop |  |
 | `--input` | a file or folder to copy to the --on machine first (repeat it) |  |
 | `--on` | the machine --input files go to |  |
-| `--repo` | hand the task off end to end: a worktree of this repo, the worker headless, the diff, the checks, a report (tutti runs show <id>) |  |
+| `--repo` | hand the task off end to end: a worktree of this repo (a folder, or a name under autopilot.repos), the worker headless, the diff, the checks, a report (tutti runs show <id>) |  |
 | `--track` | with --repo: reuse or create the worktree <delegate.prefix><track> instead of a new one |  |
 | `--bg` | with --repo: run detached; prints the id for `tutti wait run <id>` |  |
 | `--no-checks` | with --repo: skip the checks (the report says nothing was tested) |  |
@@ -1931,7 +1935,7 @@ usage: tutti auth [-h] [--client-id CLIENT_ID] [--yes] [--device-client-id DEVIC
 
 ### `tutti main`
 
-the main agent: show it and who has room, or `tutti main <agent>` to switch it; `tutti main backup [<machine>\|auto\|none]`: the backup main machine (docs/FAILOVER.md)
+the main agent: show it and who has room, or `tutti main <agent\|auto>` to switch it (auto: preferred while it has room, else the first main.fallback with room); `tutti main backup [<machine>\|auto\|none]`: the backup main machine (docs/FAILOVER.md)
 
 ```text
 usage: tutti main [-h] [--yes] [agent] [machine_name]
@@ -1939,7 +1943,7 @@ usage: tutti main [-h] [--yes] [agent] [machine_name]
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `agent` |  |  |
+| `agent` | a worker, auto, or backup |  |
 | `machine_name` | backup: the machine, auto (Tutti elects one) or none (no failover) |  |
 | `--yes` | backup: change it although the current backup does not answer |  |
 

@@ -1,6 +1,32 @@
 # Lessons
 
+- **A read-only tool may still disclose private output** (t372): the model's status lookup bypassed the direct Chat
+  role check and could return a job log to a viewer. Apply the same access boundary before either dispatch path.
+
+- **A fake command fallback does not isolate token lookup** (t133): the GitHub client could still consult a cached or
+  locally signed-in CLI token before reaching the fake fallback. Tests must isolate both the token cache and lookup.
+
+- **Review-thread pages must be complete** (t179): querying only the first 100 threads could miss a later unresolved
+  conversation. Follow every page and fail closed when a result or cursor is incomplete or malformed.
+
+- **Explicit test environments must not inherit the real secret directory** (2026-11-17): a test passed an empty mapping,
+  but the secret lookup fell back to the user's home and reached a live webhook. Treat an explicit mapping without a
+  configuration directory as isolated, and verify that no secret-file read occurs.
+
 Each entry: what happened, why, and the rule it left behind. Add a lesson in the same change that fixes its cause.
+
+## A usage limit is not a real attempt (t260, 2026-11-17)
+
+**What happened.** Overnight, 167 usage-limit failures were classified `real` and counted toward `max_attempts` / strongest-step
+`no_progress`, pushing 149 tasks to needs-person (128 requeued by hand).
+
+**Why.** AI assist treated a rate limit as `real` so the ladder would move on; the strongest-step park and the attempt
+counter did not exclude ENV_SIDE failures (usage limit, CLI refusal, no-report after a limit).
+
+**Rule.** A usage limit, a CLI permission refusal, and a run that ended without a report are **environment**: they do not
+count toward `max_attempts` and never park as no-progress. A usage limit or CLI refusal still escalates (the account or
+CLI is spent). Match a real limit diagnostic (`HTTP 429`, `Too Many Requests`), never a bare `429` in an assertion or a
+test name.
 
 ## Untrusted text reached a command by a side door (security audit, 2026-11)
 
@@ -435,3 +461,24 @@ next `sleep` or fake `adb`, which carried the same marker and lived on until sel
 `scripts/check.sh` stopped at shellcheck on a machine without it, and an agent edited a throwaway copy of the script to
 skip that line. Even in a scratch clone that weakens the check. The fix is to install the tool, not skip it: check.sh now
 puts a pinned shellcheck (`shellcheck-py`, hashed) in its venv, and a missing tool is reported, never commented out.
+
+- A configured automatic reader is not proof of a fresh measurement: preserve the last actual reading time and surface
+  missing, future or stale values independently of whether a reader is configured (t317).
+
+- A cache hit is not a new provider observation. Keep its original time across machines, and do not let a current reader
+  failure be hidden by a previously fresh sample when deciding cautious panic rescue (t317).
+- A remote observation may occur after a polling round starts. Compare it with the local receipt time, not the round's
+  start, or a healthy bridge can be rejected on every normal poll (t317).
+
+## Browser setup can exhaust CI before tests run (t331)
+
+A slow package mirror repeatedly exhausted the CI timeout while Playwright installed system packages after unit tests.
+Probe the actual headless browser first and install system dependencies on probe failure; always run the complete browser
+suite. A successful launch does not guarantee optional fonts, and a cold mirror can still time out.
+
+## A watchdog must probe the actual bind (t333)
+
+A dashboard listening only on a LAN address cannot answer a loopback probe. The false failure caused a watchdog to start
+another dashboard while its user service was restarting. Probe the configured address, avoid competing with an existing
+user service, and serialize fallback watchdog starts when no unit exists. An existing service or PID is not proof that it
+owns the configured dashboard, so report unresolved health rather than killing or restarting an unverified process.

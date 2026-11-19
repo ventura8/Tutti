@@ -24,8 +24,12 @@ KINDS = ('fix', 'tests', 'docs', 'translations', 'review', 'summary', 'triage', 
 # What a model of each tier takes: the task kinds, the backlog sizes (a larger one is worked in steps of files_per_step files:
 # the model never holds more at once) and the rank used to order the machines
 TIERS = {
-    'strong': {'kinds': KINDS, 'sizes': ('S', 'M', 'L'), 'files_per_step': 3, 'rank': 2},
-    'normal': {'kinds': ('fix', 'tests', 'docs', 'translations', 'review', 'summary', 'triage'), 'sizes': ('S', 'M'),
+    # owner, 2026-11-17: local models failed most M and L tasks (t196, t221, t275 went to the PC's 27B and failed), so a
+    # strong local model takes S and M, a normal one S only; larger work stays with the online accounts
+    # a 60B+ model (a 70B on a 48-96 GB card, owner 2026-11-17) works like an online agent: every size
+    'huge': {'kinds': KINDS, 'sizes': ('S', 'M', 'L'), 'files_per_step': 5, 'rank': 3},
+    'strong': {'kinds': KINDS, 'sizes': ('S', 'M'), 'files_per_step': 3, 'rank': 2},
+    'normal': {'kinds': ('fix', 'tests', 'docs', 'translations', 'review', 'summary', 'triage'), 'sizes': ('S',),
                'files_per_step': 2, 'rank': 1},
     'small': {'kinds': ('docs', 'summary', 'triage', 'translations'), 'sizes': ('S',), 'files_per_step': 1, 'rank': 0},
 }
@@ -66,7 +70,8 @@ def classify(m):
     if not name or NOT_TEXT.search(name):
         return None
     p = params_b(m)
-    tier = 'strong' if p >= 14 else 'normal' if p >= 7 or not p else 'small'   # a size it does not show: a usual 7-9B
+    # a size it does not show: a usual 7-9B
+    tier = 'huge' if p >= 60 else 'strong' if p >= 14 else 'normal' if p >= 7 or not p else 'small'
     kinds = ('translations',) if TRANSLATOR.search(name) else TIERS[tier]['kinds']
     return {'name': name, 'params_b': p, 'family': (m.get('details') or {}).get('family') or '', 'tier': tier,
             'kinds': list(kinds), 'code': bool(CODER.search(name)) and not TRANSLATOR.search(name),

@@ -50,6 +50,8 @@ def web_client(cfg, path=None):
 def device_client(cfg, path=None):
     """(client ID, secret) of the built-in device client, or ('', '') when this build has no secret."""
     secret = (release(path).get('device_secret') or '').strip() if on(cfg, path) else ''
+    if not secret:
+        secret = os.environ.get('TUTTI_GOOGLE_DEVICE_SECRET', '').strip()
     return (DEVICE_CLIENT_ID, secret) if secret else ('', '')
 
 

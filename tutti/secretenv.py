@@ -13,7 +13,7 @@ from . import config
 FILES = ('grok.env',)
 SECRET_RX = re.compile(r'(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|DSN|AUTH)', re.I)
 KEEP = {'TUTTI_GROK_URL'}           # set by the same file; a webhook URL carries its routine id, treat it as secret too
-OWNED = {'TUTTI_GROK_KEY', 'TUTTI_GROK_URL'}   # plus every name a secret file holds; never a run's own TUTTI_BROWSER_TOKEN
+OWNED = {'TUTTI_GROK_KEY', 'TUTTI_GROK_URL', 'TUTTI_GOOGLE_DEVICE_SECRET'}   # plus every name a secret file holds; never a run's own TUTTI_BROWSER_TOKEN
 MASK = '****'
 
 
@@ -28,8 +28,8 @@ def mask(env):
 
 def scrubbed(env=None):
     """A copy of `env` without the secrets Tutti owns (OWNED and the names its secret files hold)."""
-    env = os.environ if env is None else env
-    return {k: v for k, v in env.items() if not owned(k)}
+    source = os.environ if env is None else env
+    return {k: v for k, v in source.items() if not owned(k, env)}
 
 
 def owned(name, env=None):
@@ -38,12 +38,16 @@ def owned(name, env=None):
 
 def file_names(env=None):
     from . import groksetup
+    if env is not None and not env.get('XDG_CONFIG_HOME'):
+        return set()
     return {k for f in FILES for k in groksetup.read_env_file(os.path.join(config.xdg_tutti_dir(env), f))}
 
 
 def get(name, env=None):
     """The secret `name`: from its file first (the point of use), else from `env` (a test, or an old shell export)."""
     from . import groksetup
+    if env is not None and not env.get('XDG_CONFIG_HOME'):
+        return env.get(name, '')
     for f in FILES:
         v = groksetup.read_env_file(os.path.join(config.xdg_tutti_dir(env), f)).get(name, '')
         if v.strip():
@@ -53,8 +57,9 @@ def get(name, env=None):
 
 def scrub_self(env=None):
     """Drops the owned secrets from this process's environment; returns the names dropped (children inherit none)."""
+    source = env
     env = os.environ if env is None else env
-    gone = [k for k in list(env) if owned(k, env)]
+    gone = [k for k in list(env) if owned(k, source)]
     for k in gone:
         del env[k]
     return gone
@@ -69,8 +74,9 @@ def reexec_clean(argv=None, execv=os.execv, env=None):
 
 def doctor_problems(env=None):
     """`tutti doctor`: the owned secrets this shell still exports (names only, the values masked)."""
+    source = env
     env = os.environ if env is None else env
-    names = sorted(k for k in env if owned(k, env) and env[k])
+    names = sorted(k for k in env if owned(k, source) and env[k])
     return [f'{", ".join(names)} exported in this shell (values hidden): remove the export or the `. ~/.config/tutti/grok.env` '
             'line from ~/.profile; Tutti reads ~/.config/tutti/grok.env itself, and an exported key leaks to anything that '
             'prints the environment'] if names else []

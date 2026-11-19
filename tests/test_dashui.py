@@ -65,6 +65,92 @@ class Formatter(unittest.TestCase):
                          '1.2 and (2) x12 v1.2.34567 9.9')
 
 
+@unittest.skipUnless(shutil.which('node'), 'node is not installed')
+class OffAccountDisplay(unittest.TestCase):
+    def test_all_off_renders_status_and_reason_without_actions(self):
+        app = os.path.join(dashboard.WEB, 'app.js')
+        script = r"""
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const code = src.slice(src.indexOf('function offAccount('), src.indexOf('// ---- the owner', src.indexOf('function offAccount(')));
+const nodes = {};
+function $(id) { return nodes[id] ||= {replaceChildren(...children) {this.children = children;}}; }
+function el(tag, attrs, ...children) { return {tag, attrs, children}; }
+function chip(text) { return el('span', {text}); }
+function empty(text) { return el('empty', {text}); }
+function codeText() { return ''; }
+function plural() { return ''; }
+const ui = {editing: new Set(), formPending: false};
+const usage = {accounts: [], off_accounts: [{name: 'cursor', status: 'paused', reason: 'rest'}], log: 'log'};
+eval(code + '\nrenderUsage({usage}, 0, false);');
+console.log(JSON.stringify(nodes.usage.children));
+"""
+        out = subprocess.run(['node', '-e', script, app], capture_output=True, text=True, check=True)
+        cards = json.loads(out.stdout)
+        self.assertEqual(len(cards), 1)
+        self.assertIn('cursor', json.dumps(cards))
+        self.assertIn('paused', json.dumps(cards))
+        self.assertIn('rest', json.dumps(cards))
+        self.assertNotIn('button', json.dumps(cards))
+        self.assertNotIn('No accounts yet', json.dumps(cards))
+
+
+@unittest.skipUnless(shutil.which('node'), 'node is not installed')
+class UsageGraphInteraction(unittest.TestCase):
+    def test_pointer_touch_and_keyboard_select_actual_readings(self):
+        app = os.path.join(dashboard.WEB, 'app.js')
+        script = r"""
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const code = src.slice(src.indexOf('function sparkline('), src.indexOf('\nfunction facts(', src.indexOf('function sparkline(')));
+function node(tag, attrs = {}) { return {tag, attrs: {...attrs}, children: [], events: {},
+  append(...items) { this.children.push(...items); }, setAttribute(k, v) { this.attrs[k] = String(v); },
+  addEventListener(k, f) { this.events[k] = f; }, getBoundingClientRect() { return {left: 10, width: 300}; }}; }
+function svg(tag, attrs) { return node(tag, attrs); }
+function el(tag, attrs, ...kids) { const n = node(tag, attrs); n.append(...kids); return n; }
+function localTime(s) { return s; }
+function utcTitle(s) { return s; }
+function tuttiPct(n) { return n + '%'; }
+const account = {name:'agent', window_start:'2026-01-01T00:00:00Z', reset:'2026-01-01T10:00:00Z',
+  target:'2026-01-01T09:00:00Z', panic_at:90, readings:[
+    {at:'2026-01-01T02:00:00Z',used:20}, {at:'2026-01-01T08:00:00Z',used:80}]};
+eval(code + `
+const box = sparkline(account, Date.parse('2026-01-01T05:00:00Z'));
+const g = box.children[0], detail = box.children[1], values = [];
+values.push([detail.textContent, g.attrs['aria-valuetext']]);
+g.events.pointermove({pointerType:'mouse',clientX:70}); values.push([detail.textContent,g.attrs['aria-valuenow']]);
+g.events.pointerdown({pointerType:'touch',clientX:250}); values.push([detail.textContent,g.attrs['aria-valuenow']]);
+let prevented = false; g.events.keydown({key:'ArrowLeft',preventDefault(){prevented=true;}});
+values.push([detail.textContent,g.attrs['aria-valuenow'],prevented]);
+const empty = sparkline({...account,readings:[]}, Date.now());
+values.push([empty.children[0].attrs.role, empty.children.length]);
+const bad = sparkline({...account,readings:[null,{}, {at:'bad',used:4}, {at:account.window_start,used:'x'},
+  {at:{toString:null},used:5}]}, Date.now());
+values.push([bad.children[0].attrs.role, bad.children[0].attrs['aria-label']]);
+const absent = sparkline({...account,readings:null}, Date.now());
+values.push([absent.children[0].attrs.role, absent.children.length]);
+const one = sparkline({...account,readings:[account.readings[0], {at:account.reset,used:101}]}, Date.now());
+values.push([one.children[0].attrs.role, one.children[1].textContent]);
+console.log(JSON.stringify(values));`);
+"""
+        out = subprocess.run(['node', '-e', script, app], capture_output=True, text=True, check=True)
+        values = json.loads(out.stdout)
+        self.assertIn('80%', values[0][0])
+        self.assertEqual(values[0][0], values[0][1])
+        self.assertIn('20%', values[1][0])
+        self.assertEqual(values[1][1], '1')
+        self.assertIn('80%', values[2][0])
+        self.assertEqual(values[2][1], '2')
+        self.assertIn('20%', values[3][0])
+        self.assertEqual(values[3][1:], ['1', True])
+        self.assertEqual(values[4], ['img', 1])
+        self.assertEqual(values[5][0], 'img')
+        self.assertIn('0 readings', values[5][1])
+        self.assertEqual(values[6], ['img', 1])
+        self.assertEqual(values[7][0], 'img')
+        self.assertIn('20%', values[7][1])
+
+
 class Order(unittest.TestCase):
     def page(self):
         with open(os.path.join(dashboard.WEB, 'index.html'), encoding='utf8') as f:
@@ -83,6 +169,24 @@ class Order(unittest.TestCase):
     def test_every_script_loads_after_the_formatter(self):
         scripts = re.findall(r'<script src="([a-z0-9-]+)\.js', self.page())
         self.assertEqual(scripts[0], 'format')
+
+    def test_wsl_and_desktop_environments_render_inside_one_physical_machine_card(self):
+        with open(os.path.join(dashboard.WEB, 'app.js'), encoding='utf8') as f:
+            app = f.read()
+        self.assertIn('const key = m.physical || m.name', app)
+        self.assertIn("class: 'machine-environments'", app)
+        self.assertIn('items.find((m) => m.name === physical)', app)
+
+    def test_chat_header_has_the_main_agent_selector(self):
+        page = self.page()
+        chat = page[page.index('id="chat-view"'):page.index('id="dashboard-view"')]
+        self.assertIn('id="chat-main-pick"', chat)
+        self.assertIn('id="chat-main-wrap"', chat)
+        with open(os.path.join(dashboard.WEB, 'app.js'), encoding='utf8') as f:
+            app = f.read()
+        self.assertIn("value: 'auto'", app)
+        self.assertIn('Auto (now:', app)
+        self.assertIn('/api/main', dashboard.ADMIN_PATHS)
 
 
 class VpnPost(unittest.TestCase):

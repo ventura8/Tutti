@@ -4,12 +4,14 @@ which model answers, the facts it answers from and the prompts it suggests. I/O 
 The chat runs on the household host, inside the dashboard: a user's own computer can be off. Its answers come from the
 dashboard's last snapshot and a model of the household (local models first, then an account with room that the asking user
 owns or that its owner shares); never another member's private quota."""
+import contextlib
 import hashlib
 import json
 import os
 import re
 import secrets
 import shutil
+import stat
 import tempfile
 import threading
 import time
@@ -29,6 +31,40 @@ WORK_TOOLS = ('backlog_add',)
 HOUSEHOLD_TOOLS = ('control',)                              # changes the household: admins only
 HOUSEHOLD = {'sub': 'household', 'email': None}              # the target of a household action (auth.may_act_for: admins only)
 DIR_MODE, FILE_MODE = 0o700, 0o600
+_STORE_THREADS = threading.RLock()
+_STORE_LOCAL = threading.local()
+
+
+@contextlib.contextmanager
+def store_locked(folder):
+    """Serialize transactions across cooperating processes when secure POSIX locking is available."""
+    from . import auth
+    path = os.path.realpath(folder)
+    with _STORE_THREADS:
+        if not getattr(os, 'O_NOFOLLOW', 0) or not auth.fcntl:
+            # Preserve single-process Chat on unsupported systems; never infer cross-process safety from this fallback.
+            yield
+            return
+        held = getattr(_STORE_LOCAL, 'held', set())
+        if path in held:
+            yield
+            return
+        os.makedirs(path, mode=DIR_MODE, exist_ok=True)
+        os.chmod(path, DIR_MODE)
+        try:
+            fd = os.open(os.path.join(path, '.chat.lock'), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, FILE_MODE)
+        except OSError as e:
+            raise OSError(f'Chat storage lock could not be opened ({e}): check the Chat state folder and .chat.lock') from e
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise OSError('Chat storage lock is not a regular file: remove the invalid .chat.lock')
+            os.fchmod(fd, FILE_MODE)
+            auth._lock(fd)
+            _STORE_LOCAL.held = held | {path}
+            yield
+        finally:
+            _STORE_LOCAL.held = held
+            os.close(fd)
 
 
 class ChatError(Exception):
@@ -84,7 +120,7 @@ class Store:
 
     def change(self, sub, fn):
         """fn(data) under the lock, then saved; returns what fn returns."""
-        with self.lock:
+        with self.lock, store_locked(self.folder):
             data = self.load(sub)
             out = fn(data)
             self.save(sub, data)
@@ -133,7 +169,7 @@ class Store:
 
     def clear(self, sub):
         """Every conversation of this user, gone: the file itself is removed, and the images beside it."""
-        with self.lock:
+        with self.lock, store_locked(self.folder):
             try:
                 os.remove(self.path(sub))
             except FileNotFoundError:
@@ -147,22 +183,24 @@ class Store:
         """Keeps an image (base64) in its own file beside the user's chats, so the conversations stay small; its ref."""
         ref = hashlib.sha256(data.encode()).hexdigest()[:24]
         folder = self.blobs(sub)
-        os.makedirs(folder, mode=DIR_MODE, exist_ok=True)
-        path = os.path.join(folder, ref)
-        if not os.path.exists(path):
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, FILE_MODE)
-            with os.fdopen(fd, 'w', encoding='ascii') as f:
-                f.write(data)
+        with store_locked(self.folder):
+            os.makedirs(folder, mode=DIR_MODE, exist_ok=True)
+            path = os.path.join(folder, ref)
+            if not os.path.exists(path):
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, FILE_MODE)
+                with os.fdopen(fd, 'w', encoding='ascii') as f:
+                    f.write(data)
         return ref
 
     def blob(self, sub, ref):
         if not re.fullmatch(r'[0-9a-f]{24}', str(ref or '')):
             return None
-        try:
-            with open(os.path.join(self.blobs(sub), ref), encoding='ascii') as f:
-                return f.read()
-        except OSError:
-            return None
+        with store_locked(self.folder):
+            try:
+                with open(os.path.join(self.blobs(sub), ref), encoding='ascii') as f:
+                    return f.read()
+            except OSError:
+                return None
 
     def get(self, sub, cid):
         return self.conversation(self.load(sub), cid)
@@ -238,8 +276,11 @@ class Store:
                 for m in c['messages']:
                     if m.get('status') == 'streaming' and m['id'] not in live_ids:
                         m['status'] = 'stopped'
-                        m['note'] = 'This answer was cut off when Tutti restarted. Retry to get a full one.'
-        with self.lock:
+                        m['note'] = ('This answer was cut off when Tutti restarted. Retry to get a full one.'
+                                     if m.get('retry_safety') == 'safe' else
+                                     'This answer was cut off when Tutti restarted; work may have started. '
+                                     'Check its status before sending a new request.')
+        with self.lock, store_locked(self.folder):
             data = self.load(sub)
             if any(m.get('status') == 'streaming' and m['id'] not in live_ids for c in data['conversations'] for m in c['messages']):
                 go(data)
@@ -295,6 +336,26 @@ DELEGATE = re.compile(r'^(?:please\s+)?(?:delegate|hand\s+off|handoff)\s+(?:in|f
 ASK = re.compile(r'^(?:please\s+)?ask\s+(?:the\s+)?(?:scout\s+)?(?P<scout>[\w.-]+)(?:\s+scout)?\s*[:,–-]?\s*(?P<question>.+)$', re.I | re.S)
 CONTROL = re.compile(r'^(?:please\s+)?(?P<action>pause|resume|unpause)\s+(?:the\s+)?(?P<name>[\w.-]+)\s*[.!]?$', re.I)
 SIZE = re.compile(r'\s*\[size\s+(XS|S|M|L)\]\s*', re.I)
+# short commands (owner, 2026-11-17): /task <project> <title>; /delegate [<project>] <what>; delegate: [<project>:] <what>
+SLASH_TASK = re.compile(r'^/task\s+(?P<project>[\w.-]+)\s*[:,–-]?\s*(?P<title>.+)$', re.I | re.S)
+SLASH_DELEGATE = re.compile(r'^(?:/delegate\s+|delegate\s*:\s*)(?P<rest>.+)$', re.I | re.S)
+# the other short commands: /tasks [all], /status [<run id>], /usage, /hosts, /devices, /pause <name>, /resume <name>,
+# /ask <scout> <question>, /tests <project>, /help
+SLASH = re.compile(r'^/(?P<cmd>[a-z]+)\b\s*(?P<arg>.*)$', re.I | re.S)
+COMMANDS = {
+    'task': '/task <project> <what>: queue a task in a project',
+    'delegate': '/delegate [<project>] <what>: hand work to the best agent now (also "delegate: ...")',
+    'tasks': '/tasks [all]: the task queue',
+    'status': '/status [<run id>]: what is running, or one run',
+    'usage': '/usage: every account against its pace',
+    'hosts': '/hosts: the computers and their state',
+    'devices': '/devices: phones, tablets and TVs',
+    'pause': '/pause <host, device, agent or account>',
+    'resume': '/resume <host, device, agent or account>',
+    'ask': '/ask <scout> <question>: ask a scout such as grok',
+    'tests': '/tests <project>: queue the full test suite',
+    'help': '/help: these commands',
+}
 
 
 def find_name(name, names):
@@ -306,10 +367,56 @@ def find_name(name, names):
     return None
 
 
+def slash_call(cmd, arg, known):
+    """The tool call of a short command other than /task and /delegate, or {'answer': text} for /help."""
+    if cmd == 'help':
+        return {'answer': 'Commands: ' + '; '.join(COMMANDS.values()) + '. Plain words work too.'}
+    simple = {'usage': 'usage', 'hosts': 'machines', 'devices': 'devices'}
+    if cmd in simple:
+        return {'tool': simple[cmd], 'args': {}}
+    if cmd == 'tasks':
+        return {'tool': 'backlog_list', 'args': {'all': arg.lower() == 'all'}}
+    if cmd == 'status':
+        return {'tool': 'job_status', 'args': {'id': arg}}
+    if cmd in ('pause', 'resume') and arg:
+        return control_call(cmd, arg, known)
+    if cmd == 'ask' and ' ' in arg:
+        scout, question = arg.split(' ', 1)
+        name = find_name(scout, known.get('scouts', []))
+        return ({'tool': 'scout_ask', 'args': {'scout': name, 'question': question.strip()}} if name
+                else {'error': f'There is no scout called {scout}. Try /ask grok <question>.'})
+    if cmd == 'tests' and arg:
+        return work('backlog_add', arg, known, lambda p: {'repo': p, 'title': 'Run the full test suite and fix what fails',
+                                                          'size': 'S'})
+    return {'error': f'{COMMANDS[cmd]} needs more: {COMMANDS[cmd].split(":")[0]}'}
+
+
+def short_project(rest, known):
+    """(project, what) of a short command: a leading project name ('roradio: fix ...' or 'roradio fix ...') when it is one,
+    else the household's first project (its top priority in the config's order)."""
+    head, _, tail = rest.strip().partition(' ')
+    name = find_name(head.rstrip(':,'), known.get('projects', []))
+    if name and tail.strip():
+        return name, tail.strip()
+    projects = known.get('projects') or ['']
+    return projects[0], rest.strip()
+
+
 def parse(text, known):
     """The tool call a message asks for, or None. `known` = {projects, scouts, machine, device, worker, account: [names]}.
     {tool, args, label} or {'error': plain text} when the request is clear but names something unknown."""
     text = text.strip()
+    m = SLASH_TASK.match(text)
+    if m:
+        return work('backlog_add', m['project'], known, lambda p: {'repo': p, 'title': SIZE.sub(' ', m['title']).strip(),
+                                                                  **size_of(m['title'])})
+    m = SLASH_DELEGATE.match(text)
+    if m:
+        project, task = short_project(m['rest'], known)
+        return work('delegate_task', project, known, lambda p: {'project': p, 'task': SIZE.sub(' ', task).strip(), **size_of(task)})
+    m = SLASH.match(text)
+    if m and m['cmd'].lower() in COMMANDS:
+        return slash_call(m['cmd'].lower(), m['arg'].strip(), known)
     m = ADD.match(text)
     if m:
         return work('backlog_add', m['project'], known, lambda p: {'repo': p, 'title': SIZE.sub(' ', m['title']).strip(),
@@ -568,7 +675,8 @@ def machine_out(name, snap, own_machine=None):
     return None
 
 
-PICKS = {'auto': 'Auto: local first, then online', 'local': 'Local models only', 'online': 'Online agents only'}
+PICKS = {'main': 'Auto: the main agent', 'auto': 'Auto: local first, then online', 'local': 'Local models only',
+         'online': 'Online agents only'}
 TOOL_PARAMS_B = 7.0   # a local model this large or larger is given the tools; a smaller one only talks
 
 
@@ -597,6 +705,38 @@ def capability(cand):
     return cand.get('params') or 0.0
 
 
+def online_model(cfg, name, w, rows, accounts, paused, owner, configured, account_args):
+    """Choose a configured account whose quota can safely be bound to this worker's command."""
+    from . import routing, workers
+    linked = [n for n, worker in configured.items() if worker == name]
+    selector = w.get('chat_account_selector') if len(linked) > 1 else None
+    values = {n: workers.selector_value(account_args.get(n) or [], selector) for n in linked} if selector else {}
+    binding_ok = bool(selector and len(values) == len(linked) and all(values.values()) and len(set(values.values())) == len(linked))
+    options = []
+    for acc_name in linked or [name]:
+        conf = (cfg.get('accounts') or {}).get(acc_name)
+        acc = accounts.get(acc_name)
+        why = cloud_out(name, acc_name, acc or {}, conf or {}, w, paused, rows.get(name, {}), owner)
+        if not why and linked and conf is None:
+            why = f'{acc_name}: its configured account is paused or disabled'
+        if not why and linked and acc is None:
+            why = f'{acc_name}: no pacing state yet; refresh usage before using this account'
+        if not why and len(linked) > 1 and not binding_ok:
+            why = (f'{name}: configure workers.{name}.chat_account_selector and distinct selector values in each linked '
+                   'account args before Chat uses this shared worker')
+        missing = routing.missing_limits(cfg, acc_name, acc or {})
+        if not why and missing:
+            why = f'{acc_name}: missing linked quota state ({", ".join(missing)}); resume it or refresh its reading'
+        if not why and acc and routing.quota_closed(acc):
+            why = f'{acc_name}: a linked quota is in panic or spent'
+        candidate = {'kind': 'cli', 'worker': name, 'account': acc_name, 'why': why, 'tools': True,
+                     'label': f'{name} ({acc_name} account)'}
+        if binding_ok:
+            candidate.update(selector=selector, selector_value=values[acc_name])
+        options.append(candidate)
+    return next((candidate for candidate in options if not candidate['why']), options[0])
+
+
 def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
     """Every model of the household with why it cannot answer now (None when it can): ([local], [online]). Local models
     are sorted by capability (the largest first, as `qwen3.8:27b` on the PC), each marked whether it gets the tools."""
@@ -616,14 +756,12 @@ def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
                       'label': f'{w.get("model")} on {where}'})
     local.sort(key=lambda c: -capability(c))
     accounts = {a.get('name'): a for a in (snap.get('usage') or {}).get('accounts') or []}
+    configured = cfg.get('_account_workers') or {n: (a or {}).get('worker') or n for n, a in (cfg.get('accounts') or {}).items()}
+    account_args = cfg.get('_account_args') or {n: (a or {}).get('args') or [] for n, a in (cfg.get('accounts') or {}).items()}
     for name, w in workers.items():
         if (w or {}).get('kind') != 'cli':
             continue
-        acc_name = rows.get(name, {}).get('account') or name
-        acc, conf = accounts.get(acc_name) or {}, (cfg.get('accounts') or {}).get(acc_name) or {}
-        why = cloud_out(name, acc_name, acc, conf, w, paused, rows.get(name, {}), is_owner(user, owner_sub))
-        online.append({'kind': 'cli', 'worker': name, 'account': acc_name, 'why': why, 'tools': True,
-                       'label': f'{name} ({acc_name} account)'})
+        online.append(online_model(cfg, name, w, rows, accounts, paused, is_owner(user, owner_sub), configured, account_args))
     return local, online
 
 
@@ -635,6 +773,13 @@ def candidates(cfg, snap, user, owner_sub=None, own_machine=None, pick='auto'):
     accounts are the owner's own or shared (`accounts.<n>.share_spare`): another member's private quota is never spent."""
     local, online = all_models(cfg, snap, user, owner_sub, own_machine)
     pool = {'local': local, 'online': online}.get(pick, local + online)
+    if pick == 'main':   # the main agent now (tutti/conduct.py: auto, a hand-off or the owner's switch), then the rest as auto
+        from . import conduct
+        try:
+            main = conduct.current(cfg)
+        except (KeyError, TypeError):   # a config without main agents: the same order as auto
+            main = ''
+        pool = [c for c in online + local if c['worker'] == main] + [c for c in local + online if c['worker'] != main]
     if pick not in PICKS:
         pool = [c for c in local + online if c['worker'] == pick] or [{'worker': pick, 'why': f'{pick} is not a model here'}]
     out, before = [], []

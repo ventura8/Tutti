@@ -215,9 +215,13 @@ function sparkline(a, now) {
     const H = 72;
     const x = (t) => ((t - t0) / (t1 - t0)) * W;
     const y = (p) => H - 4 - (Math.min(100, p) / 100) * (H - 8);
+    const readings = (Array.isArray(a.readings) ? a.readings : [])
+        .filter((r) => r && typeof r === 'object' && typeof r.at === 'string' && Number.isFinite(Date.parse(r.at)) &&
+            Number.isFinite(r.used) && r.used >= 0 && r.used <= 100)
+        .map((r) => ({ at: r.at, used: r.used, time: Date.parse(r.at) })).sort((left, right) => left.time - right.time);
+    const pts = readings.map((r) => [x(r.time), y(r.used)]);
     const g = svg('svg', { class: 'spark', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img' });
-    const pts = a.readings.map((r) => [x(Date.parse(r.at)), y(r.used)]);
-    g.setAttribute('aria-label', `${a.name}: ${a.readings.length} readings this window; the dashed line is the even pace to 100 % by the target time`);
+    g.setAttribute('aria-label', `${a.name}: ${readings.length} readings this window; the dashed line is the even pace to 100 % by the target time`);
     g.append(svg('line', { class: 's-grid', x1: 0, x2: W, y1: y(0), y2: y(0) }));
     g.append(svg('line', { class: 's-panic', x1: 0, x2: W, y1: y(a.panic_at), y2: y(a.panic_at) }));
     g.append(svg('polyline', { class: 's-target', points: `0,${y(0)} ${x(tt)},${y(100)} ${W},${y(100)}` }));
@@ -226,7 +230,58 @@ function sparkline(a, now) {
     if (pts.length) {
         g.append(svg('polyline', { class: 's-line', points: [[0, y(0)], ...pts].map((p) => p.join(',')).join(' ') }));
     }
-    return g;
+    const box = el('div', { class: 'spark-wrap' }, g);
+    if (!readings.length || !Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return box;
+    const detail = el('p', { class: 'spark__detail' });
+    const marker = svg('circle', { class: 's-selected', r: 3 });
+    g.append(marker);
+    if (readings.length === 1) {
+        const r = readings[0];
+        detail.textContent = `${localTime(r.at)} · ${tuttiPct(r.used)} used`;
+        detail.title = utcTitle(r.at);
+        marker.setAttribute('cx', x(r.time));
+        marker.setAttribute('cy', y(r.used));
+        box.append(detail);
+        return box;
+    }
+    g.setAttribute('role', 'slider');
+    g.setAttribute('tabindex', '0');
+    g.setAttribute('aria-label', `${a.name} usage readings`);
+    g.setAttribute('aria-valuemin', '1');
+    g.setAttribute('aria-valuemax', String(readings.length));
+    let selected = readings.length - 1;
+    function select(index) {
+        selected = Math.max(0, Math.min(readings.length - 1, index));
+        const r = readings[selected];
+        const label = `${localTime(r.at)} · ${tuttiPct(r.used)} used`;
+        detail.textContent = label;
+        detail.title = utcTitle(r.at);
+        marker.setAttribute('cx', x(r.time));
+        marker.setAttribute('cy', y(r.used));
+        g.setAttribute('aria-valuenow', String(selected + 1));
+        g.setAttribute('aria-valuetext', label);
+    }
+    function point(event) {
+        const rect = g.getBoundingClientRect();
+        if (!rect.width) return;
+        const pos = Math.max(0, Math.min(W, (event.clientX - rect.left) / rect.width * W));
+        let nearest = 0;
+        for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i][0] - pos) < Math.abs(pts[nearest][0] - pos)) nearest = i;
+        select(nearest);
+    }
+    g.addEventListener('pointermove', (event) => { if (event.pointerType === 'mouse') point(event); });
+    g.addEventListener('pointerdown', point);  // mouse, touch and pen: show the nearest actual observation
+    g.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') select(selected - 1);
+        else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') select(selected + 1);
+        else if (event.key === 'Home') select(0);
+        else if (event.key === 'End') select(readings.length - 1);
+        else return;
+        event.preventDefault();
+    });
+    select(selected);
+    box.append(detail);
+    return box;
 }
 
 function facts(pairs) {
@@ -454,6 +509,13 @@ function account(a, now) {
     return card;
 }
 
+function offAccount(a) {
+    return el('article', { class: 'account', 'aria-label': `${a.name}: ${a.status}` },
+        el('div', { class: 'account__top' }, el('h3', { class: 'account__name', text: a.name }),
+            chip(a.status, a.status === 'paused' ? 'warn' : 'idle')),
+        el('p', { class: 'account__by', text: a.reason }));
+}
+
 function renderUsage(s, now, force) {
     const u = s.usage;
     // While a reading is being typed, the cards stay as they are: a poll must not wipe the form or move the focus.
@@ -470,7 +532,8 @@ function renderUsage(s, now, force) {
     const ownCard = (n) => ui.editing.has(n) || byName.get(n)?.needs_reading !== false;
     const inside = new Set(u.accounts.flatMap((a) => (a.limits || []).map((l) => l.name)).filter((n) => !ownCard(n)));
     const shown = u.accounts.filter((a) => !inside.has(a.name));
-    $('usage').replaceChildren(...(shown.length ? shown.map((a) => account(a, now))
+    const cards = [...shown.map((a) => account(a, now)), ...(u.off_accounts || []).map(offAccount)];
+    $('usage').replaceChildren(...(cards.length ? cards
         : [empty('No accounts yet', codeText('Add an accounts: section to the config (see ', 'tutti.config.example.yaml', ').'))]));
     if (u.owner) $('owner').replaceChildren(...ownerPanel(u.owner));
 }
@@ -575,7 +638,7 @@ function slotText(m) {
     return `${m.free} of ${plural(m.slots, 'slot')} free${held}`;
 }
 
-function machine(m) {
+function machine(m, environments = []) {
     const stats = el('div', { class: 'row__stats' }, pips(m), el('span', { title: `Slots: ${m.slots_why || ''}`, text: slotText(m) }));
     if (m.load !== null) {
         const bar = el('span');
@@ -599,7 +662,7 @@ function machine(m) {
     const use = (ui.last?.household_use?.machines || []).find((u) => u.name === m.name);
     const shards = (ui.last?.dispatch?.leases || []).filter((x) => x.name === m.name && x.why);
     if (use && use.hour !== null) stats.append(el('span', { text: `used ${tuttiPct(use.hour)} last hour · ${tuttiPct(use.day)} today` }));
-    return el('li', { class: 'row', 'data-roles': roleNames(m.roles) },
+    return el('li', { class: 'row', 'data-machine': m.name, 'data-roles': roleNames(m.roles) },
         el('div', { class: 'row__name' }, m.name, el('span', { class: 'row__kind', text: `${m.transport} · ${m.host}` })),
         chip(m.status, MACHINE_TONE[m.status]),
         stats,
@@ -611,7 +674,9 @@ function machine(m) {
         ...shards.map((x) => el('p', { class: 'row__note', text: `Running ${x.project} ${x.key}: ${x.why}` })),
         limitForm(m),
         m.household_use ? el('p', { class: 'row__note household-only', text: busyFor(m) }) : null,
-        storedFiles(m.name, m.stored));
+        storedFiles(m.name, m.stored),
+        environments.length ? el('ul', { class: 'machine-environments', 'aria-label': `${m.name} environments` },
+            ...environments.map((environment) => machine(environment))) : null);
 }
 
 // Measured power (tutti/power.py): the benchmark's score, what is free now and the two together; dispatch orders by it
@@ -700,7 +765,17 @@ function renderMachines(s) {
     $('machines-disk').replaceChildren(...(s.disk || []).map((t) => el('p', { class: 'row__note', 'data-tone': 'bad', role: 'alert', text: t })));
     // A re-render replaces the rows: the stored-files toggle that had focus gets it back (keyboard users keep their place).
     const focused = document.activeElement?.closest?.('.stored')?.dataset.machine;
-    $('machines').replaceChildren(...(ms.items.length ? ms.items.map(machine)
+    const groups = new Map();
+    for (const m of ms.items) {
+        const key = m.physical || m.name;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(m);
+    }
+    const cards = [...groups].map(([physical, items]) => {
+        const primary = items.find((m) => m.name === physical) || items[0];
+        return machine(primary, items.filter((m) => m !== primary));
+    });
+    $('machines').replaceChildren(...(cards.length ? cards
         : [el('li', {}, ms.probed_at ? empty('No machines', 'Add machines: to the config to route heavy runs.') : empty('Probing machines…', 'ssh answers can take a few seconds.'))]));
     roleFilter('machines-role-filter', 'machines', ms.items);
     if (focused) $('machines').querySelector(`.stored[data-machine="${CSS.escape(focused)}"] > summary`)?.focus({ preventScroll: true });
@@ -897,23 +972,30 @@ function mainRun(m) {
         el('p', { class: 'row__note', text: `${turns || 'no agent started'} · since ${relative(r.started)}` }));
 }
 
+function mainOptions(m) {
+    const autoLabel = `Auto (now: ${m.agent})`;
+    const agents = (m.choices || []).map((c) => el('option', {
+        value: c.name, selected: !m.auto && c.name === m.agent,
+        text: [`${c.name} (${c.kind === 'ollama' ? 'local model' : 'cli'})`, c.out && `out: ${c.out}`].filter(Boolean).join(' · '),
+    }));
+    return [el('option', { value: 'auto', selected: Boolean(m.auto), text: autoLabel }), ...agents];
+}
+
 function renderMain(s) {
     const m = s.main;
     if (!m) return;
-    $('main-meta').textContent = m.chosen ? `${m.agent} · switched here` : `${m.agent} · from the config`;
+    const src = m.auto ? 'auto' : (m.chosen ? 'switched here' : 'from the config');
+    $('main-meta').textContent = m.preferred && m.preferred !== m.agent
+        ? `${m.agent} · ${src} · preferred ${m.preferred}` : `${m.agent} · ${src}`;
     const pick = $('main-pick');
-    if (document.activeElement !== pick) {
-        pick.replaceChildren(...m.choices.map((c) => el('option', {
-            value: c.name, selected: c.name === m.agent,
-            text: [`${c.name} (${c.kind === 'ollama' ? 'local model' : 'cli'})`, c.out && `out: ${c.out}`].filter(Boolean).join(' · '),
-        })));
-    }
+    if (document.activeElement !== pick) pick.replaceChildren(...mainOptions(m));
     $('main-run').replaceChildren(mainRun(m));
+    if (typeof renderChatMain === 'function') renderChatMain(m);
 }
 
 async function switchMain(e) {
     e.preventDefault();
-    const agent = $('main-pick').value;
+    const agent = (e.target && e.target.id === 'chat-main-pick' ? e.target : $('main-pick')).value;
     try {
         const res = await fetch('/api/main', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tutti-Token': TOKEN }, body: JSON.stringify({ agent }),
@@ -1468,7 +1550,7 @@ function newWorker(reg) {
 }
 
 function busyEditing() {
-    return ui.editing.size > 0 || Boolean(ui.formPending);   // a reading being typed or saved is never thrown away
+    return ui.editing.size > 0 || Boolean(ui.formPending) || (typeof chatRefreshBlocked === 'function' && chatRefreshBlocked());
 }
 
 function writeMarker(version) {

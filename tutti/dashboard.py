@@ -110,6 +110,7 @@ class Collector:
         self.stored_fn = stored_fn or (lambda m: transfer.stored(cfg, m))
         self.reader = reader or readers.Readers(cfg, clock=clock)
         self.probes = {}
+        self.autopilot_parallel_limit = cfg.get('_parallel_limit')
         self.lock = threading.Lock()
         self.read_lock = threading.Lock()   # the probe thread and a Refresh readings click never run the readers at once
         self.stop = threading.Event()
@@ -125,8 +126,16 @@ class Collector:
         with self.read_lock:
             now = datetime.fromtimestamp(self.clock(), timezone.utc)
             found = self.reader.read_all(now, force)
-            readers.record(state.usage_log_path(self.cfg), found, self.reader.scan_jobs(now), now)
-            readers.record_files(state.usage_log_path(self.cfg), self.cfg['accounts'], self.cfg)
+            # A remote observation may be made while read_all is in flight; validate it against the receipt time.
+            received = datetime.fromtimestamp(self.clock(), timezone.utc)
+            readers.record(state.usage_log_path(self.cfg), found, self.reader.scan_jobs(received), received)
+            files = {}
+            readers.record_files(state.usage_log_path(self.cfg), self.cfg['accounts'], self.cfg, status=files)
+            for name, result in files.items():
+                if name not in found:
+                    found[name] = result
+                elif result.get('problem') and not found[name].get('problem'):
+                    found[name] = {**found[name], 'problem': result['problem']}
             return found
 
     def refresh_readings(self):
@@ -190,14 +199,19 @@ class Collector:
         """One autopilot round after each probe while it is on: the probes just taken decide (pace, slots, heat)."""
         if not autopilot.enabled(self.cfg):
             return None
+        # A round owns its measurements; other dashboard requests keep their shared config unchanged.
+        round_cfg = {k: v for k, v in self.cfg.items() if k not in ('_host_raw', '_host', '_disk', '_parallel_limit')}
+        if self.autopilot_parallel_limit is not None:
+            round_cfg['_parallel_limit'] = self.autopilot_parallel_limit
         snap = self.snapshot()
         states = {a['name']: a for a in snap['usage']['accounts']}
         from . import sharing  # a household member's heartbeat rides on the round; shared machines offer its grant only
         machines = sharing.limit_items(self.cfg, [dict(m) for m in snap['machines']['items']], self.clock())
         beat = sharing.beat(self.cfg, datetime.fromtimestamp(self.clock(), timezone.utc), machines)
-        out = autopilot.tick(self.cfg, states, machines, beat=beat)
+        out = autopilot.tick(round_cfg, states, machines, beat=beat)
+        self.autopilot_parallel_limit = round_cfg.get('_parallel_limit')
         try:   # the work queue: machines with a free slot left after the autopilot run the projects' jobs (tutti/workq.py)
-            workq.tick(self.cfg, machines)
+            workq.tick(round_cfg, machines)
         except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as e:
             self.probes = {**self.probes, 'workq_error': f'the work queue failed ({e}): the next round tries again'}
         return out
@@ -254,6 +268,12 @@ class Collector:
         unblocker.tick_in_background(self.cfg)   # blocked or failing work cleared, local first (docs/TELEMETRY.md, *The unblocker*)
         welcome.tick(self.cfg)   # the owner back: their welcome-back summary
         needs.tick(self.cfg)   # the questions only a person can answer, delivered in batches (docs/NEEDS.md)
+        # main agent in panic or spent: MAIN AGENT ROLE to the next in main.fallback (docs/CONDUCT.md)
+        snap = self.snapshot()
+        from . import chat
+        self.cfg['_model_sizes'] = chat.fleet_sizes(self.cfg)
+        self.cfg['_worker_readiness'] = {w['name']: w.get('ready') for w in snap['workers']['items']}
+        conduct.hand_off_role(self.cfg, snap['usage']['accounts'], now=datetime.now(timezone.utc), machines=snap['machines']['items'])
         from . import hhjobs  # members' jobs on the machines this login shares (docs/HOUSEHOLD.md, *Compute*)
         hhjobs.tick(self.cfg)
 
@@ -357,6 +377,7 @@ class Collector:
             fresh = config.load(self.cfg['_path'])
             with self.read_lock:   # the usage readers follow the switch too: a resumed account is read, a paused one not
                 self.cfg = fresh
+                self.autopilot_parallel_limit = fresh.get('_parallel_limit')
                 if hasattr(self.reader, 'cfg'):
                     self.reader.cfg = fresh
         return self.cfg
@@ -414,7 +435,7 @@ API_TUTTI_MOVE = '/api/move'   # Tutti itself to another machine (docs/MOVE.md);
 # these change the config or the queue: an admin's
 API_LIMIT = '/api/machine-limit'   # a machine's limited-usage window (tutti/share.py), from its card
 ADMIN_PATHS = (API_LIMIT, API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE,
-               '/api/ai-assist')
+               '/api/ai-assist', '/api/main')
 API_REPORT = '/api/report'   # Report a problem (docs/REPORT.md): every signed-in user, viewers included
 API_VPN_STATUS = '/api/vpn/status'   # GET: the Private network card's state, 200 also when no VPN is set up
 API_WORK_MOVE = '/api/work/move'   # work waiting on an away or asleep target moved now (docs/PRESENCE.md)
@@ -505,16 +526,17 @@ def save_reading(cfg, raw, now=None):
 
 
 def save_main(cfg, raw):
-    """(status, answer) for POST /api/main {"agent": <worker>}: the owner's switch of the main agent."""
+    """(status, answer) for POST /api/main {"agent": <worker|auto>}: the owner's switch of the main agent (admin only).
+    Same code path as `tutti main <agent|auto>`."""
     try:
         data = json.loads(raw or b'null')
         agent = data.get('agent') if isinstance(data, dict) else None
         conduct.choose(cfg, agent)
     except ValueError:
-        return 400, {'error': 'send {"agent": "<worker>"} as JSON'}
+        return 400, {'error': 'send {"agent": "<worker|auto>"} as JSON'}
     except conduct.ConductError as e:
         return 400, {'error': str(e)}
-    return 200, {'ok': True, 'agent': agent}
+    return 200, {'ok': True, 'agent': agent, 'current': conduct.current(cfg), 'auto': conduct.is_auto(cfg)}
 
 
 def save_owner(collector, raw):

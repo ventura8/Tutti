@@ -8,6 +8,7 @@ The plan is pure (plan, signature, brief, should_park); the I/O is in tick, disp
 import contextlib
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -15,7 +16,23 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import backlog, compact, config, delegate, durable, github, planner, priority, remote, routing, telemetry, tiers, tz, worktree
+from . import (
+    backlog,
+    compact,
+    config,
+    delegate,
+    durable,
+    github,
+    pacing,
+    planner,
+    priority,
+    remote,
+    routing,
+    telemetry,
+    tiers,
+    tz,
+    worktree,
+)
 
 try:
     import fcntl
@@ -128,7 +145,8 @@ def step_of(cfg, name):
         if not w:
             return None
         return {'name': name, 'worker': wn, 'kind': w['kind'], 'args': list(a.get('args') or []), 'account': name}
-    if name in cfg['workers'] and not any((a or {}).get('worker') == name for a in cfg['accounts'].values()):
+    linked = (cfg.get('_account_workers') or {}).values()
+    if name in cfg['workers'] and name not in linked and not any((a or {}).get('worker') == name for a in cfg['accounts'].values()):
         return {'name': name, 'worker': name, 'kind': cfg['workers'][name]['kind'], 'args': [], 'account': None}
     return None
 
@@ -163,6 +181,16 @@ def local_room(cfg, name, step, used, machines, now=None):
     return (0, f'{name}: busy with a task') if used else (fleet.UNITS_ANY, '')
 
 
+def cli_host_out(cfg, step, machines):
+    """Why a CLI worker's named machine refuses work now (yield, pause, heat, quiet hours), or ''. Local models use
+    local_room / fleet.governor already; accounts whose worker sets `machine:` get the same gate (Codex on the laptop)."""
+    w = (cfg.get('workers') or {}).get(step['worker']) or {}
+    if step['kind'] != 'cli' or not w.get('machine'):
+        return ''
+    from . import fleet
+    return fleet.governor(cfg, step['worker'], machines, cfg.get('_now')) or ''
+
+
 def step_room(cfg, name, states, running_units, machines=()):
     """(units of room, why not) for one ladder step now. A trigger account (autopilot.accounts) has room only while it is
     behind its line (or late), as much as its readings say; any other account only while it is not ahead of its pace, one task
@@ -173,9 +201,25 @@ def step_room(cfg, name, states, running_units, machines=()):
     used = running_units.get(name, 0)
     if not step['account']:
         return local_room(cfg, name, step, used, machines, cfg.get('_now'))
+    missing = routing.missing_limits(cfg, name, states.get(name) or {})
+    if missing:
+        return 0, f'{name}: missing linked quota state ({", ".join(missing)}); resume it or refresh its reading'
+    if name in states and main_in_panic(cfg, states) and routing.unknown_quota(states[name]):
+        return 0, f'{name}: quota is unknown; refresh the account and all linked limits before taking over'
+    return account_room(cfg, name, step, states, running_units, machines)
+
+
+def account_room(cfg, name, step, states, running_units, machines):
+    """Room for a paced account after its named CLI worker's machine is available."""
+    used = running_units.get(name, 0)
+    blocked = cli_host_out(cfg, step, machines)
+    if blocked:
+        return 0, blocked
     s = states.get(name)
     if not s:
         return 0, f'{name}: no pacing state yet'
+    if panic_rescue(cfg, name, s, states):
+        return (1, '') if not used else (0, f'{name}: its cautious panic-mode task is already running')
     if takes_over(cfg, name, s, states):
         # the main agent in panic (owner, 2026-11-16): the other accounts take over its bounded work one task at a time,
         # even while ahead of their own pace or past their planned room; only their own panic or a spent quota stops them
@@ -211,7 +255,9 @@ def takeover_room(cfg, name, s):
     """Tasks an account may run while it takes over: what fits between its use and its panic line at its cost per task
     (accounts.<name>.task_pct, else the default); at least one while any headroom is left."""
     from .pacing import TASK_PCT
-    used = s.get('used') or 0
+    used = s.get('used')
+    if used is None or routing.invalid_usage(s):
+        return 0
     task = float(((cfg.get('accounts') or {}).get(name) or {}).get('task_pct') or TASK_PCT)
     left = s.get('panic_at', 95) - used
     return max(1, int(left // task)) if left > 0 else 0
@@ -221,14 +267,93 @@ def takes_over(cfg, name, s, states):
     """True when `name` (not a main account, itself neither in panic nor spent) takes work while the main agent panics."""
     if name in main_accounts(cfg) or not main_in_panic(cfg, states):
         return False
+    return not (routing.unknown_quota(s) or routing.quota_closed(s))
+
+
+def quota_panic(s):
+    """Panic or exhaustion in the account or any linked window."""
+    if invalid_quota_tree(s):
+        return False   # malformed state cannot prove that every online account is panicked or spent
     used = s.get('used')
-    return not (s.get('panic') or s.get('verdict') == 'spent' or (used is not None and used >= s.get('panic_at', 95)))
+    return bool(s.get('panic') or s.get('verdict') == 'spent' or
+                (used is not None and used >= s.get('panic_at', 95)) or any(quota_panic(x) for x in s.get('limits') or []))
+
+
+def invalid_quota_tree(s):
+    return routing.invalid_usage(s) or any(invalid_quota_tree(x) for x in s.get('limits') or [])
+
+
+def remaining_quota(s):
+    """Smallest known percentage remaining across all windows; unknown or spent is not safe to spend."""
+    used = s.get('used')
+    plan = s.get('quota_plan') or {}
+    if (isinstance(used, bool) or not isinstance(used, (int, float)) or not math.isfinite(used) or not 0 <= used <= 100
+            or s.get('verdict') == 'spent'
+            or (plan.get('limit') and plan.get('allowance') == 0)):
+        return 0
+    return min([max(0, 100 - used), *(remaining_quota(x) for x in s.get('limits') or [])])
+
+
+def quota_windows(name, s):
+    """The account and its named linked windows, keyed by their shared identity."""
+    out = {name: s}
+    for limit in s.get('limits') or []:
+        if limit.get('name'):
+            out.update(quota_windows(limit['name'], limit))
+    return out
+
+
+def observed_quota(cfg, name, s, now):
+    """Each quota window needs a recent real reading and no reported current reader failure."""
+    if (name in cfg.get('disabled_accounts', ()) or s.get('after_reset') or s.get('stale') or s.get('reader_problem')
+            or s.get('selected_source') == 'estimate'):
+        return False
+    from . import readers
+    account = (cfg.get('accounts') or {}).get(name) or {}
+    if (readers.automatic_reader(name, account) or account.get('reading_file')) and 'reader_problem' not in s:
+        return False   # standalone callers have no current reader status: do not assume the reader succeeded
+    try:
+        at = pacing.parse_time(s['reading_at'])
+        age = (now - at).total_seconds()
+        hours = float(((cfg.get('accounts') or {}).get(name) or {}).get('stale_hours') or pacing.STALE_HOURS)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+    if not math.isfinite(hours) or hours <= 0 or age < 0 or age >= hours * 3600:
+        return False
+    return all(x.get('name') and observed_quota(cfg, x['name'], x, now) for x in s.get('limits') or [])
+
+
+def panic_rescue(cfg, name, s, states):
+    """One bounded task per account when every configured online account is unavailable but measured quota remains."""
+    if not quota_panic(s) or not main_in_panic(cfg, states):
+        return False
+    main = cfg.get('_main_worker') or (cfg.get('main') or {}).get('agent')
+    if (cfg['workers'].get(main) or {}).get('kind') != 'ollama':
+        return False
+    from .pacing import TASK_PCT
+    cost = float((cfg['accounts'].get(name) or {}).get('task_pct') or TASK_PCT)
+    # A disabled or paused linked account is removed from the active pacing state. Its absence must not turn an
+    # incomplete reading into permission to spend: every configured window needs a current observation.
+    configured = set(configured_windows(cfg, name))
+    now = cfg.get('_now') or datetime.now(timezone.utc)
+    if not configured.issubset(quota_windows(name, s)) or not observed_quota(cfg, name, s, now) or remaining_quota(s) < cost:
+        return False
+    online = [n for n, a in cfg['accounts'].items() if (cfg['workers'].get((a or {}).get('worker') or n) or {}).get('kind') == 'cli']
+    return bool(online) and all(n in states and quota_panic(states[n]) for n in online)
 
 
 def main_in_panic(cfg, states):
     """True while one of the main agent's accounts is in panic or spent."""
+    agent = cfg.get('_main_worker') or (cfg.get('main') or {}).get('agent')
+    linked = [n for n, w in (cfg.get('_account_workers') or {}).items() if w == agent]
+    if linked and (cfg.get('workers', {}).get(agent) or {}).get('kind') != 'ollama':
+        return all(n in cfg.get('disabled_accounts', ()) or quota_panic(states.get(n) or {}) for n in linked)
     names = main_accounts(cfg)
-    return any((states.get(n) or {}).get('panic') or (states.get(n) or {}).get('verdict') == 'spent' for n in names)
+    if any(n in cfg.get('disabled_accounts', ()) or quota_panic(states.get(n) or {}) for n in names):
+        return True
+    if (cfg.get('workers', {}).get(agent) or {}).get('kind') == 'ollama':
+        return any(quota_panic(states.get(n) or {}) for n in cfg['accounts'])
+    return False
 
 
 def machine_capacity(cfg, machines):
@@ -276,14 +401,18 @@ def _candidates(cfg, t, over='', machines=()):
     if not t['attempts']:
         trig = trigger_accounts(cfg)
         online = [n for n in steps if n in trig] + [n for n in trig if n not in steps]
+        if cfg.get('_main_in_panic'):
+            online += [n for n in steps if n in cfg['accounts'] and n not in online]
         return locals_ + online if over else online + locals_
     last = t['attempts'][-1]
     if is_local(cfg, last['step']) and not last['ok']:
         return [n for n in steps if not is_local(cfg, n)] + [n for n in locals_ if n != last['step']]
     at = steps.index(last['step']) if last['step'] in steps else -1
     # a stronger model does not fix a dropped connection or a full disk: the same step once more, then up the ladder
+    # ENV_SIDE (usage limit, CLI refusal, no-report) is environment but not the task: move on (t260), never retry that step
     again = len(t['attempts']) > 1 and t['attempts'][-2].get('step') == last['step']
-    stay = last['ok'] or (last.get('class') in ('flaky', 'environment') and not again)
+    stay = last['ok'] or (last.get('class') in ('flaky', 'environment') and not again
+                          and not env_failure(last.get('why')))
     start = max(min(at + (0 if stay else 1), len(steps) - 1), 0)
     # the steps above first; then the ones below, strongest first, so a retry never waits while only a weaker step has room
     # (agy's accounts sat idle behind a paced cursor and a yielding PC, 2026-11-14)
@@ -309,6 +438,33 @@ def tier_last(prefer, size):
     return lambda n: bool(prefer.get(n)) and size not in prefer[n]
 
 
+def rescue_cost(cfg, name, size):
+    from .pacing import TASK_PCT
+    cost = (cfg['accounts'].get(name) or {}).get('task_pct') or (cfg.get('_account_costs') or {}).get(name) or TASK_PCT
+    return float(cost) * size
+
+
+def rescue_fits(cfg, name, size):
+    windows = (cfg.get('_panic_windows') or {}).get(name)
+    if not windows:
+        return True
+    budget = cfg.get('_panic_budget') or {}
+    return all(budget.get(w, 0) + 1e-9 >= rescue_cost(cfg, name, size) for w in windows)
+
+
+def rescue_debit(cfg, name, size):
+    budget = cfg.get('_panic_budget') or {}
+    for w in (cfg.get('_panic_windows') or {}).get(name, ()):
+        budget[w] -= rescue_cost(cfg, name, size)
+
+
+def assignment_wait(cfg, name, t, rooms):
+    room, why = rooms.get(name, (0, f'{name}: not on the ladder'))
+    if room >= units(t) and not rescue_fits(cfg, name, units(t)):
+        return f'{name}: shared quota is reserved by recent work; wait for a fresh reading or a reset'
+    return why or f'{name}: too little room for a {t["size"]} task'
+
+
 def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
     """Each queued task, in the order given (by priority, then oldest), to the first of its candidate steps that has room for its
     size. `free`: the online runs that may start, or (online, local): a local model's run is not counted in max_parallel, only
@@ -320,14 +476,21 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=()):
         if free <= 0 and local <= 0:
             break
         steps = sorted(candidates(cfg, t, over, machines), key=tier_last(prefer, t.get('size')))
+        fair = cfg.get('_panic_usage') or {}
+        budget = cfg.get('_panic_budget') or {}
+        windows = cfg.get('_panic_windows') or {}
+        online = sorted((n for n in steps if n in fair),
+                        key=lambda n: -min((budget.get(w, 0) for w in windows.get(n, ())), default=0))
+        it = iter(online)
+        steps = [next(it) if n in fair else n for n in steps]
         steps = [n for n in steps if local > 0 and (is_local(cfg, n) or free > 0)]
-        pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t)), None)
+        pick = next((n for n in steps if rooms.get(n, (0, ''))[0] >= units(t) and rescue_fits(cfg, n, units(t))), None)
         if pick is None:
-            out['waiting'][t['id']] = '; '.join(rooms.get(n, (0, f'{n}: not on the ladder'))[1] or f'{n}: too little room for a '
-                                                f'{t["size"]} task' for n in steps) or 'no step it may go to'
+            out['waiting'][t['id']] = '; '.join(assignment_wait(cfg, n, t, rooms) for n in steps) or 'no step it may go to'
             continue
         left = 0 if is_local(cfg, pick) else rooms[pick][0] - units(t)   # a model server takes one task at a time
         rooms[pick] = (left, rooms[pick][1] or f'{pick}: its room is taken by the running tasks')
+        rescue_debit(cfg, pick, units(t))
         out['dispatch'].append((t['id'], pick))
         local -= 1   # every run takes a machine slot for its checks
         free -= 0 if is_local(cfg, pick) else 1
@@ -341,15 +504,56 @@ def spent_units(tasks, states):
         if t['status'] == 'running':
             used[t.get('step')] = used.get(t.get('step'), 0) + units(t)
         for a in t['attempts']:
-            read = (states.get(a['step']) or {}).get('reading_at')
-            if a.get('started') and read and a['started'] > _ts(read):
+            windows = quota_windows(a['step'], states.get(a['step']) or {})
+            reads = [x.get('reading_at') for x in windows.values()]
+            if a.get('started') and (not all(reads) or any(a['started'] >= _ts(read) for read in reads)):
                 used[a['step']] = used.get(a['step'], 0) + units(t)
     return used
 
 
+def rescue_budgets(cfg, states, tasks, names):
+    """Reserve shared windows for running and not-yet-reflected attempts, independently for each reading."""
+    if not names:
+        return {}, {}
+    windows, budget, readings = {}, {}, {}
+    for name in (n for n in cfg['accounts'] if n in states):
+        values = quota_windows(name, states[name])
+        windows[name] = list(values)
+        for key, value in values.items():
+            at = value.get('reading_at')
+            remaining = remaining_quota({**value, 'limits': []}) if at and not value.get('after_reset') and not value.get('stale') else 0
+            budget[key] = min(budget.get(key, 100), remaining)
+            readings[key] = min(readings.get(key, _ts(at)), _ts(at)) if at else 0
+    for name in cfg.get('_account_limits') or {}:
+        if name not in windows:
+            windows[name] = configured_windows(cfg, name)
+    for t in tasks:
+        charges = [(t.get('step'), None)] if t.get('status') == 'running' else []
+        charges += [(a.get('step'), a.get('started')) for a in t.get('attempts') or [] if a.get('started')]
+        for name, started in charges:
+            for key in windows.get(name, ()):
+                if key in budget and (started is None or not readings.get(key) or started >= readings[key]):
+                    budget[key] = max(0, budget[key] - rescue_cost(cfg, name, units(t)))
+    return {name: windows[name] for name in names}, budget
+
+
 def _ts(iso):
     from . import pacing
-    return pacing.parse_time(iso).timestamp()
+    try:
+        return pacing.parse_time(iso).timestamp()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return 0
+
+
+def configured_windows(cfg, name):
+    """Configured window identities, including those of a paused account."""
+    found, pending = set(), [name]
+    while pending:
+        item = pending.pop()
+        if item not in found:
+            found.add(item)
+            pending.extend((cfg.get('_account_limits') or {}).get(item) or [])
+    return list(found)
 
 
 def room_reason(name, room, queued):
@@ -427,8 +631,12 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     if quiet_stop(cfg, now):
         return {**out, **quiet_stop(cfg, now)}
     used = spent_units(tasks, states)
+    cfg['_main_in_panic'] = main_in_panic(cfg, states)
     names = list(dict.fromkeys([*ladder(cfg), *trigger_accounts(cfg), *cfg.get('_spare_accounts', ())]))
     rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}
+    cfg['_panic_usage'] = {n: 100 - remaining_quota(states[n]) for n in names if n in states and n in cfg['accounts']
+                           and panic_rescue(cfg, n, states[n], states)}
+    cfg['_panic_windows'], cfg['_panic_budget'] = rescue_budgets(cfg, states, tasks, cfg['_panic_usage'])
     online_room = sum(max(0, r[0]) for n, r in rooms.items() if not is_local(cfg, n))   # local runs are outside that limit
     free, stop = capacity_now(cfg, running, machines, now, online_room)
     if stop:
@@ -451,6 +659,9 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
         from . import parallel
         return {**out, 'state': 'running', 'reason': parallel.line(cfg.get('_parallel'))}
     reasons = '; '.join(room_reason(n, r, queued) for n, r in rooms.items()) or 'no ladder step (autopilot.ladder or autopilot.accounts)'
+    if any(room <= 0 and 'ahead' in reason and (states.get(name) or {}).get('verdict') == 'ahead'
+           for name, (room, reason) in rooms.items()):
+        reasons += '; pacing is rechecked on the next successful active dashboard round while autopilot is running'
     return {**out, 'state': 'stopped', 'reason': f'no worker takes a task now: {reasons}'}
 
 
@@ -464,13 +675,18 @@ def normalise_tail(text):
 
 
 # How a worker's own failure reads in its run log: the worker is the problem there, not the task (another step is tried).
-WORKER_LIMIT = re.compile(r'quota (?:reached|exceeded|exhausted)|usage limit|resource[_ ]exhausted|rate[ -]?limit', re.I)
+# HTTP 429 Too Many Requests is a limit; a bare "429" in a test or assertion is not (aiassist.LIMIT_429)
+WORKER_LIMIT = re.compile(r'quota (?:reached|exceeded|exhausted)|usage limit|resource[_ ]exhausted|rate[ -]?limit|'
+                          r'HTTP[ /]?429\b|429 Too Many Requests', re.I)
 WORKER_TIMEOUT = re.compile(r'print timeout|timed? ?out after|the turn still in progress', re.I)
 WORKER_SIDE = ('the worker hit its usage limit', 'the worker ran out of time', 'the worker\'s CLI refused a command',
                'the worker exited')
 # an account's usage limit is the account's state, not the task's: its room says when it may take work again, so a step that
 # failed only that way stays a candidate (agy-gemini with room for 50 took no task, 2026-11-16)
 QUOTA_SIDE = ('the worker hit its usage limit',)
+# the worker/account/CLI, not the task: class environment; not counted toward max_attempts; never parks as no_progress
+# (t260: 167 usage-limit attempts overnight parked 149 tasks). A no-report after a limit is read as a usage limit below.
+ENV_SIDE = (*QUOTA_SIDE, 'the worker\'s CLI refused a command', 'the run ended without a report')
 RUN_END = re.compile(r'^run \S+: \S+ exit -?\d+')   # Tutti's summary after the worker's own output (the task's text is in it)
 REPEAT = 2   # the same failure this many times in a row: on one step, that step is dropped; across steps, the task is parked
 
@@ -499,7 +715,9 @@ def worker_words(rc, run_tail):
 def signature(report, tails, run_tail=''):
     """(a short hash, the words) of how an attempt failed: the same failure gives the same signature every time."""
     if report is None:
-        words = 'the run ended without a report'
+        # a limit that killed the process before a report still shows in the log (t260: "ended without a report" after a limit)
+        words = ('the worker hit its usage limit' if WORKER_LIMIT.search(worker_output(run_tail))
+                 else 'the run ended without a report')
     elif report.get('denied'):   # a refused tool is the worker's problem, whatever its exit code
         words = 'the worker\'s CLI refused a command: ' + re.sub(r'\d+', '#', report['denied'][0][:120])
     elif report.get('worker_rc'):
@@ -512,18 +730,24 @@ def signature(report, tails, run_tail=''):
     return hashlib.sha1(words.encode()).hexdigest()[:12], words
 
 
+def env_failure(why):
+    """True when the failure is the worker, its account or its CLI, not the task (ENV_SIDE)."""
+    return str(why or '').startswith(ENV_SIDE)
+
+
 def park_reason(cfg, task):
     """('', '') to retry, else (the cause, `max_attempts` or `no_progress`, and why the task needs a person): the same failure
     `no_progress` times in a row on the strongest step, or max_attempts reached."""
     s = settings(cfg)
     tries = task['attempts'][int(task.get('resume_from') or 0):]   # counted afresh after a person's answer (tutti/needs.py)
     cap = attempt_cap(s['max_attempts'], task)
-    counted = [a for a in tries if not str(a.get('why') or '').startswith(QUOTA_SIDE)]   # an account's quota is not the task's
+    counted = [a for a in tries if not env_failure(a.get('why'))]   # ENV_SIDE is not the task's attempt
     if len(counted) >= cap:
         return 'max_attempts', (f'{len(task["attempts"])} attempts without a pass (autopilot.max_attempts is {s["max_attempts"]}'
                                 + (f'; {len(counted)} of {cap} since a person\'s retry)' if cap != s['max_attempts'] else ')'))
     again = repeated(tries)
-    if again and not again['why'].startswith(WORKER_SIDE) and len({a['step'] for a in tries[-REPEAT:]}) > 1:
+    if again and not again['why'].startswith(WORKER_SIDE) and not env_failure(again['why']) \
+            and len({a['step'] for a in tries[-REPEAT:]}) > 1:
         return 'no_progress', (f'no progress: it failed the same way {REPEAT} times in a row on different workers, so the task or '
                                f'its check is the problem, not the worker: {again["why"][:300]}')
     if worn_out(tries) and not candidates(cfg, task):
@@ -533,7 +757,7 @@ def park_reason(cfg, task):
     last = tries[-n:]
     steps = ladder(cfg)
     if steps and len(last) == n and all(not a['ok'] and a['step'] == steps[-1] for a in last) \
-            and len({a['signature'] for a in last}) == 1:
+            and len({a['signature'] for a in last}) == 1 and not env_failure(last[-1].get('why')):
         return 'no_progress', (f'no progress: the strongest step ({steps[-1]}) failed the same way {n} times in a row: '
                                f'{last[-1]["why"][:300]}')
     return '', ''
@@ -728,15 +952,19 @@ def tail_of(path, chars=TAIL_CHARS):
 
 def attempt_of(cfg, task, report, now):
     tails = check_tails(cfg, task['run'], (report or {}).get('checks') or [])
-    sig, why = signature(report, tails, tail_of(run_log(cfg, task['run'])) if (report or {}).get('worker_rc') else '')
+    run_tail = tail_of(run_log(cfg, task['run']))
+    sig, why = signature(report, tails, run_tail)
     failing = [tails[c['log']] for c in (report or {}).get('checks') or [] if c['rc'] != 0]
     if report is None or report.get('worker_rc') or not failing:
-        failing = [tail_of(run_log(cfg, task['run']))]
+        failing = [run_tail]
     ok = bool(report) and report['rc'] == 0
     if ok:
         sig, why = '', 'passed'
     from . import aiassist  # with AI assist on: flaky or environment retries on the same step once; real escalates
-    return {'class': aiassist.attempt_class(cfg, ok, failing[-1]),
+    cls = aiassist.attempt_class(cfg, ok, failing[-1])
+    if cls is not None and env_failure(why):   # ENV_SIDE is always environment, whatever the failing output said
+        cls = 'environment'
+    return {'class': cls,
             'run': task['run'], 'step': task.get('step'), 'worker': task.get('worker'), 'model': task.get('model'), 'at': now, 'ok': ok,
             'started': task.get('started'),
             'signature': sig, 'why': why, 'stat': (report or {}).get('stat', ''), 'diff': (report or {}).get('diff'),
@@ -1157,6 +1385,9 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
     `beat`: this member's heartbeat for the household coordinator (shared projects only; docs/HOUSEHOLD.md)."""
     from . import state as state_mod
     now = now or time.time()
+    from . import conduct
+    cfg['_main_worker'] = conduct.current(cfg)
+    cfg['_now'] = datetime.fromtimestamp(now, timezone.utc)
     is_alive = is_alive or state_mod.alive
     on = enabled(cfg)
     if '_host_raw' not in cfg:

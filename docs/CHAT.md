@@ -1,5 +1,28 @@
 # Chat
 
+Chat binds each online worker to a configured account with a pacing state and passes that account's configured arguments
+to the CLI. For a worker shared by multiple accounts, an admin must set `workers.<name>.chat_account_selector` to the CLI
+flag selecting the account or model, and every linked account (including paused ones) must have exactly one distinct value
+for that flag in `accounts.<name>.args`. This is the admin's assertion about the provider's CLI, not provider verification.
+Chat checks the final command before launch and refuses ambiguous bindings. Paused accounts and accounts whose pacing state
+is absent are not selected. A worker with no linked account remains unmetered.
+
+On hosts with POSIX flock and no-follow file opens, cooperating updated Chat writers serialize storage changes through a
+same-host lock, including message and attachment registration and handoff notes. This does not make simultaneous dashboard
+engines safe: answer ownership is still in memory, and an older process does not honor the lock. Stop old writers before
+starting a new one. On other platforms Chat keeps its single-process behavior; cross-process safety is not provided. Undo
+still has only in-process execution protection and must not be run concurrently from multiple engines.
+
+Cursor CLI JSON events are opt-in: set `workers.<name>.chat_output_format: cursor-stream-json` and include
+`--output-format stream-json --stream-partial-output` in that worker's command or Chat arguments. Chat shows generic tool
+start/completion notes without tool arguments or results, then displays the canonical final result when the CLI finishes;
+it does not stream partial answer text. Intermediate assistant events are ignored to avoid duplicating buffered output. Unknown
+events are ignored, and malformed events or a missing successful terminal result fail the answer; plain-text workers keep
+their existing output. This decoding does not restrict tools the Cursor process itself can run: its configured mode and CLI
+permissions still govern that. It does not enable agent mode or verify provider account identity. See [Cursor's output format
+reference](https://cursor.com/docs/cli/reference/output-format). Stop or timeout terminates the CLI process but does not
+guarantee its native tool descendants or actions have stopped; inspect the work before retrying an incomplete answer.
+
 The dashboard opens on **Chat**, the first tab, for every signed-in user (viewers too). Ask about the household in plain
 words, or ask for work. The chat runs on the household host, inside `tutti dashboard`, so it answers while your own computer,
 or your main agent's machine, is off.
@@ -40,6 +63,17 @@ The server decides, for every action, with `auth.act_for` (and so `auth.may_act_
 - **Pending** users (waiting for approval) cannot use the chat.
 - Conversations are private: each user sees only their own. Admins have **Household activity**: the actions the chat took
   for each member, from the audit log, never anyone's messages.
+
+## Main agent (admins)
+
+The Chat header has a **main agent** selector (admins only; the same code as `tutti main <agent|auto>` and the Dashboard
+tab's Switch, `POST /api/main`):
+
+- **Auto (now: &lt;agent&gt;)**: Tutti keeps `main.preferred` while it has room, else the first worker in `main.fallback`
+  with room, and switches back to preferred after a fresh reading below `panic_at` (docs/CONDUCT.md).
+- **Each worker** by name: pins that agent as both preferred and current (leaves auto).
+
+Viewers do not see the control; the server refuses a non-admin `POST /api/main` when sign-in is on.
 
 ## Which model answers
 
@@ -91,7 +125,7 @@ A model works through the same calls as the MCP tools, so a local model can do w
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
-| `usage`, `machines`, `devices`, `backlog_list`, `job_status` | read | runs at once; its output goes back to the model |
+| `usage`, `machines`, `devices`, `backlog_list`, `job_status` | read | runs at once; its output goes back to the model. Job status reports and logs are for admins. |
 | `backlog_add` | work | as the mode says (*Modes* below) |
 | `delegate_task`, `scout_ask` | work | as the mode says; admins (they spend an account at once) |
 | `test_on` (a track and a command, on a machine or an Android device) | work | as the mode says; admins |
@@ -192,8 +226,13 @@ Under the message box, as in a chat IDE, each starting at Auto:
 
 `<state>/chat/<hash of the user's id>.json`, mode 600 in a 700 folder, one file per user, written whole (a temporary file,
 then a rename). It holds the conversations: messages, attachments, the model that answered and the action cards. It
-survives restarts (an answer cut off by one is marked stopped, with Retry) and `tutti move` carries it with the state
+survives restarts (an answer cut off by one is marked stopped) and `tutti move` carries it with the state
 folder. **Clear my chat history** deletes the user's file; the work it queued and the audit log's lines stay.
+
+Before a Chat tool changes something or a CLI agent starts, the answer records that work may have started. A stopped
+or failed answer with that marker cannot be regenerated: check the work's status before sending a new request. Answers
+known to be safe can still be retried. Older interrupted answers without the marker are treated as uncertain. This
+guard requires one active engine and cooperating current-version writers; it does not stop or deduplicate existing jobs.
 
 ## API
 
@@ -227,3 +266,7 @@ chat:
   viewer_projects: []       # empty: every project under autopilot.repos
   history_turns: 10         # earlier messages a model sees
 ```
+
+A Chat `job_status` check for a known delegated run without a report polls for up to two minutes while the answer is
+open. Stop cancels polling after any in-flight status call returns, not the delegated run. A timeout reports uncertainty; monitoring is not persisted
+across a dashboard restart.

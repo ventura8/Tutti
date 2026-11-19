@@ -122,9 +122,16 @@ def _apply_spare(raw, saved):
 
 
 def _apply_main(raw, saved):
+    """Current main (`main_agent` → main.agent, may be `auto`) and preferred (`preferred_main` → main.preferred).
+    With `main.agent: auto` the live choice lives in conduct/main.json; preferred is the lasting owner choice."""
+    main = {**(raw.get('main') or {})}
+    preferred = saved.get('preferred_main')
+    if isinstance(preferred, str) and preferred:
+        main['preferred'] = preferred
     agent = saved.get('main_agent')
     if isinstance(agent, str) and agent:
-        raw['main'] = {**(raw.get('main') or {}), 'agent': agent}
+        main['agent'] = agent
+    raw['main'] = main
 
 
 def apply(raw, saved):
@@ -250,19 +257,33 @@ def worker_for(cfg, kind):
     return None
 
 
+def kind_of(cfg, worker):
+    """The MAIN_KINDS kind of this worker (by name or program; `local`: a local model), else None."""
+    w = (cfg.get('workers') or {}).get(worker) or {}
+    if w.get('kind') == 'ollama':
+        return 'local'
+    prog = os.path.basename(str((w.get('command') or [''])[0]))
+    for kind, (names, _target) in MAIN_KINDS.items():
+        if worker == kind or prog in names or any(worker.startswith(x) for x in names):
+            return kind
+    return None
+
+
 def set_main_agent(cfg, kind, connect_fn=None):
     """Makes `kind` this user's main agent (kept in user.json, so the config file is untouched); the planner's owner reserve
-    moves to the accounts behind it. Then `tutti connect` for it. Returns (worker name, a note)."""
+    moves to the accounts behind it. Writes both preferred and current main. Then `tutti connect` for it.
+    Returns (worker name, a note)."""
     if kind not in MAIN_KINDS:
         raise UserError(f'"{kind}" is not a main agent Tutti knows: pick one of {", ".join(MAIN_KINDS)}')
     worker = worker_for(cfg, kind)
-    write(config.state_dir(cfg), main_agent=worker or kind)
+    name = worker or kind
+    write(config.state_dir(cfg), main_agent=name, preferred_main=name)
     note = '' if worker else (f'no worker of kind {kind} in {cfg.get("_path")} yet, so no account backs it and nothing is kept '
                               'for you: `tutti setup` adds it')
     target = MAIN_KINDS[kind][1]
     if target:
         note = '; '.join(x for x in (note, connect_main(cfg, target, connect_fn)) if x)
-    return worker or kind, note
+    return name, note
 
 
 def connect_main(cfg, target, connect_fn=None):

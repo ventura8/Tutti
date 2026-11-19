@@ -28,7 +28,7 @@ HEAVY_MINUTES = 15
 WEAK_SHARE = 0.5      # a machine under half the strongest free machine's effective power is weak
 LOW_HEADROOM = 0.3    # under this a weak machine takes no heavy shard at all
 SIZE_LEVEL = {'S': 0, 'M': 1, 'L': 2}
-TIER_NAMES = ('light', 'mid', 'strong')
+TIER_NAMES = ('light', 'mid', 'strong', 'huge')
 MIN_RUNS = 4
 # One line, `B <cores> <threads> <mem GB> <cpu MB/s> <disk MB/s> <VRAM GB> <npu 0|1>`; read-only but a temp file it removes
 BENCH_SCRIPT = (
@@ -166,7 +166,7 @@ def pass_rates(tasks):
 
 
 def model_tier(m, rates=None):
-    """(tier 0..2, why): the size class (fleet.TIERS rank: small 0, normal 1, strong 2; a 4-bit or smaller quantisation of a
+    """(tier 0..3, why): the size class (fleet.TIERS rank: small 0, normal 1, strong 2, huge 3; a 4-bit or smaller quantisation of a
     model at the edge of its class counts one down), then its measured pass rate: 75 % or more over MIN_RUNS attempts up
     one, 25 % or less down one."""
     from . import brain, fleet
@@ -178,7 +178,7 @@ def model_tier(m, rates=None):
     if n >= MIN_RUNS:
         rate = p / n
         step = 1 if rate >= 0.75 else -1 if rate <= 0.25 else 0
-        tier = max(0, min(2, tier + step))
+        tier = max(0, min(len(TIER_NAMES) - 1, tier + step))
         why.append(f'passed {p} of {n}')
     return tier, ', '.join(why)
 

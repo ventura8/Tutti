@@ -3,6 +3,7 @@ machines' readings, capability routing, the governor, overflow routing within on
 owner's one action. Throwaway repositories and fake spawns only; no machine or model server is called."""
 import os
 import subprocess
+import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -141,11 +142,11 @@ class OwnerBlock(Base):
         self.assertIn('no worker runs this account', autopilot.unusable_why(cfg, 'ghost'))
         self.assertNotIn('unknown, turned off', autopilot.step_room(cfg, 'ghost', {}, {})[1])
 
-    def test_within_one_tick_a_local_worker_takes_an_m_task(self):
+    def test_within_one_tick_a_local_worker_takes_an_s_task(self):
         cfg = self.owner_cfg()
         with backlog.locked(cfg) as data:
-            backlog.add(data, backlog.new_task('app', 'Energy: log the planner calls', [], 'true', 'M'))
-            backlog.add(data, backlog.new_task('app', 'Dashboard: push state with events', [], 'true', 'M'))
+            backlog.add(data, backlog.new_task('app', 'Energy: log the planner calls', [], 'true', 'S'))
+            backlog.add(data, backlog.new_task('app', 'Dashboard: push state with events', [], 'true', 'S'))
         started = []
         p, events = autopilot.tick(cfg, blocked_states(), self.machines(), is_alive=lambda pid: True,
                                    spawn=lambda argv, **k: started.append(argv) or SimpleNamespace(pid=1))
@@ -227,3 +228,17 @@ class Governor(Base):
         self.assertEqual(rc, 0)
         self.assertEqual(seen[0][0], 'translategemma:12b')
         self.assertEqual(len(seen), 2)                                     # 3 files, 2 per step for a 12B model
+
+
+class LocalSizes(unittest.TestCase):
+    """Owner, 2026-11-17: local models failed most M and L tasks; a strong one takes S and M, a normal one S only."""
+
+    def test_no_local_tier_takes_an_l_task_and_a_normal_one_takes_s_only(self):
+        self.assertNotIn('L', fleet.TIERS['strong']['sizes'])
+        self.assertEqual(fleet.TIERS['normal']['sizes'], ('S',))
+        self.assertEqual(fleet.TIERS['small']['sizes'], ('S',))
+
+    def test_a_70b_model_is_huge_and_takes_an_l_task(self):
+        m = fleet.classify({'name': 'llama3.3:70b', 'details': {'parameter_size': '70.6B'}})
+        self.assertEqual(m['tier'], 'huge')
+        self.assertIn('L', fleet.TIERS['huge']['sizes'])

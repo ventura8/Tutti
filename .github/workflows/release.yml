@@ -1,8 +1,7 @@
 name: release
 # Builds a release's install files again with the release defaults (tutti/official.py): the built-in Google device
-# client's secret (the Actions secret TUTTI_GOOGLE_DEVICE_SECRET) and the default Sentry DSN (the Actions variable
-# TUTTI_SENTRY_DSN), then replaces the files scripts/release-patch.sh attached. Without them the release still works:
-# the button sign-in on this computer is built in, and a household adds its own device client (docs/AUTH.md).
+# client's secret (the Actions secret TUTTI_GOOGLE_DEVICE_SECRET; required — without it the job stops) and the default
+# Sentry DSN (the Actions variable TUTTI_SENTRY_DSN), then replaces the files scripts/release-patch.sh attached.
 # It then signs SHA256SUMS with Sigstore, keyless (GitHub OIDC, actions/attest-build-provenance), and attaches the bundle as
 # SHA256SUMS.sigstore.json: `tutti self-update` and the bootstrap refuse a release whose SHA256SUMS is not signed by this
 # workflow on the release's v* tag (docs/INSTALL.md, *How a release is checked*). A manual run must be dispatched on the tag
@@ -36,6 +35,14 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - name: The LAN device client's secret must be set (Actions secret TUTTI_GOOGLE_DEVICE_SECRET)
+        env:
+          TUTTI_GOOGLE_DEVICE_SECRET: ${{ secrets.TUTTI_GOOGLE_DEVICE_SECRET }}
+        run: |
+          [ -n "${TUTTI_GOOGLE_DEVICE_SECRET:-}" ] || {
+            echo "release: secrets.TUTTI_GOOGLE_DEVICE_SECRET is empty: LAN sign-in would fail with invalid_client; set it with bash scripts/set-device-secret.sh, then re-run this workflow" >&2
+            exit 1
+          }
       - name: Build the install files with the release defaults
         env:
           TUTTI_GOOGLE_DEVICE_SECRET: ${{ secrets.TUTTI_GOOGLE_DEVICE_SECRET }}

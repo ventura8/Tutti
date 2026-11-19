@@ -173,6 +173,7 @@ def worker_room(cfg, name, entries, now):
     if not accounts:
         return [], ''
     states = [pacing.account_state(n, cfg['accounts'][n], entries, now, *pacing.plan_args(cfg)) for n in accounts]
+    states = [{**s, '_missing_limits': routing.missing_limits(cfg, s['name'], s)} for s in states]
     best, reason = routing.pick_account(states)
     if not best:
         return None, reason

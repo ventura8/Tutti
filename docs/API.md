@@ -630,6 +630,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `autopilot.enabled` | switch | `False` | Autopilot: Sends backlog tasks to accounts that are behind their pace. | admin |
 | `autopilot.accounts` | list |  | Trigger accounts: Their pace starts the autopilot. | admin |
 | `autopilot.ladder` | list |  | Retry ladder: Attempt n starts at step n; the last step repeats. | admin |
+| `autopilot.fresh_fallback_accounts` | list |  | Fresh-work fallback accounts: Opt-in ladder accounts may take fresh work after usual candidates when their measured, unshared quota has room. | admin |
 | `autopilot.max_parallel` | number (runs) |  | Runs at once (cap): Optional: the most autopilot runs at once. Empty: adaptive (account room, free memory and cores, free gate slots). | admin |
 | `autopilot.parallel` | yaml |  | Adaptive parallelism: run_gb, run_cpu, reserve_gb, gate_share, ceiling and the heavy-gate pattern (docs/AUTOPILOT.md). | admin |
 | `autopilot.no_progress` | number (attempts) | `3` | Park after: A task with the same failure this many times waits for you. | admin |

@@ -488,7 +488,7 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fal
         if free <= 0 and local <= 0:
             break
         steps = sorted(candidates(cfg, t, over, machines), key=tier_last(prefer, t.get('size')))
-        if not t['attempts'] and not t.get('pin') and not (settings(cfg)['repos'].get(t['repo']) or {}).get('spare'):
+        if fallback and not t['attempts'] and not t.get('pin') and not (settings(cfg)['repos'].get(t['repo']) or {}).get('spare'):
             steps += [n for n in fallback if n not in steps]
         fair = cfg.get('_panic_usage') or {}
         budget = cfg.get('_panic_budget') or {}

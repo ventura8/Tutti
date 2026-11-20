@@ -43,6 +43,7 @@ docs/MACHINES.md
 docs/MOVE.md
 docs/NEEDS.md
 docs/NETWORK.md
+docs/OPENAI.md
 docs/PRESENCE.md
 docs/PRIVACY.md
 docs/REPORT.md
@@ -97,6 +98,7 @@ tests/fixtures/sigstore/gh-verify-v0.5.2.json
 tests/run.py
 tests/test_absence.py
 tests/test_aiassist.py
+tests/test_apibudget.py
 tests/test_apidoc.py
 tests/test_architecture_doc.py
 tests/test_artifact.py
@@ -148,6 +150,8 @@ tests/test_machine_card.py
 tests/test_move.py
 tests/test_needs.py
 tests/test_netpolicy.py
+tests/test_openai_api.py
+tests/test_openai_chat.py
 tests/test_orchestrator.py
 tests/test_owner.py
 tests/test_ownerday.py
@@ -209,6 +213,7 @@ tutti/__init__.py
 tutti/adbhost.py
 tutti/adbpair.py
 tutti/aiassist.py
+tutti/apibudget.py
 tutti/apidoc.py
 tutti/apk.py
 tutti/auth.py
@@ -301,6 +306,7 @@ tutti/myschedule.py
 tutti/needs.py
 tutti/netpolicy.py
 tutti/official.py
+tutti/openai_api.py
 tutti/owner.py
 tutti/ownerday.py
 tutti/pacing.py

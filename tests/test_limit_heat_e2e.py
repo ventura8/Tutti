@@ -6,7 +6,9 @@ at 105 C during its evening window: workq already skipped limited machines for h
 import unittest
 from datetime import datetime, timezone
 
-from tutti import controls, routing, share, tz
+import tmpdirs
+
+from tutti import config, controls, routing, share, tz
 
 MON_NOON = datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc)   # Monday noon UTC
 MON_EVE = datetime(2026, 11, 16, 20, 0, tzinfo=timezone.utc)    # Monday 20:00 UTC → inside 18-01
@@ -124,8 +126,6 @@ class ShareCap(unittest.TestCase):
 
 class HeatRound(unittest.TestCase):
     def test_heat_round_persists_hands_over_once_and_clears(self):
-        import tmpdirs
-        from tutti import config
         folder = tmpdirs.mkdtemp()
         cfg = config.normalise({'project': {'state': folder},
                                 'machines': {'nuc': {'host': 'nuc.example', 'heat': {'cap_c': 85, 'stop_c': 98}}}})

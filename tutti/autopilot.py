@@ -1152,9 +1152,11 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, run
             task['model'] = model['name']
     argv += ['--repo', repo_path(cfg, task), '--track', TRACK_PREFIX + task['id'], '--id', run_id,
              '--remote-track', cfg['delegate']['remote_track']]
+    check_where = ''
     if check:
         from . import parallel  # a heavy gate, or any gate while this machine is short of memory, goes to a machine with room
-        argv += ['--check', check, '--check-where', parallel.check_where(cfg, repo.get('where', 'local'), check, cfg.get('_host'))]
+        check_where = parallel.check_where(cfg, repo.get('where', 'local'), check, cfg.get('_host'))
+        argv += ['--check', check, '--check-where', check_where]
     argv += [f'--extra={x}' for x in step['args']]
     argv += ['--account', step['account']] if step['account'] else []
     from . import bridge
@@ -1176,7 +1178,7 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, run
         task.pop('picked', None)
         task.pop('model', None)
     task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now, gates=(repo.get('check') or '').strip(),
-                boot=durable.boot_id(), job_bridge=jobs or '', checkpoint=now,
+                boot=durable.boot_id(), job_bridge=jobs or '', check_where=check_where, checkpoint=now,
                 choice={k: choice[k] for k in ('tier', 'model', 'effort', 'label')} if choice else None)
     task.pop('launch_pending', None)
     task.pop('recovery_note', None)
@@ -1189,11 +1191,14 @@ def reserve_launch(cfg, task, step_name, now):
     run_id = delegate.new_id(cfg)
     with open(delegate.paths(cfg, run_id)['log'], 'x', encoding='utf8'):
         pass  # claim the id so another task cannot reuse it in the same second
-    from . import bridge
+    from . import bridge, parallel
     repo = settings(cfg)['repos'][task['repo']]
+    check = acceptance(task, repo)
+    check_where = (parallel.check_where(cfg, repo.get('where', 'local'), check, cfg.get('_host')) if check else '')
     task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now,
                 gates=(repo.get('check') or '').strip(), job_bridge=bridge.jobs_machine(cfg) or '',
-                boot=durable.boot_id(), launch_pending=True, run_identity=uuid.uuid4().hex, report_identity_bound=True, choice=None)
+                check_where=check_where, boot=durable.boot_id(), launch_pending=True,
+                run_identity=uuid.uuid4().hex, report_identity_bound=True, choice=None)
     task.pop('recovery_note', None)
     return run_id
 
@@ -1387,6 +1392,28 @@ def report_identity_matches(task, report):
     return True
 
 
+def explicitly_local_run(task):
+    """True when this host alone ran the attempt: no bridge jobs host and no routed check that may still write."""
+    if 'job_bridge' not in task or task['job_bridge']:
+        return False
+    where = task.get('check_where')
+    if where == 'route':
+        return False
+    if where in ('local', ''):
+        return True
+    # Legacy rows without check_where: a gate may have been routed — hold until a report arrives.
+    return not (task.get('gates') or '').strip()
+
+
+def hold_or_resume_unreported(cfg, task, events):
+    """After a reboot, fully-local work can resume; bridged, routed or unknown work waits for a report. Never signals a PID."""
+    if durable.died_with_host(task.get('boot')) and explicitly_local_run(task):
+        events.append(interrupt(cfg, task))
+    else:
+        task['recovery_note'] = ('run ended without a report: process ownership is unverified; '
+                                 'waiting for its report before retrying')
+
+
 def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
     """Every running task whose run ended: an attempt recorded; a pass published for review, a failure queued again (from the
     same worktree, one step up) or parked. Returns event lines."""
@@ -1401,7 +1428,7 @@ def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
         if not ended and not stuck_why:
             continue
         if report is None:
-            t['recovery_note'] = 'run ended without a report: process ownership is unverified; waiting for its report before retrying'
+            hold_or_resume_unreported(cfg, t, events)
             continue
         t.pop('recovery_note', None)
         a = attempt_of(cfg, t, report, now)
@@ -1814,8 +1841,8 @@ def hold_unready_bridge(hold, tasks, problem):
 
 def scoped_spawn(cfg, task, step, choice, result, machines, start_time, monotonic, spawn, rejected):
     """Recheck at subprocess creation, after the launch intent and any intervening I/O."""
-    changed = {'status', 'run', 'step', 'worker', 'started', 'gates', 'job_bridge', 'boot', 'launch_pending', 'run_identity',
-               'report_identity_bound', 'choice', 'recovery_note', 'picked', 'model'}
+    changed = {'status', 'run', 'step', 'worker', 'started', 'gates', 'job_bridge', 'check_where', 'boot', 'launch_pending',
+               'run_identity', 'report_identity_bound', 'choice', 'recovery_note', 'picked', 'model'}
     expected = {k: v for k, v in choice['task'].items() if k not in changed}
     def run(*args, **kwargs):
         elapsed = monotonic() - start_time

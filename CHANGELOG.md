@@ -16,6 +16,7 @@
 
 - Isolate default delegated routed checks into a per-run remote copy with host-wide bare-repo init, a sync time bound, and
   best-effort cleanup (t403). Explicit `--remote-track` / `--track` still share a named folder.
+- Hold daily self-update dashboard restarts until Chat answers and actions are idle, and retry while busy (t404).
 - Automatic accounts with `stale_hours: 0` still age out after the default freshness window (t317).
 - Hold unverified stalled and no-report runs visibly instead of signalling unrelated processes or launching overlapping retries (t309).
 - After a host reboot, ignore a reused PID: queue fully local unreported attempts again, and hold bridged, routed-check or unknown ones until a report arrives (t309, t419).

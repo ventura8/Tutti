@@ -537,6 +537,40 @@ class SelfUpdate(unittest.TestCase):
         self.assertIsNone(install.start_daily({'self_update': {'enabled': False}}, stop, '/x', lambda: None))
         self.assertIsNone(install.start_daily({}, stop, ROOT, lambda: None))   # a checkout updates with git
 
+    def test_daily_defers_restart_while_chat_is_busy_then_retries(self):
+        import threading
+        stop = threading.Event()
+        calls, restarts, waits = [], [], []
+
+        def update(_home):
+            calls.append('update')
+            return (0, 'self-update: 1.0.0 -> 1.0.1') if len(calls) == 1 else (0, 'self-update: 1.0.1 is the newest')
+
+        def restart():
+            restarts.append('try')
+            if len(restarts) == 1:
+                return False
+            stop.set()
+            return None
+
+        class Clock(threading.Event):
+            def wait(self, timeout=None):
+                waits.append(timeout)
+                if len(waits) >= 3:
+                    return True
+                return False
+
+        stop = Clock()
+        with mock.patch.object(install, 'home', return_value='/tmp/home'), \
+                mock.patch.object(install, 'is_release_install', return_value=True):
+            t = install.start_daily({'self_update': {'enabled': True}}, stop, '/release', restart, update=update,
+                                    wait=86400, retry=30)
+            self.assertIsNotNone(t)
+            t.join(2)
+        self.assertEqual(calls, ['update'])
+        self.assertEqual(restarts, ['try', 'try'])
+        self.assertEqual(waits[:3], [86400, 30, 86400])
+
 
 class GitFix(unittest.TestCase):
     def test_wrapper_for_a_broken_first_git(self):

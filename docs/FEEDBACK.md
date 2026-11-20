@@ -48,6 +48,9 @@ provides retained text; durable full-history retention is still open (t387).
 Routed checks must reject unsafe copy names before touching a lock or remote command, and default delegated runs must not
 serialize on one shared remote folder (t403).
 Updating code must not make a running failover watchdog announce an intentional departure (t404).
+Routed checks must reject unsafe copy names before touching a lock or remote command (t403).
+Updating code must not make a running failover watchdog announce an intentional departure, and a daily self-update must
+not restart the dashboard while Chat is answering (t404).
 
 Automatic releases must preserve concurrent release branches and tag the reviewed PR's merge commit (t401).
 

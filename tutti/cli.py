@@ -1215,8 +1215,15 @@ def cmd_dashboard(cfg, a):
         return 1
     if not a.no_probe:
         collector.start()
-    from . import install  # a release install updates itself daily and restarts in place (docs/INSTALL.md, *Updates*)
-    install.start_daily(cfg, collector.stop, remote.ROOT, lambda: os.execv(sys.executable, [sys.executable, *sys.argv]))
+    from . import chatrun, install  # daily self-update restarts only when Chat is idle (docs/INSTALL.md, docs/CHAT.md)
+    def daily_restart():
+        argv = dashboard.without_port(getattr(collector, 'argv', None) or [sys.executable, *sys.argv])
+        try:
+            chatrun.guard_chat_restart(chatrun.engine_of(collector), lambda: os.execv(argv[0], argv))
+        except (chatrun.chat.ChatError, OSError) as e:
+            sys.stderr.write(f'tutti: self-update restart deferred ({e}); retrying when Chat is idle\n')
+            return False
+    install.start_daily(cfg, collector.stop, remote.ROOT, daily_restart)
     where = 'this computer only' if not dashboard.exposed(cfg) else 'reachable by others: sign-in with Google required'
     signin = 'sign-in with Google on' if httpd.auth else 'sign-in off: `tutti auth setup` turns it on'
     say(f'dashboard: http://127.0.0.1:{httpd.server_address[1]}/ ({where}; {signin}; Ctrl+C stops it)')

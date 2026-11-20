@@ -477,11 +477,16 @@ def signature_refusal(tmp, sums_text, version, fetch_fn, skip_verify, verify_fn)
 
 
 DAY = 24 * 3600
+# After a version is installed, retry a deferred Chat-safe restart without waiting a full day (t404).
+RESTART_RETRY = 300
 
 
-def start_daily(cfg, stop, root, restart, update=self_update, wait=DAY):
+def start_daily(cfg, stop, root, restart, update=self_update, wait=DAY, retry=RESTART_RETRY):
     """The dashboard's daily self-update (release installs with self_update.enabled): a new version restarts the dashboard
     in place (same pid, so a service manager sees no exit), and the page reloads itself for the new version (update.js).
+
+    `restart` may return False to defer (active Chat work); the loop then retries after `retry` seconds without
+    re-downloading. Any other return (including None from a successful execv that never returns) clears the pending flag.
     Returns the thread, or None when it does not apply."""
     import threading
     home_dir = home()
@@ -489,10 +494,19 @@ def start_daily(cfg, stop, root, restart, update=self_update, wait=DAY):
         return None
 
     def loop():
-        while not stop.wait(wait):
-            code, msg = update(home_dir)
-            if code == 0 and '->' in msg:
-                restart()
+        pending, delay = False, wait
+        while not stop.wait(delay):
+            if not pending:
+                code, msg = update(home_dir)
+                if code == 0 and '->' in msg:
+                    pending = True
+            if not pending:
+                delay = wait
+                continue
+            if restart() is False:
+                delay = retry
+                continue
+            pending, delay = False, wait
     t = threading.Thread(target=loop, name='tutti-self-update', daemon=True)
     t.start()
     return t

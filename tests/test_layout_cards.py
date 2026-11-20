@@ -1,10 +1,11 @@
 """Dashboard card layout (t447): clamp, normalize, reset; temp folder for per-user save."""
 import os
 import unittest
+from types import SimpleNamespace
 
 import tmpdirs
 
-from tutti import layout_cards as lc
+from tutti import dashboard, layout_cards as lc
 
 
 class Clamp(unittest.TestCase):
@@ -52,8 +53,6 @@ class Persist(unittest.TestCase):
 
 class Api(unittest.TestCase):
     def test_dashboard_layout_get_and_post(self):
-        from types import SimpleNamespace
-        from tutti import dashboard
         folder = tmpdirs.mkdtemp()
         cfg = {'_path': os.path.join(folder, 'tutti.config.yaml'), 'project': {'state': folder},
                'dashboard': {'port': 4777}}

@@ -256,16 +256,36 @@ def ordinary_account_room(cfg, name, s, used):
     if (name in trigger_accounts(cfg) or name in cfg.get('_spare_accounts', ())) and p:
         # the planner's room (tutti/planner.py): a window's share of its weekly limit, or the room left after the reserve and
         # the background spend; spent before it expires
-        room = p['tasks'] - used
-        return (room, '') if room > 0 else (0, f'{name}: {p.get("why") or "no planned room"}')
+        forecast = forecast_room(cfg, name, s, used)
+        room = min(p['tasks'] - used, forecast)
+        why = ((p.get('why') or 'no planned room') if forecast > 0
+               else 'estimated task cost would reach the panic line, or usage is unavailable')
+        return (room, '') if room > 0 else (0, f'{name}: {why}')
     if name in trigger_accounts(cfg):
         if s.get('verdict') not in ('behind', 'late'):
             return 0, f'{name}: at its even-pace line ({s.get("verdict")})'
-        room = (s.get('room_tasks') or 0) - used
-        return (room, '') if room > 0 else (0, f'{name}: its room is taken by the running tasks')
+        forecast = forecast_room(cfg, name, s, used)
+        room = min((s.get('room_tasks') or 0) - used, forecast)
+        why = ('its room is taken by running tasks' if forecast > 0
+               else 'estimated task cost would reach the panic line, or usage is unavailable')
+        return (room, '') if room > 0 else (0, f'{name}: {why}')
     if s.get('verdict') == 'ahead':
         return 0, f'{name}: ahead of its pace'
-    return (1 - used, '') if not used else (0, f'{name}: busy with a task')
+    room = min(max(0, 1 - used), forecast_room(cfg, name, s, used))
+    return (room, '') if room else (0, f'{name}: busy or its estimated task would reach the panic threshold')
+
+
+def forecast_room(cfg, name, s, reserved):
+    """Ordinary work must fit below its own panic line at the configured estimated cost per unit."""
+    try:
+        cost = float((cfg.get('accounts', {}).get(name) or {}).get('task_pct', pacing.TASK_PCT))
+        used = float(s['used'])
+        panic_at = float(s.get('panic_at', pacing.PANIC_AT))
+        if not all(math.isfinite(x) for x in (cost, used, panic_at)) or cost <= 0:
+            return 0
+        return max(0, math.ceil((panic_at - used) / cost) - 1 - reserved)
+    except (TypeError, ValueError, KeyError, OverflowError):
+        return 0
 
 
 def slow_account_room(name, used):

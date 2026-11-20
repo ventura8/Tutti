@@ -231,6 +231,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - Save launch intent before spawning so a possibly launched run is not left queued in the local backlog (t309).
 - Attach a validated per-run correlation label to routed Docker checks, without treating absence as proof of exit (t309).
 
+- Cap ordinary paced work by estimated room below the account's own panic line (t300).
+
 ## [0.29.5] - 2026-11-18
 
 ### Fixed

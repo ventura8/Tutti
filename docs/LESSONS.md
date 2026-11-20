@@ -1,5 +1,8 @@
 # Lessons
 
+- **Pace room is not panic headroom** (t300): a late account near its panic line had room for a task whose estimated
+  cost exceeded that line. Cap ordinary starts by the estimate as well as the pacing plan.
+
 - A failed model probe is not evidence that the host is idle. Defer server restarts when machine activity readings are
   busy, stale or incomplete; a free host reading still does not prove that no model client is active (t301).
 

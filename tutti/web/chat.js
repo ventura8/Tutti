@@ -806,7 +806,7 @@ function showChatView() {
     if (on) requestAnimationFrame(measure);
 }
 
-function keyboardInset() {   // a phone's on-screen keyboard: keep the composer above it, hide the bottom tab bar meanwhile
+function keyboardInset() {   // a phone's on-screen keyboard: keep the composer above it
     const vv = window.visualViewport;
     if (!vv) return;
     const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
@@ -814,14 +814,12 @@ function keyboardInset() {   // a phone's on-screen keyboard: keep the composer 
     document.body.classList.toggle('kbd-open', inset > 120);
 }
 
-function measure() {   // the app bar's, bottom tab bar's and composer's heights, for the chat's own height and the jump button
+function measure() {   // the app bar's and composer's heights, for the chat's own height and the jump button
     const root = document.documentElement.style;
     const bar = document.querySelector('.appbar');
-    const tabs = document.querySelector('.tabs');
     root.setProperty('--appbar-h', `${bar?.offsetHeight || 0}px`);
     const view = cq('chat-view');   // where the chat starts below the app bar and any banner
     if (!view.hidden) root.setProperty('--chat-top', `${Math.round(view.getBoundingClientRect().top + window.scrollY)}px`);
-    root.setProperty('--tabs-h', `${tabs && getComputedStyle(tabs).position === 'fixed' ? tabs.offsetHeight : 0}px`);
     cq('chat-main')?.style.setProperty('--composer-h', `${cq('chat-form').offsetHeight}px`);
 }
 

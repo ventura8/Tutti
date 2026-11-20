@@ -738,9 +738,10 @@ class ViewerPageTest(unittest.TestCase):
     """A viewer's page shows no control that changes something: one CSS rule hides every control unless it is viewer-safe
     (checked in a browser for 0.1.47: a viewer saw 9 controls, all read-only, an admin 65 of 68)."""
 
-    SAFE = {'.view-ok', '.view-ok *', '.more', '.seg', '.seg *', '#job-filter *', '#job-project', '#refresh', '#install', '#signout'}
+    SAFE = {'.view-ok', '.view-ok *', '.more', '.seg', '.seg *', '#job-filter *', '#job-project', '#refresh', '#install', '#signout',
+            '#nav-menu-btn', ".nav-menu__link[data-view='chat']", ".nav-menu__link[data-view='dashboard']"}
     ACTIONS = {'button', 'input', 'select', 'textarea', 'form', '.btn', 'a.link', '[data-admin]', '#settings-view', '#users-view',
-               ".tabs__tab[data-view='settings']"}
+               ".nav-menu__link[data-view='settings']"}
 
     def rule(self):
         with open(os.path.join(dashboard.WEB, 'app.css'), encoding='utf8') as f:

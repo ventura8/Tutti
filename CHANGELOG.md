@@ -10,6 +10,11 @@
   missing (`tutti decisional pull`, or `decisional.auto_pull` in the dashboard probe, never while a person is at this
   computer). Owner questions, paid agents and the online fallback are unchanged. `tutti decisional [status|pull|advise]`.
 
+### Changed
+
+- Dashboard: the view tab bar is a hamburger menu (Chat, Dashboard, Settings, Users) with the current view named on
+  the toggle; same `#…` hashes, Escape and outside-click close (t446).
+
 ### Fixed
 
 - Scout webhook HTTP 400: surface paused-routine and GitHub Connect-apps / wrong-repo causes from the response body

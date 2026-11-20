@@ -1189,6 +1189,41 @@ def files_clean(cfg, a):
     return 0
 
 
+def _dashboard_daily_restart(collector):
+    """Daily self-update restarts only when Chat is idle (docs/INSTALL.md, docs/CHAT.md)."""
+    from . import chatrun
+    argv = dashboard.without_port(getattr(collector, 'argv', None) or [sys.executable, *sys.argv])
+    try:
+        chatrun.guard_chat_restart(chatrun.engine_of(collector), lambda: os.execv(argv[0], argv))
+    except (chatrun.chat.ChatError, OSError) as e:
+        sys.stderr.write(f'tutti: self-update restart deferred ({e}); retrying when Chat is idle\n')
+        return False
+
+
+def _serve_dashboard(cfg, a, collector, httpd):
+    from . import coordinator, install, netpolicy  # household coordinator rides with the dashboard
+    if not a.no_probe:
+        collector.start()
+    install.start_daily(cfg, collector.stop, remote.ROOT, lambda: _dashboard_daily_restart(collector))
+    where = 'this computer only' if not dashboard.exposed(cfg) else 'reachable by others: sign-in with Google required'
+    signin = 'sign-in with Google on' if httpd.auth else 'sign-in off: `tutti auth setup` turns it on'
+    say(f'dashboard: http://127.0.0.1:{httpd.server_address[1]}/ ({where}; {signin}; Ctrl+C stops it)')
+    try:
+        hh = coordinator.start_in_background(cfg)
+    except netpolicy.PublicAddress as e:
+        hh = None
+        say(f'household coordinator refused to start: {e}')
+    if hh:
+        say(f'household coordinator: on {", ".join(h.server_address[0] for h in hh)}, port {hh[0].server_address[1]} '
+            '(LAN and VPN only)')
+    try:
+        httpd.serve_forever()
+    finally:
+        collector.stop.set()
+        httpd.server_close()
+    return 0
+
+
 def cmd_dashboard(cfg, a):
     if clientmode.role(cfg) == 'client' and not a.once:
         return move.client_dashboard(cfg, a, say, lambda c: cmd_dashboard(c, a))
@@ -1213,35 +1248,7 @@ def cmd_dashboard(cfg, a):
         httpd.server_close()
         say(refused)
         return 1
-    if not a.no_probe:
-        collector.start()
-    from . import chatrun, install  # daily self-update restarts only when Chat is idle (docs/INSTALL.md, docs/CHAT.md)
-    def daily_restart():
-        argv = dashboard.without_port(getattr(collector, 'argv', None) or [sys.executable, *sys.argv])
-        try:
-            chatrun.guard_chat_restart(chatrun.engine_of(collector), lambda: os.execv(argv[0], argv))
-        except (chatrun.chat.ChatError, OSError) as e:
-            sys.stderr.write(f'tutti: self-update restart deferred ({e}); retrying when Chat is idle\n')
-            return False
-    install.start_daily(cfg, collector.stop, remote.ROOT, daily_restart)
-    where = 'this computer only' if not dashboard.exposed(cfg) else 'reachable by others: sign-in with Google required'
-    signin = 'sign-in with Google on' if httpd.auth else 'sign-in off: `tutti auth setup` turns it on'
-    say(f'dashboard: http://127.0.0.1:{httpd.server_address[1]}/ ({where}; {signin}; Ctrl+C stops it)')
-    from . import coordinator, netpolicy  # the household coordinator's computer serves the household from its dashboard too
-    try:
-        hh = coordinator.start_in_background(cfg)
-    except netpolicy.PublicAddress as e:
-        hh = None
-        say(f'household coordinator refused to start: {e}')
-    if hh:
-        say(f'household coordinator: on {", ".join(h.server_address[0] for h in hh)}, port {hh[0].server_address[1]} '
-            '(LAN and VPN only)')
-    try:
-        httpd.serve_forever()
-    finally:
-        collector.stop.set()
-        httpd.server_close()
-    return 0
+    return _serve_dashboard(cfg, a, collector, httpd)
 
 
 def cmd_conduct(cfg, a):

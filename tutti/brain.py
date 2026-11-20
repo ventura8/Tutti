@@ -26,7 +26,8 @@ from . import config
 FILE = 'brain-use.json'
 KEEP = 500
 PURPOSE_KIND = {'triage': 'triage', 'sizing': 'fix', 'unblock': 'fix', 'conductor': 'fix', 'review': 'review',
-                'compaction': 'summary', 'welcome': 'summary', 'needs': 'summary', 'scout': 'summary', 'self-improve': 'summary'}
+                'compaction': 'summary', 'welcome': 'summary', 'needs': 'summary', 'scout': 'summary', 'self-improve': 'summary',
+                'routing': 'summary'}
 QUANT_BITS = re.compile(r'(?:^|[^a-z])(?:q|iq|f|bf)(\d+)', re.I)
 _lock = threading.Lock()
 
@@ -137,9 +138,15 @@ def models_of(w, entry):
     return [as_model(w['model'])]
 
 
-def rank(cands, purpose='other'):
-    """Best first: the highest capability; on a tie the larger model, then config order."""
-    return sorted(cands, key=lambda c: (-capability(c[2], purpose), -float(c[2].get('params_b') or 0)))
+def rank(cands, purpose='other', prefer=None):
+    """Best first: the decisional model the purpose asks first (`prefer`: (machine, model), tutti/decisional.py), then the
+    highest capability; on a tie the larger model, then config order."""
+    return sorted(cands, key=lambda c: (not is_preferred(c, prefer), -capability(c[2], purpose), -float(c[2].get('params_b') or 0)))
+
+
+def is_preferred(cand, prefer):
+    from . import decisional
+    return bool(prefer) and cand[1] == prefer[0] and decisional.same(cand[2]['name'], prefer[1])
 
 
 # ---- the edge: is it free now, ask it
@@ -176,10 +183,13 @@ def preempt_allowed(cfg, purpose):
 def best_free(cfg, purpose='other', ps_fn=None, yield_fn=None, fleet_state=None, preempt=None):
     """(worker name, machine, model, [skipped lines], pre-empted work or '') of the best local model for Tutti now. A model
     busy with other work is not passed over for a smaller one when pre-emption is allowed: that work is parked instead
-    (`preempted` names what was running). A yielding machine (its owner's) and a server that is down are skipped."""
+    (`preempted` names what was running). A yielding machine (its owner's) and a server that is down are skipped. A judgement
+    purpose (decisional.purposes) tries the decisional model first (tutti/decisional.py), then the rest as before."""
+    from . import decisional
     skipped = []
     preempt = preempt_allowed(cfg, purpose) if preempt is None else preempt
-    for name, machine, m in rank(candidates(cfg, fleet_state), purpose):
+    prefer = decisional.preferred(cfg, purpose, fleet_state)
+    for name, machine, m in rank(candidates(cfg, fleet_state), purpose, prefer):
         why = free_now(cfg, {**worker_of(cfg, name), 'machine': machine}, m['name'], ps_fn, yield_fn)
         if not why:
             return name, machine, m['name'], skipped, ''

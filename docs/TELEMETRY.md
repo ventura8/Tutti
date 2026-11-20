@@ -197,6 +197,9 @@ harnesses the owner picks: the conductor, chat, `tutti run` and `tutti translate
   (at most 5), and the tasks wait for the owner's approval because the report is strangers' text. A report no model could
   read is tried 3 rounds. and the design review's question carries three focus
   questions a local model drafted from the week's numbers.
+- **Judgement steps** (`decisional.purposes`: unblock, triage, scout, needs, welcome, routing) try the decisional model
+  first: the best free candidate that fits the strongest machine's graphics memory (docs/FLEET.md, *The decisional model*),
+  then the best free model as above.
 - A machine whose yield flag is up (its owner's) or a server that does not answer within a second is skipped.
 - **Tutti first** (`preempt`, default true): when the best model is busy with other work (a delegated run, a project task,
   chat), Tutti does not settle for a smaller one. It raises the machine's pre-emption marker; the other work's next request

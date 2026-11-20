@@ -61,6 +61,46 @@ difficulty (a translator still wins translations), and `order` puts the steps in
 machine and hard work on the stronger one (measured power), so the strong models stay free for hard work and a failure
 escalates. The local models' cards show each model's tier, why and tokens per second; a running task shows the pick.
 
+## The decisional model
+
+Tutti's judgement-heavy steps (the unblocker's diagnosis, scout and Sentry triage, Needs-you classification, the welcome-back
+summary, routing advice) go to the best free model that *fits your strongest machine*, not just the largest one installed
+(backlog t440). Which model and which machine is configuration; no name is in the code.
+
+```yaml
+decisional:
+  enabled: true
+  auto_pull: false          # true: the dashboard probe fetches the model when it is missing (tens of GB)
+  candidates: [gpt-oss:120b, llama3.3:70b, qwen3:32b, gemma3:27b, gpt-oss:20b, qwen3:14b, gemma3:12b, qwen3:8b]   # best first
+  purposes: [unblock, triage, scout, needs, welcome, routing]
+  hardware: {pc: {vram_gb: 32, mem_gb: 64}}   # only where the machine benchmark cannot read it (a WSL machine)
+```
+
+- **The pick.** Machines are ranked by graphics memory, then memory (`tutti/power.py`'s benchmark, else
+  `decisional.hardware`); the strongest one that is not paused takes the first candidate that fits: about 0.6 GB per billion
+  parameters plus 2 GB, within 95 % of its graphics memory. `{model: name, gb: 12}` gives the memory of a name that shows no
+  size. `decisional.allow_cpu: true` lets a machine without the graphics memory hold a model in RAM, keeping
+  `decisional.min_free_gb` (8) free. `decisional.host` and `decisional.model` pin the machine or the model; a pin that does
+  not fit is reported, never forced. A machine whose hardware is unknown only counts for a model it already holds.
+- **Routing.** For the `purposes`, `tutti/brain.py` asks the best fitting model that is installed first (on a 32 GB card
+  `qwen3:32b` rather than a larger model that does not suit judgement). When it is busy, down or yielding, the best free model
+  answers as before; the online fallback keeps its pacing. Owner questions and paid agents are not changed, routing advice
+  (`tutti decisional advise`) never goes online, and sizing and chat compaction keep the old order.
+- **Status.** `tutti decisional` prints the pick, whether it is installed, the model asked meanwhile and why each other
+  machine was skipped.
+
+### Operator step: install and pull
+
+1. **Install Ollama once** on the chosen machine, because Tutti does not run an installer or ask for a password:
+   https://ollama.com/download (Linux: `curl -fsSL https://ollama.com/install.sh | sh`; Windows: the Ollama app). The next
+   dashboard probe finds it and makes its worker, with a tunnel for another machine.
+2. **Pull the model:** `tutti decisional pull` fetches the picked model through that machine's model server
+   (`/api/pull`, so a Windows or WSL machine works too) and waits for it, up to `decisional.pull_timeout_minutes` (120).
+   Or set `decisional.auto_pull: true` and the probe does it in the background, one pull at a time, never to this computer
+   while a person is here (quiet mode), and a failed pull waits 6 hours. The outcome is in `<state>/decisional.json` and
+   in `tutti decisional`.
+3. Until the model is installed, the best installed candidate answers.
+
 ## Routing (the autopilot)
 
 - **First-class steps.** Local workers are added to the ladder after `autopilot.ladder`.

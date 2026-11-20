@@ -153,6 +153,16 @@ DEFAULTS = {
     # project, repo, where (route, here or a machine), heavy, every (commit or 6h), ref, share, findings {pattern, title, size}}
     'work_queue': {'enabled': True, 'jobs': []},
     'fleet': {'enabled': True, 'port_base': 11450, 'memory_floor_gb': 3},
+    # decisional: the best free model for Tutti's own judgement (docs/FLEET.md, *The decisional model*): the first of `candidates`
+    # (free models, best first; a name, or {model, gb} for a name that shows no size) that fits the strongest machine's graphics
+    # memory (`hardware: {<machine>: {vram_gb, mem_gb}}` where it is not measured); host/model pin the choice; purposes: the steps
+    # that ask it first; auto_pull: fetch it when missing (a download of tens of GB, so off until you allow it); allow_cpu: a
+    # machine without the graphics memory may hold it in RAM; a candidate must keep min_free_gb of memory free there
+    'decisional': {'enabled': True, 'host': '', 'model': '', 'auto_pull': False, 'allow_cpu': False, 'min_free_gb': 8,
+                   'pull_timeout_minutes': 120, 'hardware': {},
+                   'candidates': ['gpt-oss:120b', 'llama3.3:70b', 'qwen3:32b', 'gemma3:27b', 'gpt-oss:20b', 'qwen3:14b', 'gemma3:12b',
+                                  'qwen3:8b'],
+                   'purposes': ['unblock', 'triage', 'scout', 'needs', 'welcome', 'routing']},
     # host: where Tutti runs (docs/MOVE.md), written by `tutti move`: the machine that serves the dashboard and keeps the
     # state, this computer's own name (me), and on a client how to reach the host (ssh, config, tutti, state, usage_log),
     # the stable name members use (address) and its port; on the host, jobs: the client whose repositories and sign-ins
@@ -554,8 +564,8 @@ def validate(cfg):
     # they import modules that import this one
     from . import autocompact, chat, depbots, dispatch, energy, owner, presence, scouts, selfimprove, sentry, tiers, tz, users
     errs += dispatch.errors(cfg) + tiers.errors(cfg) + tz.errors(cfg) + presence.errors(cfg)
-    from . import aiassist, needs, selfheal, welcome
-    errs += selfheal.errors(cfg)
+    from . import aiassist, decisional, needs, selfheal, welcome
+    errs += selfheal.errors(cfg) + decisional.errors(cfg)
     errs += needs.errors(cfg) + welcome.errors(cfg) + aiassist.errors(cfg) + selfimprove.errors(cfg)
     errs += sentry.endpoint_errors((cfg.get('telemetry') or {}).get('endpoint'))
     return errs + autocompact.errors(cfg) + _main_errors(cfg) + _projects_errors(cfg) + _autopilot_errors(cfg) + scouts.errors(cfg) + \

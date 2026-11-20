@@ -31,6 +31,11 @@ for that flag in `accounts.<name>.args`. This is the admin's assertion about the
 Chat checks the final command before launch and refuses ambiguous bindings. Paused accounts and accounts whose pacing state
 is absent are not selected. A worker with no linked account remains unmetered.
 
+When the preferred main is set aside after panic or spent (Cursor or another fallback is current), Chat does not call that
+preferred provider until a fresh reading below `panic_at` confirms its reset — including when the reading is a synthetic
+after-reset 0 %. Spent, panic, stale and unconfirmed quota stay out. If a CLI still returns a usage-limit message, Chat
+logs the account as spent and tries the next model instead of showing that text as the answer (t388).
+
 On hosts with POSIX flock and no-follow file opens, cooperating updated Chat writers serialize storage changes through a
 same-host lock, including message and attachment registration and handoff notes. This does not make simultaneous dashboard
 engines safe: answer ownership is still in memory, and an older process does not honor the lock. Stop old writers before

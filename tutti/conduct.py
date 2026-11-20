@@ -990,6 +990,19 @@ def limit_reset(cfg, agent, states, machines=None, now=None):
     return any(_fresh_below_panic(by_name.get(n) or {}) for n in names)
 
 
+def provider_held(cfg, worker, states, machines=None, now=None):
+    """Why Chat (and similar) must not call `worker` while it is the preferred main set aside for a stand-in, or ''.
+
+    After a panic/spent hand-off, current is Cursor (or another fallback) and preferred stays Claude/agy until a fresh
+    reading below panic_at. Synthetic after_reset 0 % and stale readings must not reopen that provider early (t388)."""
+    want, cur = preferred(cfg), current(cfg)
+    if not want or want == cur or worker != want or want not in (cfg.get('workers') or {}):
+        return ''
+    if limit_reset(cfg, want, states, machines, now):
+        return ''
+    return f'{want} stays aside until its limit resets (main agent is {cur})'
+
+
 def role_note(frm, to, why, connect_note='', auto=False):
     """The chat / event line for a MAIN AGENT ROLE hand-off."""
     none = 'no agent has room'

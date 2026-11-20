@@ -720,7 +720,14 @@ def late_quota_unreliable(account):
                 or any(late_quota_unreliable(limit) for limit in account.get('limits') or []))
 
 
-def online_model(cfg, name, w, rows, accounts, paused, owner, configured, account_args):
+def quota_unconfirmed(account):
+    """Synthetic after_reset 0 %, stale or estimated readings do not establish room (t388)."""
+    return bool(account.get('stale') or account.get('after_reset') or account.get('reader_problem')
+                or account.get('selected_source') == 'estimate'
+                or any(quota_unconfirmed(limit) for limit in account.get('limits') or []))
+
+
+def online_model(cfg, name, w, rows, accounts, paused, owner, configured, account_args, held=''):
     """Choose a configured account whose quota can safely be bound to this worker's command."""
     from . import routing, workers
     linked = [n for n, worker in configured.items() if worker == name]
@@ -731,7 +738,7 @@ def online_model(cfg, name, w, rows, accounts, paused, owner, configured, accoun
     for acc_name in linked or [name]:
         conf = (cfg.get('accounts') or {}).get(acc_name)
         acc = accounts.get(acc_name)
-        why = cloud_out(name, acc_name, acc or {}, conf or {}, w, paused, rows.get(name, {}), owner)
+        why = held or cloud_out(name, acc_name, acc or {}, conf or {}, w, paused, rows.get(name, {}), owner)
         if not why and linked and conf is None:
             why = f'{acc_name}: its configured account is paused or disabled'
         if not why and linked and acc is None:
@@ -742,6 +749,8 @@ def online_model(cfg, name, w, rows, accounts, paused, owner, configured, accoun
         missing = routing.missing_limits(cfg, acc_name, acc or {})
         if not why and missing:
             why = f'{acc_name}: missing linked quota state ({", ".join(missing)}); resume it or refresh its reading'
+        if not why and acc and quota_unconfirmed(acc):
+            why = f'{acc_name}: quota is unconfirmed after reset or stale; refresh the account and its linked limits'
         if not why and acc and acc.get('verdict') == 'late' and (routing.unknown_quota(acc) or late_quota_unreliable(acc)):
             why = f'{acc_name}: quota is unknown or stale; refresh the account and its linked limits'
         if not why and acc and routing.quota_closed(acc):
@@ -757,6 +766,7 @@ def online_model(cfg, name, w, rows, accounts, paused, owner, configured, accoun
 def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
     """Every model of the household with why it cannot answer now (None when it can): ([local], [online]). Local models
     are sorted by capability (the largest first, as `qwen3.8:27b` on the PC), each marked whether it gets the tools."""
+    from . import conduct
     paused = _paused(snap)
     workers = cfg.get('workers') or {}
     rows = {w.get('name'): w for w in (snap.get('workers') or {}).get('items') or []}
@@ -773,12 +783,19 @@ def all_models(cfg, snap, user, owner_sub=None, own_machine=None):
                       'label': f'{w.get("model")} on {where}'})
     local.sort(key=lambda c: -capability(c))
     accounts = {a.get('name'): a for a in (snap.get('usage') or {}).get('accounts') or []}
+    states = [{'name': n, **(a or {})} for n, a in accounts.items()]
     configured = cfg.get('_account_workers') or {n: (a or {}).get('worker') or n for n, a in (cfg.get('accounts') or {}).items()}
     account_args = cfg.get('_account_args') or {n: (a or {}).get('args') or [] for n, a in (cfg.get('accounts') or {}).items()}
     for name, w in workers.items():
         if (w or {}).get('kind') != 'cli':
             continue
-        online.append(online_model(cfg, name, w, rows, accounts, paused, is_owner(user, owner_sub), configured, account_args))
+        held = ''
+        try:
+            held = conduct.provider_held(cfg, name, states)
+        except (KeyError, TypeError):
+            held = ''
+        online.append(online_model(cfg, name, w, rows, accounts, paused, is_owner(user, owner_sub), configured, account_args,
+                                   held=held))
     return local, online
 
 
@@ -831,6 +848,8 @@ def cloud_out(name, acc_name, acc, conf, w, paused, row, owner):
         return f'{acc_name} is the owner\'s private quota'
     if acc.get('panic') or acc.get('verdict') == 'spent':
         return f'{acc_name} has no room ({acc.get("verdict") or "panic"})'
+    if quota_unconfirmed(acc):
+        return f'{acc_name}: quota is unconfirmed after reset or stale; refresh its reading'
     if row.get('ready') is False:
         return f'{name} is not installed on the host'
     return None

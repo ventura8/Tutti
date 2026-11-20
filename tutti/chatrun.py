@@ -11,10 +11,10 @@ import threading
 import time
 import urllib.request
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 
-from . import auth, chat, chatctl, config, controls, mcpserver, workers
+from . import auth, chat, chatctl, config, controls, mcpserver, readers, state, workers
 
 MODEL_TIMEOUT = 120      # seconds a model may take to start answering
 CLI_TIMEOUT = 180        # seconds a CLI worker may take for a whole answer
@@ -29,6 +29,27 @@ STATUS_POLL_SECONDS = 2
 WORK_ACTIONS = ('chat: Queue a task', 'chat: Hand off', 'chat: Ask ')   # audit lines that count against a viewer's daily limit
 BUILTIN = 'Tutti (built-in, from the dashboard\'s state)'
 _ENGINE_INIT_LOCK = threading.Lock()
+
+
+def limit_hit(text):
+    """True when a CLI answer is a usage-limit message (must not be shown as Chat's answer; t388)."""
+    return any(p.search(text or '') for p in readers.LIMITS)
+
+
+def note_chat_limit(cfg, cand, text):
+    """Log the Chat CLI's usage-limit message as spent on the bound account, else the worker's accounts."""
+    worker = cand.get('worker') or ''
+    w = (cfg.get('workers') or {}).get(worker) or {}
+    if 'command' not in w:
+        return
+    now = datetime.now(timezone.utc)
+    cmd = ' '.join(str(a) for a in w['command'])
+    accounts = dict(cfg.get('accounts') or {})
+    if cand.get('account') and cand['account'] in accounts:
+        accounts = {cand['account']: accounts[cand['account']]}
+    hits = readers.scan_text(accounts, cmd, (text or '').splitlines(), now, f'chat-{worker}')
+    if hits:
+        readers.record(state.usage_log_path(cfg), {}, hits, now)
 
 
 class ActionAdmission:
@@ -743,6 +764,11 @@ class Engine:
             return True, None
         if not answered:
             self._guard_incomplete_action(job, ValueError('model gave no answer'))
+            return False, None
+        if limit_hit(job.msg.get('text') or ''):
+            note_chat_limit(cfg, cand, job.msg.get('text') or '')
+            failed.append(f'{cand["label"]} hit a usage limit')
+            self._reset(job)
             return False, None
         weak = self._weak(job, cand, escalate, failed)
         if weak:

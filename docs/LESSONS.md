@@ -67,6 +67,9 @@
 
 - **Missing quota is not spare quota** (t388): choosing a worker and then finding no usable account must not launch its
   default login. Recheck measured quota, bind a shared worker to a unique selected account and watch that account in the turn.
+- **A stand-in main is the path** (t388): after preferred Claude/agy is handed off to Cursor, Chat must not call the
+  preferred provider until a fresh below-panic reading — synthetic after-reset 0 % is not room, and a usage-limit CLI
+  message is a failure, not an answer.
 
 - **An excerpt is not the conversation** (t387): offer bounded, user-scoped access to retained earlier text and name the
   retention limit; never claim that a summary or a short prompt contains all prior turns.

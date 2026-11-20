@@ -4,14 +4,16 @@
 - the open pull requests of dependency bots: GitHub Dependabot (`app/dependabot`, branches `dependabot/...`) and Cursor's
   dependency agent (Anybump and Cursor's cloud agents open pull requests as `cursor[bot]` on `cursor/...` branches; only
   the ones that read as a dependency or security change count);
-- vulnerability reports: GitHub Dependabot alerts and code-scanning alerts (`gh api`), and the security findings Cursor's
-  Security Review / Bugbot (`cursor[bot]`) and Greptile (`greptile-apps[bot]`) post as pull request review comments (neither
-  has an alerts API: their comments are the report).
+- vulnerability reports: GitHub Dependabot alerts and code-scanning alerts (`gh api`), the security findings Cursor's
+  Security Review / Bugbot (`cursor[bot]`) and Greptile (`greptile-apps[bot]`) post as pull request review comments, and
+  the dashboard reports a scanner publishes, saved by the owner as a JSON file (`autopilot.repos.<n>.reports`): Cursor's
+  vulnerability scans (its Vulnerability Remediation API, `GET /security/findings`). Tutti reads the file and never holds
+  the scanner's key. Greptile has no API, webhook, export or email digest for its reports: its comments are the report.
 
 Each becomes a backlog task: a bump's task brings the bot's branch into the worktree, runs the repo's check and fixes what
-breaks; trivial (patch and minor) bumps are grouped into one task per repo; reports are deduped (one per package, rule and
-file), ranked by severity and queued worst first. A task whose pull request closed or whose alert GitHub marked fixed is
-dropped by itself: GitHub closes a Dependabot alert when the fix lands, and Dependabot closes its pull request when the
+breaks; trivial (patch and minor) bumps are grouped into one task per repo; reports are deduped (one per package, rule,
+finding ID or file), ranked by severity and queued worst first. A task whose pull request closed or whose alert GitHub marked
+fixed is dropped by itself: GitHub closes a Dependabot alert when the fix lands, and Dependabot closes its pull request when the
 bump is on the base. The plan is pure; `gather` does the reading and runs outside the backlog's lock."""
 import json
 import os
@@ -24,16 +26,21 @@ from . import backlog, config, durable
 from .review import gh
 
 FILE = 'depbots.json'
-SEVERITY = {'critical': 4, 'high': 3, 'moderate': 2, 'medium': 2, 'low': 1, 'warning': 1, 'note': 0, 'error': 3}
+SEVERITY = {'critical': 4, 'high': 3, 'moderate': 2, 'medium': 2, 'low': 1, 'warning': 1, 'note': 0, 'error': 3, 'info': 0}
 NAMES = {4: 'critical', 3: 'high', 2: 'medium', 1: 'low', 0: 'info'}
 SECURITY_WORDS = re.compile(r'\b(security|vulnerab\w*|cve-\d+|ghsa-|injection|xss|csrf|ssrf|rce|secret|credential|unsafe '
                             r'deserial\w*|path traversal|auth\w* bypass)\b', re.I)
 LABEL = re.compile(r'^\W*(?:severity:?\W*)?(critical|high|medium|moderate|low)\b', re.I)
 FAILED = {'FAILURE', 'TIMED_OUT', 'CANCELLED', 'STARTUP_FAILURE', 'ACTION_REQUIRED', 'ERROR'}
-SOURCES = ('prs', 'dependabot', 'code-scanning', 'comments')
+SOURCES = ('prs', 'dependabot', 'code-scanning', 'comments', 'cursor-report', 'greptile-report')
 PR_LIMIT = 500
 GROUP = 'Land the open patch and minor dependency bumps'
 VERSIONS = re.compile(r'from v?(\d+)(?:\.(\d+))?\S* to v?(\d+)(?:\.(\d+))?', re.I)
+# What each scanner publishes beyond its pull request comments, as a file of findings Tutti can read (docs/SECURITY-INTAKE.md,
+# Dashboard reports); '' is a scanner with no API, webhook, export or email digest for its reports.
+REPORTS = {'cursor': 'the Vulnerability Remediation API (GET https://api.cursor.com/security/findings) saved as JSON',
+           'greptile': ''}
+CLOSED = {'fixed', 'resolved', 'dismissed', 'closed', 'refuted', 'agent-refuted', 'agent_refuted', 'false_positive', 'false-positive'}
 
 
 def settings(cfg):
@@ -49,7 +56,31 @@ def errors(cfg):
                 errs.append(f'depbots.{kind}[{i}] needs name and authors (a list of GitHub logins, e.g. dependabot[bot])')
     if not isinstance(s.get('every_minutes', 360), (int, float)) or s.get('every_minutes', 360) < 15:
         errs.append(f'depbots.every_minutes is {s.get("every_minutes")!r}: a number of minutes, at least 15 (GitHub\'s rate limit)')
+    return errs + report_errors(cfg)
+
+
+def report_errors(cfg):
+    """autopilot.repos.<n>.reports: [{scanner, path}], the saved findings of a scanner that publishes them (REPORTS)."""
+    errs = []
+    for n, r in ((cfg.get('autopilot') or {}).get('repos') or {}).items():
+        reports = r.get('reports', []) if isinstance(r, dict) else []
+        if not isinstance(reports, list):
+            errs.append(f'autopilot.repos.{n}.reports is {reports!r}: a list of {{scanner: cursor, path: <the saved findings JSON>}}')
+            continue
+        errs += [e for e in (_report_error(f'autopilot.repos.{n}.reports[{i}]', x) for i, x in enumerate(reports)) if e]
     return errs
+
+
+def _report_error(key, x):
+    if not isinstance(x, dict) or not x.get('path'):
+        return f'{key} needs scanner and path: the JSON file the scanner\'s findings are saved to (docs/SECURITY-INTAKE.md)'
+    name = str(x.get('scanner', '')).lower()
+    if name not in REPORTS:
+        return f'{key}.scanner is {x.get("scanner")!r}: use one of {", ".join(sorted(REPORTS))}'
+    if not REPORTS[name]:
+        return (f'{key}: {name} has no API, webhook, export or email digest for its reports; its pull request review comments '
+                'are read instead (depbots.scanners): remove this entry')
+    return ''
 
 
 def norm(login):
@@ -95,7 +126,13 @@ def bump_kind(title):
 
 
 def rank(severity):
-    return SEVERITY.get((severity or '').lower(), 0)
+    if isinstance(severity, int):
+        return min(max(severity, 0), 4)
+    s = str(severity or '').strip().lower()
+    m = LABEL.match(s)
+    if m:
+        s = m.group(1).lower()
+    return SEVERITY.get(s, 0)
 
 
 def from_dependabot(items, slug):
@@ -137,12 +174,73 @@ def from_comments(comments, scanners):
         if not name or not SECURITY_WORDS.search(body):
             continue
         sev = LABEL.match(body)   # only a leading label or badge: "high-level" in the text is not a severity
-        first = next((ln.strip(' #*>`') for ln in body.splitlines() if ln.strip(' #*>`')), 'security finding')[:120]
+        first = first_line(body, 'security finding')
         out.append({'key': f'scan:{c.get("path", "")}:{first.lower()}', 'source': name, 'kind': 'comments',
                     'severity': rank(sev.group(1)) if sev else 2,
                     'title': f'{first} ({c.get("path") or "pull request"})', 'url': c.get('html_url', ''), 'path': c.get('path', ''),
                     'hint': f'{name} reported this on a pull request review'})
     return out
+
+
+def first_line(text, default):
+    """The first line with text, without markdown marks, at most 120 characters: a finding's title."""
+    return next((ln.strip(' #*>`') for ln in str(text or '').splitlines() if ln.strip(' #*>`')), default)[:120]
+
+
+def item_path(item):
+    """The file of a report finding: path, file or location (a 'file:line' string or {path})."""
+    for k in ('path', 'file', 'filePath', 'location'):
+        v = item.get(k)
+        v = v.get('path') if isinstance(v, dict) else v
+        if v:
+            return str(v).split(':')[0]
+    return ''
+
+
+def report_key(scanner, item, path, title):
+    """The dedupe key: the scanner's own finding ID (stable across scans), else `scan:<file>:<title>`, the key of the same
+    finding posted as a review comment, so a dashboard finding and its comment are one task."""
+    fid = item.get('findingId') or item.get('id')
+    return f'{scanner}:{fid}' if fid else f'scan:{path}:{title.lower()}'
+
+
+def for_repo(item, slug):
+    """A finding without a repository belongs to the repo whose report it is; one naming another repository does not."""
+    r = item.get('repository') or item.get('repo') or ''
+    r = (r.get('full_name') or r.get('url') or '') if isinstance(r, dict) else str(r)
+    return not r or (slug_of(r) or r).lower() == slug.lower()
+
+
+def report_alert(item, scanner, slug):
+    path = item_path(item)
+    title = first_line(item.get('title') or item.get('description') or item.get('message'), f'{scanner} security finding')
+    return {'key': report_key(scanner, item, path, title), 'source': scanner, 'kind': f'{scanner}-report',
+            'severity': rank(item.get('severity') or item.get('level')), 'title': f'{title} ({path or "repository"})',
+            'url': item.get('url') or item.get('html_url') or f'https://github.com/{slug}/security', 'path': path,
+            'hint': f'{scanner} reported this in its dashboard report'}
+
+
+def from_report(items, scanner, slug):
+    """The open findings of a scanner's saved report for this repo: fixed, dismissed or refuted ones are left out."""
+    return [report_alert(x, scanner, slug) for x in items
+            if str(x.get('status') or '').lower() not in CLOSED and for_repo(x, slug)]
+
+
+def report_items(data):
+    """The findings of a saved report: a list, or the API's page {findings: [...]} (or {items: [...]}); None otherwise."""
+    if isinstance(data, dict):
+        data = data.get('findings', data.get('items'))
+    return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else None
+
+
+def read_report(path):
+    """(findings, '') of a saved report file, else (None, why)."""
+    try:
+        with open(config.expand(path), encoding='utf8') as f:
+            items = report_items(json.load(f))
+    except (OSError, ValueError) as exc:
+        return None, f'{type(exc).__name__}: {exc}'
+    return (items, '') if items is not None else (None, 'neither a list of findings nor {"findings": [...]}')
 
 
 def dedupe(alerts):
@@ -237,16 +335,39 @@ def _read_alerts(out, slug, s, gh_fn, prs):
     out['alerts'] += from_comments(items, s['scanners'])
 
 
-def read_repo(slug, s, gh_fn=gh):
+def _read_reports(out, slug, reports):
+    """The repo's saved dashboard reports (autopilot.repos.<n>.reports): a scanner's report counts as read only when every
+    file of it was read, else its tasks stay."""
+    ok, failed = set(), set()
+    for r in reports or []:
+        scanner = str(r.get('scanner', '')).lower()
+        items, why = read_report(r['path'])
+        if items is None:
+            failed.add(scanner)
+            out['problems'].append(f'{slug}: the {scanner} report {r["path"]} cannot be read ({why}): save the findings there '
+                                   'again (docs/SECURITY-INTAKE.md, Dashboard reports)')
+            continue
+        ok.add(scanner)
+        out['alerts'] += from_report(items, scanner, slug)
+    out['read'] += [f'{s}-report' for s in sorted(ok - failed)]
+
+
+def _parse_prs(raw, rc, err):
+    if rc != 0:
+        return None, err
+    try:
+        return json.loads(raw or '[]'), ''
+    except ValueError as exc:
+        return None, f'unreadable answer ({exc})'
+
+
+def read_repo(slug, s, gh_fn=gh, reports=None):
     """{prs, alerts, problems, code_scanning, read}: `read` names the sources read without a fault, so a task is dropped only
     when the source that made it was read and no longer holds it."""
     out = {'prs': [], 'alerts': [], 'problems': [], 'code_scanning': False, 'read': []}
     rc, raw, err = gh_fn(['pr', 'list', '-R', slug, '--state', 'open', '--limit', str(PR_LIMIT), '--json',
                           'number,title,headRefName,author,url,labels,statusCheckRollup'])
-    try:
-        prs = json.loads(raw or '[]') if rc == 0 else None
-    except ValueError as exc:
-        prs, err = None, f'unreadable answer ({exc})'
+    prs, err = _parse_prs(raw, rc, err)
     if prs is None:
         out['problems'].append(problem('pull requests', slug, err))
         prs = []
@@ -254,6 +375,7 @@ def read_repo(slug, s, gh_fn=gh):
         out['read'] += ['prs'] if len(prs) < PR_LIMIT else []   # a capped list is not proof that a pull request closed
         out['prs'] = bot_prs(prs, s['bots'])
     _read_alerts(out, slug, s, gh_fn, prs)
+    _read_reports(out, slug, reports)
     out['alerts'] = dedupe(out['alerts'])
     return out
 
@@ -277,7 +399,7 @@ def gather(cfg, now, gh_fn=gh, run=subprocess.run, force=False):
                                         f'autopilot.repos.{name}.github to owner/name']}
             continue
         try:
-            found[name] = {'slug': slug, 'started': time.time(), **read_repo(slug, settings(cfg), gh_fn)}
+            found[name] = {'slug': slug, 'started': time.time(), **read_repo(slug, settings(cfg), gh_fn, repo.get('reports'))}
         except (OSError, ValueError, KeyError, TypeError) as exc:   # one bad repo never stops the others
             found[name] = {'slug': slug, 'prs': [], 'alerts': [], 'code_scanning': False, 'read': [],
                            'problems': [f'{slug}: reading it failed ({type(exc).__name__}: {exc}): `tutti security scan` again; '

@@ -2,6 +2,7 @@
 the owner's messages, queueing and dropping. Fake gh calls only."""
 import copy
 import json
+import os
 import tempfile
 import unittest
 
@@ -180,6 +181,93 @@ class PartialReadTest(unittest.TestCase):
         both['a'] = {**both['a'], 'alerts': [], 'started': 1}
         depbots.apply(cfg, data, both)
         self.assertEqual([t['status'] for t in data['tasks']], ['dropped', 'queued'])   # b's alert does not keep a's task
+
+
+class ReportIngestionTest(unittest.TestCase):
+    FINDINGS = {'findings': [
+        {'findingId': 'c1', 'severity': 'HIGH', 'title': 'Auth bypass', 'location': 'auth.py:10', 'repository': 'github.com/o/r'},
+        {'findingId': 'c1', 'severity': 'critical', 'title': 'Auth bypass', 'location': 'auth.py:10'},
+        {'findingId': 'c2', 'severity': 'low', 'title': 'Old bug', 'path': 'old.py', 'status': 'Fixed'},
+        {'findingId': 'c3', 'severity': 'low', 'title': 'Not real', 'path': 'x.py', 'status': 'agent-refuted'},
+        {'findingId': 'c4', 'severity': 'high', 'title': 'Elsewhere', 'path': 'y.py', 'repository': 'https://github.com/o/other'},
+        {'severity': 'medium', 'title': 'High: path traversal', 'file': 'up.py'}], 'nextCursor': None}
+
+    def save(self, d, data, name='cursor.json'):
+        path = os.path.join(d, name)
+        with open(path, 'w', encoding='utf8') as f:
+            f.write(data if isinstance(data, str) else json.dumps(data))
+        return path
+
+    def test_findings_dedupe_by_id_and_skip_closed_or_other_repos(self):
+        got = depbots.dedupe(depbots.from_report(depbots.report_items(self.FINDINGS), 'cursor', 'o/r'))
+        self.assertEqual([a['key'] for a in got], ['cursor:c1', 'scan:up.py:high: path traversal'])
+        self.assertEqual((got[0]['severity'], got[0]['kinds'], got[0]['sources']), (4, ['cursor-report'], ['cursor']))
+        self.assertEqual(got[0]['title'], 'Auth bypass (auth.py)')
+        self.assertIsNone(depbots.report_items({'error': 'forbidden'}))   # an error page is not an empty report
+
+    def test_a_report_finding_and_its_review_comment_are_one(self):
+        report = depbots.from_report([{'severity': 'critical', 'title': 'SQL injection in the query builder', 'path': 'db.py'}],
+                                     'cursor', 'o/r')
+        comment = {'user': {'login': 'greptile-apps[bot]'}, 'body': '## SQL injection in the query builder\n\nUse parameters.',
+                   'path': 'db.py', 'html_url': 'c9', 'position': 4}
+        got = depbots.dedupe(report + depbots.from_comments([comment], S['scanners']))
+        self.assertEqual(len(got), 1)
+        self.assertEqual((got[0]['severity'], got[0]['sources']), (4, ['cursor', 'greptile']))
+        self.assertEqual(got[0]['kinds'], ['comments', 'cursor-report'])
+
+    def test_severity_on_the_common_scale(self):
+        for given, want in (('critical', 4), ('HIGH', 3), ('error', 3), ('moderate', 2), ('warning', 1), ('info', 0),
+                            ('Severity: High', 3), (7, 4), (None, 0), ('unheard-of', 0)):
+            self.assertEqual(depbots.rank(given), want, given)
+
+    def test_saved_report_becomes_tasks_and_the_card(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = copy.deepcopy(config.DEFAULTS)
+            cfg['project']['state'] = d
+            reports = [{'scanner': 'cursor', 'path': self.save(d, self.FINDINGS)}]
+            cfg['autopilot']['repos'] = {'r': {'path': d, 'github': 'o/r', 'check': 'make check', 'reports': reports}}
+            self.assertEqual(depbots.errors(cfg), [])
+            data = {'next': 1, 'tasks': []}
+            found = depbots.gather(cfg, 1.0, fake_gh(prs=[], dep=[]), force=True)
+            self.assertIn('cursor-report', found['r']['read'])
+            depbots.apply(cfg, data, found)
+            task = [t for t in data['tasks'] if t['depbot_ref'] == 'cursor:c1'][0]
+            self.assertEqual((task['title'], task['size']), ('Fix critical vulnerability: Auth bypass (auth.py)', 'M'))
+            self.assertEqual((task['source'], task['depbot_src']), ('security:cursor', ['cursor-report']))
+            depbots.save(cfg, found, 1.0)
+            card = depbots.view(cfg)
+            self.assertEqual(card['worst'], 'critical')
+            self.assertIn({'title': 'Auth bypass (auth.py)', 'url': 'https://github.com/o/r/security',
+                           'sources': ['cursor'], 'severity': 'critical'}, card['repos'][0]['top'])
+            os.remove(reports[0]['path'])   # an unreadable report keeps its tasks and says so
+            found = depbots.gather(cfg, 2.0, fake_gh(prs=[], dep=[]), force=True)
+            self.assertNotIn('cursor-report', found['r']['read'])
+            self.assertIn('the cursor report', found['r']['problems'][0])
+            task['added'] = 0
+            depbots.apply(cfg, data, found)
+            self.assertEqual(task['status'], 'queued')
+            self.save(d, {'findings': []})   # read and gone: fixed
+            depbots.apply(cfg, data, depbots.gather(cfg, 3.0, fake_gh(prs=[], dep=[]), force=True))
+            self.assertEqual(task['status'], 'dropped')
+
+    def test_a_report_that_is_not_findings_is_a_problem(self):
+        with tempfile.TemporaryDirectory() as d:
+            for text in ('not json', '{"message": "Forbidden"}'):
+                scan = depbots.read_repo('o/r', S, fake_gh(prs=[]), [{'scanner': 'cursor', 'path': self.save(d, text)}])
+                self.assertNotIn('cursor-report', scan['read'])
+                self.assertEqual(len([p for p in scan['problems'] if 'cursor report' in p]), 1)
+
+    def test_scanners_without_reports_are_refused_in_config(self):
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg['autopilot']['repos'] = {'r': {'path': '/r', 'reports': [{'scanner': 'greptile', 'path': '/g.json'},
+                                                                    {'scanner': 'sonar', 'path': '/s.json'}, {'scanner': 'cursor'}]},
+                                     'q': {'path': '/q', 'reports': 'cursor.json'}}
+        errs = depbots.errors(cfg)
+        self.assertEqual(len(errs), 4)
+        self.assertIn('greptile has no API, webhook, export or email digest', errs[0])
+        self.assertIn("use one of cursor, greptile", errs[1])
+        self.assertIn('needs scanner and path', errs[2])
+        self.assertIn('autopilot.repos.q.reports', errs[3])
 
 
 if __name__ == '__main__':

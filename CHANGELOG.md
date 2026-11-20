@@ -33,6 +33,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
+- Hold slow-ahead quota until a reading covers a finished or interrupted start, and stop an untracked child if its pid cannot be recorded (t299).
 - Parse device lease options after device names and preserve command flags and separators (t177, t421).
 
 ## 0.31.3 (2026-11-19)

@@ -4,9 +4,11 @@ fake worker. Nothing leaves the temp folder; no real machine or account is used.
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -900,6 +902,67 @@ class PlanTest(Base):
         self.assertEqual(autopilot.plan(cfg, [done, task('t1')], states, FREE, True)['dispatch'], [])
         older = {**done, 'attempts': [{**done['attempts'][0], 'started': 1794600000.0}]}
         self.assertEqual(autopilot.plan(cfg, [older, task('t1')], states, FREE, True)['dispatch'], [('t1', 'agy-gemini')])
+
+    def test_a_mid_task_reading_keeps_the_finished_attempt_charged_until_a_later_reading(self):
+        """A reading taken during a run does not release its cost when the run ends after that reading."""
+        reading = autopilot._ts('2026-01-01T01:00:00+00:00')
+        states = self.states(**{'agy-gemini': {**account('agy-gemini', room=1),
+                                               'reading_at': '2026-01-01T01:00:00+00:00'}})
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        mid = {**task('t0', 'review'), 'attempts': [{**attempt('agy-gemini', ok=True),
+                                                     'started': reading - 600, 'at': reading + 600}]}
+        self.assertEqual(autopilot.spent_units([mid], states, cfg).get('agy-gemini'), 1)
+        self.assertEqual(autopilot.plan(cfg, [mid, task('t1')], states, FREE, True)['dispatch'], [])
+        after = {**mid, 'attempts': [{**mid['attempts'][0], 'at': reading - 1}]}
+        self.assertEqual(autopilot.spent_units([after], states, cfg).get('agy-gemini'), None)
+        self.assertEqual(autopilot.plan(cfg, [after, task('t1')], states, FREE, True)['dispatch'], [('t1', 'agy-gemini')])
+
+    def test_an_interrupted_start_holds_quota_until_a_new_reading(self):
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        reading = autopilot._ts('2026-01-01T01:00:00+00:00')
+        states = self.states(**{'agy-gemini': {**account('agy-gemini', room=1),
+                                               'reading_at': '2026-01-01T01:00:00+00:00'}})
+        # a parked interrupted task still occupies room for other queued work until a reading covers it
+        held = {**task('t0', 'parked'), 'quota_hold': {'step': 'agy-gemini', 'started': reading + 60}}
+        self.assertEqual(autopilot.spent_units([held], states, cfg).get('agy-gemini'), 1)
+        self.assertEqual(autopilot.plan(cfg, [held, task('t1')], states, FREE, True)['dispatch'], [])
+        released = {**held, 'quota_hold': {'step': 'agy-gemini', 'started': reading - 60}}
+        self.assertEqual(autopilot.plan(cfg, [released, task('t1')], states, FREE, True)['dispatch'], [('t1', 'agy-gemini')])
+        running = {**task('live', 'running'), 'step': 'agy-gemini', 'started': reading + 10}
+        with mock.patch.object(autopilot, 'reconcile', return_value='ok'):
+            note = autopilot.interrupt(cfg, running)
+        self.assertIn('not counted', note)
+        self.assertEqual(running['status'], 'queued')
+        self.assertEqual(running['quota_hold'], {'step': 'agy-gemini', 'started': reading + 10})
+        self.assertEqual(running.get('attempts'), [])
+
+    def test_a_pid_write_failure_stops_the_child_and_stays_retryable(self):
+        cfg = self.cfg()
+        t = task('t1')
+        child = mock.Mock(pid=4242)
+        log_path = os.path.join(self.tmp.name, 'r.log')
+        pid_path = os.path.join(self.tmp.name, 'r.pid')
+        open(log_path, 'w', encoding='utf8').close()
+        real_open = open
+
+        def open_failing(path, *args, **kwargs):
+            if path == pid_path:
+                raise OSError('disk full')
+            return real_open(path, *args, **kwargs)
+
+        with mock.patch.object(autopilot, 'step_of', return_value={
+                'account': 'agy-gemini', 'worker': 'agy', 'kind': 'cli', 'args': []}), \
+                mock.patch.object(autopilot.tiers, 'choose', return_value=None), \
+                mock.patch.object(autopilot.delegate, 'paths', return_value={'log': log_path, 'pid': pid_path}), \
+                mock.patch.object(autopilot.delegate, 'new_id', return_value='run-1'), \
+                mock.patch.object(autopilot.remote, 'BIN', sys.executable), \
+                mock.patch.object(autopilot.os, 'killpg') as killpg, \
+                mock.patch('builtins.open', open_failing):
+            with self.assertRaises(autopilot.LaunchNotStarted) as raised:
+                autopilot.dispatch(cfg, t, 'agy-gemini', time.time(), spawn=lambda *a, **k: child)
+        self.assertIn('could not record pid', str(raised.exception))
+        killpg.assert_called_once_with(4242, signal.SIGTERM)
+        self.assertNotEqual(t.get('status'), 'running')
 
     def test_a_step_that_costs_money_is_never_used(self):
         cfg = self.cfg(ladder=['paid'], accounts=['paid'])

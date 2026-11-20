@@ -12,6 +12,7 @@ import json
 import math
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -204,8 +205,9 @@ def cli_host_out(cfg, step, machines):
 
 def step_room(cfg, name, states, running_units, machines=(), slow=False):
     """(units of room, why not) for one ladder step now. A trigger account (autopilot.accounts) has room only while it is
-    behind its line (or late), as much as its readings say; any other account only while it is not ahead of its pace, one task
-    at a time; a worker without an account (a local model) one task at a time. Panic and spent are never used."""
+    behind its line (or late), as much as its readings say; with slow=True an eligible ahead account may receive one unit.
+    Callers that omit slow get ordinary room only. Any other account only while it is not ahead of its pace, one task at a
+    time; a worker without an account (a local model) one task at a time. Panic and spent are never used."""
     step = step_of(cfg, name)
     if not step:
         return 0, unusable_why(cfg, name)
@@ -536,19 +538,29 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fal
         free -= 0 if is_local(cfg, pick) else 1
 
 
+def _unreflected(step, states, cfg, started, ended=None):
+    """True while no reading taken at or after the attempt's end (or start) covers that spend."""
+    if is_local(cfg, step) or not started:
+        return False
+    windows = quota_windows(step, states.get(step) or {})
+    reads = [x.get('reading_at') for x in windows.values()]
+    covered = ended if isinstance(ended, (int, float)) and not isinstance(ended, bool) and math.isfinite(ended) else started
+    return not all(reads) or any(covered >= _ts(read) for read in reads)
+
+
 def spent_units(tasks, states, cfg):
-    """{step: units} the readings do not show yet: the runs going, and every attempt started on an account after its newest
-    reading (a finished run's cost stays counted until a new reading includes it)."""
+    """{step: units} the readings do not show yet: the runs going, finished attempts until a reading covers their end, and
+    interrupted starts that still hold quota until a newer reading."""
     used = {}
     for t in tasks:
         if t['status'] == 'running':
             used[t.get('step')] = used.get(t.get('step'), 0) + units(t)
+        hold = t.get('quota_hold') or {}
+        step = hold.get('step')
+        if step and _unreflected(step, states, cfg, hold.get('started')):
+            used[step] = used.get(step, 0) + units(t)
         for a in t['attempts']:
-            if is_local(cfg, a['step']):
-                continue   # local servers have no quota reading; only currently running work occupies them
-            windows = quota_windows(a['step'], states.get(a['step']) or {})
-            reads = [x.get('reading_at') for x in windows.values()]
-            if a.get('started') and (not all(reads) or any(a['started'] >= _ts(read) for read in reads)):
+            if _unreflected(a['step'], states, cfg, a.get('started'), a.get('at')):
                 used[a['step']] = used.get(a['step'], 0) + units(t)
     return used
 
@@ -1226,8 +1238,19 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, run
                                'TUTTI_BOUND_REPORT': '1'})
         except OSError as e:
             raise LaunchNotStarted(str(e)) from e
-    with open(p['pid'], 'w', encoding='utf8') as f:
-        f.write(f'{child.pid}\n')
+    try:
+        with open(p['pid'], 'w', encoding='utf8') as f:
+            f.write(f'{child.pid}\n')
+    except OSError as e:
+        # the child exists but cannot be tracked: stop it before releasing the queue slot or quota debit
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                os.kill(child.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+        raise LaunchNotStarted(f'could not record pid {child.pid} ({e}): child stopped') from e
     # the repo's gates this attempt runs (acceptance holds them): a result lands only when they are today's (tutti/fill.py)
     if step['kind'] != 'ollama':
         task.pop('picked', None)
@@ -1255,6 +1278,7 @@ def reserve_launch(cfg, task, step_name, now):
                 check_where=check_where, boot=durable.boot_id(), launch_pending=True,
                 run_identity=uuid.uuid4().hex, report_identity_bound=True, choice=None)
     task.pop('recovery_note', None)
+    task.pop('quota_hold', None)   # a new start replaces an interrupted-run hold; the live run counts instead
     return run_id
 
 
@@ -1490,6 +1514,7 @@ def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
         if stuck_why:
             a.update(why=stuck_why, ok=False, signature=f'stuck:{a.get("step")}', **{'class': 'flaky'})
         t.pop('resume_note', None)
+        t.pop('quota_hold', None)   # the finished attempt carries the unreflected debit until a reading covers it
         t['attempts'].append(a)
         record_attempt(cfg, t, a, now)
         from . import needs
@@ -1693,11 +1718,13 @@ def pause(t, why):
 
 def interrupt(cfg, t):
     """An attempt whose host went down under it: queued again from the same worktree, with no attempt counted (not a
-    failure, not a retry, no no-progress step)."""
+    failure, not a retry, no no-progress step). A paced start keeps a quota hold until a reading covers that run."""
     done = reconcile(tree_of(cfg, t), wip_ref(t), wip_remote(cfg, t))
     t.pop('recovery_note', None)
+    hold = {'step': t['step'], 'started': t['started']} if t.get('step') and t.get('started') else None
     t.update(status='queued', interrupted=int(t.get('interrupted') or 0) + 1,
-             resume_note=f'the previous run ({t.get("run")}) was interrupted by a power-off or reboot before it ended; {done}')
+             resume_note=f'the previous run ({t.get("run")}) was interrupted by a power-off or reboot before it ended; {done}',
+             **({'quota_hold': hold} if hold else {}))
     telemetry.record('feature', 'autopilot.interrupted', source=t.get('source'))
     return f'{t["id"]} was interrupted by a power-off or reboot: queued again from its worktree, not counted ({done})'
 

@@ -141,6 +141,7 @@ def add_usage(conv, usage):
     """Adds one answer's usage to the conversation's totals and keeps the latest context share."""
     total = conv.get('usage')
     if not isinstance(total, dict):
+        # New or cleared conversations store usage as None; setdefault would keep that and crash.
         total = {'in': 0, 'out': 0, 'usd': 0.0, 'context_pct': 0}
         conv['usage'] = total
     total['in'] += usage.get('in', 0)

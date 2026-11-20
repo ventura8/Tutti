@@ -259,4 +259,4 @@ take the day back), the owner panel's **One day with other hours**, or `pacing.d
 points an hour. Its usual hours, and every hour outside the window, are free for the agents at full speed. A vacation that
 ends before the day (`vacation-until-2026-11-16`) hands over to it at midnight. A day's window ends by 24; hours past
 midnight are the next day's own window (`00-02`). Taking back a day the config sets keeps a null in `owner.json`. The dashboard's edits live in `owner.json`
-and win over the config's.
+and win over the config's. Removing a dated window leaves the weekday schedule and learned profile unchanged.

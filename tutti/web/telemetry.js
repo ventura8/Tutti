@@ -142,7 +142,15 @@ function renderAiAssist(a) {
         el('p', { class: 'row__name', 'data-field': 'brain-line', text: brain.line }),
         el('p', { class: 'row__note', text: `This week: ${brain.local || 0} local, ${brain.online || 0} online, ${brain.wh || 0} Wh` }),
         insightRows('Parked for Tutti\'s own job', brain.parks || [], (p) => p),
-        insightRows('Unblocker', ub.recent, (e) => `${e.id} (${e.kind}, ${e.by}): ${e.outcome}`),
+        el('section', { class: 'autopilot__group' }, el('h3', { class: 'card__sub', text: 'Unblocker' }),
+            ub.recent.length ? el('ul', { class: 'list' }, ...ub.recent.map((e) => el('li', { class: 'row' },
+                el('div', { class: 'row__name' }, `${e.id} (${e.kind}, ${e.by}): ${e.outcome}`,
+                    e.why ? el('span', { class: 'row__kind', text: e.why }) : null),
+                e.undoable && !e.undone
+                    ? el('button', { class: 'btn', type: 'button', 'data-control': 'unblock-undo',
+                        onclick: () => void telemetrySwitch('/api/ai-assist', { unblock_undo: e.at }, 'The decision was not undone.') }, 'Undo')
+                    : (e.undone ? chip('undone', 'idle') : null))))
+                : el('p', { class: 'row__note', text: 'Nothing yet.' })),
         el('p', { class: 'row__note' }, ...['local', 'online', 'online_code', 'auto_tune'].map((k) => aiSwitch(k, a.switches[k]))),
         insightRows('Measured gains', a.gains, (g) => g),
         insightRows('Latest proposals', a.recent, (p) => `${p.title} (${p.by})`),

@@ -132,6 +132,10 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
   worker's own (its limit, its time, a refused tool, any other exit): the task or its check is the problem, and it is
   parked at once. Only the worker's own last lines are read for its limit, never Tutti's summary that quotes the task.
   When every step it may go to is worn out this way, it is parked.
+- **Tutti clears Needs-you before you see them (t244, t278).** Each tick classifies parked questions (person-only vs
+  Tutti-resolvable). Usage-limit parks are requeued without asking; other Tutti-resolvable ones are cleared by rule, then
+  a local model, then an online account with room (exact option or default on deferral; ambiguous text stays; undoable on
+  the AI assist card). Only person-facing items reach *Needs you*, each with an exact next action (docs/NEEDS.md).
 - **agy may read and write its own worktree.** A worker whose command carries an allow-list (agy's `--settings`) gets
   `read_file(<worktree>)` and `write_file(<worktree>)` added for each run; headless agy auto-denies anything else.
 

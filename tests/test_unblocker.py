@@ -141,13 +141,102 @@ class Finds(Base):
         self.tick([('ACTION: retry\nWHY: only usage limits failed it', 'pc-local')])
         self.assertEqual(self.get(tid)['status'], 'queued')
 
-    def test_a_parked_question_the_model_cannot_decide_stays(self):
-        tid = self.task('Licence', attempts=fails('x'))
+    def test_tutti_resolvable_takes_the_default_when_the_model_defers(self):
+        tid = self.task('Add tests', attempts=fails('x'))
         with backlog.locked(self.cfg) as data:
-            needs.ask(self.cfg, backlog.find(data, tid), 'MIT or GPL?', 'a choice', ['mit', 'gpl'], 'mit', now=NOW)
-        ev, _ = self.tick([('ACTION: person\nWHY: taste', 'pc-local')])
+            needs.ask(self.cfg, backlog.find(data, tid), 'Retry it?', 'stuck again', ['retry', 'drop'], 'retry', now=NOW)
+        ev, _ = self.tick([('ACTION: person\nWHY: unsure', 'pc-local')])
+        self.assertEqual(self.get(tid)['status'], 'queued')
+        self.assertIn('decided "retry"', ev[0])
+        self.assertIn('took the default', ev[0])
+        self.assertTrue(unblocker.read_log(self.cfg)[-1].get('undoable'))
+
+    def test_usage_limit_park_is_retried_by_rule_without_a_model(self):
+        tid = self.task('Add tests', attempts=fails('the worker hit its usage limit'),
+                        status='needs-person', parked='the strongest step (cursor) failed: the worker hit its usage limit')
+        with backlog.locked(self.cfg) as data:
+            needs.ask(self.cfg, backlog.find(data, tid), **needs.park_question(self.get(tid), self.get(tid)['parked']),
+                      now=NOW)
+        ev, asked = self.tick()
+        self.assertEqual(asked, [])
+        self.assertEqual(self.get(tid)['status'], 'queued')
+        self.assertIn('decided "retry"', ev[0])
+        self.assertTrue(unblocker.read_log(self.cfg)[-1].get('undoable'))
+
+    def test_person_only_park_is_left_and_shown(self):
+        tid = self.task('Pay the invoice', attempts=fails('x'), status='needs-person', parked='needs a payment')
+        with backlog.locked(self.cfg) as data:
+            q = needs.ask(self.cfg, backlog.find(data, tid), 'Pay the invoice now?', 'a payment is due',
+                          ['yes', 'later'], 'later', now=NOW)
+        self.assertEqual(q['kind'], 'person-only')
+        ev, asked = self.tick()
+        self.assertEqual(asked, [])
         self.assertEqual(self.get(tid)['status'], 'needs-person')
-        self.assertIn('true decision', ev[0])
+        self.assertIn('person-only', ev[0])
+        self.assertEqual(len(needs.open_for(self.cfg, 'admin', needs.OWNER)), 1)
+        self.assertTrue(needs.load(self.cfg)['questions'][0].get('next_action'))
+
+    def test_a_licence_choice_is_person_only(self):
+        tid = self.task('Pick a licence', attempts=fails('x'))
+        with backlog.locked(self.cfg) as data:
+            q = needs.ask(self.cfg, backlog.find(data, tid), 'MIT or GPL?', 'a licence choice', ['mit', 'gpl'], 'mit',
+                          now=NOW)
+        self.assertEqual(q['kind'], 'person-only')
+        self.assertEqual(len(needs.open_for(self.cfg, 'admin', needs.OWNER)), 1)
+
+    def test_tutti_resolvable_is_hidden_until_tried(self):
+        tid = self.task('Add tests', attempts=fails('x'))
+        with backlog.locked(self.cfg) as data:
+            needs.ask(self.cfg, backlog.find(data, tid), 'Retry it?', 'stuck', ['retry', 'drop'], 'retry', now=NOW)
+        self.assertEqual(needs.open_for(self.cfg, 'admin', needs.OWNER), [])
+
+    def test_tutti_resolvable_is_shown_when_unblocker_is_off(self):
+        self.cfg['ai_assist']['unblock'] = False
+        tid = self.task('Add tests', attempts=fails('x'))
+        with backlog.locked(self.cfg) as data:
+            q = needs.ask(self.cfg, backlog.find(data, tid), 'Retry it?', 'stuck', ['retry', 'drop'], 'retry', now=NOW)
+        self.assertEqual(q['kind'], 'tutti')
+        self.assertTrue(q['resolve_tried'])
+        self.assertEqual(len(needs.open_for(self.cfg, 'admin', needs.OWNER)), 1)
+
+    def test_undo_reopens_a_tutti_decision(self):
+        tid = self.task('Add tests', attempts=fails('the worker hit its usage limit'),
+                        status='needs-person', parked='usage limit on cursor')
+        with backlog.locked(self.cfg) as data:
+            needs.ask(self.cfg, backlog.find(data, tid), **needs.park_question(self.get(tid), 'usage limit'), now=NOW)
+        self.tick()
+        entry = unblocker.read_log(self.cfg)[-1]
+        ok, why = unblocker.undo(self.cfg, entry['at'])
+        self.assertTrue(ok, why)
+        self.assertEqual(self.get(tid)['status'], 'needs-person')
+        self.assertTrue(needs.load(self.cfg)['questions'][0]['status'] == 'open')
+
+    def test_no_model_takes_the_default_for_tutti_resolvable(self):
+        tid = self.task('Add tests', attempts=fails('stuck: no report'))
+        with backlog.locked(self.cfg) as data:
+            needs.ask(self.cfg, backlog.find(data, tid), 'Retry it?', 'stuck', ['retry', 'drop'], 'retry', now=NOW)
+        ev, asked = self.tick([(None, 'pc down'), (None, 'agy down')])
+        self.assertEqual(asked, [False, True])
+        self.assertEqual(self.get(tid)['status'], 'queued')
+        self.assertIn('decided "retry" (rule)', ev[0])
+        self.assertTrue(unblocker.read_log(self.cfg)[-1].get('undoable'))
+
+    def test_resolve_parked_clears_usage_limits_without_a_model(self):
+        tid = self.task('Add tests', attempts=fails('the worker hit its usage limit'),
+                        status='needs-person', parked='the worker hit its usage limit')
+        with backlog.locked(self.cfg) as data:
+            needs.ask(self.cfg, backlog.find(data, tid), **needs.park_question(self.get(tid), self.get(tid)['parked']),
+                      now=NOW)
+        ev = unblocker.resolve_parked(self.cfg, NOW, may_write=lambda c: True)
+        self.assertEqual(self.get(tid)['status'], 'queued')
+        self.assertIn('decided "retry"', ev[0])
+
+    def test_try_auto_clear_requeues_a_usage_limit_park(self):
+        t = {'id': 't1', 'title': 'Add tests', 'attempts': fails('usage limit'), 'notes': []}
+        self.assertTrue(unblocker.try_auto_clear(t, 'the worker hit its usage limit', NOW))
+        self.assertEqual(t['status'], 'queued')
+        self.assertFalse(unblocker.try_auto_clear(
+            {'id': 't2', 'title': 'Pay the invoice', 'attempts': [], 'notes': []}, 'needs a payment', NOW))
 
     def test_exact_multiword_option_is_answered(self):
         tid = self.task('Retry the work', attempts=fails('limit'))

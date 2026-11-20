@@ -42,7 +42,9 @@ Each part below has its own page; this is how they fit together.
   fair share and leased through the coordinator ([HOUSEHOLD.md](HOUSEHOLD.md)). Presence says which target is here.
 - **Brain and local AI** (`tutti/brain.py`, `tutti/local.py`). Every internal use of a model goes through `brain.ask`:
   the best free local model in the household (Ollama) first, a CLI worker only as a fallback. A test fails any module that
-  calls a model directly.
+  calls a model directly. For judgement steps (`decisional.purposes`) `tutti/decisional.py` names the best free model that
+  fits the strongest machine (measured graphics memory, config candidates); it is asked first, fetched when missing, and
+  every other path (online fallback, owner questions, paid agents) is unchanged ([FLEET.md](FLEET.md)).
 - **Self-heal** ([SELFHEAL.md](SELFHEAL.md)). Every few minutes, inside the failover round, a list of checks with a
   repair each (missing needs, signed-out workers, Ollama, tunnels, adb, disk, broken state or config). A repair is done
   and logged; only what a person must do becomes one item in Needs you ([NEEDS.md](NEEDS.md)).
@@ -166,6 +168,7 @@ The public surfaces (the CLI, the HTTP routes, the MCP tools, the config keys) a
 | `tutti/dispatch.py`, `tutti/workq.py` | Keep busy: the pending-work model (shards not passed on the latest commit, queued tasks), leases on devices, slots and workers; the compute work queue by project priority. |
 | `tutti/devclass.py`, `tutti/prep.py`, `tutti/shards.py`, `tutti/winsession.py` | A device run's safety: per device class deny lists (a TV never gets `wm size`, rotation or `cmd device_state`), prep and restore (kept items put back), a run's verdict (no test run is a FAIL; requeue only after the runner started); a Windows UI suite in the logged-on user's desktop session. |
 | `tutti/brain.py` | Tutti's own AI, local first: the one `ask` every internal model use goes through. |
+| `tutti/decisional.py` | The decisional model (t440): the pick (strongest suitable machine, first fitting candidate), the model a judgement purpose asks first, the pull when missing, routing advice. Pure core, thin edge. |
 | `tutti/selfheal.py` | The self-heal checks and repairs, `<state>/selfheal.jsonl`. |
 | `tutti/github.py`, `tutti/githubcmd.py` | The one GitHub client (device flow, the App, ETags, rate limit) and `tutti github`. |
 | `tutti/tiers.py`, `tutti/planner.py`, `tutti/unblocker.py` | Model and effort by pace; spending the quota that expires first; clearing blocked, limit-only and Tutti-resolvable parked work (classify, rule, model, undo). |

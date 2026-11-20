@@ -118,6 +118,7 @@ tests/test_connect.py
 tests/test_controls.py
 tests/test_dashboard.py
 tests/test_dashui.py
+tests/test_decisional.py
 tests/test_depbots.py
 tests/test_deps.py
 tests/test_devclass.py
@@ -250,6 +251,7 @@ tutti/coordinator.py
 tutti/cursorusage.py
 tutti/dashboard.py
 tutti/dashtelemetry.py
+tutti/decisional.py
 tutti/delegate.py
 tutti/depbots.py
 tutti/deps.py

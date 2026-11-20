@@ -1554,6 +1554,31 @@ def cmd_workq(cfg, a):
     return 0
 
 
+def cmd_decisional(cfg, a):
+    """`tutti decisional [status|pull|advise]` (docs/FLEET.md, *The decisional model*): the best free model for Tutti's own
+    judgement on the strongest suitable machine, fetching it when missing, and its routing advice."""
+    from . import decisional
+    if a.action == 'advise':
+        return decisional_advise(cfg)
+    if a.action == 'pull':
+        ok, text = decisional.pull(cfg, decisional.plan(cfg)['target'])
+        (print if ok else say)(text)
+        return 0 if ok else 1
+    print(decisional.describe(decisional.plan(cfg), decisional.read_state(cfg).get('pull')))
+    return 0
+
+
+def decisional_advise(cfg):
+    """The usage report as `tutti usage` prints it, answered by the decisional model alone (no paid agent is asked)."""
+    from . import decisional
+    now = datetime.now(timezone.utc)
+    report = pacing.report(cfg['accounts'], pacing.read_log(usage_log_path(cfg)), now, cfg['autopilot'].get('quiet_hours'),
+                           state.usage_state(cfg, now)['accounts'])
+    answer, who = decisional.advise(cfg, report)
+    (print if answer else say)(answer or f'no local model answered ({who}): `tutti decisional` shows which model is chosen and why')
+    return 0 if answer else 1
+
+
 def cmd_fleet(cfg, a):
     """`tutti fleet`: every local model worker, discovered or configured, with its machine, models, speed and hardware."""
     from . import fleet
@@ -2092,6 +2117,10 @@ def parser():
     s.add_argument('action', nargs='?', default='status', choices=['status', 'tick'])
     s = add('fleet', cmd_fleet, 'the household\'s local models as workers: every machine\'s Ollama, its models, their kinds, '
                                 'speed and hardware (docs/FLEET.md)')
+    s = add('decisional', cmd_decisional, 'the best free model for Tutti\'s own judgement on the strongest suitable machine: status '
+                                          '(the pick and why), pull (fetch it when missing), advise (routing advice from it; '
+                                          'docs/FLEET.md)')
+    s.add_argument('action', nargs='?', default='status', choices=['status', 'pull', 'advise'])
     s = add('security', cmd_security, 'dependency bots\' pull requests (Dependabot, Cursor) and vulnerability reports '
                                       '(Dependabot and code-scanning alerts, Cursor and Greptile findings) as autopilot tasks: '
                                       'status, or scan (read every repo now and queue)')

@@ -145,6 +145,7 @@ tests/test_intake.py
 tests/test_jobprogress.py
 tests/test_layout.py
 tests/test_limit.py
+tests/test_limit_heat_e2e.py
 tests/test_limits.py
 tests/test_local_share.py
 tests/test_machine_card.py

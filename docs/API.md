@@ -89,6 +89,7 @@ dashboard refuses to start otherwise.
 | `/api/settings` | GET | admin | The Settings tab: sections, fields with value, default and source, `etag` of the file, diverging copies. |
 | `/api/vpn/status` | GET | viewer | The private network card: `{"state": ..., ...}`, 200 also when no VPN is set up. |
 | `/api/needs` | GET | viewer (self) | The viewer's own open questions (an admin: everyone's) and notify settings. |
+| `/api/needs/tab` | GET | viewer (self) | The Needs you tab: `{"questions": [{id, question, why, options, default, next_action, task, urgent, kind, ...}], "items": [{kind, title, why, step, link, task}], "resolving": N}`; person-facing items only. |
 | `/api/welcome` | GET | viewer (self) | The viewer's own "welcome back" summary. |
 | `/api/auth/me` | GET | anyone | `{"enabled": false, "setup": "tutti auth setup"}` without sign-in; with it `{"enabled": true, "client_id", "device", "first", "signed_in", ...user}`. |
 | `/api/auth/users` | GET | admin | `{"users": [...], "invites": [...], "audit": [...]}`. |

@@ -30,6 +30,7 @@ CID_RE = re.compile(r'^c[0-9a-f]{12}$')
 # A hand-off or a scout question spends an account at once, so it is an admin's (never another member's private quota).
 WORK_TOOLS = ('backlog_add',)
 HOUSEHOLD_TOOLS = ('control',)                              # changes the household: admins only
+NEEDS_TOOLS = ('needs_list', 'needs_answer')                # the user's own questions: any approved role (tutti/needs.py)
 HOUSEHOLD = {'sub': 'household', 'email': None}              # the target of a household action (auth.may_act_for: admins only)
 DIR_MODE, FILE_MODE = 0o700, 0o600
 _STORE_THREADS = threading.RLock()
@@ -453,6 +454,7 @@ COMMANDS = {
     'resume': '/resume <host, device, agent or account>',
     'ask': '/ask <scout> <question>: ask a scout such as grok',
     'tests': '/tests <project>: queue the full test suite',
+    'needs': '/needs: what needs you, with each question\'s options; answer with "q3 retry"',
     'help': '/help: these commands',
 }
 
@@ -470,7 +472,7 @@ def slash_call(cmd, arg, known):
     """The tool call of a short command other than /task and /delegate, or {'answer': text} for /help."""
     if cmd == 'help':
         return {'answer': 'Commands: ' + '; '.join(COMMANDS.values()) + '. Plain words work too.'}
-    simple = {'usage': 'usage', 'hosts': 'machines', 'devices': 'devices'}
+    simple = {'usage': 'usage', 'hosts': 'machines', 'devices': 'devices', 'needs': 'needs_list'}
     if cmd in simple:
         return {'tool': simple[cmd], 'args': {}}
     if cmd == 'tasks':
@@ -635,7 +637,7 @@ def refusal(user, call, cfg, done_today):
     role = (user or {}).get('role')
     if role not in ('viewer', 'admin'):
         return 'Your sign-in waits for an admin\'s approval, so the chat cannot act for you yet.'
-    if role == 'admin':
+    if role == 'admin' or call['tool'] in NEEDS_TOOLS:   # needs.py lets each user answer only their own questions
         return None
     if call['tool'] in HOUSEHOLD_TOOLS:
         return ('Pausing or resuming machines, devices, workers and accounts changes the whole household, so only an admin can '
@@ -667,6 +669,8 @@ def describe(call):
         return f'Ask {a["scout"]}: {a["question"]}'
     if t == 'control':
         return f'{a["action"].capitalize()} {a["kind"]} {a["name"]}'
+    if t == 'needs_answer':
+        return f'Answer {a["id"]}: {a.get("choice") or "its default"}'
     return t
 
 
@@ -691,6 +695,18 @@ def _history_tool():
             'annotations': {'readOnlyHint': True}}
 
 
+def _needs_tools():
+    return [{'name': 'needs_list', 'description': 'What needs the current user, as on their Needs you tab: each open question only '
+             'they can answer (its id, options, default, exact next action and parked task) and the rest of their needs-you list.',
+             'inputSchema': {'type': 'object', 'additionalProperties': False, 'properties': {}},
+             'annotations': {'readOnlyHint': True}},
+            {'name': 'needs_answer', 'description': 'Answer one of the current user\'s open questions with one of its listed '
+             'options (empty: its default); the parked task resumes or is dropped. Only questions needs_list shows.',
+             'inputSchema': {'type': 'object', 'additionalProperties': False, 'required': ['id'],
+                             'properties': {'id': {'type': 'string', 'description': 'the question id (q1, q2, ...)'},
+                                            'choice': {'type': 'string', 'description': 'one of its listed options'}}}}]
+
+
 CHAT_DROPS = ('check',)   # arguments the chat never passes: a viewer or a steered model would run a command on this host
 
 
@@ -700,7 +716,7 @@ def model_tools():
     from . import mcpserver  # it imports config, which imports this module's errors()
     keep = ('usage', 'machines', 'devices', 'job_status', 'backlog_list', 'backlog_add', 'delegate_task', 'test_on', 'scout_ask')
     out = {}
-    for t in [x for x in mcpserver.TOOLS if x['name'] in keep] + [_control_tool(), _history_tool()]:
+    for t in [x for x in mcpserver.TOOLS if x['name'] in keep] + [_control_tool(), _history_tool(), *_needs_tools()]:
         schema = t['inputSchema']
         if t['name'] == 'backlog_add':   # no `check` from the chat: it is a shell command the autopilot runs (audit 2026-11, H9)
             props = {k: v for k, v in schema['properties'].items() if k not in CHAT_DROPS}

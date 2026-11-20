@@ -1053,8 +1053,8 @@ def get(collector, path, token, headers):
     if path == '/api/state':
         code, body, extra = state_response(collector, headers)
         return code, body, JSON_TYPE, 'no-cache', extra
-    if path == needs.API:   # the viewer's own questions (an admin: everyone's) and notify settings
-        code, answer = needs.get(collector, headers)
+    if path in (needs.API, needs.TAB_API):   # the viewer's own questions (an admin: everyone's); the card or the Needs you tab
+        code, answer = needs.get(collector, headers, tab=path == needs.TAB_API)
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
     if path == welcome.API:   # the viewer's own summary: per user, never in the shared /api/state
         code, answer = welcome.get(collector, headers)

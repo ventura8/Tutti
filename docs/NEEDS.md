@@ -14,7 +14,8 @@ Before a question reaches you, Tutti classifies it and tries to clear it:
 
 Every autopilot tick re-checks the open queue (`unblocker.resolve_parked`). Each Tutti decision is logged on the AI assist
 card with why, and **Undo** puts the question back. Only person-only items (and ones Tutti already tried and left) appear
-under *Needs you*, My questions, the welcome-back list and `pending_questions`, each with its exact step. With
+under *Needs you* (the card and the tab), My questions, the Chat's `/needs`, the welcome-back list and
+`pending_questions`, each with its exact step. With
 `ai_assist.unblock` off, Tutti does not try them, so every open question reaches you at once.
 
 The unblocker may answer a parked question only when the model supplies one complete action matching a listed option.
@@ -62,10 +63,23 @@ above otherwise; at most 5 per round, the rest in the next.
 
 An answer to a task that no longer waits for it (retried by hand, dropped, done) is kept and changes nothing.
 
-Answer in the Chat (`q3 retry`, or `q3` for the default), on the **My questions** card, with `tutti needs answer q3 retry`,
-or through your main agent (`pending_questions`, `answer_question`). Options match in any case. Free words are passed to
-the worker as a note, except in the Chat: there `q3` must be followed by one of its options, so a message such as
-"q3 looks odd, why?" is answered as a question, not taken as your answer.
+Answer on the dashboard's **Needs you** tab, in the Chat (`q3 retry`, or `q3` for the default), on the **My questions**
+card, with `tutti needs answer q3 retry`, or through your main agent (`pending_questions`, `answer_question`). Options
+match in any case. Free words are passed to the worker as a note, except in the Chat: there `q3` must be followed by one
+of its options, so a message such as "q3 looks odd, why?" is answered as a question, not taken as your answer.
+
+## The Needs you tab and the Chat's list (t442)
+
+The **Needs you** tab (`#needs`, docs/DASHBOARD.md) and the Chat's `/needs` (docs/CHAT.md) show one list, built by
+`needs.tab_view` (`GET /api/needs/tab`): every open question the viewer may answer, urgent first, each with why, its
+options and default, its exact next action and its parked task (the tab's **Open task** jumps to it on the dashboard);
+then the rest of the welcome-back needs-you list (person-only parked tasks without a question, set-up steps, readings for
+admins, tuning proposals), each with its step. The tab answers with an option or free words; the Chat with `q3 retry`, and
+a Chat model with `needs_answer`, which takes only a listed option of a question the user sees there.
+
+The list honours the classification above: a Tutti-resolvable question that Tutti has not tried yet is not listed, only
+counted ("Tutti is still trying 2 more itself"), and a Chat model cannot answer it either; once Tutti has tried and left it,
+it appears. With `ai_assist.unblock` off every open question is listed at once.
 
 ## When questions reach you
 
@@ -87,8 +101,8 @@ An admin changes a member's from the Users tab (*Questions outside work hours*),
 
 ## Who sees what
 
-Each question belongs to a user. An admin sees everyone's; a member only their own (`GET /api/needs`, the card, the Chat,
-the main agent's tools, the welcome-back summary).
+Each question belongs to a user. An admin sees everyone's; a member only their own (`GET /api/needs`, `GET /api/needs/tab`,
+the Needs you tab, the card, the Chat and its tools, the main agent's tools, the welcome-back summary).
 
 A failing-task diagnosis must give one explicit action: retry needs a concrete fix and person needs a reason. Invalid or incomplete output leaves the task unchanged and waits for the normal retry cooldown; validation does not prove the model's diagnosis is correct (t244).
 

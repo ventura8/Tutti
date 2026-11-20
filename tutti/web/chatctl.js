@@ -22,6 +22,7 @@ const SLASH = [
     { cmd: '/resume', help: 'resume a host, device, agent or account', arg: true, send: true },
     { cmd: '/ask', help: 'ask a scout: /ask grok question', arg: true, send: true },
     { cmd: '/tests', help: 'queue the full test suite: /tests project', arg: true, send: true },
+    { cmd: '/needs', help: 'what needs you, with each question\'s options (answer: q3 retry)', send: true },
 ];
 const MODE_WORDS = { autonomous: 'auto', auto: 'auto', ask: 'ask', confirm: 'ask', plan: 'plan', review: 'plan', answer: 'answer', just: 'answer' };
 const SHORTCUTS = [['Enter', 'send'], ['Shift+Enter', 'a new line'], ['Esc', 'stop the answer, or close a list'],

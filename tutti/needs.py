@@ -7,6 +7,8 @@ Who is asked, and when:
   "Questions from Tutti" chat, batched: at most one delivery every `batch_minutes` (default 30), urgent ones at once.
 - **Off work, away or on vacation:** they build up, and the welcome-back summary lists them under Needs you, one line each
   with its default. They can be answered there, in the Chat (`q3 retry`) or with `tutti needs answer q3 retry`.
+- **Any time:** the dashboard's Needs you tab (GET /api/needs/tab) and the Chat's `/needs` list every person-facing one with
+  its options, next action and task (tab_view), and answer it (t442).
 - **Get questions outside work hours** (`notify: always`, a per-user opt-in, off by default; for entrepreneurs): off work
   they still reach the user, once `batch` (default 3) are waiting, or at once when one is urgent (blocking all work, or a
   security issue). Never inside the user's `quiet` hours (default 23:00-07:00, for sleep).
@@ -573,10 +575,21 @@ def blocking_all(cfg):
 ANSWER_RX = re.compile(r'^\s*(q\d+)\s*[:,-]?\s*(.*?)\s*$', re.I)
 
 
+LIST_RX = re.compile(r'^\s*(/needs|what needs (me|my attention)|(show |list )?my questions)\s*[?.!]?\s*$', re.I)
+
+
 def chat_reply(cfg, user, text):
+    """The Chat's answer to "/needs" (the Needs you list) or to "q3 retry", or None when the message is neither."""
+    if LIST_RX.match(text or ''):
+        role = user.get('role') or 'viewer'
+        return chat_list(cfg, role, key_of_chat(user.get('sub')), admin_accounts(cfg, role))
+    return answer_reply(cfg, user, text)
+
+
+def answer_reply(cfg, user, text):
     """The Chat's answer to "q3 retry" (or "q3" for its default), or None when the message is not an answer: the rest must
     be empty or one of the question's options (any case). Free text ("q3 looks odd, why?") goes to the chat as usual; a
-    free-text answer is given on the Needs card or with `tutti needs answer`."""
+    free-text answer is given on the Needs you tab or with `tutti needs answer`."""
     m = ANSWER_RX.match(text or '')
     if not m:
         return None
@@ -602,12 +615,110 @@ def view(cfg, role='admin', key=OWNER):
             'answered': [q for q in data['questions'] if q['status'] == 'answered' and visible(q, role, key)][-10:][::-1]}
 
 
-def get(collector, headers):
+TAB_API = '/api/needs/tab'
+QUESTION_KEYS = ('id', 'user', 'task', 'title', 'project', 'question', 'why', 'options', 'default', 'urgent', 'kind', 'at')
+ITEM_KEYS = ('kind', 'title', 'why', 'step', 'link', 'project', 'task')
+
+
+def step_of(q):
+    """A question's exact next action: its own, else how to answer it in the Chat."""
+    return q.get('next_action') or (f'In the Chat: "{q["id"]} {q["default"]}" (default {q["default"]}; '
+                                    f'options {", ".join(q.get("options") or [])})')
+
+
+def admin_accounts(cfg, role):
+    """The accounts a usage reading may be missing on: an admin's only (a member is never asked to read the household's)."""
+    from . import welcome
+    return welcome.accounts_now(cfg, time.time()) if role == 'admin' else []
+
+
+def other_items(cfg, role, key, accounts=None):
+    """The rest of this viewer's needs-you list, built from the facts as the welcome-back summary builds it (docs/WELCOME.md):
+    person-only parked tasks without a question, set-up steps, usage readings and tuning proposals. Questions are not here:
+    tab_view lists them from the queue with their options."""
+    from . import welcome
+    found = (welcome.task_facts(cfg, backlog.load(cfg)['tasks'], time.time())[3] + welcome.reading_needs(accounts)
+             + welcome.setup_needs(cfg) + welcome.tune_needs(cfg))
+    return [{k: i.get(k) for k in ITEM_KEYS} for i in found if welcome.actionable(i) and welcome.visible(i, role, key)]
+
+
+def resolving(cfg, role, key, data):
+    """How many of this viewer's open questions Tutti still tries itself (Tutti-resolvable and not tried yet, t244)."""
+    return sum(1 for q in data['questions'] if q['status'] == 'open' and visible(q, role, key) and not person_visible(cfg, q))
+
+
+def tab_view(cfg, role='admin', key=OWNER, accounts=None):
+    """The Needs you tab and the Chat's list: every open question only this viewer can answer (its options, default, exact
+    next action and parked task; urgent first, then oldest), the rest of their needs-you list, and how many Tutti still
+    works on itself."""
+    data = load(cfg)
+    questions = [{**{k: q.get(k) for k in QUESTION_KEYS}, 'next_action': step_of(q)} for q in open_for(cfg, role, key, data)]
+    questions.sort(key=lambda q: (not q.get('urgent'), float(q.get('at') or 0)))
+    return {'questions': questions, 'items': other_items(cfg, role, key, accounts), 'resolving': resolving(cfg, role, key, data)}
+
+
+def question_line(q):
+    return (f'- {q["id"]}{" (urgent)" if q.get("urgent") else ""}: {q["question"]} Why: {q.get("why") or "not given"}. '
+            f'Options: {", ".join(q["options"])} (default {q["default"]}). Next: {q["next_action"]}'
+            + (f' Task {q["task"]}.' if q.get('task') else ''))
+
+
+def item_line(i):
+    return f'- {i["title"]}: {i.get("why") or "only you can do it"}. Next: {i["step"]}'
+
+
+def list_head(v):
+    count = len(v['questions']) + len(v['items'])
+    if not count:
+        return 'Nothing needs you: Tutti is working through the rest.'
+    first = v['questions'][0] if v['questions'] else None
+    how = (f' Answer a question here with its id and an option (e.g. "{first["id"]} {first["default"]}"), or on the '
+           'Needs you tab.') if first else ''
+    return f'{count} thing(s) need you.{how}'
+
+
+def chat_list(cfg, role, key, accounts=None):
+    """The Chat's /needs answer: the same list as the Needs you tab, each line with its exact next action."""
+    v = tab_view(cfg, role, key, accounts)
+    lines = [list_head(v)] + [question_line(q) for q in v['questions']] + [item_line(i) for i in v['items']]
+    if v['resolving']:
+        lines.append(f'Tutti is still trying {v["resolving"]} more itself; one appears here only if it cannot settle it.')
+    return '\n'.join(lines)
+
+
+def answer_listed(cfg, role, key, qid, choice):
+    """An answer the Chat's model gives: only to a question this user sees on the tab, and only one of its listed options
+    (empty: the default). Free words are given on the Needs you tab or with `tutti needs answer`. (ok, why)."""
+    q = next((x for x in open_for(cfg, role, key) if x['id'] == qid), None)
+    if q is None:
+        return False, f'no open question {qid or "(no id)"} for you: needs_list (or /needs in the Chat) lists yours'
+    wanted = str(choice or q['default']).strip().lower()
+    picked = next((o for o in q['options'] if o.lower() == wanted), None)
+    if picked is None:
+        return False, (f'"{choice}" is not one of {qid}\'s options ({", ".join(q["options"])}): give free words on the Needs '
+                       'you tab or with `tutti needs answer`')
+    return answer(cfg, qid, picked, role, key)
+
+
+def chat_tool(cfg, user, tool, args):
+    """(ok, text) of the Chat's needs_list and needs_answer tools, for the signed-in chat user only (docs/CHAT.md)."""
+    if not (user or {}).get('role'):
+        return False, 'the Needs you tools need a signed-in user'
+    role, key = user['role'], key_of_chat(user.get('sub'))
+    if tool == 'needs_list':
+        return True, chat_list(cfg, role, key, admin_accounts(cfg, role))
+    return answer_listed(cfg, role, key, str((args or {}).get('id') or '').strip().lower(), (args or {}).get('choice'))
+
+
+def get(collector, headers, tab=False):
+    """GET /api/needs (the My questions card) or, with `tab`, GET /api/needs/tab (the Needs you tab)."""
     from . import welcome
     who = welcome.viewer(collector, headers)
     if who is None:
         return welcome.ANON
     role, key = who
+    if tab:
+        return 200, tab_view(collector.cfg, role, key, admin_accounts(collector.cfg, role))
     return 200, view(collector.cfg, role, key)
 
 

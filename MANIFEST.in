@@ -397,6 +397,7 @@ include tutti/web/login.html
 include tutti/web/login.js
 include tutti/web/manifest.webmanifest
 include tutti/web/needs.js
+include tutti/web/needstab.js
 include tutti/web/outside.js
 include tutti/web/qr.js
 include tutti/web/queue.js

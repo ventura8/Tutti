@@ -323,9 +323,12 @@ def stream_of(cand, cfg, messages, cancel):
 # ---- the tools: the MCP server's own calls, after the chat's role check
 
 
-def run_tool(cfg, call, runner=None):
-    """(ok, text, undo) of one call. Undo is a call that takes it back, or None."""
+def run_tool(cfg, call, runner=None, user=None):
+    """(ok, text, undo) of one call. Undo is a call that takes it back, or None. `user`: who the Needs you tools act for."""
     a = call['args']
+    if call['tool'] in chat.NEEDS_TOOLS:   # the user's own questions, never through the owner's CLI (tutti/needs.py)
+        from . import needs
+        return (*needs.chat_tool(cfg, user, call['tool'], a), None)
     if call['tool'] == 'control':
         controls.set_paused(config.state_dir(cfg), a['kind'], a['name'], a['action'] == 'pause', source='chat')
         back = {'tool': 'control', 'args': {**a, 'action': 'resume' if a['action'] == 'pause' else 'pause'}}
@@ -639,7 +642,7 @@ class Engine:
         if job and chat.model_tools().get(call['tool'], {}).get('mutating'):
             self._mark_uncertain(job)
         self.action_admission.mark_started()
-        result = run_tool(cfg, call, self.runner)
+        result = run_tool(cfg, call, self.runner, user)
         ok, text, undo = follow_missing_report(cfg, call, job, result, self.runner) if job else result
         card.update(state='done' if ok else 'failed', text=plain(text, ok), ref=job_ref(text), undo=undo, call=None)
         return card
@@ -1058,7 +1061,7 @@ class Engine:
                                'retention': 'full conversation retained; this page is bounded for the model'})
         if call['tool'] == 'job_status' and user.get('role') != 'admin':
             return 'refused: job reports and logs are for admins; ask an admin to check the run'
-        result = run_tool(cfg, call, self.runner)
+        result = run_tool(cfg, call, self.runner, user)
         _ok, text, _ = follow_missing_report(cfg, call, job, result, self.runner)
         return text if len(text) <= 3000 else '(the start is cut)\n' + text[-3000:]
 

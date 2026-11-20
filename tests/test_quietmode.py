@@ -85,6 +85,34 @@ class QuietTest(unittest.TestCase):
         self.assertEqual(sorted(sent), [(101, signal.SIGCONT), (102, signal.SIGCONT)])
         self.assertTrue(any('continued' in a for a in acts))
 
+    def test_guard_stops_while_a_person_is_here_even_with_memory(self):
+        sent = []
+
+        def kill(pid, sig):
+            sent.append((pid, sig))
+
+        acts = quietmode.guard_round(self.cfg, {'quiet': True, 'person': True, 'low_memory': False}, {201}, kill,
+                                     lambda *a, **k: None, unload=lambda c: [])
+        self.assertEqual(sent, [(201, signal.SIGSTOP)])
+        self.assertTrue(any('person' in a for a in acts))
+
+    def test_guard_stops_on_low_memory_without_a_person(self):
+        sent = []
+
+        def kill(pid, sig):
+            sent.append((pid, sig))
+
+        acts = quietmode.guard_round(self.cfg, {'quiet': True, 'person': False, 'low_memory': True}, {202}, kill,
+                                     lambda *a, **k: None, unload=lambda c: [])
+        self.assertEqual(sent, [(202, signal.SIGSTOP)])
+        self.assertTrue(any('low memory' in a for a in acts))
+
+    def test_own_pids_include_work_queue_here_leases(self):
+        import json
+        with open(os.path.join(self.tmp, 'work-queue.json'), 'w', encoding='utf8') as f:
+            json.dump({'leases': {'tutti-check': {'pid': os.getpid(), 'machine': 'here'}}}, f)
+        self.assertIn(os.getpid(), quietmode.own_pids(self.cfg))
+
     def test_own_pids_follow_the_pid_file_tree(self):
         d = os.path.join(self.tmp, 'quiet')
         os.makedirs(d)

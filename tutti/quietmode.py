@@ -5,9 +5,10 @@ its free memory is under the user's reserve, Tutti and the tools that ask it kee
 - `status(cfg)`: {quiet, reasons, idle_s, avail_gb}; `tutti quiet status` exits 0 while quiet, 1 when free, so any script
   (ship.sh, nuc-test.sh, check.sh runners, a Claude agent) can ask before it starts heavy work here.
 - `guard_round(cfg)`: one round of the guard the dashboard runs every probe: Tutti's own running jobs here (the `tutti quiet`
-  commands, by the exact pid in their `.pid` file, and their process trees) get nice 19 and idle I/O while a person is here;
-  under the memory reserve they are stopped (SIGSTOP) and continued (SIGCONT) once memory is back or the person left; the
-  local Ollama models are unloaded. Nothing is ever matched by name: only pids Tutti started.
+  commands, by the exact pid in their `.pid` file, work-queue jobs on `here`, and their process trees) get nice 19 and idle
+  I/O while quiet; while a person is here or free memory is under the reserve they are stopped (SIGSTOP) and continued
+  (SIGCONT) once both are clear; the local Ollama models are unloaded while a person is here. Nothing is ever matched by
+  name: only pids Tutti started.
 - `wrap(argv, cfg)`: the command `tutti quiet` runs, niced and CPU-capped (a systemd-run --user scope) while quiet."""
 import json
 import os
@@ -58,7 +59,8 @@ def quiet_dir(cfg):
 
 
 def own_pids(cfg, proc='/proc'):
-    """The pids of Tutti's own running `tutti quiet` jobs here (their `<log>.pid` files) with every descendant."""
+    """The pids of Tutti's own running jobs here: `tutti quiet` (their `<log>.pid` files) and work-queue leases on `here`,
+    with every descendant."""
     roots = set()
     d = quiet_dir(cfg)
     for name in os.listdir(d) if os.path.isdir(d) else []:
@@ -68,6 +70,13 @@ def own_pids(cfg, proc='/proc'):
                     roots.add(int(f.read().strip()))
             except (OSError, ValueError):
                 continue
+    try:
+        from . import workq
+        for lease in (workq.read(cfg).get('leases') or {}).values():
+            if lease.get('machine') == 'here' and lease.get('pid'):
+                roots.add(int(lease['pid']))
+    except (TypeError, ValueError):
+        pass
     return descendants(roots, proc)
 
 
@@ -147,7 +156,7 @@ def unload_ollama(cfg, post=None):
 
 
 def guard_round(cfg, st=None, pids=None, kill=os.kill, run=subprocess.run, unload=None):
-    """One round: calm Tutti's own jobs while quiet, stop them under the memory reserve, continue them after."""
+    """One round: calm Tutti's own jobs while quiet; SIGSTOP them while a person is here or memory is short; continue after."""
     st = st or status(cfg)
     pids = own_pids(cfg) if pids is None else pids
     path = stopped_path(cfg)
@@ -156,11 +165,13 @@ def guard_round(cfg, st=None, pids=None, kill=os.kill, run=subprocess.run, unloa
     if st['quiet'] and pids:
         calm(pids, run)
         acts.append(f'calmed {len(pids)} pid(s)')
-    if st['low_memory'] and st['person']:
+    hold = st.get('person') or st.get('low_memory')
+    if hold and pids:
         new = signal_all(pids - stopped, signal.SIGSTOP, kill)
         stopped |= new
         if new:
-            acts.append(f'stopped {sorted(new)}')
+            why = 'person' if st.get('person') else 'low memory'
+            acts.append(f'stopped {sorted(new)} ({why})')
     elif stopped:
         signal_all(stopped, signal.SIGCONT, kill)
         acts.append(f'continued {sorted(stopped)}')

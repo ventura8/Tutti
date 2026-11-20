@@ -1315,15 +1315,16 @@ usage: tutti yield [-h] [--machine MACHINE] [--note NOTE] [--owner OWNER] [--hou
 
 ### `tutti quiet`
 
-run a command, keep its log, print only the exit code (and a short failure summary); niced and CPU-capped while a person is here. `tutti quiet status` exits 0 while quiet; `wait [s]` waits; `guard` one round
+run a command, keep its log, print only the exit code (and a short failure summary); niced and CPU-capped while a person is here. `tutti quiet status` exits 0 while quiet; `wait [s]` waits; `guard` one round. While a person is here, a new command is refused unless `--force` (the guard SIGSTOPs Tutti's own jobs until they leave)
 
 ```text
-usage: tutti quiet [-h] [--summary SUMMARY] command [command ...]
+usage: tutti quiet [-h] [--summary SUMMARY] [--force] command [command ...]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
 | `--summary` | the local-model worker that summarises a failure |  |
+| `--force` | start here even while a person is at this computer (still SIGSTOP'd by the guard until they leave) |  |
 | `command` |  |  |
 
 ### `tutti progress`

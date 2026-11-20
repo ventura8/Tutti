@@ -126,10 +126,12 @@ class Parallel(unittest.TestCase):
         self.assertEqual((capped['limit'], capped['by']), (4, 'cap'))
 
     def test_heavy_gates_go_to_the_nuc_and_light_ones_stay_while_memory_lasts(self):
-        here = {'mem_gb': 10.0}
+        here = {'mem_gb': 10.0, 'person': False}
         self.assertEqual(parallel.check_where(self.CFG, 'local', 'npx eslint . && npx tsc', here), 'route')
-        self.assertEqual(parallel.check_where(self.CFG, 'local', 'bash scripts/check.sh', here), 'local')
-        self.assertEqual(parallel.check_where(self.CFG, 'local', 'bash scripts/check.sh', {'mem_gb': 2.0}), 'route')
+        self.assertEqual(parallel.check_where(self.CFG, 'local', 'bash scripts/check.sh', here), 'route')  # Tutti's gate is heavy
+        self.assertEqual(parallel.check_where(self.CFG, 'local', 'echo ok', here), 'local')
+        self.assertEqual(parallel.check_where(self.CFG, 'local', 'echo ok', {'mem_gb': 2.0, 'person': False}), 'route')
+        self.assertEqual(parallel.check_where(self.CFG, 'local', 'echo ok', {'mem_gb': 10.0, 'person': True}), 'route')
         alone = {'autopilot': {}, 'machines': {'laptop': {'transport': 'local'}}}
         self.assertEqual(parallel.check_where(alone, 'local', 'npx eslint .', here), 'local')   # nowhere to send it
         self.assertIn('autopilot.parallel.run_gb', parallel.errors({'run_gb': 0})[0])

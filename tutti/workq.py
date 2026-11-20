@@ -104,8 +104,8 @@ def quiet(cfg, machine, now_dt):
 
 
 def here_held(cfg, rows, now_dt):
-    """True when this computer (the machine with the local transport) takes no heavy job now: in its limited-usage window
-    (machines.<m>.limit) or its quiet hours."""
+    """True when this computer takes no heavy job now: limited-usage window (machines.<m>.limit) or its quiet hours.
+    Person-at-keyboard / low-memory holds are applied in `assign` for every `here` job."""
     me = next((n for n, m in cfg['machines'].items() if (m or {}).get('transport') == 'local'), None)
     if me is None:
         return False
@@ -122,7 +122,11 @@ def assign(cfg, items, rows, busy, now_dt):
     out = []
     for j in items:
         where = j.get('where', 'route')
-        if where == 'here':   # this computer: the same heavy rule as a machine (its limited window, its quiet hours)
+        if where == 'here':   # this computer: person/low memory holds every job; limited/quiet hours hold heavy ones
+            from . import quietmode
+            st = quietmode.status(cfg)
+            if st.get('person') or st.get('low_memory'):
+                continue
             if not (j.get('heavy') and here_held(cfg, rows, now_dt)):
                 out.append((j, 'here'))
             continue

@@ -47,6 +47,9 @@ The GitHub client tests isolate the CLI token lookup and its cache, so test resu
 - **Disconnect** removes it; revoke it on GitHub too at `github.com/settings/apps/authorizations`.
 - Never written to a log, an error message, a command line or the environment of a worker: workers never act on GitHub
   as a person (`GH_TOKEN`, `GITHUB_TOKEN` and the like are removed from every worker's environment).
+- An **invalid** `GH_TOKEN` / `GITHUB_TOKEN` in an agent shell shadows the GitHub CLI keyring and breaks scouts (`gh`
+  issue create, comment collect). Tutti retries without those variables and `tutti doctor` names them when GitHub
+  refuses the token (t443).
 
 ## One client (for contributors)
 

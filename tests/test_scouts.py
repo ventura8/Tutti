@@ -20,10 +20,11 @@ HOUR = 3600
 
 
 class FakeHook:
-    """The routine's webhook: records each call; answers `status`; with `answer` set, posts it as a comment through the fake gh."""
+    """The routine's webhook: records each call; answers `status`; with `answer` set, posts it as a comment through the fake gh.
+    Set `body` (bytes or str) to write that payload on non-200 responses so callers can assert on Tutti's refuse message."""
 
-    def __init__(self, gh=None, status=200, answer=None):
-        self.calls, self.status, self.gh, self.answer = [], status, gh, answer
+    def __init__(self, gh=None, status=200, answer=None, body=b''):
+        self.calls, self.status, self.gh, self.answer, self.body = [], status, gh, answer, body
         hook = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -33,7 +34,13 @@ class FakeHook:
                 if hook.answer and hook.status == 200:
                     hook.gh.comment(body['reply_to']['issue'], hook.answer)
                 self.send_response(hook.status)
+                payload = b''
+                if hook.status != 200 and hook.body:
+                    payload = hook.body if isinstance(hook.body, bytes) else hook.body.encode()
+                    self.send_header('Content-Length', str(len(payload)))
                 self.end_headers()
+                if payload:
+                    self.wfile.write(payload)
 
             def log_message(self, *args):
                 return None
@@ -103,9 +110,14 @@ def acc(verdict='on pace', used=30.0, panic=False, room=0):
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        # Isolate from the owner's ~/.config/tutti/grok.env (file wins over the shell in secretenv.get).
+        self.xdg = os.path.join(self.tmp.name, 'xdg')
+        os.makedirs(os.path.join(self.xdg, 'tutti'), mode=0o700)
         self.gh = FakeGh()
         self.hook = FakeHook(self.gh)
-        self.env = {**ENV, 'TUTTI_GROK_URL': self.hook.url}
+        from tutti import groksetup
+        groksetup.save_env(os.path.join(self.xdg, 'tutti', 'grok.env'), self.hook.url, KEY)
+        self.env = {**ENV, 'TUTTI_GROK_URL': self.hook.url, 'XDG_CONFIG_HOME': self.xdg}
 
     def tearDown(self):
         self.hook.close()
@@ -205,6 +217,32 @@ class AskTest(Base):
         self.assertIn('TUTTI_GROK_KEY', out)
         self.assertNotIn(KEY, out)
         self.assertEqual(self.gh.closed, [1])
+
+    def test_400_paused_body_says_resume_the_routine(self):
+        self.hook.status = 400
+        self.hook.body = 'Routine is paused; resume it to run.'
+        rc, out = self.ask(self.cfg())
+        self.assertEqual(rc, 1)
+        self.assertIn('paused', out.lower())
+        self.assertIn('resume', out.lower())
+        self.assertNotIn(KEY, out)
+
+    def test_400_github_body_says_connect_apps_and_reply_github_repo(self):
+        self.hook.status = 400
+        self.hook.body = 'GitHub Connect: no access to octo/my-app'
+        rc, out = self.ask(self.cfg())
+        self.assertEqual(rc, 1)
+        self.assertIn('Connect apps', out)
+        self.assertIn('reply.github_repo', out)
+        self.assertNotIn(KEY, out)
+
+    def test_400_empty_body_keeps_the_generic_paused_hint(self):
+        self.hook.status = 400
+        self.hook.body = b''
+        rc, out = self.ask(self.cfg())
+        self.assertEqual(rc, 1)
+        self.assertIn('confirm the routine is not paused', out)
+        self.assertNotIn(KEY, out)
 
     def spend(self, cfg, used=100):
         pacing.append_log(state.usage_log_path(cfg), 'grok-bot', used, datetime.now(timezone.utc))

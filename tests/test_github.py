@@ -84,6 +84,7 @@ class GitHubTest(unittest.TestCase):
         cache = mock.patch.dict(github._gh_cache, {'at': -1e9, 'token': ''}, clear=True)
         ask = mock.patch.object(github, '_ask_gh', return_value='')
         cache.start()
+        self._ask_gh_patch = ask
         self.ask_gh = ask.start()
         self.addCleanup(ask.stop)
         self.addCleanup(cache.stop)
@@ -271,6 +272,37 @@ class GitHubTest(unittest.TestCase):
         self.assertLessEqual(set(github.TOKEN_VARS), set(workers.NOT_FOR_WORKERS))
         with self.assertRaisesRegex(github.GitHubError, 'outside GitHub'):
             github.urlopen_http('GET', 'https://evil.example/', {})
+
+    def test_ask_gh_retries_without_a_broken_token_env(self):
+        # setUp stubs _ask_gh via the patch object (not the MagicMock); stop that patch for this case.
+        self._ask_gh_patch.stop()
+        calls = []
+
+        def run(argv, **kw):
+            self.assertEqual(argv[:3], ['gh', 'auth', 'token'])
+            env = kw['env']
+            calls.append('GH_TOKEN' in env)
+            if env.get('GH_TOKEN') == 'bad':
+                return SimpleNamespace(returncode=1, stdout='', stderr='GH_TOKEN is invalid')
+            return SimpleNamespace(returncode=0, stdout='good-token\n', stderr='')
+
+        with mock.patch.dict(os.environ, {'GH_TOKEN': 'bad', 'PATH': '/bin'}, clear=False):
+            os.environ.pop('TUTTI_OFFLINE', None)
+            self.assertEqual(github._ask_gh(run), 'good-token')
+        self.assertEqual(calls, [True, False])
+
+    def test_doctor_names_an_invalid_token_env_never_its_value(self):
+        def run(argv, **kw):
+            return SimpleNamespace(returncode=1, stdout='', stderr='Failed to log in: the token in GH_TOKEN is invalid.\n')
+
+        with mock.patch.dict(os.environ, {'GH_TOKEN': 'secret-bad-token', 'PATH': '/bin'}, clear=False):
+            problems = github.bad_token_env_problems(run=run)
+        self.assertEqual(len(problems), 1)
+        self.assertIn('GH_TOKEN', problems[0])
+        self.assertIn('unset', problems[0])
+        self.assertNotIn('secret-bad-token', problems[0])
+        with mock.patch.dict(os.environ, {'PATH': '/bin'}, clear=True):
+            self.assertEqual(github.bad_token_env_problems(run=run), [])
 
     def test_the_dashboard_post_is_the_person_s_own(self):
         c = SimpleNamespace(cfg=self.cfg, who=lambda h: {'sub': 'u9'})

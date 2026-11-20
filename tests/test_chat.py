@@ -190,6 +190,43 @@ class Storage(unittest.TestCase):
         self.store.clear('a')
         self.assertFalse(os.path.exists(self.store.path('a')))
 
+    def test_messages_beyond_former_cap_are_kept_in_per_conversation_files(self):
+        c = self.store.create('a')
+        for i in range(450):
+            self.store.put_message('a', c['id'], {'id': f'm{i}', 'role': 'user', 'text': f'turn {i}'})
+        got = self.store.get('a', c['id'])
+        self.assertEqual(len(got['messages']), 450)
+        self.assertEqual(got['messages'][0]['text'], 'turn 0')
+        self.assertEqual(got['messages'][-1]['text'], 'turn 449')
+        path = self.store.messages_path('a', c['id'])
+        self.assertTrue(os.path.isfile(path))
+        self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
+        with open(self.store.path('a'), encoding='utf8') as f:
+            index = json.load(f)
+        self.assertNotIn('messages', index['conversations'][0])
+        self.assertEqual(index['conversations'][0]['count'], 450)
+        page, nxt = self.store.page_messages('a', c['id'], limit=50)
+        self.assertEqual([m['id'] for m in page], [f'm{i}' for i in range(400, 450)])
+        self.assertEqual(nxt, 'm400')
+        earlier, _ = self.store.page_messages('a', c['id'], before=nxt, limit=50)
+        self.assertEqual(earlier[0]['id'], 'm350')
+
+    def test_legacy_inline_messages_migrate_without_dropping_turns(self):
+        cid = 'c' + 'ab' * 6
+        msgs = [{'id': f'm{i}', 'role': 'user', 'text': f'old {i}'} for i in range(410)]
+        os.makedirs(self.store.folder, mode=0o700)
+        with open(self.store.path('legacy'), 'w', encoding='utf8') as f:
+            json.dump({'conversations': [{'id': cid, 'title': 'Legacy', 'updated': '2026-01-01T00:00:00+00:00',
+                                          'messages': msgs}]}, f)
+        os.chmod(self.store.path('legacy'), 0o600)
+        got = self.store.get('legacy', cid)
+        self.assertEqual(len(got['messages']), 410)
+        self.store.put_message('legacy', cid, {'id': 'm410', 'role': 'user', 'text': 'new'})
+        with open(self.store.path('legacy'), encoding='utf8') as f:
+            index = json.load(f)
+        self.assertNotIn('messages', index['conversations'][0])
+        self.assertEqual(len(self.store.get('legacy', cid)['messages']), 411)
+
     def test_an_answer_cut_off_by_a_restart_is_marked_stopped(self):
         c = self.store.create('a')
         self.store.put_message('a', c['id'], {'id': 'm1', 'role': 'assistant', 'text': 'half', 'status': 'streaming'})
@@ -1291,7 +1328,7 @@ class Controls(ToolLoop):
         previous = {'upto': 'm0', 'text': 'old'}
         conv = {'summary': previous}
         data = {'conversations': [{'id': 'c1', 'summary': previous}]}
-        def waiting_change(sub, callback):
+        def waiting_change(sub, callback, cids=None):
             job.cancel.set()
             callback(data)
             self.fail('a cancelled summary must abort the save')

@@ -59,7 +59,7 @@ const shortNum = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k
 // The usage line under the composer: tokens in and out, and what they would cost at API prices (local models: free).
 function usageText(u) {
     if (!u || !(u.in || u.out)) return 'No tokens used yet';
-    const cost = u.usd > 0 ? ` · ≈ $${u.usd < 0.01 ? '<0.01' : u.usd.toFixed(2)} at API prices` : ' · local: no cost';
+    const cost = u.cost_unknown ? ' · API cost unavailable' : u.usd > 0 ? ` · ≈ $${u.usd < 0.01 ? '<0.01' : u.usd.toFixed(2)} at API prices` : ' · local: no cost';
     return `${shortNum(u.in)} in · ${shortNum(u.out)} out${cost}`;
 }
 

@@ -8,7 +8,9 @@
 
 ### Added
 
-
+- Hard-disabled OpenAI Responses Chat prototype and an unconnected local reservation ledger; no config enables paid Chat
+  until billing verification lands (t294). ChatGPT Pro/Plus coding stays on the Codex CLI worker with ladder, pacing and
+  Cursor-panic hand-off parity (t291, t302); live session verify remains an owner FEEDBACK item.
 - Autopilot/backlog: rough **attempt ETAs** from comparable successful attempts (t236).
 - Autopilot: slow pacing for eligible ahead accounts (isolated and direct shared windows) so Tutti keeps working near limits (t299).
 

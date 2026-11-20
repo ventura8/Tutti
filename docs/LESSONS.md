@@ -27,6 +27,10 @@
 - A stale heartbeat or vanished runner does not prove the remote execution stopped. Keep its lease until a verified
   boundary or an explicit administrator confirmation permits recovery (t309).
 
+- An empty `job_bridge` does not prove a run was local-only: a routed check can still write on another machine after this
+  host reboots. Recover only when reboot is confirmed and both bridge and check_where say the attempt died here; never
+  treat a reused PID as the old worker (t309, t419).
+
 - **A freeze check and a spawn must share a lock** (t404): serialize local cooperative autopilot admission with durable
   marker creation, but do not mistake that partial fence for protection against other launch paths or live remote work.
 

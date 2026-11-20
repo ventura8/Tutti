@@ -62,7 +62,7 @@ of your project or secrets: describe the setup in general words.
 
 | # | Date | Command | What happened | Expected | Status |
 | --- | --- | --- | --- | --- | --- |
-| 23 | 2026-11-18 | Autopilot after a dashboard restart (t309) | Runs without reports were retried without establishing that their work had stopped. | Keep unverified attempts visible and prevent overlapping retries. | Partly fixed: unverified attempts stay held; verified recovery for local and remote work remains open. |
+| 23 | 2026-11-18 | Autopilot after a dashboard restart (t309) | Runs without reports were retried without establishing that their work had stopped. | Keep unverified attempts visible and prevent overlapping retries. | Partly fixed: fully local unreported runs resume after reboot; bridged, routed-check and unknown runs stay held (t309); verified remote-job containment remains open. |
 | 22 | 2026-11-19 | Chat rename | Renaming rebuilt the message list and jumped to the end; switching chats during the request could update the wrong title. | Preserve the current message view and rename only the original chat. | Fixed title-only update and conversation race (t407); virtualization remains open. |
 | 21 | 2026-11-19 | Chat redraw | Redrawing reparsed unchanged message Markdown. | Reuse unchanged parsing while retaining safe rendering. | Fixed repeated parsing (t407); pagination and virtualization remain open. |
 | 20 | 2026-11-18 | Linked account usage | A reset window could be shown in panic at zero percent when its linked quota was in panic. | Name the quota that actually blocks work. | Diagnostic fixed for the next release (t272). |

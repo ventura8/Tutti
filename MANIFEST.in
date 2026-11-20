@@ -420,9 +420,3 @@ include tutti/workers.py
 include tutti/workq.py
 include tutti/worktree.py
 include tutti/yamledit.py
-include tutti_agents.egg-info/PKG-INFO
-include tutti_agents.egg-info/SOURCES.txt
-include tutti_agents.egg-info/dependency_links.txt
-include tutti_agents.egg-info/entry_points.txt
-include tutti_agents.egg-info/requires.txt
-include tutti_agents.egg-info/top_level.txt

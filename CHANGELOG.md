@@ -2,32 +2,25 @@
 
 ## [Unreleased]
 
-## [Unreleased]
-
 ### Added
 
 - Autopilot/backlog: rough **attempt ETAs** from comparable successful attempts (t236).
+- Autopilot: slow pacing for eligible ahead accounts (isolated and direct shared windows) so Tutti keeps working near limits (t299).
 
 ### Fixed
 
 - Automatic accounts with `stale_hours: 0` still age out after the default freshness window (t317).
-
+- Hold unverified stalled and no-report runs visibly instead of signalling unrelated processes or launching overlapping retries (t309).
+- After a host reboot, ignore a reused PID: queue fully local unreported attempts again, and hold bridged, routed-check or unknown ones until a report arrives (t309, t419).
+- Defer local model server restarts when the host is busy, loaded or its reading is stale or incomplete (t301).
+- Hold the preferred main provider aside in Chat after a spent/panic hand-off until a fresh reset reading; do not treat
+  synthetic after-reset 0 % as room, and do not show a CLI usage-limit message as the answer (t388).
 
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 **Versions (the owner, 2026-11-15).** Tutti stays 0.x. A big feature raises the minor version (0.N.0, patch back to 0),
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
-
-## Unreleased
-
-### Fixed
-
-- Hold unverified stalled and no-report runs visibly instead of signalling unrelated processes or launching overlapping retries (t309).
-- After a host reboot, ignore a reused PID: queue fully local unreported attempts again, and hold bridged, routed-check or unknown ones until a report arrives (t309, t419).
-- Defer local model server restarts when the host is busy, loaded or its reading is stale or incomplete (t301).
-- Hold the preferred main provider aside in Chat after a spent/panic hand-off until a fresh reset reading; do not treat
-  synthetic after-reset 0 % as room, and do not show a CLI usage-limit message as the answer (t388).
 
 ## 0.31.4 (2026-11-19)
 

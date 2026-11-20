@@ -522,6 +522,21 @@ def cmd_ship(cfg, a):
     return 0
 
 
+def cmd_sync(cfg, a):
+    """`tutti sync`: sync route info to the backup main."""
+    from . import failover, failovercmd
+    try:
+        backup, why = failovercmd.chosen_backup(cfg)
+        if not backup:
+            say(f'no backup main machine ({why}): pick one with `tutti main backup <machine>`')
+            return 2
+        failovercmd.setup_backup(cfg, backup)
+    except (failover.FailoverError, subprocess.SubprocessError) as e:
+        say(str(e))
+        return 2
+    return 0
+
+
 def usage_log_path(cfg):
     return config.expand((cfg.get('usage') or {}).get('log') or os.path.join(config.state_dir(cfg), 'usage.jsonl'))
 
@@ -1809,6 +1824,7 @@ def parser():
     s = add('rsh', cmd_rsh, 'remote-shell shim for git and rsync on a WSL machine (internal)')
     s.add_argument('machine')
     s.add_argument('args', nargs=argparse.REMAINDER)
+    add('sync', cmd_sync, 'sync route info to the backup main')
     s = add('ship', cmd_ship, 'format, commit, check, push and deploy the work tree you are in')
     s.add_argument('message')
     s.add_argument('--full', action='store_true', help='run ship.full_checks instead of the targeted ship.checks')

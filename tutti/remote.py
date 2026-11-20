@@ -170,14 +170,20 @@ REACH_CACHE = {}
 REACH_SECONDS = 60
 
 
-def ssh_target(host, run=subprocess.run):
-    """(hostname, port) ssh would connect to for `host` (an ~/.ssh/config alias or a name), from `ssh -G`."""
+def ssh_route(host, run=subprocess.run):
+    """(hostname, port, user) ssh would use for `host` (an ~/.ssh/config alias or a name), from `ssh -G`."""
     try:
         out = run(['ssh', '-G', host], capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
-        return host, 22
+        return host, 22, ''
     kv = dict(line.split(' ', 1) for line in out.splitlines() if ' ' in line)
-    return kv.get('hostname', host), int(kv.get('port', 22) or 22)
+    return kv.get('hostname', host), int(kv.get('port', 22) or 22), kv.get('user') or ''
+
+
+def ssh_target(host, run=subprocess.run):
+    """(hostname, port) ssh would connect to for `host` (an ~/.ssh/config alias or a name), from `ssh -G`."""
+    hostname, port, _user = ssh_route(host, run)
+    return hostname, port
 
 
 def reachable(host, port=None, connect=socket.create_connection, target=ssh_target, clock=time.time):

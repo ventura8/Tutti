@@ -2,11 +2,12 @@
 tutti/statebudget.py and tutti/watchdog.py."""
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
 
-from . import config, failover, move, remote, selfheal, statebudget, watchdog, yamledit
+from . import config, failover, move, movetools, remote, selfheal, statebudget, watchdog, yamledit
 
 UNIT = 'tutti-failover.service'
 
@@ -91,8 +92,81 @@ def setup_backup(cfg, backup, run=subprocess.run, say_fn=say):
     run(['ssh', '-o', 'BatchMode=yes', dest, f'mkdir -p ~/.config/systemd/user && cat > ~/.config/systemd/user/{UNIT} && '
          f'systemctl --user daemon-reload && systemctl --user enable --now {UNIT} && (loginctl enable-linger "$USER" || true)'],
         input=unit, text=True, check=True, capture_output=True, timeout=60)
+    sync_routes(cfg, backup, run=run, say_fn=say_fn)
     say_fn(f'{backup}: Tutti copied to {d}, state pushed ({sent // 1024} KB), its failover round runs as a user service')
     return ok
+
+
+def host_names_on(dest, run=subprocess.run):
+    """Host aliases listed in ~/.ssh/config on `dest`, or None when that machine cannot be reached."""
+    script = 'test -f "$HOME/.ssh/config" && grep -iE "^Host[[:space:]]" "$HOME/.ssh/config" || true'
+    try:
+        r = run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', dest, script], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    names = set()
+    for line in (r.stdout or '').splitlines():
+        words = line.split()
+        if len(words) >= 2:
+            names.update(words[1:])
+    return names
+
+
+def push_route_keys(dest, keys, home, run=subprocess.run):
+    """Copy IdentityFile paths (home-relative) to the backup at mode 600."""
+    existing = [k for k in keys if os.path.isfile(os.path.join(home, k))]
+    if not existing:
+        return
+    r = run(['rsync', '-azR', '-e', 'ssh -o BatchMode=yes', '--chmod=F600', *existing, f'{dest}:./'],
+            cwd=home, capture_output=True, text=True, timeout=120)
+    if r.returncode != 0:
+        raise failover.FailoverError(f'could not copy ssh keys to {dest}: {(r.stderr or r.stdout or "").strip()[:200]}')
+
+
+def sync_routes(cfg, backup, run=subprocess.run, say_fn=say, home=None):
+    """Copy each machine's ssh route (host, user, port; and its key when known) into the backup's ~/.ssh/config."""
+    dest = failover.ssh_of(cfg, backup)
+    home = home if home is not None else os.path.expanduser('~')
+    entries = failover.route_entries(cfg, backup, home)
+    if not entries:
+        say_fn(f'{backup}: no machine routes to sync')
+        return 0
+    probe = run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', dest, 'true'], capture_output=True, text=True, timeout=30)
+    if probe.returncode != 0:
+        raise failover.FailoverError(
+            f'{backup} cannot be reached over ssh ({dest}): {(probe.stderr or "").strip()[:200]}; check `ssh {dest}` works')
+    push_route_keys(dest, [k for e in entries.values() for k in e.get('keys') or []], home, run)
+    script = movetools.ssh_script(entries, movetools.known_hosts)
+    r = run(['ssh', '-o', 'BatchMode=yes', dest, script], capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        raise failover.FailoverError(
+            f'could not write ssh routes on {backup}: {(r.stderr or r.stdout or "").strip()[:200]}; check `ssh {dest}` and ~/.ssh there')
+    names = ', '.join(sorted(entries))
+    say_fn(f'{backup}: synced ssh routes for {names} into ~/.ssh/config')
+    return len(entries)
+
+
+def readiness(cfg, run=subprocess.run):
+    """Problem lines when the backup is not ready to take over (missing ssh routes), else []."""
+    if failover.opts(cfg)['backup'] == 'none':
+        return []
+    backup, why = chosen_backup(cfg)
+    if not backup:
+        return [f'no backup main machine ({why}): pick one with `tutti main backup <machine>`']
+    aliases = failover.route_aliases(cfg, backup)
+    if not aliases:
+        return []
+    dest = failover.ssh_of(cfg, backup)
+    found = host_names_on(dest, run)
+    if found is None:
+        return [f'backup {backup} cannot be reached over ssh ({dest}): check `ssh {dest}` works']
+    missing = [a for a in aliases if a not in found]
+    if not missing:
+        return []
+    listed = ', '.join(missing)
+    return [f'backup {backup} is missing ssh routes for {listed}: run `tutti sync` to copy host, user and port']
 
 
 def unit_text(tutti, cfg_path):

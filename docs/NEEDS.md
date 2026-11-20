@@ -1,8 +1,25 @@
 # Run to completion and the needs-input queue
 
+Tutti works through everything it can do (the backlog, the queue, parked tasks once answered, the work queue) within the
+pacing and token limits, and asks a person only what only a person can decide.
+
+## Tutti resolves Needs-you items first (t244, t278)
+
+Before a question reaches you, Tutti classifies it and tries to clear it:
+
+| Kind | What counts | What Tutti does |
+| --- | --- | --- |
+| **person-only** | payments, accepting terms, credentials, sign-ins, physical actions, risky or irreversible changes, security | left for you with an exact next action; shown in one batched ask with buttons |
+| **Tutti-resolvable** | everything else (usage-limit parks, retries, flaky workers, …) | rule first (e.g. retry after usage limits), then a local model, then an online account with room; an exact listed option is answered; a model deferral (`person`) or no model takes the default; ambiguous non-matching text stays for you |
+
+Every autopilot tick re-checks the open queue (`unblocker.resolve_parked`). Each Tutti decision is logged on the AI assist
+card with why, and **Undo** puts the question back. Only person-only items (and ones Tutti already tried and left) appear
+under *Needs you*, My questions, the welcome-back list and `pending_questions`, each with its exact step. With
+`ai_assist.unblock` off, Tutti does not try them, so every open question reaches you at once.
+
 The unblocker may answer a parked question only when the model supplies one complete action matching a listed option.
-Multiword options work; extra words, multiple action lines, or `person` leave the question open. This does not guarantee
-that a model's choice is correct or resolve decisions which require the person (t278).
+Multiword options work; extra words or multiple action lines leave the question open (t278). A `person` deferral on a
+Tutti-resolvable park takes the default; an option literally named `person` is never auto-chosen from that sentinel.
 
 An automatic answer is applied only if the parked task and its question still match what the model saw. If the question,
 options or task history change during the model call, Tutti leaves the decision for a fresh review. The two state files
@@ -11,9 +28,6 @@ are protected from concurrent edits by their locks; this does not make their wri
 Before using a model diagnosis to retry or park a repeatedly failing task, the unblocker checks under the backlog lock that
 the task is unchanged since the model saw it. A changed task is left alone and can be reviewed in a later round without
 the normal six-hour attempt cooldown (t244). This does not guarantee the diagnosis is correct.
-
-Tutti works through everything it can do (the backlog, the queue, parked tasks once answered, the work queue) within the
-pacing and token limits, and asks a person only what only a person can decide.
 
 ## It keeps going
 

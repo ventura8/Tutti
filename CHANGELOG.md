@@ -2,10 +2,6 @@
 
 ## [Unreleased]
 
-### Fixed
-
-- Treat a missing Chat conversation usage total as empty instead of crashing when saving token counts.
-
 ### Added
 
 - Hard-disabled OpenAI Responses Chat prototype and an unconnected local reservation ledger; no config enables paid Chat
@@ -15,9 +11,14 @@
 - Autopilot: slow pacing for eligible ahead accounts (isolated and direct shared windows) so Tutti keeps working near limits (t299).
 - Chat keeps the full conversation on disk: per-conversation message files, no 400-message drop, and bounded
   `chat_history` / `page_messages` reads (t387; UI virtualization remains t407).
+- Needs-you: Tutti classifies each parked question (person-only vs Tutti-resolvable), clears Tutti-resolvable ones itself
+  (rules, then local model, then online with pacing; default on deferral or no model), leaves ambiguous wording for the
+  person, logs every decision with undo on the AI assist card, and shows only person-facing items with an exact next
+  action. Re-checked on every autopilot tick (t244, t278).
 
 ### Fixed
 
+- Treat a missing Chat conversation usage total as empty instead of crashing when saving token counts.
 - Isolate default delegated routed checks into a per-run remote copy with host-wide bare-repo init, a sync time bound, and
   best-effort cleanup (t403). Explicit `--remote-track` / `--track` still share a named folder.
 - Hold daily self-update dashboard restarts until Chat answers and actions are idle, and retry while busy (t404).

@@ -86,7 +86,8 @@ class Needs(Base):
         with open(os.path.join(config.state_dir(cfg), 'setup.json'), 'w', encoding='utf8') as f:
             json.dump({'steps': [{'kind': 'sign-in', 'title': 'Sign in to gh', 'command': 'gh auth login', 'why': 'pull requests'},
                                  {'kind': 'other', 'title': 'Admire the view', 'command': '', 'why': ''}]}, f)
-        tasks = [task('t1', 'needs-person', 'Fix the flaky probe', T0 + H, parked='no progress in 3 attempts'),
+        tasks = [task('t1', 'needs-person', 'Pay the invoice', T0 + H, parked='a payment is due'),
+                 task('t1b', 'needs-person', 'Fix the flaky probe', T0 + H, parked='no progress in 3 attempts'),
                  task('t2', 'queued', 'Speed up the report', T0 + H),
                  task('t3', 'done', 'Cache the readings', T0 + H, pr='https://github.example/octo/app/pull/7'),
                  task('t4', 'running', 'Rework pacing', T0 + H)]
@@ -95,16 +96,17 @@ class Needs(Base):
                     {'name': 'claude', 'state': 'ok', 'used': 40.0, 'projected_end': 92.5, 'verdict': 'behind',
                      'reset': '2026-11-20T08:00:00+00:00'}]
         f = welcome.facts(cfg, T0, accounts, tasks)
-        self.assertEqual([n['title'] for n in f['needs']], ['Decide on task t1: Fix the flaky probe', "Read cursor's usage",
+        self.assertEqual([n['title'] for n in f['needs']], ['Decide on task t1: Pay the invoice', "Read cursor's usage",
                                                             'Sign in to gh'])
         self.assertTrue(all(welcome.actionable(n) and n['link'] for n in f['needs']))
         self.assertIn('Cache the readings (pull request https://github.example/octo/app/pull/7)', f['shipped'][0]['text'])
         self.assertIn('Rework pacing', f['running'][0]['text'])
-        self.assertEqual(len(f['failed']), 2)   # the parked one and the failed attempt; only the parked one needs a person
+        self.assertEqual(len(f['failed']), 3)   # two parked (person-only + Tutti-resolvable) and one failed attempt
         self.assertIn('on track to end at 92.5 %', f['usage'][0]['text'])
         text = welcome.render(welcome.template(f, T0), f)
         self.assertIn('Needs you (3): only you can do these.\n1. Decide on task t1', text)
         self.assertIn('gh auth login', text)
+        self.assertNotIn('flaky', ' '.join(n['title'] for n in f['needs']))   # Tutti-resolvable stays off Needs you (t244)
 
     def test_before_the_period_is_left_out(self):
         cfg = self.cfg()
@@ -115,7 +117,7 @@ class Needs(Base):
 class Roles(Base):
     TASKS = [task('a1', 'done', 'Owner work', T0 + H), task('h1', 'done', 'Household shard', T0 + 2 * H, household=True),
              task('u1', 'done', 'Ana\'s task', T0 + 3 * H, user='ana'), task('u2', 'done', 'Bo\'s task', T0 + 3 * H, user='bo'),
-             task('p1', 'needs-person', 'Owner decision', T0 + H)]
+             task('p1', 'needs-person', 'Pay the invoice', T0 + H, parked='a payment is due')]
 
     def test_a_viewer_sees_their_own_and_the_household_an_admin_sees_all(self):
         cfg = self.cfg()

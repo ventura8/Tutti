@@ -654,7 +654,7 @@ def _unblocker_view(cfg):
 
 
 def save(collector, raw):
-    """POST /api/ai-assist (admin): {"switch": name, "on": bool} or {"undo": id}."""
+    """POST /api/ai-assist (admin): {"switch": name, "on": bool}, {"undo": id}, or {"unblock_undo": <at>}."""
     try:
         data = json.loads(raw or b'{}')
     except ValueError:
@@ -666,6 +666,10 @@ def save(collector, raw):
         if ok and getattr(collector, 'reload', None):
             collector.reload()
         return (200, {'ok': True}) if ok else (409, {'error': why})
+    if 'unblock_undo' in data:
+        from . import unblocker
+        ok, why = unblocker.undo(collector.cfg, float(data['unblock_undo']))
+        return (200, {'ok': True, 'note': why}) if ok else (409, {'error': why})
     if 'undo' in data:
         ok, why = undo(collector.cfg, str(data['undo']))
         reload = getattr(collector, 'reload', None)

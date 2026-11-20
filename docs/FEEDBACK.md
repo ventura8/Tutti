@@ -7,6 +7,8 @@ Chat must not repeat a started CLI agent's work after its response fails (t303).
 Chat must not treat interrupted local-model streams as complete or repeat an attempted action on fallback (t303).
 
 An automatic answer must not act on a parked task whose scope, check or ownership changed during review (t278).
+Needs-you items Tutti can clear (usage-limit parks, exact listed options) must not wait for a person; person-only
+decisions need an exact next action (t244, t278).
 
 Invalid model diagnoses must not park work or create a needless person question (t244).
 

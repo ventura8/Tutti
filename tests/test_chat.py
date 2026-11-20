@@ -2463,3 +2463,11 @@ class ShortCommands(unittest.TestCase):
         self.assertIn('Answer only', chatrun.Engine.MODE_NOTE['answer'])
         self.assertIn('never ask them to type a command', chatrun.Engine.MODE_NOTE['auto'])
         self.assertIn('only when the work truly cannot start', chatrun.Engine.MODE_NOTE['auto'])
+
+
+class AddUsage(unittest.TestCase):
+    def test_none_usage_key_is_replaced(self):
+        conv = {'usage': None}
+        total = chatctl.add_usage(conv, {'in': 1, 'out': 2, 'usd': 0.1, 'context_pct': 3})
+        self.assertEqual(total['in'], 1)
+        self.assertEqual(conv['usage']['out'], 2)

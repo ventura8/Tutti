@@ -139,7 +139,10 @@ def cost_usd(kind, tokens_in, tokens_out, prices=(3.0, 15.0)):
 
 def add_usage(conv, usage):
     """Adds one answer's usage to the conversation's totals and keeps the latest context share."""
-    total = conv.setdefault('usage', {'in': 0, 'out': 0, 'usd': 0.0, 'context_pct': 0})
+    total = conv.get('usage')
+    if not isinstance(total, dict):
+        total = {'in': 0, 'out': 0, 'usd': 0.0, 'context_pct': 0}
+        conv['usage'] = total
     total['in'] += usage.get('in', 0)
     total['out'] += usage.get('out', 0)
     total['usd'] = round(total['usd'] + usage.get('usd', 0.0), 4)

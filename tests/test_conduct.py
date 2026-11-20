@@ -619,12 +619,23 @@ class RoleHandOffTest(Folder):
                                'agy-gemini': {'used': 0, 'after_reset': True, 'reading_at': '2026-01-01T00:00:00+00:00'}})
         self.assertIsNone(conduct.hand_off_role(self.cfg, after, chat_fn=lambda *a: notes.append('x')))
         self.assertEqual(conduct.current(self.cfg), 'cursor')
+        self.assertIn('stays aside until its limit resets', conduct.provider_held(self.cfg, 'agy', after))
         fresh = self.states(**{'agy-claude': {'used': 5, 'reading_at': '2026-01-08T01:00:00+00:00'},
                                'agy-gemini': {'used': 5, 'reading_at': '2026-01-08T01:00:00+00:00'}})
         line = conduct.hand_off_role(self.cfg, fresh, connect_fn=lambda *a, **k: [],
                                      chat_fn=lambda cfg, text: notes.append(text))
         self.assertIn('restored to agy (preferred; limit reset)', line)
         self.assertEqual(conduct.current(self.cfg), 'agy')
+        self.assertEqual(conduct.provider_held(self.cfg, 'agy', fresh), '')
+
+    def test_provider_held_skips_spent_preferred_while_cursor_conducts(self):
+        spent = self.states(**{'agy-claude': {'used': 100, 'verdict': 'spent', 'panic': False},
+                               'agy-gemini': {'used': 100, 'verdict': 'spent', 'panic': False},
+                               'cursor': {'used': 20, 'verdict': 'on pace', 'panic': False}})
+        conduct.hand_off_role(self.cfg, spent, connect_fn=lambda *a, **k: [], chat_fn=lambda *a: None)
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+        self.assertIn('stays aside until its limit resets', conduct.provider_held(self.cfg, 'agy', spent))
+        self.assertEqual(conduct.provider_held(self.cfg, 'cursor', spent), '')
 
     def test_owner_switch_updates_preferred_automatic_does_not(self):
         conduct.choose(self.cfg, 'local')

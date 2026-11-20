@@ -39,6 +39,8 @@ Turning autopilot off to drain work stopped its dashboard rounds and therefore s
 Automatic releases must move Unreleased changelog entries into the new version instead of repeating them later (t408).
 
 Conductor selection must not treat a missing usage state as room after another account is spent (t388).
+After Claude is spent and Cursor is the active main, Chat must not call Claude (or show usage-limit-reached from it) until
+a confirmed reset — including when the dashboard still shows a synthetic 0 % (t388).
 
 Chat needs access to earlier conversation turns without asking the user to paste them. A paged current-conversation tool
 provides retained text; durable full-history retention is still open (t387).

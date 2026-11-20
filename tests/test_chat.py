@@ -2379,6 +2379,62 @@ class MainPick(unittest.TestCase):
         self.assertEqual([c['worker'] for c in got], ['cursor', 'pc'])
 
 
+class SpentProviderHold(unittest.TestCase):
+    """t388: after Claude/agy is spent and Cursor is the active main, Chat must not call Claude until a fresh reset."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.cfg = config_for(
+            self.dir,
+            workers={'claude': {'kind': 'cli', 'command': ['claude', '-p', '{prompt}']},
+                     'cursor': {'kind': 'cli', 'command': ['cursor-agent', '-p', '{prompt}']},
+                     'pc': {'kind': 'ollama', 'host': '127.0.0.1:1', 'model': 'big:27b', 'machine': 'pc'}},
+            accounts={'claude': {'window': '7d'}, 'cursor': {'window': 'monthly', 'worker': 'cursor'}},
+            main={'agent': 'claude', 'preferred': 'claude', 'fallback': ['cursor']})
+        os.makedirs(os.path.join(self.dir, 'conduct'), exist_ok=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.dir)
+
+    def names(self, usage, pick='auto'):
+        snap = snapshot(usage={'accounts': usage},
+                        workers={'items': [{'name': 'claude', 'ready': True}, {'name': 'cursor', 'ready': True},
+                                           {'name': 'pc', 'ready': True}]})
+        return [c['worker'] for c in chat.candidates(self.cfg, snap, ADMIN, pick=pick)[0]]
+
+    def test_spent_claude_is_skipped_while_cursor_is_active(self):
+        conduct.choose(self.cfg, 'cursor', owner=False)
+        self.assertEqual(conduct.current(self.cfg), 'cursor')
+        self.assertEqual(conduct.preferred(self.cfg), 'claude')
+        usage = [{'name': 'claude', 'used': 100, 'verdict': 'spent', 'panic': False},
+                 {'name': 'cursor', 'used': 20, 'verdict': 'on pace', 'panic': False}]
+        self.assertNotIn('claude', self.names(usage))
+        self.assertIn('cursor', self.names(usage))
+        self.assertEqual(self.names(usage, pick='main'), ['cursor', 'pc'])
+
+    def test_synthetic_zero_pct_does_not_reopen_claude_before_reset(self):
+        conduct.choose(self.cfg, 'cursor', owner=False)
+        usage = [{'name': 'claude', 'used': 0, 'after_reset': True, 'verdict': 'on pace',
+                  'reading_at': '2026-01-08T00:00:00+00:00'},
+                 {'name': 'cursor', 'used': 10, 'verdict': 'on pace', 'reading_at': '2026-01-08T00:00:00+00:00'}]
+        self.assertNotIn('claude', self.names(usage))
+        self.assertIn('cursor', self.names(usage))
+        why = conduct.provider_held(self.cfg, 'claude', usage)
+        self.assertIn('stays aside until its limit resets', why)
+
+    def test_fresh_reset_makes_claude_eligible_again(self):
+        conduct.choose(self.cfg, 'cursor', owner=False)
+        fresh = [{'name': 'claude', 'used': 5, 'verdict': 'on pace', 'panic': False,
+                  'reading_at': '2026-01-08T01:00:00+00:00'},
+                 {'name': 'cursor', 'used': 10, 'verdict': 'on pace', 'reading_at': '2026-01-08T01:00:00+00:00'}]
+        self.assertEqual(conduct.provider_held(self.cfg, 'claude', fresh), '')
+        self.assertIn('claude', self.names(fresh))
+
+    def test_usage_limit_text_is_not_kept_as_an_answer(self):
+        self.assertTrue(chatrun.limit_hit('Error: usage limit reached, resets in 3 hours'))
+        self.assertFalse(chatrun.limit_hit('Here is the refactor plan.'))
+
+
 class ShortCommands(unittest.TestCase):
     """Owner, 2026-11-17: /task, /delegate and delegate: in Tutti Chat."""
     KNOWN = {'projects': ['tutti', 'roradio'], 'scouts': []}

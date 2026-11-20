@@ -7,6 +7,8 @@ followed by an unseen failure. A shared CLI worker requires the admin-declared `
 values for all linked accounts, including paused ones. Before launch Tutti rechecks quota and checks that the actual command
 uniquely binds the selected account; it watches that account while the turn runs. An unmetered local worker remains eligible.
 Quota may still change between a reading and launch; this check is not a cross-process quota reservation (t388).
+While preferred is set aside and current is a stand-in, Chat and similar callers must not reopen the preferred provider on a
+synthetic after-reset 0 % — only a fresh reading below `panic_at` makes it eligible again (t388).
 
 `tutti conduct` runs the goal with a main (conductor) agent other than Claude Code: Cursor (`cursor-agent`),
 Antigravity (`agy`, Claude or Gemini models), the GitHub Copilot CLI, Claude Code itself, or a local model through

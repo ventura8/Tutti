@@ -19,6 +19,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 - Hold unverified stalled and no-report runs visibly instead of signalling unrelated processes or launching overlapping retries (t309).
 - Defer local model server restarts when the host is busy, loaded or its reading is stale or incomplete (t301).
+- Hold the preferred main provider aside in Chat after a spent/panic hand-off until a fresh reset reading; do not treat
+  synthetic after-reset 0 % as room, and do not show a CLI usage-limit message as the answer (t388).
 
 ## 0.31.4 (2026-11-19)
 

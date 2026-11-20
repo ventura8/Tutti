@@ -144,9 +144,11 @@ def panic(used, now, target, threshold=PANIC_AT):
 
 
 def readings(entries, account, since):
-    """The account's readings in the current window, oldest first: [{at, used}]."""
-    out = [(parse_time(e['at']), float(e['used'])) for e in entries if e['account'] == account and parse_time(e['at']) >= since]
-    return [{'at': at.isoformat(), 'used': used} for at, used in sorted(out)]
+    """The account's recorded values in the current window, oldest first, with estimates identified."""
+    out = [(parse_time(e['at']), float(e['used']), e.get('source') == 'estimate')
+           for e in entries if e['account'] == account and parse_time(e['at']) >= since]
+    return [{'at': at.isoformat(), 'used': used, **({'estimated': True} if estimated else {})}
+            for at, used, estimated in sorted(out)]
 
 
 def automatic(name, account):

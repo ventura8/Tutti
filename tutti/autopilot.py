@@ -30,11 +30,11 @@ from . import (
     priority,
     remote,
     routing,
+    tasketa,
     telemetry,
     tiers,
     tz,
     worktree,
-    tasketa,
 )
 
 try:

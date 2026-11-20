@@ -188,6 +188,14 @@ class AutomaticFreshnessTest(unittest.TestCase):
         self.assertFalse(pacing.staleness('manual', {'stale_hours': 0}, None, self.now)[0])
         self.assertTrue(pacing.staleness('api', {**self.account, 'stale_hours': 0}, None, self.now)[0])
 
+    def test_automatic_stale_hours_zero_still_ages(self):
+        old = self.now - timedelta(hours=pacing.STALE_HOURS + 1)
+        stale, msg = pacing.staleness('api', {**self.account, 'stale_hours': 0}, old, self.now)
+        self.assertTrue(stale)
+        self.assertIn('old', msg)
+        fresh = self.now - timedelta(minutes=5)
+        self.assertFalse(pacing.staleness('api', {**self.account, 'stale_hours': 0}, fresh, self.now)[0])
+
 
 if __name__ == '__main__':
     unittest.main()

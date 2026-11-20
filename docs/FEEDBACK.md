@@ -45,7 +45,8 @@ a confirmed reset — including when the dashboard still shows a synthetic 0 % (
 Chat needs access to earlier conversation turns without asking the user to paste them. A paged current-conversation tool
 provides retained text; durable full-history retention is still open (t387).
 
-Routed checks must reject unsafe copy names before touching a lock or remote command (t403).
+Routed checks must reject unsafe copy names before touching a lock or remote command, and default delegated runs must not
+serialize on one shared remote folder (t403).
 Updating code must not make a running failover watchdog announce an intentional departure (t404).
 
 Automatic releases must preserve concurrent release branches and tag the reviewed PR's merge commit (t401).

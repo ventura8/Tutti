@@ -176,6 +176,34 @@ class RemoteTest(unittest.TestCase):
                 remote.run(self.cfg, docker, 'bad;echo x', '/tmp/tree', 'true')
             sh.assert_not_called()
 
+    def test_copy_name_is_unique_per_run_and_cleanup_skips_local(self):
+        self.assertEqual(remote.copy_name('tutti-run', '1795017582-123'), 'tutti-run-1795017582-123')
+        with self.assertRaisesRegex(RuntimeError, 'too long or unsafe'):
+            remote.copy_name('x' * 50, '1795017582-123456789')
+        machine = {**self.cfg['machines']['a'], 'transport': 'ssh', 'root': '~/tutti'}
+        with mock.patch.object(remote, 'sh', return_value=subprocess.CompletedProcess([], 0)) as sh:
+            self.assertEqual(remote.cleanup_copy(self.cfg, machine, 'tutti-run-1-2'), 0)
+        self.assertIn('rm -rf --', sh.call_args.args[1])
+        self.assertIn('tutti-run-1-2', sh.call_args.args[1])
+        local = {**self.cfg['machines']['l'], 'transport': 'local'}
+        with mock.patch.object(remote, 'sh') as sh:
+            self.assertEqual(remote.cleanup_copy(self.cfg, local, 'tutti-run-1-2'), 0)
+            sh.assert_not_called()
+        with mock.patch.object(remote, 'sh') as sh:
+            with self.assertRaisesRegex(RuntimeError, 'remote track must be one folder'):
+                remote.cleanup_copy(self.cfg, machine, 'repo.git')
+            sh.assert_not_called()
+
+    def test_sync_bounds_hanging_copy_steps(self):
+        machine = {**self.cfg['machines']['a'], 'transport': 'ssh', 'root': '~/tutti'}
+        with mock.patch.object(remote, 'sh', return_value=subprocess.CompletedProcess([], 0)), \
+                mock.patch.object(remote.worktree, 'git_bin', return_value='git'), \
+                mock.patch.object(remote.subprocess, 'run',
+                                  side_effect=[subprocess.CompletedProcess([], 0),
+                                               subprocess.TimeoutExpired('git', remote.SYNC_TIMEOUT)]):
+            with self.assertRaisesRegex(RuntimeError, f'timed out after {remote.SYNC_TIMEOUT}s'):
+                remote.sync(self.cfg, machine, 'tutti-run-1-2', '/tmp/tree')
+
     def test_local_shell_track_may_contain_spaces(self):
         machine = {**self.cfg['machines']['l'], 'runner': {'kind': 'shell'}}
         with mock.patch.object(remote, 'sh', return_value=subprocess.CompletedProcess([], 0)) as sh:

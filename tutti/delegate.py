@@ -355,13 +355,27 @@ def _delegate(cfg, name, task, files, repo, run_id, track, extra, checks, discar
         r['checks_from'] = checks_note(chosen, source)
         if checks and changed and chosen:
             env = {'TUTTI_CHANGED': ship.join_changed(changed), 'TUTTI_TREE': wt, 'TUTTI_GIT_MOUNT': worktree.docker_mount(wt)}
-            remote_track = remote_track or track or cfg['delegate']['remote_track']
+            # Default: unique per-run remote copy (host-wide repo.git stays shared). Explicit --remote-track or --track
+            # keeps a named folder (and its lock) so intentional sharing still works (t403, with t402 local bypass).
+            isolated = remote_track is None and track is None
+            remote_track = remote_track or track or remote.copy_name(cfg['delegate']['remote_track'], run_id)
             say(f'run: checking the change ({len(chosen)} check(s))')   # the dashboard's phase marker
-            # Only routed checks copy into the shared remote track. Local checks run in this run's own worktree.
+            # Only routed checks touch a remote copy. Local checks run in this run's own worktree (t402).
             lock = track_lock(cfg, remote_track, say) if any(c.get('where', 'local') == 'route' for c in chosen) \
                 else contextlib.nullcontext()
             with lock:
                 r['checks'] = run_checks(cfg, wt, chosen, env, remote_track, say, p['dir'])
+            if isolated:
+                used = {c['where'] for c in r['checks'] if c.get('where') not in (None, 'local', 'none')}
+                for machine_name in sorted(used):
+                    machine = cfg['machines'].get(machine_name)
+                    if not machine:
+                        continue
+                    try:
+                        remote.cleanup_copy(cfg, machine, remote_track)
+                    except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+                        say(f'run: could not remove remote copy "{remote_track}" on {machine_name} ({e}); '
+                            'remove it by hand if it stays (cleanup does not prove remote writers stopped)')
         elif checks:
             r['checks'] = []
         r['rc'] = verdict(r)

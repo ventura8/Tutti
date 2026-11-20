@@ -282,9 +282,11 @@ test:
     - {when: 'playwright|e2e/', run: 'npm run build:e2e'}
 
 # `tutti run <worker> "<task>" --repo <repo>`: the checks of the worker's diff (default: ship.checks). A routed check gets the
-# changed files through {changed} or {changed:ts,js}; the report says when a check turns coverage off.
+# changed files through {changed} or {changed:ts,js}; the report says when a check turns coverage off. Default remote copies
+# are per-run (`remote_track`-<run-id>); --remote-track keeps one shared folder.
 delegate:
   project: my-app                     # the default checks below are for this project only; another repo's run uses its own
+  # remote_track: tutti-run            # base name for per-run copies on the test machine
   checks:
     - {run: 'F={changed:py}; [ -z "$F" ] || python3 -m pytest -q --no-cov $F', where: route, verdict: 'passed|failed|error'}
 

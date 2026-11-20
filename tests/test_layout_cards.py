@@ -5,7 +5,8 @@ from types import SimpleNamespace
 
 import tmpdirs
 
-from tutti import dashboard, layout_cards as lc
+from tutti import dashboard
+from tutti import layout_cards as lc
 
 
 class Clamp(unittest.TestCase):

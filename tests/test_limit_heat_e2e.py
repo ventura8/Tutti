@@ -122,5 +122,27 @@ class ShareCap(unittest.TestCase):
         self.assertEqual(share.probe_at_share(nuc, raw, MON_NOON).free, 4)  # outside window: unchanged
 
 
+class HeatRound(unittest.TestCase):
+    def test_heat_round_persists_hands_over_once_and_clears(self):
+        import tmpdirs
+        from tutti import config
+        folder = tmpdirs.mkdtemp()
+        cfg = config.normalise({'project': {'state': folder},
+                                'machines': {'nuc': {'host': 'nuc.example', 'heat': {'cap_c': 85, 'stop_c': 98}}}})
+        stopped = []
+        notes = controls.heat_round(cfg, {'nuc': free(1, temp=105.0)}, now=5_000, stop_fn=lambda k, n: stopped.append(n))
+        self.assertTrue(any('heat pause started' in n for n in notes))
+        self.assertEqual(stopped, ['nuc'])
+        self.assertTrue(controls.heat_pause(cfg['machines']['nuc']['paused']))
+        self.assertIn('machine:nuc', controls.read(folder)['paused'])
+        stopped.clear()
+        self.assertEqual(controls.heat_round(cfg, {'nuc': free(1, temp=105.0)}, now=5_100, stop_fn=lambda k, n: stopped.append(n)), [])
+        self.assertEqual(stopped, [])
+        notes = controls.heat_round(cfg, {'nuc': free(1, temp=70.0)}, now=5_200)
+        self.assertTrue(any('heat pause cleared' in n for n in notes))
+        self.assertNotIn('paused', cfg['machines']['nuc'])
+        self.assertNotIn('machine:nuc', controls.read(folder)['paused'])
+
+
 if __name__ == '__main__':
     unittest.main()

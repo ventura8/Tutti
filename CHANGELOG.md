@@ -4,14 +4,15 @@
 
 ### Added
 
-- Add a hard-disabled OpenAI Responses Chat prototype and an unconnected local reservation ledger. Authoritative API
-  billing, settlement and an end-to-end paid-call gate are not implemented; no config can enable paid Chat (t294).
-
+- Hard-disabled OpenAI Responses Chat prototype and an unconnected local reservation ledger; no config enables paid Chat
+  until billing verification lands (t294). ChatGPT Pro/Plus coding stays on the Codex CLI worker with ladder, pacing and
+  Cursor-panic hand-off parity (t291, t302); live session verify remains an owner FEEDBACK item.
 - Autopilot/backlog: rough **attempt ETAs** from comparable successful attempts (t236).
 - Autopilot: slow pacing for eligible ahead accounts (isolated and direct shared windows) so Tutti keeps working near limits (t299).
 
 ### Fixed
 
+- Chat usage totals tolerate a cleared `usage: null` conversation when recording an answer (t294).
 - Automatic accounts with `stale_hours: 0` still age out after the default freshness window (t317).
 - Hold unverified stalled and no-report runs visibly instead of signalling unrelated processes or launching overlapping retries (t309).
 - After a host reboot, ignore a reused PID: queue fully local unreported attempts again, and hold bridged, routed-check or unknown ones until a report arrives (t309, t419).

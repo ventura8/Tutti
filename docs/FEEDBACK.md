@@ -64,6 +64,7 @@ of your project or secrets: describe the setup in general words.
 
 | # | Date | Command | What happened | Expected | Status |
 | --- | --- | --- | --- | --- | --- |
+| 26 | 2026-11-20 | ChatGPT Pro / Codex live | Coding path and fake-provider Cursor→Codex panic routing shipped (t291/t302); paid OpenAI API Chat stays hard-disabled (t294). | Owner confirms a live ChatGPT Pro `codex login`, a fresh Codex usage reading, and one panic hand-off on a real Cursor quota. | Open: live verify needs owner credentials; no real API keys in tests. |
 | 25 | 2026-11-18 | Autopilot pacing | A late account could start a task estimated to cross its panic line. | Respect estimated panic headroom when accelerating ordinary work. | Fixed for the next release (t300). |
 | 24 | 2026-11-18 | Autopilot pacing | Ahead accounts could stop even with discretionary quota remaining. | Continue slowly when measured room and safety limits permit. | Slow path for unlinked and eligible direct windows; nested/household-shared cases remain closed (t299). |
 | 23 | 2026-11-18 | Autopilot after a dashboard restart (t309) | Runs without reports were retried without establishing that their work had stopped. | Keep unverified attempts visible and prevent overlapping retries. | Partly fixed: fully local unreported runs resume after reboot; bridged, routed-check and unknown runs stay held (t309); verified remote-job containment remains open. |

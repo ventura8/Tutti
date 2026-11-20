@@ -335,7 +335,8 @@ review:
 main:
   agent: auto
   preferred: claude
-  fallback: [agy, cursor, small]
+  # ChatGPT Pro/Plus (Codex) sits with other online workers: panic/spent on preferred hands off here (t291/t302).
+  fallback: [codex, agy, cursor, small]
   commands:
     claude: [claude, -p, '{prompt}', --permission-mode, acceptEdits, --allowedTools, 'Bash(tutti:*)']
   check_seconds: 30

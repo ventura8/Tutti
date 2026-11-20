@@ -27,17 +27,19 @@ output and `{log}` for this pattern and reports every hit as DENIED. All three r
 
 - **Cursor**: `cursor-agent -p "<brief>" --trust --force --output-format text` (`--force`: commands run without a prompt
   unless explicitly denied; `--mode ask` for a read-only pass).
-- **OpenAI Codex CLI**: `codex exec --skip-git-repo-check --approve-for-me "<brief>"`.
-  Codex routes approval requests through automatic review while retaining its workspace-write sandbox. Tutti keeps task
-  claiming, leasing and reporting in the outer session; the worker brief tells Codex not to recursively call Tutti's MCP
-  tools. If a task needs a user decision, Codex must stop and report it for the interactive Tutti session to handle. For
-  an easy first setup, install Codex CLI, run `codex login` (or `codex login --device-auth` on a headless machine), then
-  run `tutti setup`; it detects the CLI and login state. Fake-provider tests cover Cursor panic routing to Codex and
-  paused or spent Codex refusal; they do not verify a live provider session. Check it with `codex login status`. Set `workers.codex.machine`
-  to that machine (often the laptop Tutti runs on): the autopilot and Move work know where the login lives, and the
-  machine's yield flag, pause, heat and quiet hours are honoured. Pace it with `accounts.codex` (`worker: codex`) and put
-  `codex` on `autopilot.accounts` / `autopilot.ladder` (and prefer it in `routing.workers`) so `tutti run auto` and the
-  autopilot pick it while Cursor is ahead or spent.
+- **OpenAI Codex CLI (ChatGPT Pro / Plus account)**: `codex exec --skip-git-repo-check --approve-for-me "<brief>"`.
+  This is Tutti's ChatGPT-backed coding worker: same ladder, pacing, pause/yield and panic hand-off as Claude, agy and
+  Cursor (t291/t302). Codex routes approval requests through automatic review while retaining its workspace-write sandbox.
+  Tutti keeps task claiming, leasing and reporting in the outer session; the worker brief tells Codex not to recursively
+  call Tutti's MCP tools. If a task needs a user decision, Codex must stop and report it for the interactive Tutti session
+  to handle. For an easy first setup, install Codex CLI, run `codex login` (or `codex login --device-auth` on a headless
+  machine), then run `tutti setup`; it detects the CLI and login state. Fake-provider tests cover Cursor panic routing to
+  Codex and paused or spent Codex refusal; they do not verify a live provider session (see FEEDBACK). Check it with
+  `codex login status`. Set `workers.codex.machine` to that machine (often the laptop Tutti runs on): the autopilot and Move
+  work know where the login lives, and the machine's yield flag, pause, heat and quiet hours are honoured. Pace it with
+  `accounts.codex` (`worker: codex`) and put `codex` on `autopilot.accounts` / `autopilot.ladder` (and prefer it in
+  `routing.workers` and `main.fallback`) so `tutti run auto`, conduct and the autopilot pick it while Cursor is ahead,
+  panic or spent. The separately billed OpenAI API Chat route is a different, hard-disabled prototype ([OPENAI.md](OPENAI.md)).
 - **Google Antigravity**: `agy -p "<brief>" --print-timeout 600s --mode accept-edits --log-file {log}`, with
   `denied: 'soft-denying'` (`--mode plan` for a read-only pass). Headless, agy allows only the commands in
   `permissions.allow` of `~/.gemini/antigravity-cli/settings.json` (`command(grep)`, ...) and soft-denies the rest; its log

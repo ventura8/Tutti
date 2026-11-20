@@ -95,6 +95,10 @@ class OpenAIChat(ApiBase):
         self.assertTrue(done['usage']['cost_unknown'])
         self.assertFalse(self.calls)
         self.assertTrue(chatctl.add_usage({}, done['usage'])['cost_unknown'])
+        # Cleared conversations keep usage=None; totals must still accumulate (t294).
+        cleared = chatctl.add_usage({'usage': None}, done['usage'])
+        self.assertEqual((cleared['in'], cleared['out']), (3, 2))
+        self.assertTrue(cleared['cost_unknown'])
 
     def test_real_chat_dispatch_reaches_fake_api_transport_only_when_selected(self):
         engine = self.engine({})

@@ -1,8 +1,13 @@
 # OpenAI integration
 
-Tutti can use the installed Codex CLI as a coding worker with a signed-in ChatGPT account. See [WORKERS.md](WORKERS.md)
-and [CONNECT.md](CONNECT.md). A ChatGPT subscription and the separately billed OpenAI API are different services: a
-subscription does not supply API credits or an API key.
+Tutti can use the installed Codex CLI as a coding worker with a signed-in ChatGPT account (ChatGPT Plus/Pro and related
+plans). That ChatGPT-backed Codex account is the OpenAI worker on the same ladder, pacing and panic hand-off paths as
+Claude, Antigravity and Cursor: put `codex` on `autopilot.ladder` / `autopilot.accounts`, prefer it in `routing.workers`,
+and list it in `main.fallback` (or as `main.preferred`) so Cursor panic or spent quota hands the main role and autopilot
+work to Codex when its host and quota allow. Fake-provider tests cover Cursor→Codex panic routing; a live ChatGPT Pro
+session still needs an owner `codex login` and a fresh usage reading (see [FEEDBACK.md](FEEDBACK.md)). See
+[WORKERS.md](WORKERS.md), [CONDUCT.md](CONDUCT.md) and [CONNECT.md](CONNECT.md). A ChatGPT subscription and the separately
+billed OpenAI API are different services: a subscription does not supply API credits or an API key.
 
 ## Experimental API Chat (unavailable)
 

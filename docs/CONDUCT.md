@@ -110,7 +110,7 @@ preferred and current and leaves auto. `tutti main auto` turns auto on and keeps
 main:
   agent: auto                         # a worker, or auto: preferred while it has room, else first main.fallback
   preferred: claude                   # the owner's lasting choice (empty: file's agent, else first fallback, else claude)
-  fallback: [agy, cursor, laptop]     # who takes over, in order (also the auto pick order after preferred)
+  fallback: [codex, agy, cursor, laptop]  # who takes over (ChatGPT/Codex with the other workers; t291/t302)
   commands:                           # optional: the command of an agent when it conducts (default: its worker command)
     claude: [claude, -p, '{prompt}', --permission-mode, acceptEdits, --allowedTools, 'Bash(tutti:*)']
   ask_first: []                       # extra ask-first actions for the instruction file

@@ -181,11 +181,43 @@ def gh_token(run=subprocess.run, clock=time.monotonic):
 def _ask_gh(run):
     if os.environ.get('TUTTI_OFFLINE'):   # tests and scripts/check.sh: never the owner's real sign-in
         return ''
+    tok = _gh_auth_token(run, os.environ)
+    if tok:
+        return tok
+    # An invalid GH_TOKEN/GITHUB_TOKEN in the agent shell shadows the CLI keyring and makes every scout/gh call fail.
+    if any(os.environ.get(k) for k in TOKEN_VARS):
+        clean = {k: v for k, v in os.environ.items() if k not in TOKEN_VARS}
+        return _gh_auth_token(run, clean)
+    return ''
+
+
+def _gh_auth_token(run, env):
     try:
-        r = run(['gh', 'auth', 'token'], capture_output=True, text=True, timeout=20, check=False)
-    except (OSError, subprocess.SubprocessError):
-        return ''
+        r = run(['gh', 'auth', 'token'], capture_output=True, text=True, timeout=20, check=False, env=env)
+    except (OSError, subprocess.SubprocessError, TypeError):
+        # TypeError: a test double of run() that does not take env=
+        try:
+            r = run(['gh', 'auth', 'token'], capture_output=True, text=True, timeout=20, check=False)
+        except (OSError, subprocess.SubprocessError):
+            return ''
     return (r.stdout or '').strip() if r.returncode == 0 else ''
+
+
+def bad_token_env_problems(run=subprocess.run):
+    """`tutti doctor`: GH_TOKEN (etc.) set in this shell but refused by GitHub, so it shadows the CLI keyring."""
+    names = [k for k in TOKEN_VARS if (os.environ.get(k) or '').strip()]
+    if not names:
+        return []
+    try:
+        r = run(['gh', 'auth', 'status'], capture_output=True, text=True, timeout=20, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    text = f'{r.stderr or ""}{r.stdout or ""}'
+    if 'invalid' not in text.lower() and 'failed to log in' not in text.lower():
+        return []
+    listed = ', '.join(names)
+    return [f'{listed} in this shell is invalid and shadows the GitHub CLI keyring: unset {listed} '
+            '(agents: drop it from the tool environment) so Tutti scouts and `gh` can use `gh auth login`']
 
 
 def token_for(cfg, sub=None, http=None, clock=time.time, gh=gh_token):
@@ -528,6 +560,9 @@ def run(argv, cwd=None, input=None, sub=None, cfg=None, http=None, fallback=subp
     if argv[1:3] == ['auth', 'status'] and not tok:
         return Done(1, '', 'GitHub is not connected: Connect GitHub on the Me view, or gh auth login')
     try:
+        # No Tutti token: call the real CLI without a broken GH_TOKEN from the agent shell (keyring still works).
+        if not tok and 'env' not in kw and any(os.environ.get(k) for k in TOKEN_VARS):
+            kw = {**kw, 'env': {k: v for k, v in os.environ.items() if k not in TOKEN_VARS}}
         return fallback(argv, cwd=cwd, input=input, **kw)
     except FileNotFoundError:
         return Done(127, '', 'the GitHub CLI is not installed and GitHub is not connected: choose Connect GitHub on the Me view')

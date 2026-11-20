@@ -211,8 +211,11 @@ By hand, `tutti scout setup` and the dashboard's Scouts card show the same steps
 
 1. Open the Grok Bot app (Cursor Pro includes it).
 2. Create a bot named "Tutti scout" (Only me).
-3. In **Connect apps** (sidebar) connect GitHub, with access to the repository in `reply.github_repo` (and the review
-   trial's repositories).
+3. In **Connect apps** (sidebar) connect GitHub, with access to the **real** repository named in your config's
+   `reply.github_repo` (and the review trial's repositories). The docs and `example.yaml` use `octo/my-app` only as a
+   placeholder: connecting only that example (or another repo that is not yours) makes the webhook return HTTP 400.
+   A paused routine also returns HTTP 400; Tutti reads the response body and says to open Grok Bot **Details** and
+   resume it, or to grant Connect apps the configured `scouts.<name>.reply.github_repo`.
 4. In the bot's chat ask it to create a routine named "Tutti task" with a **webhook** trigger, whose instructions say: the
    body is JSON with `task` and `reply_to`; do the task; post the full result as one comment on the GitHub issue
    `reply_to.url` (repository `reply_to.repo`, number `reply_to.issue`); never change code, open pull requests or close
@@ -223,5 +226,9 @@ By hand, `tutti scout setup` and the dashboard's Scouts card show the same steps
    (mode 600, `export NAME='value'` lines); never in `~/.profile`, the config, a repository or a chat.
 7. Test with `tutti scout ask grok "Say hello"`.
 8. Optional: read Grok Bot's weekly meter with the reading helper so scouts are paced against it.
+
+If `tutti scout ask` fails creating the GitHub issue while `gh auth status` shows an **invalid GH_TOKEN**, unset
+`GH_TOKEN` / `GITHUB_TOKEN` in that shell (agents often inject a dead token that shadows the CLI keyring). Tutti retries
+without those variables; `tutti doctor` names them when they are refused.
 
 Grok Bot's **Test** button runs the routine for real and spends usage.

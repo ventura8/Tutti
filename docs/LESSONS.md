@@ -1,5 +1,11 @@
 # Lessons
 
+- **Plex/NUC heat** (t444): Tutti `check.sh` in docker (`--cpus=8`) plus host HCM `npm run test:e2e` / Playwright
+  (dozens of `chrome-headless-shell` gpu-processes) plus a stuck `ollama` runner (5d at 100%) took the Plex NUC to
+  Package 105°C / load ~55. Killing leaf chrome is useless while the parent e2e/pipeline respawns it — stop the
+  `hcm-quality` container and host `test:e2e` supervisor, kill the ollama *runner* inside the ollama container (not
+  `serve`), pause the machine, never touch Plex. Route heavy checks off plex/limited-hours hosts.
+
 - **Pace room is not panic headroom** (t300): a late account near its panic line had room for a task whose estimated
   cost exceeded that line. Cap ordinary starts by the estimate as well as the pacing plan.
 

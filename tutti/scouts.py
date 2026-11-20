@@ -41,7 +41,9 @@ SETUP = (
     'Easiest: run `tutti scout setup grok` in a terminal; it walks you through every step below and tests it. By hand:',
     'Open the Grok Bot app (Cursor Pro includes it; it has its own weekly allowance).',
     'Create a bot named "Tutti scout" (new bot, name it, keep it personal: Only me).',
-    'In "Connect apps" (sidebar) connect GitHub, and allow it the repository named in scouts.<name>.reply.github_repo.',
+    'In "Connect apps" (sidebar) connect GitHub, and allow it the REAL repository in scouts.<name>.reply.github_repo '
+    '(your config, not the docs placeholder octo/my-app — connecting only that example causes HTTP 400). A paused '
+    'routine also returns 400; Tutti says so from the response body.',
     'In the bot\'s chat ask: "Create a routine named Tutti task with a webhook trigger. Instructions: the request body is JSON '
     'with task and reply_to. Do the task (research, browse, triage, monitor or draft as it asks). Then post the full result as '
     'one comment on the GitHub issue reply_to.url (repository reply_to.repo, issue number reply_to.issue). Never change code, '
@@ -239,19 +241,43 @@ OPENER = urllib.request.build_opener(NoRedirect)
 
 
 def post(url, key, body, timeout=30):
-    """POSTs one task; returns the HTTP status (200: a run started). The key goes only into the Authorization header."""
+    """POSTs one task; returns (status, body_text). Status 200 means a run started. The key goes only into Authorization.
+    Callers that only need the status may still treat a bare int from an older/fake post_fn as success/failure."""
     req = urllib.request.Request(url, data=json.dumps(body).encode(), method='POST',
                                  headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json',
                                           'User-Agent': 'tutti-scout'})
     try:
         with OPENER.open(req, timeout=timeout) as r:   # the URL is the owner's own routine, checked by check_url
-            return r.status
+            return r.status, ''
     except urllib.error.HTTPError as e:
-        e.close()
-        return e.code
+        try:
+            text = e.read().decode('utf-8', errors='replace')
+        finally:
+            e.close()
+        return e.code, text
 
 
-def refused(status, sc):
+def _snip(body, n=120):
+    text = ' '.join((body or '').split())
+    return text if len(text) <= n else text[: n - 1] + '…'
+
+
+def _body_why(sc, body):
+    """A hint from the webhook body (never the key). Empty when the body does not name a known cause."""
+    low = (body or '').lower()
+    snip = _snip(body)
+    if 'paused' in low or 'pause' in low:
+        msg = 'the routine is paused: open Grok Bot Details and resume it'
+        return f'{msg} ({snip})' if snip else msg
+    if any(w in low for w in ('github', 'octo', 'connect', 'access', 'repo')):
+        repo = (sc.get('reply') or {}).get('github_repo') or 'owner/name'
+        msg = (f'Connect apps must grant scouts.{sc["name"]}.reply.github_repo '
+               f'({repo} from your config, not the docs example octo/my-app)')
+        return f'{msg} ({snip})' if snip else msg
+    return ''
+
+
+def refused(status, sc, body=''):
     if status == 401 or status == 403:
         why = f'the key was refused: copy the routine\'s current key into {sc["key_env"]} again'
     elif status == 404:
@@ -261,8 +287,15 @@ def refused(status, sc):
     elif 300 <= status < 400:
         why = f'it answered with a redirect, which is never followed (the key would go elsewhere): check {sc["url_env"]}'
     else:
-        why = 'confirm the routine is not paused (Grok Bot: the bot\'s Details tab) and the key is current'
+        why = _body_why(sc, body) or 'confirm the routine is not paused (Grok Bot: the bot\'s Details tab) and the key is current'
     return f'the scout\'s webhook answered {status}, so no run started: {why}'
+
+
+def _post_result(out):
+    """Normalise post_fn output: (status, body) or a bare status int from older fakes."""
+    if isinstance(out, tuple):
+        return out[0], (out[1] if len(out) > 1 else '') or ''
+    return out, ''
 
 
 # ---- state
@@ -395,11 +428,11 @@ def send(sc, r, url, key, gh_fn=gh, post_fn=post, now=None):
     body = {'task': r['task'], 'skill': r.get('skill'), 'from': 'tutti', 'id': r['id'],
             'reply_to': {'repo': r['repo'], 'issue': r['issue'], 'url': r['url'], 'how': how}}
     try:
-        status = post_fn(url, key, body)
+        status, resp = _post_result(post_fn(url, key, body))
     except OSError as e:
         status, why = None, f'the scout\'s webhook could not be reached ({type(e).__name__}): check the network and {sc["url_env"]}'
     else:
-        why = '' if status == 200 else refused(status, sc)
+        why = '' if status == 200 else refused(status, sc, resp)
     if why:
         r.update(status='failed', why=why)
         if r['kind'] == 'review':

@@ -6,6 +6,13 @@ The format follows Keep a Changelog; versions follow Semantic Versioning.
 a fix raises the patch (0.N.P+1). Many agents release at once: take the next free number when you merge, not when you
 start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your entry here if another release took it.
 
+## 0.16.1 (2026-11-17)
+
+### Added
+
+- Unit tests for the reading helper's bookmarklet (`tutti/web/helper-bookmarklet.js`): a real spending page opens the
+  dashboard with the meters; a still-loading page alerts and opens nothing (docs/TESTING.md, docs/DASHBOARD.md).
+
 ## 0.16.0 (2026-11-15)
 
 ### Added

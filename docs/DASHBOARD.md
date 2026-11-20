@@ -309,8 +309,9 @@ What it never does: read cookies, storage or tokens, call the provider's API, or
 computer. The fragment carries this install's helper key (`<state>/helper.key`, 0600): the server refuses a reading whose
 key is wrong (403), so a site that opens the dashboard with a made-up reading only fills the form for the owner to check.
 **The patterns are not a stable API.** When the page's text changes and nothing matches, the bookmarklet says so and the
-dashboard opens the form instead. The tests run the parser on the text of the real Cursor spending page (2026-11-14:
-"Cursor Models 25% used", "Other Models 14% used", "Usage limits reset on Dec 10"), and it was checked on the live page.
+dashboard opens the form instead. The tests run the parser and the bookmarklet wrapper on the text of the real Cursor
+spending page (2026-11-14: "Cursor Models 25% used", "Other Models 14% used", "Usage limits reset on Dec 10"), and it
+was checked on the live page; a still-loading page alerts and does not open the dashboard.
 
 **Without a click.** The work browser reads the page (docs/BROWSER.md): **Read on the work browser** on the card or
 `tutti browser read`, after one sign-in there (**Sign in to <site> on the work browser**). The **Work browser** card shows

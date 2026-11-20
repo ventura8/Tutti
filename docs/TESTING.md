@@ -79,4 +79,6 @@ never relax a check.
 
 `web/format.js`, `web/attention.js`, `web/energy.js`, `web/household.js` and `web/settings.js` are pure enough to run in
 node: their unit tests (`tests/test_dashui.py`, `tests/test_layout.py`, `tests/test_energy.py`, ...) load them with
-`format.js` first and pin `LC_ALL=en_US.UTF-8` where a number's form matters.
+`format.js` first and pin `LC_ALL=en_US.UTF-8` where a number's form matters. The reading helper's parser and bookmarklet
+(`web/helper-parse.js`, `web/helper-bookmarklet.js`) run the same way (`tests/test_helper_parse.py`,
+`tests/test_helper_bookmarklet.py`): a good page yields the meters; a still-loading page alerts and opens nothing.

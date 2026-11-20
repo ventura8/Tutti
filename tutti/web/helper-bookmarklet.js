@@ -4,7 +4,20 @@
 // statement ends with a semicolon or a brace.
 (function () {
     const targets = __TARGETS__;
-    const parsed = (__PARSE__)(document.body.innerText, targets);
+
+    // Core parsing logic extracted for testing
+    function parseText(text) {
+        // Filter out common artifacts like CSS class names that might appear in innerText but aren't real readings
+        let cleaned = text.replace(/class:\s*\w+/g, '').replace(/\n\s*\n/g, '\n');
+        
+        const parsed = (__PARSE__)(cleaned, targets);
+        return parsed;
+    }
+
+    // Filter out common artifacts like CSS class names that might appear in innerText but aren't real readings
+    let text = document.body.innerText.replace(/class:\s*\w+/g, '').replace(/\n\s*\n/g, '\n');
+    const parsed = parseText(text);
+
     if (parsed.loading) {
         alert('This page is still loading (no meter is shown yet), so Tutti saved nothing. Wait until the meters show, then click the button again.');
         return;
@@ -16,3 +29,8 @@
     const first = targets.length ? targets[0].account : '';
     window.open(__ORIGIN__ + '/#reading=' + encodeURIComponent(JSON.stringify({ key: __KEY__, account: first, readings: readings, page: location.host + location.pathname })), 'tutti-dashboard');
 })();
+
+// Export the parsing function for unit testing (only if in a test environment or to allow imports)
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { parseText };
+}

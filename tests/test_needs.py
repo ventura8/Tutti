@@ -208,9 +208,27 @@ class Backfill(Base):
 
 
 class Resilience(Base):
-    def test_rebooted_run_ignores_a_reused_pid_and_waits_for_report(self):
+    def test_rebooted_local_run_ignores_a_reused_pid_and_is_queued_again(self):
         cfg = self.cfg()
-        t = task(status='running', run='1700000000-1', step='a', started=T0, boot='old', job_bridge='')
+        t = task(status='running', run='1700000000-1', step='a', started=T0, boot='old', job_bridge='',
+                 check_where='', gates='', attempts=[], repo='r', title='Fix it', scope=[], source='manual')
+        alive = mock.Mock(return_value=True)
+        with mock.patch.object(autopilot.delegate, 'load_report', return_value=None), \
+                mock.patch.object(autopilot.durable, 'died_with_host', return_value=True), \
+                mock.patch.object(autopilot, 'tree_of', return_value=None), \
+                mock.patch.object(autopilot, 'wip_remote', return_value=''):
+            self.assertEqual(autopilot.finished(cfg, t, alive), (True, None))
+            events = autopilot.collect(cfg, {'tasks': [t]}, T0 + 11 * 60, alive)
+        alive.assert_not_called()
+        self.assertEqual(t['status'], 'queued')
+        self.assertEqual(t.get('interrupted'), 1)
+        self.assertTrue(events and 'interrupted by a power-off' in events[0])
+        self.assertNotIn('recovery_note', t)
+
+    def test_rebooted_routed_check_stays_held_even_with_empty_bridge(self):
+        cfg = self.cfg()
+        t = task(status='running', run='1700000000-1', step='a', started=T0, boot='old', job_bridge='',
+                 check_where='route', gates='bash scripts/check.sh')
         alive = mock.Mock(return_value=True)
         with mock.patch.object(autopilot.delegate, 'load_report', return_value=None), \
                 mock.patch.object(autopilot.durable, 'died_with_host', return_value=True):
@@ -276,6 +294,16 @@ class Resilience(Base):
     def test_unknown_legacy_destination_stays_held_after_reboot(self):
         cfg = self.cfg()
         t = task(status='running', run='1700000000-1', step='a', started=T0, boot='old')
+        with mock.patch.object(autopilot, 'finished', return_value=(True, None)), \
+                mock.patch.object(autopilot.durable, 'died_with_host', return_value=True):
+            self.assertEqual(autopilot.collect(cfg, {'tasks': [t]}, T0 + 11 * 60, lambda p: False), [])
+        self.assertEqual(t['status'], 'running')
+        self.assertIn('waiting for its report', t['recovery_note'])
+
+    def test_legacy_local_with_gates_but_no_check_where_stays_held_after_reboot(self):
+        cfg = self.cfg()
+        t = task(status='running', run='1700000000-1', step='a', started=T0, boot='old', job_bridge='',
+                 gates='bash scripts/check.sh')
         with mock.patch.object(autopilot, 'finished', return_value=(True, None)), \
                 mock.patch.object(autopilot.durable, 'died_with_host', return_value=True):
             self.assertEqual(autopilot.collect(cfg, {'tasks': [t]}, T0 + 11 * 60, lambda p: False), [])

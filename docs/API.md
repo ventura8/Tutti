@@ -553,6 +553,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `main.rounds` | number | `12` | Rounds: The most rounds one goal may take. | admin |
 | `main.command_timeout` | number (seconds) | `3600` | One round may take: A round that takes longer is stopped. | admin |
 | `machines.*.host` | text |  | Host: An ssh alias from ~/.ssh/config, or local for this computer. | admin |
+| `machines.*.physical_machine` | text |  | Physical machine: Name the main machine entry for another environment on the same computer (dashboard card only; different connection addresses). | admin |
 | `machines.*.transport` | select local, ssh, wsl, android, household | `ssh` | Reached by: ssh, local, wsl (a Windows machine's WSL) or android (Termux). | admin |
 | `machines.*.user` | text |  | User: The login on the machine (Termux). | admin |
 | `machines.*.port` | number |  | ssh port: Termux's sshd listens on 8022. | admin |

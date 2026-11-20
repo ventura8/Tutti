@@ -31,7 +31,7 @@ computers and Android devices for software work, without anyone stepping on anyo
 - **GitHub connection.** Connect GitHub once from the dashboard ([docs/GITHUB.md](docs/GITHUB.md)).
 - **Dashboard and chat.** A web dashboard on your LAN or VPN only, never on the public internet, with Google sign-in
   and roles. It opens on **Chat** (ask "why is the NUC idle?" or queue work), then Dashboard (usage, jobs, needs),
-  **Machines** cards (one per physical computer, with WSL and desktop environments nested under it; slots busy, held back or free, and why) and Settings. An **Admin** tab is coming
+  **Machines** cards (one per physical computer, with WSL and desktop environments nested under it; configure `physical_machine` for environments with different addresses; slots busy, held back or free, and why) and Settings. An **Admin** tab is coming
   ([docs/DASHBOARD.md](docs/DASHBOARD.md), [docs/CHAT.md](docs/CHAT.md), [docs/NETWORK.md](docs/NETWORK.md),
   [docs/AUTH.md](docs/AUTH.md)).
   Automatic page updates, Settings restarts and daily self-update restarts protect this tab's unsent Chat work and active

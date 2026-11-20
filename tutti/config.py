@@ -289,6 +289,16 @@ def physical(cfg, name):
                 name)
 
 
+def dashboard_physical(cfg, name):
+    """The Machines-tab display group: `machines.<m>.physical_machine` nests environments with different connection addresses
+    under one card. Scheduling, power and energy still use `physical` (same-host dedicated only), so this is display-only."""
+    m = cfg['machines'].get(name) or {}
+    parent = m.get('physical_machine')
+    if isinstance(parent, str) and parent in cfg['machines']:
+        return parent
+    return physical(cfg, name)
+
+
 def machine_of(cfg, name, own):
     """One machine with its defaults (a Termux machine's own), its name and its runner merged over the shared one."""
     android = own.get('transport') == 'android'
@@ -505,6 +515,11 @@ def validate(cfg):
     errs = []
     for name, m in cfg['machines'].items():
         errs += _machine_errors(name, m)
+        parent = m.get('physical_machine')
+        if parent is not None and (not isinstance(parent, str) or parent not in cfg['machines'] or parent == name
+                                   or cfg['machines'].get(parent, {}).get('physical_machine')
+                                   or parent != dashboard_physical(cfg, parent)):
+            errs.append(f'machines.{name}.physical_machine is {parent!r}: name another top-level machine')
     errs += [f'routing.order names "{n}", which is not under machines:' for n in cfg['routing']['order'] if n not in cfg['machines']]
     errs += [f'machines.{n}.via names "{m["via"]}", which is not under machines: (the client this machine is reached through)'
              for n, m in cfg['machines'].items() if m.get('via') and m['via'] not in cfg['machines']]

@@ -4,6 +4,11 @@
 
 ### Added
 
+- Needs you tab in the dashboard (`#needs`, `GET /api/needs/tab`): every open person-facing question with its why, exact
+  next action, options (default marked) or free words to answer, and a jump to the parked task, then the rest of the
+  needs-you list with each step. The Chat lists the same with `/needs` ("what needs me?") and answers with `q3 retry`; Chat
+  models get `needs_list` and `needs_answer` (listed options only, the user's own questions only). Tutti-resolvable
+  questions stay off both until Tutti has tried them, only counted (t442).
 - Decisional model (t440): `decisional.candidates` lists free models best first; Tutti picks the strongest suitable machine
   (measured graphics memory, or `decisional.hardware`) and the first candidate that fits, asks it first for judgement steps
   (unblocker, triage, scout, Needs-you, welcome-back summaries, routing advice) through `brain.ask`, and fetches it when

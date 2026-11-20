@@ -52,6 +52,25 @@ audit, filterable by user; the sign-in's part of the tab (people, roles, invites
 household's (`web/userstab.js`) is drawn into its `#users-manage` (docs/HOUSEHOLD.md, *The Users tab*). Settings shows no key
 about people (`settings_schema.MANAGED`). **Me → My main machine** (in the bar) moves this user's own Tutti.
 
+## The Needs you tab
+
+Next to Dashboard, for every signed-in user, viewers too (`#needs`, `web/needstab.js`, `GET /api/needs/tab`; t442). It
+lists everything that waits for this user and only for them, the same list the Chat's `/needs` gives (docs/CHAT.md):
+
+- **Questions only you can answer**, urgent first, then oldest: the question, its project and task, why it was asked and
+  the exact next action. Answer with one of its options (the default marked), or in your own words (kept as a note for the
+  worker; the task retries). Each answer goes through `POST /api/needs`, as on the My questions card. **Open task t5**
+  jumps to the parked task's row on the dashboard's *Needs you* card with its attempts and failure history, the whole
+  list unfolded; if it is gone (answered, retried or dropped meanwhile) a banner says so.
+- **Other things only you can do**: person-only parked tasks without a question, set-up steps, missing usage readings
+  (admins) and tuning proposals, each with its step and a link (Settings or the dashboard), the same items as the
+  welcome-back list (docs/WELCOME.md).
+
+Only person-facing items appear: a Tutti-resolvable question stays off the tab until Tutti has tried it (docs/NEEDS.md,
+t244); the heading says how many Tutti is still trying itself. With `ai_assist.unblock` off, every open question shows at
+once. An admin sees everyone's questions; a member only their own. The tab's name carries the count, refreshed every
+minute and after each answer. The dashboard's *Needs you* card links to the tab.
+
 ## Me and Household
 
 The bar's **Me / Household** switch (remembered per browser): **Me** shows this user's own setup; **Household** adds the
@@ -108,6 +127,7 @@ button keeps the keyboard focus. Cards in a row stretch to the same height.
 | Main agent | The main agent (`main.agent`, or the owner's switch; **Auto** keeps `main.preferred` while it has room), each candidate with why it is out (all its accounts in panic or spent), and the running or last `tutti conduct` run: the goal, its agents in turn and why each stopped. **Switch** posts to `/api/main` (`auto` or a worker; admin only; same as `tutti main` and the Chat header); a running conductor hands over at its next check. When the current main is in panic or spent, each probe round also hands the MAIN AGENT ROLE on (docs/CONDUCT.md). |
 | Connect your agent | Each main agent on this computer (docs/CONNECT.md): connected, needs restart (a process of it started before Tutti was added), not connected, not installed, or can't connect locally with the reason. **Connect**, **Disconnect** and **Connect all** post to `/api/connect`; **Test** starts the server the agent's own config names and lists Tutti's tools through MCP. |
 | Needs you | Gathered on the page from the rest of `/api/state` (`web/attention.js`): `autopilot.parked` and `.review`, accounts in panic, with a failed reader or a reading due, stalled jobs, `summary.machines_offline`, workers not ready, `summary.outside`. |
+| Needs you tab | `GET /api/needs/tab` (`needs.tab_view`): the viewer's own person-facing questions with options, default, next action and task; the rest of their needs-you list from `welcome.py`'s facts; how many Tutti still tries itself. |
 | Usage & pacing | `accounts:` in the config and the usage log (`tutti usage log`, the automatic readers, the Add a reading form). Per account: % used, the even-pace mark (what should be spent by now), the panic threshold (`panic_at`, default 95 %), the reset and target times and where the reset comes from (a reading, the config, an estimate), the readings of this window against the pace line, the plan and how often it is read automatically, and what to do; the planner's decision as rows (`quota_plan.rows`; `quota_plan.why` is the same in one line, docs/USAGE-PACING.md, *The planner*); an account with `limits` shows them inside its card (`limits`, each a full account state). In this order: the online agents' account cards, then **Local models**, then *You and the main agent* (the owner's mode and learned week). **Local models** is a category of its own (`local_models`, docs/ENERGY.md): one card per machine running local models (the machine of each Ollama worker, else this computer, and `energy.machines.<m>.ollama`) with its models installed and loaded, busy time, jobs and tokens today, this week and this month, live GPU power and use, the whole-system estimate, kWh and cost in your currency, cost per job and per busy hour, what the same tokens would cost on a cloud API, and its availability (paused, yielding, thermal, offline) with the reason. Every figure is an estimate; *Estimates: how they are made* on each card says which parts were measured. |
 | Machines | The same probe as `tutti machines`: one card per physical computer, with WSL/desktop environments nested inside; free and busy slots, load against cores, routing rank, paused (yield flag up), offline. Set `machines.<environment>.physical_machine` to the main machine's config name to group environments with different connection addresses; dedicated environments sharing a host are grouped automatically. This display setting does not change routing or slot accounting. Under each reachable environment, **Stored files**: what `tutti files send` keeps in its cache, the size against `files.budget_gb` and when each item was last used. |
 | Workers | The same check as `tutti workers`, plus the known CLI agents on this computer (Claude Code, Cursor, Antigravity, GitHub Copilot CLI, Gemini CLI, Ollama): installed or not, and whether a worker uses them. **Versions on each machine**: the last `tutti update` round (the dashboard runs one every `update.every_hours`, default 24, unless `update.auto: false`; **Update now** posts to `/api/update`): each program's version before and after, up to date, updated, skipped while running, failed with the reason, and the local models; above them, what only the owner can run (an apt package with a newer version, a switched-off apt source, a root-owned npm install) as one exact command per machine. |

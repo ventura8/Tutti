@@ -144,6 +144,7 @@ function showUsersView() {
     if (on) {
         $('dashboard-view').hidden = true;
         $('settings-view').hidden = true;
+        $('needs-view').hidden = true;
         $('chat-view').hidden = true;
     }
     for (const a of document.querySelectorAll('.tabs__tab[data-view]')) {

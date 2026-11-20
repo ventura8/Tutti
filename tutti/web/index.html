@@ -41,6 +41,7 @@
     <script src="chatctl.js?v=__TUTTI_VERSION__" defer></script>
     <script src="welcome.js?v=__TUTTI_VERSION__" defer></script>
     <script src="needs.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="needstab.js?v=__TUTTI_VERSION__" defer></script>
     <script src="github.js?v=__TUTTI_VERSION__" defer></script>
 </head>
 <body>
@@ -72,6 +73,7 @@
         <nav class="tabs" aria-label="Views">
             <a class="tabs__tab" href="#chat" data-view="chat" aria-current="page">Chat</a>
             <a class="tabs__tab" href="#dashboard" data-view="dashboard">Dashboard</a>
+            <a class="tabs__tab" href="#needs" data-view="needs" id="needs-tab">Needs you<span id="needs-count"></span></a>
             <a class="tabs__tab" href="#settings" data-view="settings">Settings</a>
             <a class="tabs__tab" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
         </nav>
@@ -222,6 +224,7 @@
                 <header class="card__head">
                     <h2 id="attention-h">Needs you</h2>
                     <p class="card__meta" id="attention-meta"></p>
+                    <a class="link view-ok" href="#needs">Answer them on the Needs you tab</a>
                 </header>
                 <ul id="attention" class="list list--grid"></ul>
             </section>
@@ -496,6 +499,23 @@
                 </details>
             </section>
         </div>
+      </div>
+
+      <!-- The Needs you tab (needstab.js, docs/NEEDS.md): every open question and needs-you item of this user, answered or
+           resolved here. view-ok: viewers answer their own; the server checks every answer. -->
+      <div id="needs-view" class="needs-view view-ok" hidden>
+            <section class="card span-full" aria-labelledby="needs-h">
+                <header class="card__head">
+                    <h2 id="needs-h">Needs you</h2>
+                    <p class="card__meta" id="needs-meta">Loading what needs you…</p>
+                    <button class="btn btn--tonal" id="needs-refresh" type="button">Refresh</button>
+                </header>
+                <output class="row__note" id="needs-note" aria-live="polite"></output>
+                <h3 class="card__sub" id="needs-questions-h">Questions only you can answer</h3>
+                <ol id="needs-questions" class="list" aria-labelledby="needs-questions-h"></ol>
+                <h3 class="card__sub" id="needs-other-h">Other things only you can do</h3>
+                <ul id="needs-other" class="list" aria-labelledby="needs-other-h"></ul>
+            </section>
       </div>
 
       <!-- Every setting of tutti.config.yaml, drawn by settings.js from GET /api/settings; sections may later be per user. -->

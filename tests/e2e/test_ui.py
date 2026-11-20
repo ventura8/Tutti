@@ -379,7 +379,7 @@ class Roles(unittest.TestCase):
     def test_a_viewer_sees_no_admin_control(self):
         ctx = new_context(VIEWER)
         page = open_view(ctx, '#dashboard')
-        self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard'])
+        self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard', 'Needs you'])
         shown = page.evaluate("""[...document.querySelectorAll('[data-admin], button, input, select, textarea, form, a.link')]
             .filter((e) => e.offsetParent !== null && !e.closest('.view-ok, .seg, #job-filter, nav.tabs'))
             .filter((e) => !['refresh', 'signout', 'job-project', 'install'].includes(e.id) && !e.classList.contains('more'))
@@ -394,7 +394,7 @@ class Roles(unittest.TestCase):
     def test_an_admin_sees_every_admin_control(self):
         ctx = new_context(ADMIN)
         page = open_view(ctx, '#dashboard')
-        self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard', 'Settings', 'Users'])
+        self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard', 'Needs you', 'Settings', 'Users'])
         hidden = [c for c in ADMIN_CONTROLS if not page.is_visible(c)]
         self.assertEqual(hidden, [])
         go(page, '#settings')

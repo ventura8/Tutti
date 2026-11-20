@@ -152,7 +152,7 @@ def task_facts(cfg, tasks, since):
                 continue   # Tutti clears Tutti-resolvable ones (t244); only person-only stay here
             needs.append({**base, 'kind': 'decision', 'title': f'Decide on task {t["id"]}: {t["title"][:80]}',
                           'step': f'Retry it, change its brief or drop it: tutti backlog retry {t["id"]} (or tutti backlog rm {t["id"]})',
-                          'why': why, 'link': '/#autopilot'})
+                          'why': why, 'link': '/#autopilot', 'task': t['id']})
         elif t.get('attempts') and not t['attempts'][-1].get('ok') and at >= since:
             a = t['attempts'][-1]
             cls = f' ({a["class"]})' if a.get('class') else ''
@@ -205,11 +205,9 @@ def question_needs(cfg):
     for q in needs_mod.load(cfg)['questions']:
         if q['status'] != 'open' or not needs_mod.person_visible(cfg, q):
             continue
-        step = q.get('next_action') or (
-            f'In the Chat: "{q["id"]} {q["default"]}" (default {q["default"]}; options {", ".join(q["options"])})')
         out.append({'scope': 'admin' if q['user'] == needs_mod.OWNER else f'user:{q["user"]}', 'kind': 'decision',
                     'project': q.get('project') or '', 'at': q['at'], 'title': f'{q["id"]}: {q["question"]}',
-                    'why': q.get('why') or '', 'link': '/#chat', 'step': step})
+                    'why': q.get('why') or '', 'link': '/#needs', 'step': needs_mod.step_of(q), 'task': q.get('task')})
     return out
 
 

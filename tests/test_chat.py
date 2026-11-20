@@ -293,6 +293,27 @@ class Roles(unittest.TestCase):
         self.assertIsNone(chat.refusal(ADMIN, pause, {}, 99))
         self.assertIn('approval', chat.refusal(PENDING, self.work, {}, 0))
 
+    def test_everyone_signed_in_lists_and_answers_their_own_questions(self):
+        answer = {'tool': 'needs_answer', 'args': {'id': 'q1', 'choice': 'retry'}}
+        self.assertIsNone(chat.refusal(VIEWER, answer, {}, 99))   # never counted against the daily work limit
+        self.assertIsNone(chat.refusal(VIEWER, {'tool': 'needs_list', 'args': {}}, {}, 0))
+        self.assertIn('approval', chat.refusal(PENDING, answer, {}, 0))
+        self.assertEqual(chat.describe(answer), 'Answer q1: retry')
+        tools = chat.model_tools()
+        self.assertEqual((tools['needs_list']['mutating'], tools['needs_answer']['mutating']), (False, True))
+        self.assertEqual(chat.parse('/needs', Requests.known), {'tool': 'needs_list', 'args': {}})
+        # the model cannot name whose question it answers: needs.py takes the chat's signed-in user
+        self.assertIn('has no user', chat.validate({'tool': 'needs_answer', 'args': {'id': 'q1', 'user': 'bo'}}, Requests.known))
+
+    def test_the_needs_tools_run_for_the_chat_user_never_through_the_owners_cli(self):
+        runner = mock.Mock()
+        with mock.patch.object(needs, 'chat_tool', return_value=(True, 'q1 answered: retry')) as tool:
+            ok, text, undo = chatrun.run_tool({}, {'tool': 'needs_answer', 'args': {'id': 'q1'}}, runner, VIEWER)
+        self.assertEqual((ok, text, undo), (True, 'q1 answered: retry', None))
+        tool.assert_called_once_with({}, VIEWER, 'needs_answer', {'id': 'q1'})
+        runner.assert_not_called()
+        self.assertFalse(chatrun.run_tool({}, {'tool': 'needs_list', 'args': {}}, runner)[0])   # no user: refused
+
     def test_config_errors_name_the_key(self):
         self.assertEqual(chat.errors({'chat': chat.DEFAULTS}), [])
         errs = chat.errors({'chat': {'viewer_tasks_per_day': -1, 'viewer_projects': 'map', 'history_turns': 99}})
@@ -1104,6 +1125,30 @@ class ToolLoop(ApiBase):
         events = self.send(self.engine_real(), VIEWER, 'stop the nuc')
         self.assertEqual(next(e['card'] for e in events if e['type'] == 'card')['state'], 'refused')
         self.assertEqual(controls.read(self.dir)['paused'], {})
+
+    def test_a_viewers_model_lists_and_answers_their_question_and_only_theirs(self):
+        from tutti import backlog
+        for tid, user in (('t1', VIEWER['sub']), ('t2', 'bo')):
+            t = {'id': tid, 'repo': 'map', 'title': f'Task {tid}', 'status': 'queued', 'attempts': [], 'notes': []}
+            with backlog.locked(self.cfg) as data:
+                data['tasks'].append(t)
+                q = needs.ask(self.cfg, t, **needs.park_question(t, 'stuck'), user=user)
+            needs.mark_tried(self.cfg, q['id'])
+        FakeOllama.script = [
+            [{'message': {'tool_calls': [{'function': {'name': 'needs_list', 'arguments': {}}}]}, 'done': True}],
+            [{'message': {'tool_calls': [{'function': {'name': 'needs_answer', 'arguments': {'id': 'q2', 'choice': 'drop'}}},
+                                         {'function': {'name': 'needs_answer', 'arguments': {'id': 'q1', 'choice': 'retry'}}}]},
+              'done': True}],
+            [{'message': {'content': 'Retried t1.'}, 'done': True}],
+        ]
+        events = self.send(self.engine_real(), VIEWER, 'answer my questions with the defaults')
+        listed = FakeOllama.seen[1]['messages'][-1]['content']
+        self.assertIn('tutti needs answer q1 retry', listed)
+        self.assertNotIn('q2', listed)   # another user's question
+        cards = [e['card'] for e in events if e['type'] == 'card']
+        self.assertEqual([c['state'] for c in cards], ['failed', 'done'])
+        self.assertEqual([q['status'] for q in needs.load(self.cfg)['questions']], ['answered', 'open'])
+        self.assertEqual(self.calls, [])   # never the owner's CLI
 
     def test_an_online_agent_gets_the_same_tools_as_action_lines(self):
         self.cfg['workers'] = {'claude': {'kind': 'cli', 'command': ['claude', '-p', '{prompt}']}}

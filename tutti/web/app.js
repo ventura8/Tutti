@@ -1385,7 +1385,7 @@ const ATTENTION_LABEL = { 'needs-person': 'Needs a person', panic: 'Panic', stal
 
 function attentionItem(it) {
     const open = it.job ? el('button', { class: 'btn btn--text view-ok', type: 'button', text: 'Open its log', onclick: () => openJob(it.job) }) : null;
-    return el('li', { class: 'row row--attention', 'data-tone': it.tone },
+    return el('li', { class: 'row row--attention', 'data-tone': it.tone, 'data-task': it.task?.id, tabindex: it.task ? '-1' : undefined },
         el('div', { class: 'row__name', title: it.title }, it.title.length > 140 ? `${it.title.slice(0, 140)}…` : it.title),
         chip(ATTENTION_LABEL[it.kind] || it.kind, it.tone),
         el('p', { class: 'row__note', text: it.note }), open, it.task ? attemptHistory(it.task) : null);
@@ -1399,6 +1399,18 @@ function openJob(id) {
     const box = document.querySelector(`.job[data-id="${CSS.escape(id)}"]`);
     box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     box?.querySelector(':scope > summary')?.focus({ preventScroll: true });
+}
+
+// The Needs you tab's jump (needstab.js): the task's row on the dashboard's Needs you card, the card's whole list shown.
+// False when the dashboard does not list it (answered, retried or another user's meanwhile).
+function showTask(id) {
+    ui.expanded.add('attention');
+    render();
+    const row = document.querySelector(`#attention [data-task="${CSS.escape(id)}"]`);
+    if (!row) return false;
+    row.scrollIntoView({ block: 'center' });
+    row.focus({ preventScroll: true });
+    return true;
 }
 
 function renderAttention(s) {

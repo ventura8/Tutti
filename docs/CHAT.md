@@ -79,6 +79,12 @@ or your main agent's machine, is off.
   (`<state>/auth-audit.jsonl`, the one the Users tab shows).
 - In your own words too: a model (local or online) turns "the legend overlaps on phones, get it fixed" into a proposed
   `backlog_add` card that you confirm (*Tools* below).
+- **Lists and answers what needs you** (t442), the same list as the dashboard's Needs you tab (docs/DASHBOARD.md):
+  `/needs` (or "what needs me?", "my questions") lists each open question only you can answer (its id, why, options and
+  default, exact next action and parked task), then the rest of your needs-you list with each step, and how many Tutti is
+  still trying itself. Answer with `q3 retry` (or `q3` for the default); free words go on the tab or with
+  `tutti needs answer`. A model does the same with `needs_list` and `needs_answer` (*Tools* below). Only person-facing
+  items show: a Tutti-resolvable question stays off until Tutti has tried it (docs/NEEDS.md, t244).
 
 ## Who may do what
 
@@ -163,6 +169,8 @@ A model works through the same calls as the MCP tools, so a local model can do w
 | `delegate_task`, `scout_ask` | work | as the mode says; admins (they spend an account at once) |
 | `test_on` (a track and a command, on a machine or an Android device) | work | as the mode says; admins |
 | `control` (pause or resume a machine, device, worker or account) | household | as the mode says; admins |
+| `needs_list` | read | runs at once: the user's own Needs you list (as `/needs`); every signed-in user |
+| `needs_answer` (a question id and one of its listed options; empty: the default) | own | as the mode says; every signed-in user, for their own person-facing questions only; free words and unlisted options are refused; not counted against the daily limit |
 
 - **Native tool calls** for local models: Ollama's function calling with each tool's JSON schema. A model under 7B
   parameters, or whose size neither the fleet's reading of its Ollama (docs/FLEET.md) nor its name tells, only talks

@@ -790,11 +790,12 @@ async function showActivity() {
             el('time', { text: dayFmt.format(new Date(r.at * 1000)) }), ` ${r.by}: ${r.action}`))) : el('p', { text: 'The chat has not done anything yet.' })], []);
 }
 
-// ---- the views: Chat (the default), Dashboard, Settings, Users
+// ---- the views: Chat (the default), Dashboard, Needs you, Settings, Users
 
 function chatView() {
     const h = location.hash || '';
     const admin = typeof document !== 'undefined' && document.body?.dataset.role === 'admin';
+    if (h.startsWith('#needs')) return 'needs';
     return h.startsWith('#settings') ? 'settings' : h.startsWith('#users') && admin ? 'users' : h.startsWith('#dashboard') ? 'dashboard' : 'chat';
 }
 

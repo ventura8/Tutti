@@ -215,6 +215,46 @@ class Order(unittest.TestCase):
         self.assertIn('/api/main', dashboard.ADMIN_PATHS)
 
 
+def needstab(expr):
+    src = os.path.join(dashboard.WEB, 'needstab.js')
+    script = f'const n = require({json.dumps(src)});\nconsole.log(JSON.stringify({expr}));'
+    return json.loads(subprocess.run(['node', '-e', script], capture_output=True, text=True, check=True).stdout)
+
+
+class NeedsTab(unittest.TestCase):
+    """The Needs you tab (t442): a tab of its own every view switcher knows, its script cached, its pure helpers."""
+
+    def read(self, name):
+        with open(os.path.join(dashboard.WEB, name), encoding='utf8') as f:
+            return f.read()
+
+    def test_the_tab_its_view_and_every_switcher_know_it(self):
+        page = self.read('index.html')
+        self.assertIn('href="#needs" data-view="needs"', page)
+        self.assertIn('<div id="needs-view" class="needs-view view-ok" hidden>', page)   # viewers answer their own
+        view = page[page.index('id="needs-view"'):page.index('id="settings-view"')]
+        for part in ('id="needs-questions"', 'id="needs-other"', 'id="needs-note"'):
+            self.assertIn(part, view)
+        self.assertIn('needstab.js', self.read('sw.js'))
+        self.assertIn("'#needs') ? 'needs'", self.read('settings.js'))
+        self.assertIn("h.startsWith('#needs')", self.read('chat.js'))
+        self.assertIn("$('needs-view').hidden = true", self.read('users.js'))
+        self.assertIn('function showTask(id)', self.read('app.js'))
+
+    @unittest.skipUnless(shutil.which('node'), 'node is not installed')
+    def test_the_heading_count_and_links(self):
+        v = {'questions': [{}], 'items': [{}, {}], 'resolving': 2}
+        self.assertEqual(needstab(f'n.needsTabCount({json.dumps(v)})'), ' (3)')
+        self.assertIn('3 things only you can do', needstab(f'n.needsTabMeta({json.dumps(v)})'))
+        self.assertIn('still trying 2 more', needstab(f'n.needsTabMeta({json.dumps(v)})'))
+        empty = {'questions': [], 'items': [], 'resolving': 0}
+        self.assertEqual(needstab(f'n.needsTabCount({json.dumps(empty)})'), '')
+        self.assertTrue(needstab(f'n.needsTabMeta({json.dumps(empty)})').startswith('Nothing needs you'))
+        self.assertEqual(needstab('n.needsTabHref("/#settings/ai_assist")'), '#settings/ai_assist')
+        for bad in ('"/#usage"', '"https://evil.example/"', '"javascript:alert(1)"', 'null'):
+            self.assertEqual(needstab(f'n.needsTabHref({bad})'), '#dashboard', bad)
+
+
 class VpnPost(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

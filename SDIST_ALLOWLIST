@@ -398,6 +398,7 @@ tutti/web/login.html
 tutti/web/login.js
 tutti/web/manifest.webmanifest
 tutti/web/needs.js
+tutti/web/needstab.js
 tutti/web/outside.js
 tutti/web/qr.js
 tutti/web/queue.js

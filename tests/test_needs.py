@@ -521,11 +521,94 @@ class People(Base):
             lines = [json.loads(x) for x in f]
         self.assertEqual([(x['by'], x['target'], x['action']) for x in lines], [('adm', 'ana', 'notify'), ('ana', 'ana', 'notify')])
 
+    def test_a_list_request_is_not_taken_for_an_answer(self):
+        cfg = self.cfg()
+        self.assertIn('Nothing needs you', needs.chat_reply(cfg, {'sub': 'ana', 'role': 'viewer'}, 'What needs me?'))
+        self.assertIsNone(needs.chat_reply(cfg, {'sub': 'ana', 'role': 'viewer'}, '/needs to be faster'))
+
     def test_the_main_agent_has_the_tools(self):
         names = {t['name'] for t in mcpserver.TOOLS}
         self.assertLessEqual({'pending_questions', 'answer_question'}, names)
         self.assertTrue(mcpserver.is_mutating('answer_question', {'id': 'q1'}))
         self.assertEqual(mcpserver.argv_of('answer_question', {'id': 'q1', 'choice': 'drop'}), ['needs', 'answer', 'q1', 'drop'])
+
+
+class NeedsTab(Base):
+    """The Needs you tab and the Chat's list and tools (t442): person-facing items only, each with its options, exact next
+    action and parked task; a Tutti-resolvable question stays off them until Tutti has tried it (t244)."""
+
+    def park(self, cfg, tid, user=needs.OWNER, shown=True):
+        t = task(tid, user=user)
+        self.add(cfg, t)
+        with backlog.locked(cfg) as data:
+            make = ask_shown if shown else needs.ask
+            return make(cfg, backlog.find(data, tid), **needs.park_question(t, 'stuck'), user=user, now=T0)
+
+    def test_the_tab_lists_person_facing_questions_with_options_step_and_task(self):
+        cfg = self.cfg()
+        self.park(cfg, 't1')
+        self.park(cfg, 't2', shown=False)   # Tutti-resolvable and not tried yet: Tutti works on it first
+        v = needs.tab_view(cfg, 'admin', needs.OWNER)
+        self.assertEqual([q['id'] for q in v['questions']], ['q1'])
+        q = v['questions'][0]
+        self.assertEqual((q['task'], q['options'], q['default']), ('t1', needs.PARK_OPTIONS, 'retry'))
+        self.assertIn('tutti needs answer q1 retry', q['next_action'])
+        self.assertEqual(v['resolving'], 1)
+        needs.mark_tried(cfg, 'q2')   # Tutti tried and left it: now it is the person's
+        self.assertEqual([q['id'] for q in needs.tab_view(cfg)['questions']], ['q1', 'q2'])
+
+    def test_urgent_first_and_a_member_sees_only_their_own(self):
+        cfg = self.cfg()
+        self.park(cfg, 't1', user='ana')
+        self.add(cfg, task('t2', user='ana'))
+        with backlog.locked(cfg) as data:
+            needs.ask(cfg, backlog.find(data, 't2'), 'Rotate the leaked password?', 'a secret is in the log', ['yes', 'no'], 'yes',
+                      user='ana', now=T0 + 1)
+        self.park(cfg, 't3', user='bo')
+        self.assertEqual([q['id'] for q in needs.tab_view(cfg, 'viewer', 'ana')['questions']], ['q2', 'q1'])
+        self.assertEqual(len(needs.tab_view(cfg, 'admin', needs.OWNER)['questions']), 3)
+        self.assertEqual(needs.tab_view(cfg, 'viewer', 'cy'), {'questions': [], 'items': [], 'resolving': 0})
+
+    def test_a_parked_task_without_a_question_is_listed_only_when_person_only(self):
+        cfg = self.cfg()
+        self.add(cfg, task('t1', status='needs-person', parked='needs the owner to sign in to the registry'))
+        self.add(cfg, task('t2', status='needs-person', parked='no progress after 3 attempts'))
+        items = [i for i in needs.tab_view(cfg)['items'] if i['task']]
+        self.assertEqual([i['task'] for i in items], ['t1'])
+        self.assertIn('tutti backlog retry t1', items[0]['step'])
+
+    def test_the_chat_lists_them_and_answers_only_a_listed_option(self):
+        cfg = self.cfg()
+        self.park(cfg, 't1', user='ana')
+        self.park(cfg, 't2', user='ana', shown=False)
+        ana = {'sub': 'ana', 'role': 'viewer'}
+        text = needs.chat_reply(cfg, ana, '/needs')
+        self.assertIn('tutti needs answer q1 retry', text)
+        self.assertNotIn('q2', text)
+        self.assertIn('still trying 1 more', text)
+        ok, why = needs.chat_tool(cfg, ana, 'needs_answer', {'id': 'q1', 'choice': 'maybe later'})
+        self.assertFalse(ok)
+        self.assertIn('not one of q1', why)
+        self.assertEqual(needs.load(cfg)['questions'][0]['status'], 'open')
+        self.assertFalse(needs.chat_tool(cfg, ana, 'needs_answer', {'id': 'q2', 'choice': 'retry'})[0])   # Tutti's to try first
+        self.assertFalse(needs.chat_tool(cfg, {'sub': 'bo', 'role': 'viewer'}, 'needs_answer', {'id': 'q1'})[0])
+        self.assertFalse(needs.chat_tool(cfg, None, 'needs_list', {})[0])
+        ok, why = needs.chat_tool(cfg, ana, 'needs_answer', {'id': 'Q1', 'choice': 'Drop'})
+        self.assertTrue(ok, why)
+        self.assertEqual(backlog.load(cfg)['tasks'][0]['status'], 'dropped')
+        self.assertIn('Nothing needs you', needs.chat_tool(cfg, ana, 'needs_list', {})[1])
+
+    def test_the_endpoint_serves_the_tab_and_refuses_without_a_sign_in(self):
+        from types import SimpleNamespace
+
+        from tutti import dashboard
+        cfg = self.cfg()
+        self.park(cfg, 't1')
+        with mock.patch.object(needs, 'admin_accounts', return_value=[]):
+            code, body, *_ = dashboard.get(SimpleNamespace(cfg=cfg, signed=False), needs.TAB_API, 'tok', {})
+        self.assertEqual(code, 200)
+        self.assertEqual([q['id'] for q in json.loads(body)['questions']], ['q1'])
+        self.assertEqual(needs.get(SimpleNamespace(cfg=cfg, signed=True), {}, tab=True)[0], 401)
 
 
 if __name__ == '__main__':

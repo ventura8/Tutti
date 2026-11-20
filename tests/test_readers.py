@@ -598,7 +598,7 @@ class ReadersTest(unittest.TestCase):
         pacing.append_log(path, 'weekly', 40, NOW - timedelta(minutes=10), source='reader')
         collector = dashboard.Collector(cfg, probe_fn=None, available_fn=None, reader=mock.Mock(), clock=lambda: NOW.timestamp())
         decisions, assemble = [], state.assemble
-        def capture(round_cfg, states, machines, beat):
+        def capture(round_cfg, states, machines, beat, reader_status=None):
             round_cfg['_main_worker'], round_cfg['_now'] = 'local', NOW
             decisions.append(autopilot.panic_rescue(round_cfg, 'codex', states['codex'], states))
             return {}, []

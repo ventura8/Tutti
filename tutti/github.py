@@ -365,6 +365,11 @@ def pr_merge(c, repo, number, sha, method='squash'):
     c.request('PUT', f'/repos/{repo}/pulls/{int(number)}/merge', {'sha': sha, 'merge_method': method})
 
 
+def add_deploy_key(c, repo, title, key, read_only=True):
+    """Adds a deploy key to a repository."""
+    c.request('POST', f'/repos/{repo}/keys', {'title': title, 'key': key, 'read_only': read_only})
+
+
 def pr_state(c, repo, number):
     """'MERGED', 'OPEN' or 'CLOSED'."""
     pr = c.request('GET', f'/repos/{repo}/pulls/{int(number)}') or {}

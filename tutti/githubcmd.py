@@ -10,6 +10,10 @@ from . import github
 OWNER = 'owner'   # the dashboard with sign-in off and the terminal share this connection
 
 
+def say(msg):
+    print(f'github: {msg}', file=sys.stderr)
+
+
 def show(st, out):
     if st['connected']:
         print(f'github: connected as {st["login"] or "?"} (Tutti\'s GitHub App)', file=out)
@@ -54,6 +58,16 @@ def cmd(cfg, a, out=sys.stdout, flows=None, sleep=time.sleep):
             return 0
         if a.action == 'manifest':
             print(manifest_page(), file=out, end='')
+            return 0
+        if a.action == 'add-key':
+            if len(a.arg) != 3:
+                say('github add-key: say repo, title and the public key, e.g. `tutti github add-key owner/name my-machine '
+                    '"ssh-ed25519 ..."`')
+                return 2
+            repo, title, key = a.arg
+            c = github.client(cfg, OWNER)
+            github.add_deploy_key(c, repo, title, key)
+            print(f'github: added read-only deploy key {title} to {repo}', file=out)
             return 0
         show(github.status(cfg, OWNER), out)
         return 0

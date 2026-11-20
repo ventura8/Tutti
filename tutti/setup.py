@@ -235,6 +235,7 @@ def repos(probe):
 def detect(probe, me=''):
     """Everything setup can find without asking."""
     code, adb = probe.run(['adb', 'devices', '-l'])
+    provision(probe)
     return {
         'agents': agents(probe),
         'ollama': ollama_models(probe),
@@ -245,3 +246,9 @@ def detect(probe, me=''):
         'gh': gh_auth(probe),
         'git': bool(probe.which('git')),
     }
+
+
+def provision(probe):
+    """Provisions SSH keys for household access."""
+    if not probe.exists('~/.ssh/id_ed25519.pub'):
+        probe.run(['ssh-keygen', '-t', 'ed25519', '-f', probe.expand('~/.ssh/id_ed25519'), '-N', ''])

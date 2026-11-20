@@ -58,6 +58,9 @@ class Share(Base):
 
 
 class KeepAlive(Base):
+    def free_reading(self):
+        return [{**FREE[0], 'reachable': True, 'busy': 0, 'load': 0.1, 'cores': 4}]
+
     def stale(self, cfg):
         fleet.save(cfg, {'machines': {'nuc': {'models': [fleet.classify(TAGS['models'][0])], 'stale': True}}})
 
@@ -77,23 +80,92 @@ class KeepAlive(Base):
         def sh(machine, script, **k):
             calls.append(script)
             return SimpleNamespace(stdout='user-service\n')
-        servers = fleet.keep_servers(cfg, FREE, 1000.0, sh)
+        servers = fleet.keep_servers(cfg, self.free_reading(), 1000.0, sh, observed_at=1000.0)
         self.assertEqual((servers['nuc']['up'], servers['nuc']['how'], servers['nuc']['fix']), (False, 'user-service', ''))
-        fleet.keep_servers(cfg, FREE, 1100.0, sh)
+        fleet.keep_servers(cfg, self.free_reading(), 1100.0, sh, observed_at=1100.0)
         self.assertEqual(len(calls), 1)                                    # not again within RESTART_EVERY
-        fleet.keep_servers(cfg, FREE, 1000.0 + fleet.RESTART_EVERY, sh)
+        fleet.keep_servers(cfg, self.free_reading(), 1000.0 + fleet.RESTART_EVERY, sh, observed_at=1000.0 + fleet.RESTART_EVERY)
         self.assertEqual(len(calls), 2)
 
     def test_a_system_service_gets_the_exact_fix_and_a_paused_machine_is_left_alone(self):
         cfg = self.cfg()
         self.stale(cfg)
-        servers = fleet.keep_servers(cfg, FREE, 1.0, lambda m, s, **k: SimpleNamespace(stdout='system-service\n'))
+        servers = fleet.keep_servers(cfg, self.free_reading(), 1.0, lambda m, s, **k: SimpleNamespace(stdout='system-service\n'),
+                                     observed_at=1.0)
         self.assertIn('sudo systemctl restart ollama', servers['nuc']['fix'])
         cfg2 = self.cfg()
         self.stale(cfg2)
         paused = [{**FREE[0], 'status': 'paused'}]
         out = fleet.keep_servers(cfg2, paused, 1.0, lambda *a, **k: self.fail('a yielding machine is not touched'))
-        self.assertTrue(out['nuc']['up'])
+        self.assertFalse(out['nuc']['up'])
+        self.assertEqual(out['nuc']['how'], 'deferred')
+
+    def test_model_restart_waits_for_complete_free_machine_reading(self):
+        cfg = self.cfg()
+        self.stale(cfg)
+        calls = []
+        def sh(*a, **k):
+            calls.append(a)
+            return SimpleNamespace(stdout='user-service\n')
+        good = self.free_reading()[0]
+        for changes in ({'status': 'busy'}, {'status': 'loaded'}, {'busy': 1}, {'load': None}, {'cores': None},
+                        {'load': float('nan')}, {'reachable': None}, {'stale': True}, {'free': None}, {'status': 'unknown'}):
+            servers = fleet.keep_servers(cfg, [{**good, **changes}], 100.0, sh, observed_at=100.0)
+            self.assertEqual((servers['nuc']['up'], servers['nuc']['how']), (False, 'deferred'))
+        self.assertEqual(calls, [])
+        for at in (None, -21, 101, float('nan')):
+            self.assertEqual(fleet.keep_servers(cfg, [good], 100.0, sh, observed_at=at)['nuc']['how'], 'deferred')
+        servers = fleet.keep_servers(cfg, [good], 101.0, sh, observed_at=101.0)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(servers['nuc']['how'], 'user-service')
+
+    def test_restart_rechecks_age_after_a_blocking_restart(self):
+        cfg = self.cfg()
+        cfg['machines']['pcbox'] = {**cfg['machines']['nuc'], 'name': 'pcbox'}
+        model = fleet.classify(TAGS['models'][0])
+        fleet.save(cfg, {'machines': {'nuc': {'models': [model], 'stale': True},
+                                      'pcbox': {'models': [model], 'stale': True}}})
+        calls = []
+        times = iter([1000.0, 1130.0])
+
+        def sh(machine, script, **k):
+            calls.append(machine['name'])
+            return SimpleNamespace(stdout='user-service\n')
+
+        good = self.free_reading()[0]
+        rows = [{**good, 'name': 'nuc'}, {**good, 'name': 'pcbox'}]
+        servers = fleet.keep_servers(cfg, rows, 1000.0, sh, observed_at=1000.0, clock=lambda: next(times))
+        self.assertEqual(calls, ['nuc'])
+        self.assertEqual(servers['nuc']['how'], 'user-service')
+        self.assertEqual((servers['pcbox']['up'], servers['pcbox']['how']), (False, 'deferred'))
+
+    def test_after_probe_uses_machine_observation_time_and_marks_recovery(self):
+        cfg = self.cfg()
+        self.stale(cfg)
+        calls = []
+        def sh(*a, **k):
+            calls.append(a)
+            return SimpleNamespace(stdout='user-service\n')
+        # machines_at alone is not enough: the gate uses the batch start (machines_started_at).
+        fresh = {'machines': self.free_reading(), 'machines_at': 201.0, 'machines_started_at': 1.0,
+                 'workers': {'items': []}, 'energy': {}}
+        with mock.patch.object(fleet, 'refresh'), mock.patch.object(fleet, 'apply'), \
+                mock.patch('tutti.power.after_probe'), mock.patch('tutti.householduse.record'), \
+                mock.patch.object(fleet, 'ensure_tunnels', return_value=[]), \
+                mock.patch('tutti.fleet.time.time', return_value=201.0):
+            fleet.after_probe(cfg, fresh, 201.0, sh=sh)
+            self.assertEqual(calls, [])
+            self.assertEqual(fleet.read_state(cfg)['servers']['nuc']['how'], 'deferred')
+            fresh['machines_started_at'] = 201.0
+            fleet.after_probe(cfg, fresh, 201.0, sh=sh)
+            self.assertEqual(len(calls), 1)
+            data = fleet.read_state(cfg)
+            data['machines']['nuc']['stale'] = False
+            fleet.save(cfg, data)
+            fleet.after_probe(cfg, fresh, 202.0, sh=sh)
+            server = fleet.read_state(cfg)['servers']['nuc']
+            self.assertTrue(server['up'])
+            self.assertEqual((server['how'], server['fix']), ('', ''))
 
 
 class Use(Base):

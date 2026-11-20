@@ -10,6 +10,7 @@ machine's own memory, presence) is asked before every task.
 Pure: classify, kind_of, model_for, fits, overflow, order, governor, entries, workers_for. The I/O: read_state, save,
 refresh (from the dashboard's readings), apply (at config load), ensure_tunnels, mem_free_gb."""
 import json
+import math
 import os
 import re
 import subprocess
@@ -446,9 +447,22 @@ RESTART_SCRIPT = ('if systemctl --user restart ollama 2>/dev/null; then echo use
                   'else echo none; fi')
 
 
-def server_down(e, row):
-    """A machine whose Ollama had models and now does not answer while the machine itself does."""
-    return bool(e.get('stale') and e.get('models')) and (row or {}).get('status') not in (*BLOCKING, None)
+def server_down(e):
+    """A previously observed model server did not answer this probe."""
+    return bool(e.get('stale') and e.get('models'))
+
+
+def restart_ready(row, observed_at, now):
+    """Conservatively defer on busy, loaded, stale or incomplete machine observations."""
+    if (not isinstance(observed_at, (int, float)) or isinstance(observed_at, bool) or not math.isfinite(observed_at)
+            or not 0 <= now - observed_at <= 120):
+        return False
+    if not isinstance(row, dict) or row.get('status') != 'free' or row.get('reachable') is not True or row.get('stale'):
+        return False
+    busy, free, load, cores = (row.get(k) for k in ('busy', 'free', 'load', 'cores'))
+    values = (busy, free, load, cores)
+    return (all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
+            and busy == 0 and free > 0 and 0 <= load < cores and cores > 0)
 
 
 def restart_fix(machine, how):
@@ -462,24 +476,30 @@ def restart_fix(machine, how):
     return f'install Ollama on {machine.get("name")} (https://ollama.com/download), or start it: `ollama serve`'
 
 
-def keep_servers(cfg, machines, now, sh=None):
+def keep_servers(cfg, machines, now, sh=None, observed_at=None, clock=None):
     """Every machine whose Ollama went quiet gets a restart (its user service, else `ollama serve`), at most every
     RESTART_EVERY seconds; one that cannot be restarted by Tutti gets the exact fix. Returns the servers' state, kept in
-    fleet.json: {machine: {up, since, restarted_at, how, fix}}."""
+    fleet.json: {machine: {up, since, restarted_at, how, fix}}. `clock` is re-read before each restart gate so a long
+    restart cannot stretch a reading past the freshness window; tests omit it and keep `now` fixed."""
     from . import remote
     sh = sh or remote.sh
+    tick = clock or (lambda: now)
     data = read_state(cfg)
     servers = data.get('servers') or {}
     rows = {m.get('name'): m for m in machines or ()}
     for name, e in (data.get('machines') or {}).items():
+        now = tick()
         s = servers.setdefault(name, {'up': True, 'since': now})
-        down = server_down(e, rows.get(name))
+        down = server_down(e)
         if not down:
             if not s.get('up'):
-                s.update(up=True, since=now, fix='')
+                s.update(up=True, since=now, how='', fix='')
             continue
         if s.get('up'):
             s.update(up=False, since=now)
+        if not restart_ready(rows.get(name), observed_at, now):
+            s.update(how='deferred', fix='restart deferred: wait for a fresh, free and unloaded machine reading')
+            continue
         m = cfg['machines'].get(name)
         if not m or (s.get('restarted_at') is not None and now - s['restarted_at'] < RESTART_EVERY):
             continue
@@ -506,7 +526,9 @@ def after_probe(cfg, fresh, now, run=subprocess.run, sh=None):
     apply(cfg)
     from . import power
     power.after_probe(cfg, fresh.get('machines') or [], now)   # measured power and headroom on every row (dispatch reads it)
-    keep_servers(cfg, fresh.get('machines') or [], now, sh)
+    # Batch-start age: a row finished late in a slow probe must not look fresher than when the batch began.
+    started = fresh.get('machines_started_at', fresh.get('machines_at'))
+    keep_servers(cfg, fresh.get('machines') or [], now, sh, observed_at=started, clock=time.time)
     ready = {w['name']: w['ready'] for w in (fresh.get('workers') or {}).get('items') or []}
     from . import householduse
     householduse.record(cfg, fresh.get('machines') or [], now)

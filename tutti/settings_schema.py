@@ -32,7 +32,7 @@ SECTIONS = [
     ('autopilot', 'Autopilot', 'Backlog tasks sent to accounts that are behind their pace; retries climb the ladder.',
      ['autopilot', 'autopilot.repos', 'depbots']),
     ('fleet', 'Local models', 'Every machine\'s Ollama as a worker; they take tasks while the online accounts are spared '
-     '(docs/FLEET.md).', ['fleet', 'work_queue']),
+     '(docs/FLEET.md).', ['fleet', 'decisional', 'work_queue']),
     ('dispatch', 'Keep busy', 'Idle devices and machines pull the projects\' pending test shards (docs/DISPATCH.md).', ['dispatch']),
     ('time', 'Time zone', 'What local time means for your hours, quiet hours and tariffs; auto is this computer\'s.', ['time']),
     ('presence', 'Presence', 'Devices and machines that come and go: away, asleep, moving work and Wake-on-LAN (docs/PRESENCE.md).',
@@ -327,6 +327,21 @@ FIELDS = {
                              'number', min=1024, step=1),
     'fleet.memory_floor_gb': field('Keep memory free (GB)', 'No local model runs on this computer with less memory free.',
                                    'number', min=0, step=0.5),
+    # the decisional model (docs/FLEET.md, *The decisional model*)
+    'decisional.enabled': field('Judgement model', 'Tutti\'s judgement steps ask the best free model that fits your strongest '
+                                'machine first.', 'switch'),
+    'decisional.host': field('Machine', 'Empty: the strongest suitable machine (the most graphics memory).', 'select',
+                             choices_from='machines'),
+    'decisional.model': field('Model', 'Empty: the first candidate that fits. A name such as qwen3:32b pins it.', 'text'),
+    'decisional.candidates': field('Candidates', 'Free models, best first: a name that shows its size, or {model, gb}.', **YAML),
+    'decisional.purposes': field('Steps that ask it first', 'unblock, triage, scout, needs, welcome, routing.', **YAML),
+    'decisional.auto_pull': field('Fetch it when missing', 'The probe pulls the model (tens of GB) onto the chosen machine; never '
+                                  'while someone is at this computer.', 'switch'),
+    'decisional.allow_cpu': field('Allow memory (RAM)', 'A machine without enough graphics memory may hold the model in RAM.',
+                                  'switch'),
+    'decisional.min_free_gb': field('Keep memory free (GB)', 'In RAM mode, a candidate must leave this much memory free.', **GB),
+    'decisional.pull_timeout_minutes': field('Pull time limit', 'How long a pull may take before it counts as failed.', **MIN),
+    'decisional.hardware': field('Hardware', 'Where it is not measured: {<machine>: {vram_gb: 32, mem_gb: 64}}.', **YAML),
     # energy (docs/ENERGY.md)
     'energy.price_per_kwh': field('Price per kWh', 'From your bill, in your currency. Empty: a typical price, shown as estimated.',
                                   'number', min=0, step=0.01),

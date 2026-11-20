@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Decisional model (t440): `decisional.candidates` lists free models best first; Tutti picks the strongest suitable machine
+  (measured graphics memory, or `decisional.hardware`) and the first candidate that fits, asks it first for judgement steps
+  (unblocker, triage, scout, Needs-you, welcome-back summaries, routing advice) through `brain.ask`, and fetches it when
+  missing (`tutti decisional pull`, or `decisional.auto_pull` in the dashboard probe, never while a person is at this
+  computer). Owner questions, paid agents and the online fallback are unchanged. `tutti decisional [status|pull|advise]`.
+
 ### Fixed
 
 - Scout webhook HTTP 400: surface paused-routine and GitHub Connect-apps / wrong-repo causes from the response body

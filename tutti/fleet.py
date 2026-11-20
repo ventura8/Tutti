@@ -532,6 +532,8 @@ def after_probe(cfg, fresh, now, run=subprocess.run, sh=None):
     ready = {w['name']: w['ready'] for w in (fresh.get('workers') or {}).get('items') or []}
     from . import householduse
     householduse.record(cfg, fresh.get('machines') or [], now)
+    from . import decisional
+    decisional.tick(cfg, now)   # a missing decisional model is fetched when decisional.auto_pull allows it (t440)
     return ensure_tunnels(cfg, fresh.get('machines') or [], ready, run)
 
 

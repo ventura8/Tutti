@@ -678,6 +678,16 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `fleet.enabled` | switch | `True` | Use every machine's models: Find each machine's Ollama and make it a worker. | admin |
 | `fleet.port_base` | number | `11450` | Tunnel ports from: Another machine's Ollama is reached on this port and the next ones. | admin |
 | `fleet.memory_floor_gb` | number | `3` | Keep memory free (GB): No local model runs on this computer with less memory free. | admin |
+| `decisional.enabled` | switch | `True` | Judgement model: Tutti's judgement steps ask the best free model that fits your strongest machine first. | admin |
+| `decisional.host` | select |  | Machine: Empty: the strongest suitable machine (the most graphics memory). | admin |
+| `decisional.model` | text |  | Model: Empty: the first candidate that fits. A name such as qwen3:32b pins it. | admin |
+| `decisional.candidates` | yaml | `['gpt-oss:120b', 'llama3.3:70b', 'qwen3:32b', 'gemma3:27b', 'gpt-oss:20b', 'qwen3:14b', 'gemma3:12b', 'qwen3:8b']` | Candidates: Free models, best first: a name that shows its size, or {model, gb}. | admin |
+| `decisional.purposes` | yaml | `['unblock', 'triage', 'scout', 'needs', 'welcome', 'routing']` | Steps that ask it first: unblock, triage, scout, needs, welcome, routing. | admin |
+| `decisional.auto_pull` | switch | `False` | Fetch it when missing: The probe pulls the model (tens of GB) onto the chosen machine; never while someone is at this computer. | admin |
+| `decisional.allow_cpu` | switch | `False` | Allow memory (RAM): A machine without enough graphics memory may hold the model in RAM. | admin |
+| `decisional.min_free_gb` | number (GB) | `8` | Keep memory free (GB): In RAM mode, a candidate must leave this much memory free. | admin |
+| `decisional.pull_timeout_minutes` | number (minutes) | `120` | Pull time limit: How long a pull may take before it counts as failed. | admin |
+| `decisional.hardware` | yaml |  | Hardware: Where it is not measured: {<machine>: {vram_gb: 32, mem_gb: 64}}. | admin |
 | `energy.price_per_kwh` | number |  | Price per kWh: From your bill, in your currency. Empty: a typical price, shown as estimated. | admin |
 | `energy.currency` | text |  | Currency: Empty: from your country (time zone, then locale). | admin |
 | `energy.country` | text |  | Country: Two letters (RO, DE, US). Empty: detected from the time zone, then the locale. | admin |
@@ -1611,6 +1621,18 @@ the household's local models as workers: every machine's Ollama, its models, the
 ```text
 usage: tutti fleet [-h]
 ```
+
+### `tutti decisional`
+
+the best free model for Tutti's own judgement on the strongest suitable machine: status (the pick and why), pull (fetch it when missing), advise (routing advice from it; docs/FLEET.md)
+
+```text
+usage: tutti decisional [-h] [{status,pull,advise}]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `action {status,pull,advise}` |  | `status` |
 
 ### `tutti security`
 

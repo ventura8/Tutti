@@ -144,12 +144,14 @@ tests/test_hygiene.py
 tests/test_intake.py
 tests/test_jobprogress.py
 tests/test_layout.py
+tests/test_layout_cards.py
 tests/test_limit.py
 tests/test_limit_heat_e2e.py
 tests/test_limits.py
 tests/test_local_share.py
 tests/test_machine_card.py
 tests/test_move.py
+tests/test_navmenu.py
 tests/test_needs.py
 tests/test_netpolicy.py
 tests/test_openai_api.py
@@ -299,6 +301,7 @@ tutti/jobmove.py
 tutti/jobprogress.py
 tutti/keepon.py
 tutti/lanmedia.py
+tutti/layout_cards.py
 tutti/local.py
 tutti/mainmachine.py
 tutti/manage.py

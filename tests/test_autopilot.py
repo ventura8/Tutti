@@ -14,8 +14,21 @@ from types import SimpleNamespace
 from unittest import mock
 
 from tutti import (
-    autopilot, backlog, cli, config, controls, dashboard, delegate, dispatch, fleet, household, planner, routing, sharing,
-    state, users,
+    autopilot,
+    backlog,
+    cli,
+    config,
+    controls,
+    dashboard,
+    delegate,
+    dispatch,
+    fleet,
+    household,
+    planner,
+    routing,
+    sharing,
+    state,
+    users,
 )
 
 FAKE_WORKER = '''import sys

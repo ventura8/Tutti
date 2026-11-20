@@ -277,6 +277,9 @@ before it expires, as far as the weekly allows. `autopilot.quiet_hours` lists lo
 
 ## The panel
 
+Running and queued tasks can show a rough **attempt ETA** from comparable successful attempts of the same repo, size and ladder step; with too few samples the ETA stays unknown (t236).
+
+
 **Autopilot** on the dashboard: the toggle, the ladder, `max_parallel`, whether it fills free room and reviews results, the last decision and its reason, then the runs
 going (step, elapsed time, credits when the CLI prints them, the last log line), the queue and the latest decisions (four,
 then **Show N more**, in a box that scrolls). Results to review and tasks that need a person are in **Needs you**. Every task

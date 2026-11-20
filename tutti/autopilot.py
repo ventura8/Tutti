@@ -30,6 +30,7 @@ from . import (
     priority,
     remote,
     routing,
+    tasketa,
     telemetry,
     tiers,
     tz,
@@ -1990,12 +1991,16 @@ def last_line(path):
     return lines[-1][:200] if lines else ''
 
 
-def task_view(cfg, t, now):
+def task_view(cfg, t, now, eta_history=None):
     v = {k: t.get(k) for k in ('id', 'repo', 'title', 'status', 'size', 'source', 'step', 'run', 'branch', 'pr', 'publish_note',
                                'parked', 'diff', 'worktree', 'landing', 'choice', 'picked', 'recovery_note')}
     v['attempt_count'] = len(t['attempts'])
     v['history'] = [{'step': a['step'], 'ok': a['ok'], 'why': a['why'][:200], 'signature': a['signature'], 'run': a['run']}
                     for a in t['attempts']]
+    if eta_history is not None and t['status'] in ('running', 'queued'):
+        steps = candidates(cfg, t) if t['status'] == 'queued' and t['repo'] in settings(cfg)['repos'] else []
+        step = t.get('step') if t['status'] == 'running' else (t.get('prefer') or (steps[0] if steps else ''))
+        v['eta'] = tasketa.estimate(t, step, eta_history, now)
     if t['status'] == 'running':
         v['elapsed'] = now - (t.get('started') or now)
         v['last_line'] = last_line(run_log(cfg, t['run']))
@@ -2008,7 +2013,8 @@ def view(cfg, now=None):
     now = now or time.time()
     data = backlog.load(cfg)
     st = read_state(cfg)
-    tasks = [task_view(cfg, t, now) for t in data['tasks'] if t['status'] not in ('done', 'dropped')]
+    eta_history = tasketa.profiles(data['tasks'])
+    tasks = [task_view(cfg, t, now, eta_history) for t in data['tasks'] if t['status'] not in ('done', 'dropped')]
     s = settings(cfg)
     from . import fill
     return {'enabled': enabled(cfg), 'fill_room': fill.fill_on(cfg), 'fill': st.get('fill'), 'auto_review': fill.review_on(cfg),
@@ -2034,7 +2040,23 @@ def fill_line(v):
 def task_lines(title, t):
     extra = (t.get('recovery_note') or t.get('publish_note') or t.get('parked')
              or (f'run {t["run"]} on {t["step"]}' if t['status'] == 'running' else ''))
-    return [f'{title:15} {t["id"]:5} {t["attempt_count"]} attempt(s)  {t["title"][:70]}'] + ([f'{"":21}{extra}'] if extra else [])
+    lines = [f'{title:15} {t["id"]:5} {t["attempt_count"]} attempt(s)  {t["title"][:70]}']
+    if extra:
+        lines.append(f'{"":21}{extra}')
+    eta = t.get('eta')
+    if eta:
+        if eta['state'] == 'unknown':
+            text_eta = f'attempt ETA unknown: {eta["reason"]}'
+        elif eta['state'] == 'overdue':
+            text_eta = f'attempt taking longer than usual; finish unknown (rough, {eta["samples"]} comparable passes)'
+        elif eta['state'] == 'running':
+            text_eta = (f'attempt may finish around {datetime.fromtimestamp(eta["finish_at"], tz.zone()).strftime("%H:%M")} '
+                        f'(~{max(1, round(eta["remaining_seconds"] / 60))} min left; rough, {eta["samples"]} comparable passes)')
+        else:
+            text_eta = (f'attempt usually ~{max(1, round(eta["duration_seconds"] / 60))} min '
+                        f'(rough, {eta["samples"]} comparable passes); start and finish unknown')
+        lines.append(f'{"":21}{text_eta}')
+    return lines
 
 
 def describe(v):

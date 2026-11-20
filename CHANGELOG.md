@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [Unreleased]
+
+### Added
+
+- Autopilot/backlog: rough **attempt ETAs** from comparable successful attempts (t236).
+
 ### Fixed
 
 - Automatic accounts with `stale_hours: 0` still age out after the default freshness window (t317).

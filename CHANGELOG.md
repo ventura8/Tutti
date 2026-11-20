@@ -4,6 +4,9 @@
 
 ### Added
 
+- Add a hard-disabled OpenAI Responses Chat prototype and an unconnected local reservation ledger. Authoritative API
+  billing, settlement and an end-to-end paid-call gate are not implemented; no config can enable paid Chat (t294).
+
 - Autopilot/backlog: rough **attempt ETAs** from comparable successful attempts (t236).
 - Autopilot: slow pacing for eligible ahead accounts (isolated and direct shared windows) so Tutti keeps working near limits (t299).
 
@@ -356,14 +359,6 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 - CI installs only the Chromium headless shell needed by the browser suite and shows installation progress, reducing
   downloads and making browser setup timeouts diagnosable without skipping browser tests (t331).
-
-## [Unreleased]
-
-### Added
-
-- Add a hard-disabled OpenAI Responses Chat prototype and an unconnected local reservation ledger. Authoritative API
-  billing, settlement and an end-to-end paid-call gate are not implemented; no config can enable paid Chat (t294).
-
 
 ## [0.27.5] - 2026-11-18
 

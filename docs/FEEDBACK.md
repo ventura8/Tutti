@@ -1,5 +1,8 @@
 # Feedback log
 
+- Security status failed to read pull requests when the GitHub adapter interpreted `--state open` as a pull request
+  number. Unsupported list calls now reach gh; a missing code-scanning analysis counts as zero reports.
+
 First users log **every** problem they hit here, the small ones too. This file is the backlog: an entry is closed by
 the change that fixes it, and a lesson worth keeping moves to [LESSONS.md](LESSONS.md).
 

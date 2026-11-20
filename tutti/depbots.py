@@ -167,12 +167,10 @@ def problem(kind, slug, err):
     if kind == 'dependabot' and ('403' in e or 'disabled' in e or 'not authorized' in e):
         return (f'{slug}: Dependabot alerts cannot be read: turn them on at https://github.com/{slug}/settings/security_analysis '
                 '(Dependabot alerts), and if they are on, give gh the security_events scope: `gh auth refresh -s security_events`')
-    if kind == 'code-scanning' and ('no analysis' in e or '404' in e or 'not enabled' in e):
-        return ''   # no code scanning set up is not a fault; the dashboard links the setup page
     if kind == 'code-scanning' and '403' in e:
         return (f'{slug}: code-scanning alerts cannot be read: `gh auth refresh -s security_events`, or turn code scanning on at '
                 f'https://github.com/{slug}/security/code-scanning/setup')
-    return f'{slug}: reading {kind} failed ({(err or "no output")[:160]}): `gh auth status` shows whether gh is signed in'
+    return f'{slug}: reading {kind} failed ({(err or "no output")[:160]}): check the response and retry `tutti security scan`'
 
 
 def _api(gh_fn, path, pages=None):
@@ -218,15 +216,19 @@ def open_comments(slug, prs, gh_fn, most=30):
 
 
 def _read_alerts(out, slug, s, gh_fn, prs):
+    no_analysis = False
     for kind, path, parse in (('dependabot', f'repos/{slug}/dependabot/alerts?state=open&per_page=100', from_dependabot),
                               ('code-scanning', f'repos/{slug}/code-scanning/alerts?state=open&per_page=100', from_code_scanning)):
         items, err = _api(gh_fn, path)
+        if items is None and kind == 'code-scanning' and 'no analysis' in (err or '').lower():
+            items = []
+            no_analysis = True
         if items is None:
             out['problems'] += [p for p in [problem(kind, slug, err)] if p]
             continue
         out['read'].append(kind)
         out['alerts'] += parse(items, slug)
-    out['code_scanning'] = 'code-scanning' in out['read']
+    out['code_scanning'] = 'code-scanning' in out['read'] and not no_analysis
     if 'prs' not in out['read']:
         return   # no inventory of open pull requests: their comments are unread, never "none"
     items, complete, err = open_comments(slug, prs, gh_fn)
@@ -247,6 +249,8 @@ def read_repo(slug, s, gh_fn=gh):
         prs = json.loads(raw or '[]') if rc == 0 else None
     except ValueError as exc:
         prs, err = None, f'unreadable answer ({exc})'
+    if prs is not None and not isinstance(prs, list):
+        prs, err = None, 'unreadable answer (expected a list)'
     if prs is None:
         out['problems'].append(problem('pull requests', slug, err))
         prs = []
@@ -280,8 +284,8 @@ def gather(cfg, now, gh_fn=gh, run=subprocess.run, force=False):
             found[name] = {'slug': slug, 'started': time.time(), **read_repo(slug, settings(cfg), gh_fn)}
         except (OSError, ValueError, KeyError, TypeError) as exc:   # one bad repo never stops the others
             found[name] = {'slug': slug, 'prs': [], 'alerts': [], 'code_scanning': False, 'read': [],
-                           'problems': [f'{slug}: reading it failed ({type(exc).__name__}: {exc}): `tutti security scan` again; '
-                                        'if it repeats, `gh auth status`']}
+                           'problems': [f'{slug}: reading it failed ({type(exc).__name__}: {exc}): check the response and retry '
+                                        '`tutti security scan`']}
     return found
 
 

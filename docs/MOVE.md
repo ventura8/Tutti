@@ -9,7 +9,7 @@ admission and releases it before stopping the dashboard.
 This is a partial local fence, not safe move or restart coordination. Older versions and direct runs, Chat, workq, dispatch,
 remote hosts and other launch paths do not use it. Already admitted work may still be running, and `--jobs wait` currently
 stops the dashboard service before waiting and can hand work over on timeout. Do not treat the marker, a report, or a local
-PID as proof remote work stopped. Complete execution-boundary evidence and coordinated admission remain open (t404/t309).
+PID as proof remote work stopped. Complete execution-boundary evidence and coordinated admission remain open (t309).
 
 You may start Tutti on a laptop and later want it on an always-on mini PC or desktop, so the dashboard, the autopilot
 and the readings keep going when the laptop sleeps. One command moves it, and one command brings it back:

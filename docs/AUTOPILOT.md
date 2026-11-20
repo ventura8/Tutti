@@ -8,8 +8,8 @@ asks for one); with `auto_review` (on by default) the cheap reviewer reads it an
 
 When autopilot is off, the active dashboard continues checkpointing existing work and holds reported runs during the off
 period. It does not dispatch, run the stuck watchdog, or classify and publish those reports while off. When switched on,
-the existing collection behavior resumes; it does not prove a remote process stopped. This does not make an update safe;
-execution-boundary proof is still needed (t404).
+the existing collection behavior resumes; it does not prove a remote process stopped. Daily self-update now waits for Chat
+idle before restarting; remote execution-boundary proof remains under t309.
 
 ## The backlog
 

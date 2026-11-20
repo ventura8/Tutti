@@ -87,6 +87,9 @@
 - **A service exit can announce a false departure** (t404): an update-driven watchdog exit runs systemd's leave hook.
   Reload the watchdog in place, and keep sending heartbeats if re-exec fails.
 
+- **A daily self-update must not cut Chat mid-answer** (t404): apply the same in-process Chat restart gate used by Settings,
+  and retry while Chat is busy instead of execv immediately after the download.
+
 - **A release tag must name its own reviewed PR** (t401): deleting a version branch can destroy concurrent work, while
   tagging current main after merging can publish unrelated commits. Reserve the branch without replacement and check
   the PR merge and its base before tagging; a non-atomic base check still requires a post-merge verification.

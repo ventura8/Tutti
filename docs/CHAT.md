@@ -10,8 +10,9 @@ For a dashboard-requested restart, Tutti checks the dashboard's live answer jobs
 holding the Chat store lock, then rechecks at restart time. New Chat sends wait during the final check. An active answer,
 unreadable store or unsupported cross-process lock refuses or defers the restart; if the delayed check defers it, Settings
 reports that the dashboard did not restart and offers a retry. A deleted conversation's live answer in
-another dashboard process is not visible to this guard. It does not coordinate automatic updates, failover, or other jobs;
-those need separate safeguards (t404).
+another dashboard process is not visible to this guard. Daily self-update uses the same in-process Chat restart gate and
+retries while Chat is busy. It does not coordinate failover takeover, other dashboard processes, or remote job stops;
+those remain under t309/t326.
 
 Confirmed Chat actions, plans and undo operations are also admitted through a local gate until their final card state is
 saved; a settings restart waits for them without serializing unrelated actions. If an action has begun and an exception

@@ -34,7 +34,8 @@ computers and Android devices for software work, without anyone stepping on anyo
   **Machines** cards (one per physical computer, with WSL and desktop environments nested under it; slots busy, held back or free, and why) and Settings. An **Admin** tab is coming
   ([docs/DASHBOARD.md](docs/DASHBOARD.md), [docs/CHAT.md](docs/CHAT.md), [docs/NETWORK.md](docs/NETWORK.md),
   [docs/AUTH.md](docs/AUTH.md)).
-  Automatic page updates and Settings restarts protect this tab's unsent Chat work and active answers. Cooperating Chat
+  Automatic page updates, Settings restarts and daily self-update restarts protect this tab's unsent Chat work and active
+  answers. Cooperating Chat
   storage writers serialize on supported POSIX hosts; this does not enable simultaneous dashboard engines. Interrupted
   answers that may have started work ask you to check its status before a new request. Job reports and logs in Chat are
   restricted to admins, including when a model requests them.

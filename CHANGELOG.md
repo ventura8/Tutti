@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Automatic accounts with `stale_hours: 0` still age out after the default freshness window (t317).
+
+
 The format follows Keep a Changelog; versions follow Semantic Versioning.
 
 **Versions (the owner, 2026-11-15).** Tutti stays 0.x. A big feature raises the minor version (0.N.0, patch back to 0),

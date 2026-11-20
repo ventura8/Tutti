@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 
 try:
     import fcntl
@@ -442,7 +443,7 @@ def watch(cfg, st, tgts, pend, p, now, worker_rows=()):
 # ---- workers: queued backlog tasks and a ladder step with room
 
 
-def worker_rows(cfg, accounts, machines):
+def worker_rows(cfg, accounts, machines, now=None):
     """Each autopilot step (a worker or an account) with room while backlog tasks are queued, as a watchdog target; the
     autopilot is what dispatches to it, so its own plan says what blocks it."""
     from . import autopilot, backlog  # autopilot imports modules that import this one
@@ -457,11 +458,18 @@ def worker_rows(cfg, accounts, machines):
     why = '' if on and last.get('state') == 'dispatching' else (last.get('reason') or 'the autopilot has not planned yet')
     why = why if on else 'the autopilot is off, so queued backlog tasks wait'
     out = []
-    for name in dict.fromkeys([*autopilot.ladder(cfg), *autopilot.trigger_accounts(cfg)]):
-        room, _ = autopilot.step_room(cfg, name, accounts, used, machines or ())
-        if room > 0 and not used.get(name):
+    now = now or datetime.now(timezone.utc)
+    triggers = autopilot.trigger_accounts(cfg)
+    slow = autopilot.slow_selection(cfg, accounts, tasks, used, machines, now)
+    for name in dict.fromkeys([*autopilot.ladder(cfg), *triggers]):
+        is_slow = slow.get(name, False)
+        room, _ = autopilot.step_room(cfg, name, accounts, used, machines or (), is_slow)
+        work = ([t for t in queued if autopilot.units(t) <= room and not backlog.is_question(t)
+                 and (t.get('check') or repos[t['repo']].get('check')) and name in autopilot.candidates(cfg, t, machines=machines or ())]
+                if is_slow else queued)
+        if room > 0 and not used.get(name) and work:
             out.append({'id': f'worker:{name}', 'kind': 'worker', 'name': name, 'busy': False, 'why': why,
-                        'work': queued, 'what': f'{len(queued)} backlog task{"s" if len(queued) != 1 else ""} wait for a worker'})
+                        'work': work, 'what': f'{len(work)} backlog task{"s" if len(work) != 1 else ""} wait for a worker'})
     return out
 
 
@@ -705,9 +713,11 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
     """One round: presence from the probes, end finished, dead or interrupted leases, refresh the pending work, pull it to
     free targets that are here, watch for idle ones, and reconnect or wake absent ones."""
     now = now or time.time()
+    from . import users
+    cfg['_slow_shared_accounts'] = users.slow_shares(cfg)
     is_alive = is_alive or controls.alive
     on = settings(cfg).get('enabled', True) is not False
-    rows = worker_rows(cfg, accounts or {}, machine_rows) if accounts is not None else []
+    rows = worker_rows(cfg, accounts or {}, machine_rows, datetime.fromtimestamp(now, timezone.utc)) if accounts is not None else []
     pst = presence.read(cfg)
     changes = presence.update(cfg, pst, devices_rows, machine_rows, now, members, models)
     off = presence.offset(cfg)

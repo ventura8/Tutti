@@ -75,9 +75,20 @@ The dashboard runs one round after every probe while the autopilot is on (`tutti
    crash never starts it twice. A local-model worker works through `tutti agent`'s loop on the task's scope files (it may
    create them). A running task cannot be retried, marked done or removed until its run ends.
 
-It stops dispatching, and the panel says why, when the backlog is empty ("backlog empty — add tasks"), when every account is
-at or over its even-pace line, in panic or spent, when no machine has a cool free slot, or when it is turned off. Runs already
+It stops dispatching, and the panel says why, when the backlog is empty ("backlog empty — add tasks"), when no account or local
+model has usable room, when no machine has a cool free slot, or when it is turned off. Runs already
 going finish.
+
+An ahead trigger account can take a small task at a time when fresh real readings and each direct quota window's
+discretionary balance cover its estimated `task_pct` cost. Linked-window costs require a measured or configured
+`window_points` conversion. Related accounts' planner budgets are intersected so each owner's reserve is kept; running
+or unreflected related work blocks another slow start, and one overlapping group takes at most one per planning round.
+Starts are spaced at half the rate that would use the available balance by each window's target. Shared accounts are chosen
+by recorded task units relative to their remaining safe task capacity. A finished or interrupted start keeps its quota
+reservation until a reading taken after that run covers it. Missing, stale, future or failed readings, unknown conversions,
+nested windows, a quiet period, panic, explicit pause, too little room or household-shared spare accounts stop this path.
+Local models still come first when online accounts are ahead, subject to their own safety limits.
+
 
 ## Failures fix themselves
 
@@ -140,8 +151,10 @@ On by default; `autopilot.fill_room: false`, `tutti autopilot fill off` or the *
 Opt-in turns it off. Each round, while the autopilot is on:
 
 1. **The room** is the units the trigger accounts (`autopilot.accounts`) may take now, as `step_room` gives it: the
-   planner's allowance for agy's 5 h and weekly windows, never an account that is ahead, in panic or spent. Cursor and the
+   planner's allowance for agy's 5 h and weekly windows, plus eligible slow-use room; never a
+   panicked or spent account. Cursor and the
    other ladder steps do not increase fill room, so filling never pushes them past their pace.
+
 2. **The want** is that room capped at three fresh tasks per parallel run (`max_parallel × 3`), less the fresh tasks
    already queued: the queue never floods, and never runs dry.
 3. **The sources** (every repo of `autopilot.repos`, read at most every 10 minutes while nothing new turns up): FEEDBACK.md

@@ -12,6 +12,7 @@ import json
 import math
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -202,10 +203,11 @@ def cli_host_out(cfg, step, machines):
     return fleet.governor(cfg, step['worker'], machines, cfg.get('_now')) or ''
 
 
-def step_room(cfg, name, states, running_units, machines=()):
+def step_room(cfg, name, states, running_units, machines=(), slow=False):
     """(units of room, why not) for one ladder step now. A trigger account (autopilot.accounts) has room only while it is
-    behind its line (or late), as much as its readings say; any other account only while it is not ahead of its pace, one task
-    at a time; a worker without an account (a local model) one task at a time. Panic and spent are never used."""
+    behind its line (or late), as much as its readings say; with slow=True an eligible ahead account may receive one unit.
+    Callers that omit slow get ordinary room only. Any other account only while it is not ahead of its pace, one task at a
+    time; a worker without an account (a local model) one task at a time. Panic and spent are never used."""
     step = step_of(cfg, name)
     if not step:
         return 0, unusable_why(cfg, name)
@@ -220,10 +222,10 @@ def step_room(cfg, name, states, running_units, machines=()):
         return 0, f'{name}: missing linked quota state ({", ".join(missing)}); resume it or refresh its reading'
     if name in states and main_in_panic(cfg, states) and routing.unknown_quota(states[name]):
         return 0, f'{name}: quota is unknown; refresh the account and all linked limits before taking over'
-    return account_room(cfg, name, step, states, running_units, machines)
+    return account_room(cfg, name, step, states, running_units, machines, slow)
 
 
-def account_room(cfg, name, step, states, running_units, machines):
+def account_room(cfg, name, step, states, running_units, machines, slow=False):
     """Room for a paced account after its named CLI worker's machine is available."""
     used = running_units.get(name, 0)
     blocked = cli_host_out(cfg, step, machines)
@@ -240,15 +242,22 @@ def account_room(cfg, name, step, states, running_units, machines):
         # owner, 2026-11-16 (prio 0): up to the account's own panic line, as many tasks as its measured cost per task fits
         room = takeover_room(cfg, name, s) - used
         return (room, '') if room > 0 else (0, f'{name}: its room up to its panic line is taken (taking over from the main agent)')
+    if slow:
+        return slow_account_room(name, used)
     unfit = routing.account_unfit(s)
     if unfit:
         return 0, f'{name}: {unfit}'
+    return ordinary_account_room(cfg, name, s, used)
+
+
+def ordinary_account_room(cfg, name, s, used):
+    """Use the planner's normal room or the account's ordinary even-pace allowance."""
     p = s.get('quota_plan')
     if (name in trigger_accounts(cfg) or name in cfg.get('_spare_accounts', ())) and p:
         # the planner's room (tutti/planner.py): a window's share of its weekly limit, or the room left after the reserve and
         # the background spend; spent before it expires
         room = p['tasks'] - used
-        return (room, '') if room > 0 else (0, f'{name}: {p["why"]}')
+        return (room, '') if room > 0 else (0, f'{name}: {p.get("why") or "no planned room"}')
     if name in trigger_accounts(cfg):
         if s.get('verdict') not in ('behind', 'late'):
             return 0, f'{name}: at its even-pace line ({s.get("verdict")})'
@@ -257,6 +266,10 @@ def account_room(cfg, name, step, states, running_units, machines):
     if s.get('verdict') == 'ahead':
         return 0, f'{name}: ahead of its pace'
     return (1 - used, '') if not used else (0, f'{name}: busy with a task')
+
+
+def slow_account_room(name, used):
+    return (1, '') if not used else (0, f'{name}: its paced task is still running or awaits a fresh reading')
 
 
 def main_accounts(cfg):
@@ -525,19 +538,29 @@ def assign(cfg, queued, rooms, free, out, prefer=None, over='', machines=(), fal
         free -= 0 if is_local(cfg, pick) else 1
 
 
+def _unreflected(step, states, cfg, started, ended=None):
+    """True while no reading taken at or after the attempt's end (or start) covers that spend."""
+    if is_local(cfg, step) or not started:
+        return False
+    windows = quota_windows(step, states.get(step) or {})
+    reads = [x.get('reading_at') for x in windows.values()]
+    covered = ended if isinstance(ended, (int, float)) and not isinstance(ended, bool) and math.isfinite(ended) else started
+    return not all(reads) or any(covered >= _ts(read) for read in reads)
+
+
 def spent_units(tasks, states, cfg):
-    """{step: units} the readings do not show yet: the runs going, and every attempt started on an account after its newest
-    reading (a finished run's cost stays counted until a new reading includes it)."""
+    """{step: units} the readings do not show yet: the runs going, finished attempts until a reading covers their end, and
+    interrupted starts that still hold quota until a newer reading."""
     used = {}
     for t in tasks:
         if t['status'] == 'running':
             used[t.get('step')] = used.get(t.get('step'), 0) + units(t)
+        hold = t.get('quota_hold') or {}
+        step = hold.get('step')
+        if step and _unreflected(step, states, cfg, hold.get('started')):
+            used[step] = used.get(step, 0) + units(t)
         for a in t['attempts']:
-            if is_local(cfg, a['step']):
-                continue   # local servers have no quota reading; only currently running work occupies them
-            windows = quota_windows(a['step'], states.get(a['step']) or {})
-            reads = [x.get('reading_at') for x in windows.values()]
-            if a.get('started') and (not all(reads) or any(a['started'] >= _ts(read) for read in reads)):
+            if _unreflected(a['step'], states, cfg, a.get('started'), a.get('at')):
                 used[a['step']] = used.get(a['step'], 0) + units(t)
     return used
 
@@ -582,6 +605,152 @@ def fresh_fallbacks(cfg, states, rooms, used, now):
     return out
 
 
+
+def slow_room(cfg, name, state, states, tasks, used, now):
+    """One small task only when every measured quota permits its cost and the shared-group cadence has elapsed."""
+    related = slow_related(cfg, name, state, states, used, now)
+    if related is None:
+        return False
+    p = state.get('quota_plan') or {}
+    account = (cfg.get('accounts') or {}).get(name) or {}
+    try:
+        cost = float(account.get('task_pct', pacing.TASK_PCT))
+        budgets = shared_slow_budgets(cfg, set(configured_windows(cfg, name)), related, states)
+        intervals = slow_intervals(name, state, account, p, budgets, cost, now)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError, OverflowError, StopIteration):
+        return False
+    if not intervals:
+        return False
+    starts = [a['started'] for t in tasks for a in t.get('attempts', [])
+              if a.get('step') in related and isinstance(a.get('started'), (int, float)) and not isinstance(a['started'], bool)
+              and math.isfinite(a['started'])]
+    if starts and now.timestamp() - max(starts) < max(intervals):
+        return False
+    return True
+
+
+def slow_related(cfg, name, state, states, used, now):
+    """Return a fully observed related quota group, else None."""
+    if now is None or not any(s.get('verdict') == 'ahead' for s in quota_windows(name, state).values()):
+        return None
+    if not observed_quota(cfg, name, state, now):
+        return None
+    limits = cfg.get('_account_limits') or {n: (a or {}).get('limits') or [] for n, a in (cfg.get('accounts') or {}).items()}
+    windows = set(configured_windows(cfg, name))
+    if routing.missing_limits(cfg, name, state) or not windows.issubset(quota_windows(name, state)):
+        return None
+    related = [n for n in limits if windows.intersection(configured_windows(cfg, n))]
+    shared = cfg.get('_slow_shared_accounts')
+    if shared is None or any(n in shared for n in related):
+        return None
+    if any(n not in states or not observed_quota(cfg, n, states[n], now) for n in related):
+        return None
+    if any(used.get(n) for n in related) or used.get(name):
+        return None
+    p = state.get('quota_plan') or {}
+    if p.get('tasks') or routing.quota_closed(state) or routing.unknown_quota(state):
+        return None
+    return related
+
+
+def shared_slow_budgets(cfg, windows, related, states):
+    """Intersect each observer's reserved budget for a window; an unavailable plan cannot authorize spend."""
+    budgets = {}
+    for window in windows:
+        amounts = []
+        for name in related:
+            if window not in configured_windows(cfg, name):
+                continue
+            state = states[name]
+            plan = state.get('quota_plan') or {}
+            if name == window:
+                account = cfg['accounts'][name]
+                targets = (float(account.get('target_pct', 100)), float(state.get('target_pct', 100)))
+                if not all(math.isfinite(target) for target in targets):
+                    raise ValueError('quota target is not finite')
+                target = min(targets)
+                amount = target * float(state['share']) - float(account.get('reserve', 0)) - state['used']
+                if not plan.get('limit'):
+                    amount = min(amount, float(plan['slow_left']))
+            else:
+                detail = next(x for x in plan.get('slow_limits', []) if x.get('name') == window)
+                amount = float(detail['left'])
+            if not math.isfinite(amount):
+                raise ValueError('shared quota budget is not finite')
+            amounts.append(amount)
+        budgets[window] = min(amounts)  # a missing observer or budget fails closed
+    return budgets
+
+
+def slow_intervals(name, state, account, plan, budgets, cost, now):
+    """Cooldowns that preserve each window's owner reserve, target and panic margin, in its own quota units."""
+    if not math.isfinite(cost) or cost <= 0:
+        return []
+    own_left = min(budgets[name], float(state.get('panic_at', 95)) - state['used'])
+    if not plan.get('limit'):
+        return [slow_interval(min(own_left, float(plan['slow_left'])), cost, plan['expires'], now)]
+    limits = state.get('limits') or []
+    details = plan.get('slow_limits') or []
+    if len(details) != len(limits) or any(x.get('limits') for x in limits):
+        return []   # missing or nested windows need their own independent plans
+    intervals = [slow_interval(own_left, cost, plan['expires'], now)]
+    for lim, detail in zip(limits, details, strict=True):
+        if lim.get('name') != detail.get('name') or not detail.get('runnable'):
+            return []
+        per = float(detail['per_window'])
+        left = min(float(detail['left']), budgets[lim['name']], float(lim.get('panic_at', 95)) - lim['used'])
+        intervals.append(slow_interval(left, cost * per / 100, detail['expires'], now))
+    return intervals
+
+
+def slow_interval(left, cost, expires, now):
+    until = (pacing.parse_time(expires) - now).total_seconds()
+    if not all(math.isfinite(x) for x in (left, cost, until)) or cost <= 0 or left <= cost or until <= 0:
+        raise ValueError('quota or time cannot cover a paced task')
+    return 2 * until * cost / left
+
+
+def slow_selection(cfg, states, tasks, used, machines, now):
+    """At most one slow start per shared quota group; favor accounts with less work per remaining safe capacity."""
+    if quiet_stop(cfg, now):
+        return {}
+    names = trigger_accounts(cfg)
+    steps = list(dict.fromkeys([*ladder(cfg), *names]))
+    ordinary = {n for n in steps if n in cfg['accounts'] and step_room(cfg, n, states, used, machines or ())[0] > 0}
+    eligible = [n for n in names if slow_room(cfg, n, states.get(n) or {}, states, tasks, used, now)]
+    eligible.sort(key=lambda n: slow_weight(cfg, n, states, tasks))
+    chosen, occupied = {}, set()
+    for name in eligible:
+        windows = set(configured_windows(cfg, name))
+        if windows & occupied or any(windows.intersection(configured_windows(cfg, n)) for n in ordinary if n != name):
+            continue
+        chosen[name] = True
+        occupied.update(windows)
+    return chosen
+
+
+def slow_weight(cfg, name, states, tasks):
+    """Use recorded work since this account's reset, weighted by its remaining safe task capacity."""
+    state = states[name]
+    account = cfg['accounts'][name]
+    windows = set(configured_windows(cfg, name))
+    related = [n for n in (cfg.get('_account_limits') or cfg['accounts'])
+               if windows.intersection(configured_windows(cfg, n))]
+    budgets = shared_slow_budgets(cfg, windows, related, states)
+    cost = float(account.get('task_pct', pacing.TASK_PCT))
+    capacity = min(budgets[name], float(state.get('panic_at', 95)) - state['used']) / cost
+    for lim, detail in zip(state.get('limits') or [], (state.get('quota_plan') or {}).get('slow_limits', []), strict=True):
+        left = min(budgets[detail['name']], float(lim.get('panic_at', 95)) - lim['used'])
+        capacity = min(capacity, left / (cost * float(detail['per_window']) / 100))
+    start = _ts(state.get('window_start'))
+    starts = [(a['started'], units(t)) for t in tasks for a in t.get('attempts', [])
+              if a.get('step') == name and isinstance(a.get('started'), (int, float)) and not isinstance(a['started'], bool)
+              and math.isfinite(a['started']) and a['started'] >= start]
+    served = sum(units_ for _, units_ in starts)
+    return (served / capacity, -capacity, max((at for at, _ in starts), default=0), name)
+
+
+
 def rescue_budgets(cfg, states, tasks, names):
     """Reserve shared windows for running and not-yet-reflected attempts, independently for each reading."""
     if not names:
@@ -618,12 +787,13 @@ def _ts(iso):
 
 def configured_windows(cfg, name):
     """Configured window identities, including those of a paused account."""
+    limits = cfg.get('_account_limits') or {n: (a or {}).get('limits') or [] for n, a in (cfg.get('accounts') or {}).items()}
     found, pending = set(), [name]
     while pending:
         item = pending.pop()
         if item not in found:
             found.add(item)
-            pending.extend((cfg.get('_account_limits') or {}).get(item) or [])
+            pending.extend(limits.get(item) or [])
     return list(found)
 
 
@@ -884,10 +1054,12 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
     if quiet_stop(cfg, now):
         return {**out, **quiet_stop(cfg, now)}
     used = spent_units(tasks, states, cfg)
+    slow = slow_selection(cfg, states, tasks, used, machines, now)
     cfg['_main_in_panic'] = main_in_panic(cfg, states)
     names = list(dict.fromkeys([*ladder(cfg), *trigger_accounts(cfg), *cfg.get('_spare_accounts', ())]))
-    rooms = {n: step_room(cfg, n, states, used, machines or ()) for n in names}
+    rooms = {n: step_room(cfg, n, states, used, machines or (), slow.get(n, False)) for n in names}
     fallback = fresh_fallbacks(cfg, states, rooms, used, now or datetime.now(timezone.utc))
+
     cfg['_panic_usage'] = {n: 100 - remaining_quota(states[n]) for n in names if n in states and n in cfg['accounts']
                            and panic_rescue(cfg, n, states[n], states)}
     cfg['_panic_windows'], cfg['_panic_budget'] = rescue_budgets(cfg, states, tasks, cfg['_panic_usage'])
@@ -910,6 +1082,7 @@ def plan(cfg, tasks, states, machines, on, now=None, hold=None):
         return not choice or choice.get('worker') == worker
     assign(cfg, priority.tasks_by_priority(cfg, queued, going), rooms, free, out, prefer, over, machines or (), fallback,
            eligible=selected_worker)
+    out['slow_dispatch'] = [task_id for task_id, step in out['dispatch'] if slow.get(step)]
     out['rooms'] = {n: list(r) for n, r in rooms.items()}
     if out['dispatch']:
         return {**out, 'state': 'dispatching', 'reason': f'{len(out["dispatch"])} task(s) sent to ' +
@@ -1125,6 +1298,22 @@ class LaunchNotStarted(OSError):
     """Popen failed before returning a child process."""
 
 
+def write_child_pid(path, child):
+    """Record the child's pid, or stop it and fail closed if the file cannot be written."""
+    try:
+        with open(path, 'w', encoding='utf8') as f:
+            f.write(f'{child.pid}\n')
+    except OSError as e:
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                os.kill(child.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+        raise LaunchNotStarted(f'could not record pid {child.pid} ({e}): child stopped') from e
+
+
 def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, run_id=None):
     """Starts `tutti run <worker> <brief> --repo <repo> --track ap-<task>` in the background; marks the task running. An
     account's model and effort follow its pace (tutti/tiers.py): stronger while behind, cheaper while ahead."""
@@ -1172,8 +1361,7 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, run
                                'TUTTI_BOUND_REPORT': '1'})
         except OSError as e:
             raise LaunchNotStarted(str(e)) from e
-    with open(p['pid'], 'w', encoding='utf8') as f:
-        f.write(f'{child.pid}\n')
+    write_child_pid(p['pid'], child)
     # the repo's gates this attempt runs (acceptance holds them): a result lands only when they are today's (tutti/fill.py)
     if step['kind'] != 'ollama':
         task.pop('picked', None)
@@ -1201,6 +1389,7 @@ def reserve_launch(cfg, task, step_name, now):
                 check_where=check_where, boot=durable.boot_id(), launch_pending=True,
                 run_identity=uuid.uuid4().hex, report_identity_bound=True, choice=None)
     task.pop('recovery_note', None)
+    task.pop('quota_hold', None)   # a new start replaces an interrupted-run hold; the live run counts instead
     return run_id
 
 
@@ -1436,6 +1625,7 @@ def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
         if stuck_why:
             a.update(why=stuck_why, ok=False, signature=f'stuck:{a.get("step")}', **{'class': 'flaky'})
         t.pop('resume_note', None)
+        t.pop('quota_hold', None)   # the finished attempt carries the unreflected debit until a reading covers it
         t['attempts'].append(a)
         record_attempt(cfg, t, a, now)
         from . import needs
@@ -1639,11 +1829,13 @@ def pause(t, why):
 
 def interrupt(cfg, t):
     """An attempt whose host went down under it: queued again from the same worktree, with no attempt counted (not a
-    failure, not a retry, no no-progress step)."""
+    failure, not a retry, no no-progress step). A paced start keeps a quota hold until a reading covers that run."""
     done = reconcile(tree_of(cfg, t), wip_ref(t), wip_remote(cfg, t))
     t.pop('recovery_note', None)
+    hold = {'step': t['step'], 'started': t['started']} if t.get('step') and t.get('started') else None
     t.update(status='queued', interrupted=int(t.get('interrupted') or 0) + 1,
-             resume_note=f'the previous run ({t.get("run")}) was interrupted by a power-off or reboot before it ended; {done}')
+             resume_note=f'the previous run ({t.get("run")}) was interrupted by a power-off or reboot before it ended; {done}',
+             **({'quota_hold': hold} if hold else {}))
     telemetry.record('feature', 'autopilot.interrupted', source=t.get('source'))
     return f'{t["id"]} was interrupted by a power-off or reboot: queued again from its worktree, not counted ({done})'
 
@@ -1834,6 +2026,111 @@ def _start_reserved(cfg, data, task, step, now, spawn, states):
     return run_id, f'{task_id} sent to {step} (run {run_id}, attempt {len(task["attempts"]) + 1})'
 
 
+def strict_controls(folder):
+    """Read control switches without treating a damaged file as an empty, unpaused configuration."""
+    from . import controls
+    try:
+        with open(controls.path(folder), encoding='utf8') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    for section in ('enabled', 'paused', 'settings', 'handed'):
+        if section in data and not isinstance(data[section], dict):
+            return None
+    if any(not isinstance(v, dict) or not isinstance(v.get('on'), bool) for v in data.get('enabled', {}).values()):
+        return None
+    if any(not isinstance(v, dict) for v in data.get('paused', {}).values()):
+        return None
+    return data
+
+
+def quota_signature(state):
+    """The observed quota fields that must still match the planning snapshot."""
+    fields = ('name', 'used', 'reading_at', 'reset', 'target', 'panic', 'verdict', 'after_reset', 'stale', 'selected_source')
+    return tuple(state.get(k) for k in fields) + (tuple(quota_signature(x) for x in state.get('limits') or []),)
+
+
+def valid_current_reader(reading, latest):
+    if not isinstance(reading, dict) or reading.get('problem'):
+        return False
+    used = reading.get('used')
+    if (isinstance(used, bool) or not isinstance(used, (int, float)) or not math.isfinite(used)
+            or not 0 <= used <= 100 or used != latest.get('used')):
+        return False
+    if reading.get('resets') is not None:
+        try:
+            return bool(latest.get('reset')) and pacing.parse_time(reading['resets']) == pacing.parse_time(latest['reset'])
+        except (TypeError, ValueError, OverflowError):
+            return False
+    return True
+
+
+def current_related_states(cfg, fresh, step, states, usage, reader_status):
+    """Revalidate every account sharing the selected account's direct quota windows."""
+    from . import readers
+    from . import state as state_mod
+    windows = set(configured_windows(fresh, step))
+    limits = fresh.get('_account_limits') or {}
+    related = [n for n in limits if windows.intersection(configured_windows(fresh, n))]
+    latest = {s['name']: s for s in usage.get('accounts', [])}
+    if not related or any(n not in states or n not in latest or quota_signature(latest[n]) != quota_signature(states[n]) for n in related):
+        return None
+    automatic = [n for n in related if readers.automatic_reader(n, fresh['accounts'].get(n) or {})
+                 or (fresh['accounts'].get(n) or {}).get('reading_file')]
+    if automatic:
+        try:
+            status = reader_status() if reader_status else None
+        except Exception:   # unavailable reader status cannot authorize a quota spend
+            return None
+        if not isinstance(status, dict) or any(not valid_current_reader(status.get(n), latest[n]) for n in automatic):
+            return None
+        state_mod.with_readers({'accounts': [latest[n] for n in related]}, status)
+    return latest
+
+
+def slow_start_allowed(cfg, step, states, tasks, at, reader_status=None, machines=None):
+    """Reload controls, config and every shared-window observation before a slow start."""
+    from . import conduct, users
+    from . import state as state_mod
+    try:
+        current = datetime.fromtimestamp(at, timezone.utc)
+        before = strict_controls(config.state_dir(cfg))
+        if before is None:
+            return False
+        fresh = config.load(cfg['_path'])
+        after = strict_controls(config.state_dir(cfg))
+        if before != after or any(cfg.get(k) != fresh.get(k) for k in ('accounts', 'workers', 'machines', 'autopilot',
+                                                                       'disabled_accounts', 'disabled_workers', 'main')):
+            return False
+        usage = state_mod.usage_state(fresh, current)
+        if usage.get('problem'):
+            return False
+        latest = current_related_states(cfg, fresh, step, states, usage, reader_status)
+        if latest is None:
+            return False
+        fresh['_slow_shared_accounts'] = users.slow_shares(fresh)
+        fresh['_now'] = current
+        fresh['_main_worker'] = conduct.current(fresh)
+        if cfg.get('_main_worker') is not None and cfg['_main_worker'] != fresh['_main_worker']:
+            return False
+    except (config.ConfigError, KeyError, TypeError, ValueError, OverflowError, OSError):
+        return False
+    used = spent_units(tasks, latest, fresh)
+    return bool(slow_selection(fresh, latest, tasks, used, machines, current).get(step))
+
+
+
+def start_planned(cfg, data, task, step, now, spawn, states, clock, slow, reader_status=None, machines=None):
+    actual = clock() if slow else now
+    if slow and not slow_start_allowed(cfg, step, states, data['tasks'], actual, reader_status, machines):
+        return None, f'{task["id"]}: slow quota or sharing state changed before start; it stays queued'
+    return start_reserved(cfg, data, task, step, actual, spawn, states)
+
+
 def hold_unready_bridge(hold, tasks, problem):
     """Defer all queued work when the configured jobs client cannot run bound reports."""
     if problem:
@@ -1856,7 +2153,9 @@ def scoped_spawn(cfg, task, step, choice, result, machines, start_time, monotoni
     return run
 
 
-def start_plan(cfg, data, shared, p, machines, states, now, started_at, monotonic, spawn, events, started):
+def start_plan(cfg, data, shared, p, machines, states, now, started_at, monotonic, spawn, events, started, clock=None,
+               reader_status=None):
+    clock = clock or (lambda: now)
     allowed = []
     for task_id, step in p['dispatch']:
         elapsed = monotonic() - started_at
@@ -1870,7 +2169,9 @@ def start_plan(cfg, data, shared, p, machines, states, now, started_at, monotoni
         rejected = [False]
         choice = (shared.get('scoped') or {}).get(task_id)
         spawn_fn = scoped_spawn(cfg, t, step, choice, shared, machines, started_at, monotonic, spawn, rejected) if choice else spawn
-        run_id, event = start_reserved(cfg, data, t, step, now, spawn_fn, states)
+        run_id, event = start_planned(
+            cfg, data, t, step, now, spawn_fn, states, clock, task_id in p.get('slow_dispatch', ()), reader_status,
+            machines)
         if rejected[0]:
             p['waiting'][task_id] = 'scoped household lease or worker observation changed: wait for another reservation'
         else:
@@ -1886,14 +2187,18 @@ def start_plan(cfg, data, shared, p, machines, states, now, started_at, monotoni
 
 
 def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen, publish_fn=publish, beat=None,
-         monotonic=time.monotonic):
+         monotonic=time.monotonic, clock=None, reader_status=None):
+
     """One round: collect, plan, dispatch. `states`: {account: pacing.account_state}; `machines`: state.machines_state items;
     `beat`: this member's heartbeat for the household coordinator (shared projects only; docs/HOUSEHOLD.md)."""
     from . import state as state_mod
     started_at = monotonic()
-    now = now or time.time()
-    from . import conduct
+    clock = clock or (time.time if now is None else lambda: now)
+    now = clock() if now is None else now
+
+    from . import conduct, users
     cfg['_main_worker'] = conduct.current(cfg)
+    cfg['_slow_shared_accounts'] = users.slow_shares(cfg)
     cfg['_now'] = datetime.fromtimestamp(now, timezone.utc)
     is_alive = is_alive or state_mod.alive
     on = enabled(cfg)
@@ -1953,10 +2258,12 @@ def tick(cfg, states, machines, now=None, is_alive=None, spawn=subprocess.Popen,
         elapsed = monotonic() - started_at
         filter_scoped_dispatch(cfg, data, shared, p, machines, cfg['_now'] + timedelta(seconds=max(0, elapsed)), elapsed)
         backlog.save(cfg, data)   # what was collected is kept even if a start below fails
-        start_plan(cfg, data, shared, p, machines, states, now, started_at, monotonic, spawn, events, started)
+        start_plan(cfg, data, shared, p, machines, states, now, started_at, monotonic, spawn, events, started, clock,
+                   reader_status)
         telemetry.record('feature', 'autopilot.plan', state=p['state'], dispatch=len(p['dispatch']), waiting=len(p['waiting']),
                          collected=len(events))
     if started:   # shared tasks just started: their leases at full length now, not at the next round
+
         sharing.renew(cfg, backlog.load(cfg), started)
     with state_locked(cfg) as st:
         st['last'] = {'at': now, 'state': p['state'], 'reason': p['reason'], 'waiting': p['waiting']}

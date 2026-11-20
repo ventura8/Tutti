@@ -1,16 +1,35 @@
 """`tutti backlog` and `tutti autopilot`: the queue and its sources, the pure plan (pace, room, heat, max_parallel, the
 escalation ladder), failure signatures and parking, the retry brief, and whole rounds against a throwaway repository with a
 fake worker. Nothing leaves the temp folder; no real machine or account is used."""
+import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import autopilot, backlog, cli, config, dashboard, delegate, fleet, household, planner, routing, sharing, state
+from tutti import (
+    autopilot,
+    backlog,
+    cli,
+    config,
+    controls,
+    dashboard,
+    delegate,
+    dispatch,
+    fleet,
+    household,
+    planner,
+    routing,
+    sharing,
+    state,
+    users,
+)
 
 FAKE_WORKER = '''import sys
 prompt = sys.argv[1]
@@ -362,6 +381,82 @@ class PlanTest(Base):
         self.assertEqual(plan['dispatch'], [('t2', 'pc')])
         self.assertIn('wait for the next scoped reservation', plan['waiting']['t1'])
 
+    def test_shared_ahead_quota_is_serialized_and_fails_closed_when_unmeasured(self):
+        cfg = self.cfg(accounts=['agy-gemini', 'agy-claude'], ladder=['agy-gemini', 'agy-claude'])
+        cfg['_slow_shared_accounts'] = []
+        cfg['fleet']['enabled'] = False
+        cfg['accounts']['weekly'] = {}
+        cfg['_account_limits'] = {'agy-gemini': ['weekly'], 'agy-claude': ['weekly'], 'weekly': []}
+        now = TEST_NOW
+        weekly = {**account('weekly', 'ahead', None, used=40), 'share': 1,
+                  'reading_at': '2026-01-01T00:50:00+00:00', 'target': '2026-01-08T01:00:00+00:00'}
+        plan = {'limit': 'weekly', 'tasks': 0, 'left': -1, 'allowance': 2, 'this_window': 3,
+                'why': 'window share used', 'expires': '2026-01-01T06:00:00+00:00',
+                'slow_limits': [{'name': 'weekly', 'left': 40, 'per_window': 10, 'expires': weekly['target'], 'runnable': True}]}
+        weekly['quota_plan'] = {'limit': None, 'left': 40, 'slow_left': 40}
+        states = {'weekly': weekly}
+        for name in ('agy-gemini', 'agy-claude'):
+            states[name] = {**account(name, 'ahead', None, used=20), 'share': 1,
+                            'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '',
+                            'limits': [weekly], 'quota_plan': plan}
+        tasks = [task('t1'), task('t2')]
+        first = autopilot.plan(cfg, tasks, states, FREE, True, now)['dispatch']
+        self.assertEqual(len(first), 1)
+        selected = first[0][1]
+        sibling = 'agy-claude' if selected == 'agy-gemini' else 'agy-gemini'
+        with mock.patch.object(config, 'load', return_value=cfg), \
+                mock.patch.object(state, 'usage_state', return_value={'accounts': list(states.values())}) as usage:
+            self.assertTrue(autopilot.slow_start_allowed(cfg, selected, states, tasks, now.timestamp(), machines=FREE))
+            changed = {**states, sibling: {**states[sibling], 'used': 99, 'panic': True}}
+            usage.return_value = {'accounts': list(changed.values())}
+            self.assertFalse(autopilot.slow_start_allowed(cfg, selected, states, tasks, now.timestamp(), machines=FREE))
+        cfg['_slow_shared_accounts'] = ['agy-claude']
+        self.assertEqual(autopilot.plan(cfg, tasks, states, FREE, True, now)['dispatch'], [])
+        cfg['_slow_shared_accounts'] = None
+        self.assertEqual(autopilot.plan(cfg, tasks, states, FREE, True, now)['dispatch'], [])
+        cfg['_slow_shared_accounts'] = []
+        running = {**task('running', 'running'), 'step': 'agy-gemini'}
+        self.assertEqual(autopilot.plan(cfg, [running, *tasks], states, FREE, True, now)['dispatch'], [])
+        recent = task('recent', 'done', [{**attempt('agy-gemini'), 'started': now.timestamp() - 60}])
+        refreshed_weekly = {**weekly, 'reading_at': now.isoformat()}
+        refreshed = {'weekly': refreshed_weekly, **{n: {**states[n], 'reading_at': now.isoformat(), 'limits': [refreshed_weekly]}
+                                                    for n in ('agy-gemini', 'agy-claude')}}
+        self.assertEqual(autopilot.plan(cfg, [recent, *tasks], refreshed, FREE, True, now)['dispatch'], [])
+        recent['attempts'][0]['started'] = now.timestamp() - 24 * 3600
+        self.assertEqual(autopilot.plan(cfg, [recent, *tasks], refreshed, FREE, True, now)['dispatch'][0][1], 'agy-claude')
+        weighted = {**states, 'agy-claude': {**states['agy-claude'], 'used': 60}}
+        history = [task('g1', 'done', [{**attempt('agy-gemini'), 'started': now.timestamp() - 24 * 3600}]),
+                   task('c1', 'done', [{**attempt('agy-claude'), 'started': now.timestamp() - 24 * 3600}])]
+        self.assertEqual(autopilot.plan(cfg, [*history, *tasks], weighted, FREE, True, now)['dispatch'][0][1], 'agy-gemini')
+        history += [task(f'g{i}', 'done', [{**attempt('agy-gemini'), 'started': now.timestamp() - 24 * 3600}])
+                    for i in range(2, 7)]
+        self.assertEqual(autopilot.plan(cfg, [*history, *tasks], weighted, FREE, True, now)['dispatch'][0][1], 'agy-claude')
+        self.assertEqual(autopilot.plan(cfg, tasks, {**states, 'weekly': {**weekly, 'stale': True}}, FREE, True, now)['dispatch'], [])
+        no_conversion = {**plan, 'slow_limits': [{**plan['slow_limits'][0], 'per_window': None}]}
+        bad = {**states, **{n: {**states[n], 'quota_plan': no_conversion} for n in ('agy-gemini', 'agy-claude')}}
+        self.assertEqual(autopilot.plan(cfg, tasks, bad, FREE, True, now)['dispatch'], [])
+        no_room = {**plan, 'slow_limits': [{**plan['slow_limits'][0], 'left': 0.1}]}
+        bad = {**states, **{n: {**states[n], 'quota_plan': no_room} for n in ('agy-gemini', 'agy-claude')}}
+        self.assertEqual(autopilot.plan(cfg, tasks, bad, FREE, True, now)['dispatch'], [])
+        # The main account can reserve more of the same weekly quota than its sibling's own plan.
+        reserved = {**states, 'agy-claude': {**states['agy-claude'], 'quota_plan': no_room}}
+        self.assertEqual(autopilot.plan(cfg, tasks, reserved, FREE, True, now)['dispatch'], [])
+        cfg['autopilot']['accounts'] = ['agy-gemini']
+        limited = {**states, 'agy-gemini': {**states['agy-gemini'], 'target_pct': 21}}
+        self.assertEqual(autopilot.plan(cfg, tasks, limited, FREE, True, now)['dispatch'], [])
+        for invalid in (float('nan'), float('inf')):
+            malformed = {**states, 'agy-gemini': {**states['agy-gemini'], 'target_pct': invalid}}
+            self.assertEqual(autopilot.plan(cfg, tasks, malformed, FREE, True, now)['dispatch'], [])
+        cfg['autopilot']['accounts'] = ['agy-gemini', 'agy-claude']
+        ordinary = {**states, 'agy-claude': {**states['agy-claude'], 'quota_plan': {**plan, 'tasks': 1, 'left': 1}}}
+        self.assertEqual(autopilot.plan(cfg, tasks, ordinary, FREE, True, now)['dispatch'], [('t1', 'agy-claude')])
+        quiet = {**plan, 'slow_limits': [{**plan['slow_limits'][0], 'runnable': False}]}
+        bad = {**states, **{n: {**states[n], 'quota_plan': quiet} for n in ('agy-gemini', 'agy-claude')}}
+        self.assertEqual(autopilot.plan(cfg, tasks, bad, FREE, True, now)['dispatch'], [])
+        cfg['autopilot']['quiet_hours'] = ['00:00-23:59']
+        used = autopilot.spent_units(tasks, states, cfg)
+        self.assertEqual(autopilot.slow_selection(cfg, states, tasks, used, FREE, now), {})
+
     def test_off_and_an_empty_backlog_say_so(self):
         cfg = self.cfg()
         self.assertEqual(autopilot.plan(cfg, [task('t1')], self.states(), FREE, False)['state'], 'off')
@@ -381,6 +476,173 @@ class PlanTest(Base):
         p = autopilot.plan(self.cfg(), [task('t1'), task('t2'), task('t3')], self.states(), FREE, True)
         self.assertEqual(p['dispatch'], [('t1', 'agy-gemini'), ('t2', 'agy-gemini')])
         self.assertEqual(p['state'], 'dispatching')
+
+    def test_ahead_account_uses_measured_room_slowly_without_crossing_safety_gates(self):
+        cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'])
+        cfg['_slow_shared_accounts'] = []
+        cfg['accounts']['agy-gemini']['task_pct'] = 2
+        now = TEST_NOW
+        s = {**account('agy-gemini', 'ahead', None, used=20), 'share': 1,
+             'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '', 'target': '2026-01-03T01:00:00+00:00'}
+        s['quota_plan'] = autopilot.planner.plan_single(s, cfg['accounts']['agy-gemini'], now)
+        s['quota_plan']['why'] = 'no extra tasks now'
+        states = {'agy-gemini': s}
+        self.assertEqual(autopilot.plan(cfg, [task('t1'), task('t2')], states, FREE, True, now)['dispatch'],
+                         [('t1', 'agy-gemini')])
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['slow_dispatch'], ['t1'])
+        cfg['accounts']['agy-gemini']['share_spare'] = True
+        cfg['_slow_shared_accounts'] = users.slow_shares(cfg)
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['dispatch'], [])
+        users.write(self.state, share={'agy-gemini': False})
+        cfg['_slow_shared_accounts'] = users.slow_shares(cfg)
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['dispatch'], [('t1', 'agy-gemini')])
+        cfg['_slow_shared_accounts'] = None
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['dispatch'], [])
+        with open(users.path(self.state), 'w', encoding='utf8') as f:
+            f.write('{')
+        self.assertIsNone(users.slow_shares(cfg))
+        cfg['_slow_shared_accounts'] = []
+        planned = {**s, 'quota_plan': {**s['quota_plan'], 'tasks': 3}}
+        self.assertEqual(len(autopilot.plan(cfg, [task('t1'), task('t2')], {'agy-gemini': planned}, FREE, True, now)['dispatch']), 2)
+        recent = task('old', 'done', [{**attempt('agy-gemini'), 'started': now.timestamp() - 3600}])
+        self.assertEqual(autopilot.plan(cfg, [recent, task('t1')], states, FREE, True, now)['dispatch'], [])
+        recent['attempts'][0]['started'] = now.timestamp() - 4 * 3600
+        self.assertEqual(autopilot.plan(cfg, [recent, task('t1')], states, FREE, True, now)['dispatch'], [('t1', 'agy-gemini')])
+        running = {**task('active', 'running'), 'step': 'agy-gemini'}
+        self.assertEqual(autopilot.plan(cfg, [running, task('t1')], states, FREE, True, now)['dispatch'], [])
+        for changed in ({'panic': True}, {'stale': True}, {'limits': [{'name': 'weekly'}]},
+                        {'used': 94}, {'reader_problem': 'reader failed'},
+                        {'quota_plan': {**s['quota_plan'], 'slow_left': 0}}):
+            self.assertEqual(autopilot.plan(cfg, [task('t1')], {'agy-gemini': {**s, **changed}}, FREE, True, now)['dispatch'], [])
+        cfg['accounts']['agy-gemini']['task_pct'] = 0
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['dispatch'], [])
+        cfg['accounts']['agy-gemini']['task_pct'] = 2
+        cfg['_account_limits']['other'] = ['agy-gemini']
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['dispatch'], [])
+        del cfg['_account_limits']
+        cfg['accounts']['other'] = {'limits': ['agy-gemini']}
+        self.assertEqual(autopilot.plan(cfg, [task('t1')], states, FREE, True, now)['dispatch'], [])
+
+    def test_slow_start_rechecks_current_clock_and_effective_share(self):
+        cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'])
+        cfg['accounts']['agy-gemini']['usage_url'] = 'https://example.com/usage'
+        now = TEST_NOW
+        s = {**account('agy-gemini', 'ahead', None, used=20), 'share': 1,
+             'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '', 'target': '2026-01-03T01:00:00+00:00'}
+        s['quota_plan'] = autopilot.planner.plan_single(s, cfg['accounts']['agy-gemini'], now)
+        states, tasks = {'agy-gemini': s}, [task('t1')]
+        def reader_status():
+            return {'agy-gemini': {'used': 20, 'problem': None}}
+        with mock.patch.object(config, 'load', return_value=cfg) as load, \
+                mock.patch.object(state, 'usage_state', return_value={'accounts': [s]}) as usage:
+            self.assertTrue(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp() + 3 * 3600, reader_status))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp()))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(),
+                                                          lambda: {'agy-gemini': {'used': None, 'problem': 'reader failed'}}))
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(),
+                                                          lambda: {'agy-gemini': {'used': 99, 'problem': None}}))
+            usage.return_value = {'accounts': [{**s, 'selected_source': 'estimate'}]}
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
+            usage.return_value = {'accounts': [s]}
+            for invalid in (True, float('nan'), float('inf'), -1, 101):
+                self.assertFalse(autopilot.valid_current_reader({'used': invalid}, {'used': 1}))
+            self.assertTrue(autopilot.valid_current_reader({'used': 20, 'resets': '2026-01-03T02:00:00Z'},
+                                                          {'used': 20, 'reset': '2026-01-03T02:00:00+00:00'}))
+            self.assertFalse(autopilot.valid_current_reader({'used': 20, 'resets': '2026-01-04T02:00:00Z'},
+                                                           {'used': 20, 'reset': '2026-01-03T02:00:00+00:00'}))
+            self.assertFalse(autopilot.valid_current_reader({'used': 20, 'resets': 'invalid'},
+                                                           {'used': 20, 'reset': '2026-01-03T02:00:00Z'}))
+            with mock.patch.object(autopilot, 'start_reserved', return_value=('run', 'started')) as start:
+                data = {'tasks': tasks}
+                later = now.timestamp() + 60
+                self.assertEqual(autopilot.start_planned(cfg, data, tasks[0], 'agy-gemini', now.timestamp(), None, states,
+                                                         lambda: later, True, reader_status)[0], 'run')
+                self.assertEqual(start.call_args.args[4], later)
+                start.reset_mock()
+                self.assertIsNone(autopilot.start_planned(cfg, data, tasks[0], 'agy-gemini', now.timestamp(), None, states,
+                                                          lambda: now.timestamp() + 3 * 3600, True, reader_status)[0])
+                start.assert_not_called()
+            usage.return_value = {'accounts': [{**s, 'used': 99, 'panic': True}]}
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
+            usage.return_value = {'accounts': [s]}
+            load.return_value = {**cfg, 'disabled_accounts': ['agy-gemini']}
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
+            load.return_value = {**cfg, 'disabled_workers': ['agy']}
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
+            load.return_value = cfg
+            users.write(self.state, share={'agy-gemini': True})
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
+            with open(os.path.join(self.state, 'controls.json'), 'w', encoding='utf8') as f:
+                f.write('{')
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
+
+    def test_worker_status_rechecks_slow_room_using_the_current_reading(self):
+        cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'])
+        cfg['_slow_shared_accounts'] = []
+        cfg['fleet']['enabled'] = False
+        now = TEST_NOW
+        s = {**account('agy-gemini', 'ahead', None, used=20), 'share': 1,
+             'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '', 'target': '2026-01-03T01:00:00+00:00'}
+        s['quota_plan'] = autopilot.planner.plan_single(s, cfg['accounts']['agy-gemini'], now)
+        s['quota_plan']['why'] = 'no extra tasks now'
+        with mock.patch.object(backlog, 'load', return_value={'tasks': [task('t1')]}):
+            self.assertEqual([x['name'] for x in dispatch.worker_rows(cfg, {'agy-gemini': s}, FREE, now)], ['agy-gemini'])
+            self.assertEqual(dispatch.worker_rows(cfg, {'agy-gemini': {**s, 'stale': True}}, FREE, now), [])
+            cfg['autopilot']['accounts'] = []
+            self.assertEqual(dispatch.worker_rows(cfg, {'agy-gemini': s}, FREE, now), [])
+        cfg['autopilot']['accounts'] = ['agy-gemini']
+        with mock.patch.object(backlog, 'load', return_value={'tasks': [task('large', size='L')]}):
+            self.assertEqual(dispatch.worker_rows(cfg, {'agy-gemini': s}, FREE, now), [])
+
+    def test_slow_start_reloads_real_account_and_worker_pause_controls(self):
+        path = os.path.join(self.tmp.name, 'config.yaml')
+        raw = {'project': {'state': self.state, 'worktrees': os.path.join(self.tmp.name, 'wt')},
+               'machines': {'nuc': {'host': 'nuc.example'}},
+               'workers': {'agy': {'kind': 'cli', 'command': ['agy', '{prompt}']}},
+               'accounts': {'agy-gemini': {'worker': 'agy'}},
+               'autopilot': {'accounts': ['agy-gemini'], 'ladder': ['agy-gemini'],
+                             'repos': {'app': {'path': self.tmp.name, 'check': 'true'}}}}
+        with open(path, 'w', encoding='utf8') as f:
+            json.dump(raw, f)
+        cfg = config.load(path)
+        now = TEST_NOW
+        s = {**account('agy-gemini', 'ahead', None, used=20), 'share': 1,
+             'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '', 'target': '2026-01-03T01:00:00+00:00'}
+        s['quota_plan'] = autopilot.planner.plan_single(s, cfg['accounts']['agy-gemini'], now)
+        states, tasks = {'agy-gemini': s}, [task('t1')]
+        def reader_status():
+            return {'agy-gemini': {'used': 20, 'problem': None}}
+        with mock.patch.object(state, 'usage_state', return_value={'accounts': [s]}):
+            self.assertTrue(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
+            controls.set_paused(self.state, 'account', 'agy-gemini', True)
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
+            controls.set_paused(self.state, 'account', 'agy-gemini', False)
+            controls.set_paused(self.state, 'worker', 'agy', True)
+            self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
+
+    def test_slow_start_rejects_newer_usage_recorded_after_planning(self):
+        path = os.path.join(self.tmp.name, 'config.yaml')
+        raw = {'project': {'state': self.state, 'worktrees': os.path.join(self.tmp.name, 'wt')},
+               'workers': {'agy': {'kind': 'cli', 'command': ['agy', '{prompt}']}},
+               'accounts': {'agy-gemini': {'worker': 'agy', 'window': '7d', 'resets': '2026-01-08T00:00:00Z'}},
+               'autopilot': {'accounts': ['agy-gemini'], 'ladder': ['agy-gemini'],
+                             'repos': {'app': {'path': self.tmp.name, 'check': 'true'}}}}
+        with open(path, 'w', encoding='utf8') as f:
+            json.dump(raw, f)
+        cfg, now = config.load(path), TEST_NOW
+        os.makedirs(self.state, exist_ok=True)
+        autopilot.pacing.append_log(state.usage_log_path(cfg), 'agy-gemini', 20,
+                                    autopilot.datetime.fromtimestamp(now.timestamp() - 600, autopilot.timezone.utc))
+        observed = state.usage_state(cfg, now)['accounts'][0]
+        observed['reader_problem'] = ''
+        states, tasks = {'agy-gemini': observed}, [task('t1')]
+        def reader_status():
+            return {'agy-gemini': {'used': 20, 'problem': None}}
+        self.assertTrue(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
+        autopilot.pacing.append_log(state.usage_log_path(cfg), 'agy-gemini', 99,
+                                    autopilot.datetime.fromtimestamp(now.timestamp() - 60, autopilot.timezone.utc))
+        self.assertFalse(autopilot.slow_start_allowed(cfg, 'agy-gemini', states, tasks, now.timestamp(), reader_status))
 
     def test_when_all_online_are_in_panic_rescue_spreads_work_to_the_most_remaining_quota(self):
         cfg = self.cfg(main_accounts=['agy-claude'])
@@ -729,6 +991,67 @@ class PlanTest(Base):
         self.assertEqual(autopilot.plan(cfg, [done, task('t1')], states, FREE, True)['dispatch'], [])
         older = {**done, 'attempts': [{**done['attempts'][0], 'started': 1794600000.0}]}
         self.assertEqual(autopilot.plan(cfg, [older, task('t1')], states, FREE, True)['dispatch'], [('t1', 'agy-gemini')])
+
+    def test_a_mid_task_reading_keeps_the_finished_attempt_charged_until_a_later_reading(self):
+        """A reading taken during a run does not release its cost when the run ends after that reading."""
+        reading = autopilot._ts('2026-01-01T01:00:00+00:00')
+        states = self.states(**{'agy-gemini': {**account('agy-gemini', room=1),
+                                               'reading_at': '2026-01-01T01:00:00+00:00'}})
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        mid = {**task('t0', 'review'), 'attempts': [{**attempt('agy-gemini', ok=True),
+                                                     'started': reading - 600, 'at': reading + 600}]}
+        self.assertEqual(autopilot.spent_units([mid], states, cfg).get('agy-gemini'), 1)
+        self.assertEqual(autopilot.plan(cfg, [mid, task('t1')], states, FREE, True)['dispatch'], [])
+        after = {**mid, 'attempts': [{**mid['attempts'][0], 'at': reading - 1}]}
+        self.assertEqual(autopilot.spent_units([after], states, cfg).get('agy-gemini'), None)
+        self.assertEqual(autopilot.plan(cfg, [after, task('t1')], states, FREE, True)['dispatch'], [('t1', 'agy-gemini')])
+
+    def test_an_interrupted_start_holds_quota_until_a_new_reading(self):
+        cfg = self.cfg(ladder=['agy-gemini'], accounts=['agy-gemini'])
+        reading = autopilot._ts('2026-01-01T01:00:00+00:00')
+        states = self.states(**{'agy-gemini': {**account('agy-gemini', room=1),
+                                               'reading_at': '2026-01-01T01:00:00+00:00'}})
+        # a parked interrupted task still occupies room for other queued work until a reading covers it
+        held = {**task('t0', 'parked'), 'quota_hold': {'step': 'agy-gemini', 'started': reading + 60}}
+        self.assertEqual(autopilot.spent_units([held], states, cfg).get('agy-gemini'), 1)
+        self.assertEqual(autopilot.plan(cfg, [held, task('t1')], states, FREE, True)['dispatch'], [])
+        released = {**held, 'quota_hold': {'step': 'agy-gemini', 'started': reading - 60}}
+        self.assertEqual(autopilot.plan(cfg, [released, task('t1')], states, FREE, True)['dispatch'], [('t1', 'agy-gemini')])
+        running = {**task('live', 'running'), 'step': 'agy-gemini', 'started': reading + 10}
+        with mock.patch.object(autopilot, 'reconcile', return_value='ok'):
+            note = autopilot.interrupt(cfg, running)
+        self.assertIn('not counted', note)
+        self.assertEqual(running['status'], 'queued')
+        self.assertEqual(running['quota_hold'], {'step': 'agy-gemini', 'started': reading + 10})
+        self.assertEqual(running.get('attempts'), [])
+
+    def test_a_pid_write_failure_stops_the_child_and_stays_retryable(self):
+        cfg = self.cfg()
+        t = task('t1')
+        child = mock.Mock(pid=4242)
+        log_path = os.path.join(self.tmp.name, 'r.log')
+        pid_path = os.path.join(self.tmp.name, 'r.pid')
+        open(log_path, 'w', encoding='utf8').close()
+        real_open = open
+
+        def open_failing(path, *args, **kwargs):
+            if path == pid_path:
+                raise OSError('disk full')
+            return real_open(path, *args, **kwargs)
+
+        with mock.patch.object(autopilot, 'step_of', return_value={
+                'account': 'agy-gemini', 'worker': 'agy', 'kind': 'cli', 'args': []}), \
+                mock.patch.object(autopilot.tiers, 'choose', return_value=None), \
+                mock.patch.object(autopilot.delegate, 'paths', return_value={'log': log_path, 'pid': pid_path}), \
+                mock.patch.object(autopilot.delegate, 'new_id', return_value='run-1'), \
+                mock.patch.object(autopilot.remote, 'BIN', sys.executable), \
+                mock.patch.object(autopilot.os, 'killpg') as killpg, \
+                mock.patch('builtins.open', open_failing):
+            with self.assertRaises(autopilot.LaunchNotStarted) as raised:
+                autopilot.dispatch(cfg, t, 'agy-gemini', time.time(), spawn=lambda *a, **k: child)
+        self.assertIn('could not record pid', str(raised.exception))
+        killpg.assert_called_once_with(4242, signal.SIGTERM)
+        self.assertNotEqual(t.get('status'), 'running')
 
     def test_a_step_that_costs_money_is_never_used(self):
         cfg = self.cfg(ladder=['paid'], accounts=['paid'])

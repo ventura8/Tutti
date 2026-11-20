@@ -210,7 +210,10 @@ class Collector:
         from . import sharing  # a household member's heartbeat rides on the round; shared machines offer its grant only
         machines = sharing.limit_items(self.cfg, [dict(m) for m in snap['machines']['items']], self.clock())
         beat = sharing.beat(self.cfg, datetime.fromtimestamp(self.clock(), timezone.utc), machines)
-        out = autopilot.tick(round_cfg, states, machines, beat=beat)
+        def reader_status():
+            with self.lock:
+                return dict(self.probes.get('readers') or {})
+        out = autopilot.tick(round_cfg, states, machines, beat=beat, reader_status=reader_status)
         self.autopilot_parallel_limit = round_cfg.get('_parallel_limit')
         try:   # the work queue: machines with a free slot left after the autopilot run the projects' jobs (tutti/workq.py)
             workq.tick(round_cfg, machines)

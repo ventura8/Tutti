@@ -33,6 +33,7 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 
 ### Fixed
 
+- Hold slow-ahead quota until a reading covers a finished or interrupted start, and stop an untracked child if its pid cannot be recorded (t299).
 - Parse device lease options after device names and preserve command flags and separators (t177, t421).
 
 ## 0.31.3 (2026-11-19)
@@ -245,6 +246,8 @@ start (look at `git tag -l 'v0.*'` and the open pull requests), and rename your 
 - Reuse local model workers after completed attempts while keeping running work and online quota reservations accounted for (t301).
 - Defer automatic heavy backlog gap commands while the main computer is in quiet mode (t172).
 - Name the linked quota responsible for a panic rather than the reset window's zero usage (t272).
+- Keep eligible unlinked ahead accounts working slowly within their remaining discretionary quota (t299).
+- Pace eligible ahead accounts across measured direct linked windows with shared reservations and approximate weighted selection (t299).
 
 ## [0.29.4] - 2026-11-18
 

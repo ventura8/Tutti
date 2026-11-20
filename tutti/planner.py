@@ -125,7 +125,9 @@ def plan_limited(own, lim, a, lim_cfg, hours, owner=None, now=None):
             'left': round(left, 1), 'tasks': tasks, 'lose': round(max(0.0, left_own), 1), 'window_points': per,
             'owner_reserve': round(kept, 1) if owner else None, 'mode': owner['mode'] if owner else None,
             'projected': None if headroom is None else round(budget - headroom, 1), 'limit_verdict': lim.get('verdict'),
-            'limit_reset': lim.get('reset')}
+            'limit_reset': lim.get('reset'),
+            'slow_limit': {'name': lim['name'], 'left': max(0.0, budget - lim['used']),
+                           'per_window': per, 'expires': lim['target'], 'runnable': caps[0] != 0}}
 
 
 def at_or_behind(lim):
@@ -171,7 +173,7 @@ def plan_single(s, a, now, rate=None, owner=None):
     return {'limit': None, 'expires': s['target'], 'resets': s.get('reset'), 'left': round(left, 1), 'lose': round(left, 1),
             'tasks': single_tasks(s, left, task, owner, now, target), 'allowance': round(left, 1), 'this_window': None,
             'windows': 1, 'runnable': 1, 'background': None if rate is None else round(background, 1), **mine,
-            'run_out': run_out_of(s, owner, now)}
+            'run_out': run_out_of(s, owner, now), 'slow_left': left}
 
 
 def run_out_of(s, owner, now):
@@ -299,6 +301,7 @@ def bind(own, limits, a, accounts, hours, now, owner=None):
         return out
     plans = [plan_limited(own, lim, a, accounts.get(lim['name']) or {}, hours, owner, now) for lim in ok]
     p = min(plans, key=lambda x: (x['tasks'], x['left']))   # the fewest tasks: points of different limits do not compare
+    p['slow_limits'] = [x['slow_limit'] for x in plans] if len(ok) == len(limits) else []
     p['why'], p['rows'] = explain(own['name'], p, now), rows(p)
     # the plan decides the room: the window's own pace line says nothing about its weekly limit (each badge keeps its own verdict)
     out.update(quota_plan=p, room_tasks=p['tasks'] or None, binding=binding(own, p, now))

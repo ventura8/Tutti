@@ -61,6 +61,24 @@ class FillTest(Base):
         hot = [{**FREE[0], 'status': 'loaded', 'reason': 'too hot: CPU 99 C (nothing new at 98 C or more)'}]
         self.assertEqual(fill.room(cfg, [], self.states(room=0), hot), 0)   # the governor: a hot machine is no room
 
+    def test_slow_ahead_room_is_recomputed_from_current_time_and_readings(self):
+        cfg = self.cfg(accounts=['agy-gemini'], ladder=['agy-gemini'])
+        cfg['_slow_shared_accounts'] = []
+        cfg['fleet']['enabled'] = False
+        now = autopilot.datetime(2026, 1, 1, 1, tzinfo=autopilot.timezone.utc)
+        cfg['_now'] = now
+        s = {**account('agy-gemini', 'ahead', None, used=20), 'share': 1,
+             'reading_at': '2026-01-01T00:50:00+00:00', 'reader_problem': '', 'target': '2026-01-03T01:00:00+00:00'}
+        s['quota_plan'] = autopilot.planner.plan_single(s, cfg['accounts']['agy-gemini'], now)
+        s['quota_plan']['why'] = 'no extra tasks now'
+        self.assertEqual(fill.room(cfg, [], {'agy-gemini': s}, FREE), 1)
+        self.assertEqual(fill.room(cfg, [], {'agy-gemini': {**s, 'stale': True}}, FREE), 0)
+        self.assertEqual(autopilot.step_room(cfg, 'agy-gemini', {'agy-gemini': s}, {}, FREE)[0], 0)
+        free, small_only = fill.room_detail(cfg, [], {'agy-gemini': s}, FREE)
+        self.assertTrue(small_only)
+        self.assertEqual(fill.want(cfg, [task('large', size='L')], free, small_only), 1)
+        self.assertEqual(fill.want(cfg, [task('small')], free, small_only), 0)
+
     def test_no_room_or_the_switch_off_reads_nothing(self):
         self.repo()
         cfg = self.cfg(fill_room=True)

@@ -101,6 +101,9 @@
 - **Local attempts have no quota reading** (t301): a completed local-model attempt cannot appear in a later account
   usage reading. Only currently running local work occupies its server; keep online attempts reserved until reflected.
 
+- **Ahead is a rate, not always a stop** (t299): fresh quota above the owner's reserve can support spaced small tasks.
+  Shared windows require coordination and unit conversion, so unknown or shared budgets must not use an isolated-account calculation.
+
 - **A read-only tool may still disclose private output** (t372): the model's status lookup bypassed the direct Chat
   role check and could return a job log to a viewer. Apply the same access boundary before either dispatch path.
 

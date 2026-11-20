@@ -164,6 +164,9 @@ FIELDS = {
     'main.command_timeout': field('One round may take', 'A round that takes longer is stopped.', **SEC),
     # machines
     'machines.*.host': field('Host', 'An ssh alias from ~/.ssh/config, or local for this computer.', 'text'),
+    'machines.*.physical_machine': field('Physical machine',
+                                         'Name the main machine entry for another environment on the same computer '
+                                         '(dashboard card only; different connection addresses).', 'text'),
     'machines.*.transport': field('Reached by', 'ssh, local, wsl (a Windows machine\'s WSL) or android (Termux).', 'select',
                               choices=list(config.TRANSPORTS)),
     'machines.*.user': field('User', 'The login on the machine (Termux).', 'text'),

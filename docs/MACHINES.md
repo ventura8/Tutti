@@ -74,6 +74,11 @@ times out unless the stamped e2e build ran, so `{when: 'playwright|e2e/', run: '
 - `android`: a phone or tablet running Termux's ssh server (`ssh -p 8022 [user@]host`); opt-in, see
   [Termux machines](#termux-machines-opt-in).
 
+**One physical computer, several environments.** A dedicated session that shares `host` with a regular machine folds
+into that machine's dashboard card automatically (`machines.<m>.dedicated`). When Windows and WSL use different ssh
+aliases, set `machines.<environment>.physical_machine` to the main entry's name so the Machines tab nests them under
+one card; routing and slot accounting stay separate. See [docs/DASHBOARD.md](DASHBOARD.md).
+
 Every ssh-based transport shares one connection per machine: the first call starts a background master (`ssh -N -f`
 with `ControlMaster`, kept 10 minutes after its last use, its socket under `$TMPDIR/tutti-ssh-<uid>/`), and the
 dashboard's probes, `tutti test`, rsync and git join it instead of a new handshake each. While there is no master a call

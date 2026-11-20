@@ -27,6 +27,9 @@ machines:
   #   host: win-box.example
   #   transport: wsl
   #   wsl_helper: /home/me/tutti-wt/wsl-run64.sh   # scripts/wsl-run64.sh, copied into WSL once
+  # win-desktop:                      # another environment on the same computer (Windows ssh)
+  #   host: windows.example
+  #   physical_machine: win-box       # group under this configured machine, even with a different address
   # phone:                            # Android with Termux: light runs only, opt-in (dashboard or `tutti optin machine phone on`)
   #   transport: android                # ssh -p 8022; `tutti machines add-android` prints the setup
   #   host: phone.example

@@ -212,6 +212,17 @@ class MachinesWorkersTest(unittest.TestCase):
         self.assertEqual(ms['pc']['physical'], 'pc')
         self.assertEqual(ms['pc-desktop']['physical'], 'pc')
 
+    def test_machine_environments_can_use_different_connection_addresses(self):
+        self.cfg['machines']['pc'] = config.machine_of(self.cfg, 'pc', {'host': 'pc.example'})
+        self.cfg['machines']['pc-windows'] = config.machine_of(
+            self.cfg, 'pc-windows', {'host': 'windows.example', 'physical_machine': 'pc'})
+        ms = {m['name']: m for m in state.machines_state(self.cfg, lambda m: routing.Probe())}
+        self.assertEqual(ms['pc-windows']['physical'], 'pc')
+        self.assertEqual(config.physical(self.cfg, 'pc-windows'), 'pc-windows')
+        for invalid in ('missing', 'pc-windows', ['pc']):
+            self.cfg['machines']['pc-windows']['physical_machine'] = invalid
+            self.assertTrue(any('machines.pc-windows.physical_machine' in e for e in config.validate(self.cfg)))
+
     def test_workers_and_known_agents(self):
         w = state.workers_state(self.cfg, lambda x: (x['kind'] == 'ollama', 'note'), which=lambda c: c == 'claude' and '/bin/claude')
         by = {x['name']: x for x in w['items']}

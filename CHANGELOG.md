@@ -2,7 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Treat a missing Chat conversation usage total as empty instead of crashing when saving token counts.
+
 ### Added
+
 
 - Autopilot/backlog: rough **attempt ETAs** from comparable successful attempts (t236).
 - Autopilot: slow pacing for eligible ahead accounts (isolated and direct shared windows) so Tutti keeps working near limits (t299).

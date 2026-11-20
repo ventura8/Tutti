@@ -527,7 +527,7 @@ class Engine:
         def go(d):
             chatctl.apply(d, self.store.conversation(d, cid) if cid else None, clean)
             return chatctl.resolve(d, self.store.conversation(d, cid) if cid else None)
-        return self.store.change(user['sub'], go)
+        return self.store.change(user['sub'], go, cids={cid} if cid else set())
 
     def stop(self, user, mid):
         with self.lock:
@@ -611,7 +611,7 @@ class Engine:
         def go(d):
             return dict(chatctl.add_usage(self.store.conversation(d, job.cid), usage))
         try:
-            job.emit('usage', usage=usage, total=self.store.change(job.sub, go))
+            job.emit('usage', usage=usage, total=self.store.change(job.sub, go, cids=set()))
         except chat.ChatError:
             return
 
@@ -648,11 +648,11 @@ class Engine:
         """Persist before dispatch; a missing answer must not start additional work."""
         def mark(data):
             conv = self.store.conversation(data, job.cid)
-            msg = next((m for m in conv['messages'] if m.get('id') == job.msg['id']), None)
+            msg = next((m for m in conv.get('messages') or [] if m.get('id') == job.msg['id']), None)
             if not msg or msg.get('status') != 'streaming':
                 raise chat.ChatError('The answer is no longer active: reload the chat before starting work.')
             msg['retry_safety'] = 'uncertain'
-        self.store.change(job.sub, mark)
+        self.store.change(job.sub, mark, cids={job.cid})
         job.msg['retry_safety'] = 'uncertain'
 
     def _mark_cli(self, job, cand):
@@ -822,7 +822,7 @@ class Engine:
             if job.cancel.is_set():
                 raise SummaryCancelled
             self.store.conversation(d, job.cid)['summary'] = summary
-        self.store.change(job.sub, go)
+        self.store.change(job.sub, go, cids=set())
         conv['summary'] = summary
         job.emit('compacted', upto=summary['upto'], text=f'Earlier messages were summarised to keep within {pct} % of the '
                                                           f'{cand["label"]}\'s context.')
@@ -1055,7 +1055,7 @@ class Engine:
             next_cursor = f'{index}:{end}' if end < len(text) else (f'{index + 1}:0' if index + 1 < len(messages) else None)
             job.untrusted = True
             return json.dumps({'role': msg.get('role'), 'text': text[offset:end], 'next_cursor': next_cursor,
-                               'retention': 'older messages beyond the stored history may have been removed'})
+                               'retention': 'full conversation retained; this page is bounded for the model'})
         if call['tool'] == 'job_status' and user.get('role') != 'admin':
             return 'refused: job reports and logs are for admins; ask an admin to check the run'
         result = run_tool(cfg, call, self.runner)
@@ -1153,12 +1153,12 @@ class Engine:
         """fn(card) under the store's lock, saved; ChatError when the card is gone."""
         def go(d):
             conv = self.store.conversation(d, cid)
-            msg = next((m for m in conv['messages'] if m['id'] == mid), None)
+            msg = next((m for m in conv.get('messages') or [] if m['id'] == mid), None)
             card = next((k for k in (msg or {}).get('cards') or [] if k['id'] == kid), None)
             if card is None:
                 raise chat.ChatError('That card is gone: reload the chat.')
             return fn(card)
-        return self.store.change(sub, go)
+        return self.store.change(sub, go, cids={cid})
 
     @admitted_action
     def confirm(self, user, cid, mid, kid, yes=True):
@@ -1216,7 +1216,7 @@ class Engine:
             def mark(d):
                 k = find(d)
                 k.update(state='undone', undo=None, text=plain(text, True))
-            self.store.change(user['sub'], mark)
+            self.store.change(user['sub'], mark, cids={cid})
         return plain(text, True)
 
 

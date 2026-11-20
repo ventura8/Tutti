@@ -13,6 +13,8 @@
   Cursor-panic hand-off parity (t291, t302); live session verify remains an owner FEEDBACK item.
 - Autopilot/backlog: rough **attempt ETAs** from comparable successful attempts (t236).
 - Autopilot: slow pacing for eligible ahead accounts (isolated and direct shared windows) so Tutti keeps working near limits (t299).
+- Chat keeps the full conversation on disk: per-conversation message files, no 400-message drop, and bounded
+  `chat_history` / `page_messages` reads (t387; UI virtualization remains t407).
 
 ### Fixed
 

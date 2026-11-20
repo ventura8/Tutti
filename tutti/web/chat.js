@@ -232,9 +232,10 @@ function drawList() {
 
 function drawPrivacy() {
     const where = CHAT.host ? `the household host (${CHAT.host})` : 'the household host';
-    cq('chat-privacy').textContent = `Your conversations are kept on ${where}, in Tutti's state folder, in a file only Tutti's own ` +
-        'account can read. Other members never see them; admins see only the actions the chat took (in the audit log), never your ' +
-        'messages. Models of the household answer; nothing is sent elsewhere except to the account that answers.';
+    cq('chat-privacy').textContent = `Your conversations are kept on ${where}, in Tutti's state folder (an index plus each ` +
+        'chat\'s messages), readable only by Tutti\'s own account. Other members never see them; admins see only the actions the ' +
+        'chat took (in the audit log), never your messages. Models of the household answer; nothing is sent elsewhere except to ' +
+        'the account that answers.';
     cq('chat-activity-open').hidden = CHAT.role !== 'admin';
     const wrap = cq('chat-main-wrap');
     if (wrap) wrap.hidden = CHAT.role !== 'admin';

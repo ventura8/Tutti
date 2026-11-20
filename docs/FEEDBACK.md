@@ -43,7 +43,7 @@ After Claude is spent and Cursor is the active main, Chat must not call Claude (
 a confirmed reset — including when the dashboard still shows a synthetic 0 % (t388).
 
 Chat needs access to earlier conversation turns without asking the user to paste them. A paged current-conversation tool
-provides retained text; durable full-history retention is still open (t387).
+plus uncapped per-conversation message files keep the full history on the household host (t387).
 
 Routed checks must reject unsafe copy names before touching a lock or remote command, and default delegated runs must not
 serialize on one shared remote folder (t403).

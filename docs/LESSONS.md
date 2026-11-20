@@ -74,8 +74,8 @@
   preferred provider until a fresh below-panic reading — synthetic after-reset 0 % is not room, and a usage-limit CLI
   message is a failure, not an answer.
 
-- **An excerpt is not the conversation** (t387): offer bounded, user-scoped access to retained earlier text and name the
-  retention limit; never claim that a summary or a short prompt contains all prior turns.
+- **An excerpt is not the conversation** (t387): offer bounded, user-scoped pages over the full stored history; never claim
+  that a summary or a short prompt contains all prior turns, and do not drop older messages to make the excerpt fit.
 
 - A remote check's copy name also reaches a local lock path and remote shell. Validate it before either side effect; checking
   only the worker's local worktree name leaves the independently configured remote name unchecked (t403).

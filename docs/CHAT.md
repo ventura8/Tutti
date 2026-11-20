@@ -2,7 +2,7 @@
 
 When messages are redrawn, Chat reuses an unchanged message's private immutable Markdown parse tree while creating fresh
 DOM nodes. Editing or streaming new text reparses that message. This reduces repeated parsing; it does not virtualize the
-message list, page server responses, or remove the existing retention limit (t407).
+message list or page the browser's message DOM yet (t407). Durable storage no longer drops older turns (t387).
 Renaming updates the title without rebuilding the message list; if the user changes chats while the rename request is in
 flight, its response does not rename the newly selected chat (t407).
 
@@ -21,9 +21,10 @@ separately coordinated recovery is used. The in-memory hold lasts for this engin
 path; inspecting the outcome alone does not clear it. It is not durable across crashes and does not cover other dashboard
 processes or automatic updates.
 
-The assistant can call `chat_history` to page through the retained text of its current user's current conversation. Each
-page is bounded; history read this way is treated as untrusted for automatic actions. The existing 400-message retention
-limit and tool-round limit still apply, and already removed messages cannot be recovered by this tool (t387).
+The assistant can call `chat_history` to page through the full text of its current user's current conversation. Each page
+is bounded; history read this way is treated as untrusted for automatic actions. Conversations are no longer capped at 400
+messages: the index lists chats, each conversation's messages live in their own file, and `page_messages` offers bounded
+reads for future UI paging (t407). Messages already deleted by an older build cannot be recovered (t387).
 
 Chat binds each online worker to a configured account with a pacing state and passes that account's configured arguments
 to the CLI. For a worker shared by multiple accounts, an admin must set `workers.<name>.chat_account_selector` to the CLI
@@ -222,8 +223,8 @@ Under the message box, as in a chat IDE, each starting at Auto:
   (an account's quota is spent, not money; a local model costs nothing). When the next request would fill the context past
   your threshold (`autocompact.threshold_pct`, 60 % by default; yours with `compact_pct`), the older messages are folded
   into a summary: a local model writes it without tools (or uses the first lines if it fails); for CLI agents Tutti uses
-  the first lines directly, without launching another agent. The first-line summary can omit details, and retention limits
-  still apply. Stopping during compaction preserves the previous summary when cancellation is observed before its save;
+  the first lines directly, without launching another agent. The first-line summary can omit details; older turns stay on
+  disk and remain readable through `chat_history`. Stopping during compaction preserves the previous summary when cancellation is observed before its save;
   the last four messages stay whole, and the chat marks where. Tutti sends summaries as historical data and
   asks before running managed changes when a summary is included. CLI agents may have native tools outside those checks;
   these measures cannot guarantee that a model will ignore instructions in historical text.

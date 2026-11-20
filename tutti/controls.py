@@ -237,6 +237,84 @@ def blocked_round(cfg, now, stop_fn=None):
     return done
 
 
+def heat_pause(paused):
+    """True when this pause was written by the heat guard (`set_paused(..., source='heat')` → by ends with '(heat)')."""
+    by = (paused or {}).get('by') or ''
+    return by == 'heat' or by.endswith('(heat)')
+
+
+def _hottest_of(probe):
+    """(temp_c, which) from a routing.Probe, a machine_state row, or None."""
+    if probe is None:
+        return None, ''
+    if hasattr(probe, 'hottest'):
+        if getattr(probe, 'reachable', True) is False:
+            return None, ''
+        return probe.hottest()
+    if isinstance(probe, dict):
+        if probe.get('status') == 'unreachable':
+            return None, ''
+        cpu, gpu = probe.get('temp_c'), probe.get('gpu_temp_c')
+        temps = [(cpu, 'CPU'), (gpu, 'GPU')]
+        hot = max((t for t in temps if t[0] is not None), default=(None, ''), key=lambda x: x[0] if x[0] is not None else -1)
+        return hot
+    return None, ''
+
+
+def heat_guard(machines, probes, now):
+    """Pause each machine at or above its heat.stop_c; clear an automatic heat pause when it cools below heat.cap_c.
+    Returns short notes of what changed. Never overwrites an owner's pause or blocked-hours pause (t444).
+    `probes` is {name: routing.Probe} or {name: machine_state row} (temp_c / gpu_temp_c)."""
+    done = []
+    for name, m in (machines or {}).items():
+        heat = m.get('heat') or {}
+        stop, cap = heat.get('stop_c'), heat.get('cap_c')
+        if stop is None:
+            continue
+        t, which = _hottest_of((probes or {}).get(name))
+        if t is None:
+            continue
+        paused = m.get('paused') or {}
+        if t >= stop:
+            if paused and not heat_pause(paused):
+                continue   # owner or blocked hours: leave alone
+            note = f'{which} {t:.0f} C >= stop_c {stop:g}: no new work until it cools'
+            if heat_pause(paused) and paused.get('note') == note:
+                continue
+            m['paused'] = {'by': 'heat', 'at': now, 'note': note}
+            done.append(f'machine:{name}: paused for heat ({which} {t:.0f} C)')
+        elif cap is not None and t < cap and heat_pause(paused):
+            m.pop('paused', None)
+            done.append(f'machine:{name}: heat pause cleared ({which} {t:.0f} C < cap_c {cap:g})')
+    return done
+
+
+def heat_round(cfg, probes, now, stop_fn=None):
+    """Apply heat_guard: persist heat pauses, hand over running work when one starts, clear when the machine cools."""
+    from . import config as config_mod
+    machines = {n: dict(m) for n, m in (cfg.get('machines') or {}).items()}
+    # Prefer the live paused field already on cfg (from controls.apply); heat_guard mutates the copies.
+    notes = heat_guard(machines, probes, now)
+    if not notes:
+        return []
+    folder = config_mod.state_dir(cfg)
+    started = []
+    for name, m in machines.items():
+        old, new = (cfg['machines'][name].get('paused'), m.get('paused'))
+        if old == new:
+            continue
+        if new and heat_pause(new) and not heat_pause(old):
+            set_paused(folder, 'machine', name, True, source='heat', note=new.get('note') or '')
+            cfg['machines'][name]['paused'] = {**new, 'by': who('heat')}  # match what apply will reload
+            if stop_fn:
+                stop_fn('machine', name)
+            started.append(f'machine:{name}: heat pause started; running work handed over')
+        elif heat_pause(old) and not new:
+            set_paused(folder, 'machine', name, False, source='heat')
+            cfg['machines'][name].pop('paused', None)
+            started.append(f'machine:{name}: heat pause cleared')
+    return started
+
 def config_folder(cfg):
     from . import config
     return config.state_dir(cfg)

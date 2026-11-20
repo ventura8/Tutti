@@ -119,6 +119,7 @@ include tests/test_connect.py
 include tests/test_controls.py
 include tests/test_dashboard.py
 include tests/test_dashui.py
+include tests/test_decisional.py
 include tests/test_depbots.py
 include tests/test_deps.py
 include tests/test_devclass.py
@@ -251,6 +252,7 @@ include tutti/coordinator.py
 include tutti/cursorusage.py
 include tutti/dashboard.py
 include tutti/dashtelemetry.py
+include tutti/decisional.py
 include tutti/delegate.py
 include tutti/depbots.py
 include tutti/deps.py

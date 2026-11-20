@@ -965,6 +965,12 @@ def cmd_quiet(cfg, a):
     if a.command[0] in ('status', 'wait', 'guard') and len(a.command) <= 2:
         return cmd_quiet_mode(cfg, a)
     from . import quietmode
+    st = quietmode.status(cfg)
+    if st.get('person') and not a.force:
+        say('quiet: a person is at this computer (' + '; '.join(st['reasons']) + '): run on another machine '
+            '(`tutti test --on <machine> …`) or `tutti quiet wait`; pass --force only for a must-run-here job '
+            '(the guard SIGSTOPs it until they leave)')
+        return 2
     env = dict(os.environ, QUIET_DIR=os.path.join(config.state_dir(cfg), 'quiet'))
     if a.summary:
         worker_of(cfg, a.summary, 'ollama')
@@ -1982,8 +1988,11 @@ def parser():
     s.add_argument('--pid', type=int, default=0, help='the owner\'s process: once it is gone and the machine idle, the flag goes')
     s.add_argument('--unload', action='store_true', help='also ask local-model workers to unload their models')
     s = add('quiet', cmd_quiet, 'run a command, keep its log, print only the exit code (and a short failure summary); niced and '
-              'CPU-capped while a person is here. `tutti quiet status` exits 0 while quiet; `wait [s]` waits; `guard` one round')
+              'CPU-capped while a person is here. `tutti quiet status` exits 0 while quiet; `wait [s]` waits; `guard` one round. '
+              'While a person is here, a new command is refused unless `--force` (the guard SIGSTOPs Tutti\'s own jobs until they leave)')
     s.add_argument('--summary', help='the local-model worker that summarises a failure')
+    s.add_argument('--force', action='store_true',
+                   help='start here even while a person is at this computer (still SIGSTOP\'d by the guard until they leave)')
     s.add_argument('command', nargs='+')
     s = add('progress', cmd_progress, 'report how far a job is (<done>/<total>) for the dashboard\'s progress bar')
     s.add_argument('value')

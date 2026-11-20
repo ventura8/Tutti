@@ -18,6 +18,9 @@
 
 ### Fixed
 
+- Quiet mode: SIGSTOP Tutti's own jobs while a person is at the keyboard (not only when memory is also short); refuse new
+  `tutti quiet <cmd>` until they leave (unless `--force`); route heavy gates including `scripts/check.sh` and hold work-queue
+  `here` jobs; track work-queue `here` pids in the guard (t441).
 - Treat a missing Chat conversation usage total as empty instead of crashing when saving token counts.
 - Isolate default delegated routed checks into a per-run remote copy with host-wide bare-repo init, a sync time bound, and
   best-effort cleanup (t403). Explicit `--remote-track` / `--track` still share a named folder.

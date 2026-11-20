@@ -41,5 +41,6 @@ python3 bin/tutti --config tutti.config.example.yaml config
 - **Ask first:** pushing, tagging, publishing to npm, changing the licence, editing `.github/workflows/`.
 - **Never** run a command against a real machine from a test; tests use the `local` transport and temp folders.
 - Quiet mode: before a heavy local run (tests, docker, builds, a local model) run `tutti quiet status`; on exit 0 a person
-  is at this computer or memory is short, so run it on another machine or `tutti quiet wait`, and wrap what must run here
-  in `tutti quiet <cmd>` (docs/ARCHITECTURE.md, *Quiet mode*).
+  is at this computer or memory is short, so run it on another machine (`tutti test --on …`) or `tutti quiet wait`. Do not
+  start heavy work here with `tutti quiet --` while a person is present (it is refused); `--force` is only for a true
+  must-run-here job and is still SIGSTOP'd until they leave (docs/ARCHITECTURE.md, *Quiet mode*).

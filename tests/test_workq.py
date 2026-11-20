@@ -3,13 +3,21 @@ the machine with the most cores, a first failure run again (flaky hunting), find
 dashboard's /api/vpn body. A throwaway repository and fake spawns only."""
 import os
 import subprocess
+import unittest.mock
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from tests.test_autopilot import Base
-from tutti import backlog, vpncmd, workq
+from tutti import backlog, quietmode, vpncmd, workq
 
 NOON = datetime(2026, 11, 15, 12, tzinfo=timezone.utc)
+
+
+@contextmanager
+def mock_quiet(st):
+    with unittest.mock.patch.object(quietmode, 'status', return_value=st):
+        yield
 
 
 def rows():
@@ -32,24 +40,33 @@ class Plan(WqBase):
     def test_heavy_jobs_go_to_the_most_cores_and_light_ones_by_routing(self):
         cfg = self.wq_cfg()
         heavy, light = {'name': 'static', 'run': 'x', 'heavy': True}, {'name': 'unit', 'run': 'y'}
-        got = workq.assign(cfg, [heavy, light], rows(), set(), NOON)
-        self.assertEqual([(j['name'], m) for j, m in got], [('static', 'nuc'), ('unit', 'laptop')])   # the busy pc takes none
-        self.assertEqual(workq.assign(cfg, [light], rows(), {'nuc', 'laptop'}, NOON), [])          # one queue job per machine
+        with mock_quiet({'person': False, 'low_memory': False}):
+            got = workq.assign(cfg, [heavy, light], rows(), set(), NOON)
+            self.assertEqual([(j['name'], m) for j, m in got], [('static', 'nuc'), ('unit', 'laptop')])   # the busy pc takes none
+            self.assertEqual(workq.assign(cfg, [light], rows(), {'nuc', 'laptop'}, NOON), [])          # one queue job per machine
 
     def test_quiet_hours_and_a_used_up_share_keep_a_machine_out(self):
         cfg = self.wq_cfg()
         cfg['machines']['nuc']['quiet_hours'] = ['00:00-23:59']
-        got = workq.assign(cfg, [{'name': 'a', 'run': 'x', 'heavy': True}], rows(), set(), NOON)
-        self.assertEqual(got[0][1], 'laptop')
-        shared = [{**r, 'free': 0, 'status': 'busy'} for r in rows()]   # use_pct already capped the free slots to 0
-        self.assertEqual(workq.assign(cfg, [{'name': 'a', 'run': 'x'}], shared, set(), NOON), [])
+        with mock_quiet({'person': False, 'low_memory': False}):
+            got = workq.assign(cfg, [{'name': 'a', 'run': 'x', 'heavy': True}], rows(), set(), NOON)
+            self.assertEqual(got[0][1], 'laptop')
+            shared = [{**r, 'free': 0, 'status': 'busy'} for r in rows()]   # use_pct already capped the free slots to 0
+            self.assertEqual(workq.assign(cfg, [{'name': 'a', 'run': 'x'}], shared, set(), NOON), [])
 
     def test_a_heavy_job_here_waits_in_this_computers_limited_window_and_a_light_one_runs(self):
         cfg = self.wq_cfg()
         here_heavy, here_light = {'name': 'h', 'run': 'x', 'where': 'here', 'heavy': True}, {'name': 'l', 'run': 'y', 'where': 'here'}
         limited = [{**r, 'limited': r['name'] == 'laptop'} for r in rows()]   # laptop is this computer (transport local)
-        self.assertEqual([j['name'] for j, _ in workq.assign(cfg, [here_heavy, here_light], limited, set(), NOON)], ['l'])
-        self.assertEqual([j['name'] for j, _ in workq.assign(cfg, [here_heavy], rows(), set(), NOON)], ['h'])
+        with mock_quiet({'person': False, 'low_memory': False}):
+            self.assertEqual([j['name'] for j, _ in workq.assign(cfg, [here_heavy, here_light], limited, set(), NOON)], ['l'])
+            self.assertEqual([j['name'] for j, _ in workq.assign(cfg, [here_heavy], rows(), set(), NOON)], ['h'])
+
+    def test_a_person_at_the_keyboard_holds_every_here_job(self):
+        cfg = self.wq_cfg()
+        jobs = [{'name': 'h', 'run': 'x', 'where': 'here', 'heavy': True}, {'name': 'l', 'run': 'y', 'where': 'here'}]
+        with mock_quiet({'person': True, 'low_memory': False}):
+            self.assertEqual(workq.assign(cfg, jobs, rows(), set(), NOON), [])
 
     def test_findings_are_matched_in_the_whole_log_not_only_its_tail(self):
         log = os.path.join(self.tmp.name, 'run.log')

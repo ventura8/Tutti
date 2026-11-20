@@ -107,6 +107,9 @@
   enough when a separate repeated-failure check removed every worker. Apply the same classification at both decisions.
 - **Automatic discovery can run a heavy command during quiet mode** (t172): a configured gaps command can run a build or
   coverage check. Check before launching it, keep lighter task sources available, and report any quiet-mode deferral.
+- **Quiet wrap is not backoff** (t441): agents treated `tutti quiet -- bash scripts/check.sh` as safe while a person used
+  the laptop; many 200% CPUQuota scopes still saturated it, and the guard only SIGSTOP'd on person+low-memory. Stop on
+  person alone, refuse new quiet commands unless `--force`, route `scripts/check.sh`, and hold work-queue `here` jobs.
 
 - **Local attempts have no quota reading** (t301): a completed local-model attempt cannot appear in a later account
   usage reading. Only currently running local work occupies its server; keep online attempts reserved until reflected.

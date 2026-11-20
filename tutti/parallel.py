@@ -16,7 +16,7 @@ import re
 
 DEFAULTS = {'run_gb': 0.6, 'run_cpu': 0.25, 'reserve_gb': 4.0, 'gate_share': 3, 'ceiling': 12,
             'heavy': r'eslint|\btsc\b|vitest|jest|pytest|playwright|PIPELINE_STAGE|npm (run )?(lint|test)|\bmypy\b|gradle|'
-                     r'dotnet (build|test)'}
+                     r'dotnet (build|test)|scripts/check\.sh|tests/run\.py|\bunittest\b'}
 UNKNOWN_MEMORY_RUNS = 2
 NUMBERS = ('run_gb', 'run_cpu', 'reserve_gb', 'gate_share', 'ceiling')
 
@@ -107,11 +107,16 @@ def current(cfg, fallback=2):
     return cfg.get('_parallel_limit') or (cfg.get('autopilot') or {}).get('max_parallel') or fallback
 
 
-def check_where(cfg, where, check, here):
-    """Where a run's gate goes: `route` instead of `local` when it is heavy or this machine is short of memory and there is a
-    machine to route to; otherwise as the repo says."""
+def check_where(cfg, where, check, here, quiet_fn=None):
+    """Where a run's gate goes: `route` instead of `local` when it is heavy, a person is at this computer, or memory is
+    short, and there is a machine to route to; otherwise as the repo says."""
     if where != 'local' or not check or not any(m.get('transport') != 'local' for m in (cfg.get('machines') or {}).values()):
         return where
     s = settings(cfg)
     short = here and here.get('mem_gb') is not None and here['mem_gb'] < s['reserve_gb']
-    return 'route' if short or re.search(s['heavy'], check) else where
+    if here is not None and 'person' in here:
+        person = bool(here.get('person'))
+    else:
+        from . import quietmode
+        person = bool((quiet_fn or quietmode.status)(cfg).get('person'))
+    return 'route' if short or person or re.search(s['heavy'], check) else where

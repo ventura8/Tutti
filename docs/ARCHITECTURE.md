@@ -245,21 +245,24 @@ flowchart LR
     idle["idle time<br/>Mutter GetIdletime / xprintidle / logind"] --> st{"quiet?<br/>input < in_use_minutes<br/>or free memory < 4 GB"}
     mem["MemAvailable"] --> st
     st -- yes --> share["share 0 %: no new work here,<br/>it goes to the NUC or the PC"]
-    st -- yes --> calm["own jobs: nice 19, idle I/O<br/>(exact pids from quiet/*.pid)"]
-    st -- "yes, low memory" --> stop["SIGSTOP own jobs<br/>SIGCONT when back"]
+    st -- yes --> calm["own jobs: nice 19, idle I/O<br/>(quiet/*.pid + workq here)"]
+    st -- "person or low memory" --> stop["SIGSTOP own jobs<br/>SIGCONT when both clear"]
     st -- "person here" --> ollama["unload local Ollama models"]
-    st -- yes --> wrap["tutti quiet cmd: systemd-run scope,<br/>CPUQuota, nice, ionice"]
+    st -- "person here" --> refuse["tutti quiet cmd refused<br/>unless --force"]
+    st -- yes --> wrap["tutti quiet --force: systemd-run scope,<br/>CPUQuota, nice, ionice"]
     st --> sig["tutti quiet status<br/>exit 0 quiet / 1 free"]
-    sig --> tools["ship.sh, nuc-test.sh, check runners,<br/>Claude agents: wait or run on the NUC"]
+    sig --> tools["ship.sh, check runners, agents:<br/>wait or `tutti test --on` elsewhere"]
 ```
 
 The dashboard's probe loop runs `guard_round` every probe. It only touches processes Tutti started itself, by the exact pid
-`scripts/quiet.sh` writes beside its log, and their children; it never matches a process by name. Work Tutti did not start
-(an agent's own docker or Playwright runs) is not stopped: those tools must ask first. **For Claude and other agents:**
-before a heavy local run (tests, docker, builds, a local model), run `tutti quiet status`; on exit 0 run it on another
-machine (`tutti test`, `ssh nuc`) or wait with `tutti quiet wait 1800`, and wrap what must run here in `tutti quiet <cmd>`.
-Settings: `quiet.reserve_gb` (4), `quiet.cpu_quota` (`200%`), `quiet.ollama` (`http://127.0.0.1:11434`),
-`machines.<m>.in_use_pct` (0) and `in_use_minutes` (5).
+`scripts/quiet.sh` writes beside its log, work-queue leases on `here`, and their children; it never matches a process by
+name. Work Tutti did not start (an agent's own docker or Playwright runs) is not stopped: those tools must ask first.
+**For Claude and other agents:** before a heavy local run (tests, docker, builds, a local model), run `tutti quiet status`;
+on exit 0 run it on another machine (`tutti test --on …`) or wait with `tutti quiet wait 1800`. Do not start heavy work on
+the occupied computer with `tutti quiet --` — that is refused while a person is here (pass `--force` only for a true
+must-run-here job; the guard still SIGSTOPs it until they leave). Autopilot gates such as `scripts/check.sh` route off this
+computer while a person is here or the gate is heavy. Settings: `quiet.reserve_gb` (4), `quiet.cpu_quota` (`200%`),
+`quiet.ollama` (`http://127.0.0.1:11434`), `machines.<m>.in_use_pct` (0) and `in_use_minutes` (5).
 
 ## State
 

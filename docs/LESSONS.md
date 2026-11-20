@@ -80,6 +80,10 @@
 - A remote check's copy name also reaches a local lock path and remote shell. Validate it before either side effect; checking
   only the worker's local worktree name leaves the independently configured remote name unchecked (t403).
 
+- **A shared remote folder serializes every routed check** (t403): give each delegated run its own copy name under a
+  host-wide bare repo, bound the sync, and remove the folder afterwards. Cleanup and a released lock still do not prove
+  remote descendants stopped (t309).
+
 - **A service exit can announce a false departure** (t404): an update-driven watchdog exit runs systemd's leave hook.
   Reload the watchdog in place, and keep sending heartbeats if re-exec fails.
 

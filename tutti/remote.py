@@ -47,6 +47,36 @@ def require_track(track, remote_copy=True):
                            'starting with a letter or digit and not repo.git or tutti-slot.sh; choose another track and retry')
 
 
+# Bound every remote tree sync (git push + rsync). A hung copy must not hold a slot forever (t403).
+SYNC_TIMEOUT = 600
+
+
+def copy_name(base, run_id):
+    """Unique household remote-copy name for one delegated run: `<base>-<run_id>`.
+
+    Shares the host-wide `repo.git` / `tutti-slot.sh` prepared by sync(); never reuses the shared default folder so
+    concurrent routed checks do not wait on each other or mix trees. Does not prove a previous writer on another name
+    has stopped (t309)."""
+    name = f'{base}-{run_id}'
+    if not valid_remote_track(name):
+        raise RuntimeError(f'remote copy name "{name}" is not a valid track (delegate.remote_track "{base}" plus the run id '
+                           'is too long or unsafe); shorten delegate.remote_track or pass --remote-track and retry')
+    return name
+
+
+def cleanup_copy(cfg, machine, track):
+    """Best-effort removal of one remote copy folder after a run. Never touches repo.git or tutti-slot.sh.
+
+    Local transport runs in place (no copy). A missing folder is fine. This does not prove remote descendants stopped
+    writing (t309); unique names avoid reuse while that proof is open."""
+    if machine.get('transport') == 'local':
+        return 0
+    require_track(track)
+    root = root_path(machine)
+    # -- keeps a track that starts with - from being read as flags; require_track already forbids that shape.
+    return sh(machine, f'rm -rf -- {root}/{track}').returncode
+
+
 _BASH_PATHS = {}
 
 
@@ -589,9 +619,20 @@ def _check(result, what):
         raise RuntimeError(f'{what} failed (exit {code})')
 
 
+def _run_bounded(argv, what, env=None):
+    """Run a sync step with SYNC_TIMEOUT; name the step and the bound when it fails or hangs."""
+    try:
+        return subprocess.run(argv, env=env, timeout=SYNC_TIMEOUT)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f'{what} timed out after {SYNC_TIMEOUT}s; check the machine is reachable and retry') from e
+
+
 def sync(cfg, machine, track, src):
     """Copies the tree (incremental rsync, the config's excludes) and gives the copy a shallow git repository at the tree's
-    commit: a worktree's `.git` is a file that points at this computer, so tests that ask git would fail on the copy."""
+    commit: a worktree's `.git` is a file that points at this computer, so tests that ask git would fail on the copy.
+
+    Host-wide once per machine: creates `repo.git` (bare) and installs `tutti-slot.sh` when missing. Per-run folders are
+    separate track names (copy_name); sync is bounded by SYNC_TIMEOUT (t403)."""
     require_track(track)
     name, root, rs = machine['name'], root_path(machine), rsh(cfg, machine)
     to = f'{dest(machine)}:{machine["root"]}'
@@ -599,10 +640,11 @@ def sync(cfg, machine, track, src):
     _check(sh(machine, f'mkdir -p {root}/{track} && {{ [ -d {root}/repo.git ] || git init -q --bare {root}/repo.git; }}'),
            f'preparing {name}')
     if is_git:
-        _check(subprocess.run([worktree.git_bin(), '-C', src, 'push', '-q', '-f', f'{to}/repo.git', f'HEAD:refs/heads/tutti/{track}'],
-                              env={**os.environ, 'GIT_SSH_COMMAND': rs}), f'pushing HEAD to {name}')
+        _check(_run_bounded([worktree.git_bin(), '-C', src, 'push', '-q', '-f', f'{to}/repo.git', f'HEAD:refs/heads/tutti/{track}'],
+                            f'pushing HEAD to {name}', env={**os.environ, 'GIT_SSH_COMMAND': rs}), f'pushing HEAD to {name}')
     excludes = [a for e in cfg['sync']['exclude'] for a in ('--exclude', e)]
-    _check(subprocess.run(['rsync', '-a', '--delete', '-e', rs, *excludes, f'{src}/', f'{to}/{track}/']), f'copying the tree to {name}')
+    _check(_run_bounded(['rsync', '-a', '--delete', '-e', rs, *excludes, f'{src}/', f'{to}/{track}/'],
+                        f'copying the tree to {name}'), f'copying the tree to {name}')
     with open(SLOT_SCRIPT, encoding='utf8') as f:
         _check(sh(machine, f'cat > {root}/tutti-slot.sh', stdin=f.read()), f'installing slot.sh on {name}')
     return is_git

@@ -46,7 +46,7 @@ DEFAULTS = {
     # test.prepare: steps a command needs first ({when: regex, run: cmd}); test.no_coverage: how a run with coverage off looks
     'test': {'prepare': [], 'no_coverage': ''},
     # delegate: `tutti run --repo`; checks default to ship.checks, worktrees go under project.worktrees/<prefix><id>
-    # remote_track: the folder on the test machine that routed checks copy the worktree into (one copy, kept in sync by rsync)
+    # remote_track: base name for per-run remote copies (`<base>-<run-id>`); --remote-track / --track keep a shared folder
     'delegate': {'checks': None, 'prefix': 'tutti-run-', 'remote_track': 'tutti-run'},
     # review: `tutti pr review`; who to ask, how long to wait for them, and which cheap workers review when none answers
     # coderabbit: wait (default; no merge until CodeRabbit reviewed), fallback, skip or skip-when-unavailable; repos.<owner/name>

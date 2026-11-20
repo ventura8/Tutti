@@ -1,5 +1,6 @@
 """What the orchestrator uses: delegated runs, `wait run`, heat routing, prepare steps, coverage notes, stale readings, the
 reading file, the reading helper and `pr review`. Throwaway repositories and fake workers only; nothing leaves the temp folder."""
+import contextlib
 import json
 import os
 import subprocess
@@ -10,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest import mock
 
-from tutti import cli, config, dashboard, delegate, helper, pacing, readers, review, routing, ship, state, workers
+from tutti import cli, config, dashboard, delegate, helper, pacing, readers, remote, review, routing, ship, state, workers
 
 NOW = datetime(2026, 11, 14, 12, 0, tzinfo=timezone.utc)
 
@@ -246,6 +247,35 @@ class DelegateTest(unittest.TestCase):
         with mock.patch.object(delegate, 'track_lock', side_effect=RuntimeError('remote copy lock reached')):
             with self.assertRaisesRegex(RuntimeError, 'remote copy lock reached'):
                 self.run_task(cfg)
+
+    def test_default_routed_checks_use_a_per_run_copy_and_clean_it_up(self):
+        cfg = self.cfg([{'run': 'true', 'where': 'route'}])
+        cfg['machines'] = {'pc': {'name': 'pc', 'transport': 'local', 'root': '~/tutti', 'slots': 1, 'host': 'local',
+                                  'runner': {'kind': 'shell'}, 'yield_file': '~/.tutti/yield'}}
+        locked, cleaned = [], []
+
+        @contextlib.contextmanager
+        def capture_lock(_cfg, track, _say):
+            locked.append(track)
+            yield
+
+        def fake_quiet(_cfg, _wt, _check, _env, _track, folder=None):
+            return 0, 'pc', '/tmp/log', '[SUCCESS]'
+
+        with mock.patch.object(delegate, 'track_lock', side_effect=capture_lock), \
+                mock.patch.object(ship, 'quiet_check', side_effect=fake_quiet), \
+                mock.patch.object(remote, 'cleanup_copy', side_effect=lambda c, m, t: cleaned.append((m['name'], t)) or 0):
+            r = self.run_task(cfg)
+        self.assertEqual(r['checks'][0]['rc'], 0)
+        self.assertEqual(locked, [f"tutti-run-{r['id']}"])
+        self.assertEqual(cleaned, [('pc', f"tutti-run-{r['id']}")])
+        with mock.patch.object(delegate, 'track_lock', side_effect=capture_lock), \
+                mock.patch.object(ship, 'quiet_check', side_effect=fake_quiet), \
+                mock.patch.object(remote, 'cleanup_copy', side_effect=AssertionError('shared copy cleaned')):
+            locked.clear()
+            explicit = self.run_task(cfg, remote_track='shared-copy')
+        self.assertEqual(locked, ['shared-copy'])
+        self.assertEqual(explicit['checks'][0]['where'], 'pc')
 
     def test_a_failing_check_a_denial_and_an_empty_diff_fail_the_run(self):
         r = self.run_task(self.cfg([{'run': 'exit 3'}]))

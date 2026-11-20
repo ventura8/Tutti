@@ -1176,7 +1176,7 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, run
         task.pop('picked', None)
         task.pop('model', None)
     task.update(status='running', run=run_id, step=step_name, worker=step['worker'], started=now, gates=(repo.get('check') or '').strip(),
-                boot=durable.boot_id(), checkpoint=now,
+                boot=durable.boot_id(), job_bridge=jobs or '', checkpoint=now,
                 choice={k: choice[k] for k in ('tier', 'model', 'effort', 'label')} if choice else None)
     task.pop('launch_pending', None)
     task.pop('recovery_note', None)
@@ -1326,6 +1326,8 @@ def finished(cfg, task, is_alive):
     report = delegate.load_report(cfg, task['run'])
     if report:
         return True, report
+    if durable.died_with_host(task.get('boot')):
+        return True, None   # a PID from the previous boot may now belong to an unrelated process
     try:
         with open(delegate.paths(cfg, task['run'])['pid'], encoding='utf8') as f:
             pid = int(f.read().strip())
@@ -1335,27 +1337,24 @@ def finished(cfg, task, is_alive):
 
 
 def stuck(cfg, t, now, kill=None):
-    """The watchdog: a run whose log has not grown for autopilot.stuck_minutes is ended (its process tree) and counted as a
-    failed attempt to retry (flaky: the same step once more). Returns why, or ''."""
+    """Make a silent run visible, without signalling or retrying a process tree of unverified ownership."""
     limit = float(settings(cfg).get('stuck_minutes') or 0) * 60
-    if not limit or now - float(t.get('started') or now) < limit:
+    if not limit:
+        if (t.get('recovery_note') or '').startswith('run has no new output for '):
+            t.pop('recovery_note', None)
+        return ''
+    if now - float(t.get('started') or now) < limit:
         return ''
     try:
         quiet_for = now - os.path.getmtime(run_log(cfg, t['run']))
-    except OSError:
+    except (OSError, TypeError):
         quiet_for = now - float(t.get('started') or now)
-    if quiet_for < limit:
-        return ''
-    try:
-        with open(delegate.paths(cfg, t['run'])['pid'], encoding='utf8') as f:
-            pid = int(f.read().strip())
-    except (OSError, ValueError):
-        pid = None
-    if pid:
-        from . import handover
-        (kill or handover.end_tree)(pid)
-    telemetry.record('feature', 'autopilot.stuck', minutes=round(quiet_for / 60))
-    return f'stuck: no new output for {quiet_for / 60:.0f} min (autopilot.stuck_minutes): ended and queued again'
+    if quiet_for < limit and (t.get('recovery_note') or '').startswith('run has no new output for '):
+        t.pop('recovery_note', None)
+    if quiet_for >= limit:
+        t['recovery_note'] = (f'run has no new output for {quiet_for / 60:.0f} min: process ownership is unverified; '
+                             'waiting for its report before retrying')
+    return ''
 
 
 def worker_question(cfg, t, a):
@@ -1401,9 +1400,10 @@ def collect(cfg, data, now, is_alive, publish_fn=publish, kill=None):
         stuck_why = '' if ended else stuck(cfg, t, now, kill)
         if not ended and not stuck_why:
             continue
-        if report is None and durable.died_with_host(t.get('boot')):
-            events.append(interrupt(cfg, t))
+        if report is None:
+            t['recovery_note'] = 'run ended without a report: process ownership is unverified; waiting for its report before retrying'
             continue
+        t.pop('recovery_note', None)
         a = attempt_of(cfg, t, report, now)
         if stuck_why:
             a.update(why=stuck_why, ok=False, signature=f'stuck:{a.get("step")}', **{'class': 'flaky'})
@@ -1604,6 +1604,7 @@ def reconcile(wt, ref, remote_name='', run=git):
 def pause(t, why):
     """A running attempt stopped because this computer sleeps or shuts down: queued again from its worktree (left as it
     is), nothing counted."""
+    t.pop('recovery_note', None)
     t.update(status='queued', interrupted=int(t.get('interrupted') or 0) + 1,
              resume_note=f'the previous run ({t.get("run")}) stopped because {why}; its partial work is in the worktree')
 
@@ -1612,6 +1613,7 @@ def interrupt(cfg, t):
     """An attempt whose host went down under it: queued again from the same worktree, with no attempt counted (not a
     failure, not a retry, no no-progress step)."""
     done = reconcile(tree_of(cfg, t), wip_ref(t), wip_remote(cfg, t))
+    t.pop('recovery_note', None)
     t.update(status='queued', interrupted=int(t.get('interrupted') or 0) + 1,
              resume_note=f'the previous run ({t.get("run")}) was interrupted by a power-off or reboot before it ended; {done}')
     telemetry.record('feature', 'autopilot.interrupted', source=t.get('source'))
@@ -1629,6 +1631,7 @@ def move_out(cfg, t, to, now, is_alive=None, kill=None, snap=checkpoint):
             snap(wt, wip_ref(t), t['run'])
         t.setdefault('moved_runs', []).append(t.get('run'))
         note = reconcile(wt, wip_ref(t), wip_remote(cfg, t))
+    t.pop('recovery_note', None)
     t.update(status='queued', pin=to or None, moved={'at': now, 'to': to or 'auto', 'from': t.get('worker')},
              resume_note=f'an admin moved this task to {to or "the best available worker"} while its machine was away; '
                          f'continue from the last synced checkpoint ({note or "the worktree as it is"})')

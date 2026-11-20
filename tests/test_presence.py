@@ -349,18 +349,17 @@ class NothingLost(Base):
         self.assertTrue(any('torn last line' in x for x in lines))
         self.assertFalse(os.path.exists(os.path.join(self.state, 'backlog.json.999999.tmp')))
 
-    def test_an_attempt_cut_by_a_power_off_is_queued_again_from_its_worktree_and_not_counted(self):
+    def test_an_unreported_attempt_after_power_off_stays_held_and_not_counted(self):
         cfg = {'autopilot': {'repos': {'r': {'path': self.tmp.name, 'wip_push': False}}, 'no_progress': 3, 'max_attempts': 12},
                'project': {'state': self.state, 'worktrees': self.tmp.name}, 'delegate': {'prefix': 'tutti-'}}
-        t = {'id': 't1', 'title': 'Fix it', 'status': 'running', 'run': 'x', 'boot': 'old', 'attempts': [], 'repo': 'r',
+        t = {'id': 't1', 'title': 'Fix it', 'status': 'running', 'run': 'x', 'boot': 'old', 'job_bridge': '', 'attempts': [], 'repo': 'r',
              'scope': [], 'source': 'manual'}
         data = {'tasks': [t]}
         with mock.patch.object(autopilot, 'finished', return_value=(True, None)), \
                 mock.patch.object(durable, 'boot_id', return_value='new'):
             events = autopilot.collect(cfg, data, NOW, lambda pid: False)
-        self.assertEqual((t['status'], t['attempts'], t['interrupted']), ('queued', [], 1))
-        self.assertIn('interrupted by a power-off', events[0])
-        self.assertIn('interrupted by a power-off', autopilot.brief(t, cfg['autopilot']['repos']['r']))
+        self.assertEqual((t['status'], t['attempts'], events), ('running', [], []))
+        self.assertIn('waiting for its report', t['recovery_note'])
         t.update(status='running', boot='new')
         with mock.patch.object(autopilot, 'finished', return_value=(False, None)):
             autopilot.collect(cfg, data, NOW, lambda pid: True)

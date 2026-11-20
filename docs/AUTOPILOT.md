@@ -112,10 +112,11 @@ A failed attempt goes back to the queue; it is never dropped and never retried b
   strongest step, or `max_attempts` attempts (default 12), parks the task as **needs a person** with a summary on the
   dashboard. The signature is a hash of how it failed (worker exit, refused command, no change, or the failing check's last
   lines with numbers masked), so a flaky number does not count as progress. A worker's exit says whether it hit its
-  usage limit or ran out of time. A usage limit (including `HTTP 429 Too Many Requests` in the worker's own lines), a CLI
-  permission refusal, or a run that ended without a report (including after a limit that killed the process before a
-  report) is **environment**: it does not count toward `max_attempts` and never parks the task as no progress (the account
-  or the CLI is the problem, not the task). Such failures do not exhaust the ladder even when every step repeats them;
+  usage limit or ran out of time. A reported usage limit (including `HTTP 429 Too Many Requests` in the worker's own lines)
+  or CLI permission refusal is **environment**: it does not count toward `max_attempts` and never parks the task as no
+  progress (the account or the CLI is the problem, not the task). A run without a report stays held until its work is
+  verified stopped or its report arrives; it is not automatically retried. Reported environment failures do not exhaust
+  the ladder even when every step repeats them;
   availability, pacing and the retry backoff (capped at 30 minutes) still determine when a step can be tried again; this
   does not repair a persistent worker failure. A bare `429` in an assertion or a test name is
   not a usage limit.

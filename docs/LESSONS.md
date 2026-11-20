@@ -575,6 +575,11 @@ user service, and serialize fallback watchdog starts when no unit exists. An exi
 owns the configured dashboard, so report unresolved health rather than killing or restarting an unverified process.
 
 
+## A PID and a silence timeout do not prove a worker stopped (t309)
+
+A local PID can be reused and a remote worker may survive a lost connection. Retrying without verified completion can
+produce two writers. Hold the attempt visibly and keep checking for its report until process ownership can be established.
+
 ## Save launch intent before starting work (t309)
 
 A process can outlive the dashboard that starts it. If the queue still says the task is queued when the dashboard dies,

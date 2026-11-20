@@ -19,10 +19,12 @@ pacing and token limits, and asks a person only what only a person can decide.
 
 - **Retries with backoff.** A failure climbs the ladder at once (another worker or machine); each further failure in a
   row waits 1, 2, 4... minutes, at most 30 (fixed in the code, not a setting). The Autopilot card says why a task waits.
-- **Watchdog.** A run whose log has not grown for `autopilot.stuck_minutes` (default 30; 0 turns the watchdog off) is ended, with everything it
-  started, and counted as a flaky attempt: the same step tries once more, then the ladder moves on.
-- **Crashes, restarts, sleep.** Runs from before a power-off are queued again from their worktree and their WIP refs, not
-  counted (docs/PRESENCE.md).
+- **Watchdog.** A run with no new log output for `autopilot.stuck_minutes` (default 30; 0 turns it off) shows a hold
+  explaining that process ownership is unverified. Tutti does not signal or retry it until its actual report arrives;
+  it may occupy a worker slot during that wait. After a reboot, a run without a report stays held: even locally launched work
+  may have a routed check still running elsewhere.
+- **Crashes, restarts, sleep.** Worktrees and WIP refs remain available after a power-off; unreported runs stay held rather
+  than being counted or retried without proof that their work stopped (docs/PRESENCE.md).
 - **Never silent.** When every route is blocked, the Autopilot card names why for each step and what Tutti already tried,
   and the one thing left for you (the resolver).
 

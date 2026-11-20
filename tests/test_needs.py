@@ -208,36 +208,93 @@ class Backfill(Base):
 
 
 class Resilience(Base):
-    def test_the_watchdog_ends_a_stuck_run_and_queues_it_again(self):
+    def test_rebooted_run_ignores_a_reused_pid_and_waits_for_report(self):
+        cfg = self.cfg()
+        t = task(status='running', run='1700000000-1', step='a', started=T0, boot='old', job_bridge='')
+        alive = mock.Mock(return_value=True)
+        with mock.patch.object(autopilot.delegate, 'load_report', return_value=None), \
+                mock.patch.object(autopilot.durable, 'died_with_host', return_value=True):
+            self.assertEqual(autopilot.finished(cfg, t, alive), (True, None))
+            self.assertEqual(autopilot.collect(cfg, {'tasks': [t]}, T0 + 11 * 60, alive), [])
+        alive.assert_not_called()
+        self.assertEqual(t['status'], 'running')
+        self.assertIn('waiting for its report', t['recovery_note'])
+
+    def test_stuck_run_is_visible_and_never_signalled(self):
         cfg = self.cfg(stuck_minutes=10)
         t = task(status='running', run='1700000000-1', step='a', started=T0)
         killed = []
-        with mock.patch.object(autopilot, 'run_log', return_value=os.path.join(self.tmp.name, 'none.log')), \
-                mock.patch.object(autopilot.delegate, 'paths', return_value={'pid': os.path.join(self.tmp.name, 'pid')}):
-            with open(os.path.join(self.tmp.name, 'pid'), 'w', encoding='utf8') as f:
-                f.write('4242')
-            self.assertEqual(autopilot.stuck(cfg, t, T0 + 5 * 60, killed.append), '')   # not yet
-            why = autopilot.stuck(cfg, t, T0 + 11 * 60, killed.append)
-        self.assertIn('no new output for 11 min', why)
-        self.assertEqual(killed, [4242])
+        with mock.patch.object(autopilot, 'run_log', return_value=os.path.join(self.tmp.name, 'none.log')):
+            self.assertEqual(autopilot.stuck(cfg, t, T0 + 5 * 60, killed.append), '')
+            self.assertNotIn('recovery_note', t)
+            self.assertEqual(autopilot.stuck(cfg, t, T0 + 11 * 60, killed.append), '')
+        self.assertIn('waiting for its report', t['recovery_note'])
+        self.assertEqual(killed, [])
 
-    def test_collect_counts_a_stuck_run_as_a_flaky_attempt_and_queues_it(self):
+    def test_no_report_is_held_then_real_report_is_collected(self):
         cfg = self.cfg(stuck_minutes=10)
-        self.add(cfg, task(status='running', run='1700000000-1', step='a', started=T0))
+        t = task(status='running', run='1700000000-1', step='a', started=T0, publish_note='existing note')
+        data = {'tasks': [t]}
+        with mock.patch.object(autopilot, 'finished', return_value=(True, None)):
+            self.assertEqual(autopilot.collect(cfg, data, T0 + 11 * 60, lambda p: False), [])
+        self.assertEqual((t['status'], t['attempts']), ('running', []))
+        self.assertIn('waiting for its report', t['recovery_note'])
+        self.assertEqual(t['publish_note'], 'existing note')
+        self.assertEqual(autopilot.task_view(cfg, t, T0 + 11 * 60)['recovery_note'], t['recovery_note'])
+        report = {'id': t['run'], 'rc': 0, 'worker_rc': 0, 'checks': [], 'changed': True}
+        with mock.patch.object(autopilot, 'finished', return_value=(True, report)), \
+                mock.patch.object(autopilot, 'attempt_of', return_value={'ok': True, 'step': 'a'}):
+            events = autopilot.collect(cfg, data, T0 + 12 * 60, lambda p: False, publish_fn=lambda c, task, r: None)
+        self.assertEqual(t['status'], 'review')
+        self.assertTrue(events)
+        self.assertNotIn('recovery_note', t)
+        self.assertEqual(t['publish_note'], 'existing note')
+
+    def test_remote_no_report_stays_held_after_local_reboot(self):
+        cfg = self.cfg()
+        t = task(status='running', run='1700000000-1', step='a', started=T0, boot='old', job_bridge='client')
+        with mock.patch.object(autopilot, 'finished', return_value=(True, None)), \
+                mock.patch.object(autopilot.durable, 'died_with_host', return_value=True):
+            self.assertEqual(autopilot.collect(cfg, {'tasks': [t]}, T0 + 11 * 60, lambda p: False), [])
+        self.assertEqual(t['status'], 'running')
+        self.assertIn('waiting for its report', t['recovery_note'])
+
+    def test_silent_hold_clears_when_the_log_grows(self):
+        cfg = self.cfg(stuck_minutes=10)
+        t = task(status='running', run='1700000000-1', step='a', started=T0)
         log = os.path.join(self.tmp.name, 'run.log')
         with open(log, 'w', encoding='utf8') as f:
-            f.write('working\n')
+            f.write('working')
         os.utime(log, (T0, T0))
-        with mock.patch.object(autopilot, 'run_log', return_value=log), \
-                mock.patch.object(autopilot, 'finished', return_value=(False, None)), \
-                mock.patch.object(autopilot, 'check_tails', return_value={}):
-            with backlog.locked(cfg) as data:
-                self.assertEqual(autopilot.collect(cfg, data, T0 + 5 * 60, lambda p: True, kill=lambda p: None), [])   # growing
-            with backlog.locked(cfg) as data:
-                events = autopilot.collect(cfg, data, T0 + 11 * 60, lambda p: True, kill=lambda p: None)
-        t = backlog.load(cfg)['tasks'][0]
-        self.assertEqual((t['status'], t['attempts'][-1]['class'], t['attempts'][-1]['signature']), ('queued', 'flaky', 'stuck:a'))
-        self.assertIn('queued again', events[0])
+        with mock.patch.object(autopilot, 'run_log', return_value=log):
+            autopilot.stuck(cfg, t, T0 + 11 * 60)
+            self.assertIn('waiting for its report', t['recovery_note'])
+            os.utime(log, (T0 + 11 * 60, T0 + 11 * 60))
+            autopilot.stuck(cfg, t, T0 + 12 * 60)
+        self.assertNotIn('recovery_note', t)
+
+    def test_unknown_legacy_destination_stays_held_after_reboot(self):
+        cfg = self.cfg()
+        t = task(status='running', run='1700000000-1', step='a', started=T0, boot='old')
+        with mock.patch.object(autopilot, 'finished', return_value=(True, None)), \
+                mock.patch.object(autopilot.durable, 'died_with_host', return_value=True):
+            self.assertEqual(autopilot.collect(cfg, {'tasks': [t]}, T0 + 11 * 60, lambda p: False), [])
+        self.assertEqual(t['status'], 'running')
+        self.assertIn('waiting for its report', t['recovery_note'])
+
+    def test_paused_attempt_clears_only_its_recovery_note(self):
+        t = task(status='running', run='1700000000-1', recovery_note='waiting', publish_note='keep')
+        autopilot.pause(t, 'the host is sleeping')
+        self.assertEqual(t['status'], 'queued')
+        self.assertNotIn('recovery_note', t)
+        self.assertEqual(t['publish_note'], 'keep')
+
+    def test_disabling_watchdog_clears_its_own_silent_note(self):
+        cfg = self.cfg(stuck_minutes=0)
+        t = task(status='running', run='1700000000-1', step='a', started=T0,
+                 recovery_note='run has no new output for 11 min')
+        autopilot.stuck(cfg, t, T0 + 12 * 60)
+        self.assertNotIn('recovery_note', t)
 
     def test_failures_in_a_row_wait_longer_and_the_first_climbs_at_once(self):
         self.assertEqual(autopilot.backoff(task(attempts=[failed()])), 0)

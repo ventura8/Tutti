@@ -31,7 +31,7 @@ class Order(unittest.TestCase):
         self.assertEqual(heads, ['usage', 'machines', 'attention', 'household',
                                  'running', 'queued', 'main', 'workers', 'autopilot', 'projects', 'security', 'scouts',
                                  'connect', 'outside', 'where', 'setup', 'controls',
-                                 'selfimprove', 'aiassist', 'insights', 'jobs', 'vpn', 'users'])
+                                 'selfimprove', 'aiassist', 'insights', 'jobs', 'vpn', 'needs', 'users'])
 
     def test_usage_shows_the_accounts_then_local_models_then_the_owner(self):
         # the served page: online agents' usage cards, then Local models, then "You and the main agent" (#owner)

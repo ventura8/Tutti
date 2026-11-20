@@ -9,6 +9,8 @@
   (unblocker, triage, scout, Needs-you, welcome-back summaries, routing advice) through `brain.ask`, and fetches it when
   missing (`tutti decisional pull`, or `decisional.auto_pull` in the dashboard probe, never while a person is at this
   computer). Owner questions, paid agents and the online fallback are unchanged. `tutti decisional [status|pull|advise]`.
+- Dashboard: big cards are movable and resizable (min/max clamped); layout saved per user under
+  `<state>/dashboard-layout.json` with Reset layout (t447).
 
 ### Changed
 

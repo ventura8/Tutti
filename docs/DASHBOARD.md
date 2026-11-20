@@ -65,6 +65,13 @@ had from the coordinator (`<state>/household/grants.json`), so the page never wa
 
 The dashboard opens on **Chat** (`#chat`, the default). The hamburger menu in the app bar switches views (Chat,
 Dashboard, Settings, Users for admins); the same hashes as before (`#dashboard`, `#settings`, `#users`).
+
+### Custom layout (t447)
+
+On **Dashboard**, each big card can be moved (drag **Move**) and resized (bottom-right corner). Column span is clamped
+between 4 and 12 on wide screens; height between 140 px and 1200 px (or auto). The layout is stored per signed-in user in
+`<state>/dashboard-layout.json` (and mirrored in the browser). **Reset layout** restores Tutti's default order. On a
+phone, cards stay full width (no reordering); height resize still works.
 Every signed-in user, viewers too, asks about the household and queues work there; it runs on the household host, so it
 works while their own computer is off. Each action is a card with Undo and goes into the audit log; viewers' work has
 admin-set limits, and pausing stays with admins. Like a chat IDE it has a model, effort and mode picker (Autonomous, Ask

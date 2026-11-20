@@ -439,6 +439,7 @@ API_QUEUE = '/api/queue'   # the Queued list's actions: an admin's (Run now, Mov
 API_TUTTI_MOVE = '/api/move'   # Tutti itself to another machine (docs/MOVE.md); API_MOVE moves a device
 # these change the config or the queue: an admin's
 API_LIMIT = '/api/machine-limit'   # a machine's limited-usage window (tutti/share.py), from its card
+API_LAYOUT = '/api/dashboard-layout'   # per-user card order and sizes on #dashboard (t447)
 ADMIN_PATHS = (API_LIMIT, API_SETTINGS, API_RESTART, API_SETUP, API_PAIR, API_MOVE, API_TUTTI_MOVE, '/api/vpn', API_QUEUE,
                '/api/ai-assist', '/api/main')
 API_REPORT = '/api/report'   # Report a problem (docs/REPORT.md): every signed-in user, viewers included
@@ -884,6 +885,37 @@ def _sub_of(collector, headers):
     return (getattr(collector, 'who', lambda _h: None)(headers) or {}).get('sub')
 
 
+def _layout_user(collector, headers):
+    """Stable key for dashboard-layout.json: Google sub when signed in, else 'local' (sign-in off on this computer)."""
+    who = getattr(collector, 'who', lambda _h: None)(headers)
+    if who and who.get('sub'):
+        return who['sub']
+    return 'local'
+
+
+def layout_get(collector, headers):
+    from . import layout_cards
+    key = _layout_user(collector, headers)
+    return 200, {'user': key, 'layout': layout_cards.for_user(config.state_dir(collector.cfg), key)}
+
+
+def layout_post(collector, headers, body):
+    from . import layout_cards
+    try:
+        data = json.loads(body or b'{}')
+    except ValueError:
+        return 400, {'error': 'send JSON {"order": [...], "sizes": {...}} or {"reset": true}'}
+    key = _layout_user(collector, headers)
+    folder = config.state_dir(collector.cfg)
+    if isinstance(data, dict) and data.get('reset'):
+        layout = layout_cards.save_user(folder, key, layout_cards.reset_layout())
+        return 200, {'ok': True, 'layout': layout}
+    if not isinstance(data, dict):
+        return 400, {'error': 'send JSON {"order": [...], "sizes": {...}} or {"reset": true}'}
+    layout = layout_cards.save_user(folder, key, data)
+    return 200, {'ok': True, 'layout': layout}
+
+
 def _self_posts():
     from . import mainmachine, manage
     return {mainmachine.API: lambda c, h, b: mainmachine.post(c, h, b), manage.API: lambda c, h, b: manage.act_post(c, h, b),
@@ -892,6 +924,7 @@ def _self_posts():
             '/api/browser': browsercmd.post,   # the work browser: any signed-in user, for the admin's sites
             needs.API: lambda c, h, b: needs.post(c, h, b),   # questions: the viewer's own answers and settings
             API_REPORT: lambda c, h, b: report.api(c, b, sub=_sub_of(c, h)),   # filed under the person's own GitHub
+            API_LAYOUT: layout_post,   # each user's own card order and sizes on the Dashboard (t447)
             github.ROUTE: github.api}   # Connect GitHub: the person's own connection
 
 
@@ -1058,6 +1091,9 @@ def get(collector, path, token, headers):
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
     if path == welcome.API:   # the viewer's own summary: per user, never in the shared /api/state
         code, answer = welcome.get(collector, headers)
+        return code, safe_json(answer), JSON_TYPE, 'no-store', None
+    if path == API_LAYOUT:   # each user's Dashboard card order and sizes (t447)
+        code, answer = layout_get(collector, headers)
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
     refused = authorize(collector, headers) if path in ADMIN_PATHS else None
     if refused:

@@ -165,10 +165,12 @@ async function startAuth() {
         return;
     }
     document.body.dataset.role = me.role || 'viewer';
+    document.body.dataset.user = me.email || me.sub || 'local';
     $('me').textContent = `${me.email} · ${me.role}`;
     $('viewer-label').hidden = me.role !== 'viewer';
     $('me').hidden = false;
     $('signout').hidden = false;
+    window.dispatchEvent(new Event('tutti-ready'));
     $('signout').addEventListener('click', async () => {
         if (await authPost('/api/auth/logout', {}, 'You were not signed out.')) location.replace('/');
     });

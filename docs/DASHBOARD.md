@@ -63,7 +63,8 @@ had from the coordinator (`<state>/household/grants.json`), so the page never wa
 
 ## Chat
 
-The dashboard opens on the **Chat** tab (`#chat`, the default; the cards below are the **Dashboard** tab, `#dashboard`).
+The dashboard opens on **Chat** (`#chat`, the default). The hamburger menu in the app bar switches views (Chat,
+Dashboard, Settings, Users for admins); the same hashes as before (`#dashboard`, `#settings`, `#users`).
 Every signed-in user, viewers too, asks about the household and queues work there; it runs on the household host, so it
 works while their own computer is off. Each action is a card with Undo and goes into the audit log; viewers' work has
 admin-set limits, and pausing stays with admins. Like a chat IDE it has a model, effort and mode picker (Autonomous, Ask
@@ -245,7 +246,7 @@ the *Where Tutti runs* card says what stops while the laptop is gone, and how to
 
 ## Settings
 
-The **Settings** tab (beside *Dashboard* in the app bar; at the bottom of the screen on a phone; `#settings`, or
+The **Settings** view (hamburger menu → Settings; `#settings`, or
 `#settings/<section or key>` to open at one) holds every key of `tutti.config.yaml`, grouped like the file: accounts and
 readings, workers, main agent, machines, devices, autopilot, pacing, autocompact, review, scouts, telemetry and
 self-improvement, projects and repos, opt-ins, dashboard, you and your household, and *Other*.

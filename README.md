@@ -30,11 +30,12 @@ computers and Android devices for software work, without anyone stepping on anyo
   applies updates; routine clean-ups are counted apart from real repairs ([docs/SELFHEAL.md](docs/SELFHEAL.md)).
 - **GitHub connection.** Connect GitHub once from the dashboard ([docs/GITHUB.md](docs/GITHUB.md)).
 - **Dashboard and chat.** A web dashboard on your LAN or VPN only, never on the public internet, with Google sign-in
-  and roles. It opens on **Chat** (ask "why is the NUC idle?" or queue work), then Dashboard (usage, jobs, needs),
-  **Machines** cards (one per physical computer, with WSL and desktop environments nested under it; configure `physical_machine` for environments with different addresses; slots busy, held back or free, and why) and Settings. An **Admin** tab is coming
-  ([docs/DASHBOARD.md](docs/DASHBOARD.md), [docs/CHAT.md](docs/CHAT.md), [docs/NETWORK.md](docs/NETWORK.md),
+  and roles. It opens on **Chat** (ask "why is the NUC idle?" or queue work); a hamburger menu switches to Dashboard
+  (usage, jobs, needs, **Machines** cards — one per physical computer, with WSL and desktop environments nested under it;
+  configure `physical_machine` for environments with different addresses), Settings, and Users (admins). An **Admin**
+  area is coming ([docs/DASHBOARD.md](docs/DASHBOARD.md), [docs/CHAT.md](docs/CHAT.md), [docs/NETWORK.md](docs/NETWORK.md),
   [docs/AUTH.md](docs/AUTH.md)).
-  Automatic page updates, Settings restarts and daily self-update restarts protect this tab's unsent Chat work and active
+  Automatic page updates, Settings restarts and daily self-update restarts protect Chat's unsent work and active
   answers. Cooperating Chat
   storage writers serialize on supported POSIX hosts; this does not enable simultaneous dashboard engines. Interrupted
   answers that may have started work ask you to check its status before a new request. Job reports and logs in Chat are

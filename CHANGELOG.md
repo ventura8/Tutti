@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+- Dashboard: the view tab bar is a hamburger menu (Chat, Dashboard, Settings, Users) with the current view named on
+  the toggle; same `#…` hashes, Escape and outside-click close (t446).
+
 ### Fixed
 
 - Scout webhook HTTP 400: surface paused-routine and GitHub Connect-apps / wrong-repo causes from the response body

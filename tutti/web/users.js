@@ -146,11 +146,12 @@ function showUsersView() {
         $('settings-view').hidden = true;
         $('chat-view').hidden = true;
     }
-    for (const a of document.querySelectorAll('.tabs__tab[data-view]')) {
+    for (const a of document.querySelectorAll('.nav-menu [data-view]')) {
         const current = on ? a.dataset.view === 'users' : a.dataset.view !== 'users' && a.getAttribute('aria-current') === 'page';
         if (current) a.setAttribute('aria-current', 'page');
         else a.removeAttribute('aria-current');
     }
+    if (typeof navMenuSync === 'function') navMenuSync();
 }
 
 async function startAuth() {

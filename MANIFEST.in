@@ -396,6 +396,7 @@ include tutti/web/index.html
 include tutti/web/login.html
 include tutti/web/login.js
 include tutti/web/manifest.webmanifest
+include tutti/web/navmenu.js
 include tutti/web/needs.js
 include tutti/web/outside.js
 include tutti/web/qr.js

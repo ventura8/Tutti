@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="app.css?v=__TUTTI_VERSION__">
     <script src="format.js?v=__TUTTI_VERSION__" defer></script>
     <script src="a11y.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="navmenu.js?v=__TUTTI_VERSION__" defer></script>
     <script src="telemetry.js?v=__TUTTI_VERSION__" defer></script>
     <script src="update.js?v=__TUTTI_VERSION__" defer></script>
     <script src="attention.js?v=__TUTTI_VERSION__" defer></script>
@@ -68,13 +69,20 @@
             <button class="btn btn--text view-ok" id="report-open" type="button" title="Tell Tutti's maintainers what went wrong">Report a problem</button>
             <button class="btn btn--text" id="signout" type="button" hidden>Sign out</button>
         </div>
-        <!-- The views: the Chat (the default), the dashboard and Settings. On a phone the bar sits at the bottom of the screen (app.css). -->
-        <nav class="tabs" aria-label="Views">
-            <a class="tabs__tab" href="#chat" data-view="chat" aria-current="page">Chat</a>
-            <a class="tabs__tab" href="#dashboard" data-view="dashboard">Dashboard</a>
-            <a class="tabs__tab" href="#settings" data-view="settings">Settings</a>
-            <a class="tabs__tab" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
-        </nav>
+        <!-- The views: hamburger menu (t446). Same hashes as before: #chat (default), #dashboard, #settings, #users. -->
+        <div class="nav-menu">
+            <button class="btn btn--text nav-menu__toggle" id="nav-menu-btn" type="button"
+                aria-expanded="false" aria-controls="nav-menu-panel" aria-haspopup="true" title="Views">
+                <span class="nav-menu__bars" aria-hidden="true"></span>
+                <span class="nav-menu__current" id="nav-menu-current">Chat</span>
+            </button>
+            <nav class="nav-menu__panel" id="nav-menu-panel" aria-label="Views" hidden>
+                <a class="nav-menu__link" href="#chat" data-view="chat" aria-current="page">Chat</a>
+                <a class="nav-menu__link" href="#dashboard" data-view="dashboard">Dashboard</a>
+                <a class="nav-menu__link" href="#settings" data-view="settings">Settings</a>
+                <a class="nav-menu__link" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
+            </nav>
+        </div>
     </header>
 
     <div class="banner" id="banner" role="alert" hidden></div>

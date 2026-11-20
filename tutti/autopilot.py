@@ -1298,6 +1298,22 @@ class LaunchNotStarted(OSError):
     """Popen failed before returning a child process."""
 
 
+def write_child_pid(path, child):
+    """Record the child's pid, or stop it and fail closed if the file cannot be written."""
+    try:
+        with open(path, 'w', encoding='utf8') as f:
+            f.write(f'{child.pid}\n')
+    except OSError as e:
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                os.kill(child.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+        raise LaunchNotStarted(f'could not record pid {child.pid} ({e}): child stopped') from e
+
+
 def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, run_id=None):
     """Starts `tutti run <worker> <brief> --repo <repo> --track ap-<task>` in the background; marks the task running. An
     account's model and effort follow its pace (tutti/tiers.py): stronger while behind, cheaper while ahead."""
@@ -1345,19 +1361,7 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, run
                                'TUTTI_BOUND_REPORT': '1'})
         except OSError as e:
             raise LaunchNotStarted(str(e)) from e
-    try:
-        with open(p['pid'], 'w', encoding='utf8') as f:
-            f.write(f'{child.pid}\n')
-    except OSError as e:
-        # the child exists but cannot be tracked: stop it before releasing the queue slot or quota debit
-        try:
-            os.killpg(child.pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError, OSError):
-            try:
-                os.kill(child.pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError, OSError):
-                pass
-        raise LaunchNotStarted(f'could not record pid {child.pid} ({e}): child stopped') from e
+    write_child_pid(p['pid'], child)
     # the repo's gates this attempt runs (acceptance holds them): a result lands only when they are today's (tutti/fill.py)
     if step['kind'] != 'ollama':
         task.pop('picked', None)

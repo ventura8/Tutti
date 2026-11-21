@@ -45,6 +45,7 @@ from . import (
     householduse,
     httpguard,
     idlecheck,
+    joblog,
     keepon,
     local,
     move,

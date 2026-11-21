@@ -4,6 +4,8 @@
 
 ### Added
 
+- Chat (t298): **This chat's work** under the conversation title lists every task, run or job the chat started, newest
+  first, with its live status (queued and why, running and where, finished); open while any is in flight (docs/CHAT.md).
 - Review modes (t445): `review.modes.<reviewer>` (copilot, coderabbit, greptile, a scout) is `never`, `on_pr_open`,
   `on_new_pushes` (default, today's behaviour) or `on_pr_ready_to_merge`; self-improvement asks each bot only at that
   event (`tutti pr review --event open|push|ready`), a ready-to-merge reviewer once when every other gate is green and

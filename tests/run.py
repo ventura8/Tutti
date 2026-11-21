@@ -88,6 +88,8 @@ ROOT = os.environ.get('TUTTI_TEST_ROOT', '')
 if __name__ == '__main__':
     # made here, not on import: a test's spawned child imports this file again
     ROOT = os.environ['TUTTI_TEST_ROOT'] = os.environ['TMPDIR'] = tempfile.mkdtemp(prefix='tutti-tests-')
+    # never the owner's ~/.config/tutti (its grok.env holds the real webhook: t461), for this run and every child
+    os.environ['XDG_CONFIG_HOME'] = os.path.join(ROOT, 'xdg-config')
     suite = unittest.defaultTestLoader.discover(HERE, top_level_dir=HERE)
     result = unittest.TextTestRunner(resultclass=Guarded).run(suite)
     shutil.rmtree(ROOT, ignore_errors=True)

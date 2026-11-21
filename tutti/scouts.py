@@ -240,9 +240,20 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 OPENER = urllib.request.build_opener(NoRedirect)
 
 
+def refuse_in_tests(url, env=None):
+    """Under the test runner (TUTTI_TEST_ROOT) only a loopback webhook is ever called: a test that reached the owner's real
+    routine sent it fake repos (octo/app), and the routine paused itself on the repeated access error (t461)."""
+    env = os.environ if env is None else env
+    host = (urlparse(url).hostname or '').lower()
+    if env.get('TUTTI_TEST_ROOT') and host not in ('127.0.0.1', 'localhost', '::1'):
+        raise ScoutError(f'a test tried to POST to the real scout webhook at {host}: tests use a fake hook on 127.0.0.1 '
+                         '(pass env= or post_fn= to the scout call)')
+
+
 def post(url, key, body, timeout=30):
     """POSTs one task; returns (status, body_text). Status 200 means a run started. The key goes only into Authorization.
     Callers that only need the status may still treat a bare int from an older/fake post_fn as success/failure."""
+    refuse_in_tests(url)
     req = urllib.request.Request(url, data=json.dumps(body).encode(), method='POST',
                                  headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json',
                                           'User-Agent': 'tutti-scout'})

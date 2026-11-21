@@ -161,5 +161,121 @@ class RoundsTest(unittest.TestCase):
         self.assertIn("review.rounds.grok is 'two'", errs)
 
 
+class SecurityRoundTest(unittest.TestCase):
+    def test_is_tutti_project_identifies_tutti_repos(self):
+        cfg = config.normalise({'projects': {'Tutti': {'match': 'tutti', 'repo': 'octo/tutti'}}})
+        self.assertTrue(review.is_tutti_project(cfg, 'octo/tutti'))
+        self.assertTrue(review.is_tutti_project(cfg, 'tutti'))
+        self.assertTrue(review.is_tutti_project(cfg, 'my/tutti'))
+        self.assertFalse(review.is_tutti_project(cfg, 'octo/other'))
+        self.assertFalse(review.is_tutti_project(cfg, ''))
+
+    def test_security_rounds_defaults_to_one_for_tutti_and_zero_for_others(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = cfg_of(d)
+            self.assertEqual(review.security_rounds(cfg, 'octo/tutti'), 1)
+            self.assertEqual(review.security_rounds(cfg, 'o/r'), 0)
+
+    def test_security_rounds_admin_configurable_globally_and_per_repo(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = cfg_of(d)
+            cfg['review']['rounds'] = {'security': 2}
+            self.assertEqual(review.security_rounds(cfg, 'o/r'), 2)
+            cfg['review']['rounds']['security'] = 0
+            self.assertEqual(review.security_rounds(cfg, 'octo/tutti'), 0)
+            cfg['review']['security_rounds'] = 3
+            self.assertEqual(review.security_rounds(cfg, 'o/r'), 3)
+            cfg['review']['repos'] = {'o/r': {'security_rounds': 4}}
+            self.assertEqual(review.security_rounds(cfg, 'o/r'), 4)
+
+    def test_security_round_requests_bugbot_greptile_coderabbit_and_grok(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = cfg_of(d)
+            fake = FakeGh()
+            said = []
+            with mock.patch.object(review, 'ask_scout', return_value='') as mock_scout:
+                review.request_security_round(cfg, 'octo/tutti', 7, gh_fn=fake, say=said.append)
+                mock_scout.assert_called_once_with(cfg, 'octo/tutti', 7, 'grok', fake, security=True)
+            self.assertIn(['pr', 'comment', '7', '--repo', 'octo/tutti', '--body', 'bugbot run'], fake.calls)
+            self.assertIn(['pr', 'comment', '7', '--repo', 'octo/tutti', '--body', '@greptileai review'], fake.calls)
+            self.assertIn(['pr', 'comment', '7', '--repo', 'octo/tutti', '--body', '@coderabbitai review'], fake.calls)
+            self.assertTrue(any('asked Cursor Security Review/Bugbot' in s for s in said))
+            self.assertTrue(any('asked Greptile' in s for s in said))
+            self.assertTrue(any('asked CodeRabbit' in s for s in said))
+            self.assertTrue(any('asked grok scout (security focus)' in s for s in said))
+
+    def test_security_round_runs_on_tutti_pr_during_review_and_counts_round(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = cfg_of(d, 'skip')
+            cfg['review']['timeout_minutes'] = 0
+            fake = FakeGh(copilot_ok=True)
+            said = []
+            with mock.patch.object(review, 'ask_scout', return_value=''):
+                rc, said = run(cfg, fake)
+            # o/r is not tutti: no security round run
+            self.assertFalse(any('starting security review round' in s for s in said))
+
+            said_tutti = []
+            done = SimpleNamespace(returncode=0, stdout='No findings.', stderr='')
+            with mock.patch.object(review, 'ask_scout', return_value=''), \
+                    mock.patch.object(review.workers, 'available', return_value=(True, 'cheap')), \
+                    mock.patch.object(review.subprocess, 'run', return_value=done):
+                rc = review.review(cfg, 7, 'octo/tutti', gh_fn=fake, say=said_tutti.append, sleep=lambda s: None)
+            self.assertEqual(rc, 0)
+            self.assertTrue(any('starting security review round' in s for s in said_tutti))
+            left = review.round_left(cfg, 'octo/tutti', 7, 'security')
+            self.assertIn('done', left)
+
+            # second run: security round already done
+            said_again = []
+            with mock.patch.object(review, 'ask_scout', return_value=''), \
+                    mock.patch.object(review.workers, 'available', return_value=(True, 'cheap')), \
+                    mock.patch.object(review.subprocess, 'run', return_value=done):
+                review.review(cfg, 7, 'octo/tutti', gh_fn=fake, say=said_again.append, sleep=lambda s: None)
+            self.assertTrue(any('security round not run' in s for s in said_again))
+
+    def test_bad_security_rounds_are_named_in_config_validation(self):
+        cfg = config.normalise({'review': {'security_rounds': -1, 'repos': {'o/r': {'security_rounds': 'three'}}}})
+        errs = '\n'.join(config.validate(cfg))
+        self.assertIn('review.security_rounds is -1', errs)
+        self.assertIn("review.repos.o/r.security_rounds is 'three'", errs)
+
+    def test_failed_bot_request_does_not_consume_security_round(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = cfg_of(d)
+            with mock.patch.object(review, 'request', return_value='could not comment'), \
+                    mock.patch.object(review, 'ask_scout', return_value=''):
+                self.assertFalse(review.run_security_round(cfg, 'octo/tutti', 7, FakeGh(), lambda _: None))
+            self.assertEqual(review.round_left(cfg, 'octo/tutti', 7, 'security'), '')
+
+    def test_scout_failure_still_counts_when_bots_succeed(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = cfg_of(d)
+            with mock.patch.object(review, 'ask_scout', return_value='not configured'):
+                self.assertTrue(review.run_security_round(cfg, 'octo/tutti', 7, FakeGh(), lambda _: None))
+            self.assertIn('done', review.round_left(cfg, 'octo/tutti', 7, 'security'))
+
+    def test_security_can_be_enabled_for_another_repo(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = cfg_of(d)
+            cfg['review']['rounds'] = {'security': 1}
+            with mock.patch.object(review, 'ask_scout', return_value=''):
+                self.assertTrue(review.run_security_round(cfg, 'o/r', 7, FakeGh(), lambda _: None))
+
+    def test_grok_scout_security_focus_task(self):
+        from tutti import trial
+        with tempfile.TemporaryDirectory() as d:
+            cfg = config.normalise({'project': {'state': d}, 'scouts': {'grok': {'kind': 'grok-bot-webhook', 'url_env': 'U',
+                                                                                  'key_env': 'K', 'skills': ['review']}}})
+            sent = []
+            with mock.patch.object(trial.scouts, 'guard'), \
+                    mock.patch.object(trial.scouts, 'secrets', return_value=('http://example.com', 'key')), \
+                    mock.patch.object(trial.scouts, 'send', side_effect=lambda sc, r, t, k, gh, post: sent.append(r)):
+                trial.ask_review(cfg, 'grok', 'octo/tutti', 7, 'https://github.com/octo/tutti/pull/7', security=True)
+            self.assertEqual(len(sent), 1)
+            self.assertIn('focus on security', sent[0]['task'])
+            self.assertIn('Report only real security problems', sent[0]['task'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -693,14 +693,16 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`) are on the Man
 | `autocompact.enabled` | switch | `True` | Autocompact: Compact a worker's context before its window is full. | admin |
 | `autocompact.threshold_pct` | number (%) | `60` | Compact at: The share of the window at which the context is compacted. | admin |
 | `autocompact.context_tokens` | number (tokens) | `200000` | Window: When workers.<name>.context_tokens does not say. | admin |
-| `review.reviewers` | list copilot, coderabbit, greptile |  | Reviewers: Who to ask for a pull request review. | admin |
+| `review.reviewers` | list copilot, coderabbit, greptile, bugbot |  | Reviewers: Who to ask for a pull request review. | admin |
 | `review.timeout_minutes` | number (minutes) | `20` | Wait for them: 0: do not wait, fall back at once. | admin |
 | `review.poll_seconds` | number (seconds) | `30` | Look every: How often to look for their answer. | admin |
 | `review.coderabbit` | select wait, fallback, skip, skip-when-unavailable | `wait` | When CodeRabbit is limited: wait: no merge until it reviews (asked again when its limit passes); fallback: another reviewer stands in, CodeRabbit is asked again later; skip: never asked; skip-when-unavailable: merge on the other reviews. | admin |
 | `review.greptile` | select wait, fallback, skip, skip-when-unavailable | `wait` | When Greptile is limited: The same choices as for CodeRabbit, for Greptile. | admin |
 | `review.repos.*.greptile` | select wait, fallback, skip, skip-when-unavailable |  | Greptile for this repo: Overrides the household policy for one owner/name. | admin |
 | `review.repos.*.coderabbit` | select wait, fallback, skip, skip-when-unavailable |  | CodeRabbit for this repo: Overrides the household policy for one owner/name. | admin |
-| `review.rounds` | yaml |  | Review rounds (admin): How many rounds (ask, fix the findings, ask again) each reviewer gets per pull request: copilot, coderabbit, greptile, a scout (grok) and local (the fallback worker). 1 each by default; 0: not called. | admin |
+| `review.rounds` | yaml |  | Review rounds (admin): How many rounds (ask, fix the findings, ask again) each reviewer gets per pull request: copilot, coderabbit, greptile, security, a scout (grok) and local (the fallback worker). 1 each by default (security round on for Tutti); 0: not called. | admin |
+| `review.security_rounds` | number |  | Security review rounds (admin): How many security review rounds on a pull request (requests Cursor Bugbot, Greptile, CodeRabbit and Grok scout with security focus). On by default for Tutti (1). | admin |
+| `review.repos.*.security_rounds` | number |  | Security rounds for this repo: Overrides the number of security rounds for one owner/name. | admin |
 | `review.fallback` | list |  | Fallback reviewers: Cheap workers that review when no one answers. | admin |
 | `scouts.*.kind` | select grok-bot-webhook |  | Kind: grok-bot-webhook: Grok Bot's webhook routine. | admin |
 | `scouts.*.url_env` | text |  | URL variable: The environment variable that holds the webhook URL (set by `tutti scout setup`). | admin |

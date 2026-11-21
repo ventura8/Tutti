@@ -17,8 +17,13 @@ COPILOT_LOGINS = ('copilot-pull-request-reviewer[bot]', 'copilot-pull-request-re
 COPILOT_REQUEST_AS = ('Copilot', 'copilot-pull-request-reviewer[bot]')
 CODERABBIT_LOGIN = 'coderabbitai[bot]'
 GREPTILE_LOGINS = ('greptile-apps[bot]', 'greptile-apps-staging[bot]')
+CURSOR_LOGINS = ('cursor[bot]', 'bugbot[bot]', 'cursor')
 # the comment-asked review bots: their logins and the comment that asks them (again)
-BOTS = {'coderabbit': ((CODERABBIT_LOGIN,), '@coderabbitai review'), 'greptile': (GREPTILE_LOGINS, '@greptileai review')}
+BOTS = {
+    'coderabbit': ((CODERABBIT_LOGIN,), '@coderabbitai review'),
+    'greptile': (GREPTILE_LOGINS, '@greptileai review'),
+    'bugbot': (CURSOR_LOGINS, 'bugbot run'),
+}
 CODERABBIT_LIMITED = ('rate limited by coderabbit.ai', 'review limit reached', 'review rate limited', 'reviews paused',
                       'rate limit exceeded')
 PROMPT = ('You are reviewing a pull request. The full diff is in the file pr.diff in the current directory; read it. Report only real '
@@ -243,13 +248,14 @@ def note_limited(cfg, repo, number, who, evs, since, now):
     return reset
 
 
-def ask_scout(cfg, repo, number, who, gh_fn=gh):
+def ask_scout(cfg, repo, number, who, gh_fn=gh, security=False):
     """'' when the scout `who` was asked to review (an advisory comment on the pull request), else why not: its allowance is
     used, it is not set up. Listed in review.reviewers, it reviews whatever its trial says."""
     from . import scouts, trial  # trial builds on scouts, which imports this module
     url = f'https://github.com/{repo}/pull/{number}'
     try:
-        r = trial.ask_review(cfg, who, repo, int(number), url, gh_fn, listed=True)
+        options = {'security': True} if security else {}
+        r = trial.ask_review(cfg, who, repo, int(number), url, gh_fn, listed=True, **options)
     except scouts.ScoutError as e:
         return str(e)
     return '' if r['status'] in ('waiting', 'answered') else (r.get('why') or f'its request {r["id"]} {r["status"]}')
@@ -345,10 +351,58 @@ def rerequest_due(cfg, now=None, gh_fn=gh, rerun=None):
 
 
 # ---- review rounds (owner, 2026-11-16): how many times each reviewer is asked on one pull request (a round: ask, fix the
-# findings, ask again). review.rounds.<reviewer> (copilot, coderabbit, a scout, `local` for the fallback worker); 1 by
-# default, 0: never asked. Admin-only, as every setting (the dashboard's /api/settings needs the admin role).
+# findings, ask again). review.rounds.<reviewer> (copilot, coderabbit, a scout, `local` for the fallback worker, and
+# `security` for the security round); 1 by default (security: 1 for Tutti, 0 else), 0: never asked. Admin-only, as every
+# setting (the dashboard's /api/settings needs the admin role).
 
-def rounds_allowed(cfg, who):
+def is_tutti_project(cfg, repo):
+    """True when `repo` belongs to the Tutti project."""
+    if not repo:
+        return False
+    from . import projects
+    r = repo.lower().strip()
+    if r == 'tutti' or r.endswith('/tutti'):
+        return True
+    pname = projects.by_match(cfg, repo)
+    return bool(pname and pname.lower() == 'tutti')
+
+
+def _repo_security_rounds(cfg, repo):
+    repos = (cfg.get('review') or {}).get('repos') or {}
+    own = repos.get(repo) if isinstance(repos, dict) else {}
+    if not isinstance(own, dict):
+        return None
+    if 'security_rounds' in own:
+        return int(own['security_rounds'])
+    return None
+
+
+def _global_security_rounds(cfg):
+    r = cfg.get('review') or {}
+    rounds = r.get('rounds')
+    if 'security_rounds' in r:
+        return int(r['security_rounds'])
+    if isinstance(rounds, dict) and 'security' in rounds:
+        return int(rounds['security'])
+    return None
+
+
+def security_rounds(cfg, repo=None):
+    """How many security review rounds are allowed on this repository (0: disabled).
+    Configurable by admins under review.rounds.security (or review.security_rounds);
+    defaults to 1 for the Tutti project and 0 for others."""
+    own = _repo_security_rounds(cfg, repo) if repo else None
+    if own is not None:
+        return own
+    glob = _global_security_rounds(cfg)
+    if glob is not None:
+        return glob
+    return 1 if is_tutti_project(cfg, repo) else 0
+
+
+def rounds_allowed(cfg, who, repo=None):
+    if who == 'security':
+        return security_rounds(cfg, repo)
     rounds = (cfg.get('review') or {}).get('rounds')
     v = rounds.get(who) if isinstance(rounds, dict) else None
     return 1 if v is None else int(v)
@@ -370,9 +424,9 @@ def rounds_done(cfg, repo, number):
 
 def round_left(cfg, repo, number, who):
     """'' when `who` may review repo#number once more, else why not."""
-    allowed = rounds_allowed(cfg, who)
+    allowed = rounds_allowed(cfg, who, repo)
     if allowed <= 0:
-        return 'review.rounds says 0 (not called)'
+        return 'review.rounds says 0 (not called)' if who != 'security' else 'security review round: not enabled (0 rounds)'
     data, key = rounds_done(cfg, repo, number)
     used = int((data.get(key) or {}).get(who) or 0)
     return '' if used < allowed else f'its {allowed} review round(s) on this pull request are done (review.rounds)'
@@ -386,6 +440,44 @@ def count_round(cfg, repo, number, who, step=1):
     with open(path + '.tmp', 'w', encoding='utf8') as f:
         json.dump(data, f, indent=1)
     os.replace(path + '.tmp', path)
+
+
+SECURITY_BOTS = (
+    ('bugbot', 'Cursor Security Review/Bugbot'),
+    ('greptile', 'Greptile'),
+    ('coderabbit', 'CodeRabbit'),
+)
+
+
+def request_security_round(cfg, repo, number, gh_fn=gh, say=print):
+    """Requests Cursor Security Review/Bugbot, Greptile, CodeRabbit, and a Grok scout with a security focus.
+    Returns True when every comment-asked bot was reached; the scout is advisory and never blocks the round."""
+    failures = []
+    for bot, label in SECURITY_BOTS:
+        why = request(repo, number, bot, gh_fn)
+        if why:
+            failures.append(bot)
+        say(f'review: security: {bot} will not come: {why}' if why else f'review: security: asked {label}')
+    scout_name = 'grok'
+    why = ask_scout(cfg, repo, number, scout_name, gh_fn, security=True)
+    msg = f'{scout_name} scout will not come: {why}' if why else f'asked {scout_name} scout (security focus)'
+    say(f'review: security: {msg}')
+    return not failures
+
+
+def run_security_round(cfg, repo, number, gh_fn=gh, say=print):
+    """Runs the security review round on repo#number if enabled and rounds remain."""
+    if security_rounds(cfg, repo) <= 0:
+        return False
+    left = round_left(cfg, repo, number, 'security')
+    if left:
+        say(f'review: security round not run: {left}')
+        return False
+    say('review: starting security review round')
+    if request_security_round(cfg, repo, number, gh_fn, say):
+        count_round(cfg, repo, number, 'security')
+        return True
+    return False
 
 
 def request_any(cfg, repo, number, who, gh_fn=gh):
@@ -451,6 +543,7 @@ def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh,
     rate-limited, 3 when the local review has findings, 1 otherwise."""
     r = cfg['review']
     repo = repo_of(pr_repo, gh_fn)
+    run_security_round(cfg, repo, number, gh_fn, say)
     since = datetime.now(timezone.utc).replace(microsecond=0)
     policy = {b: coderabbit_policy(cfg, repo, b) for b in BOTS}
     asked, absent, held = ask_all(cfg, repo, number, since, policy, gh_fn, say)

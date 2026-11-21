@@ -341,7 +341,8 @@ FIELDS = {
                                    min=10, max=95),
     'autocompact.context_tokens': field('Window', 'When workers.<name>.context_tokens does not say.', 'number', unit='tokens', min=1000),
     # review
-    'review.reviewers': field('Reviewers', 'Who to ask for a pull request review.', 'list', choices=['copilot', 'coderabbit', 'greptile']),
+    'review.reviewers': field('Reviewers', 'Who to ask for a pull request review.', 'list',
+                              choices=['copilot', 'coderabbit', 'greptile', 'bugbot']),
     'review.timeout_minutes': field('Wait for them', '0: do not wait, fall back at once.', **MIN),
     'review.poll_seconds': field(LOOK_EVERY, 'How often to look for their answer.', **SEC),
     'review.coderabbit': field('When CodeRabbit is limited', 'wait: no merge until it reviews (asked again when its limit passes); '
@@ -355,8 +356,13 @@ FIELDS = {
     'review.repos.*.coderabbit': field('CodeRabbit for this repo', 'Overrides the household policy for one owner/name.', 'select',
                                        choices=['wait', 'fallback', 'skip', 'skip-when-unavailable']),
     'review.rounds': field('Review rounds (admin)', 'How many rounds (ask, fix the findings, ask again) each reviewer gets per pull '
-                           'request: copilot, coderabbit, greptile, a scout (grok) and local (the fallback worker). 1 each by default; 0: '
-                           'not called.', **YAML, default={}),
+                           'request: copilot, coderabbit, greptile, security, a scout (grok) and local (the fallback worker). '
+                           '1 each by default (security round on for Tutti); 0: not called.', **YAML, default={}),
+    'review.security_rounds': field('Security review rounds (admin)', 'How many security review rounds on a pull request (requests '
+                                    'Cursor Bugbot, Greptile, CodeRabbit and Grok scout with security focus). On by default for Tutti (1).',
+                                    'number', min=0),
+    'review.repos.*.security_rounds': field('Security rounds for this repo', 'Overrides the number of security rounds for one owner/name.',
+                                            'number', min=0),
     'review.fallback': field('Fallback reviewers', 'Cheap workers that review when no one answers.', 'list', choices_from='workers'),
     # scouts
     'scouts.*.kind': field('Kind', 'grok-bot-webhook: Grok Bot\'s webhook routine.', 'select', choices=['grok-bot-webhook']),

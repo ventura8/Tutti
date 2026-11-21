@@ -310,7 +310,9 @@ review:
   greptile: wait
   # repos: {octo/my-app: {coderabbit: fallback, greptile: skip}}   # a per-repo override
   # rounds per pull request (ask, fix the findings, ask again), per reviewer; 1 each by default, 0: not called (admin only)
-  # rounds: {coderabbit: 1, greptile: 1, copilot: 1, grok: 1, local: 1}
+  # rounds: {coderabbit: 1, greptile: 1, copilot: 1, grok: 1, local: 1, security: 1}
+  # security review rounds (admin only): requests Cursor Bugbot, Greptile, CodeRabbit, Grok scout; on by default for Tutti (1)
+  # security_rounds: 1
 
 # `tutti conduct`: another agent as the main (conductor) agent; who takes over when its quota is in panic (docs/CONDUCT.md)
 main:

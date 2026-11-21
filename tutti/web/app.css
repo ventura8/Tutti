@@ -777,6 +777,17 @@ body[data-view-name='chat'] .foot { display: none; }
 .qdetail__head { font-size: 0.875rem; font-weight: 600; margin: 4px 0 0; }
 .qdetail ul, .qdetail ol { margin: 0; padding-left: 1.2em; display: grid; gap: 2px; overflow-wrap: anywhere; }
 .qdetail__attempts li[data-ok='false'] { color: var(--on-surface-2); }
+/* t252: the Agents tab */
+.agents { display: grid; gap: 12px; max-width: 1500px; margin: 0 auto; }
+.agents[hidden] { display: none; }
+.agents__lead { color: var(--on-surface-2); }
+.agents__grid { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr)); align-items: start; }
+.agent { display: grid; gap: 6px; }
+.agent__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.agent__name { font-size: 1.0625rem; font-weight: 600; overflow-wrap: anywhere; }
+.agent__head { font-size: 0.875rem; font-weight: 600; margin: 4px 0 0; }
+.agent__list { margin: 0; padding-left: 1.2em; display: grid; gap: 2px; font-size: 0.875rem; overflow-wrap: anywhere; }
+.agent__now { font-weight: 600; }
 .chat__side, .chat__main {
     min-height: 0; border-radius: var(--r-l); background: var(--surface-1); border: 1px solid var(--outline-2);
 }

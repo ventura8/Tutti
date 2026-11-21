@@ -98,6 +98,7 @@ include tests/fixtures/sigstore/forged.sigstore.json
 include tests/fixtures/sigstore/gh-verify-v0.5.2.json
 include tests/run.py
 include tests/test_absence.py
+include tests/test_agentsview.py
 include tests/test_aiassist.py
 include tests/test_apibudget.py
 include tests/test_apidoc.py
@@ -221,6 +222,7 @@ include tutti.config.example.yaml
 include tutti/__init__.py
 include tutti/adbhost.py
 include tutti/adbpair.py
+include tutti/agentsview.py
 include tutti/aiassist.py
 include tutti/apibudget.py
 include tutti/apidoc.py
@@ -385,6 +387,7 @@ include tutti/waiting.py
 include tutti/waitlist.py
 include tutti/watchdog.py
 include tutti/web/a11y.js
+include tutti/web/agents.js
 include tutti/web/app.css
 include tutti/web/app.js
 include tutti/web/attention.js

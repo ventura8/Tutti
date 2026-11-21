@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 
 from . import (
     __version__,
+    agentsview,
     aiassist,
     authweb,
     autocompact,
@@ -332,6 +333,7 @@ class Collector:
         out['work_queue'] = workq.view(self.cfg)
         accounts = {a['name']: a for a in out['usage']['accounts']}
         out['scouts'] = {**scouts.view(self.cfg, accounts, self.env), 'error': probes.get('scout_error'), 'trial': trial.view(self.cfg)}
+        out['agents'] = agentsview.cards(self.cfg, out)   # the Agents tab (t252)
         out['controls'] = controls.view(self.cfg, controls.read(config.state_dir(self.cfg)))
         out['telemetry'] = dashtelemetry.view(self.cfg)
         out['setup'] = setupcmd.read_report(self.cfg)

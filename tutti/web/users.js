@@ -145,6 +145,7 @@ function showUsersView() {
         $('dashboard-view').hidden = true;
         $('settings-view').hidden = true;
         $('chat-view').hidden = true;
+        if ($('agents-view')) $('agents-view').hidden = true;
     }
     for (const a of document.querySelectorAll('.nav-menu [data-view]')) {
         const current = on ? a.dataset.view === 'users' : a.dataset.view !== 'users' && a.getAttribute('aria-current') === 'page';

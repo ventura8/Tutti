@@ -1429,6 +1429,7 @@ function render() {
     renderControls(s);   // controls.js: devices, pause and resume, opt-in switches
     renderJobs(s);
     if (typeof renderQueue === 'function') renderQueue(s);   // queue.js: the Queued list beside Running jobs
+    if (typeof renderAgents === 'function') renderAgents(s);   // agents.js: the Agents tab (t252)
     renderMachines(s);
     renderWorkBrowser(s);
     renderPresence(s);   // controls.js: work waiting on away or asleep targets, the host's warning

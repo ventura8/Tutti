@@ -77,6 +77,25 @@ works while their own computer is off. Each action is a card with Undo and goes 
 admin-set limits, and pausing stays with admins. Like a chat IDE it has a model, effort and mode picker (Autonomous, Ask
 before acting, Plan review), @-mentions, slash commands, branches and a context meter. See [CHAT.md](CHAT.md).
 
+## Agents
+
+The **Agents** tab (`#agents`, t252, `tutti/agentsview.py`, `tutti/web/agents.js`) has one card per agent Tutti can use:
+each worker (a coding CLI, a local model, an online API), each account no worker or scout spends, and each scout. A card
+shows:
+
+- **Roles**, only from the config, each with why: *Main agent* (`main.preferred`, or which `main.fallback`), *Worker*
+  (`routing.workers`, the autopilot's accounts and ladder), *Reviewer* (`review.reviewers`, `review.fallback`), *Decisional
+  model* (`decisional.candidates`), *Chat* (every worker that answers), *Scout* (`scouts`). An agent with none says how to
+  give it one.
+- **Can**: its kind (local model with native tool calls, coding CLI through Tutti's ACTION lines, online API), whether it
+  reads images, its context size; a scout's skills.
+- **Limits**: each account it spends, its weekly bounds included: percent used and pace, the reset, panic, a reading
+  problem.
+- **Now**: ready, not ready (with the reason), checking (no probe yet); how many of its runs are going.
+
+It comes with `/api/state` (`agents`), for every signed-in user. Not yet: learned strengths, benchmark scores, cost so far
+and admin actions on the card.
+
 ## Layout
 
 The **Dashboard** tab's cards go by importance, top to bottom, on a 12-column grid whose rows fill their width, so no card stands tall and

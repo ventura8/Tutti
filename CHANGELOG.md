@@ -4,6 +4,10 @@
 
 ### Added
 
+- Review modes (t445): `review.modes.<reviewer>` (copilot, coderabbit, greptile, a scout) is `never`, `on_pr_open`,
+  `on_new_pushes` (default, today's behaviour) or `on_pr_ready_to_merge`; self-improvement asks each bot only at that
+  event (`tutti pr review --event open|push|ready`), a ready-to-merge reviewer once when every other gate is green and
+  before the merge. Settings > Review; `review.rounds` still applies.
 - Decisional model (t440): `decisional.candidates` lists free models best first; Tutti picks the strongest suitable machine
   (measured graphics memory, or `decisional.hardware`) and the first candidate that fits, asks it first for judgement steps
   (unblocker, triage, scout, Needs-you, welcome-back summaries, routing advice) through `brain.ask`, and fetches it when

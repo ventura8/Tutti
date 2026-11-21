@@ -212,6 +212,34 @@ class Rounds(Base):
         self.assertEqual((lane['items'][0]['merged'], lane['items'][0]['released'], lane['items'][0]['status']), (True, True, 'done'))
         self.assertEqual(selfimprove.tick(cfg, NOW + 7200, run=gh, spawn=spawn), [])   # spaced
 
+    def test_review_events_open_then_push_then_ready(self):
+        # review.modes (t445): the first ask is the open event, a re-ask after a push the push event, and a reviewer set
+        # to on_pr_ready_to_merge is asked once when every other gate is green, before the merge
+        cfg = self.cfg()
+        cfg['review']['reviewers'], cfg['review']['modes'] = ['copilot', 'coderabbit'], {'coderabbit': 'on_pr_ready_to_merge'}
+        self.add_review_task(cfg)
+        spawn = finished_review()
+        selfimprove.tick(cfg, NOW, run=FakeGh(pr()), spawn=spawn)
+        self.assertEqual(spawn.calls[-1][-2:], ['--event', 'open'])
+        selfimprove.tick(cfg, NOW + 60, run=FakeGh(pr(headRefOid='def456')), spawn=spawn)   # pushed: reviews dropped
+        selfimprove.tick(cfg, NOW + 120, run=FakeGh(pr(headRefOid='def456')), spawn=spawn)
+        self.assertEqual(spawn.calls[-1][-2:], ['--event', 'push'])
+        gh = FakeGh(pr(headRefOid='def456'))
+        ev = selfimprove.tick(cfg, NOW + 180, run=gh, spawn=spawn)
+        self.assertIn('ready-to-merge reviews asked', ev[0])
+        self.assertEqual(spawn.calls[-1][-2:], ['--event', 'ready'])
+        self.assertFalse([c for c in gh.calls if c[1:3] == ['pr', 'merge']])   # not in the same tick
+        ev = selfimprove.tick(cfg, NOW + 240, run=gh, spawn=spawn)
+        self.assertTrue(any('merged octo/tutti#7' in e for e in ev))
+
+    def test_without_ready_reviewers_nothing_extra_is_asked(self):
+        cfg = self.cfg()
+        self.add_review_task(cfg)
+        spawn = finished_review()
+        selfimprove.tick(cfg, NOW, run=FakeGh(pr()), spawn=spawn)
+        selfimprove.tick(cfg, NOW + 60, run=FakeGh(pr()), spawn=spawn)
+        self.assertFalse([c for c in spawn.calls if '--event' in c and c[c.index('--event') + 1] == 'ready'])
+
     def test_a_commit_pushed_after_the_review_is_never_merged_unreviewed(self):
         # exploit (audit 2026-11, M4): the reviews ran on abc123; a later push merged with them
         cfg = self.cfg()

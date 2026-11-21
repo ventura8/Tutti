@@ -398,6 +398,9 @@ FIELDS = {
                                      choices=['wait', 'fallback', 'skip', 'skip-when-unavailable']),
     'review.repos.*.coderabbit': field('CodeRabbit for this repo', 'Overrides the household policy for one owner/name.', 'select',
                                        choices=['wait', 'fallback', 'skip', 'skip-when-unavailable']),
+    'review.modes': field('When each reviewer is asked (admin)', 'Per reviewer (copilot, coderabbit, greptile, a scout): never, '
+                          'on_pr_open (the first ask only), on_new_pushes (first ask and after every push; the default) or '
+                          'on_pr_ready_to_merge (once, when every other merge gate is green).', **YAML, default={}),
     'review.rounds': field('Review rounds (admin)', 'How many rounds (ask, fix the findings, ask again) each reviewer gets per pull '
                            'request: copilot, coderabbit, greptile, a scout (grok) and local (the fallback worker). 1 each by default; 0: '
                            'not called.', **YAML, default={}),

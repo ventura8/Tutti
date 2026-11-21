@@ -163,3 +163,42 @@ class RoundsTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ModesTest(unittest.TestCase):
+    """review.modes (t445): each reviewer is asked only at the pull request event its mode names."""
+
+    def test_each_mode_allows_its_events(self):
+        self.assertEqual([e for e in review.EVENTS if review.mode_allows('on_pr_open', e)], ['open'])
+        self.assertEqual([e for e in review.EVENTS if review.mode_allows('on_new_pushes', e)], ['open', 'push'])
+        self.assertEqual([e for e in review.EVENTS if review.mode_allows('on_pr_ready_to_merge', e)], ['ready'])
+        self.assertFalse(any(review.mode_allows('never', e) for e in (*review.EVENTS, None)))
+        self.assertTrue(review.mode_allows('on_pr_open', None))   # a manual run asks all but never
+
+    def test_default_mode_keeps_todays_behaviour(self):
+        self.assertEqual(review.mode_of(config.normalise({}), 'copilot'), 'on_new_pushes')
+
+    def test_a_push_does_not_ask_an_open_only_or_ready_reviewer(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = cfg_of(d, 'skip')
+            cfg['review']['modes'] = {'copilot': 'on_pr_open'}
+            said = []
+            asked, absent, _ = review.ask_all(cfg, 'o/r', 7, NOW, {'coderabbit': 'skip'}, FakeGh(copilot_ok=True), said.append, 'push')
+            self.assertEqual((asked, absent), ([], {}))
+            self.assertIn('review: copilot is not asked: review.modes.copilot is on_pr_open (this is the push event)', said)
+
+    def test_only_ready_reviewers_means_no_local_fallback_before_ready(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = cfg_of(d)
+            cfg['review']['modes'] = {'copilot': 'on_pr_ready_to_merge', 'coderabbit': 'on_pr_ready_to_merge'}
+            said = []
+            rc = review.review(cfg, 7, 'o/r', gh_fn=FakeGh(copilot_ok=True), say=said.append, event='open', sleep=lambda s: None)
+            self.assertEqual(rc, 0)
+            self.assertTrue(any('once the pull request is ready to merge' in s for s in said))
+            self.assertEqual(review.ready_reviewers(cfg), ['copilot', 'coderabbit'])
+
+    def test_bad_modes_are_named(self):
+        errs = '\n'.join(config.validate(config.normalise({'review': {'modes': {'copilot': 'sometimes'}}})))
+        self.assertIn("review.modes.copilot is 'sometimes': use never, on_pr_open, on_new_pushes, on_pr_ready_to_merge", errs)
+        errs = '\n'.join(config.validate(config.normalise({'review': {'modes': ['copilot']}})))
+        self.assertIn('review.modes is', errs)

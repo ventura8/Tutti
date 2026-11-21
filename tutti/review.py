@@ -389,18 +389,57 @@ def count_round(cfg, repo, number, who, step=1):
     os.replace(path + '.tmp', path)
 
 
+# ---- review modes (owner, 2026-11-20, t445): when in a pull request's life each reviewer is asked. review.modes.<reviewer>:
+# never, on_pr_open (the first ask only), on_new_pushes (the first ask and after every push; the default) or
+# on_pr_ready_to_merge (once, when every other merge gate is green). A manual `tutti pr review` (no event) asks every
+# reviewer whose mode is not `never`.
+
+MODES = ('never', 'on_pr_open', 'on_new_pushes', 'on_pr_ready_to_merge')
+EVENTS = ('open', 'push', 'ready')
+DEFAULT_MODE = 'on_new_pushes'
+
+
+def mode_of(cfg, who):
+    modes = (cfg.get('review') or {}).get('modes')
+    v = modes.get(who) if isinstance(modes, dict) else None
+    return v or DEFAULT_MODE
+
+
+def mode_allows(mode, event):
+    """True when a reviewer in `mode` is asked at `event` (open, push, ready; None: a manual run)."""
+    if mode == 'never':
+        return False
+    if event is None:
+        return True
+    return event in {'on_pr_open': ('open',), 'on_new_pushes': ('open', 'push'), 'on_pr_ready_to_merge': ('ready',)}.get(mode, ())
+
+
+def waits_for_later(mode, event):
+    """True when a reviewer not asked now is asked at a later event of the same pull request."""
+    return event in ('open', 'push') and mode == 'on_pr_ready_to_merge'
+
+
+def ready_reviewers(cfg):
+    """The reviewers asked once the other merge gates are green."""
+    return [w for w in (cfg.get('review') or {}).get('reviewers') or [] if mode_of(cfg, w) == 'on_pr_ready_to_merge']
+
+
 def request_any(cfg, repo, number, who, gh_fn=gh):
     return ask_scout(cfg, repo, number, who, gh_fn) if who in (cfg.get('scouts') or {}) else request(repo, number, who, gh_fn)
 
 
-def ask_all(cfg, repo, number, since, policy, gh_fn, say):
-    """Asks every reviewer its policy and rounds allow. Returns (asked, absent {who: why}, held {bot: until})."""
+def ask_all(cfg, repo, number, since, policy, gh_fn, say, event=None):
+    """Asks every reviewer its mode, policy and rounds allow. Returns (asked, absent {who: why}, held {bot: until})."""
     try:
         entries = pacing.read_log(state.usage_log_path(cfg))
     except (OSError, ValueError):
         entries = []
     asked, absent, held = [], {}, {}
     for who in cfg['review']['reviewers']:
+        mode = mode_of(cfg, who)
+        if not mode_allows(mode, event):
+            say(f'review: {who} is not asked: review.modes.{who} is {mode}' + (f' (this is the {event} event)' if event else ''))
+            continue
         why_not = 'review policy: skip' if policy.get(who) == 'skip' else round_left(cfg, repo, number, who)
         if why_not:
             say(f'review: {who} is not asked: {why_not}')
@@ -447,14 +486,18 @@ def hold_for_bots(cfg, repo, number, held, policy, say):
     return bool(waiting)
 
 
-def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh, say=print, **kw):
+def review(cfg, number, pr_repo=None, timeout_minutes=None, post=True, gh_fn=gh, say=print, event=None, **kw):
     """The whole flow. Returns 0 when a reviewer answered or the fallback review was posted, 4 while a `wait` bot is
     rate-limited, 3 when the local review has findings, 1 otherwise."""
     r = cfg['review']
     repo = repo_of(pr_repo, gh_fn)
     since = datetime.now(timezone.utc).replace(microsecond=0)
     policy = {b: coderabbit_policy(cfg, repo, b) for b in BOTS}
-    asked, absent, held = ask_all(cfg, repo, number, since, policy, gh_fn, say)
+    asked, absent, held = ask_all(cfg, repo, number, since, policy, gh_fn, say, event)
+    later = [w for w in r['reviewers'] if waits_for_later(mode_of(cfg, w), event)]
+    if not asked and not absent and later:
+        say(f'review: {", ".join(later)} review(s) once the pull request is ready to merge (review.modes): nothing to wait for now')
+        return 0
     timeout = float(r['timeout_minutes'] if timeout_minutes is None else timeout_minutes) * 60
     authors = {w: scout_author(cfg, w, gh_fn) for w in asked if w in (cfg.get('scouts') or {})}
     found = wait_for(repo, number, asked, since, timeout, float(r['poll_seconds']), gh_fn, authors=authors, **kw) if asked else {}

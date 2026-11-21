@@ -724,6 +724,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `review.greptile` | select wait, fallback, skip, skip-when-unavailable | `wait` | When Greptile is limited: The same choices as for CodeRabbit, for Greptile. | admin |
 | `review.repos.*.greptile` | select wait, fallback, skip, skip-when-unavailable |  | Greptile for this repo: Overrides the household policy for one owner/name. | admin |
 | `review.repos.*.coderabbit` | select wait, fallback, skip, skip-when-unavailable |  | CodeRabbit for this repo: Overrides the household policy for one owner/name. | admin |
+| `review.modes` | yaml |  | When each reviewer is asked (admin): Per reviewer (copilot, coderabbit, greptile, a scout): never, on_pr_open (the first ask only), on_new_pushes (first ask and after every push; the default) or on_pr_ready_to_merge (once, when every other merge gate is green). | admin |
 | `review.rounds` | yaml |  | Review rounds (admin): How many rounds (ask, fix the findings, ask again) each reviewer gets per pull request: copilot, coderabbit, greptile, a scout (grok) and local (the fallback worker). 1 each by default; 0: not called. | admin |
 | `review.fallback` | list |  | Fallback reviewers: Cheap workers that review when no one answers. | admin |
 | `scouts.*.kind` | select grok-bot-webhook |  | Kind: grok-bot-webhook: Grok Bot's webhook routine. | admin |
@@ -1215,7 +1216,7 @@ usage: tutti run [-h] [--dir DIR] [--show] [--input PATH] [--on ON] [--repo REPO
 pull requests: `pr review <n>` asks the reviewers, says when none will come, and falls back to a local review by a cheap worker posted to the pull request
 
 ```text
-usage: tutti pr [-h] [--repo REPO] [--timeout TIMEOUT] [--no-post] {review} number
+usage: tutti pr [-h] [--repo REPO] [--timeout TIMEOUT] [--no-post] [--event {open,push,ready}] {review} number
 ```
 
 | Argument | What it does | Default |
@@ -1225,6 +1226,7 @@ usage: tutti pr [-h] [--repo REPO] [--timeout TIMEOUT] [--no-post] {review} numb
 | `--repo` | owner/name (default: the repository of the current directory) |  |
 | `--timeout` | minutes to wait for the reviewers (default: review.timeout_minutes) |  |
 | `--no-post` | print the fallback review instead of posting it |  |
+| `--event` | the pull request event this review is for; only reviewers whose review.modes allow it are asked (default: every reviewer not set to never) |  |
 
 ### `tutti job`
 

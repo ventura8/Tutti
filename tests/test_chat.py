@@ -2062,6 +2062,19 @@ class PageLogic(unittest.TestCase):
                          [{'id': 'run:3.log', 'label': 't3 · Running'}, {'id': 'j2', 'label': 't2 · done'}])
         self.assertEqual(js('termJobs(undefined)'), [])
 
+    def test_message_headings_start_at_h3_and_never_skip_a_level(self):
+        # t202: axe heading-order; the page has h1 and the chat title h2
+        self.assertEqual(js('mdParse("## A\\n#### B\\n## C").map((n) => n.level)'), [3, 4, 3])
+        self.assertEqual(js('mdParse("# only").map((n) => n.level)'), [3])
+        self.assertEqual(js('mdParse("no heading").map((n) => n.t)'), ['p'])
+
+    def test_list_preview_is_plain_words_shortened_at_a_word(self):
+        self.assertEqual(js('plainPreview("**1 running** - `ship.sh` fix")'), '1 running - ship.sh fix')
+        long = js('plainPreview("word ".repeat(40))')
+        self.assertTrue(long.endswith('…'))
+        self.assertLessEqual(len(long), 71)
+        self.assertNotIn('wor…', long)
+
     def test_rename_updates_only_originating_conversation_without_redrawing_messages(self):
         with open(os.path.join(WEB, 'chat.js'), encoding='utf8') as f:
             src = f.read()

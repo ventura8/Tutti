@@ -787,7 +787,7 @@ body[data-view-name='chat'] .foot { display: none; }
 .chat__item:hover { background: var(--surface-2); }
 .chat__item[aria-current='true'] { background: var(--accent-c); }
 .chat__itemtitle { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat__itemmeta { color: var(--on-surface-2); font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat__itemmeta { color: var(--on-surface-2); font-size: 0.8125rem; overflow-wrap: anywhere; }   /* plainPreview keeps it short */
 .chat__sidefoot { display: grid; gap: 4px; border-top: 1px solid var(--outline-2); padding-top: 8px; font-size: 0.875rem; }
 .chat__privacy summary { min-height: 40px; display: flex; align-items: center; cursor: pointer; color: var(--on-surface-2); padding: 0 8px; }
 .chat__privacy p { color: var(--on-surface-2); padding: 0 8px 8px; }
@@ -976,3 +976,7 @@ select { max-width: 100%; text-overflow: clip; }
 .md__preview { padding: 8px 12px; border-top: 1px solid var(--outline-2); overflow: auto; max-height: 50vh; }
 .md__preview iframe { width: 100%; min-height: 12rem; border: 0; background: white;   /* a page shown as it would be on its own, in either theme */ }
 .md__preview .md__err { color: var(--bad, var(--on-surface)); }
+@media (max-width: 760px) {
+    /* a phone's chat has no room beside or above the messages: the panels are for wider screens */
+    .chat__paneltoggles, .chat__panels { display: none; }
+}

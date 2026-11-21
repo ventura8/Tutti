@@ -87,6 +87,25 @@ function mdBlock(lines, i) {
     return [{ t: 'p', c: kids }, Math.max(j, i + 1)];
 }
 
+// A conversation's last message for the list: its Markdown as plain words, shortened in full words (t202: never **bold**
+// markers, never cut by the box)
+function plainPreview(text, max = 70) {
+    const flat = (nodes) => nodes.map((n) => (typeof n === 'string' ? n : flat(n.c || []))).join(' ');
+    const words = flat(mdParse(text)).replace(/\s+/g, ' ').trim();
+    if (words.length <= max) return words;
+    const cut = words.slice(0, max);
+    return `${cut.slice(0, cut.lastIndexOf(' ') > max / 2 ? cut.lastIndexOf(' ') : max)}…`;
+}
+
+// A message's headings start at h3 (the page has h1, the chat's title h2) and never skip a level (WCAG 1.3.1, axe heading-order)
+function mdLevels(nodes) {
+    const heads = nodes.filter((n) => n.t === 'h');
+    if (!heads.length) return nodes;
+    const ranks = [...new Set(heads.map((h) => h.level))].sort((a, b) => a - b);
+    for (const h of heads) h.level = Math.min(3 + ranks.indexOf(h.level), 6);
+    return nodes;
+}
+
 function mdParse(text) {
     const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
     const out = [];
@@ -97,7 +116,7 @@ function mdParse(text) {
         out.push(node);
         i = next;
     }
-    return out;
+    return mdLevels(out);
 }
 
 const MD_TAGS = { p: 'p', strong: 'strong', em: 'em', code: 'code', ul: 'ul', ol: 'ol', li: 'li', blockquote: 'blockquote', hr: 'hr', br: 'br' };
@@ -385,7 +404,7 @@ function drawList() {
         el('button', {
             class: 'chat__item', type: 'button', 'aria-current': CHAT.conv?.id === c.id ? 'true' : null, onclick: () => openConv(c.id),
         }, el('span', { class: 'chat__itemtitle', text: c.title }),
-        el('span', { class: 'chat__itemmeta', text: `${c.updated ? relative(c.updated) : ''}${c.preview ? ' · ' + c.preview : ''}` })))));
+        el('span', { class: 'chat__itemmeta', text: `${c.updated ? relative(c.updated) : ''}${c.preview ? ' · ' + plainPreview(c.preview) : ''}` })))));
 }
 
 function drawPrivacy() {

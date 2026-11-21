@@ -254,6 +254,7 @@ Under the message box, as in a chat IDE, each starting at Auto:
 ## The page
 
 - Answers stream in as they are written. A message that could not be sent says **Not sent** with **Send again**.
+- A message's headings start at level 3 under the chat's title and never skip a level (t202).
 - Markdown is drawn safely: the text is parsed into a tree and drawn with DOM nodes and `textContent`, so no message ever
   becomes markup. Only `http`, `https` and `mailto` links are links. Code blocks have **Copy**.
 - Links and paths (t304): a bare `https://` address in a message is a link; a path on the host (`/home/…`, `~/…`, `./…`,
@@ -261,7 +262,8 @@ Under the message box, as in a chat IDE, each starting at Auto:
 - Artifacts (t304): a code block in Markdown, HTML, SVG or JSON has **Preview**: Markdown drawn as above, JSON indented (or
   why it is not valid), HTML and SVG in a sandboxed frame with no scripts and no access to the dashboard, with **Open in
   the Browser panel**.
-- **Terminal** and **Browser** panels (t304), hidden until their buttons beside the title (each remembered per browser).
+- **Terminal** and **Browser** panels (t304), hidden until their buttons beside the title (each remembered per browser;
+  not on a phone, where the messages need the room).
   Terminal follows the log of this chat's work on the Dashboard (running first, a picker for the others), the last 200
   lines every 3 seconds with credentials replaced, from `GET /api/job-log/<job id>` (admins; only a log the dashboard
   lists for that job). Browser shows links you click in the chat while it is open, in a sandbox without the dashboard's

@@ -254,7 +254,29 @@
         return [];
     }
 
-    window.tuttiChecks = { startAtTop, noHorizontalScroll, insideViewport, noClippedText, noOverlap, targetSize, iconNames, landmarks, liveRegions,
+    // t202 readability: visible text at least 12 px, and a message's paragraphs at most 90 characters a line
+    function readability(root = document) {
+        const out = [];
+        const probe = document.createElement('span');
+        probe.textContent = '0'.repeat(10);
+        probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap';
+        for (const el of root.querySelectorAll('*')) {
+            if (!ownText(el) || !visible(el) || ['SCRIPT', 'STYLE', 'OPTION'].includes(el.tagName) || el.closest('.sr-only')) continue;
+            const size = parseFloat(getComputedStyle(el).fontSize);
+            if (size < 12) out.push(`text under 12 px ${where(el)}: ${size} px`);
+        }
+        for (const p of root.querySelectorAll('.msg__body p, .msg__body li')) {
+            if (!visible(p)) continue;
+            p.append(probe);
+            const ch = probe.getBoundingClientRect().width / 10;
+            probe.remove();
+            const chars = Math.round(p.getBoundingClientRect().width / ch);
+            if (chars > 90) out.push(`line longer than 90 characters ${where(p)}: ${chars}`);
+        }
+        return out;
+    }
+
+    window.tuttiChecks = { readability, startAtTop, noHorizontalScroll, insideViewport, noClippedText, noOverlap, targetSize, iconNames, landmarks, liveRegions,
         reducedMotion, tabbables: () => tabbables().map(where), focusShown: () => (document.activeElement ? focusShown(document.activeElement) : false),
         active: () => (document.activeElement && document.activeElement !== document.body ? where(document.activeElement) : 'body'), textSpacing,
         layout: () => [...noHorizontalScroll(), ...insideViewport(), ...noClippedText(), ...noOverlap(), ...floatingClearance()] };

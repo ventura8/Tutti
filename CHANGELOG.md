@@ -26,6 +26,11 @@
 
 ### Changed
 
+- Chat (t202): browser tests send a message and stream the household host's answer, keep a failed message with **Send
+  again**, and check a long answer at every width and theme (layout, axe, text at least 12 px, lines at most 90
+  characters). They found and fixed headings that skipped a level, the Terminal/Browser buttons crowding a phone, and the
+  conversation list showing raw Markdown cut off with an ellipsis (now plain words, shortened at a word). The
+  TUI half of t202 waits for a chat TUI (t201).
 - Nav menu (t462): the current tab's name is no longer cut at the bottom (its box was shorter than its line).
 
 - Dashboard: the view tab bar is a hamburger menu (Chat, Dashboard, Settings, Users) with the current view named on

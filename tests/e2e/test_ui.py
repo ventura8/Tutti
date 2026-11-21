@@ -357,6 +357,85 @@ class ChatRename(unittest.TestCase):
             ctx.close()
 
 
+LONG_CHAT = [
+    {'id': 'u1', 'role': 'user', 'text': 'What is running, and can you queue the unit tests on the gpu box?', 'at': '2026-01-01T00:00:00Z'},
+    {'id': 'a1', 'role': 'assistant', 'model': 'qwen3.5:9b', 'at': '2026-01-01T00:00:05Z', 'text': (
+        '## Running now\n\n- **ship.sh** on the laptop: a long conventional commit title that has to wrap on a phone screen\n'
+        '- `tutti test unit` finished: see https://docs.example/a/very/long/path/that/must/wrap/somewhere/on/a/phone/screen.html\n\n'
+        '> Queued work waits for a free machine; the gpu box is busy until the model answers.\n\n'
+        '```bash\ntutti test unit --on gpu-box -- python3 -m unittest discover -s tests --a-very-long-flag-that-scrolls\n```\n\n'
+        + 'A paragraph long enough to show the line length on a 4K screen stays readable. ' * 6),
+     'cards': [{'id': 'c1', 'state': 'done', 'label': 'Queued t9 on gpu-box', 'ref': 't9', 'text': 'tests: unit, on gpu-box'}]},
+]
+
+
+def open_chat(ctx, messages=None):
+    page = open_view(ctx, '#chat')
+    page.wait_for_function("typeof CHAT !== 'undefined' && !CHAT.loading")
+    if messages is not None:
+        page.evaluate("""(msgs) => { CHAT.conv = {id: 'e2e', title: 'Running and queued', messages: msgs};
+            document.body.dataset.chatPane = 'conv'; drawLog(); }""", messages)
+        page.wait_for_timeout(200)
+    return page
+
+
+class ChatFlow(unittest.TestCase):
+    """t202: Chat end to end in the browser: send and stream an answer, a failed send, and a long answer that reads well at
+    every width and theme (layout, axe, text size and line length)."""
+    maxDiff = None
+
+    def test_send_streams_an_answer_from_the_household_host(self):
+        ctx = new_context(ADMIN)
+        try:
+            page = open_chat(ctx)
+            page.fill('#chat-input', "What's running?")
+            page.press('#chat-input', 'Enter')
+            page.wait_for_function("document.querySelectorAll('#chat-log .msg--user').length === 1")
+            page.wait_for_function("!CHAT.streaming && CHAT.conv && CHAT.conv.messages.some((m) => m.role === 'assistant' && m.text)",
+                                   timeout=30000)
+            answer = page.evaluate("CHAT.conv.messages.find((m) => m.role === 'assistant')")
+            self.assertTrue(answer['text'].strip())
+            self.assertTrue(answer.get('model'), answer)
+            self.assertNotIn(answer.get('status'), ('failed', 'unsent'))
+            self.assertEqual(page.input_value('#chat-input'), '')
+            self.assertTrue(page.is_visible('#chat-send'))
+            self.assertFalse(page.is_visible('#chat-stop'))
+            self.assertEqual(page.errors, [])
+        finally:
+            ctx.close()
+
+    def test_a_failed_send_keeps_the_message_with_send_again(self):
+        ctx = new_context(ADMIN)
+        try:
+            page = open_chat(ctx)
+            page.route('**/api/chat', lambda r: r.fulfill(status=503, content_type='application/json', body='{"error":"chat: host busy"}')
+                       if (r.request.post_data_json or {}).get('action') == 'send' else r.continue_())
+            page.fill('#chat-input', 'Queue the unit tests')
+            page.press('#chat-input', 'Enter')
+            page.wait_for_selector('#chat-log .msg--user >> text=Not sent')
+            self.assertTrue(page.is_visible('#chat-log button:has-text("Send again")'))
+            page.wait_for_function("document.getElementById('chat-announce').textContent.toLowerCase().includes('not sent')")
+            self.assertEqual(page.errors, [])
+        finally:
+            ctx.close()
+
+    def test_a_long_answer_reads_well_at_every_width_and_theme(self):
+        problems = {}
+        for width in WIDTHS:
+            for theme in THEMES:
+                ctx = new_context(ADMIN, width, theme)
+                page = open_chat(ctx, LONG_CHAT)
+                found = page.evaluate("[...tuttiChecks.layout(), ...tuttiChecks.readability(document.getElementById('chat-main'))]")
+                if width in ('phone', 'laptop'):
+                    found += axe(page)
+                if found:
+                    problems[f'{width} {theme}'] = found
+                shot(page, f'chat-long-{width}-{theme}')
+                self.assertEqual(page.errors, [], f'script errors at {width} {theme}')
+                ctx.close()
+        self.assertEqual(problems, {})
+
+
 class UsageGraph(unittest.TestCase):
     def test_readings_work_with_mouse_touch_and_keyboard(self):
         ctx = new_context(ADMIN, has_touch=True)

@@ -20,7 +20,7 @@ import subprocess
 import sys
 import time
 
-from . import backlog, config, github, insights, remote, telemetry
+from . import backlog, config, github, insights, remote, review, telemetry
 
 FILE = 'self-improve.json'
 SOURCES = ('sentry', 'insight', 'report')
@@ -330,13 +330,14 @@ def review_files(cfg, repo, number):
     return base + '.log', base + '.rc'
 
 
-def request_review(cfg, repo, number, spawn=subprocess.Popen):
+def request_review(cfg, repo, number, spawn=subprocess.Popen, event=None):
     """`tutti pr review <n>` in the background: asks the AI reviewers and falls back to a cheap worker's review; its exit
     code lands in the .rc file once it has finished."""
     log, rc = review_files(cfg, repo, number)
     if os.path.exists(rc):
         os.remove(rc)
     argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'pr', 'review', str(number), '--repo', repo]
+    argv += ['--event', event] if event else []
     script = 'rc=0; "$@" || rc=$?; echo $rc > "$RC_FILE"'
     with open(log, 'a', encoding='utf8') as f:
         spawn(['sh', '-c', script, 'review', *argv], stdout=f, stderr=f, stdin=subprocess.DEVNULL, start_new_session=True,
@@ -358,14 +359,24 @@ def pushed_since_review(reviews, key, pr):
     return pr.get('state') == 'OPEN' and bool(pr.get('headRefOid')) and asked.get('sha') != pr['headRefOid']
 
 
-def ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn):
+def ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn, event=None):
     """Asks the AI reviews once, remembering the commit they see. Returns the event, or None when gh cannot be read."""
     pr = pr_state(pol['repo'], number, run)
     if pr is None:
         return None
-    request_review(cfg, pol['repo'], number, spawn)
+    request_review(cfg, pol['repo'], number, spawn, event)
     reviews[key] = {'at': now, 'sha': pr.get('headRefOid') or ''}   # the commit the reviewers see
     return f'{t["id"]}: AI reviews asked on {key}'
+
+
+def ask_ready(cfg, t, pol, number, key, reviews, now, spawn):
+    """Every gate is green: asks the on_pr_ready_to_merge reviewers once for this commit; the event, or None."""
+    if not review.ready_reviewers(cfg) or reviews[key].get('ready'):
+        return None
+    request_review(cfg, pol['repo'], number, spawn, 'ready')
+    reviews[key]['ready'] = now
+    t['self_improve'] = 'ready to merge: asking the ready-to-merge reviewers (review.modes)'
+    return f'{t["id"]}: ready-to-merge reviews asked on {key}'
 
 
 def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
@@ -377,7 +388,12 @@ def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
     key = f'{pol["repo"]}#{number}'
     reviews = st.setdefault('reviews', {})
     if key not in reviews:
-        return ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn)
+        opened = st.setdefault('asked', [])   # pull requests asked before: a later ask is the push event (review.modes)
+        event = 'push' if key in opened else 'open'
+        done = ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn, event)
+        if done and key not in opened:
+            opened.append(key)
+        return done
     pr = pr_state(pol['repo'], number, run)
     if pr is None:
         return None
@@ -395,6 +411,9 @@ def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
             t['status'], t['notes'] = 'queued', [*t.get('notes', []), f'Changes requested on {key}: read the review and fix them.']
             reviews.pop(key, None)   # the fix pushed onto this pull request is reviewed again before any merge
         return None
+    ready = ask_ready(cfg, t, pol, number, key, reviews, now, spawn)
+    if ready:
+        return ready
     if not pr.get('headRefOid'):
         t['self_improve'] = 'GitHub did not say which commit the pull request is at: not merged; the next round looks again'
         return None
@@ -488,7 +507,7 @@ def tick(cfg, now=None, run=github.run, spawn=subprocess.Popen):
             if line:
                 events.append(line)
     events += release(cfg, st, now, spawn)
-    kept = ('reviews', 'merged', 'released', 'releasing', 'release_failed')
+    kept = ('reviews', 'asked', 'merged', 'released', 'releasing', 'release_failed')
     write_state(cfg, {**read_state(cfg), **{k: st[k] for k in kept if k in st}})
     return events
 

@@ -190,6 +190,11 @@ flowchart TD
     P -- skip --> O
 ```
 
+When each reviewer is asked (`review.modes.<reviewer>`, t445): `on_new_pushes` (default: the first ask and after every
+push), `on_pr_open` (the first ask only), `on_pr_ready_to_merge` (once per commit, when CI, threads and the other reviews
+are green; the merge waits for it) or `never`. Self-improvement passes the event to `tutti pr review --event open|push|ready`;
+a manual `tutti pr review` asks every reviewer not set to `never`. `review.rounds` still caps the asks per pull request.
+
 ## All work through Tutti
 
 Every Claude Code session in the household, and every other main agent, does its work as a Tutti task (`tutti/intake.py`,

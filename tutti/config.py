@@ -52,6 +52,7 @@ DEFAULTS = {
     # coderabbit: wait (default; no merge until CodeRabbit reviewed), fallback, skip or skip-when-unavailable; repos.<owner/name>
     'review': {'reviewers': [], 'timeout_minutes': 20, 'poll_seconds': 30, 'fallback': [],
                'coderabbit': 'wait', 'greptile': 'wait', 'repos': {},
+               'modes': {},    # modes.<reviewer>: never, on_pr_open, on_new_pushes (default) or on_pr_ready_to_merge
                'rounds': {}},   # rounds.<reviewer or local>: how often each is asked per pull request (1; 0: never)
     # main: `tutti conduct`; the main (conductor) agent, the ones that take over when its quota is out, a command per agent
     # when it conducts (default: its worker command), extra ask-first actions, how often the run checks the readings
@@ -493,6 +494,10 @@ def _review_errors(cfg):
     errs += [f'{k} is {v!r}: use {", ".join(pols)}' for k, v in where if v is not None and v not in pols]
     errs += [f'review.repos.{n} is {o!r}: use {{coderabbit: <policy>}}' for n, o in (r.get('repos') or {}).items()
              if not isinstance(o, dict)]
+    modes = r.get('modes') or {}
+    mode_names = ('never', 'on_pr_open', 'on_new_pushes', 'on_pr_ready_to_merge')
+    errs += [f'review.modes is {modes!r}: use {{<reviewer>: <mode>}}'] if not isinstance(modes, dict) else \
+        [f'review.modes.{n} is {v!r}: use {", ".join(mode_names)}' for n, v in modes.items() if v not in mode_names]
     rounds = r.get('rounds') or {}
     pairs = rounds.items() if isinstance(rounds, dict) else [('', rounds)]
     errs += [f'review.rounds.{n} is {v!r}: use a whole number, 0 or more (0: that reviewer is not called)'

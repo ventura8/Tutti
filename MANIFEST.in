@@ -198,6 +198,7 @@ include tests/test_ship.py
 include tests/test_slot.py
 include tests/test_strangers.py
 include tests/test_taskdetail.py
+include tests/test_taskdeps.py
 include tests/test_tasketa.py
 include tests/test_telemetry.py
 include tests/test_temps.py
@@ -365,6 +366,7 @@ include tutti/statebudget.py
 include tutti/stuck.py
 include tutti/target.py
 include tutti/taskdetail.py
+include tutti/taskdeps.py
 include tutti/tasketa.py
 include tutti/telemetry.py
 include tutti/telemetrycmd.py

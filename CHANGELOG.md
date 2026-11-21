@@ -10,6 +10,9 @@
 - Dashboard (t237): a queued task opens (click, Enter or Space; kept open across refreshes) to everything it has: facts,
   branch and pull request, what done means, the last attempts and notes, read from `GET /api/task/<id>` when opened
   (docs/DASHBOARD.md, *Queued*).
+- Backlog (t243): tasks may `depends_on` others (blocked until they land: the autopilot never starts them and the Queued
+  list says why), go `together_with` others, or be `merged_into` one. `tutti backlog link|deps|board` sets and shows them,
+  refusing unknown ids and loops (docs/AUTOPILOT.md, *Dependencies, groups and merges*).
 - Chat (t298): **This chat's work** under the conversation title lists every task, run or job the chat started, newest
   first, with its live status (queued and why, running and where, finished); open while any is in flight (docs/CHAT.md).
 - Review modes (t445): `review.modes.<reviewer>` (copilot, coderabbit, greptile, a scout) is `never`, `on_pr_open`,

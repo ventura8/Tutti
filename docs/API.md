@@ -1533,13 +1533,13 @@ the autopilot's queue of bounded tasks: add <repo> "<title>", list, rm <id>, see
 
 ```text
 usage: tutti backlog [-h] [--who WHO] [--scope PATH] [--check CHECK] [--size {S,M,L}] [--source SOURCE] [--note NOTE]
-                     [--all]
-                     {add,list,rm,seed,retry,done,accept,claim,release,note,priority} [repo] [title]
+                     [--all] [--on ON] [--with TOGETHER] [--merged-into MERGED_INTO]
+                     {add,list,rm,seed,retry,done,accept,claim,release,note,priority,deps,link,board} [repo] [title]
 ```
 
 | Argument | What it does | Default |
 | --- | --- | --- |
-| `action {add,list,rm,seed,retry,done,accept,claim,release,note,priority}` |  |  |
+| `action {add,list,rm,seed,retry,done,accept,claim,release,note,priority,deps,link,board}` |  |  |
 | `repo` | add, seed: a repo under autopilot.repos; rm, retry, done, accept, claim, release, note: the task id |  |
 | `--who` | claim: the session that works on it by hand (default $TUTTI_SESSION) |  |
 | `title` |  |  |
@@ -1549,6 +1549,9 @@ usage: tutti backlog [-h] [--who WHO] [--scope PATH] [--check CHECK] [--size {S,
 | `--source` |  | `orchestrator` |
 | `--note` | a note for the worker (retry: the reviewer's notes) |  |
 | `--all` | list: also done and dropped tasks |  |
+| `--on` | link: the tasks it depends on, comma-separated ("" clears) (t243) |  |
+| `--with` | link: the tasks that go together with it, comma-separated ("" clears) |  |
+| `--merged-into` | link: the task it was folded into ("" clears) |  |
 
 ### `tutti lease`
 

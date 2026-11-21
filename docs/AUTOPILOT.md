@@ -312,6 +312,27 @@ work per weight. A more important project goes first and more often; a less impo
 never starves. One helper, `config.project_priority(cfg, name)` (with `config.repo_priority` and `tutti/priority.py`'s
 `fair_order`), is what every scheduler uses.
 
+## Dependencies, groups and merges
+
+A task may name other tasks (t243, `tutti/taskdeps.py`):
+
+- `depends_on`: tasks that must land (be done) first. Until then the task is **blocked**: the autopilot never starts it,
+  and the Queued list says `blocked until t211 lands`. A dropped dependency no longer blocks.
+- `together_with`: tasks that belong together (the link goes both ways). They are shown as one group; starting a group in
+  one round is not done yet.
+- `merged_into`: the task it was folded into (a duplicate). It never runs on its own.
+
+```bash
+tutti backlog link t242 --on t211            # t242 waits for t211
+tutti backlog link t200 --with t201,t202     # one group
+tutti backlog link t9 --merged-into t4       # a duplicate
+tutti backlog link t242 --on ""              # clears it
+tutti backlog deps t211                      # what it waits for, goes with, and is needed by
+tutti backlog board                          # the Blocked / Ready / Grouped lanes
+```
+
+`link` refuses an id not in the backlog, the task itself, and a loop (`t1 -> t2 -> t1`), and says which.
+
 
 
 ## Launch recovery

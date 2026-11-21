@@ -435,6 +435,40 @@ class ChatFlow(unittest.TestCase):
                 ctx.close()
         self.assertEqual(problems, {})
 
+class QueuedTaskDetail(unittest.TestCase):
+    """t237: a queued task opens with the keyboard to everything it has; the open view keeps the layout and axe clean."""
+    maxDiff = None
+
+    def test_enter_opens_a_queued_task_with_all_its_details_at_every_width(self):
+        problems = {}
+        for width in ('phone', 'laptop'):
+            for theme in THEMES:
+                ctx = new_context(ADMIN, width, theme)
+                page = open_view(ctx, '#dashboard')
+                summary = page.locator('#queued .qitem > summary').first
+                summary.focus()
+                page.keyboard.press('Enter')
+                page.wait_for_selector('#queued .qitem[open] .qdetail__facts')
+                text = page.text_content('#queued .qitem[open] .qdetail')
+                for part in ('Id', 'npm test', 'Done when', 'The legend fits a 360 px phone.', 'Attempts (3, newest first)',
+                             'Notes (8 of 10'):
+                    self.assertIn(part, text, f'{width} {theme}')
+                found = page.evaluate('tuttiChecks.layout()') + axe(page)
+                if found:
+                    problems[f'{width} {theme}'] = found
+                self.assertEqual(page.errors, [])
+                ctx.close()
+        self.assertEqual(problems, {})
+
+    def test_an_open_task_stays_open_after_a_reload(self):
+        ctx = new_context(ADMIN)
+        page = open_view(ctx, '#dashboard')
+        page.locator('#queued .qitem > summary').first.click()
+        page.wait_for_selector('#queued .qitem[open] .qdetail__facts')
+        page.reload()
+        page.wait_for_selector('#queued .qitem[open] .qdetail__facts')
+        ctx.close()
+
 
 class UsageGraph(unittest.TestCase):
     def test_readings_work_with_mouse_touch_and_keyboard(self):

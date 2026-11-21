@@ -136,6 +136,12 @@ held by another tool, a machine asleep). An admin acts on a task: **Run now** (f
 queued scout question (`POST /api/queue`, admins only). A viewer sees the list read-only. Household jobs wait at the
 household's coordinator and show on the shared machine's own dashboard once claimed.
 
+A queued task opens (click, or Enter or Space on its title; it stays open across refreshes and reloads) to everything it has
+(t237): id, repository, project, priority, size, source, status, when it was added, scope, check, who claimed it, the last
+worker, step, model and run, its branch and pull request, what *done* means, its last 10 attempts newest first (when,
+where, why it failed) and its last 8 notes. They are read from `GET /api/task/<id>` when the row opens, not sent in every
+state poll, with credentials replaced. Running jobs open the same way to their log (above).
+
 ## Autopilot
 
 The **Autopilot** card turns it on or off (`POST /api/autopilot {"enabled": true}`, same-origin and token checks as a

@@ -63,6 +63,7 @@ from . import (
     sleepwatch,
     state,
     stuck,
+    taskdetail,
     telemetry,
     transfer,
     trial,
@@ -1095,6 +1096,9 @@ def get(collector, path, token, headers):
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
     if path == API_LAYOUT:   # each user's Dashboard card order and sizes (t447)
         code, answer = layout_get(collector, headers)
+        return code, safe_json(answer), JSON_TYPE, 'no-store', None
+    if path.startswith(taskdetail.API):   # a queued task's expanded row (t237): every signed-in viewer, like the Queued list
+        code, answer = taskdetail.get(collector.cfg, path)
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
     refused = authorize(collector, headers) if path in ADMIN_PATHS or path.startswith(joblog.API) else None
     if refused:

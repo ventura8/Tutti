@@ -196,6 +196,7 @@ tests/test_shared_status.py
 tests/test_ship.py
 tests/test_slot.py
 tests/test_strangers.py
+tests/test_taskdetail.py
 tests/test_tasketa.py
 tests/test_telemetry.py
 tests/test_temps.py
@@ -362,6 +363,7 @@ tutti/state.py
 tutti/statebudget.py
 tutti/stuck.py
 tutti/target.py
+tutti/taskdetail.py
 tutti/tasketa.py
 tutti/telemetry.py
 tutti/telemetrycmd.py

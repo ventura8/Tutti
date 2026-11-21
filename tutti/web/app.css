@@ -768,6 +768,15 @@ body[data-view-name='chat'] .foot { display: none; }
     display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: var(--gap);
     height: max(420px, var(--chat-h)); max-width: 1500px; margin: 0 auto;
 }
+/* t237: a queued task opens to everything it has */
+.qitem > summary { cursor: pointer; list-style-position: outside; }
+.qdetail { display: grid; gap: 6px; padding: 6px 0 4px; font-size: 0.875rem; }
+.qdetail__facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin: 0; }
+.qdetail__facts dt { color: var(--on-surface-2); }
+.qdetail__facts dd { margin: 0; overflow-wrap: anywhere; }
+.qdetail__head { font-size: 0.875rem; font-weight: 600; margin: 4px 0 0; }
+.qdetail ul, .qdetail ol { margin: 0; padding-left: 1.2em; display: grid; gap: 2px; overflow-wrap: anywhere; }
+.qdetail__attempts li[data-ok='false'] { color: var(--on-surface-2); }
 .chat__side, .chat__main {
     min-height: 0; border-radius: var(--r-l); background: var(--surface-1); border: 1px solid var(--outline-2);
 }

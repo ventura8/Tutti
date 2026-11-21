@@ -246,7 +246,7 @@ function initPanels() {
         try { saved = localStorage.getItem(`tutti.chat.panel.${name}`) === '1'; } catch { saved = false; }
         if (cq(`chat-${name}`)) setPanel(name, saved);
     }
-    cq('chat-term-job')?.addEventListener('change', (e) => { PANELS.job = e.target.value; pollTerm(); });
+    cq('chat-term-job')?.addEventListener('change', (e) => { PANELS.job = e.target.value; void pollTerm(); });
 }
 
 // A link clicked in the chat: into the Browser panel while it is shown (true), else the browser's own new tab (false)
@@ -290,7 +290,7 @@ function drawTermJobs() {
     pick.value = PANELS.job;
     pick.hidden = !jobs.length;
     if (!jobs.length) cq('chat-term-out').textContent = 'Nothing of this chat\'s work is on the Dashboard now. Work it starts shows its log here.';
-    else pollTerm();
+    else void pollTerm();
 }
 
 async function pollTerm() {

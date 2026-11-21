@@ -250,10 +250,12 @@ person frees space (docs/SELFHEAL.md, *Yield flags, disks and clean-up*).
   `query user` reports a console session's IDLE TIME as `none` however long it sat untouched. A desktop's ACPI zone is often a fixed placeholder (about 17 C): a value under 20 C or
   over 110 C is shown as "CPU temperature not readable" with the reason, never as a number. Heat limits apply to the
   hotter of CPU and GPU. `heat: {cap_c: 85, stop_c: 98, hot_slots: 1}`: at `cap_c` or more the machine takes a run only while fewer
-  than `hot_slots` run there; at `stop_c` or more it takes nothing new. A machine without a `heat` block gets
+  than `hot_slots` run there; at `stop_c` or more it takes nothing new. Each dispatch round also writes an automatic heat
+  pause at `stop_c` (hands running work over) and clears it once the machine cools below `cap_c`; an owner's pause and
+  blocked-hours pause stay as they are. A machine without a `heat` block gets
   `{cap_c: 85, stop_c: 95, hot_slots: 1}` (a Termux machine keeps its battery policy); `tutti setup` writes it. Routing then falls over to the next machine in
   `routing.order`, so put a `local` machine with one capped slot last as the fallback. A machine refused for heat is never
-  the queue of last resort either. A machine without any readable
+  the queue of last resort either; `--on` does not bypass `stop_c`. A machine without any readable
   sensor is never refused for heat. Routing looks once, when the run is queued; `slot.sh` looks again right before a
   waiting run starts (`HEAT_STOP_C`, `HEAT_CAP_C`, `HOT_SLOTS`, passed from `heat`): when the machine is too hot it gives
   its lock back, says `slot.sh: waiting, too hot: 99 C ...` once, and starts when the machine has cooled down.

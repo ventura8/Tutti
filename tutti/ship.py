@@ -152,7 +152,15 @@ def run_check(cfg, top, check, env, track):
         return shell(top, run, env).returncode, 'local'
     machines = {n: config.merge(m, {'runner': check.get('runner') or {}}) for n, m in cfg['machines'].items()}
     try:
-        choice = routing.choose(cfg['routing']['order'], machines, lambda n: remote.probe(machines[n]))
+        from datetime import datetime, timezone
+
+        from . import share
+        now_dt = datetime.now(timezone.utc)
+
+        def probe_fn(n):
+            return share.probe_at_share(machines[n], remote.probe(machines[n]), now_dt)
+
+        choice = routing.choose(cfg['routing']['order'], machines, probe_fn, now=now_dt, heavy=True)
     except routing.NoMachine as e:
         sys.stderr.write(f'tutti: check not run: {e}\n')
         return 3, 'none'

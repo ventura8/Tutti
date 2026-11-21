@@ -16,6 +16,10 @@
   instead of only the generic "confirm the routine is not paused" hint (t443).
 - Invalid `GH_TOKEN` / `GITHUB_TOKEN` in the agent shell no longer shadows the GitHub CLI keyring: Tutti retries without
   those vars, and `tutti doctor` names them when they are refused (t443).
+- Limited hours and heat for every heavy path: `tutti test`, ship, and handover now refuse a machine inside
+  `machines.<m>.limit` (and at `heat.stop_c`); `--on` no longer bypasses either. Share-capped probes cut free slots
+  the way workq already did. Dispatch auto-pauses at `stop_c` and clears below `cap_c` without overwriting an owner
+  pause (t444: Plex NUC at 105 C).
 
 ## 0.31.5 (2026-11-20)
 

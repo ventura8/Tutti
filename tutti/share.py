@@ -101,6 +101,20 @@ def cap_free(slots, free, share):
     return max(0, min(free, scaled(slots, share) - busy))
 
 
+def probe_at_share(machine, probe, now, idle_s=None, quiet_hours=None):
+    """A routing probe whose free slots are cut to Tutti's share now (limited hours, quiet, person at keyboard).
+    `tutti test` used to probe raw free slots and ignore `machines.<m>.limit`, so heavy check.sh still landed on a
+    Plex NUC inside its evening window (t444)."""
+    import dataclasses
+
+    from . import routing
+    if not probe.reachable:
+        return probe
+    reason = routing.heat_unfit(machine, probe) or routing.power_unfit(machine, probe)
+    share_pct, _why = pct(machine, {'reason': reason}, now, idle_s, quiet_hours)
+    free = cap_free(int(machine.get('slots') or 1), probe.free, share_pct)
+    return probe if free == probe.free else dataclasses.replace(probe, free=free)
+
 def mutter_idle(run=subprocess.run):
     """Seconds since the last keyboard or mouse input on a GNOME session (X11 or Wayland) from Mutter's idle monitor over
     the session D-Bus, or None (no GNOME, no gdbus, no session bus). GNOME never sets logind's IdleSinceHint, so on a

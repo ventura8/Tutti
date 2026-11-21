@@ -213,11 +213,15 @@ def cmd_machines(cfg, a):
         print(devices.TERMUX_STEPS.format(name=a.name or 'phone', host=a.host or '<the device IP>', user=a.user or '<whoami>',
                                           port=a.port))
         return 0
+    from datetime import datetime, timezone
+
+    now_dt = datetime.now(timezone.utc)
     down = 0
     for name, m in cfg['machines'].items():
         p = remote.probe(m)
         down += not p.reachable
-        state = routing.unfit(m, p) or 'fit'
+        # Prefer the heavy-path reason (limited hours / heat) so a Plex evening is visible on `tutti machines` (t444).
+        state = routing.unfit(m, p, now=now_dt, heavy=True) or 'fit'
         print(f'{name:12} {m["transport"]:7} slots {p.free}/{m["slots"]}  load {p.load:g}/{p.cores}{heat_text(p)}  {state}')
     return 1 if down else 0
 
@@ -307,20 +311,30 @@ def tree_and_command(cfg, a):
 
 
 def test_choice(cfg, a):
-    """(routing.Choice, device or None) for a `tutti test`; raises ConfigError when no device gets ready."""
+    """(routing.Choice, device or None) for a `tutti test`; raises ConfigError when no device gets ready.
+    Every `tutti test` is heavy: never a machine inside its limited-hours window, never one at heat.stop_c, and `--on`
+    does not bypass those (t444: Plex NUC)."""
+    from datetime import datetime, timezone
+
+    from . import share, sharing  # share: limited hours; sharing: household grant
+    now_dt = datetime.now(timezone.utc)
     if a.device:
         device = devices.wait_ready(cfg, a.device, remote.device_readings, say=lambda m: say(f'test: {m}'), wait_minutes=a.wait_minutes)
         return routing.Choice(device['machine'], False, f'the machine device {device["name"]} is on'), device
     if a.on:
-        return routing.Choice(machine_of(cfg, a.on)['name'], False, 'chosen with --on'), None
+        m = machine_of(cfg, a.on)
+        probe = share.probe_at_share(m, remote.probe(m), now_dt)
+        why = routing.refused(m, probe, now=now_dt, heavy=True) or routing.unfit(m, probe, now=now_dt, heavy=True)
+        if why:
+            raise config.ConfigError(f'{m["name"]}: {why}; pick another machine (`tutti machines`) or wait')
+        return routing.Choice(m['name'], False, 'chosen with --on'), None
     try:
-        from . import sharing  # a household's shared machine offers only this member's grant (docs/HOUSEHOLD.md)
-        now = time.time()
-        return routing.choose(cfg['routing']['order'], cfg['machines'],
-                              lambda n: sharing.limited_probe(cfg, n, remote.probe(cfg['machines'][n]), now)), None
+        def probe_fn(n):
+            raw = sharing.limited_probe(cfg, n, remote.probe(cfg['machines'][n]), time.time())
+            return share.probe_at_share(cfg['machines'][n], raw, now_dt)
+        return routing.choose(cfg['routing']['order'], cfg['machines'], probe_fn, now=now_dt, heavy=True), None
     except routing.NoMachine as e:
         raise config.ConfigError(str(e)) from e
-
 
 def test_job(cfg, a, machine, device, src, command):
     """The run's job record: the dashboard shows it, and a "pause, stop now" knows how to start it again elsewhere."""

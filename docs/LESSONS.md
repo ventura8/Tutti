@@ -4,7 +4,10 @@
   (dozens of `chrome-headless-shell` gpu-processes) plus a stuck `ollama` runner (5d at 100%) took the Plex NUC to
   Package 105°C / load ~55. Killing leaf chrome is useless while the parent e2e/pipeline respawns it — stop the
   `hcm-quality` container and host `test:e2e` supervisor, kill the ollama *runner* inside the ollama container (not
-  `serve`), pause the machine, never touch Plex. Route heavy checks off plex/limited-hours hosts.
+  `serve`), pause the machine, never touch Plex.
+- **Workq alone is not every heavy path** (t444): `machines.<m>.limit` already kept work-queue heavy jobs off the Plex
+  NUC, but `tutti test` / ship / handover probed raw free slots and `--on` bypassed heat and limited hours, so check.sh
+  still stampeded it to 105 C. Every heavy chooser must pass `heavy=True` and a share-capped probe; `--on` must refuse.
 
 - **Pace room is not panic headroom** (t300): a late account near its panic line had room for a task whose estimated
   cost exceeded that line. Cap ordinary starts by the estimate as well as the pacing plan.

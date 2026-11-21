@@ -249,7 +249,9 @@ Settings (`machines.<m>.limit: {window: "18-01", pct: 60, days: [mon, ...]}`). I
 - **The window:** its hours are in Tutti's time zone (`time.zone`). A window past midnight belongs to the day it starts on. Without `days` it runs every day. When a window is
   set without a share, `pct` defaults to 60 (1 to 100; to stop Tutti there, pause the machine).
 - **Inside it:** the machine's share is capped at `pct`, which means fewer slots, fewer model threads and a lower adaptive
-  limit. Its work-queue jobs marked `heavy` go elsewhere. Running jobs finish, but none is replaced while the machine is
-  over the cap.
+  limit. Every heavy path goes elsewhere: work-queue jobs marked `heavy`, `tutti test` / routed checks / ship, and a
+  handed-over test restart. `--on <machine>` does not bypass this (or `heat.stop_c`): Tutti refuses and names the
+  reason. Light work still uses the reduced share. Running jobs finish, but none is replaced while the machine is
+  over the cap. `pct: 0` is blocked hours (no new work from 30 min before; running work handed over at the start).
 - **On a move:** `main: true` marks the main machine's own window, and `tutti move` carries it to the new main machine.
 - **Default:** a new household has no window.

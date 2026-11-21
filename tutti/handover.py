@@ -170,7 +170,15 @@ def hand_test(cfg, spec, kind, name, probe_fn=remote.probe, readings_fn=remote.d
         where = f'device {dev}' if dev else 'the first device that gets ready (--device any)'
     else:
         try:
-            c = routing.choose(cfg['routing']['order'], cfg['machines'], lambda n: probe_fn(cfg['machines'][n]))
+            from datetime import datetime, timezone
+
+            from . import share
+            now_dt = datetime.now(timezone.utc)
+
+            def capped(n):
+                return share.probe_at_share(cfg['machines'][n], probe_fn(cfg['machines'][n]), now_dt)
+
+            c = routing.choose(cfg['routing']['order'], cfg['machines'], capped, now=now_dt, heavy=True)
         except routing.NoMachine as e:
             return f'not handed over: {e}'
         args = ['test', '--on', c.machine, *args]

@@ -176,10 +176,12 @@ def check_chat_format(worker, argv):
 
 
 def cli_stream(worker, messages, cancel, timeout=CLI_TIMEOUT, popen=subprocess.Popen, clock=time.monotonic, extra=(),
-               cwd=None, selector=None, selector_value=None):
+               cwd=None, selector=None, selector_value=None, system_flag=False):
     """Yields a CLI worker's answer line by line (`claude -p`, `cursor-agent -p`): the conversation as one prompt. A reader
     thread feeds a queue, so Stop and the deadline are seen even while the worker prints nothing; past the deadline the
     worker is stopped and an uncertain outcome prevents another model from repeating native tool actions."""
+    if system_flag and messages and messages[0]['role'] == 'system':   # t199: replaces the agent's own system prompt
+        extra, messages = [*extra, '--system-prompt', messages[0]['content']], messages[1:]
     prompt = '\n\n'.join(f'{m["role"].upper()}:\n{m["content"]}' for m in messages) + '\n\nASSISTANT:'
     argv = workers.with_args(workers.command(worker, prompt), extra)
     fmt = check_chat_format(worker, argv)
@@ -316,8 +318,8 @@ def stream_of(cand, cfg, messages, cancel):
         return ollama_stream(w, messages, cancel, tools=chat.ollama_tools() if cand.get('tools') else None, think=think, num_ctx=ctx)
     account = ((cfg.get('accounts') or {}).get(cand.get('account')) or {})
     extra = chatctl.cli_args(w, effort) + chatctl.chat_args(w) + list(account.get('args') or [])
-    return cli_stream(w, messages, cancel, extra=extra, cwd=chat_workdir(cfg),
-                      selector=cand.get('selector'), selector_value=cand.get('selector_value'))
+    return cli_stream(w, messages, cancel, extra=extra, cwd=chat_workdir(cfg), selector=cand.get('selector'),
+                      selector_value=cand.get('selector_value'), system_flag=chatctl.system_flag(w))
 
 
 # ---- the tools: the MCP server's own calls, after the chat's role check

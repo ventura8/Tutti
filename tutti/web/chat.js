@@ -97,6 +97,14 @@ function plainPreview(text, max = 70) {
     return `${cut.slice(0, cut.lastIndexOf(' ') > max / 2 ? cut.lastIndexOf(' ') : max)}…`;
 }
 
+// One answer's tokens and what they would cost (t199): "1.2k in · 85 out · local" (pure: node tests)
+function msgUsage(u) {
+    if (!u || !(u.in || u.out)) return '';
+    const k = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+    const cost = u.cost_unknown ? '' : u.usd > 0 ? ` · ≈ $${u.usd < 0.01 ? '<0.01' : u.usd.toFixed(2)}` : ' · local';
+    return `${u.estimated ? '~' : ''}${k(u.in)} in · ${k(u.out)} out${cost}`;
+}
+
 // A message's headings start at h3 (the page has h1, the chat's title h2) and never skip a level (WCAG 1.3.1, axe heading-order)
 function mdLevels(nodes) {
     const heads = nodes.filter((n) => n.t === 'h');
@@ -508,6 +516,7 @@ function chatMessage(m, opts) {
         el('span', { class: 'msg__who', text: mine ? 'You' : 'Tutti' }),
         at ? el('time', { datetime: m.at, title: dayFmt.format(at), text: timeFmt.format(at) }) : null,
         !mine && m.model ? el('span', { class: 'msg__model', title: 'The model that answered', text: m.model }) : null,
+        !mine && msgUsage(m.usage) ? el('span', { class: 'msg__usage', title: m.usage.estimated ? 'Estimated: four characters a token' : 'The model\'s own counts', text: msgUsage(m.usage) }) : null,
         !mine && m.fallback ? el('span', { class: 'msg__fallback', text: m.fallback }) : null,
         status ? el('span', { class: 'msg__status', 'data-tone': m.status, text: status }) : null),
     body,

@@ -180,6 +180,24 @@ A model works through the same calls as the MCP tools, so a local model can do w
   that prints nothing past its deadline (180 s) is stopped. Confirm runs the tool outside the store's lock, and the daily
   limit and its audit line are taken together, so two quick Confirms cannot both pass the limit.
 
+## Token efficiency
+
+Chat spends as few tokens a turn as it can (t199):
+
+- **Cheapest first.** Auto asks the household's local models before any online agent (*Which model answers*).
+- **A small, bounded prompt.** The system prompt is the state as short lines (at most 12 running jobs and 8 queued), the
+  tool names, and for an agent without native tool calls their schemas. A busy household stays under 2,200 tokens with
+  native tools and 3,000 without; `tests/test_chat.py` (`PromptBudget`) fails a change that grows past that.
+- **Bounded history.** The last 10 messages, older ones folded into a summary at the context threshold (*Controls*).
+- **Claude Code runs lean.** In Chat it gets `--tools "" --strict-mcp-config --disable-slash-commands
+  --no-session-persistence` and Tutti's prompt as `--system-prompt`, so none of its own tools, MCP servers, skills or
+  system prompt are sent again on every turn (and no built-in tool can act outside Tutti's confirm cards). A worker's own
+  `chat_args` replaces this (and keeps Claude Code's system prompt).
+- **Every answer shows its cost**: its tokens in and out (`~` when estimated, four characters a token) and what they would
+  cost at API prices, or *local*.
+
+Not yet: the energy of each answer, and a measured comparison with the desktop apps (it needs a live account run).
+
 ## Modes
 
 Per conversation, with a default in your settings (the last one you picked); the **Mode** picker, or `/mode`:

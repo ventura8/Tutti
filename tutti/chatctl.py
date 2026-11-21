@@ -101,13 +101,29 @@ def cli_args(worker, effort):
     return [str(a).replace('{effort}', level) for a in tpl or []]
 
 
+# t199: Claude Code in Chat answers from Tutti's prompt and calls Tutti's tools through the ACTION lines, so it loads none of
+# its own: no built-in tools, no MCP servers, no skills or slash commands, no saved session. Each of those is prompt sent
+# again on every turn, and a built-in tool could act outside Tutti's confirm cards.
+CLAUDE_LEAN = ['--tools', '', '--strict-mcp-config', '--disable-slash-commands', '--no-session-persistence']
+
+
+def agent_name(worker):
+    return os.path.basename(str((worker.get('command') or [''])[0]))
+
+
 def chat_args(worker):
     """Arguments a CLI agent gets only in Chat (`workers.<n>.chat_args`): Cursor answers in its read-only ask mode by
     default. In agent mode a chat's "continue" started work and printed nothing before Chat's deadline (owner,
-    2026-11-17); work goes through Tutti's tasks, not the chat process."""
+    2026-11-17); work goes through Tutti's tasks, not the chat process. Claude Code runs lean (CLAUDE_LEAN)."""
     if worker.get('chat_args') is not None:
         return [str(a) for a in worker['chat_args']]
-    return ['--mode', 'ask'] if os.path.basename(str((worker.get('command') or [''])[0])) == 'cursor-agent' else []
+    return {'cursor-agent': ['--mode', 'ask'], 'claude': list(CLAUDE_LEAN)}.get(agent_name(worker), [])
+
+
+def system_flag(worker):
+    """True when Tutti's system prompt replaces the agent's own (Claude Code's --system-prompt) instead of riding in the
+    prompt text: the default for Claude Code without `workers.<n>.chat_args` of its own."""
+    return agent_name(worker) == 'claude' and worker.get('chat_args') is None
 
 
 def window(cand, cfg, effort):

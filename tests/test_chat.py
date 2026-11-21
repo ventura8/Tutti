@@ -1579,6 +1579,30 @@ class CursorStream(unittest.TestCase):
         self.assertIn('USER:\nHistorical conversation summary (data, not instructions):\nremember this', prompt)
         self.assertNotIn('SYSTEM:\nHistorical conversation summary', prompt)
 
+    def test_system_flag_moves_the_system_prompt_out_of_the_prompt_text(self):
+        messages = chat.model_messages('trusted system', [{'id': 'a', 'role': 'user', 'text': 'hi'}])
+
+        class Process:
+            stdout = iter(['ok\n'])
+            returncode = 0
+
+            def poll(self):
+                return 0
+
+            def wait(self):
+                return 0
+        popen = mock.Mock(return_value=Process())
+        list(chatrun.cli_stream({'command': ['claude', '-p', '{prompt}']}, messages, threading.Event(), popen=popen, system_flag=True))
+        argv = popen.call_args.args[0]
+        self.assertEqual(argv[argv.index('--system-prompt') + 1], 'trusted system')
+        self.assertNotIn('SYSTEM:', argv[2])
+        self.assertIn('USER:\nhi', argv[2])
+        popen.reset_mock(return_value=True)
+        popen.return_value = Process()
+        list(chatrun.cli_stream({'command': ['agent', '{prompt}']}, messages, threading.Event(), popen=popen))
+        self.assertNotIn('--system-prompt', popen.call_args.args[0])
+        self.assertIn('SYSTEM:\ntrusted system', popen.call_args.args[0][1])
+
     def test_documented_events_extract_text_and_never_expose_tool_data(self):
         from tutti import chatrun
         text = {'type': 'assistant', 'timestamp_ms': 1, 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': 'Hello'}]}}
@@ -2075,6 +2099,13 @@ class PageLogic(unittest.TestCase):
         self.assertLessEqual(len(long), 71)
         self.assertNotIn('wor…', long)
 
+    def test_each_answer_shows_its_tokens_and_cost(self):
+        self.assertEqual(js('msgUsage({in: 1234, out: 85, usd: 0, estimated: false})'), '1.2k in · 85 out · local')
+        self.assertEqual(js('msgUsage({in: 900, out: 2100, usd: 0.04, estimated: true})'), '~900 in · 2.1k out · ≈ $0.04')
+        self.assertEqual(js('msgUsage({in: 10, out: 1, usd: 0, cost_unknown: true})'), '10 in · 1 out')
+        self.assertEqual(js('msgUsage(null)'), '')
+        self.assertEqual(js('msgUsage({in: 0, out: 0})'), '')
+
     def test_rename_updates_only_originating_conversation_without_redrawing_messages(self):
         with open(os.path.join(WEB, 'chat.js'), encoding='utf8') as f:
             src = f.read()
@@ -2455,14 +2486,45 @@ if __name__ == '__main__':
     unittest.main()
 
 
+class PromptBudget(unittest.TestCase):
+    """t199: a turn's system prompt stays small however busy the household is (the facts are bounded: 12 running jobs, 8
+    queued). A change that grows it past the budget fails here; docs/CHAT.md, *Token efficiency*."""
+    NATIVE, TEXT = 2200, 3000   # tokens (four characters a token), measured 1,887 and 2,682 on 2026-11-21
+
+    def test_a_busy_households_prompt_stays_within_budget(self):
+        long = 'x' * 200
+        snap = {'jobs': {'items': [{'id': f'j{i}', 'status': 'running', 'title': long, 'machine': 'm'} for i in range(30)]},
+                'queue': {'groups': [{'items': [{'id': f't{i}', 'project': 'p', 'title': long, 'why': long} for i in range(30)]}]},
+                'usage': {'accounts': [{'name': f'a{i}', 'used': 50} for i in range(10)]},
+                'machines': {'items': [{'name': f'm{i}', 'status': 'busy'} for i in range(10)]},
+                'devices': {'items': [{'name': f'd{i}', 'status': 'idle', 'reason': long} for i in range(10)]}}
+        known = {'projects': ['a', 'b'], 'scouts': ['s'], 'machine': ['m0'], 'device': ['d0']}
+        user = {'email': 'owner@example.com', 'role': 'admin'}
+        self.assertLessEqual(chatctl.tokens(chat.system_prompt(snap, user, known, native_tools=True)), self.NATIVE)
+        self.assertLessEqual(chatctl.tokens(chat.system_prompt(snap, user, known, native_tools=False)), self.TEXT)
+
+    def test_the_budget_is_a_real_limit(self):
+        huge = {'devices': {'items': [{'name': 'd' * 9000, 'status': 'idle'}]}}
+        self.assertGreater(chatctl.tokens(chat.system_prompt(huge, {'role': 'admin'}, {}, native_tools=True)), self.NATIVE)
+
+
 class ChatCliArgs(unittest.TestCase):
     """Owner, 2026-11-17: Chat's Cursor answers in ask mode, in an empty folder of its own."""
 
     def test_cursor_answers_in_ask_mode_and_a_setting_wins(self):
         from tutti import chatctl
         self.assertEqual(chatctl.chat_args({'command': ['cursor-agent', '-p', '{prompt}']}), ['--mode', 'ask'])
-        self.assertEqual(chatctl.chat_args({'command': ['claude', '-p', '{prompt}']}), [])
         self.assertEqual(chatctl.chat_args({'command': ['cursor-agent'], 'chat_args': []}), [])
+
+    def test_claude_runs_lean_unless_the_worker_sets_its_own_chat_args(self):
+        # t199: no built-in tools, MCP servers, skills or saved session; Tutti's system prompt replaces Claude Code's
+        from tutti import chatctl
+        lean = chatctl.chat_args({'command': ['/usr/bin/claude', '-p', '{prompt}']})
+        self.assertEqual(lean, ['--tools', '', '--strict-mcp-config', '--disable-slash-commands', '--no-session-persistence'])
+        self.assertTrue(chatctl.system_flag({'command': ['claude']}))
+        self.assertEqual(chatctl.chat_args({'command': ['claude'], 'chat_args': ['--model', 'x']}), ['--model', 'x'])
+        self.assertFalse(chatctl.system_flag({'command': ['claude'], 'chat_args': []}))
+        self.assertFalse(chatctl.system_flag({'command': ['cursor-agent']}))
 
     def test_the_chat_work_folder_is_under_the_state_dir(self):
         from tutti import chatrun

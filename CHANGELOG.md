@@ -26,6 +26,9 @@
 
 ### Changed
 
+- Chat (t199): Claude Code answers lean, with no built-in tools, MCP servers, skills or saved session, and Tutti's system
+  prompt in place of its own; each answer shows its tokens and cost; a prompt budget test keeps a turn's system prompt
+  under 2,200 tokens (3,000 for text-protocol agents). docs/CHAT.md, *Token efficiency*.
 - Chat (t202): browser tests send a message and stream the household host's answer, keep a failed message with **Send
   again**, and check a long answer at every width and theme (layout, axe, text at least 12 px, lines at most 90
   characters). They found and fixed headings that skipped a level, the Terminal/Browser buttons crowding a phone, and the

@@ -2029,6 +2029,15 @@ class PageLogic(unittest.TestCase):
         self.assertEqual(js('chatWork([{"role": "user", "text": "hi"}], null)'), [])
         self.assertEqual(js('chatWork(undefined, null)'), [])
 
+    def test_chat_work_includes_plan_steps_and_matches_run_log_ids(self):
+        # a plan's started steps carry the refs; a delegated run is `run:<id>.log` in the dashboard's jobs
+        msgs = [{'cards': [{'state': 'plan', 'steps': [{'state': 'done', 'ref': '17-1', 'label': 'Run it'},
+                                                       {'state': 'pending', 'ref': '17-2', 'label': 'later'}]}]}]
+        snap = {'jobs': {'items': [{'id': 'run:17-1.log', 'status': 'running', 'machine': 'nuc'}]}}
+        out = js(f'chatWork({json.dumps(msgs)}, {json.dumps(snap)}).map((i) => [i.ref, i.active, i.text])')
+        self.assertEqual(out, [['17-1', True, 'Running on nuc']])
+        self.assertEqual(js(f'chatWork({json.dumps(msgs)}, {{"jobs": {{"items": [{{"id": "run:17-10.log"}}]}}}})')[0]['active'], False)
+
     def test_rename_updates_only_originating_conversation_without_redrawing_messages(self):
         with open(os.path.join(WEB, 'chat.js'), encoding='utf8') as f:
             src = f.read()

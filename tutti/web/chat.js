@@ -364,7 +364,7 @@ function messageActions(m, opts) {
 function workStatus(ref, given) {
     const snap = given || (typeof ui !== 'undefined' ? ui.last : null);
     if (!ref || !snap) return null;
-    const job = (snap.jobs?.items || []).find((j) => String(j.id) === ref || String(j.id).split(':').pop() === ref);
+    const job = (snap.jobs?.items || []).find((j) => String(j.id) === ref || String(j.id).split(':').pop().replace(/\.log$/, '') === ref);
     if (job) {
         const where = job.machine || job.worker || 'the host';
         const took = job.progress?.elapsed_seconds ? ` · ${duration(job.progress.elapsed_seconds)}` : '';
@@ -381,7 +381,8 @@ function workStatus(ref, given) {
 function chatWork(messages, snap) {
     const seen = new Set(), out = [];
     for (const m of [...(messages || [])].reverse()) {
-        for (const c of [...(m.cards || [])].reverse()) {
+        const cards = (m.cards || []).flatMap((c) => (c.steps ? c.steps : [c]));   // a plan's started steps carry the refs
+        for (const c of [...cards].reverse()) {
             if (c.state !== 'done' || !c.ref || seen.has(c.ref)) continue;
             seen.add(c.ref);
             const live = workStatus(c.ref, snap);
@@ -400,11 +401,17 @@ function drawWork() {
     if (!items.length) return box.replaceChildren();
     const active = items.filter((i) => i.active).length;
     const wasOpen = box.querySelector('details')?.open;
+    const scroll = box.querySelector('.chat__worklist')?.scrollTop || 0;
+    const focused = box.contains(document.activeElement) ? document.activeElement.closest('[data-ref]')?.dataset.ref || 'summary' : null;
     box.replaceChildren(el('details', { class: 'chat__workbox', open: active > 0 || Boolean(wasOpen) },
         el('summary', { class: 'chat__worksum', text: `This chat's work: ${active} in flight, ${items.length - active} done or gone` }),
-        el('ul', { class: 'chat__worklist' }, ...items.map((i) => el('li', { class: 'chat__workitem', 'data-active': String(i.active) },
+        el('ul', { class: 'chat__worklist' }, ...items.map((i) => el('li', { class: 'chat__workitem', 'data-ref': i.ref, 'data-active': String(i.active) },
             el('span', { class: 'chip', 'data-tone': i.active ? 'accent' : 'idle', text: i.ref }), ' ', i.label, ' · ',
             i.job ? el('a', { class: 'link', href: '#dashboard', text: i.text, onclick: () => openWork(i.job) }) : i.text)))));
+    const list = box.querySelector('.chat__worklist');
+    if (list) list.scrollTop = scroll;   // the 5 s refresh keeps the owner's place and focus
+    if (focused === 'summary') box.querySelector('summary')?.focus({ preventScroll: true });
+    else if (focused) box.querySelector(`[data-ref="${CSS.escape(focused)}"] a`)?.focus({ preventScroll: true });
 }
 
 function actionCard(m, c) {
@@ -430,7 +437,7 @@ function actionCard(m, c) {
 }
 
 function openWork(job) {
-    if (job && typeof openJob === 'function') setTimeout(() => openJob(job), 50);
+    if (job && typeof openJob === 'function') setTimeout(() => openJob(job.id ?? job), 50);
 }
 
 async function confirmCard(m, c, yes, button) {   // a model's proposal: nothing runs until the user says so

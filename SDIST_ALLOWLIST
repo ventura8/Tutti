@@ -143,6 +143,7 @@ tests/test_hours.py
 tests/test_household.py
 tests/test_hygiene.py
 tests/test_intake.py
+tests/test_joblog.py
 tests/test_jobprogress.py
 tests/test_layout.py
 tests/test_layout_cards.py
@@ -299,6 +300,7 @@ tutti/intake.py
 tutti/inuse.py
 tutti/invites.py
 tutti/jobfacts.py
+tutti/joblog.py
 tutti/jobmove.py
 tutti/jobprogress.py
 tutti/keepon.py

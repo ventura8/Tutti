@@ -256,6 +256,16 @@ Under the message box, as in a chat IDE, each starting at Auto:
 - Answers stream in as they are written. A message that could not be sent says **Not sent** with **Send again**.
 - Markdown is drawn safely: the text is parsed into a tree and drawn with DOM nodes and `textContent`, so no message ever
   becomes markup. Only `http`, `https` and `mailto` links are links. Code blocks have **Copy**.
+- Links and paths (t304): a bare `https://` address in a message is a link; a path on the host (`/home/…`, `~/…`, `./…`,
+  two parts or more) is underlined and a click copies it (a browser cannot open the host's files).
+- Artifacts (t304): a code block in Markdown, HTML, SVG or JSON has **Preview**: Markdown drawn as above, JSON indented (or
+  why it is not valid), HTML and SVG in a sandboxed frame with no scripts and no access to the dashboard, with **Open in
+  the Browser panel**.
+- **Terminal** and **Browser** panels (t304), hidden until their buttons beside the title (each remembered per browser).
+  Terminal follows the log of this chat's work on the Dashboard (running first, a picker for the others), the last 200
+  lines every 3 seconds with credentials replaced, from `GET /api/job-log/<job id>` (admins; only a log the dashboard
+  lists for that job). Browser shows links you click in the chat while it is open, in a sandbox without the dashboard's
+  cookies, with **Open in a new tab** for sites that refuse to be shown inside another page.
 - The list follows new text while you are at the end; scroll up and it stays put, with **Jump to latest**.
 - **This chat's work** (t298), under the title: every task, run or job this conversation started, newest first, with its
   live status from the dashboard's poll (queued and why it waits, running and where, or finished). It is open while any

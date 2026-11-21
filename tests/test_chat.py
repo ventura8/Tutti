@@ -2038,6 +2038,30 @@ class PageLogic(unittest.TestCase):
         self.assertEqual(out, [['17-1', True, 'Running on nuc']])
         self.assertEqual(js(f'chatWork({json.dumps(msgs)}, {{"jobs": {{"items": [{{"id": "run:17-10.log"}}]}}}})')[0]['active'], False)
 
+    def test_autolink_makes_urls_links_and_local_paths_copyable_but_not_fractions(self):
+        # t304: bare URLs and host paths in plain text; a trailing full stop stays text; `a/b` and 3/4 stay plain
+        self.assertEqual(js('mdInline("see https://example.com/a?b=1. ok")'),
+                         ['see ', {'t': 'a', 'href': 'https://example.com/a?b=1', 'c': ['https://example.com/a?b=1']}, '. ok'])
+        self.assertEqual(js('mdInline("open /home/u/x.py, then `~/a/b`")'),
+                         ['open ', {'t': 'path', 'c': ['/home/u/x.py']}, ', then ', {'t': 'path', 'code': True, 'c': ['~/a/b']}])
+        self.assertEqual(js('mdInline("and/or 3/4 a/b")'), ['and/or 3/4 a/b'])
+        self.assertEqual(js('mdInline("[x](javascript:void) /tmp")'), ['[x](javascript:void)', ' /tmp'])
+
+    def test_artifact_previews_render_md_html_json_and_say_why_bad_json_fails(self):
+        kinds = js('[previewKind("SVG"), previewKind("markdown"), previewKind("JSON"), previewKind("py")]')
+        self.assertEqual(kinds, ['html', 'md', 'json', ''])
+        self.assertEqual(js('jsonPreview(\'{"a":1}\')'), {'ok': True, 'text': '{\n  "a": 1\n}'})
+        bad = js('jsonPreview("{")')
+        self.assertFalse(bad['ok'])
+        self.assertIn('Not valid JSON', bad['text'])
+
+    def test_terminal_follows_this_chats_jobs_running_first(self):
+        items = [{'ref': 't1', 'text': 'Queued', 'job': None}, {'ref': 't2', 'text': 'done', 'job': {'id': 'j2', 'status': 'done'}},
+                 {'ref': 't3', 'text': 'Running', 'job': {'id': 'run:3.log', 'status': 'running'}}]
+        self.assertEqual(js(f'termJobs({json.dumps(items)})'),
+                         [{'id': 'run:3.log', 'label': 't3 · Running'}, {'id': 'j2', 'label': 't2 · done'}])
+        self.assertEqual(js('termJobs(undefined)'), [])
+
     def test_rename_updates_only_originating_conversation_without_redrawing_messages(self):
         with open(os.path.join(WEB, 'chat.js'), encoding='utf8') as f:
             src = f.read()

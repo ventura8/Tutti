@@ -958,3 +958,20 @@ select { max-width: 100%; text-overflow: clip; }
 .chip--role[data-source='set'] { background: var(--accent-c); }
 .role-filter { display: inline-flex; gap: 8px; align-items: center; margin: 4px 0 8px; font-size: 0.875rem; }
 .role-filter select { min-height: 32px; }
+
+/* t304: Chat's Terminal and Browser panels (hidden until their toggle), link targets and artifact previews */
+.chat__top { min-width: 0; }
+.chat__paneltoggles { display: flex; gap: 4px; flex: none; }
+.chat__paneltoggles .btn[aria-pressed='true'] { background: var(--surface-2); color: var(--on-surface); }
+.chat__panels { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--outline-2); max-height: 45vh; overflow: auto; }
+.chat__panels[hidden], .chat__panel[hidden] { display: none; }
+.chat__panel { flex: 1 1 20rem; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 4px; border: 1px solid var(--outline-2); border-radius: var(--r-m); padding: 8px; background: var(--surface-1); }
+.chat__panelhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 600; min-width: 0; }
+.chat__panelhead select { max-width: 60%; }
+.chat__term { margin: 0; min-height: 10rem; max-height: 32vh; overflow: auto; font: 0.8125rem / 1.4 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-2); color: var(--on-surface); padding: 8px; border-radius: var(--r-s); }
+.chat__frame { width: 100%; min-height: 14rem; height: 32vh; border: 1px solid var(--outline-2); border-radius: var(--r-s); background: white;   /* a page shown as it would be on its own, in either theme */ }
+.chat__panelnote { color: var(--on-surface-2); font-size: 0.75rem; }
+.md__path { cursor: copy; text-decoration: underline dotted; }
+.md__preview { padding: 8px 12px; border-top: 1px solid var(--outline-2); overflow: auto; max-height: 50vh; }
+.md__preview iframe { width: 100%; min-height: 12rem; border: 0; background: white;   /* a page shown as it would be on its own, in either theme */ }
+.md__preview .md__err { color: var(--bad, var(--on-surface)); }

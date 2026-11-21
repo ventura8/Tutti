@@ -4,6 +4,9 @@
 
 ### Added
 
+- Chat (t304): **Terminal** and **Browser** panels, hidden until their buttons: Terminal follows the log of this chat's
+  work (admin-only `GET /api/job-log/<id>`, listed jobs only, scrubbed), Browser opens chat links in a sandbox. Bare URLs
+  are links, host paths copy on click, and Markdown, HTML, SVG and JSON code blocks have **Preview** (docs/CHAT.md).
 - Chat (t298): **This chat's work** under the conversation title lists every task, run or job the chat started, newest
   first, with its live status (queued and why, running and where, finished); open while any is in flight (docs/CHAT.md).
 - Review modes (t445): `review.modes.<reviewer>` (copilot, coderabbit, greptile, a scout) is `never`, `on_pr_open`,

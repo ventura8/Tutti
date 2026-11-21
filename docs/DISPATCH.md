@@ -217,9 +217,9 @@ Every device run is a device session (`devices.external_wrap`, `tutti/prep.py`).
    a saved file already there (another user still has the device prepared, or a crash) is kept as it is, so prepared
    values never become the "originals". The defaults of its kind, then its own `prep:` list (an item with a default's
    name replaces it; `prep_defaults: false` turns the defaults off):
-   - phone and tablet: brightness about 30 % (`system screen_brightness` 77, manual mode), media volume (Cast plays
+   - phone, tablet and watch: brightness about 30 % on the slider (`system screen_brightness` 9, manual mode), media volume (Cast plays
      on it) about 10 % (2 steps, only lowered);
-   - TV: screensaver off, screen on for 30 min, media volume (Cast plays on it) about 10 %.
+   - TV: the same brightness setting where supported, screensaver off, screen on for 30 min, media volume about 10 %.
 3. **Awake and unlocked.** The screen is woken and a swipe lock dismissed; while the run is active a harmless key
    (`input keyevent KEYCODE_UNKNOWN`) goes every 15 s, because the phone's admin policy caps the screen timeout at 5 min.
    The loop stops with the run.
@@ -243,6 +243,7 @@ Tutti's keep-awake key, so a person is told apart from the run. Then the run sto
 no key is sent, nothing new starts until the device has been idle `devices.<d>.idle_minutes` (3), and the card says
 "in use by a person — waiting". At release an item goes back only while it still has Tutti's value: what the person
 changed (an alarm, the brightness) stays.
+For a phone-family saved prep file from an older release, the former brightness preset 77 is also recognised as Tutti's value.
 
 **Night mode** (on by default, `night: {enabled: true, hours: '22-08', devices: []}`; `tutti devices night ...`, Settings
 or the device card): while Tutti holds or works a device in the night hours it runs at 1 % brightness (auto off) with every

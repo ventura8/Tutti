@@ -620,7 +620,7 @@ The per-person keys (`user`, `household`, `pacing`, `main.agent`, `main.preferre
 | `lan_devices.*.roles` | list |  | Roles (override): A media device on the network (by its address): the whole list. | admin |
 | `lan_devices.*.roles_add` | list |  | Roles added: Added to what mDNS and SSDP found, e.g. bluetooth-audio. | admin |
 | `lan_devices.*.roles_off` | list |  | Roles removed: Taken from what mDNS and SSDP found. | admin |
-| `devices.*.kind` | select phone, tablet, tv |  | Kind: Set by `tutti devices pair`: phone, tablet or tv. | admin |
+| `devices.*.kind` | select phone, tablet, tv, watch |  | Kind: Set by `tutti devices pair`: phone, tablet, tv or watch. | admin |
 | `devices.*.model` | text |  | Model: Set by `tutti devices pair`; a move checks the device it reaches is this one. | admin |
 | `devices.*.capabilities` | list |  | Capabilities: Set by `tutti devices pair`: camera, telephony, touchscreen, tv... | admin |
 | `devices.*.adb` | text |  | adb: The adb on its machine; empty: found by itself (PATH, the Android SDK, Tutti's own copy). | admin |

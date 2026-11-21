@@ -19,6 +19,9 @@
 
 ### Fixed
 
+- Scouts (t461): tests never reach the owner's real Grok webhook. `tests/run.py` gives every run its own
+  `XDG_CONFIG_HOME`, and under the test runner a scout POST to anything but loopback is refused. A test had read
+  `~/.config/tutti/grok.env` and sent `octo/app` review requests; the routine paused itself on the repeated access error.
 - Scout webhook HTTP 400: surface paused-routine and GitHub Connect-apps / wrong-repo causes from the response body
   instead of only the generic "confirm the routine is not paused" hint (t443).
 - Invalid `GH_TOKEN` / `GITHUB_TOKEN` in the agent shell no longer shadows the GitHub CLI keyring: Tutti retries without

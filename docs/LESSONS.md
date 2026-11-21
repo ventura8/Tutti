@@ -649,3 +649,12 @@ A member can mirror an unleased task in one round, while its scope or task incar
 A title-only lease does not prove that the local model can take the current task. Conditional scoped claims use a durable
 coordinator acknowledgement and recheck the local task and worker before launch; older coordinators fail closed. This
 does not fence concurrent coordinators, stale workers or state rollback.
+
+## Tests reached the real Grok routine (t461, 2026-11-21)
+
+Grok Bot's routine kept pausing itself "after octo/app payloads failed". Grok said it pauses after a repeated auth
+failure; the octo/app requests were the test suite's: a scout call without `env=` read the owner's
+`~/.config/tutti/grok.env` and POSTed to the real webhook. Fix at both ends: the test runner owns `XDG_CONFIG_HOME`, and
+`scouts.post` refuses non-loopback hosts under `TUTTI_TEST_ROOT`. Lesson: a secret read "at the point of use" must also
+be unreachable from tests, not just absent from the environment.
+

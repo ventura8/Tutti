@@ -369,6 +369,15 @@ def ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn, event=None):
     return f'{t["id"]}: AI reviews asked on {key}'
 
 
+def ask_first_or_again(cfg, t, st, pol, number, key, now, run, spawn):
+    """The open event on a pull request's first ask, the push event on every later one (review.modes)."""
+    opened = st.setdefault('asked', [])
+    done = ask_reviews(cfg, t, pol, number, key, st['reviews'], now, run, spawn, 'push' if key in opened else 'open')
+    if done and key not in opened:
+        opened.append(key)
+    return done
+
+
 def ask_ready(cfg, t, pol, number, key, reviews, now, spawn):
     """Every gate is green: asks the on_pr_ready_to_merge reviewers once for this commit; the event, or None."""
     if not review.ready_reviewers(cfg) or reviews[key].get('ready'):
@@ -388,12 +397,7 @@ def advance(cfg, t, st, now, run=github.run, spawn=subprocess.Popen):
     key = f'{pol["repo"]}#{number}'
     reviews = st.setdefault('reviews', {})
     if key not in reviews:
-        opened = st.setdefault('asked', [])   # pull requests asked before: a later ask is the push event (review.modes)
-        event = 'push' if key in opened else 'open'
-        done = ask_reviews(cfg, t, pol, number, key, reviews, now, run, spawn, event)
-        if done and key not in opened:
-            opened.append(key)
-        return done
+        return ask_first_or_again(cfg, t, st, pol, number, key, now, run, spawn)
     pr = pr_state(pol['repo'], number, run)
     if pr is None:
         return None

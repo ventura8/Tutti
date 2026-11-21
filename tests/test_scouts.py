@@ -522,9 +522,6 @@ class CliTest(unittest.TestCase):
             self.assertIn('Tutti scout', out.getvalue())
 
 
-if __name__ == '__main__':
-    unittest.main()
-
 
 class TestIsolation(unittest.TestCase):
     """t461: a test never reaches the owner's real scout webhook."""
@@ -537,3 +534,8 @@ class TestIsolation(unittest.TestCase):
     def test_loopback_and_real_runs_pass(self):
         scouts.refuse_in_tests('http://127.0.0.1:9/routine', {'TUTTI_TEST_ROOT': '/tmp/x'})
         scouts.refuse_in_tests('https://routine.example/hook', {})   # not a test run: allowed
+
+
+if __name__ == '__main__':
+    unittest.main()
+

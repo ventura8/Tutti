@@ -849,8 +849,8 @@ class Engine:
             raise SummaryCancelled
 
     def _system(self, snap, user, known, cand, mode, context):
-        system = chat.system_prompt(snap, user, known, native_tools=cand['kind'] in ('ollama', 'openai_api')) + '\n' + self.MODE_NOTE[mode] + \
-            '\n'.join(decisions.brief_lines(self.cfg_fn()))
+        system = chat.system_prompt(snap, user, known, native_tools=cand['kind'] in ('ollama', 'openai_api')) + '\n' + self.MODE_NOTE[mode]
+        system += '\n'.join(decisions.brief_lines(self.cfg_fn()))
         if cand['kind'] == 'openai_api':
             system += '\nThis connection is text-only. Do not claim to call or execute any tools.'
         if context:

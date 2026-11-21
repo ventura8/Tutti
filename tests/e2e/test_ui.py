@@ -86,12 +86,16 @@ def open_view(ctx, hash_=''):
 
 
 def tabs(page):
-    """The views the signed-in user sees in the hamburger menu: [(name, hash)]."""
+    """The views the signed-in user sees in the hamburger menu: [(name, hash)].
+
+    Viewers hide Settings via CSS (display:none), not the hidden attribute — count only visible links.
+    """
     return page.evaluate("""(() => {
         const btn = document.getElementById('nav-menu-btn');
         const panel = document.getElementById('nav-menu-panel');
         if (btn && panel && panel.hidden) btn.click();
-        return [...document.querySelectorAll('.nav-menu [data-view]')].filter((a) => !a.hidden)
+        return [...document.querySelectorAll('.nav-menu [data-view]')].filter((a) =>
+            !a.hidden && getComputedStyle(a).display !== 'none')
             .map((a) => [a.textContent.trim(), new URL(a.href).hash]);
     })()""")
 

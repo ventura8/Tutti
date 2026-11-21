@@ -20,7 +20,8 @@ class NavMenuMarkup(unittest.TestCase):
         self.assertIn('aria-controls="nav-menu-panel"', self.html)
         self.assertNotIn('class="tabs"', self.html)
         self.assertNotIn('tabs__tab', self.html)
-        panel = self.html.split('id="nav-menu-panel"', 1)[1].split('</nav>', 1)[0]
+        self.assertIn('class="nav-menu" aria-label="Views"', self.html)
+        panel = self.html.split('id="nav-menu-panel"', 1)[1].split('</div>', 1)[0]
         views = re.findall(r'href="#([a-z]+)" data-view="([a-z]+)"', panel)
         self.assertEqual(views, [('chat', 'chat'), ('dashboard', 'dashboard'), ('settings', 'settings'), ('users', 'users')])
         self.assertIn('navmenu.js?v=', self.html)

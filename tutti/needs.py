@@ -24,7 +24,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from . import backlog, config, durable, telemetry
+from . import backlog, config, decisions, durable, telemetry
 
 try:
     import fcntl
@@ -168,6 +168,9 @@ def ask(cfg, task, question, why, options, default, user=OWNER, urgent=False, no
     per task: asking again replaces its text. Tutti-resolvable ones are not delivered until Tutti has tried them."""
     now = now or time.time()
     options, default = _ask_options(options, default)
+    known = decisions.find(cfg, question)
+    if known:   # t293: answered once, never asked again
+        return answered_from_decision(cfg, task, question, options, user, known, now)
     urgent = bool(urgent) or bool(SECURITY_RX.search(f'{question} {why}'))   # a security issue never waits
     kind = classify_kind(question, why, task.get('title') or '')
     # person-only, or unblocker off (nothing will try): show at once; else hide until Tutti has tried
@@ -190,6 +193,22 @@ def ask(cfg, task, question, why, options, default, user=OWNER, urgent=False, no
     task['status'], task['question'] = 'needs-person', q['id']
     task['parked'] = task.get('parked') or q['question']
     telemetry.record('feature', 'needs.ask', urgent=bool(urgent), need=kind)
+    return q
+
+
+def answered_from_decision(cfg, task, question, options, user, known, now):
+    """Keeps the question as answered by the household decision and resumes the task at once."""
+    choice = next((o for o in options if o.lower() == known['answer'].lower()), known['answer'])
+    with locked(cfg) as data:
+        q = {'id': new_id(data), 'task': task['id'], 'status': 'answered', 'at': now, 'delivered': None, 'user': user,
+             'question': str(question)[:300], 'options': options, 'default': choice, 'answer': choice, 'answered': now,
+             'by': f'decision:{known["id"]}', 'title': task['title'][:120], 'project': task.get('project') or task.get('repo')}
+        data['questions'].append(q)
+        _prune_answered(data)
+    resume(task, q, choice if choice in options else 'retry', now)
+    if choice not in options:
+        task['notes'] = [*task.get('notes', []), f'Household decision {known["id"]}: {choice}'][-20:]
+    telemetry.record('feature', 'needs.decided')
     return q
 
 
@@ -286,6 +305,7 @@ def answer(cfg, qid, choice, role='admin', key=OWNER, now=None):
             if choice not in q['options']:
                 t['notes'] = [*t.get('notes', []), f'The person\'s answer: {choice}'][-20:]
     telemetry.record('feature', 'needs.answer', defaulted=choice == q['default'])
+    decisions.record(cfg, q['question'], choice, by=key, now=now)   # t293: a person's answer is never asked for again
     if not waiting:   # retried by hand, dropped, done or gone meanwhile: the answer is kept, the task left as it is
         return True, f'{qid} answered: {choice}; task {q["task"]} no longer waited for it, so nothing changed'
     return True, f'{qid} answered: {choice}; task {q["task"]} ' + ('dropped' if choice == 'drop' else 'resumes')

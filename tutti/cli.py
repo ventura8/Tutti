@@ -1697,6 +1697,31 @@ def cmd_presence(cfg, a):
     return 0
 
 
+def cmd_decisions(cfg, a):
+    """`tutti decisions [list|add|rm]`: the household's answers Tutti never asks again (t293, docs/NEEDS.md)."""
+    from . import decisions
+    if a.action == 'add':
+        if not a.what or not a.answer:
+            print('tutti decisions add: give the match words and the answer, e.g. tutti decisions add "chatgpt sign in" '
+                  '"Codex CLI only"', file=sys.stderr)
+            return 2
+        d = decisions.add(cfg, a.what.split(), a.answer, a.note or '')
+        print(f'{d["id"]}: {decisions.line(d)}')
+        return 0
+    if a.action == 'rm':
+        if not decisions.remove(cfg, a.what or ''):
+            print(f'tutti decisions rm: no decision {a.what!r}: `tutti decisions` lists them', file=sys.stderr)
+            return 1
+        print(f'{a.what}: removed')
+        return 0
+    items = decisions.load(cfg)
+    for d in items:
+        print(f'{d["id"]:5} {decisions.line(d)}')
+    if not items:
+        print('no household decisions yet: answers to questions are kept here once a person gives them')
+    return 0
+
+
 def cmd_needs(cfg, a):
     """`tutti needs [list|answer <id> [choice]]` (docs/NEEDS.md): the questions waiting for you, and your answer."""
     from . import mcpserver, needs
@@ -2199,6 +2224,12 @@ def parser():
     s.add_argument('choice', nargs='?', help='answer: one of its options, or your own words; ask: the question')
     s.add_argument('--option', action='append', help='ask: an answer the owner can pick (repeat it; the first is the default)')
     s.add_argument('--why', help='ask: why it needs the owner')
+    s = add('decisions', cmd_decisions, 'household decisions Tutti never asks again: list, add "<match words>" "<answer>" '
+                                         '[--note], rm <id> (docs/NEEDS.md)')
+    s.add_argument('action', nargs='?', default='list', choices=['list', 'add', 'rm'])
+    s.add_argument('what', nargs='?', help='add: words that must all appear in the question; rm: the decision id (d1, ...)')
+    s.add_argument('answer', nargs='?', help='add: the answer')
+    s.add_argument('--note', help='add: why, for the people and agents that read it')
     s = add('welcome', cmd_welcome, 'welcome back: what happened while you were away (shipped, running, failed, usage, what '
                                      'needs you): show (the latest), miss (What did I miss? since the last one), on, off')
     s.add_argument('action', nargs='?', default='show', choices=['show', 'miss', 'on', 'off'])

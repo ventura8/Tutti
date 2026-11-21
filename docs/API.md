@@ -1781,6 +1781,21 @@ usage: tutti needs [-h] [--option OPTION] [--why WHY] [{list,answer,backfill,ask
 | `--option` | ask: an answer the owner can pick (repeat it; the first is the default) |  |
 | `--why` | ask: why it needs the owner |  |
 
+### `tutti decisions`
+
+household decisions Tutti never asks again: list, add "<match words>" "<answer>" [--note], rm <id> (docs/NEEDS.md)
+
+```text
+usage: tutti decisions [-h] [--note NOTE] [{list,add,rm}] [what] [answer]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `action {list,add,rm}` |  | `list` |
+| `what` | add: words that must all appear in the question; rm: the decision id (d1, ...) |  |
+| `answer` | add: the answer |  |
+| `--note` | add: why, for the people and agents that read it |  |
+
 ### `tutti welcome`
 
 welcome back: what happened while you were away (shipped, running, failed, usage, what needs you): show (the latest), miss (What did I miss? since the last one), on, off

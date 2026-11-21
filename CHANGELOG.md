@@ -8,6 +8,9 @@
   `on_new_pushes` (default, today's behaviour) or `on_pr_ready_to_merge`; self-improvement asks each bot only at that
   event (`tutti pr review --event open|push|ready`), a ready-to-merge reviewer once when every other gate is green and
   before the merge. Settings > Review; `review.rounds` still applies.
+- Household decisions (t293): a person's answer to a question is kept in `<state>/decisions.json` and the same question,
+  from any task, Chat or worker, is answered from it instead of being asked again; worker briefs and the Chat prompt list
+  the decisions. `tutti decisions [list|add "<words>" "<answer>"|rm <id>]` (docs/NEEDS.md).
 - Decisional model (t440): `decisional.candidates` lists free models best first; Tutti picks the strongest suitable machine
   (measured graphics memory, or `decisional.hardware`) and the first candidate that fits, asks it first for judgement steps
   (unblocker, triage, scout, Needs-you, welcome-back summaries, routing advice) through `brain.ask`, and fetches it when

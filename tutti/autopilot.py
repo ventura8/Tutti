@@ -23,6 +23,7 @@ from . import (
     backlog,
     compact,
     config,
+    decisions,
     delegate,
     durable,
     github,
@@ -1348,7 +1349,8 @@ def dispatch(cfg, task, step_name, now, spawn=subprocess.Popen, states=None, run
         log.write(f'autopilot: task {task["id"]} attempt {len(task["attempts"]) + 1} on {step_name}'
                   f'{"; " + choice["label"] if choice else ""}\n')
     check = acceptance(task, repo)
-    argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', step['worker'], brief(task, repo)]
+    argv = [sys.executable, remote.BIN, '--config', cfg['_path'], 'run', step['worker'],
+            brief(task, repo) + '\n'.join(decisions.brief_lines(cfg))]
     if step['kind'] == 'ollama':
         from . import fleet
         argv += [s for s in fleet.task_files(task) if not os.path.isdir(os.path.join(repo_path(cfg, task), s))]

@@ -67,6 +67,16 @@ or through your main agent (`pending_questions`, `answer_question`). Options mat
 the worker as a note, except in the Chat: there `q3` must be followed by one of its options, so a message such as
 "q3 looks odd, why?" is answered as a question, not taken as your answer.
 
+## Never asked twice (t293)
+
+A person's answer becomes a household decision in `<state>/decisions.json`. A later question with the same text (task
+and question ids and numbers aside), from any task, Chat or worker, is answered from it at once: the task resumes, nothing
+reaches you, and the question shows as answered by `decision:d<n>`. Every worker brief and Chat prompt lists the
+decisions so agents do not ask them in their notes either. Answers that only steer one task (`retry`, `drop`, `done`,
+`later`, `yes`, `no`) are not kept. Write one by hand with words that must all appear in the question:
+`tutti decisions add "chatgpt sign" "Codex CLI only" --note "owner 2026-11-17"`; `tutti decisions` lists them,
+`tutti decisions rm d3` removes one.
+
 ## When questions reach you
 
 When an open question changes, Tutti offers the updated question for delivery again. Asking the identical question again does not send a duplicate. A failed older delivery cannot undo the delivery of a newer revision. Delivery still follows the user’s batching and quiet-hour settings.

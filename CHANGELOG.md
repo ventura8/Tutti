@@ -26,6 +26,8 @@
 
 ### Changed
 
+- Nav menu (t462): the current tab's name is no longer cut at the bottom (its box was shorter than its line).
+
 - Dashboard: the view tab bar is a hamburger menu (Chat, Dashboard, Settings, Users) with the current view named on
   the toggle; same `#…` hashes, Escape and outside-click close (t446).
 

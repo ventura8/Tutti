@@ -631,7 +631,7 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
     display: block; width: 18px; height: 2px; background: currentColor; border-radius: 1px;
     box-shadow: 0 -6px 0 currentColor, 0 6px 0 currentColor;
 }
-.nav-menu__current { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-menu__current { display: inline-block; line-height: 1.5; max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-menu__panel {
     position: absolute; right: 0; top: calc(100% + 4px); z-index: 8; min-width: 12rem;
     display: grid; gap: 2px; padding: 6px; border-radius: var(--r-s);
@@ -961,6 +961,7 @@ select { max-width: 100%; text-overflow: clip; }
 
 /* t304: Chat's Terminal and Browser panels (hidden until their toggle), link targets and artifact previews */
 .chat__top { min-width: 0; }
+.chat__head { flex-wrap: wrap; }   /* the panel toggles wrap below the title on a narrow pane, never past its edge */
 .chat__paneltoggles { display: flex; gap: 4px; flex: none; }
 .chat__paneltoggles .btn[aria-pressed='true'] { background: var(--surface-2); color: var(--on-surface); }
 .chat__panels { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--outline-2); max-height: 45vh; overflow: auto; }

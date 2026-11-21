@@ -658,3 +658,10 @@ failure; the octo/app requests were the test suite's: a scout call without `env=
 `scouts.post` refuses non-loopback hosts under `TUTTI_TEST_ROOT`. Lesson: a secret read "at the point of use" must also
 be unreachable from tests, not just absent from the environment.
 
+
+## ADMIN_PATHS does not guard a GET once sign-in is on (t304 review, 2026-11-21)
+
+The new `GET /api/job-log/<id>` checked `dashboard.authorize`, which calls `collector.authorize` when there is one, and
+nothing sets it: with Google sign-in on, a viewer could read an admin's job logs. The sign-in gate's own list
+(`authweb.ADMIN_GET`) is what refuses a viewer's GET; CodeRabbit caught it. Lesson: an admin-only GET goes in
+`authweb.ADMIN_GET`, with a test that its path matches it.

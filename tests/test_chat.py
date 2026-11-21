@@ -2070,6 +2070,10 @@ class PageLogic(unittest.TestCase):
                          ['open ', {'t': 'path', 'c': ['/home/u/x.py']}, ', then ', {'t': 'path', 'code': True, 'c': ['~/a/b']}])
         self.assertEqual(js('mdInline("and/or 3/4 a/b")'), ['and/or 3/4 a/b'])
         self.assertEqual(js('mdInline("[x](javascript:void) /tmp")'), ['[x](javascript:void)', ' /tmp'])
+        # a link's own label holds no other link and no path button
+        self.assertEqual(js('mdInline("[https://a.example](https://b.example) [`/etc/a/b`](https://c.example)")'),
+                         [{'t': 'a', 'href': 'https://b.example', 'c': ['https://a.example']}, ' ',
+                          {'t': 'a', 'href': 'https://c.example', 'c': [{'t': 'code', 'c': ['/etc/a/b']}]}])
 
     def test_artifact_previews_render_md_html_json_and_say_why_bad_json_fails(self):
         kinds = js('[previewKind("SVG"), previewKind("markdown"), previewKind("JSON"), previewKind("py")]')
@@ -2090,6 +2094,7 @@ class PageLogic(unittest.TestCase):
         # t202: axe heading-order; the page has h1 and the chat title h2
         self.assertEqual(js('mdParse("## A\\n#### B\\n## C").map((n) => n.level)'), [3, 4, 3])
         self.assertEqual(js('mdParse("# only").map((n) => n.level)'), [3])
+        self.assertEqual(js('mdParse("#### First\\n## Second\\n### Third").map((n) => n.level)'), [3, 3, 4])   # in the order they come
         self.assertEqual(js('mdParse("no heading").map((n) => n.t)'), ['p'])
 
     def test_list_preview_is_plain_words_shortened_at_a_word(self):

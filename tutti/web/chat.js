@@ -27,20 +27,21 @@ function autolink(text) {
     return out.length === 1 && typeof out[0] === 'string' ? [text] : out;
 }
 
-function mdInline(text) {
+function mdInline(text, inLink = false) {
     const out = [];
+    const plain = (s) => (inLink ? [s] : autolink(s));   // a link's own label never holds another link or a path button
     const re = /(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\s][^*]*)\*|_([^_\s][^_]*)_|\[([^\]]+)\]\(([^)\s]+)\)/g;
     let at = 0;
     for (let m = re.exec(text); m; m = re.exec(text)) {
-        if (m.index > at) out.push(...autolink(text.slice(at, m.index)));
-        if (m[1]) out.push(isPath(m[2].trim()) ? { t: 'path', code: true, c: [m[2].trim()] } : { t: 'code', c: [m[2].trim()] });
-        else if (m[3] || m[4]) out.push({ t: 'strong', c: mdInline(m[3] || m[4]) });
-        else if (m[5] || m[6]) out.push({ t: 'em', c: mdInline(m[5] || m[6]) });
-        else if (SAFE_URL.test(m[8])) out.push({ t: 'a', href: m[8], c: mdInline(m[7]) });
+        if (m.index > at) out.push(...plain(text.slice(at, m.index)));
+        if (m[1]) out.push(!inLink && isPath(m[2].trim()) ? { t: 'path', code: true, c: [m[2].trim()] } : { t: 'code', c: [m[2].trim()] });
+        else if (m[3] || m[4]) out.push({ t: 'strong', c: mdInline(m[3] || m[4], inLink) });
+        else if (m[5] || m[6]) out.push({ t: 'em', c: mdInline(m[5] || m[6], inLink) });
+        else if (SAFE_URL.test(m[8])) out.push({ t: 'a', href: m[8], c: mdInline(m[7], true) });
         else out.push(m[0]);   // a link to javascript: or data: stays plain text
         at = re.lastIndex;
     }
-    if (at < text.length) out.push(...autolink(text.slice(at)));
+    if (at < text.length) out.push(...plain(text.slice(at)));
     return out;
 }
 
@@ -107,10 +108,13 @@ function msgUsage(u) {
 
 // A message's headings start at h3 (the page has h1, the chat's title h2) and never skip a level (WCAG 1.3.1, axe heading-order)
 function mdLevels(nodes) {
-    const heads = nodes.filter((n) => n.t === 'h');
-    if (!heads.length) return nodes;
-    const ranks = [...new Set(heads.map((h) => h.level))].sort((a, b) => a - b);
-    for (const h of heads) h.level = Math.min(3 + ranks.indexOf(h.level), 6);
+    const stack = [];   // [source level, drawn level] of the open sections, in the order the headings come
+    for (const h of nodes.filter((n) => n.t === 'h')) {
+        while (stack.length && stack[stack.length - 1][0] >= h.level) stack.pop();
+        const drawn = Math.min(stack.length ? stack[stack.length - 1][1] + 1 : 3, 6);
+        stack.push([h.level, drawn]);
+        h.level = drawn;
+    }
     return nodes;
 }
 
@@ -228,7 +232,7 @@ function codeBlock(code, lang) {
 
 // ---- t304: the Terminal and Browser panels, hidden until their toggle; shown state kept per browser
 
-const PANELS = { terminal: false, browser: false, timer: null, job: '' };
+const PANELS = { terminal: false, browser: false, timer: null, job: '', ask: 0 };   // ask: the newest log request
 
 function setPanel(name, on) {
     PANELS[name] = on;
@@ -246,12 +250,13 @@ function initPanels() {
         try { saved = localStorage.getItem(`tutti.chat.panel.${name}`) === '1'; } catch { saved = false; }
         if (cq(`chat-${name}`)) setPanel(name, saved);
     }
-    cq('chat-term-job')?.addEventListener('change', (e) => { PANELS.job = e.target.value; void pollTerm(); });
+    cq('chat-term-job')?.addEventListener('change', (e) => { PANELS.job = e.target.value; PANELS.ask += 1; void pollTerm(); });
 }
 
 // A link clicked in the chat: into the Browser panel while it is shown (true), else the browser's own new tab (false)
 function openInPanel(href) {
-    if (!PANELS.browser || !/^https?:/i.test(href)) return false;
+    const shown = cq('chat-browser');
+    if (!PANELS.browser || !/^https?:/i.test(href) || !shown || !shown.getClientRects().length) return false;
     showInPanel({ url: href });
     return true;
 }
@@ -285,7 +290,7 @@ function drawTermJobs() {
     const pick = cq('chat-term-job');
     if (!pick) return;
     const jobs = termJobs(chatWork(CHAT.conv?.messages, typeof ui !== 'undefined' ? ui.last : null));
-    if (!jobs.some((j) => j.id === PANELS.job)) PANELS.job = jobs[0]?.id || '';
+    if (!jobs.some((j) => j.id === PANELS.job)) { PANELS.job = jobs[0]?.id || ''; PANELS.ask += 1; }   // older answers are stale
     pick.replaceChildren(...jobs.map((j) => el('option', { value: j.id, text: j.label })));
     pick.value = PANELS.job;
     pick.hidden = !jobs.length;
@@ -296,13 +301,17 @@ function drawTermJobs() {
 async function pollTerm() {
     if (!PANELS.terminal || !PANELS.job) return;
     const out = cq('chat-term-out');
+    const ask = ++PANELS.ask, job = PANELS.job;
+    const current = () => ask === PANELS.ask && job === PANELS.job;   // a newer request or another job owns the output
     try {
-        const res = await fetch(`/api/job-log/${encodeURIComponent(PANELS.job)}`, { headers: { 'X-Tutti-Token': CHAT_TOKEN }, cache: 'no-store' });
+        const res = await fetch(`/api/job-log/${encodeURIComponent(job)}`, { headers: { 'X-Tutti-Token': CHAT_TOKEN }, cache: 'no-store' });
         const data = await res.json();
+        if (!current()) return;
         const stick = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
         out.textContent = res.ok ? (data.text || '(the log is empty so far)') : data.error;
         if (stick) out.scrollTop = out.scrollHeight;
     } catch (e) {
+        if (!current()) return;
         out.textContent = `Cannot read the log: ${e.message}. The dashboard may be restarting; it tries again in a few seconds.`;
     }
 }

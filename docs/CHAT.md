@@ -257,6 +257,9 @@ Under the message box, as in a chat IDE, each starting at Auto:
 - Markdown is drawn safely: the text is parsed into a tree and drawn with DOM nodes and `textContent`, so no message ever
   becomes markup. Only `http`, `https` and `mailto` links are links. Code blocks have **Copy**.
 - The list follows new text while you are at the end; scroll up and it stays put, with **Jump to latest**.
+- **This chat's work** (t298), under the title: every task, run or job this conversation started, newest first, with its
+  live status from the dashboard's poll (queued and why it waits, running and where, or finished). It is open while any
+  of them is queued or running; a running one links to its job on the Dashboard. Nothing started: nothing shown.
 - An empty chat suggests questions from the state now (an idle machine, the quota, a project to queue tests for).
 - Conversations: **New chat**, **Rename**, **Delete**, and search over titles and messages.
 - Keys: Enter sends, Shift+Enter adds a line, Esc stops, ↑ edits. New answers are announced to screen readers (a polite

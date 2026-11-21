@@ -2012,6 +2012,23 @@ def js(expr):
 
 @unittest.skipUnless(shutil.which('node'), 'node is not installed')
 class PageLogic(unittest.TestCase):
+    def test_chat_work_lists_this_chats_jobs_newest_first_with_live_status(self):
+        # t298: every task or run the chat started, once, newest first; live ones say where they run
+        msgs = [{'cards': [{'state': 'done', 'ref': 't1', 'label': 'Queued t1'}, {'state': 'failed', 'ref': 't9', 'label': 'x'}]},
+                {'cards': [{'state': 'done', 'ref': 't2', 'label': 'Queued t2'}]},
+                {'cards': [{'state': 'done', 'ref': 't1', 'label': 'again'}, {'state': 'done', 'label': 'no id'}]}]
+        snap = {'jobs': {'items': [{'id': 't2', 'status': 'running', 'machine': 'nuc'}]},
+                'queue': {'groups': [{'items': [{'id': 't1', 'why': 'no room'}]}]}}
+        out = js(f'chatWork({json.dumps(msgs)}, {json.dumps(snap)}).map((i) => [i.ref, i.active, i.text])')
+        self.assertEqual(out, [['t1', True, 'Queued · waits: no room'], ['t2', True, 'Running on nuc']])
+
+    def test_chat_work_marks_gone_jobs_and_is_empty_without_cards(self):
+        msgs = [{'cards': [{'state': 'done', 'ref': 't5', 'label': 'Queued t5'}]}]
+        self.assertEqual(js(f'chatWork({json.dumps(msgs)}, {{}})'),
+                         [{'ref': 't5', 'label': 'Queued t5', 'text': 'Finished, or no longer in the queue', 'active': False, 'job': None}])
+        self.assertEqual(js('chatWork([{"role": "user", "text": "hi"}], null)'), [])
+        self.assertEqual(js('chatWork(undefined, null)'), [])
+
     def test_rename_updates_only_originating_conversation_without_redrawing_messages(self):
         with open(os.path.join(WEB, 'chat.js'), encoding='utf8') as f:
             src = f.read()

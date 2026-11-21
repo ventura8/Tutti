@@ -290,6 +290,7 @@ function drawLog() {
     cq('chat-title').textContent = CHAT.conv?.title || 'New chat';
     cq('chat-conv-actions').hidden = !CHAT.conv;
     if (typeof drawControls === 'function') drawControls();
+    drawWork();
     if (!msgs.length) {
         log.replaceChildren(emptyState());
         return;
@@ -360,8 +361,8 @@ function messageActions(m, opts) {
 
 // ---- action cards: what the chat did, with Undo, and the work's status from the dashboard's own poll (app.js keeps ui.last)
 
-function workStatus(ref) {
-    const snap = typeof ui !== 'undefined' ? ui.last : null;
+function workStatus(ref, given) {
+    const snap = given || (typeof ui !== 'undefined' ? ui.last : null);
     if (!ref || !snap) return null;
     const job = (snap.jobs?.items || []).find((j) => String(j.id) === ref || String(j.id).split(':').pop() === ref);
     if (job) {
@@ -372,6 +373,38 @@ function workStatus(ref) {
     const queued = (snap.queue?.groups || []).flatMap((g) => g.items || []).find((i) => i.id === ref);
     if (queued) return { text: `Queued${queued.why ? ' · waits: ' + queued.why : ''}` };
     return null;
+}
+
+// ---- this chat's work (t298): every task, run or job the chat started, newest first, with its live status; always in view
+// while any of it is queued or running, so the owner never guesses which jobs belong to this conversation
+
+function chatWork(messages, snap) {
+    const seen = new Set(), out = [];
+    for (const m of [...(messages || [])].reverse()) {
+        for (const c of [...(m.cards || [])].reverse()) {
+            if (c.state !== 'done' || !c.ref || seen.has(c.ref)) continue;
+            seen.add(c.ref);
+            const live = workStatus(c.ref, snap);
+            out.push({ ref: c.ref, label: c.label || c.ref, text: live ? live.text : 'Finished, or no longer in the queue',
+                active: Boolean(live), job: live?.job || null });
+        }
+    }
+    return out;
+}
+
+function drawWork() {
+    const box = cq('chat-work');
+    if (!box) return;
+    const items = chatWork(CHAT.conv?.messages, typeof ui !== 'undefined' ? ui.last : null);
+    box.setAttribute('aria-hidden', String(!items.length));   // stays in the grid (a row of its own), empty when there is none
+    if (!items.length) return box.replaceChildren();
+    const active = items.filter((i) => i.active).length;
+    const wasOpen = box.querySelector('details')?.open;
+    box.replaceChildren(el('details', { class: 'chat__workbox', open: active > 0 || Boolean(wasOpen) },
+        el('summary', { class: 'chat__worksum', text: `This chat's work: ${active} in flight, ${items.length - active} done or gone` }),
+        el('ul', { class: 'chat__worklist' }, ...items.map((i) => el('li', { class: 'chat__workitem', 'data-active': String(i.active) },
+            el('span', { class: 'chip', 'data-tone': i.active ? 'accent' : 'idle', text: i.ref }), ' ', i.label, ' · ',
+            i.job ? el('a', { class: 'link', href: '#dashboard', text: i.text, onclick: () => openWork(i.job) }) : i.text)))));
 }
 
 function actionCard(m, c) {
@@ -429,6 +462,7 @@ async function undo(m, c, button) {
 
 function refreshCards() {
     if (!CHAT.conv || document.hidden || cq('chat-view').hidden) return;
+    drawWork();
     for (const m of CHAT.conv.messages) {
         for (const c of m.cards || []) {
             const old = document.querySelector(`[data-card="${c.id}"]`);

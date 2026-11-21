@@ -398,10 +398,12 @@ tutti/web/icons/icon-maskable.svg
 tutti/web/icons/icon.svg
 tutti/web/icons/maskable-512.png
 tutti/web/index.html
+tutti/web/layout.js
 tutti/web/login.html
 tutti/web/login.js
 tutti/web/manifest.webmanifest
 tutti/web/needs.js
+tutti/web/navmenu.js
 tutti/web/outside.js
 tutti/web/qr.js
 tutti/web/queue.js

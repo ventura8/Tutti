@@ -144,6 +144,7 @@ include tests/test_hhjobs.py
 include tests/test_hours.py
 include tests/test_household.py
 include tests/test_hygiene.py
+include tests/test_idlecheck.py
 include tests/test_intake.py
 include tests/test_joblog.py
 include tests/test_jobprogress.py
@@ -299,6 +300,7 @@ include tutti/householduse.py
 include tutti/httpguard.py
 include tutti/hygiene.py
 include tutti/hygienecheck.py
+include tutti/idlecheck.py
 include tutti/insights.py
 include tutti/install.py
 include tutti/intake.py

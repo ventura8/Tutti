@@ -44,7 +44,7 @@ from . import (
     helper,
     householduse,
     httpguard,
-    joblog,
+    idlecheck,
     keepon,
     local,
     move,
@@ -363,6 +363,7 @@ class Collector:
         from . import waitlist  # the Queued list beside Running jobs: everything waiting and why
         live = sum(1 for j in out['jobs']['items'] if j.get('status') in ('running', 'stalled', 'starting'))
         out['queue'] = waitlist.view(self.cfg, out['where'], live, can_act=self.can_act())
+        out['idle_with_work'] = idlecheck.find(out)   # t254: room somewhere while queued work waits, with the queue's reasons
         last = update.load(self.cfg)
         from . import diskroom
         out['disk'] = diskroom.problems(self.cfg)   # this computer's temp folder and work disk (Machines card)

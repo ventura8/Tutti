@@ -143,6 +143,7 @@ tests/test_hhjobs.py
 tests/test_hours.py
 tests/test_household.py
 tests/test_hygiene.py
+tests/test_idlecheck.py
 tests/test_intake.py
 tests/test_joblog.py
 tests/test_jobprogress.py
@@ -298,6 +299,7 @@ tutti/householduse.py
 tutti/httpguard.py
 tutti/hygiene.py
 tutti/hygienecheck.py
+tutti/idlecheck.py
 tutti/insights.py
 tutti/install.py
 tutti/intake.py

@@ -86,10 +86,22 @@ function queueItem(it, ladder) {
     return el('div', { class: 'row', 'data-queued': it.id, 'data-kind': it.kind }, box, note, why, tail);
 }
 
+// t254: room somewhere while queued work waits, with the reasons the queue gives (pure but for el(): node tests)
+function idleNote(w) {
+    if (!w) return null;
+    return el('div', { class: 'idlework', role: 'note', 'data-idle-with-work': '' },
+        el('p', { class: 'idlework__head', text: w.headline }),
+        el('ul', { class: 'idlework__list' },
+            ...w.idle.map((r) => el('li', { text: `${r.name} (${r.kind}): ${r.room}` })),
+            ...w.reasons.map(([why, n]) => el('li', { class: 'idlework__why', text: `${n} waiting: ${why}` }))));
+}
+
 function renderQueue(s) {
     const q = s.queue;
     if (!q || !$('queued')) return;
     $('queued-meta').textContent = q.header;
+    const idle = $('idle-with-work');
+    if (idle) idle.replaceChildren(...[idleNote(s.idle_with_work)].filter(Boolean));
     const ladder = s.autopilot?.ladder || [];
     // as many rows as fit beside the main-agent and workers column (app.js measureFit), then "Show more" for the rest
     const rows = q.groups.flatMap((g) => [

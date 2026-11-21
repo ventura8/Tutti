@@ -2350,9 +2350,12 @@ class PageMarkup(unittest.TestCase):
         self.page = Page()   # the Chat's part of the page (the rest has its own checks in test_layout)
         self.page.feed(self.html.split('<main', 1)[1].split('<div id="dashboard-view"', 1)[0])
 
-    def test_chat_is_the_first_tab_and_the_default_view(self):
-        tabs = re.findall(r'data-view="([a-z]+)"', self.html.split('<nav class="tabs"', 1)[1].split('</nav>', 1)[0])
-        self.assertEqual(tabs[0], 'chat')
+    def test_chat_is_the_first_view_and_the_default(self):
+        panel = self.html.split('id="nav-menu-panel"', 1)[1].split('</nav>', 1)[0]
+        views = re.findall(r'data-view="([a-z]+)"', panel)
+        self.assertEqual(views[0], 'chat')
+        self.assertIn('id="nav-menu-btn"', self.html)
+        self.assertIn('navmenu.js?v=', self.html)
         self.assertIn('<div id="chat-view" class="chat view-ok">', self.html)   # shown, and usable by viewers
         self.assertIn('<div id="dashboard-view" hidden>', self.html)
         self.assertIn('chat.js?v=', self.html)

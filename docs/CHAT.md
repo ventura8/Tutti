@@ -90,7 +90,7 @@ The server decides, for every action, with `auth.act_for` (and so `auth.may_act_
   accounts, machines), so the chat's answers and read-only tools tell them nothing more.
 - **Admins** also hand work straight to a worker (`delegate`), ask scouts, run tests on machines and devices, and pause
   and resume machines, devices, workers and accounts: each of these spends an account or a machine at once, so a viewer's
-  request never spends another member's private quota. Settings and users stay on their own tabs.
+  request never spends another member's private quota. Settings and users stay on their own hamburger-menu views.
 - **Pending** users (waiting for approval) cannot use the chat.
 - Conversations are private: each user sees only their own. Admins have **Household activity**: the actions the chat took
   for each member, from the audit log, never anyone's messages.
@@ -262,7 +262,7 @@ Under the message box, as in a chat IDE, each starting at Auto:
 - Keys: Enter sends, Shift+Enter adds a line, Esc stops, ↑ edits. New answers are announced to screen readers (a polite
   live region); focus stays visible; animations stop with reduced motion.
 - On a phone the list and the conversation take the screen in turn (**‹ Chats** goes back); the composer stays above the
-  on-screen keyboard (`interactive-widget=resizes-content` and `visualViewport`), and the bottom tab bar hides while you
+  on-screen keyboard (`interactive-widget=resizes-content` and `visualViewport`), and the composer stays above it while you
   type. Light and dark follow the dashboard's theme and accent.
 
 ## What is stored

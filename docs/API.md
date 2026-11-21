@@ -144,6 +144,7 @@ Each is a POST with a JSON body; the answer is `{"ok": true, ...}` with 200 (202
 | --- | --- | --- | --- |
 | `/api/telemetry` | viewer (errors and use counts only), admin (consent) | `{"consent": true}`, `{"error": {...}}`, `{"use": {"panel": "usage"}}` | `{"ok": true, ...}`. |
 | `/api/report` | viewer | `{"what": "...", "expected": "...", "send": false}` previews; then `"send": true` with the preview's id | Report a problem on GitHub (docs/REPORT.md), a few per hour. |
+| `/api/dashboard-layout` | signed-in (or local when sign-in is off) | GET: current layout; POST `{"order","sizes"}` or `{"reset": true}` | Per-user Dashboard card order and sizes (t447). |
 | `/api/github` | self | `{"action": "status"\|"start"\|"poll"\|"disconnect"}` | The person's own GitHub connection (device flow, docs/GITHUB.md). |
 | `/api/needs` | self | `{"answer": "q3", "choice": "retry"}` or `{"notify": "always", "batch": 3, "quiet": "22-07"}` | Answer one's own question; notify settings. |
 | `/api/welcome` | self | `{"action": "read"\|"miss"\|"on"\|"off"}` | One's own summary: mark read, "What did I miss?", switch on or off. |

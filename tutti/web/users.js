@@ -146,11 +146,12 @@ function showUsersView() {
         $('settings-view').hidden = true;
         $('chat-view').hidden = true;
     }
-    for (const a of document.querySelectorAll('.tabs__tab[data-view]')) {
+    for (const a of document.querySelectorAll('.nav-menu [data-view]')) {
         const current = on ? a.dataset.view === 'users' : a.dataset.view !== 'users' && a.getAttribute('aria-current') === 'page';
         if (current) a.setAttribute('aria-current', 'page');
         else a.removeAttribute('aria-current');
     }
+    if (typeof navMenuSync === 'function') navMenuSync();
 }
 
 async function startAuth() {
@@ -164,10 +165,12 @@ async function startAuth() {
         return;
     }
     document.body.dataset.role = me.role || 'viewer';
+    document.body.dataset.user = me.email || me.sub || 'local';
     $('me').textContent = `${me.email} · ${me.role}`;
     $('viewer-label').hidden = me.role !== 'viewer';
     $('me').hidden = false;
     $('signout').hidden = false;
+    window.dispatchEvent(new Event('tutti-ready'));
     $('signout').addEventListener('click', async () => {
         if (await authPost('/api/auth/logout', {}, 'You were not signed out.')) location.replace('/');
     });

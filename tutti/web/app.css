@@ -245,6 +245,29 @@ main {
     border-radius: var(--r-l);
     background: var(--surface-1);
     border: 1px solid var(--outline-2);
+    position: relative;
+}
+
+/* Dashboard layout (t447): move / resize chrome on each big card */
+.layout-toolbar {
+    display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between;
+    margin: 0 0 var(--gap);
+}
+.card__layout {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    margin: -8px 0 8px; min-height: 32px;
+}
+.card__drag { min-height: 32px; padding: 0 10px; cursor: grab; font-size: 0.8125rem; }
+.card__drag:active, .card--dragging .card__drag { cursor: grabbing; }
+.card__resize {
+    position: absolute; right: 6px; bottom: 6px; width: 16px; height: 16px; cursor: nwse-resize;
+    background:
+        linear-gradient(135deg, transparent 50%, var(--outline) 50%) no-repeat right bottom / 10px 10px;
+}
+.card--dragging { opacity: 0.85; outline: 2px dashed var(--accent-line); }
+.card--resizing { outline: 2px solid var(--accent-line); }
+@media (max-width: 959px) {
+    .card__drag { display: none; }   /* stack order stays; height resize still works */
 }
 
 .card__head {
@@ -598,14 +621,31 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
 .heat__label { height: auto; background: none; font-size: 0.625rem; color: var(--on-surface-2); }
 .owner .btn[aria-pressed='true'] { background: var(--accent-c); outline: 1px solid var(--accent); }
 
-/* ---- the views: Dashboard and Settings (a tab bar in the app bar; at the bottom of the screen on a phone) */
-.tabs { display: flex; gap: 4px; flex-basis: 100%; }
-.tabs__tab {
-    display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 20px; border-radius: 20px;
+/* ---- the views: hamburger menu in the app bar (t446; was a tab bar, including a fixed bottom bar on phones) */
+.nav-menu { position: relative; flex: 0 0 auto; margin-left: auto; }
+.nav-menu__toggle {
+    display: inline-flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px;
+    font-weight: 500;
+}
+.nav-menu__bars {
+    display: block; width: 18px; height: 2px; background: currentColor; border-radius: 1px;
+    box-shadow: 0 -6px 0 currentColor, 0 6px 0 currentColor;
+}
+.nav-menu__current { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-menu__panel {
+    position: absolute; right: 0; top: calc(100% + 4px); z-index: 8; min-width: 12rem;
+    display: grid; gap: 2px; padding: 6px; border-radius: var(--r-s);
+    background: var(--surface-1); border: 1px solid var(--outline-2);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+.nav-menu__panel[hidden] { display: none; }
+.nav-menu__link {
+    display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: var(--r-s);
     color: var(--on-surface); text-decoration: none; font-weight: 500;
 }
-.tabs__tab:hover { background: var(--surface-2); }
-.tabs__tab[aria-current='page'] { background: var(--accent-c); }
+.nav-menu__link:hover { background: var(--surface-2); }
+.nav-menu__link[aria-current='page'] { background: var(--accent-c); }
+.nav-menu__link[hidden] { display: none; }
 .link { color: var(--accent-line); font-size: 0.8125rem; font-weight: 500; margin-left: 8px; }
 
 /* ---- the Settings view */
@@ -667,16 +707,10 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
 
 @media (max-width: 640px) {
     .setting { grid-template-columns: minmax(0, 1fr); }
-    /* the views' bar sits at the bottom of a phone's screen, over the safe area */
-    .tabs {
-        position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; justify-content: space-around; gap: 0;
-        padding: 6px max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
-        background: var(--surface-1); border-top: 1px solid var(--outline-2);
-    }
-    .tabs__tab { flex: 1 1 0; min-height: 48px; min-width: 0; padding: 0 6px; font-size: 0.875rem; text-align: center; overflow-wrap: anywhere; }   /* four or more tabs share the width */
-    /* a backdrop filter would make the app bar the fixed bar's containing block, keeping it at the top */
+    /* a backdrop filter would make the app bar the containing block for fixed children */
     .appbar { backdrop-filter: none; background: var(--surface); }
-    body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+    .nav-menu { flex-basis: 100%; margin-left: 0; }
+    .nav-menu__panel { left: 0; right: 0; min-width: 0; }
 }
 /* The Me / Household view (household.js): the household card and others' use of shared machines only in Household. */
 .seg { display: inline-flex; gap: 2px; border: 0; margin: 0; padding: 0; min-inline-size: 0; }
@@ -705,8 +739,8 @@ body.login { min-height: 100vh; display: grid; place-items: center; padding: 16p
    for every page part, static or drawn later: every control is hidden for a viewer unless it is viewer-safe (it only
    shows, filters or navigates). A new control is therefore hidden by default; mark a read-only one with .view-ok. */
 body[data-role='viewer'] :is(button, input, select, textarea, form, .btn, a.link, [data-admin], #settings-view, #users-view,
-    .tabs__tab[data-view='settings']):not(.view-ok, .view-ok *, .more, .seg, .seg *, #job-filter *, #job-project, #refresh,
-    #install, #signout) { display: none; }
+    .nav-menu__link[data-view='settings']):not(.view-ok, .view-ok *, .more, .seg, .seg *, #job-filter *, #job-project, #refresh,
+    #install, #signout, #nav-menu-btn, .nav-menu__link[data-view='chat'], .nav-menu__link[data-view='dashboard']) { display: none; }
 .card[hidden], .banner[hidden], .btn[hidden], .me[hidden], .invite[hidden], .login__join[hidden], .login__error[hidden] { display: none; }
 .login__code { font-family: var(--mono); font-size: 1.6rem; letter-spacing: 0.15em; background: var(--surface-2); padding: 8px 12px; border-radius: var(--r-s); }
 .viewer-label { font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--warn-c); color: var(--on-surface); }
@@ -882,9 +916,8 @@ body[data-view-name='chat'] .foot { display: none; }
 }
 @media (max-width: 760px) {
     .chat { grid-template-columns: minmax(0, 1fr); gap: 0;
-        height: max(320px, calc(100dvh - var(--chat-top, 120px) - var(--tabs-h, 64px) - var(--gap) - var(--kb, 0px))); }
+        height: max(320px, calc(100dvh - var(--chat-top, 120px) - var(--gap) - var(--kb, 0px))); }
     body.kbd-open .chat { height: calc(100dvh - var(--chat-top, 120px) - var(--gap) - var(--kb, 0px)); }
-    body.kbd-open .tabs { display: none; }
     body[data-chat-pane='list'] .chat__main, body[data-chat-pane='conv'] .chat__side { display: none; }
     .chat__back { display: inline-flex; padding: 0 8px; flex: none; }
     .chat__head { padding: 6px 8px; flex-wrap: wrap; }

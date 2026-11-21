@@ -86,9 +86,18 @@ def open_view(ctx, hash_=''):
 
 
 def tabs(page):
-    """The views the signed-in user sees in the tab bar: [(name, hash)]."""
-    return page.evaluate("""[...document.querySelectorAll('nav.tabs a.tabs__tab')].filter((a) => a.offsetParent !== null)
-        .map((a) => [a.textContent.trim(), new URL(a.href).hash])""")
+    """The views the signed-in user sees in the hamburger menu: [(name, hash)].
+
+    Viewers hide Settings via CSS (display:none), not the hidden attribute — count only visible links.
+    """
+    return page.evaluate("""(() => {
+        const btn = document.getElementById('nav-menu-btn');
+        const panel = document.getElementById('nav-menu-panel');
+        if (btn && panel && panel.hidden) btn.click();
+        return [...document.querySelectorAll('.nav-menu [data-view]')].filter((a) =>
+            !a.hidden && getComputedStyle(a).display !== 'none')
+            .map((a) => [a.textContent.trim(), new URL(a.href).hash]);
+    })()""")
 
 
 def go(page, hash_):
@@ -381,7 +390,7 @@ class Roles(unittest.TestCase):
         page = open_view(ctx, '#dashboard')
         self.assertEqual([n for n, _ in tabs(page)], ['Chat', 'Dashboard'])
         shown = page.evaluate("""[...document.querySelectorAll('[data-admin], button, input, select, textarea, form, a.link')]
-            .filter((e) => e.offsetParent !== null && !e.closest('.view-ok, .seg, #job-filter, nav.tabs'))
+            .filter((e) => e.offsetParent !== null && !e.closest('.view-ok, .seg, #job-filter, .nav-menu'))
             .filter((e) => !['refresh', 'signout', 'job-project', 'install'].includes(e.id) && !e.classList.contains('more'))
             .map((e) => e.id || e.className || e.tagName)""")
         self.assertEqual(shown, [])

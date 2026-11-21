@@ -16,6 +16,8 @@
     <link rel="stylesheet" href="app.css?v=__TUTTI_VERSION__">
     <script src="format.js?v=__TUTTI_VERSION__" defer></script>
     <script src="a11y.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="navmenu.js?v=__TUTTI_VERSION__" defer></script>
+    <script src="layout.js?v=__TUTTI_VERSION__" defer></script>
     <script src="telemetry.js?v=__TUTTI_VERSION__" defer></script>
     <script src="update.js?v=__TUTTI_VERSION__" defer></script>
     <script src="attention.js?v=__TUTTI_VERSION__" defer></script>
@@ -68,12 +70,20 @@
             <button class="btn btn--text view-ok" id="report-open" type="button" title="Tell Tutti's maintainers what went wrong">Report a problem</button>
             <button class="btn btn--text" id="signout" type="button" hidden>Sign out</button>
         </div>
-        <!-- The views: the Chat (the default), the dashboard and Settings. On a phone the bar sits at the bottom of the screen (app.css). -->
-        <nav class="tabs" aria-label="Views">
-            <a class="tabs__tab" href="#chat" data-view="chat" aria-current="page">Chat</a>
-            <a class="tabs__tab" href="#dashboard" data-view="dashboard">Dashboard</a>
-            <a class="tabs__tab" href="#settings" data-view="settings">Settings</a>
-            <a class="tabs__tab" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
+        <!-- The views: hamburger menu (t446). Same hashes as before: #chat (default), #dashboard, #settings, #users.
+             The outer <nav> stays labelled even while the panel is closed (e2e landmarks skip [hidden] ancestors). -->
+        <nav class="nav-menu" aria-label="Views">
+            <button class="btn btn--text nav-menu__toggle" id="nav-menu-btn" type="button"
+                aria-expanded="false" aria-controls="nav-menu-panel" aria-haspopup="true" title="Views">
+                <span class="nav-menu__bars" aria-hidden="true"></span>
+                <span class="nav-menu__current" id="nav-menu-current">Chat</span>
+            </button>
+            <div class="nav-menu__panel" id="nav-menu-panel" hidden>
+                <a class="nav-menu__link" href="#chat" data-view="chat" aria-current="page">Chat</a>
+                <a class="nav-menu__link" href="#dashboard" data-view="dashboard">Dashboard</a>
+                <a class="nav-menu__link" href="#settings" data-view="settings">Settings</a>
+                <a class="nav-menu__link" href="#users" data-view="users" id="users-tab" data-admin hidden>Users</a>
+            </div>
         </nav>
     </header>
 
@@ -185,8 +195,12 @@
         <section class="tiles" aria-label="At a glance" id="tiles"></section>
 
         <!-- Ordered by importance, top to bottom: quota, what needs the owner, what runs now, the autopilot, projects, history. -->
-        <div class="grid">
-            <section class="card card--usage span-full" aria-labelledby="usage-h">
+        <div class="layout-toolbar" id="layout-toolbar">
+            <p class="row__note">Drag the handle on a card to move it; drag its corner to resize. Layout is saved for you.</p>
+            <button class="btn btn--text" id="layout-reset" type="button" title="Put every card back where Tutti put it">Reset layout</button>
+        </div>
+        <div class="grid" id="dashboard-grid">
+            <section class="card card--usage span-full" aria-labelledby="usage-h" data-layout-id="usage">
                 <header class="card__head">
                     <h2 id="usage-h">Usage &amp; pacing</h2>
                     <p class="card__meta" id="usage-meta"></p>
@@ -204,7 +218,7 @@
             </section>
 
             <!-- Machines directly below Usage & pacing (the owner, 2026-11-14) -->
-            <section class="card card--machines span-full" aria-labelledby="machines-h">
+            <section class="card card--machines span-full" aria-labelledby="machines-h" data-layout-id="machines">
                 <header class="card__head">
                     <h2 id="machines-h">Machines</h2>
                     <p class="card__meta" id="machines-meta"></p>
@@ -218,7 +232,7 @@
                 <ul id="waiting" class="list" aria-labelledby="waiting-h"></ul>
             </section>
 
-            <section class="card card--attention span-full" aria-labelledby="attention-h">
+            <section class="card card--attention span-full" aria-labelledby="attention-h" data-layout-id="attention">
                 <header class="card__head">
                     <h2 id="attention-h">Needs you</h2>
                     <p class="card__meta" id="attention-meta"></p>
@@ -226,7 +240,7 @@
                 <ul id="attention" class="list list--grid"></ul>
             </section>
 
-            <section class="card span-full" id="household-card" aria-labelledby="household-h">
+            <section class="card span-full" id="household-card" aria-labelledby="household-h" data-layout-id="household">
                 <header class="card__head">
                     <h2 id="household-h">Household</h2>
                     <p class="card__meta" id="household-meta"></p>
@@ -238,7 +252,7 @@
             </section>
 
             <!-- Running jobs and Queued fill the height of the main-agent and workers column beside them (tuttiFit) -->
-            <div class="stack stack--fill span-wide" id="jobs-stack">
+            <div class="stack stack--fill span-wide" id="jobs-stack" data-layout-id="jobs-stack">
                 <section class="card card--running" aria-labelledby="running-h">
                     <header class="card__head">
                         <h2 id="running-h">Running jobs</h2>
@@ -257,7 +271,7 @@
                 </section>
             </div>
 
-            <div class="stack span-narrow" id="side-stack">
+            <div class="stack span-narrow" id="side-stack" data-layout-id="side-stack">
                 <section class="card" aria-labelledby="main-h">
                     <header class="card__head">
                         <h2 id="main-h">Main agent</h2>
@@ -290,7 +304,7 @@
                 </section>
             </div>
 
-            <section class="card card--autopilot span-full" aria-labelledby="autopilot-h">
+            <section class="card card--autopilot span-full" aria-labelledby="autopilot-h" data-layout-id="autopilot">
                 <header class="card__head">
                     <h2 id="autopilot-h">Autopilot</h2>
                     <p class="card__meta" id="autopilot-meta"></p>
@@ -301,7 +315,7 @@
                 <div id="autopilot" class="autopilot"></div>
             </section>
 
-            <section class="card span-full" aria-labelledby="work-browser-h">
+            <section class="card span-full" aria-labelledby="work-browser-h" data-layout-id="work-browser">
                 <header class="card__head">
                     <h2 id="work-browser-h">Work browser</h2>
                     <p class="card__meta" id="work-browser-meta"></p>
@@ -309,7 +323,7 @@
                 <div id="work-browser"></div>
             </section>
 
-            <section class="card span-full" aria-labelledby="projects-h">
+            <section class="card span-full" aria-labelledby="projects-h" data-layout-id="projects">
                 <header class="card__head">
                     <h2 id="projects-h">Projects</h2>
                     <p class="card__meta" id="projects-meta"></p>
@@ -317,7 +331,7 @@
                 <ul id="projects" class="list list--grid"></ul>
             </section>
 
-            <section class="card span-full" aria-labelledby="security-h">
+            <section class="card span-full" aria-labelledby="security-h" data-layout-id="security">
                 <header class="card__head">
                     <h2 id="security-h">Dependencies and security</h2>
                     <p class="card__meta" id="security-meta"></p>
@@ -325,7 +339,7 @@
                 <div id="security"></div>
             </section>
 
-            <section class="card span-full" aria-labelledby="scouts-h">
+            <section class="card span-full" aria-labelledby="scouts-h" data-layout-id="scouts">
                 <header class="card__head">
                     <h2 id="scouts-h">Scouts</h2>
                     <p class="card__meta" id="scouts-meta"></p>
@@ -333,7 +347,7 @@
                 <div id="scouts" class="scouts"></div>
             </section>
 
-            <section class="card span-full" aria-labelledby="connect-h">
+            <section class="card span-full" aria-labelledby="connect-h" data-layout-id="connect">
                 <header class="card__head">
                     <h2 id="connect-h">Connect your agent</h2>
                     <p class="card__meta" id="connect-meta">Your main agent drives Tutti through its MCP server (docs/CONNECT.md)</p>
@@ -342,7 +356,7 @@
                 <ul id="connect" class="list list--grid"></ul>
             </section>
 
-            <section class="card span-full" aria-labelledby="outside-h">
+            <section class="card span-full" aria-labelledby="outside-h" data-layout-id="outside">
                 <header class="card__head">
                     <h2 id="outside-h">Work outside Tutti</h2>
                     <p class="card__meta" id="outside-meta"></p>
@@ -350,7 +364,7 @@
                 <ul id="outside" class="list" aria-label="Commits and leases no Tutti task explains"></ul>
             </section>
 
-            <section class="card span-full" aria-labelledby="where-h">
+            <section class="card span-full" aria-labelledby="where-h" data-layout-id="where">
                 <header class="card__head">
                     <h2 id="where-h">Where Tutti runs</h2>
                     <p class="card__meta" id="where-meta"></p>
@@ -359,7 +373,7 @@
                 <p id="host-warning" class="row__note" data-tone="warn" hidden></p>
             </section>
 
-            <section class="card span-full" aria-labelledby="setup-h">
+            <section class="card span-full" aria-labelledby="setup-h" data-layout-id="setup">
                 <header class="card__head">
                     <h2 id="setup-h">Set up</h2>
                     <p class="card__meta" id="setup-meta"></p>
@@ -367,7 +381,7 @@
                 <ul id="setup" class="list" aria-label="What setup found and what is left"></ul>
             </section>
 
-            <section class="card span-full" aria-labelledby="controls-h">
+            <section class="card span-full" aria-labelledby="controls-h" data-layout-id="controls">
                 <header class="card__head">
                     <h2 id="controls-h">Devices and controls</h2>
                     <p class="card__meta" id="controls-meta"></p>
@@ -395,7 +409,7 @@
                 </form>
             </section>
 
-            <section class="card span-full" aria-labelledby="selfimprove-h">
+            <section class="card span-full" aria-labelledby="selfimprove-h" data-layout-id="selfimprove">
                 <header class="card__head">
                     <h2 id="selfimprove-h">Self-improvement</h2>
                     <p class="card__meta" id="selfimprove-meta"></p>
@@ -404,7 +418,7 @@
                 <ul id="selfimprove" class="list" aria-label="Sentry issues and insights: task, pull request, merge, release"></ul>
             </section>
 
-            <section class="card span-full" aria-labelledby="aiassist-h">
+            <section class="card span-full" aria-labelledby="aiassist-h" data-layout-id="aiassist">
                 <header class="card__head">
                     <h2 id="aiassist-h">Tutti is improving itself</h2>
                     <p class="card__meta" id="aiassist-meta"></p>
@@ -413,7 +427,7 @@
                 <div id="aiassist"></div>
             </section>
 
-            <section class="card span-full" aria-labelledby="insights-h">
+            <section class="card span-full" aria-labelledby="insights-h" data-layout-id="insights">
                 <header class="card__head">
                     <h2 id="insights-h">Insights</h2>
                     <p class="card__meta" id="insights-meta"></p>
@@ -424,7 +438,7 @@
             </section>
 
             <!-- viewer-safe: every signed-in user changes their own schedule here (the server allows only their own) -->
-            <section class="card span-full view-ok" id="my-schedule" aria-labelledby="my-schedule-h" hidden>
+            <section class="card span-full view-ok" id="my-schedule" aria-labelledby="my-schedule-h" hidden data-layout-id="my-schedule">
                 <header class="card__head">
                     <h2 id="my-schedule-h">My schedule</h2>
                     <p class="card__meta">Your working days and hours, and whether you are away: your own main agent is paced by them.</p>
@@ -443,7 +457,7 @@
 
 
             <!-- viewer-safe: each user's own questions and when they reach them (needs.js, docs/NEEDS.md) -->
-            <section class="card span-full view-ok" id="my-questions" aria-labelledby="my-questions-h">
+            <section class="card span-full view-ok" id="my-questions" aria-labelledby="my-questions-h" data-layout-id="my-questions">
                 <header class="card__head">
                     <h2 id="my-questions-h">My questions</h2>
                     <p class="card__meta" id="my-questions-meta">What only you can decide. The rest of the work goes on meanwhile.</p>
@@ -461,7 +475,7 @@
             </section>
 
             <!-- viewer-safe: each person's own GitHub connection (github.js, docs/GITHUB.md) -->
-            <section class="card span-full view-ok" id="my-github" aria-labelledby="my-github-h">
+            <section class="card span-full view-ok" id="my-github" aria-labelledby="my-github-h" data-layout-id="my-github">
                 <header class="card__head">
                     <h2 id="my-github-h">My GitHub</h2>
                     <p class="card__meta" id="my-github-meta">Connect GitHub so Tutti can open pull requests, read CI and file your reports under your own account.</p>
@@ -474,7 +488,7 @@
                 <output class="row__note" id="my-github-note" aria-live="polite"></output>
             </section>
 
-            <section class="card card--jobs span-full" aria-labelledby="jobs-h">
+            <section class="card card--jobs span-full" aria-labelledby="jobs-h" data-layout-id="jobs">
                 <header class="card__head">
                     <h2 id="jobs-h">Finished jobs</h2>
                     <p class="card__meta" id="jobs-meta"></p>
@@ -483,7 +497,7 @@
                 <div id="jobs" class="jobs jobs--history"></div>
             </section>
 
-            <section class="card span-full" aria-labelledby="vpn-h">
+            <section class="card span-full" aria-labelledby="vpn-h" data-layout-id="vpn">
                 <header class="card__head">
                     <h2 id="vpn-h">Private network (optional)</h2>
                     <p class="card__meta" id="vpn-meta">Already have a VPN to your home? Nothing to do. Tutti works on the LAN too (docs/NETWORK.md)</p>
@@ -502,7 +516,7 @@
       <!-- The admin-only Users tab: people, roles, invites and the audit log (users.js); the household's per-user
            Manage sections (consumption, schedule, main agent and machine, help actions) go into #users-manage. -->
       <div id="users-view" class="users-view" hidden>
-            <section class="card span-full" id="users-card" aria-labelledby="users-h">
+            <section class="card span-full" id="users-card" aria-labelledby="users-h" data-layout-id="users">
                 <header class="card__head">
                     <h2 id="users-h">Users</h2>
                     <p class="card__meta" id="users-meta"></p>

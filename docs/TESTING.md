@@ -82,6 +82,14 @@ admin sees every admin control, the Settings and Users tabs.
 A failure names the role, tab, width and theme, the element (tag, id, classes, text, card) and the numbers. Fix the UI;
 never relax a check.
 
+### Chat end to end (t202)
+
+`ChatFlow` sends a message through the composer and waits for the household host's streamed answer (the built-in model,
+since the world's local models are down), keeps a message the host refused as **Not sent** with **Send again** and an
+announcement, and draws a long answer (headings, list, quote, long link, code, a work card) at every width and theme:
+layout, axe (phone and laptop), and `tuttiChecks.readability()`: no visible text under 12 px, no message line over 90
+characters. A TUI for chat does not exist yet (t201); its pty tests and the OS accent colour come with it.
+
 ## The formatter and other pure parts
 
 `web/format.js`, `web/attention.js`, `web/energy.js`, `web/household.js` and `web/settings.js` are pure enough to run in

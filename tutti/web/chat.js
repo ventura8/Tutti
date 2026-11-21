@@ -7,20 +7,41 @@
 
 const SAFE_URL = /^(https?:\/\/|mailto:|#)/i;
 
-function mdInline(text) {
+// t304: bare URLs become links and local paths become click-to-copy paths, in plain text only (never inside a link or code)
+const AUTO_RX = /\bhttps?:\/\/[^\s<>()\[\]"'`]*[^\s<>()\[\]"'`.,;:!?]|(?<![\w/.~:])(?:~|\.{1,2})?\/(?:[\w.@+-]+\/)*[\w.@+-]+(?:\/)?(?=$|[\s,;:!?)'"]|\.(?:\s|$))/g;
+const PATH_RX = /^(?:~|\.{1,2})?\/(?:[\w.@+-]+\/)*[\w.@+-]+\/?$/;
+const isPath = (s) => PATH_RX.test(s) && s.replace(/^[~.]*/, '').split('/').filter(Boolean).length >= 2;
+
+function autolink(text) {
     const out = [];
+    let at = 0;
+    for (const m of String(text).matchAll(AUTO_RX)) {
+        const hit = m[0];
+        const url = /^https?:/i.test(hit);
+        if (!url && !isPath(hit)) continue;
+        if (m.index > at) out.push(text.slice(at, m.index));
+        out.push(url ? { t: 'a', href: hit, c: [hit] } : { t: 'path', c: [hit] });
+        at = m.index + hit.length;
+    }
+    if (at < text.length) out.push(text.slice(at));
+    return out.length === 1 && typeof out[0] === 'string' ? [text] : out;
+}
+
+function mdInline(text, inLink = false) {
+    const out = [];
+    const plain = (s) => (inLink ? [s] : autolink(s));   // a link's own label never holds another link or a path button
     const re = /(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\s][^*]*)\*|_([^_\s][^_]*)_|\[([^\]]+)\]\(([^)\s]+)\)/g;
     let at = 0;
     for (let m = re.exec(text); m; m = re.exec(text)) {
-        if (m.index > at) out.push(text.slice(at, m.index));
-        if (m[1]) out.push({ t: 'code', c: [m[2].trim()] });
-        else if (m[3] || m[4]) out.push({ t: 'strong', c: mdInline(m[3] || m[4]) });
-        else if (m[5] || m[6]) out.push({ t: 'em', c: mdInline(m[5] || m[6]) });
-        else if (SAFE_URL.test(m[8])) out.push({ t: 'a', href: m[8], c: mdInline(m[7]) });
+        if (m.index > at) out.push(...plain(text.slice(at, m.index)));
+        if (m[1]) out.push(!inLink && isPath(m[2].trim()) ? { t: 'path', code: true, c: [m[2].trim()] } : { t: 'code', c: [m[2].trim()] });
+        else if (m[3] || m[4]) out.push({ t: 'strong', c: mdInline(m[3] || m[4], inLink) });
+        else if (m[5] || m[6]) out.push({ t: 'em', c: mdInline(m[5] || m[6], inLink) });
+        else if (SAFE_URL.test(m[8])) out.push({ t: 'a', href: m[8], c: mdInline(m[7], true) });
         else out.push(m[0]);   // a link to javascript: or data: stays plain text
         at = re.lastIndex;
     }
-    if (at < text.length) out.push(text.slice(at));
+    if (at < text.length) out.push(...plain(text.slice(at)));
     return out;
 }
 
@@ -67,6 +88,36 @@ function mdBlock(lines, i) {
     return [{ t: 'p', c: kids }, Math.max(j, i + 1)];
 }
 
+// A conversation's last message for the list: its Markdown as plain words, shortened in full words (t202: never **bold**
+// markers, never cut by the box)
+function plainPreview(text, max = 70) {
+    const flat = (nodes) => nodes.map((n) => (typeof n === 'string' ? n : flat(n.c || []))).join(' ');
+    const words = flat(mdParse(text)).replace(/\s+/g, ' ').trim();
+    if (words.length <= max) return words;
+    const cut = words.slice(0, max);
+    return `${cut.slice(0, cut.lastIndexOf(' ') > max / 2 ? cut.lastIndexOf(' ') : max)}…`;
+}
+
+// One answer's tokens and what they would cost (t199): "1.2k in · 85 out · local" (pure: node tests)
+function msgUsage(u) {
+    if (!u || !(u.in || u.out)) return '';
+    const k = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+    const cost = u.cost_unknown ? '' : u.usd > 0 ? ` · ≈ $${u.usd < 0.01 ? '<0.01' : u.usd.toFixed(2)}` : ' · local';
+    return `${u.estimated ? '~' : ''}${k(u.in)} in · ${k(u.out)} out${cost}`;
+}
+
+// A message's headings start at h3 (the page has h1, the chat's title h2) and never skip a level (WCAG 1.3.1, axe heading-order)
+function mdLevels(nodes) {
+    const stack = [];   // [source level, drawn level] of the open sections, in the order the headings come
+    for (const h of nodes.filter((n) => n.t === 'h')) {
+        while (stack.length && stack[stack.length - 1][0] >= h.level) stack.pop();
+        const drawn = Math.min(stack.length ? stack[stack.length - 1][1] + 1 : 3, 6);
+        stack.push([h.level, drawn]);
+        h.level = drawn;
+    }
+    return nodes;
+}
+
 function mdParse(text) {
     const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
     const out = [];
@@ -77,7 +128,7 @@ function mdParse(text) {
         out.push(node);
         i = next;
     }
-    return out;
+    return mdLevels(out);
 }
 
 const MD_TAGS = { p: 'p', strong: 'strong', em: 'em', code: 'code', ul: 'ul', ol: 'ol', li: 'li', blockquote: 'blockquote', hr: 'hr', br: 'br' };
@@ -85,12 +136,16 @@ const MD_TAGS = { p: 'p', strong: 'strong', em: 'em', code: 'code', ul: 'ul', ol
 function mdNode(n) {
     if (typeof n === 'string') return document.createTextNode(n);
     if (n.t === 'pre') return codeBlock(n.c[0], n.lang);
+    if (n.t === 'path') return pathNode(n.c[0], n.code);
     let node;
     if (n.t === 'h') node = document.createElement(`h${n.level}`);
     else if (n.t === 'a') {
         node = document.createElement('a');
         node.href = n.href;
-        if (!n.href.startsWith('#')) { node.target = '_blank'; node.rel = 'noopener noreferrer'; }
+        if (!n.href.startsWith('#')) {
+            node.target = '_blank'; node.rel = 'noopener noreferrer';
+            node.onclick = (e) => { if (openInPanel(n.href)) e.preventDefault(); };
+        }
     } else node = document.createElement(MD_TAGS[n.t] || 'span');
     for (const kid of n.c) node.append(mdNode(kid));
     return node;
@@ -115,11 +170,150 @@ const mdRender = (() => {
     };
 })();
 
+// A local path: the browser cannot open the host's files, so a click copies the path (with a word on where to open it)
+function pathNode(path, code) {
+    const node = el(code ? 'code' : 'span', { class: 'md__path', text: path, tabindex: 0, role: 'button',
+        title: 'A path on the household host: click to copy it', 'aria-label': `Copy the path ${path}` });
+    const copy = () => copyText(path, node);
+    node.addEventListener('click', copy);
+    node.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copy(); } });
+    return node;
+}
+
+// t304: a fenced artifact Chat can show rendered: Markdown, HTML/SVG (in a sandbox: no scripts, no same origin), JSON
+const PREVIEW = { md: 'md', markdown: 'md', html: 'html', htm: 'html', svg: 'html', xml: 'html', json: 'json', jsonc: 'json' };
+const previewKind = (lang) => PREVIEW[String(lang || '').toLowerCase()] || '';
+
+// JSON shown indented, or why it cannot be (pure: node tests)
+function jsonPreview(code) {
+    try {
+        return { ok: true, text: JSON.stringify(JSON.parse(code), null, 2) };
+    } catch (e) {
+        return { ok: false, text: `Not valid JSON: ${e.message}. The code is shown as sent.` };
+    }
+}
+
+function previewNode(code, kind) {
+    const box = el('div', { class: 'md__preview' });
+    if (kind === 'md') box.append(mdRender(code, { preview: code }));
+    else if (kind === 'json') {
+        const j = jsonPreview(code);
+        box.append(j.ok ? el('pre', { class: 'md__pre', tabindex: 0, 'aria-label': 'JSON, indented' }, el('code', { text: j.text })) : el('p', { class: 'md__err', text: j.text }));
+    } else {
+        const frame = el('iframe', { title: 'Preview of the HTML', sandbox: '', referrerpolicy: 'no-referrer' });
+        frame.srcdoc = code;
+        const open = el('button', { class: 'btn btn--text', type: 'button', text: 'Open in the Browser panel', onclick: () => showInPanel({ html: code }) });
+        box.append(frame, open);
+    }
+    return box;
+}
+
 function codeBlock(code, lang) {
     const pre = el('pre', { class: 'md__pre', tabindex: 0, 'aria-label': lang ? `Code, ${lang}` : 'Code' }, el('code', { text: code }));
     const copy = el('button', { class: 'btn btn--text md__copy', type: 'button', text: 'Copy', 'aria-label': 'Copy the code' });
     copy.addEventListener('click', () => copyText(code, copy));
-    return el('div', { class: 'md__code' }, el('div', { class: 'md__codebar' }, el('span', { text: lang || 'code' }), copy), pre);
+    const kind = previewKind(lang);
+    const bar = el('div', { class: 'md__codebar' }, el('span', { text: lang || 'code' }));
+    const wrap = el('div', { class: 'md__code' }, bar, pre);
+    if (kind) {
+        const show = el('button', { class: 'btn btn--text', type: 'button', text: 'Preview', 'aria-pressed': 'false', 'aria-label': `Show the ${lang} rendered` });
+        let preview = null;
+        show.addEventListener('click', () => {
+            const on = !preview;
+            if (on) { preview = previewNode(code, kind); wrap.append(preview); } else { preview.remove(); preview = null; }
+            pre.hidden = on;
+            show.textContent = on ? 'Code' : 'Preview';
+            show.setAttribute('aria-pressed', String(on));
+        });
+        bar.append(el('span', {}, show, copy));
+    } else bar.append(copy);
+    return wrap;
+}
+
+// ---- t304: the Terminal and Browser panels, hidden until their toggle; shown state kept per browser
+
+const PANELS = { terminal: false, browser: false, timer: null, job: '', ask: 0 };   // ask: the newest log request
+
+function setPanel(name, on) {
+    PANELS[name] = on;
+    try { localStorage.setItem(`tutti.chat.panel.${name}`, on ? '1' : ''); } catch { /* storage off: the toggle still works */ }
+    cq(`chat-${name}`).hidden = !on;
+    cq(`chat-toggle-${name}`).setAttribute('aria-pressed', String(on));
+    cq('chat-panels').hidden = !PANELS.terminal && !PANELS.browser;
+    if (name === 'terminal') { clearInterval(PANELS.timer); PANELS.timer = on ? setInterval(pollTerm, 3000) : null; if (on) drawTermJobs(); }
+}
+
+function initPanels() {
+    for (const name of ['terminal', 'browser']) {
+        cq(`chat-toggle-${name}`)?.addEventListener('click', () => setPanel(name, !PANELS[name]));
+        let saved = false;
+        try { saved = localStorage.getItem(`tutti.chat.panel.${name}`) === '1'; } catch { saved = false; }
+        if (cq(`chat-${name}`)) setPanel(name, saved);
+    }
+    cq('chat-term-job')?.addEventListener('change', (e) => { PANELS.job = e.target.value; PANELS.ask += 1; void pollTerm(); });
+}
+
+// A link clicked in the chat: into the Browser panel while it is shown (true), else the browser's own new tab (false)
+function openInPanel(href) {
+    const shown = cq('chat-browser');
+    if (!PANELS.browser || !/^https?:/i.test(href) || !shown || !shown.getClientRects().length) return false;
+    showInPanel({ url: href });
+    return true;
+}
+
+function showInPanel(what) {
+    if (!PANELS.browser) setPanel('browser', true);
+    const frame = cq('chat-browser-frame'), out = cq('chat-browser-out');
+    if (what.url) {
+        frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups');   // never allow-same-origin: no dashboard cookies
+        frame.removeAttribute('srcdoc');
+        frame.src = what.url;
+        out.href = what.url;
+        out.hidden = false;
+        cq('chat-browser-title').textContent = new URL(what.url).host;
+    } else {
+        frame.removeAttribute('src');
+        frame.setAttribute('sandbox', '');   // an artifact: no scripts at all
+        frame.srcdoc = what.html;
+        out.hidden = true;
+        cq('chat-browser-title').textContent = 'Preview';
+    }
+}
+
+// The jobs the Terminal can follow: this chat's work that is on the Dashboard now, running first (pure: node tests)
+function termJobs(items) {
+    return (items || []).filter((i) => i.job).sort((a, b) => Number(b.job.status === 'running') - Number(a.job.status === 'running'))
+        .map((i) => ({ id: String(i.job.id), label: `${i.ref} · ${i.text}` }));
+}
+
+function drawTermJobs() {
+    const pick = cq('chat-term-job');
+    if (!pick) return;
+    const jobs = termJobs(chatWork(CHAT.conv?.messages, typeof ui !== 'undefined' ? ui.last : null));
+    if (!jobs.some((j) => j.id === PANELS.job)) { PANELS.job = jobs[0]?.id || ''; PANELS.ask += 1; }   // older answers are stale
+    pick.replaceChildren(...jobs.map((j) => el('option', { value: j.id, text: j.label })));
+    pick.value = PANELS.job;
+    pick.hidden = !jobs.length;
+    if (!jobs.length) cq('chat-term-out').textContent = 'Nothing of this chat\'s work is on the Dashboard now. Work it starts shows its log here.';
+    else void pollTerm();
+}
+
+async function pollTerm() {
+    if (!PANELS.terminal || !PANELS.job) return;
+    const out = cq('chat-term-out');
+    const ask = ++PANELS.ask, job = PANELS.job;
+    const current = () => ask === PANELS.ask && job === PANELS.job;   // a newer request or another job owns the output
+    try {
+        const res = await fetch(`/api/job-log/${encodeURIComponent(job)}`, { headers: { 'X-Tutti-Token': CHAT_TOKEN }, cache: 'no-store' });
+        const data = await res.json();
+        if (!current()) return;
+        const stick = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
+        out.textContent = res.ok ? (data.text || '(the log is empty so far)') : data.error;
+        if (stick) out.scrollTop = out.scrollHeight;
+    } catch (e) {
+        if (!current()) return;
+        out.textContent = `Cannot read the log: ${e.message}. The dashboard may be restarting; it tries again in a few seconds.`;
+    }
 }
 
 // ---- pure helpers (node tests)
@@ -227,7 +421,7 @@ function drawList() {
         el('button', {
             class: 'chat__item', type: 'button', 'aria-current': CHAT.conv?.id === c.id ? 'true' : null, onclick: () => openConv(c.id),
         }, el('span', { class: 'chat__itemtitle', text: c.title }),
-        el('span', { class: 'chat__itemmeta', text: `${c.updated ? relative(c.updated) : ''}${c.preview ? ' · ' + c.preview : ''}` })))));
+        el('span', { class: 'chat__itemmeta', text: `${c.updated ? relative(c.updated) : ''}${c.preview ? ' · ' + plainPreview(c.preview) : ''}` })))));
 }
 
 function drawPrivacy() {
@@ -331,6 +525,7 @@ function chatMessage(m, opts) {
         el('span', { class: 'msg__who', text: mine ? 'You' : 'Tutti' }),
         at ? el('time', { datetime: m.at, title: dayFmt.format(at), text: timeFmt.format(at) }) : null,
         !mine && m.model ? el('span', { class: 'msg__model', title: 'The model that answered', text: m.model }) : null,
+        !mine && msgUsage(m.usage) ? el('span', { class: 'msg__usage', title: m.usage.estimated ? 'Estimated: four characters a token' : 'The model\'s own counts', text: msgUsage(m.usage) }) : null,
         !mine && m.fallback ? el('span', { class: 'msg__fallback', text: m.fallback }) : null,
         status ? el('span', { class: 'msg__status', 'data-tone': m.status, text: status }) : null),
     body,
@@ -398,6 +593,7 @@ function drawWork() {
     if (!box) return;
     const items = chatWork(CHAT.conv?.messages, typeof ui !== 'undefined' ? ui.last : null);
     box.setAttribute('aria-hidden', String(!items.length));   // stays in the grid (a row of its own), empty when there is none
+    if (PANELS.terminal) drawTermJobs();
     if (!items.length) return box.replaceChildren();
     const active = items.filter((i) => i.active).length;
     const wasOpen = box.querySelector('details')?.open;

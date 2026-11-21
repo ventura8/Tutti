@@ -87,6 +87,7 @@ dashboard refuses to start otherwise.
 | `/api/state` | GET | viewer | The whole dashboard as one object (keys below). Sent with an `ETag`; `If-None-Match` gets a 304 when nothing changed; gzip when asked. |
 | `/api/health` | GET | anyone | `{"ok": true, "started": <epoch>, "host": "<hostname>", "version": "0.23.5"}`; `started` changes on a restart. |
 | `/api/settings` | GET | admin | The Settings tab: sections, fields with value, default and source, `etag` of the file, diverging copies. |
+| `/api/job-log/` + job id | GET | admin | Chat's Terminal panel (t304): the last 200 lines of a job the dashboard lists, credentials replaced; 404 says why there is none. |
 | `/api/vpn/status` | GET | viewer | The private network card: `{"state": ..., ...}`, 200 also when no VPN is set up. |
 | `/api/needs` | GET | viewer (self) | The viewer's own open questions (an admin: everyone's) and notify settings. |
 | `/api/welcome` | GET | viewer (self) | The viewer's own "welcome back" summary. |

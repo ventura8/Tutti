@@ -180,6 +180,24 @@ A model works through the same calls as the MCP tools, so a local model can do w
   that prints nothing past its deadline (180 s) is stopped. Confirm runs the tool outside the store's lock, and the daily
   limit and its audit line are taken together, so two quick Confirms cannot both pass the limit.
 
+## Token efficiency
+
+Chat spends as few tokens a turn as it can (t199):
+
+- **Cheapest first.** Auto asks the household's local models before any online agent (*Which model answers*).
+- **A small, bounded prompt.** The system prompt is the state as short lines (at most 12 running jobs and 8 queued), the
+  tool names, and for an agent without native tool calls their schemas. A busy household stays under 2,200 tokens with
+  native tools and 3,000 without; `tests/test_chat.py` (`PromptBudget`) fails a change that grows past that.
+- **Bounded history.** The last 10 messages, older ones folded into a summary at the context threshold (*Controls*).
+- **Claude Code runs lean.** In Chat it gets `--tools "" --strict-mcp-config --disable-slash-commands
+  --no-session-persistence` and Tutti's prompt as `--system-prompt`, so none of its own tools, MCP servers, skills or
+  system prompt are sent again on every turn (and no built-in tool can act outside Tutti's confirm cards). A worker's own
+  `chat_args` replaces this (and keeps Claude Code's system prompt).
+- **Every answer shows its cost**: its tokens in and out (`~` when estimated, four characters a token) and what they would
+  cost at API prices, or *local*.
+
+Not yet: the energy of each answer, and a measured comparison with the desktop apps (it needs a live account run).
+
 ## Modes
 
 Per conversation, with a default in your settings (the last one you picked); the **Mode** picker, or `/mode`:
@@ -254,8 +272,20 @@ Under the message box, as in a chat IDE, each starting at Auto:
 ## The page
 
 - Answers stream in as they are written. A message that could not be sent says **Not sent** with **Send again**.
+- A message's headings start at level 3 under the chat's title and never skip a level (t202).
 - Markdown is drawn safely: the text is parsed into a tree and drawn with DOM nodes and `textContent`, so no message ever
   becomes markup. Only `http`, `https` and `mailto` links are links. Code blocks have **Copy**.
+- Links and paths (t304): a bare `https://` address in a message is a link; a path on the host (`/home/…`, `~/…`, `./…`,
+  two parts or more) is underlined and a click copies it (a browser cannot open the host's files).
+- Artifacts (t304): a code block in Markdown, HTML, SVG or JSON has **Preview**: Markdown drawn as above, JSON indented (or
+  why it is not valid), HTML and SVG in a sandboxed frame with no scripts and no access to the dashboard, with **Open in
+  the Browser panel**.
+- **Terminal** and **Browser** panels (t304), hidden until their buttons beside the title (each remembered per browser;
+  not on a phone, where the messages need the room).
+  Terminal follows the log of this chat's work on the Dashboard (running first, a picker for the others), the last 200
+  lines every 3 seconds with credentials replaced, from `GET /api/job-log/<job id>` (admins; only a log the dashboard
+  lists for that job). Browser shows links you click in the chat while it is open, in a sandbox without the dashboard's
+  cookies, with **Open in a new tab** for sites that refuse to be shown inside another page.
 - The list follows new text while you are at the end; scroll up and it stays put, with **Jump to latest**.
 - **This chat's work** (t298), under the title: every task, run or job this conversation started, newest first, with its
   live status from the dashboard's poll (queued and why it waits, running and where, or finished). It is open while any

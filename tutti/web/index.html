@@ -150,12 +150,31 @@
               <span class="sr-only">Main agent</span>
               <select class="pick chat__mainpick" id="chat-main-pick" title="Main agent: Auto keeps preferred while it has room, else the first fallback with room" aria-label="Main agent"></select>
             </label>
+            <div class="chat__paneltoggles" role="group" aria-label="Panels">
+              <button class="btn btn--text" id="chat-toggle-terminal" type="button" aria-pressed="false" aria-controls="chat-terminal" title="Show the log of this chat's running work">Terminal</button>
+              <button class="btn btn--text" id="chat-toggle-browser" type="button" aria-pressed="false" aria-controls="chat-browser" title="Open links and previews beside the chat">Browser</button>
+            </div>
             <div class="chat__convacts" id="chat-conv-actions" hidden>
               <button class="btn btn--text" id="chat-rename-btn" type="button">Rename</button>
               <button class="btn btn--text" id="chat-delete-btn" type="button">Delete</button>
             </div>
           </header>
-          <section class="chat__work" id="chat-work" aria-label="This chat's work" aria-hidden="true"></section>
+          <div class="chat__top">
+            <section class="chat__work" id="chat-work" aria-label="This chat's work" aria-hidden="true"></section>
+            <div class="chat__panels" id="chat-panels" hidden>
+              <section class="chat__panel" id="chat-terminal" aria-label="Terminal: this chat's work log" hidden>
+                <header class="chat__panelhead"><span>Terminal</span>
+                  <label class="sr-only" for="chat-term-job">Job</label><select class="pick" id="chat-term-job"></select></header>
+                <pre class="chat__term" id="chat-term-out" tabindex="0" aria-label="The job's last lines">Nothing of this chat's work is running.</pre>
+              </section>
+              <section class="chat__panel" id="chat-browser" aria-label="Browser" hidden>
+                <header class="chat__panelhead"><span id="chat-browser-title">Browser</span>
+                  <a class="link" id="chat-browser-out" href="#" target="_blank" rel="noopener noreferrer" hidden>Open in a new tab</a></header>
+                <iframe class="chat__frame" id="chat-browser-frame" title="Browser panel" sandbox="allow-scripts allow-forms allow-popups" referrerpolicy="no-referrer"></iframe>
+                <p class="chat__panelnote">Links you click in the chat open here while this panel is shown. Many sites refuse to show inside another page: open them in a new tab.</p>
+              </section>
+            </div>
+          </div>
           <div class="chat__log" id="chat-log" role="log" aria-live="off" aria-label="Messages" tabindex="0"></div>
           <button class="btn btn--tonal chat__jump" id="chat-jump" type="button" hidden>Jump to latest ↓</button>
           <output class="sr-only" id="chat-announce" aria-live="polite"></output>

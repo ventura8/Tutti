@@ -631,7 +631,7 @@ kbd { font: 0.75rem var(--mono); padding: 1px 6px; border: 1px solid var(--outli
     display: block; width: 18px; height: 2px; background: currentColor; border-radius: 1px;
     box-shadow: 0 -6px 0 currentColor, 0 6px 0 currentColor;
 }
-.nav-menu__current { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-menu__current { display: inline-block; line-height: 1.5; max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-menu__panel {
     position: absolute; right: 0; top: calc(100% + 4px); z-index: 8; min-width: 12rem;
     display: grid; gap: 2px; padding: 6px; border-radius: var(--r-s);
@@ -787,7 +787,7 @@ body[data-view-name='chat'] .foot { display: none; }
 .chat__item:hover { background: var(--surface-2); }
 .chat__item[aria-current='true'] { background: var(--accent-c); }
 .chat__itemtitle { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat__itemmeta { color: var(--on-surface-2); font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat__itemmeta { color: var(--on-surface-2); font-size: 0.8125rem; overflow-wrap: anywhere; }   /* plainPreview keeps it short */
 .chat__sidefoot { display: grid; gap: 4px; border-top: 1px solid var(--outline-2); padding-top: 8px; font-size: 0.875rem; }
 .chat__privacy summary { min-height: 40px; display: flex; align-items: center; cursor: pointer; color: var(--on-surface-2); padding: 0 8px; }
 .chat__privacy p { color: var(--on-surface-2); padding: 0 8px 8px; }
@@ -842,6 +842,7 @@ body[data-view-name='chat'] .foot { display: none; }
 .msg { display: grid; gap: 4px; min-width: 0; }
 .msg__meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 0.8125rem; color: var(--on-surface-2); }
 .msg__who { font-weight: 600; color: var(--on-surface); }
+.msg__usage { font: 0.75rem var(--mono); color: var(--on-surface-2); }
 .msg__model { font: 0.75rem var(--mono); padding: 1px 8px; border-radius: 10px; background: var(--surface-2); }
 .chat__tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 2px 4px; font-size: 0.8125rem;
     color: var(--on-surface-2); }
@@ -958,3 +959,25 @@ select { max-width: 100%; text-overflow: clip; }
 .chip--role[data-source='set'] { background: var(--accent-c); }
 .role-filter { display: inline-flex; gap: 8px; align-items: center; margin: 4px 0 8px; font-size: 0.875rem; }
 .role-filter select { min-height: 32px; }
+
+/* t304: Chat's Terminal and Browser panels (hidden until their toggle), link targets and artifact previews */
+.chat__top { min-width: 0; }
+.chat__head { flex-wrap: wrap; }   /* the panel toggles wrap below the title on a narrow pane, never past its edge */
+.chat__paneltoggles { display: flex; gap: 4px; flex: none; }
+.chat__paneltoggles .btn[aria-pressed='true'] { background: var(--surface-2); color: var(--on-surface); }
+.chat__panels { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--outline-2); max-height: 45vh; overflow: auto; }
+.chat__panels[hidden], .chat__panel[hidden] { display: none; }
+.chat__panel { flex: 1 1 20rem; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 4px; border: 1px solid var(--outline-2); border-radius: var(--r-m); padding: 8px; background: var(--surface-1); }
+.chat__panelhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 600; min-width: 0; }
+.chat__panelhead select { max-width: 60%; }
+.chat__term { margin: 0; min-height: 10rem; max-height: 32vh; overflow: auto; font: 0.8125rem / 1.4 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-2); color: var(--on-surface); padding: 8px; border-radius: var(--r-s); }
+.chat__frame { width: 100%; min-height: 14rem; height: 32vh; border: 1px solid var(--outline-2); border-radius: var(--r-s); background: white;   /* a page shown as it would be on its own, in either theme */ }
+.chat__panelnote { color: var(--on-surface-2); font-size: 0.75rem; }
+.md__path { cursor: copy; text-decoration: underline dotted; }
+.md__preview { padding: 8px 12px; border-top: 1px solid var(--outline-2); overflow: auto; max-height: 50vh; }
+.md__preview iframe { width: 100%; min-height: 12rem; border: 0; background: white;   /* a page shown as it would be on its own, in either theme */ }
+.md__preview .md__err { color: var(--bad, var(--on-surface)); }
+@media (max-width: 760px) {
+    /* a phone's chat has no room beside or above the messages: the panels are for wider screens */
+    .chat__paneltoggles, .chat__panels { display: none; }
+}

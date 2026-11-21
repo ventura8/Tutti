@@ -4,6 +4,9 @@
 
 ### Added
 
+- Chat (t304): **Terminal** and **Browser** panels, hidden until their buttons: Terminal follows the log of this chat's
+  work (admin-only `GET /api/job-log/<id>`, listed jobs only, scrubbed), Browser opens chat links in a sandbox. Bare URLs
+  are links, host paths copy on click, and Markdown, HTML, SVG and JSON code blocks have **Preview** (docs/CHAT.md).
 - Chat (t298): **This chat's work** under the conversation title lists every task, run or job the chat started, newest
   first, with its live status (queued and why, running and where, finished); open while any is in flight (docs/CHAT.md).
 - Review modes (t445): `review.modes.<reviewer>` (copilot, coderabbit, greptile, a scout) is `never`, `on_pr_open`,
@@ -22,6 +25,16 @@
   `<state>/dashboard-layout.json` with Reset layout (t447).
 
 ### Changed
+
+- Chat (t199): Claude Code answers lean, with no built-in tools, MCP servers, skills or saved session, and Tutti's system
+  prompt in place of its own; each answer shows its tokens and cost; a prompt budget test keeps a turn's system prompt
+  under 2,200 tokens (3,000 for text-protocol agents). docs/CHAT.md, *Token efficiency*.
+- Chat (t202): browser tests send a message and stream the household host's answer, keep a failed message with **Send
+  again**, and check a long answer at every width and theme (layout, axe, text at least 12 px, lines at most 90
+  characters). They found and fixed headings that skipped a level, the Terminal/Browser buttons crowding a phone, and the
+  conversation list showing raw Markdown cut off with an ellipsis (now plain words, shortened at a word). The
+  TUI half of t202 waits for a chat TUI (t201).
+- Nav menu (t462): the current tab's name is no longer cut at the bottom (its box was shorter than its line).
 
 - Dashboard: the view tab bar is a hamburger menu (Chat, Dashboard, Settings, Users) with the current view named on
   the toggle; same `#…` hashes, Escape and outside-click close (t446).

@@ -43,6 +43,7 @@ from . import (
     helper,
     householduse,
     httpguard,
+    joblog,
     keepon,
     local,
     move,
@@ -1095,9 +1096,12 @@ def get(collector, path, token, headers):
     if path == API_LAYOUT:   # each user's Dashboard card order and sizes (t447)
         code, answer = layout_get(collector, headers)
         return code, safe_json(answer), JSON_TYPE, 'no-store', None
-    refused = authorize(collector, headers) if path in ADMIN_PATHS else None
+    refused = authorize(collector, headers) if path in ADMIN_PATHS or path.startswith(joblog.API) else None
     if refused:
         return refused[0], json.dumps({'error': refused[1]}).encode(), JSON_TYPE, 'no-store', None
+    if path.startswith(joblog.API):   # Chat's Terminal panel (t304): an admin's, one listed job's log tail
+        code, answer = joblog.tail(collector.snapshot(), joblog.job_id(path))
+        return code, safe_json(answer), JSON_TYPE, 'no-store', None
     return (*route(collector, path, token), None)
 
 

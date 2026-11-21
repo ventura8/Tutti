@@ -129,6 +129,31 @@ class Park(Base):
                                                                                      'keep', False))
         self.assertIsNone(needs.from_output('no question here'))
 
+    def test_a_decision_is_persisted_and_never_reasked(self):
+        cfg = self.cfg()
+        # Initialize a household
+        from tutti import coordinator
+        coordinator.init(cfg, 'test household')
+        
+        t = task('t1')
+        self.add(cfg, t)
+
+        # First time, should ask
+        with backlog.locked(cfg) as data:
+            q = needs.ask(cfg, backlog.find(data, 't1'), 'ChatGPT Pro = Codex CLI?', 'it is the CLI', ['yes', 'no'], 'yes', now=T0)
+        self.assertNotEqual(q['id'], 'decided')
+        self.assertEqual(q['question'], 'ChatGPT Pro = Codex CLI?')
+
+        # Answer the question
+        ok, _ = needs.answer(cfg, q['id'], 'yes', now=T0 + H)
+        self.assertTrue(ok)
+
+        # Second time, should be decided automatically
+        with backlog.locked(cfg) as data:
+            q2 = needs.ask(cfg, backlog.find(data, 't1'), 'ChatGPT Pro = Codex CLI?', 'it is the CLI', ['yes', 'no'], 'yes', now=T0 + 2*H)
+        self.assertEqual(q2['id'], 'decided')
+        self.assertEqual(q2['answer'], 'yes')
+
 
 class Backfill(Base):
     def test_old_parked_tasks_get_a_question_from_the_model_or_the_template(self):

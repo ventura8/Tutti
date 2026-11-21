@@ -101,7 +101,15 @@ def check_signed(key, method, path, ts, nonce, body, sign, now, seen):
 
 def new_state(name, now):
     return {'household': name, 'created': now, 'admin': None, 'code': None, 'members': {}, 'leases': {}, 'projects': {},
-            'machines': {}}
+            'machines': {}, 'decisions': {}}
+
+
+def store_decision(state, decision_id, answer):
+    state.setdefault('decisions', {})[decision_id] = answer
+
+
+def get_decision(state, decision_id):
+    return state.get('decisions', {}).get(decision_id)
 
 
 def member_view(m, now):

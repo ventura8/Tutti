@@ -22,7 +22,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from . import backlog, config, durable, telemetry
+from . import backlog, config, durable, telemetry, household, coordinator
 
 try:
     import fcntl
@@ -127,6 +127,16 @@ def new_id(data):
 def ask(cfg, task, question, why, options, default, user=OWNER, urgent=False, now=None):
     """Parks `task` (in place, inside the backlog's lock) with one open question; returns the question. One open question
     per task: asking again replaces its text."""
+    decision_id = f'decision:{household.fold(question)}'
+    hh_path = coordinator.state_path(cfg)
+    hh_data = coordinator.load(hh_path)
+    if hh_data:
+        answer = household.get_decision(hh_data, decision_id)
+        if answer:
+            task['status'] = 'claimed'
+            task['notes'] = [*task.get('notes', []), f'The household decided "{question[:120]}": {answer}.'][-20:]
+            return {'id': 'decided', 'task': task['id'], 'status': 'answered', 'answer': answer}
+
     now = now or time.time()
     options = [str(o)[:60] for o in options if str(o).strip()][:6] or ['yes', 'no']
     urgent = bool(urgent) or bool(SECURITY_RX.search(f'{question} {why}'))   # a security issue never waits
@@ -137,7 +147,8 @@ def ask(cfg, task, question, why, options, default, user=OWNER, urgent=False, no
             q = {'id': new_id(data), 'task': task['id'], 'status': 'open', 'at': now, 'delivered': None}
             data['questions'].append(q)
         q.update(user=user, question=str(question)[:300], why=str(why)[:300], options=options, default=default,
-                 urgent=bool(urgent), title=task['title'][:120], project=task.get('project') or task.get('repo'))
+                 urgent=bool(urgent), title=task['title'][:120], project=task.get('project') or task.get('repo'),
+                 decision_id=decision_id)
         answered = [x for x in data['questions'] if x['status'] != 'open']
         if len(answered) > 300:   # only answered ones go: an open question stays until its answer
             old = {x['id'] for x in answered[:-300]}
@@ -185,6 +196,14 @@ def answer(cfg, qid, choice, role='admin', key=OWNER, now=None):
         choice = str(choice or q['default']).strip()[:300]
         choice = next((o for o in q['options'] if o.lower() == choice.lower()), choice)   # 'Drop' is the option 'drop'
         q.update(status='answered', answer=choice, answered=now, by=key)
+        decision_id = q.get('decision_id')
+        if decision_id:
+            hh_path = coordinator.state_path(cfg)
+            hh_data = coordinator.load(hh_path)
+            if hh_data:
+                household.store_decision(hh_data, decision_id, choice)
+                coordinator.save(hh_path, hh_data)
+
     with backlog.locked(cfg) as bl:
         t = next((x for x in bl['tasks'] if x['id'] == q['task']), None)
         waiting = t is not None and t['status'] == 'needs-person' and t.get('question') == q['id']

@@ -85,6 +85,54 @@ def reliable(fetch, url, token, resolve=None, pause=0.3, sleep=time.sleep):
     raise OSError(f'the name {host} did not resolve ({LOOKUP_TRIES} tries): put its address in home_assistant.url')
 
 
+TOP = 6
+
+
+def _watts(x):
+    try:
+        v = float(x.get('state'))
+    except (TypeError, ValueError):
+        return None   # unavailable, unknown
+    unit = (x.get('attributes') or {}).get('unit_of_measurement')
+    return v * 1000 if unit == 'kW' else v if unit in ('W', None) else None
+
+
+def _label(entity, attrs):
+    name = str(attrs.get('friendly_name') or entity.split('.', 1)[1].replace('_', ' '))
+    name = re.sub(r'\s+', ' ', re.sub(r'\b[Pp]ower\b', '', name)).strip()
+    words = name.split(' ')
+    half = len(words) // 2
+    if len(words) % 2 == 0 and words[:half] == words[half:]:   # a device and its entity named alike: "NUC Plug NUC Plug"
+        name = ' '.join(words[:half])
+    return name
+
+
+def overview(states, machines=(), plugs=None):
+    """{people, power_w, top, machines} from /api/states (t233): who is home, live power now (power sensors, unavailable
+    ones left out) with the biggest users, and each Tutti machine's own plug: `home_assistant.plugs.<machine>` names its
+    sensor, else a power sensor whose id has the machine's name as a word (sensor.nuc_plug_power is nuc's)."""
+    people, power = [], []
+    for x in states if isinstance(states, list) else []:
+        entity, attrs = str(x.get('entity_id', '')), x.get('attributes') or {}
+        if entity.startswith('person.'):
+            people.append({'name': str(attrs.get('friendly_name') or entity[7:]), 'home': x.get('state') == 'home'})
+        elif entity.startswith('sensor.') and attrs.get('device_class') == 'power':
+            w = _watts(x)
+            if w is not None:
+                power.append((entity, _label(entity, attrs), w))
+    plugs = plugs or {}
+    per_machine = {}
+    for m in machines:
+        want = plugs.get(m)
+        hit = next((p for p in power if p[0] == want), None) if want else \
+            next((p for p in power if re.search(rf'(^|[._]){re.escape(m)}([._]|$)', p[0].split('.', 1)[1])), None)
+        if hit:
+            per_machine[m] = round(hit[2], 1)
+    top = sorted(power, key=lambda p: -p[2])[:TOP]
+    return {'people': people, 'power_w': round(sum(p[2] for p in power)), 'top': [{'name': n, 'w': round(w)} for _e, n, w in top],
+            'machines': per_machine, 'sensors': len(power)}
+
+
 def status(cfg, fetch=None, token_fn=None):
     """{configured, item} for GET /api/home-assistant; one request to <url>/api/config with the token, if there is one."""
     from . import secretenv
@@ -109,7 +157,14 @@ def status(cfg, fetch=None, token_fn=None):
     if answer is None:
         return {'configured': True, 'item': view(s, problem=f'answers; add a token as {s["token_env"]} in '
                                                          '~/.config/tutti/home-assistant.env to read its version'), 'problem': ''}
-    return {'configured': True, 'item': view(s, answer), 'problem': ''}
+    item = view(s, answer)
+    try:   # presence and power (t233): the card still shows the instance when this read fails
+        states = reliable(fetch, f'{s["url"]}/api/states', token)
+        ha = cfg.get('home_assistant') or {}
+        item['overview'] = overview(states, list(cfg.get('machines') or {}), ha.get('plugs') if isinstance(ha.get('plugs'), dict) else None)
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        item['problem'] = f'its people and power could not be read ({e})'
+    return {'configured': True, 'item': item, 'problem': ''}
 
 
 def _fetch(url, token):
@@ -119,4 +174,4 @@ def _fetch(url, token):
             return None
     req = urllib.request.Request(url, headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'})
     with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-        return json.loads(r.read(200_000).decode('utf8', 'replace'))
+        return json.loads(r.read(20_000_000).decode('utf8', 'replace'))   # /api/states: thousands of entities

@@ -18,6 +18,7 @@ function agentCard(a) {
         a.note ? el('p', { class: 'row__note', text: a.note }) : null,
         a.running ? el('p', { class: 'agent__now', text: `${a.running} running now` }) : null,
         ...list('Roles', a.roles), ...list('Can', a.capabilities), ...list('Limits', a.limits),
+        a.cost ? el('p', { class: 'row__note', 'data-cost': '', text: `Cost: ${a.cost}` }) : null,
         a.roles.length ? null : el('p', { class: 'row__note', text: 'No role in the config yet: add it to routing.workers, main.fallback or review to use it.' }));
 }
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Agents tab (t252): each card says what the agent costs, from the config: pay per use (and whether it is kept off),
+  pay per token, electricity only, or a paced subscription (docs/DASHBOARD.md, *Agents*).
+
 ## 0.31.8 (2026-11-22)
 
 ### Added

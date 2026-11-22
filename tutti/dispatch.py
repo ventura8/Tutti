@@ -708,12 +708,19 @@ def waiting_since(st, tgts, pend):
     return out
 
 
+def run_watchdog(machine, script):
+    """Runs the heat watchdog's line on the machine (tutti/controls.py, watchdog_script)."""
+    from . import remote
+    return remote.sh(machine, script, capture=True, timeout=30)
+
+
 def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None, spawn=subprocess.Popen, ask_fn=ask,
-         presence_io=presence.round_io, members=None, models=None, stop_fn=stop_pid):
+         presence_io=presence.round_io, members=None, models=None, stop_fn=stop_pid, watchdog_fn=None):
     """One round: presence from the probes, end finished, dead or interrupted leases, refresh the pending work, pull it to
     free targets that are here, watch for idle ones, and reconnect or wake absent ones."""
     now = now or time.time()
     from . import users
+    watchdog_fn = watchdog_fn or run_watchdog
     cfg['_slow_shared_accounts'] = users.slow_shares(cfg)
     is_alive = is_alive or controls.alive
     on = settings(cfg).get('enabled', True) is not False
@@ -726,6 +733,7 @@ def tick(cfg, devices_rows, machine_rows, accounts=None, now=None, is_alive=None
     planned += controls.blocked_round(cfg, now, stop_fn=lambda kind, name: hand_over_now(cfg, kind, name))
     heat_probes = {r['name']: r for r in (machine_rows or []) if r.get('name')}
     planned += controls.heat_round(cfg, heat_probes, now, stop_fn=lambda kind, name: hand_over_now(cfg, kind, name))
+    planned += controls.watchdog_round(cfg, heat_probes, watchdog_fn)
     with locked(cfg) as st:
         for line in planned:
             event(st, now, line)

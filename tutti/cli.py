@@ -332,6 +332,10 @@ def test_choice(cfg, a):
     now_dt = datetime.now(timezone.utc)
     if a.device:
         device = devices.wait_ready(cfg, a.device, remote.device_readings, say=lambda m: say(f'test: {m}'), wait_minutes=a.wait_minutes)
+        host = cfg['machines'].get(device['machine']) or {}
+        why = routing.owner_unfit(host) or (routing.heat_unfit(host, remote.probe(host)) if host.get('heat') else '')
+        if why:
+            raise config.ConfigError(f'{device["machine"]} (the machine {device["name"]} is on): {why}; wait or move the device')
         return routing.Choice(device['machine'], False, f'the machine device {device["name"]} is on'), device
     if a.on:
         m = machine_of(cfg, a.on)
@@ -430,7 +434,13 @@ def windows_tree(cfg, a):
 
 def test_in_windows_tree(cfg, a, tree):
     import shlex
+
+    from . import mayrun
     machine = cfg['machines'][a.on]
+    why = mayrun.refusal(cfg, a.on)
+    if why:
+        say(f'test: refused: {a.on}: {why}; pick another machine (`tutti machines`) or wait')
+        return 3
     if a.input:
         say('test: refused: --input needs a synced tree; the project\'s own work tree is used as it is (copy the file there)')
         return 2
@@ -454,6 +464,25 @@ def fetch_windows(machine, path, dest='.'):
         f.write(base64.b64decode(r.stdout))
     say(f'test: copied {path} to {name}')
     return 0
+
+
+def cmd_may_run(cfg, a):
+    """`tutti may-run <machine>...` (tutti/mayrun.py)."""
+    from . import mayrun
+    if a.release:
+        with mayrun.locked(cfg) as leases:
+            gone = mayrun.release(leases, a.release)
+        say(f'may-run: lease {a.release} ' + ('released' if gone else 'was not held (it lapsed or was released)'))
+        return 0
+    if not a.machines:
+        say('may-run: name a machine: tutti may-run <machine> [<another> ...] (`tutti machines` lists them)')
+        return 2
+    who = a.who or os.environ.get('TUTTI_SESSION') or ''
+    try:
+        return mayrun.run(cfg, a.machines, who, a.lease, a.wait, say)
+    except ValueError as e:
+        say(f'may-run: {e}')
+        return 2
 
 
 def cmd_test(cfg, a):
@@ -1982,6 +2011,13 @@ def parser():
     s.add_argument('kind', choices=list(controls.SECTIONS))
     s.add_argument('name')
     s.add_argument('state', choices=['on', 'off'])
+    s = add('may-run', cmd_may_run, 'may a heavy run use this machine now? prints the first fit machine, or exits 3 with why '
+            '(paused, too hot, no free slot); call it before any ssh run (docs/FLEET.md, *May it run*)')
+    s.add_argument('machines', nargs='*', help='the machines to try, in order; the first fit one is printed')
+    s.add_argument('--who', help='the caller (script or session), for a slot lease (default: $TUTTI_SESSION)')
+    s.add_argument('--lease', type=int, default=0, metavar='MINUTES', help='also hold one slot for this long; prints its id after the name')
+    s.add_argument('--release', metavar='ID', help='give a slot lease back (no machines needed)')
+    s.add_argument('--wait', type=int, default=0, metavar='MINUTES', help='ask again every minute for this long before refusing')
     s = add('test', cmd_test, 'run a command over a track\'s work tree on the first fit machine, behind its slot queue')
     s.add_argument('--dir', help='the work tree (default: <project.worktrees>/<track>)')
     s.add_argument('--on', help='skip routing and use this machine')

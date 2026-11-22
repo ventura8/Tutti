@@ -297,6 +297,16 @@ Needs: any role (read-only).
 
 No parameters.
 
+### `may_run`
+
+Before any run on a machine you reach yourself (ssh, a script): may it take a heavy run now? Answers the first fit machine, or why each is refused (paused, too hot, no free slot). Never use a refused machine.
+
+Needs: any role (read-only).
+
+| Parameter | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `machine` | string | yes | the machine, or several separated by spaces, tried in order |
+
 ### `devices`
 
 The Android devices for end-to-end tests: connection, battery, charging, heat, lock.
@@ -1092,6 +1102,22 @@ usage: tutti optin [-h] {machine,device,worker,account} name {on,off}
 | `kind {machine,device,worker,account}` |  |  |
 | `name` |  |  |
 | `state {on,off}` |  |  |
+
+### `tutti may-run`
+
+may a heavy run use this machine now? prints the first fit machine, or exits 3 with why (paused, too hot, no free slot); call it before any ssh run (docs/FLEET.md, *May it run*)
+
+```text
+usage: tutti may-run [-h] [--who WHO] [--lease MINUTES] [--release ID] [--wait MINUTES] [machines ...]
+```
+
+| Argument | What it does | Default |
+| --- | --- | --- |
+| `machines` | the machines to try, in order; the first fit one is printed |  |
+| `--who` | the caller (script or session), for a slot lease (default: $TUTTI_SESSION) |  |
+| `--lease` | also hold one slot for this long; prints its id after the name | `0` |
+| `--release` | give a slot lease back (no machines needed) |  |
+| `--wait` | ask again every minute for this long before refusing | `0` |
 
 ### `tutti test`
 

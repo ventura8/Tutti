@@ -220,7 +220,7 @@ def cmd_machines(cfg, a):
             print('usage: tutti machines add --host <address> [--name <name>] [--user <user>] [--port 22]', file=sys.stderr)
             return 2
         try:
-            hostsetup.setup(cfg, a.host, a.name, a.user, a.port or 22)
+            hostsetup.setup(cfg, a.host, a.name, a.user, 22 if a.port is None else a.port)
         except hostsetup.SetupError as e:
             print(f'tutti: {e}', file=sys.stderr)
             return 1

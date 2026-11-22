@@ -42,26 +42,72 @@ def check(address, name, user, port):
         raise SetupError(f'--name {name!r}: lower-case letters, digits and -, starting with a letter')
     if user and not USER_RX.fullmatch(user):
         raise SetupError(f'--user {user!r} is not a user name: the account you log in to on that computer')
-    if not 0 < int(port) < 65536:
-        raise SetupError(f'--port {port}: a port between 1 and 65535 (22 is ssh\'s own)')
+    if int(port) != 22:   # Tutti's ssh, rsync and git calls reach a machine by its host alone, so the port must live in ssh's own config
+        raise SetupError(f'--port {port}: add `Host <alias>` with `HostName {address}` and `Port {port}` to ~/.ssh/config, then '
+                         'run tutti machines add --host <alias>')
 
 
 def target(address, user):
     return f'{user}@{address}' if user else address
 
 
-def entry(address, user, port):
-    """The config entry for the new machine: one slot to start with (raise it on Settings once it is trusted)."""
-    out = {'host': address, 'slots': 1}
-    if user:
-        out['user'] = user
-    if port != 22:
-        out['port'] = port
-    return out
+def entry(address, user):
+    """The config entry for the new machine: one slot to start with (raise it on Settings once it is trusted). The user goes
+    into the host (user@address), the form every ssh, rsync and git call of Tutti's uses."""
+    return {'host': target(address, user), 'slots': 1}
 
 
 def _key(home):
-    return next((os.path.join(home, '.ssh', k) for k in KEYS if os.path.exists(os.path.join(home, '.ssh', k + '.pub'))), None)
+    """The first private key this computer has (its .pub may be missing: setup derives it, never replaces the key)."""
+    return next((os.path.join(home, '.ssh', k) for k in KEYS if os.path.exists(os.path.join(home, '.ssh', k))), None)
+
+
+def _run(run, cmd, step, **kw):
+    try:
+        return run(cmd, check=False, **kw).returncode
+    except OSError as e:
+        raise SetupError(f'step {step}: {cmd[0]} could not start ({e}): install OpenSSH\'s client tools (ssh, ssh-keygen, '
+                         'ssh-copy-id), then retry') from e
+
+
+def _ensure_key(run, home, say):
+    """This computer's key: an existing one (its .pub derived when missing), else a new ed25519 pair."""
+    key = _key(home)
+    if not key:
+        key = os.path.join(home, '.ssh', 'id_ed25519')
+        say(f'1/4 No ssh key here yet: making one ({key}).')
+        os.makedirs(os.path.dirname(key), mode=0o700, exist_ok=True)
+        if _run(run, ['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', key], 1) != 0:
+            raise SetupError(f'step 1: ssh-keygen could not make {key}: run it yourself (ssh-keygen -t ed25519), then retry')
+    elif not os.path.exists(key + '.pub'):
+        say(f'1/4 {key} has no .pub next to it: deriving it (the key itself is kept).')
+        try:
+            with open(key + '.pub', 'w', encoding='utf8') as f:
+                if _run(run, ['ssh-keygen', '-y', '-f', key], 1, stdout=f) != 0:
+                    raise SetupError(f'step 1: ssh-keygen -y could not read {key} (a passphrase?): make {key}.pub yourself '
+                                     f'(ssh-keygen -y -f {key} > {key}.pub), then retry')
+        except SetupError:
+            os.remove(key + '.pub')
+            raise
+    else:
+        say(f'1/4 Using this computer\'s ssh key ({key}.pub).')
+    return key
+
+
+def _ensure_login(run, key, to, say):
+    """Key login to `to`, with ssh-copy-id (the person types the password into ssh) only when it fails."""
+    probe = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', '-o', 'StrictHostKeyChecking=accept-new', '--', to, 'true']
+    if _run(run, probe, 2, capture_output=True) == 0:
+        say('2/4 Key login works already.')
+    else:
+        say(f'2/4 Key login does not work yet. 3/4 ssh-copy-id now asks for {to}\'s password: type it there, once. '
+            'Tutti does not see it.')
+        if _run(run, ['ssh-copy-id', '-i', key + '.pub', to], 3) != 0:
+            raise SetupError(f'step 3: ssh-copy-id did not install the key on {to}: check the address, the user (--user) and that '
+                             'ssh is on there (Linux: sudo systemctl enable --now ssh; macOS: Remote Login), then retry')
+        if _run(run, probe, 3, capture_output=True) != 0:
+            raise SetupError(f'step 3: the key was sent but key login to {to} still fails: the host may refuse keys '
+                             '(PubkeyAuthentication no) or the home folder permissions are too open; fix that, then retry')
 
 
 def setup(cfg, address, name=None, user=None, port=22, run=subprocess.run, home=None, store=None, say=print):
@@ -71,35 +117,18 @@ def setup(cfg, address, name=None, user=None, port=22, run=subprocess.run, home=
     if name in (cfg.get('machines') or {}):
         raise SetupError(f'machines.{name} is already in the config: pick another --name, or change it on the Machines tab')
     home = home or os.path.expanduser('~')
-    key = _key(home)
-    if not key:
-        key = os.path.join(home, '.ssh', 'id_ed25519')
-        say(f'1/4 No ssh key here yet: making one ({key}).')
-        os.makedirs(os.path.dirname(key), mode=0o700, exist_ok=True)
-        if run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', key], check=False).returncode != 0:
-            raise SetupError(f'step 1: ssh-keygen could not make {key}: run it yourself (ssh-keygen -t ed25519), then retry')
-    else:
-        say(f'1/4 Using this computer\'s ssh key ({key}.pub).')
-    to = target(address, user)
-    probe = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', '-o', 'StrictHostKeyChecking=accept-new', '-p', str(port),
-             '--', to, 'true']
-    if run(probe, check=False, capture_output=True).returncode == 0:
-        say('2/4 Key login works already.')
-    else:
-        say(f'2/4 Key login does not work yet. 3/4 ssh-copy-id now asks for {to}\'s password: type it there, once. '
-            'Tutti does not see it.')
-        if run(['ssh-copy-id', '-i', key + '.pub', '-p', str(port), to], check=False).returncode != 0:
-            raise SetupError(f'step 3: ssh-copy-id did not install the key on {to}: check the address, the user (--user) and that '
-                             'ssh is on there (Linux: sudo systemctl enable --now ssh; macOS: Remote Login), then retry')
-        if run(probe, check=False, capture_output=True).returncode != 0:
-            raise SetupError(f'step 3: the key was sent but key login to {to} still fails: the host may refuse keys '
-                             '(PubkeyAuthentication no) or the home folder permissions are too open; fix that, then retry')
     if store is None:
         from . import settings
-        store = settings.store
+        tag = settings.etag(settings.read_file(cfg)) if cfg.get('_path') else None   # a save in between makes ours fail
+
+        def store(c, changes):
+            return settings.store(c, changes, tag)
+    key = _ensure_key(run, home, say)
+    _ensure_login(run, key, target(address, user), say)
     try:
-        store(cfg, [(['machines', name], entry(address, user, port))])
-    except Exception as e:   # SettingsError and friends: the step and the fix
-        raise SetupError(f'step 4: key login works, but machines.{name} was not saved ({e}); add it on the Machines tab') from e
+        store(cfg, [(['machines', name], entry(address, user))])
+    except Exception as e:   # SettingsError (the file changed meanwhile, e.g. machines.<name> added) and friends
+        raise SetupError(f'step 4: key login works, but machines.{name} was not saved ({e}): if the config changed meanwhile, '
+                         f'rerun with another --name or add it on the Machines tab') from e
     say(f'4/4 Saved as machines.{name}. `tutti machines` probes it; its roles show on the Machines tab.')
     return name

@@ -12,10 +12,10 @@ class Pure(unittest.TestCase):
     def test_names_entries_and_checks(self):
         self.assertEqual(hostsetup.name_for('192.0.2.10', set()), 'host-10')
         self.assertEqual(hostsetup.name_for('nas.example', {'nas'}), 'nas-2')
-        self.assertEqual(hostsetup.entry('192.0.2.10', None, 22), {'host': '192.0.2.10', 'slots': 1})
-        self.assertEqual(hostsetup.entry('h.example', 'me', 2222), {'host': 'h.example', 'slots': 1, 'user': 'me', 'port': 2222})
+        self.assertEqual(hostsetup.entry('192.0.2.10', None), {'host': '192.0.2.10', 'slots': 1})
+        self.assertEqual(hostsetup.entry('h.example', 'me'), {'host': 'me@h.example', 'slots': 1})   # every ssh call uses it
         for args, why in ((('-oProxyCommand=x', None, None, 22), 'not an address'), (('h', 'Bad Name', None, 22), '--name'),
-                          (('h', None, '-l', 22), '--user'), (('h', None, None, 0), '--port')):
+                          (('h', None, '-l', 22), '--user'), (('h', None, None, 2222), 'Port 2222')):
             with self.assertRaisesRegex(hostsetup.SetupError, why):
                 hostsetup.check(*args)
 
@@ -54,14 +54,28 @@ class Setup(unittest.TestCase):
     def test_a_new_host_gets_a_key_the_copy_and_a_config_entry(self):
         self.assertEqual(self.go([255, 0]), 'host-10')
         self.assertEqual(self.calls, ['ssh-keygen', 'ssh', 'ssh-copy-id', 'ssh'])
-        self.assertEqual(self.saved, [(['machines', 'host-10'], {'host': '192.0.2.10', 'slots': 1, 'user': 'me'})])
+        self.assertEqual(self.saved, [(['machines', 'host-10'], {'host': 'me@192.0.2.10', 'slots': 1})])
         self.assertTrue(any('Tutti does not see it' in s for s in self.said))
 
     def test_a_host_that_already_takes_the_key_is_only_saved(self):
         os.makedirs(os.path.join(self.home, '.ssh'))
-        open(os.path.join(self.home, '.ssh', 'id_rsa.pub'), 'w').close()
+        for f in ('id_rsa', 'id_rsa.pub'):
+            open(os.path.join(self.home, '.ssh', f), 'w').close()
         self.go([0])
         self.assertEqual(self.calls, ['ssh'])
+
+    def test_a_key_without_its_pub_is_kept_and_the_pub_derived(self):
+        os.makedirs(os.path.join(self.home, '.ssh'))
+        open(os.path.join(self.home, '.ssh', 'id_ed25519'), 'w').close()
+        self.go([0])
+        self.assertEqual(self.calls, ['ssh-keygen', 'ssh'])   # -y, never a new key over it
+        self.assertTrue(os.path.exists(os.path.join(self.home, '.ssh', 'id_ed25519.pub')))
+
+    def test_a_missing_tool_is_a_step_not_a_traceback(self):
+        def run(cmd, **_kw):
+            raise FileNotFoundError(cmd[0])
+        with self.assertRaisesRegex(hostsetup.SetupError, 'step 1: ssh-keygen could not start'):
+            hostsetup.setup({'machines': {}}, '192.0.2.1', run=run, home=self.home, store=lambda c, ch: None, say=self.said.append)
 
     def test_each_failure_names_its_step_and_saves_nothing(self):
         with self.assertRaisesRegex(hostsetup.SetupError, 'step 3: ssh-copy-id'):

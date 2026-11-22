@@ -50,14 +50,16 @@ yet shows on the **Discovered** tab with the same role; the configured one is le
 A computer on the **Discovered** tab has **Set up**: one command to run in a terminal here (t225, `tutti/hostsetup.py`):
 
 ```bash
-tutti machines add --host 192.0.2.10 [--name nas] [--user me] [--port 22]
+tutti machines add --host 192.0.2.10 [--name nas] [--user me]
 ```
 
-It makes an ssh key if this computer has none, checks key login, and only if that fails runs `ssh-copy-id`, which asks
+A user goes into the saved host (`me@192.0.2.10`), the form every ssh, rsync and git call of Tutti's uses; another ssh
+port belongs in `~/.ssh/config` (a `Host` alias with `Port`), then `--host <alias>`. It uses this computer's key (deriving
+a missing `.pub`, never replacing a key) or makes one if there is none, checks key login, and only if that fails runs `ssh-copy-id`, which asks
 for that computer's password once: you type it into ssh there, and Tutti never sees, keeps or sends it. It checks key login
-again and only then writes `machines.<name>` (one slot to start with, a backup of the config first). Each failure says
+again and only then writes `machines.<name>` (refused if the config changed meanwhile) (one slot to start with, a backup of the config first). Each failure says
 its step and the fix: ssh off on the host, a wrong user, keys refused, or a config that cannot be saved. An Android
-device gets its `tutti devices add` command the same way; a media device needs nothing (its roles are detected).
+device gets its `tutti devices add` command the same way (it prints the steps and the config lines to add); a media device needs nothing (its roles are detected).
 
 ## Slots
 

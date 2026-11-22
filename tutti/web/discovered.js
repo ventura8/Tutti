@@ -21,7 +21,7 @@ function setupBox(d) {
             const btn = e.currentTarget;
             try { await navigator.clipboard.writeText(d.setup); btn.textContent = 'Copied'; } catch { btn.textContent = 'Select and copy it'; }
         } });
-    const how = d.kind === 'android' ? 'Allow the debugging prompt on the device when it asks.'
+    const how = d.kind === 'android' ? 'It prints the steps (allow debugging on the device, then the config lines to add): the device is set up once you follow them.'
         : 'It makes a key if needed, then ssh asks for that computer\'s password once: type it there. Tutti never sees it.';
     return el('details', { class: 'qitem', 'data-setup': d.address }, el('summary', { text: 'Set up' }),
         el('p', { class: 'row__note', text: 'Run this in a terminal on this computer:' }),

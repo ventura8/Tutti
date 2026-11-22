@@ -78,6 +78,8 @@ def render(view, state, width, height, ui=None, plain=False):
         body = [cut(line, width) for line in HELP]
     elif state is None:
         body = [cut('Loading… (the first look at every host takes a few seconds; q quits)', width)]
+    elif state.get('load_error') and len(state) == 1:
+        body = [cut(f'Could not load: {state["load_error"]}. Tutti tries again in 15 s; r tries now.', width)]
     else:
         rows = rows_for(view, state, ui)
         cur = min(max(ui.get('cursor', 0), 0), max(len(rows) - 1, 0))
@@ -93,6 +95,8 @@ def render(view, state, width, height, ui=None, plain=False):
             body.append(cut(f'{mark} {tag}{text}' if not plain else f'{tag}{text}', width))
     keys = [*KEYS['all'], *KEYS.get(view, [])]
     footer = cut('  '.join(f'{k} {what}' for k, what in keys), width)
+    if (state or {}).get('load_error') and len(state) > 1:
+        footer = cut(f'Last load failed ({state["load_error"]}): showing the last good data', width)
     rule = '' if plain else '─' * width
     lines = [title, tabs, rule, *body]
     lines = lines[:height - 2] + [''] * max(0, height - 2 - len(lines))
@@ -118,11 +122,15 @@ def key(view, ui, k):
     elif len(k) == 1 and k in '12345':
         view, ui['cursor'] = VIEWS[int(k) - 1], 0
     elif k in MOVES:
-        ui['cursor'] = max(0, ui.get('cursor', 0) + MOVES[k])
+        ui['cursor'] = ui.get('cursor', 0) + MOVES[k]
     elif k in JUMPS:
         ui['cursor'] = JUMPS[k]
     elif view == 'tasks' and k in ('l', 'right', 'h', 'left'):
         ui['tab'], ui['cursor'] = (ui.get('tab', 1) + (1 if k in ('l', 'right') else -1)) % len(TASK_TABS), 0
+    if 'rows' in ui:   # clamped as it is stored, so G then k moves at once (Grok's review)
+        ui['cursor'] = min(max(0, ui.get('cursor', 0)), max(0, ui['rows'] - 1))
+    else:
+        ui['cursor'] = max(0, ui.get('cursor', 0))
     return view, ui, False
 
 

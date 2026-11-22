@@ -103,6 +103,38 @@ class Load(unittest.TestCase):
         self.assertIn('Loading', '\n'.join(tui.render('hosts', None, 80, 24)))
 
 
+class Review(unittest.TestCase):
+    """Grok's review of the first version: a clamped cursor and a load that fails without freezing."""
+
+    def test_the_cursor_is_clamped_when_stored(self):
+        v, ui, _q = tui.key('hosts', {'rows': 3}, 'G')
+        self.assertEqual(ui['cursor'], 2)
+        v, ui, _q = tui.key(v, ui, 'k')
+        self.assertEqual(ui['cursor'], 1)   # one press back, not a million
+        v, ui, _q = tui.key(v, {**ui, 'cursor': 0}, 'k')
+        self.assertEqual(ui['cursor'], 0)
+
+    def test_a_failed_load_says_so_and_keeps_the_last_good_data(self):
+        first = '\n'.join(tui.render('hosts', {'load_error': 'OSError: boom'}, 80, 24))
+        self.assertIn('Could not load: OSError: boom', first)
+        later = tui.render('hosts', {**STATE, 'load_error': 'OSError: boom'}, 80, 24)
+        self.assertIn('nuc', '\n'.join(later))
+        self.assertIn('Last load failed', later[-1])
+        loader = tuicmd.Loader({}, lambda cfg: (_ for _ in ()).throw(OSError('boom')))
+
+        class Now:
+            def __init__(self, target, daemon):
+                self.target = target
+
+            def start(self):
+                self.target()
+        loader.threading = mock.Mock(Thread=Now)
+        loader.poke()
+        self.assertEqual((loader.error, loader.state, loader.busy), ('OSError: boom', {'load_error': 'OSError: boom'}, False))
+        loader.poke()   # within REFRESH_S: not tried again at once
+        self.assertGreater(loader.at, 0)
+
+
 class Command(unittest.TestCase):
     def test_plain_output_and_no_color(self):
         lines = []

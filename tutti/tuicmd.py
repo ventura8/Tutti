@@ -70,7 +70,7 @@ class Loader:
 
     def __init__(self, cfg, load_fn):
         import threading
-        self.cfg, self.load_fn, self.state, self.busy, self.at = cfg, load_fn, None, False, 0.0
+        self.cfg, self.load_fn, self.state, self.busy, self.at, self.error = cfg, load_fn, None, False, 0.0, ''
         self.threading = threading
 
     def poke(self, force=False):
@@ -80,7 +80,11 @@ class Loader:
 
         def work():
             try:
-                self.state = self.load_fn(self.cfg)
+                self.state, self.error = self.load_fn(self.cfg), ''
+            except Exception as e:   # a failed load keeps the last good state, says why, and waits REFRESH_S to retry
+                self.error = f'{type(e).__name__}: {e}'
+                if self.state is None:
+                    self.state = {'load_error': self.error}
             finally:
                 self.busy, self.at = False, time.monotonic()
         self.threading.Thread(target=work, daemon=True).start()
@@ -95,7 +99,8 @@ def run(stdscr, cfg, view, load_fn=load):
     loader, ui = Loader(cfg, load_fn), {}
     while True:
         loader.poke()
-        state = loader.state
+        state = loader.state if not loader.error or loader.state is None else {**loader.state, 'load_error': loader.error}
+        ui['rows'] = len(tui.rows_for(view, state, ui)) if state else 0
         draw(curses, stdscr, view, state, ui, colour)
         c = stdscr.getch()
         if c in (-1, curses.KEY_RESIZE):

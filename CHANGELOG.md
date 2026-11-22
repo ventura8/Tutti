@@ -4,6 +4,9 @@
 
 ### Added
 
+- Machines (t225): `tutti machines add --host <address>` sets up a found computer: a key if needed, `ssh-copy-id` only when
+  key login fails (you type its password once, into ssh; Tutti never sees it), a check, then the config entry. Each
+  Discovered row has **Set up** with its one command and a copy button (docs/MACHINES.md, *Set up a found computer*).
 - Dashboard (t237): a task under **Needs you** (needing a person, or to review) has **All details**, which opens to
   everything it has, like a queued task; it stays open across refreshes (docs/DASHBOARD.md).
 - Dashboard (t307): a **Tasks** tab in the menu, with subtabs Active, Queued, Needs a person, To review, Suggested and

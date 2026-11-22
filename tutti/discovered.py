@@ -4,6 +4,7 @@ not set up yet, what it seems to be, the roles it has now and the roles it could
 Sources: the media scan (tutti/lanmedia.py: mDNS, SSDP/DLNA, AirPlay, Cast), the neighbour table (`ip neigh`), `adb devices`
 and an ssh port check of the neighbours. Pure parsers and `view`; `gather` does the I/O, each source on its own so one that
 fails leaves the others. A machine or device the config already has is left out (matched by address or serial)."""
+import re
 import socket
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
@@ -76,7 +77,19 @@ def view(cfg, lan=(), neigh=(), adb=(), ssh=(), resolve=None):
         if d.get('state') == 'device':
             add(d['serial'], d.get('model') or d['serial'], 'android', 'adb')
     order = ('computer', 'android', 'media', 'host')
-    return [{**i, 'can': CAN[i['kind']]} for i in sorted(items.values(), key=lambda i: (order.index(i['kind']), i['address']))]
+    return [{**i, 'can': CAN[i['kind']], 'setup': setup_command(i)}
+            for i in sorted(items.values(), key=lambda i: (order.index(i['kind']), i['address']))]
+
+
+def setup_command(item):
+    """The one command that sets it up (t225), run in a terminal here; '' when there is nothing to set up (media roles are
+    detected). A computer's password is typed into ssh-copy-id there, never into the dashboard."""
+    if item['kind'] in ('computer', 'host'):
+        return f'tutti machines add --host {item["address"]}'
+    if item['kind'] == 'android':
+        name = re.sub(r'[^a-z0-9-]', '-', str(item.get('name') or 'phone').lower()).strip('-')[:30] or 'phone'
+        return f'tutti devices add --name {name} --serial {item["address"]}'
+    return ''
 
 
 def ssh_open(address, timeout=SSH_TIMEOUT):

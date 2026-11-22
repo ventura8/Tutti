@@ -212,7 +212,18 @@ def cmd_machines(cfg, a):
         return rolescmd.show(cfg, a)
     if a.action == 'add-android':
         print(devices.TERMUX_STEPS.format(name=a.name or 'phone', host=a.host or '<the device IP>', user=a.user or '<whoami>',
-                                          port=a.port))
+                                          port=a.port or 8022))
+        return 0
+    if a.action == 'add':   # a computer found on the network (t225, docs/MACHINES.md)
+        from . import hostsetup
+        if not a.host:
+            print('usage: tutti machines add --host <address> [--name <name>] [--user <user>] [--port 22]', file=sys.stderr)
+            return 2
+        try:
+            hostsetup.setup(cfg, a.host, a.name, a.user, a.port or 22)
+        except hostsetup.SetupError as e:
+            print(f'tutti: {e}', file=sys.stderr)
+            return 1
         return 0
     from datetime import datetime, timezone
 
@@ -1932,12 +1943,14 @@ def parser():
     s.add_argument('--check', action='store_true', help='only say whether a newer release is out')
     s.add_argument('--stage-only', action='store_true', help='verify and stage the release in a separate environment without activating it')
     s.add_argument('--auto', action='store_true', help='quiet no-op when turned off (self_update.enabled) or not a release install')
-    s = add('machines', cmd_machines, 'probe every machine: free slots, load, yield flag (add-android: set up a Termux machine)')
-    s.add_argument('action', nargs='?', choices=['add-android'], help='print the one-time Termux setup and the config lines')
-    s.add_argument('--name', help='add-android: the machine name')
-    s.add_argument('--host', help='add-android: the device IP address')
-    s.add_argument('--user', help='add-android: the Termux user (whoami)')
-    s.add_argument('--port', type=int, default=8022, help='add-android: Termux sshd port (8022)')
+    s = add('machines', cmd_machines, 'probe every machine: free slots, load, yield flag (add: set up a computer found on the network; '
+            'add-android: set up a Termux machine)')
+    s.add_argument('action', nargs='?', choices=['add', 'add-android'],
+                   help='add: key, ssh-copy-id (you type its password once, into ssh), check, save; add-android: the Termux steps')
+    s.add_argument('--name', help='add, add-android: the machine name (add: from the address when not given)')
+    s.add_argument('--host', help='add: its address or host name; add-android: the device IP address')
+    s.add_argument('--user', help='add: the account to log in to (default: yours); add-android: the Termux user (whoami)')
+    s.add_argument('--port', type=int, default=None, help='add: ssh port (22); add-android: Termux sshd port (8022)')
     s.add_argument('--roles', action='store_true', help='each machine\'s and device\'s roles and why (tutti/roles.py)')
     s.add_argument('--refresh', action='store_true', help='--roles: probe again now instead of the daily answer')
     from . import rolescmd

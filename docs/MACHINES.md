@@ -45,6 +45,20 @@ prints or sends it elsewhere. Without a token the card still says whether the ad
 address or an instance that is off each say what to do. Over mDNS (`_home-assistant._tcp`) an instance not configured
 yet shows on the **Discovered** tab with the same role; the configured one is left out there.
 
+## Set up a found computer
+
+A computer on the **Discovered** tab has **Set up**: one command to run in a terminal here (t225, `tutti/hostsetup.py`):
+
+```bash
+tutti machines add --host 192.0.2.10 [--name nas] [--user me] [--port 22]
+```
+
+It makes an ssh key if this computer has none, checks key login, and only if that fails runs `ssh-copy-id`, which asks
+for that computer's password once: you type it into ssh there, and Tutti never sees, keeps or sends it. It checks key login
+again and only then writes `machines.<name>` (one slot to start with, a backup of the config first). Each failure says
+its step and the fix: ssh off on the host, a wrong user, keys refused, or a config that cannot be saved. An Android
+device gets its `tutti devices add` command the same way; a media device needs nothing (its roles are detected).
+
 ## Slots
 
 `scripts/slot.sh` is the queue on each machine: `slots` lock files, taken with `flock`. A run takes a free lock, waits

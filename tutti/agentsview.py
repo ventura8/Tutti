@@ -49,6 +49,21 @@ def capabilities(worker):
     return out
 
 
+def cost(cfg, worker, accs):
+    """What using this agent costs, from the config: pay per use (and whether it is still off), an API's tokens, a local
+    model's electricity, or a subscription Tutti paces. '' when the config says nothing about it."""
+    w, accounts = worker or {}, cfg.get('accounts') or {}
+    paid = w.get('costs_money') or any((accounts.get(n) or {}).get('costs_money') for n in accs)
+    if paid:
+        on = w.get('enabled') or any((accounts.get(n) or {}).get('enabled') for n in accs)
+        return 'pays per use' + ('' if on else ': kept off until enabled: true')
+    if w.get('kind') == 'ollama':
+        return 'electricity only (estimated under Usage & pacing)'
+    if w.get('kind') == 'openai_api':
+        return 'pays per token (API)'
+    return 'subscription: no cost per task, paced to its window' if accs else ''
+
+
 def _limits(acc):
     if not acc:
         return []
@@ -96,7 +111,7 @@ def cards(cfg, snap):
         state = live.get(name)
         out.append({'name': name, 'kind': w.get('kind'), 'model': w.get('model') or (w.get('command') or [None])[0],
                     'machine': w.get('machine') or 'this host', 'account': ', '.join(accs) or None,
-                    'roles': roles(cfg, name, w, accs), 'capabilities': capabilities(w),
+                    'roles': roles(cfg, name, w, accs), 'capabilities': capabilities(w), 'cost': cost(cfg, w, accs),
                     'limits': [f'{n}: {x}' if len(accs) > 1 else x for n in accs for x in _limits(accounts.get(n))],
                     'state': 'checking' if state is None else 'ready' if state.get('ready') else 'not ready',
                     'note': (state or {}).get('note') or '',
@@ -105,13 +120,16 @@ def cards(cfg, snap):
         if name in spent:
             continue
         out.append({'name': name, 'kind': 'account', 'model': None, 'machine': None, 'account': name, 'roles': roles(cfg, name, None, name),
-                    'capabilities': ['an account Tutti paces (no worker of its own)'], 'limits': _limits(accounts.get(name)),
+                    'capabilities': ['an account Tutti paces (no worker of its own)'],
+                    'cost': cost(cfg, None, [name]), 'limits': _limits(accounts.get(name)),
                     'state': 'paced', 'note': '', 'running': _running(snap, name, name)})
     for name, sc in (cfg.get('scouts') or {}).items():
         sc, seen = sc or {}, scouts.get(name)
         out.append({'name': name, 'kind': 'scout', 'model': sc.get('kind'), 'machine': None, 'account': sc.get('account'),
                     'roles': [{'role': 'scout', 'label': ROLE_LABELS['scout'], 'why': f'scouts.{name}'}],
-                    'capabilities': [str(x) for x in sc.get('skills') or []], 'limits': _limits(accounts.get(sc.get('account'))),
+                    'capabilities': [str(x) for x in sc.get('skills') or []],
+                    'cost': cost(cfg, None, [sc['account']] if sc.get('account') else []),
+                    'limits': _limits(accounts.get(sc.get('account'))),
                     'state': 'checking' if seen is None else 'ready' if seen.get('ready') else 'not ready',
                     'note': '' if not seen or seen.get('ready') else f'missing {", ".join(seen.get("missing") or [])}', 'running': 0})
     return out

@@ -315,6 +315,40 @@ def heat_round(cfg, probes, now, stop_fn=None):
             started.append(f'machine:{name}: heat pause cleared')
     return started
 
+def watchdog_script(machine, t):
+    """The shell line that throttles (`docker update --cpus heat.throttle_cpus`, default 1) or stops (`heat.on_stop: stop`) the
+    containers Tutti started on a machine at or above heat.stop_c, or '' below it. Only names starting with one of the
+    machine's `containers` prefixes (default tutti-) are touched: the owner's other containers (media, photos, a radio) never."""
+    import re
+    import shlex
+    heat = machine.get('heat') or {}
+    stop = heat.get('stop_c')
+    if stop is None or t is None or t < stop:
+        return ''
+    prefixes = [p for p in (machine.get('containers') or ['tutti-']) if isinstance(p, str) and p]
+    rx = shlex.quote('^(' + '|'.join(re.escape(p) for p in prefixes) + ')')
+    act = 'stop -t 20' if heat.get('on_stop') == 'stop' else f'update --cpus {float(heat.get("throttle_cpus") or 1):g}'
+    return f"docker ps --format '{{{{.Names}}}}' 2>/dev/null | grep -E {rx} | xargs -r docker {act} >/dev/null 2>&1; true"
+
+
+def watchdog_round(cfg, probes, run_fn):
+    """For each machine at or above heat.stop_c: run its watchdog_script there (run_fn(machine, script)). Notes of what ran."""
+    notes = []
+    for name, m in (cfg.get('machines') or {}).items():
+        t, which = _hottest_of((probes or {}).get(name))
+        script = watchdog_script(m, t)
+        if not script:
+            continue
+        try:
+            run_fn(m, script)
+        except Exception as e:   # one unreachable machine must not stop the round
+            notes.append(f'machine:{name}: heat watchdog could not reach it ({e}); its jobs run on')
+            continue
+        how = 'stopped' if (m.get('heat') or {}).get('on_stop') == 'stop' else 'throttled'
+        notes.append(f'machine:{name}: {which} {t:.0f} C: Tutti\'s containers {how}')
+    return notes
+
+
 def config_folder(cfg):
     from . import config
     return config.state_dir(cfg)

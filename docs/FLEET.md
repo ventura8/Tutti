@@ -255,3 +255,25 @@ Settings (`machines.<m>.limit: {window: "18-01", pct: 60, days: [mon, ...]}`). I
   over the cap. `pct: 0` is blocked hours (no new work from 30 min before; running work handed over at the start).
 - **On a move:** `main: true` marks the main machine's own window, and `tutti move` carries it to the new main machine.
 - **Default:** a new household has no window.
+
+## May it run
+
+A script or agent that reaches a machine itself (`ssh <machine> docker run …`) skips Tutti's routing, so a paused or hot
+machine still took its runs (lesson: a paused NUC at 98 C under two Playwright containers). Every such caller asks first:
+
+```bash
+m=$(tutti may-run nuc pc) || exit 3          # the first fit machine, or exit 3 with each reason on stderr
+read -r m lease < <(tutti may-run --who ship.sh --lease 120 nuc pc)   # and hold one slot
+tutti may-run --release "$lease"             # when the run ends
+```
+
+A machine is refused when it is paused (owner, heat guard, blocked hours), at or above `heat.stop_c` (or capped at
+`heat.cap_c`), inside its limited hours, unreachable, yielding, over its load ratio, without a free slot, or when other
+callers' live slot leases (<project.state>/slot-leases.json) already fill its `slots`. `--wait <min>` asks again each
+minute. `tutti test --on`, a device's machine and a Windows-tree run make the same check; the MCP tool is `may_run`.
+
+### Heat watchdog
+
+Each dispatch round, a machine at or above `heat.stop_c` gets its Tutti containers throttled
+(`docker update --cpus <heat.throttle_cpus>`, default 1) or, with `heat.on_stop: stop`, stopped. Only containers whose names
+start with one of the machine's `containers` prefixes (default `tutti-`) are touched; the owner's other containers never.

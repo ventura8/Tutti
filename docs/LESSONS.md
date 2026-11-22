@@ -691,3 +691,9 @@ the file, so every check by hand looked fine. Fixes: the process's own environme
 cannot run raises and the dashboard logs it once. Lessons: test what the service sees, not what a shell sees; a skip that
 stops a feature must never be silent.
 
+
+## A pause only binds callers that ask (2026-11-22)
+
+The NUC was paused after 105 C, yet scripts that went straight to `ssh nuc docker run …` started two Playwright containers
+and pushed it to 98 C. Routing's checks bound only `tutti test`. Fix: `tutti may-run` for every direct caller, and a heat
+watchdog that throttles Tutti's own containers whatever started them.

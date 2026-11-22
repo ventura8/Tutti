@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.32.0 (2026-11-22)
+
+### Added
+
+- Machines: **`tutti may-run <machine>…`** (MCP `may_run`): the one check every script and agent makes before it uses a
+  machine itself: the first fit machine, or exit 3 with why (paused, too hot, no free slot); `--lease` holds a slot,
+  `--wait` waits (docs/FLEET.md, *May it run*).
+- Heat watchdog: at `heat.stop_c` the dispatch round throttles (`docker update --cpus`, `heat.throttle_cpus`) or stops
+  (`heat.on_stop: stop`) only Tutti's containers (the machine's `containers` prefixes).
+
+### Fixed
+
+- A paused or hot machine took runs that bypassed routing: `tutti test --on` with a Windows tree and `--device` on a paused
+  or too-hot machine now refuse.
+
 ## 0.31.11 (2026-11-22)
 
 ### Added

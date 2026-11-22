@@ -466,6 +466,11 @@ def _heat_errors(name, heat):
     slots = heat.get('hot_slots', 1)
     if isinstance(slots, bool) or not isinstance(slots, int) or slots < 1:
         errs.append(f'machines.{name}.heat.hot_slots is {slots!r}: use a whole number, 1 or more')
+    if heat.get('on_stop', 'throttle') not in ('throttle', 'stop'):
+        errs.append(f'machines.{name}.heat.on_stop is {heat["on_stop"]!r}: throttle (docker update --cpus) or stop')
+    cpus = heat.get('throttle_cpus', 1)
+    if isinstance(cpus, bool) or not isinstance(cpus, (int, float)) or cpus <= 0:
+        errs.append(f'machines.{name}.heat.throttle_cpus is {cpus!r}: a number of CPUs above 0, for example 1')
     return errs
 
 

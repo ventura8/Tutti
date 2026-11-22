@@ -73,6 +73,9 @@ TOOLS = [
          required=('repo', 'title'), mutating=True),
     tool('usage', 'Usage and pacing of every account: used percent, the target for now, the reset time and the verdict.'),
     tool('machines', 'The machines Tutti can use: free slots, load, memory, the yield flag.'),
+    tool('may_run', 'Before any run on a machine you reach yourself (ssh, a script): may it take a heavy run now? Answers the first '
+         'fit machine, or why each is refused (paused, too hot, no free slot). Never use a refused machine.',
+         {'machine': _s('the machine, or several separated by spaces, tried in order')}, required=('machine',)),
     tool('devices', 'The Android devices for end-to-end tests: connection, battery, charging, heat, lock.'),
     tool('test_on', 'Run a test command over a track\'s worktree on a machine (routed, behind its slot queue) or on an Android '
          'device. Starts detached; poll job_status with the returned id.',
@@ -171,6 +174,7 @@ def argv_of(name, a):
         'pending_questions': lambda: ['needs', 'list'],
         'answer_question': lambda: ['needs', 'answer', a['id']] + ([a['choice']] if a.get('choice') else []),
         'machines': lambda: ['machines'],
+        'may_run': lambda: ['may-run', '--', *a['machine'].split()],
         'devices': lambda: ['devices'],
         'backlog_list': lambda: ['backlog', 'list'] + (['--all'] if a.get('all') else []),
         # options first, then `--`: a title, task or question that starts with "-" stays text, never an option

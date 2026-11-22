@@ -60,7 +60,7 @@ def pick(machines, names, probe_fn, leases, who, now, now_dt=None):
         if m is None:
             notes.append(f'{name}: not a machine in this config (`tutti machines` lists them)')
             continue
-        why = verdict(m, probe_fn(name), leases, who, now, now_dt)
+        why = routing.owner_unfit(m) or verdict(m, probe_fn(name), leases, who, now, now_dt)   # paused: never probed
         if not why:
             return name, notes
         notes.append(f'{name}: {why}')
@@ -93,6 +93,8 @@ def leases_path(cfg):
 
 
 def read(cfg):
+    if not (cfg.get('project') or {}).get('state'):
+        return {}
     try:
         with open(leases_path(cfg), encoding='utf8') as f:
             data = json.load(f)

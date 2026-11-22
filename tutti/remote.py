@@ -528,9 +528,19 @@ def household_probe(machine):
     return routing.Probe(True, int(m.get('grant', 0)), 0.0, int(m.get('slots') or 1))
 
 
+def asleep_on_purpose(machine):
+    """A WSL machine its owner paused (not the heat guard): no probe reaches it, since any ssh into WSL starts the Linux VM
+    again (an owner pauses it to compact its disk or to free the PC). It shows as not reachable until it is resumed."""
+    from . import controls
+    paused = machine.get('paused')
+    return machine.get('transport') == 'wsl' and bool(paused) and not controls.heat_pause(paused)
+
+
 def probe(machine, timeout=20, windows_fn=None, idle_fn=None):
     if machine['transport'] == 'household':
         return household_probe(machine)
+    if asleep_on_purpose(machine):
+        return routing.Probe(temp_note='paused by its owner: not probed, so WSL stays stopped')
     if machine.get('via') and machine.get('_state'):   # only a client of this host reaches it (docs/MOVE.md, *The bridge*)
         from . import bridge
         return bridge.probe({'project': {'state': machine['_state']}}, machine['via'], machine.get('as') or machine['name'])

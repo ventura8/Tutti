@@ -170,9 +170,15 @@ class TestCommandWords(unittest.TestCase):
         ran = []
         a = SimpleNamespace(track='MyApp', command=['--on', 'pc', 'pwsh', 'x y'], dir=None, on=None, device=None,
                             wait_minutes=30, fetch=None, input=None, hold_device=None)
-        with mock.patch('tutti.remote.sh', lambda m, line, **k: ran.append(line) or SimpleNamespace(returncode=0)):
+        with mock.patch('tutti.remote.sh', lambda m, line, **k: ran.append(line) or SimpleNamespace(returncode=0)), \
+                mock.patch('tutti.mayrun.refusal', lambda cfg, name: ''):
             self.assertEqual(cli.cmd_test(cfg, a), 0)
         self.assertEqual(ran, ["cd /mnt/c/R && pwsh 'x y'"])
+        a.command, a.on = ['--on', 'pc', 'pwsh', 'x y'], None
+        with mock.patch('tutti.remote.sh', lambda m, line, **k: ran.append(line)), \
+                mock.patch('tutti.mayrun.refusal', lambda cfg, name: 'too hot: CPU 99 C'):
+            self.assertEqual(cli.cmd_test(cfg, a), 3)   # a hot or paused machine is refused before anything runs there
+        self.assertEqual(len(ran), 1)
 
     def test_a_windows_file_is_fetched_where_it_is(self):
         import base64

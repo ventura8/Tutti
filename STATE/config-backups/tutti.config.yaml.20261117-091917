@@ -1,0 +1,5 @@
+energy:
+  price_per_kwh: 0.5
+project:
+  state: STATE
+  worktrees: .

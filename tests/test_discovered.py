@@ -14,6 +14,8 @@ NEIGH = """192.0.2.10 dev eth0 lladdr 02:00:00:00:00:10 REACHABLE
 192.0.2.12 dev eth0  FAILED
 192.0.2.13 dev eth0 lladdr 02:00:00:00:00:13 INCOMPLETE
 fe80::1 dev eth0 lladdr 02:00:00:00:00:01 router REACHABLE
+172.17.0.3 dev docker0 lladdr 02:42:ac:11:00:03 STALE
+172.18.0.2 dev br-1a2b3c lladdr 02:42:ac:12:00:02 REACHABLE
 192.0.2.10 dev wlan0 lladdr 02:00:00:00:00:10 REACHABLE
 """
 CFG = {'machines': {'builder': {'host': 'builder.example'}}, 'devices': {'pixel': {'serial': '192.0.2.40:5555'}}}

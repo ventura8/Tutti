@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 API = '/api/discovered'
 MAX_PROBED, SSH_TIMEOUT = 64, 0.4
+VIRTUAL = ('docker', 'br-', 'veth', 'virbr', 'vboxnet', 'vmnet', 'cni', 'flannel', 'lxc', 'podman')
 LIVE = ('REACHABLE', 'STALE', 'DELAY', 'PROBE', 'PERMANENT')
 CAN = {
     'computer': ['machine: runs work (`tutti connect <address>` sets it up)'],
@@ -26,6 +27,9 @@ def parse_neigh(text):
     for line in (text or '').splitlines():
         f = line.split()
         if not f or ':' in f[0] or 'lladdr' not in f or f[-1] not in LIVE or f[0] in seen:
+            continue
+        dev = f[f.index('dev') + 1] if 'dev' in f else ''
+        if dev.startswith(VIRTUAL):   # containers and VMs on this computer, not the network
             continue
         seen.add(f[0])
         out.append({'address': f[0], 'mac': f[f.index('lladdr') + 1]})

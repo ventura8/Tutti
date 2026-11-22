@@ -1238,6 +1238,7 @@ def _serve_dashboard(cfg, a, collector, httpd):
     if not a.no_probe:
         collector.start()
     install.start_daily(cfg, collector.stop, remote.ROOT, lambda: _dashboard_daily_restart(collector))
+    install.start_code_watch(collector.stop, config.ROOT, lambda: _dashboard_daily_restart(collector))   # new code: restart
     where = 'this computer only' if not dashboard.exposed(cfg) else 'reachable by others: sign-in with Google required'
     signin = 'sign-in with Google on' if httpd.auth else 'sign-in off: `tutti auth setup` turns it on'
     say(f'dashboard: http://127.0.0.1:{httpd.server_address[1]}/ ({where}; {signin}; Ctrl+C stops it)')

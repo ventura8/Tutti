@@ -2,6 +2,11 @@
 
 ## 0.31.9 (2026-11-22)
 
+### Fixed
+
+- Dashboard: it restarts itself within a minute when its code changes on disk (a merge or pull in the checkout it runs
+  from), so new tabs never call routes the running server lacks; Discovered no longer lists Docker or VM addresses.
+
 ### Added
 
 - Machines (t225): `tutti machines add --host <address>` sets up a found computer: a key if needed, `ssh-copy-id` only when

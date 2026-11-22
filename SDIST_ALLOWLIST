@@ -112,6 +112,7 @@ tests/test_browser.py
 tests/test_chat.py
 tests/test_check_browser_install.py
 tests/test_cli_argv.py
+tests/test_codewatch.py
 tests/test_conduct.py
 tests/test_config.py
 tests/test_configone.py

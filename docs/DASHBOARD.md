@@ -77,6 +77,13 @@ works while their own computer is off. Each action is a card with Undo and goes 
 admin-set limits, and pausing stays with admins. Like a chat IDE it has a model, effort and mode picker (Autonomous, Ask
 before acting, Plan review), @-mentions, slash commands, branches and a context meter. See [CHAT.md](CHAT.md).
 
+## New code
+
+The dashboard reads its pages (`tutti/web`) from disk on every request, but its Python code only when it starts. So when
+code lands in the checkout it runs from (a merge, a pull, `tutti update`), it restarts itself within a minute
+(`install.start_code_watch`), waiting while Chat is answering; otherwise new pages would call routes the running server
+does not have yet, and new tabs would show nothing.
+
 ## Tasks
 
 The **Tasks** tab (`#tasks`, t307, `tutti/tasklist.py`, `tutti/web/tasks.js`) lists every backlog task in one subtab per

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- Tasks (t245): an opened task says **Who runs it**: the autopilot's own order for it now (first choice, then the ranked
+  backups), the steps it will not use again and why (docs/DASHBOARD.md).
+
 ### Fixed
 
 - Autopilot: a run with no report whose process could not be confirmed is held at most 6 h, then counted as ended without

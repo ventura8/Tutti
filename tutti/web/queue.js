@@ -32,26 +32,35 @@ function detailList(rows) {
 }
 
 // The expanded body from one /api/task answer (pure but for el(): node tests build it with a fake el)
-function taskDetailNodes(d) {
+function taskDetailNodes(d, head = 'h4') {   // head: the level under the list's own heading (axe heading-order)
     const out = [detailList(d.facts || [])];
     if (d.pr) out.push(el('p', {}, el('a', { class: 'link', href: d.pr, target: '_blank', rel: 'noopener noreferrer', text: 'Pull request' })));
-    if ((d.links || []).length) out.push(el('h4', { class: 'qdetail__head', text: 'Dependencies' }), el('ul', {}, ...d.links.map((l) => el('li', { text: l }))));
-    if ((d.criteria || []).length) out.push(el('h4', { class: 'qdetail__head', text: 'Done when' }), el('ul', {}, ...d.criteria.map((c) => el('li', { text: c }))));
+    if (d.runners) {   // t245: who runs it, the ranked backups and why
+        const r = d.runners;
+        out.push(el(head, { class: 'qdetail__head', text: 'Who runs it' }),
+            el('p', { class: 'row__note', text: r.order.length ? `${r.order[0]} first${r.order.length > 1 ? `, then ${r.order.slice(1).join(', ')}` : ''}`
+                : 'No step may take it now.' }),
+            el('p', { class: 'row__note', text: r.why }),
+            r.skipped.length ? el('p', { class: 'row__note', text: `Not again: ${r.skipped.join(', ')} (failed the same way twice)` }) : '');
+    }
+    if ((d.links || []).length) out.push(el(head, { class: 'qdetail__head', text: 'Dependencies' }), el('ul', {}, ...d.links.map((l) => el('li', { text: l }))));
+    if ((d.criteria || []).length) out.push(el(head, { class: 'qdetail__head', text: 'Done when' }), el('ul', {}, ...d.criteria.map((c) => el('li', { text: c }))));
     if ((d.attempts || []).length) {
-        out.push(el('h4', { class: 'qdetail__head', text: `Attempts (${d.attempts_total}, newest first)` }),
+        out.push(el(head, { class: 'qdetail__head', text: `Attempts (${d.attempts_total}, newest first)` }),
             el('ol', { class: 'qdetail__attempts' }, ...d.attempts.map((a) => el('li', { 'data-ok': String(a.ok),
                 text: `${a.at} · ${a.step || 'unknown step'} · ${a.ok ? 'ok' : 'failed'}${a.why ? ': ' + a.why : ''}` }))));
     }
     if ((d.notes || []).length) {
-        out.push(el('h4', { class: 'qdetail__head', text: `Notes (${d.notes.length} of ${d.notes_total}, newest last)` }),
+        out.push(el(head, { class: 'qdetail__head', text: `Notes (${d.notes.length} of ${d.notes_total}, newest last)` }),
             el('ul', { class: 'qdetail__notes' }, ...d.notes.map((n) => el('li', { text: n }))));
     }
     return out;
 }
 
 async function loadTaskDetail(id, box, fresh = true) {
+    const head = (box.closest && box.closest('[data-head-level]')?.dataset.headLevel) || 'h4';
     if (TASK_DETAIL.has(id)) {
-        box.replaceChildren(...taskDetailNodes(TASK_DETAIL.get(id)));   // drawn at once; a reopen still asks for the latest
+        box.replaceChildren(...taskDetailNodes(TASK_DETAIL.get(id), head));   // drawn at once; a reopen still asks for the latest
         if (!fresh) return;
     } else box.replaceChildren(el('p', { class: 'row__note', text: 'Loading…' }));
     try {
@@ -59,7 +68,7 @@ async function loadTaskDetail(id, box, fresh = true) {
         const d = await res.json();
         if (!res.ok) throw new Error(d.error || `the dashboard answered ${res.status}`);
         TASK_DETAIL.set(id, d);
-        box.replaceChildren(...taskDetailNodes(d));
+        box.replaceChildren(...taskDetailNodes(d, head));
     } catch (err) {
         box.replaceChildren(el('p', { class: 'row__note', role: 'alert', text: `Cannot show ${id}: ${err.message}` }));
     }

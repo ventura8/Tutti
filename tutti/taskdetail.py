@@ -71,7 +71,33 @@ def get(cfg, path):
     if not task:
         return 404, {'error': f'task-detail: no task "{tid}" in the backlog: it was removed; refresh the dashboard'}
     from . import taskdeps
-    return 200, {'id': tid, **detail(task), 'links': taskdeps.describe(task, tasks)}
+    return 200, {'id': tid, **detail(task), 'links': taskdeps.describe(task, tasks), 'runners': runners(cfg, task)}
+
+
+def runners(cfg, task):
+    """Who runs the task (t245): the autopilot's own order for it now (first, then the ranked backups it falls to on a
+    failure), the steps it will not use again and why. [] order for a task no step may take now."""
+    from . import autopilot
+    t = {**task, 'attempts': [a for a in task.get('attempts') or [] if isinstance(a, dict)]}
+    try:
+        order = autopilot.candidates(cfg, t)
+        worn = sorted(autopilot.worn_out(t['attempts']))
+    except (KeyError, ValueError, TypeError, AttributeError) as e:   # a task the ladder cannot read: say so, not a 500
+        return {'order': [], 'skipped': [], 'why': f'its order cannot be worked out ({type(e).__name__}: {_text(e, 120)})'}
+    last = t['attempts'][-1] if t['attempts'] else None
+    pin = str(t.get('pin') or '')
+    if pin.startswith('worker:'):
+        why, worn = f'pinned to {pin[7:]}: only its accounts', []   # the ladder does not apply: nothing skipped to show
+    elif not last:
+        why = 'a fresh task: the accounts behind their pace first, then the local models that fit it (file scope)'
+    elif last.get('ok'):
+        why = f'its last attempt on {last.get("step")} passed: the same step again for the next part'
+    else:
+        reason = ' '.join(str(last.get('why') or 'no reason given').split())
+        why = f'its last attempt on {last.get("step")} failed ({_text(reason, 120)}): one step up the ladder'
+    if t.get('prefer') and order and order[0] == t['prefer']:
+        why += f'; {t["prefer"]} first, as picked with Move to'
+    return {'order': order[:8], 'skipped': worn, 'why': why}
 
 
 BOARD_API = '/api/board'

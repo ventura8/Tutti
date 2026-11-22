@@ -44,9 +44,12 @@ def file_names(env=None):
 
 
 def get(name, env=None):
-    """The secret `name`: from its file first (the point of use), else from `env` (a test, or an old shell export)."""
+    """The secret `name`: from its file first (the point of use), else from `env` (a test, or an old shell export).
+    A plain dict without XDG_CONFIG_HOME is a test's whole world; this process's own environment never is: under a service
+    manager it has no XDG_CONFIG_HOME and its secrets were scrubbed at start, so the file is the only source (the scout
+    stopped after every dashboard restart, 2026-11-22: docs/LESSONS.md)."""
     from . import groksetup
-    if env is not None and not env.get('XDG_CONFIG_HOME'):
+    if env is not None and env is not os.environ and not env.get('XDG_CONFIG_HOME'):
         return env.get(name, '')
     for f in FILES:
         v = groksetup.read_env_file(os.path.join(config.xdg_tutti_dir(env), f)).get(name, '')

@@ -191,6 +191,7 @@ tests/test_rolematrix.py
 tests/test_roles.py
 tests/test_routing.py
 tests/test_runner_suite.py
+tests/test_scout_service_env.py
 tests/test_scouts.py
 tests/test_secretenv.py
 tests/test_security_audit.py

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Scouts: the scout no longer stops after a dashboard restart. Under systemd the dashboard's environment has no
+  XDG_CONFIG_HOME and its secrets are scrubbed at start, so the webhook variables were looked up there, found empty, and
+  every round skipped the scout in silence. Secrets are now read from their file for the process's own environment, and a
+  scout that cannot run says why on the Scouts card and in the log.
+
 ## 0.31.10 (2026-11-22)
 
 ### Added

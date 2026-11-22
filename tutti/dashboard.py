@@ -294,6 +294,8 @@ class Collector:
             events, error = scouts.tick(self.cfg, states, env=self.env), None
         except scouts.ScoutError as e:
             events, error = [], str(e)
+            if error != self.probes.get('scout_error'):   # said once per change, not every 30 s
+                sys.stderr.write(f'tutti: scouts: {error}\n')
         with self.lock:
             self.probes = {**self.probes, 'scout_error': error}
         return events

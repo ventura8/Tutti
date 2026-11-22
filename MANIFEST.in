@@ -192,6 +192,7 @@ include tests/test_rolematrix.py
 include tests/test_roles.py
 include tests/test_routing.py
 include tests/test_runner_suite.py
+include tests/test_scout_service_env.py
 include tests/test_scouts.py
 include tests/test_secretenv.py
 include tests/test_security_audit.py

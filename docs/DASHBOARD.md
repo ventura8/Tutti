@@ -158,7 +158,7 @@ household's coordinator and show on the shared machine's own dashboard once clai
 A queued task opens (click, or Enter or Space on its title; it stays open across refreshes and reloads) to everything it has
 (t237): id, repository, project, priority, size, source, status, when it was added, scope, check, who claimed it, the last
 worker, step, model and run, its branch and pull request, what *done* means, its last 10 attempts newest first (when,
-where, why it failed) and its last 8 notes. They are read from `GET /api/task/<id>` when the row opens, not sent in every
+where, why it failed), its last 8 notes and its **Dependencies** (what it depends on, its group, merges, who needs it; t243). They are read from `GET /api/task/<id>` when the row opens, not sent in every
 state poll, with credentials replaced. Running jobs open the same way to their log (above).
 **Idle with work** (t254, `tutti/idlecheck.py`): above the list, a note whenever a machine has a free slot (its share,
 presence, quiet hours and heat already counted) or an account is behind its pace (not in panic, not paused) while tasks wait. It names each one with

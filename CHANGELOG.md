@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Backlog (t243): tasks linked with `together_with` start together: while one is blocked, the rest of its group waits,
+  and the Queued list says so. An opened queued task now lists its dependencies, group and merges (docs/AUTOPILOT.md).
+
 ## 0.31.7 (2026-11-22)
 
 ### Changes

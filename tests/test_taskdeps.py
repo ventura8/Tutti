@@ -46,6 +46,15 @@ class Deps(unittest.TestCase):
         self.assertEqual(taskdeps.group_of(tasks[1], tasks), ['t1', 't2', 't3'])
         self.assertEqual(taskdeps.lanes(tasks), {'blocked': ['t4'], 'ready': ['t1', 't2', 't3'], 'grouped': ['t1', 't2', 't3']})
 
+    def test_a_group_waits_while_any_member_is_blocked(self):
+        tasks = [task('t1', together_with=['t2']), task('t2', depends_on=['t3']), task('t3'), task('t4')]
+        h = taskdeps.holds(tasks)
+        self.assertIn('waits for its group: t2', h['t1'])
+        self.assertNotIn('t4', h)
+        self.assertTrue(taskdeps.describe(tasks[0], tasks)[0].startswith('Not yet: it waits for its group: t2'))
+        tasks[2]['status'] = 'done'
+        self.assertEqual(taskdeps.holds(tasks), {})   # the blocker landed: the whole group is ready together
+
     def test_link_refuses_unknown_ids_itself_and_loops_and_clears_with_empty(self):
         tasks = [task('t1'), task('t2', depends_on=['t1'])]
         with self.assertRaisesRegex(taskdeps.DepError, 'not in the backlog'):
@@ -100,7 +109,7 @@ class Cli(unittest.TestCase):
         rc, out = self.run_cli('deps', 't2')
         self.assertIn('Needed by: t1 (queued)', out)
         rc, out = self.run_cli('board')
-        self.assertIn('Blocked (1): t1', out)
+        self.assertIn('Blocked (2): t1, t3', out)   # t3 goes with t1, so it waits too
         self.assertIn('Grouped (2): t1, t3', out)
 
     def test_a_bad_link_says_why_and_changes_nothing(self):

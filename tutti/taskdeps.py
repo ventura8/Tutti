@@ -60,6 +60,12 @@ def holds(tasks):
         wait = waiting_on(t, tasks)
         if wait:
             out[t['id']] = f'blocked until {", ".join(wait)} land{"s" if len(wait) == 1 else ""} (depends_on)'
+    for t in tasks:   # a group starts together: while one member waits, the others wait with it
+        if t.get('status') != 'queued' or t['id'] in out:
+            continue
+        held = [i for i in group_of(t, tasks) if i in out and i != t['id']]
+        if held:
+            out[t['id']] = f'waits for its group: {", ".join(held)} cannot start yet (together_with)'
     return out
 
 
@@ -150,7 +156,8 @@ def describe(task, tasks):
         lines.append('Depends on: ' + ', '.join(state(i) for i in ids(task, 'depends_on')))
     wait = waiting_on(task, tasks)
     if task.get('status') == 'queued':
-        lines.append(f'Blocked until {", ".join(wait)} land' if wait else 'Ready: nothing it depends on is open')
+        held = holds(tasks).get(task['id'])
+        lines.append(f'Blocked until {", ".join(wait)} land' if wait else f'Not yet: it {held}' if held else 'Ready: nothing it depends on is open')
     group = [i for i in group_of(task, tasks) if i != task['id']]
     if group:
         lines.append('Goes together with: ' + ', '.join(state(i) for i in group))

@@ -35,6 +35,7 @@ function detailList(rows) {
 function taskDetailNodes(d) {
     const out = [detailList(d.facts || [])];
     if (d.pr) out.push(el('p', {}, el('a', { class: 'link', href: d.pr, target: '_blank', rel: 'noopener noreferrer', text: 'Pull request' })));
+    if ((d.links || []).length) out.push(el('h4', { class: 'qdetail__head', text: 'Dependencies' }), el('ul', {}, ...d.links.map((l) => el('li', { text: l }))));
     if ((d.criteria || []).length) out.push(el('h4', { class: 'qdetail__head', text: 'Done when' }), el('ul', {}, ...d.criteria.map((c) => el('li', { text: c }))));
     if ((d.attempts || []).length) {
         out.push(el('h4', { class: 'qdetail__head', text: `Attempts (${d.attempts_total}, newest first)` }),

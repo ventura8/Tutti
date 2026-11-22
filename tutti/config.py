@@ -436,6 +436,9 @@ def _machine_errors(name, m):
     c = m.get('containers')
     if c is not None and (not isinstance(c, list) or not all(isinstance(x, str) and x for x in c)):
         errs.append(f'machines.{name}.containers is {c!r}: a list of container name prefixes, e.g. [tutti-, myproj-test-]')
+    k = m.get('capped')
+    if k is not None and (not isinstance(k, list) or not all(isinstance(x, str) and x and not x.startswith('-') for x in k)):
+        errs.append(f'machines.{name}.capped is {k!r}: a list of container names a governor caps, e.g. [map-worker]')
     return errs + _heat_errors(name, m.get('heat'))
 
 

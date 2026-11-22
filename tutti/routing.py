@@ -19,6 +19,7 @@ class Probe:
     gpu_temp: float | None = None  # the hottest GPU in degrees C (nvidia-smi, or an amdgpu/xe/i915 sensor), None when none
     temp_note: str = ''            # why the CPU temperature is not readable (a WSL machine whose Windows side has no sensor)
     readings: dict | None = None   # a Termux machine's battery, charging, battery_c and wifi (tutti/devices.py), else None
+    capped_cpus: float = 0.0       # CPUs of the machine's governor-capped containers (`capped`): load that gives way, not load
     zone: str = ''                 # the machine's own IANA zone, read over its ssh (tutti/tz.py): its quiet hours are its local time
     mem_gb: float | None = None    # free memory (MemAvailable) in GB, None when unreadable
     idle_s: float | None = None    # seconds since a person last used it (graphical session, Windows console); None: nobody
@@ -158,8 +159,10 @@ def unfit(machine, probe, now=None, heavy=False):
         return (f'disk nearly full: {probe.disk_gb:g} GB free, nothing new under {hygiene.STOP_GB} GB (its clean-up runs by itself; '
                 'the biggest items are on its machine card)')
     ratio = machine.get('max_load_ratio')
-    if ratio is not None and probe.load >= ratio * probe.cores:
-        return f'load {probe.load:g} is over {ratio:g} x {probe.cores} cores'
+    load = max(0.0, probe.load - (getattr(probe, 'capped_cpus', 0.0) or 0.0))
+    if ratio is not None and load >= ratio * probe.cores:
+        return f'load {load:g} is over {ratio:g} x {probe.cores} cores' + (f' ({probe.capped_cpus:g} capped not counted)'
+                                                                           if probe.capped_cpus else '')
     return heat_unfit(machine, probe) or power_unfit(machine, probe)
 
 

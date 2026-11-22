@@ -389,6 +389,7 @@ def probe_script(machine):
             't=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -n 1); '
             f'{GPU_TEMP}'
             f'{containers_script(machine)}'
+            f'{capped_script(machine)}'
             f'{termux_readings(machine)}'
             # the machine's own time zone (`Z <name or zoneinfo path>`): its quiet hours are read in its local time
             f'echo "Z $({tz.remote_command()})"; '
@@ -539,6 +540,25 @@ def containers_script(machine):
             f"grep -E {rx} | sed 's/^/C /'; ")
 
 
+def _number(text):
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True
+
+
+def capped_script(machine):
+    """`K <cpus>`: the CPU caps (docker --cpus) of the machine's `capped` containers summed, e.g. a worker its own governor
+    holds to a share: that load gives way on its own, so routing reads it as yielding, not as load (routing.unfit)."""
+    names = machine.get('capped') or []
+    if not names:
+        return ''
+    quoted = ' '.join(shlex.quote(n) for n in names)
+    return (f"k=$(docker inspect -f '{{{{.State.Running}}}} {{{{.HostConfig.NanoCpus}}}}' {quoted} 2>/dev/null | "
+            "awk '$1==\"true\"{s+=$2} END{printf \"%.2f\", s/1e9}'); echo \"K ${k:-0}\"; ")
+
+
 def household_probe(machine):
     """Another member's shared machine, from the last grants (no login there): reachable while the coordinator answered
     lately and it is not paused; free: this member's grant."""
@@ -580,6 +600,7 @@ def probe(machine, timeout=20, windows_fn=None, idle_fn=None):
     if machine['transport'] == 'android':
         from . import devices
         p.readings = devices.parse_readings('\n'.join(lines[:-1]), prefix='R ')
+    p.capped_cpus = next((float(line[2:]) for line in lines[:-1] if line.startswith('K ') and _number(line[2:])), 0.0)
     if p.reachable and p.temp is None and machine['transport'] == 'wsl':
         p.temp, p.temp_note = windows_fn(machine)
     if p.reachable and machine['transport'] == 'wsl':   # the person is at Windows' console, not in WSL

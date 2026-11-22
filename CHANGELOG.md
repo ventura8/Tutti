@@ -17,6 +17,9 @@
 
 ### Fixed
 
+- `tutti may-run`: the caller who holds a machine's session lease (`--who`, or `$TUTTI_SESSION`) is not refused for load,
+  since that load is its own work (pause, heat, limited hours and slots still apply). A machine's `capped` containers (a
+  worker its governor holds to a CPU share) count as yielding, not as load.
 - Self-heal: a busy PC's WSL is no longer restarted as "hung" (it was, three times in half an hour, killing the work in
   it): a hang must show 3 rounds in a row and survive a last 120 s look, and WSL is restarted at most once an hour.
 - WSL: after each `tutti test` on a WSL machine, orphaned `wsl.exe` of Tutti's runs (left by a dropped ssh; they kept WSL

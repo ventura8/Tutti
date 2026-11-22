@@ -31,7 +31,7 @@ class Order(unittest.TestCase):
         self.assertEqual(heads, ['usage', 'machines', 'attention', 'household',
                                  'running', 'queued', 'main', 'workers', 'autopilot', 'projects', 'security', 'scouts',
                                  'connect', 'outside', 'where', 'setup', 'controls',
-                                 'selfimprove', 'aiassist', 'insights', 'jobs', 'vpn', 'users'])
+                                 'selfimprove', 'aiassist', 'selftest', 'insights', 'jobs', 'vpn', 'users'])
 
     def test_usage_shows_the_accounts_then_local_models_and_the_owner_is_on_the_schedule_tab(self):
         # the served page: online agents' usage cards, then Local models; the owner's panel (#owner) moved to Schedule (t281)

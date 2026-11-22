@@ -513,6 +513,23 @@ def start_code_watch(stop, root, restart, every=CODE_EVERY, fingerprint=code_fin
     return t
 
 
+def start_selftest(stop, check, first=60, every=DAY, thread=None):
+    """The live self-test (t241): `check()` a minute after the dashboard starts, then daily. A failing check never stops it."""
+    import threading
+
+    def loop():
+        delay = first
+        while not stop.wait(delay):
+            try:
+                check()
+            except Exception as e:   # a broken self-test must not take the dashboard down; it says so instead
+                sys.stderr.write(f'tutti: the live self-test could not run ({type(e).__name__}: {e})\n')
+            delay = every
+    t = (thread or threading.Thread)(target=loop, daemon=True, name='tutti-selftest')
+    t.start()
+    return t
+
+
 def start_daily(cfg, stop, root, restart, update=self_update, wait=DAY, retry=RESTART_RETRY):
     """The dashboard's daily self-update (release installs with self_update.enabled): a new version restarts the dashboard
     in place (same pid, so a service manager sees no exit), and the page reloads itself for the new version (update.js).

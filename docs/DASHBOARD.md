@@ -84,6 +84,16 @@ code lands in the checkout it runs from (a merge, a pull, `tutti update`), it re
 (`install.start_code_watch`), waiting while Chat is answering; otherwise new pages would call routes the running server
 does not have yet, and new tabs would show nothing.
 
+## Self-test
+
+The **Self-test** card (t241, `tutti/selftest.py`) shows the live self-test: a minute after the dashboard starts, and then
+daily, the running dashboard asks itself, with the household's real config and state, for every route its pages on disk
+read (every literal `fetch('/api/...')` without a `method:`, except what the sign-in layer answers). A route the pages call
+but the running code does not serve (new pages, old code), a crash on the real data, a 5xx or an answer slower than 5 s
+fails. The card shows how many answer and each failure with why; each failure is filed once as a backlog task
+(`Live self-test: <route> fails`, when `tutti` is under autopilot.repos) asking for a mock browser test, so the mock suite
+learns what the live instance found. The record is `<state>/selftest.json`.
+
 ## Tasks
 
 The **Tasks** tab (`#tasks`, t307, `tutti/tasklist.py`, `tutti/web/tasks.js`) lists every backlog task in one subtab per

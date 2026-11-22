@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- Dashboard (t241): a live **Self-test**: a minute after it starts and daily, the dashboard asks itself, with the real data,
+  for every route its pages read; a route not served (old code behind new pages), a crash or a slow answer is shown on the
+  Self-test card and filed once as a backlog task asking for a mock test (docs/DASHBOARD.md, *Self-test*).
+
 ### Fixed
 
 - Machines tab: Home Assistant at a `.local` name no longer flips to offline when an mDNS lookup fails now and then:

@@ -161,3 +161,20 @@ if (typeof document === 'object' && document.addEventListener) {
 }
 
 if (typeof module !== 'undefined') Object.assign(module.exports, { matrixNodes });
+
+// The Dashboard's Self-test card (t241): the last live self-test, failures first
+function selftestNodes(t) {
+    if (!t) return [el('li', { class: 'row__note', text: 'Not run yet: it runs a minute after the dashboard starts, then daily.' })];
+    const failed = t.checks.filter((c) => !c.ok);
+    const head = el('li', { class: 'row__note', text: `${t.total - t.failed} of ${t.total} answer · version ${t.version}` });
+    return [head, ...(failed.length ? failed.map((c) => el('li', { class: 'row', 'data-failed': c.path },
+        el('p', { class: 'row__name', text: c.path }), el('p', { class: 'row__note', text: c.why })))
+        : [el('li', { class: 'row__note', text: 'Every route the pages read answers.' })])];
+}
+
+function renderSelftest(s) {
+    const list = document.getElementById('selftest');
+    if (list) list.replaceChildren(...selftestNodes(s.selftest));
+}
+
+if (typeof module !== 'undefined') Object.assign(module.exports, { selftestNodes });

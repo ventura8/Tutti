@@ -1444,7 +1444,8 @@ function render() {
     renderJobs(s);
     if (typeof renderQueue === 'function') renderQueue(s);   // queue.js: the Queued list beside Running jobs
     if (typeof renderAgents === 'function') renderAgents(s);   // agents.js: the Agents tab (t252)
-    if (typeof renderDeviceList === 'function') renderDeviceList(s);   // discovered.js: every device on the Devices tab
+    if (typeof renderDeviceList === 'function') renderDeviceList(s);
+    if (typeof renderSelftest === 'function') renderSelftest(s);   // discovered.js: the Self-test card (t241)   // discovered.js: every device on the Devices tab
     renderMachines(s);
     renderWorkBrowser(s);
     renderPresence(s);   // controls.js: work waiting on away or asleep targets, the host's warning

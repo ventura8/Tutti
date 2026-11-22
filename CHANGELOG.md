@@ -14,6 +14,8 @@
 
 ### Fixed
 
+- WSL: after each `tutti test` on a WSL machine, orphaned `wsl.exe` of Tutti's runs (left by a dropped ssh; they kept WSL
+  running) are stopped; only those naming Tutti's helper, never the owner's own.
 - A WSL machine its owner paused is no longer probed (each probe's ssh restarted its Linux VM, e.g. during a disk
   compaction); `tutti may-run` never probes a paused machine.
 - A paused or hot machine took runs that bypassed routing: `tutti test --on` with a Windows tree and `--device` on a paused

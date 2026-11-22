@@ -164,6 +164,8 @@ FIELDS = {
     'main.command_timeout': field('One round may take', 'A round that takes longer is stopped.', **SEC),
     # machines
     'machines.*.host': field('Host', 'An ssh alias from ~/.ssh/config, or local for this computer.', 'text'),
+    'machines.*.mac': field('Wake-on-LAN address', 'Its network card\'s MAC (aa:bb:cc:dd:ee:ff): when it stops answering, '
+                            'Tutti wakes it (docs/NETWORK.md, Link repair). Empty: never woken.', 'text'),
     'machines.*.physical_machine': field('Physical machine',
                                          'Name the main machine entry for another environment on the same computer '
                                          '(dashboard card only; different connection addresses).', 'text'),

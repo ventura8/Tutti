@@ -4,6 +4,10 @@
 
 ### Added
 
+- Network (P0): **two-sided link repair**. The main computer diagnoses every host that stops answering (name, ssh port,
+  key, no answer), repairs what it can (stale shared connection, the LAN or VPN address, Wake-on-LAN with `mac:`), retries
+  with backoff and shows "reconnecting: try n, next at ..." on the host's card; a member falls back to the coordinator's
+  other LAN and VPN addresses and keeps the one that answers (docs/NETWORK.md, *Link repair*).
 - Machines: **`tutti may-run <machine>…`** (MCP `may_run`): the one check every script and agent makes before it uses a
   machine itself: the first fit machine, or exit 3 with why (paused, too hot, no free slot); `--lease` holds a slot,
   `--wait` waits (docs/FLEET.md, *May it run*).

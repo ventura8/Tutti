@@ -670,6 +670,7 @@ function machine(m, environments = []) {
         presenceBits(m.presence),   // controls.js: Here / Away since 18:40 (left with its owner), today's strip
         hygieneBits(m.name),   // hygiene.js: its yield flag's owner and age, free space, WSL, the week's clean-up
         el('p', { class: 'row__note', text: m.status === 'paused' ? 'Yield flag is up: Tutti sends it nothing new until it is lowered.' : m.reason }),
+        m.link ? el('p', { class: 'row__note', 'data-link': '', role: 'status', text: m.link }) : null,
         use && use.idle_why ? el('p', { class: 'row__note', text: `Idle: ${use.idle_why}` }) : null,
         ...shards.map((x) => el('p', { class: 'row__note', text: `Running ${x.project} ${x.key}: ${x.why}` })),
         limitForm(m),

@@ -207,6 +207,7 @@ def sync(cfg, data, beat=None, client=None, now=0.0, run=subprocess.run):
         telemetry.record('feature', 'household.sync', outcome='offline' if away else 'refused')
         fairshare.save_cache(config.state_dir(cfg), None, now or time.time(), error=str(e), away=away)
         return {'hold': offline_hold(data, keys, type(e).__name__), 'events': [], 'answer': None, 'error': str(e), 'keys': keys}
+    keep_addresses(client, answer)
     events = returned(cfg, data, keys, beat, now or time.time())
     telemetry.record('feature', 'household.sync', outcome='ok', projects=len(answer.get('projects') or {}),
                      machines=len(answer.get('machines') or {}))
@@ -214,6 +215,24 @@ def sync(cfg, data, beat=None, client=None, now=0.0, run=subprocess.run):
         keep_grants(cfg, answer, beat, now or time.time())
     return {'hold': {}, 'events': events, 'answer': answer, 'error': None, 'keys': keys,
             'scoped': cfg.get('_sharing_local_scoped')}
+
+
+def keep_addresses(client, answer, read=None, write=None):
+    """Saves the coordinator's addresses (alternates) and the one that answered this round into the membership, so a
+    member finds its way back by itself when one address stops answering (two-sided repair). Only on a change."""
+    alts = [a for a in (answer or {}).get('addresses') or [] if isinstance(a, str) and a]
+    switched = getattr(client, 'switched', None)
+    if not alts and not switched:
+        return False
+    read, write = read or users.read_household, write or users.write_household
+    m = read()
+    if not m:
+        return False
+    new = {**m, **({'alternates': alts[:8]} if alts else {}), **({'coordinator': switched} if switched else {})}
+    if new == m:
+        return False
+    write(new)
+    return True
 
 
 def returned(cfg, data, keys, beat, now):

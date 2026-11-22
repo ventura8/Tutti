@@ -118,3 +118,22 @@ the person's steps once at the end (`guided.render`: sign-ins, then sudo lines, 
 setup`, `vpncmd.guided_setup(cfg)` returns `(choices, steps)` and changes nothing: the one choice is `vpn.prefer`, the steps
 are what `tutti vpn setup` would leave. It stays optional: a household with its own VPN or a plain LAN has nothing to do.
 `POST /api/vpn` (the card's actions) is an admin's, like `/api/setup`; `GET /api/vpn/status` (its state) answers every signed-in viewer, 200 also with no VPN set up.
+
+## Link repair (both sides)
+
+A connection that breaks is repaired from both of its ends (owner, 2026-11-22).
+
+**From the side that reaches hosts** (the main computer's dashboard, `tutti/linkheal.py`). Each round, for every host
+whose probe did not answer (never one paused on purpose), Tutti finds the first broken step: its name does not resolve,
+its ssh port is closed, ssh refuses this computer's key, or nothing answers in time. It repairs what it can: a stale
+shared-connection socket is dropped, the cached reach answer is forgotten so the `lan:` (or VPN) address is tried again,
+and a host that answers nothing is woken with Wake-on-LAN when its `mac:` is set. Then it tries again with backoff: 1, 2,
+5, 10, then every 30 minutes. The host's card says *reconnecting: try 3, next at 21:40 (its ssh port is closed); start
+ssh there ...*, the log says each try, and the round the host answers again says *reconnected after 3 tries*. A cause
+only a person can fix (keys refused, ssh off) says exactly what to do.
+
+**From the member's side** (`coordinator.Client`). Each sync answer carries every LAN and VPN address the coordinator
+listens on; the member keeps them as `alternates` in its membership. When the coordinator's address stops answering, the
+member tries the others in turn and keeps the one that answers, so it finds its way back by itself (a new LAN address, the
+VPN when away). Answers must still be signed with the member's token: another computer on that address is refused.
+

@@ -66,7 +66,9 @@ def get(cfg, path):
 
     from . import backlog
     tid = unquote(path[len(API):])
-    task = next((t for t in backlog.load(cfg)['tasks'] if t.get('id') == tid), None)
+    tasks = backlog.load(cfg)['tasks']
+    task = next((t for t in tasks if t.get('id') == tid), None)
     if not task:
         return 404, {'error': f'task-detail: no task "{tid}" in the backlog: it was removed; refresh the dashboard'}
-    return 200, {'id': tid, **detail(task)}
+    from . import taskdeps
+    return 200, {'id': tid, **detail(task), 'links': taskdeps.describe(task, tasks)}

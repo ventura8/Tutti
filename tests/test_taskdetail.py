@@ -48,6 +48,7 @@ class Detail(unittest.TestCase):
             code, body, *_ = dashboard.get(c, '/api/task/t7', 'tok', {})
             self.assertEqual(code, 200)
             self.assertEqual(json.loads(body)['id'], 't7')
+            self.assertEqual(json.loads(body)['links'], ['Ready: nothing it depends on is open'])
             code, body, *_ = dashboard.get(c, '/api/task/t99', 'tok', {})
         self.assertEqual(code, 404)
         self.assertIn('no task "t99"', json.loads(body)['error'])
@@ -59,10 +60,11 @@ class Detail(unittest.TestCase):
         stub = ('function el(tag, attrs, ...kids) { return { tag, attrs: attrs || {}, kids: kids.flat() }; }\n'
                 "function text(n) { return typeof n === 'string' ? n : n ? "
                 "[(n.attrs || {}).text || '', ...(n.kids || []).map(text)].join(' ') : ''; }\n")
-        js = f'{stub}\n{src}\nconsole.log(JSON.stringify(taskDetailNodes({json.dumps(taskdetail.detail(TASK))}).map(text).join(" ")));'
+        d = {**taskdetail.detail(TASK), 'links': ['Depends on: t2 (queued)']}
+        js = f'{stub}\n{src}\nconsole.log(JSON.stringify(taskDetailNodes({json.dumps(d)}).map(text).join(" ")));'
         out = json.loads(subprocess.run(['node', '-e', js], capture_output=True, text=True, check=True).stdout)
         for part in ('Id t7', 'Pull request', 'Done when', 'The legend fits a phone.', 'Attempts (15, newest first)', 'try 14',
-                     'Notes (8 of 13, newest last)'):
+                     'Notes (8 of 13, newest last)', 'Dependencies', 'Depends on: t2'):
             self.assertIn(part, out)
 
 

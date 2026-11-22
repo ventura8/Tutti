@@ -318,8 +318,8 @@ A task may name other tasks (t243, `tutti/taskdeps.py`):
 
 - `depends_on`: tasks that must land (be done) first. Until then the task is **blocked**: the autopilot never starts it,
   and the Queued list says `blocked until t211 lands`. A dropped dependency no longer blocks.
-- `together_with`: tasks that belong together (the link goes both ways). They are shown as one group; starting a group in
-  one round is not done yet.
+- `together_with`: tasks that belong together (the link goes both ways). They are shown as one group and start
+  together: while one member is blocked, the others wait with it (`waits for its group: t2`).
 - `merged_into`: the task it was folded into (a duplicate). It never runs on its own.
 
 ```bash
